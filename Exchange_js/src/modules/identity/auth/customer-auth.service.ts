@@ -37,19 +37,40 @@ export class CustomerAuthService {
     return createHash('sha256').update(normalized).digest('hex');
   }
 
-  async register(data: {
-    email: string;
-    password: string;
-    customerType: 'INDIVIDUAL';
-    firstName?: string;
-    lastName?: string;
-  }) {
-    // Check if email exists
+  async register(
+    data: {
+      email: string;
+      password: string;
+      customerType: 'INDIVIDUAL';
+      firstName?: string;
+      lastName?: string;
+    },
+    ctx: AuthRequestContext = {},
+  ) {
     const existing = await this.prisma.customerMain.findUnique({
       where: { email: data.email },
     });
 
     if (existing) {
+      await this.auditLogsService.recordByActor(
+        {
+          action: AuditActions.CUSTOMER_REGISTER_FAILED,
+          entityType: AuditEntityTypes.AUTH,
+          result: AuditResult.FAILED,
+          reason: 'Customer registration failed: email already exists',
+          metadata: {
+            identifierHash: this.maskIdentifier(data.email),
+          },
+          requestId: ctx.requestId,
+          sourceIp: ctx.sourceIp,
+          sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: 'UNKNOWN',
+          actorRole: 'CUSTOMER',
+        },
+      );
       throw new BadRequestException('Email already exists');
     }
 
@@ -67,6 +88,28 @@ export class CustomerAuthService {
         passwordUpdatedAt: new Date(),
       },
     });
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.CUSTOMER_REGISTERED,
+        entityType: AuditEntityTypes.AUTH,
+        entityId: customer.id,
+        entityNo: customer.customerNo,
+        result: AuditResult.SUCCESS,
+        metadata: {
+          customerType: customer.customerType,
+        },
+        requestId: ctx.requestId,
+        sourceIp: ctx.sourceIp,
+        sourcePlatform: ctx.sourcePlatform || 'CUSTOMER_AUTH_API',
+      },
+      {
+        actorType: 'CUSTOMER',
+        actorId: customer.id,
+        actorNo: customer.customerNo,
+        actorRole: 'CUSTOMER',
+      },
+    );
 
     const { passwordHash: _, ...result } = customer;
     return result;
@@ -328,6 +371,7 @@ export class CustomerAuthService {
       sub: customer.id,
       role: 'CUSTOMER',
       type: 'CUSTOMER',
+      userNo: customer.customerNo,
     };
     return {
       access_token: this.jwtService.sign(payload),

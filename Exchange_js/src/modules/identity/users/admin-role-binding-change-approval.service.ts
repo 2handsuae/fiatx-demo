@@ -14,10 +14,10 @@ export class AdminRoleBindingChangeApprovalService extends ApprovalHandlerBase {
   readonly actionType = ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL;
   readonly workflowType = AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE;
   readonly auditActions = {
-    granted: AuditGovernanceActions.ADMIN_ROLE_BINDING.APPROVAL_GRANTED,
-    declined: AuditGovernanceActions.ADMIN_ROLE_BINDING.APPROVAL_DECLINED,
-    cancelled: AuditGovernanceActions.ADMIN_ROLE_BINDING.APPROVAL_CANCELLED,
-    expired: AuditGovernanceActions.ADMIN_ROLE_BINDING.APPROVAL_EXPIRED,
+    granted: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.APPROVAL_GRANTED,
+    declined: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.APPROVAL_DECLINED,
+    cancelled: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.ACCESS_CONTROL;
 

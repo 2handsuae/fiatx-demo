@@ -1,3 +1,5 @@
+import { buildDeterministicNo } from '../../common/utils/no-generator.util';
+
 export type AssetConfigManifestItem = {
   assetNo: string;
   code: string;
@@ -12,12 +14,12 @@ export type AssetConfigManifestItem = {
   depositMaxAmount: string | null;
   withdrawMinAmount: string;
   withdrawMaxAmount: string | null;
-  minConfirmations: number | null; // null for FIAT, positive integer for CRYPTO
+  minConfirmations: number | null;
 };
 
 export const DEFAULT_ASSET_CONFIGS: AssetConfigManifestItem[] = [
   {
-    assetNo: 'AS_USD',
+    assetNo: buildDeterministicNo('AS', 'FIAT', 'USD', ''),
     code: 'USD',
     type: 'FIAT',
     network: '',
@@ -33,7 +35,7 @@ export const DEFAULT_ASSET_CONFIGS: AssetConfigManifestItem[] = [
     minConfirmations: null,
   },
   {
-    assetNo: 'AS_AED',
+    assetNo: buildDeterministicNo('AS', 'FIAT', 'AED', ''),
     code: 'AED',
     type: 'FIAT',
     network: '',
@@ -49,7 +51,7 @@ export const DEFAULT_ASSET_CONFIGS: AssetConfigManifestItem[] = [
     minConfirmations: null,
   },
   {
-    assetNo: 'AS_USDT_TRON',
+    assetNo: buildDeterministicNo('AS', 'CRYPTO', 'USDT', 'TRON'),
     code: 'USDT',
     type: 'CRYPTO',
     network: 'TRON',
@@ -65,7 +67,7 @@ export const DEFAULT_ASSET_CONFIGS: AssetConfigManifestItem[] = [
     minConfirmations: 20,
   },
   {
-    assetNo: 'AS_BTC',
+    assetNo: buildDeterministicNo('AS', 'CRYPTO', 'BTC', 'BITCOIN'),
     code: 'BTC',
     type: 'CRYPTO',
     network: 'BITCOIN',

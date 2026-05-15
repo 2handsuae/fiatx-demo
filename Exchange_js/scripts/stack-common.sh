@@ -26,13 +26,19 @@ ADMIN_URL=""
 CLIENT_URL=""
 BRANCH_RULE=""
 
+TB_PORT=""
+TB_DATA_FILE=""
+TB_ADDRESS=""
+
 RUNTIME_DIR=""
 BACKEND_LOG=""
 ADMIN_LOG=""
 CLIENT_LOG=""
+TB_LOG=""
 BACKEND_PID_FILE=""
 ADMIN_PID_FILE=""
 CLIENT_PID_FILE=""
+TB_PID_FILE=""
 
 usage_stack_name() {
   echo "Usage: $0 <main|codex|claude|trae|audit-evidence>" >&2
@@ -57,6 +63,8 @@ load_stack_config() {
       BACKEND_PORT="3000"
       ADMIN_PORT="3001"
       CLIENT_PORT="3002"
+      TB_PORT="3003"
+      TB_DATA_FILE="/tmp/exchange_js_main/0_0.tigerbeetle"
       ;;
     codex)
       STACK="codex"
@@ -66,6 +74,8 @@ load_stack_config() {
       ADMIN_PORT="3101"
       CLIENT_PORT="3102"
       BRANCH_RULE="codex/*"
+      TB_PORT="3103"
+      TB_DATA_FILE="/tmp/exchange_js_codex/0_0.tigerbeetle"
       ;;
     claude)
       STACK="claude"
@@ -75,6 +85,8 @@ load_stack_config() {
       ADMIN_PORT="3201"
       CLIENT_PORT="3202"
       BRANCH_RULE="claude/*"
+      TB_PORT="3203"
+      TB_DATA_FILE="/tmp/exchange_js_claude/0_0.tigerbeetle"
       ;;
     trae)
       STACK="trae"
@@ -84,6 +96,8 @@ load_stack_config() {
       ADMIN_PORT="3301"
       CLIENT_PORT="3302"
       BRANCH_RULE="trae/*"
+      TB_PORT="3303"
+      TB_DATA_FILE="/tmp/exchange_js_trae/0_0.tigerbeetle"
       ;;
     branch)
       STACK="branch"
@@ -93,6 +107,8 @@ load_stack_config() {
       ADMIN_PORT="3501"
       CLIENT_PORT="3502"
       BRANCH_RULE="branch"
+      TB_PORT="3503"
+      TB_DATA_FILE="/tmp/exchange_js_branch/0_0.tigerbeetle"
       ;;
     audit-evidence)
       STACK="audit-evidence"
@@ -102,6 +118,8 @@ load_stack_config() {
       ADMIN_PORT="3501"
       CLIENT_PORT="3502"
       BRANCH_RULE="codex/branch"
+      TB_PORT="3503"
+      TB_DATA_FILE="/tmp/exchange_js_branch/0_0.tigerbeetle"
       ;;
     *)
       usage_stack_name
@@ -112,14 +130,17 @@ load_stack_config() {
   BACKEND_URL="http://localhost:${BACKEND_PORT}"
   ADMIN_URL="http://localhost:${ADMIN_PORT}"
   CLIENT_URL="http://localhost:${CLIENT_PORT}"
+  TB_ADDRESS="127.0.0.1:${TB_PORT}"
 
   RUNTIME_DIR="/tmp/exchange_js_runtime_${STACK}"
   BACKEND_LOG="${RUNTIME_DIR}/backend.log"
   ADMIN_LOG="${RUNTIME_DIR}/admin.log"
   CLIENT_LOG="${RUNTIME_DIR}/client.log"
+  TB_LOG="${RUNTIME_DIR}/tb.log"
   BACKEND_PID_FILE="${RUNTIME_DIR}/backend.pid"
   ADMIN_PID_FILE="${RUNTIME_DIR}/admin.pid"
   CLIENT_PID_FILE="${RUNTIME_DIR}/client.pid"
+  TB_PID_FILE="${RUNTIME_DIR}/tb.pid"
 }
 
 require_commands() {

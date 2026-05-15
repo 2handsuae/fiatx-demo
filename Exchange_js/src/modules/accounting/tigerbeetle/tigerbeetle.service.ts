@@ -32,9 +32,16 @@ export class TigerBeetleService implements OnModuleInit, OnModuleDestroy {
       cluster_id: 0n,
       replica_addresses: [this.address],
     });
-    // Health check: lookup a non-existent account — verifies connectivity
-    await this.client.lookupAccounts([0n]);
-    this.logger.log('TigerBeetle connection established.');
+    // Health check with timeout — don't block app startup if TB is unreachable
+    try {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('TigerBeetle health-check timed out after 5 s')), 5000),
+      );
+      await Promise.race([this.client.lookupAccounts([0n]), timeout]);
+      this.logger.log('TigerBeetle connection established.');
+    } catch (err: any) {
+      this.logger.warn(`TigerBeetle health-check failed (${err.message}) — app will continue without accounting`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

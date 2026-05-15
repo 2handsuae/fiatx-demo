@@ -14,10 +14,10 @@ export class RoleDefinitionModifyApprovalService extends ApprovalHandlerBase {
   readonly actionType = ApprovalActionTypes.ROLE_DEFINITION_MODIFY;
   readonly workflowType = AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY;
   readonly auditActions = {
-    granted: AuditGovernanceActions.ROLE_DEFINITION.APPROVAL_GRANTED,
-    declined: AuditGovernanceActions.ROLE_DEFINITION.APPROVAL_DECLINED,
-    cancelled: AuditGovernanceActions.ROLE_DEFINITION.APPROVAL_CANCELLED,
-    expired: AuditGovernanceActions.ROLE_DEFINITION.APPROVAL_EXPIRED,
+    granted: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.APPROVAL_GRANTED,
+    declined: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.APPROVAL_DECLINED,
+    cancelled: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.APPROVAL_CANCELLED,
+    expired: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.APPROVAL_EXPIRED,
   };
   readonly entityType = AuditEntityTypes.ACCESS_CONTROL;
 

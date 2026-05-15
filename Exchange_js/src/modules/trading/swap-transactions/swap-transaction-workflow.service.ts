@@ -7,7 +7,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { JournalsService } from '../../accounting/journals/journals.service';
 import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { SwapTransactionStatus } from './dto/swap-transaction.dto';
 
@@ -61,7 +60,6 @@ export class SwapTransactionWorkflowService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly journalsService: JournalsService,
     private readonly outstandingsService: OutstandingsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
@@ -407,24 +405,7 @@ export class SwapTransactionWorkflowService {
       );
     }
 
-    if (
-      nextStatus === SwapTransactionStatus.SUCCESS ||
-      nextStatus === SwapTransactionStatus.REJECTED ||
-      nextStatus === SwapTransactionStatus.FAILED
-    ) {
-      await this.journalsService.triggerEvent(
-        {
-          entityType: 'SWAP',
-          triggerKey: 'status',
-          fromStatus: beforeStatus,
-          toStatus: nextStatus,
-          assetType: 'ALL',
-          context: this.buildAccountingContext(updated),
-          sourceId: updated.id,
-        },
-        tx,
-      );
-    }
+    // V2 accounting removed — migrated to TigerBeetle
 
     if (nextStatus === SwapTransactionStatus.SUCCESS) {
       await this.outstandingsService.createForSwapSuccess(tx, updated);

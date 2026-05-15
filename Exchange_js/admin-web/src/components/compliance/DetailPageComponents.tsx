@@ -18,7 +18,7 @@ export const DetailPageHeader = ({
   backLabel = 'Back',
   children,
 }: {
-  title: string;
+  title?: string;
   subtitle?: string | null;
   onBack: () => void;
   onRefresh: () => void;
@@ -39,16 +39,20 @@ export const DetailPageHeader = ({
             Refresh
           </button>
         </div>
-        <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
-            {title}
+        {(title || subtitle) ? (
+          <div>
+            {title ? (
+              <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+                {title}
+              </div>
+            ) : null}
+            {subtitle ? (
+              <div className="mt-1 font-mono text-lg font-semibold text-adm-amber">
+                {subtitle}
+              </div>
+            ) : null}
           </div>
-          {subtitle ? (
-            <div className="mt-1 font-mono text-lg font-semibold text-adm-amber">
-              {subtitle}
-            </div>
-          ) : null}
-        </div>
+        ) : null}
       </div>
       {children ? (
         <div className="flex flex-wrap items-center gap-2">{children}</div>

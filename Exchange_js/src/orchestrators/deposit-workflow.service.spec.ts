@@ -1,6 +1,5 @@
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { DepositTransactionsService } from '../modules/trading/deposit-transactions/deposit-transactions.service';
-import { JournalsService } from '../modules/accounting/journals/journals.service';
 import { PayinsService } from '../modules/asset-treasury/payins/payins.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../core/prisma/prisma.service';
@@ -17,12 +16,6 @@ describe('DepositWorkflowService', () => {
     updateStatus: jest.fn(),
     findOne: jest.fn(),
     createFromPayin: jest.fn(),
-  };
-
-  const mockJournalsService = {
-    triggerEvent: jest.fn(),
-    createJournal: jest.fn(),
-    reverseJournal: jest.fn(),
   };
 
   const mockPayinsService = {
@@ -79,7 +72,6 @@ describe('DepositWorkflowService', () => {
     jest.clearAllMocks();
     service = new DepositWorkflowService(
       mockDepositService as unknown as DepositTransactionsService,
-      mockJournalsService as unknown as JournalsService,
       mockPayinsService as unknown as PayinsService,
       mockEventEmitter as unknown as EventEmitter2,
       mockPrisma as unknown as PrismaService,
@@ -88,7 +80,7 @@ describe('DepositWorkflowService', () => {
     );
   });
 
-  it('payin confirmed should trigger DEPOSIT COMPLIANCE_PENDING accounting via triggerEvent', async () => {
+  it('payin confirmed should record accounting blocked (V2 accounting removed)', async () => {
     mockPrisma.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-1',
       status: DepositTransactionStatus.PAYIN_PENDING,
@@ -107,33 +99,17 @@ describe('DepositWorkflowService', () => {
     mockDepositService.updateStatus.mockResolvedValue({
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
     });
-    mockPrisma.acctEvent.findFirst.mockResolvedValue({
-      eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
-    });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-1' });
-    mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
 
     const result = await service.handlePayinStatusChanged({
       payinId: 'payin-1',
       newStatus: PayinStatus.CONFIRMED,
     } as any);
 
-    expect(mockJournalsService.triggerEvent).toHaveBeenCalledTimes(1);
-    const [eventParams] = mockJournalsService.triggerEvent.mock.calls[0];
-    expect(eventParams).toMatchObject({
-      entityType: 'DEPOSIT',
-      triggerKey: 'status',
-      fromStatus: DepositTransactionStatus.PAYIN_PENDING,
-      toStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
-      assetType: 'CRYPTO',
-      sourceId: 'dep-1',
-    });
-    expect(mockJournalsService.createJournal).not.toHaveBeenCalled();
-    expect(mockJournalsService.reverseJournal).not.toHaveBeenCalled();
     expect(
       mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
     ).toHaveBeenCalledWith('dep-1', 'payin-1');
-    expect(result?.created_or_reversed_journal_entry_ids).toEqual(['je-1']);
+    // V2 accounting removed — always returns blocked
+    expect(result?.created_or_reversed_journal_entry_ids).toEqual([]);
   });
 
   it('fiat payin confirmed should invoke tx-case hook as no-op', async () => {
@@ -155,10 +131,6 @@ describe('DepositWorkflowService', () => {
     mockDepositService.updateStatus.mockResolvedValue({
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
     });
-    mockPrisma.acctEvent.findFirst.mockResolvedValue({
-      eventCode: 'EVT_DEPOSIT_CONFIRMED__FIAT',
-    });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-fiat-1' });
     mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
     mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed.mockResolvedValue(
       null,
@@ -194,10 +166,6 @@ describe('DepositWorkflowService', () => {
     mockDepositService.updateStatus.mockResolvedValue({
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
     });
-    mockPrisma.acctEvent.findFirst.mockResolvedValue({
-      eventCode: 'EVT_DEPOSIT_CONFIRMED__CRYPTO',
-    });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-interactive-1' });
     mockPayinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
     mockTransactionComplianceService.ensureInteractiveDepositMainCasesOnPayinConfirmed.mockResolvedValue(
       null,
@@ -217,7 +185,7 @@ describe('DepositWorkflowService', () => {
     ).not.toHaveBeenCalledWith('dep-interactive-1', 'payin-interactive-1');
   });
 
-  it('deposit success should trigger DEPOSIT SUCCESS accounting via triggerEvent', async () => {
+  it('deposit success should record accounting blocked (V2 accounting removed)', async () => {
     mockDepositService.findOne.mockResolvedValue({
       id: 'dep-2',
       status: DepositTransactionStatus.SUCCESS,
@@ -234,30 +202,17 @@ describe('DepositWorkflowService', () => {
       type: 'fiat',
       status: PayinStatus.CLEARED,
     });
-    mockPrisma.acctEvent.findFirst.mockResolvedValue({
-      eventCode: 'EVT_DEPOSIT_SUCCESS__FIAT',
-    });
-    mockJournalsService.triggerEvent.mockResolvedValue({ id: 'je-2' });
 
-    await service.handleDepositStatusChanged({
+    const result = await service.handleDepositStatusChanged({
       depositId: 'dep-2',
       oldStatus: DepositTransactionStatus.UNDER_REVIEW,
       newStatus: DepositTransactionStatus.SUCCESS,
       payinId: 'payin-2',
     } as any);
 
-    expect(mockJournalsService.triggerEvent).toHaveBeenCalledTimes(1);
-    const [eventParams] = mockJournalsService.triggerEvent.mock.calls[0];
-    expect(eventParams).toMatchObject({
-      entityType: 'DEPOSIT',
-      triggerKey: 'status',
-      fromStatus: DepositTransactionStatus.UNDER_REVIEW,
-      toStatus: DepositTransactionStatus.SUCCESS,
-      assetType: 'FIAT',
-      sourceId: 'dep-2',
-    });
-    expect(mockJournalsService.createJournal).not.toHaveBeenCalled();
-    expect(mockJournalsService.reverseJournal).not.toHaveBeenCalled();
+    // V2 accounting removed — no journal entries created
+    expect(result?.created_or_reversed_journal_entry_ids).toEqual([]);
+    expect(result?.updated_deposit_status).toBe(DepositTransactionStatus.SUCCESS);
   });
 
   it('deposit rejected should not post accounting but still clear payin', async () => {
@@ -281,8 +236,6 @@ describe('DepositWorkflowService', () => {
     } as any);
 
     expect(mockPrisma.$transaction).toHaveBeenCalled();
-    expect(mockJournalsService.triggerEvent).not.toHaveBeenCalled();
-    expect(mockJournalsService.reverseJournal).not.toHaveBeenCalled();
     expect(mockTx.payin.update).toHaveBeenCalledWith({
       where: { id: 'payin-3' },
       data: expect.objectContaining({
@@ -292,7 +245,7 @@ describe('DepositWorkflowService', () => {
     expect(result?.updated_payin_status).toBe(PayinStatus.CLEARED);
   });
 
-  it('payin confirmed should record accounting blocked and keep payin uncleared when config is missing', async () => {
+  it('payin confirmed should record accounting blocked (V2 accounting removed) and keep payin uncleared', async () => {
     mockPrisma.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-block-1',
       status: DepositTransactionStatus.PAYIN_PENDING,
@@ -311,17 +264,12 @@ describe('DepositWorkflowService', () => {
     mockDepositService.updateStatus.mockResolvedValue({
       status: DepositTransactionStatus.COMPLIANCE_PENDING,
     });
-    mockPrisma.acctEvent.findFirst.mockResolvedValue(null);
 
     const result = await service.handlePayinStatusChanged({
       payinId: 'payin-block-1',
       newStatus: PayinStatus.CONFIRMED,
     } as any);
 
-    expect(mockPayinsService.updateStatus).not.toHaveBeenCalledWith(
-      'payin-block-1',
-      expect.anything(),
-    );
     expect(mockPrisma.auditLogEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -352,11 +300,6 @@ describe('DepositWorkflowService', () => {
       type: 'fiat',
       status: PayinStatus.CLEARED,
     });
-    mockPrisma.acctEvent.findFirst.mockResolvedValue({
-      eventCode: 'EVT_DEPOSIT_SUCCESS__FIAT',
-    });
-    mockJournalsService.triggerEvent.mockResolvedValue(null);
-
     const result = await service.handleDepositStatusChanged({
       depositId: 'dep-success-block',
       oldStatus: DepositTransactionStatus.UNDER_REVIEW,
@@ -401,7 +344,6 @@ describe('DepositWorkflowService', () => {
       newStatus: PayinStatus.CONFIRMED,
     } as any);
 
-    expect(mockJournalsService.triggerEvent).not.toHaveBeenCalled();
     expect(
       mockTransactionComplianceService.ensureDepositMainCasesOnPayinConfirmed,
     ).toHaveBeenCalledWith('dep-4', 'payin-4');

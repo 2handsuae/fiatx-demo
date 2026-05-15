@@ -290,9 +290,9 @@ export default function PlatformMemberDetailPage() {
         { method: 'POST' },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset MFA'));
+      const data = await res.json();
       setShowMfaResetModal(false);
-      setNotice(`MFA reset successful for ${member.userNo}. User will need to re-bind MFA on next login.`);
-      void fetchDetail();
+      setNotice(`MFA reset request submitted for approval (${data.approvalNo}).`);
     } catch (err: unknown) {
       if (err instanceof AdminSessionError) return;
       setError(err instanceof Error ? err.message : 'Failed to reset MFA.');
@@ -312,8 +312,9 @@ export default function PlatformMemberDetailPage() {
         { method: 'POST' },
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to reset password'));
+      const data = await res.json();
       setShowPasswordResetModal(false);
-      setNotice(`Reset link sent to ${member.email}`);
+      setNotice(`Password reset request submitted for approval (${data.approvalNo}).`);
     } catch (err: unknown) {
       if (err instanceof AdminSessionError) return;
       setError(err instanceof Error ? err.message : 'Failed to reset password.');
@@ -396,8 +397,6 @@ export default function PlatformMemberDetailPage() {
 
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        title="Platform Member"
-        subtitle={member.userNo}
         onBack={() => navigate('/dashboard/members')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -428,22 +427,24 @@ export default function PlatformMemberDetailPage() {
 
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Member</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {member.userNo}
             </p>
-            <div className="mt-2.5">
-              <AdminBadge value={member.status} />
-            </div>
-            <div className="mt-4 border-t border-adm-border pt-4">
-              <p className="font-mono text-[11px] text-adm-t2">{member.email}</p>
-              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{member.id}</p>
+            <div className="mt-4 border-t border-adm-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3">
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Status</p>
+                <AdminBadge value={member.status} />
+              </div>
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Email</p>
+                <p className="font-mono text-[11px] text-adm-t2">{member.email}</p>
+              </div>
             </div>
           </section>
 
-          {/* ② Details */}
+          {/* ② Profile */}
           <section className="px-6 py-5">
-            <Cap>Details</Cap>
+            <Cap>Profile</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField label="Primary Role" value={member.role} mono />
               <div>
@@ -463,15 +464,12 @@ export default function PlatformMemberDetailPage() {
                   )}
                 </div>
               </div>
-              <InfoField label="Created" value={fmt(member.createdAt)} mono />
-              <InfoField label="Updated" value={fmt(member.updatedAt)} mono />
-              <InfoField label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
             </div>
           </section>
 
-          {/* ③ Security & MFA */}
+          {/* ③ Security & Onboarding */}
           <section className="px-6 py-5">
-            <Cap>Security</Cap>
+            <Cap>Security &amp; Onboarding</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">MFA Status</div>
@@ -506,17 +504,12 @@ export default function PlatformMemberDetailPage() {
                     <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
                       MFA Pending
                     </span>
-                  ) : member.firstLoginStatus === 'POLICY_ACK_PENDING' ? (
-                    <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-2.5 py-1 font-mono text-[10px] text-adm-amber">
-                      Policy Pending
-                    </span>
                   ) : (
                     <span className="font-mono text-[11px] text-adm-t3">{member.firstLoginStatus || '—'}</span>
                   )}
                 </div>
               </div>
               <InfoField label="MFA Bound At" value={fmt(member.mfaEnabledAt)} mono />
-              <InfoField label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
             </div>
           </section>
 
@@ -617,11 +610,27 @@ export default function PlatformMemberDetailPage() {
             </div>
           )}
 
-          {/* Quick Reference */}
-          <SidebarGroup title="Quick Reference">
-            <SidebarKV label="User No" value={member.userNo} mono />
-            <SidebarKV label="Status" value={<AdminBadge value={member.status} />} />
+          {/* Identity Summary */}
+          <SidebarGroup title="Identity Summary">
             <SidebarKV label="Primary Role" value={member.role} />
+            <SidebarKV label="MFA" value={
+              member.mfaEnabledAt ? 'Active'
+              : member.firstLoginStatus === 'MFA_BINDING' ? 'Binding in Progress'
+              : 'Not Bound'
+            } />
+            <SidebarKV label="Onboarding" value={
+              member.firstLoginStatus === 'COMPLETED'                ? 'Completed'
+              : member.firstLoginStatus === 'PENDING_IDENTITY_CONFIRM' ? 'Setup Pending'
+              : member.firstLoginStatus === 'MFA_BINDING'              ? 'MFA Pending'
+              : (member.firstLoginStatus ?? undefined)
+            } />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created"    value={fmt(member.createdAt)}                                   mono />
+            <SidebarKV label="Last Login" value={member.lastLoginAt ? fmt(member.lastLoginAt) : 'Never'} mono />
+            <SidebarKV label="MFA Bound"  value={member.mfaEnabledAt ? fmt(member.mfaEnabledAt) : null}  mono />
           </SidebarGroup>
 
         </div>
@@ -863,10 +872,10 @@ export default function PlatformMemberDetailPage() {
 
             {/* Body */}
             <div className="px-5 py-4 space-y-3">
-              <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 font-mono text-[10px] text-adm-red leading-relaxed">
-                This will immediately remove this user's MFA binding. They will be required to
-                complete the full identity verification and MFA setup flow on their next login.
-                This action takes effect immediately without approval.
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit an MFA reset request for approval. If approved, the user's MFA
+                binding will be removed and they will be required to complete the full identity
+                verification and MFA setup flow on their next login.
               </div>
             </div>
 
@@ -880,7 +889,7 @@ export default function PlatformMemberDetailPage() {
                 disabled={submittingMfaReset}
                 className={adminButtonClass('modalConfirm')}
               >
-                {submittingMfaReset ? 'Resetting…' : 'Reset MFA'}
+                {submittingMfaReset ? 'Submitting…' : 'Submit for Approval'}
               </button>
             </div>
 
@@ -913,10 +922,10 @@ export default function PlatformMemberDetailPage() {
 
             {/* Body */}
             <div className="px-5 py-4 space-y-3">
-              <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 font-mono text-[10px] text-adm-red leading-relaxed">
-                This will send a password reset link to <strong>{member.email}</strong>.
-                The user's current password will remain valid until they complete the reset.
-                This action takes effect immediately without approval.
+              <div className="rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2.5 font-mono text-[10px] text-adm-amber leading-relaxed">
+                This will submit a password reset request for approval. If approved, a reset
+                link will be generated and displayed on this page for delivery to{' '}
+                <strong className="text-adm-amber">{member.email}</strong>.
               </div>
             </div>
 
@@ -930,7 +939,7 @@ export default function PlatformMemberDetailPage() {
                 disabled={submittingPasswordReset}
                 className={adminButtonClass('modalConfirm')}
               >
-                {submittingPasswordReset ? 'Sending…' : 'Send Reset Link'}
+                {submittingPasswordReset ? 'Submitting…' : 'Submit for Approval'}
               </button>
             </div>
 

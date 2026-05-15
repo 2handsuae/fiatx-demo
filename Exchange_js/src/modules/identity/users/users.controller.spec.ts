@@ -2,7 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { ForbiddenException } from '@nestjs/common';
-import { ChangeTicketsService } from '../../governance/change-tickets/change-tickets.service';
+import { AdminInviteWorkflowService } from './admin-invite-workflow.service';
+import { AdminSuspensionWorkflowService } from './admin-suspension-workflow.service';
+import { AdminReactivationWorkflowService } from './admin-reactivation-workflow.service';
+import { AdminPasswordResetWorkflowService } from './admin-password-reset-workflow.service';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -14,8 +17,20 @@ describe('UsersController', () => {
     resendAdminInvitation: jest.fn(),
   };
 
-  const mockChangeTicketsService = {
-    createAdminMemberProvisioningTicket: jest.fn(),
+  const mockAdminInviteWorkflow = {
+    initiateInvite: jest.fn(),
+  };
+
+  const mockAdminSuspensionWorkflow = {
+    initiateSuspension: jest.fn(),
+  };
+
+  const mockAdminReactivationWorkflow = {
+    initiateReactivation: jest.fn(),
+  };
+
+  const mockAdminPasswordResetWorkflow = {
+    initiateReset: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -27,8 +42,20 @@ describe('UsersController', () => {
           useValue: mockUsersService,
         },
         {
-          provide: ChangeTicketsService,
-          useValue: mockChangeTicketsService,
+          provide: AdminInviteWorkflowService,
+          useValue: mockAdminInviteWorkflow,
+        },
+        {
+          provide: AdminSuspensionWorkflowService,
+          useValue: mockAdminSuspensionWorkflow,
+        },
+        {
+          provide: AdminReactivationWorkflowService,
+          useValue: mockAdminReactivationWorkflow,
+        },
+        {
+          provide: AdminPasswordResetWorkflowService,
+          useValue: mockAdminPasswordResetWorkflow,
         },
       ],
     }).compile();
@@ -40,11 +67,8 @@ describe('UsersController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should create admin member provisioning change ticket with actor context', async () => {
-    mockChangeTicketsService.createAdminMemberProvisioningTicket.mockResolvedValue({
-      id: 'ticket-1',
-      ticketNo: 'CT2604030001',
-    });
+  it('should call adminInviteWorkflow.initiateInvite when creating an admin user', async () => {
+    mockAdminInviteWorkflow.initiateInvite.mockResolvedValue({ approvalNo: 'APR-001' });
 
     const req = {
       user: {
@@ -52,6 +76,7 @@ describe('UsersController', () => {
         userId: 'actor-1',
         userNo: 'ADMIN-001',
         role: 'SUPER_ADMIN',
+        roleCodes: ['SUPER_ADMIN'],
       },
     };
 
@@ -63,18 +88,14 @@ describe('UsersController', () => {
 
     await controller.create(req, body as any);
 
-    expect(mockChangeTicketsService.createAdminMemberProvisioningTicket).toHaveBeenCalledWith({
-      email: 'new-admin@fiatx.com',
-      roleCodes: ['CISO'],
-      changeReason: 'Need emergency admin coverage',
-    }, {
-      actorType: 'ADMIN',
-      userId: 'actor-1',
-      userNo: 'ADMIN-001',
-      role: 'SUPER_ADMIN',
-      roleCodes: ['SUPER_ADMIN'],
-    });
-    expect(mockUsersService.createAdminUser).not.toHaveBeenCalled();
+    expect(mockAdminInviteWorkflow.initiateInvite).toHaveBeenCalledWith(
+      {
+        email: 'new-admin@fiatx.com',
+        roleCodes: ['CISO'],
+        changeReason: 'Need emergency admin coverage',
+      },
+      expect.objectContaining({ actorType: 'ADMIN', userId: 'actor-1' }),
+    );
   });
 
   it('should reject create when token is not admin', async () => {

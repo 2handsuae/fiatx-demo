@@ -9,7 +9,7 @@ describe('PoolSettlementBatchesService', () => {
     id: 'wallet-unknown',
     status: 'ACTIVE',
     walletRole: 'F_OPS',
-    walletNo: 'WA-GEN-UNKNOWN-NA',
+    walletNo: 'WA2600000012',
     regulatoryEnablementStatus: 'EFFECTIVE',
     ...overrides,
   });
@@ -152,16 +152,16 @@ describe('PoolSettlementBatchesService', () => {
     ]);
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -236,28 +236,28 @@ describe('PoolSettlementBatchesService', () => {
     });
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
-      'WA-MST-ETH-ETHEREUM': buildWallet({
+      'WA2600000005': buildWallet({
         id: 'wallet-eth-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-ETH-ETHEREUM',
+        walletNo: 'WA2600000005',
         assetId: 'asset-eth',
       }),
-      'WA-LIQ-ETH-ETHEREUM': buildWallet({
+      'WA2600000006': buildWallet({
         id: 'wallet-eth-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-ETH-ETHEREUM',
+        walletNo: 'WA2600000006',
         assetId: 'asset-eth',
       }),
     });
@@ -330,29 +330,29 @@ describe('PoolSettlementBatchesService', () => {
     });
 
     registerWallets(prisma, {
-      'WA-CBK-AED-NA': buildWallet({
+      'WA2600000001': buildWallet({
         id: 'wallet-aed-cust-bank',
         walletRole: 'C_CMA',
-        walletNo: 'WA-CBK-AED-NA',
+        walletNo: 'WA2600000001',
         assetId: 'asset-aed',
         regulatoryEnablementStatus: 'PENDING',
       }),
-      'WA-LBK-AED-NA': buildWallet({
+      'WA2600000002': buildWallet({
         id: 'wallet-aed-liq-bank',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LBK-AED-NA',
+        walletNo: 'WA2600000002',
         assetId: 'asset-aed',
       }),
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -375,7 +375,7 @@ describe('PoolSettlementBatchesService', () => {
     expect(result.summary.skippedSourceCount).toBe(1);
     expect(result.summary.skippedSourcesByReason).toEqual(
       expect.objectContaining({
-        'CUST_BANK wallet WA-CBK-AED-NA is not regulator-enabled': 1,
+        'C_CMA wallet WA2600000001 is not regulator-enabled': 1,
       }),
     );
     expect(result.items).toHaveLength(1);
@@ -396,17 +396,17 @@ describe('PoolSettlementBatchesService', () => {
     prisma.reimbursementObligation.findMany.mockResolvedValue([]);
 
     registerWallets(prisma, {
-      'WA-CBK-AED-NA': buildWallet({
+      'WA2600000001': buildWallet({
         id: 'wallet-aed-cust-bank',
         walletRole: 'C_CMA',
-        walletNo: 'WA-CBK-AED-NA',
+        walletNo: 'WA2600000001',
         assetId: 'asset-aed',
         regulatoryEnablementStatus: 'PENDING',
       }),
-      'WA-LBK-AED-NA': buildWallet({
+      'WA2600000002': buildWallet({
         id: 'wallet-aed-liq-bank',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LBK-AED-NA',
+        walletNo: 'WA2600000002',
         assetId: 'asset-aed',
       }),
     });
@@ -439,16 +439,16 @@ describe('PoolSettlementBatchesService', () => {
     ]);
 
     registerWallets(prisma, {
-      'WA-CBK-AED-NA': buildWallet({
+      'WA2600000001': buildWallet({
         id: 'wallet-aed-cust-bank',
         walletRole: 'C_CMA',
-        walletNo: 'WA-CBK-AED-NA',
+        walletNo: 'WA2600000001',
         assetId: 'asset-aed',
       }),
-      'WA-LBK-AED-NA': buildWallet({
+      'WA2600000002': buildWallet({
         id: 'wallet-aed-liq-bank',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LBK-AED-NA',
+        walletNo: 'WA2600000002',
         assetId: 'asset-aed',
       }),
     });
@@ -488,16 +488,16 @@ describe('PoolSettlementBatchesService', () => {
     prisma.reimbursementObligation.findMany.mockResolvedValue([]);
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -564,28 +564,28 @@ describe('PoolSettlementBatchesService', () => {
     });
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
-      'WA-MST-ETH-ETHEREUM': buildWallet({
+      'WA2600000005': buildWallet({
         id: 'wallet-eth-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-ETH-ETHEREUM',
+        walletNo: 'WA2600000005',
         assetId: 'asset-eth',
       }),
-      'WA-LIQ-ETH-ETHEREUM': buildWallet({
+      'WA2600000006': buildWallet({
         id: 'wallet-eth-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-ETH-ETHEREUM',
+        walletNo: 'WA2600000006',
         assetId: 'asset-eth',
       }),
     });
@@ -662,16 +662,16 @@ describe('PoolSettlementBatchesService', () => {
     });
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -732,28 +732,28 @@ describe('PoolSettlementBatchesService', () => {
     prisma.outstanding.updateMany.mockResolvedValue({ count: 1 });
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
-      'WA-MST-ETH-ETHEREUM': buildWallet({
+      'WA2600000005': buildWallet({
         id: 'wallet-eth-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-ETH-ETHEREUM',
+        walletNo: 'WA2600000005',
         assetId: 'asset-eth',
       }),
-      'WA-LIQ-ETH-ETHEREUM': buildWallet({
+      'WA2600000006': buildWallet({
         id: 'wallet-eth-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-ETH-ETHEREUM',
+        walletNo: 'WA2600000006',
         assetId: 'asset-eth',
       }),
     });
@@ -817,16 +817,16 @@ describe('PoolSettlementBatchesService', () => {
     prisma.outstanding.updateMany.mockResolvedValue({ count: 0 });
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -872,16 +872,16 @@ describe('PoolSettlementBatchesService', () => {
     ]);
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -928,16 +928,16 @@ describe('PoolSettlementBatchesService', () => {
     ]);
 
     registerWallets(prisma, {
-      'WA-MST-BTC-BITCOIN': buildWallet({
+      'WA2600000003': buildWallet({
         id: 'wallet-btc-master',
         walletRole: 'C_MAIN',
-        walletNo: 'WA-MST-BTC-BITCOIN',
+        walletNo: 'WA2600000003',
         assetId: 'asset-btc',
       }),
-      'WA-LIQ-BTC-BITCOIN': buildWallet({
+      'WA2600000004': buildWallet({
         id: 'wallet-btc-liq',
         walletRole: 'F_LIQ',
-        walletNo: 'WA-LIQ-BTC-BITCOIN',
+        walletNo: 'WA2600000004',
         assetId: 'asset-btc',
       }),
     });
@@ -1075,12 +1075,12 @@ describe('PoolSettlementBatchesService', () => {
           asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
           walletA: buildWallet({
             id: 'wallet-a',
-            walletNo: 'WA-MST-BTC-BITCOIN',
+            walletNo: 'WA2600000003',
             walletRole: 'C_MAIN',
           }),
           walletB: buildWallet({
             id: 'wallet-b',
-            walletNo: 'WA-LIQ-BTC-BITCOIN',
+            walletNo: 'WA2600000004',
             walletRole: 'F_LIQ',
           }),
           internalTransaction: {
@@ -1111,12 +1111,12 @@ describe('PoolSettlementBatchesService', () => {
           asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
           fromWallet: buildWallet({
             id: 'wallet-a',
-            walletNo: 'WA-MST-BTC-BITCOIN',
+            walletNo: 'WA2600000003',
             walletRole: 'C_MAIN',
           }),
           toWallet: buildWallet({
             id: 'wallet-b',
-            walletNo: 'WA-LIQ-BTC-BITCOIN',
+            walletNo: 'WA2600000004',
             walletRole: 'F_LIQ',
           }),
         },
@@ -1140,12 +1140,12 @@ describe('PoolSettlementBatchesService', () => {
           asset: buildAsset('asset-btc', 'BTC', 'CRYPTO', 'BITCOIN'),
           fromWallet: buildWallet({
             id: 'wallet-b',
-            walletNo: 'WA-LIQ-BTC-BITCOIN',
+            walletNo: 'WA2600000004',
             walletRole: 'F_LIQ',
           }),
           toWallet: buildWallet({
             id: 'wallet-a',
-            walletNo: 'WA-MST-BTC-BITCOIN',
+            walletNo: 'WA2600000003',
             walletRole: 'C_MAIN',
           }),
         },

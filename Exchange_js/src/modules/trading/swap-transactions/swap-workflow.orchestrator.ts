@@ -7,7 +7,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { JournalsService } from '../../accounting/journals/journals.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -43,7 +42,6 @@ export class SwapWorkflowOrchestrator {
   constructor(
     private readonly prisma: PrismaService,
     private readonly swapService: SwapTransactionsService,
-    private readonly journalsService: JournalsService,
     private readonly pricingCenterService: PricingCenterService,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly swapTransactionWorkflowService: SwapTransactionWorkflowService,
@@ -213,21 +211,8 @@ export class SwapWorkflowOrchestrator {
       const rate = new Prisma.Decimal(quote.rateAllIn);
       const swapNo = generateReferenceNo('SWP');
 
-      const balances = await this.journalsService.getCustomerLiabilityBalance(
-        {
-          ownerId,
-          ownerType: 'CUSTOMER',
-          assetId: quote.fromAssetId,
-        },
-        tx,
-      );
-
-      if (balances.availableBalance.lt(fromAmount)) {
-        throw new BadRequestException({
-          code: 'INSUFFICIENT_AVAILABLE_BALANCE',
-          message: `Insufficient available balance for swap asset ${quote.fromAssetId}`,
-        });
-      }
+      // V2 balance check removed — migrated to TigerBeetle
+      // TODO: re-wire balance guard via TigerBeetle adapter
 
       await this.pricingCenterService.consumeSwapQuoteForSwap(
         tx,
@@ -302,18 +287,7 @@ export class SwapWorkflowOrchestrator {
         tx,
       );
 
-      await this.journalsService.triggerEvent(
-        {
-          entityType: 'SWAP',
-          triggerKey: 'status',
-          fromStatus: null,
-          toStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
-          assetType: 'ALL',
-          context: this.createAccountingContext(transaction),
-          sourceId: transaction.id,
-        },
-        tx,
-      );
+      // V2 accounting removed — migrated to TigerBeetle
 
       return {
         audit_log_id: auditLog.id,

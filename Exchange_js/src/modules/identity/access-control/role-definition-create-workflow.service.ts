@@ -133,7 +133,7 @@ export class RoleDefinitionCreateWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ROLE_DEFINITION.CREATE_REQUESTED,
+        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.CREATE_REQUESTED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: role.id,
         entityNo: roleCode,
@@ -242,7 +242,7 @@ export class RoleDefinitionCreateWorkflowService {
       await this.approvalsService.markExecutionResult(approvalId, true, SYSTEM_ACTOR);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ROLE_DEFINITION.ROLE_ACTIVATED,
+        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: role.id,
         entityNo: role.code,
@@ -262,7 +262,7 @@ export class RoleDefinitionCreateWorkflowService {
       await this.approvalsService.markExecutionResult(approvalId, false, SYSTEM_ACTOR, err.message);
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ROLE_DEFINITION.ROLE_ACTIVATE_FAILED,
+        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATE_FAILED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: roleId,
         workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
@@ -284,7 +284,7 @@ export class RoleDefinitionCreateWorkflowService {
       await this.prisma.role.delete({ where: { id: role.id } });
 
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ROLE_DEFINITION.CREATE_CANCELLED,
+        action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.CREATE_CANCELLED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: role.id,
         entityNo: role.code,

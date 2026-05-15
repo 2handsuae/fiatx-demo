@@ -114,7 +114,7 @@ export class AdminRoleBindingChangeWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ADMIN_ROLE_BINDING.CHANGE_REQUESTED,
+        action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_REQUESTED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: request.id,
         entityNo: requestNo,
@@ -220,7 +220,7 @@ export class AdminRoleBindingChangeWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.ADMIN_ROLE_BINDING.CHANGE_APPLIED,
+          action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_APPLIED,
           entityType: AuditEntityTypes.ACCESS_CONTROL,
           entityId: request.id,
           entityNo: request.requestNo,
@@ -268,7 +268,7 @@ export class AdminRoleBindingChangeWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditGovernanceActions.ADMIN_ROLE_BINDING.CHANGE_APPLY_FAILED,
+          action: AuditGovernanceActions.ADMIN_ROLE_BINDING_CHANGE.CHANGE_APPLY_FAILED,
           entityType: AuditEntityTypes.ACCESS_CONTROL,
           entityId: request.id,
           entityNo: request.requestNo,

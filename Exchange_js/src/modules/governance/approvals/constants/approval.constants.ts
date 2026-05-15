@@ -8,8 +8,6 @@ import { BadRequestException } from '@nestjs/common';
  * without a Wave 1 regression pass.
  *
  *   AUDIT_EVIDENCE_EXPORT_APPROVAL  — audit evidence package export gate
- *   CHANGE_TICKET_APPROVAL          — admin access / RBAC change gate
- *   DELETE_REQUEST_APPROVAL         — soft-delete gate
  *
  * WAVE 2-3 PRE-REGISTERED
  * These types are registered for schema continuity before full feature impl:
@@ -27,8 +25,6 @@ import { BadRequestException } from '@nestjs/common';
 export const ApprovalActionTypes = {
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
   CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
-  CHANGE_TICKET_APPROVAL: 'CHANGE_TICKET_APPROVAL',
-  DELETE_REQUEST_APPROVAL: 'DELETE_REQUEST_APPROVAL',
   ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
   POOL_SETTLEMENT_BATCH_APPROVAL: 'POOL_SETTLEMENT_BATCH_APPROVAL',
   TREASURY_CROSS_POOL_TRANSFER_APPROVAL: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
@@ -56,6 +52,13 @@ export const ApprovalActionTypes = {
   ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
   // ─── Asset Listing (2026-05-11) ────
   ASSET_LISTING: 'ASSET_LISTING',
+  // ─── Custodian Wallet Create (2026-05-13) ────
+  CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
+  // ─── Asset Suspension (2026-05-14) ────
+  ASSET_SUSPENSION: 'ASSET_SUSPENSION',
+  ASSET_REACTIVATION: 'ASSET_REACTIVATION',
+  // ─── Asset Activation (2026-05-14) ────
+  ASSET_ACTIVATION: 'ASSET_ACTIVATION',
 } as const;
 
 export const ApprovalStatuses = {
@@ -193,20 +196,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['DPO'] }, { stepNo: 2, roles: ['MLRO'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-    allowRetry: true,
-  },
-  [ApprovalActionTypes.CHANGE_TICKET_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-    allowRetry: true,
-  },
-  [ApprovalActionTypes.DELETE_REQUEST_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,
@@ -358,6 +347,37 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowCancel: true,
     allowRetry: false,
   },
+  // ─── Custodian Wallet Create (2026-05-13) ────
+  [ApprovalActionTypes.CUSTODIAN_WALLET_CREATE]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  // ─── Asset Suspension (2026-05-14) ────
+  [ApprovalActionTypes.ASSET_SUSPENSION]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 12,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  [ApprovalActionTypes.ASSET_REACTIVATION]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 12,
+    allowCancel: true,
+    allowRetry: false,
+  },
+  // ─── Asset Activation (2026-05-14) ────
+  [ApprovalActionTypes.ASSET_ACTIVATION]: {
+    riskLevel: ApprovalRiskLevels.HIGH,
+    steps: [{ stepNo: 1, roles: ['CISO'] }],
+    timeoutHours: 12,
+    allowCancel: true,
+    allowRetry: false,
+  },
 };
 
 /**
@@ -375,7 +395,10 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
   ApprovalActionTypes.ADMIN_PASSWORD_RESET,
   ApprovalActionTypes.ADMIN_MFA_RESET,
-  ApprovalActionTypes.ASSET_LISTING,
+  ApprovalActionTypes.ASSET_ACTIVATION,
+  ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
+  ApprovalActionTypes.ASSET_SUSPENSION,
+  ApprovalActionTypes.ASSET_REACTIVATION,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

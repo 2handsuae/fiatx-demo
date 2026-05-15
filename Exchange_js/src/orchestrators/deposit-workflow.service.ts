@@ -8,7 +8,6 @@ import {
   PayinSimulationMode,
 } from '../modules/asset-treasury/payins/dto/payin.dto';
 import { DepositTransactionsService } from '../modules/trading/deposit-transactions/deposit-transactions.service';
-import { JournalsService } from '../modules/accounting/journals/journals.service';
 import {
   DepositTransactionAction,
   DepositTransactionStatus,
@@ -50,7 +49,6 @@ export class DepositWorkflowService implements OnModuleInit {
 
   constructor(
     private readonly depositService: DepositTransactionsService,
-    private readonly journalService: JournalsService,
     private readonly payinsService: PayinsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly prisma: PrismaService,
@@ -413,100 +411,19 @@ export class DepositWorkflowService implements OnModuleInit {
     });
   }
 
-  private async triggerDepositAccounting(params: {
+  private async triggerDepositAccounting(_params: {
     deposit: any;
     assetType: 'FIAT' | 'CRYPTO';
     fromStatus?: DepositTransactionStatus | null;
     toStatus: DepositTransactionStatus;
     tx?: any;
   }): Promise<DepositAccountingOutcome> {
-    const { deposit, assetType, fromStatus, toStatus, tx } = params;
-    const event = await this.resolveDepositAccountingEvent({
-      assetType,
-      fromStatus: fromStatus ?? null,
-      toStatus,
-      tx,
-    });
-    if (!event) {
-      return {
-        eventCode: null,
-        journal: null,
-        journalId: null,
-        blockedReason: `No active accounting event found for DEPOSIT ${fromStatus ?? 'NULL'} -> ${toStatus} (${assetType})`,
-      };
-    }
-
-    const context = {
-      src: {
-        ownerId: deposit.ownerId,
-        ownerType: deposit.ownerType,
-        assetId: deposit.assetId,
-        depositId: deposit.id,
-        amount: deposit.amount.toString(),
-        depositNo: deposit.depositNo,
-        walletId: deposit.toWalletId,
-      },
+    return {
+      eventCode: null,
+      journal: null,
+      journalId: null,
+      blockedReason: 'V2 accounting removed — migrated to TigerBeetle',
     };
-
-    try {
-      const journal = await this.journalService.triggerEvent(
-        {
-          entityType: 'DEPOSIT',
-          triggerKey: 'status',
-          fromStatus: fromStatus ?? null,
-          toStatus,
-          assetType,
-          context,
-          sourceId: deposit.id,
-        },
-        tx,
-      );
-      if (!journal) {
-        return {
-          eventCode: event.eventCode,
-          journal: null,
-          journalId: null,
-          blockedReason: `Accounting execution returned no journal for ${event.eventCode}`,
-        };
-      }
-
-      return {
-        eventCode: event.eventCode,
-        journal,
-        journalId: journal.id || null,
-        blockedReason: null,
-      };
-    } catch (error: any) {
-      return {
-        eventCode: event.eventCode,
-        journal: null,
-        journalId: null,
-        blockedReason: error?.message || `Accounting execution failed for ${event.eventCode}`,
-      };
-    }
-  }
-
-  private async resolveDepositAccountingEvent(params: {
-    assetType: 'FIAT' | 'CRYPTO';
-    fromStatus?: DepositTransactionStatus | null;
-    toStatus: DepositTransactionStatus;
-    tx?: any;
-  }) {
-    const client = params.tx || this.prisma;
-    return (client as any).acctEvent?.findFirst?.({
-      where: {
-        entityType: 'DEPOSIT',
-        triggerType: 'STATUS_TRANSITION',
-        triggerKey: 'status',
-        isActive: true,
-        OR: [
-          { fromStatus: params.fromStatus ?? null },
-          { fromStatus: null },
-        ],
-        toStatus: params.toStatus,
-        assetType: { in: [params.assetType, 'ALL'] },
-      },
-    });
   }
 
   private async recordDepositAccountingPosted(params: {

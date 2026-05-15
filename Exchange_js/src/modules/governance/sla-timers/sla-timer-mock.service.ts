@@ -51,7 +51,7 @@ export class SlaTimerMockService {
   async createApprovalTimeoutMock(dto: MockApprovalTimeoutDto, actor: ApprovalActorContext) {
     const approval = await this.approvalsService.createAndSubmit(
       {
-        actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
+        actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: `SLA-MOCK-APPROVAL-${randomUUID()}`,
         objectSnapshot: {
           mockMode: true,
@@ -91,7 +91,7 @@ export class SlaTimerMockService {
     void dto;
     void actor;
     throw new BadRequestException(
-      'Change follow-up SLA demo is not supported under the minimal ChangeTicket workflow',
+      'Change follow-up SLA demo is not supported',
     );
   }
 

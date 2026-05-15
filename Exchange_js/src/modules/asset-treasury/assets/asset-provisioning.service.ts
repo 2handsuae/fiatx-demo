@@ -1,8 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { CreateTbAccountParams } from '../../accounting/tigerbeetle/types/accounting.types';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AssetProvisioningService {
@@ -13,57 +14,50 @@ export class AssetProvisioningService {
     private readonly accountingService: AccountingService,
   ) {}
 
-  async provision(assetId: string): Promise<{ tbLedgerId: number }> {
-    return this.prisma.$transaction(async (tx) => {
-      const asset = await tx.asset.findUniqueOrThrow({ where: { id: assetId } });
+  async provision(assetId: string, tx?: Prisma.TransactionClient): Promise<{ tbLedgerId: number }> {
+    const client = tx ?? this.prisma;
 
-      if (asset.status !== 'PENDING_APPROVAL') {
-        throw new BadRequestException({
-          code: 'INVALID_ASSET_STATUS',
-          message: `Asset ${asset.assetNo} is not in PENDING_APPROVAL status`,
-        });
-      }
+    const asset = await client.asset.findUniqueOrThrow({ where: { id: assetId } });
 
-      const maxResult = await tx.asset.aggregate({ _max: { tbLedgerId: true } });
-      const tbLedgerId = (maxResult._max.tbLedgerId ?? 0) + 1;
+    const maxResult = await client.asset.aggregate({ _max: { tbLedgerId: true } });
+    const tbLedgerId = (maxResult._max.tbLedgerId ?? 0) + 1;
 
-      // Reserve the ledger ID in DB first — the unique constraint prevents duplicates
-      await tx.asset.update({
-        where: { id: assetId },
-        data: { tbLedgerId, status: 'PROVISIONING' },
-      });
-
-      const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY;
-
-      const accountParams: CreateTbAccountParams[] = [
-        {
-          code: custodyCode,
-          ledger: tbLedgerId,
-          ownerType: 'SYSTEM',
-          assetCode: asset.code,
-          description: `${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'} for ${asset.code}`,
-        },
-        {
-          code: TB_ACCOUNT_CODES.TRADE_CLEARING,
-          ledger: tbLedgerId,
-          ownerType: 'SYSTEM',
-          assetCode: asset.code,
-          description: `TRADE_CLEARING for ${asset.code}`,
-        },
-        {
-          code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
-          ledger: tbLedgerId,
-          ownerType: 'SYSTEM',
-          assetCode: asset.code,
-          description: `FEE_RECEIVABLE for ${asset.code}`,
-          flags: 0x04,
-        },
-      ];
-
-      await this.accountingService.createAccounts(accountParams, tx);
-
-      this.logger.log(`Asset ${asset.assetNo} provisioned with tbLedgerId=${tbLedgerId}, 3 TB accounts created`);
-      return { tbLedgerId };
+    // Reserve the ledger ID in DB — the unique constraint prevents duplicates
+    await client.asset.update({
+      where: { id: assetId },
+      data: { tbLedgerId },
     });
+
+    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY;
+
+    const accountParams: CreateTbAccountParams[] = [
+      {
+        code: custodyCode,
+        ledger: tbLedgerId,
+        ownerType: 'SYSTEM',
+        assetCode: asset.code,
+        description: `${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'} for ${asset.code}`,
+      },
+      {
+        code: TB_ACCOUNT_CODES.TRADE_CLEARING,
+        ledger: tbLedgerId,
+        ownerType: 'SYSTEM',
+        assetCode: asset.code,
+        description: `TRADE_CLEARING for ${asset.code}`,
+      },
+      {
+        code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
+        ledger: tbLedgerId,
+        ownerType: 'SYSTEM',
+        assetCode: asset.code,
+        description: `FEE_RECEIVABLE for ${asset.code}`,
+        flags: 0x04,
+      },
+    ];
+
+    await this.accountingService.createAccounts(accountParams, tx);
+
+    this.logger.log(`Asset ${asset.assetNo} provisioned with tbLedgerId=${tbLedgerId}, 3 TB accounts created`);
+    return { tbLedgerId };
   }
 }

@@ -60,8 +60,6 @@ async function resetBusinessData(): Promise<void> {
   Object.assign(deleted, gov02DemoCleanup);
   Object.assign(deleted, treasuryDemoCleanup);
 
-  deleted.clearing_lines = (await prisma.clearingLine.deleteMany()).count;
-  deleted.clearings = (await prisma.clearing.deleteMany()).count;
   deleted.fiat_statement_entries = (await (prisma as any).fiatStatementEntry.deleteMany()).count;
   deleted.fiat_statement_imports = (await (prisma as any).fiatStatementImport.deleteMany()).count;
   deleted.reconciliation_warnings = (await (prisma as any).reconciliationWarning.deleteMany()).count;
@@ -70,8 +68,6 @@ async function resetBusinessData(): Promise<void> {
   deleted.liability_snapshots = (await (prisma as any).liabilitySnapshot.deleteMany()).count;
   deleted.safeguarding_runs = (await (prisma as any).safeguardingRun.deleteMany()).count;
   deleted.safeguarding_policies = (await (prisma as any).safeguardingPolicy.deleteMany()).count;
-  deleted.journal_lines = (await prisma.journalLine.deleteMany()).count;
-  deleted.journals = (await prisma.journal.deleteMany()).count;
   deleted.wallet_balance_entries = (await (prisma as any).walletBalanceEntry.deleteMany()).count;
   deleted.wallet_balance_snapshots = (await (prisma as any).walletBalanceSnapshot.deleteMany()).count;
 

@@ -4,7 +4,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
-import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { WithdrawEvents } from '../modules/trading/withdraw-transactions/constants/withdraw-events.constant';
 import { PayoutEvents } from '../modules/asset-treasury/payouts/constants/payout-events.constant';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
@@ -25,7 +24,6 @@ import {
   AuditModules,
   buildStateTransitionAction,
 } from '../modules/audit-logging/constants/audit-actions.constant';
-import { AccountingEventExecutionService } from './accounting-event-execution.service';
 
 export interface OrchestrationResult {
   updated_withdrawal_status?: string;
@@ -89,8 +87,6 @@ export class WithdrawWorkflowOrchestrator {
     private readonly prisma: PrismaService,
     private readonly withdrawalService: WithdrawTransactionsService,
     private readonly payoutsService: PayoutsService,
-    private readonly accountingEventExecutionService: AccountingEventExecutionService,
-    private readonly clearingsService: ClearingsService,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
@@ -192,21 +188,7 @@ export class WithdrawWorkflowOrchestrator {
 
     // 1) CREATED
     if (eventType === WithdrawEvents.EVT_WITHDRAWAL_CREATED) {
-      if (isCustomer) {
-        const execution = await this.accountingEventExecutionService.execute({
-          entityType: 'WITHDRAW',
-          triggerKey: 'status',
-          toStatus: WithdrawTransactionStatus.CREATED,
-          assetType: suffix,
-          frozenContext: this.createAccountingContext(withdrawal),
-          sourceId: withdrawal.id,
-          journalSourceType: 'WITHDRAW',
-          clearingSourceType: 'WITHDRAWAL',
-        });
-        result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(execution.journalResult),
-        );
-      }
+      // V2 accounting removed — migrated to TigerBeetle
       const log = await this.auditLogsService.recordSystem({
 
         action: AuditActions.SYSTEM_WITHDRAW_CREATED_ORCHESTRATED,
@@ -224,21 +206,7 @@ export class WithdrawWorkflowOrchestrator {
     }
     // 2) CANCELLED / 3) REJECTED
     else if (eventType === WithdrawEvents.EVT_WITHDRAWAL_CANCELLED || eventType === WithdrawEvents.EVT_WITHDRAWAL_REJECTED) {
-      if (isCustomer) {
-        const execution = await this.accountingEventExecutionService.execute({
-          entityType: 'WITHDRAW',
-          triggerKey: 'status',
-          toStatus: withdrawal.status,
-          assetType: suffix,
-          frozenContext: this.createAccountingContext(withdrawal),
-          sourceId: withdrawal.id,
-          journalSourceType: 'WITHDRAW',
-          clearingSourceType: 'WITHDRAWAL',
-        });
-        result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(execution.journalResult),
-        );
-      }
+      // V2 accounting removed — migrated to TigerBeetle
       const log = await this.auditLogsService.recordSystem({
 
         action: AuditActions.SYSTEM_WITHDRAW_TERMINAL_ORCHESTRATED,
@@ -280,22 +248,7 @@ export class WithdrawWorkflowOrchestrator {
           suffix,
         );
 
-        const execution = await this.accountingEventExecutionService.execute(
-          {
-            entityType: 'WITHDRAW',
-            triggerKey: 'status',
-            toStatus: WithdrawTransactionStatus.PAYOUT_PENDING,
-            assetType: suffix,
-            frozenContext: this.createAccountingContext(withdrawWithSourceWallet),
-            sourceId: withdrawWithSourceWallet.id,
-            journalSourceType: 'WITHDRAW',
-            clearingSourceType: 'WITHDRAWAL',
-          },
-          tx,
-        );
-        result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(execution.journalResult),
-        );
+        // V2 accounting removed — migrated to TigerBeetle
 
         let payout = await tx.payout.findUnique({
           where: { withdrawId },
@@ -448,21 +401,7 @@ export class WithdrawWorkflowOrchestrator {
         );
       }
 
-      if (isCustomer) {
-        const execution = await this.accountingEventExecutionService.execute({
-          entityType: 'WITHDRAW',
-          triggerKey: 'status',
-          toStatus: WithdrawTransactionStatus.SUCCESS,
-          assetType: suffix,
-          frozenContext: this.createAccountingContext(postingWithdrawal),
-          sourceId: postingWithdrawal.id,
-          journalSourceType: 'WITHDRAW',
-          clearingSourceType: 'WITHDRAWAL',
-        }, tx);
-        result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(execution.journalResult),
-        );
-      }
+      // V2 accounting removed — migrated to TigerBeetle
 
       const updatedPayout = await this.payoutsService.updateStatus(payoutId, {
         action: PayoutAction.CLEAR,
@@ -910,31 +849,7 @@ export class WithdrawWorkflowOrchestrator {
       }
       result.updated_withdrawal_status = accountingWithdrawal.status;
 
-      if (isCustomer) {
-        const execution = await this.accountingEventExecutionService.execute(
-          {
-            entityType: 'WITHDRAW',
-            triggerKey: 'status',
-            toStatus: targetWithdrawStatus,
-            assetType: suffix,
-            frozenContext: this.createAccountingContext(accountingWithdrawal),
-            sourceId: accountingWithdrawal.id,
-            journalSourceType: 'WITHDRAW',
-            clearingSourceType: 'WITHDRAWAL',
-          },
-          tx,
-        );
-        result.created_or_reversed_journal_entry_ids.push(
-          ...this.collectJournalIds(execution.journalResult),
-        );
-      }
-
-      await this.clearingsService.updateStatusBySource(
-        'WITHDRAWAL',
-        withdrawId,
-        'CANCELLED',
-        tx,
-      );
+      // V2 accounting + clearing removed — migrated to TigerBeetle
 
       const log = await this.auditLogsService.recordSystem(
         {

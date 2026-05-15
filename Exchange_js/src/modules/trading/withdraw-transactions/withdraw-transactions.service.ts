@@ -12,7 +12,6 @@ import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { JournalsService } from '../../accounting/journals/journals.service';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import {
   TxSourceType,
@@ -103,7 +102,6 @@ export class WithdrawTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly journalsService: JournalsService,
     @Inject(forwardRef(() => TransactionComplianceService))
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly pricingCenterService: PricingCenterService,
@@ -490,21 +488,8 @@ export class WithdrawTransactionsService {
 
     const created = await (this.prisma as any).$transaction(
       async (tx: any) => {
-        const balances = await this.journalsService.getCustomerLiabilityBalance(
-          {
-            ownerId: userId,
-            ownerType,
-            assetId,
-          },
-          tx,
-        );
-
-        if (balances.availableBalance.lt(amountDecimal)) {
-          throw new BadRequestException({
-            code: 'INSUFFICIENT_AVAILABLE_BALANCE',
-            message: `Insufficient available balance for asset ${assetId}`,
-          });
-        }
+        // V2 balance check removed — migrated to TigerBeetle
+        // TODO: re-wire balance guard via TigerBeetle adapter
 
         let quoteFeeAmount = new Prisma.Decimal(0);
         let consumedQuoteId: string | null = null;
@@ -595,15 +580,7 @@ export class WithdrawTransactionsService {
           tx,
         );
 
-        await this.journalsService.createJournal(
-          {
-            sourceType: 'WITHDRAW',
-            sourceId: record.id,
-            eventCode: WithdrawEvents.EVT_WITHDRAWAL_CREATED,
-            context: this.createAccountingContext(record),
-          },
-          tx,
-        );
+        // V2 accounting removed — migrated to TigerBeetle
 
         return record;
       },

@@ -16,6 +16,7 @@ mkdir -p "${RUNTIME_DIR}"
 stop_pid_file_process "backend" "${BACKEND_PID_FILE}"
 stop_pid_file_process "admin" "${ADMIN_PID_FILE}"
 stop_pid_file_process "client" "${CLIENT_PID_FILE}"
+stop_pid_file_process "tb" "${TB_PID_FILE}"
 
 stop_listener_if_managed() {
   local name="$1"
@@ -43,5 +44,6 @@ stop_listener_if_managed "client" "${CLIENT_PORT}"
 cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"
 cleanup_orphans_by_pattern "admin-orphan" "${APP_DIR}/admin-web/node_modules/.bin/vite --host 0.0.0.0 --port ${ADMIN_PORT}"
 cleanup_orphans_by_pattern "client-orphan" "${APP_DIR}/client-web/node_modules/.bin/vite --host 0.0.0.0 --port ${CLIENT_PORT}"
+cleanup_orphans_by_pattern "tb-orphan" "tigerbeetle start.*${TB_DATA_FILE}"
 
 echo "[${STACK}] services stopped"

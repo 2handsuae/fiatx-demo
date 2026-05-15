@@ -72,13 +72,6 @@ export type PermissionGroup =
   | 'GOV_APPROVAL_READ'
   | 'GOV_APPROVAL_WRITE'
   | 'GOV_APPROVAL_DECIDE'
-  | 'GOV_CHANGE_TICKET_READ'
-  | 'GOV_CHANGE_TICKET_WRITE'
-  | 'GOV_CHANGE_TICKET_GATE'
-  | 'GOV_CHANGE_TICKET_CLOSE'
-  | 'GOV_DELETE_REQUEST_READ'
-  | 'GOV_DELETE_REQUEST_WRITE'
-  | 'GOV_DELETE_REQUEST_CONSUME'
   | 'GOV_REGISTRY_READ'
   | 'GOV_REGISTRY_WRITE'
   | 'GOV_REGULATORY_GATE_READ'
@@ -429,6 +422,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PATCH', '/wallets/:id/status', 'Update wallet status', ['WALLET_WRITE']),
   route('GET', '/treasury/customer/:customerId/assets', 'Get customer treasury assets', ['WALLET_READ']),
 
+  // Custodian wallet workflow
+  route('POST', '/admin/custodian-wallets', 'Create custodian wallet (approval workflow)', ['WALLET_WRITE']),
+  route('POST', '/admin/custodian-wallets/:walletNo/retry', 'Retry failed custodian wallet creation', ['WALLET_WRITE']),
+
   // Internal transaction / fund
   route('GET', '/admin/internal-transactions', 'List internal transactions', ['INTERNAL_TX_READ']),
   route('GET', '/admin/internal-transactions/:id', 'Get internal transaction detail', ['INTERNAL_TX_READ']),
@@ -571,35 +568,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/pool-settlement-batches', 'Create pool settlement batch', ['SETTLEMENT_WRITE']),
   route('POST', '/admin/pool-settlement-batches/:id/submit', 'Submit pool settlement batch', ['SETTLEMENT_WRITE']),
 
-  // Clearing
-  route('GET', '/clearings', 'List clearings', ['CLEARING_READ']),
-  route('GET', '/clearings/lines', 'List clearing lines', ['CLEARING_READ']),
-  route('GET', '/clearings/lines/:id', 'Get clearing line detail', ['CLEARING_READ']),
-  route('GET', '/clearings/:id', 'Get clearing detail', ['CLEARING_READ']),
-  route('POST', '/clearings/:id/re-clear', 'Re-clear clearing', ['CLEARING_WRITE']),
-
-  // Journals
-  route('GET', '/journals', 'List journals', ['JOURNAL_READ']),
-  route('GET', '/journals/:id', 'Get journal detail', ['JOURNAL_READ']),
-  route('GET', '/journal-lines', 'List journal lines', ['JOURNAL_READ']),
-  route('GET', '/journal-lines/customer-balance-history', 'Get customer balance history', ['JOURNAL_READ']),
-  route('GET', '/journal-lines/:id', 'Get journal line detail', ['JOURNAL_READ']),
-
-  // Accounting config
-  route('GET', '/coa', 'List COA items', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/coa/:id', 'Get COA detail', ['ACCOUNTING_CONFIG_READ']),
-
-  route('GET', '/acct-events', 'List account events', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/acct-events/:eventCode', 'Get account event detail', ['ACCOUNTING_CONFIG_READ']),
-
-  route('GET', '/journal-header-templates', 'List journal header templates', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/journal-header-templates/:id', 'Get journal header template detail', ['ACCOUNTING_CONFIG_READ']),
-
-  route('GET', '/journal-line-templates', 'List journal line templates', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/journal-line-templates/:id', 'Get journal line template detail', ['ACCOUNTING_CONFIG_READ']),
-
-  route('GET', '/clearing-templates', 'List clearing templates', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/clearing-templates/:id', 'Get clearing template detail', ['ACCOUNTING_CONFIG_READ']),
+  // TB Ledger (read-only)
+  route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/backlog', 'List TB evidence backlog', ['ACCOUNTING_CONFIG_READ']),
 
   // Assets
   route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),
@@ -646,35 +618,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/control-gates/approvals/:id/cancel', 'Cancel approval case', ['GOV_APPROVAL_WRITE']),
   route('GET', '/admin/control-gates/approvals/:id', 'Get approval case detail', ['GOV_APPROVAL_READ']),
   route('GET', '/admin/control-gates/approvals', 'List approval cases', ['GOV_APPROVAL_READ']),
-
-  // Governance change tickets
-  route('POST', '/admin/control-gates/change-tickets', 'Create change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('GET', '/admin/control-gates/change-tickets', 'List change tickets', ['GOV_CHANGE_TICKET_READ']),
-  route('GET', '/admin/control-gates/change-tickets/:id', 'Get change ticket detail', ['GOV_CHANGE_TICKET_READ']),
-  route('POST', '/admin/control-gates/change-tickets/:id/submit', 'Submit change ticket', ['GOV_CHANGE_TICKET_WRITE']),
-  route('POST', '/admin/control-gates/change-tickets/:id/consume', 'Consume change ticket', [
-    'GOV_CHANGE_TICKET_WRITE',
-  ]),
-
-  // Governance delete requests
-  route('POST', '/admin/control-gates/delete-requests', 'Create delete request', [
-    'GOV_DELETE_REQUEST_WRITE',
-  ]),
-  route('GET', '/admin/control-gates/delete-requests', 'List delete requests', [
-    'GOV_DELETE_REQUEST_READ',
-  ]),
-  route('GET', '/admin/control-gates/delete-requests/:id', 'Get delete request detail', [
-    'GOV_DELETE_REQUEST_READ',
-  ]),
-  route('POST', '/admin/control-gates/delete-requests/:id/submit', 'Submit delete request', [
-    'GOV_DELETE_REQUEST_WRITE',
-  ]),
-  route('POST', '/admin/control-gates/delete-requests/:id/cancel', 'Cancel delete request', [
-    'GOV_DELETE_REQUEST_WRITE',
-  ]),
-  route('POST', '/admin/control-gates/delete-requests/:id/consume', 'Consume delete request', [
-    'GOV_DELETE_REQUEST_CONSUME',
-  ]),
 
   // Governance registries
   route('GET', '/admin/governance/registries/shareholding-versions', 'List shareholding registry versions', [
@@ -966,8 +909,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
     'GOV_APPROVAL_POLICY_READ',
@@ -987,13 +928,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
-    'GOV_CHANGE_TICKET_GATE',
-    'GOV_CHANGE_TICKET_CLOSE',
-    'GOV_DELETE_REQUEST_READ',
-    'GOV_DELETE_REQUEST_WRITE',
-    'GOV_DELETE_REQUEST_CONSUME',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -1009,10 +943,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_READ',
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
-    'GOV_DELETE_REQUEST_READ',
-    'GOV_DELETE_REQUEST_WRITE',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
   ],
@@ -1034,10 +964,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_WRITE',
-    'GOV_DELETE_REQUEST_READ',
-    'GOV_DELETE_REQUEST_WRITE',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -1066,8 +992,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
     'GOV_APPROVAL_POLICY_READ',
 
@@ -1081,10 +1005,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_DELETE_REQUEST_READ',
-    'GOV_DELETE_REQUEST_WRITE',
-    'GOV_DELETE_REQUEST_CONSUME',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',
@@ -1107,9 +1027,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
-    'GOV_CHANGE_TICKET_READ',
-    'GOV_CHANGE_TICKET_GATE',
-    'GOV_DELETE_REQUEST_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGISTRY_WRITE',
     'GOV_REGULATORY_GATE_READ',

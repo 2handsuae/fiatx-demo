@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, Copy, Download, RefreshCw, X } from 'lucide-react';
+import { Check, Copy, Download, RefreshCw } from 'lucide-react';
 import {
   AdminPermissionError,
   AdminSessionError,
@@ -13,10 +13,8 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { LinkedRelationCard, LinkedRelationEmpty } from '../components/ui/LinkedRelationCard';
 import { PERMISSIONS } from '../rbac/permissions';
 import { useAdminSession } from '../contexts/AdminSessionContext';
-import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -197,23 +195,15 @@ const RawRecordBlock = ({ detail }: { detail: EvidenceExportDetail }) => {
 const EvidenceExportDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasPermission, hasAnyPermission } = useAdminSession();
+  const { hasPermission } = useAdminSession();
 
-  const canDownload        = hasPermission(PERMISSIONS.AUDIT_EVIDENCE_EXPORT_DOWNLOAD);
-  const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
-  const canViewApproval    = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
+  const canDownload = hasPermission(PERMISSIONS.AUDIT_EVIDENCE_EXPORT_DOWNLOAD);
 
   const [detail,      setDetail]      = useState<EvidenceExportDetail | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
   const [notice,      setNotice]      = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
-
-  /* Delete modal */
-  const [isDeleteModalOpen,  setIsDeleteModalOpen]  = useState(false);
-  const [deleteReason,       setDeleteReason]        = useState('');
-  const [requestingDelete,   setRequestingDelete]    = useState(false);
-  const [deleteModalError,   setDeleteModalError]    = useState<string | null>(null);
 
   const downloadSeqRef = useRef(0);
 
@@ -293,51 +283,18 @@ const EvidenceExportDetailPage = () => {
     }
   };
 
-  /* ── Delete modal ── */
-
-  const openDeleteModal = () => {
-    setDeleteReason('');
-    setDeleteModalError(null);
-    setIsDeleteModalOpen(true);
-  };
-
-  const closeDeleteModal = () => {
-    setIsDeleteModalOpen(false);
-    setDeleteReason('');
-    setDeleteModalError(null);
-  };
-
-  const submitDeleteRequest = async () => {
-    if (!detail) return;
-    const reason = deleteReason.trim();
-    if (!reason) { setDeleteModalError('Delete reason is required.'); return; }
-    setRequestingDelete(true); setDeleteModalError(null);
-    try {
-      const created = await createDeleteRequest({
-        targetType: DELETE_REQUEST_TARGET_TYPES.AUDIT_EVIDENCE_PACKAGE,
-        targetNo: detail.packageNo,
-        deleteReason: reason,
-      });
-      closeDeleteModal();
-      navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
-    } catch (err) {
-      if (err instanceof AdminPermissionError) {
-        setDeleteModalError('Permission denied. You cannot request package deletion.');
-      } else {
-        setDeleteModalError(err instanceof Error ? err.message : 'Failed to create delete request.');
-      }
-    } finally {
-      setRequestingDelete(false);
-    }
-  };
-
   /* ── Loading / error stubs ── */
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center gap-3">
-        <RefreshCw size={24} className="animate-spin text-adm-amber" />
-        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
+          <button onClick={() => navigate('/dashboard/audit/evidence-exports')} className={adminButtonClass('detailUtility')}>← Back</button>
+        </div>
+        <div className="flex flex-1 items-center justify-center gap-3">
+          <RefreshCw size={22} className="animate-spin text-adm-amber" />
+          <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
+        </div>
       </div>
     );
   }
@@ -390,11 +347,6 @@ const EvidenceExportDetailPage = () => {
     detail.filterSnapshot != null || (detail.selectedEventIdsSnapshot?.length ?? 0) > 0;
   const hasManifest    = detail.manifest != null;
   const hasPackageBody = detail.packageBody != null;
-  const hasDecision    = !!(
-    detail.approvalCase?.decisionByUserNo ||
-    detail.approvalCase?.decisionByRole ||
-    detail.approvalCase?.decidedAt
-  );
 
   /* ── Page ── */
 
@@ -403,7 +355,6 @@ const EvidenceExportDetailPage = () => {
 
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        title="Evidence Package"
         onBack={() => navigate('/dashboard/audit/evidence-exports')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -432,62 +383,52 @@ const EvidenceExportDetailPage = () => {
         {/* ════ LEFT MAIN ════ */}
         <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-          {/* ① Identity — packageNo dominant, status, then secondary details */}
+          {/* ① Hero */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Package</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {detail.packageNo}
             </p>
-            <div className="mt-2.5">
-              <AdminBadge value={detail.status} />
-            </div>
-            <div className="mt-4 border-t border-adm-border pt-4">
-              <p className="font-mono text-[11px] text-adm-t2">{detail.exportMode}</p>
-              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+            <div className="mt-4 border-t border-adm-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3">
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Status</p>
+                <AdminBadge value={detail.status} />
+              </div>
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Export Mode</p>
+                <p className="font-mono text-[11px] text-adm-t2">{detail.exportMode}</p>
+              </div>
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Item Count</p>
+                <p className="font-mono text-[11px] text-adm-t2">{detail.itemCount} events</p>
+              </div>
             </div>
           </section>
 
-          {/* ② Approval — governance relationship (content, not action) */}
-          <section className="px-6 py-5">
-            <Cap>Approval</Cap>
-            <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-              Governance case that authorized this export
-            </p>
-            {detail.approvalCaseId && (detail.approvalCase?.approvalNo || detail.approvalCaseNo) ? (
-              <LinkedRelationCard
-                cap="Approval Case"
-                identifier={(detail.approvalCase?.approvalNo || detail.approvalCaseNo) as string}
-                statusValue={detail.approvalCase?.status}
-                secondaryStatus={detail.approvalCase?.executionStatus}
-                onClick={
-                  canViewApproval
-                    ? () =>
-                        navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)
-                    : undefined
-                }
-              />
-            ) : (
-              <LinkedRelationEmpty
-                cap="Approval Case"
-                message="No approval linked to this package."
-              />
-            )}
-          </section>
+          {/* ② Package Details */}
+          {(detail.fileName || detail.digest) && (
+            <section className="px-6 py-5">
+              <Cap>Package Details</Cap>
+              <div className="mt-3">
+                <FieldGrid>
+                  <Field label="File Name"      value={detail.fileName}  mono full />
+                  <Field label="SHA-256 Digest" value={detail.digest}    mono full />
+                </FieldGrid>
+              </div>
+            </section>
+          )}
 
-          {/* ③ Package Details — scope and integrity at a glance */}
+          {/* ④ Exporter */}
           <section className="px-6 py-5">
-            <Cap>Package Details</Cap>
+            <Cap>Exporter</Cap>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Item Count"     value={`${detail.itemCount} events`}  />
-                <Field label="Created At"     value={fmt(detail.createdAt)}    mono  />
-                <Field label="File Name"      value={detail.fileName}          mono full />
-                <Field label="SHA-256 Digest" value={detail.digest}            mono full />
+                <Field label="Exported By" value={detail.exportedByNo}                           />
+                <Field label="Role"        value={detail.exportedByRole ?? detail.exportedByType} />
               </FieldGrid>
             </div>
           </section>
 
-          {/* ③ Selection Criteria — what filter built this package */}
+          {/* ④ Selection Criteria — what filter built this package */}
           {hasSelectionCriteria && (
             <section className="px-6 py-5">
               <Cap>Selection Criteria</Cap>
@@ -556,54 +497,39 @@ const EvidenceExportDetailPage = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
           {/* Actions */}
-          {(canDownload || canRequestDeletion) && (
+          {canDownload && (
             <div className="border-b border-adm-border py-4">
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
-                {canDownload && (
-                  detail.status === 'READY' ? (
-                    <button
-                      onClick={() => void handleDownload()}
-                      disabled={downloading}
-                      className={adminButtonClass('workflowPrimary')}
-                    >
-                      <Download size={13} />
-                      {downloading ? 'Downloading…' : 'Download Package'}
-                    </button>
-                  ) : (
-                    <p className="rounded border border-adm-border bg-adm-bg px-3 py-2.5 font-mono text-[10px] text-adm-t3">
-                      {detail.status === 'PENDING_APPROVAL'
-                        ? 'Awaiting approval — download will be available once approved.'
-                        : `Package is ${detail.status.toLowerCase()} — download unavailable.`}
-                    </p>
-                  )
-                )}
-                {canRequestDeletion && (
+                {detail.status === 'READY' ? (
                   <button
-                    onClick={openDeleteModal}
-                    className={adminButtonClass('workflowNegative')}
+                    onClick={() => void handleDownload()}
+                    disabled={downloading}
+                    className={adminButtonClass('workflowPrimary')}
                   >
-                    Request Deletion
+                    <Download size={13} />
+                    {downloading ? 'Downloading…' : 'Download Package'}
                   </button>
+                ) : (
+                  <p className="rounded border border-adm-border bg-adm-bg px-3 py-2.5 font-mono text-[10px] text-adm-t3">
+                    {detail.status === 'PENDING_APPROVAL'
+                      ? 'Awaiting approval — download will be available once approved.'
+                      : `Package is ${detail.status.toLowerCase()} — download unavailable.`}
+                  </p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Decision — lightweight fingerprint; full approval is in the main area */}
-          {hasDecision && (
-            <SidebarGroup title="Decision">
-              <SidebarKV label="Decided By"  value={detail.approvalCase?.decisionByUserNo}   />
-              <SidebarKV label="Role"        value={detail.approvalCase?.decisionByRole}     />
-              <SidebarKV label="Decided At"  value={fmt(detail.approvalCase?.decidedAt)} mono />
-            </SidebarGroup>
-          )}
-
-          {/* Exporter */}
-          <SidebarGroup title="Exporter">
-            <SidebarKV label="User No" value={detail.exportedByNo}                               />
-            <SidebarKV label="Role"    value={detail.exportedByRole ?? detail.exportedByType}    />
-            <SidebarKV label="User ID" value={detail.exportedById}                         mono />
+          {/* Identity Summary */}
+          <SidebarGroup title="Identity Summary">
+            <div className="flex items-center justify-between gap-2">
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Status</span>
+              <AdminBadge value={detail.status} />
+            </div>
+            <SidebarKV label="Export Mode"  value={detail.exportMode}                           />
+            <SidebarKV label="Item Count"   value={`${detail.itemCount} events`}           mono />
+            <SidebarKV label="Exported By"  value={detail.exportedByNo}                        />
           </SidebarGroup>
 
           {/* Lifecycle */}
@@ -614,74 +540,6 @@ const EvidenceExportDetailPage = () => {
 
         </div>
       </div>
-
-      {/* ════ Delete Modal ════ */}
-      {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Request Package Deletion
-                </p>
-                <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  {detail.packageNo}
-                </p>
-              </div>
-              <button
-                onClick={closeDeleteModal}
-                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="px-5 py-4 space-y-3">
-              <p className="font-mono text-[10px] text-adm-t3">
-                This opens a governed deletion proposal for{' '}
-                <span className="text-adm-amber">{detail.packageNo}</span>.
-                The package remains intact until the request is approved and executed.
-              </p>
-              <div>
-                <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-                  Delete Reason
-                </p>
-                <textarea
-                  value={deleteReason}
-                  onChange={(e) => setDeleteReason(e.target.value)}
-                  rows={4}
-                  placeholder="Explain why this evidence package should enter governed deletion…"
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
-                  autoFocus
-                />
-              </div>
-              {deleteModalError && (
-                <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
-                  {deleteModalError}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
-              <button onClick={closeDeleteModal} className={adminButtonClass('modalCancel')}>
-                Cancel
-              </button>
-              <button
-                onClick={() => void submitDeleteRequest()}
-                disabled={requestingDelete || !deleteReason.trim()}
-                className={adminButtonClass('workflowNegative')}
-              >
-                {requestingDelete ? 'Requesting…' : 'Submit Request'}
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
 
     </div>
   );

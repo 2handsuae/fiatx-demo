@@ -36,9 +36,12 @@ export enum WalletRole {
 }
 
 export enum WalletStatus {
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  CREATING = 'CREATING',
   ACTIVE = 'ACTIVE',
   FROZEN = 'FROZEN',
   DISABLED = 'DISABLED',
+  FAILED = 'FAILED',
 }
 
 export class CreateWalletDto {

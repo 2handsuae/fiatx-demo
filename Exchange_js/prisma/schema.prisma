@@ -25,8 +25,6 @@ model User {
   lastLoginAt         DateTime?
   deletedAt           DateTime?
   deletedBy           String?
-  deleteRequestId     String?
-  deleteReason        String?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   userRoles           UserRole[]
@@ -283,6 +281,7 @@ model CustomerMain {
   materialRefreshCycles     MaterialRefreshCycle[]   @relation("CustomerMaterialRefreshCycles")
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
+  withdrawalAddresses       WithdrawalAddress[]
 
   @@index([adminStatus])
   @@index([complianceStatus])
@@ -714,8 +713,6 @@ model AuditEvidencePackage {
   packageBody              String?
   deletedAt                DateTime?
   deletedBy                String?
-  deleteRequestId          String?
-  deleteReason             String?
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
   approvalCase             ApprovalCase? @relation("AuditEvidencePackageApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
@@ -762,12 +759,8 @@ model ApprovalCase {
   decisionReason                 String?
   deletedAt                      DateTime?
   deletedBy                      String?
-  deleteRequestId                String?
-  deleteReason                   String?
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
-  changeTicketApprovalCase       ChangeTicket?                  @relation("ChangeTicketApprovalCase")
-  deleteRequestApprovalCase      DeleteRequest?                 @relation("DeleteRequestApprovalCase")
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
   riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
@@ -851,107 +844,6 @@ model ApprovalPolicyChangeRequest {
   @@index([status])
   @@index([requestedByUserId])
   @@map("approval_policy_change_requests")
-}
-
-model ChangeTicket {
-  id                   String        @id @default(uuid())
-  ticketNo             String        @unique @default("TEMP")
-  status               String        @default("DRAFT")
-  changeType           String
-  changeReason         String
-  bindingSnapshotJson  String        @default("{}")
-  bindingDigest        String?
-  scopeSummary         String
-  testEvidenceRef      String
-  rollbackPlanRef      String
-  approvalCaseId       String?       @unique
-  approvalNo           String?
-  traceId              String
-  createdByUserId      String
-  createdByUserNo      String
-  submittedByUserId    String?
-  submittedByUserNo    String?
-  consumedByUserId     String?
-  consumedByUserNo     String?
-  submittedAt          DateTime?
-  consumedAt           DateTime?
-  resultNote           String?
-  deletedAt            DateTime?
-  deletedBy            String?
-  deleteRequestId      String?
-  deleteRequestNo      String?
-  deleteReason         String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  approvalCase         ApprovalCase? @relation("ChangeTicketApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
-  gateRuns             ChangeTicketGateRun[]
-
-  @@index([status, createdAt])
-  @@index([ticketNo, createdAt])
-  @@index([traceId, createdAt])
-  @@index([approvalNo, createdAt])
-  @@index([deletedAt])
-  @@map("change_tickets")
-}
-
-model ChangeTicketGateRun {
-  id             String       @id @default(uuid())
-  ticketId       String
-  targetEnv      String
-  releaseVersion String
-  status         String       @default("PENDING")
-  reason         String?
-  failureReason  String?
-  operatorUserId String
-  traceId        String
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  activeKey      String?      @unique
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  ticket         ChangeTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
-  @@index([ticketId, createdAt])
-  @@index([status, createdAt])
-  @@index([traceId, createdAt])
-  @@index([ticketId, targetEnv, releaseVersion, createdAt])
-  @@map("change_ticket_gate_runs")
-}
-
-model DeleteRequest {
-  id                   String        @id @default(uuid())
-  requestNo            String        @unique @default("TEMP")
-  targetType           String
-  targetId             String
-  targetNo             String
-  status               String        @default("DRAFT")
-  approvalCaseId       String?       @unique
-  approvalNo           String?
-  createdByUserId      String
-  createdByUserNo      String
-  submittedByUserId    String?
-  submittedByUserNo    String?
-  consumedByUserId     String?
-  consumedByUserNo     String?
-  deleteReason         String
-  resultNote           String?
-  docRef               String?
-  targetSnapshotJson   String        @default("{}")
-  targetSnapshotDigest String?
-  traceId              String
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  submittedAt          DateTime?
-  consumedAt           DateTime?
-  approvalCase         ApprovalCase? @relation("DeleteRequestApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
-
-  @@index([status, createdAt])
-  @@index([requestNo, createdAt])
-  @@index([targetType, targetId, status])
-  @@index([targetType, targetNo, status])
-  @@index([traceId, createdAt])
-  @@index([approvalNo, createdAt])
-  @@map("delete_requests")
 }
 
 model ShareholdingRegistryVersion {
@@ -1257,13 +1149,15 @@ model Asset {
   maxWithdrawAmount              Float?
   depositEnabled                 Boolean                         @default(true)
   withdrawalEnabled              Boolean                         @default(true)
+  suspendedAt                    DateTime?
+  suspendReason                  String?
+  preSuspendDepositEnabled       Boolean?
+  preSuspendWithdrawalEnabled    Boolean?
   approvalCaseId                 String?
   approvalCaseNo                 String?
   createdAt                      DateTime                        @default(now())
   updatedAt                      DateTime                        @updatedAt
   depositTransactions            DepositTransaction[]
-  journalHeaderTemplates         JournalHeaderTemplate[]
-  journals                       Journal[]                       @relation("BaseAsset")
   fromConfigs                    LiquidityConfiguration[]        @relation("FromAsset")
   toConfigs                      LiquidityConfiguration[]        @relation("ToAsset")
   feeConfigs                     LiquidityConfiguration[]        @relation("FeeAsset")
@@ -1291,6 +1185,7 @@ model Asset {
   reconciliationWarnings         ReconciliationWarning[]
   fiatStatementImports           FiatStatementImport[]
   valuationRates                 AssetValuationRate[]
+  withdrawalAddresses            WithdrawalAddress[]
 
   @@unique([type, code, network])
   @@map("assets")
@@ -1320,7 +1215,6 @@ model Payin {
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   ownerId                String? // Added to support relation to CustomerMain
-  clearings              Clearing[]              @relation("ClearingInPayin")
   deposit                DepositTransaction?     @relation("PayinToDeposit")
   auditLogs              PayinAuditLog[]
   toWallet               Wallet?                 @relation("PayinToWallet", fields: [toWalletId], references: [id])
@@ -1500,6 +1394,9 @@ model Wallet {
   beneficiaryName                          String?
   counterpartyVasp                         String?
   iban                                     String?
+  approvalCaseId                           String?
+  approvalCaseNo                           String?
+  vaultId                                  String?
   depositTransactions                      DepositTransaction[]
   depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")
   payins                                   Payin[]                         @relation("PayinToWallet")
@@ -1525,6 +1422,51 @@ model Wallet {
   @@index([assetId])
   @@index([status])
   @@map("wallets")
+}
+
+model WithdrawalAddress {
+  id                   String       @id @default(uuid())
+  addressNo            String       @unique
+  customerId           String
+  customerNo           String
+  assetId              String
+  network              String
+  address              String
+  addressType          String
+  label                String?
+  beneficiaryName      String?
+  memo                 String?
+
+  iban                 String?
+  swiftBic             String?
+  bankName             String?
+
+  counterpartyVaspName String?
+  counterpartyVaspDid  String?
+
+  ownershipDeclaredAt  DateTime?
+  ownershipProofType   String?
+
+  status               String       @default("PENDING_ACTIVATION")
+  activatesAt          DateTime
+  activatedAt          DateTime?
+  suspendedAt          DateTime?
+  suspendedBy          String?
+  suspendReason        String?
+  cancelledAt          DateTime?
+
+  traceId              String
+
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  customer             CustomerMain @relation(fields: [customerId], references: [id])
+  asset                Asset        @relation(fields: [assetId], references: [id])
+
+  @@unique([customerId, assetId, address])
+  @@index([customerId, assetId, status])
+  @@index([status, activatesAt])
+  @@map("withdrawal_addresses")
 }
 
 model InboundTransferSignal {
@@ -1834,50 +1776,6 @@ model InternalFundAuditLog {
   @@map("internal_fund_audit_logs")
 }
 
-model Coa {
-  id                   String                @id @default(uuid())
-  code                 String                @unique
-  type                 String
-  name                 String
-  status               String
-  requiredTags         String                @default("[]")
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  journalLineTemplates JournalLineTemplate[]
-
-  @@index([code])
-  @@index([status])
-  @@map("chart_of_accounts")
-}
-
-model Journal {
-  id                      String                 @id @default(uuid())
-  journalNo               String                 @unique @default("TEMP")
-  sourceType              String
-  sourceId                String
-  sourceNo                String?
-  eventCode               String
-  postingStatus           String                 @default("POSTED")
-  postedAt                DateTime?
-  baseAssetId             String
-  reversalOfJournalId     String?
-  description             String?
-  totalAmount             Decimal?
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
-  journalHeaderTemplateId String?
-  baseAsset               Asset                  @relation("BaseAsset", fields: [baseAssetId], references: [id])
-  journalHeaderTemplate   JournalHeaderTemplate? @relation(fields: [journalHeaderTemplateId], references: [id])
-
-  @@index([sourceType, sourceId])
-  @@index([sourceNo])
-  @@index([eventCode])
-  @@index([postingStatus])
-  @@index([baseAssetId])
-  @@index([createdAt])
-  @@index([journalHeaderTemplateId])
-  @@map("journals")
-}
 
 model AssetValuationRate {
   id             String   @id @default(uuid())
@@ -1894,76 +1792,6 @@ model AssetValuationRate {
   @@map("asset_valuation_rates")
 }
 
-model AcctEvent {
-  id                          String                  @id @default(uuid())
-  eventCode                   String                  @unique
-  entityType                  String
-  ownerScope                  String
-  assetType                   String
-  triggerType                 String
-  postingMode                 String
-  clearingMode                String
-  postingReversalOfEventCode  String?
-  clearingReversalOfEventCode String?
-  isActive                    Boolean                 @default(true)
-  description                 String?
-  createdAt                   DateTime                @default(now())
-  updatedAt                   DateTime                @updatedAt
-  fromStatus                  String?
-  toStatus                    String?
-  triggerKey                  String?
-  clearingTemplateCode        String?
-  postingReversalEvent        AcctEvent?              @relation("PostingReversal", fields: [postingReversalOfEventCode], references: [eventCode])
-  reversalOfPosting           AcctEvent[]             @relation("PostingReversal")
-  clearingReversalEvent       AcctEvent?              @relation("ClearingReversal", fields: [clearingReversalOfEventCode], references: [eventCode])
-  reversalOfClearing          AcctEvent[]             @relation("ClearingReversal")
-  journalHeaderTemplates      JournalHeaderTemplate[]
-
-  @@map("acct_events")
-}
-
-model JournalHeaderTemplate {
-  id                   String                @id @default(uuid())
-  templateCode         String                @unique
-  eventCode            String
-  version              Int                   @default(1)
-  status               String                @default("ACTIVE")
-  baseAssetId          String
-  description          String?
-  effectiveFrom        DateTime?
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  effectiveTo          DateTime?
-  acctEvent            AcctEvent             @relation(fields: [eventCode], references: [eventCode])
-  baseAsset            Asset                 @relation(fields: [baseAssetId], references: [id])
-  journalLineTemplates JournalLineTemplate[]
-  journals             Journal[]
-
-  @@map("journal_header_templates")
-}
-
-model JournalLineTemplate {
-  id              String                @id @default(uuid())
-  templateId      String
-  lineNo          Int
-  accountCode     String
-  drCr            String
-  amountSource    String
-  assetSource     String
-  ownerTypeSource String?
-  ownerIdSource   String?
-  fxRateSource    String?
-  referenceSource String?
-  dimensionsRule  String                @default("{}")
-  conditionExpr   String?
-  description     String?
-  createdAt       DateTime              @default(now())
-  headerTemplate  JournalHeaderTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  account         Coa                   @relation(fields: [accountCode], references: [code])
-
-  @@unique([templateId, lineNo])
-  @@map("journal_line_templates")
-}
 
 model SwapQuote {
   id              String           @id @default(uuid())
@@ -2335,7 +2163,6 @@ model Payout {
   updatedAt     DateTime            @updatedAt
   completedAt   DateTime?
   statusHistory String?
-  clearings     Clearing[]          @relation("ClearingOutPayout")
   auditLogs     PayoutAuditLog[]
   withdraw      WithdrawTransaction @relation("WithdrawToPayout", fields: [withdrawId], references: [id])
   asset         Asset               @relation(fields: [assetId], references: [id])
@@ -2571,98 +2398,6 @@ model FiatStatementEntry {
   @@map("fiat_statement_entries")
 }
 
-model ClearingTemplate {
-  id                String                 @id @default(uuid())
-  code              String                 @unique
-  clearingType      String
-  sourceType        String
-  isEnabled         Boolean                @default(true)
-  description       String
-  feeMethod         String                 @default("CONFIGURED_FEE")
-  outAssetSource    String
-  outAmountSource   String
-  inAssetSource     String
-  inAmountSource    String
-  feeAssetSource    String
-  feeAmountSource   String
-  outPayoutIdSource String?
-  inPayinIdSource   String?
-  memoTemplate      String?
-  createdAt         DateTime               @default(now()) @map("created_at")
-  updatedAt         DateTime               @updatedAt @map("updated_at")
-  lineTemplates     ClearingLineTemplate[]
-
-  @@map("clearing_templates")
-}
-
-model ClearingLineTemplate {
-  id                 String           @id @default(uuid())
-  clearingTemplateId String
-  lineNo             Int
-  lineType           String
-  partyType          String
-  partyIdSource      String?
-  assetSource        String
-  amountSource       String
-  refTypeConst       String?
-  refIdSource        String?
-  memoTemplate       String?
-  isEnabled          Boolean          @default(true)
-  createdAt          DateTime         @default(now()) @map("created_at")
-  template           ClearingTemplate @relation(fields: [clearingTemplateId], references: [id], onDelete: Cascade)
-
-  @@unique([clearingTemplateId, lineNo])
-  @@map("clearing_line_templates")
-}
-
-model Clearing {
-  id             String         @id @default(uuid())
-  clearingNo     String         @unique @default("TEMP")
-  clearingType   String
-  sourceType     String
-  sourceId       String
-  outAssetId     String
-  outAmount      Decimal
-  inAssetId      String
-  inAmount       Decimal
-  feeAssetId     String
-  feeAmount      Decimal
-  feeMethod      String         @default("CONFIGURED_FEE")
-  outPayoutId    String?
-  inPayinId      String?
-  clearingStatus String         @default("OPEN")
-  memo           String?
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-  lines          ClearingLine[]
-  inPayin        Payin?         @relation("ClearingInPayin", fields: [inPayinId], references: [id])
-  outPayout      Payout?        @relation("ClearingOutPayout", fields: [outPayoutId], references: [id])
-
-  @@index([sourceType, sourceId])
-  @@index([clearingStatus])
-  @@index([outPayoutId])
-  @@index([inPayinId])
-  @@map("clearings")
-}
-
-model ClearingLine {
-  id         String   @id @default(uuid())
-  clearingId String
-  lineNo     Int
-  lineType   String
-  partyType  String
-  partyId    String?
-  assetId    String
-  amount     Decimal
-  refType    String?
-  refId      String?
-  createdAt  DateTime @default(now()) @map("created_at")
-  clearing   Clearing @relation(fields: [clearingId], references: [id], onDelete: Cascade)
-
-  @@unique([clearingId, lineNo])
-  @@index([clearingId])
-  @@map("clearing_lines")
-}
 
 model SumsubWebhookEvent {
   id                String    @id @default(cuid())
@@ -2887,6 +2622,25 @@ model TbAccountRegistry {
   @@index([ownerUuid])
   @@index([ownerNo])
   @@map("tb_account_registry")
+}
+
+model TbAccountBacklog {
+  id          String   @id @default(uuid())
+  assetCode   String
+  ledger      Int
+  customerId  String
+  customerNo  String
+  code        Int      // 100 (CLIENT_CREDIT) or 101 (CLIENT_AUDIT)
+  status      String   @default("FAILED") // FAILED, COMPLETED
+  attempts    Int      @default(0)
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ledger, customerId, code])
+  @@index([status])
+  @@index([assetCode])
+  @@map("tb_account_backlog")
 }
 
 model TbTransferEvidence {

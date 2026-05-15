@@ -7,8 +7,6 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { JournalsService } from '../../accounting/journals/journals.service';
-import { ClearingsService } from '../../clearing-settle/clearing/clearings.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -94,8 +92,6 @@ export class InternalTransactionsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly journalsService: JournalsService,
-    private readonly clearingsService: ClearingsService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -203,23 +199,12 @@ export class InternalTransactionsService {
   }
 
   private async triggerStatusEvent(
-    client: TxClient,
-    item: any,
-    fromStatus: InternalTransactionStatus | null,
-    toStatus: InternalTransactionStatus,
+    _client: TxClient,
+    _item: any,
+    _fromStatus: InternalTransactionStatus | null,
+    _toStatus: InternalTransactionStatus,
   ) {
-    await this.journalsService.triggerEvent(
-      {
-        entityType: 'INTERNAL_TX',
-        triggerKey: 'status',
-        fromStatus,
-        toStatus,
-        assetType: item?.asset?.type === 'FIAT' ? 'FIAT' : 'CRYPTO',
-        context: this.createAccountingContext(item),
-        sourceId: item.id,
-      },
-      client,
-    );
+    // V2 accounting removed — migrated to TigerBeetle
   }
 
   private async createWithUniqueNo(
@@ -753,21 +738,7 @@ export class InternalTransactionsService {
         client,
       );
 
-      if (next === InternalTransactionStatus.SUCCESS) {
-        const successEventCode =
-          updated?.asset?.type === 'FIAT'
-            ? 'EVT_INTERNAL_TX_SUCCESS__FIAT'
-            : 'EVT_INTERNAL_TX_SUCCESS__CRYPTO';
-        await this.clearingsService.triggerClearing(
-          {
-            sourceType: 'INTERNAL_TX',
-            sourceId: updated.id,
-            eventCode: successEventCode,
-            context: this.createAccountingContext(updated),
-          },
-          client,
-        );
-      }
+      // V2 clearing removed — migrated to TigerBeetle
 
       await this.triggerStatusEvent(client, updated, current, next);
       return updated;

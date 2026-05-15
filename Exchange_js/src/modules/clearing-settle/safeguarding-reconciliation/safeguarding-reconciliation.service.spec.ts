@@ -14,7 +14,7 @@ describe('SafeguardingReconciliationService', () => {
 
   const buildWallet = (overrides: Partial<any> = {}) => ({
     id: 'wallet-1',
-    walletNo: 'WA-DEP-BTC-1',
+    walletNo: 'WA2600000008',
     ownerType: 'CUSTOMER',
     ownerId: 'customer-1',
     ownerNo: 'CU260001',
@@ -222,7 +222,7 @@ describe('SafeguardingReconciliationService', () => {
     prisma.wallet.findMany.mockResolvedValue([
       buildWallet({
         id: 'wallet-deposit',
-        walletNo: 'WA-DEP-BTC-CU1',
+        walletNo: 'WA2600000009',
         walletRole: 'C_DEP',
         direction: 'INBOUND',
         ownerType: 'CUSTOMER',
@@ -231,7 +231,7 @@ describe('SafeguardingReconciliationService', () => {
       }),
       buildWallet({
         id: 'wallet-master',
-        walletNo: 'WA-MST-BTC-NA',
+        walletNo: 'WA2600000010',
         walletRole: 'C_MAIN',
         direction: 'BIDIRECTIONAL',
         ownerType: 'CUSTOMER',
@@ -305,7 +305,7 @@ describe('SafeguardingReconciliationService', () => {
     prisma.wallet.findMany.mockResolvedValue([
       buildWallet({
         id: 'wallet-master',
-        walletNo: 'WA-MST-BTC-NA',
+        walletNo: 'WA2600000010',
         walletRole: 'C_MAIN',
         direction: 'BIDIRECTIONAL',
         ownerType: 'CUSTOMER',
@@ -360,7 +360,7 @@ describe('SafeguardingReconciliationService', () => {
     prisma.wallet.findMany.mockResolvedValue([
       buildWallet({
         id: 'wallet-bank',
-        walletNo: 'WA-CBK-AED-NA',
+        walletNo: 'WA2600000001',
         walletRole: 'C_CMA',
         type: 'FIAT_BANK',
         direction: 'BIDIRECTIONAL',
@@ -434,7 +434,7 @@ describe('SafeguardingReconciliationService', () => {
     prisma.wallet.findUnique.mockResolvedValue(
       buildWallet({
         id: 'wallet-bank',
-        walletNo: 'WA-CBK-AED-NA',
+        walletNo: 'WA2600000001',
         walletRole: 'C_CMA',
         type: 'FIAT_BANK',
         direction: 'BIDIRECTIONAL',
@@ -504,12 +504,12 @@ describe('SafeguardingReconciliationService', () => {
     );
   });
 
-  it('rejects fiat statement import when CUST_BANK wallet enablement is not effective', async () => {
+  it('rejects fiat statement import when C_CMA wallet enablement is not effective', async () => {
     prisma.asset.findUnique.mockResolvedValue(assetRows[1]);
     prisma.wallet.findUnique.mockResolvedValue(
       buildWallet({
         id: 'wallet-bank',
-        walletNo: 'WA-CBK-AED-NA',
+        walletNo: 'WA2600000001',
         walletRole: 'C_CMA',
         type: 'FIAT_BANK',
         direction: 'BIDIRECTIONAL',
@@ -540,7 +540,7 @@ describe('SafeguardingReconciliationService', () => {
         },
         'admin-1',
       ),
-    ).rejects.toThrow('CUST_BANK wallet must be regulator-enabled before statement import');
+    ).rejects.toThrow('C_CMA wallet must be regulator-enabled before statement import');
   });
 
   it('updates break status without mutating payout or withdraw business states', async () => {

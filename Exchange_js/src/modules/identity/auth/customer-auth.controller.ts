@@ -42,12 +42,16 @@ export class CustomerAuthController {
 
   @Post('register')
   @ApiOperation({ summary: 'Register a new customer' })
-  async register(@Body() body: any) {
+  async register(@Req() req: any, @Body() body: any) {
     const result = RegisterSchema.safeParse(body);
     if (!result.success) {
       throw new UnauthorizedException('Invalid input format');
     }
-    return this.customerAuthService.register(result.data);
+    return this.customerAuthService.register(result.data, {
+      requestId: req.id,
+      sourceIp: this.resolveRequestSourceIp(req),
+      sourcePlatform: 'CUSTOMER_AUTH_API',
+    });
   }
 
   @Post('login')

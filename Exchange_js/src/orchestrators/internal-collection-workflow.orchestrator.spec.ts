@@ -53,7 +53,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
 
   const depositWallet = {
     id: 'wallet-deposit',
-    walletNo: 'WA-DEP-BTC-DEMO',
+    walletNo: 'WA2600000007',
     walletRole: 'C_DEP',
     ownerType: 'CUSTOMER',
     ownerId: 'customer-1',
@@ -153,7 +153,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     expect(result.items[0]).toEqual(
       expect.objectContaining({
         walletId: 'wallet-deposit',
-        walletNo: 'WA-DEP-BTC-DEMO',
+        walletNo: 'WA2600000007',
         assetCode: 'BTC',
         shouldCollect: true,
         collectionAmountThreshold: '1',
@@ -181,7 +181,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     ]);
     prisma.wallet.findFirst.mockResolvedValue({
       id: 'wallet-master',
-      walletNo: 'WA-MST-BTC-BITCOIN',
+      walletNo: 'WA2600000003',
       address: 'bc1qmaster',
       iban: null,
     });
@@ -310,7 +310,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     ]);
     prisma.wallet.findFirst.mockResolvedValue({
       id: 'wallet-master',
-      walletNo: 'WA-MST-BTC-BITCOIN',
+      walletNo: 'WA2600000003',
       address: 'bc1qmaster',
       iban: null,
     });
@@ -345,7 +345,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
       {
         internalTransactionId: 'itx-created',
         status: InternalFundStatus.CREATED,
-        referenceNo: 'COLL-WA-DEP-BTC-DEMO',
+        referenceNo: 'COLL-WA2600000007',
       },
       'admin-1',
       mockTxClient,
@@ -386,7 +386,7 @@ describe('InternalCollectionWorkflowOrchestrator', () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(null);
     prisma.wallet.findFirst.mockResolvedValue({
       id: 'wallet-master',
-      walletNo: 'WA-MST-BTC-BTC',
+      walletNo: 'WA2600000011',
       address: '0xmaster',
       iban: null,
     });

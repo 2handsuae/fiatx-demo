@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPasswordResetWorkflowService } from '../users/admin-password-reset-workflow.service';
-import { FirstLoginWorkflowService } from '../users/first-login-workflow.service';
+import { MfaBindingWorkflowService } from '../users/mfa-binding-workflow.service';
 import { PasswordResetMfaGuard } from './guards/password-reset-mfa.guard';
 import {
   PasswordResetRequestDto,
@@ -21,7 +21,7 @@ import {
 export class PasswordResetController {
   constructor(
     private readonly passwordResetWorkflow: AdminPasswordResetWorkflowService,
-    private readonly firstLoginWorkflow: FirstLoginWorkflowService,
+    private readonly mfaBindingWorkflow: MfaBindingWorkflowService,
   ) {}
 
   @Post('request')
@@ -40,7 +40,7 @@ export class PasswordResetController {
     @Body(new ValidationPipe({ transform: true })) body: PasswordResetVerifyMfaDto,
   ) {
     const { userId, userNo, email } = req.passwordResetMfaUser;
-    await this.firstLoginWorkflow.verifyMfaCode(userId, body.code);
+    await this.mfaBindingWorkflow.verifyMfaCode(userId, body.code);
     return this.passwordResetWorkflow.createResetTokenForSelf(userId, userNo, email);
   }
 

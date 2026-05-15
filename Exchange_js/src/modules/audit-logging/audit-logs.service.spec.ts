@@ -98,13 +98,27 @@ describe('AuditLogsService', () => {
 
   it('should freeze Wave 1 business workflow taxonomy and user-action vocabulary', () => {
     expect(AuditBusinessWorkflowTypes).toEqual({
-      ADMIN_MEMBER_PROVISIONING: 'ADMIN_MEMBER_PROVISIONING',
       ADMIN_LOGIN_ACCESS: 'ADMIN_LOGIN_ACCESS',
       ADMIN_ROLE_BINDING_CHANGE: 'ADMIN_ROLE_BINDING_CHANGE',
-      CHANGE_TICKET_DELETION: 'CHANGE_TICKET_DELETION',
-      ADMIN_USER_DELETION: 'ADMIN_USER_DELETION',
-      AUDIT_EVIDENCE_PACKAGE_DELETION: 'AUDIT_EVIDENCE_PACKAGE_DELETION',
       AUDIT_EVIDENCE_EXPORT: 'AUDIT_EVIDENCE_EXPORT',
+      BUSINESS_CONFIG_CHANGE: 'BUSINESS_CONFIG_CHANGE',
+      ADMIN_INVITE: 'ADMIN_INVITE',
+      ADMIN_SUSPENSION: 'ADMIN_SUSPENSION',
+      ADMIN_REACTIVATION: 'ADMIN_REACTIVATION',
+      ADMIN_FIRST_LOGIN: 'ADMIN_FIRST_LOGIN',
+      APPROVAL_POLICY: 'APPROVAL_POLICY',
+      ROLE_DEFINITION_CREATE: 'ROLE_DEFINITION_CREATE',
+      ROLE_DEFINITION_MODIFY: 'ROLE_DEFINITION_MODIFY',
+      ADMIN_PASSWORD_RESET: 'ADMIN_PASSWORD_RESET',
+      ADMIN_MFA_RESET: 'ADMIN_MFA_RESET',
+      ASSET_LISTING: 'ASSET_LISTING',
+      CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
+      WITHDRAWAL_ADDRESS_REGISTRATION: 'WITHDRAWAL_ADDRESS_REGISTRATION',
+      TB_ACCOUNT_MANUAL_CREATE: 'TB_ACCOUNT_MANUAL_CREATE',
+      ASSET_SUSPENSION: 'ASSET_SUSPENSION',
+      ASSET_REACTIVATION: 'ASSET_REACTIVATION',
+      ASSET_CREATION: 'ASSET_CREATION',
+      ASSET_ACTIVATION: 'ASSET_ACTIVATION',
     });
 
     expect(AuditUserActions).toEqual({
@@ -129,33 +143,6 @@ describe('AuditLogsService', () => {
   });
 
   it('should map raw technical audit actions to user-layer actions', () => {
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CREATED)).toBe(
-      AuditUserActions.REQUEST_CREATED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_SUBMITTED)).toBe(
-      AuditUserActions.SUBMITTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_APPROVED)).toBe(
-      AuditUserActions.APPROVED_FOR_EXECUTION,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CONSUMED)).toBe(
-      AuditUserActions.EXECUTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CREATED)).toBe(
-      AuditUserActions.REQUEST_CREATED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_SUBMITTED)).toBe(
-      AuditUserActions.SUBMITTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_APPROVED)).toBe(
-      AuditUserActions.APPROVED_FOR_EXECUTION,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CANCELLED)).toBe(
-      AuditUserActions.CANCELLED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CONSUMED)).toBe(
-      AuditUserActions.EXECUTED,
-    );
     expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
       AuditUserActions.SUBMITTED,
     );
@@ -599,7 +586,7 @@ describe('AuditLogsService', () => {
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-1',
         entityNo: 'APR2604010001',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -607,23 +594,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T10:00:00.000Z'),
-        subjectNos: [],
-      },
-      {
-        id: 'wf-dr-1',
-        auditNo: 'AUD2604010002',
-        action: AuditActions.DELETE_REQUEST_CREATED,
-        entityType: AuditEntityTypes.DELETE_REQUEST,
-        entityId: 'request-1',
-        entityNo: 'DR2604010001',
-        workflowType: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T10:01:00.000Z'),
         subjectNos: [],
       },
       {
@@ -666,28 +636,21 @@ describe('AuditLogsService', () => {
     const result = await service.findAll({ take: 20 });
 
     expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-      businessWorkflowLabel: 'Admin Member Provisioning',
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      businessWorkflowLabel: 'Admin Role Binding Change',
       userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
       userActionLabel: 'Approved For Execution',
       primaryRefNo: 'APR2604010001',
       action: AuditActions.APPROVAL_APPROVED,
     });
     expect(result.items[1]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-      businessWorkflowLabel: 'Change Ticket Deletion',
-      userAction: AuditUserActions.REQUEST_CREATED,
-      userActionLabel: 'Request Created',
-      primaryRefNo: 'DR2604010001',
-    });
-    expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
       businessWorkflowLabel: 'Admin Login Access',
       userAction: AuditUserActions.LOGIN_SUCCEEDED,
       userActionLabel: 'Login Succeeded',
       primaryRefNo: null,
     });
-    expect(result.items[3]).toMatchObject({
+    expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       businessWorkflowLabel: 'Audit Evidence Export',
       userAction: AuditUserActions.EXPORTED,
@@ -707,7 +670,7 @@ describe('AuditLogsService', () => {
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-2',
         entityNo: 'APR2604010002',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.FAILED,
@@ -722,7 +685,7 @@ describe('AuditLogsService', () => {
     const result = await service.findAll({ take: 20 });
 
     expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       userAction: AuditActions.APPROVAL_EXECUTION_FAILED,
       userActionLabel: 'Approval Execution Failed',
     });
@@ -738,7 +701,7 @@ describe('AuditLogsService', () => {
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-3',
         entityNo: 'APR2604010003',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -751,8 +714,8 @@ describe('AuditLogsService', () => {
             id: 'sub-related-1',
             eventId: 'ref-root-1',
             subjectRole: 'RELATED',
-            subjectType: 'CHANGE_TICKET',
-            subjectId: 'ticket-1',
+            subjectType: 'TRAINING_RECORD',
+            subjectId: 'training-1',
             subjectNo: 'CT2604010013',
             occurredAt: new Date('2026-04-01T11:03:00.000Z'),
             createdAt: new Date('2026-04-01T11:03:00.000Z'),

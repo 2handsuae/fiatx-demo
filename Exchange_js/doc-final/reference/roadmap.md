@@ -104,18 +104,18 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ## V3 — 财务配置
 
-> 建立记账架构底座与资产治理体系：TigerBeetle 账户模型、资产上架与暂停、系统钱包开通、客户金融账户开通、充值地址与 VIBAN 分配、提现地址注册（含安全冷却）、交易限额配置。V4–V7 所有记账操作的硬前置依赖。
+> 三个独立基础能力（Asset / Wallet / TB Account）+ 提现地址注册 + 限额配置。三个 primitive 互不依赖，上层编排按需动态组合（如 Asset Listing 通过后触发 Wallet Creation + TB Account Creation）。V4–V7 所有记账操作的硬前置依赖。
+> Wallet Creation 是一个 workflow、两个入口（Admin 系统级 + Client 客户级），按 ownerType / walletRole 区分。
 
-### MVP（9 workflows）
+### MVP（8 workflows）
 
-- [x] Asset Listing（资产上架审批：Maker 提案含全部参数——symbol / precision / 支持网络 / 合约地址 / min-max 金额 / 充提启用开关 → Checker 审批 → 批准后系统自动创建该资产全套 TB 系统账户） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行 ✅ 2026-05-11
-- [ ] System Wallet Provisioning（系统钱包开通：资产上架审批通过后，为该资产创建一组系统钱包——MASTER / OUTBOUND / LIQ 等；钱包是物理托管层，TB 账户是记账层，两层独立但同步创建） — **业务必须**：V4-V7 充提和内部转账的物理执行依赖系统钱包
+- [-] Asset Listing（资产上架审批：Maker 提案含全部参数——symbol / precision / 支持网络 / 合约地址 / min-max 金额 / 充提启用开关 → Checker 审批；纯配置层，不直接触发 Wallet 或 TB Account 创建） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行 🔸 半完成 2026-05-11
+- [x] Custodian Wallet Creation — Crypto（在 HexTrust 创建钱包：Admin 入口创建系统钱包组 MASTER / OUTBOUND / LIQ 等；Client 入口创建客户充值地址；按 ownerType + walletRole 区分） — **业务必须**：V4-V7 充提和内部转账的物理执行依赖 ✅ 2026-05-13
+- [x] Custodian Wallet Creation — Fiat（在 ZandBank 创建账户：Admin 入口创建系统账户；Client 入口创建客户 VIBAN；按 ownerType + walletRole 区分） — **业务必须**：V4 法币充值的前置 ✅ 2026-05-13
 - [ ] Asset Suspension / Resumption（资产暂停/恢复审批：区别于 V4/V5 的"渠道暂停"——渠道暂停只关一条链或一个银行通道，这里是暂停整个资产的所有操作；暂停期间充值进 Suspense、提现/兑换拒绝新建；恢复需审批） — **VARA**：TIR Rulebook IV.C Incident Response — 技术故障 / 合规要求 / 链分叉时必须能暂停资产级操作
-- [ ] Customer Account Provisioning（客户 TB 账户开通：V2 Onboarding 通过后自动触发 → 为客户创建全套 TB 账户组；仅做账户创建，充值地址和 VIBAN 由独立工作流分配） — **业务必须**：V4-V6 的前置，客户没有 TB 账户就无法记账
-- [ ] Crypto Deposit Address Creation（为客户创建虚拟币充值地址 + 对应 TB Account；Onboarding 完成后触发或按需创建） — **业务必须**：V4 虚拟币充值的前置
-- [ ] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → 账户持有人姓名与客户身份匹配校验 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；注册时同步在 Zand Bank 建立白名单对） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止
-- [ ] VIBAN Creation（为客户分配法币 VIBAN：前置条件——客户已完成 Bank Withdrawal Address Registration，Zand Bank 白名单对已建立 → 分配 VIBAN → 关联 TB Account） — **业务必须**：V4 法币充值的前置；依赖 Bank Withdrawal Address Registration
 - [ ] Withdrawal Address Registration — Crypto（客户注册提现虚拟币地址：提交地址 → 地址格式 + 网络校验 → PENDING_ACTIVATION → 安全冷却期 24-48h → 冷却期内发通知 + 客户可取消 → 冷却期满自动 ACTIVE → 方可用于提现） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移
+- [ ] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → 账户持有人姓名与客户身份匹配校验 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；注册时同步在 ZandBank 建立白名单对） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止
+- [ ] TB Account Creation（在 TigerBeetle 创建账户：系统级或客户级均走此 workflow；按账户类型定义创建对应 TB 账户组） — **业务必须**：V4-V6 的前置，没有 TB 账户就无法记账
 - [ ] Transaction Limit Configuration（交易限额配置变更审批：定义 Level 1 / Level 2 × 操作类型 deposit/withdrawal/swap × 时间周期 daily/monthly 的金额上限矩阵；变更走 Maker/Checker；V4-V7 运行时消费此配置做前置校验） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额是 AML 风控的核心参数
 
 ### ADVANCED（3 workflows）
@@ -127,7 +127,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 ### Supporting Features（非 workflow，无独立状态机）
 
 - **TB Account 类型定义** — 全量定义资产侧 / 负债侧 / 系统级 / 客户级账户类型及 flags ✅ 2026-05-11
-- **钱包模型（V3 适配）** — V1 Wallet 模型已有角色体系（DEPOSIT / MASTER / OUTBOUND / LIQ / OPS），需清理适配 V3：去除旧 Journal/Balance 依赖，明确 TB 记账层与物理钱包层的职责分离
+- **钱包模型（V3 适配）** — V1 Wallet 模型已有角色体系（DEPOSIT / MASTER / OUTBOUND / LIQ / OPS），需清理适配 V3：去除旧 Journal/Balance 依赖，明确 TB 记账层与物理钱包层的职责分离 ✅ 2026-05-12
 
 ---
 

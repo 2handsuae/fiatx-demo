@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw, Plus } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
+import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -10,285 +11,302 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
 
-interface Asset {
+/* ── Interfaces ──────────────────────────────────────────────── */
+
+interface AssetItem {
   id: string;
-  assetNo?: string | null;
-  type: 'FIAT' | 'CRYPTO';
+  assetNo: string | null;
+  type: string;
   code: string;
   network: string | null;
   decimals: number;
   description: string | null;
-  status: 'ACTIVE' | 'DISABLED';
+  status: string;
   createdAt: string;
   updatedAt: string;
 }
 
+interface AssetListResponse {
+  total: number;
+  items: AssetItem[];
+}
+
+interface FilterState {
+  codeSearch: string;
+  type: string;
+  status: string;
+}
+
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/* ── Constants ───────────────────────────────────────────────── */
+
+const PAGE_SIZE = 20;
+
+const DEFAULT_FILTERS: FilterState = {
+  codeSearch: '',
+  type: '',
+  status: '',
+};
+
+/* ── Component ───────────────────────────────────────────────── */
+
 const AssetList = () => {
   const navigate = useNavigate();
-  const [assets, setAssets] = useState<Asset[]>([]);
+
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [items, setItems] = useState<AssetItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const hasFilters = !!search.trim() || !!typeFilter || !!statusFilter;
+  const requestSeqRef = useRef(0);
 
-  type AssetFilters = {
-    search: string;
-    typeFilter: string;
-    statusFilter: string;
+  /* ── Data fetching ── */
+
+  const buildParams = (page: number, next: FilterState) => {
+    const params = new URLSearchParams();
+    params.set('skip', String((page - 1) * PAGE_SIZE));
+    params.set('take', String(PAGE_SIZE));
+    if (next.codeSearch.trim()) params.set('code', next.codeSearch.trim());
+    if (next.type) params.set('type', next.type);
+    if (next.status) params.set('status', next.status);
+    return params;
   };
 
-  const fetchAssets = async (overrides?: Partial<AssetFilters>) => {
+  const fetchItems = async (page: number, next: FilterState = filters) => {
+    const seq = ++requestSeqRef.current;
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      const nextFilters: AssetFilters = {
-        search,
-        typeFilter,
-        statusFilter,
-        ...overrides,
-      };
-      const params = new URLSearchParams();
-      if (nextFilters.search.trim()) params.append('code', nextFilters.search.trim());
-      if (nextFilters.typeFilter) params.append('type', nextFilters.typeFilter);
-      if (nextFilters.statusFilter) params.append('status', nextFilters.statusFilter);
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/assets?${buildParams(page, next).toString()}`,
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load assets.'));
 
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?${params.toString()}`);
-      if (response.ok) {
-        const result = await response.json();
-        setAssets(result.items || []);
-      } else {
-        throw new Error(await getApiErrorMessage(response, 'Failed to fetch assets.'));
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Failed to fetch assets', error);
-      setError(error instanceof Error ? error.message : 'Failed to fetch assets.');
+      const data = (await res.json()) as AssetListResponse;
+      if (seq !== requestSeqRef.current) return;
+      setItems(Array.isArray(data.items) ? data.items : []);
+      setTotal(typeof data.total === 'number' ? data.total : 0);
+      setCurrentPage(page);
+    } catch (err) {
+      if (seq !== requestSeqRef.current) return;
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Failed to load assets.');
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   };
 
-  useEffect(() => {
-    void fetchAssets();
-  }, []);
+  useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); }, []);
 
-  const resetFilters = async () => {
-    setSearch('');
-    setTypeFilter('');
-    setStatusFilter('');
-    await fetchAssets({
-      search: '',
-      typeFilter: '',
-      statusFilter: '',
-    });
+  /* ── Input style ── */
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
+
+  const hasFilter = !!filters.codeSearch || !!filters.type || !!filters.status;
+
+  const updateFilter = (key: keyof FilterState, value: string) =>
+    setFilters((prev) => ({ ...prev, [key]: value }));
+
+  const handleSearch = () => void fetchItems(1, filters);
+
+  const handleReset = () => {
+    setFilters(DEFAULT_FILTERS);
+    void fetchItems(1, DEFAULT_FILTERS);
   };
 
-  const handleStatusChange = async (id: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
-    if (!window.confirm(`Are you sure you want to ${newStatus === 'DISABLED' ? 'disable' : 'activate'} this asset?`)) return;
+  /* (Suspend / Reactivate actions are on the detail page) */
 
-    try {
-      setError('');
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/assets/${id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
-      
-      if (response.ok) {
-        await fetchAssets();
-      } else {
-        setError(await getApiErrorMessage(response, 'Failed to update asset status.'));
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Failed to update status', error);
-      setError(error instanceof Error ? error.message : 'Failed to update asset status.');
-    }
-  };
+  /* ── Table header style ── */
+  const th =
+    'px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3';
 
-  const renderStatusBadge = (status: string) => {
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${status === 'ACTIVE' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-        {status}
-      </span>
-    );
-  };
+  /* ── Render ── */
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Assets</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage system assets and tokens</p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => void fetchAssets()} className={adminIconButtonClass()}>
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
-          <button 
-            onClick={() => navigate('/dashboard/system/assets/create')}
-            className={adminButtonClass('listPrimary')}
-          >
-            <Plus size={20} /> New Asset
-          </button>
-        </div>
-      </div>
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* ─── Zone 1: Title ─── */}
+      <PageTitleBar
+        title="Assets"
+        subtitle={`${total} assets · Configuration`}
+      >
+        <button
+          onClick={() => navigate('/dashboard/system/assets/create')}
+          className={adminButtonClass('listPrimary')}
+        >
+          <Plus size={13} /> New Asset
+        </button>
+      </PageTitleBar>
 
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {/* ─── Error banner ─── */}
+      {error && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-danger/5 px-4 py-2 font-mono text-[11px] text-adm-danger">
           {error}
         </div>
-      ) : null}
+      )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
-          <div className="relative flex-1 max-w-md flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 text-gray-400 w-5 h-5" />
-              <input 
-                type="text" 
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && void fetchAssets()}
-                placeholder="Search by asset code..." 
-                className="w-full pl-10 pr-4 py-2 bg-admin-content-bg border border-admin-border rounded-lg focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20 transition-all duration-200"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => void fetchAssets()}
-              className={adminButtonClass('listPrimary')}
-            >
-              Search
-            </button>
-            <button
-              type="button"
-              onClick={() => void resetFilters()}
-              className={adminButtonClass('listSecondary')}
-              disabled={!hasFilters || loading}
-            >
-              Reset
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <select 
-              value={typeFilter} 
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="px-3 py-2 border border-admin-border rounded-lg bg-white text-sm text-gray-600 focus:outline-none focus:border-brand-primary"
-            >
-              <option value="">All Types</option>
-              <option value="FIAT">Fiat</option>
-              <option value="CRYPTO">Crypto</option>
-            </select>
-            <select 
-              value={statusFilter} 
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-admin-border rounded-lg bg-white text-sm text-gray-600 focus:outline-none focus:border-brand-primary"
-            >
-              <option value="">All Status</option>
-              <option value="ACTIVE">Active</option>
-              <option value="DISABLED">Disabled</option>
-            </select>
-          </div>
-        </div>
+      {/* ─── Zone 2: Filter bar ─── */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border px-4 py-2">
+        <input
+          className={`${fi} w-[180px]`}
+          placeholder="Asset code"
+          value={filters.codeSearch}
+          onChange={(e) => updateFilter('codeSearch', e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+        />
+        <select
+          className={`${fi} w-[120px]`}
+          value={filters.type}
+          onChange={(e) => updateFilter('type', e.target.value)}
+        >
+          <option value="">All types</option>
+          <option value="FIAT">FIAT</option>
+          <option value="CRYPTO">CRYPTO</option>
+        </select>
+        <select
+          className={`${fi} w-[160px]`}
+          value={filters.status}
+          onChange={(e) => updateFilter('status', e.target.value)}
+        >
+          <option value="">All status</option>
+          <option value="PROVISIONING">PROVISIONING</option>
+          <option value="ACTIVE">ACTIVE</option>
+          <option value="SUSPENDED">SUSPENDED</option>
+        </select>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-admin-content-bg border-b border-admin-border">
+        <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
+          Search
+        </button>
+        <button
+          onClick={handleReset}
+          disabled={!hasFilter}
+          className={adminButtonClass('listSecondary')}
+        >
+          Reset
+        </button>
+
+        <button
+          onClick={() => void fetchItems(currentPage, filters)}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* ─── Zone 3: Table ─── */}
+      <div className="flex-1 overflow-y-auto">
+        <table className="w-full border-collapse text-[11px]">
+          <thead className="sticky top-0 z-10 bg-adm-panel">
+            <tr className="border-b border-adm-border">
+              <th className={th} style={{ width: 120 }}>Asset No</th>
+              <th className={th} style={{ width: 80 }}>Type</th>
+              <th className={th} style={{ width: 100 }}>Network</th>
+              <th className={th} style={{ width: 70 }}>Decimals</th>
+              <th className={th}>Description</th>
+              <th className={th} style={{ width: 80 }}>Status</th>
+              <th className={th} style={{ width: 140 }}>Updated</th>
+              <th className={th} style={{ width: 120 }}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.length === 0 && !loading ? (
               <tr>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Network</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Decimals</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
+                <td colSpan={8} className="px-3 py-12 text-center text-[11px] text-adm-t3">
+                  No assets found
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {loading && assets.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                      Loading assets...
+            ) : (
+              items.map((a) => (
+                <tr
+                  key={a.id}
+                  className="border-b border-adm-border hover:bg-adm-hover"
+                >
+                  <td className="px-3 py-2">
+                    <button
+                      className={adminButtonClass('rowKeyLink')}
+                      onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                      title={a.assetNo || a.code}
+                    >
+                      {a.assetNo || a.code}
+                    </button>
+                    <div className="mt-0.5 font-mono text-[10px] text-adm-t3">{a.code}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <AdminBadge value={a.type} />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-adm-t2">
+                    {a.network || '—'}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-adm-t2">
+                    {a.decimals}
+                  </td>
+                  <td className="px-3 py-2 text-adm-t2 truncate max-w-[200px]" title={a.description || ''}>
+                    {a.description || '—'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <AdminBadge value={a.status} />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-adm-t2">
+                    {fmt(a.updatedAt)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-1.5">
+                      {a.status === 'PROVISIONING' && (
+                        <button
+                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          Activate
+                        </button>
+                      )}
+                      {a.status === 'ACTIVE' && (
+                        <button
+                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          Suspend
+                        </button>
+                      )}
+                      {a.status === 'SUSPENDED' && (
+                        <button
+                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                          className={adminButtonClass('rowSecondaryUtility')}
+                        >
+                          Reactivate
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
-              ) : assets.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                    No assets found
-                  </td>
-                </tr>
-              ) : (
-                assets.map((asset) => (
-                  <tr key={asset.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${asset.type === 'CRYPTO' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                        {asset.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 font-medium text-gray-900">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/dashboard/system/assets/${asset.id}`)}
-                        className={adminButtonClass('rowKeyLink')}
-                        title={asset.assetNo || asset.code}
-                      >
-                        {asset.assetNo || asset.code}
-                      </button>
-                      <div className="text-xs text-gray-500">{asset.code}</div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">
-                      {asset.network || '-'}
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">
-                      {asset.decimals}
-                    </td>
-                    <td className="px-6 py-4 text-gray-500 max-w-xs truncate" title={asset.description || ''}>
-                      {asset.description || '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      {renderStatusBadge(asset.status)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => navigate(`/dashboard/system/assets/${asset.id}`)}
-                          className={adminButtonClass('rowLink')}
-                        >
-                          View
-                        </button>
-                        <button 
-                          onClick={() => handleStatusChange(asset.id, asset.status)}
-                          className={adminButtonClass('rowSecondaryUtility')}
-                        >
-                          {asset.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        
-        <div className="p-4 border-t border-admin-border bg-admin-content-bg text-xs text-gray-500 flex justify-between items-center">
-          <span>Showing {assets.length} records</span>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-admin-border rounded bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors" disabled>Previous</button>
-            <button className="px-3 py-1 border border-admin-border rounded bg-white hover:bg-gray-50 disabled:opacity-50 transition-colors" disabled>Next</button>
-          </div>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ─── Zone 4: Footer ─── */}
+      <div className="flex shrink-0 items-center justify-between border-t border-adm-border px-4 py-2 text-[10px] text-adm-t3">
+        <span>
+          Showing {items.length} / {total} assets
+        </span>
+        <Pagination
+          currentPage={currentPage}
+          totalItems={total}
+          pageSize={PAGE_SIZE}
+          onPageChange={(p: number) => void fetchItems(p, filters)}
+        />
       </div>
     </div>
   );

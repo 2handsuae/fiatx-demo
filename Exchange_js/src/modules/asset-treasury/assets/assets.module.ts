@@ -7,8 +7,13 @@ import { AssetsController } from './assets.controller';
 import { AssetListingController } from './asset-listing.controller';
 import { AssetsService } from './assets.service';
 import { AssetListingWorkflowService } from './asset-listing-workflow.service';
-import { AssetListingApprovalService } from './asset-listing-approval.service';
 import { AssetProvisioningService } from './asset-provisioning.service';
+import { AssetActivationApprovalService } from './asset-activation-approval.service';
+import { AssetActivationWorkflowService } from './asset-activation-workflow.service';
+import { AssetSuspensionApprovalService } from './asset-suspension-approval.service';
+import { AssetReactivationApprovalService } from './asset-reactivation-approval.service';
+import { AssetSuspensionWorkflowService } from './asset-suspension-workflow.service';
+import { AssetReactivationWorkflowService } from './asset-reactivation-workflow.service';
 import { WalletsModule } from '../wallets/wallets.module';
 
 @Module({
@@ -17,8 +22,13 @@ import { WalletsModule } from '../wallets/wallets.module';
   providers: [
     AssetsService,
     AssetListingWorkflowService,
-    AssetListingApprovalService,
     AssetProvisioningService,
+    AssetActivationApprovalService,
+    AssetActivationWorkflowService,
+    AssetSuspensionApprovalService,
+    AssetReactivationApprovalService,
+    AssetSuspensionWorkflowService,
+    AssetReactivationWorkflowService,
   ],
   exports: [AssetsService],
 })

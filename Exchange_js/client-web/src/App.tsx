@@ -16,6 +16,7 @@ const Withdraw = lazy(() => import('./pages/Withdraw'));
 const Swap = lazy(() => import('./pages/Swap'));
 const DashboardOverview = lazy(() => import('./pages/DashboardOverview'));
 const TransactionHistory = lazy(() => import('./pages/TransactionHistory'));
+const WithdrawalAddresses = lazy(() => import('./pages/WithdrawalAddresses'));
 
 const RouteLoading = () => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
@@ -46,6 +47,7 @@ function App() {
                  <Route path="/swap" element={<AuthGuard><Swap /></AuthGuard>} />
                  <Route path="/withdraw" element={<AuthGuard><Withdraw /></AuthGuard>} />
                  <Route path="/transactions" element={<AuthGuard><TransactionHistory /></AuthGuard>} />
+                 <Route path="/withdrawal-addresses" element={<AuthGuard><WithdrawalAddresses /></AuthGuard>} />
 
                  {/* Public Dashboard Routes */}
                  <Route path="/profile" element={<CustomerProfile />} />

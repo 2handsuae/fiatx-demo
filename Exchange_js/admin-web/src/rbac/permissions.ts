@@ -100,17 +100,6 @@ export const PERMISSIONS = {
   GOV_APPROVAL_APPROVE: 'api.post.admin_control_gates_approvals_id_approve',
   GOV_APPROVAL_REJECT: 'api.post.admin_control_gates_approvals_id_reject',
   GOV_APPROVAL_CANCEL: 'api.post.admin_control_gates_approvals_id_cancel',
-  GOV_CHANGE_TICKETS_READ: 'api.get.admin_control_gates_change_tickets',
-  GOV_CHANGE_TICKET_DETAIL_READ: 'api.get.admin_control_gates_change_tickets_id',
-  GOV_CHANGE_TICKET_CREATE: 'api.post.admin_control_gates_change_tickets',
-  GOV_CHANGE_TICKET_SUBMIT: 'api.post.admin_control_gates_change_tickets_id_submit',
-  GOV_CHANGE_TICKET_CONSUME: 'api.post.admin_control_gates_change_tickets_id_consume',
-  GOV_DELETE_REQUESTS_READ: 'api.get.admin_control_gates_delete_requests',
-  GOV_DELETE_REQUEST_DETAIL_READ: 'api.get.admin_control_gates_delete_requests_id',
-  GOV_DELETE_REQUEST_CREATE: 'api.post.admin_control_gates_delete_requests',
-  GOV_DELETE_REQUEST_SUBMIT: 'api.post.admin_control_gates_delete_requests_id_submit',
-  GOV_DELETE_REQUEST_CANCEL: 'api.post.admin_control_gates_delete_requests_id_cancel',
-  GOV_DELETE_REQUEST_CONSUME: 'api.post.admin_control_gates_delete_requests_id_consume',
   GOV_SHAREHOLDING_REGISTRY_READ:
     'api.get.admin_governance_registries_shareholding_versions',
   GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:
@@ -199,11 +188,8 @@ export const PERMISSIONS = {
   LIQUIDITY_CONFIG_UPDATE: 'api.put.liquidity_configurations_id',
   ASSETS_READ: 'api.get.assets',
   ASSETS_CREATE: 'api.post.assets',
-  ACCT_EVENTS_READ: 'api.get.acct_events',
-  JOURNAL_HEADER_TEMPLATES_READ: 'api.get.journal_header_templates',
-  JOURNAL_LINE_TEMPLATES_READ: 'api.get.journal_line_templates',
-  CLEARING_TEMPLATES_READ: 'api.get.clearing_templates',
-
+  CUSTODIAN_WALLET_CREATE: 'api.post.admin_custodian_wallets',
+  CUSTODIAN_WALLET_RETRY: 'api.post.admin_custodian_wallets_walletno_retry',
   DEPOSIT_TRANSACTIONS_READ: 'api.get.deposit_transactions',
   DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_id',
   WITHDRAW_TRANSACTIONS_READ: 'api.get.withdraw_transactions',
@@ -211,17 +197,10 @@ export const PERMISSIONS = {
   INTERNAL_TRANSACTIONS_READ: 'api.get.admin_internal_transactions',
   INTERNAL_TRANSACTION_DETAIL_READ: 'api.get.admin_internal_transactions_id',
 
-  COA_READ: 'api.get.coa',
-  JOURNALS_READ: 'api.get.journals',
-  JOURNAL_DETAIL_READ: 'api.get.journals_id',
-  JOURNAL_LINES_READ: 'api.get.journal_lines',
-  JOURNAL_LINE_DETAIL_READ: 'api.get.journal_lines_id',
-  CUSTOMER_BALANCE_HISTORY_READ: 'api.get.journal_lines_customer_balance_history',
 
-  CLEARINGS_READ: 'api.get.clearings',
-  CLEARING_DETAIL_READ: 'api.get.clearings_id',
-  CLEARING_LINES_READ: 'api.get.clearings_lines',
-  CLEARING_LINE_DETAIL_READ: 'api.get.clearings_lines_id',
+  TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',
+  TB_TRANSFERS_READ: 'api.get.admin_tb_transfers',
+  TB_BACKLOG_READ: 'api.get.admin_tb_backlog',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

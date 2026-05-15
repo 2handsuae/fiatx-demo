@@ -14,17 +14,11 @@ import {
   Repeat,
   Library,
   FileText,
-  AlignLeft,
   Zap,
   Activity,
-  BarChart3,
   Briefcase,
   LogIn,
-  Cpu,
   Coins,
-  Table,
-  Command,
-  FileCode,
   Layers,
   Handshake,
   Building2,
@@ -35,6 +29,7 @@ import {
   Moon,
   AlertTriangle,
   Tag,
+  Database,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -255,47 +250,28 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Accounting ───────────────────────────────────────────────
+    // ─── Ledger ───────────────────────────────────────────────────
     {
-      label: 'Accounting',
+      label: 'Ledger',
       icon: <Library size={12} />,
       children: [
         {
-          path: '/ledger/journals',
-          label: 'Journal Entries',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.JOURNALS_READ],
+          path: '/ledger/accounts',
+          label: 'Ledger Accounts',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
         },
         {
-          path: '/ledger/journal-lines',
-          label: 'Journal Lines',
-          icon: <AlignLeft size={13} />,
-          requiredPermissions: [PERMISSIONS.JOURNAL_LINES_READ],
+          path: '/ledger/transfers',
+          label: 'Transfer Evidence',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
         {
-          path: '/ledger/balance-history',
-          label: 'Balance History',
-          icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.CUSTOMER_BALANCE_HISTORY_READ],
-        },
-      ],
-    },
-    // ─── Clearing ─────────────────────────────────────────────────
-    {
-      label: 'Clearing',
-      icon: <Zap size={12} />,
-      children: [
-        {
-          path: '/clearing/management',
-          label: 'Clearing',
-          icon: <Activity size={13} />,
-          requiredPermissions: [PERMISSIONS.CLEARINGS_READ],
-        },
-        {
-          path: '/clearing/details',
-          label: 'Clearing Lines',
-          icon: <BarChart3 size={13} />,
-          requiredPermissions: [PERMISSIONS.CLEARING_LINES_READ],
+          path: '/ledger/retry-queue',
+          label: 'Retry Queue',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_BACKLOG_READ],
         },
       ],
     },
@@ -305,10 +281,22 @@ const DashboardLayout = () => {
       icon: <Briefcase size={12} />,
       children: [
         {
-          path: '/dashboard/treasury/wallets',
-          label: 'Wallet & Account',
+          path: '/dashboard/system/assets',
+          label: 'Assets',
+          icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
+        },
+        {
+          path: '/dashboard/treasury/custodian-wallets',
+          label: 'Custodian Wallets',
           icon: <Wallet size={13} />,
           requiredPermissions: [PERMISSIONS.WALLETS_READ],
+        },
+        {
+          path: '/dashboard/treasury/withdrawal-addresses',
+          label: 'Withdrawal Addresses',
+          icon: <Upload size={13} />,
+          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
         },
         {
           path: '/dashboard/treasury/payins',
@@ -425,43 +413,6 @@ const DashboardLayout = () => {
           label: 'Quote Center',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
-        },
-      ],
-    },
-    // ─── Configuration ────────────────────────────────────────────
-    {
-      label: 'Configuration',
-      icon: <Cpu size={12} />,
-      children: [
-        {
-          path: '/dashboard/system/asset-configs',
-          label: 'Assets',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
-        },
-        {
-          path: '/ledger/coa',
-          label: 'Chart of Accounts (COA)',
-          icon: <Table size={13} />,
-          requiredPermissions: [PERMISSIONS.COA_READ],
-        },
-        {
-          path: '/dashboard/system/acct-events',
-          label: 'Event Code Management',
-          icon: <Command size={13} />,
-          requiredPermissions: [PERMISSIONS.ACCT_EVENTS_READ],
-        },
-        {
-          path: '/dashboard/system/journal-header-templates',
-          label: 'Journal Templates',
-          icon: <FileCode size={13} />,
-          requiredPermissions: [PERMISSIONS.JOURNAL_HEADER_TEMPLATES_READ],
-        },
-        {
-          path: '/dashboard/system/clearing-header-templates',
-          label: 'Clearing Templates',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.CLEARING_TEMPLATES_READ],
         },
       ],
     },

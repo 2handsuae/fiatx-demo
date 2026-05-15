@@ -131,4 +131,89 @@ export class AssetsService {
     this.logger.log(`Status changed for Asset: ${id}`);
     return result;
   }
+
+  async suspendAsset(
+    assetId: string,
+    reason: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; assetNo: string | null; status: string }> {
+    const client = tx || this.prisma;
+    const asset = await (client as any).asset.findUnique({
+      where: { id: assetId },
+      select: {
+        id: true,
+        assetNo: true,
+        status: true,
+        depositEnabled: true,
+        withdrawalEnabled: true,
+      },
+    });
+    if (!asset) throw new NotFoundException('Asset not found');
+
+    if (asset.status === 'SUSPENDED') {
+      return { id: asset.id, assetNo: asset.assetNo, status: asset.status };
+    }
+
+    if (asset.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        `Cannot suspend asset in status: ${asset.status}`,
+      );
+    }
+
+    const updated = await (client as any).asset.update({
+      where: { id: assetId },
+      data: {
+        status: 'SUSPENDED',
+        suspendedAt: new Date(),
+        suspendReason: reason,
+        preSuspendDepositEnabled: asset.depositEnabled,
+        preSuspendWithdrawalEnabled: asset.withdrawalEnabled,
+        depositEnabled: false,
+        withdrawalEnabled: false,
+      },
+      select: { id: true, assetNo: true, status: true },
+    });
+
+    return updated;
+  }
+
+  async reactivateAsset(
+    assetId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; assetNo: string | null; status: string }> {
+    const client = tx || this.prisma;
+    const asset = await (client as any).asset.findUnique({
+      where: { id: assetId },
+      select: {
+        id: true,
+        assetNo: true,
+        status: true,
+        preSuspendDepositEnabled: true,
+        preSuspendWithdrawalEnabled: true,
+      },
+    });
+    if (!asset) throw new NotFoundException('Asset not found');
+
+    if (asset.status !== 'SUSPENDED') {
+      throw new BadRequestException(
+        `Cannot reactivate asset in status: ${asset.status}`,
+      );
+    }
+
+    const updated = await (client as any).asset.update({
+      where: { id: assetId },
+      data: {
+        status: 'ACTIVE',
+        suspendedAt: null,
+        suspendReason: null,
+        depositEnabled: asset.preSuspendDepositEnabled ?? true,
+        withdrawalEnabled: asset.preSuspendWithdrawalEnabled ?? true,
+        preSuspendDepositEnabled: null,
+        preSuspendWithdrawalEnabled: null,
+      },
+      select: { id: true, assetNo: true, status: true },
+    });
+
+    return updated;
+  }
 }

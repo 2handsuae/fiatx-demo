@@ -167,7 +167,7 @@ const Deposit = () => {
           ownerType: 'CUSTOMER',
           ownerId: user.id,
           direction: 'INBOUND',
-          walletRole: 'DEPOSIT',
+          walletRole: activeTab === 'crypto' ? 'C_DEP' : 'C_VIBAN',
           assetId: selectedAssetId,
         });
         const response = await customerFetch(
@@ -177,11 +177,10 @@ const Deposit = () => {
         if (response.ok) {
             const data = await response.json();
             const items: WalletItem[] = data.items || [];
-            const found = items.find(w => 
+            const found = items.find(w =>
                 w.assetId === selectedAssetId &&
-                (w.type === 'CRYPTO_ADDRESS' || w.type === 'FIAT_BANK') &&
                 w.direction === 'INBOUND' &&
-                w.walletRole === 'DEPOSIT'
+                (w.walletRole === 'C_DEP' || w.walletRole === 'C_VIBAN')
             );
             setDepositWallet(found || null);
         }
@@ -250,18 +249,13 @@ const Deposit = () => {
     if (!selectedAssetId || !user) return;
     setGenerating(true);
     try {
-        const payload = {
-            ownerType: 'CUSTOMER',
-            ownerId: user.id,
-            direction: 'INBOUND',
-            type: activeTab === 'crypto' ? 'CRYPTO_ADDRESS' : 'FIAT_BANK',
-            assetId: selectedAssetId,
-        };
-
-        const response = await customerFetch(`${import.meta.env.VITE_API_URL}/wallets`, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
+        const response = await customerFetch(
+            `${import.meta.env.VITE_API_URL}/client/deposit-wallets`,
+            {
+                method: 'POST',
+                body: JSON.stringify({ assetId: selectedAssetId }),
+            },
+        );
 
         if (response.ok) {
             const newWallet = await response.json();
@@ -306,19 +300,19 @@ const Deposit = () => {
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
-      CREATED: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-      PAYIN_LINKED: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-      CONFIRMED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
-      COMPLIANCE_PENDING: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-      UNDER_REVIEW: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-      FROZEN: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
-      HELD: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-      SUCCESS: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-      REJECTED: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-      FAILED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+      CREATED: 'bg-fx-dust/20 text-fx-dust',
+      PAYIN_LINKED: 'bg-yellow-500/20 text-yellow-400',
+      CONFIRMED: 'bg-indigo-500/20 text-indigo-400',
+      COMPLIANCE_PENDING: 'bg-purple-500/20 text-purple-400',
+      UNDER_REVIEW: 'bg-amber-500/20 text-amber-400',
+      FROZEN: 'bg-sky-500/20 text-sky-400',
+      HELD: 'bg-orange-500/20 text-orange-400',
+      SUCCESS: 'bg-fx-sage/20 text-fx-sage',
+      REJECTED: 'bg-rose-500/20 text-rose-400',
+      FAILED: 'bg-fx-rust/20 text-fx-rust',
     };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colors[status] || 'bg-slate-100 text-slate-700'}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colors[status] || 'bg-fx-dust/20 text-fx-dust'}`}>
         {status}
       </span>
     );
@@ -467,8 +461,8 @@ const Deposit = () => {
   const renderSimulationFeedback = (feedback: SimulationFeedback) => {
     const tone =
       feedback.kind === 'error'
-        ? 'border-red-100 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
-        : 'border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200';
+        ? 'border-fx-rust/30 bg-fx-rust/10 text-fx-rust'
+        : 'border-fx-sage/30 bg-fx-sage/10 text-fx-sage';
 
     return (
       <div className={`rounded-xl border px-4 py-3 text-sm ${tone}`}>
@@ -484,58 +478,58 @@ const Deposit = () => {
         : '下一步去 Admin 的 Payin Detail，用 Payin rail 继续推进；随后再走 KYT / Travel Rule / Alert / Case。';
 
     return (
-      <div className="rounded-2xl border border-emerald-100 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-900/20 p-4 space-y-4">
+      <div className="rounded-2xl border border-fx-sage/30 bg-fx-sage/10 p-4 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h4 className="text-sm font-bold text-emerald-900 dark:text-emerald-100">
+            <h4 className="text-sm font-bold text-fx-sage">
               Simulation Created
             </h4>
-            <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">
+            <p className="mt-1 text-sm text-fx-sage/80">
               {summary.assetCode} 模拟充值已创建成功，下一步请去 Admin 继续推进。
             </p>
           </div>
           <button
             onClick={openHistoryWithReset}
-            className="shrink-0 rounded-lg border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100/70 dark:hover:bg-emerald-800/30 transition-colors"
+            className="shrink-0 rounded-lg border border-fx-sage/30 px-3 py-1.5 text-xs font-semibold text-fx-sage hover:bg-fx-sage/20 transition-colors"
           >
             查看历史
           </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 border border-emerald-100 dark:border-emerald-900/30 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          <div className="rounded-xl bg-fx-charcoal/50 border border-fx-sage/20 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-fx-sage/70">
               Signal
             </div>
-            <div className="mt-1 font-mono text-sm text-slate-900 dark:text-white">
+            <div className="mt-1 font-mono text-sm text-fx-sand">
               {summary.signalNo || '-'}
             </div>
           </div>
-          <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 border border-emerald-100 dark:border-emerald-900/30 p-3">
-            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          <div className="rounded-xl bg-fx-charcoal/50 border border-fx-sage/20 p-3">
+            <div className="text-[11px] uppercase tracking-wide text-fx-sage/70">
               Payin
             </div>
-            <div className="mt-1 font-mono text-sm text-slate-900 dark:text-white">
+            <div className="mt-1 font-mono text-sm text-fx-sand">
               {summary.payinNo || '-'}
             </div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-1 text-xs text-fx-dust">
               Status: {summary.payinStatus || '-'}
             </div>
           </div>
-          <div className="rounded-xl bg-white/70 dark:bg-slate-900/40 border border-emerald-100 dark:border-emerald-900/30 p-3 sm:col-span-2">
-            <div className="text-[11px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          <div className="rounded-xl bg-fx-charcoal/50 border border-fx-sage/20 p-3 sm:col-span-2">
+            <div className="text-[11px] uppercase tracking-wide text-fx-sage/70">
               Deposit
             </div>
-            <div className="mt-1 font-mono text-sm text-slate-900 dark:text-white">
+            <div className="mt-1 font-mono text-sm text-fx-sand">
               {summary.depositNo || '-'}
             </div>
-            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-1 text-xs text-fx-dust">
               Status: {summary.depositStatus || '-'}
             </div>
           </div>
         </div>
 
-        <div className="rounded-xl border border-emerald-100 dark:border-emerald-900/30 bg-white/70 dark:bg-slate-900/40 px-4 py-3 text-sm text-emerald-900 dark:text-emerald-100">
+        <div className="rounded-xl border border-fx-sage/20 bg-fx-charcoal/50 px-4 py-3 text-sm text-fx-sage">
           {nextStepText}
         </div>
       </div>
@@ -543,7 +537,7 @@ const Deposit = () => {
   };
 
   const renderSimulationDepositFlow = () => (
-    <div className="pt-4 border-t border-slate-200 dark:border-slate-700 space-y-3">
+    <div className="pt-4 border-t border-fx-rule space-y-3">
       <button
         onClick={() => {
           setSignalAmount('');
@@ -551,7 +545,7 @@ const Deposit = () => {
           setShowSimulateModal(true);
         }}
         disabled={simulatingSignal}
-        className="px-4 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-semibold hover:opacity-90 disabled:opacity-60 transition-all flex items-center gap-2"
+        className="px-4 py-2.5 bg-fx-brass text-fx-obsidian rounded-xl font-semibold hover:opacity-90 disabled:opacity-60 transition-all flex items-center gap-2"
       >
         {simulatingSignal ? <RefreshCw size={16} className="animate-spin" /> : null}
         {simulatingSignal ? 'Simulating...' : 'Simulate Deposit'}
@@ -562,40 +556,40 @@ const Deposit = () => {
   );
 
   const renderInstructions = () => (
-    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/30 h-full sticky top-6">
-        <div className="flex items-center gap-2 mb-4 text-blue-800 dark:text-blue-300">
-            <div className="p-2 bg-blue-100 dark:bg-blue-800/30 rounded-lg">
+    <div className="bg-fx-ink/60 rounded-2xl p-6 border border-fx-rule h-full sticky top-6">
+        <div className="flex items-center gap-2 mb-4 text-fx-brass">
+            <div className="p-2 bg-fx-charcoal rounded-lg">
                 <Info size={24} />
             </div>
             <h3 className="font-bold text-lg">Instructions</h3>
         </div>
-        
+
         {activeTab === 'crypto' ? (
             <div className="space-y-4">
                 <div className="flex gap-3">
-                    <ShieldCheck size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                    <ShieldCheck size={20} className="text-fx-brass shrink-0 mt-1" />
                     <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Network Verification</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                        <h4 className="text-sm font-bold text-fx-sand">Network Verification</h4>
+                        <p className="text-xs text-fx-dune mt-1">
                             Ensure the deposit network matches the platform supported chain.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex gap-3">
-                    <Clock size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                    <Clock size={20} className="text-fx-brass shrink-0 mt-1" />
                     <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Confirmation Time</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
-                            Requires <strong className="underline">1-3 network confirmations</strong>. Automatic processing after confirmation.
+                        <h4 className="text-sm font-bold text-fx-sand">Confirmation Time</h4>
+                        <p className="text-xs text-fx-dune mt-1">
+                            Requires <strong className="underline text-fx-sand">1-3 network confirmations</strong>. Automatic processing after confirmation.
                         </p>
                     </div>
                 </div>
 
-                <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2">
+                <div className="p-4 bg-fx-charcoal/60 rounded-xl border border-fx-rule mt-2">
                     <div className="flex gap-2 items-start">
                         <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                        <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
+                        <p className="text-[11px] font-bold text-amber-400 leading-relaxed">
                             Do not deposit any other assets to this address, otherwise your assets may be permanently lost.
                         </p>
                     </div>
@@ -604,29 +598,29 @@ const Deposit = () => {
         ) : (
             <div className="space-y-4">
                 <div className="flex gap-3">
-                    <Building2 size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                    <Building2 size={20} className="text-fx-brass shrink-0 mt-1" />
                     <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Account Name</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
-                            Please use a bank account under <strong className="underline">your own name</strong>.
+                        <h4 className="text-sm font-bold text-fx-sand">Account Name</h4>
+                        <p className="text-xs text-fx-dune mt-1">
+                            Please use a bank account under <strong className="underline text-fx-sand">your own name</strong>.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex gap-3">
-                    <Clock size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                    <Clock size={20} className="text-fx-brass shrink-0 mt-1" />
                     <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Processing Time</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
-                            Typically <strong className="underline">1-3 business days</strong> depending on bank speed.
+                        <h4 className="text-sm font-bold text-fx-sand">Processing Time</h4>
+                        <p className="text-xs text-fx-dune mt-1">
+                            Typically <strong className="underline text-fx-sand">1-3 business days</strong> depending on bank speed.
                         </p>
                     </div>
                 </div>
 
-                <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2">
+                <div className="p-4 bg-fx-charcoal/60 rounded-xl border border-fx-rule mt-2">
                     <div className="flex gap-2 items-start">
                         <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                        <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
+                        <p className="text-[11px] font-bold text-amber-400 leading-relaxed">
                             Transfers from third-party accounts may be rejected and refunded (fees may apply). Include Reference No. if applicable.
                         </p>
                     </div>
@@ -641,22 +635,22 @@ const Deposit = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Deposit</h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-1">Fund your account with Crypto or Fiat</p>
+            <h1 className="text-2xl font-bold text-fx-sand">Deposit</h1>
+            <p className="text-fx-dune mt-1">Fund your account with Crypto or Fiat</p>
         </div>
       </div>
 
       {/* Main Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden min-h-[600px]">
+      <div className="bg-fx-ink/40 rounded-3xl border border-fx-rule shadow-sm overflow-hidden min-h-[600px]">
         {/* Tabs */}
-        <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+        <div className="border-b border-fx-rule bg-fx-charcoal/50">
           <div className="flex overflow-x-auto px-6">
             <button
               onClick={() => setActiveTab('crypto')}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
-                activeTab === 'crypto' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                activeTab === 'crypto'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-dune'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -667,9 +661,9 @@ const Deposit = () => {
             <button
               onClick={() => setActiveTab('fiat')}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
-                activeTab === 'fiat' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                activeTab === 'fiat'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-dune'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -680,9 +674,9 @@ const Deposit = () => {
             <button
               onClick={() => setActiveTab('history')}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
-                activeTab === 'history' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                activeTab === 'history'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-dune'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -697,12 +691,12 @@ const Deposit = () => {
             <div className="p-6 space-y-4">
                 {/* Filters */}
                 <div className="flex flex-wrap gap-3 mb-4">
-                    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                        <Filter size={16} className="text-slate-500 dark:text-slate-400" />
-                        <select 
+                    <div className="flex items-center gap-2 bg-fx-charcoal/50 px-3 py-2 rounded-lg border border-fx-rule">
+                        <Filter size={16} className="text-fx-dust" />
+                        <select
                           value={historyStatus}
                           onChange={(e) => setHistoryStatus(e.target.value)}
-                          className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                          className="bg-transparent text-sm text-fx-sand focus:outline-none"
                         >
                             <option value="">All Status</option>
                             <option value="PAYIN_PENDING">Payin Pending</option>
@@ -714,12 +708,12 @@ const Deposit = () => {
                             <option value="FAILED">Failed</option>
                         </select>
                     </div>
-                    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                        <Wallet size={16} className="text-slate-500 dark:text-slate-400" />
-                        <select 
+                    <div className="flex items-center gap-2 bg-fx-charcoal/50 px-3 py-2 rounded-lg border border-fx-rule">
+                        <Wallet size={16} className="text-fx-dust" />
+                        <select
                           value={historyAssetId}
                           onChange={(e) => setHistoryAssetId(e.target.value)}
-                          className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                          className="bg-transparent text-sm text-fx-sand focus:outline-none"
                         >
                             <option value="">All Assets</option>
                             {assets.map(a => (
@@ -727,9 +721,9 @@ const Deposit = () => {
                             ))}
                         </select>
                     </div>
-                    <button 
+                    <button
                       onClick={fetchHistory}
-                      className="p-2 text-slate-500 dark:text-slate-400 hover:text-brand-primary hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors ml-auto"
+                      className="p-2 text-fx-dust hover:text-fx-brass hover:bg-fx-charcoal/50 rounded-lg transition-colors ml-auto"
                       title="Refresh"
                     >
                         <RefreshCw size={18} className={historyLoading ? 'animate-spin' : ''} />
@@ -737,55 +731,55 @@ const Deposit = () => {
                 </div>
 
                 {/* Table */}
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                <div className="overflow-x-auto rounded-lg border border-fx-rule">
                     <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
+                        <thead className="bg-fx-charcoal/50 border-b border-fx-rule">
                             <tr>
-                                <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Transaction No</th>
-                                <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Time</th>
-                                <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Asset / Amount</th>
-                                <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Status</th>
-                                <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400 text-right">Action</th>
+                                <th className="px-4 py-3 font-medium text-fx-dust">Transaction No</th>
+                                <th className="px-4 py-3 font-medium text-fx-dust">Time</th>
+                                <th className="px-4 py-3 font-medium text-fx-dust">Asset / Amount</th>
+                                <th className="px-4 py-3 font-medium text-fx-dust">Status</th>
+                                <th className="px-4 py-3 font-medium text-fx-dust text-right">Action</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                        <tbody className="divide-y divide-fx-rule">
                             {historyLoading && transactions.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                                    <td colSpan={5} className="px-4 py-8 text-center text-fx-dust">
                                         Loading transactions...
                                     </td>
                                 </tr>
                             ) : transactions.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
+                                    <td colSpan={5} className="px-4 py-12 text-center text-fx-dust">
                                         <div className="flex flex-col items-center">
-                                            <History size={32} className="text-slate-300 dark:text-slate-600 mb-2" />
+                                            <History size={32} className="text-fx-dust/50 mb-2" />
                                             <p>No transactions found</p>
                                         </div>
                                     </td>
                                 </tr>
                             ) : (
                                 transactions.map(tx => (
-                                    <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                                    <tr key={tx.id} className="hover:bg-fx-shadow/50 transition-colors">
                                         <td className="px-4 py-3">
-                                            <div className="font-mono text-slate-900 dark:text-white">{tx.depositNo}</div>
+                                            <div className="font-mono text-fx-sand">{tx.depositNo}</div>
                                             {tx.txHash && (
-                                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[120px]" title={tx.txHash}>
+                                                <div className="text-xs text-fx-dust truncate max-w-[120px]" title={tx.txHash}>
                                                     Ref: {tx.txHash.substring(0, 8)}...
                                                 </div>
                                             )}
                                             {tx.referenceNo && (
-                                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[120px]" title={tx.referenceNo}>
+                                                <div className="text-xs text-fx-dust truncate max-w-[120px]" title={tx.referenceNo}>
                                                     Ref: {tx.referenceNo}
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
+                                        <td className="px-4 py-3 text-fx-dust text-xs">
                                             <div>{new Date(tx.createdAt).toLocaleDateString()}</div>
                                             <div>{new Date(tx.createdAt).toLocaleTimeString()}</div>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <div className="font-medium text-slate-900 dark:text-white">
+                                            <div className="font-medium text-fx-sand">
                                                 {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.code}
                                             </div>
                                         </td>
@@ -793,9 +787,9 @@ const Deposit = () => {
                                             {renderStatusBadge(tx.status)}
                                         </td>
                                         <td className="px-4 py-3 text-right">
-                                            <button 
+                                            <button
                                               onClick={() => setSelectedTx(tx)}
-                                              className="text-brand-primary hover:text-brand-primary/80 text-xs font-medium px-3 py-1.5 bg-brand-primary/10 rounded hover:bg-brand-primary/20 transition-colors"
+                                              className="text-fx-brass hover:text-fx-brass/80 text-xs font-medium px-3 py-1.5 bg-fx-brass/10 rounded hover:bg-fx-brass/20 transition-colors"
                                             >
                                                 Details
                                             </button>
@@ -808,22 +802,22 @@ const Deposit = () => {
                 </div>
 
                 {/* Pagination */}
-                <div className="flex justify-between items-center pt-2 text-sm text-slate-500 dark:text-slate-400">
+                <div className="flex justify-between items-center pt-2 text-sm text-fx-dust">
                     <div>
                         Showing {transactions.length} of {total} records
                     </div>
                     <div className="flex gap-2">
-                        <button 
+                        <button
                           disabled={page === 1}
                           onClick={() => setPage(p => p - 1)}
-                          className="px-3 py-1 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                          className="px-3 py-1 border border-fx-rule rounded text-fx-dune hover:bg-fx-charcoal/50 disabled:opacity-50"
                         >
                             Previous
                         </button>
-                        <button 
+                        <button
                           disabled={page * 10 >= total}
                           onClick={() => setPage(p => p + 1)}
-                          className="px-3 py-1 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                          className="px-3 py-1 border border-fx-rule rounded text-fx-dune hover:bg-fx-charcoal/50 disabled:opacity-50"
                         >
                             Next
                         </button>
@@ -837,11 +831,11 @@ const Deposit = () => {
             <div className="lg:col-span-2 space-y-6">
               {/* Integrated Asset Selector */}
               <div>
-                <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Select Asset</label>
+                <label className="block text-sm font-bold text-fx-dune mb-2">Select Asset</label>
                 <select
                   value={selectedAssetId}
                   onChange={(e) => setSelectedAssetId(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-blue-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                  className="w-full px-4 py-3 border border-fx-rule rounded-xl focus:outline-none focus:border-fx-brass bg-fx-charcoal text-fx-sand"
                 >
                   <option value="">Select a currency...</option>
                   {filteredAssets.map(a => (
@@ -853,125 +847,112 @@ const Deposit = () => {
               </div>
 
               {!selectedAssetId ? (
-                <div className="text-center py-16 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 text-slate-400 mx-auto">
+                <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-fx-rule">
+                  <div className="w-16 h-16 bg-fx-charcoal rounded-full flex items-center justify-center mb-4 text-fx-dust mx-auto">
                     {activeTab === 'crypto' ? <Wallet size={32} /> : <Building2 size={32} />}
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                  <h3 className="text-lg font-bold text-fx-sand mb-2">
                     Select {activeTab === 'crypto' ? 'Asset' : 'Currency'}
                   </h3>
-                  <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
+                  <p className="text-fx-dust mb-6 max-w-sm mx-auto">
                     Choose an asset above to view or generate your {activeTab === 'crypto' ? 'deposit address' : 'deposit vIBAN'}.
                   </p>
                 </div>
               ) : loading ? (
-                <div className="text-center py-16 text-slate-400">
+                <div className="text-center py-16 text-fx-dust">
                   <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                   Checking for existing address...
                 </div>
               ) : depositWallet ? (
-                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 border border-slate-200 dark:border-slate-700">
-                                <div className="flex justify-between items-start mb-6">
-                                        <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                            {activeTab === 'crypto' ? 'Deposit Address' : 'Deposit vIBAN'}
-                                        </h3>
-                                        <span className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 text-xs px-3 py-1 rounded-full font-bold">
-                                            Active
-                                        </span>
-                                </div>
+                <div className="bg-fx-charcoal/50 rounded-2xl p-6 border border-fx-rule space-y-6">
+                  <div className="flex justify-between items-start">
+                    <h3 className="text-sm font-bold text-fx-dust uppercase tracking-wider">
+                      {activeTab === 'crypto' ? 'Deposit Address' : 'Deposit vIBAN'}
+                    </h3>
+                    <span className="bg-fx-sage/20 text-fx-sage text-xs px-3 py-1 rounded-full font-bold">
+                      Active
+                    </span>
+                  </div>
 
-                                {activeTab === 'crypto' ? (
-                                    <div className="space-y-6">
-                                        <div className="flex justify-center bg-white dark:bg-white p-4 rounded-xl border border-slate-200 dark:border-slate-600 w-fit mx-auto">
-                                                <QRCodeSVG 
-                                                    value={depositWallet.address || ''} 
-                                                    size={180}
-                                                    level="M"
-                                                    includeMargin={true}
-                                                />
-                                        </div>
-                                        <div className="text-center text-sm text-slate-500 dark:text-slate-400 font-medium">
-                                            Scan to deposit {depositWallet.asset.code}
-                                        </div>
+                  {activeTab === 'crypto' && depositWallet.address && (
+                    <div className="flex justify-center bg-white p-4 rounded-xl border border-fx-rule w-fit mx-auto">
+                      <QRCodeSVG value={depositWallet.address} size={160} level="M" includeMargin />
+                    </div>
+                  )}
 
-                                        <div>
-                                            <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Wallet Address</label>
-                                            <div className="flex items-center justify-between bg-white dark:bg-slate-700 p-3 rounded-xl border border-slate-200 dark:border-slate-600">
-                                                <code className="text-sm font-mono text-slate-900 dark:text-white break-all">{depositWallet.address}</code>
-                                                <button 
-                                                        onClick={() => copyToClipboard(depositWallet.address || '')}
-                                                        className="ml-3 p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors shrink-0"
-                                                >
-                                                    {copied ? <Check size={20} className="text-emerald-500" /> : <Copy size={20} />}
-                                                </button>
-                                            </div>
-                                        </div>
-                                        {depositWallet.memo && (
-                                            <div>
-                                                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Memo / Tag</label>
-                                                <div className="flex items-center justify-between bg-white dark:bg-slate-700 p-3 rounded-xl border border-slate-200 dark:border-slate-600">
-                                                    <span className="font-mono text-sm text-slate-900 dark:text-white">{depositWallet.memo}</span>
-                                                    <button 
-                                                            onClick={() => copyToClipboard(depositWallet.memo || '')}
-                                                            className="ml-3 p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 shrink-0"
-                                                    >
-                                                        <Copy size={16} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
+                  <div className="bg-fx-ink/60 rounded-xl border border-fx-rule divide-y divide-fx-rule">
+                    {activeTab === 'fiat' && (
+                      <>
+                        <div className="px-4 py-3">
+                          <label className="text-xs text-fx-dust font-medium">Account Holder</label>
+                          <div className="mt-0.5 text-sm font-semibold text-fx-sand">{depositWallet.accountName || 'FiatX User'}</div>
+                        </div>
+                        {depositWallet.bankName && (
+                          <div className="px-4 py-3">
+                            <label className="text-xs text-fx-dust font-medium">Bank Name</label>
+                            <div className="mt-0.5 text-sm font-semibold text-fx-sand">{depositWallet.bankName}</div>
+                          </div>
+                        )}
+                      </>
+                    )}
 
-                                        {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
-                                    </div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        <div className="bg-white dark:bg-slate-700 p-4 rounded-xl border border-slate-200 dark:border-slate-600 space-y-4">
-                                            <div>
-                                                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Account Holder</label>
-                                                <div className="font-semibold text-slate-900 dark:text-white">{depositWallet.accountName || 'FiatX User'}</div>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Bank Name</label>
-                                                <div className="font-semibold text-slate-900 dark:text-white">{depositWallet.bankName}</div>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">IBAN</label>
-                                                <div className="flex items-center justify-between">
-                                                        <code className="text-lg font-mono text-slate-900 dark:text-white break-all">{depositWallet.iban}</code>
-                                                        <button 
-                                                            onClick={() => copyToClipboard(depositWallet.iban || '')}
-                                                            className="ml-2 p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 shrink-0"
-                                                        >
-                                                            {copied ? <Check size={18} className="text-emerald-500" /> : <Copy size={18} />}
-                                                        </button>
-                                                </div>
-                                            </div>
-                                            {depositWallet.bankCode && (
-                                                <div>
-                                                    <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">SWIFT / BIC</label>
-                                                    <div className="font-mono text-slate-900 dark:text-white">{depositWallet.bankCode}</div>
-                                                </div>
-                                            )}
-                                        </div>
-                                        {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
-                                    </div>
-                                )}
-                                </div>
+                    <div className="px-4 py-3">
+                      <label className="text-xs text-fx-dust font-medium">
+                        {activeTab === 'crypto' ? 'Wallet Address' : 'IBAN'}
+                      </label>
+                      <div className="mt-0.5 flex items-center justify-between gap-3">
+                        <code className="text-sm font-mono text-fx-sand break-all">
+                          {activeTab === 'crypto' ? depositWallet.address : depositWallet.iban}
+                        </code>
+                        <button
+                          onClick={() => copyToClipboard((activeTab === 'crypto' ? depositWallet.address : depositWallet.iban) || '')}
+                          className="p-2 text-fx-dust hover:text-fx-brass transition-colors shrink-0"
+                        >
+                          {copied ? <Check size={18} className="text-fx-sage" /> : <Copy size={18} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {activeTab === 'crypto' && depositWallet.memo && (
+                      <div className="px-4 py-3">
+                        <label className="text-xs text-fx-dust font-medium">Memo / Tag</label>
+                        <div className="mt-0.5 flex items-center justify-between gap-3">
+                          <span className="text-sm font-mono text-fx-sand">{depositWallet.memo}</span>
+                          <button
+                            onClick={() => copyToClipboard(depositWallet.memo || '')}
+                            className="p-2 text-fx-dust hover:text-fx-brass transition-colors shrink-0"
+                          >
+                            <Copy size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === 'fiat' && depositWallet.bankCode && (
+                      <div className="px-4 py-3">
+                        <label className="text-xs text-fx-dust font-medium">SWIFT / BIC</label>
+                        <div className="mt-0.5 text-sm font-mono text-fx-sand">{depositWallet.bankCode}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {showSimulationDepositFlow ? renderSimulationDepositFlow() : null}
+                </div>
                             ) : (
-                                <div className="text-center py-16 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                                    <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 text-slate-400 mx-auto">
+                                <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-fx-rule">
+                                    <div className="w-16 h-16 bg-fx-charcoal rounded-full flex items-center justify-center mb-4 text-fx-dust mx-auto">
                                         {activeTab === 'crypto' ? <Wallet size={32} /> : <Building2 size={32} />}
                                     </div>
-                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                                    <h3 className="text-lg font-bold text-fx-sand mb-2">
                                         No {activeTab === 'crypto' ? 'Address' : 'vIBAN'} Generated
                                     </h3>
-                                    <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-sm mx-auto">
+                                    <p className="text-fx-dust mb-6 max-w-sm mx-auto">
                                         Generate a dedicated {activeTab === 'crypto' ? 'deposit address' : 'deposit vIBAN'} whenever you need to fund your account.
                                     </p>
                                     <button
                                         onClick={handleGenerate}
                                         disabled={generating}
-                                        className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-blue-500/30 transition-all flex items-center gap-2 mx-auto"
+                                        className="px-6 py-3 bg-fx-brass text-fx-obsidian rounded-xl font-bold hover:shadow-lg hover:shadow-fx-brass/30 transition-all flex items-center gap-2 mx-auto"
                                     >
                                         {generating ? <RefreshCw className="animate-spin" size={20} /> : null}
                                         {generating ? 'Generating...' : `Generate ${activeTab === 'crypto' ? 'Address' : 'vIBAN'}`}
@@ -991,18 +972,18 @@ const Deposit = () => {
       </div>
 
       {showSimulationDepositFlow && showSimulateModal && depositWallet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-slate-700">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-fx-rule">
+            <div className="flex justify-between items-center p-5 border-b border-fx-rule">
               <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Simulate Deposit</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                <h3 className="text-lg font-bold text-fx-sand">Simulate Deposit</h3>
+                <p className="text-sm text-fx-dust mt-1">
                   Enter an amount for the mock {depositWallet.asset.type === 'CRYPTO' ? 'crypto' : 'fiat'} deposit. Final risk simulation now happens in Admin Risk Policy Executions.
                 </p>
               </div>
               <button
                 onClick={() => setShowSimulateModal(false)}
-                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-400 dark:text-slate-500"
+                className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust"
                 disabled={simulatingSignal}
               >
                 <X size={18} />
@@ -1012,50 +993,50 @@ const Deposit = () => {
             <div className="p-5 space-y-4">
               {signalFeedback ? renderSimulationFeedback(signalFeedback) : null}
 
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 space-y-2">
+              <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 space-y-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-slate-500 dark:text-slate-400">Asset</span>
-                  <span className="font-semibold text-slate-900 dark:text-white">{depositWallet.asset.code}</span>
+                  <span className="text-fx-dust">Asset</span>
+                  <span className="font-semibold text-fx-sand">{depositWallet.asset.code}</span>
                 </div>
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-slate-500 dark:text-slate-400">Wallet</span>
-                  <span className="font-mono text-xs text-slate-900 dark:text-white text-right break-all">
+                  <span className="text-fx-dust">Wallet</span>
+                  <span className="font-mono text-xs text-fx-sand text-right break-all">
                     {depositWallet.asset.type === 'CRYPTO' ? depositWallet.address : depositWallet.iban}
                   </span>
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Amount</label>
+                <label className="text-xs text-fx-dust font-medium block mb-1">Amount</label>
                 <input
                   value={signalAmount}
                   onChange={(e) => setSignalAmount(e.target.value)}
                   placeholder="100.00"
                   autoFocus
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand focus:outline-none focus:border-fx-brass"
                 />
               </div>
 
-              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4 text-sm text-slate-600 dark:text-slate-300">
+              <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 text-sm text-fx-dune">
                 This step only submits the mock inbound signal. After the payin/deposit is created, use Admin Risk Policy Executions to simulate Low, Medium, or High risk.
               </div>
             </div>
 
-            <div className="p-5 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex gap-3">
+            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 flex gap-3">
               <button
                 onClick={() => {
                   setSignalAmount('');
                   setShowSimulateModal(false);
                 }}
                 disabled={simulatingSignal}
-                className="flex-1 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-60"
+                className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSubmitInboundSignal}
                 disabled={simulatingSignal}
-                className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:shadow-lg hover:shadow-blue-500/20 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-fx-brass text-fx-obsidian font-semibold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {simulatingSignal ? <RefreshCw size={16} className="animate-spin" /> : null}
                 {simulatingSignal ? 'Simulating...' : 'Confirm Simulation'}
@@ -1067,60 +1048,60 @@ const Deposit = () => {
 
       {/* Transaction Details Modal */}
       {selectedTx && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Transaction Details</h3>
-                    <button 
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-fx-rule">
+                <div className="flex justify-between items-center p-6 border-b border-fx-rule">
+                    <h3 className="text-xl font-bold text-fx-sand">Transaction Details</h3>
+                    <button
                         onClick={() => setSelectedTx(null)}
-                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-400 dark:text-slate-500"
+                        className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust"
                     >
                         <X size={20} />
                     </button>
                 </div>
                 <div className="p-6 space-y-6">
                     <div className="text-center">
-                        <div className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-                            {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.code}</span>
+                        <div className="text-3xl font-bold text-fx-sand mb-2">
+                            {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.code}</span>
                         </div>
                         <div className="mt-2">
                              {renderStatusBadge(selectedTx.status)}
                         </div>
                     </div>
 
-                    <div className="space-y-3 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div className="space-y-3 bg-fx-charcoal/50 p-4 rounded-xl border border-fx-rule">
                         <div className="flex justify-between text-sm">
-                            <span className="text-slate-500 dark:text-slate-400">Transaction No</span>
-                            <span className="font-mono font-semibold text-slate-900 dark:text-white">{selectedTx.depositNo}</span>
+                            <span className="text-fx-dust">Transaction No</span>
+                            <span className="font-mono font-semibold text-fx-sand">{selectedTx.depositNo}</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                            <span className="text-slate-500 dark:text-slate-400">Date</span>
-                            <span className="font-semibold text-slate-900 dark:text-white">{new Date(selectedTx.createdAt).toLocaleString()}</span>
+                            <span className="text-fx-dust">Date</span>
+                            <span className="font-semibold text-fx-sand">{new Date(selectedTx.createdAt).toLocaleString()}</span>
                         </div>
                         {selectedTx.completedAt && (
                             <div className="flex justify-between text-sm">
-                                <span className="text-slate-500 dark:text-slate-400">Completed</span>
-                                <span className="font-semibold text-slate-900 dark:text-white">{new Date(selectedTx.completedAt).toLocaleString()}</span>
+                                <span className="text-fx-dust">Completed</span>
+                                <span className="font-semibold text-fx-sand">{new Date(selectedTx.completedAt).toLocaleString()}</span>
                             </div>
                         )}
                     </div>
 
                     <div className="space-y-4">
-                        <h4 className="font-bold text-sm uppercase tracking-wider text-slate-500 dark:text-slate-400">Source Details</h4>
+                        <h4 className="font-bold text-sm uppercase tracking-wider text-fx-dust">Source Details</h4>
                         {selectedTx.fromAddress && (
                             <div>
-                                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">From Address</label>
-                                <div className="bg-slate-50 dark:bg-slate-900/50 p-2 rounded text-sm font-mono break-all border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white">
+                                <label className="text-xs text-fx-dust font-medium block mb-1">From Address</label>
+                                <div className="bg-fx-charcoal/50 p-2 rounded text-sm font-mono break-all border border-fx-rule text-fx-sand">
                                     {selectedTx.fromAddress}
                                 </div>
                             </div>
                         )}
                         {selectedTx.txHash && (
                             <div>
-                                <label className="text-xs text-slate-500 dark:text-slate-400 font-medium block mb-1">Transaction Hash</label>
-                                <div className="bg-slate-50 dark:bg-slate-900/50 p-2 rounded text-sm font-mono break-all border border-slate-200 dark:border-slate-700 flex items-center justify-between text-slate-900 dark:text-white">
+                                <label className="text-xs text-fx-dust font-medium block mb-1">Transaction Hash</label>
+                                <div className="bg-fx-charcoal/50 p-2 rounded text-sm font-mono break-all border border-fx-rule flex items-center justify-between text-fx-sand">
                                     <span>{selectedTx.txHash}</span>
-                                    <button onClick={() => copyToClipboard(selectedTx.txHash!)} className="text-blue-600 dark:text-blue-400">
+                                    <button onClick={() => copyToClipboard(selectedTx.txHash!)} className="text-fx-brass">
                                         <Copy size={14} />
                                     </button>
                                 </div>
@@ -1128,10 +1109,10 @@ const Deposit = () => {
                         )}
                     </div>
                 </div>
-                <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 rounded-b-2xl">
-                    <button 
+                <div className="p-6 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl">
+                    <button
                         onClick={() => setSelectedTx(null)}
-                        className="w-full py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                        className="w-full py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
                     >
                         Close
                     </button>
