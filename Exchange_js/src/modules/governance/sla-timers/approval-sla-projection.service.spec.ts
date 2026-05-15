@@ -24,28 +24,6 @@ describe('ApprovalSlaProjectionService', () => {
     expect(slaTimersService.ensureApprovalTimeoutTimer).not.toHaveBeenCalled();
   });
 
-  it('skips approval timeout timer closure for delete request approvals', async () => {
-    const slaTimersService = {
-      ensureApprovalTimeoutTimer: jest.fn(),
-      closeApprovalTimeoutTimer: jest.fn(),
-    };
-
-    const service = new ApprovalSlaProjectionService(slaTimersService as any);
-
-    await service.onApproved({
-      approvalId: 'approval-1',
-      approvalNo: 'APR2604050002',
-      actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
-      entityRef: 'request-1',
-      traceId: 'trace-2',
-      workflowType: 'ADMIN_USER_DELETION',
-      workflowNo: 'DR2604050001',
-      status: 'APPROVED',
-    });
-
-    expect(slaTimersService.closeApprovalTimeoutTimer).not.toHaveBeenCalled();
-  });
-
   it('skips approval timeout timers for audit evidence export approvals', async () => {
     const slaTimersService = {
       ensureApprovalTimeoutTimer: jest.fn(),

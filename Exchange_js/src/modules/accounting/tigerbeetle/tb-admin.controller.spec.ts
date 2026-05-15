@@ -6,6 +6,7 @@ describe('TbAdminController', () => {
   let registryService: any;
   let accountingService: any;
   let evidenceService: any;
+  let tbManualAccountService: any;
 
   beforeEach(() => {
     registryService = {
@@ -19,10 +20,14 @@ describe('TbAdminController', () => {
       findAll: jest.fn(),
       findBacklog: jest.fn(),
     };
+    tbManualAccountService = {
+      manualCreate: jest.fn(),
+    };
     controller = new TbAdminController(
       registryService,
       evidenceService,
       accountingService,
+      tbManualAccountService,
     );
   });
 

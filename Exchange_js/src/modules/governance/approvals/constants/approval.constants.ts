@@ -9,7 +9,6 @@ import { BadRequestException } from '@nestjs/common';
  *
  *   AUDIT_EVIDENCE_EXPORT_APPROVAL  — audit evidence package export gate
  *   CHANGE_TICKET_APPROVAL          — admin access / RBAC change gate
- *   DELETE_REQUEST_APPROVAL         — soft-delete gate
  *
  * WAVE 2-3 PRE-REGISTERED
  * These types are registered for schema continuity before full feature impl:
@@ -28,7 +27,6 @@ export const ApprovalActionTypes = {
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
   CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
   CHANGE_TICKET_APPROVAL: 'CHANGE_TICKET_APPROVAL',
-  DELETE_REQUEST_APPROVAL: 'DELETE_REQUEST_APPROVAL',
   ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
   POOL_SETTLEMENT_BATCH_APPROVAL: 'POOL_SETTLEMENT_BATCH_APPROVAL',
   TREASURY_CROSS_POOL_TRANSFER_APPROVAL: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
@@ -205,13 +203,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     allowRetry: true,
   },
   [ApprovalActionTypes.CHANGE_TICKET_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-    allowRetry: true,
-  },
-  [ApprovalActionTypes.DELETE_REQUEST_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 24,

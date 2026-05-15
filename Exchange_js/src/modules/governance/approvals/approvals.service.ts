@@ -40,8 +40,6 @@ import {
   joinRoleCsv,
   splitRoleCsv,
 } from './constants/approval.constants';
-import { DeleteRequestsService } from '../delete-requests/delete-requests.service';
-import { DeleteRequestTargetTypes } from '../delete-requests/constants/delete-request.constants';
 import {
   ApprovalQueryDto,
   CancelApprovalDto,
@@ -92,9 +90,6 @@ export class ApprovalsService {
     @Optional()
     @Inject(forwardRef(() => ChangeTicketsService))
     private readonly changeTicketsService?: ChangeTicketsService,
-    @Optional()
-    @Inject(forwardRef(() => DeleteRequestsService))
-    private readonly deleteRequestsService?: DeleteRequestsService,
   ) {}
 
   private getDb(client?: ApprovalWriteClient): ApprovalWriteClient {
@@ -176,19 +171,6 @@ export class ApprovalsService {
     }
   }
 
-  private resolveDeleteRequestWorkflowType(targetType: unknown): string {
-    switch (this.normalizeOptionalString(targetType)?.toUpperCase()) {
-      case DeleteRequestTargetTypes.CHANGE_TICKET:
-        return AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION;
-      case DeleteRequestTargetTypes.ADMIN_USER:
-        return AuditBusinessWorkflowTypes.ADMIN_USER_DELETION;
-      case DeleteRequestTargetTypes.AUDIT_EVIDENCE_PACKAGE:
-        return AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_PACKAGE_DELETION;
-      default:
-        return AuditWorkflowTypes.DELETE_REQUEST;
-    }
-  }
-
   private async resolveParentWorkflowContext(
     actionType: string,
     entityRef: string,
@@ -216,29 +198,6 @@ export class ApprovalsService {
           workflowId: this.normalizeOptionalString(ticket.id),
           workflowNo: this.normalizeOptionalString(ticket.ticketNo),
           traceId: this.normalizeOptionalString(ticket.traceId),
-        };
-      }
-    }
-
-    if (actionType === ApprovalActionTypes.DELETE_REQUEST_APPROVAL) {
-      const request = await db.deleteRequest?.findFirst?.({
-        where: {
-          id: entityRef,
-        },
-        select: {
-          id: true,
-          requestNo: true,
-          traceId: true,
-          targetType: true,
-        },
-      });
-
-      if (request) {
-        return {
-          workflowType: this.resolveDeleteRequestWorkflowType(request.targetType),
-          workflowId: this.normalizeOptionalString(request.id),
-          workflowNo: this.normalizeOptionalString(request.requestNo),
-          traceId: this.normalizeOptionalString(request.traceId),
         };
       }
     }
@@ -361,6 +320,7 @@ export class ApprovalsService {
       AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
       AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
       AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
+      AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
     ];
     return DEDICATED.includes(workflowType);
   }
@@ -400,14 +360,6 @@ export class ApprovalsService {
       this.changeTicketsService
     ) {
       await this.changeTicketsService.syncApprovalProjectionByEvent(event);
-      return;
-    }
-
-    if (
-      approval.actionType === ApprovalActionTypes.DELETE_REQUEST_APPROVAL &&
-      this.deleteRequestsService
-    ) {
-      await this.deleteRequestsService.syncApprovalProjectionByEvent(event);
     }
   }
 
@@ -695,8 +647,7 @@ export class ApprovalsService {
       client,
     );
     const lockWorkflowToParent =
-      actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL ||
-      actionType === ApprovalActionTypes.DELETE_REQUEST_APPROVAL;
+      actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL;
     const workflowContext = lockWorkflowToParent
       ? {
           workflowType: parentWorkflowContext.workflowType,

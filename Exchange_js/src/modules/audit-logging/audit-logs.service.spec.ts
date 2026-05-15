@@ -610,23 +610,6 @@ describe('AuditLogsService', () => {
         subjectNos: [],
       },
       {
-        id: 'wf-dr-1',
-        auditNo: 'AUD2604010002',
-        action: AuditActions.DELETE_REQUEST_CREATED,
-        entityType: AuditEntityTypes.DELETE_REQUEST,
-        entityId: 'request-1',
-        entityNo: 'DR2604010001',
-        workflowType: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T10:01:00.000Z'),
-        subjectNos: [],
-      },
-      {
         id: 'wf-login-1',
         auditNo: 'AUD2604010003',
         action: AuditActions.ADMIN_LOGIN_SUCCESS,
@@ -674,20 +657,13 @@ describe('AuditLogsService', () => {
       action: AuditActions.APPROVAL_APPROVED,
     });
     expect(result.items[1]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.CHANGE_TICKET_DELETION,
-      businessWorkflowLabel: 'Change Ticket Deletion',
-      userAction: AuditUserActions.REQUEST_CREATED,
-      userActionLabel: 'Request Created',
-      primaryRefNo: 'DR2604010001',
-    });
-    expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_LOGIN_ACCESS,
       businessWorkflowLabel: 'Admin Login Access',
       userAction: AuditUserActions.LOGIN_SUCCEEDED,
       userActionLabel: 'Login Succeeded',
       primaryRefNo: null,
     });
-    expect(result.items[3]).toMatchObject({
+    expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       businessWorkflowLabel: 'Audit Evidence Export',
       userAction: AuditUserActions.EXPORTED,

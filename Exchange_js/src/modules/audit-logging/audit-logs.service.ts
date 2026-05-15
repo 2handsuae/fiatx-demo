@@ -340,7 +340,6 @@ export class AuditLogsService {
       CHANGE_TICKET: { model: 'changeTicket', field: 'ticketNo' },
       APPROVAL_CASE: { model: 'approvalCase', field: 'approvalNo' },
       AUDIT_EVIDENCE_PACKAGE: { model: 'auditEvidencePackage', field: 'packageNo' },
-      DELETE_REQUEST: { model: 'deleteRequest', field: 'requestNo' },
       SLA_TIMER: { model: 'slaTimer', field: 'timerNo' },
       RECONCILIATION_BREAK: { model: 'reconciliationBreak', field: 'breakNo' },
     };

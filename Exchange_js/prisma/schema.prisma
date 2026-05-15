@@ -768,7 +768,6 @@ model ApprovalCase {
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
   changeTicketApprovalCase       ChangeTicket?                  @relation("ChangeTicketApprovalCase")
-  deleteRequestApprovalCase      DeleteRequest?                 @relation("DeleteRequestApprovalCase")
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
   riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
@@ -917,42 +916,6 @@ model ChangeTicketGateRun {
   @@index([traceId, createdAt])
   @@index([ticketId, targetEnv, releaseVersion, createdAt])
   @@map("change_ticket_gate_runs")
-}
-
-model DeleteRequest {
-  id                   String        @id @default(uuid())
-  requestNo            String        @unique @default("TEMP")
-  targetType           String
-  targetId             String
-  targetNo             String
-  status               String        @default("DRAFT")
-  approvalCaseId       String?       @unique
-  approvalNo           String?
-  createdByUserId      String
-  createdByUserNo      String
-  submittedByUserId    String?
-  submittedByUserNo    String?
-  consumedByUserId     String?
-  consumedByUserNo     String?
-  deleteReason         String
-  resultNote           String?
-  docRef               String?
-  targetSnapshotJson   String        @default("{}")
-  targetSnapshotDigest String?
-  traceId              String
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  submittedAt          DateTime?
-  consumedAt           DateTime?
-  approvalCase         ApprovalCase? @relation("DeleteRequestApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
-
-  @@index([status, createdAt])
-  @@index([requestNo, createdAt])
-  @@index([targetType, targetId, status])
-  @@index([targetType, targetNo, status])
-  @@index([traceId, createdAt])
-  @@index([approvalNo, createdAt])
-  @@map("delete_requests")
 }
 
 model ShareholdingRegistryVersion {

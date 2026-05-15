@@ -71,7 +71,6 @@ describe('ApprovalsService', () => {
   };
   let eventEmitter: { emitAsync: jest.Mock; emit: jest.Mock };
   let changeTicketsService: { syncApprovalProjectionByEvent: jest.Mock };
-  let deleteRequestsService: { syncApprovalProjectionByEvent: jest.Mock };
   let service: ApprovalsService;
   let lastCreatedApprovalData: Record<string, any> | null;
 
@@ -124,9 +123,6 @@ describe('ApprovalsService', () => {
       changeTicket: {
         findFirst: jest.fn(),
       },
-      deleteRequest: {
-        findFirst: jest.fn(),
-      },
       user: {
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -158,17 +154,12 @@ describe('ApprovalsService', () => {
       syncApprovalProjectionByEvent: jest.fn().mockResolvedValue(undefined),
     };
 
-    deleteRequestsService = {
-      syncApprovalProjectionByEvent: jest.fn().mockResolvedValue(undefined),
-    };
-
     service = new ApprovalsService(
       prisma,
       auditLogsService as any,
       approvalPolicyService as any,
       eventEmitter as any,
       changeTicketsService as any,
-      deleteRequestsService as any,
     );
   });
 
@@ -365,113 +356,6 @@ describe('ApprovalsService', () => {
       workflowType: 'ADMIN_MEMBER_PROVISIONING',
       workflowId: 'ticket-1',
       workflowNo: 'CT2604010001',
-    });
-  });
-
-  it('inherits delete-request parent workflow context when approval is created and submitted', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(null);
-    prisma.deleteRequest.findFirst.mockResolvedValue({
-      id: 'request-1',
-      requestNo: 'DR2604010001',
-      traceId: 'trace-request-1',
-      targetType: 'CHANGE_TICKET',
-    });
-    prisma.approvalCase.findUnique.mockImplementation(async () =>
-      buildApproval({
-        ...(lastCreatedApprovalData || {}),
-        actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
-        entityRef: 'request-1',
-        status: ApprovalStatuses.DRAFT,
-        traceId: lastCreatedApprovalData?.traceId || 'trace-request-1',
-        workflowType: lastCreatedApprovalData?.workflowType || null,
-        workflowId: lastCreatedApprovalData?.workflowId || null,
-        workflowNo: lastCreatedApprovalData?.workflowNo || null,
-      }),
-    );
-    prisma.approvalCase.update.mockImplementation(async ({ data }: { data: Record<string, any> }) =>
-      buildApproval({
-        ...(lastCreatedApprovalData || {}),
-        actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
-        entityRef: 'request-1',
-        status: data.status,
-        traceId: lastCreatedApprovalData?.traceId || 'trace-request-1',
-        workflowType: lastCreatedApprovalData?.workflowType || null,
-        workflowId: lastCreatedApprovalData?.workflowId || null,
-        workflowNo: lastCreatedApprovalData?.workflowNo || null,
-        submittedAt: baseDate,
-        timeoutAt: new Date(baseDate.getTime() + 24 * 60 * 60 * 1000),
-      }),
-    );
-
-    await service.createAndSubmit(
-      {
-        actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
-        entityRef: 'request-1',
-        traceId: 'trace-request-1',
-      },
-      {
-        reason: 'submit DR approval',
-        traceId: 'trace-request-1',
-      },
-      actor,
-    );
-
-    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          workflowType: 'CHANGE_TICKET_DELETION',
-          workflowId: 'request-1',
-          workflowNo: 'DR2604010001',
-          traceId: 'trace-request-1',
-        }),
-      }),
-    );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: AuditActions.APPROVAL_SUBMITTED,
-        workflowType: 'CHANGE_TICKET_DELETION',
-        traceId: 'trace-request-1',
-      }),
-      expect.anything(),
-    );
-  });
-
-  it('overrides caller workflow tuple and trace with delete-request parent context during create', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(null);
-    prisma.deleteRequest.findFirst.mockResolvedValue({
-      id: 'request-1',
-      requestNo: 'DR2604010001',
-      traceId: 'trace-request-1',
-      targetType: 'CHANGE_TICKET',
-    });
-
-    const result = await service.create(
-      {
-        actionType: ApprovalActionTypes.DELETE_REQUEST_APPROVAL,
-        entityRef: 'request-1',
-        traceId: 'trace-wrong',
-        workflowType: 'APPROVAL',
-        workflowId: 'approval-should-not-bind',
-        workflowNo: 'APR-WRONG-1',
-      },
-      actor,
-    );
-
-    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          traceId: 'trace-request-1',
-          workflowType: 'CHANGE_TICKET_DELETION',
-          workflowId: 'request-1',
-          workflowNo: 'DR2604010001',
-        }),
-      }),
-    );
-    expect(result).toMatchObject({
-      traceId: 'trace-request-1',
-      workflowType: 'CHANGE_TICKET_DELETION',
-      workflowId: 'request-1',
-      workflowNo: 'DR2604010001',
     });
   });
 
