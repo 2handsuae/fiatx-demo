@@ -35,15 +35,17 @@ export class TransactionLimitsService {
     return policy;
   }
 
-  async updateLimitAmount(policyNo: string, newAmount: Prisma.Decimal) {
-    return this.prisma.transactionLimitPolicy.update({
+  async updateLimitAmount(policyNo: string, newAmount: Prisma.Decimal, tx?: any) {
+    const db = tx ?? this.prisma;
+    return db.transactionLimitPolicy.update({
       where: { policyNo },
       data: { limitAmount: newAmount, status: 'ACTIVE' },
     });
   }
 
-  async setStatus(policyNo: string, status: string) {
-    return this.prisma.transactionLimitPolicy.update({
+  async setStatus(policyNo: string, status: string, tx?: any) {
+    const db = tx ?? this.prisma;
+    return db.transactionLimitPolicy.update({
       where: { policyNo },
       data: { status },
     });

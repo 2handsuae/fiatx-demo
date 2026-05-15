@@ -1,7 +1,6 @@
 import {
   ConflictException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
@@ -100,7 +99,14 @@ export class TransactionLimitChangeWorkflowService {
       actor,
     );
 
-    await this.limitsService.setStatus(policyNo, 'PENDING_APPROVAL');
+    try {
+      await this.limitsService.setStatus(policyNo, 'PENDING_APPROVAL');
+    } catch (statusErr) {
+      console.warn(
+        `[TransactionLimitChangeWorkflow] Failed to set PENDING_APPROVAL status for ${policyNo} after approval creation (${approvalCase.approvalNo}):`,
+        statusErr instanceof Error ? statusErr.message : statusErr,
+      );
+    }
 
     await this.auditLogsService.recordByActor(
       {
@@ -144,10 +150,15 @@ export class TransactionLimitChangeWorkflowService {
 
   private async executeChange(event: ApprovalDecidedEvent) {
     try {
-      const snapshot = event.metadata as Record<string, string> | undefined;
-      const policyNo = snapshot?.policyNo;
-      const newAmount = snapshot?.newAmount;
-      const oldAmount = snapshot?.oldAmount;
+      const approvalCase = await this.prisma.approvalCase.findUnique({
+        where: { id: event.approvalId },
+      });
+      const snapshot = approvalCase?.objectSnapshot
+        ? JSON.parse(approvalCase.objectSnapshot as string)
+        : {};
+      const policyNo = snapshot.policyNo;
+      const newAmount = snapshot.newAmount;
+      const oldAmount = snapshot.oldAmount;
 
       if (!policyNo || !newAmount) {
         throw new Error(`Missing policyNo or newAmount in approval snapshot`);
@@ -175,7 +186,7 @@ export class TransactionLimitChangeWorkflowService {
           appliedByUserNo: event.decisionByUserNo,
         },
         requestId: `TRANSACTION_LIMIT_CHANGE_APPLIED_${policyNo}`,
-        sourcePlatform: 'ADMIN_API',
+        sourcePlatform: 'SYSTEM',
       });
 
       await this.approvalsService.markExecutionResult(
@@ -191,7 +202,18 @@ export class TransactionLimitChangeWorkflowService {
         'Transaction limit updated successfully',
       );
     } catch (error) {
-      const policyNo = (event.metadata as Record<string, string>)?.policyNo;
+      let policyNo: string | undefined;
+      try {
+        const approvalCase = await this.prisma.approvalCase.findUnique({
+          where: { id: event.approvalId },
+        });
+        const snapshot = approvalCase?.objectSnapshot
+          ? JSON.parse(approvalCase.objectSnapshot as string)
+          : {};
+        policyNo = snapshot.policyNo;
+      } catch {
+        // Ignore snapshot parse errors in error path
+      }
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
@@ -204,7 +226,7 @@ export class TransactionLimitChangeWorkflowService {
         reason: error instanceof Error ? error.message : 'Limit change execution failed',
         metadata: { approvalId: event.approvalId },
         requestId: `TRANSACTION_LIMIT_CHANGE_APPLY_FAILED_${event.entityRef}`,
-        sourcePlatform: 'ADMIN_API',
+        sourcePlatform: 'SYSTEM',
       });
 
       await this.approvalsService
@@ -227,8 +249,13 @@ export class TransactionLimitChangeWorkflowService {
   }
 
   private async cancelChange(event: ApprovalDecidedEvent) {
-    const snapshot = event.metadata as Record<string, string> | undefined;
-    const policyNo = snapshot?.policyNo;
+    const approvalCase = await this.prisma.approvalCase.findUnique({
+      where: { id: event.approvalId },
+    });
+    const snapshot = approvalCase?.objectSnapshot
+      ? JSON.parse(approvalCase.objectSnapshot as string)
+      : {};
+    const policyNo = snapshot.policyNo as string | undefined;
 
     if (policyNo) {
       try {

@@ -346,7 +346,7 @@ export default function TransactionLimitDetail() {
               </button>
               <button
                 onClick={() => void handleSubmitEdit()}
-                disabled={submittingEdit || !newAmount.trim() || !changeReason.trim() || parseFloat(newAmount) <= 0}
+                disabled={submittingEdit || !newAmount.trim() || !changeReason.trim() || parseFloat(newAmount) <= 0 || parseFloat(newAmount) === parseFloat(policy.limitAmount)}
                 className={adminButtonClass('modalConfirm')}
               >
                 {submittingEdit ? 'Submitting…' : 'Submit for Approval'}
