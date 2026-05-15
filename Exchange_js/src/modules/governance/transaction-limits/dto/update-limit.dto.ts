@@ -3,11 +3,11 @@ import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator
 export class UpdateLimitDto {
   @IsNumber()
   @Min(0.01)
-  limitAmount: number;
+  limitAmount!: number;
 
   @IsString()
   @IsNotEmpty()
-  changeReason: string;
+  changeReason!: string;
 }
 
 export class ListTransactionLimitPoliciesDto {
