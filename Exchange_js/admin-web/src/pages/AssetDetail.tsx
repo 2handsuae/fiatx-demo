@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { X, ShieldOff, ShieldCheck, Zap } from 'lucide-react';
+import { X, ShieldOff, ShieldCheck, Zap, Pencil } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
@@ -320,13 +320,22 @@ export default function AssetDetail() {
               <Cap>Actions</Cap>
               <div className="mt-2.5 flex flex-col gap-2">
                 {asset.status === 'PROVISIONING' && (
-                  <button
-                    onClick={() => setShowActivateModal(true)}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    <Zap size={13} />
-                    Activate Asset
-                  </button>
+                  <>
+                    <button
+                      onClick={() => navigate(`/dashboard/system/assets/${id}/edit`)}
+                      className={adminButtonClass('detailUtility')}
+                    >
+                      <Pencil size={13} />
+                      Edit Asset
+                    </button>
+                    <button
+                      onClick={() => setShowActivateModal(true)}
+                      className={adminButtonClass('workflowPrimary')}
+                    >
+                      <Zap size={13} />
+                      Activate Asset
+                    </button>
+                  </>
                 )}
                 {asset.status === 'ACTIVE' && (
                   <button

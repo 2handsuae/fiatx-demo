@@ -112,6 +112,11 @@ export class WalletsService {
       where: { id: data.assetId },
     });
     if (!asset) throw new BadRequestException('Invalid Asset ID');
+    if (asset.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        `Asset ${asset.code} is not active (status: ${asset.status}). Wallets can only be created for ACTIVE assets.`,
+      );
+    }
 
     const walletRole = this.resolveCreateWalletRole(data, asset.type);
     this.assertManualCreateAllowed(data, walletRole);

@@ -142,7 +142,7 @@ export default function WithdrawalAddresses() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await customerFetch(`${API}/assets?take=200`);
+        const res = await customerFetch(`${API}/assets?status=ACTIVE&take=200`);
         if (res.ok) {
           const data = await res.json();
           const all = (data.items ?? data) as Asset[];

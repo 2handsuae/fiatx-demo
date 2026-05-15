@@ -10,6 +10,7 @@ import {
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AssetProvisioningService } from './asset-provisioning.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
+import { UpdateAssetDto } from './dto/update-asset.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 interface AssetCreationActor {
@@ -132,5 +133,65 @@ export class AssetListingWorkflowService {
     });
 
     return { asset };
+  }
+
+  /**
+   * Update editable fields of a PROVISIONING asset.
+   * Identity fields (type, code, network, decimals) cannot be changed
+   * because they are tied to the TB ledger.
+   */
+  async updateProvisioning(assetNo: string, dto: UpdateAssetDto, actor: AssetCreationActor): Promise<any> {
+    const asset = await this.prisma.asset.findFirst({ where: { assetNo } });
+    if (!asset) {
+      throw new BadRequestException({ code: 'ASSET_NOT_FOUND', message: `Asset ${assetNo} not found` });
+    }
+    if (asset.status !== 'PROVISIONING') {
+      throw new BadRequestException({
+        code: 'ASSET_NOT_PROVISIONING',
+        message: `Asset ${assetNo} is ${asset.status}, only PROVISIONING assets can be edited`,
+      });
+    }
+
+    // Build update data — only include fields that were explicitly provided
+    const data: Record<string, unknown> = {};
+    if (dto.contractAddress !== undefined) data.contractAddress = dto.contractAddress;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.minDepositAmount !== undefined) data.minDepositAmount = dto.minDepositAmount;
+    if (dto.maxDepositAmount !== undefined) data.maxDepositAmount = dto.maxDepositAmount;
+    if (dto.minWithdrawAmount !== undefined) data.minWithdrawAmount = dto.minWithdrawAmount;
+    if (dto.maxWithdrawAmount !== undefined) data.maxWithdrawAmount = dto.maxWithdrawAmount;
+    if (dto.depositEnabled !== undefined) data.depositEnabled = dto.depositEnabled;
+    if (dto.withdrawalEnabled !== undefined) data.withdrawalEnabled = dto.withdrawalEnabled;
+
+    if (Object.keys(data).length === 0) {
+      return { asset };
+    }
+
+    const updated = await this.prisma.asset.update({
+      where: { id: asset.id },
+      data,
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ASSET_CREATION.ASSET_CREATED_AND_PROVISIONED,
+        entityType: AuditEntityTypes.ASSET,
+        entityId: asset.id,
+        entityNo: assetNo,
+        workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+        result: AuditResult.SUCCESS,
+        reason: 'Asset updated during provisioning',
+        metadata: { updatedFields: Object.keys(data) },
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor.userId,
+        actorNo: actor.userNo,
+        actorRole: actor.role || 'ADMIN',
+      },
+    );
+
+    return { asset: updated };
   }
 }
