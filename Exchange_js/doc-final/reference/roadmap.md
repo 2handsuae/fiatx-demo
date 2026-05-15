@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-10
+Last Updated: 2026-05-15
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -109,13 +109,13 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ### MVP（8 workflows）
 
-- [-] Asset Listing（资产上架审批：Maker 提案含全部参数——symbol / precision / 支持网络 / 合约地址 / min-max 金额 / 充提启用开关 → Checker 审批；纯配置层，不直接触发 Wallet 或 TB Account 创建） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行 🔸 半完成 2026-05-11
+- [x] Asset Creation & Activation（资产创建与上线：① 直接创建（无审批门）+ 同事务 TB 系统账户 provisioning → PROVISIONING；② 异步批量创建客户 TB 账户（event-driven + TbAccountBacklog 失败追踪）；③ PROVISIONING 期间可编辑运营字段（限额/开关/合约地址/描述），身份字段锁定；④ 激活走 CISO 审批门 + 就绪检查（TB 账户 + 活跃钱包）→ ACTIVE；⑤ 客户端资产状态守卫：非 ACTIVE 资产不展示、不可创建钱包） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行 ✅ 2026-05-15
 - [x] Custodian Wallet Creation — Crypto（在 HexTrust 创建钱包：Admin 入口创建系统钱包组 MASTER / OUTBOUND / LIQ 等；Client 入口创建客户充值地址；按 ownerType + walletRole 区分） — **业务必须**：V4-V7 充提和内部转账的物理执行依赖 ✅ 2026-05-13
 - [x] Custodian Wallet Creation — Fiat（在 ZandBank 创建账户：Admin 入口创建系统账户；Client 入口创建客户 VIBAN；按 ownerType + walletRole 区分） — **业务必须**：V4 法币充值的前置 ✅ 2026-05-13
-- [ ] Asset Suspension / Resumption（资产暂停/恢复审批：区别于 V4/V5 的"渠道暂停"——渠道暂停只关一条链或一个银行通道，这里是暂停整个资产的所有操作；暂停期间充值进 Suspense、提现/兑换拒绝新建；恢复需审批） — **VARA**：TIR Rulebook IV.C Incident Response — 技术故障 / 合规要求 / 链分叉时必须能暂停资产级操作
-- [ ] Withdrawal Address Registration — Crypto（客户注册提现虚拟币地址：提交地址 → 地址格式 + 网络校验 → PENDING_ACTIVATION → 安全冷却期 24-48h → 冷却期内发通知 + 客户可取消 → 冷却期满自动 ACTIVE → 方可用于提现） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移
-- [ ] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → 账户持有人姓名与客户身份匹配校验 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；注册时同步在 ZandBank 建立白名单对） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止
-- [ ] TB Account Creation（在 TigerBeetle 创建账户：系统级或客户级均走此 workflow；按账户类型定义创建对应 TB 账户组） — **业务必须**：V4-V6 的前置，没有 TB 账户就无法记账
+- [x] Asset Suspension / Reactivation（资产暂停/恢复审批：暂停走 CISO 审批门 + 暂停原因；恢复走 CISO 审批门；各自独立 3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务；前端 AssetDetail 侧边栏 Actions 按状态显示对应操作按钮） — **VARA**：TIR Rulebook IV.C Incident Response — 技术故障 / 合规要求 / 链分叉时必须能暂停资产级操作 ✅ 2026-05-15
+- [x] Withdrawal Address Registration — Crypto（客户注册提现虚拟币地址：提交地址 → 地址格式 + 网络校验 → PENDING_ACTIVATION → 安全冷却期 24h → 冷却期内客户可取消 → 冷却期满自动 ACTIVE → 方可用于提现；含 skip-cooling 管理员后门；前端完整 UI 含地址管理、详情弹窗、冷却倒计时） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移 ✅ 2026-05-13
+- [x] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；含完整银行账户字段（accountName/bankName/iban/bankCode）；前端 UI 与 Crypto 地址共享管理页面） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止 ✅ 2026-05-13
+- [x] TB Account Creation（在 TigerBeetle 创建账户：① 系统级 3 账户（BANK/CUSTODY + TRADE_CLEARING + FEE_RECEIVABLE）在资产创建事务中同步 provision；② 客户级 2 账户（CLIENT_CREDIT + CLIENT_AUDIT）在 `asset.provisioned` 事件后异步批量创建；TbAccountRegistry 持久化映射；TbAccountBacklog 追踪失败项支持重试；含手动创建 API `POST /admin/tb/accounts`） — **业务必须**：V4-V6 的前置，没有 TB 账户就无法记账 ✅ 2026-05-15
 - [ ] Transaction Limit Configuration（交易限额配置变更审批：定义 Level 1 / Level 2 × 操作类型 deposit/withdrawal/swap × 时间周期 daily/monthly 的金额上限矩阵；变更走 Maker/Checker；V4-V7 运行时消费此配置做前置校验） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额是 AML 风控的核心参数
 
 ### ADVANCED（3 workflows）
@@ -128,6 +128,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 - **TB Account 类型定义** — 全量定义资产侧 / 负债侧 / 系统级 / 客户级账户类型及 flags ✅ 2026-05-11
 - **钱包模型（V3 适配）** — V1 Wallet 模型已有角色体系（DEPOSIT / MASTER / OUTBOUND / LIQ / OPS），需清理适配 V3：去除旧 Journal/Balance 依赖，明确 TB 记账层与物理钱包层的职责分离 ✅ 2026-05-12
+- **资产状态守卫** — 钱包创建 API 拒绝非 ACTIVE 资产；客户端所有页面强制 `status=ACTIVE` 过滤 ✅ 2026-05-15
 
 ---
 
