@@ -126,6 +126,8 @@ const TransferEvidenceList = lazy(() => import('./pages/TransferEvidenceList'));
 const RetryQueueList = lazy(() => import('./pages/RetryQueueList'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
+const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
+const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
 
 const FullPageMessage = ({
   title,
@@ -839,6 +841,14 @@ function App() {
             <Route
               path="system/asset-configs/:assetNo"
               element={withPermission(<AssetConfigDetail />, [PERMISSIONS.ASSETS_READ])}
+            />
+            <Route
+              path="system/transaction-limits"
+              element={withPermission(<TransactionLimitList />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])}
+            />
+            <Route
+              path="system/transaction-limits/:policyNo"
+              element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])}
             />
             <Route
               path="treasury/withdrawal-addresses"

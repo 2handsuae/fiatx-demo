@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   Tag,
   Database,
+  Gauge,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -146,6 +147,12 @@ const DashboardLayout = () => {
           label: 'Approval Policies',
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
+        },
+        {
+          path: '/dashboard/system/transaction-limits',
+          label: 'Transaction Limits',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
         },
         // Hidden: objectSnapshot on approval replaces direct navigation
         // {

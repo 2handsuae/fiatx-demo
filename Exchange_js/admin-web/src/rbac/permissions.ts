@@ -201,6 +201,9 @@ export const PERMISSIONS = {
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',
   TB_TRANSFERS_READ: 'api.get.admin_tb_transfers',
   TB_BACKLOG_READ: 'api.get.admin_tb_backlog',
+
+  TRANSACTION_LIMIT_POLICIES_READ: 'api.get.admin_transaction_limit_policies',
+  TRANSACTION_LIMIT_POLICIES_WRITE: 'api.patch.admin_transaction_limit_policies',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
