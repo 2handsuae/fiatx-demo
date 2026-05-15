@@ -21,7 +21,7 @@ import {
   DEFAULT_ASSET_CONFIGS,
 } from '../../../config/manifests/asset-config.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
-import { ChangeTicketStatuses, LegacyChangeTicketsService } from './legacy-ct-stubs';
+import { ChangeTicketStatuses, LegacyChangeTicketsServiceStub } from './legacy-ct-stubs';
 import {
   RegulatoryGateEffectivenessStatuses,
   RegulatoryGateSubjectTypes,
@@ -83,7 +83,7 @@ export class BusinessConfigService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly pricingCenterService: PricingCenterService,
-    private readonly changeTicketsService: LegacyChangeTicketsService,
+    private readonly changeTicketsService: LegacyChangeTicketsServiceStub,
   ) {}
 
   private normalizeSubjectType(input: string): BusinessConfigSubjectType {
