@@ -240,7 +240,7 @@ export class MfaBindingWorkflowService {
     await this.usersDomainService.clearMfaVerifyFail(userId);
   }
 
-  async verifyMfaBind(userId: string, code: string): Promise<{ nextStep: string }> {
+  async verifyMfaBind(userId: string, code: string): Promise<{ accessToken: string }> {
     const user = await this.loadUser(userId);
     if (user.firstLoginStatus !== 'MFA_BINDING') {
       throw new ForbiddenException(
@@ -323,36 +323,7 @@ export class MfaBindingWorkflowService {
         traceId: user.firstLoginTraceId || undefined,
         requestId: user.firstLoginTraceId || randomUUID(),
         result: AuditResult.SUCCESS,
-        metadata: { fromStatus: 'MFA_BINDING', toStatus: 'POLICY_ACK_PENDING' },
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.buildActor(user),
-    );
-
-    return { nextStep: 'POLICY_ACK_PENDING' };
-  }
-
-  async acknowledgePolicy(userId: string): Promise<{ accessToken: string }> {
-    const user = await this.loadUser(userId);
-    if (user.firstLoginStatus !== 'POLICY_ACK_PENDING') {
-      throw new ForbiddenException(
-        `Cannot acknowledge policy in status: ${user.firstLoginStatus}`,
-      );
-    }
-
-    await this.usersDomainService.completeFirstLogin(userId, undefined);
-
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditGovernanceActions.ADMIN_FIRST_LOGIN.POLICY_ACKNOWLEDGED,
-        entityType: AuditEntityTypes.ADMIN_USER,
-        entityId: user.id,
-        entityNo: user.userNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_FIRST_LOGIN,
-        traceId: user.firstLoginTraceId || undefined,
-        requestId: user.firstLoginTraceId || randomUUID(),
-        result: AuditResult.SUCCESS,
-        metadata: { fromStatus: 'POLICY_ACK_PENDING', toStatus: 'COMPLETED' },
+        metadata: { fromStatus: 'MFA_BINDING', toStatus: 'COMPLETED' },
         sourcePlatform: 'ADMIN_API',
       },
       this.buildActor(user),

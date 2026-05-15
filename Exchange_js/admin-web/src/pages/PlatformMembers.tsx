@@ -66,7 +66,6 @@ const getSecurityBadge = (
   const map: Record<string, string> = {
     PENDING_IDENTITY_CONFIRM: 'Setup Pending',
     MFA_BINDING: 'MFA Pending',
-    POLICY_ACK_PENDING: 'Policy Pending',
   };
   return {
     label: map[firstLoginStatus] || firstLoginStatus,

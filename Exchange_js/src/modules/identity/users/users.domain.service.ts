@@ -257,8 +257,9 @@ export class UsersDomainService {
     await client.user.update({
       where: { id: userId },
       data: {
-        firstLoginStatus: 'POLICY_ACK_PENDING',
+        firstLoginStatus: 'COMPLETED',
         mfaEnabledAt: new Date(),
+        securityAckAt: new Date(),
         mfaVerifyFailCount: 0,
         mfaVerifyLockedUntil: null,
       },
