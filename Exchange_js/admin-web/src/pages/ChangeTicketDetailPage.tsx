@@ -7,7 +7,6 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { createDeleteRequest, DELETE_REQUEST_TARGET_TYPES } from '../utils/deleteRequests';
 import {
   DetailPageHeader,
   JsonBlock,
@@ -47,7 +46,7 @@ interface ChangeTicketDetail {
   updatedAt: string;
 }
 
-type ModalKind = 'submit' | 'consume' | 'delete';
+type ModalKind = 'submit' | 'consume';
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 
@@ -158,7 +157,6 @@ const ChangeTicketDetailPage = () => {
   const canSubmit          = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_SUBMIT]);
   const canConsume         = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_CONSUME]);
   const canViewApproval    = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
-  const canRequestDeletion = hasAnyPermission([PERMISSIONS.GOV_DELETE_REQUEST_CREATE]);
 
   const [detail,  setDetail]  = useState<ChangeTicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,7 +171,6 @@ const ChangeTicketDetailPage = () => {
   /* Modal form fields */
   const [consumeResult, setConsumeResult] = useState<typeof CONSUME_RESULT_SUCCESS | typeof CONSUME_RESULT_FAILURE>(CONSUME_RESULT_SUCCESS);
   const [consumeNote, setConsumeNote]     = useState('');
-  const [deleteReason, setDeleteReason]   = useState('');
 
   const requestSeqRef = useRef(0);
 
@@ -221,9 +218,6 @@ const ChangeTicketDetailPage = () => {
     if (kind === 'consume') {
       setConsumeResult(CONSUME_RESULT_SUCCESS);
       setConsumeNote('');
-    }
-    if (kind === 'delete') {
-      setDeleteReason('');
     }
     setModal(kind);
   };
@@ -303,30 +297,6 @@ const ChangeTicketDetailPage = () => {
     }
   };
 
-  const submitDeleteRequest = async () => {
-    if (!detail) return;
-    const reason = deleteReason.trim();
-    if (!reason) { setModalError('Delete reason is required.'); return; }
-    setModalBusy(true); setModalError(null);
-    try {
-      const created = await createDeleteRequest({
-        targetType: DELETE_REQUEST_TARGET_TYPES.CHANGE_TICKET,
-        targetNo: detail.ticketNo,
-        deleteReason: reason,
-      });
-      closeModal();
-      navigate(`/dashboard/control-gates/delete-requests/${created.id}`);
-    } catch (e: unknown) {
-      if (e instanceof AdminPermissionError) {
-        setModalError('Permission denied. You cannot request ticket deletion.');
-      } else {
-        setModalError(e instanceof Error ? e.message : 'Failed to create delete request.');
-      }
-    } finally {
-      setModalBusy(false);
-    }
-  };
-
   /* ── Loading / error stubs ── */
 
   if (loading) {
@@ -389,7 +359,7 @@ const ChangeTicketDetailPage = () => {
   const hasBinding       = !!(detail.bindingDigest || detail.bindingSnapshotJson);
 
   const showActionsBlock =
-    canSubmitAction || canConsumeAction || canRequestDeletion;
+    canSubmitAction || canConsumeAction;
 
   /* ── Page ── */
 
@@ -545,14 +515,6 @@ const ChangeTicketDetailPage = () => {
                     Consume Ticket
                   </button>
                 )}
-                {canRequestDeletion && (
-                  <button
-                    onClick={() => openModal('delete')}
-                    className={adminButtonClass('workflowNegative')}
-                  >
-                    Request Deletion
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -689,52 +651,6 @@ const ChangeTicketDetailPage = () => {
         </ModalShell>
       )}
 
-      {/* ════ Delete Modal ════ */}
-      {modal === 'delete' && (
-        <ModalShell
-          title="Request Ticket Deletion"
-          subtitle={`${detail.ticketNo}`}
-          onClose={closeModal}
-          footer={
-            <>
-              <button onClick={closeModal} className={adminButtonClass('modalCancel')}>
-                Cancel
-              </button>
-              <button
-                onClick={() => void submitDeleteRequest()}
-                disabled={modalBusy || !deleteReason.trim()}
-                className={adminButtonClass('workflowNegative')}
-              >
-                {modalBusy ? 'Requesting…' : 'Submit Request'}
-              </button>
-            </>
-          }
-        >
-          <p className="font-mono text-[10px] text-adm-t3">
-            This opens a governed deletion proposal for{' '}
-            <span className="text-adm-amber">{detail.ticketNo}</span>. The ticket remains
-            intact until the request is approved and executed.
-          </p>
-          <div>
-            <p className="mb-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">
-              Delete Reason
-            </p>
-            <textarea
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-              rows={4}
-              placeholder="Explain why this ticket should enter governed deletion…"
-              className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
-              autoFocus
-            />
-          </div>
-          {modalError && (
-            <div className="rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
-              {modalError}
-            </div>
-          )}
-        </ModalShell>
-      )}
 
     </div>
   );

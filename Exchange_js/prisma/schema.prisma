@@ -25,8 +25,6 @@ model User {
   lastLoginAt         DateTime?
   deletedAt           DateTime?
   deletedBy           String?
-  deleteRequestId     String?
-  deleteReason        String?
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   userRoles           UserRole[]
@@ -715,8 +713,6 @@ model AuditEvidencePackage {
   packageBody              String?
   deletedAt                DateTime?
   deletedBy                String?
-  deleteRequestId          String?
-  deleteReason             String?
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
   approvalCase             ApprovalCase? @relation("AuditEvidencePackageApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
@@ -763,8 +759,6 @@ model ApprovalCase {
   decisionReason                 String?
   deletedAt                      DateTime?
   deletedBy                      String?
-  deleteRequestId                String?
-  deleteReason                   String?
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
   changeTicketApprovalCase       ChangeTicket?                  @relation("ChangeTicketApprovalCase")

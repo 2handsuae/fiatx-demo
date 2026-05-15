@@ -105,13 +105,7 @@ export const PERMISSIONS = {
   GOV_CHANGE_TICKET_CREATE: 'api.post.admin_control_gates_change_tickets',
   GOV_CHANGE_TICKET_SUBMIT: 'api.post.admin_control_gates_change_tickets_id_submit',
   GOV_CHANGE_TICKET_CONSUME: 'api.post.admin_control_gates_change_tickets_id_consume',
-  GOV_DELETE_REQUESTS_READ: 'api.get.admin_control_gates_delete_requests',
-  GOV_DELETE_REQUEST_DETAIL_READ: 'api.get.admin_control_gates_delete_requests_id',
-  GOV_DELETE_REQUEST_CREATE: 'api.post.admin_control_gates_delete_requests',
-  GOV_DELETE_REQUEST_SUBMIT: 'api.post.admin_control_gates_delete_requests_id_submit',
-  GOV_DELETE_REQUEST_CANCEL: 'api.post.admin_control_gates_delete_requests_id_cancel',
-  GOV_DELETE_REQUEST_CONSUME: 'api.post.admin_control_gates_delete_requests_id_consume',
-  GOV_SHAREHOLDING_REGISTRY_READ:
+GOV_SHAREHOLDING_REGISTRY_READ:
     'api.get.admin_governance_registries_shareholding_versions',
   GOV_SHAREHOLDING_REGISTRY_DETAIL_READ:
     'api.get.admin_governance_registries_shareholding_versions_id',

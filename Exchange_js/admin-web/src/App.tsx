@@ -2,7 +2,7 @@ import { lazy, Suspense, type ReactElement } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AdminLogin from './pages/AdminLogin';
 import AdminInviteActivate from './pages/AdminInviteActivate';
-import AdminFirstLoginPage from './pages/AdminFirstLoginPage';
+import AdminMfaBindingPage from './pages/AdminMfaBindingPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import DashboardLayout from './components/DashboardLayout';
 import { useAdminSession } from './contexts/AdminSessionContext';
@@ -62,9 +62,6 @@ const ChangeTicketsPage = lazy(() => import('./pages/ChangeTicketsPage'));
 const ChangeTicketCreatePage = lazy(() => import('./pages/ChangeTicketCreatePage'));
 const ChangeTicketDetailPage = lazy(() => import('./pages/ChangeTicketDetailPage'));
 const BusinessConfigReleasesPage = lazy(() => import('./pages/BusinessConfigReleasesPage'));
-const DeleteRequestsPage = lazy(() => import('./pages/DeleteRequestsPage'));
-const DeleteRequestCreatePage = lazy(() => import('./pages/DeleteRequestCreatePage'));
-const DeleteRequestDetailPage = lazy(() => import('./pages/DeleteRequestDetailPage'));
 const GovernanceRegistryListPage = lazy(() => import('./pages/GovernanceRegistryListPage'));
 const GovernanceRegistryDetailPage = lazy(() => import('./pages/GovernanceRegistryDetailPage'));
 const GovernanceRegistryCreatePage = lazy(() => import('./pages/GovernanceRegistryCreatePage'));
@@ -230,7 +227,7 @@ function App() {
       <Routes>
         <Route path="/admin/login" element={<LoginEntry />} />
         <Route path="/admin/activate" element={<AdminInviteActivate />} />
-        <Route path="/admin/first-login" element={<AdminFirstLoginPage />} />
+        <Route path="/admin/mfa-binding" element={<AdminMfaBindingPage />} />
         <Route path="/admin/reset-password" element={<ResetPasswordPage />} />
 
         <Route
@@ -526,25 +523,7 @@ function App() {
                 PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ,
               ])}
             />
-            <Route
-              path="control-gates/delete-requests"
-              element={withPermission(<DeleteRequestsPage />, [
-                PERMISSIONS.GOV_DELETE_REQUESTS_READ,
-              ])}
-            />
-            <Route
-              path="control-gates/delete-requests/create"
-              element={withPermission(<DeleteRequestCreatePage />, [
-                PERMISSIONS.GOV_DELETE_REQUEST_CREATE,
-              ])}
-            />
-            <Route
-              path="control-gates/delete-requests/:id"
-              element={withPermission(<DeleteRequestDetailPage />, [
-                PERMISSIONS.GOV_DELETE_REQUEST_DETAIL_READ,
-              ])}
-            />
-            <Route
+<Route
               path="control-gates/approvals"
               element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])}
             />

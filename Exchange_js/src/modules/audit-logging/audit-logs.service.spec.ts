@@ -141,22 +141,7 @@ describe('AuditLogsService', () => {
     expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CONSUMED)).toBe(
       AuditUserActions.EXECUTED,
     );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CREATED)).toBe(
-      AuditUserActions.REQUEST_CREATED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_SUBMITTED)).toBe(
-      AuditUserActions.SUBMITTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_APPROVED)).toBe(
-      AuditUserActions.APPROVED_FOR_EXECUTION,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CANCELLED)).toBe(
-      AuditUserActions.CANCELLED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.DELETE_REQUEST_CONSUMED)).toBe(
-      AuditUserActions.EXECUTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
+expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
       AuditUserActions.SUBMITTED,
     );
     expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_APPROVED)).toBe(
