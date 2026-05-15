@@ -4,7 +4,6 @@ import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { JournalsService } from '../../accounting/journals/journals.service';
 import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
@@ -16,7 +15,6 @@ import { PricingCenterService } from '../pricing-center/pricing-center.service';
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
   let prisma: any;
-  let journalsService: any;
   let transactionComplianceService: any;
   let eventEmitter: any;
   let pricingCenterService: any;
@@ -54,13 +52,6 @@ describe('WithdrawTransactionsService', () => {
         {
           provide: EventEmitter2,
           useValue: { emit: jest.fn() },
-        },
-        {
-          provide: JournalsService,
-          useValue: {
-            getCustomerLiabilityBalance: jest.fn(),
-            createJournal: jest.fn(),
-          },
         },
         {
           provide: TransactionComplianceService,
@@ -102,7 +93,6 @@ describe('WithdrawTransactionsService', () => {
 
     service = module.get<WithdrawTransactionsService>(WithdrawTransactionsService);
     prisma = module.get<PrismaService>(PrismaService);
-    journalsService = module.get<JournalsService>(JournalsService);
     transactionComplianceService = module.get<TransactionComplianceService>(
       TransactionComplianceService,
     );
@@ -141,32 +131,12 @@ describe('WithdrawTransactionsService', () => {
     });
   });
 
-  it('should block create when available balance is insufficient', async () => {
-    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
-    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
-    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal(10),
-    });
-
-    await expect(
-      service.create(
-        {
-          assetId: 'asset-1',
-          amount: 100,
-        } as any,
-        'user-1',
-      ),
-    ).rejects.toThrow(BadRequestException);
-
-    expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
-  });
+  // V2 balance check removed — migrated to TigerBeetle
+  // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
   it('should create withdraw in PENDING_COMPLIANCE and initialize final review on create', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
-    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal(1000),
-    });
     mockTx.withdrawTransaction.create.mockResolvedValue({
       id: 'wd-create-1',
       ownerType: 'CUSTOMER',
@@ -182,7 +152,6 @@ describe('WithdrawTransactionsService', () => {
       toWalletNo: null,
     });
     mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-1' });
-    journalsService.createJournal.mockResolvedValue({ id: 'je-create-1' });
     transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
       {},
     );
@@ -225,9 +194,6 @@ describe('WithdrawTransactionsService', () => {
   it('should initialize only final review semantics on fiat create without response snapshots', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT' });
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
-    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal(1000),
-    });
     mockTx.withdrawTransaction.create.mockResolvedValue({
       id: 'wd-create-2',
       ownerType: 'CUSTOMER',
@@ -243,7 +209,6 @@ describe('WithdrawTransactionsService', () => {
       toWalletNo: null,
     });
     mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-2' });
-    journalsService.createJournal.mockResolvedValue({ id: 'je-create-2' });
     transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
       null,
     );
@@ -288,9 +253,6 @@ describe('WithdrawTransactionsService', () => {
 
   it('should reject create when quoteId is missing', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
-    journalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal(1000),
-    });
 
     await expect(
       service.create(

@@ -18,7 +18,7 @@ import {
 } from '../src/modules/governance/approvals/constants/approval.constants';
 
 const DEFAULT_ADMIN_EMAIL = 'admin@fiatx.com';
-const DEFAULT_ADMIN_USER_NO = buildDeterministicNo('ADM', 'SUPER_ADMIN', DEFAULT_ADMIN_EMAIL);
+const DEFAULT_ADMIN_USER_NO = 'ADM2501010001';
 const DEFAULT_ADMIN_PASSWORD = '123456';
 const DEFAULT_ROLE_ADMIN_PASSWORD = '123456';
 const DEFAULT_BASE_CUSTOMER_EMAIL = 'shawn@fiatx.com';
@@ -34,18 +34,15 @@ type RoleSeedAccount = {
 };
 
 const ROLE_SEED_ACCOUNTS: RoleSeedAccount[] = [
-  { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com' },
-  { roleCode: 'SENIOR_MANAGEMENT_OFFICER', email: 'sm@fiatx.com' },
-  { roleCode: 'CISO', email: 'ciso@fiatx.com' },
-  { roleCode: 'MLRO', email: 'mlro@fiatx.com' },
-  { roleCode: 'DPO', email: 'dpo@fiatx.com' },
-  { roleCode: 'COMPLIANCE_OFFICER', email: 'compliance_lead@fiatx.com' },
-  { roleCode: 'TECH_OFFICER', email: 'tech_admin@fiatx.com' },
-  { roleCode: 'OPS_OFFICER', email: 'ops_officer@fiatx.com' },
-].map((a) => ({
-  ...a,
-  userNo: buildDeterministicNo('ADM', a.roleCode, a.email),
-}));
+  { roleCode: 'SUPER_ADMIN', email: 'admin@fiatx.com', userNo: 'ADM2501010001' },
+  { roleCode: 'SENIOR_MANAGEMENT_OFFICER', email: 'sm@fiatx.com', userNo: 'ADM2501010002' },
+  { roleCode: 'CISO', email: 'ciso@fiatx.com', userNo: 'ADM2501010003' },
+  { roleCode: 'MLRO', email: 'mlro@fiatx.com', userNo: 'ADM2501010004' },
+  { roleCode: 'DPO', email: 'dpo@fiatx.com', userNo: 'ADM2501010005' },
+  { roleCode: 'COMPLIANCE_OFFICER', email: 'compliance_lead@fiatx.com', userNo: 'ADM2501010006' },
+  { roleCode: 'TECH_OFFICER', email: 'tech_admin@fiatx.com', userNo: 'ADM2501010007' },
+  { roleCode: 'OPS_OFFICER', email: 'ops_officer@fiatx.com', userNo: 'ADM2501010008' },
+];
 
 const CRYPTO_SYSTEM_WALLET_KINDS = [
   'CUST_CRYPTO_MASTER',

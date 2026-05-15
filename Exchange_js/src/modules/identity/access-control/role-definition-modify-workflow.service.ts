@@ -165,7 +165,7 @@ export class RoleDefinitionModifyWorkflowService {
     /* Audit */
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ROLE_DEFINITION.MODIFY_REQUESTED,
+        action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.MODIFY_REQUESTED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
         entityId: request.id,
         entityNo: requestNo,
@@ -329,7 +329,7 @@ export class RoleDefinitionModifyWorkflowService {
 
     /* Audit */
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ROLE_DEFINITION.ROLE_MODIFIED,
+      action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.ROLE_MODIFIED,
       entityType: AuditEntityTypes.ACCESS_CONTROL,
       entityId: request.id,
       entityNo: request.requestNo,
@@ -359,7 +359,7 @@ export class RoleDefinitionModifyWorkflowService {
     await this.approvalsService.markExecutionResult(approvalId, false, SYSTEM_ACTOR, reason);
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ROLE_DEFINITION.ROLE_MODIFY_FAILED,
+      action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.ROLE_MODIFY_FAILED,
       entityType: AuditEntityTypes.ACCESS_CONTROL,
       entityId: request.id,
       entityNo: request.requestNo,
@@ -399,7 +399,7 @@ export class RoleDefinitionModifyWorkflowService {
     });
 
     await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ROLE_DEFINITION.MODIFY_CANCELLED,
+      action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.MODIFY_CANCELLED,
       entityType: AuditEntityTypes.ACCESS_CONTROL,
       entityId: request.id,
       entityNo: request.requestNo,

@@ -18,6 +18,7 @@ import { CreateCustodianWalletDto } from './dto/create-custodian-wallet.dto';
 import { getWalletRolePolicy } from './wallet-role-policies.constant';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import * as crypto from 'crypto';
 
 const SECONDARY_EVENT = 'workflow.custodian-wallet-create.decided';
 
@@ -43,7 +44,7 @@ export class CustodianWalletCreateWorkflowService {
   ) {}
 
   async initiateCreate(dto: CreateCustodianWalletDto, actor: ApprovalActorContext) {
-    const traceId = generateReferenceNo('TRC');
+    const traceId = crypto.randomUUID();
 
     const asset = await this.prisma.asset.findFirst({ where: { assetNo: dto.assetNo } });
     if (!asset) {
@@ -117,6 +118,7 @@ export class CustodianWalletCreateWorkflowService {
         walletRole: dto.role,
         assetId: asset.id,
         vaultId: dto.vaultId ?? null,
+        iban: dto.iban ?? null,
         status: 'PENDING_APPROVAL',
       },
     });
@@ -220,6 +222,27 @@ export class CustodianWalletCreateWorkflowService {
       return;
     }
 
+    // Fiat system wallets with pre-filled IBAN skip adapter — activate directly
+    if (wallet.iban) {
+      await this.prisma.wallet.update({ where: { id: walletId }, data: { status: 'ACTIVE' } });
+      await this.approvalsService.markExecutionResult(approvalId, true, SYSTEM_ACTOR);
+
+      await this.auditLogsService.recordSystem({
+        action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
+        entityType: AuditEntityTypes.WALLET,
+        entityId: walletId,
+        entityNo: wallet.walletNo ?? undefined,
+        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        traceId,
+        result: AuditResult.SUCCESS,
+        metadata: { iban: wallet.iban, skipAdapter: true },
+        sourcePlatform: 'SYSTEM',
+      });
+
+      this.logger.log(`Wallet ${wallet.walletNo} activated with pre-filled IBAN ${wallet.iban}`);
+      return;
+    }
+
     await this.prisma.wallet.update({ where: { id: walletId }, data: { status: 'CREATING' } });
 
     try {
@@ -311,7 +334,7 @@ export class CustodianWalletCreateWorkflowService {
       });
     }
 
-    const traceId = generateReferenceNo('TRC');
+    const traceId = crypto.randomUUID();
     await this.prisma.wallet.update({ where: { id: wallet.id }, data: { status: 'CREATING' } });
 
     try {

@@ -25,4 +25,9 @@ export class CreateCustodianWalletDto {
   @IsString()
   @IsOptional()
   vaultId?: string;
+
+  @ApiProperty({ required: false, description: 'IBAN — required for fiat system wallets (C_CMA, F_LIQ, F_OPS), skips adapter call' })
+  @IsString()
+  @IsOptional()
+  iban?: string;
 }

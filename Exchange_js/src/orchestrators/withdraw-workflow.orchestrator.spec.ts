@@ -1,10 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
-import { AccountingEventExecutionService } from './accounting-event-execution.service';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
-import { ClearingsService } from '../modules/clearing-settle/clearing/clearings.service';
 import { PrismaService } from '../core/prisma/prisma.service';
 import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawTransactionStatus } from '../modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
@@ -21,8 +19,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
   let orchestrator: WithdrawWorkflowOrchestrator;
   let withdrawalService: any;
   let payoutsService: any;
-  let accountingEventExecutionService: any;
-  let clearingsService: any;
   let transactionComplianceService: any;
   let prisma: any;
 
@@ -60,15 +56,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
     updateStatus: jest.fn(),
   };
 
-  const mockAccountingEventExecutionService = {
-    execute: jest.fn(),
-  };
-
-  const mockClearingsService = {
-    triggerClearing: jest.fn(),
-    updateStatusBySource: jest.fn(),
-  };
-
   const mockTransactionComplianceService = {
     ensureWithdrawMainCasesOnPayoutConfirmed: jest.fn(),
   };
@@ -89,7 +76,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     toIban: 'IBAN_1',
     toWalletId: null,
     fromWalletId: 'WALLET_SRC_1',
-    fromWalletNo: 'WA-CBK-AED-NA',
+    fromWalletNo: 'WA2600000001',
   };
 
   beforeEach(async () => {
@@ -101,11 +88,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
           useValue: mockWithdrawalService,
         },
         { provide: PayoutsService, useValue: mockPayoutsService },
-        {
-          provide: AccountingEventExecutionService,
-          useValue: mockAccountingEventExecutionService,
-        },
-        { provide: ClearingsService, useValue: mockClearingsService },
         {
           provide: TransactionComplianceService,
           useValue: mockTransactionComplianceService,
@@ -121,10 +103,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       WithdrawTransactionsService,
     );
     payoutsService = module.get<PayoutsService>(PayoutsService);
-    accountingEventExecutionService = module.get<AccountingEventExecutionService>(
-      AccountingEventExecutionService,
-    );
-    clearingsService = module.get<ClearingsService>(ClearingsService);
     transactionComplianceService = module.get<TransactionComplianceService>(
       TransactionComplianceService,
     );
@@ -150,9 +128,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       status: WithdrawTransactionStatus.SUCCESS,
       type: 'crypto',
       asset: { type: 'CRYPTO' },
-    });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: { id: 'JE_1' },
     });
     mockTransactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed.mockResolvedValue(
       {},
@@ -216,10 +191,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
     mockWithdrawalService.findOne.mockResolvedValue(baseWithdrawal);
     mockPrisma.withdrawTransaction.findUnique.mockResolvedValue(baseWithdrawal);
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: { id: 'JE_APR' },
-      clearingResult: { id: 'CL_APR' },
-    });
     mockPrisma.payout.findUnique.mockResolvedValue(null);
     mockPayoutsService.create.mockResolvedValue({
       id: 'PO_2',
@@ -236,15 +207,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       withdrawId: 'WD_1',
     });
 
-    expect(accountingEventExecutionService.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'WITHDRAW',
-        toStatus: WithdrawTransactionStatus.PAYOUT_PENDING,
-        journalSourceType: 'WITHDRAW',
-        clearingSourceType: 'WITHDRAWAL',
-      }),
-      mockPrisma,
-    );
     expect(withdrawalService.updateStatus).not.toHaveBeenCalledWith(
       'WD_1',
       expect.objectContaining({ action: 'approve' }),
@@ -280,12 +242,12 @@ describe('WithdrawWorkflowOrchestrator', () => {
       .mockResolvedValueOnce({
         ...baseWithdrawal,
         fromWalletId: 'WALLET_RESOLVED_1',
-        fromWalletNo: 'WA-CBK-AED-NA',
+        fromWalletNo: 'WA2600000001',
         asset: { type: 'FIAT' },
       });
     mockPrisma.wallet.findFirst.mockResolvedValue({
       id: 'WALLET_RESOLVED_1',
-      walletNo: 'WA-CBK-AED-NA',
+      walletNo: 'WA2600000001',
       address: null,
       iban: 'AE00FIATX1234567890',
     });
@@ -293,17 +255,13 @@ describe('WithdrawWorkflowOrchestrator', () => {
       .mockResolvedValueOnce({
         ...baseWithdrawal,
         fromWalletId: 'WALLET_RESOLVED_1',
-        fromWalletNo: 'WA-CBK-AED-NA',
+        fromWalletNo: 'WA2600000001',
       })
       .mockResolvedValueOnce({
         ...baseWithdrawal,
         payoutId: 'PO_2',
         payoutNo: 'PO0002',
       });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: { id: 'JE_APR2' },
-      clearingResult: { id: 'CL_APR2' },
-    });
     mockPrisma.payout.findUnique.mockResolvedValue(null);
     mockPayoutsService.create.mockResolvedValue({
       id: 'PO_2',
@@ -318,7 +276,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     expect(mockPrisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          walletNo: 'WA-CBK-AED-NA',
+          walletNo: 'WA2600000001',
           ownerType: 'CUSTOMER',
           assetId: 'AST_1',
         }),
@@ -328,7 +286,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           fromWalletId: 'WALLET_RESOLVED_1',
-          fromWalletNo: 'WA-CBK-AED-NA',
+          fromWalletNo: 'WA2600000001',
         }),
       }),
     );
@@ -344,10 +302,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
     mockPrisma.withdrawTransaction.findUnique.mockResolvedValue({
       ...baseWithdrawal,
       asset: { type: 'FIAT' },
-    });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: { id: 'JE_ASSET' },
-      clearingResult: { id: 'CL_ASSET' },
     });
     mockPrisma.payout.findUnique.mockResolvedValue(null);
     mockPayoutsService.create.mockResolvedValue({
@@ -387,10 +341,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.FAILED,
     });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: [{ id: 'REV_1' }, { id: 'REV_2' }],
-    });
-    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
     mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_FAIL' });
 
     const result = await orchestrator.onPayoutFailed({
@@ -399,23 +349,8 @@ describe('WithdrawWorkflowOrchestrator', () => {
       status: PayoutStatus.FAILED,
     });
 
-    expect(accountingEventExecutionService.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'WITHDRAW',
-        toStatus: WithdrawTransactionStatus.FAILED,
-      }),
-      mockPrisma,
-    );
-    expect(clearingsService.updateStatusBySource).toHaveBeenCalledWith(
-      'WITHDRAWAL',
-      'WD_1',
-      'CANCELLED',
-      mockPrisma,
-    );
-    expect(result?.created_or_reversed_journal_entry_ids).toEqual([
-      'REV_1',
-      'REV_2',
-    ]);
+    // V2 accounting + clearing removed — no journal/clearing assertions
+    expect(result?.created_or_reversed_journal_entry_ids).toEqual([]);
   });
 
   it('should replay compensation when marker exists but compensation artifacts are incomplete', async () => {
@@ -441,10 +376,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.FAILED,
     });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: [{ id: 'REV_EXISTING_1' }],
-    });
-    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
     mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_EXIST' });
 
     const result = await orchestrator.onPayoutFailed({
@@ -453,19 +384,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       status: PayoutStatus.FAILED,
     });
 
-    expect(accountingEventExecutionService.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'WITHDRAW',
-        toStatus: WithdrawTransactionStatus.FAILED,
-      }),
-      mockPrisma,
-    );
-    expect(clearingsService.updateStatusBySource).toHaveBeenCalledWith(
-      'WITHDRAWAL',
-      'WD_1',
-      'CANCELLED',
-      mockPrisma,
-    );
+    // V2 accounting + clearing removed — no journal/clearing assertions
     expect(result?.updated_withdrawal_status).toBe(WithdrawTransactionStatus.FAILED);
   });
 
@@ -489,9 +408,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
     mockWithdrawalService.updateStatus.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.SUCCESS,
-    });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: { id: 'JE_REPAIR_1' },
     });
     mockPayoutsService.updateStatus.mockResolvedValue({
       id: 'PO_1',
@@ -544,10 +460,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.FAILED,
     });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: [{ id: 'REV_FAIL_1' }, { id: 'REV_FAIL_2' }],
-    });
-    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
     mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_RECOMP_FAIL' });
 
     const result = await orchestrator.reCompensatePayout('PO_1');
@@ -555,12 +467,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
     expect(result.repairApplied).toBe(true);
     expect(result.updated_withdrawal_status).toBe(WithdrawTransactionStatus.FAILED);
     expect(result.updated_payout_status).toBe(PayoutStatus.FAILED);
-    expect(clearingsService.updateStatusBySource).toHaveBeenCalledWith(
-      'WITHDRAWAL',
-      'WD_1',
-      'CANCELLED',
-      mockPrisma,
-    );
   });
 
   it('should re-run returned compensation from payout detail repair endpoint flow', async () => {
@@ -582,10 +488,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.RETURNED,
     });
-    mockAccountingEventExecutionService.execute.mockResolvedValue({
-      journalResult: [{ id: 'REV_RET_1' }],
-    });
-    mockClearingsService.updateStatusBySource.mockResolvedValue({ count: 1 });
     mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_RECOMP_RET' });
 
     const result = await orchestrator.reCompensatePayout('PO_1');

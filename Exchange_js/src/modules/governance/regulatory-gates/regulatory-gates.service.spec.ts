@@ -282,7 +282,7 @@ describe('RegulatoryGatesService', () => {
   it('rejects client-bank-account gate creation when wallet is not C_CMA', async () => {
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
-      walletNo: 'WA-LIQ-AED-NA',
+      walletNo: 'WA2600000013',
       walletRole: 'F_LIQ',
       status: 'ACTIVE',
     });
@@ -306,7 +306,7 @@ describe('RegulatoryGatesService', () => {
       authority: 'VARA',
       subjectType: 'WALLET',
       subjectId: 'wallet-1',
-      subjectNo: 'WA-CB-AED-NA',
+      subjectNo: 'WA2600000014',
       shareholdingRegistryVersionId: null,
       appointmentRecordId: null,
       businessConfigReleaseId: null,
@@ -327,7 +327,7 @@ describe('RegulatoryGatesService', () => {
       businessConfigRelease: null,
       wallet: {
         id: 'wallet-1',
-        walletNo: 'WA-CB-AED-NA',
+        walletNo: 'WA2600000014',
         walletRole: 'C_CMA',
         regulatoryEnablementStatus: 'PENDING',
       },
@@ -335,7 +335,7 @@ describe('RegulatoryGatesService', () => {
     });
     prisma.wallet.update.mockResolvedValue({
       id: 'wallet-1',
-      walletNo: 'WA-CB-AED-NA',
+      walletNo: 'WA2600000014',
       walletRole: 'C_CMA',
       regulatoryEnablementStatus: 'EFFECTIVE',
       regulatoryEnabledAt: new Date('2026-04-01T09:00:00.000Z'),
@@ -347,7 +347,7 @@ describe('RegulatoryGatesService', () => {
       authority: 'VARA',
       subjectType: 'WALLET',
       subjectId: 'wallet-1',
-      subjectNo: 'WA-CB-AED-NA',
+      subjectNo: 'WA2600000014',
       shareholdingRegistryVersionId: null,
       appointmentRecordId: null,
       businessConfigReleaseId: null,
@@ -373,7 +373,7 @@ describe('RegulatoryGatesService', () => {
       businessConfigRelease: null,
       wallet: {
         id: 'wallet-1',
-        walletNo: 'WA-CB-AED-NA',
+        walletNo: 'WA2600000014',
         walletRole: 'C_CMA',
         regulatoryEnablementStatus: 'EFFECTIVE',
         regulatoryEnabledAt: new Date('2026-04-01T09:00:00.000Z'),

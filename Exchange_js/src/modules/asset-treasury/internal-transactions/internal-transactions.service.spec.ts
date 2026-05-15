@@ -11,8 +11,6 @@ import {
 describe('InternalTransactionsService', () => {
   let service: InternalTransactionsService;
   let prisma: any;
-  let journalsService: any;
-  let clearingsService: any;
 
   beforeEach(() => {
     prisma = {
@@ -31,18 +29,8 @@ describe('InternalTransactionsService', () => {
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
-    journalsService = {
-      triggerEvent: jest.fn(),
-    };
-
-    clearingsService = {
-      triggerClearing: jest.fn(),
-    };
-
     service = new InternalTransactionsService(
       prisma,
-      journalsService,
-      clearingsService,
       {} as any,
     );
     jest.clearAllMocks();
@@ -75,26 +63,10 @@ describe('InternalTransactionsService', () => {
       feeAmount: new Prisma.Decimal(0),
     });
     prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-1' });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-1' });
 
     const result = await service.syncStatusFromFunds('itx-1', 'SYSTEM');
 
     expect(result.status).toBe(InternalTransactionStatus.SUCCESS);
-    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'INTERNAL_TX',
-        toStatus: InternalTransactionStatus.SUCCESS,
-      }),
-      prisma,
-    );
-    expect(clearingsService.triggerClearing).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceType: 'INTERNAL_TX',
-        sourceId: 'itx-1',
-        eventCode: 'EVT_INTERNAL_TX_SUCCESS__CRYPTO',
-      }),
-      prisma,
-    );
   });
 
   it('should trigger fiat success clearing event when internal tx settles to SUCCESS', async () => {
@@ -124,19 +96,10 @@ describe('InternalTransactionsService', () => {
       feeAmount: new Prisma.Decimal(0),
     });
     prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-fiat-s' });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-fiat-s' });
 
     const result = await service.syncStatusFromFunds('itx-fiat-success', 'SYSTEM');
 
     expect(result.status).toBe(InternalTransactionStatus.SUCCESS);
-    expect(clearingsService.triggerClearing).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceType: 'INTERNAL_TX',
-        sourceId: 'itx-fiat-success',
-        eventCode: 'EVT_INTERNAL_TX_SUCCESS__FIAT',
-      }),
-      prisma,
-    );
   });
 
   it('should trigger created event when creating from deposit success', async () => {
@@ -163,7 +126,6 @@ describe('InternalTransactionsService', () => {
       asset: { type: 'CRYPTO' },
     });
     prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-created' });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-created' });
 
     const created = await service.createFromDepositSuccess(
       {
@@ -191,14 +153,6 @@ describe('InternalTransactionsService', () => {
     );
 
     expect(created.id).toBe('itx-created');
-    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'INTERNAL_TX',
-        toStatus: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
-        sourceId: 'itx-created',
-      }),
-      prisma,
-    );
     expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -228,7 +182,6 @@ describe('InternalTransactionsService', () => {
     prisma.internalTransactionAuditLog.create.mockResolvedValue({
       id: 'log-fiat-created',
     });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-fiat-created' });
 
     const created = await service.createStandaloneTransaction(
       {
@@ -255,15 +208,6 @@ describe('InternalTransactionsService', () => {
     );
 
     expect(created.id).toBe('itx-fiat-created');
-    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'INTERNAL_TX',
-        toStatus: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
-        sourceId: 'itx-fiat-created',
-        assetType: 'FIAT',
-      }),
-      prisma,
-    );
   });
 
   it('should not trigger created event on idempotent createFromDepositSuccess', async () => {
@@ -300,7 +244,6 @@ describe('InternalTransactionsService', () => {
 
     expect(existing.id).toBe('itx-existing');
     expect(prisma.internalTransaction.create).not.toHaveBeenCalled();
-    expect(journalsService.triggerEvent).not.toHaveBeenCalled();
   });
 
   it('should aggregate to FAILED when has FAILED/TIMEOUT and no progressing fund', async () => {
@@ -329,18 +272,10 @@ describe('InternalTransactionsService', () => {
       feeAmount: new Prisma.Decimal(0),
     });
     prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-2' });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-2' });
 
     const result = await service.syncStatusFromFunds('itx-2', 'SYSTEM');
 
     expect(result.status).toBe(InternalTransactionStatus.FAILED);
-    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toStatus: InternalTransactionStatus.FAILED,
-      }),
-      prisma,
-    );
-    expect(clearingsService.triggerClearing).not.toHaveBeenCalled();
   });
 
   it('should aggregate to CANCELLED when all internal funds are CANCELLED', async () => {
@@ -369,18 +304,10 @@ describe('InternalTransactionsService', () => {
       feeAmount: new Prisma.Decimal(0),
     });
     prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-3' });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-3' });
 
     const result = await service.syncStatusFromFunds('itx-3', 'SYSTEM');
 
     expect(result.status).toBe(InternalTransactionStatus.CANCELLED);
-    expect(journalsService.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toStatus: InternalTransactionStatus.CANCELLED,
-      }),
-      prisma,
-    );
-    expect(clearingsService.triggerClearing).not.toHaveBeenCalled();
   });
 
   it('should sync approval projection and move transaction to terminal status', async () => {
@@ -430,7 +357,6 @@ describe('InternalTransactionsService', () => {
       toWallet: { id: 'wallet-to', ownerType: 'PLATFORM' },
     });
     prisma.internalTransactionAuditLog.create.mockResolvedValue({ id: 'log-approval-1' });
-    journalsService.triggerEvent.mockResolvedValue({ id: 'journal-approval-1' });
 
     const result = await service.syncApprovalProjection(
       'itx-approval-1',

@@ -337,23 +337,24 @@ const EvidenceExportsPage = () => {
       </div>
 
       {/* ── Footer ── */}
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-        <div className="flex items-center justify-between">
+      {total > PAGE_SIZE ? (
+        <div className="shrink-0">
+          <Pagination
+            currentPage={currentPage}
+            totalItems={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={(page) => void fetchExports(page)}
+          />
+        </div>
+      ) : (
+        <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
           <span className="font-mono text-[10px] text-adm-t3">
             {total > 0
               ? `Showing ${items.length} / ${total} package${total === 1 ? '' : 's'}`
               : 'No packages'}
           </span>
-          {total > PAGE_SIZE && (
-            <Pagination
-              currentPage={currentPage}
-              totalItems={total}
-              pageSize={PAGE_SIZE}
-              onPageChange={(page) => void fetchExports(page)}
-            />
-          )}
         </div>
-      </div>
+      )}
 
     </div>
   );

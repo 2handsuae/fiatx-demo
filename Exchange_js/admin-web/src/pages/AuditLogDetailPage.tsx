@@ -203,9 +203,14 @@ const AuditLogDetailPage = () => {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center gap-3">
-        <RefreshCw size={24} className="animate-spin text-adm-amber" />
-        <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
+          <button onClick={() => navigate('/dashboard/audit/audit-logs')} className={adminButtonClass('detailUtility')}>← Back</button>
+        </div>
+        <div className="flex flex-1 items-center justify-center gap-3">
+          <RefreshCw size={22} className="animate-spin text-adm-amber" />
+          <p className="font-mono text-[11px] text-adm-t3">Loading…</p>
+        </div>
       </div>
     );
   }
@@ -252,7 +257,6 @@ const AuditLogDetailPage = () => {
 
       {/* ── Sticky nav header — back + refresh only ── */}
       <DetailPageHeader
-        title="Audit Log"
         onBack={() => navigate('/dashboard/audit/audit-logs')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -265,41 +269,31 @@ const AuditLogDetailPage = () => {
         {/* ════ LEFT MAIN ════ */}
         <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-          {/* ── 1 · EVENT HERO CARD ────────────────────────────────
-               Single source of truth for the event identity:
-               auditNo + result (top row), occurred time,
-               action headline, optional reason, optional state change. ── */}
+          {/* ── 1 · HERO ── */}
           <section className="bg-adm-card px-6 py-5">
-
-            {/* Row 1: auditNo (identifier) + result badge */}
-            <div className="flex items-center justify-between gap-4">
-              <p className="font-mono text-[19px] font-bold leading-none text-adm-amber">
-                {detail.auditNo}
-              </p>
-              <AdminBadge value={detail.result} />
+            <p className="font-mono text-[19px] font-bold leading-none text-adm-amber">
+              {detail.auditNo}
+            </p>
+            <div className="mt-4 border-t border-adm-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3">
+              <div className="col-span-2">
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Action</p>
+                <p className="text-[15px] font-semibold leading-tight text-adm-t1">{detail.action}</p>
+              </div>
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Result</p>
+                <AdminBadge value={detail.result} />
+              </div>
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Occurred</p>
+                <p className="font-mono text-[11px] text-adm-t2">{fmt(detail.occurredAt)}</p>
+              </div>
+              {detail.reason && (
+                <div className="col-span-2">
+                  <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Reason</p>
+                  <p className="font-mono text-[10px] text-adm-t2">{detail.reason}</p>
+                </div>
+              )}
             </div>
-
-            {/* Divider */}
-            <div className="my-3.5 border-t border-adm-border" />
-
-            {/* Row 2: occurred timestamp */}
-            <div className="flex items-center justify-end gap-4">
-              <p className="font-mono text-[10px] text-adm-t3">
-                {fmt(detail.occurredAt)}
-              </p>
-            </div>
-
-            {/* Action headline */}
-            <h2 className="mt-2 text-[22px] font-bold leading-tight tracking-tight text-adm-t1">
-              {detail.action}
-            </h2>
-
-            {/* Reason — only if present */}
-            {detail.reason && (
-              <p className="mt-2 font-mono text-[10px] text-adm-t2">{detail.reason}</p>
-            )}
-
-            {/* State transition — the concrete consequence */}
             {hasStateChange && (
               <div className="mt-5 flex items-stretch gap-0">
                 {/* Before */}
@@ -423,9 +417,21 @@ const AuditLogDetailPage = () => {
             </section>
           )}
 
-          {/* ── 7 · RAW RECORD ─────────────────────────────────────
-               Full database row dump — exactly what the API returned,
-               mirroring the persisted record field-for-field. ── */}
+          {/* ── 7 · INTEGRITY ── */}
+          <section className="px-6 py-5">
+            <Cap>Integrity</Cap>
+            <div className="mt-3">
+              <FieldGrid>
+                <Field label="Trigger Type"    value={detail.triggerType}                      />
+                <Field label="Request ID"      value={detail.requestId}              mono      />
+                <Field label="Idempotency Key" value={detail.idempotencyKey}         mono full />
+                <Field label="Payload Digest"  value={detail.payloadDigest}          mono full />
+                <Field label="Mask Version"    value={detail.maskVersion}                      />
+              </FieldGrid>
+            </div>
+          </section>
+
+          {/* ── 8 · RAW RECORD ── */}
           <RawRecordBlock detail={detail} />
 
         </div>
@@ -433,16 +439,14 @@ const AuditLogDetailPage = () => {
         {/* ════ RIGHT SIDEBAR — governance & technical metadata ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
-          {/* Governance & Integrity */}
-          <SidebarGroup title="Governance">
-            <SidebarKV label="Trigger"          value={detail.triggerType}               />
-            <SidebarKV label="Request ID"       value={detail.requestId}          mono />
-            <SidebarKV label="Idempotency Key"  value={detail.idempotencyKey}     mono />
-            <SidebarKV label="Payload Digest"   value={detail.payloadDigest}      mono />
-            <SidebarKV label="Mask Version"     value={detail.maskVersion}             />
+          {/* Identity Summary */}
+          <SidebarGroup title="Identity Summary">
+            <SidebarKV label="Trigger"      value={detail.triggerType} />
+            <SidebarKV label="Entity Type"  value={detail.entityType}  />
+            <SidebarKV label="Actor Type"   value={detail.actorType}   />
           </SidebarGroup>
 
-          {/* Retention lifecycle */}
+          {/* Lifecycle */}
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Retained Until" value={fmt(detail.retainedUntil)} mono />
             <SidebarKV label="Archived At"    value={fmt(detail.archivedAt)}    mono />

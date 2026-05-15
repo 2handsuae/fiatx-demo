@@ -364,7 +364,6 @@ const RoleDetailPage = () => {
 
       {/* Sticky nav header */}
       <DetailPageHeader
-        title="Role"
         onBack={() => navigate('/dashboard/members/roles')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -394,29 +393,31 @@ const RoleDetailPage = () => {
         {/* ════ LEFT MAIN ════ */}
         <div className="flex min-w-0 flex-1 flex-col overflow-y-auto divide-y divide-adm-border">
 
-          {/* ① Identity banner */}
+          {/* ① Hero */}
           <section className="bg-adm-card px-6 py-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
-                  Role
-                </p>
-                <p className="mt-1.5 font-mono text-[20px] font-bold leading-tight text-adm-amber">
-                  {detail.code}
-                </p>
-                <p className="mt-1 font-mono text-[12px] text-adm-t2">{detail.name || '—'}</p>
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
+              {detail.code}
+            </p>
+            <div className="mt-4 border-t border-adm-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3">
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Status</p>
+                <AdminBadge value={detail.status} />
               </div>
-              <AdminBadge value={detail.status} />
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Name</p>
+                <p className="font-mono text-[11px] text-adm-t2">{detail.name || '—'}</p>
+              </div>
+              {detail.description && (
+                <div className="col-span-2">
+                  <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Description</p>
+                  <p className="font-mono text-[10px] leading-relaxed text-adm-t3">{detail.description}</p>
+                </div>
+              )}
             </div>
-            {detail.description && (
-              <p className="mt-3 border-t border-adm-border pt-3 font-mono text-[10px] leading-relaxed text-adm-t3">
-                {detail.description}
-              </p>
-            )}
           </section>
 
-          {/* ② Domain capability cards */}
-          <section className="flex-1 px-6 py-5">
+          {/* ② Capabilities */}
+          <section className="px-6 py-5">
             <p className="mb-4 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
               Capabilities · V1
             </p>
@@ -435,6 +436,31 @@ const RoleDetailPage = () => {
                 ))
               )}
             </div>
+          </section>
+
+          {/* ③ Members */}
+          <section className="px-6 py-5">
+            <p className="mb-4 font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3">
+              Members ({detail.members?.length ?? 0})
+            </p>
+            {(detail.members ?? []).length === 0 ? (
+              <p className="font-mono text-[11px] text-adm-t3">No members hold this role.</p>
+            ) : (
+              <div className="flex flex-col divide-y divide-adm-border/40">
+                {(detail.members ?? []).map((member) => (
+                  <div key={member.id} className="flex items-center gap-2.5 py-2.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-adm-amber/15 font-mono text-[9px] font-semibold text-adm-amber">
+                      {member.email.split('@')[0].slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-[10px] text-adm-t2">{member.email}</p>
+                      <p className="font-mono text-[8px] text-adm-t3">{member.userNo}</p>
+                    </div>
+                    <AdminBadge value={member.status} />
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
 
@@ -459,8 +485,8 @@ const RoleDetailPage = () => {
             </div>
           )}
 
-          {/* Quick Info */}
-          <SidebarGroup title="Quick Info">
+          {/* Identity Summary */}
+          <SidebarGroup title="Identity Summary">
             <div className="flex items-center justify-between gap-2">
               <span className="shrink-0 font-mono text-[9px] text-adm-t3">Status</span>
               <AdminBadge value={detail.status} />
@@ -471,48 +497,10 @@ const RoleDetailPage = () => {
               mono
             />
             <SidebarKV
-              label="API Routes"
+              label="Permissions"
               value={String(detail.permissions?.length ?? 0)}
               mono
             />
-          </SidebarGroup>
-
-          {/* Members */}
-          <SidebarGroup title={`Members (${detail.members?.length ?? 0})`}>
-            {(detail.members ?? []).length === 0 ? (
-              <p className="font-mono text-[9px] text-adm-t3">No members hold this role.</p>
-            ) : (
-              <>
-                {(detail.members ?? []).map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center gap-2.5 py-1.5"
-                  >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-adm-amber/15 font-mono text-[9px] font-semibold text-adm-amber">
-                      {member.email
-                        .split('@')[0]
-                        .slice(0, 2)
-                        .toUpperCase()}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-[10px] text-adm-t2">
-                        {member.email}
-                      </p>
-                      <p className="font-mono text-[8px] text-adm-t3">
-                        {member.userNo}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard/members')}
-                  className="mt-2 font-mono text-[9px] text-adm-t3 transition-colors hover:text-adm-t2"
-                >
-                  → View all in Members page
-                </button>
-              </>
-            )}
           </SidebarGroup>
         </div>
       </div>

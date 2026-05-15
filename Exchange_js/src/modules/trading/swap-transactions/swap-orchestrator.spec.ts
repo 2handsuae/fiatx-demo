@@ -1,8 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { JournalsService } from '../../accounting/journals/journals.service';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
 import { SwapEvents } from './constants/swap-events.constant';
@@ -37,11 +36,6 @@ describe('SwapWorkflowOrchestrator', () => {
     findOne: jest.fn(),
   };
 
-  const mockJournalsService = {
-    getCustomerLiabilityBalance: jest.fn(),
-    triggerEvent: jest.fn(),
-  };
-
   const mockPricingCenterService = {
     getActiveSwapQuoteOrThrow: jest.fn(),
     consumeSwapQuoteForSwap: jest.fn(),
@@ -62,7 +56,6 @@ describe('SwapWorkflowOrchestrator', () => {
         SwapWorkflowOrchestrator,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SwapTransactionsService, useValue: mockSwapService },
-        { provide: JournalsService, useValue: mockJournalsService },
         { provide: PricingCenterService, useValue: mockPricingCenterService },
         {
           provide: TransactionComplianceService,
@@ -132,9 +125,6 @@ describe('SwapWorkflowOrchestrator', () => {
     };
 
     mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue(quote);
-    mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal('10'),
-    });
     mockPrisma.swapTransaction.create.mockResolvedValue(createdSwap);
     mockTransactionComplianceService.evaluateSwapFinalReview.mockResolvedValue({
       skipped: false,
@@ -162,16 +152,7 @@ describe('SwapWorkflowOrchestrator', () => {
       'customer-1',
       expect.any(Date),
     );
-    expect(mockJournalsService.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'SWAP',
-        fromStatus: null,
-        toStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
-        sourceId: 'swap-1',
-      }),
-      mockPrisma,
-    );
-    expect(mockJournalsService.triggerEvent).toHaveBeenCalledTimes(1);
+    // V2 accounting removed — no triggerEvent assertion
     expect(mockTransactionComplianceService.evaluateSwapFinalReview).toHaveBeenCalledWith(
       'swap-1',
     );
@@ -240,9 +221,6 @@ describe('SwapWorkflowOrchestrator', () => {
     };
 
     mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue(quote);
-    mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal('10'),
-    });
     mockPrisma.swapTransaction.create.mockResolvedValue(createdSwap);
     mockTransactionComplianceService.evaluateSwapFinalReview.mockRejectedValue(
       new Error('bridge failed'),
@@ -273,36 +251,8 @@ describe('SwapWorkflowOrchestrator', () => {
     expect(result.emitted_events).toContain(SwapEvents.EVT_SWAP_FAILED);
   });
 
-  it('blocks quote consumption when available balance is insufficient', async () => {
-    mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue({
-      id: 'quote-3',
-      quoteNo: 'QUO_0003',
-      ownerNo: 'CU_0001',
-      fromAssetId: 'asset-btc',
-      fromAssetCode: 'BTC',
-      toAssetId: 'asset-usdt',
-      toAssetCode: 'USDT',
-      amountIn: new Prisma.Decimal('2'),
-      amountOut: new Prisma.Decimal('200000'),
-      rateAllIn: new Prisma.Decimal('100000'),
-      feeTotal: new Prisma.Decimal('0'),
-      feeCurrency: 'USDT',
-      feeBreakdown: '[]',
-      totalsJson: JSON.stringify({
-        amountOutNet: '200000',
-      }),
-    });
-    mockJournalsService.getCustomerLiabilityBalance.mockResolvedValue({
-      availableBalance: new Prisma.Decimal('1'),
-    });
-
-    await expect(
-      orchestrator.createSwapFromQuote('customer-1', 'quote-3'),
-    ).rejects.toThrow(BadRequestException);
-
-    expect(mockPricingCenterService.consumeSwapQuoteForSwap).not.toHaveBeenCalled();
-    expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
-  });
+  // V2 balance check removed — migrated to TigerBeetle
+  // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
   it.each([
     ['PAIR_DISABLED'],
@@ -347,9 +297,7 @@ describe('SwapWorkflowOrchestrator', () => {
       });
 
       expect(mockPricingCenterService.consumeSwapQuoteForSwap).not.toHaveBeenCalled();
-      expect(mockJournalsService.getCustomerLiabilityBalance).not.toHaveBeenCalled();
       expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
-      expect(mockJournalsService.triggerEvent).not.toHaveBeenCalled();
     },
   );
 

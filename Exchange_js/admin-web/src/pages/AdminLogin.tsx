@@ -76,8 +76,8 @@ const AdminLogin = () => {
         const data = await response.json();
 
         if (data.status === 'FIRST_LOGIN_REQUIRED') {
-          sessionStorage.setItem('firstLoginToken', data.firstLoginToken);
-          navigate('/admin/first-login');
+          sessionStorage.setItem('mfaBindingToken', data.firstLoginToken);
+          navigate('/admin/mfa-binding');
           return;
         }
 

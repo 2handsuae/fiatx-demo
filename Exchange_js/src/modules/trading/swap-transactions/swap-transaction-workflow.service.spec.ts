@@ -16,10 +16,6 @@ describe('SwapTransactionWorkflowService', () => {
     },
   };
 
-  const journalsServiceMock: any = {
-    triggerEvent: jest.fn(),
-  };
-
   const outstandingsServiceMock: any = {
     createForSwapSuccess: jest.fn(),
   };
@@ -67,7 +63,6 @@ describe('SwapTransactionWorkflowService', () => {
       .mockResolvedValue({} as any);
     service = new SwapTransactionWorkflowService(
       prismaMock as any,
-      journalsServiceMock as any,
       outstandingsServiceMock as any,
       {} as any,
     );
@@ -98,7 +93,6 @@ describe('SwapTransactionWorkflowService', () => {
         }),
       }),
     );
-    expect(journalsServiceMock.triggerEvent).not.toHaveBeenCalled();
     expect(outstandingsServiceMock.createForSwapSuccess).not.toHaveBeenCalled();
     expect(prismaMock.outstanding.deleteMany).not.toHaveBeenCalled();
     expect(recordSystemSpy).toHaveBeenCalledWith(
@@ -137,15 +131,6 @@ describe('SwapTransactionWorkflowService', () => {
       reasonCode: 'LOW_RISK_AUTO_CLEAR',
     });
 
-    expect(journalsServiceMock.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'SWAP',
-        fromStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
-        toStatus: SwapTransactionStatus.SUCCESS,
-        sourceId: 'swap-1',
-      }),
-      prismaMock,
-    );
     expect(outstandingsServiceMock.createForSwapSuccess).toHaveBeenCalledWith(
       prismaMock,
       updatedSwap,
@@ -186,15 +171,6 @@ describe('SwapTransactionWorkflowService', () => {
       reasonCode: 'RISK_CONFIRMED',
     });
 
-    expect(journalsServiceMock.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'SWAP',
-        fromStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
-        toStatus: SwapTransactionStatus.REJECTED,
-        sourceId: 'swap-1',
-      }),
-      prismaMock,
-    );
     expect(prismaMock.outstanding.deleteMany).toHaveBeenCalledWith({
       where: {
         sourceType: 'SWAP',
@@ -246,15 +222,6 @@ describe('SwapTransactionWorkflowService', () => {
           failureReason: 'bridge failed',
         }),
       }),
-    );
-    expect(journalsServiceMock.triggerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'SWAP',
-        fromStatus: SwapTransactionStatus.PENDING_COMPLIANCE,
-        toStatus: SwapTransactionStatus.FAILED,
-        sourceId: 'swap-1',
-      }),
-      prismaMock,
     );
     expect(prismaMock.outstanding.deleteMany).toHaveBeenCalledWith({
       where: {
@@ -318,7 +285,6 @@ describe('SwapTransactionWorkflowService', () => {
     });
 
     expect(prismaMock.swapTransaction.update).not.toHaveBeenCalled();
-    expect(journalsServiceMock.triggerEvent).not.toHaveBeenCalled();
     expect(result.applied).toBe(false);
     expect(result.transitionCode).toBe('NO_TRANSITION');
     expect(result.swapStatusAfter).toBe(SwapTransactionStatus.UNDER_REVIEW);
@@ -341,7 +307,6 @@ describe('SwapTransactionWorkflowService', () => {
       });
 
       expect(prismaMock.swapTransaction.update).not.toHaveBeenCalled();
-      expect(journalsServiceMock.triggerEvent).not.toHaveBeenCalled();
       expect(result.applied).toBe(false);
       expect(result.transitionCode).toBe('NO_TRANSITION');
       expect(result.swapStatusAfter).toBe(status);
@@ -363,7 +328,6 @@ describe('SwapTransactionWorkflowService', () => {
     ).rejects.toThrow(BadRequestException);
 
     expect(prismaMock.swapTransaction.update).not.toHaveBeenCalled();
-    expect(journalsServiceMock.triggerEvent).not.toHaveBeenCalled();
     expect(outstandingsServiceMock.createForSwapSuccess).not.toHaveBeenCalled();
   });
 });

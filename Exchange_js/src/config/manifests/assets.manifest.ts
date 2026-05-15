@@ -1,7 +1,9 @@
+import { buildDeterministicNo } from '../../common/utils/no-generator.util';
+
 export const DEFAULT_ASSETS = [
   // 1. Fiat
   {
-    assetNo: 'AS_AED',
+    assetNo: buildDeterministicNo('AS', 'FIAT', 'AED', ''),
     type: 'FIAT',
     code: 'AED',
     network: '',
@@ -11,21 +13,12 @@ export const DEFAULT_ASSETS = [
   },
   // 2. Crypto
   {
-    assetNo: 'AS_USDT_TRON',
+    assetNo: buildDeterministicNo('AS', 'CRYPTO', 'USDT', 'TRON'),
     type: 'CRYPTO',
     code: 'USDT',
     network: 'TRON',
     description: 'Tether (TRC20)',
     decimals: 6,
-    status: 'ACTIVE',
-  },
-  {
-    assetNo: 'AS_BTC',
-    type: 'CRYPTO',
-    code: 'BTC',
-    network: 'BITCOIN',
-    description: 'Bitcoin',
-    decimals: 8,
     status: 'ACTIVE',
   },
 ];

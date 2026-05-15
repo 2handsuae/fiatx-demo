@@ -330,23 +330,24 @@ const ApprovalsPage = () => {
       </div>
 
       {/* ── Footer ── */}
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-        <div className="flex items-center justify-between">
+      {total > PAGE_SIZE ? (
+        <div className="shrink-0">
+          <Pagination
+            currentPage={currentPage}
+            totalItems={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={(page) => void fetchApprovals(page)}
+          />
+        </div>
+      ) : (
+        <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
           <span className="font-mono text-[10px] text-adm-t3">
             {total > 0
               ? `Showing ${items.length} / ${total} approval${total === 1 ? '' : 's'}`
               : 'No approvals'}
           </span>
-          {total > PAGE_SIZE && (
-            <Pagination
-              currentPage={currentPage}
-              totalItems={total}
-              pageSize={PAGE_SIZE}
-              onPageChange={(page) => void fetchApprovals(page)}
-            />
-          )}
         </div>
-      </div>
+      )}
 
     </div>
   );

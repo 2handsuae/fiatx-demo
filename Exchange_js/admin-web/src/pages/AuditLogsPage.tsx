@@ -539,7 +539,7 @@ const AuditLogsPage = () => {
       </div>
 
       {/* ── Pagination footer ── */}
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
+      <div className="shrink-0">
         <Pagination
           currentPage={currentPage}
           totalItems={total}

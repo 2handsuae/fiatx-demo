@@ -404,7 +404,6 @@ const ApprovalDetailPage = () => {
 
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        title="Approval"
         onBack={() => navigate('/dashboard/control-gates/approvals')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -433,52 +432,39 @@ const ApprovalDetailPage = () => {
         {/* ════ LEFT MAIN ════ */}
         <div className="flex min-w-0 flex-1 flex-col divide-y divide-adm-border overflow-y-auto">
 
-          {/* ① Identity — approvalNo dominant, statuses, then secondary details */}
+          {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Approval</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {detail.approvalNo}
             </p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <AdminBadge value={detail.status} />
-              <AdminBadge value={detail.executionStatus} />
-            </div>
-            <div className="mt-4 border-t border-adm-border pt-4">
-              <p className="font-mono text-[11px] text-adm-t2">{detail.actionType}</p>
-              <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
+            <div className="mt-4 border-t border-adm-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3">
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Status</p>
+                <AdminBadge value={detail.status} />
+              </div>
+              <div>
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Execution</p>
+                <AdminBadge value={detail.executionStatus} />
+              </div>
+              <div className="col-span-2">
+                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Action Type</p>
+                <p className="font-mono text-[11px] text-adm-t2">{detail.actionType}</p>
+              </div>
             </div>
           </section>
 
-          {/* ② Decision Context */}
+          {/* ② Core Context */}
           <section className="px-6 py-5">
-            <Cap>Decision Context</Cap>
+            <Cap>Core Context</Cap>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Risk Level"            value={detail.riskLevel} />
-                <Field label="Checker Roles"         value={joinOrDash(detail.checkerRoles)} />
+                <Field label="Entity Ref"            value={detail.entityRef}           mono full />
                 <Field label="Selected Checker Role" value={detail.selectedCheckerRole} />
-                <Field label="Available Decision Roles" value={joinOrDash(detail.availableDecisionRoles)} />
-                <Field label="Allow Cancel"          value={detail.allowCancel ? 'YES' : 'NO'} />
-                <Field label="Allow Retry"           value={detail.allowRetry ? 'YES' : 'NO'} />
               </FieldGrid>
             </div>
           </section>
 
-          {/* ③ Workflow References */}
-          <section className="px-6 py-5">
-            <Cap>Workflow References</Cap>
-            <div className="mt-3">
-              <FieldGrid>
-                <Field label="Entity Ref"   value={detail.entityRef}   mono full />
-                <Field label="Workflow No"  value={detail.workflowNo}  mono />
-                <Field label="Trace ID"     value={detail.traceId}     mono />
-                <Field label="Submitted At" value={fmt(detail.submittedAt)} mono />
-                <Field label="Timeout At"   value={fmt(detail.timeoutAt)}   mono />
-              </FieldGrid>
-            </div>
-          </section>
-
-          {/* ④ Approval Steps */}
+          {/* ③ Approval Steps */}
           {hasSteps && (
             <section className="px-6 py-5">
               <Cap>Approval Steps</Cap>
@@ -525,7 +511,7 @@ const ApprovalDetailPage = () => {
             </section>
           )}
 
-          {/* ⑤ Decision & Execution */}
+          {/* ④ Decision & Execution */}
           {hasDecision && (
             <section className="px-6 py-5">
               <Cap>Decision &amp; Execution</Cap>
@@ -540,15 +526,24 @@ const ApprovalDetailPage = () => {
             </section>
           )}
 
-          {/* ⑥ Request Snapshot */}
-          {detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0 && (
+          {/* ⑤ Technical Detail */}
+          {(detail.workflowType || detail.workflowNo || detail.traceId || detail.docRef || (detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0)) && (
             <section className="px-6 py-5">
-              <Cap>Request Snapshot</Cap>
-              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
-                Snapshot of the business object at the time of the request
-              </p>
-              <div className="rounded border border-adm-border bg-adm-bg p-4">
-                <JsonBlock title="objectSnapshot" value={detail.objectSnapshot} />
+              <Cap>Technical Detail</Cap>
+              <div className="mt-3 space-y-4">
+                <FieldGrid>
+                  <Field label="Workflow Type" value={detail.workflowType}               />
+                  <Field label="Workflow No"   value={detail.workflowNo}        mono     />
+                  <Field label="Trace ID"      value={detail.traceId}           mono     />
+                  <Field label="Doc Ref"       value={detail.docRef}            mono     />
+                  <Field label="Allow Cancel"  value={detail.allowCancel ? 'YES' : 'NO'} />
+                  <Field label="Allow Retry"   value={detail.allowRetry  ? 'YES' : 'NO'} />
+                </FieldGrid>
+                {detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0 && (
+                  <div className="rounded border border-adm-border bg-adm-bg p-4">
+                    <JsonBlock title="objectSnapshot" value={detail.objectSnapshot} />
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -591,37 +586,18 @@ const ApprovalDetailPage = () => {
             </div>
           )}
 
-          {/* Maker */}
-          <SidebarGroup title="Maker">
-            <SidebarKV label="User No" value={detail.createdByUserNo}                 />
-            <SidebarKV label="User ID" value={detail.createdByUserId}          mono   />
-            <SidebarKV label="Created" value={fmt(detail.createdAt)}           mono   />
-          </SidebarGroup>
-
-          {/* Decision */}
-          {(hasDecision || detail.selectedCheckerRole) && (
-            <SidebarGroup title="Decision">
-              <SidebarKV label="Decided By"  value={detail.decisionByUserNo}                />
-              <SidebarKV label="Role"        value={detail.selectedCheckerRole}             />
-              <SidebarKV label="Decided At"  value={fmt(detail.decidedAt)}          mono    />
-              <SidebarKV label="Executed At" value={fmt(detail.executedAt)}         mono    />
-            </SidebarGroup>
-          )}
-
-          {/* Governance */}
-          <SidebarGroup title="Governance">
-            <SidebarKV label="Workflow Type" value={detail.workflowType}                    />
-            <SidebarKV label="Workflow No"   value={detail.workflowNo}              mono    />
-            <SidebarKV label="Workflow ID"   value={detail.workflowId}              mono    />
-            <SidebarKV label="Trace ID"      value={detail.traceId}                 mono    />
-            <SidebarKV label="Doc Ref"       value={detail.docRef}                  mono    />
+          {/* Identity Summary */}
+          <SidebarGroup title="Identity Summary">
+            <SidebarKV label="Risk Level"    value={detail.riskLevel}                    />
+            <SidebarKV label="Checker Roles" value={joinOrDash(detail.checkerRoles)}     />
+            <SidebarKV label="Submitted By"  value={detail.createdByUserNo}       mono   />
           </SidebarGroup>
 
           {/* Lifecycle */}
           <SidebarGroup title="Lifecycle">
-            <SidebarKV label="Submitted"  value={fmt(detail.submittedAt)} mono />
-            <SidebarKV label="Timeout"    value={fmt(detail.timeoutAt)}   mono />
-            <SidebarKV label="Updated"    value={fmt(detail.updatedAt)}   mono />
+            <SidebarKV label="Submitted" value={fmt(detail.submittedAt)} mono />
+            <SidebarKV label="Timeout"   value={fmt(detail.timeoutAt)}   mono />
+            <SidebarKV label="Updated"   value={fmt(detail.updatedAt)}   mono />
           </SidebarGroup>
 
         </div>

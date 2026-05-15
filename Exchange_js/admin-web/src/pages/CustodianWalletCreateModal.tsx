@@ -32,6 +32,8 @@ const ROLE_OWNER_TYPE: Record<string, string> = {
   F_OPS:   'PLATFORM',
 };
 
+const FIAT_SYSTEM_ROLES = new Set(['C_CMA', 'F_LIQ', 'F_OPS']);
+
 /* ── Interfaces ── */
 
 interface AssetOption {
@@ -57,6 +59,7 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
   const [role, setRole] = useState('');
   const [vaultId, setVaultId] = useState('');
   const [ownerId, setOwnerId] = useState('');
+  const [iban, setIban] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -83,11 +86,15 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
   /* ── Derived state ── */
 
   const selectedAsset = assets.find((a) => a.assetNo === assetNo);
+  const isFiat = selectedAsset?.type === 'FIAT';
   const filteredRoles = selectedAsset
     ? WALLET_ROLE_OPTIONS.filter((r) => ROLE_ASSET_TYPE[r]?.includes(selectedAsset.type))
     : WALLET_ROLE_OPTIONS;
 
   const needsOwnerId = role ? ROLE_OWNER_TYPE[role] === 'CUSTOMER' : false;
+  const needsIban = isFiat && role && FIAT_SYSTEM_ROLES.has(role);
+  const provider = isFiat ? 'ZANDBANK' : 'HEXTRUST';
+  const providerLabel = isFiat ? 'ZandBank' : 'HexTrust';
 
   /* ── Reset role when asset changes and role becomes invalid ── */
 
@@ -95,6 +102,7 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
     if (role && !filteredRoles.includes(role)) {
       setRole('');
     }
+    setIban('');
   }, [assetNo]);
 
   /* ── Submit ── */
@@ -105,12 +113,14 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
     if (!assetNo) { setError('Please select an asset.'); return; }
     if (!role) { setError('Please select a role.'); return; }
     if (needsOwnerId && !ownerId.trim()) { setError('Owner ID is required for this role.'); return; }
+    if (needsIban && !iban.trim()) { setError('IBAN is required for this role.'); return; }
 
     setSubmitting(true);
     try {
-      const body: Record<string, string> = { assetNo, role, custodianProvider: 'HEXTRUST' };
+      const body: Record<string, string> = { assetNo, role, custodianProvider: provider };
       if (vaultId.trim()) body.vaultId = vaultId.trim();
       if (needsOwnerId && ownerId.trim()) body.ownerId = ownerId.trim();
+      if (needsIban && iban.trim()) body.iban = iban.trim();
 
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/custodian-wallets`,
@@ -195,25 +205,41 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
             </select>
           </div>
 
-          {/* Custodian Provider (display-only) */}
+          {/* Custodian Provider (display-only, auto-selected by asset type) */}
           <div>
             <label className={labelCls}>Custodian Provider</label>
-            <select value="HEXTRUST" disabled className={inputCls}>
-              <option value="HEXTRUST">HexTrust</option>
+            <select value={provider} disabled className={inputCls}>
+              <option value={provider}>{providerLabel}</option>
             </select>
           </div>
 
-          {/* Vault ID (optional) */}
-          <div>
-            <label className={labelCls}>Vault ID (optional)</label>
-            <input
-              type="text"
-              value={vaultId}
-              onChange={(e) => setVaultId(e.target.value)}
-              placeholder="Leave empty to create new vault"
-              className={inputCls}
-            />
-          </div>
+          {/* Vault ID — only for CRYPTO */}
+          {!isFiat && (
+            <div>
+              <label className={labelCls}>Vault ID (optional)</label>
+              <input
+                type="text"
+                value={vaultId}
+                onChange={(e) => setVaultId(e.target.value)}
+                placeholder="Leave empty to create new vault"
+                className={inputCls}
+              />
+            </div>
+          )}
+
+          {/* IBAN — fiat system wallets: paste manually */}
+          {needsIban && (
+            <div>
+              <label className={labelCls}>IBAN</label>
+              <input
+                type="text"
+                value={iban}
+                onChange={(e) => setIban(e.target.value)}
+                placeholder="e.g. AE070331234567890123456"
+                className={inputCls}
+              />
+            </div>
+          )}
 
           {/* Owner ID (conditional) */}
           {needsOwnerId && (

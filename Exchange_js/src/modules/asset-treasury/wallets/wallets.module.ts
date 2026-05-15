@@ -5,6 +5,8 @@ import { WalletsController } from './wallets.controller';
 import { CustodianWalletCreateController } from './custodian-wallet-create.controller';
 import { CustodianWalletCreateWorkflowService } from './custodian-wallet-create-workflow.service';
 import { CustodianWalletCreateApprovalService } from './custodian-wallet-create-approval.service';
+import { CustomerDepositWalletController } from './customer-deposit-wallet.controller';
+import { CustomerDepositWalletService } from './customer-deposit-wallet.service';
 import { MockCustodianAdapter } from './mock-custodian.adapter';
 import { CUSTODIAN_ADAPTER } from './custodian-adapter.interface';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
@@ -13,12 +15,13 @@ import { GovernanceModule } from '../../governance/governance.module';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, GovernanceModule],
-  controllers: [WalletsController, CustodianWalletCreateController],
+  controllers: [WalletsController, CustodianWalletCreateController, CustomerDepositWalletController],
   providers: [
     WalletsService,
     WalletQueryService,
     CustodianWalletCreateWorkflowService,
     CustodianWalletCreateApprovalService,
+    CustomerDepositWalletService,
     { provide: CUSTODIAN_ADAPTER, useClass: MockCustodianAdapter },
   ],
   exports: [WalletsService, WalletQueryService],
