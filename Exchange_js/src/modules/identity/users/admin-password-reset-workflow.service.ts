@@ -380,47 +380,8 @@ export class AdminPasswordResetWorkflowService {
       }
     }
 
-    // Audit: revoked tokens
-    for (const old of pendingTokens) {
-      await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_CREDENTIAL_MGMT.PASSWORD_RESET_REVOKED,
-        entityType: AuditEntityTypes.PASSWORD_RESET_TOKEN,
-        entityId: old.id,
-        entityNo: old.resetNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_CREDENTIAL_MGMT,
-        traceId: old.traceId,
-        result: AuditResult.SUCCESS,
-        metadata: { supersededByResetNo: resetNo },
-        entityOwnerNo: userNo,
-      });
-    }
-
     // TODO: Send email via notification service
     // await this.notificationService.sendPasswordResetEmail(email, plainToken, requestSource);
-
-    // Audit: token requested
-    const actorContext = requestSource === 'CISO'
-      ? { actorType: 'ADMIN' as const, actorId: requestedByUserId!, actorNo: requestedByUserNo!, actorRole: 'CISO' }
-      : { actorType: 'ADMIN' as const, actorId: userId, actorNo: userNo, actorRole: 'SELF' };
-
-    await this.auditLogsService.recordByActor(
-      {
-        action: AuditGovernanceActions.ADMIN_CREDENTIAL_MGMT.PASSWORD_RESET_REQUESTED,
-        entityType: AuditEntityTypes.PASSWORD_RESET_TOKEN,
-        entityId: tokenRecord.id,
-        entityNo: resetNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_CREDENTIAL_MGMT,
-        traceId,
-        result: AuditResult.SUCCESS,
-        metadata: {
-          requestSource,
-          ...(requestSource === 'CISO' ? { targetUserNo: userNo } : {}),
-        },
-        entityOwnerNo: userNo,
-        sourcePlatform: 'ADMIN_API',
-      },
-      actorContext,
-    );
 
     return { resetNo, status: 'RESET_EMAIL_SENT' };
   }
@@ -437,14 +398,12 @@ export class AdminPasswordResetWorkflowService {
     });
 
     if (!tokenRecord || tokenRecord.status !== 'PENDING') {
-      await this.recordFailure(tokenRecord, 'INVALID_OR_CONSUMED_TOKEN');
       throw new BadRequestException({
         code: 'INVALID_OR_EXPIRED_TOKEN',
         message: 'Invalid or expired reset token',
       });
     }
     if (tokenRecord.expiresAt <= new Date()) {
-      await this.recordFailure(tokenRecord, 'TOKEN_EXPIRED');
       throw new BadRequestException({
         code: 'INVALID_OR_EXPIRED_TOKEN',
         message: 'Invalid or expired reset token',
@@ -456,7 +415,6 @@ export class AdminPasswordResetWorkflowService {
       select: { id: true, userNo: true, status: true },
     });
     if (!targetUser || targetUser.status !== 'ACTIVE') {
-      await this.recordFailure(tokenRecord, 'USER_NOT_ACTIVE');
       throw new BadRequestException({
         code: 'INVALID_OR_EXPIRED_TOKEN',
         message: 'Invalid or expired reset token',
@@ -473,37 +431,6 @@ export class AdminPasswordResetWorkflowService {
       });
     });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditGovernanceActions.ADMIN_CREDENTIAL_MGMT.PASSWORD_RESET_COMPLETED,
-      entityType: AuditEntityTypes.PASSWORD_RESET_TOKEN,
-      entityId: tokenRecord.id,
-      entityNo: tokenRecord.resetNo,
-      workflowType: AuditBusinessWorkflowTypes.ADMIN_CREDENTIAL_MGMT,
-      traceId: tokenRecord.traceId,
-      result: AuditResult.SUCCESS,
-      metadata: { requestSource: tokenRecord.requestSource },
-      entityOwnerNo: targetUser.userNo,
-    });
-
     return { status: 'PASSWORD_RESET_COMPLETE' };
-  }
-
-  private async recordFailure(tokenRecord: any, reason: string): Promise<void> {
-    if (!tokenRecord) return;
-    try {
-      await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ADMIN_CREDENTIAL_MGMT.PASSWORD_RESET_FAILED,
-        entityType: AuditEntityTypes.PASSWORD_RESET_TOKEN,
-        entityId: tokenRecord.id,
-        entityNo: tokenRecord.resetNo,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_CREDENTIAL_MGMT,
-        traceId: tokenRecord.traceId,
-        result: AuditResult.FAILED,
-        metadata: { reason, requestSource: tokenRecord.requestSource },
-        entityOwnerNo: tokenRecord.userId,
-      });
-    } catch {
-      // audit failure must not block error response
-    }
   }
 }
