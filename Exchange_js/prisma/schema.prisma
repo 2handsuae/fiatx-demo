@@ -225,6 +225,11 @@ model CustomerMain {
   investorTierSource    String    @default("ONBOARDING")
   investorTierUpdatedAt DateTime?
 
+  // Trading limits (2026-05-16)
+  tradingTier              String   @default("BASIC")    // BASIC | PREMIUM
+  riskLevel                String   @default("LOW")      // LOW | MEDIUM | HIGH
+  sumsubVerificationLevel  Int      @default(1)           // 1 | 2
+
   // ═══ 合规属性 ═══
   riskRating          String    @default("LOW")
   riskRatingUpdatedAt DateTime?
@@ -2682,4 +2687,22 @@ model TbEvidenceBacklog {
 
   @@index([status])
   @@map("tb_evidence_backlog")
+}
+
+// ─── Transaction Limit Policy (2026-05-16) ──────────────────
+model TransactionLimitPolicy {
+  id              String   @id @default(uuid())
+  policyNo        String   @unique
+  tradingTier     String                         // BASIC | PREMIUM
+  operationType   String                         // WITHDRAWAL | SWAP
+  period          String                         // DAILY
+  limitAmount     Decimal
+  status          String   @default("ACTIVE")    // ACTIVE | PENDING_APPROVAL
+  approvalCaseId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tradingTier, operationType, period])
+  @@index([status])
+  @@map("transaction_limit_policies")
 }
