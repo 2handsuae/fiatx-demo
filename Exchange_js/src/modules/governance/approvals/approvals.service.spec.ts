@@ -70,7 +70,6 @@ describe('ApprovalsService', () => {
     isSameUserMakerCheckerDenied: jest.Mock;
   };
   let eventEmitter: { emitAsync: jest.Mock; emit: jest.Mock };
-  let changeTicketsService: { syncApprovalProjectionByEvent: jest.Mock };
   let service: ApprovalsService;
   let lastCreatedApprovalData: Record<string, any> | null;
 
@@ -120,9 +119,6 @@ describe('ApprovalsService', () => {
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
-      changeTicket: {
-        findFirst: jest.fn(),
-      },
       user: {
         findMany: jest.fn().mockResolvedValue([]),
       },
@@ -150,16 +146,11 @@ describe('ApprovalsService', () => {
       emit: jest.fn(),
     };
 
-    changeTicketsService = {
-      syncApprovalProjectionByEvent: jest.fn().mockResolvedValue(undefined),
-    };
-
     service = new ApprovalsService(
       prisma,
       auditLogsService as any,
       approvalPolicyService as any,
       eventEmitter as any,
-      changeTicketsService as any,
     );
   });
 
@@ -243,120 +234,6 @@ describe('ApprovalsService', () => {
         }),
       }),
     );
-  });
-
-  it('inherits change-ticket parent workflow context when approval is created and submitted', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(null);
-    prisma.changeTicket.findFirst.mockResolvedValue({
-      id: 'ticket-1',
-      ticketNo: 'CT2604010001',
-      traceId: 'trace-ticket-1',
-      changeType: 'ADMIN_ACCESS_CHANGE',
-    });
-    prisma.approvalCase.findUnique.mockImplementation(async () =>
-      buildApproval({
-        ...(lastCreatedApprovalData || {}),
-        actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-        entityRef: 'ticket-1',
-        status: ApprovalStatuses.DRAFT,
-        traceId: lastCreatedApprovalData?.traceId || 'trace-ticket-1',
-        workflowType: lastCreatedApprovalData?.workflowType || null,
-        workflowId: lastCreatedApprovalData?.workflowId || null,
-        workflowNo: lastCreatedApprovalData?.workflowNo || null,
-      }),
-    );
-    prisma.approvalCase.update.mockImplementation(async ({ data }: { data: Record<string, any> }) =>
-      buildApproval({
-        ...(lastCreatedApprovalData || {}),
-        actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-        entityRef: 'ticket-1',
-        status: data.status,
-        traceId: lastCreatedApprovalData?.traceId || 'trace-ticket-1',
-        workflowType: lastCreatedApprovalData?.workflowType || null,
-        workflowId: lastCreatedApprovalData?.workflowId || null,
-        workflowNo: lastCreatedApprovalData?.workflowNo || null,
-        submittedAt: baseDate,
-        timeoutAt: new Date(baseDate.getTime() + 24 * 60 * 60 * 1000),
-      }),
-    );
-
-    await service.createAndSubmit(
-      {
-        actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-        entityRef: 'ticket-1',
-        traceId: 'trace-ticket-1',
-      },
-      {
-        reason: 'submit CT approval',
-        traceId: 'trace-ticket-1',
-      },
-      actor,
-    );
-
-    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          workflowType: 'ADMIN_MEMBER_PROVISIONING',
-          workflowId: 'ticket-1',
-          workflowNo: 'CT2604010001',
-          traceId: 'trace-ticket-1',
-        }),
-      }),
-    );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: AuditActions.APPROVAL_SUBMITTED,
-        workflowType: 'ADMIN_MEMBER_PROVISIONING',
-        traceId: 'trace-ticket-1',
-        subjectNos: expect.arrayContaining([
-          expect.objectContaining({
-            subjectRole: 'RELATED',
-            subjectType: 'ADMIN_MEMBER_PROVISIONING',
-            subjectNo: 'CT2604010001',
-          }),
-        ]),
-      }),
-      expect.anything(),
-    );
-  });
-
-  it('overrides caller workflow tuple and trace with change-ticket parent context during create', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(null);
-    prisma.changeTicket.findFirst.mockResolvedValue({
-      id: 'ticket-1',
-      ticketNo: 'CT2604010001',
-      traceId: 'trace-ticket-1',
-      changeType: 'ADMIN_ACCESS_CHANGE',
-    });
-
-    const result = await service.create(
-      {
-        actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-        entityRef: 'ticket-1',
-        traceId: 'trace-wrong',
-        workflowType: 'APPROVAL',
-        workflowId: 'approval-should-not-bind',
-        workflowNo: 'APR-WRONG-1',
-      },
-      actor,
-    );
-
-    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          traceId: 'trace-ticket-1',
-          workflowType: 'ADMIN_MEMBER_PROVISIONING',
-          workflowId: 'ticket-1',
-          workflowNo: 'CT2604010001',
-        }),
-      }),
-    );
-    expect(result).toMatchObject({
-      traceId: 'trace-ticket-1',
-      workflowType: 'ADMIN_MEMBER_PROVISIONING',
-      workflowId: 'ticket-1',
-      workflowNo: 'CT2604010001',
-    });
   });
 
   it('allows submit only from DRAFT', async () => {

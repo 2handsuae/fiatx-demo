@@ -13,7 +13,6 @@ export class ApprovalSlaProjectionService {
 
   private hasDedicatedWorkflow(actionType: string): boolean {
     return (
-      actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL ||
       actionType === ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL ||
       actionType === ApprovalActionTypes.ADMIN_INVITE_APPROVAL
     );

@@ -58,9 +58,6 @@ const EvidenceExportsPage = lazy(() => import('./pages/EvidenceExportsPage'));
 const EvidenceExportDetailPage = lazy(() => import('./pages/EvidenceExportDetailPage'));
 const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
 const ApprovalDetailPage = lazy(() => import('./pages/ApprovalDetailPage'));
-const ChangeTicketsPage = lazy(() => import('./pages/ChangeTicketsPage'));
-const ChangeTicketCreatePage = lazy(() => import('./pages/ChangeTicketCreatePage'));
-const ChangeTicketDetailPage = lazy(() => import('./pages/ChangeTicketDetailPage'));
 const BusinessConfigReleasesPage = lazy(() => import('./pages/BusinessConfigReleasesPage'));
 const GovernanceRegistryListPage = lazy(() => import('./pages/GovernanceRegistryListPage'));
 const GovernanceRegistryDetailPage = lazy(() => import('./pages/GovernanceRegistryDetailPage'));
@@ -500,27 +497,9 @@ function App() {
               ])}
             />
             <Route
-              path="control-gates/change-tickets"
-              element={withPermission(<ChangeTicketsPage />, [
-                PERMISSIONS.GOV_CHANGE_TICKETS_READ,
-              ])}
-            />
-            <Route
               path="control-gates/business-config-releases"
               element={withPermission(<BusinessConfigReleasesPage />, [
-                PERMISSIONS.GOV_CHANGE_TICKETS_READ,
-              ])}
-            />
-            <Route
-              path="control-gates/change-tickets/create"
-              element={withPermission(<ChangeTicketCreatePage />, [
-                PERMISSIONS.GOV_CHANGE_TICKET_CREATE,
-              ])}
-            />
-            <Route
-              path="control-gates/change-tickets/:id"
-              element={withPermission(<ChangeTicketDetailPage />, [
-                PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ,
+                PERMISSIONS.GOV_APPROVALS_READ,
               ])}
             />
             <Route
@@ -530,8 +509,8 @@ function App() {
             <Route
               path="control-gates"
               element={withPermission(
-                <Navigate to="/dashboard/control-gates/change-tickets" replace />,
-                [PERMISSIONS.GOV_CHANGE_TICKETS_READ, PERMISSIONS.GOV_APPROVALS_READ],
+                <Navigate to="/dashboard/control-gates/approvals" replace />,
+                [PERMISSIONS.GOV_APPROVALS_READ],
               )}
             />
             <Route

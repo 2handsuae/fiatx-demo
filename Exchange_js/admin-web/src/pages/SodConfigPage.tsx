@@ -47,18 +47,6 @@ const SOD_CONFIG: SodEntry[] = [
     allowRetry: true,
   },
   {
-    actionType: 'CHANGE_TICKET_APPROVAL',
-    label: 'Change Ticket',
-    wave: 'Wave 1',
-    status: 'ACTIVE',
-    trigger: 'Tech Officer / Ops Officer / Compliance Officer',
-    checkerRoles: ['CISO'],
-    timeoutHours: 24,
-    sodRule: 'DENY_SAME_USER_MAKER_CHECKER',
-    allowCancel: true,
-    allowRetry: true,
-  },
-  {
     actionType: 'ONBOARDING_FINAL_APPROVAL',
     label: 'Onboarding Final Approval',
     wave: 'Wave 1',

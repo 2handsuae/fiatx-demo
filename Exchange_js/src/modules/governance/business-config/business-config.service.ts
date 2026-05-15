@@ -11,10 +11,6 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { createHash, randomUUID } from 'crypto';
-import { DEFAULT_COA } from '../../../config/manifests/coa.manifest';
-import { DEFAULT_ACCT_EVENTS } from '../../../config/manifests/events.manifest';
-import { DEFAULT_JOURNAL_TEMPLATES } from '../../../config/manifests/journal-templates.manifest';
-import { DEFAULT_CLEARING_TEMPLATES } from '../../../config/manifests/clearing-templates.manifest';
 import {
   buildDefaultPricingPolicyManifest,
   PricingPolicyManifestAsset,
@@ -25,8 +21,7 @@ import {
   DEFAULT_ASSET_CONFIGS,
 } from '../../../config/manifests/asset-config.manifest';
 import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
-import { ChangeTicketStatuses, ChangeTicketTypes } from '../change-tickets/constants/change-ticket.constants';
-import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
+import { ChangeTicketStatuses, LegacyChangeTicketsService } from './legacy-ct-stubs';
 import {
   RegulatoryGateEffectivenessStatuses,
   RegulatoryGateSubjectTypes,
@@ -59,77 +54,9 @@ import {
 } from '../../trading/pricing-center/types/pricing.types';
 
 type GovernanceClient = PrismaService | Prisma.TransactionClient;
-type CoaManifestPayload = Record<string, unknown> & {
-  code: string;
-  type: string;
-  name: string;
-  status: string;
-  requiredTags: string[];
-};
-type AcctEventManifestPayload = Record<string, unknown> & {
-  eventCode: string;
-  postingReversalOfEventCode?: string | null;
-  clearingReversalOfEventCode?: string | null;
-  clearingTemplateCode?: string | null;
-};
-type JournalTemplateLinePayload = Record<string, unknown> & {
-  lineNo: number;
-  accountCode: string;
-  drCr: string;
-  amountSource: string;
-  assetSource: string;
-  ownerTypeSource?: string | null;
-  ownerIdSource?: string | null;
-  fxRateSource?: string | null;
-  referenceSource?: string | null;
-  dimensionsRule?: string | null;
-  conditionExpr?: string | null;
-  description?: string | null;
-};
-type JournalTemplateManifestPayload = Record<string, unknown> & {
-  header: Record<string, unknown> & {
-    templateCode: string;
-    eventCode: string;
-  };
-  lines: JournalTemplateLinePayload[];
-};
-type ClearingTemplateLinePayload = Record<string, unknown> & {
-  lineNo: number;
-  lineType: string;
-  partyType: string;
-  partyIdSource?: string | null;
-  assetSource: string;
-  amountSource: string;
-  refTypeConst?: string | null;
-  refIdSource?: string | null;
-  memoTemplate?: string | null;
-  isEnabled?: boolean | null;
-};
-type ClearingTemplateManifestPayload = Record<string, unknown> & {
-  code: string;
-  clearingType: string;
-  sourceType: string;
-  isEnabled: boolean;
-  description?: string | null;
-  feeMethod?: string | null;
-  outAssetSource: string;
-  outAmountSource: string;
-  inAssetSource: string;
-  inAmountSource: string;
-  feeAssetSource: string;
-  feeAmountSource: string;
-  outPayoutIdSource?: string | null;
-  inPayinIdSource?: string | null;
-  memoTemplate?: string | null;
-  lineTemplates: ClearingTemplateLinePayload[];
-};
 type PricingPolicyManifestPayload = PricingPolicyManifestItem;
 type AssetConfigManifestPayload = AssetConfigManifestItem;
 type ManifestPayload =
-  | CoaManifestPayload
-  | AcctEventManifestPayload
-  | JournalTemplateManifestPayload
-  | ClearingTemplateManifestPayload
   | PricingPolicyManifestPayload
   | AssetConfigManifestPayload;
 type ManifestEntry = {
@@ -156,7 +83,7 @@ export class BusinessConfigService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly pricingCenterService: PricingCenterService,
-    private readonly changeTicketsService: ChangeTicketsService,
+    private readonly changeTicketsService: LegacyChangeTicketsService,
   ) {}
 
   private normalizeSubjectType(input: string): BusinessConfigSubjectType {
@@ -166,21 +93,6 @@ export class BusinessConfigService {
       .replace(/[\s-]+/g, '_');
 
     switch (normalized) {
-      case 'COA':
-        return 'COA';
-      case 'ACCT_EVENT':
-      case 'ACCTEVENT':
-      case 'EVENT':
-      case 'EVENTS':
-        return 'ACCT_EVENT';
-      case 'JOURNAL_TEMPLATE':
-      case 'JOURNALTEMPLATE':
-      case 'JOURNAL':
-        return 'JOURNAL_TEMPLATE';
-      case 'CLEARING_TEMPLATE':
-      case 'CLEARINGTEMPLATE':
-      case 'CLEARING':
-        return 'CLEARING_TEMPLATE';
       case 'PRICING_POLICY':
       case 'PRICINGPOLICY':
       case 'PRICING':
@@ -271,37 +183,6 @@ export class BusinessConfigService {
   }
 
   private async getManifestEntries(subjectType: BusinessConfigSubjectType): Promise<ManifestEntry[]> {
-    if (subjectType === 'COA') {
-      return DEFAULT_COA.map((item) => ({
-        businessKey: item.code,
-        payload: {
-          ...item,
-          requiredTags: [],
-        },
-      })).sort((left, right) => left.businessKey.localeCompare(right.businessKey));
-    }
-
-    if (subjectType === 'ACCT_EVENT') {
-      return DEFAULT_ACCT_EVENTS.map((item) => ({
-        businessKey: item.eventCode,
-        payload: item,
-      })).sort((left, right) => left.businessKey.localeCompare(right.businessKey));
-    }
-
-    if (subjectType === 'JOURNAL_TEMPLATE') {
-      return DEFAULT_JOURNAL_TEMPLATES.map((item) => ({
-        businessKey: item.header.templateCode,
-        payload: item,
-      })).sort((left, right) => left.businessKey.localeCompare(right.businessKey));
-    }
-
-    if (subjectType === 'CLEARING_TEMPLATE') {
-      return DEFAULT_CLEARING_TEMPLATES.map((item) => ({
-        businessKey: item.code,
-        payload: item,
-      })).sort((left, right) => left.businessKey.localeCompare(right.businessKey));
-    }
-
     if (subjectType === 'PRICING_POLICY') {
       return this.getPricingManifestEntries();
     }
@@ -544,150 +425,6 @@ export class BusinessConfigService {
     );
   }
 
-  private async validateCoaRelease(
-    items: Array<ParsedReleaseItem<CoaManifestPayload>>,
-  ): Promise<string[]> {
-    const issues: string[] = [];
-    const seen = new Set<string>();
-    for (const item of items) {
-      if (seen.has(item.businessKey)) {
-        issues.push(`Duplicate COA code in release: ${item.businessKey}`);
-      }
-      seen.add(item.businessKey);
-      if (!item.payload?.name || !item.payload?.type) {
-        issues.push(`COA ${item.businessKey} requires name and type`);
-      }
-    }
-    return issues;
-  }
-
-  private async validateAcctEventRelease(
-    items: Array<ParsedReleaseItem<AcctEventManifestPayload>>,
-  ): Promise<string[]> {
-    const issues: string[] = [];
-    const eventCodes = new Set(items.map((item) => item.businessKey));
-    const activeClearingTemplates = await this.prisma.clearingTemplate.findMany({
-      where: { isEnabled: true },
-      select: { code: true },
-    });
-    const activeClearingCodes = new Set(activeClearingTemplates.map((item) => item.code));
-
-    for (const item of items) {
-      const payload = item.payload;
-      if (
-        payload.postingReversalOfEventCode &&
-        !eventCodes.has(String(payload.postingReversalOfEventCode))
-      ) {
-        issues.push(
-          `AcctEvent ${item.businessKey} postingReversalOfEventCode not found in release: ${payload.postingReversalOfEventCode}`,
-        );
-      }
-      if (
-        payload.clearingReversalOfEventCode &&
-        !eventCodes.has(String(payload.clearingReversalOfEventCode))
-      ) {
-        issues.push(
-          `AcctEvent ${item.businessKey} clearingReversalOfEventCode not found in release: ${payload.clearingReversalOfEventCode}`,
-        );
-      }
-      if (
-        payload.clearingTemplateCode &&
-        !activeClearingCodes.has(String(payload.clearingTemplateCode))
-      ) {
-        issues.push(
-          `AcctEvent ${item.businessKey} clearingTemplateCode is not active: ${payload.clearingTemplateCode}`,
-        );
-      }
-    }
-
-    return issues;
-  }
-
-  private async validateJournalTemplateRelease(
-    items: Array<ParsedReleaseItem<JournalTemplateManifestPayload>>,
-  ): Promise<string[]> {
-    const issues: string[] = [];
-    const coaRows = await this.prisma.coa.findMany({
-      where: { status: 'ACTIVE' },
-      select: { code: true },
-    });
-    const eventRows = await this.prisma.acctEvent.findMany({
-      where: { isActive: true },
-      select: { eventCode: true },
-    });
-    const activeCoaCodes = new Set(coaRows.map((item) => item.code));
-    const activeEventCodes = new Set(eventRows.map((item) => item.eventCode));
-
-    for (const item of items) {
-      const payload = item.payload;
-      const header = payload.header;
-      const lines = Array.isArray(payload.lines) ? payload.lines : [];
-      if (!header.templateCode || !header.eventCode) {
-        issues.push(`JournalTemplate ${item.businessKey} requires header.templateCode and header.eventCode`);
-      }
-      if (!activeEventCodes.has(String(header.eventCode || ''))) {
-        issues.push(`JournalTemplate ${item.businessKey} eventCode is not active: ${header.eventCode}`);
-      }
-      if (!lines.length) {
-        issues.push(`JournalTemplate ${item.businessKey} must contain at least one line`);
-        continue;
-      }
-
-      const balanceMap = new Map<string, { dr: number; cr: number }>();
-      for (const line of lines) {
-        if (!activeCoaCodes.has(String(line.accountCode || ''))) {
-          issues.push(`JournalTemplate ${item.businessKey} references inactive COA: ${line.accountCode}`);
-        }
-        const bucketKey = `${line.amountSource || ''}|${line.assetSource || ''}`;
-        const bucket = balanceMap.get(bucketKey) || { dr: 0, cr: 0 };
-        if (String(line.drCr || '').toUpperCase() === 'DR') {
-          bucket.dr += 1;
-        } else if (String(line.drCr || '').toUpperCase() === 'CR') {
-          bucket.cr += 1;
-        } else {
-          issues.push(`JournalTemplate ${item.businessKey} line ${line.lineNo} has invalid drCr`);
-        }
-        balanceMap.set(bucketKey, bucket);
-      }
-      for (const [bucketKey, bucket] of balanceMap.entries()) {
-        if (bucket.dr !== bucket.cr) {
-          issues.push(
-            `JournalTemplate ${item.businessKey} is not balanced for source bucket ${bucketKey} (DR=${bucket.dr}, CR=${bucket.cr})`,
-          );
-        }
-      }
-    }
-
-    return issues;
-  }
-
-  private async validateClearingTemplateRelease(
-    items: Array<ParsedReleaseItem<ClearingTemplateManifestPayload>>,
-  ): Promise<string[]> {
-    const issues: string[] = [];
-    for (const item of items) {
-      const payload = item.payload;
-      const lines = Array.isArray(payload.lineTemplates) ? payload.lineTemplates : [];
-      if (!payload.code || !payload.clearingType || !payload.sourceType) {
-        issues.push(`ClearingTemplate ${item.businessKey} requires code, clearingType, and sourceType`);
-      }
-      if (!lines.length) {
-        issues.push(`ClearingTemplate ${item.businessKey} must contain at least one line`);
-      }
-      const lineNos = new Set<number>();
-      for (const line of lines) {
-        if (lineNos.has(Number(line.lineNo))) {
-          issues.push(`ClearingTemplate ${item.businessKey} has duplicate lineNo ${line.lineNo}`);
-        }
-        lineNos.add(Number(line.lineNo));
-        if (!line.lineType || !line.partyType || !line.amountSource || !line.assetSource) {
-          issues.push(`ClearingTemplate ${item.businessKey} line ${line.lineNo} is incomplete`);
-        }
-      }
-    }
-    return issues;
-  }
-
   private async validatePricingPolicyRelease(
     items: Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
   ): Promise<string[]> {
@@ -800,31 +537,7 @@ export class BusinessConfigService {
       seenKeys.add(item.businessKey);
     }
 
-    if (subjectType === 'COA') {
-      issues.push(
-        ...(await this.validateCoaRelease(
-          items as Array<ParsedReleaseItem<CoaManifestPayload>>,
-        )),
-      );
-    } else if (subjectType === 'ACCT_EVENT') {
-      issues.push(
-        ...(await this.validateAcctEventRelease(
-          items as Array<ParsedReleaseItem<AcctEventManifestPayload>>,
-        )),
-      );
-    } else if (subjectType === 'JOURNAL_TEMPLATE') {
-      issues.push(
-        ...(await this.validateJournalTemplateRelease(
-          items as Array<ParsedReleaseItem<JournalTemplateManifestPayload>>,
-        )),
-      );
-    } else if (subjectType === 'CLEARING_TEMPLATE') {
-      issues.push(
-        ...(await this.validateClearingTemplateRelease(
-          items as Array<ParsedReleaseItem<ClearingTemplateManifestPayload>>,
-        )),
-      );
-    } else if (subjectType === 'PRICING_POLICY') {
+    if (subjectType === 'PRICING_POLICY') {
       issues.push(
         ...(await this.validatePricingPolicyRelease(
           items as Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,
@@ -844,247 +557,6 @@ export class BusinessConfigService {
       warnings,
       validatedAt: new Date().toISOString(),
     };
-  }
-
-  private async currentBaseAssetId(): Promise<string> {
-    const baseAsset =
-      (await this.prisma.asset.findFirst({
-        where: { code: 'AED', status: 'ACTIVE' },
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      })) ??
-      (await this.prisma.asset.findFirst({
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      }));
-
-    if (!baseAsset?.id) {
-      throw new BadRequestException('No base asset found for journal template projection');
-    }
-
-    return baseAsset.id;
-  }
-
-  private async projectCoa(
-    tx: GovernanceClient,
-    items: Array<ParsedReleaseItem<CoaManifestPayload>>,
-  ) {
-    const activeCodes = items.map((item) => String(item.payload.code));
-    for (const item of items) {
-      const payload = item.payload;
-      await tx.coa.upsert({
-        where: { code: payload.code },
-        update: {
-          type: payload.type,
-          name: payload.name,
-          status: payload.status,
-          requiredTags: JSON.stringify(payload.requiredTags || []),
-        },
-        create: {
-          code: payload.code,
-          type: payload.type,
-          name: payload.name,
-          status: payload.status,
-          requiredTags: JSON.stringify(payload.requiredTags || []),
-        },
-      });
-    }
-
-    await tx.coa.updateMany({
-      where: {
-        code: { notIn: activeCodes },
-        status: { not: 'INACTIVE' },
-      },
-      data: { status: 'INACTIVE' },
-    });
-  }
-
-  private async projectAcctEvents(
-    tx: GovernanceClient,
-    items: Array<ParsedReleaseItem<AcctEventManifestPayload>>,
-  ) {
-    const activeCodes = items.map((item) => String(item.payload.eventCode));
-
-    // Pass 1: upsert without reversal-code FKs so self-referential rows exist first
-    for (const item of items) {
-      const payload = item.payload;
-      const baseRecord: Prisma.AcctEventUncheckedCreateInput = {
-        eventCode: payload.eventCode,
-        entityType: String(payload.entityType ?? ''),
-        ownerScope: String(payload.ownerScope ?? ''),
-        assetType: String(payload.assetType ?? ''),
-        triggerType: String(payload.triggerType ?? ''),
-        triggerKey:
-          typeof payload.triggerKey === 'string' ? payload.triggerKey : null,
-        fromStatus:
-          typeof payload.fromStatus === 'string' ? payload.fromStatus : null,
-        toStatus: typeof payload.toStatus === 'string' ? payload.toStatus : null,
-        postingMode: String(payload.postingMode ?? ''),
-        clearingMode: String(payload.clearingMode ?? ''),
-        postingReversalOfEventCode: null,
-        clearingReversalOfEventCode: null,
-        clearingTemplateCode:
-          typeof payload.clearingTemplateCode === 'string'
-            ? payload.clearingTemplateCode
-            : null,
-        isActive: payload.isActive !== false,
-        description:
-          typeof payload.description === 'string' ? payload.description : null,
-      };
-      await tx.acctEvent.upsert({
-        where: { eventCode: payload.eventCode },
-        update: baseRecord,
-        create: baseRecord,
-      });
-    }
-
-    // Pass 2: update reversal codes now that all rows exist
-    for (const item of items) {
-      const payload = item.payload;
-      if (
-        typeof payload.postingReversalOfEventCode === 'string' ||
-        typeof payload.clearingReversalOfEventCode === 'string'
-      ) {
-        await tx.acctEvent.update({
-          where: { eventCode: payload.eventCode },
-          data: {
-            postingReversalOfEventCode:
-              typeof payload.postingReversalOfEventCode === 'string'
-                ? payload.postingReversalOfEventCode
-                : null,
-            clearingReversalOfEventCode:
-              typeof payload.clearingReversalOfEventCode === 'string'
-                ? payload.clearingReversalOfEventCode
-                : null,
-          },
-        });
-      }
-    }
-
-    await tx.acctEvent.updateMany({
-      where: {
-        eventCode: { notIn: activeCodes },
-        isActive: true,
-      },
-      data: { isActive: false },
-    });
-  }
-
-  private async projectJournalTemplates(
-    tx: GovernanceClient,
-    items: Array<ParsedReleaseItem<JournalTemplateManifestPayload>>,
-  ) {
-    const activeCodes = items.map((item) => String(item.payload.header.templateCode));
-    const baseAssetId = await this.currentBaseAssetId();
-
-    for (const item of items) {
-      const payload = item.payload;
-      const header = await tx.journalHeaderTemplate.upsert({
-        where: { templateCode: payload.header.templateCode },
-        update: {
-          ...payload.header,
-          baseAssetId,
-        },
-        create: {
-          ...payload.header,
-          baseAssetId,
-        },
-      });
-
-      await tx.journalLineTemplate.deleteMany({
-        where: { templateId: header.id },
-      });
-
-      for (const line of payload.lines || []) {
-        await tx.journalLineTemplate.create({
-          data: {
-            templateId: header.id,
-            lineNo: line.lineNo,
-            accountCode: line.accountCode,
-            drCr: line.drCr,
-            amountSource: line.amountSource,
-            assetSource: line.assetSource,
-            ownerTypeSource: line.ownerTypeSource ?? null,
-            ownerIdSource: line.ownerIdSource ?? null,
-            fxRateSource: line.fxRateSource ?? null,
-            referenceSource: line.referenceSource ?? null,
-            dimensionsRule: line.dimensionsRule ?? '{}',
-            conditionExpr: line.conditionExpr ?? null,
-            description: line.description ?? null,
-          },
-        });
-      }
-    }
-
-    await tx.journalHeaderTemplate.updateMany({
-      where: {
-        templateCode: { notIn: activeCodes },
-        status: { not: 'INACTIVE' },
-      },
-      data: { status: 'INACTIVE' },
-    });
-  }
-
-  private async projectClearingTemplates(
-    tx: GovernanceClient,
-    items: Array<ParsedReleaseItem<ClearingTemplateManifestPayload>>,
-  ) {
-    const activeCodes = items.map((item) => String(item.payload.code));
-    for (const item of items) {
-      const payload = item.payload;
-      const clearingTemplateRecord = {
-        code: payload.code,
-        clearingType: payload.clearingType,
-        sourceType: payload.sourceType,
-        isEnabled: payload.isEnabled,
-        description: payload.description ?? '',
-        feeMethod: payload.feeMethod ?? 'CONFIGURED_FEE',
-        outAssetSource: payload.outAssetSource,
-        outAmountSource: payload.outAmountSource,
-        inAssetSource: payload.inAssetSource,
-        inAmountSource: payload.inAmountSource,
-        feeAssetSource: payload.feeAssetSource,
-        feeAmountSource: payload.feeAmountSource,
-        outPayoutIdSource: payload.outPayoutIdSource ?? null,
-        inPayinIdSource: payload.inPayinIdSource ?? null,
-        memoTemplate: payload.memoTemplate ?? null,
-      };
-      const header = await tx.clearingTemplate.upsert({
-        where: { code: payload.code },
-        update: clearingTemplateRecord,
-        create: clearingTemplateRecord,
-      });
-
-      await tx.clearingLineTemplate.deleteMany({
-        where: { clearingTemplateId: header.id },
-      });
-
-      for (const line of payload.lineTemplates || []) {
-        await tx.clearingLineTemplate.create({
-          data: {
-            clearingTemplateId: header.id,
-            lineNo: line.lineNo,
-            lineType: line.lineType,
-            partyType: line.partyType,
-            partyIdSource: line.partyIdSource ?? null,
-            assetSource: line.assetSource,
-            amountSource: line.amountSource,
-            refTypeConst: line.refTypeConst ?? null,
-            refIdSource: line.refIdSource ?? null,
-            memoTemplate: line.memoTemplate ?? null,
-            isEnabled: line.isEnabled ?? true,
-          },
-        });
-      }
-    }
-
-    await tx.clearingTemplate.updateMany({
-      where: {
-        code: { notIn: activeCodes },
-        isEnabled: true,
-      },
-      data: { isEnabled: false },
-    });
   }
 
   private async projectAssetConfig(
@@ -1386,7 +858,7 @@ export class BusinessConfigService {
       throw new BadRequestException('Only VALIDATED releases can be published');
     }
 
-    const changeTicket = await this.prisma.changeTicket.findFirst({
+    const changeTicket = await (this.prisma as any).changeTicket?.findFirst({
       where: {
         deletedAt: null,
         OR: [{ id: changeTicketRef }, { ticketNo: changeTicketRef }],
@@ -1502,27 +974,7 @@ export class BusinessConfigService {
     const publishedBy = 'SYSTEM';
 
     await this.prisma.$transaction(async (tx) => {
-      if (subjectType === 'COA') {
-        await this.projectCoa(
-          tx,
-          items as Array<ParsedReleaseItem<CoaManifestPayload>>,
-        );
-      } else if (subjectType === 'ACCT_EVENT') {
-        await this.projectAcctEvents(
-          tx,
-          items as Array<ParsedReleaseItem<AcctEventManifestPayload>>,
-        );
-      } else if (subjectType === 'JOURNAL_TEMPLATE') {
-        await this.projectJournalTemplates(
-          tx,
-          items as Array<ParsedReleaseItem<JournalTemplateManifestPayload>>,
-        );
-      } else if (subjectType === 'CLEARING_TEMPLATE') {
-        await this.projectClearingTemplates(
-          tx,
-          items as Array<ParsedReleaseItem<ClearingTemplateManifestPayload>>,
-        );
-      } else if (subjectType === 'PRICING_POLICY') {
+      if (subjectType === 'PRICING_POLICY') {
         await this.projectPricingPolicies(
           tx,
           items as Array<ParsedReleaseItem<PricingPolicyManifestPayload>>,

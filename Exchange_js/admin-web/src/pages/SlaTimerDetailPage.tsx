@@ -88,7 +88,6 @@ const SlaTimerDetailPage = () => {
   const canClose = hasAnyPermission([PERMISSIONS.GOV_SLA_TIMER_CLOSE]);
   const canRecalc = hasAnyPermission([PERMISSIONS.GOV_SLA_TIMER_RECALC]);
   const canViewApproval = hasAnyPermission([PERMISSIONS.GOV_APPROVAL_DETAIL_READ]);
-  const canViewChangeTicket = hasAnyPermission([PERMISSIONS.GOV_CHANGE_TICKET_DETAIL_READ]);
 
   const fetchDetail = async () => {
     if (!id) {
@@ -254,17 +253,6 @@ const SlaTimerDetailPage = () => {
               >
                 <Link2 size={16} />
                 View Approval
-              </button>
-            )}
-            {detail.subjectType === 'CHANGE_TICKET' && canViewChangeTicket && (
-              <button
-                onClick={() =>
-                  navigate(`/dashboard/control-gates/change-tickets/${detail.subjectId}`)
-                }
-                className={adminButtonClass('detailUtility')}
-              >
-                <Link2 size={16} />
-                View Change Ticket
               </button>
             )}
           </div>

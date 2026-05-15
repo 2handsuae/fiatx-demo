@@ -2,12 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  forwardRef,
   Inject,
   InternalServerErrorException,
   Injectable,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
@@ -18,16 +16,12 @@ import {
   AuditActions,
   AuditBusinessWorkflowTypes,
   AuditEntityTypes,
-  AuditModules,
-  AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
   AuditSubjectRole,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
-import { ChangeTicketsService } from '../change-tickets/change-tickets.service';
-import { ChangeTicketTypes } from '../change-tickets/constants/change-ticket.constants';
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
@@ -49,12 +43,6 @@ import {
 } from './dto/approval.dto';
 
 type ApprovalWriteClient = any;
-type ApprovalWorkflowContext = {
-  workflowType: string | null;
-  workflowId: string | null;
-  workflowNo: string | null;
-  traceId: string | null;
-};
 type ApprovalCaseRow = {
   [key: string]: any;
   steps: Array<Record<string, any>>;
@@ -87,9 +75,6 @@ export class ApprovalsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly approvalPolicyService: ApprovalPolicyService,
     private readonly eventEmitter: EventEmitter2,
-    @Optional()
-    @Inject(forwardRef(() => ChangeTicketsService))
-    private readonly changeTicketsService?: ChangeTicketsService,
   ) {}
 
   private getDb(client?: ApprovalWriteClient): ApprovalWriteClient {
@@ -155,58 +140,6 @@ export class ApprovalsService {
       workflowType,
       workflowId,
       workflowNo,
-    };
-  }
-
-  private resolveChangeTicketWorkflowType(changeType: unknown): string {
-    switch (this.normalizeOptionalString(changeType)?.toUpperCase()) {
-      case ChangeTicketTypes.ADMIN_ACCESS_CHANGE:
-        return AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING;
-      case ChangeTicketTypes.RBAC_CATALOG_CHANGE:
-        return AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE;
-      case ChangeTicketTypes.BUSINESS_CONFIG_CHANGE:
-        return AuditBusinessWorkflowTypes.BUSINESS_CONFIG_CHANGE;
-      default:
-        return AuditWorkflowTypes.CHANGE_TICKET;
-    }
-  }
-
-  private async resolveParentWorkflowContext(
-    actionType: string,
-    entityRef: string,
-    client?: ApprovalWriteClient,
-  ): Promise<ApprovalWorkflowContext> {
-    const db = this.getDb(client);
-
-    if (actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL) {
-      const ticket = await db.changeTicket?.findFirst?.({
-        where: {
-          id: entityRef,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          ticketNo: true,
-          traceId: true,
-          changeType: true,
-        },
-      });
-
-      if (ticket) {
-        return {
-          workflowType: this.resolveChangeTicketWorkflowType(ticket.changeType),
-          workflowId: this.normalizeOptionalString(ticket.id),
-          workflowNo: this.normalizeOptionalString(ticket.ticketNo),
-          traceId: this.normalizeOptionalString(ticket.traceId),
-        };
-      }
-    }
-
-    return {
-      workflowType: null,
-      workflowId: null,
-      workflowNo: null,
-      traceId: null,
     };
   }
 
@@ -353,14 +286,8 @@ export class ApprovalsService {
     this.eventEmitter.emit(eventName, payload);
   }
 
-  private async projectGovernanceApprovalDecision(approval: ApprovalCaseRow) {
-    const event = this.buildEventPayload(approval);
-    if (
-      approval.actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL &&
-      this.changeTicketsService
-    ) {
-      await this.changeTicketsService.syncApprovalProjectionByEvent(event);
-    }
+  private async projectGovernanceApprovalDecision(_approval: ApprovalCaseRow) {
+    // No-op: CT removed. Future workflow projections go here.
   }
 
   private assertTraceConsistency(
@@ -641,20 +568,7 @@ export class ApprovalsService {
       throw new BadRequestException('entityRef is required');
     }
 
-    const parentWorkflowContext = await this.resolveParentWorkflowContext(
-      actionType,
-      entityRef,
-      client,
-    );
-    const lockWorkflowToParent =
-      actionType === ApprovalActionTypes.CHANGE_TICKET_APPROVAL;
-    const workflowContext = lockWorkflowToParent
-      ? {
-          workflowType: parentWorkflowContext.workflowType,
-          workflowId: parentWorkflowContext.workflowId,
-          workflowNo: parentWorkflowContext.workflowNo,
-        }
-      : this.normalizeWorkflowContext(dto);
+    const workflowContext = this.normalizeWorkflowContext(dto);
 
     const existingPending = await db.approvalCase.findFirst({
       where: {
@@ -668,14 +582,8 @@ export class ApprovalsService {
     });
 
     if (existingPending) {
-      this.assertTraceConsistency(
-        existingPending.traceId,
-        lockWorkflowToParent ? parentWorkflowContext.traceId : dto.traceId,
-      );
-      this.assertWorkflowContextConsistency(
-        existingPending,
-        lockWorkflowToParent ? workflowContext : dto,
-      );
+      this.assertTraceConsistency(existingPending.traceId, dto.traceId);
+      this.assertWorkflowContextConsistency(existingPending, dto);
       return existingPending as ApprovalCaseRow;
     }
 
@@ -707,11 +615,7 @@ export class ApprovalsService {
         allowRetry: policy.allowRetry,
         docRef: this.normalizeOptionalString(dto.docRef),
         objectSnapshot: dto.objectSnapshot ? JSON.stringify(dto.objectSnapshot) : null,
-        traceId:
-          (lockWorkflowToParent
-            ? parentWorkflowContext.traceId
-            : this.normalizeOptionalString(dto.traceId)) ||
-          randomUUID(),
+        traceId: this.normalizeOptionalString(dto.traceId) || randomUUID(),
         workflowType: workflowContext.workflowType,
         workflowId: workflowContext.workflowId,
         workflowNo: workflowContext.workflowNo,

@@ -761,7 +761,6 @@ model ApprovalCase {
   deletedBy                      String?
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
-  changeTicketApprovalCase       ChangeTicket?                  @relation("ChangeTicketApprovalCase")
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
   riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
@@ -845,68 +844,6 @@ model ApprovalPolicyChangeRequest {
   @@index([status])
   @@index([requestedByUserId])
   @@map("approval_policy_change_requests")
-}
-
-model ChangeTicket {
-  id                   String        @id @default(uuid())
-  ticketNo             String        @unique @default("TEMP")
-  status               String        @default("DRAFT")
-  changeType           String
-  changeReason         String
-  bindingSnapshotJson  String        @default("{}")
-  bindingDigest        String?
-  scopeSummary         String
-  testEvidenceRef      String
-  rollbackPlanRef      String
-  approvalCaseId       String?       @unique
-  approvalNo           String?
-  traceId              String
-  createdByUserId      String
-  createdByUserNo      String
-  submittedByUserId    String?
-  submittedByUserNo    String?
-  consumedByUserId     String?
-  consumedByUserNo     String?
-  submittedAt          DateTime?
-  consumedAt           DateTime?
-  resultNote           String?
-  deletedAt            DateTime?
-  deletedBy            String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  approvalCase         ApprovalCase? @relation("ChangeTicketApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
-  gateRuns             ChangeTicketGateRun[]
-
-  @@index([status, createdAt])
-  @@index([ticketNo, createdAt])
-  @@index([traceId, createdAt])
-  @@index([approvalNo, createdAt])
-  @@index([deletedAt])
-  @@map("change_tickets")
-}
-
-model ChangeTicketGateRun {
-  id             String       @id @default(uuid())
-  ticketId       String
-  targetEnv      String
-  releaseVersion String
-  status         String       @default("PENDING")
-  reason         String?
-  failureReason  String?
-  operatorUserId String
-  traceId        String
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  activeKey      String?      @unique
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  ticket         ChangeTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
-  @@index([ticketId, createdAt])
-  @@index([status, createdAt])
-  @@index([traceId, createdAt])
-  @@index([ticketId, targetEnv, releaseVersion, createdAt])
-  @@map("change_ticket_gate_runs")
 }
 
 model ShareholdingRegistryVersion {

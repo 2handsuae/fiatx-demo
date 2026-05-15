@@ -8,7 +8,6 @@ import { BadRequestException } from '@nestjs/common';
  * without a Wave 1 regression pass.
  *
  *   AUDIT_EVIDENCE_EXPORT_APPROVAL  — audit evidence package export gate
- *   CHANGE_TICKET_APPROVAL          — admin access / RBAC change gate
  *
  * WAVE 2-3 PRE-REGISTERED
  * These types are registered for schema continuity before full feature impl:
@@ -26,7 +25,6 @@ import { BadRequestException } from '@nestjs/common';
 export const ApprovalActionTypes = {
   AUDIT_EVIDENCE_EXPORT_APPROVAL: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
   CASE_EVIDENCE_EXPORT_APPROVAL: 'CASE_EVIDENCE_EXPORT_APPROVAL',
-  CHANGE_TICKET_APPROVAL: 'CHANGE_TICKET_APPROVAL',
   ONBOARDING_FINAL_APPROVAL: 'ONBOARDING_FINAL_APPROVAL',
   POOL_SETTLEMENT_BATCH_APPROVAL: 'POOL_SETTLEMENT_BATCH_APPROVAL',
   TREASURY_CROSS_POOL_TRANSFER_APPROVAL: 'TREASURY_CROSS_POOL_TRANSFER_APPROVAL',
@@ -198,13 +196,6 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL]: {
     riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['DPO'] }, { stepNo: 2, roles: ['MLRO'] }],
-    timeoutHours: 24,
-    allowCancel: true,
-    allowRetry: true,
-  },
-  [ApprovalActionTypes.CHANGE_TICKET_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
-    steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 24,
     allowCancel: true,
     allowRetry: true,

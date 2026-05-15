@@ -98,7 +98,6 @@ describe('AuditLogsService', () => {
 
   it('should freeze Wave 1 business workflow taxonomy and user-action vocabulary', () => {
     expect(AuditBusinessWorkflowTypes).toEqual({
-      ADMIN_MEMBER_PROVISIONING: 'ADMIN_MEMBER_PROVISIONING',
       ADMIN_LOGIN_ACCESS: 'ADMIN_LOGIN_ACCESS',
       ADMIN_ROLE_BINDING_CHANGE: 'ADMIN_ROLE_BINDING_CHANGE',
       AUDIT_EVIDENCE_EXPORT: 'AUDIT_EVIDENCE_EXPORT',
@@ -146,19 +145,7 @@ describe('AuditLogsService', () => {
   });
 
   it('should map raw technical audit actions to user-layer actions', () => {
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CREATED)).toBe(
-      AuditUserActions.REQUEST_CREATED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_SUBMITTED)).toBe(
-      AuditUserActions.SUBMITTED,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_APPROVED)).toBe(
-      AuditUserActions.APPROVED_FOR_EXECUTION,
-    );
-    expect(mapRawAuditActionToUserAction(AuditActions.CHANGE_TICKET_CONSUMED)).toBe(
-      AuditUserActions.EXECUTED,
-    );
-expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
+    expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
       AuditUserActions.SUBMITTED,
     );
     expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_APPROVED)).toBe(
@@ -601,7 +588,7 @@ expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-1',
         entityNo: 'APR2604010001',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,
@@ -651,8 +638,8 @@ expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
     const result = await service.findAll({ take: 20 });
 
     expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
-      businessWorkflowLabel: 'Admin Member Provisioning',
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
+      businessWorkflowLabel: 'Admin Role Binding Change',
       userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
       userActionLabel: 'Approved For Execution',
       primaryRefNo: 'APR2604010001',
@@ -685,7 +672,7 @@ expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-2',
         entityNo: 'APR2604010002',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.FAILED,
@@ -700,7 +687,7 @@ expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
     const result = await service.findAll({ take: 20 });
 
     expect(result.items[0]).toMatchObject({
-      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+      businessWorkflow: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       userAction: AuditActions.APPROVAL_EXECUTION_FAILED,
       userActionLabel: 'Approval Execution Failed',
     });
@@ -716,7 +703,7 @@ expect(mapRawAuditActionToUserAction(AuditActions.APPROVAL_SUBMITTED)).toBe(
         entityType: AuditEntityTypes.APPROVAL_CASE,
         entityId: 'approval-3',
         entityNo: 'APR2604010003',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MEMBER_PROVISIONING,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
         actorType: 'ADMIN',
         actorId: 'admin-1',
         result: AuditResult.SUCCESS,

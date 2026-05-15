@@ -2,7 +2,7 @@ import { ApprovalSlaProjectionService } from './approval-sla-projection.service'
 import { ApprovalActionTypes } from '../approvals/constants/approval.constants';
 
 describe('ApprovalSlaProjectionService', () => {
-  it('skips approval timeout timers for change ticket approvals', async () => {
+  it('skips approval timeout timers for admin invite approvals (dedicated workflow)', async () => {
     const slaTimersService = {
       ensureApprovalTimeoutTimer: jest.fn(),
       closeApprovalTimeoutTimer: jest.fn(),
@@ -13,11 +13,11 @@ describe('ApprovalSlaProjectionService', () => {
     await service.onSubmitted({
       approvalId: 'approval-1',
       approvalNo: 'APR2604050001',
-      actionType: ApprovalActionTypes.CHANGE_TICKET_APPROVAL,
-      entityRef: 'ticket-1',
+      actionType: ApprovalActionTypes.ADMIN_INVITE_APPROVAL,
+      entityRef: 'invite-1',
       traceId: 'trace-1',
-      workflowType: 'ADMIN_MEMBER_PROVISIONING',
-      workflowNo: 'CT2604050001',
+      workflowType: 'ADMIN_INVITE',
+      workflowNo: 'INV2604050001',
       status: 'PENDING',
     });
 
