@@ -402,8 +402,8 @@ export default function AdminMfaBindingPage() {
           navigate('/admin/login', { replace: true });
           return;
         }
-        const data = await res.json() as { status: string };
-        const recovered = STATUS_TO_STEP[data.status];
+        const data = await res.json() as { currentStep: string };
+        const recovered = STATUS_TO_STEP[data.currentStep];
         setStep(recovered !== undefined ? recovered : 0);
       } catch {
         // On network error, start from 0

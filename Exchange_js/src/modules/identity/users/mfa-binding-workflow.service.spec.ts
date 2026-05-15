@@ -43,15 +43,20 @@ describe('MfaBindingWorkflowService', () => {
   });
 
   describe('confirmIdentity', () => {
-    it('throws ForbiddenException when status is not PENDING_IDENTITY_CONFIRM', async () => {
-      usersDomainService.findFirstLoginState.mockResolvedValue({ ...baseState, firstLoginStatus: 'MFA_BINDING' });
+    it('throws ForbiddenException when status is COMPLETED', async () => {
+      usersDomainService.findFirstLoginState.mockResolvedValue({ ...baseState, firstLoginStatus: 'COMPLETED' });
       await expect(service.confirmIdentity('u1')).rejects.toThrow(ForbiddenException);
     });
 
     it('transitions to MFA_BINDING and writes audit log', async () => {
       usersDomainService.findFirstLoginState.mockResolvedValue(baseState);
       await service.confirmIdentity('u1');
-      expect(usersDomainService.setFirstLoginStatus).toHaveBeenCalledWith('u1', 'MFA_BINDING', undefined);
+      expect(usersDomainService.setFirstLoginStatus).toHaveBeenCalledWith(
+        'u1',
+        'MFA_BINDING',
+        undefined,
+        expect.any(String),
+      );
       expect(auditLogsService.recordByActor).toHaveBeenCalled();
     });
   });

@@ -132,8 +132,7 @@ export class MfaBindingWorkflowService {
     }
 
     const traceId = randomUUID();
-    await this.usersDomainService.setFirstLoginStatus(userId, 'MFA_BINDING', undefined);
-    await this.usersDomainService.storeMfaSecret(userId, user.mfaSecret || '', traceId, undefined);
+    await this.usersDomainService.setFirstLoginStatus(userId, 'MFA_BINDING', undefined, traceId);
 
     await this.auditLogsService.recordByActor(
       {

@@ -226,6 +226,7 @@ export class UsersDomainService {
     userId: string,
     status: string,
     tx?: Prisma.TransactionClient,
+    traceId?: string,
   ): Promise<void> {
     const client = tx || this.prisma;
     const user = await client.user.findFirst({
@@ -233,7 +234,13 @@ export class UsersDomainService {
       select: { id: true },
     });
     if (!user) throw new NotFoundException('User not found');
-    await client.user.update({ where: { id: userId }, data: { firstLoginStatus: status } });
+    await client.user.update({
+      where: { id: userId },
+      data: {
+        firstLoginStatus: status,
+        ...(traceId ? { firstLoginTraceId: traceId } : {}),
+      },
+    });
   }
 
   async storeMfaSecret(
