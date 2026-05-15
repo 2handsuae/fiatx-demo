@@ -28,7 +28,7 @@ export class TransactionLimitsController {
   ) {}
 
   private ensureAdmin(req: any) {
-    if (req.user?.userType !== 'ADMIN') {
+    if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin access required');
     }
   }
