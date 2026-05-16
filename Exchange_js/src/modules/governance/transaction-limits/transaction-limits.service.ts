@@ -57,4 +57,44 @@ export class TransactionLimitsService {
       orderBy: { operationType: 'asc' },
     });
   }
+
+  async generateNextPolicyNo(): Promise<string> {
+    const last = await this.prisma.transactionLimitPolicy.findFirst({
+      orderBy: { policyNo: 'desc' },
+      select: { policyNo: true },
+    });
+    if (!last) return 'TLP-001';
+    const num = parseInt(last.policyNo.replace('TLP-', ''), 10);
+    return `TLP-${String(num + 1).padStart(3, '0')}`;
+  }
+
+  async create(
+    data: {
+      policyNo: string;
+      tradingTier: string;
+      operationType: string;
+      period: string;
+      limitAmount: Prisma.Decimal;
+      status: string;
+    },
+    tx?: any,
+  ) {
+    const db = tx ?? this.prisma;
+    return db.transactionLimitPolicy.create({ data });
+  }
+
+  async deleteById(id: string, tx?: any) {
+    const db = tx ?? this.prisma;
+    return db.transactionLimitPolicy.delete({ where: { id } });
+  }
+
+  async findById(id: string) {
+    const policy = await this.prisma.transactionLimitPolicy.findUnique({
+      where: { id },
+    });
+    if (!policy) {
+      throw new NotFoundException(`Transaction limit policy not found: ${id}`);
+    }
+    return policy;
+  }
 }
