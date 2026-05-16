@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -72,6 +72,18 @@ const TransactionLimitList = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    tradingTier: 'BASIC',
+    operationType: 'WITHDRAWAL',
+    period: 'DAILY',
+    limitAmount: '',
+    reason: '',
+  });
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const requestSeqRef = useRef(0);
 
@@ -112,6 +124,54 @@ const TransactionLimitList = () => {
 
   useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); }, []);
 
+  /* ── Create modal handlers ── */
+
+  const openCreateModal = () => {
+    setCreateForm({ tradingTier: 'BASIC', operationType: 'WITHDRAWAL', period: 'DAILY', limitAmount: '', reason: '' });
+    setCreateError(null);
+    setShowCreateModal(true);
+  };
+  const closeCreateModal = () => setShowCreateModal(false);
+
+  const handleCreateSubmit = async () => {
+    const amt = parseFloat(createForm.limitAmount);
+    if (!amt || amt <= 0) { setCreateError('Amount must be > 0'); return; }
+    if (!createForm.reason.trim()) { setCreateError('Reason is required'); return; }
+
+    setCreateLoading(true);
+    setCreateError(null);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-policies`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tradingTier: createForm.tradingTier,
+            operationType: createForm.operationType,
+            period: createForm.period,
+            limitAmount: amt,
+            reason: createForm.reason.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setCreateError((data as { message?: string }).message || 'Failed to submit');
+        return;
+      }
+      const res = await response.json() as { approvalNo?: string };
+      closeCreateModal();
+      setNotice(`Policy creation submitted — approval ${res.approvalNo}`);
+      setTimeout(() => setNotice(null), 4000);
+      void fetchItems(currentPage, filters);
+    } catch (err: unknown) {
+      setCreateError(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
   /* ── Input style ── */
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
@@ -140,12 +200,24 @@ const TransactionLimitList = () => {
       <PageTitleBar
         title="Transaction Limits"
         meta={`${total} policies · Daily Limits`}
-      />
+      >
+        <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
+          <Plus size={13} />
+          Create Policy
+        </button>
+      </PageTitleBar>
 
       {/* ─── Error banner ─── */}
       {error && (
         <div className="shrink-0 border-b border-adm-border bg-adm-danger/5 px-4 py-2 font-mono text-[11px] text-adm-danger">
           {error}
+        </div>
+      )}
+
+      {/* ─── Notice toast ─── */}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-4 py-2 font-mono text-[11px] text-adm-amber">
+          {notice}
         </div>
       )}
 
@@ -267,6 +339,94 @@ const TransactionLimitList = () => {
           onPageChange={(p: number) => void fetchItems(p, filters)}
         />
       </div>
+
+      {/* ════ Create Policy Modal ════ */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-lg border border-adm-border bg-adm-bg shadow-xl">
+            {/* Header */}
+            <div className="border-b border-adm-border px-5 py-3">
+              <h2 className="font-mono text-sm font-semibold text-adm-t1">Create Limit Policy</h2>
+            </div>
+            {/* Body */}
+            <div className="space-y-3 px-5 py-4">
+              {createError && (
+                <div className="rounded border border-adm-danger/30 bg-adm-danger/5 px-3 py-2 font-mono text-[11px] text-adm-danger">
+                  {createError}
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Trading Tier</label>
+                <select
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  value={createForm.tradingTier}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, tradingTier: e.target.value }))}
+                >
+                  <option value="BASIC">BASIC</option>
+                  <option value="PREMIUM">PREMIUM</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Operation Type</label>
+                <select
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  value={createForm.operationType}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, operationType: e.target.value }))}
+                >
+                  <option value="WITHDRAWAL">WITHDRAWAL</option>
+                  <option value="SWAP">SWAP</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Period</label>
+                <select
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  value={createForm.period}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, period: e.target.value }))}
+                >
+                  <option value="DAILY">DAILY</option>
+                  <option value="MONTHLY">MONTHLY</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Limit Amount (AED)</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  value={createForm.limitAmount}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, limitAmount: e.target.value }))}
+                  placeholder="e.g. 50000"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Reason</label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  rows={2}
+                  value={createForm.reason}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, reason: e.target.value }))}
+                  placeholder="Why is this policy needed?"
+                />
+              </div>
+            </div>
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-adm-border px-5 py-3">
+              <button onClick={closeCreateModal} className={adminButtonClass('modalCancel')}>
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateSubmit}
+                disabled={createLoading || !createForm.limitAmount || !createForm.reason.trim()}
+                className={adminButtonClass('workflowPrimary')}
+              >
+                {createLoading ? 'Submitting…' : 'Submit for Approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
