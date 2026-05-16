@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   Req,
   UseGuards,
@@ -17,7 +18,9 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { TransactionLimitsService } from './transaction-limits.service';
 import { TransactionLimitChangeWorkflowService } from './transaction-limit-change-workflow.service';
+import { TransactionLimitCreationWorkflowService } from './transaction-limit-creation-workflow.service';
 import { UpdateLimitDto } from './dto/update-limit.dto';
+import { CreateLimitPolicyDto } from './dto/create-limit-policy.dto';
 
 @Controller('admin/transaction-limit-policies')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -25,6 +28,7 @@ export class TransactionLimitsController {
   constructor(
     private readonly limitsService: TransactionLimitsService,
     private readonly workflowService: TransactionLimitChangeWorkflowService,
+    private readonly creationWorkflowService: TransactionLimitCreationWorkflowService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -67,6 +71,25 @@ export class TransactionLimitsController {
   @RequirePermissions(buildPermissionCode('GET', '/admin/transaction-limit-policies/:policyNo'))
   async findOne(@Param('policyNo') policyNo: string) {
     return this.limitsService.findByPolicyNo(policyNo);
+  }
+
+  @Post()
+  @RequirePermissions(buildPermissionCode('POST', '/admin/transaction-limit-policies'))
+  async create(
+    @Body() dto: CreateLimitPolicyDto,
+    @Req() req: any,
+  ) {
+    this.ensureAdmin(req);
+    return this.creationWorkflowService.initiateCreate(
+      {
+        tradingTier: dto.tradingTier,
+        operationType: dto.operationType,
+        period: dto.period,
+        limitAmount: dto.limitAmount,
+        reason: dto.reason,
+      },
+      this.buildAdminActor(req),
+    );
   }
 
   @Patch(':policyNo')

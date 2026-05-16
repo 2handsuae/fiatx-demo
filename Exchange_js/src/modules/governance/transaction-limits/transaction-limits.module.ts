@@ -5,6 +5,8 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { TransactionLimitsService } from './transaction-limits.service';
 import { TransactionLimitChangeWorkflowService } from './transaction-limit-change-workflow.service';
 import { TransactionLimitChangeApprovalService } from './transaction-limit-change-approval.service';
+import { TransactionLimitCreationWorkflowService } from './transaction-limit-creation-workflow.service';
+import { TransactionLimitCreationApprovalService } from './transaction-limit-creation-approval.service';
 import { TransactionLimitsController } from './transaction-limits.controller';
 import { TransactionLimitsCustomerController } from './transaction-limits-customer.controller';
 
@@ -15,6 +17,8 @@ import { TransactionLimitsCustomerController } from './transaction-limits-custom
     TransactionLimitsService,
     TransactionLimitChangeWorkflowService,
     TransactionLimitChangeApprovalService,
+    TransactionLimitCreationWorkflowService,
+    TransactionLimitCreationApprovalService,
   ],
   exports: [TransactionLimitsService],
 })
