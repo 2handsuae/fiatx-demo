@@ -97,4 +97,24 @@ export class TransactionLimitsService {
     }
     return policy;
   }
+
+  async generateNextRequestNo(): Promise<string> {
+    const last = await this.prisma.transactionLimitChangeRequest.findFirst({
+      orderBy: { requestNo: 'desc' },
+      select: { requestNo: true },
+    });
+    if (!last || last.requestNo === 'TEMP') return 'TLC-001';
+    const num = parseInt(last.requestNo.replace('TLC-', ''), 10);
+    return `TLC-${String(num + 1).padStart(3, '0')}`;
+  }
+
+  async findChangeRequestById(id: string) {
+    const request = await this.prisma.transactionLimitChangeRequest.findUnique({
+      where: { id },
+    });
+    if (!request) {
+      throw new NotFoundException(`Transaction limit change request not found: ${id}`);
+    }
+    return request;
+  }
 }
