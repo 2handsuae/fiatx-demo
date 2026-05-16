@@ -127,9 +127,9 @@ export default function TransactionLimitDetail() {
     setSubmittingEdit(true);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-policies/${policyNo}`,
+        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-policies/${policyNo}/change`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ limitAmount: amount, changeReason: changeReason.trim() }),
         },
