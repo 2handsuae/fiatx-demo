@@ -4,7 +4,6 @@ import {
   ForbiddenException,
   Get,
   Param,
-  Patch,
   Post,
   Query,
   Req,
@@ -92,9 +91,9 @@ export class TransactionLimitsController {
     );
   }
 
-  @Patch(':policyNo')
-  @RequirePermissions(buildPermissionCode('PATCH', '/admin/transaction-limit-policies/:policyNo'))
-  async proposeChange(
+  @Post(':policyNo/change')
+  @RequirePermissions(buildPermissionCode('POST', '/admin/transaction-limit-policies/:policyNo/change'))
+  async requestChange(
     @Param('policyNo') policyNo: string,
     @Body() dto: UpdateLimitDto,
     @Req() req: any,
