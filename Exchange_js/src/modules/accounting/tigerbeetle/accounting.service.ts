@@ -7,6 +7,7 @@ import { TbEvidenceService } from './tb-evidence.service';
 import { deterministicTransferId, bigintToHex, hexToBigint } from './utils/tb-id.util';
 import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance } from './types/accounting.types';
 import { TB_ACCOUNT_CODES } from './constants/tb-account-codes.constant';
+import { TB_LEDGERS } from './constants/tb-ledgers.constant';
 import { id as tbId, CreateAccountStatus, CreateTransferStatus } from 'tigerbeetle-node';
 
 @Injectable()
@@ -155,9 +156,14 @@ export class AccountingService {
   }
 
   async getCustomerAvailableBalance(customerUuid: string, assetCode: string): Promise<CustomerAvailableBalance> {
+    const ledger = TB_LEDGERS[assetCode as keyof typeof TB_LEDGERS];
+    if (!ledger) {
+      throw new BadRequestException(`Unsupported asset code for balance query: ${assetCode}`);
+    }
+
     const tbAccountId = await this.resolveTbAccountId({
       code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
-      ledger: 0,
+      ledger,
       ownerType: 'CUSTOMER',
       ownerUuid: customerUuid,
     });

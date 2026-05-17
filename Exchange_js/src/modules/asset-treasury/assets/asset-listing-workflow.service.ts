@@ -174,7 +174,7 @@ export class AssetListingWorkflowService {
 
     await this.auditLogsService.recordByActor(
       {
-        action: AuditGovernanceActions.ASSET_CREATION.ASSET_CREATED_AND_PROVISIONED,
+        action: AuditGovernanceActions.ASSET_CREATION.ASSET_PROVISIONING_UPDATED,
         entityType: AuditEntityTypes.ASSET,
         entityId: asset.id,
         entityNo: assetNo,

@@ -170,7 +170,7 @@ export class AssetSuspensionWorkflowService {
       );
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_SUSPENSION.ASSET_SUSPENDED,
+        action: AuditGovernanceActions.ASSET_SUSPENSION.SUSPENSION_EXECUTION_FAILED,
         entityType: AuditEntityTypes.ASSET,
         entityId: event.entityRef,
         workflowType: AuditBusinessWorkflowTypes.ASSET_SUSPENSION,

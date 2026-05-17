@@ -50,6 +50,7 @@ export class TbEvidenceService {
     } catch (error: any) {
       this.logger.error(`Evidence write failed for transfer ${params.tbTransferId}: ${error.message}`);
       await this.writeToBacklog(params, error.message);
+      throw error;
     }
   }
 

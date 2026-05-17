@@ -221,6 +221,23 @@ export class WithdrawalAddressWorkflowService {
     return result;
   }
 
+  /**
+   * Activate all addresses whose cooling period has expired for a given customer.
+   * Called from controller before listing/detail endpoints.
+   * Each activation goes through the workflow's activateAddress (with full audit).
+   */
+  async batchActivateExpired(customerId: string, assetId?: string): Promise<void> {
+    const expired = await this.addressService.findExpiredPendingForCustomer(customerId, assetId);
+    for (const addr of expired) {
+      try {
+        await this.activateAddress(addr.addressNo, 'LAZY');
+      } catch (error) {
+        // Individual failures are already audit-logged inside activateAddress
+        this.logger.warn(`Batch activation failed for ${addr.addressNo}: ${(error as Error).message}`);
+      }
+    }
+  }
+
   async skipCoolingPeriod(addressNo: string, actor: { userId: string; userNo: string; role: string }) {
     const existing = await this.addressService.findByNo(addressNo);
     if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });

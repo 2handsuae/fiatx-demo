@@ -42,7 +42,7 @@ export class WithdrawalAddressController {
   @ApiOperation({ summary: 'List my withdrawal addresses' })
   async list(@Request() req: any, @Query() query: ListWithdrawalAddressQueryDto) {
     const { customerId } = this.extractCustomer(req);
-    await this.addressService.lazyActivateForCustomer(customerId, query.assetId);
+    await this.workflowService.batchActivateExpired(customerId, query.assetId);
     return this.addressService.listByCustomer(customerId, query);
   }
 
@@ -50,7 +50,7 @@ export class WithdrawalAddressController {
   @ApiOperation({ summary: 'Get withdrawal address detail' })
   async findOne(@Request() req: any, @Param('addressNo') addressNo: string) {
     const { customerId } = this.extractCustomer(req);
-    await this.addressService.lazyActivateForCustomer(customerId);
+    await this.workflowService.batchActivateExpired(customerId);
     const address = await this.addressService.findByNo(addressNo);
     if (!address || address.customerId !== customerId) {
       throw new ForbiddenException('Address not found or not owned by you');

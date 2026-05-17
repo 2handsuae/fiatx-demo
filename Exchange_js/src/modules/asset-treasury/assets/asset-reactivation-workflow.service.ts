@@ -166,7 +166,7 @@ export class AssetReactivationWorkflowService {
       );
     } catch (error) {
       await this.auditLogsService.recordSystem({
-        action: AuditGovernanceActions.ASSET_REACTIVATION.ASSET_REACTIVATED,
+        action: AuditGovernanceActions.ASSET_REACTIVATION.REACTIVATION_EXECUTION_FAILED,
         entityType: AuditEntityTypes.ASSET,
         entityId: event.entityRef,
         workflowType: AuditBusinessWorkflowTypes.ASSET_REACTIVATION,

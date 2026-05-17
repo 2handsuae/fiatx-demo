@@ -168,6 +168,13 @@ export class AssetActivationWorkflowService {
 
   private async executeActivation(event: ApprovalDecidedEvent) {
     try {
+      const asset = await this.prisma.asset.findUnique({ where: { id: event.entityRef } });
+      if (!asset || asset.status !== 'PROVISIONING') {
+        throw new ConflictException(
+          `Asset ${event.entityRef} is not in PROVISIONING status (current: ${asset?.status ?? 'NOT_FOUND'})`,
+        );
+      }
+
       const updated = await this.prisma.asset.update({
         where: { id: event.entityRef },
         data: { status: 'ACTIVE' },

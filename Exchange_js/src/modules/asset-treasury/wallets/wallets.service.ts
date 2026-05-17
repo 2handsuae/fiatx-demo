@@ -2,9 +2,11 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   CreateWalletDto,
@@ -28,6 +30,12 @@ import { isProtectedSystemWalletRole } from './system-wallet.util';
 export class WalletsService {
   private readonly logger = new Logger(WalletsService.name);
   private static readonly MAX_WALLET_NO_RETRIES = 5;
+
+  private static readonly WALLET_STATUS_TRANSITIONS: Record<string, string[]> = {
+    PENDING_APPROVAL: ['CREATING'],
+    CREATING: ['ACTIVE', 'FAILED'],
+    FAILED: ['CREATING'],
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -284,5 +292,134 @@ export class WalletsService {
       sourcePlatform: 'ADMIN_API',
     });
     return result;
+  }
+
+  // ─── L1 Pure Domain Methods ────────────────────────────────────────────
+
+  async createWalletRecord(
+    dto: {
+      assetId: string;
+      ownerType: string;
+      ownerId?: string;
+      ownerNo?: string;
+      walletRole: string;
+      type: string;
+      direction: string;
+      status: 'PENDING_APPROVAL' | 'CREATING';
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
+
+    const asset = await db.asset.findUnique({ where: { id: dto.assetId } });
+    if (!asset) throw new BadRequestException('Invalid Asset ID');
+
+    if (dto.ownerType === 'PLATFORM') {
+      if (!['PROVISIONING', 'ACTIVE'].includes(asset.status)) {
+        throw new BadRequestException(
+          `Asset ${asset.code} status ${asset.status} does not allow system wallet creation`,
+        );
+      }
+    } else {
+      if (asset.status !== 'ACTIVE') {
+        throw new BadRequestException(
+          `Asset ${asset.code} must be ACTIVE for customer wallet creation`,
+        );
+      }
+    }
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const walletNo = generateReferenceNo('WA');
+      try {
+        return await db.wallet.create({
+          data: {
+            walletNo,
+            ownerType: dto.ownerType,
+            ownerId: dto.ownerType === 'PLATFORM' ? null : (dto.ownerId ?? null),
+            ownerNo: dto.ownerNo ?? null,
+            walletRole: dto.walletRole,
+            type: dto.type,
+            direction: dto.direction,
+            assetId: dto.assetId,
+            status: dto.status,
+          },
+        });
+      } catch (e) {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002'
+        ) {
+          if (attempt === 2)
+            throw new ConflictException(
+              'Failed to generate unique walletNo after 3 attempts',
+            );
+          continue;
+        }
+        throw e;
+      }
+    }
+  }
+
+  async linkApprovalCase(
+    walletNo: string,
+    caseId: string,
+    caseNo: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+    await db.wallet.updateMany({
+      where: { walletNo },
+      data: { approvalCaseId: caseId, approvalCaseNo: caseNo },
+    });
+  }
+
+  async transitionStatus(
+    walletNo: string,
+    from: string,
+    to: string,
+    extra?: Record<string, any>,
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
+
+    const allowed = WalletsService.WALLET_STATUS_TRANSITIONS[from];
+    if (!allowed || !allowed.includes(to)) {
+      throw new ConflictException(
+        `Illegal wallet status transition: ${from} → ${to}`,
+      );
+    }
+
+    const wallet = await db.wallet.findFirst({ where: { walletNo } });
+    if (!wallet) throw new NotFoundException(`Wallet ${walletNo} not found`);
+    if (wallet.status !== from) {
+      throw new ConflictException(
+        `Wallet ${walletNo} is ${wallet.status}, expected ${from}`,
+      );
+    }
+
+    const data: Record<string, any> = { status: to };
+    if (extra) Object.assign(data, extra);
+
+    return db.wallet.update({ where: { id: wallet.id }, data });
+  }
+
+  async deleteWallet(
+    walletNo: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+    const wallet = await db.wallet.findFirst({ where: { walletNo } });
+    if (!wallet) throw new NotFoundException(`Wallet ${walletNo} not found`);
+    if (!['PENDING_APPROVAL', 'FAILED'].includes(wallet.status)) {
+      throw new ConflictException(
+        `Cannot delete wallet ${walletNo}: status ${wallet.status} not deletable`,
+      );
+    }
+    await db.wallet.delete({ where: { id: wallet.id } });
+  }
+
+  async findByWalletNo(walletNo: string, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    return db.wallet.findFirst({ where: { walletNo } });
   }
 }

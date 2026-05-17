@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -215,5 +216,70 @@ export class AssetsService {
     });
 
     return updated;
+  }
+
+  // ─── L1 Pure Domain Methods ────────────────────────────────────────────
+
+  async findByAssetNo(assetNo: string, tx?: Prisma.TransactionClient): Promise<any | null> {
+    const db = tx ?? this.prisma;
+    return db.asset.findFirst({ where: { assetNo } });
+  }
+
+  async activateAsset(assetNo: string, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const asset = await db.asset.findFirst({ where: { assetNo } });
+    if (!asset) throw new NotFoundException(`Asset ${assetNo} not found`);
+    if (asset.status !== 'PROVISIONING') {
+      throw new ConflictException(
+        `Cannot activate asset ${assetNo}: current status is ${asset.status}, expected PROVISIONING`,
+      );
+    }
+    return db.asset.update({ where: { id: asset.id }, data: { status: 'ACTIVE' } });
+  }
+
+  async linkApprovalCase(assetNo: string, approvalCaseId: string, approvalCaseNo: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const db = tx ?? this.prisma;
+    await db.asset.updateMany({
+      where: { assetNo },
+      data: { approvalCaseId, approvalCaseNo },
+    });
+  }
+
+  async updateProvisioningFields(
+    assetNo: string,
+    dto: {
+      minDepositAmount?: number;
+      maxDepositAmount?: number;
+      minWithdrawAmount?: number;
+      maxWithdrawAmount?: number;
+      depositEnabled?: boolean;
+      withdrawalEnabled?: boolean;
+      description?: string;
+      contractAddress?: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const db = tx ?? this.prisma;
+    const asset = await db.asset.findFirst({ where: { assetNo } });
+    if (!asset) throw new NotFoundException(`Asset ${assetNo} not found`);
+    if (asset.status !== 'PROVISIONING') {
+      throw new ConflictException(
+        `Cannot update provisioning fields for asset ${assetNo}: status is ${asset.status}`,
+      );
+    }
+
+    const data: Record<string, unknown> = {};
+    if (dto.minDepositAmount !== undefined) data.minDepositAmount = dto.minDepositAmount;
+    if (dto.maxDepositAmount !== undefined) data.maxDepositAmount = dto.maxDepositAmount;
+    if (dto.minWithdrawAmount !== undefined) data.minWithdrawAmount = dto.minWithdrawAmount;
+    if (dto.maxWithdrawAmount !== undefined) data.maxWithdrawAmount = dto.maxWithdrawAmount;
+    if (dto.depositEnabled !== undefined) data.depositEnabled = dto.depositEnabled;
+    if (dto.withdrawalEnabled !== undefined) data.withdrawalEnabled = dto.withdrawalEnabled;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.contractAddress !== undefined) data.contractAddress = dto.contractAddress;
+
+    if (Object.keys(data).length === 0) return asset;
+
+    return db.asset.update({ where: { id: asset.id }, data });
   }
 }

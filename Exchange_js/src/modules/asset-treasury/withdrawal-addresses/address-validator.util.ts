@@ -10,7 +10,7 @@ const VALIDATORS: Record<string, { pattern: RegExp; label: string }> = {
 
 export function validateCryptoAddress(network: string, address: string): { valid: boolean; reason?: string } {
   const validator = VALIDATORS[network];
-  if (!validator) return { valid: true };
+  if (!validator) return { valid: false, reason: `Unsupported network: ${network}` };
   if (!validator.pattern.test(address)) {
     return { valid: false, reason: `Invalid format for ${network}. Expected: ${validator.label}` };
   }

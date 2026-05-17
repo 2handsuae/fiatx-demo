@@ -272,6 +272,16 @@ export class WithdrawalAddressService {
     });
   }
 
+  async findExpiredPendingForCustomer(customerId: string, assetId?: string) {
+    const where: any = { customerId, status: 'PENDING_ACTIVATION', activatesAt: { lte: new Date() } };
+    if (assetId) where.assetId = assetId;
+    return this.prisma.withdrawalAddress.findMany({ where });
+  }
+
+  /**
+   * @deprecated Use WithdrawalAddressWorkflowService.batchActivateExpired() instead.
+   * This method bypasses audit logging. Will be removed in Batch 2.
+   */
   async lazyActivateForCustomer(customerId: string, assetId?: string) {
     const where: any = { customerId, status: 'PENDING_ACTIVATION', activatesAt: { lte: new Date() } };
     if (assetId) where.assetId = assetId;
