@@ -9,9 +9,9 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AssetProvisioningService } from './asset-provisioning.service';
+import { AssetsService } from './assets.service';
 import { SubmitAssetListingDto } from './dto/submit-asset-listing.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
 interface AssetCreationActor {
   userId: string;
@@ -28,45 +28,30 @@ export class AssetListingWorkflowService {
     private readonly auditLogsService: AuditLogsService,
     private readonly provisioningService: AssetProvisioningService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly assetsService: AssetsService,
   ) {}
 
   async submitListing(dto: SubmitAssetListingDto, actor: AssetCreationActor): Promise<any> {
-    // 1. Validate uniqueness
-    const existing = await this.prisma.asset.findFirst({
-      where: { type: dto.type, code: dto.code, network: dto.network ?? null },
-    });
-    if (existing) {
-      throw new BadRequestException({
-        code: 'ASSET_ALREADY_EXISTS',
-        message: `Asset with type=${dto.type} code=${dto.code} network=${dto.network || 'N/A'} already exists`,
-      });
-    }
-
-    // 2. Create asset + provision TB accounts in one transaction
-    const assetNo = generateReferenceNo('AS');
+    // 1. Create asset + provision TB accounts in one transaction
     let asset: any;
     let tbLedgerId: number;
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
-        const created = await tx.asset.create({
-          data: {
-            assetNo,
-            type: dto.type,
-            code: dto.code,
-            network: dto.network,
-            decimals: dto.decimals,
-            description: dto.description,
-            contractAddress: dto.contractAddress,
-            minDepositAmount: dto.minDepositAmount,
-            maxDepositAmount: dto.maxDepositAmount,
-            minWithdrawAmount: dto.minWithdrawAmount,
-            maxWithdrawAmount: dto.maxWithdrawAmount,
-            depositEnabled: dto.depositEnabled,
-            withdrawalEnabled: dto.withdrawalEnabled,
-            status: 'PROVISIONING',
-          },
-        });
+        const created = (await this.assetsService.createAsset({
+          code: dto.code,
+          type: dto.type,
+          network: dto.network,
+          decimals: dto.decimals,
+          description: dto.description,
+          contractAddress: dto.contractAddress,
+          minDepositAmount: dto.minDepositAmount,
+          maxDepositAmount: dto.maxDepositAmount,
+          minWithdrawAmount: dto.minWithdrawAmount,
+          maxWithdrawAmount: dto.maxWithdrawAmount,
+          depositEnabled: dto.depositEnabled,
+          withdrawalEnabled: dto.withdrawalEnabled,
+        }, tx))!;
 
         const provisioned = await this.provisioningService.provision(created.id, tx);
 
@@ -99,13 +84,13 @@ export class AssetListingWorkflowService {
       throw error;
     }
 
-    // 3. Record audit
+    // 2. Record audit
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.ASSET_CREATION.ASSET_CREATED_AND_PROVISIONED,
         entityType: AuditEntityTypes.ASSET,
         entityId: asset.id,
-        entityNo: assetNo,
+        entityNo: asset.assetNo,
         workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
         result: AuditResult.SUCCESS,
         metadata: {
@@ -125,7 +110,7 @@ export class AssetListingWorkflowService {
       },
     );
 
-    // 4. Fire-and-forget: trigger async customer TB account batch creation
+    // 3. Fire-and-forget: trigger async customer TB account batch creation
     this.eventEmitter.emit('asset.provisioned', {
       assetId: asset.id,
       assetCode: dto.code,
@@ -141,36 +126,18 @@ export class AssetListingWorkflowService {
    * because they are tied to the TB ledger.
    */
   async updateProvisioning(assetNo: string, dto: UpdateAssetDto, actor: AssetCreationActor): Promise<any> {
-    const asset = await this.prisma.asset.findFirst({ where: { assetNo } });
+    const asset = await this.assetsService.findByAssetNo(assetNo);
     if (!asset) {
       throw new BadRequestException({ code: 'ASSET_NOT_FOUND', message: `Asset ${assetNo} not found` });
     }
-    if (asset.status !== 'PROVISIONING') {
-      throw new BadRequestException({
-        code: 'ASSET_NOT_PROVISIONING',
-        message: `Asset ${assetNo} is ${asset.status}, only PROVISIONING assets can be edited`,
-      });
-    }
 
-    // Build update data — only include fields that were explicitly provided
-    const data: Record<string, unknown> = {};
-    if (dto.contractAddress !== undefined) data.contractAddress = dto.contractAddress;
-    if (dto.description !== undefined) data.description = dto.description;
-    if (dto.minDepositAmount !== undefined) data.minDepositAmount = dto.minDepositAmount;
-    if (dto.maxDepositAmount !== undefined) data.maxDepositAmount = dto.maxDepositAmount;
-    if (dto.minWithdrawAmount !== undefined) data.minWithdrawAmount = dto.minWithdrawAmount;
-    if (dto.maxWithdrawAmount !== undefined) data.maxWithdrawAmount = dto.maxWithdrawAmount;
-    if (dto.depositEnabled !== undefined) data.depositEnabled = dto.depositEnabled;
-    if (dto.withdrawalEnabled !== undefined) data.withdrawalEnabled = dto.withdrawalEnabled;
-
-    if (Object.keys(data).length === 0) {
+    // Early return if no fields provided
+    const fieldsToUpdate = Object.keys(dto).filter(k => (dto as any)[k] !== undefined);
+    if (fieldsToUpdate.length === 0) {
       return { asset };
     }
 
-    const updated = await this.prisma.asset.update({
-      where: { id: asset.id },
-      data,
-    });
+    const updated = await this.assetsService.updateProvisioningFields(assetNo, dto);
 
     await this.auditLogsService.recordByActor(
       {
@@ -181,7 +148,7 @@ export class AssetListingWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
         result: AuditResult.SUCCESS,
         reason: 'Asset updated during provisioning',
-        metadata: { updatedFields: Object.keys(data) },
+        metadata: { updatedFields: fieldsToUpdate },
         sourcePlatform: 'ADMIN_API',
       },
       {

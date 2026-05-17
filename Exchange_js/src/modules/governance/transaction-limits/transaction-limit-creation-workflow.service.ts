@@ -16,7 +16,6 @@ import {
 } from '../approvals/constants/approval.constants';
 import { TransactionLimitsService } from './transaction-limits.service';
 import {
-  TRADING_TIERS,
   OPERATION_TYPES,
   LIMIT_PERIODS,
 } from './constants/limit-policy.constants';
@@ -55,8 +54,8 @@ export class TransactionLimitCreationWorkflowService {
     const { tradingTier, operationType, period, limitAmount, reason } = dto;
 
     // Validate enum fields
-    if (!TRADING_TIERS.includes(tradingTier as any)) {
-      throw new BadRequestException(`Invalid tradingTier: ${tradingTier}. Must be one of: ${TRADING_TIERS.join(', ')}`);
+    if (!tradingTier || !tradingTier.trim()) {
+      throw new BadRequestException('tradingTier is required');
     }
     if (!OPERATION_TYPES.includes(operationType as any)) {
       throw new BadRequestException(`Invalid operationType: ${operationType}. Must be one of: ${OPERATION_TYPES.join(', ')}`);
@@ -129,10 +128,7 @@ export class TransactionLimitCreationWorkflowService {
     }
 
     // Link approval case to policy
-    await this.prisma.transactionLimitPolicy.update({
-      where: { id: policy.id },
-      data: { approvalCaseId: approvalCase.id },
-    });
+    await this.limitsService.linkApprovalCaseToPolicy(policyNo, approvalCase.id);
 
     // Audit
     await this.auditLogsService.recordByActor(
@@ -205,10 +201,7 @@ export class TransactionLimitCreationWorkflowService {
       }
 
       // Activate
-      await this.prisma.transactionLimitPolicy.update({
-        where: { id: policy.id },
-        data: { status: 'ACTIVE', approvalCaseId: null },
-      });
+      await this.limitsService.activatePolicy(policy.policyNo);
 
       await this.approvalsService.markExecutionResult(
         approvalId,
@@ -275,7 +268,7 @@ export class TransactionLimitCreationWorkflowService {
       }
 
       // Physical delete
-      await this.prisma.transactionLimitPolicy.delete({ where: { id: policy.id } });
+      await this.limitsService.deleteRejectedPolicy(policy.policyNo);
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_CANCELLED,

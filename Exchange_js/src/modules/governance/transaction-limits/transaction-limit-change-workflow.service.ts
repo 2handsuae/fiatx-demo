@@ -90,22 +90,15 @@ export class TransactionLimitChangeWorkflowService {
       );
     }
 
-    // 4. Generate requestNo
-    const requestNo = await this.limitsService.generateNextRequestNo();
-
-    // 5. INSERT TransactionLimitChangeRequest
-    const request = await this.prisma.transactionLimitChangeRequest.create({
-      data: {
-        requestNo,
-        policyId: policy.id,
-        policyNo: policy.policyNo,
-        currentAmount: policy.limitAmount,
-        proposedAmount: new Prisma.Decimal(limitAmount),
-        changeReason: changeReason.trim(),
-        status: 'PENDING_APPROVAL',
-        requestedByUserId: actor.userId,
-      },
-    });
+    // 5. INSERT TransactionLimitChangeRequest via L1
+    const request = (await this.limitsService.createChangeRequest({
+      policyId: policy.id,
+      policyNo: policy.policyNo,
+      proposedAmount: new Prisma.Decimal(limitAmount),
+      changeReason: changeReason.trim(),
+      requestedByUserId: actor.userId,
+    }))!;
+    const requestNo = request.requestNo;
 
     // 6. Create approval case (entityRef = request.id)
     const traceId = crypto.randomUUID();
@@ -140,18 +133,12 @@ export class TransactionLimitChangeWorkflowService {
       );
     } catch (err) {
       // Rollback: delete the request row
-      await this.prisma.transactionLimitChangeRequest.delete({ where: { id: request.id } });
+      await this.limitsService.cancelChangeRequest(request.requestNo);
       throw err;
     }
 
     // 7. Link approval case to request
-    await this.prisma.transactionLimitChangeRequest.update({
-      where: { id: request.id },
-      data: {
-        approvalCaseId: approvalCase.id,
-        approvalCaseNo: approvalCase.approvalNo,
-      },
-    });
+    await this.limitsService.linkApprovalCaseToRequest(request.requestNo, approvalCase.id, approvalCase.approvalNo);
 
     // 8. Audit CHANGE_REQUESTED
     await this.auditLogsService.recordByActor(
@@ -207,9 +194,10 @@ export class TransactionLimitChangeWorkflowService {
   }
 
   private async executeChange(approvalId: string, requestId: string, event: any) {
+    let request: Awaited<ReturnType<typeof this.prisma.transactionLimitChangeRequest.findUnique>> | null = null;
     try {
       // 1. Load request, verify PENDING_APPROVAL
-      const request = await this.prisma.transactionLimitChangeRequest.findUnique({
+      request = await this.prisma.transactionLimitChangeRequest.findUnique({
         where: { id: requestId },
       });
       if (!request || request.status !== 'PENDING_APPROVAL') {
@@ -228,10 +216,7 @@ export class TransactionLimitChangeWorkflowService {
         where: { id: request.policyId },
       });
       if (!policy) {
-        await this.prisma.transactionLimitChangeRequest.update({
-          where: { id: request.id },
-          data: { status: 'APPROVED', failureReason: 'Policy no longer exists' },
-        });
+        await this.limitsService.markRequestExecutionFailed(request.requestNo, 'Policy no longer exists');
         await this.approvalsService.markExecutionResult(
           approvalId,
           false,
@@ -244,10 +229,7 @@ export class TransactionLimitChangeWorkflowService {
       // 3. Conflict check: currentAmount snapshot vs actual
       if (!request.currentAmount.equals(policy.limitAmount)) {
         const reason = `Conflict: policy limit was changed since request submission (expected ${request.currentAmount}, actual ${policy.limitAmount})`;
-        await this.prisma.transactionLimitChangeRequest.update({
-          where: { id: request.id },
-          data: { status: 'APPROVED', failureReason: reason },
-        });
+        await this.limitsService.markRequestExecutionFailed(request.requestNo, reason);
         await this.approvalsService.markExecutionResult(
           approvalId,
           false,
@@ -276,17 +258,8 @@ export class TransactionLimitChangeWorkflowService {
         return;
       }
 
-      // 4. Apply change — update policy limitAmount (NO status change)
-      await this.prisma.transactionLimitPolicy.update({
-        where: { id: policy.id },
-        data: { limitAmount: request.proposedAmount },
-      });
-
-      // 5. Mark request as executed
-      await this.prisma.transactionLimitChangeRequest.update({
-        where: { id: request.id },
-        data: { status: 'APPROVED', executedAt: new Date() },
-      });
+      // 4+5. Apply change and mark request as executed (L1 does both)
+      await this.limitsService.executeChange(request.requestNo);
 
       // 6. Mark execution result
       await this.approvalsService.markExecutionResult(
@@ -322,12 +295,11 @@ export class TransactionLimitChangeWorkflowService {
       this.logger.error(`Failed to execute change request ${requestId}: ${err.message}`);
 
       // Try to mark as failed
-      try {
-        await this.prisma.transactionLimitChangeRequest.update({
-          where: { id: requestId },
-          data: { status: 'APPROVED', failureReason: err.message },
-        });
-      } catch { /* ignore */ }
+      if (request) {
+        try {
+          await this.limitsService.markRequestExecutionFailed(request.requestNo, err.message);
+        } catch { /* ignore */ }
+      }
 
       await this.approvalsService
         .markExecutionResult(approvalId, false, SYSTEM_ACTOR, err.message)
@@ -364,11 +336,11 @@ export class TransactionLimitChangeWorkflowService {
       }
 
       // Update request status
-      const newStatus = decision === 'REJECTED' ? 'REJECTED' : 'CANCELLED';
-      await this.prisma.transactionLimitChangeRequest.update({
-        where: { id: request.id },
-        data: { status: newStatus },
-      });
+      if (decision === 'REJECTED') {
+        await this.limitsService.rejectChangeRequest(request.requestNo);
+      } else {
+        await this.limitsService.cancelChangeRequest(request.requestNo);
+      }
 
       // Audit
       await this.auditLogsService.recordSystem({

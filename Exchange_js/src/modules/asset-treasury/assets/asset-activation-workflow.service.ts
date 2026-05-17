@@ -22,6 +22,7 @@ import {
 } from '../../governance/approvals/constants/approval.constants';
 import { TbAccountRegistryService } from '../../accounting/tigerbeetle/tb-account-registry.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { AssetsService } from './assets.service';
 
 const SECONDARY_EVENT = 'workflow.asset-activation.decided';
 
@@ -32,6 +33,7 @@ export class AssetActivationWorkflowService {
     private readonly approvalsService: ApprovalsService,
     private readonly auditLogsService: AuditLogsService,
     private readonly registryService: TbAccountRegistryService,
+    private readonly assetsService: AssetsService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -168,17 +170,12 @@ export class AssetActivationWorkflowService {
 
   private async executeActivation(event: ApprovalDecidedEvent) {
     try {
-      const asset = await this.prisma.asset.findUnique({ where: { id: event.entityRef } });
-      if (!asset || asset.status !== 'PROVISIONING') {
-        throw new ConflictException(
-          `Asset ${event.entityRef} is not in PROVISIONING status (current: ${asset?.status ?? 'NOT_FOUND'})`,
-        );
+      const assetRecord = await this.prisma.asset.findUnique({ where: { id: event.entityRef } });
+      if (!assetRecord || !assetRecord.assetNo) {
+        throw new ConflictException(`Asset ${event.entityRef} not found`);
       }
 
-      const updated = await this.prisma.asset.update({
-        where: { id: event.entityRef },
-        data: { status: 'ACTIVE' },
-      });
+      const updated = await this.assetsService.activateAsset(assetRecord.assetNo);
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ASSET_ACTIVATION.ASSET_ACTIVATED,

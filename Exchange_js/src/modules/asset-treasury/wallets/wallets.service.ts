@@ -32,7 +32,7 @@ export class WalletsService {
   private static readonly MAX_WALLET_NO_RETRIES = 5;
 
   private static readonly WALLET_STATUS_TRANSITIONS: Record<string, string[]> = {
-    PENDING_APPROVAL: ['CREATING'],
+    PENDING_APPROVAL: ['CREATING', 'ACTIVE'],
     CREATING: ['ACTIVE', 'FAILED'],
     FAILED: ['CREATING'],
   };

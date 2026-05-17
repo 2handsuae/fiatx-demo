@@ -329,4 +329,17 @@ export class TransactionLimitsService {
       data: { status: 'CANCELLED' },
     });
   }
+
+  async markRequestExecutionFailed(requestNo: string, reason: string, tx?: Prisma.TransactionClient): Promise<void> {
+    const db = tx ?? this.prisma;
+    const request = await db.transactionLimitChangeRequest.findUnique({ where: { requestNo } });
+    if (!request) throw new NotFoundException(`Change request ${requestNo} not found`);
+    if (!['PENDING_APPROVAL', 'APPROVED'].includes(request.status)) {
+      throw new ConflictException(`Request ${requestNo} is ${request.status}, cannot mark as failed`);
+    }
+    await db.transactionLimitChangeRequest.update({
+      where: { requestNo },
+      data: { status: 'EXECUTION_FAILED', failureReason: reason },
+    });
+  }
 }
