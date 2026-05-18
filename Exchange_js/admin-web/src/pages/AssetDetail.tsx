@@ -15,7 +15,6 @@ interface AssetDetailData {
   code: string;
   network: string | null;
   decimals: number;
-  contractAddress?: string | null;
   description: string | null;
   status: string;
   minDepositAmount?: number | null;
@@ -224,8 +223,6 @@ export default function AssetDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        title="ASSET"
-        subtitle={asset.assetNo || asset.code}
         onBack={() => navigate('/dashboard/system/assets')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
@@ -255,23 +252,25 @@ export default function AssetDetail() {
 
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Asset</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {asset.assetNo || asset.code}
             </p>
             <div className="mt-2.5 flex items-center gap-2">
               <AdminBadge value={asset.status} />
-              <span className="font-mono text-[10px] text-adm-t2">{asset.code} · {asset.type}</span>
+              <span className="font-mono text-[10px] text-adm-t2">
+                {asset.code} · {asset.type}{asset.network ? ` · ${asset.network}` : ''}
+              </span>
             </div>
           </section>
 
           {/* ② Details */}
           <section className="px-6 py-5">
-            <Cap>Details</Cap>
+            <Cap>Asset Details</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <InfoField label="Code" value={asset.code} mono />
+              <InfoField label="Type" value={asset.type} />
               <InfoField label="Network" value={asset.network || '—'} />
               <InfoField label="Decimals" value={String(asset.decimals)} mono />
-              <InfoField label="Contract Address" value={asset.contractAddress || '—'} mono />
               <InfoField label="Description" value={asset.description || '—'} />
             </div>
           </section>
@@ -300,14 +299,6 @@ export default function AssetDetail() {
             </section>
           )}
 
-          {/* ⑤ Audit */}
-          <section className="px-6 py-5">
-            <Cap>Audit</Cap>
-            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Created" value={fmt(asset.createdAt)} mono />
-              <InfoField label="Updated" value={fmt(asset.updatedAt)} mono />
-            </div>
-          </section>
 
         </div>
 
@@ -359,13 +350,18 @@ export default function AssetDetail() {
             </div>
           )}
 
-          {/* Quick Reference */}
-          <SidebarGroup title="Quick Reference">
+          {/* Identity */}
+          <SidebarGroup title="Identity">
             <SidebarKV label="Asset No" value={asset.assetNo} mono />
             <SidebarKV label="Status" value={<AdminBadge value={asset.status} />} />
-            <SidebarKV label="Type" value={asset.type} />
             <SidebarKV label="Code" value={asset.code} mono />
-            <SidebarKV label="Asset ID" value={asset.id} mono />
+            <SidebarKV label="Type" value={asset.type} />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={fmt(asset.createdAt)} mono />
+            <SidebarKV label="Updated" value={fmt(asset.updatedAt)} mono />
           </SidebarGroup>
 
         </div>
