@@ -47,7 +47,7 @@ describe('AssetsService', () => {
     it('should create a new asset successfully', async () => {
       const dto = {
         type: AssetType.CRYPTO,
-        code: 'USDT',
+        currency: 'USDT',
         network: 'TRC20',
         decimals: 6,
         description: 'Tether on Tron',
@@ -60,7 +60,7 @@ describe('AssetsService', () => {
 
       const result = await service.create(dto);
 
-      expect(result.code).toBe(dto.code);
+      expect(result.currency).toBe(dto.currency);
       expect(result.status).toBe(AssetStatus.ACTIVE);
       expect(mockPrismaService.asset.create).toHaveBeenCalled();
     });
@@ -70,7 +70,7 @@ describe('AssetsService', () => {
       await expect(
         service.create({
           type: AssetType.CRYPTO,
-          code: 'USDT',
+          currency: 'USDT',
           network: 'TRC20',
           decimals: 6,
         }),
@@ -82,7 +82,7 @@ describe('AssetsService', () => {
       await expect(
         service.create({
           type: AssetType.CRYPTO,
-          code: 'BTC',
+          currency: 'BTC',
           decimals: 8,
           // network is missing
         }),

@@ -567,11 +567,13 @@ export class BusinessConfigService {
 
     for (const item of items) {
       const payload = item.payload;
+      const network = payload.network ? String(payload.network) : null;
       const assetRecord = {
         assetNo: String(payload.assetNo),
         type: String(payload.type),
-        code: String(payload.code),
-        network: payload.network ? String(payload.network) : null,
+        currency: String(payload.code),
+        code: network ? `${String(payload.code)}-${network}` : String(payload.code),
+        network,
         decimals: Number(payload.decimals),
         description: payload.description ? String(payload.description) : null,
         status: String(payload.status),

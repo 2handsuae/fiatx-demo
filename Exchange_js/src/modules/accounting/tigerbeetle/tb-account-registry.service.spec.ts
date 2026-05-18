@@ -34,7 +34,7 @@ describe('TbAccountRegistryService', () => {
         ownerType: 'CUSTOMER',
         ownerUuid: 'uuid-1',
         ownerNo: 'CUST-001',
-        assetCode: 'AED',
+        assetCurrency: 'AED',
       });
 
       expect(mockPrisma.tbAccountRegistry.create).toHaveBeenCalledWith({

@@ -29,7 +29,7 @@ describe('TbEvidenceService', () => {
       debitCode: 'A.CUSTODY',
       creditCode: 'L.CLIENT_CREDIT',
       amount: 100.00,
-      assetCode: 'AED',
+      assetCurrency: 'AED',
       traceId: 'trace-uuid-1',
       actorType: 'SYSTEM',
       actorId: 'SYSTEM',

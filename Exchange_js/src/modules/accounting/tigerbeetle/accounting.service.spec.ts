@@ -37,7 +37,7 @@ describe('AccountingService', () => {
         ownerType: 'CUSTOMER',
         ownerUuid: 'uuid-1',
         ownerNo: 'CUST-001',
-        assetCode: 'AED',
+        assetCurrency: 'AED',
       }]);
 
       expect(mockTbService.createAccounts).toHaveBeenCalledTimes(1);
@@ -60,7 +60,7 @@ describe('AccountingService', () => {
           traceId: 'trace-1',
           debitCode: 'A.CUSTODY',
           creditCode: 'L.CLIENT_CREDIT',
-          assetCode: 'AED',
+          assetCurrency: 'AED',
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
         },
@@ -90,7 +90,7 @@ describe('AccountingService', () => {
             traceId: 'trace-1',
             debitCode: 'A.CUSTODY',
             creditCode: 'L.CLIENT_CREDIT',
-            assetCode: 'AED',
+            assetCurrency: 'AED',
             actorType: 'SYSTEM',
             actorId: 'SYSTEM',
           },
