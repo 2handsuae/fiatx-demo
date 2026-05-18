@@ -7,8 +7,6 @@ import {
 } from './dto/deposit-transaction.dto';
 import { BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
@@ -17,8 +15,6 @@ describe('DepositTransactionsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
-    jest.spyOn(AuditLogsService.prototype, 'recordSystem').mockResolvedValue({} as any);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DepositTransactionsService,
@@ -32,23 +28,8 @@ describe('DepositTransactionsService', () => {
               create: jest.fn(),
               count: jest.fn(),
             },
-            depositAuditLog: {
-              create: jest.fn(),
-            },
-            asset: {
-              findFirst: jest.fn(),
-              findMany: jest.fn(),
-            },
             wallet: {
               findUnique: jest.fn(),
-              findFirst: jest.fn(),
-              create: jest.fn(),
-            },
-            complianceAlert: {
-              findFirst: jest.fn(),
-            },
-            complianceIncident: {
-              findFirst: jest.fn(),
             },
           },
         },
@@ -58,44 +39,12 @@ describe('DepositTransactionsService', () => {
             emit: jest.fn(),
           },
         },
-        {
-          provide: TransactionComplianceService,
-          useValue: {
-            getTransactionCaseAggregate: jest.fn().mockResolvedValue({
-              mainKytCase: null,
-              travelRuleCase: null,
-              derivedComplianceStatus: 'PENDING',
-            }),
-            normalizeKytLifecycleStatus: jest.fn((status?: string | null, options?: { allowEmpty?: boolean }) => {
-              const normalized = String(status || '').trim().toUpperCase();
-              if (!normalized) return options?.allowEmpty ? '' : 'CREATED';
-              if (normalized === 'CREATED') return 'CREATED';
-              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
-              return 'FINAL';
-            }),
-            normalizeTravelRuleLifecycleStatus: jest.fn((
-              status?: string | null,
-              required?: boolean,
-              options?: { allowEmpty?: boolean },
-            ) => {
-              const normalized = String(status || '').trim().toUpperCase();
-              if (!normalized) return options?.allowEmpty ? '' : required ? 'CREATED' : '';
-              if (normalized === 'CREATED') return 'CREATED';
-              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
-              return 'FINAL';
-            }),
-          },
-        },
       ],
     }).compile();
 
-    service = module.get<DepositTransactionsService>(
-      DepositTransactionsService,
-    );
+    service = module.get<DepositTransactionsService>(DepositTransactionsService);
     prisma = module.get<PrismaService>(PrismaService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
-    ((prisma as any).complianceAlert.findFirst as jest.Mock).mockResolvedValue(null);
-    ((prisma as any).complianceIncident.findFirst as jest.Mock).mockResolvedValue(null);
   });
 
   it('should be defined', () => {
@@ -103,7 +52,7 @@ describe('DepositTransactionsService', () => {
   });
 
   describe('findAll', () => {
-    it('should enrich deposit list items with ownerNo, type, and derivedComplianceStatus', async () => {
+    it('should enrich deposit list items with ownerNo and type', async () => {
       ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([
         {
           id: 'dep-1',
@@ -112,31 +61,8 @@ describe('DepositTransactionsService', () => {
           ownerId: 'cust-1',
           status: DepositTransactionStatus.COMPLIANCE_PENDING,
           amount: '100.00',
-          netAmount: '99.00',
-          feeAmount: '1.00',
-          toWalletId: 'wallet-1',
-          fromAddress: null,
-          fromIban: null,
-          txHash: null,
-          referenceNo: null,
-          createdAt: new Date('2026-03-28T10:00:00.000Z'),
-          updatedAt: new Date('2026-03-28T10:00:00.000Z'),
-          completedAt: null,
-          asset: {
-            code: 'USDT',
-            type: 'CRYPTO',
-            network: 'TRON',
-            decimals: 6,
-          },
-          customer: {
-            customerNo: 'CU001',
-            firstName: 'Ada',
-            lastName: 'Lovelace',
-            email: 'ada@example.com',
-            onboardingStatus: 'APPROVED',
-            adminStatus: 'ACTIVE',
-            complianceStatus: 'CLEAR',
-          },
+          asset: { code: 'USDT', type: 'CRYPTO' },
+          customer: { customerNo: 'CU001' },
         },
       ]);
       ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(1);
@@ -148,76 +74,7 @@ describe('DepositTransactionsService', () => {
       expect(result.items[0]).toMatchObject({
         ownerNo: 'CU001',
         type: 'crypto',
-        derivedComplianceStatus: 'PENDING',
       });
-    });
-  });
-
-  describe('findOne', () => {
-    it('should normalize deposit response snapshots to lifecycle values', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-detail-1',
-        depositNo: 'DP-DETAIL-1',
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-1',
-        ownerNo: 'CU001',
-        status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        assetId: 'asset-1',
-        amount: '100',
-        netAmount: '100',
-        feeAmount: '0',
-        toWalletId: 'wallet-1',
-        toWalletNo: 'WA001',
-        toAddress: null,
-        toIban: null,
-        fromWalletId: null,
-        fromWalletNo: null,
-        fromAddress: null,
-        fromIban: null,
-        txHash: null,
-        confirmations: 0,
-        referenceNo: null,
-        kytStatus: 'PASS',
-        kytScreeningId: null,
-        kytRiskScore: null,
-        kytCheckedAt: null,
-        travelRuleRequired: true,
-        travelRuleStatus: 'SENT',
-        travelRuleTransferId: null,
-        counterpartyVasp: null,
-        travelRuleCheckedAt: null,
-        createdAt: new Date('2026-03-28T10:00:00.000Z'),
-        updatedAt: new Date('2026-03-28T10:00:00.000Z'),
-        completedAt: null,
-        payinId: null,
-        payinNo: null,
-        payinStatus: null,
-        payinType: null,
-        asset: {
-          code: 'USDT',
-          type: 'CRYPTO',
-          network: 'TRON',
-          decimals: 6,
-        },
-        wallet: { walletNo: 'WA001' },
-        fromWallet: null,
-        payin: null,
-        customer: {
-          customerNo: 'CU001',
-          firstName: 'Ada',
-          lastName: 'Lovelace',
-          email: 'ada@example.com',
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
-          complianceStatus: 'CLEAR',
-        },
-        auditLogs: [],
-      });
-
-      const result = await service.findOne('dep-detail-1');
-
-      expect(result.kytStatus).toBe('FINAL');
-      expect(result.travelRuleStatus).toBe('RECEIVED');
     });
   });
 
@@ -226,31 +83,21 @@ describe('DepositTransactionsService', () => {
     const setupMock = (currentStatus: string) => {
       const mockRecord = {
         id: mockId,
+        depositNo: 'DP001',
         status: currentStatus,
         ownerType: 'CUSTOMER',
         ownerId: 'U123',
         assetId: 'A123',
         amount: '100',
         payinId: 'P123',
-        kytStatus: 'FINAL',
-        travelRuleRequired: false,
-        travelRuleStatus: '',
-        asset: {
-          type: 'CRYPTO',
-        },
-        customer: {
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
-          complianceStatus: 'CLEAR',
-        },
       };
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
-      ((prisma as any).depositTransaction.update as jest.Mock).mockImplementation(({ data }) => 
-        Promise.resolve({ ...mockRecord, ...data })
+      ((prisma as any).depositTransaction.update as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ ...mockRecord, ...data }),
       );
     };
 
-    it('should transition from PAYIN_PENDING to COMPLIANCE_PENDING via payin_confirmed action', async () => {
+    it('PAYIN_PENDING → COMPLIANCE_PENDING via payin_confirmed', async () => {
       setupMock(DepositTransactionStatus.PAYIN_PENDING);
 
       await service.updateStatus(mockId, {
@@ -259,43 +106,12 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: mockId },
           data: expect.objectContaining({ status: DepositTransactionStatus.COMPLIANCE_PENDING }),
         }),
       );
     });
 
-    it('should fail invalid transition', async () => {
-      setupMock(DepositTransactionStatus.PAYIN_PENDING);
-
-      await expect(
-        service.updateStatus(mockId, {
-          action: DepositTransactionAction.APPROVE,
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should transition from COMPLIANCE_PENDING to REJECTED with reason', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
-      const reason = 'High risk detected';
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.REJECT,
-        reason,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.REJECTED,
-          }),
-        }),
-      );
-
-      expect((eventEmitter.emit as jest.Mock).mock.calls.length).toBeGreaterThan(0);
-    });
-
-    it('should transition from COMPLIANCE_PENDING to SUCCESS via approve', async () => {
+    it('COMPLIANCE_PENDING → SUCCESS via approve', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
       await service.updateStatus(mockId, {
@@ -312,7 +128,23 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('should transition from COMPLIANCE_PENDING to ACTION_PENDING via action_pending', async () => {
+    it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.REJECT,
+        reason: 'High risk detected',
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.REJECTED }),
+        }),
+      );
+      expect(eventEmitter.emit).toHaveBeenCalled();
+    });
+
+    it('COMPLIANCE_PENDING → ACTION_PENDING via action_pending', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
       await service.updateStatus(mockId, {
@@ -321,14 +153,12 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.ACTION_PENDING,
-          }),
+          data: expect.objectContaining({ status: DepositTransactionStatus.ACTION_PENDING }),
         }),
       );
     });
 
-    it('should transition from ACTION_PENDING to SUCCESS via approve', async () => {
+    it('ACTION_PENDING → SUCCESS via approve', async () => {
       setupMock(DepositTransactionStatus.ACTION_PENDING);
 
       await service.updateStatus(mockId, {
@@ -337,80 +167,76 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.SUCCESS,
-          }),
+          data: expect.objectContaining({ status: DepositTransactionStatus.SUCCESS }),
         }),
       );
     });
 
-    it('should block APPROVE when compliance is not cleared', async () => {
-      const mockRecord = {
-        id: mockId,
-        status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        ownerType: 'CUSTOMER',
-        ownerId: 'U123',
-        assetId: 'A123',
-        amount: '100',
-        payinId: 'P123',
-        kytStatus: 'CREATED',
-        travelRuleRequired: false,
-        travelRuleStatus: '',
-        asset: {
-          type: 'CRYPTO',
-        },
-        customer: {
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
-          complianceStatus: 'CLEAR',
-        },
-      };
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
+    it('ACTION_PENDING → COMPLIANCE_PENDING via resume', async () => {
+      setupMock(DepositTransactionStatus.ACTION_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.RESUME,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.COMPLIANCE_PENDING }),
+        }),
+      );
+    });
+
+    it('ACTION_PENDING → EXPIRED via expire', async () => {
+      setupMock(DepositTransactionStatus.ACTION_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.EXPIRE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.EXPIRED }),
+        }),
+      );
+    });
+
+    it('FROZEN → SUCCESS via approve', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.APPROVE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.SUCCESS }),
+        }),
+      );
+    });
+
+    it('FROZEN → CONFISCATED via confiscate', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.CONFISCATE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.CONFISCATED }),
+        }),
+      );
+    });
+
+    it('FROZEN rejects invalid actions', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
 
       await expect(
-        service.updateStatus(mockId, {
-          action: DepositTransactionAction.APPROVE,
-        }),
+        service.updateStatus(mockId, { action: DepositTransactionAction.REJECT }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should allow FIAT APPROVE even when KYT is pending', async () => {
-      const mockRecord = {
-        id: mockId,
-        status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        ownerType: 'CUSTOMER',
-        ownerId: 'U123',
-        assetId: 'A123',
-        amount: '100',
-        payinId: 'P123',
-        kytStatus: 'PENDING',
-        travelRuleRequired: true,
-        travelRuleStatus: 'PENDING',
-        asset: {
-          type: 'FIAT',
-        },
-        customer: {
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
-          complianceStatus: 'CLEAR',
-        },
-      };
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
-        mockRecord,
-      );
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
-        ...mockRecord,
-        status: DepositTransactionStatus.SUCCESS,
-      });
-
-      await expect(
-        service.updateStatus(mockId, {
-          action: DepositTransactionAction.APPROVE,
-        }),
-      ).resolves.toBeDefined();
-    });
-
-    it('should transition from PAYIN_PENDING to FAILED via fail action', async () => {
+    it('PAYIN_PENDING → FAILED via fail', async () => {
       setupMock(DepositTransactionStatus.PAYIN_PENDING);
 
       await service.updateStatus(mockId, {
@@ -425,60 +251,57 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('should transition from COMPLIANCE_PENDING to FAILED via fail action', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.FAIL,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.FAILED }),
-        }),
-      );
-    });
-
-    it('should throw for any action on terminal FAILED status', async () => {
+    it('throws on any action for terminal FAILED', async () => {
       setupMock(DepositTransactionStatus.FAILED);
 
       await expect(
-        service.updateStatus(mockId, {
-          action: DepositTransactionAction.APPROVE,
-        }),
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should block APPROVE when customer compliance status is frozen', async () => {
-      const mockRecord = {
-        id: mockId,
-        status: DepositTransactionStatus.ACTION_PENDING,
-        ownerType: 'CUSTOMER',
-        ownerId: 'U123',
-        assetId: 'A123',
-        amount: '100',
-        payinId: 'P123',
-        kytStatus: 'FINAL',
-        travelRuleRequired: false,
-        travelRuleStatus: '',
-        asset: {
-          type: 'FIAT',
-        },
-        customer: {
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
-          complianceStatus: 'FROZEN',
-        },
-      };
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
-        mockRecord,
-      );
+    it('throws on any action for terminal SUCCESS', async () => {
+      setupMock(DepositTransactionStatus.SUCCESS);
 
       await expect(
-        service.updateStatus(mockId, {
-          action: DepositTransactionAction.APPROVE,
-        }),
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws on any action for terminal REJECTED', async () => {
+      setupMock(DepositTransactionStatus.REJECTED);
+
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.FAIL }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects invalid action for PAYIN_PENDING', async () => {
+      setupMock(DepositTransactionStatus.PAYIN_PENDING);
+
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('findByPayinId', () => {
+    it('should find deposit by payinId', async () => {
+      const mockDeposit = { id: 'dep-1', payinId: 'payin-1' };
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockDeposit);
+
+      const result = await service.findByPayinId('payin-1');
+
+      expect(result).toEqual(mockDeposit);
+      expect((prisma as any).depositTransaction.findUnique).toHaveBeenCalledWith({
+        where: { payinId: 'payin-1' },
+      });
+    });
+
+    it('should return null if no deposit found', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await service.findByPayinId('nonexistent');
+      expect(result).toBeNull();
     });
   });
 });

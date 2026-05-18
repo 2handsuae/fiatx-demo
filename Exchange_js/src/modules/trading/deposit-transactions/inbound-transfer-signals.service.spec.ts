@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { PayinsService } from '../../asset-treasury/payins/payins.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import {
   InboundTransferScanMode,
@@ -36,11 +37,22 @@ describe('InboundTransferSignalsService', () => {
       depositTransaction: {
         findUnique: jest.fn(),
       },
+      customerMain: {
+        findUnique: jest.fn(),
+      },
       auditLogEvent: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve(data)),
       },
     };
+
+    prisma.customerMain.findUnique.mockResolvedValue({
+      id: 'cust-1',
+      onboardingStatus: 'APPROVED',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'ACTIVE',
+      restrictions: null,
+    });
 
     onboardingService = {
       assertTradingEligibility: jest.fn(),
@@ -57,6 +69,13 @@ describe('InboundTransferSignalsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: OnboardingService, useValue: onboardingService },
         { provide: PayinsService, useValue: payinsService },
+        {
+          provide: AuditLogsService,
+          useValue: {
+            create: jest.fn().mockResolvedValue(undefined),
+            recordSystem: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 

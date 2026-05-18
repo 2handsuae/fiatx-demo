@@ -15,7 +15,7 @@ import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -313,7 +313,7 @@ export class DepositTransactionsService {
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     const depositNo = generateReferenceNo('DEP');
-    const traceId = uuidv4();
+    const traceId = randomUUID();
     const created = await (this.prisma as any).depositTransaction.create({
       data: {
         depositNo,
