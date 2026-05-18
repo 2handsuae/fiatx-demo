@@ -1141,7 +1141,8 @@ model Asset {
   id                             String                          @id @default(uuid())
   assetNo                        String?                         @unique
   type                           String
-  code                           String
+  currency                       String
+  code                           String                          @unique
   network                        String?
   decimals                       Int
   description                    String?
@@ -1192,7 +1193,7 @@ model Asset {
   valuationRates                 AssetValuationRate[]
   withdrawalAddresses            WithdrawalAddress[]
 
-  @@unique([type, code, network])
+  @@unique([type, currency, network])
   @@map("assets")
 }
 

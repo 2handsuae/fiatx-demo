@@ -5,6 +5,7 @@ export const DEFAULT_ASSETS = [
   {
     assetNo: buildDeterministicNo('AS', 'FIAT', 'AED', ''),
     type: 'FIAT',
+    currency: 'AED',
     code: 'AED',
     network: '',
     description: 'United Arab Emirates Dirham',
@@ -15,7 +16,8 @@ export const DEFAULT_ASSETS = [
   {
     assetNo: buildDeterministicNo('AS', 'CRYPTO', 'USDT', 'TRON'),
     type: 'CRYPTO',
-    code: 'USDT',
+    currency: 'USDT',
+    code: 'USDT-TRON',
     network: 'TRON',
     description: 'Tether (TRC20)',
     decimals: 6,
