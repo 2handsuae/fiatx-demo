@@ -1,424 +1,356 @@
-# Deposit V4 Happy Path — Frontend Alignment + Backend Linkage
+# Deposit V4 Happy Path — Frontend + Backend Design Spec
 
 ## Goal
 
-1. Update admin-web and client-web deposit pages to align with the V4 deposit state machine (9 statuses, 9 actions), comply with frontend design rules (`adm-*` / `fx-*` tokens, two-column layout, ActionSection).
-2. Wire the missing Sumsub → deposit event linkage so that Sumsub AML approval triggers deposit approval (with TB accounting).
-3. Enable end-to-end happy path simulation: client creates deposit → payin advances → Sumsub approves → deposit succeeds.
+走通存款 happy path 的端到端模拟，同时将前端页面对齐 V4 状态机。
 
-**This round focuses on the happy path** (PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS). Non-happy-path features (SimulationRail for all transitions, freeze/confiscate flows) are included in the spec for completeness but are lower priority.
+1. **前端**：admin/client 存款页面对齐 V4 状态机（9 状态 9 动作），遵循前端设计规范（`adm-*`/`fx-*` tokens、两栏布局、ActionSection）。
+2. **后端**：接通 Sumsub → deposit 的合规链路（三道闸门：客户合规状态 + KYT + TR），实现自动审批。
+3. **模拟**：端到端 happy path — 客户创建存款 → payin 推进 → KYT/TR 通过 → 自动到账。
 
-## Architecture Decision
-
-**Approach B: Full Rule Compliance** — two-column layout for admin detail page, ActionSection for real operator actions, SimulationRail for dev simulation, V4 status enums everywhere, tipping-off-safe customer status mapping.
-
-## Key Principle: Separation of Concerns
-
-| Concern | Where | Who |
-|---------|-------|-----|
-| Compliance decisions (approve/reject/freeze) | Sumsub webhooks | Automated / compliance officer via Sumsub |
-| Post-compliance legal decisions (release/confiscate frozen funds) | Admin DepositDetail ActionSection | Legal / senior ops |
-| Operational actions (expire pending reviews) | Admin DepositDetail ActionSection | Operations |
-| Dev simulation of full lifecycle | Admin DepositDetail SimulationRail | Developer (sim mode only) |
-| **Happy path simulation** | **Sumsub simulation menu → event chain → auto-approve** | **Developer (sim mode)** |
+**本轮聚焦 happy path**（PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS）。非 happy path 功能（SimulationRail、freeze/confiscate 流程）为低优先级。
 
 ---
 
-## Section 1: V4 Status Enum — Single Source of Truth
+## 1. Happy Path 端到端模拟
 
-### 9 Statuses
+| 步骤 | 位置 | 操作 | 系统效果 |
+|------|------|------|---------|
+| 1 | Client-web 充值页 | 点击 "Simulate Deposit" | 创建 inbound transfer signal → scan → payin + deposit（PAYIN_PENDING） |
+| 2 | Admin PayinDetail | SimulationRail → 点击 CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit 进入 COMPLIANCE_PENDING |
+| — | （自动） | Gate 0：客户合规状态检查 | 客户正常 → kytStatus=PENDING, trStatus=PENDING。_（异常 → FROZEN）_ |
+| 3a | Admin Sumsub Events | `simulate/kyt-check`：输入 txHash，结果 PASS | Gate 1：kytStatus → PASSED。审批门检查：TR 仍 PENDING → 等待 |
+| 3b | Admin Sumsub Events | `simulate/tr-check`：输入 txHash，结果 PASS | Gate 2：trStatus → PASSED。三道闸门全绿 → `approveDeposit()` → TB Step 2 + deposit SUCCESS |
 
-| Status | Terminal? | Description |
-|--------|-----------|-------------|
-| PAYIN_PENDING | No | Waiting for payin system confirmation |
-| COMPLIANCE_PENDING | No | Under Sumsub compliance review |
-| ACTION_PENDING | No | Flagged for additional review / info |
-| FROZEN | No | Funds frozen pending legal decision |
-| SUCCESS | Yes | Deposit completed, funds credited |
-| REJECTED | Yes | Compliance rejection |
-| FAILED | Yes | Technical / system failure |
-| EXPIRED | Yes | Timed out |
-| CONFISCATED | Yes | Funds seized by legal authority |
+**步骤 3b 完成后**：deposit 为 SUCCESS，TB 记账完整（Step 1 + Step 2 均已记录）。
 
-### 9 Actions
+---
 
-| Action | Trigger Source |
-|--------|---------------|
-| payin_confirmed | Payin system webhook |
-| approve | Sumsub webhook / manual (FROZEN only) |
-| reject | Sumsub webhook |
-| freeze | Sumsub webhook |
-| action_pending | Sumsub webhook |
-| resume | Operator manual |
-| confiscate | Legal / operator manual |
-| expire | System cron / operator manual |
-| fail | System error |
+## 2. 三道闸门合规架构
 
-### State Transition Map
+```
+COMPLIANCE_PENDING
+  │
+  ├── Gate 0：客户合规状态（自动，进入 COMPLIANCE_PENDING 时立即检查）
+  │     ✗ 异常（FROZEN/SUSPENDED 等） → deposit 冻结为 FROZEN
+  │     ✓ 正常 → 继续，设置 kytStatus=PENDING, trStatus=PENDING
+  │
+  ├── Gate 1：KYT — Know Your Transaction（Sumsub 交易级检查）
+  │     输入：deposit 的 txHash
+  │     结果：PASSED / FAILED
+  │
+  ├── Gate 2：TR — Transaction Report（Sumsub 交易级检查）
+  │     输入：deposit 的 txHash
+  │     结果：PASSED / FAILED
+  │
+  └── 自动审批：仅当 deposit 仍在 COMPLIANCE_PENDING 且三门全绿
+```
+
+### 核心原则
+
+- **Gate 0 冻结自动审批，不冻结信息采集**。KYT/TR 结果始终写入，无论 deposit 状态。
+- **自动审批仅在以下条件全部满足时触发**：
+  - deposit 状态为 `COMPLIANCE_PENDING`（非 FROZEN）
+  - 客户 complianceStatus 正常
+  - kytStatus === `PASSED`
+  - trStatus === `PASSED`
+- **FROZEN deposit 接受 KYT/TR 结果但不自动转换**。Admin 在详情页看到三道闸门的完整信息后手动 approve/confiscate。
+
+### 审批门检查逻辑
+
+每次事件（Gate 0 结果、KYT webhook、TR webhook）后执行：
+
+```typescript
+function checkAutoApproval(deposit, customer) {
+  if (deposit.status !== 'COMPLIANCE_PENDING') return;
+  if (!isNormalComplianceStatus(customer.complianceStatus)) return;
+  if (deposit.kytStatus !== 'PASSED') return;
+  if (deposit.trStatus !== 'PASSED') return;
+  await approveDeposit(deposit.id); // TB Step 2 + SUCCESS
+}
+```
+
+---
+
+## 3. V4 状态机参考
+
+### 9 个状态
+
+| 状态 | 终态? | 说明 |
+|------|------|------|
+| PAYIN_PENDING | 否 | 等待 payin 系统确认 |
+| COMPLIANCE_PENDING | 否 | Sumsub 合规审查中 |
+| ACTION_PENDING | 否 | 标记需额外审查/补充材料 |
+| FROZEN | 否 | 资金冻结，等待法律裁定 |
+| SUCCESS | 是 | 到账成功 |
+| REJECTED | 是 | 合规拒绝 |
+| FAILED | 是 | 技术/系统失败 |
+| EXPIRED | 是 | 超时 |
+| CONFISCATED | 是 | 依法没收 |
+
+### 状态转换图
 
 ```
 PAYIN_PENDING ──payin_confirmed──→ COMPLIANCE_PENDING
 PAYIN_PENDING ──fail──────────────→ FAILED
 
-COMPLIANCE_PENDING ──approve────────→ SUCCESS        (Sumsub)
-COMPLIANCE_PENDING ──reject─────────→ REJECTED       (Sumsub)
-COMPLIANCE_PENDING ──freeze─────────→ FROZEN         (Sumsub)
-COMPLIANCE_PENDING ──action_pending─→ ACTION_PENDING (Sumsub)
+COMPLIANCE_PENDING ──(auto-approve)─→ SUCCESS        (三门全绿)
+COMPLIANCE_PENDING ──reject─────────→ REJECTED       (Sumsub webhook)
+COMPLIANCE_PENDING ──freeze─────────→ FROZEN         (Sumsub webhook / Gate 0)
+COMPLIANCE_PENDING ──action_pending─→ ACTION_PENDING (Sumsub webhook)
 COMPLIANCE_PENDING ──fail───────────→ FAILED
 
-ACTION_PENDING ──approve──→ SUCCESS            (Sumsub / manual)
-ACTION_PENDING ──reject───→ REJECTED           (Sumsub / manual)
-ACTION_PENDING ──freeze───→ FROZEN             (Sumsub)
-ACTION_PENDING ──resume───→ COMPLIANCE_PENDING (operator)
-ACTION_PENDING ──expire───→ EXPIRED            (system / operator)
+ACTION_PENDING ──approve──→ SUCCESS            (Sumsub webhook)
+ACTION_PENDING ──reject───→ REJECTED           (Sumsub webhook)
+ACTION_PENDING ──freeze───→ FROZEN             (Sumsub webhook)
+ACTION_PENDING ──resume───→ COMPLIANCE_PENDING (Sumsub webhook)
+ACTION_PENDING ──expire───→ EXPIRED            (系统 cron / 操作员)
 
-FROZEN ──approve────→ SUCCESS      (legal / operator)
-FROZEN ──confiscate─→ CONFISCATED  (legal / operator)
+FROZEN ──approve────→ SUCCESS      (法务/操作员手动)
+FROZEN ──confiscate─→ CONFISCATED  (法务/操作员手动)
 ```
+
+### 动作触发来源
+
+| 动作 | 触发来源 | 说明 |
+|------|---------|------|
+| payin_confirmed | Payin 系统 webhook | 收款确认 |
+| approve | 三门全绿自动 / 手动（仅 FROZEN） | 到账审批 |
+| reject | Sumsub webhook | 合规拒绝 |
+| freeze | Sumsub webhook / Gate 0 | 资金冻结 |
+| action_pending | Sumsub webhook | 标记需补充材料 |
+| resume | Sumsub webhook | 补充材料后恢复审查 |
+| confiscate | 法务/操作员手动 | 依法没收 |
+| expire | 系统 cron / 操作员手动 | 超时过期 |
+| fail | 系统错误 | 技术失败 |
 
 ---
 
-## Section 2: Admin Deposit List Page
+## 4. 后端变更
 
-**File**: `admin-web/src/pages/DepositTransactionList.tsx`
+### 4.1 Prisma 模型变更
 
-### Changes
+```prisma
+model DepositTransaction {
+  // ... 现有字段 ...
+  kytStatus   String?   // PENDING | PASSED | FAILED
+  trStatus    String?   // PENDING | PASSED | FAILED
+}
+```
 
-1. **Status badge color map** — replace stale UNDER_REVIEW, add all 9 V4 statuses:
+### 4.2 Gate 0：客户合规状态检查
 
-| Status | Color Semantic | adm-* Token |
-|--------|---------------|-------------|
-| PAYIN_PENDING | blue | `adm-status-info` |
-| COMPLIANCE_PENDING | purple | `adm-status-review` |
-| ACTION_PENDING | amber | `adm-status-warning` |
-| SUCCESS | green | `adm-status-success` |
-| REJECTED | red | `adm-status-danger` |
-| FAILED | orange | `adm-status-error` |
-| EXPIRED | gray | `adm-status-neutral` |
-| FROZEN | cyan | `adm-status-frozen` |
-| CONFISCATED | dark red | `adm-status-critical` |
+**触发时机**：deposit 进入 COMPLIANCE_PENDING 时（`@OnEvent('deposit.status.changed')` 或 `orchestratePayinConfirmed` 内）。
 
-2. **Filter dropdown** — update to 9 V4 statuses, remove UNDER_REVIEW
+**逻辑**：
+- 查询 customer.complianceStatus
+- 异常（FROZEN / SUSPENDED 等）→ 立即冻结 deposit（action=freeze，reason=`customer compliance status: {status}`）
+- 正常 → 设置 kytStatus=PENDING, trStatus=PENDING
 
-3. **Shared utility** — update `transactionRootDisplay.ts` `formatStatusLabel()` with all 9 statuses
+### 4.3 KYT/TR 模拟端点
+
+| 端点 | 输入 | 效果 |
+|------|------|------|
+| `POST /admin/sumsub/simulate/kyt-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | 按 txHash 找到 deposit → 更新 kytStatus → 执行审批门检查 |
+| `POST /admin/sumsub/simulate/tr-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | 按 txHash 找到 deposit → 更新 trStatus → 执行审批门检查 |
+
+两个端点均可对任意状态的 deposit 写入结果（包括 FROZEN），但自动审批仅对 COMPLIANCE_PENDING 生效。
+
+### 4.4 FROZEN 保护规则
+
+- Sumsub webhook **不得**自动转换 FROZEN 状态的 deposit
+- FROZEN deposit 的 KYT/TR 结果照常记录，供 admin 审查
+- 仅手动 admin 操作可转换 FROZEN（approve 释放 / confiscate 没收）
+
+### 4.5 后端文件清单
+
+| 文件 | 变更 |
+|------|------|
+| `prisma/schema.prisma` | DepositTransaction 新增 `kytStatus`、`trStatus` |
+| `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | 新增 `simulateKytCheck()`、`simulateTrCheck()` |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | 新增 Gate 0 检查 + KYT/TR 审批门逻辑 + `checkAutoApproval()` |
+| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | 进入 COMPLIANCE_PENDING 时设置 kytStatus/trStatus=PENDING |
 
 ---
 
-## Section 3: Admin Deposit Detail Page (Core Redesign)
+## 5. Admin 存款列表页
 
-**File**: `admin-web/src/pages/DepositTransactionDetail.tsx`
+**文件**：`admin-web/src/pages/DepositTransactionList.tsx`
 
-### Layout: Two-Column Structure
+### 变更
+
+1. **状态 badge 颜色映射** — 去掉 UNDER_REVIEW，加入全部 9 个 V4 状态：
+
+| 状态 | 颜色语义 |
+|------|---------|
+| PAYIN_PENDING | blue |
+| COMPLIANCE_PENDING | purple |
+| ACTION_PENDING | amber |
+| SUCCESS | green |
+| REJECTED | red |
+| FAILED | orange |
+| EXPIRED | gray |
+| FROZEN | cyan |
+| CONFISCATED | dark red |
+
+2. **筛选下拉** — 更新为 9 个 V4 状态，移除 UNDER_REVIEW
+3. **共享工具** — 更新 `transactionRootDisplay.ts` 的 `formatStatusLabel()` 支持 9 个状态
+
+---
+
+## 6. Admin 存款详情页（核心重构）
+
+**文件**：`admin-web/src/pages/DepositTransactionDetail.tsx`
+
+### 两栏布局
 
 ```
-┌──────────────────────────────────────────┬────────────────┐
-│ DetailPageHeader (back nav + depositNo)   │                │
-├──────────────────────────────────────────┤   272px Sidebar │
-│ [SimulationRail — sim mode only]          │                │
-│                                          │ ┌────────────┐ │
-│ Hero Zone                                │ │ ActionSect │ │
-│  Status badge (large) + amount + asset   │ │ (workflow)  │ │
-│  + crypto/fiat type                      │ └────────────┘ │
-│                                          │ ┌────────────┐ │
-│ Core Context                             │ │ Identity   │ │
-│  ownerNo + compliance/onboarding status  │ │ Summary    │ │
-│  Source wallet → target wallet           │ └────────────┘ │
-│                                          │ ┌────────────┐ │
-│ Process / Timeline                       │ │ Lifecycle  │ │
-│  StatusTimeline (reuse existing)         │ │ Dates      │ │
-│                                          │ └────────────┘ │
-│ Technical Detail                         │                │
-│  txHash, addresses, payinNo, traceId     │                │
-└──────────────────────────────────────────┴────────────────┘
+┌──────────────────────────────────────────┬─────────────────┐
+│ DetailPageHeader（仅 back nav）            │                 │
+├──────────────────────────────────────────┤  272px Sidebar   │
+│ [SimulationRail — 仅模拟模式，低优先级]     │                 │
+│                                          │ ┌─────────────┐ │
+│ Hero Zone                                │ │ Actions     │ │
+│  状态 badge（大号）+ 金额 + 资产 + 类型     │ │ (workflow)   │ │
+│                                          │ └─────────────┘ │
+│ Core Context                             │ ┌─────────────┐ │
+│  ownerNo + 合规/onboarding 状态           │ │ Compliance  │ │
+│  来源钱包 → 目标钱包                       │ │ Gates       │ │
+│                                          │ └─────────────┘ │
+│ Process / Timeline                       │ ┌─────────────┐ │
+│  StatusTimeline（复用现有组件）              │ │ Identity    │ │
+│                                          │ │ Summary     │ │
+│ Technical Detail                         │ └─────────────┘ │
+│  txHash, 地址, payinNo, traceId          │ ┌─────────────┐ │
+│                                          │ │ Lifecycle   │ │
+│                                          │ └─────────────┘ │
+└──────────────────────────────────────────┴─────────────────┘
 ```
 
-### Information Gradient (Main Body)
+### 主体区域（信息梯度）
 
-1. **Hero Zone**: depositNo, large status badge, amount + asset code, crypto/fiat type label
-2. **Core Context**: ownerNo (via customer relation, **never UUID**), ownerType, complianceStatus, onboardingStatus, source/target wallet numbers (walletNo, not UUID)
-3. **Process/Timeline**: Existing StatusTimeline component — renders `statusHistory` JSON. Update status labels/colors to V4.
-4. **Technical Detail**: txHash, fromAddress, toAddress, fromIban, toIban, payinNo (clickable → PayinDetail), traceId, referenceNo
+1. **Hero Zone**：depositNo、大号状态 badge、金额 + asset code、crypto/fiat 类型标签
+2. **Core Context**：ownerNo（通过 customer 关联，**不显示 UUID**）、ownerType、complianceStatus、onboardingStatus、来源/目标钱包号（walletNo，非 UUID）
+3. **Process/Timeline**：复用现有 StatusTimeline 组件渲染 `statusHistory` JSON，更新状态标签/颜色至 V4
+4. **Technical Detail**：txHash、fromAddress、toAddress、fromIban、toIban、payinNo（可点击跳转 PayinDetail）、traceId、referenceNo
 
-### Sidebar Components
+### Sidebar 组件
 
-**Order per admin rules: ACTIONS → IDENTITY SUMMARY → LIFECYCLE**
+**顺序遵循 admin 规范：ACTIONS → COMPLIANCE GATES → IDENTITY → LIFECYCLE**
 
-#### ActionSection (Real Operator Actions)
+#### ActionSection（真实操作员动作）
 
-Only for states where manual operator decisions are needed:
+仅在需要手动操作员决策的状态下显示：
 
-| Current Status | Available Actions | Button Variant |
-|---------------|-------------------|----------------|
+| 当前状态 | 可用操作 | 按钮样式 |
+|---------|---------|---------|
 | ACTION_PENDING | expire | workflowSecondary |
-| FROZEN | approve (release), confiscate | workflowPrimary, workflowNegative |
-| PAYIN_PENDING | — (no operator actions) | — |
-| COMPLIANCE_PENDING | — (Sumsub-driven) | — |
-| Terminal states | — | — |
+| FROZEN | approve（释放）, confiscate（没收） | workflowPrimary, workflowNegative |
+| 其他状态 | — | — |
 
-- ACTION_PENDING is not for operator approve/reject — after customer uploads materials via Sumsub SDK, Sumsub re-evaluates and sends webhook with decision. Resume is also unnecessary (COMPLIANCE_PENDING is Sumsub-driven; returning to it creates a dead-end loop). Only expire (customer timeout) is a valid manual action.
-- `confiscate` opens reason modal (same pattern as SwapTransactionDetail reject)
-- Calls `PATCH /deposit-transactions/:id/status` with `{ action, reason? }`
-- **Backend constraint**: Sumsub webhooks must NOT auto-transition FROZEN deposits. Frozen fund release/confiscation is a legal decision — only manual admin action is permitted. If Sumsub sends a webhook for a FROZEN deposit, log it but do not execute the transition.
+- ACTION_PENDING 不需要 approve/reject — 客户通过 Sumsub SDK 上传材料后，Sumsub 重新评估并发 webhook 推进状态。resume 也不需要（COMPLIANCE_PENDING 是 Sumsub 驱动的，退回去会形成死循环）。
+- `confiscate` 点击后弹出 reason 输入弹窗（同 SwapTransactionDetail 的 reject 模式）
+- 调用 `PATCH /deposit-transactions/:id/status` `{ action, reason? }`
 
-#### Compliance Gates (new)
+#### Compliance Gates（新增）
 
-Shows the three-gate status so admin can see full compliance picture at a glance:
+三道闸门状态一目了然：
 
-- Gate 0: Customer status — complianceStatus badge (ACTIVE / FROZEN / etc.)
-- Gate 1: KYT — kytStatus badge (PENDING / PASSED / FAILED)
-- Gate 2: TR — trStatus badge (PENDING / PASSED / FAILED)
+- **Gate 0**：客户状态 — complianceStatus badge（ACTIVE / FROZEN / ...）
+- **Gate 1**：KYT — kytStatus badge（PENDING / PASSED / FAILED）
+- **Gate 2**：TR — trStatus badge（PENDING / PASSED / FAILED）
 
-Especially important for FROZEN deposits: admin sees all three gates before making approve/confiscate decision.
+对 FROZEN deposit 尤为重要：admin 在 approve/confiscate 前看到完整的三门信息，做综合判断。
 
 #### Identity Summary
 
-- ownerNo (clickable → customer detail)
+- ownerNo（可点击 → 客户详情）
 - ownerType
 - complianceStatus badge
 - onboardingStatus badge
 
 #### Lifecycle
 
-- Created at
-- Completed at (if terminal/frozen)
-- Current status duration
+- 创建时间
+- 完成时间（终态/冻结时）
+- 当前状态持续时长
 
-### DetailPageHeader
+### 其他
 
-- **No title/subtitle** (per admin rules for entity pages)
-- Back navigation only
-- depositNo displayed in hero zone, not header
-
-### Route
-
-- Keep `/exchange/deposit-transactions/:id` (ID routing is internal navigation, acceptable)
-
-### Cross-References
-
-- payinNo → clickable link to PayinDetail page
-- toWalletNo, fromWalletNo → display as business keys
+- **DetailPageHeader**：不设置 title/subtitle（遵循 admin 规范），仅 back 导航。depositNo 展示在 Hero Zone。
+- **路由**：保持 `/exchange/deposit-transactions/:id`
+- **关联信息**：payinNo → 可点击跳转 PayinDetail；toWalletNo、fromWalletNo 显示业务键
 
 ---
 
-## Section 4: Client Deposit Page
+## 7. Client 存款页
 
-**File**: `client-web/src/pages/Deposit.tsx`
+**文件**：`client-web/src/pages/Deposit.tsx`
 
-### Tipping-Off Safe Status Mapping
+### 防通风报信状态映射
 
-**Anti-tipping-off principle**: Customer must NOT be informed that their transaction is under compliance review, frozen, or subject to a SAR. Internal statuses are mapped to a simplified 6-state customer view:
+客户不得被告知其交易正在合规审查、资金被冻结、或已提交可疑活动报告。内部状态映射为简化的客户视图：
 
-| Internal Status | Customer Sees | Color (fx-*) | Rationale |
-|----------------|---------------|--------------|-----------|
-| PAYIN_PENDING | Processing | blue | Normal — waiting for payment |
-| COMPLIANCE_PENDING | Processing | blue | **Masked** — cannot reveal compliance review |
-| ACTION_PENDING | Processing | blue | **Masked** — cannot reveal flagged status |
-| FROZEN | Processing | blue | **Masked** — cannot reveal funds frozen |
-| SUCCESS | Completed | green | Normal |
-| REJECTED | Declined | red | Generic reason only, never reveal AML/sanctions |
-| FAILED | Failed | orange | Technical failure |
-| EXPIRED | Expired | gray | Timeout |
-| CONFISCATED | Contact Support | red | **Masked** — legal notification via offline channels |
+| 内部状态 | 客户看到 | 颜色 | 原因 |
+|---------|---------|------|------|
+| PAYIN_PENDING | Processing | blue | 正常 — 等待到账 |
+| COMPLIANCE_PENDING | Processing | blue | **遮掩** — 不能暴露合规审查 |
+| ACTION_PENDING | Processing | blue | **遮掩** — 不能暴露标记状态 |
+| FROZEN | Processing | blue | **遮掩** — 不能暴露资金冻结 |
+| SUCCESS | Completed | green | 正常 |
+| REJECTED | Declined | red | 拒绝原因必须通用化，不能提及 AML/制裁 |
+| FAILED | Failed | orange | 技术失败 |
+| EXPIRED | Expired | gray | 超时 |
+| CONFISCATED | Contact Support | red | **遮掩** — 法律通知走线下渠道 |
 
-**Customer sees only 6 distinct states**: Processing, Completed, Declined, Failed, Expired, Contact Support.
+**客户只看到 6 种状态**：Processing、Completed、Declined、Failed、Expired、Contact Support。
 
-### Changes
+### 变更
 
-1. Update status badge map (remove UNDER_REVIEW, HELD; add V4 mapping above)
-2. Use customer-meaningful language per `doc-final/rules/frontend-client.md`
-3. Simulation: keep existing "Simulate Deposit" flow unchanged (create inbound signal + scan)
-
----
-
-## Section 5: Backend — Transaction-Level Compliance (KYT + TR) → Deposit Linkage
-
-**Problem**: When a deposit reaches COMPLIANCE_PENDING, there is no mechanism to submit the transaction to Sumsub KYT/TR for compliance checking, and no webhook handlers to process the results and approve the deposit.
-
-### Happy Path Flow (target)
-
-```
-Deposit reaches COMPLIANCE_PENDING (tx hash known)
-  ↓
-Gate 0: Customer compliance status check (automatic, immediate)
-  - Check customer.complianceStatus
-  - If FROZEN/SUSPENDED/abnormal → deposit FROZEN (reason: customer compliance blocked)
-  - If normal → proceed (set kytStatus=PENDING, trStatus=PENDING)
-  ↓ (happy path: customer OK)
-Operator goes to Admin Sumsub Events page
-  ↓
-Gate 1: Simulate KYT (Know Your Transaction) webhook
-  - Input: tx hash from the deposit
-  - Simulated result: PASS (clean source of funds)
-  → Backend finds deposit by txHash → sets kytStatus = PASSED
-  → Checks approval gate: both KYT + TR passed? Not yet (TR still pending)
-  ↓
-Gate 2: Simulate TR (Transaction Report) webhook
-  - Input: tx hash from the deposit
-  - Simulated result: PASS (no risk flags)
-  → Backend finds deposit by txHash → sets trStatus = PASSED
-  → Checks approval gate: both KYT + TR passed? YES
-    → DepositWorkflowService.approveDeposit(depositId) // TB Step 2 + SUCCESS
-```
-
-### Three-Gate Approval
-
-```
-Gate 0: Customer compliance status (automatic, on entering COMPLIANCE_PENDING)
-Gate 1: KYT — Know Your Transaction (Sumsub webhook / simulation)
-Gate 2: TR  — Transaction Report (Sumsub webhook / simulation)
-```
-
-**Critical design principle**: Gate 0 blocks AUTO-APPROVAL, but does NOT block Gates 1 & 2 from running. KYT/TR results are always recorded regardless of deposit status.
-
-**Auto-approval** triggers ONLY when ALL of:
-- Deposit is still in `COMPLIANCE_PENDING` (not FROZEN)
-- Gate 0: customer complianceStatus is normal
-- Gate 1: kytStatus === PASSED
-- Gate 2: trStatus === PASSED
-
-**When Gate 0 blocks** (customer abnormal → deposit FROZEN):
-- KYT/TR simulation endpoints still accept results → stored on deposit
-- No auto-approval (deposit is FROZEN, not COMPLIANCE_PENDING)
-- Admin reviews FROZEN deposit with FULL context:
-  - Customer compliance status (and reason for freeze)
-  - KYT result (PASSED / FAILED / PENDING)
-  - TR result (PASSED / FAILED / PENDING)
-- Admin makes informed approve (release) or confiscate decision
-
-**Gate check runs after each event** (Gate 0 result, each KYT/TR webhook):
-```typescript
-function checkAutoApproval(deposit) {
-  if (deposit.status !== 'COMPLIANCE_PENDING') return; // FROZEN → skip
-  if (customer.complianceStatus !== normal) return;     // Gate 0 fail
-  if (deposit.kytStatus !== 'PASSED') return;           // Gate 1 fail
-  if (deposit.trStatus !== 'PASSED') return;            // Gate 2 fail
-  await approveDeposit(deposit.id);                     // All green → SUCCESS
-}
-```
-
-### Model Changes
-
-Add two fields to the deposit model (Prisma schema):
-
-```prisma
-model DepositTransaction {
-  // ... existing fields ...
-  kytStatus   String?   // PENDING | PASSED | FAILED
-  trStatus    String?   // PENDING | PASSED | FAILED
-}
-```
-
-When deposit enters COMPLIANCE_PENDING:
-- Set `kytStatus = 'PENDING'`, `trStatus = 'PENDING'`
-
-### Simulation Endpoints (new)
-
-| Endpoint | Input | Effect |
-|----------|-------|--------|
-| `POST /admin/sumsub/simulate/kyt-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | Find deposit by txHash → update kytStatus → check gate |
-| `POST /admin/sumsub/simulate/tr-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | Find deposit by txHash → update trStatus → check gate |
-
-Gate check logic (after each webhook):
-```typescript
-if (deposit.kytStatus === 'PASSED' && deposit.trStatus === 'PASSED') {
-  await this.depositWorkflowService.approveDeposit(deposit.id);
-}
-```
-
-### Files Changed (Backend)
-
-| File | Change |
-|------|--------|
-| `prisma/schema.prisma` | Add `kytStatus`, `trStatus` to DepositTransaction |
-| `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | Add `simulateKytCheck()` and `simulateTrCheck()` endpoints |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Add compliance gate check logic, called after each KYT/TR result |
-| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | Set kytStatus/trStatus to PENDING when entering COMPLIANCE_PENDING |
-
-### FROZEN Guard
-
-- FROZEN deposits **accept** KYT/TR results (stored for admin review) but **never** auto-transition
-- Only manual admin approve/confiscate transitions FROZEN deposits
-- Admin sees full three-gate context (customer status + KYT + TR) before deciding
-- If KYT or TR returns FAIL for a COMPLIANCE_PENDING deposit: record FAILED status, do NOT auto-freeze (freeze is a Sumsub-driven or Gate 0 decision)
+1. 更新状态 badge 映射（移除 UNDER_REVIEW、HELD；加入上表 V4 映射）
+2. 使用客户可理解的语言（遵循 `doc-final/rules/frontend-client.md`）
+3. 模拟功能：保持现有 "Simulate Deposit" 流程不变（创建 inbound signal + scan）
 
 ---
 
-## Section 6: SimulationRail for Deposit Detail (Lower Priority, Non-Happy-Path)
+## 8. SimulationRail（低优先级，非 happy path）
 
-**Component**: Reuse existing `admin-web/src/components/SimulationRail.tsx`
+**组件**：复用 `admin-web/src/components/SimulationRail.tsx`
 
-### When Visible
+仅在 `simulationModeEnabled` 时显示（localStorage `admin_simulation_mode`），位于 Hero Zone 上方。
 
-Only when `simulationModeEnabled` is true (localStorage `admin_simulation_mode`).
+动态 rail items 基于当前状态构建，可点击的 available 节点直接 PATCH 状态（绕过事件链，仅用于 dev 快捷测试）。
 
-### Rail Design
-
-Dynamic rail items based on current status. Shows the deposit's position in the lifecycle and available transitions as clickable steps.
-
-**Rail items are built per-status** (not a static list), because the deposit state machine has branches:
-
-- Each rail item: `{ label, status: 'completed' | 'current' | 'available' | 'readonly', tone?, onClick? }`
-- `available` items are clickable — trigger the corresponding status transition via `PATCH /deposit-transactions/:id/status`
-- Past states shown as `completed`, current as `current`
-
-### Example: When status is COMPLIANCE_PENDING
-
-```
-[PAYIN_PENDING ✓] → [COMPLIANCE_PENDING •] → [approve] [reject] [freeze] [action_pending] [fail]
-  completed           current                  available  available available  available      available
-```
-
-### Differences from ActionSection
-
-| | ActionSection | SimulationRail |
-|--|--------------|----------------|
-| Visibility | Always (when actions exist) | Simulation mode only |
-| Actions | Real operator decisions only | All valid transitions |
-| Purpose | Production workflow | Dev testing |
-| Location | Sidebar | Top of main body |
+本轮不作为交付要求。
 
 ---
 
-## Section 7: Happy Path Simulation — End-to-End
+## 9. 文件变更总览
 
-**Primary simulation flow** (4 steps, walks the real event chain):
+### 后端（Happy Path 关键路径）
 
-| Step | Where | Action | System Effect |
-|------|-------|--------|---------------|
-| 1 | Client-web 充值页 | Click "Simulate Deposit" | Creates inbound transfer signal → scan → payin + deposit (PAYIN_PENDING) |
-| 2 | Admin PayinDetail | SimulationRail → click CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit COMPLIANCE_PENDING |
-| — | (automatic) | Gate 0: customer status check | Customer OK → set kytStatus=PENDING, trStatus=PENDING. _(If abnormal → FROZEN, happy path stops)_ |
-| 3a | Admin Sumsub Events | `simulate/kyt-check` with txHash + PASS | Gate 1: kytStatus → PASSED. Gate check: TR still PENDING → wait |
-| 3b | Admin Sumsub Events | `simulate/tr-check` with txHash + PASS | Gate 2: trStatus → PASSED. All gates passed → approveDeposit() → TB Step 2 + deposit SUCCESS |
+| 文件 | 操作 | 范围 | 优先级 |
+|------|------|------|-------|
+| `prisma/schema.prisma` | 修改 | DepositTransaction 新增 kytStatus、trStatus | 关键 |
+| `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | 修改 | 新增 simulateKytCheck()、simulateTrCheck() | 关键 |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | 修改 | Gate 0 检查 + KYT/TR 审批门 + checkAutoApproval() | 关键 |
+| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | 修改 | 进入 COMPLIANCE_PENDING 时设置 kytStatus/trStatus=PENDING | 关键 |
 
-**After step 3b**: deposit is SUCCESS with full TB accounting (both Step 1 and Step 2 transfers recorded).
+### 前端
 
-### Non-Happy-Path Simulation (Lower Priority)
-
-| Step | Where | Action | Effect |
-|------|-------|--------|--------|
-| Sumsub RED | Admin Sumsub menu | `simulate/aml-check-result` with RED + SANCTIONS | Deposit → FROZEN |
-| Manual freeze disposition | Admin DepositDetail ActionSection | approve / confiscate | FROZEN → SUCCESS / CONFISCATED |
-| Dev shortcut | Admin DepositDetail SimulationRail | Click any valid transition | Direct status PATCH (bypasses event chain) |
+| 文件 | 操作 | 范围 | 优先级 |
+|------|------|------|-------|
+| `admin-web/src/pages/DepositTransactionList.tsx` | 修改 | V4 状态 badge、筛选下拉 | 高 |
+| `admin-web/src/pages/DepositTransactionDetail.tsx` | 重写 | 两栏布局、ActionSection、Compliance Gates、V4 数据展示 | 高 |
+| `admin-web/src/utils/transactionRootDisplay.ts` | 修改 | 新增 V4 状态标签 | 高 |
+| `client-web/src/pages/Deposit.tsx` | 修改 | 防通风报信状态映射、移除旧状态 | 高 |
 
 ---
 
-## Section 8: Files Changed
+## 10. 设计约束
 
-### Frontend
-
-| File | Action | Scope | Priority |
-|------|--------|-------|----------|
-| `admin-web/src/pages/DepositTransactionList.tsx` | Modify | V4 status badges, filter dropdown, adm-* tokens | High |
-| `admin-web/src/pages/DepositTransactionDetail.tsx` | Rewrite | Two-column layout, ActionSection, SimulationRail, V4 data | High |
-| `admin-web/src/utils/transactionRootDisplay.ts` | Modify | Add V4 status labels | High |
-| `client-web/src/pages/Deposit.tsx` | Modify | Tipping-off-safe status mapping, remove stale statuses | High |
-
-### Backend (Happy Path — KYT/TR Linkage)
-
-| File | Action | Scope | Priority |
-|------|--------|-------|----------|
-| `prisma/schema.prisma` | Modify | Add `kytStatus`, `trStatus` fields to DepositTransaction | **Critical** |
-| `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | Modify | Add `simulateKytCheck()` and `simulateTrCheck()` endpoints | **Critical** |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Modify | Add Gate 0 (customer status check on COMPLIANCE_PENDING entry) + KYT/TR gate check logic + approve when all pass | **Critical** |
-| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | Modify | Set kytStatus/trStatus=PENDING on entering COMPLIANCE_PENDING | **Critical** |
+1. **Sumsub webhook 不得自动转换 FROZEN deposit** — 冻结资金的释放/没收是法律决策，仅允许手动 admin 操作。
+2. **KYT/TR 结果始终记录** — 无论 deposit 当前状态（包括 FROZEN），确保 admin 有完整信息做判断。
+3. **客户端不暴露合规信息** — 防通风报信原则，COMPLIANCE_PENDING / ACTION_PENDING / FROZEN 统一显示为 Processing。
+4. **Admin 页面不显示 UUID** — Hero Zone 和 Sidebar 使用业务键（depositNo、ownerNo、walletNo）。
+5. **DetailPageHeader 无 title/subtitle** — 遵循 admin entity 页面规范。
