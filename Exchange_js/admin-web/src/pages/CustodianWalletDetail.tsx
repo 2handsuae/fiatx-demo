@@ -54,6 +54,7 @@ interface WalletDetailData {
   updatedAt: string;
 
   asset: {
+    currency: string;
     code: string;
     type: string;
     network: string | null;
@@ -340,7 +341,7 @@ export default function CustodianWalletDetail() {
               <InfoField label="Owner Type" value={wallet.ownerType} />
               <InfoField label="Owner No" value={wallet.ownerNo} mono accent />
               <InfoField label="Direction" value={wallet.direction} />
-              <InfoField label="Asset" value={`${wallet.asset.code} (${wallet.asset.type})`} />
+              <InfoField label="Asset" value={wallet.asset.code} />
               <InfoField label="Network" value={wallet.asset.network || '—'} />
             </div>
           </section>
@@ -351,7 +352,7 @@ export default function CustodianWalletDetail() {
             <div className="mt-3">
               <InfoField
                 label="Balance"
-                value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
+                value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.currency}`}
                 highlight
               />
             </div>
@@ -396,7 +397,7 @@ export default function CustodianWalletDetail() {
               <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
                 <InfoField
                   label="Collection Amount"
-                  value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.code}`}
+                  value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.currency}`}
                   highlight
                 />
                 <InfoField
@@ -410,7 +411,7 @@ export default function CustodianWalletDetail() {
                   <div className="mt-1">{collectionResult.reason || 'Collection request completed.'}</div>
                   {collectionResult.expectedCollectionAmount && (
                     <div className="mt-1 text-[10px]">
-                      Expected: {collectionResult.expectedCollectionAmount} {wallet.asset.code}
+                      Expected: {collectionResult.expectedCollectionAmount} {wallet.asset.currency}
                     </div>
                   )}
                   {collectionResult.internalTransactionId && (

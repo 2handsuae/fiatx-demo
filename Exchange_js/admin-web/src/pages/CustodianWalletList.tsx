@@ -33,7 +33,7 @@ interface WalletItem {
   type: string;
   direction: string;
   balance: string;
-  asset: { code: string; type: string; network?: string | null; decimals?: number };
+  asset: { currency: string; code: string; type: string; network?: string | null; decimals?: number };
   status: string;
   vaultId?: string | null;
   updatedAt: string;

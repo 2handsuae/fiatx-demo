@@ -34,7 +34,7 @@ interface WithdrawalAddr {
   traceId: string;
   createdAt: string;
   updatedAt: string;
-  asset: { code: string; type: string; network: string | null };
+  asset: { currency: string; code: string; type: string; network: string | null };
   customer: { id: string; customerNo: string } | null;
 }
 
@@ -286,7 +286,7 @@ export default function WithdrawalAddressDetail() {
             <Cap>Details</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField label="Customer" value={data.customerNo} mono accent />
-              <InfoField label="Asset" value={`${data.asset.code} (${data.asset.type})`} />
+              <InfoField label="Asset" value={data.asset.code} />
               <InfoField label="Network" value={data.network} />
               <InfoField label="Registered" value={fmt(data.createdAt)} mono />
             </div>

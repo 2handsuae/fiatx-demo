@@ -31,7 +31,7 @@ interface WithdrawalAddr {
   updatedAt: string;
   iban: string | null;
   bankName: string | null;
-  asset: { code: string; type: string };
+  asset: { currency: string; code: string; type: string };
 }
 
 interface FilterState {

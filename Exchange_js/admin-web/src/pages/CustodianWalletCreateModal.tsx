@@ -39,6 +39,7 @@ const FIAT_SYSTEM_ROLES = new Set(['C_CMA', 'F_LIQ', 'F_OPS']);
 interface AssetOption {
   id: string;
   assetNo: string;
+  currency: string;
   code: string;
   type: string;
   status: string;
