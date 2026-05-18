@@ -20,6 +20,7 @@ interface AssetItem {
   id: string;
   assetNo: string | null;
   type: string;
+  currency: string;
   code: string;
   network: string | null;
   decimals: number;
@@ -77,7 +78,7 @@ const AssetList = () => {
     const params = new URLSearchParams();
     params.set('skip', String((page - 1) * PAGE_SIZE));
     params.set('take', String(PAGE_SIZE));
-    if (next.codeSearch.trim()) params.set('code', next.codeSearch.trim());
+    if (next.codeSearch.trim()) params.set('currency', next.codeSearch.trim());
     if (next.type) params.set('type', next.type);
     if (next.status) params.set('status', next.status);
     return params;
@@ -209,8 +210,8 @@ const AssetList = () => {
         <table className="w-full border-collapse text-[11px]">
           <thead className="sticky top-0 z-10 bg-adm-panel">
             <tr className="border-b border-adm-border">
-              <th className={th} style={{ width: 120 }}>Asset No</th>
-              <th className={th} style={{ width: 80 }}>Code</th>
+              <th className={th} style={{ width: 140 }}>Code</th>
+              <th className={th} style={{ width: 80 }}>Currency</th>
               <th className={th} style={{ width: 80 }}>Type</th>
               <th className={th} style={{ width: 100 }}>Network</th>
               <th className={th} style={{ width: 70 }}>Decimals</th>
@@ -232,11 +233,11 @@ const AssetList = () => {
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover transition-colors"
                   onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
                 >
-                  <td className="px-3 py-2 font-mono text-[11px] text-adm-amber">
-                    {a.assetNo || '—'}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-t1">
+                  <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-amber">
                     {a.code}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[11px] text-adm-t1">
+                    {a.currency}
                   </td>
                   <td className="px-3 py-2">
                     <AdminBadge value={a.type} />

@@ -28,7 +28,7 @@ const AssetCreate = () => {
 
   const [formData, setFormData] = useState({
     type: 'CRYPTO',
-    code: '',
+    currency: '',
     network: '',
     decimals: 18,
     description: '',
@@ -58,7 +58,7 @@ const AssetCreate = () => {
 
     const payload: Record<string, unknown> = {
       type: formData.type,
-      code: formData.code,
+      currency: formData.currency,
       decimals: formData.decimals,
       description: formData.description || undefined,
       minDepositAmount: formData.minDepositAmount,
@@ -134,8 +134,8 @@ const AssetCreate = () => {
                 </select>
               </div>
               <div>
-                <Label required>Asset Code</Label>
-                <input name="code" value={formData.code} onChange={handleChange} placeholder="e.g. USDT, BTC" className={`${fi} uppercase`} required maxLength={16} />
+                <Label required>Currency</Label>
+                <input name="currency" value={formData.currency} onChange={handleChange} placeholder="e.g. USDT, BTC" className={`${fi} uppercase`} required maxLength={16} />
                 <Hint>Max 16 characters</Hint>
               </div>
               <div>

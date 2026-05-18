@@ -12,6 +12,7 @@ interface AssetDetailData {
   id: string;
   assetNo?: string | null;
   type: 'FIAT' | 'CRYPTO';
+  currency: string;
   code: string;
   network: string | null;
   decimals: number;
@@ -253,12 +254,12 @@ export default function AssetDetail() {
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
             <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
-              {asset.assetNo || asset.code}
+              {asset.code}
             </p>
             <div className="mt-2.5 flex items-center gap-2">
               <AdminBadge value={asset.status} />
               <span className="font-mono text-[10px] text-adm-t2">
-                {asset.code} · {asset.type}{asset.network ? ` · ${asset.network}` : ''}
+                {asset.currency} · {asset.type}{asset.network ? ` · ${asset.network}` : ''}
               </span>
             </div>
           </section>
@@ -268,6 +269,7 @@ export default function AssetDetail() {
             <Cap>Asset Details</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField label="Code" value={asset.code} mono />
+              <InfoField label="Currency" value={asset.currency} mono />
               <InfoField label="Type" value={asset.type} />
               <InfoField label="Network" value={asset.network || '—'} />
               <InfoField label="Decimals" value={String(asset.decimals)} mono />
@@ -352,7 +354,7 @@ export default function AssetDetail() {
           <SidebarGroup title="Identity">
             <SidebarKV label="Asset No" value={asset.assetNo} mono />
             <SidebarKV label="Status" value={<AdminBadge value={asset.status} />} />
-            <SidebarKV label="Code" value={asset.code} mono />
+            <SidebarKV label="Currency" value={asset.currency} mono />
             <SidebarKV label="Type" value={asset.type} />
           </SidebarGroup>
 

@@ -30,6 +30,7 @@ interface AssetData {
   id: string;
   assetNo: string | null;
   type: string;
+  currency: string;
   code: string;
   network: string | null;
   decimals: number;
@@ -54,6 +55,7 @@ const AssetEdit = () => {
   const [identity, setIdentity] = useState<{
     assetNo: string;
     type: string;
+    currency: string;
     code: string;
     network: string | null;
     decimals: number;
@@ -90,6 +92,7 @@ const AssetEdit = () => {
         setIdentity({
           assetNo: data.assetNo || data.code,
           type: data.type,
+          currency: data.currency,
           code: data.code,
           network: data.network,
           decimals: data.decimals,
@@ -198,7 +201,7 @@ const AssetEdit = () => {
             Edit Asset · {identity.assetNo}
           </p>
           <p className="font-mono text-[9px] text-adm-t3">
-            {identity.code} · {identity.type} · Only operational fields are editable
+            {identity.code} · {identity.currency} · {identity.type} · Only operational fields are editable
           </p>
         </div>
       </div>
@@ -226,7 +229,7 @@ const AssetEdit = () => {
                 <input value={identity.type} readOnly className={fiReadonly} />
               </div>
               <div>
-                <Label locked>Asset Code</Label>
+                <Label locked>Code</Label>
                 <input value={identity.code} readOnly className={`${fiReadonly} uppercase`} />
               </div>
               <div>
