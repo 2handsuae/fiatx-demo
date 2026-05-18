@@ -28,13 +28,13 @@ export class AssetsService {
 
   async create(data: CreateAssetDto) {
     this.logger.log(
-      `Creating asset: ${data.type} ${data.code} ${data.network || ''}`,
+      `Creating asset: ${data.type} ${data.currency} ${data.network || ''}`,
     );
 
     const existing = await this.prisma.asset.findFirst({
       where: {
         type: data.type,
-        code: data.code,
+        currency: data.currency,
         network: data.network || null,
       },
     });
@@ -44,7 +44,7 @@ export class AssetsService {
         `Failed to create asset: Asset combination already exists`,
       );
       throw new BadRequestException(
-        'Asset with this type, code and network combination already exists',
+        'Asset with this type, currency and network combination already exists',
       );
     }
 
@@ -52,11 +52,14 @@ export class AssetsService {
       throw new BadRequestException('Network is required for CRYPTO assets');
     }
 
+    const code = data.network ? `${data.currency}-${data.network}` : data.currency;
+
     const result = await this.prisma.asset.create({
       data: {
         assetNo: generateReferenceNo('AS'),
         type: data.type,
-        code: data.code,
+        currency: data.currency,
+        code,
         network: data.network,
         decimals: data.decimals,
         description: data.description,
@@ -285,7 +288,7 @@ export class AssetsService {
 
   async createAsset(
     dto: {
-      code: string;
+      currency: string;
       name?: string;
       type: string;
       network?: string;
@@ -305,13 +308,15 @@ export class AssetsService {
 
     // Uniqueness check
     const existing = await db.asset.findFirst({
-      where: { type: dto.type, code: dto.code, network: dto.network ?? null },
+      where: { type: dto.type, currency: dto.currency, network: dto.network ?? null },
     });
     if (existing) {
       throw new ConflictException(
-        `Asset already exists: type=${dto.type} code=${dto.code} network=${dto.network || 'N/A'}`,
+        `Asset already exists: type=${dto.type} currency=${dto.currency} network=${dto.network || 'N/A'}`,
       );
     }
+
+    const code = dto.network ? `${dto.currency}-${dto.network}` : dto.currency;
 
     // P2002 retry for assetNo generation
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -320,7 +325,8 @@ export class AssetsService {
         const data: any = {
           assetNo,
           type: dto.type,
-          code: dto.code,
+          currency: dto.currency,
+          code,
           network: dto.network,
           description: dto.description,
           contractAddress: dto.contractAddress,

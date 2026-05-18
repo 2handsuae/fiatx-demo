@@ -28,7 +28,7 @@ export class CreateAssetDto {
   @ApiProperty()
   @IsString()
   @MaxLength(16)
-  code!: string;
+  currency!: string;
 
   @ApiProperty({ required: false })
   @IsString()

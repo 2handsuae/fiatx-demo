@@ -36,7 +36,7 @@ function IsGreaterThanOrEqual(property: string, validationOptions?: ValidationOp
 
 /**
  * Fields editable while asset is in PROVISIONING status.
- * Identity fields (type, code, network, decimals) are NOT editable
+ * Identity fields (type, currency, network, decimals) are NOT editable
  * because they are tied to the TB ledger.
  */
 export class UpdateAssetDto {

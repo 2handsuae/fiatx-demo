@@ -43,7 +43,7 @@ export { AssetType };
 export class SubmitAssetListingDto {
   @IsString()
   @MaxLength(16)
-  code!: string;
+  currency!: string;
 
   @IsEnum(AssetType)
   type!: AssetType;

@@ -48,13 +48,13 @@ export class AssetsController {
   @ApiQuery({ name: 'take', required: false, type: Number })
   @ApiQuery({ name: 'type', required: false, enum: AssetType })
   @ApiQuery({ name: 'status', required: false, enum: AssetStatus })
-  @ApiQuery({ name: 'code', required: false, type: String })
+  @ApiQuery({ name: 'currency', required: false, type: String })
   findAll(
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('type') type?: AssetType,
     @Query('status') status?: AssetStatus,
-    @Query('code') code?: string,
+    @Query('currency') currency?: string,
   ) {
     const where: Prisma.AssetWhereInput = {};
 
@@ -64,8 +64,8 @@ export class AssetsController {
     if (status) {
       where.status = status;
     }
-    if (code) {
-      where.code = { contains: code };
+    if (currency) {
+      where.currency = { contains: currency };
     }
 
     return this.service.findAll({
