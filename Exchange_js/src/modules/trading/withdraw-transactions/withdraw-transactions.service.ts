@@ -512,7 +512,7 @@ export class WithdrawTransactionsService {
         const totals = activeQuote.totalsJson
           ? (JSON.parse(activeQuote.totalsJson) as Record<string, string>)
           : {};
-        quoteFeeAmount = new Prisma.Decimal(totals[asset.code] || '0');
+        quoteFeeAmount = new Prisma.Decimal(totals[asset.currency] || '0');
         consumedQuoteId = activeQuote.id;
         await this.pricingCenterService.consumeWithdrawQuoteForWithdraw(
           tx,

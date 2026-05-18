@@ -74,8 +74,8 @@ interface AuditActor {
 interface ResolvedSwapExecutionQuote {
   fromAssetId: string;
   toAssetId: string;
-  fromAssetCode: string;
-  toAssetCode: string;
+  fromAssetCurrency: string;
+  toAssetCurrency: string;
   fromAssetDecimals: number;
   toAssetDecimals: number;
   quotedRate: Prisma.Decimal;
@@ -125,7 +125,7 @@ interface WithdrawVolatilityRestrictionResult {
 
 interface ResolvedWithdrawalQuote {
   assetId: string;
-  assetCode: string;
+  assetCurrency: string;
   amount: Prisma.Decimal;
   matchedAssetEntryId: string;
   tierId: string;
@@ -148,8 +148,8 @@ export interface PricingQuoteListItem {
   expiresAt: Date;
   usedAt: Date | null;
   cancelledAt: Date | null;
-  primaryAssetCode: string;
-  secondaryAssetCode: string | null;
+  primaryAssetCurrency: string;
+  secondaryAssetCurrency: string | null;
   amountIn: string | null;
   amountOut: string | null;
   amount: string | null;
@@ -218,7 +218,7 @@ export class PricingCenterService {
   private defaultWithdrawalFeeItem(
     feeId: string,
     itemCode: WithdrawalFeeItemCode,
-    assetCode: string,
+    assetCurrency: string,
     decimals: number,
   ): FeeItem {
     return {
@@ -226,7 +226,7 @@ export class PricingCenterService {
       itemCode,
       calcType: 'FLAT',
       value: '0',
-      currency: assetCode,
+      currency: assetCurrency,
       min: null,
       cap: null,
       roundingDp: decimals,
@@ -239,13 +239,13 @@ export class PricingCenterService {
     raw: unknown,
     fallbackId: string,
     itemCode: WithdrawalFeeItemCode,
-    assetCode: string,
+    assetCurrency: string,
     decimals: number,
   ): FeeItem {
     const base = this.defaultWithdrawalFeeItem(
       fallbackId,
       itemCode,
-      assetCode,
+      assetCurrency,
       decimals,
     );
     if (!raw || typeof raw !== 'object') {
@@ -314,7 +314,7 @@ export class PricingCenterService {
     entry: WithdrawalAssetEntry | undefined,
     asset: {
       id: string;
-      code: string;
+      currency: string;
       network: string | null;
       decimals: number;
     },
@@ -339,7 +339,7 @@ export class PricingCenterService {
     return {
       id: entryId,
       assetId: asset.id,
-      assetCode: asset.code,
+      assetCurrency: asset.currency,
       network: asset.network,
       enabled: entry?.enabled ?? true,
       tiers: [
@@ -357,14 +357,14 @@ export class PricingCenterService {
               serviceRaw,
               `${tierId}-FEE-001`,
               PricingCenterService.WITHDRAW_SERVICE_FEE_CODE,
-              asset.code,
+              asset.currency,
               asset.decimals,
             ),
             this.normalizeWithdrawalFeeItem(
               gasRaw,
               `${tierId}-FEE-002`,
               PricingCenterService.WITHDRAW_GAS_FEE_CODE,
-              asset.code,
+              asset.currency,
               asset.decimals,
             ),
           ],
@@ -399,7 +399,7 @@ export class PricingCenterService {
       orderBy: [{ type: 'asc' }, { code: 'asc' }, { network: 'asc' }],
       select: {
         id: true,
-        code: true,
+        currency: true,
         network: true,
         decimals: true,
       },
@@ -516,7 +516,7 @@ export class PricingCenterService {
       assets: (raw.assets || []).map((entry) => ({
         id: entry.id,
         assetId: entry.assetId,
-        assetCode: entry.assetCode,
+        assetCurrency: entry.assetCurrency,
         network: entry.network || null,
         enabled: Boolean(entry.enabled),
         tiers: [
@@ -536,7 +536,7 @@ export class PricingCenterService {
                 itemCode: item.itemCode,
                 calcType: item.calcType === 'PERCENT' ? 'PERCENT' : 'FLAT',
                 value: this.toNonNegativeDecimalString(item.value, '0'),
-                currency: String(item.currency || entry.assetCode || '').toUpperCase(),
+                currency: String(item.currency || entry.assetCurrency || '').toUpperCase(),
                 min:
                   item.min === null || item.min === undefined || item.min === ''
                     ? null
@@ -581,13 +581,6 @@ export class PricingCenterService {
     }
   }
 
-  private formatAssetLabel(asset: {
-    code: string;
-    network: string | null;
-  }): string {
-    return asset.network ? `${asset.code}-${asset.network}` : asset.code;
-  }
-
   private buildDefaultSwapPolicyConfig(
     assets: Array<{
       id: string;
@@ -617,11 +610,11 @@ export class PricingCenterService {
 
         pairs.push({
           id: pairId,
-          name: `${this.formatAssetLabel(left)} -> ${this.formatAssetLabel(right)}`,
+          name: `${left.code} -> ${right.code}`,
           assetAId: left.id,
-          assetALabel: this.formatAssetLabel(left),
+          assetALabel: left.code,
           assetBId: right.id,
-          assetBLabel: this.formatAssetLabel(right),
+          assetBLabel: right.code,
           enabled: true,
           restrictions: {
             blockedInvestorClassifications: [],
@@ -668,7 +661,7 @@ export class PricingCenterService {
   private buildDefaultWithdrawalPolicyConfig(
     assets: Array<{
       id: string;
-      code: string;
+      currency: string;
       network: string | null;
       decimals: number;
     }>,
@@ -679,7 +672,7 @@ export class PricingCenterService {
       return {
         id: entryId,
         assetId: asset.id,
-        assetCode: asset.code,
+        assetCurrency: asset.currency,
         network: asset.network,
         enabled: true,
         tiers: [
@@ -698,7 +691,7 @@ export class PricingCenterService {
                 itemCode: 'WITHDRAW_SERVICE_FEE',
                 calcType: 'FLAT',
                 value: '0',
-                currency: asset.code,
+                currency: asset.currency,
                 min: null,
                 cap: null,
                 roundingDp: asset.decimals,
@@ -710,7 +703,7 @@ export class PricingCenterService {
                 itemCode: 'NETWORK_FEE_EST',
                 calcType: 'FLAT',
                 value: '0',
-                currency: asset.code,
+                currency: asset.currency,
                 min: null,
                 cap: null,
                 roundingDp: asset.decimals,
@@ -755,6 +748,7 @@ export class PricingCenterService {
       select: {
         id: true,
         code: true,
+        currency: true,
         type: true,
         network: true,
         decimals: true,
@@ -1072,9 +1066,9 @@ export class PricingCenterService {
         }
         seenFeeCodes.add(code);
 
-        if (String(item.currency || '').toUpperCase() !== String(entry.assetCode || '').toUpperCase()) {
+        if (String(item.currency || '').toUpperCase() !== String(entry.assetCurrency || '').toUpperCase()) {
           throw new BadRequestException(
-            `Withdrawal asset ${entry.id} ${item.itemCode} currency must match asset code`,
+            `Withdrawal asset ${entry.id} ${item.itemCode} currency must match asset currency`,
           );
         }
 
@@ -1858,7 +1852,7 @@ export class PricingCenterService {
     const provider: LpCode = pair.routing.provider || 'LP_A';
     let selectedQuote: ProviderRateQuote;
     try {
-      selectedQuote = await this.fetchProviderQuote(provider, fromAsset.code, toAsset.code);
+      selectedQuote = await this.fetchProviderQuote(provider, fromAsset.currency, toAsset.currency);
     } catch {
       throw new BadRequestException('No valid LP quote available for this pair');
     }
@@ -1886,17 +1880,17 @@ export class PricingCenterService {
 
     if (
       pricingResult.feeCurrency &&
-      pricingResult.feeCurrency !== fromAsset.code &&
-      pricingResult.feeCurrency !== toAsset.code
+      pricingResult.feeCurrency !== fromAsset.currency &&
+      pricingResult.feeCurrency !== toAsset.currency
     ) {
       throw new BadRequestException(
-        `Swap pricing fee currency must match swap asset codes for pair ${pair.id}`,
+        `Swap pricing fee currency must match swap asset currencies for pair ${pair.id}`,
       );
     }
 
     if (
       pricingResult.feeCurrency &&
-      pricingResult.feeCurrency !== toAsset.code
+      pricingResult.feeCurrency !== toAsset.currency
     ) {
       throw new BadRequestException(
         `Swap pricing currently only supports receive-asset fees for pair ${pair.id}`,
@@ -1906,8 +1900,8 @@ export class PricingCenterService {
     return {
       fromAssetId: fromAsset.id,
       toAssetId: toAsset.id,
-      fromAssetCode: fromAsset.code,
-      toAssetCode: toAsset.code,
+      fromAssetCurrency: fromAsset.currency,
+      toAssetCurrency: toAsset.currency,
       fromAssetDecimals: fromAsset.decimals,
       toAssetDecimals: toAsset.decimals,
       quotedRate: new Prisma.Decimal(pricingResult.fx.quotedRate),
@@ -1965,8 +1959,8 @@ export class PricingCenterService {
     try {
       providerQuote = await this.fetchProviderQuote(
         pair.routing.provider || 'LP_A',
-        fromAsset.code,
-        toAsset.code,
+        fromAsset.currency,
+        toAsset.currency,
       );
     } catch {
       throw new BadRequestException('No valid LP quote available for this pair');
@@ -2116,15 +2110,15 @@ export class PricingCenterService {
       ownerId,
       ownerNo,
       fromAssetId: resolved.fromAssetId,
-      fromAssetCode: resolved.fromAssetCode,
+      fromAssetCode: resolved.fromAssetCurrency,
       toAssetId: resolved.toAssetId,
-      toAssetCode: resolved.toAssetCode,
+      toAssetCode: resolved.toAssetCurrency,
       side: SwapSide.SELL_BASE,
       amountType: SwapAmountType.EXACT_IN,
       amountIn: fromAmount,
-      currencyIn: resolved.fromAssetCode,
+      currencyIn: resolved.fromAssetCurrency,
       amountOut,
-      currencyOut: resolved.toAssetCode,
+      currencyOut: resolved.toAssetCurrency,
       rateDisplay: rateAllIn,
       rateAllIn,
       marketRate,
@@ -2133,7 +2127,7 @@ export class PricingCenterService {
       rateSource: resolved.baseProvider,
       fetchedAt: resolved.fetchedAt,
       feeTotal,
-      feeCurrency: resolved.feeCurrency || resolved.toAssetCode,
+      feeCurrency: resolved.feeCurrency || resolved.toAssetCurrency,
       feeBreakdown,
       totalsJson: JSON.stringify(resolved.totals),
       policyRef: JSON.stringify(resolved.policyRef),
@@ -2348,7 +2342,7 @@ export class PricingCenterService {
 
     return {
       assetId: asset.id,
-      assetCode: asset.code,
+      assetCurrency: asset.currency,
       amount,
       matchedAssetEntryId: result.matched.assetEntryId,
       tierId: result.matched.tierId,
@@ -2433,7 +2427,7 @@ export class PricingCenterService {
         ownerId,
         ownerNo,
         assetId: resolved.assetId,
-        assetCode: resolved.assetCode,
+        assetCode: resolved.assetCurrency,
         amount: resolved.amount,
         segment: 'ANY',
         riskTier: 'ANY',
@@ -2648,8 +2642,8 @@ export class PricingCenterService {
       expiresAt: item.expiresAt,
       usedAt: item.usedAt || null,
       cancelledAt: item.cancelledAt || null,
-      primaryAssetCode: item.fromAssetCode,
-      secondaryAssetCode: item.toAssetCode,
+      primaryAssetCurrency: item.fromAssetCode,
+      secondaryAssetCurrency: item.toAssetCode,
       amountIn: item.amountIn?.toString?.() || String(item.amountIn),
       amountOut: item.amountOut?.toString?.() || String(item.amountOut),
       amount: null,
@@ -2663,7 +2657,7 @@ export class PricingCenterService {
   private toWithdrawQuoteListItem(item: any, now: Date): PricingQuoteListItem {
     const totals = this.parseJsonValue<Record<string, string>>(item.totalsJson, {});
     const feeCurrency =
-      Object.keys(totals)[0] || item.assetCode || item.asset?.code || 'N/A';
+      Object.keys(totals)[0] || item.assetCode || item.asset?.currency || 'N/A';
     const feeTotal = totals[feeCurrency] || '0';
 
     return {
@@ -2677,8 +2671,8 @@ export class PricingCenterService {
       expiresAt: this.getEffectiveWithdrawQuoteExpiry(item),
       usedAt: item.usedAt || null,
       cancelledAt: item.cancelledAt || null,
-      primaryAssetCode: item.assetCode,
-      secondaryAssetCode: null,
+      primaryAssetCurrency: item.assetCode,
+      secondaryAssetCurrency: null,
       amountIn: null,
       amountOut: null,
       amount: item.amount?.toString?.() || String(item.amount),
@@ -2852,8 +2846,8 @@ export class PricingCenterService {
         policyRef: snapshots.policyRef,
         swap: {
           quoteType: item.quoteType,
-          fromAssetCode: item.fromAssetCode,
-          toAssetCode: item.toAssetCode,
+          fromAssetCurrency: item.fromAssetCode,
+          toAssetCurrency: item.toAssetCode,
           fromAsset: item.fromAsset,
           toAsset: item.toAsset,
           side: item.side,

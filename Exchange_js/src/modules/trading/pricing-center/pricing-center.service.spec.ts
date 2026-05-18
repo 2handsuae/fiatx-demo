@@ -80,7 +80,7 @@ describe('PricingCenterService - Swap Phase 1 constraints', () => {
       {
         id: 'ASSET-0001',
         assetId: 'asset-btc',
-        assetCode: 'BTC',
+        assetCurrency: 'BTC',
         network: 'BTC',
         enabled: true,
         tiers: [

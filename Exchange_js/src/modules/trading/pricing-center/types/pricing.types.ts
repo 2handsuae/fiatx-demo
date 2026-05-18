@@ -84,7 +84,7 @@ export interface SwapPairEntry {
 export interface WithdrawalAssetEntry {
   id: string;
   assetId: string;
-  assetCode: string;
+  assetCurrency: string;
   network: string | null;
   enabled: boolean;
   tiers: WithdrawalTier[];

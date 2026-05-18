@@ -32,8 +32,8 @@ interface SwapPricingSourceInfo {
 export interface SwapExecutableRateResult {
   fromAssetId: string;
   toAssetId: string;
-  fromAssetCode: string;
-  toAssetCode: string;
+  fromAssetCurrency: string;
+  toAssetCurrency: string;
   fromAssetDecimals: number;
   toAssetDecimals: number;
   marketRate: number;
@@ -129,8 +129,8 @@ export class SwapTransactionsService {
     return {
       fromAssetId: fromAsset.id,
       toAssetId: toAsset.id,
-      fromAssetCode: fromAsset.code,
-      toAssetCode: toAsset.code,
+      fromAssetCurrency: fromAsset.currency,
+      toAssetCurrency: toAsset.currency,
       fromAssetDecimals: resolved.fromAssetDecimals,
       toAssetDecimals: resolved.toAssetDecimals,
       marketRate: resolved.baseRate.toNumber(),
@@ -187,11 +187,11 @@ export class SwapTransactionsService {
 
     return {
       fromAssetId: rateDetails.fromAssetId,
-      fromAssetCode: rateDetails.fromAssetCode,
+      fromAssetCurrency: rateDetails.fromAssetCurrency,
       fromAssetDecimals: rateDetails.fromAssetDecimals,
       fromAmount: fromAmount.toNumber(),
       toAssetId: rateDetails.toAssetId,
-      toAssetCode: rateDetails.toAssetCode,
+      toAssetCurrency: rateDetails.toAssetCurrency,
       toAssetDecimals: rateDetails.toAssetDecimals,
       toAmount: toAmount.toNumber(),
       amountOut: toAmount.toNumber(),

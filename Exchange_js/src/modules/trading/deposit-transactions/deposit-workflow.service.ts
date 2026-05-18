@@ -246,7 +246,7 @@ export class DepositWorkflowService implements OnModuleInit {
       throw new Error(`Deposit ${deposit.id} has no associated asset`);
     }
     if (!asset.tbLedgerId) {
-      throw new Error(`Asset ${asset.code} has no tbLedgerId`);
+      throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
     }
 
     const ledger = asset.tbLedgerId;
@@ -277,7 +277,7 @@ export class DepositWorkflowService implements OnModuleInit {
           eventCode: 'DEPOSIT_CUSTODY_TO_AUDIT',
           debitCode: String(TB_ACCOUNT_CODES.CUSTODY),
           creditCode: String(TB_ACCOUNT_CODES.CLIENT_AUDIT),
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
@@ -312,7 +312,7 @@ export class DepositWorkflowService implements OnModuleInit {
           eventCode: 'DEPOSIT_AUDIT_TO_CREDIT',
           debitCode: String(TB_ACCOUNT_CODES.CLIENT_AUDIT),
           creditCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',

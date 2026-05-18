@@ -8,6 +8,7 @@ import {
 export type PricingPolicyManifestAsset = {
   id: string;
   code: string;
+  currency: string;
   type: string;
   network: string | null;
   decimals: number;
@@ -41,11 +42,6 @@ const DEFAULT_ROUTING = {
   },
 };
 
-function formatAssetLabel(asset: PricingPolicyManifestAsset): string {
-  const network = String(asset.network || '').trim();
-  return network ? `${asset.code}-${network}` : asset.code;
-}
-
 export function buildDefaultSwapPricingPolicyConfig(
   activeAssets: PricingPolicyManifestAsset[],
 ): SwapPricingPolicyConfig {
@@ -70,11 +66,11 @@ export function buildDefaultSwapPricingPolicyConfig(
 
       pairs.push({
         id: pairId,
-        name: `${formatAssetLabel(left)} -> ${formatAssetLabel(right)}`,
+        name: `${left.code} -> ${right.code}`,
         assetAId: left.id,
-        assetALabel: formatAssetLabel(left),
+        assetALabel: left.code,
         assetBId: right.id,
-        assetBLabel: formatAssetLabel(right),
+        assetBLabel: right.code,
         enabled: true,
         restrictions: {
           blockedInvestorClassifications: [],
@@ -119,7 +115,7 @@ export function buildDefaultWithdrawalPricingPolicyConfig(
     return {
       id: assetEntryId,
       assetId: asset.id,
-      assetCode: asset.code,
+      assetCurrency: asset.currency,
       network: asset.network || null,
       enabled: true,
       tiers: [
@@ -138,7 +134,7 @@ export function buildDefaultWithdrawalPricingPolicyConfig(
               itemCode: 'WITHDRAW_SERVICE_FEE',
               calcType: 'FLAT' as const,
               value: '0',
-              currency: asset.code,
+              currency: asset.currency,
               min: null,
               cap: null,
               roundingDp: asset.decimals,
@@ -150,7 +146,7 @@ export function buildDefaultWithdrawalPricingPolicyConfig(
               itemCode: 'NETWORK_FEE_EST',
               calcType: 'FLAT' as const,
               value: '0',
-              currency: asset.code,
+              currency: asset.currency,
               min: null,
               cap: null,
               roundingDp: asset.decimals,
