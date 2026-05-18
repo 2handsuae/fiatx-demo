@@ -153,6 +153,7 @@ Only for states where manual operator decisions are needed:
 - ACTION_PENDING is not for operator approve/reject — after customer uploads materials via Sumsub SDK, Sumsub re-evaluates and sends webhook with decision. Resume is also unnecessary (COMPLIANCE_PENDING is Sumsub-driven; returning to it creates a dead-end loop). Only expire (customer timeout) is a valid manual action.
 - `confiscate` opens reason modal (same pattern as SwapTransactionDetail reject)
 - Calls `PATCH /deposit-transactions/:id/status` with `{ action, reason? }`
+- **Backend constraint**: Sumsub webhooks must NOT auto-transition FROZEN deposits. Frozen fund release/confiscation is a legal decision — only manual admin action is permitted. If Sumsub sends a webhook for a FROZEN deposit, log it but do not execute the transition.
 
 #### Identity Summary
 
