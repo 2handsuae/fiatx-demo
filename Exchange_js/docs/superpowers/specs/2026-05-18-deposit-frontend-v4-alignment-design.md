@@ -144,14 +144,14 @@ Only for states where manual operator decisions are needed:
 
 | Current Status | Available Actions | Button Variant |
 |---------------|-------------------|----------------|
-| ACTION_PENDING | approve, reject, resume, expire | workflowPrimary, workflowNegative, workflowSecondary, workflowSecondary |
+| ACTION_PENDING | resume, expire | workflowSecondary, workflowSecondary |
 | FROZEN | approve (release), confiscate | workflowPrimary, workflowNegative |
 | PAYIN_PENDING | — (no operator actions) | — |
 | COMPLIANCE_PENDING | — (Sumsub-driven) | — |
 | Terminal states | — | — |
 
-- ACTION_PENDING is the human review state — operator makes final approve/reject decision after reviewing flagged case. COMPLIANCE_PENDING decisions are Sumsub-driven; ACTION_PENDING decisions are operator-driven.
-- `reject` and `confiscate` open reason modal (same pattern as SwapTransactionDetail reject)
+- ACTION_PENDING is not for operator approve/reject — after customer uploads materials via Sumsub SDK, Sumsub re-evaluates and sends webhook with decision. Operator only needs resume (return to compliance review) and expire (customer timeout).
+- `confiscate` opens reason modal (same pattern as SwapTransactionDetail reject)
 - Calls `PATCH /deposit-transactions/:id/status` with `{ action, reason? }`
 
 #### Identity Summary
