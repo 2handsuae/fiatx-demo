@@ -31,7 +31,6 @@ const AssetCreate = () => {
     code: '',
     network: '',
     decimals: 18,
-    contractAddress: '',
     description: '',
     minDepositAmount: 0,
     maxDepositAmount: 0,
@@ -62,7 +61,6 @@ const AssetCreate = () => {
       code: formData.code,
       decimals: formData.decimals,
       description: formData.description || undefined,
-      contractAddress: formData.contractAddress || undefined,
       minDepositAmount: formData.minDepositAmount,
       maxDepositAmount: formData.maxDepositAmount,
       minWithdrawAmount: formData.minWithdrawAmount,
@@ -149,10 +147,6 @@ const AssetCreate = () => {
                 <Label required>Decimals</Label>
                 <input type="number" name="decimals" value={formData.decimals} onChange={handleChange} min={0} max={18} className={fi} required />
                 <Hint>0–18</Hint>
-              </div>
-              <div className="col-span-2">
-                <Label>Contract Address</Label>
-                <input name="contractAddress" value={formData.contractAddress} onChange={handleChange} placeholder="0x..." className={`${fi} font-mono`} maxLength={128} />
               </div>
               <div className="col-span-2">
                 <Label>Description</Label>
