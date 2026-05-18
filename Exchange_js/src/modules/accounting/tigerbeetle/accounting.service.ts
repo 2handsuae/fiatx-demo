@@ -66,7 +66,7 @@ export class AccountingService {
         ownerType: params.ownerType,
         ownerUuid: params.ownerUuid,
         ownerNo: params.ownerNo,
-        assetCode: params.assetCode,
+        assetCurrency: params.assetCurrency,
         description: params.description,
         flags: params.flags,
       }, tx);
@@ -125,7 +125,7 @@ export class AccountingService {
       debitCode: params.evidence.debitCode,
       creditCode: params.evidence.creditCode,
       amount: Number(params.amount),
-      assetCode: params.evidence.assetCode,
+      assetCurrency: params.evidence.assetCurrency,
       traceId: params.evidence.traceId,
       actorType: params.evidence.actorType,
       actorId: params.evidence.actorId,
@@ -155,10 +155,10 @@ export class AccountingService {
     };
   }
 
-  async getCustomerAvailableBalance(customerUuid: string, assetCode: string): Promise<CustomerAvailableBalance> {
-    const ledger = TB_LEDGERS[assetCode as keyof typeof TB_LEDGERS];
+  async getCustomerAvailableBalance(customerUuid: string, assetCurrency: string): Promise<CustomerAvailableBalance> {
+    const ledger = TB_LEDGERS[assetCurrency as keyof typeof TB_LEDGERS];
     if (!ledger) {
-      throw new BadRequestException(`Unsupported asset code for balance query: ${assetCode}`);
+      throw new BadRequestException(`Unsupported asset currency for balance query: ${assetCurrency}`);
     }
 
     const tbAccountId = await this.resolveTbAccountId({

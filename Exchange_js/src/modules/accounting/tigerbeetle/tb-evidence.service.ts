@@ -11,7 +11,7 @@ interface WriteEvidenceParams {
   debitCode: string;
   creditCode: string;
   amount: number | Prisma.Decimal;
-  assetCode: string;
+  assetCurrency: string;
   traceId: string;
   actorType: string;
   actorId: string;
@@ -38,7 +38,7 @@ export class TbEvidenceService {
           debitCode: params.debitCode,
           creditCode: params.creditCode,
           amount: params.amount,
-          assetCode: params.assetCode,
+          assetCurrency: params.assetCurrency,
           traceId: params.traceId,
           actorType: params.actorType,
           actorId: params.actorId,
@@ -96,7 +96,7 @@ export class TbEvidenceService {
 
   async findAll(filters: {
     sourceType?: string;
-    assetCode?: string;
+    assetCurrency?: string;
     eventCode?: string;
     transferType?: string;
     actorType?: string;
@@ -106,7 +106,7 @@ export class TbEvidenceService {
   }) {
     const where: any = {};
     if (filters.sourceType) where.sourceType = filters.sourceType;
-    if (filters.assetCode) where.assetCode = filters.assetCode;
+    if (filters.assetCurrency) where.assetCurrency = filters.assetCurrency;
     if (filters.eventCode) where.eventCode = filters.eventCode;
     if (filters.transferType) where.transferType = filters.transferType;
     if (filters.actorType) where.actorType = filters.actorType;

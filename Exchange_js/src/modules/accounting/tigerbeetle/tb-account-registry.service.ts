@@ -10,7 +10,7 @@ interface RegisterParams {
   ownerType: string;
   ownerUuid?: string;
   ownerNo?: string;
-  assetCode: string;
+  assetCurrency: string;
   description?: string;
   flags?: number;
 }
@@ -36,7 +36,7 @@ export class TbAccountRegistryService {
         ownerType: params.ownerType,
         ownerUuid: params.ownerUuid ?? null,
         ownerNo: params.ownerNo ?? null,
-        assetCode: params.assetCode,
+        assetCurrency: params.assetCurrency,
         description: params.description ?? null,
         flags: params.flags ?? 0,
       },
@@ -69,14 +69,14 @@ export class TbAccountRegistryService {
   }
 
   async findAll(filters: {
-    assetCode?: string;
+    assetCurrency?: string;
     ownerType?: string;
     code?: number;
     skip?: number;
     take?: number;
   }) {
     const where: any = {};
-    if (filters.assetCode) where.assetCode = filters.assetCode;
+    if (filters.assetCurrency) where.assetCurrency = filters.assetCurrency;
     if (filters.ownerType) where.ownerType = filters.ownerType;
     if (filters.code !== undefined) where.code = filters.code;
 

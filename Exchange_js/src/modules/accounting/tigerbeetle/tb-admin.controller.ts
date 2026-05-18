@@ -26,7 +26,7 @@ export class TbAdminController {
     return this.tbManualAccountService.manualCreate(
       {
         accountCategory: dto.accountCategory,
-        assetCode: dto.assetCode,
+        assetCurrency: dto.assetCurrency,
         code: dto.code,
         customerNo: dto.customerNo,
         description: dto.description,
@@ -44,12 +44,12 @@ export class TbAdminController {
   findAccounts(
     @Query('skip') skip?: string,
     @Query('take') take?: string,
-    @Query('assetCode') assetCode?: string,
+    @Query('assetCurrency') assetCurrency?: string,
     @Query('ownerType') ownerType?: string,
     @Query('code') code?: string,
   ) {
     return this.tbAccountRegistryService.findAll({
-      assetCode: assetCode || undefined,
+      assetCurrency: assetCurrency || undefined,
       ownerType: ownerType || undefined,
       code: code ? Number(code) : undefined,
       skip: skip ? Number(skip) : 0,
@@ -101,13 +101,13 @@ export class TbAdminController {
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('sourceType') sourceType?: string,
-    @Query('assetCode') assetCode?: string,
+    @Query('assetCurrency') assetCurrency?: string,
     @Query('eventCode') eventCode?: string,
     @Query('transferType') transferType?: string,
   ) {
     return this.tbEvidenceService.findAll({
       sourceType: sourceType || undefined,
-      assetCode: assetCode || undefined,
+      assetCurrency: assetCurrency || undefined,
       eventCode: eventCode || undefined,
       transferType: transferType || undefined,
       skip: skip ? Number(skip) : 0,

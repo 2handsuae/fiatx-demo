@@ -8,7 +8,7 @@ import { CreateTbAccountParams } from './types/accounting.types';
 
 interface AssetProvisionedEvent {
   assetId: string;
-  assetCode: string;
+  assetCurrency: string;
   tbLedgerId: number;
 }
 
@@ -25,13 +25,13 @@ export class TbAccountBatchService {
   @OnEvent('asset.provisioned', { async: true })
   async onAssetProvisioned(event: AssetProvisionedEvent): Promise<void> {
     this.logger.log(
-      `Batch creating customer TB accounts for asset ${event.assetCode} (ledger=${event.tbLedgerId})`,
+      `Batch creating customer TB accounts for asset ${event.assetCurrency} (ledger=${event.tbLedgerId})`,
     );
-    await this.batchCreateForAsset(event.assetCode, event.tbLedgerId);
+    await this.batchCreateForAsset(event.assetCurrency, event.tbLedgerId);
   }
 
   async batchCreateForAsset(
-    assetCode: string,
+    assetCurrency: string,
     ledger: number,
   ): Promise<{ total: number; succeeded: number; failed: number }> {
     const customers = await this.prisma.customerMain.findMany({
@@ -70,8 +70,8 @@ export class TbAccountBatchService {
             ownerType: 'CUSTOMER',
             ownerUuid: customer.id,
             ownerNo: customer.customerNo,
-            assetCode,
-            description: `${codeName} for ${customer.customerNo} / ${assetCode}`,
+            assetCurrency,
+            description: `${codeName} for ${customer.customerNo} / ${assetCurrency}`,
             flags,
           };
 
@@ -87,7 +87,7 @@ export class TbAccountBatchService {
           failed++;
           const errorMsg = error instanceof Error ? error.message : 'Unknown error';
           this.logger.warn(
-            `Failed to create TB account code=${code} for customer=${customer.customerNo} asset=${assetCode}: ${errorMsg}`,
+            `Failed to create TB account code=${code} for customer=${customer.customerNo} asset=${assetCurrency}: ${errorMsg}`,
           );
 
           // Upsert backlog entry
@@ -96,7 +96,7 @@ export class TbAccountBatchService {
               ledger_customerId_code: { ledger, customerId: customer.id, code },
             },
             create: {
-              assetCode,
+              assetCode: assetCurrency,
               ledger,
               customerId: customer.id,
               customerNo: customer.customerNo,
@@ -116,16 +116,16 @@ export class TbAccountBatchService {
     }
 
     this.logger.log(
-      `Batch TB account creation for ${assetCode}: total=${customers.length * 2}, succeeded=${succeeded}, failed=${failed}`,
+      `Batch TB account creation for ${assetCurrency}: total=${customers.length * 2}, succeeded=${succeeded}, failed=${failed}`,
     );
     return { total: customers.length * 2, succeeded, failed };
   }
 
   async retryFailed(
-    assetCode?: string,
+    assetCurrency?: string,
   ): Promise<{ total: number; succeeded: number; failed: number }> {
     const where: { status: string; assetCode?: string } = { status: 'FAILED' };
-    if (assetCode) where.assetCode = assetCode;
+    if (assetCurrency) where.assetCode = assetCurrency;
 
     const entries = await this.prisma.tbAccountBacklog.findMany({ where });
     let succeeded = 0;
@@ -159,7 +159,7 @@ export class TbAccountBatchService {
           ownerType: 'CUSTOMER',
           ownerUuid: entry.customerId,
           ownerNo: entry.customerNo,
-          assetCode: entry.assetCode,
+          assetCurrency: entry.assetCode,
           description: `${codeName} for ${entry.customerNo} / ${entry.assetCode}`,
           flags,
         };

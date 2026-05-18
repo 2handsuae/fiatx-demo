@@ -34,7 +34,7 @@ const CUSTOMER_CODES = new Set<number>([
 
 interface ManualCreateInput {
   accountCategory: 'SYSTEM' | 'CUSTOMER';
-  assetCode: string;
+  assetCurrency: string;
   code: number;
   customerNo?: string;
   description?: string;
@@ -67,12 +67,12 @@ export class TbManualAccountService {
 
     // 2. Load and validate asset
     const asset = await this.prisma.asset.findFirst({
-      where: { code: input.assetCode },
+      where: { currency: input.assetCurrency },
     });
     if (!asset || asset.tbLedgerId == null) {
       throw new BadRequestException({
         code: 'ASSET_NOT_PROVISIONED',
-        message: `Asset '${input.assetCode}' is not provisioned for TigerBeetle`,
+        message: `Asset '${input.assetCurrency}' is not provisioned for TigerBeetle`,
       });
     }
 
@@ -135,8 +135,8 @@ export class TbManualAccountService {
       ownerType,
       ownerUuid,
       ownerNo: customer?.customerNo,
-      assetCode: input.assetCode,
-      description: input.description || `Manual: ${codeName} for ${input.assetCode}`,
+      assetCurrency: input.assetCurrency,
+      description: input.description || `Manual: ${codeName} for ${input.assetCurrency}`,
       flags,
     };
 
@@ -160,7 +160,7 @@ export class TbManualAccountService {
         result: AuditResult.SUCCESS,
         metadata: {
           accountCategory: input.accountCategory,
-          assetCode: input.assetCode,
+          assetCurrency: input.assetCurrency,
           code: input.code,
           codeName,
           customerNo: customer?.customerNo || null,

@@ -4,7 +4,7 @@ export interface CreateTbAccountParams {
   ownerType: 'SYSTEM' | 'CUSTOMER' | 'LP';
   ownerUuid?: string;
   ownerNo?: string;
-  assetCode: string;
+  assetCurrency: string;
   description?: string;
   flags?: number;
 }
@@ -16,7 +16,7 @@ export interface EvidenceParams {
   traceId: string;
   debitCode: string;
   creditCode: string;
-  assetCode: string;
+  assetCurrency: string;
   actorType: string;
   actorId: string;
   memo?: string;

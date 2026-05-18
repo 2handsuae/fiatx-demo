@@ -7,9 +7,9 @@ export class CreateTbAccountDto {
   @IsIn(['SYSTEM', 'CUSTOMER'])
   accountCategory!: 'SYSTEM' | 'CUSTOMER';
 
-  @ApiProperty({ description: 'Asset code (must be a provisioned asset with tbLedgerId)' })
+  @ApiProperty({ description: 'Asset currency (must be a provisioned asset with tbLedgerId)' })
   @IsString()
-  assetCode!: string;
+  assetCurrency!: string;
 
   @ApiProperty({ description: 'TB account type code (e.g. 1=BANK, 100=CLIENT_CREDIT)' })
   @IsInt()
