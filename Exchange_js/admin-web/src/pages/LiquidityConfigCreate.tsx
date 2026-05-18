@@ -156,7 +156,7 @@ const LiquidityConfigCreate = () => {
                 >
                     <option value="">Select Asset</option>
                     {assets.map(a => (
-                    <option key={a.id} value={a.id}>{a.code} ({a.type}) {a.network ? `- ${a.network}` : ''}</option>
+                    <option key={a.id} value={a.id}>{a.code} ({a.type})</option>
                     ))}
                 </select>
                 </div>
@@ -172,7 +172,7 @@ const LiquidityConfigCreate = () => {
                 >
                     <option value="">Select Asset</option>
                     {assets.map(a => (
-                    <option key={a.id} value={a.id}>{a.code} ({a.type}) {a.network ? `- ${a.network}` : ''}</option>
+                    <option key={a.id} value={a.id}>{a.code} ({a.type})</option>
                     ))}
                 </select>
                 </div>

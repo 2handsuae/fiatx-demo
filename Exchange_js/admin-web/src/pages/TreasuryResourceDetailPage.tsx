@@ -273,9 +273,7 @@ const TreasuryResourceDetailPage = ({
                   <InfoField
                     label="Asset"
                     value={
-                      item.asset
-                        ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}`
-                        : '-'
+                      item.asset?.code || '-'
                     }
                   />
                   <InfoField label="Amount" value={item.amount} />
@@ -353,9 +351,7 @@ const TreasuryResourceDetailPage = ({
                   <InfoField
                     label="Asset"
                     value={
-                      item.asset
-                        ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}`
-                        : '-'
+                      item.asset?.code || '-'
                     }
                   />
                   <InfoField label="Amount" value={item.amount} />

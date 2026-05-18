@@ -274,7 +274,7 @@ const InternalTransactionDetail = () => {
           <InfoCard label="Owner" value={`${data.ownerType} / ${data.ownerNo || data.ownerId}`} />
           <InfoCard
             label="Asset"
-            value={`${data.asset?.code || '-'} ${data.asset?.network ? `(${data.asset.network})` : ''}`}
+            value={data.asset?.code || '—'}
           />
           <InfoCard
             label="Amount"

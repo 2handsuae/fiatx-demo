@@ -165,7 +165,7 @@ const InternalTransactionList = () => {
     () =>
       assets.map((asset) => ({
         id: asset.id,
-        label: `${asset.code}${asset.network ? `-${asset.network}` : ''}`,
+        label: asset.code,
       })),
     [assets],
   );

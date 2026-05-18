@@ -288,7 +288,7 @@ const InternalFundDetail = () => {
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       <DetailPageHeader
         title="Internal Fund"
-        subtitle={`${data.internalFundNo} · ${data.asset?.code || '-'} ${data.asset?.network ? `(${data.asset.network})` : ''}`}
+        subtitle={`${data.internalFundNo} · ${data.asset?.code || '-'}`}
         onBack={() => navigate('/dashboard/treasury/internal-funds')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}

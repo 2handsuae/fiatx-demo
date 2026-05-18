@@ -315,7 +315,7 @@ const TreasuryResourcePage = ({
               <td className="px-4 py-3 font-mono text-xs text-brand-primary">{item.feeNo}</td>
               <td className="px-4 py-3 text-gray-700">{item.feeType}</td>
               <td className="px-4 py-3 text-gray-700">
-                {item.asset ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}` : '-'}
+                {item.asset?.code || '-'}
               </td>
               <td className="px-4 py-3 text-gray-700">{item.amount}</td>
               <td className="px-4 py-3 text-gray-700">{item.poolRole || '-'}</td>
@@ -360,7 +360,7 @@ const TreasuryResourcePage = ({
             >
               <td className="px-4 py-3 font-mono text-xs text-brand-primary">{item.obligationNo}</td>
               <td className="px-4 py-3 text-gray-700">
-                {item.asset ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}` : '-'}
+                {item.asset?.code || '-'}
               </td>
               <td className="px-4 py-3 text-gray-700">{item.amount}</td>
               <td className="px-4 py-3 text-gray-700">{item.poolRole || '-'}</td>

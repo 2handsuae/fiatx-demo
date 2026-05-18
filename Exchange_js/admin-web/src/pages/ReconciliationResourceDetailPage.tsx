@@ -386,9 +386,7 @@ const ReconciliationResourceDetailPage = ({
                   <InfoField
                     label="Asset"
                     value={
-                      item.asset
-                        ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}`
-                        : '-'
+                      item.asset?.code || '-'
                     }
                   />
                   <InfoField label="Wallet" value={item.wallet?.walletNo || '-'} />

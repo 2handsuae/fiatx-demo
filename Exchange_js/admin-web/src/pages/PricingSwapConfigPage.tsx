@@ -109,7 +109,7 @@ const PricingSwapConfigPage = () => {
   const assetLabelMap = useMemo(() => {
     const map = new Map<string, string>();
     assets.forEach((asset) => {
-      map.set(asset.id, asset.network ? `${asset.code}-${asset.network}` : asset.code);
+      map.set(asset.id, asset.code);
     });
     return map;
   }, [assets]);

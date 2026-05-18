@@ -368,9 +368,7 @@ const PoolSettlementBatchDetailPage = () => {
                       <StatusBadge value={item.status} colors={ITEM_STATUS_COLORS} />
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      {item.asset
-                        ? `${item.asset.code}${item.asset.network ? ` · ${item.asset.network}` : ''}`
-                        : item.assetId}
+                      {item.asset?.code || item.assetId}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600">
                       <div>{item.walletPairKey}</div>
@@ -438,9 +436,7 @@ const PoolSettlementBatchDetailPage = () => {
                       {itemSource.batchItemId || 'Netted without item'}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      {itemSource.asset
-                        ? `${itemSource.asset.code}${itemSource.asset.network ? ` · ${itemSource.asset.network}` : ''}`
-                        : itemSource.assetId}
+                      {itemSource.asset?.code || itemSource.assetId}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600">
                       <div>{itemSource.direction}</div>
