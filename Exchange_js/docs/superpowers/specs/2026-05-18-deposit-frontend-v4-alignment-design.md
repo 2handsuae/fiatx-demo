@@ -220,64 +220,85 @@ Only for states where manual operator decisions are needed:
 
 ---
 
-## Section 5: Backend — Sumsub → Deposit Event Linkage (Happy Path Critical)
+## Section 5: Backend — Transaction-Level Compliance (KYT + TR) → Deposit Linkage
 
-**Problem**: Sumsub AML approval currently updates `customer.complianceStatus` but does NOT trigger deposit status changes. The chain is broken.
+**Problem**: When a deposit reaches COMPLIANCE_PENDING, there is no mechanism to submit the transaction to Sumsub KYT/TR for compliance checking, and no webhook handlers to process the results and approve the deposit.
 
-### Current Flow (broken)
-
-```
-Sumsub webhook (GREEN)
-  → SumsubIngestionService.dispatch()
-    → ClientRiskAssessmentService.handleSumsubAmlResult()
-      → updates customer complianceStatus
-      ✗ STOPS HERE — no deposit awareness
-```
-
-### Target Flow (happy path)
+### Happy Path Flow (target)
 
 ```
-Sumsub webhook (GREEN)
-  → SumsubIngestionService.dispatch()
-    → ClientRiskAssessmentService.handleSumsubAmlResult()
-      → updates customer complianceStatus
-      → emit('compliance.aml.completed', { customerId, decision: 'GREEN' })  ← NEW
-        → DepositWorkflowService.handleComplianceAmlCompleted()              ← NEW
-          → find all COMPLIANCE_PENDING deposits for this customer
-          → for each: approveDeposit(depositId)  // TB Step 2 + status change
+Deposit reaches COMPLIANCE_PENDING (tx hash known)
+  ↓
+Operator goes to Admin Sumsub Events page
+  ↓
+Step A: Simulate KYT (Know Your Transaction) webhook
+  - Input: tx hash from the deposit
+  - Simulated result: PASS (clean source of funds)
+  → Backend finds deposit by txHash → sets kytStatus = PASSED
+  → Checks gate: both KYT + TR passed? Not yet (TR still pending)
+  ↓
+Step B: Simulate TR (Transaction Report) webhook
+  - Input: tx hash from the deposit
+  - Simulated result: PASS (no risk flags)
+  → Backend finds deposit by txHash → sets trStatus = PASSED
+  → Checks gate: both KYT + TR passed? YES
+    → DepositWorkflowService.approveDeposit(depositId) // TB Step 2 + SUCCESS
+```
+
+### Two-Gate Approval
+
+Deposit approval requires **both** KYT and TR to pass. Either failing blocks approval.
+
+```
+                    ┌─── KYT PASS ───┐
+COMPLIANCE_PENDING ─┤                ├─ BOTH PASS → approveDeposit() → SUCCESS
+                    └─── TR  PASS ───┘
+```
+
+### Model Changes
+
+Add two fields to the deposit model (Prisma schema):
+
+```prisma
+model DepositTransaction {
+  // ... existing fields ...
+  kytStatus   String?   // PENDING | PASSED | FAILED
+  trStatus    String?   // PENDING | PASSED | FAILED
+}
+```
+
+When deposit enters COMPLIANCE_PENDING:
+- Set `kytStatus = 'PENDING'`, `trStatus = 'PENDING'`
+
+### Simulation Endpoints (new)
+
+| Endpoint | Input | Effect |
+|----------|-------|--------|
+| `POST /admin/sumsub/simulate/kyt-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | Find deposit by txHash → update kytStatus → check gate |
+| `POST /admin/sumsub/simulate/tr-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | Find deposit by txHash → update trStatus → check gate |
+
+Gate check logic (after each webhook):
+```typescript
+if (deposit.kytStatus === 'PASSED' && deposit.trStatus === 'PASSED') {
+  await this.depositWorkflowService.approveDeposit(deposit.id);
+}
 ```
 
 ### Files Changed (Backend)
 
 | File | Change |
 |------|--------|
-| `src/modules/identity/client-risk-assessment/client-risk-assessment.service.ts` | After GREEN AML result → emit `compliance.aml.completed` event |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Add `@OnEvent('compliance.aml.completed')` handler: query COMPLIANCE_PENDING deposits by customerId, call `approveDeposit()` for each |
+| `prisma/schema.prisma` | Add `kytStatus`, `trStatus` to DepositTransaction |
+| `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | Add `simulateKytCheck()` and `simulateTrCheck()` endpoints |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Add compliance gate check logic, called after each KYT/TR result |
+| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | Set kytStatus/trStatus to PENDING when entering COMPLIANCE_PENDING |
 
-### Event Payload
+### FROZEN Guard (non-happy-path, lower priority)
 
-```typescript
-interface ComplianceAmlCompletedEvent {
-  customerId: string;
-  decision: 'GREEN' | 'RED';
-  assessmentId: string;
-  labels?: string[];  // e.g., ['SANCTIONS'] for RED
-}
-```
-
-### Happy Path Behavior
-
-When `decision === 'GREEN'`:
-- Find all deposits where `ownerId === customerId` AND `status === 'COMPLIANCE_PENDING'`
-- Call `approveDeposit(depositId)` for each (includes TB accounting Step 2)
-- If no pending deposits → no-op, log only
-
-### FROZEN Guard
-
-When `decision === 'RED'` or deposit is already FROZEN:
-- Do NOT auto-transition FROZEN deposits (legal decision required)
-- For RED decisions: freeze COMPLIANCE_PENDING deposits → emit freeze event
-- This is non-happy-path, lower priority this round but noted for completeness
+If KYT or TR returns FAIL:
+- Do NOT auto-freeze (that's a Sumsub-driven decision via different webhook)
+- Just record the FAILED status; actual freeze comes from separate Sumsub AML webhook
+- FROZEN deposits ignore KYT/TR results (legal decision required)
 
 ---
 
@@ -319,15 +340,16 @@ Dynamic rail items based on current status. Shows the deposit's position in the 
 
 ## Section 7: Happy Path Simulation — End-to-End
 
-**Primary simulation flow** (uses Sumsub simulation menu, walks the real event chain):
+**Primary simulation flow** (4 steps, walks the real event chain):
 
 | Step | Where | Action | System Effect |
 |------|-------|--------|---------------|
-| 1 | Client-web | Click "Simulate Deposit" | Creates inbound transfer signal → scan → payin + deposit (PAYIN_PENDING) |
-| 2 | Admin PayinDetail | SimulationRail → click CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit COMPLIANCE_PENDING |
-| 3 | Admin Sumsub menu | `simulate/aml-check-result` with GREEN | ClientRiskAssessment GREEN → `emit('compliance.aml.completed')` → DepositWorkflowService → TB Step 2 + deposit SUCCESS |
+| 1 | Client-web 充值页 | Click "Simulate Deposit" | Creates inbound transfer signal → scan → payin + deposit (PAYIN_PENDING) |
+| 2 | Admin PayinDetail | SimulationRail → click CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit COMPLIANCE_PENDING (kytStatus=PENDING, trStatus=PENDING) |
+| 3a | Admin Sumsub Events | `simulate/kyt-check` with txHash + PASS | Deposit kytStatus → PASSED. Gate check: TR still PENDING → wait |
+| 3b | Admin Sumsub Events | `simulate/tr-check` with txHash + PASS | Deposit trStatus → PASSED. Gate check: both PASSED → approveDeposit() → TB Step 2 + deposit SUCCESS |
 
-**After step 3**: deposit is SUCCESS with full TB accounting (both Step 1 and Step 2 transfers recorded).
+**After step 3b**: deposit is SUCCESS with full TB accounting (both Step 1 and Step 2 transfers recorded).
 
 ### Non-Happy-Path Simulation (Lower Priority)
 
@@ -350,10 +372,11 @@ Dynamic rail items based on current status. Shows the deposit's position in the 
 | `admin-web/src/utils/transactionRootDisplay.ts` | Modify | Add V4 status labels | High |
 | `client-web/src/pages/Deposit.tsx` | Modify | Tipping-off-safe status mapping, remove stale statuses | High |
 
-### Backend (Happy Path Linkage)
+### Backend (Happy Path — KYT/TR Linkage)
 
 | File | Action | Scope | Priority |
 |------|--------|-------|----------|
-| `src/modules/identity/client-risk-assessment/client-risk-assessment.service.ts` | Modify | Emit `compliance.aml.completed` event after GREEN result | **Critical** |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Modify | Add `@OnEvent('compliance.aml.completed')` handler | **Critical** |
-| `src/modules/trading/deposit-transactions/events/deposit-transaction.events.ts` | Modify | Add `ComplianceAmlCompletedEvent` type | **Critical** |
+| `prisma/schema.prisma` | Modify | Add `kytStatus`, `trStatus` fields to DepositTransaction | **Critical** |
+| `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | Modify | Add `simulateKytCheck()` and `simulateTrCheck()` endpoints | **Critical** |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Modify | Add KYT+TR gate check logic, approve when both pass | **Critical** |
+| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | Modify | Set kytStatus/trStatus=PENDING on entering COMPLIANCE_PENDING | **Critical** |
