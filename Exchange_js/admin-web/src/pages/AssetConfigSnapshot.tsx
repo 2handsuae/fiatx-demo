@@ -13,6 +13,7 @@ import {
 
 interface AssetPayload {
   assetNo: string;
+  currency: string;
   code: string;
   type: 'FIAT' | 'CRYPTO';
   network: string;

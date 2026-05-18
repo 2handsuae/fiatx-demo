@@ -12,6 +12,7 @@ import {
 
 interface AssetPayload {
   assetNo: string;
+  currency: string;
   code: string;
   type: 'FIAT' | 'CRYPTO';
   network: string;
@@ -237,7 +238,7 @@ const AssetConfigDetail = () => {
       {/* ── Sticky header ── */}
       <DetailPageHeader
         title="Asset · Operational Config"
-        subtitle={`${payload.code}${payload.network ? ` · ${payload.network}` : ''}`}
+        subtitle={`${payload.currency} · ${payload.type}${payload.network ? ` · ${payload.network}` : ''}`}
         onBack={() => navigate('/dashboard/system/asset-configs')}
         onRefresh={() => void fetchData()}
         refreshing={loading}
@@ -266,11 +267,6 @@ const AssetConfigDetail = () => {
               <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
                 {payload.code}
               </p>
-              {payload.network && (
-                <span className="font-mono text-[13px] text-adm-t3">
-                  · {payload.network}
-                </span>
-              )}
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <TypeBadge type={payload.type} />
@@ -296,12 +292,12 @@ const AssetConfigDetail = () => {
                 />
                 <Field
                   label="Min Amount"
-                  value={`${payload.depositMinAmount} ${payload.code}`}
+                  value={`${payload.depositMinAmount} ${payload.currency}`}
                   mono
                 />
                 <Field
                   label="Max Amount"
-                  value={payload.depositMaxAmount ? `${payload.depositMaxAmount} ${payload.code}` : 'No limit'}
+                  value={payload.depositMaxAmount ? `${payload.depositMaxAmount} ${payload.currency}` : 'No limit'}
                   mono
                 />
               </FieldGrid>
@@ -320,12 +316,12 @@ const AssetConfigDetail = () => {
                 />
                 <Field
                   label="Min Amount"
-                  value={`${payload.withdrawMinAmount} ${payload.code}`}
+                  value={`${payload.withdrawMinAmount} ${payload.currency}`}
                   mono
                 />
                 <Field
                   label="Max Amount"
-                  value={payload.withdrawMaxAmount ? `${payload.withdrawMaxAmount} ${payload.code}` : 'No limit'}
+                  value={payload.withdrawMaxAmount ? `${payload.withdrawMaxAmount} ${payload.currency}` : 'No limit'}
                   mono
                 />
               </FieldGrid>

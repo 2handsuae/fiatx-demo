@@ -17,6 +17,7 @@ import {
 
 interface AssetRow {
   assetNo: string;
+  currency: string;
   code: string;
   type: 'FIAT' | 'CRYPTO';
   network: string;
@@ -133,6 +134,7 @@ const AssetConfigList = () => {
         const p = item.payload;
         return {
           assetNo: String(p.assetNo ?? item.businessKey),
+          currency: String(p.currency ?? ''),
           code: String(p.code ?? ''),
           type: (p.type as 'FIAT' | 'CRYPTO') ?? 'FIAT',
           network: String(p.network ?? ''),
