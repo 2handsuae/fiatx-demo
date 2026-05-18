@@ -210,10 +210,14 @@ export class DepositTransactionsService {
       statusHistory: JSON.stringify(currentHistory),
     };
 
-    if (
-      nextStatus === DepositTransactionStatus.SUCCESS ||
-      nextStatus === DepositTransactionStatus.FROZEN
-    ) {
+    const TERMINAL = new Set([
+      DepositTransactionStatus.SUCCESS,
+      DepositTransactionStatus.REJECTED,
+      DepositTransactionStatus.FAILED,
+      DepositTransactionStatus.EXPIRED,
+      DepositTransactionStatus.CONFISCATED,
+    ]);
+    if (TERMINAL.has(nextStatus) || nextStatus === DepositTransactionStatus.FROZEN) {
       updateData.completedAt = new Date();
     }
 

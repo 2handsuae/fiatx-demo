@@ -94,6 +94,7 @@ export class DepositTransactionsController {
     return this.service.findOne(id);
   }
 
+  // TODO: Route approve/reject/freeze through DepositWorkflowService for TB accounting + audit logging
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update deposit transaction status' })
   updateStatus(

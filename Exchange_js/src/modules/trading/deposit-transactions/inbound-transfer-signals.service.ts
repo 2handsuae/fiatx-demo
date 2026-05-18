@@ -12,7 +12,6 @@ import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard'
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditModules,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';

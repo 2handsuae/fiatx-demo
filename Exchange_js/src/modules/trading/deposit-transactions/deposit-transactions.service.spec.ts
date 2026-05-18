@@ -138,7 +138,10 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.REJECTED }),
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.REJECTED,
+            completedAt: expect.any(Date),
+          }),
         }),
       );
       expect(eventEmitter.emit).toHaveBeenCalled();
@@ -195,7 +198,10 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.EXPIRED }),
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.EXPIRED,
+            completedAt: expect.any(Date),
+          }),
         }),
       );
     });
@@ -223,7 +229,10 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.CONFISCATED }),
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.CONFISCATED,
+            completedAt: expect.any(Date),
+          }),
         }),
       );
     });
@@ -246,7 +255,10 @@ describe('DepositTransactionsService', () => {
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.FAILED }),
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.FAILED,
+            completedAt: expect.any(Date),
+          }),
         }),
       );
     });
