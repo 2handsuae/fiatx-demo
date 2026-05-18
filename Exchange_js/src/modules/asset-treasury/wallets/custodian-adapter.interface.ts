@@ -3,7 +3,7 @@ import { WalletRole } from './dto/wallet.dto';
 export const CUSTODIAN_ADAPTER = Symbol('CUSTODIAN_ADAPTER');
 
 export interface CreateVaultParams {
-  assetCode: string;
+  assetCurrency: string;
   network?: string;
   role: WalletRole;
   vaultId?: string;

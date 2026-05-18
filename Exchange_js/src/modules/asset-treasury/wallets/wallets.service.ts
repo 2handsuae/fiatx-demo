@@ -122,7 +122,7 @@ export class WalletsService {
     if (!asset) throw new BadRequestException('Invalid Asset ID');
     if (asset.status !== 'ACTIVE') {
       throw new BadRequestException(
-        `Asset ${asset.code} is not active (status: ${asset.status}). Wallets can only be created for ACTIVE assets.`,
+        `Asset ${asset.currency} is not active (status: ${asset.status}). Wallets can only be created for ACTIVE assets.`,
       );
     }
 
@@ -317,13 +317,13 @@ export class WalletsService {
     if (dto.ownerType === 'PLATFORM') {
       if (!['PROVISIONING', 'ACTIVE'].includes(asset.status)) {
         throw new BadRequestException(
-          `Asset ${asset.code} status ${asset.status} does not allow system wallet creation`,
+          `Asset ${asset.currency} status ${asset.status} does not allow system wallet creation`,
         );
       }
     } else {
       if (asset.status !== 'ACTIVE') {
         throw new BadRequestException(
-          `Asset ${asset.code} must be ACTIVE for customer wallet creation`,
+          `Asset ${asset.currency} must be ACTIVE for customer wallet creation`,
         );
       }
     }

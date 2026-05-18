@@ -131,13 +131,13 @@ export class CustodianWalletCreateWorkflowService {
           traceId,
           objectSnapshot: {
             assetNo: dto.assetNo,
-            assetCode: asset.code,
+            assetCurrency: asset.currency,
             role: dto.role,
             ownerType,
             ownerId: dto.ownerId || null,
           },
         },
-        { reason: `Create ${dto.role} wallet for ${asset.code}`, traceId },
+        { reason: `Create ${dto.role} wallet for ${asset.currency}`, traceId },
         actor,
       );
     } catch (err) {
@@ -164,7 +164,7 @@ export class CustodianWalletCreateWorkflowService {
         }],
         metadata: {
           assetNo: dto.assetNo,
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           role: dto.role,
           ownerType,
           approvalNo: approvalCase.approvalNo,
@@ -237,7 +237,7 @@ export class CustodianWalletCreateWorkflowService {
 
     try {
       const result = await this.custodianAdapter.createVault({
-        assetCode: wallet.asset.code,
+        assetCurrency: wallet.asset.currency,
         network: wallet.asset.network ?? undefined,
         role: wallet.walletRole as WalletRole,
         vaultId: wallet.vaultId ?? undefined,
@@ -325,7 +325,7 @@ export class CustodianWalletCreateWorkflowService {
 
     try {
       const result = await this.custodianAdapter.createVault({
-        assetCode: wallet.asset.code,
+        assetCurrency: wallet.asset.currency,
         network: wallet.asset.network ?? undefined,
         role: wallet.walletRole as WalletRole,
         vaultId: wallet.vaultId ?? undefined,

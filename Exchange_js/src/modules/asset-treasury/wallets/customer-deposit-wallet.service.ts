@@ -88,7 +88,7 @@ export class CustomerDepositWalletService {
 
     try {
       const result = await this.custodianAdapter.createVault({
-        assetCode: asset.code,
+        assetCurrency: asset.currency,
         network: asset.network ?? undefined,
         role: walletRole,
       });
@@ -115,7 +115,7 @@ export class CustomerDepositWalletService {
         entityOwnerId: customerId,
         result: AuditResult.SUCCESS,
         metadata: {
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           assetType: asset.type,
           walletRole,
           vaultId: result.vaultId,
@@ -125,7 +125,7 @@ export class CustomerDepositWalletService {
         sourcePlatform: 'CLIENT_API',
       });
 
-      this.logger.log(`Deposit wallet ${walletNo} created for customer ${customer.customerNo}, asset ${asset.code}`);
+      this.logger.log(`Deposit wallet ${walletNo} created for customer ${customer.customerNo}, asset ${asset.currency}`);
       return updated;
     } catch (err: any) {
       await this.prisma.wallet.delete({ where: { id: wallet.id } });
@@ -141,7 +141,7 @@ export class CustomerDepositWalletService {
         entityOwnerId: customerId,
         result: AuditResult.FAILED,
         metadata: {
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           assetType: asset.type,
           walletRole,
           error: err.message,

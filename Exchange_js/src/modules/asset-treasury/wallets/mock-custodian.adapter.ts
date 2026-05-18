@@ -7,7 +7,7 @@ export class MockCustodianAdapter implements CustodianAdapter {
   private readonly logger = new Logger(MockCustodianAdapter.name);
 
   async createVault(params: CreateVaultParams): Promise<CreateVaultResult> {
-    this.logger.log(`[MOCK] Creating vault: asset=${params.assetCode}, role=${params.role}, existingVault=${params.vaultId ?? 'none'}`);
+    this.logger.log(`[MOCK] Creating vault: asset=${params.assetCurrency}, role=${params.role}, existingVault=${params.vaultId ?? 'none'}`);
 
     const vaultId = params.vaultId ?? `mock-vault-${crypto.randomUUID().slice(0, 8)}`;
 
