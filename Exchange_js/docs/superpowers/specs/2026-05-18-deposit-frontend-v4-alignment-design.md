@@ -160,6 +160,16 @@ Only for states where manual operator decisions are needed:
 - Calls `PATCH /deposit-transactions/:id/status` with `{ action, reason? }`
 - **Backend constraint**: Sumsub webhooks must NOT auto-transition FROZEN deposits. Frozen fund release/confiscation is a legal decision — only manual admin action is permitted. If Sumsub sends a webhook for a FROZEN deposit, log it but do not execute the transition.
 
+#### Compliance Gates (new)
+
+Shows the three-gate status so admin can see full compliance picture at a glance:
+
+- Gate 0: Customer status — complianceStatus badge (ACTIVE / FROZEN / etc.)
+- Gate 1: KYT — kytStatus badge (PENDING / PASSED / FAILED)
+- Gate 2: TR — trStatus badge (PENDING / PASSED / FAILED)
+
+Especially important for FROZEN deposits: admin sees all three gates before making approve/confiscate decision.
+
 #### Identity Summary
 
 - ownerNo (clickable → customer detail)
@@ -253,16 +263,38 @@ Gate 2: Simulate TR (Transaction Report) webhook
 ### Three-Gate Approval
 
 ```
-                          ┌─── Gate 0: Customer status OK ───┐
-COMPLIANCE_PENDING ───────┤                                   │
-  (automatic, immediate)  └─── ✗ abnormal → FROZEN ──────────┘
-                                                 ↓ (pass)
-                          ┌─── Gate 1: KYT PASS ───┐
-                          │                         ├─ ALL PASS → approveDeposit() → SUCCESS
-                          └─── Gate 2: TR  PASS ───┘
+Gate 0: Customer compliance status (automatic, on entering COMPLIANCE_PENDING)
+Gate 1: KYT — Know Your Transaction (Sumsub webhook / simulation)
+Gate 2: TR  — Transaction Report (Sumsub webhook / simulation)
 ```
 
-Gate 0 runs automatically when deposit enters COMPLIANCE_PENDING. Gates 1 & 2 are driven by Sumsub webhooks (or simulation).
+**Critical design principle**: Gate 0 blocks AUTO-APPROVAL, but does NOT block Gates 1 & 2 from running. KYT/TR results are always recorded regardless of deposit status.
+
+**Auto-approval** triggers ONLY when ALL of:
+- Deposit is still in `COMPLIANCE_PENDING` (not FROZEN)
+- Gate 0: customer complianceStatus is normal
+- Gate 1: kytStatus === PASSED
+- Gate 2: trStatus === PASSED
+
+**When Gate 0 blocks** (customer abnormal → deposit FROZEN):
+- KYT/TR simulation endpoints still accept results → stored on deposit
+- No auto-approval (deposit is FROZEN, not COMPLIANCE_PENDING)
+- Admin reviews FROZEN deposit with FULL context:
+  - Customer compliance status (and reason for freeze)
+  - KYT result (PASSED / FAILED / PENDING)
+  - TR result (PASSED / FAILED / PENDING)
+- Admin makes informed approve (release) or confiscate decision
+
+**Gate check runs after each event** (Gate 0 result, each KYT/TR webhook):
+```typescript
+function checkAutoApproval(deposit) {
+  if (deposit.status !== 'COMPLIANCE_PENDING') return; // FROZEN → skip
+  if (customer.complianceStatus !== normal) return;     // Gate 0 fail
+  if (deposit.kytStatus !== 'PASSED') return;           // Gate 1 fail
+  if (deposit.trStatus !== 'PASSED') return;            // Gate 2 fail
+  await approveDeposit(deposit.id);                     // All green → SUCCESS
+}
+```
 
 ### Model Changes
 
@@ -302,12 +334,12 @@ if (deposit.kytStatus === 'PASSED' && deposit.trStatus === 'PASSED') {
 | `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Add compliance gate check logic, called after each KYT/TR result |
 | `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | Set kytStatus/trStatus to PENDING when entering COMPLIANCE_PENDING |
 
-### FROZEN Guard (non-happy-path, lower priority)
+### FROZEN Guard
 
-If KYT or TR returns FAIL:
-- Do NOT auto-freeze (that's a Sumsub-driven decision via different webhook)
-- Just record the FAILED status; actual freeze comes from separate Sumsub AML webhook
-- FROZEN deposits ignore KYT/TR results (legal decision required)
+- FROZEN deposits **accept** KYT/TR results (stored for admin review) but **never** auto-transition
+- Only manual admin approve/confiscate transitions FROZEN deposits
+- Admin sees full three-gate context (customer status + KYT + TR) before deciding
+- If KYT or TR returns FAIL for a COMPLIANCE_PENDING deposit: record FAILED status, do NOT auto-freeze (freeze is a Sumsub-driven or Gate 0 decision)
 
 ---
 
