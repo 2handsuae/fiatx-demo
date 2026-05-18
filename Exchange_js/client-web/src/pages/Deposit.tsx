@@ -12,6 +12,7 @@ import {
 
 interface Asset {
   id: string;
+  currency: string;
   code: string;
   type: string;
   network: string | null;
@@ -42,6 +43,7 @@ interface Transaction {
     createdAt: string;
     completedAt: string | null;
     asset: {
+        currency: string;
         code: string;
         network: string | null;
         decimals?: number;
@@ -780,7 +782,7 @@ const Deposit = () => {
                                         </td>
                                         <td className="px-4 py-3">
                                             <div className="font-medium text-fx-sand">
-                                                {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.code}
+                                                {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.currency}
                                             </div>
                                         </td>
                                         <td className="px-4 py-3">
@@ -840,7 +842,7 @@ const Deposit = () => {
                   <option value="">Select a currency...</option>
                   {filteredAssets.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.code} {a.network ? `(${a.network})` : ''}
+                      {a.code}
                     </option>
                   ))}
                 </select>
@@ -1062,7 +1064,7 @@ const Deposit = () => {
                 <div className="p-6 space-y-6">
                     <div className="text-center">
                         <div className="text-3xl font-bold text-fx-sand mb-2">
-                            {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.code}</span>
+                            {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.currency}</span>
                         </div>
                         <div className="mt-2">
                              {renderStatusBadge(selectedTx.status)}

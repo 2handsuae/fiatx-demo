@@ -11,6 +11,7 @@ import {
 
 interface Asset {
   id: string;
+  currency: string;
   code: string;
   type: string;
   network: string | null;
@@ -44,7 +45,7 @@ interface WithdrawTransaction {
   withdrawNo: string;
   status: string;
   amount: string;
-  asset: { code: string; network: string | null; decimals?: number };
+  asset: { currency: string; code: string; network: string | null; decimals?: number };
   createdAt: string;
   completedAt: string | null;
   toAddress: string | null;
@@ -589,7 +590,7 @@ const Withdraw = () => {
                                           </td>
                                           <td className="px-4 py-3">
                                               <div className="font-medium text-gray-900 dark:text-white">
-                                                  {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.code}
+                                                  {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.currency}
                                               </div>
                                           </td>
                                           <td className="px-4 py-3">
@@ -650,7 +651,7 @@ const Withdraw = () => {
                                 <option value="">Select a currency...</option>
                                 {filteredAssets.map(a => (
                                     <option key={a.id} value={a.id}>
-                                        {a.code} {a.network ? `(${a.network})` : ''}
+                                        {a.code}
                                     </option>
                                 ))}
                             </select>
@@ -739,7 +740,7 @@ const Withdraw = () => {
                                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                                     />
                                     <div className="absolute right-4 top-3.5 text-slate-400 dark:text-slate-500 font-medium">
-                                        {assets.find(a => a.id === selectedAssetId)?.code}
+                                        {assets.find(a => a.id === selectedAssetId)?.currency}
                                     </div>
                                 </div>
                                 <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex justify-between">
@@ -751,7 +752,7 @@ const Withdraw = () => {
                                               availableBalance,
                                               assets.find((a) => a.id === selectedAssetId)
                                                 ?.decimals,
-                                            )} ${assets.find(a => a.id === selectedAssetId)?.code}`
+                                            )} ${assets.find(a => a.id === selectedAssetId)?.currency}`
                                         )}
                                     </span>
                                     <button 
@@ -794,7 +795,7 @@ const Withdraw = () => {
                                                 {formatAssetAmount(
                                                     quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
                                                     selectedAsset?.decimals,
-                                                )} {selectedAsset?.code}
+                                                )} {selectedAsset?.currency}
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
@@ -803,16 +804,16 @@ const Withdraw = () => {
                                                 {formatAssetAmount(
                                                     quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
                                                     selectedAsset?.decimals,
-                                                )} {selectedAsset?.code}
+                                                )} {selectedAsset?.currency}
                                             </span>
                                         </div>
                                         <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2">
                                             <span className="text-slate-500 dark:text-slate-400">Total Fee</span>
                                             <span className="font-medium text-gray-900 dark:text-white">
                                                 {formatAssetAmount(
-                                                    quote.totals[selectedAsset?.code || ''] || 0,
+                                                    quote.totals[selectedAsset?.currency || ''] || 0,
                                                     selectedAsset?.decimals,
-                                                )} {selectedAsset?.code}
+                                                )} {selectedAsset?.currency}
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
@@ -820,9 +821,9 @@ const Withdraw = () => {
                                             <span className="font-bold text-gray-900 dark:text-white">
                                                 {formatAssetAmount(
                                                     Number(amount || 0) -
-                                                      Number(quote.totals[selectedAsset?.code || ''] || 0),
+                                                      Number(quote.totals[selectedAsset?.currency || ''] || 0),
                                                     selectedAsset?.decimals,
-                                                )} {selectedAsset?.code}
+                                                )} {selectedAsset?.currency}
                                             </span>
                                         </div>
                                         <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
@@ -995,7 +996,7 @@ const Withdraw = () => {
                           <div className="flex justify-between text-sm">
                               <span className="text-slate-500 dark:text-slate-400">Amount</span>
                               <span className="font-semibold text-gray-900 dark:text-white">
-                                  {formatAssetAmount(amount, selectedAsset?.decimals)} {selectedAsset?.code}
+                                  {formatAssetAmount(amount, selectedAsset?.decimals)} {selectedAsset?.currency}
                               </span>
                           </div>
                           <div className="mt-2 flex justify-between text-sm">
@@ -1019,7 +1020,7 @@ const Withdraw = () => {
                                   {formatAssetAmount(
                                       quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
                                       selectedAsset?.decimals,
-                                  )} {selectedAsset?.code}
+                                  )} {selectedAsset?.currency}
                               </span>
                           </div>
                           <div className="flex justify-between">
@@ -1028,25 +1029,25 @@ const Withdraw = () => {
                                   {formatAssetAmount(
                                       quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
                                       selectedAsset?.decimals,
-                                  )} {selectedAsset?.code}
+                                  )} {selectedAsset?.currency}
                               </span>
                           </div>
                           <div className="flex justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
                               <span className="text-slate-500 dark:text-slate-400">Total Fee</span>
                               <span className="font-semibold text-gray-900 dark:text-white">
                                   {formatAssetAmount(
-                                      quote.totals[selectedAsset?.code || ''] || 0,
+                                      quote.totals[selectedAsset?.currency || ''] || 0,
                                       selectedAsset?.decimals,
-                                  )} {selectedAsset?.code}
+                                  )} {selectedAsset?.currency}
                               </span>
                           </div>
                           <div className="flex justify-between">
                               <span className="text-slate-500 dark:text-slate-400">Net Amount</span>
                               <span className="font-bold text-gray-900 dark:text-white">
                                   {formatAssetAmount(
-                                      Number(amount || 0) - Number(quote.totals[selectedAsset?.code || ''] || 0),
+                                      Number(amount || 0) - Number(quote.totals[selectedAsset?.currency || ''] || 0),
                                       selectedAsset?.decimals,
-                                  )} {selectedAsset?.code}
+                                  )} {selectedAsset?.currency}
                               </span>
                           </div>
                       </div>
@@ -1085,7 +1086,7 @@ const Withdraw = () => {
                   <div className="p-6 space-y-6">
                       <div className="text-center">
                           <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-                              {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.code}</span>
+                              {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.currency}</span>
                           </div>
                           <div className="mt-2">
                                {renderStatusBadge(selectedTx.status)}

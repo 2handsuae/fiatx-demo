@@ -24,6 +24,7 @@ interface WalletItem {
 
 interface Asset {
   id: string;
+  currency: string;
   code: string;
   type: string;
   network: string | null;
@@ -284,7 +285,7 @@ const WalletManagement = () => {
                   <option value="">Select Asset</option>
                   {filteredAssets.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.code} {a.network ? `(${a.network})` : ''}
+                      {a.code}
                     </option>
                   ))}
                 </select>

@@ -24,6 +24,7 @@ import {
 
 interface Asset {
   id: string;
+  currency: string;
   code: string;
   type: string;
   network: string | null;
@@ -34,9 +35,9 @@ interface SwapTransaction {
   id: string;
   swapNo: string;
   status: string;
-  fromAsset: { code: string; decimals?: number | null };
+  fromAsset: { currency: string; code: string; decimals?: number | null };
   fromAmount: string;
-  toAsset: { code: string; decimals?: number | null };
+  toAsset: { currency: string; code: string; decimals?: number | null };
   toAmount: string;
   netToAmount?: string | null;
   feeAmount?: string | null;
@@ -537,7 +538,7 @@ const Swap = () => {
                       >
                         <option value="">Select Asset</option>
                         {assets.map(a => (
-                          <option key={a.id} value={a.id}>{a.code}{a.network ? `-${a.network}` : ''}</option>
+                          <option key={a.id} value={a.id}>{a.code}</option>
                         ))}
                       </select>
                     </div>
@@ -577,7 +578,7 @@ const Swap = () => {
                       >
                         <option value="">Select Asset</option>
                         {assets.map(a => (
-                          <option key={a.id} value={a.id}>{a.code}{a.network ? `-${a.network}` : ''}</option>
+                          <option key={a.id} value={a.id}>{a.code}</option>
                         ))}
                       </select>
                     </div>
@@ -644,7 +645,7 @@ const Swap = () => {
                             <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
                               <span>Gross Receive</span>
                               <span className="font-mono text-gray-900 dark:text-gray-200">
-                                {formatAssetAmount(rateMeta.grossAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.code}
+                                {formatAssetAmount(rateMeta.grossAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.currency}
                               </span>
                             </div>
                             <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
@@ -656,7 +657,7 @@ const Swap = () => {
                             <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
                               <span>Net Receive</span>
                               <span className="font-mono text-emerald-600 dark:text-emerald-300">
-                                {formatAssetAmount(rateMeta.netAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.code}
+                                {formatAssetAmount(rateMeta.netAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.currency}
                               </span>
                             </div>
                           </div>
@@ -792,10 +793,10 @@ const Swap = () => {
                           </td>
                           <td className="px-6 py-4">
                             <div className="font-bold text-gray-900 dark:text-white">
-                              {formatAssetAmount(tx.netToAmount || tx.toAmount, tx.toAsset.decimals)} {tx.toAsset.code}
+                              {formatAssetAmount(tx.netToAmount || tx.toAmount, tx.toAsset.decimals)} {tx.toAsset.currency}
                             </div>
                             <div className="text-[10px] text-slate-400 dark:text-slate-500">
-                              From: {formatAssetAmount(tx.fromAmount, tx.fromAsset.decimals)} {tx.fromAsset.code}
+                              From: {formatAssetAmount(tx.fromAmount, tx.fromAsset.decimals)} {tx.fromAsset.currency}
                             </div>
                             {tx.feeAmount && Number(tx.feeAmount) > 0 && (
                               <div className="text-[10px] text-slate-400 dark:text-slate-500">

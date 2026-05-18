@@ -38,6 +38,7 @@ interface TransactionItem {
     sourceId: string;
   };
   asset: {
+    currency: string;
     code: string;
     decimals: number;
   };
@@ -271,7 +272,7 @@ const TransactionHistory = () => {
                           <div className="flex items-center justify-end gap-1">
                               {isPositive ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
                               {isPositive ? '+' : ''}{formatAmount(item.changeAmount, item.asset.decimals)}
-                              <span className="text-[10px] ml-1 opacity-60">{item.asset.code}</span>
+                              <span className="text-[10px] ml-1 opacity-60">{item.asset.currency}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right font-mono font-bold text-gray-900 dark:text-white bg-gray-50/30 dark:bg-gray-900/30">
