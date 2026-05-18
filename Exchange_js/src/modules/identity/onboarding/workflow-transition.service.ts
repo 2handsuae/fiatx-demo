@@ -16,7 +16,15 @@ import {
   WorkflowTransitionOutput,
 } from './onboarding-workflow-transition.service';
 import { PeriodicReviewWorkflowTransitionService } from '../periodic-review/periodic-review-workflow-transition.service';
-import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
+import {
+  DepositTransactionsService,
+  DepositStatusUpdateOptions,
+} from '../../trading/deposit-transactions/deposit-transactions.service';
+import {
+  DepositTransactionAction,
+  DepositTransactionStatus,
+} from '../../trading/deposit-transactions/dto/deposit-transaction.dto';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import { normalizeWorkflowDecision } from '../../risk-engine/constants/compliance-disposition.constant';
@@ -29,12 +37,22 @@ export class WorkflowTransitionService {
     private readonly moduleRef?: ModuleRef,
   ) {}
 
-  private getTransactionDepositWorkflowTransitionService() {
-    const service = this.moduleRef?.get(TransactionDepositWorkflowService, {
+  private getDepositWorkflowService() {
+    const service = this.moduleRef?.get(DepositWorkflowService, {
       strict: false,
     });
     if (!service) {
-      throw new BadRequestException('Deposit transaction workflow transition service is unavailable');
+      throw new BadRequestException('Deposit workflow service is unavailable');
+    }
+    return service;
+  }
+
+  private getDepositTransactionsService() {
+    const service = this.moduleRef?.get(DepositTransactionsService, {
+      strict: false,
+    });
+    if (!service) {
+      throw new BadRequestException('Deposit transactions service is unavailable');
     }
     return service;
   }
@@ -218,36 +236,85 @@ export class WorkflowTransitionService {
         };
       }
 
-      const service = this.getTransactionDepositWorkflowTransitionService();
-      const result = await service.execute(tx, {
-        depositId: sourceId,
-        source: transactionProducerType,
-        sourceId: input.producerId,
-        workflowAction,
-        reason: input.reason || null,
+      const depositWorkflowSvc = this.getDepositWorkflowService();
+      const depositTransactionsSvc = this.getDepositTransactionsService();
+
+      const actorOptions: DepositStatusUpdateOptions = {
+        tx,
         actor: {
           actorType: 'ADMIN',
           actorId: input.actorId,
           actorRole: input.actorRole,
-          sourcePlatform: 'ADMIN_API',
         },
-      });
+        reason: input.reason || undefined,
+        sourcePlatform: 'ADMIN_API',
+      };
+
+      let depositStatusBefore: string | undefined;
+      let depositStatusAfter: string | undefined;
+      let depositNo: string | null = null;
+      let blocked = false;
+      let blockedReason: string | null = null;
+
+      if (workflowAction === 'CLEAR') {
+        const before = await depositTransactionsSvc.findOne(sourceId);
+        depositStatusBefore = before.status;
+        depositNo = before.depositNo;
+        await depositWorkflowSvc.approveDeposit(sourceId);
+        depositStatusAfter = DepositTransactionStatus.SUCCESS;
+        blocked = false;
+        blockedReason = null;
+      } else if (workflowAction === 'REJECT') {
+        const before = await depositTransactionsSvc.findOne(sourceId);
+        depositStatusBefore = before.status;
+        depositNo = before.depositNo;
+        await depositTransactionsSvc.updateStatus(sourceId, {
+          action: DepositTransactionAction.REJECT,
+          reason: input.reason || undefined,
+        }, actorOptions);
+        depositStatusAfter = DepositTransactionStatus.REJECTED;
+        blocked = true;
+        blockedReason = 'RISK_CONFIRMED';
+      } else if (workflowAction === 'FREEZE') {
+        const before = await depositTransactionsSvc.findOne(sourceId);
+        depositStatusBefore = before.status;
+        depositNo = before.depositNo;
+        await depositTransactionsSvc.updateStatus(sourceId, {
+          action: DepositTransactionAction.FREEZE,
+          reason: input.reason || undefined,
+        }, actorOptions);
+        depositStatusAfter = DepositTransactionStatus.FROZEN;
+        blocked = true;
+        blockedReason = 'FREEZE_TRANSACTION';
+      } else {
+        // FLAG → ACTION_PENDING
+        const before = await depositTransactionsSvc.findOne(sourceId);
+        depositStatusBefore = before.status;
+        depositNo = before.depositNo;
+        await depositTransactionsSvc.updateStatus(sourceId, {
+          action: DepositTransactionAction.ACTION_PENDING,
+          reason: input.reason || undefined,
+        }, actorOptions);
+        depositStatusAfter = DepositTransactionStatus.ACTION_PENDING;
+        blocked = true;
+        blockedReason = 'TX_REVIEW_REQUIRED';
+      }
 
       return {
         workflow: TRANSACTION_WORKFLOW,
         stage: input.stage,
         dispositionCode: String(input.dispositionCode || '').trim().toUpperCase(),
-        transitionCode: result.transitionCode as any,
-        fromStatus: result.depositStatusBefore,
-        toStatus: result.depositStatusAfter,
-        executed: result.applied,
+        transitionCode: `TX_DEPOSIT_${workflowAction}_TO_${depositStatusAfter}` as any,
+        fromStatus: depositStatusBefore ?? '',
+        toStatus: depositStatusAfter,
+        executed: true,
         updatedCustomer: null,
         updatedSubject: {
-          id: result.depositId,
+          id: sourceId,
           sourceType: TRANSACTION_DEPOSIT_SOURCE_TYPE,
-          subjectNo: result.depositNo,
-          blocked: result.blocked,
-          blockedReason: result.blockedReason,
+          subjectNo: depositNo,
+          blocked,
+          blockedReason,
         },
       };
     }

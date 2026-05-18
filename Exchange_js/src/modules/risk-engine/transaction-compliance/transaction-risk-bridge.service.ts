@@ -30,7 +30,7 @@ import {
   TxResponseLifecycleStatusOrEmpty,
   TxSourceType,
 } from './types/tx-compliance.types';
-import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import {
@@ -377,7 +377,7 @@ export class TransactionRiskBridgeService {
 
   private getTransactionWorkflowTransitionService() {
     return (
-      this.moduleRef?.get(TransactionDepositWorkflowService, {
+      this.moduleRef?.get(DepositWorkflowService, {
         strict: false,
       }) || null
     );
@@ -1019,24 +1019,17 @@ export class TransactionRiskBridgeService {
       return null;
     }
 
-    return transitionService.execute(tx, {
-      depositId: input.depositId,
-      source: 'SYSTEM',
-      sourceId: input.decisionRecordId,
+    await transitionService.approveDeposit(input.depositId);
+    return {
+      workflow: TRANSACTION_WORKFLOW,
+      stage: TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
       workflowAction: 'CLEAR',
-      reason: input.reason,
-      reasonCode: input.reasonCode,
-      actor: {
-        actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        actorNo: 'SYSTEM',
-        actorRole: 'SYSTEM',
-        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
-      },
-      decisionRecordId: input.decisionRecordId,
-      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_DEPOSIT_FINAL,
-      triggerStatus: input.triggerStatus,
-    });
+      executed: true,
+      applied: true,
+      depositId: input.depositId,
+      depositNo: input.depositNo ?? null,
+      depositStatusAfter: 'SUCCESS',
+    };
   }
 
   private async clearSwapIfApproved(

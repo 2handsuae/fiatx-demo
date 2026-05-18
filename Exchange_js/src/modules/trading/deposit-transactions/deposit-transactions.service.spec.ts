@@ -270,7 +270,7 @@ describe('DepositTransactionsService', () => {
 
       await expect(
         service.updateStatus(mockId, {
-          action: DepositTransactionAction.SUCCESS,
+          action: DepositTransactionAction.APPROVE,
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -295,11 +295,11 @@ describe('DepositTransactionsService', () => {
       expect((eventEmitter.emit as jest.Mock).mock.calls.length).toBeGreaterThan(0);
     });
 
-    it('should transition from COMPLIANCE_PENDING to SUCCESS via success', async () => {
+    it('should transition from COMPLIANCE_PENDING to SUCCESS via approve', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.SUCCESS,
+        action: DepositTransactionAction.APPROVE,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
@@ -312,27 +312,27 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('should transition from COMPLIANCE_PENDING to UNDER_REVIEW via flag', async () => {
+    it('should transition from COMPLIANCE_PENDING to ACTION_PENDING via action_pending', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.FLAG,
+        action: DepositTransactionAction.ACTION_PENDING,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            status: DepositTransactionStatus.UNDER_REVIEW,
+            status: DepositTransactionStatus.ACTION_PENDING,
           }),
         }),
       );
     });
 
-    it('should transition from UNDER_REVIEW to SUCCESS via success', async () => {
-      setupMock(DepositTransactionStatus.UNDER_REVIEW);
+    it('should transition from ACTION_PENDING to SUCCESS via approve', async () => {
+      setupMock(DepositTransactionStatus.ACTION_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.SUCCESS,
+        action: DepositTransactionAction.APPROVE,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
@@ -344,7 +344,7 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('should block SUCCESS when compliance is not cleared', async () => {
+    it('should block APPROVE when compliance is not cleared', async () => {
       const mockRecord = {
         id: mockId,
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
@@ -369,12 +369,12 @@ describe('DepositTransactionsService', () => {
 
       await expect(
         service.updateStatus(mockId, {
-          action: DepositTransactionAction.SUCCESS,
+          action: DepositTransactionAction.APPROVE,
         }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should allow FIAT SUCCESS even when KYT is pending', async () => {
+    it('should allow FIAT APPROVE even when KYT is pending', async () => {
       const mockRecord = {
         id: mockId,
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
@@ -405,7 +405,7 @@ describe('DepositTransactionsService', () => {
 
       await expect(
         service.updateStatus(mockId, {
-          action: DepositTransactionAction.SUCCESS,
+          action: DepositTransactionAction.APPROVE,
         }),
       ).resolves.toBeDefined();
     });
@@ -439,24 +439,20 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('should stay in FAILED status for any action (Terminal)', async () => {
+    it('should throw for any action on terminal FAILED status', async () => {
       setupMock(DepositTransactionStatus.FAILED);
 
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.SUCCESS,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.FAILED }),
+      await expect(
+        service.updateStatus(mockId, {
+          action: DepositTransactionAction.APPROVE,
         }),
-      );
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('should block SUCCESS when customer compliance status is frozen', async () => {
+    it('should block APPROVE when customer compliance status is frozen', async () => {
       const mockRecord = {
         id: mockId,
-        status: DepositTransactionStatus.UNDER_REVIEW,
+        status: DepositTransactionStatus.ACTION_PENDING,
         ownerType: 'CUSTOMER',
         ownerId: 'U123',
         assetId: 'A123',
@@ -480,7 +476,7 @@ describe('DepositTransactionsService', () => {
 
       await expect(
         service.updateStatus(mockId, {
-          action: DepositTransactionAction.SUCCESS,
+          action: DepositTransactionAction.APPROVE,
         }),
       ).rejects.toThrow(BadRequestException);
     });

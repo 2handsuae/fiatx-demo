@@ -432,7 +432,7 @@ export class TransactionComplianceService {
     const current = String(status || '').trim().toUpperCase();
 
     if (
-      current === DepositTransactionStatus.UNDER_REVIEW ||
+      current === DepositTransactionStatus.ACTION_PENDING ||
       current === DepositTransactionStatus.FROZEN
     ) {
       return 'HOLD';

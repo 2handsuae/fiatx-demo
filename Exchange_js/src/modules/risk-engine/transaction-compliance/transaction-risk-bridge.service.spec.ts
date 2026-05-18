@@ -2,7 +2,7 @@ import { ModuleRef } from '@nestjs/core';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
 import { TxSourceType } from './types/tx-compliance.types';
-import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 
 describe('TransactionRiskBridgeService', () => {
@@ -32,7 +32,7 @@ describe('TransactionRiskBridgeService', () => {
     completeDecisionRecord: jest.fn(),
   };
   const transactionDepositWorkflowServiceMock: any = {
-    execute: jest.fn(),
+    approveDeposit: jest.fn(),
   };
   const swapTransactionWorkflowServiceMock: any = {
     execute: jest.fn(),
@@ -54,7 +54,7 @@ describe('TransactionRiskBridgeService', () => {
     prismaMock.complianceIncidentAlert.findUnique.mockResolvedValue(null);
     riskEngineServiceMock.buildInputHash.mockReturnValue('hash-1');
     moduleRefMock.get.mockImplementation((token: unknown) => {
-      if (token === TransactionDepositWorkflowService) {
+      if (token === DepositWorkflowService) {
         return transactionDepositWorkflowServiceMock;
       }
       if (token === SwapTransactionWorkflowService) {
@@ -277,7 +277,7 @@ describe('TransactionRiskBridgeService', () => {
       }),
       undefined,
     );
-    expect(transactionDepositWorkflowServiceMock.execute).not.toHaveBeenCalled();
+    expect(transactionDepositWorkflowServiceMock.approveDeposit).not.toHaveBeenCalled();
     expect(result).toEqual({
       skipped: false,
       decisionRecordId: 'decision-final-1',
@@ -349,10 +349,7 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [],
       reasonCodes: ['TX_DEPOSIT_LOW_RISK_AUTO_CLEAR'],
     });
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
-    });
+    transactionDepositWorkflowServiceMock.approveDeposit.mockResolvedValue(undefined);
 
     const result = await service.simulateDepositFinalReview({
       decisionRecordId: 'decision-fiat-low-1',
@@ -373,12 +370,8 @@ describe('TransactionRiskBridgeService', () => {
       }),
       undefined,
     );
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        depositId: 'dep-fiat-low-1',
-        workflowAction: 'CLEAR',
-      }),
+    expect(transactionDepositWorkflowServiceMock.approveDeposit).toHaveBeenCalledWith(
+      'dep-fiat-low-1',
     );
     expect(result).toEqual(
       expect.objectContaining({

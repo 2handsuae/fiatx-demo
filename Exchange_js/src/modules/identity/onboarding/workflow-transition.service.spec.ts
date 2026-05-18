@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { TransactionDepositWorkflowService } from '../../trading/deposit-transactions/transaction-deposit-workflow.service';
+import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
+import { DepositTransactionsService } from '../../trading/deposit-transactions/deposit-transactions.service';
 import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import { WorkflowTransitionService } from './workflow-transition.service';
@@ -12,8 +13,12 @@ describe('WorkflowTransitionService', () => {
   const periodicReviewWorkflowTransitionServiceMock = {
     execute: jest.fn(),
   };
-  const transactionDepositWorkflowServiceMock = {
-    execute: jest.fn(),
+  const depositWorkflowServiceMock = {
+    approveDeposit: jest.fn(),
+  };
+  const depositTransactionsServiceMock = {
+    findOne: jest.fn(),
+    updateStatus: jest.fn(),
   };
   const swapTransactionWorkflowServiceMock = {
     execute: jest.fn(),
@@ -30,8 +35,11 @@ describe('WorkflowTransitionService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     moduleRefMock.get.mockImplementation((token: unknown) => {
-      if (token === TransactionDepositWorkflowService) {
-        return transactionDepositWorkflowServiceMock;
+      if (token === DepositWorkflowService) {
+        return depositWorkflowServiceMock;
+      }
+      if (token === DepositTransactionsService) {
+        return depositTransactionsServiceMock;
       }
       if (token === SwapTransactionWorkflowService) {
         return swapTransactionWorkflowServiceMock;
@@ -127,16 +135,12 @@ describe('WorkflowTransitionService', () => {
   });
 
   it('should dispatch TRANSACTION workflow to transaction deposit handler', async () => {
-    transactionDepositWorkflowServiceMock.execute.mockResolvedValue({
-      transitionCode: 'TX_DEPOSIT_CLEAR_TO_SUCCESS',
-      applied: true,
-      blocked: false,
-      blockedReason: null,
-      depositId: 'dep-1',
+    depositTransactionsServiceMock.findOne.mockResolvedValue({
+      id: 'dep-1',
       depositNo: 'DEP0001',
-      depositStatusBefore: 'UNDER_REVIEW',
-      depositStatusAfter: 'SUCCESS',
+      status: 'ACTION_PENDING',
     });
+    depositWorkflowServiceMock.approveDeposit.mockResolvedValue(undefined);
 
     const tx = { depositTransaction: {} } as any;
     const result = await service.transition(tx, {
@@ -151,16 +155,7 @@ describe('WorkflowTransitionService', () => {
       actorRole: 'MLRO',
     } as any);
 
-    expect(transactionDepositWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      tx,
-      expect.objectContaining({
-        depositId: 'dep-1',
-        source: 'CASE',
-        sourceId: 'case-1',
-        workflowAction: 'CLEAR',
-      }),
-    );
-    expect(result.transitionCode).toBe('TX_DEPOSIT_CLEAR_TO_SUCCESS');
+    expect(depositWorkflowServiceMock.approveDeposit).toHaveBeenCalledWith('dep-1');
     expect(result.toStatus).toBe('SUCCESS');
     expect(result.updatedSubject).toEqual(
       expect.objectContaining({
