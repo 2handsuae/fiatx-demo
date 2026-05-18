@@ -211,19 +211,18 @@ const AssetList = () => {
           <thead className="sticky top-0 z-10 bg-adm-panel">
             <tr className="border-b border-adm-border">
               <th className={th} style={{ width: 120 }}>Asset No</th>
+              <th className={th} style={{ width: 80 }}>Code</th>
               <th className={th} style={{ width: 80 }}>Type</th>
               <th className={th} style={{ width: 100 }}>Network</th>
               <th className={th} style={{ width: 70 }}>Decimals</th>
-              <th className={th}>Description</th>
-              <th className={th} style={{ width: 80 }}>Status</th>
+              <th className={th} style={{ width: 100 }}>Status</th>
               <th className={th} style={{ width: 140 }}>Updated</th>
-              <th className={th} style={{ width: 120 }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && !loading ? (
               <tr>
-                <td colSpan={8} className="px-3 py-12 text-center text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-3 py-12 text-center text-[11px] text-adm-t3">
                   No assets found
                 </td>
               </tr>
@@ -231,17 +230,14 @@ const AssetList = () => {
               items.map((a) => (
                 <tr
                   key={a.id}
-                  className="border-b border-adm-border hover:bg-adm-hover"
+                  className="border-b border-adm-border hover:bg-adm-hover cursor-pointer"
+                  onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
                 >
-                  <td className="px-3 py-2">
-                    <button
-                      className={adminButtonClass('rowKeyLink')}
-                      onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
-                      title={a.assetNo || a.code}
-                    >
-                      {a.assetNo || a.code}
-                    </button>
-                    <div className="mt-0.5 font-mono text-[10px] text-adm-t3">{a.code}</div>
+                  <td className="px-3 py-2 font-mono text-[11px] text-adm-amber">
+                    {a.assetNo || '—'}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-t1">
+                    {a.code}
                   </td>
                   <td className="px-3 py-2">
                     <AdminBadge value={a.type} />
@@ -252,42 +248,11 @@ const AssetList = () => {
                   <td className="px-3 py-2 font-mono text-adm-t2">
                     {a.decimals}
                   </td>
-                  <td className="px-3 py-2 text-adm-t2 truncate max-w-[200px]" title={a.description || ''}>
-                    {a.description || '—'}
-                  </td>
                   <td className="px-3 py-2">
                     <AdminBadge value={a.status} />
                   </td>
                   <td className="px-3 py-2 font-mono text-[10px] text-adm-t2">
                     {fmt(a.updatedAt)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1.5">
-                      {a.status === 'PROVISIONING' && (
-                        <button
-                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
-                          className={adminButtonClass('rowSecondaryUtility')}
-                        >
-                          Activate
-                        </button>
-                      )}
-                      {a.status === 'ACTIVE' && (
-                        <button
-                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
-                          className={adminButtonClass('rowSecondaryUtility')}
-                        >
-                          Suspend
-                        </button>
-                      )}
-                      {a.status === 'SUSPENDED' && (
-                        <button
-                          onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
-                          className={adminButtonClass('rowSecondaryUtility')}
-                        >
-                          Reactivate
-                        </button>
-                      )}
-                    </div>
                   </td>
                 </tr>
               ))
