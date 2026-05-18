@@ -42,7 +42,7 @@ type TxClient = Prisma.TransactionClient;
 
 type AssetSummary = {
   id: string;
-  code: string;
+  currency: string;
   type: string;
   decimals: number;
 };
@@ -51,13 +51,13 @@ type LiabilitySnapshotRow = {
   customerId: string;
   customerNo: string | null;
   assetId: string;
-  assetCode: string | null;
+  assetCurrency: string | null;
   liabilityAmount: Prisma.Decimal;
 };
 
 type PoolSnapshotRow = {
   assetId: string;
-  assetCode: string | null;
+  assetCurrency: string | null;
   poolRole: string;
   walletId: string | null;
   accountRef: string | null;
@@ -70,13 +70,13 @@ type PoolSnapshotRow = {
 type StatementAggregate = {
   importIds: string[];
   assetId: string;
-  assetCode: string | null;
+  assetCurrency: string | null;
   totalClosingBalance: Prisma.Decimal;
 };
 
 type BreakComputation = {
   assetId: string;
-  assetCode: string | null;
+  assetCurrency: string | null;
   assetType: string;
   liabilityAmount: Prisma.Decimal;
   poolAmount: Prisma.Decimal;
@@ -360,7 +360,7 @@ export class SafeguardingReconciliationService {
           customerNosById.get(customerId) ??
           this.normalizeOptionalString(row.ownerNo),
         assetId,
-        assetCode: null,
+        assetCurrency: null,
         liabilityAmount: new Prisma.Decimal(0),
       };
       const amount = this.toDecimal(row?._sum?.amount || 0);
@@ -500,7 +500,7 @@ export class SafeguardingReconciliationService {
       const snapshot = snapshotByWalletId.get(wallet.id);
       return {
         assetId: wallet.assetId,
-        assetCode: null,
+        assetCurrency: null,
         poolRole: this.mapWalletToPoolRole(wallet),
         walletId: wallet.id,
         accountRef: wallet.iban || wallet.address || wallet.walletNo || null,
@@ -539,7 +539,7 @@ export class SafeguardingReconciliationService {
     for (const payout of payouts) {
       const existing = map.get(payout.assetId) || {
         assetId: payout.assetId,
-        assetCode: null,
+        assetCurrency: null,
         poolRole: SafeguardingPoolRoles.OUTBOUND_IN_TRANSIT,
         walletId: null,
         accountRef: 'FIAT_OUTBOUND_IN_TRANSIT',
@@ -603,7 +603,7 @@ export class SafeguardingReconciliationService {
             runId: run.id,
             businessDate: run.businessDate,
             assetId: snapshot.assetId,
-            assetCode: snapshot.assetCode,
+            assetCode: snapshot.assetCurrency,
             warningType:
               ReconciliationWarningTypes.DEPOSIT_COLLECTION_OVER_AMOUNT,
             poolRole: snapshot.poolRole,
@@ -634,7 +634,7 @@ export class SafeguardingReconciliationService {
               runId: run.id,
               businessDate: run.businessDate,
               assetId: snapshot.assetId,
-              assetCode: snapshot.assetCode,
+              assetCode: snapshot.assetCurrency,
               warningType:
                 ReconciliationWarningTypes.DEPOSIT_COLLECTION_OVER_AGE,
               poolRole: snapshot.poolRole,
@@ -665,7 +665,7 @@ export class SafeguardingReconciliationService {
             runId: run.id,
             businessDate: run.businessDate,
             assetId: snapshot.assetId,
-            assetCode: snapshot.assetCode,
+            assetCode: snapshot.assetCurrency,
             warningType: ReconciliationWarningTypes.PAYOUT_TARGET_BELOW_MIN,
             poolRole: snapshot.poolRole,
             walletId: snapshot.walletId,
@@ -693,7 +693,7 @@ export class SafeguardingReconciliationService {
             runId: run.id,
             businessDate: run.businessDate,
             assetId: snapshot.assetId,
-            assetCode: snapshot.assetCode,
+            assetCode: snapshot.assetCurrency,
             warningType: ReconciliationWarningTypes.PAYOUT_TARGET_ABOVE_MAX,
             poolRole: snapshot.poolRole,
             walletId: snapshot.walletId,
@@ -747,7 +747,7 @@ export class SafeguardingReconciliationService {
         closingBalance: true,
         asset: {
           select: {
-            code: true,
+            currency: true,
           },
         },
       },
@@ -757,7 +757,7 @@ export class SafeguardingReconciliationService {
       const existing = map.get(item.assetId) || {
         importIds: [] as string[],
         assetId: item.assetId,
-        assetCode: item.asset?.code || null,
+        assetCurrency: item.asset?.currency || null,
         totalClosingBalance: new Prisma.Decimal(0),
       };
       existing.importIds.push(item.id);
@@ -804,7 +804,7 @@ export class SafeguardingReconciliationService {
 
     return {
       assetId: asset.id,
-      assetCode: asset.code,
+      assetCurrency: asset.currency,
       assetType: asset.type,
       liabilityAmount,
       poolAmount,
@@ -859,13 +859,13 @@ export class SafeguardingReconciliationService {
         businessDate: run.businessDate,
         sourceType: SAFEGUARDING_BREAK_SOURCE_TYPE,
         sourceId: computation.assetId,
-        sourceNo: computation.assetCode,
+        sourceNo: computation.assetCurrency,
         withdrawId: null,
         withdrawNo: null,
         payoutId: null,
         payoutNo: null,
         assetId: computation.assetId,
-        assetCode: computation.assetCode,
+        assetCode: computation.assetCurrency,
         breakType: computation.breakType,
         liabilityAmount: computation.liabilityAmount,
         poolAmount: computation.poolAmount,
@@ -908,8 +908,8 @@ export class SafeguardingReconciliationService {
       where: { id: existing.id },
       data: {
         runId: run.id,
-        sourceNo: computation.assetCode,
-        assetCode: computation.assetCode,
+        sourceNo: computation.assetCurrency,
+        assetCode: computation.assetCurrency,
         breakType: computation.breakType,
         liabilityAmount: computation.liabilityAmount,
         poolAmount: computation.poolAmount,
@@ -958,7 +958,7 @@ export class SafeguardingReconciliationService {
   ) {
     return computations.map((item) => ({
       assetId: item.assetId,
-      assetCode: item.assetCode,
+      assetCode: item.assetCurrency,
       assetType: item.assetType,
       liabilityAmount: item.liabilityAmount.toString(),
       poolAmount: item.poolAmount.toString(),
@@ -1006,7 +1006,7 @@ export class SafeguardingReconciliationService {
             where: { id: { in: Array.from(assetIds) } },
             select: {
               id: true,
-              code: true,
+              currency: true,
               type: true,
               decimals: true,
             },
@@ -1022,7 +1022,7 @@ export class SafeguardingReconciliationService {
           customerId: item.customerId,
           customerNo: item.customerNo,
           assetId: item.assetId,
-          assetCode: assetById.get(item.assetId)?.code || item.assetCode,
+          assetCode: assetById.get(item.assetId)?.currency || item.assetCurrency,
           liabilityAmount: item.liabilityAmount,
         })),
       });
@@ -1031,7 +1031,7 @@ export class SafeguardingReconciliationService {
         data: poolSnapshots.map((item) => ({
           runId: run.id,
           assetId: item.assetId,
-          assetCode: assetById.get(item.assetId)?.code || item.assetCode,
+          assetCode: assetById.get(item.assetId)?.currency || item.assetCurrency,
           poolRole: item.poolRole,
           walletId: item.walletId,
           accountRef: item.accountRef,
@@ -1046,7 +1046,7 @@ export class SafeguardingReconciliationService {
         run,
         poolSnapshots.map((item) => ({
           ...item,
-          assetCode: assetById.get(item.assetId)?.code || item.assetCode,
+          assetCurrency: assetById.get(item.assetId)?.currency || item.assetCurrency,
         })),
         this.policyMap(policies),
         operatorId,
@@ -1154,7 +1154,7 @@ export class SafeguardingReconciliationService {
     };
     if (query.businessDate) where.businessDate = query.businessDate;
     if (query.assetId) where.assetId = query.assetId;
-    if (query.assetCode) where.assetCode = query.assetCode;
+    if (query.assetCurrency) where.assetCode = query.assetCurrency;
     if (query.status) where.status = query.status;
     if (query.breakType) where.breakType = query.breakType;
 
@@ -1243,7 +1243,7 @@ export class SafeguardingReconciliationService {
     const where: any = {};
     if (query.businessDate) where.businessDate = query.businessDate;
     if (query.assetId) where.assetId = query.assetId;
-    if (query.assetCode) where.assetCode = query.assetCode;
+    if (query.assetCurrency) where.assetCode = query.assetCurrency;
     if (query.poolRole) where.poolRole = query.poolRole;
     if (query.warningType) where.warningType = query.warningType;
     if (query.status) where.status = query.status;
@@ -1554,7 +1554,7 @@ export class SafeguardingReconciliationService {
         fileName: file.originalname || 'statement.csv',
         status: FiatStatementImportStatuses.PENDING,
         closingBalance: null,
-        traceId: `SAFEGUARDING:${businessDate}:${asset.code}`,
+        traceId: `SAFEGUARDING:${businessDate}:${asset.currency}`,
         detailsJson: this.serializeJson({
           rowCount: parsed.entries.length,
         }),

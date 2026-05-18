@@ -37,7 +37,7 @@ export interface OrchestrationResult {
 
 type WithdrawalAssetLike = {
   id?: string;
-  code?: string;
+  currency?: string;
   network?: string | null;
   type?: string | null;
 };
@@ -231,7 +231,7 @@ export class WithdrawWorkflowOrchestrator {
             asset: {
               select: {
                 id: true,
-                code: true,
+                currency: true,
                 network: true,
                 type: true,
               },
@@ -382,7 +382,7 @@ export class WithdrawWorkflowOrchestrator {
             asset: {
               select: {
                 id: true,
-                code: true,
+                currency: true,
                 network: true,
                 type: true,
               },
@@ -951,9 +951,9 @@ export class WithdrawWorkflowOrchestrator {
         `Asset is missing for withdrawal ${withdrawal.id}`,
       );
     }
-    if (!asset.code) {
+    if (!asset.currency) {
       throw new BadRequestException(
-        `Asset code is missing for withdrawal ${withdrawal.id}`,
+        `Asset currency is missing for withdrawal ${withdrawal.id}`,
       );
     }
 
@@ -994,7 +994,7 @@ export class WithdrawWorkflowOrchestrator {
         asset: {
           select: {
             type: true,
-            code: true,
+            currency: true,
             network: true,
           },
         },

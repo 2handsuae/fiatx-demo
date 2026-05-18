@@ -52,7 +52,7 @@ export interface CollectionWalletSummaryItem {
   walletId: string;
   walletNo: string | null;
   assetId: string;
-  assetCode: string;
+  assetCurrency: string;
   assetNetwork: string | null;
   ownerType: string;
   ownerId: string | null;
@@ -165,7 +165,7 @@ export class InternalCollectionWorkflowOrchestrator {
     const wallet = await (this.prisma as any).wallet.findUnique({
       where: { id: walletId },
       include: {
-        asset: { select: { id: true, code: true, type: true, network: true } },
+        asset: { select: { id: true, currency: true, type: true, network: true } },
       },
     });
     if (!wallet) {
@@ -296,7 +296,7 @@ export class InternalCollectionWorkflowOrchestrator {
         take,
         orderBy: { createdAt: 'desc' },
         include: {
-          asset: { select: { id: true, code: true, type: true, network: true } },
+          asset: { select: { id: true, currency: true, type: true, network: true } },
         },
       }),
       (this.prisma as any).wallet.count({ where }),
@@ -311,7 +311,7 @@ export class InternalCollectionWorkflowOrchestrator {
           walletId: wallet.id,
           walletNo: wallet.walletNo ?? null,
           assetId: wallet.assetId,
-          assetCode: wallet.asset?.code || '',
+          assetCurrency: wallet.asset?.currency || '',
           assetNetwork: wallet.asset?.network || null,
           ownerType: wallet.ownerType,
           ownerId: wallet.ownerId ?? null,

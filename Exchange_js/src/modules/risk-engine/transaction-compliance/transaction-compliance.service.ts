@@ -1874,7 +1874,7 @@ export class TransactionComplianceService {
         asset: {
           select: {
             type: true,
-            code: true,
+            currency: true,
             network: true,
           },
         },
@@ -1909,7 +1909,7 @@ export class TransactionComplianceService {
           triggerEntityType: 'WITHDRAW',
           triggerEntityId: withdrawal.id,
           triggerStatus: 'PENDING_COMPLIANCE',
-          assetCode: withdrawal.asset?.code || null,
+          assetCurrency: withdrawal.asset?.currency || null,
           assetNetwork: withdrawal.asset?.network || null,
           destinationAddress: withdrawal.toAddress || null,
           destinationIban: withdrawal.toIban || null,
@@ -1942,7 +1942,7 @@ export class TransactionComplianceService {
           triggerEntityType: 'WITHDRAW',
           triggerEntityId: withdrawal.id,
           triggerStatus: 'PENDING_COMPLIANCE',
-          assetCode: withdrawal.asset?.code || null,
+          assetCurrency: withdrawal.asset?.currency || null,
           assetNetwork: withdrawal.asset?.network || null,
           destinationAddress: withdrawal.toAddress || null,
           destinationIban: withdrawal.toIban || null,
@@ -2174,7 +2174,7 @@ export class TransactionComplianceService {
         asset: {
           select: {
             type: true,
-            code: true,
+            currency: true,
             network: true,
           },
         },
@@ -2207,7 +2207,7 @@ export class TransactionComplianceService {
           triggerEntityType: 'PAYOUT',
           triggerEntityId: payoutId,
           triggerStatus: 'CONFIRMED',
-          assetCode: withdrawal.asset?.code || null,
+          assetCurrency: withdrawal.asset?.currency || null,
           assetNetwork: withdrawal.asset?.network || null,
           destinationAddress: withdrawal.toAddress || null,
           destinationIban: withdrawal.toIban || null,

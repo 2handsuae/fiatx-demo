@@ -37,7 +37,7 @@ type InternalFundStatusChangedEvent = {
 type GroupedOutstandingBucket = {
   asset: {
     id: string;
-    code: string;
+    currency: string;
     network?: string | null;
     type: string;
   };
@@ -179,7 +179,7 @@ export class OutstandingSettlementsService {
         grouped.set(assetId, {
           asset: {
             id: row.asset.id,
-            code: row.asset.code,
+            currency: row.asset.currency,
             network: row.asset.network,
             type: row.asset.type,
           },
@@ -252,7 +252,7 @@ export class OutstandingSettlementsService {
     client: TxClient,
     input: {
       assetId: string;
-      assetCode: string;
+      assetCurrency: string;
       assetType: string;
       assetNetwork?: string | null;
       walletRole: WalletRole;
@@ -270,7 +270,7 @@ export class OutstandingSettlementsService {
 
     if (!wallet) {
       throw new BadRequestException(
-        `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCode}`,
+        `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCurrency}`,
       );
     }
 
@@ -310,7 +310,7 @@ export class OutstandingSettlementsService {
             asset: {
               select: {
                 id: true,
-                code: true,
+                currency: true,
                 type: true,
                 network: true,
                 decimals: true,
@@ -594,7 +594,7 @@ export class OutstandingSettlementsService {
             asset: {
               select: {
                 id: true,
-                code: true,
+                currency: true,
                 network: true,
                 type: true,
                 decimals: true,
@@ -646,7 +646,7 @@ export class OutstandingSettlementsService {
             asset: {
               select: {
                 id: true,
-                code: true,
+                currency: true,
                 network: true,
                 type: true,
                 decimals: true,
@@ -694,7 +694,7 @@ export class OutstandingSettlementsService {
             data: {
               settlementId: settlement.id,
               assetId: group.asset.id,
-              assetCode: group.asset.code,
+              assetCode: group.asset.currency,
               totalInAmount,
               totalOutAmount,
               netAmount,
@@ -741,14 +741,14 @@ export class OutstandingSettlementsService {
           const [fromWallet, toWallet] = await Promise.all([
             this.resolveSystemWallet(client, {
               assetId: group.asset.id,
-              assetCode: group.asset.code,
+              assetCurrency: group.asset.currency,
               assetType: group.asset.type,
               assetNetwork: group.asset.network || null,
               walletRole: execution.fromRole,
             }),
             this.resolveSystemWallet(client, {
               assetId: group.asset.id,
-              assetCode: group.asset.code,
+              assetCurrency: group.asset.currency,
               assetType: group.asset.type,
               assetNetwork: group.asset.network || null,
               walletRole: execution.toRole,

@@ -55,7 +55,7 @@ export class SafeguardingBreakQueryDto {
 
   @IsOptional()
   @IsString()
-  assetCode?: string;
+  assetCurrency?: string;
 
   @IsOptional()
   @IsIn(Object.values(ReconciliationBreakStatuses))
@@ -107,7 +107,7 @@ export class SafeguardingWarningQueryDto {
 
   @IsOptional()
   @IsString()
-  assetCode?: string;
+  assetCurrency?: string;
 
   @IsOptional()
   @IsIn(Object.values(SafeguardingPoolRoles))

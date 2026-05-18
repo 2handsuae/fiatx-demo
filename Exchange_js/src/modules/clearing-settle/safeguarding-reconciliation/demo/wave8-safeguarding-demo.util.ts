@@ -2,7 +2,7 @@ export const DEMO_BUSINESS_DATE = '2026-04-01';
 
 export const DEMO_SCENARIOS = {
   BTC: {
-    assetCode: 'BTC',
+    assetCurrency: 'BTC',
     network: 'BITCOIN',
     targetLiability: '7',
     poolTargets: {
@@ -17,7 +17,7 @@ export const DEMO_SCENARIOS = {
     },
   },
   USDT: {
-    assetCode: 'USDT',
+    assetCurrency: 'USDT',
     network: 'TRON',
     targetLiability: '100',
     poolTargets: {
@@ -29,7 +29,7 @@ export const DEMO_SCENARIOS = {
     },
   },
   AED: {
-    assetCode: 'AED',
+    assetCurrency: 'AED',
     network: '',
     targetLiability: '100',
     poolTargets: {

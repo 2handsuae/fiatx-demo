@@ -23,7 +23,7 @@ interface NormalizedSource {
   sourceId: string;
   sourceNo: string | null;
   assetId: string;
-  assetCode: string;
+  assetCurrency: string;
   assetType: string;
   assetNetwork: string | null;
   fromWalletId: string;
@@ -265,7 +265,7 @@ export class PoolSettlementBatchesService {
     tx: TxClient,
     input: {
       assetId: string;
-      assetCode: string;
+      assetCurrency: string;
       assetType: string;
       assetNetwork?: string | null;
       walletRole: SettlementWalletRole;
@@ -283,7 +283,7 @@ export class PoolSettlementBatchesService {
 
     if (!wallet) {
       throw new BadRequestException(
-        `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCode}`,
+        `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCurrency}`,
       );
     }
 
@@ -301,7 +301,7 @@ export class PoolSettlementBatchesService {
       assetId: string;
       asset: {
         id: string;
-        code: string;
+        currency: string;
         type: string;
         network?: string | null;
       };
@@ -311,14 +311,14 @@ export class PoolSettlementBatchesService {
     const [fromWallet, toWallet] = await Promise.all([
       this.resolveSystemWallet(tx, {
         assetId: source.assetId,
-        assetCode: source.asset.code,
+        assetCurrency: source.asset.currency,
         assetType: source.asset.type,
         assetNetwork: source.asset.network || null,
         walletRole: route.fromRole,
       }),
       this.resolveSystemWallet(tx, {
         assetId: source.assetId,
-        assetCode: source.asset.code,
+        assetCurrency: source.asset.currency,
         assetType: source.asset.type,
         assetNetwork: source.asset.network || null,
         walletRole: route.toRole,
@@ -333,7 +333,7 @@ export class PoolSettlementBatchesService {
       sourceId: source.id,
       sourceNo: source.outstandingNo || null,
       assetId: source.assetId,
-      assetCode: source.asset.code,
+      assetCurrency: source.asset.currency,
       assetType: source.asset.type,
       assetNetwork: source.asset.network || null,
       fromWalletId: fromWallet.id,
@@ -355,7 +355,7 @@ export class PoolSettlementBatchesService {
       assetId: string;
       asset: {
         id: string;
-        code: string;
+        currency: string;
         type: string;
         network?: string | null;
       };
@@ -365,14 +365,14 @@ export class PoolSettlementBatchesService {
     const [fromWallet, toWallet] = await Promise.all([
       this.resolveSystemWallet(tx, {
         assetId: source.assetId,
-        assetCode: source.asset.code,
+        assetCurrency: source.asset.currency,
         assetType: source.asset.type,
         assetNetwork: source.asset.network || null,
         walletRole: route.fromRole,
       }),
       this.resolveSystemWallet(tx, {
         assetId: source.assetId,
-        assetCode: source.asset.code,
+        assetCurrency: source.asset.currency,
         assetType: source.asset.type,
         assetNetwork: source.asset.network || null,
         walletRole: route.toRole,
@@ -387,7 +387,7 @@ export class PoolSettlementBatchesService {
       sourceId: source.id,
       sourceNo: source.obligationNo || null,
       assetId: source.assetId,
-      assetCode: source.asset.code,
+      assetCurrency: source.asset.currency,
       assetType: source.asset.type,
       assetNetwork: source.asset.network || null,
       fromWalletId: fromWallet.id,

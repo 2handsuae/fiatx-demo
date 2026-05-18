@@ -45,10 +45,10 @@ describe('OutstandingsService', () => {
       ownerNo: 'CU_0001',
       status: 'SUCCESS',
       fromAssetId: 'asset-from',
-      fromAssetCode: 'BTC',
+      fromAssetCurrency: 'BTC',
       fromAmount: new Prisma.Decimal(1.5),
       toAssetId: 'asset-to',
-      toAssetCode: 'ETH',
+      toAssetCurrency: 'ETH',
       toAmount: new Prisma.Decimal(20),
     });
 
@@ -101,10 +101,10 @@ describe('OutstandingsService', () => {
       ownerNo: 'CU_0001',
       status: 'SUCCESS',
       fromAssetId: 'asset-from',
-      fromAssetCode: 'BTC',
+      fromAssetCurrency: 'BTC',
       fromAmount: new Prisma.Decimal(1.5),
       toAssetId: 'asset-to',
-      toAssetCode: 'ETH',
+      toAssetCurrency: 'ETH',
       toAmount: new Prisma.Decimal(20),
     });
 
@@ -133,10 +133,10 @@ describe('OutstandingsService', () => {
         ownerNo: 'CU_0001',
         status: 'SUCCESS',
         fromAssetId: 'asset-from',
-        fromAssetCode: 'BTC',
+        fromAssetCurrency: 'BTC',
         fromAmount: new Prisma.Decimal(1.5),
         toAssetId: 'asset-to',
-        toAssetCode: 'ETH',
+        toAssetCurrency: 'ETH',
         toAmount: new Prisma.Decimal(20),
       }),
     ).rejects.toThrow(InternalServerErrorException);
@@ -154,10 +154,10 @@ describe('OutstandingsService', () => {
         ownerNo: 'CU_0001',
         status: 'PENDING_COMPLIANCE',
         fromAssetId: 'asset-from',
-        fromAssetCode: 'BTC',
+        fromAssetCurrency: 'BTC',
         fromAmount: new Prisma.Decimal(1),
         toAssetId: 'asset-to',
-        toAssetCode: 'ETH',
+        toAssetCurrency: 'ETH',
         toAmount: new Prisma.Decimal(2),
       }),
     ).rejects.toThrow(BadRequestException);
@@ -190,10 +190,10 @@ describe('OutstandingsService', () => {
       ownerNo: 'CU_0001',
       status: 'SUCCESS',
       fromAssetId: 'asset-from',
-      fromAssetCode: null,
+      fromAssetCurrency: null,
       fromAmount: new Prisma.Decimal(1.5),
       toAssetId: 'asset-to',
-      toAssetCode: '',
+      toAssetCurrency: '',
       toAmount: new Prisma.Decimal(20),
     });
 

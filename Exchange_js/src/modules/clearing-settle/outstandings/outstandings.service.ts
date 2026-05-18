@@ -20,10 +20,10 @@ interface SwapSuccessPayload {
   ownerNo?: string | null;
   status: string;
   fromAssetId: string;
-  fromAssetCode: string | null;
+  fromAssetCurrency: string | null;
   fromAmount: Prisma.Decimal;
   toAssetId: string;
-  toAssetCode: string | null;
+  toAssetCurrency: string | null;
   toAmount: Prisma.Decimal;
   netToAmount?: Prisma.Decimal | null;
 }
@@ -51,7 +51,7 @@ export class OutstandingsService {
         asset: {
           select: {
             id: true,
-            code: true,
+            currency: true,
             type: true,
             network: true,
           },
@@ -83,7 +83,7 @@ export class OutstandingsService {
         asset: {
           select: {
             id: true,
-            code: true,
+            currency: true,
             type: true,
             network: true,
           },
@@ -127,20 +127,20 @@ export class OutstandingsService {
     return owner?.customerNo || null;
   }
 
-  private async resolveAssetCode(
+  private async resolveAssetCurrency(
     tx: Prisma.TransactionClient,
     assetId: string,
-    assetCode?: string | null,
+    assetCurrency?: string | null,
   ): Promise<string | null> {
-    if (assetCode && assetCode.trim()) {
-      return assetCode;
+    if (assetCurrency && assetCurrency.trim()) {
+      return assetCurrency;
     }
 
     const asset = await (tx as any).asset.findUnique({
       where: { id: assetId },
-      select: { code: true },
+      select: { currency: true },
     });
-    return asset?.code || null;
+    return asset?.currency || null;
   }
 
   private isOutstandingNoUniqueConflict(error: unknown): boolean {
@@ -198,28 +198,28 @@ export class OutstandingsService {
 
     const ownerNo = await this.resolveOwnerNo(tx, swap);
 
-    const fromAssetCode = await this.resolveAssetCode(
+    const fromAssetCurrency = await this.resolveAssetCurrency(
       tx,
       swap.fromAssetId,
-      swap.fromAssetCode,
+      swap.fromAssetCurrency,
     );
-    const toAssetCode = await this.resolveAssetCode(
+    const toAssetCurrency = await this.resolveAssetCurrency(
       tx,
       swap.toAssetId,
-      swap.toAssetCode,
+      swap.toAssetCurrency,
     );
 
     const rows = [
       {
         direction: OutstandingDirection.OUT,
         assetId: swap.fromAssetId,
-        assetCode: fromAssetCode,
+        assetCurrency: fromAssetCurrency,
         amount: new Prisma.Decimal(swap.fromAmount),
       },
       {
         direction: OutstandingDirection.IN,
         assetId: swap.toAssetId,
-        assetCode: toAssetCode,
+        assetCurrency: toAssetCurrency,
         amount: new Prisma.Decimal(swap.netToAmount ?? swap.toAmount),
       },
     ];
@@ -245,7 +245,7 @@ export class OutstandingsService {
             ownerId: swap.ownerId,
             ownerNo,
             assetId: row.assetId,
-            assetCode: row.assetCode,
+            assetCode: row.assetCurrency,
             amount: row.amount,
             status: 'OPEN',
             swapTransactionId: swap.id,
@@ -268,7 +268,7 @@ export class OutstandingsService {
         ownerNo,
         direction: row.direction,
         assetId: row.assetId,
-        assetCode: row.assetCode,
+        assetCode: row.assetCurrency,
         amount: row.amount,
         status: 'OPEN',
         swapTransactionId: swap.id,

@@ -11,7 +11,7 @@ export const DOMAIN_EVENTS = {
     name: 'asset.provisioned',
     emitter: 'AssetListingWorkflowService',
     subscribers: ['TbAccountBatchService (to be refactored to workflow in Batch 2)'],
-    payload: '{ assetId: string, assetNo: string, assetCode: string, tbLedgerId: number }',
+    payload: '{ assetId: string, assetNo: string, assetCurrency: string, tbLedgerId: number }',
   },
   PAYIN_CREATED: {
     name: 'payin.created',
