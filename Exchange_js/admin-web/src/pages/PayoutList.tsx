@@ -30,7 +30,7 @@ interface PayoutItem {
   transactionNo?: string | null;
   amount: string;
   assetId: string;
-  asset: { code: string; type: string; network: string | null; decimals?: number };
+  asset: { currency: string; code: string; type: string; network: string | null; decimals?: number };
   toAddress: string | null;
   toIban: string | null;
   txHash: string | null;
@@ -322,7 +322,7 @@ const PayoutList = () => {
                       <div className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${displayType === 'FIAT' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>
                         {displayType}
                       </div>
-                      <div className="mt-1 font-medium text-gray-900">{formatAssetAmount(payout.amount, payout.asset.decimals)} {payout.asset.code}</div>
+                      <div className="mt-1 font-medium text-gray-900">{formatAssetAmount(payout.amount, payout.asset.decimals)} {payout.asset.currency}</div>
                       <div className="text-xs text-gray-500">{payout.asset.network || 'N/A'}</div>
                     </td>
                     <td className="px-6 py-4">{renderStatusBadge(payout.status, payout.displayStatus)}</td>

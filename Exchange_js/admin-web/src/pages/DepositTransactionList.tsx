@@ -27,7 +27,7 @@ interface DepositTransaction {
   status: string;
   derivedComplianceStatus?: string;
   type?: string;
-  asset: { code: string; type: string; network: string | null; decimals?: number };
+  asset: { currency: string; code: string; type: string; network: string | null; decimals?: number };
   amount: string;
   netAmount: string;
   feeAmount: string;
@@ -368,7 +368,7 @@ const DepositTransactionList = () => {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">{formatAssetAmount(item.amount, item.asset.decimals)} {item.asset.code}</div>
+                      <div className="font-medium text-gray-900">{formatAssetAmount(item.amount, item.asset.decimals)} {item.asset.currency}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">

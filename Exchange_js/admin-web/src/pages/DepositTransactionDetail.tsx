@@ -93,6 +93,7 @@ interface DepositTransactionDetail {
   payinStatus?: string | null;
   payinType?: string | null;
   asset: {
+    currency: string;
     code: string;
     type: string;
     network: string | null;

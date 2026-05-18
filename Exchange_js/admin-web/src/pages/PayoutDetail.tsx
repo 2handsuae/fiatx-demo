@@ -49,7 +49,7 @@ interface PayoutDetail {
   displayStatus?: string | null;
   amount: string;
   assetId: string;
-  asset: { code: string; type: string; network: string | null; decimals?: number };
+  asset: { currency: string; code: string; type: string; network: string | null; decimals?: number };
   toWalletId: string | null;
   toAddress: string | null;
   toIban: string | null;

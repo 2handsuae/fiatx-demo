@@ -114,6 +114,7 @@ interface WithdrawTransactionDetail {
 
   // Relations
   asset: {
+    currency: string;
     code: string;
     type: string;
     network: string | null;

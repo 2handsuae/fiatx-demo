@@ -62,7 +62,7 @@ interface PayinDetail {
   
   // Asset & Amount
   assetId: string;
-  asset: { code: string; type: string; network: string | null; decimals: number; description: string | null };
+  asset: { currency: string; code: string; type: string; network: string | null; decimals: number; description: string | null };
   amount: string;
   
   // Destination

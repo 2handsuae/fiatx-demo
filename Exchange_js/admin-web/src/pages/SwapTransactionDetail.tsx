@@ -32,6 +32,7 @@ interface SwapTransactionDetailData {
   fromAssetCode: string | null;
   fromAmount: string;
   fromAsset: {
+    currency: string;
     code: string;
     type: string;
     network: string | null;
@@ -44,6 +45,7 @@ interface SwapTransactionDetailData {
   feeAmount?: string | null;
   feeCurrency?: string | null;
   toAsset: {
+    currency: string;
     code: string;
     type: string;
     network: string | null;
@@ -287,7 +289,7 @@ const SwapTransactionDetail = () => {
           <InfoField label="Asset Type" value={data.fromAsset.type} />
           <InfoField
             label="Amount"
-            value={`${formatAssetAmount(data.fromAmount, data.fromAsset.decimals)} ${data.fromAsset.code}`}
+            value={`${formatAssetAmount(data.fromAmount, data.fromAsset.decimals)} ${data.fromAsset.currency}`}
             highlight
           />
           <InfoField label="Asset ID" value={data.fromAssetId} mono />
@@ -302,15 +304,15 @@ const SwapTransactionDetail = () => {
           <InfoField label="Asset Type" value={data.toAsset.type} />
           <InfoField
             label="Gross Amount"
-            value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`}
+            value={`${formatAssetAmount(data.toAmount, data.toAsset.decimals)} ${data.toAsset.currency}`}
           />
           <InfoField
             label="Fee"
-            value={`${formatAssetAmount(data.feeAmount || '0', data.toAsset.decimals)} ${data.feeCurrency || data.toAsset.code}`}
+            value={`${formatAssetAmount(data.feeAmount || '0', data.toAsset.decimals)} ${data.feeCurrency || data.toAsset.currency}`}
           />
           <InfoField
             label="Net Amount"
-            value={`${formatAssetAmount(data.netToAmount || data.toAmount, data.toAsset.decimals)} ${data.toAsset.code}`}
+            value={`${formatAssetAmount(data.netToAmount || data.toAmount, data.toAsset.decimals)} ${data.toAsset.currency}`}
             highlight
           />
           <InfoField label="Asset ID" value={data.toAssetId} mono />

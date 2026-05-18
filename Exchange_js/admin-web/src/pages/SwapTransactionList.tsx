@@ -11,9 +11,9 @@ interface SwapTransaction {
   ownerType: string;
   ownerId: string;
   status: string;
-  fromAsset: { code: string; type: string; decimals?: number | null };
+  fromAsset: { currency: string; code: string; type: string; decimals?: number | null };
   fromAmount: string;
-  toAsset: { code: string; type: string; decimals?: number | null };
+  toAsset: { currency: string; code: string; type: string; decimals?: number | null };
   toAmount: string;
   exchangeRate: string;
   createdAt: string;
@@ -244,13 +244,13 @@ const SwapTransactionList = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-red-600">
-                        {formatAssetAmount(item.fromAmount, item.fromAsset.decimals)} {item.fromAsset.code}
+                        {formatAssetAmount(item.fromAmount, item.fromAsset.decimals)} {item.fromAsset.currency}
                       </div>
                       <div className="text-xs text-gray-400">{item.fromAsset.type}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="font-medium text-green-600">
-                        {formatAssetAmount(item.toAmount, item.toAsset.decimals)} {item.toAsset.code}
+                        {formatAssetAmount(item.toAmount, item.toAsset.decimals)} {item.toAsset.currency}
                       </div>
                       <div className="text-xs text-gray-400">{item.toAsset.type}</div>
                     </td>

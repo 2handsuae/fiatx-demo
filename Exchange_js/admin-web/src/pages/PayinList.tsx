@@ -23,7 +23,7 @@ interface PayinItem {
   depositId: string | null;
   status: string;
   displayStatus?: string | null;
-  asset: { code: string; type: string; network: string | null; decimals?: number };
+  asset: { currency: string; code: string; type: string; network: string | null; decimals?: number };
   type: string;
   amount: string;
   transactionType?: string | null;
@@ -234,7 +234,7 @@ const PayinList = () => {
                       <div className={`inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${displayType === 'FIAT' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'}`}>
                         {displayType}
                       </div>
-                      <div className="mt-1 font-medium text-gray-900">{formatAssetAmount(payin.amount, payin.asset.decimals)} {payin.asset.code}</div>
+                      <div className="mt-1 font-medium text-gray-900">{formatAssetAmount(payin.amount, payin.asset.decimals)} {payin.asset.currency}</div>
                       <div className="text-xs text-gray-500">{payin.asset.network || 'N/A'}</div>
                     </td>
                     <td className="px-6 py-4">
