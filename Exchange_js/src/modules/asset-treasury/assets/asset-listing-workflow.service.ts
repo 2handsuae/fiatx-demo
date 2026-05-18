@@ -39,7 +39,7 @@ export class AssetListingWorkflowService {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const created = (await this.assetsService.createAsset({
-          code: dto.code,
+          currency: dto.currency,
           type: dto.type,
           network: dto.network,
           decimals: dto.decimals,
@@ -70,7 +70,7 @@ export class AssetListingWorkflowService {
           workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
           result: AuditResult.FAILED,
           reason: error instanceof Error ? error.message : 'Asset creation failed',
-          metadata: { assetCode: dto.code, assetType: dto.type, network: dto.network },
+          metadata: { assetCurrency: dto.currency, assetType: dto.type, network: dto.network },
           sourcePlatform: 'ADMIN_API',
         },
         {
@@ -94,7 +94,7 @@ export class AssetListingWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
         result: AuditResult.SUCCESS,
         metadata: {
-          assetCode: dto.code,
+          assetCurrency: dto.currency,
           assetType: dto.type,
           network: dto.network,
           tbLedgerId,
@@ -113,7 +113,7 @@ export class AssetListingWorkflowService {
     // 3. Fire-and-forget: trigger async customer TB account batch creation
     this.eventEmitter.emit('asset.provisioned', {
       assetId: asset.id,
-      assetCode: dto.code,
+      assetCurrency: dto.currency,
       tbLedgerId,
     });
 
@@ -122,7 +122,7 @@ export class AssetListingWorkflowService {
 
   /**
    * Update editable fields of a PROVISIONING asset.
-   * Identity fields (type, code, network, decimals) cannot be changed
+   * Identity fields (type, currency, network, decimals) cannot be changed
    * because they are tied to the TB ledger.
    */
   async updateProvisioning(assetNo: string, dto: UpdateAssetDto, actor: AssetCreationActor): Promise<any> {

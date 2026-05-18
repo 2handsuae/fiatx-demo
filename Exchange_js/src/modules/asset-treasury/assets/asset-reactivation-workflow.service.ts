@@ -80,7 +80,7 @@ export class AssetReactivationWorkflowService {
         objectSnapshot: {
           assetId: asset.id,
           assetNo,
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           assetType: asset.type,
           network: asset.network,
           currentStatus: asset.status,
@@ -89,7 +89,7 @@ export class AssetReactivationWorkflowService {
         },
       },
       {
-        reason: `Reactivate suspended asset: ${asset.code}`,
+        reason: `Reactivate suspended asset: ${asset.currency}`,
         traceId,
       },
       actor,
@@ -105,7 +105,7 @@ export class AssetReactivationWorkflowService {
         traceId,
         result: AuditResult.SUCCESS,
         metadata: {
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           suspendReason: asset.suspendReason,
           approvalNo: approvalCase.approvalNo,
         },

@@ -80,7 +80,7 @@ export class AssetSuspensionWorkflowService {
         objectSnapshot: {
           assetId: asset.id,
           assetNo,
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           assetType: asset.type,
           network: asset.network,
           currentStatus: asset.status,
@@ -106,7 +106,7 @@ export class AssetSuspensionWorkflowService {
         traceId,
         result: AuditResult.SUCCESS,
         metadata: {
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           reason,
           approvalNo: approvalCase.approvalNo,
         },

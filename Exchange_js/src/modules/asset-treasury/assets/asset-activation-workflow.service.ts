@@ -90,14 +90,14 @@ export class AssetActivationWorkflowService {
         objectSnapshot: {
           assetId: asset.id,
           assetNo,
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           assetType: asset.type,
           network: asset.network,
           tbLedgerId: asset.tbLedgerId,
         },
       },
       {
-        reason: `Activate asset: ${asset.code} (${asset.type})`,
+        reason: `Activate asset: ${asset.currency} (${asset.type})`,
         traceId,
       },
       actor,
@@ -114,7 +114,7 @@ export class AssetActivationWorkflowService {
         traceId,
         result: AuditResult.SUCCESS,
         metadata: {
-          assetCode: asset.code,
+          assetCurrency: asset.currency,
           approvalNo: approvalCase.approvalNo,
         },
         requestId: `ASSET_ACTIVATION_REQUESTED_${assetNo}`,
