@@ -23,7 +23,6 @@ interface AssetItem {
   code: string;
   network: string | null;
   decimals: number;
-  description: string | null;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -230,7 +229,7 @@ const AssetList = () => {
               items.map((a) => (
                 <tr
                   key={a.id}
-                  className="border-b border-adm-border hover:bg-adm-hover cursor-pointer"
+                  className="cursor-pointer border-b border-adm-border hover:bg-adm-hover transition-colors"
                   onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
                 >
                   <td className="px-3 py-2 font-mono text-[11px] text-adm-amber">
