@@ -4,11 +4,13 @@ import { Type } from 'class-transformer';
 export enum DepositTransactionStatus {
   PAYIN_PENDING = 'PAYIN_PENDING',
   COMPLIANCE_PENDING = 'COMPLIANCE_PENDING',
+  ACTION_PENDING = 'ACTION_PENDING',
   SUCCESS = 'SUCCESS',
-  UNDER_REVIEW = 'UNDER_REVIEW',
   FROZEN = 'FROZEN',
   REJECTED = 'REJECTED',
   FAILED = 'FAILED',
+  EXPIRED = 'EXPIRED',
+  CONFISCATED = 'CONFISCATED',
 }
 
 export enum DepositOwnerType {
@@ -70,10 +72,13 @@ export class DepositTransactionQueryDto {
 
 export enum DepositTransactionAction {
   PAYIN_CONFIRMED = 'payin_confirmed',
-  SUCCESS = 'success',
-  FLAG = 'flag',
-  FREEZE = 'freeze',
+  APPROVE = 'approve',
   REJECT = 'reject',
+  FREEZE = 'freeze',
+  ACTION_PENDING = 'action_pending',
+  RESUME = 'resume',
+  CONFISCATE = 'confiscate',
+  EXPIRE = 'expire',
   FAIL = 'fail',
 }
 
