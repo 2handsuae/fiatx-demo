@@ -36,7 +36,7 @@ export class TbAccountRegistryService {
         ownerType: params.ownerType,
         ownerUuid: params.ownerUuid ?? null,
         ownerNo: params.ownerNo ?? null,
-        assetCurrency: params.assetCurrency,
+        assetCode: params.assetCurrency,
         description: params.description ?? null,
         flags: params.flags ?? 0,
       },
@@ -76,7 +76,7 @@ export class TbAccountRegistryService {
     take?: number;
   }) {
     const where: any = {};
-    if (filters.assetCurrency) where.assetCurrency = filters.assetCurrency;
+    if (filters.assetCurrency) where.assetCode = filters.assetCurrency;
     if (filters.ownerType) where.ownerType = filters.ownerType;
     if (filters.code !== undefined) where.code = filters.code;
 

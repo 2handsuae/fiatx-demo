@@ -38,7 +38,7 @@ export class TbEvidenceService {
           debitCode: params.debitCode,
           creditCode: params.creditCode,
           amount: params.amount,
-          assetCurrency: params.assetCurrency,
+          assetCode: params.assetCurrency,
           traceId: params.traceId,
           actorType: params.actorType,
           actorId: params.actorId,
@@ -106,7 +106,7 @@ export class TbEvidenceService {
   }) {
     const where: any = {};
     if (filters.sourceType) where.sourceType = filters.sourceType;
-    if (filters.assetCurrency) where.assetCurrency = filters.assetCurrency;
+    if (filters.assetCurrency) where.assetCode = filters.assetCurrency;
     if (filters.eventCode) where.eventCode = filters.eventCode;
     if (filters.transferType) where.transferType = filters.transferType;
     if (filters.actorType) where.actorType = filters.actorType;
