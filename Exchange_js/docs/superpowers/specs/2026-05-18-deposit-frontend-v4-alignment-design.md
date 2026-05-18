@@ -229,31 +229,40 @@ Only for states where manual operator decisions are needed:
 ```
 Deposit reaches COMPLIANCE_PENDING (tx hash known)
   ↓
+Gate 0: Customer compliance status check (automatic, immediate)
+  - Check customer.complianceStatus
+  - If FROZEN/SUSPENDED/abnormal → deposit FROZEN (reason: customer compliance blocked)
+  - If normal → proceed (set kytStatus=PENDING, trStatus=PENDING)
+  ↓ (happy path: customer OK)
 Operator goes to Admin Sumsub Events page
   ↓
-Step A: Simulate KYT (Know Your Transaction) webhook
+Gate 1: Simulate KYT (Know Your Transaction) webhook
   - Input: tx hash from the deposit
   - Simulated result: PASS (clean source of funds)
   → Backend finds deposit by txHash → sets kytStatus = PASSED
-  → Checks gate: both KYT + TR passed? Not yet (TR still pending)
+  → Checks approval gate: both KYT + TR passed? Not yet (TR still pending)
   ↓
-Step B: Simulate TR (Transaction Report) webhook
+Gate 2: Simulate TR (Transaction Report) webhook
   - Input: tx hash from the deposit
   - Simulated result: PASS (no risk flags)
   → Backend finds deposit by txHash → sets trStatus = PASSED
-  → Checks gate: both KYT + TR passed? YES
+  → Checks approval gate: both KYT + TR passed? YES
     → DepositWorkflowService.approveDeposit(depositId) // TB Step 2 + SUCCESS
 ```
 
-### Two-Gate Approval
-
-Deposit approval requires **both** KYT and TR to pass. Either failing blocks approval.
+### Three-Gate Approval
 
 ```
-                    ┌─── KYT PASS ───┐
-COMPLIANCE_PENDING ─┤                ├─ BOTH PASS → approveDeposit() → SUCCESS
-                    └─── TR  PASS ───┘
+                          ┌─── Gate 0: Customer status OK ───┐
+COMPLIANCE_PENDING ───────┤                                   │
+  (automatic, immediate)  └─── ✗ abnormal → FROZEN ──────────┘
+                                                 ↓ (pass)
+                          ┌─── Gate 1: KYT PASS ───┐
+                          │                         ├─ ALL PASS → approveDeposit() → SUCCESS
+                          └─── Gate 2: TR  PASS ───┘
 ```
+
+Gate 0 runs automatically when deposit enters COMPLIANCE_PENDING. Gates 1 & 2 are driven by Sumsub webhooks (or simulation).
 
 ### Model Changes
 
@@ -345,9 +354,10 @@ Dynamic rail items based on current status. Shows the deposit's position in the 
 | Step | Where | Action | System Effect |
 |------|-------|--------|---------------|
 | 1 | Client-web 充值页 | Click "Simulate Deposit" | Creates inbound transfer signal → scan → payin + deposit (PAYIN_PENDING) |
-| 2 | Admin PayinDetail | SimulationRail → click CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit COMPLIANCE_PENDING (kytStatus=PENDING, trStatus=PENDING) |
-| 3a | Admin Sumsub Events | `simulate/kyt-check` with txHash + PASS | Deposit kytStatus → PASSED. Gate check: TR still PENDING → wait |
-| 3b | Admin Sumsub Events | `simulate/tr-check` with txHash + PASS | Deposit trStatus → PASSED. Gate check: both PASSED → approveDeposit() → TB Step 2 + deposit SUCCESS |
+| 2 | Admin PayinDetail | SimulationRail → click CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit COMPLIANCE_PENDING |
+| — | (automatic) | Gate 0: customer status check | Customer OK → set kytStatus=PENDING, trStatus=PENDING. _(If abnormal → FROZEN, happy path stops)_ |
+| 3a | Admin Sumsub Events | `simulate/kyt-check` with txHash + PASS | Gate 1: kytStatus → PASSED. Gate check: TR still PENDING → wait |
+| 3b | Admin Sumsub Events | `simulate/tr-check` with txHash + PASS | Gate 2: trStatus → PASSED. All gates passed → approveDeposit() → TB Step 2 + deposit SUCCESS |
 
 **After step 3b**: deposit is SUCCESS with full TB accounting (both Step 1 and Step 2 transfers recorded).
 
@@ -378,5 +388,5 @@ Dynamic rail items based on current status. Shows the deposit's position in the 
 |------|--------|-------|----------|
 | `prisma/schema.prisma` | Modify | Add `kytStatus`, `trStatus` fields to DepositTransaction | **Critical** |
 | `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | Modify | Add `simulateKytCheck()` and `simulateTrCheck()` endpoints | **Critical** |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Modify | Add KYT+TR gate check logic, approve when both pass | **Critical** |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Modify | Add Gate 0 (customer status check on COMPLIANCE_PENDING entry) + KYT/TR gate check logic + approve when all pass | **Critical** |
 | `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | Modify | Set kytStatus/trStatus=PENDING on entering COMPLIANCE_PENDING | **Critical** |
