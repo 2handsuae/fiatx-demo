@@ -15,17 +15,7 @@ import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
-import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import {
-  TxSourceType,
-} from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditModules,
-  buildStateTransitionAction,
-} from '../../audit-logging/constants/audit-actions.constant';
+import { v4 as uuidv4 } from 'uuid';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -42,8 +32,6 @@ export interface DepositStatusUpdateOptions {
   actor?: DepositStatusUpdateActorContext;
   traceId?: string;
   workflowType?: string;
-  workflowId?: string;
-  workflowNo?: string;
   reason?: string | null;
   metadata?: Record<string, unknown>;
   statusHistoryContext?: Record<string, unknown>;
@@ -57,8 +45,6 @@ export class DepositTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly transactionComplianceService: TransactionComplianceService,
-    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -73,186 +59,6 @@ export class DepositTransactionsService {
 
   private deriveDepositType(assetType?: string | null): 'crypto' | 'fiat' {
     return String(assetType || '').toUpperCase() === 'CRYPTO' ? 'crypto' : 'fiat';
-  }
-
-  private deriveDepositComplianceStatusFromStatus(
-    status?: string | null,
-  ): 'PENDING' | 'HOLD' | 'CLEAR' | 'REJECT' {
-    const normalized = String(status || '').toUpperCase();
-    if (normalized === DepositTransactionStatus.SUCCESS) {
-      return 'CLEAR';
-    }
-    if (
-      normalized === DepositTransactionStatus.UNDER_REVIEW ||
-      normalized === DepositTransactionStatus.FROZEN
-    ) {
-      return 'HOLD';
-    }
-    if (normalized === DepositTransactionStatus.REJECTED) {
-      return 'REJECT';
-    }
-    return 'PENDING';
-  }
-
-  private async recordAuditEvent(
-    input: Record<string, unknown>,
-    options?: DepositStatusUpdateOptions,
-  ) {
-    if (options?.actor) {
-      return this.auditLogsService.recordByActor(
-        input as any,
-        {
-          actorType: options.actor.actorType,
-          actorId: options.actor.actorId,
-          actorNo: options.actor.actorNo,
-          actorRole: options.actor.actorRole,
-        },
-        options.tx,
-      );
-    }
-
-    return this.auditLogsService.recordSystem(input as any, options?.tx);
-  }
-
-  private async recordComplianceGateBlockedAudit(
-    item: any,
-    reason: string,
-    detail: Record<string, unknown>,
-    options?: DepositStatusUpdateOptions,
-  ) {
-    await this.recordAuditEvent(
-      {
-
-        action: AuditActions.TX_DEPOSIT_RELEASE_BLOCKED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: item.id,
-        entityNo: item.depositNo,
-        entityOwnerType: item.ownerType,
-        entityOwnerId: item.ownerId,
-        traceId: options?.traceId || `TRANSACTION:${item.id}`,
-        workflowType: options?.workflowType || 'TRANSACTION',
-        reason,
-        metadata: {
-          depositId: item.id,
-          customerId: item.ownerId,
-          blockedReason: reason,
-          ...detail,
-          ...(options?.metadata || {}),
-        },
-        sourcePlatform: options?.sourcePlatform || options?.actor?.sourcePlatform || 'SYSTEM',
-      },
-      options,
-    );
-  }
-
-  private async assertComplianceBeforeSuccess(
-    item: any,
-    nextStatus: DepositTransactionStatus,
-    options?: DepositStatusUpdateOptions,
-  ) {
-    if (nextStatus !== DepositTransactionStatus.SUCCESS) return;
-
-    const reasons: string[] = [];
-    const customer = item.customer || {};
-    if (String(customer.onboardingStatus || '').toUpperCase() !== 'APPROVED') {
-      reasons.push(
-        `onboardingStatus=${customer.onboardingStatus || 'UNKNOWN'} (expected APPROVED)`,
-      );
-    }
-    if (String(customer.adminStatus || '').toUpperCase() !== 'ACTIVE') {
-      reasons.push(
-        `adminStatus=${customer.adminStatus || 'UNKNOWN'} (expected ACTIVE)`,
-      );
-    }
-    if (String(customer.complianceStatus || '').toUpperCase() !== 'CLEAR') {
-      reasons.push(
-        `complianceStatus=${customer.complianceStatus || 'UNKNOWN'} (expected CLEAR)`,
-      );
-    }
-
-    const bypassTransactionComplianceChecks =
-      options?.metadata?.transactionWorkflowClearanceApproved === true;
-    const assetType = String(item.asset?.type || '').toUpperCase();
-    if (assetType === 'CRYPTO' && !bypassTransactionComplianceChecks) {
-      if (
-        this.transactionComplianceService.normalizeKytLifecycleStatus(
-          item.kytStatus,
-          { allowEmpty: true },
-        ) !== 'FINAL'
-      ) {
-        reasons.push(
-          `kytStatus=${item.kytStatus || 'UNKNOWN'} (expected FINAL-compatible lifecycle)`,
-        );
-      }
-
-      if (
-        item.travelRuleRequired === true &&
-        this.transactionComplianceService.normalizeTravelRuleLifecycleStatus(
-          item.travelRuleStatus,
-          true,
-          { allowEmpty: true },
-        )
-          !== 'FINAL'
-      ) {
-        reasons.push(
-          `travelRuleStatus=${item.travelRuleStatus || 'UNKNOWN'} (expected FINAL-compatible lifecycle when travelRuleRequired=true)`,
-        );
-      }
-    }
-
-    if (reasons.length > 0) {
-      const blockedReason = `Deposit ${item.id} release blocked: ${reasons.join('; ')}`;
-      await this.recordComplianceGateBlockedAudit(
-        item,
-        blockedReason,
-        {
-          nextStatus,
-          reasons,
-          onboardingStatus: customer.onboardingStatus || null,
-          adminStatus: customer.adminStatus || null,
-          complianceStatus: customer.complianceStatus || null,
-          kytStatus: item.kytStatus || null,
-          travelRuleRequired: item.travelRuleRequired ?? null,
-          travelRuleStatus: item.travelRuleStatus || null,
-        },
-        options,
-      );
-      throw new BadRequestException({
-        code: 'DEPOSIT_RELEASE_BLOCKED',
-        message: blockedReason,
-        details: reasons,
-        blockedReason,
-      });
-    }
-  }
-
-  private async getDepositForStatusUpdate(
-    id: string,
-    tx?: Prisma.TransactionClient,
-  ) {
-    const item = await (this.getDb(tx) as any).depositTransaction.findUnique({
-      where: { id },
-      include: {
-        asset: true,
-        wallet: true,
-        fromWallet: true,
-        payin: true,
-        customer: {
-          select: {
-            customerNo: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            onboardingStatus: true,
-            adminStatus: true,
-            complianceStatus: true,
-          },
-        },
-      },
-    });
-    if (!item) throw new NotFoundException('Deposit transaction not found');
-
-    return item;
   }
 
   async findAll(query: DepositTransactionQueryDto) {
@@ -315,9 +121,6 @@ export class DepositTransactionsService {
           item.ownerNo ||
           (item.ownerType === 'CUSTOMER' ? item.customer?.customerNo || null : null),
         type: this.deriveDepositType(item.asset?.type),
-        derivedComplianceStatus: this.deriveDepositComplianceStatusFromStatus(
-          item.status,
-        ),
       })),
       total,
     };
@@ -328,7 +131,7 @@ export class DepositTransactionsService {
       where: { id },
       include: {
         asset: true,
-        wallet: true, // toWallet
+        wallet: true,
         fromWallet: true,
         payin: true,
         customer: {
@@ -342,115 +145,25 @@ export class DepositTransactionsService {
             complianceStatus: true,
           },
         },
-        auditLogs: {
-          orderBy: { createdAt: 'desc' },
-        },
       },
     });
     if (!item) throw new NotFoundException('Deposit transaction not found');
 
-    // Manual mapping for fields not directly on the model or needing extraction
     const deposit = item as any;
-    const inboundSignal = deposit.payin?.providerTxnId
-      ? await (this.prisma as any).inboundTransferSignal.findUnique({
-          where: { id: deposit.payin.providerTxnId },
-          select: {
-            id: true,
-            signalNo: true,
-            simulationRiskLevel: true,
-            simulationRiskReason: true,
-          },
-        })
-      : null;
-    
-    // Map ownerNo
     let ownerNo = deposit.ownerNo;
     if (!ownerNo && deposit.ownerType === 'CUSTOMER' && deposit.customer) {
-        ownerNo = deposit.customer.customerNo;
+      ownerNo = deposit.customer.customerNo;
     }
 
-    const caseAggregate =
-      await this.transactionComplianceService.getTransactionCaseAggregate(
-        TxSourceType.DEPOSIT,
-        id,
-        {
-          includeReports: false,
-          includePayload: false,
-        },
-      );
-    const [finalAlert, finalCase] = await Promise.all([
-      (this.prisma as any).complianceAlert.findFirst({
-        where: {
-          sourceType: 'DEPOSIT',
-          sourceId: id,
-          stage: 'REVIEW_DEPOSIT_FINAL',
-        },
-        orderBy: { lastOccurredAt: 'desc' },
-        select: {
-          id: true,
-          alertNo: true,
-          status: true,
-        },
-      }),
-      (this.prisma as any).complianceIncident.findFirst({
-        where: {
-          sourceType: 'DEPOSIT',
-          entityId: id,
-          stage: 'REVIEW_DEPOSIT_FINAL',
-        },
-        orderBy: { lastActionAt: 'desc' },
-        select: {
-          id: true,
-          incidentNo: true,
-          status: true,
-        },
-      }),
-    ]);
-
-    const normalizedKytStatus = caseAggregate.mainKytCase?.status
-      ? caseAggregate.mainKytCase.status
-      : this.transactionComplianceService.normalizeKytLifecycleStatus(
-          deposit.kytStatus,
-          { allowEmpty: true },
-        );
-    const normalizedTravelRuleStatus = caseAggregate.travelRuleCase?.status
-      ? caseAggregate.travelRuleCase.status
-      : this.transactionComplianceService.normalizeTravelRuleLifecycleStatus(
-          deposit.travelRuleStatus,
-          deposit.travelRuleRequired,
-          { allowEmpty: true },
-        );
-
     return {
-        ...item,
-        ownerNo,
-        type: this.deriveDepositType(deposit.asset?.type),
-        kytStatus: normalizedKytStatus,
-        travelRuleStatus: normalizedTravelRuleStatus,
-        payinNo: deposit.payin?.payinNo,
-        payinStatus: deposit.payin?.status || null,
-        payinType: deposit.payin?.type || null,
-        toWalletNo: deposit.wallet?.walletNo,
-        fromWalletNo: deposit.fromWallet?.walletNo,
-        kytCase: caseAggregate.mainKytCase,
-        travelRuleCase: caseAggregate.travelRuleCase,
-        derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
-        simulationProfile: inboundSignal
-          ? {
-              signalId: inboundSignal.id,
-              signalNo: inboundSignal.signalNo,
-              riskLevel: inboundSignal.simulationRiskLevel || 'LOW',
-              riskReason: inboundSignal.simulationRiskReason || null,
-            }
-          : null,
-        finalAlert,
-        finalCase: finalCase
-          ? {
-              id: finalCase.id,
-              caseNo: finalCase.incidentNo,
-              status: finalCase.status,
-            }
-          : null,
+      ...item,
+      ownerNo,
+      type: this.deriveDepositType(deposit.asset?.type),
+      payinNo: deposit.payin?.payinNo,
+      payinStatus: deposit.payin?.status || null,
+      payinType: deposit.payin?.type || null,
+      toWalletNo: deposit.wallet?.walletNo,
+      fromWalletNo: deposit.fromWallet?.walletNo,
     };
   }
 
@@ -459,14 +172,16 @@ export class DepositTransactionsService {
     dto: UpdateDepositTransactionStatusDto,
     options?: DepositStatusUpdateOptions,
   ) {
-    const transaction = await this.getDepositForStatusUpdate(id, options?.tx);
+    const db = this.getDb(options?.tx);
+    const transaction = await (db as any).depositTransaction.findUnique({
+      where: { id },
+    });
+    if (!transaction) throw new NotFoundException('Deposit transaction not found');
+
     const currentStatus = transaction.status as DepositTransactionStatus;
     const action = dto.action;
-
     const nextStatus = this.getNextStatus(currentStatus, action);
-    await this.assertComplianceBeforeSuccess(transaction, nextStatus, options);
 
-    // Record status history
     const historyEntry = {
       status: nextStatus,
       timestamp: new Date().toISOString(),
@@ -485,7 +200,7 @@ export class DepositTransactionsService {
       currentHistory = transaction.statusHistory
         ? JSON.parse(transaction.statusHistory)
         : [];
-    } catch (e) {
+    } catch {
       currentHistory = [];
     }
     currentHistory.push(historyEntry);
@@ -502,28 +217,10 @@ export class DepositTransactionsService {
       updateData.completedAt = new Date();
     }
 
-    const updated = await (this.getDb(options?.tx) as any).depositTransaction.update({
+    const updated = await (db as any).depositTransaction.update({
       where: { id },
       data: updateData,
     });
-
-    await this.recordAuditEvent(
-      {
-
-        action: buildStateTransitionAction('DEPOSIT', currentStatus, nextStatus),
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: updated.id,
-        entityNo: updated.depositNo,
-        entityOwnerType: updated.ownerType,
-        entityOwnerId: updated.ownerId,
-        traceId: options?.traceId || undefined,
-        workflowType: options?.workflowType || 'DEPOSIT',
-        reason: options?.reason || dto.reason || `Action: ${action}`,
-        metadata: options?.metadata || undefined,
-        sourcePlatform: options?.sourcePlatform || options?.actor?.sourcePlatform || 'SYSTEM',
-      },
-      options,
-    );
 
     this.eventEmitter.emit(
       'deposit.status.changed',
@@ -546,18 +243,19 @@ export class DepositTransactionsService {
     current: DepositTransactionStatus,
     action: DepositTransactionAction,
   ): DepositTransactionStatus {
-    // State Machine
-    // [*] --> PAYIN_PENDING
-    // PAYIN_PENDING --> COMPLIANCE_PENDING: payin_confirmed
-    // PAYIN_PENDING --> FAILED: fail
-    // COMPLIANCE_PENDING --> SUCCESS: success
-    // COMPLIANCE_PENDING --> UNDER_REVIEW: flag
-    // COMPLIANCE_PENDING --> REJECTED: reject
-    // COMPLIANCE_PENDING --> FAILED: fail
-    // UNDER_REVIEW --> SUCCESS: success
-    // UNDER_REVIEW --> REJECTED: reject
-    // UNDER_REVIEW --> FAILED: fail
-    // FAILED --> [*] (Terminal)
+    const TERMINAL = new Set([
+      DepositTransactionStatus.SUCCESS,
+      DepositTransactionStatus.REJECTED,
+      DepositTransactionStatus.FAILED,
+      DepositTransactionStatus.EXPIRED,
+      DepositTransactionStatus.CONFISCATED,
+    ]);
+
+    if (TERMINAL.has(current)) {
+      throw new BadRequestException(
+        `Cannot apply action '${action}' to terminal status '${current}'`,
+      );
+    }
 
     const transitions: Record<
       string,
@@ -569,39 +267,29 @@ export class DepositTransactionsService {
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
       },
       [DepositTransactionStatus.COMPLIANCE_PENDING]: {
-        [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.FLAG]: DepositTransactionStatus.UNDER_REVIEW,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.ACTION_PENDING]:
+          DepositTransactionStatus.ACTION_PENDING,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
       },
-      [DepositTransactionStatus.UNDER_REVIEW]: {
-        [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+      [DepositTransactionStatus.ACTION_PENDING]: {
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
-        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.RESUME]:
+          DepositTransactionStatus.COMPLIANCE_PENDING,
+        [DepositTransactionAction.EXPIRE]: DepositTransactionStatus.EXPIRED,
       },
       [DepositTransactionStatus.FROZEN]: {
-        [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.FLAG]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.PAYIN_CONFIRMED]: DepositTransactionStatus.FROZEN,
-      },
-      [DepositTransactionStatus.FAILED]: {
-        // Responds to any action by staying in FAILED (Terminal)
-        [DepositTransactionAction.SUCCESS]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.FLAG]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.PAYIN_CONFIRMED]: DepositTransactionStatus.FAILED,
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        [DepositTransactionAction.CONFISCATE]:
+          DepositTransactionStatus.CONFISCATED,
       },
     };
 
     const nextStatus = transitions[current]?.[action];
-
     if (!nextStatus) {
       throw new BadRequestException(
         `Invalid action '${action}' for status '${current}'`,
@@ -625,9 +313,11 @@ export class DepositTransactionsService {
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     const depositNo = generateReferenceNo('DEP');
+    const traceId = uuidv4();
     const created = await (this.prisma as any).depositTransaction.create({
       data: {
         depositNo,
+        traceId,
         ownerType: wallet.ownerType,
         ownerId: wallet.ownerId || 'UNKNOWN',
         status: DepositTransactionStatus.PAYIN_PENDING,
@@ -652,20 +342,13 @@ export class DepositTransactionsService {
       },
     });
 
-    await this.auditLogsService.recordSystem({
-
-      action: AuditActions.DEPOSIT_CREATED_FROM_PAYIN,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: created.id,
-      entityNo: created.depositNo,
-      entityOwnerType: created.ownerType,
-      entityOwnerId: created.ownerId,
-      workflowType: 'DEPOSIT',
-      reason: 'Deposit created from payin detection',
-      sourcePlatform: 'SYSTEM',
-    });
-
     return created;
+  }
+
+  async findByPayinId(payinId: string) {
+    return (this.prisma as any).depositTransaction.findUnique({
+      where: { payinId },
+    });
   }
 
   async createRandom(): Promise<any> {
