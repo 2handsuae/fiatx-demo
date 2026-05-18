@@ -4,16 +4,17 @@ import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { PayinsModule } from '../../asset-treasury/payins/payins.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
-import { TransactionDepositWorkflowService } from './transaction-deposit-workflow.service';
+import { DepositWorkflowService } from './deposit-workflow.service';
+import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 
 @Module({
-  imports: [PayinsModule, OnboardingModule],
+  imports: [PayinsModule, OnboardingModule, TigerBeetleModule],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,
     InboundTransferSignalsService,
-    TransactionDepositWorkflowService,
+    DepositWorkflowService,
   ],
-  exports: [DepositTransactionsService, TransactionDepositWorkflowService],
+  exports: [DepositTransactionsService, DepositWorkflowService],
 })
 export class DepositTransactionsModule {}
