@@ -1538,6 +1538,7 @@ model DepositTransaction {
   travelRuleTransferId String?
   counterpartyVasp     String?
   travelRuleCheckedAt  DateTime?
+  traceId              String?
   statusHistory        String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
