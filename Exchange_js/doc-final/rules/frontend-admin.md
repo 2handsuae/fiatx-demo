@@ -153,6 +153,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **Role** | account `status` badge, domain count, permission count | (none — entity has no timestamp fields) |
 | **AuditLog** | `triggerType`, `entityType`, `actorType` | `retainedUntil`, `archivedAt`, `createdAt`, `updatedAt` |
 | **EvidencePackage** | account `status` badge, `exportMode`, `itemCount`, `exportedByNo` | `createdAt`, `updatedAt` |
+| **Asset** | `assetNo`, `status` badge, `code`, `type` | `createdAt`, `updatedAt` |
 
 ---
 

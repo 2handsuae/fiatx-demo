@@ -298,8 +298,6 @@ export default function AssetDetail() {
               </div>
             </section>
           )}
-
-
         </div>
 
         {/* ════ RIGHT SIDEBAR ════ */}
