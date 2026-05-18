@@ -1,8 +1,12 @@
-# Deposit Frontend V4 Alignment — Design Spec
+# Deposit V4 Happy Path — Frontend Alignment + Backend Linkage
 
 ## Goal
 
-Update admin-web and client-web deposit pages to align with the V4 deposit state machine (9 statuses, 9 actions), comply with frontend design rules (`adm-*` / `fx-*` tokens, two-column layout, ActionSection), and place simulation controls at appropriate lifecycle points.
+1. Update admin-web and client-web deposit pages to align with the V4 deposit state machine (9 statuses, 9 actions), comply with frontend design rules (`adm-*` / `fx-*` tokens, two-column layout, ActionSection).
+2. Wire the missing Sumsub → deposit event linkage so that Sumsub AML approval triggers deposit approval (with TB accounting).
+3. Enable end-to-end happy path simulation: client creates deposit → payin advances → Sumsub approves → deposit succeeds.
+
+**This round focuses on the happy path** (PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS). Non-happy-path features (SimulationRail for all transitions, freeze/confiscate flows) are included in the spec for completeness but are lower priority.
 
 ## Architecture Decision
 
@@ -14,8 +18,9 @@ Update admin-web and client-web deposit pages to align with the V4 deposit state
 |---------|-------|-----|
 | Compliance decisions (approve/reject/freeze) | Sumsub webhooks | Automated / compliance officer via Sumsub |
 | Post-compliance legal decisions (release/confiscate frozen funds) | Admin DepositDetail ActionSection | Legal / senior ops |
-| Operational actions (resume/expire pending reviews) | Admin DepositDetail ActionSection | Operations |
+| Operational actions (expire pending reviews) | Admin DepositDetail ActionSection | Operations |
 | Dev simulation of full lifecycle | Admin DepositDetail SimulationRail | Developer (sim mode only) |
+| **Happy path simulation** | **Sumsub simulation menu → event chain → auto-approve** | **Developer (sim mode)** |
 
 ---
 
@@ -215,7 +220,68 @@ Only for states where manual operator decisions are needed:
 
 ---
 
-## Section 5: SimulationRail for Deposit Detail
+## Section 5: Backend — Sumsub → Deposit Event Linkage (Happy Path Critical)
+
+**Problem**: Sumsub AML approval currently updates `customer.complianceStatus` but does NOT trigger deposit status changes. The chain is broken.
+
+### Current Flow (broken)
+
+```
+Sumsub webhook (GREEN)
+  → SumsubIngestionService.dispatch()
+    → ClientRiskAssessmentService.handleSumsubAmlResult()
+      → updates customer complianceStatus
+      ✗ STOPS HERE — no deposit awareness
+```
+
+### Target Flow (happy path)
+
+```
+Sumsub webhook (GREEN)
+  → SumsubIngestionService.dispatch()
+    → ClientRiskAssessmentService.handleSumsubAmlResult()
+      → updates customer complianceStatus
+      → emit('compliance.aml.completed', { customerId, decision: 'GREEN' })  ← NEW
+        → DepositWorkflowService.handleComplianceAmlCompleted()              ← NEW
+          → find all COMPLIANCE_PENDING deposits for this customer
+          → for each: approveDeposit(depositId)  // TB Step 2 + status change
+```
+
+### Files Changed (Backend)
+
+| File | Change |
+|------|--------|
+| `src/modules/identity/client-risk-assessment/client-risk-assessment.service.ts` | After GREEN AML result → emit `compliance.aml.completed` event |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Add `@OnEvent('compliance.aml.completed')` handler: query COMPLIANCE_PENDING deposits by customerId, call `approveDeposit()` for each |
+
+### Event Payload
+
+```typescript
+interface ComplianceAmlCompletedEvent {
+  customerId: string;
+  decision: 'GREEN' | 'RED';
+  assessmentId: string;
+  labels?: string[];  // e.g., ['SANCTIONS'] for RED
+}
+```
+
+### Happy Path Behavior
+
+When `decision === 'GREEN'`:
+- Find all deposits where `ownerId === customerId` AND `status === 'COMPLIANCE_PENDING'`
+- Call `approveDeposit(depositId)` for each (includes TB accounting Step 2)
+- If no pending deposits → no-op, log only
+
+### FROZEN Guard
+
+When `decision === 'RED'` or deposit is already FROZEN:
+- Do NOT auto-transition FROZEN deposits (legal decision required)
+- For RED decisions: freeze COMPLIANCE_PENDING deposits → emit freeze event
+- This is non-happy-path, lower priority this round but noted for completeness
+
+---
+
+## Section 6: SimulationRail for Deposit Detail (Lower Priority, Non-Happy-Path)
 
 **Component**: Reuse existing `admin-web/src/components/SimulationRail.tsx`
 
@@ -251,26 +317,43 @@ Dynamic rail items based on current status. Shows the deposit's position in the 
 
 ---
 
-## Section 6: Simulation Controls — Full Lifecycle Map
+## Section 7: Happy Path Simulation — End-to-End
 
-| Step | Location | How to Trigger | Status Effect |
-|------|----------|---------------|---------------|
-| 1. Create payin | Client-web "Simulate Deposit" button | Creates inbound transfer signal + scan | Creates payin + deposit (PAYIN_PENDING) |
-| 2. Advance payin | Admin PayinDetail SimulationRail | Click CONFIRMED/CLEARED steps | PAYIN_PENDING → COMPLIANCE_PENDING |
-| 3. Sumsub decision | Admin Sumsub simulation menu (`/sumsub/simulate/*`) | Select scenario (approve/reject/flag) | COMPLIANCE_PENDING → SUCCESS/REJECTED/FROZEN/ACTION_PENDING |
-| 4. Deposit transitions (dev) | Admin DepositDetail SimulationRail | Click available transition | Any valid transition |
-| 5. Frozen fund disposition | Admin DepositDetail ActionSection | Click approve/confiscate | FROZEN → SUCCESS/CONFISCATED |
-| 6. TB accounting | Automatic | DepositWorkflowService event handlers | No manual step |
+**Primary simulation flow** (uses Sumsub simulation menu, walks the real event chain):
+
+| Step | Where | Action | System Effect |
+|------|-------|--------|---------------|
+| 1 | Client-web | Click "Simulate Deposit" | Creates inbound transfer signal → scan → payin + deposit (PAYIN_PENDING) |
+| 2 | Admin PayinDetail | SimulationRail → click CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit COMPLIANCE_PENDING |
+| 3 | Admin Sumsub menu | `simulate/aml-check-result` with GREEN | ClientRiskAssessment GREEN → `emit('compliance.aml.completed')` → DepositWorkflowService → TB Step 2 + deposit SUCCESS |
+
+**After step 3**: deposit is SUCCESS with full TB accounting (both Step 1 and Step 2 transfers recorded).
+
+### Non-Happy-Path Simulation (Lower Priority)
+
+| Step | Where | Action | Effect |
+|------|-------|--------|--------|
+| Sumsub RED | Admin Sumsub menu | `simulate/aml-check-result` with RED + SANCTIONS | Deposit → FROZEN |
+| Manual freeze disposition | Admin DepositDetail ActionSection | approve / confiscate | FROZEN → SUCCESS / CONFISCATED |
+| Dev shortcut | Admin DepositDetail SimulationRail | Click any valid transition | Direct status PATCH (bypasses event chain) |
 
 ---
 
-## Section 7: Files Changed
+## Section 8: Files Changed
 
-| File | Action | Scope |
-|------|--------|-------|
-| `admin-web/src/pages/DepositTransactionList.tsx` | Modify | V4 status badges, filter dropdown, adm-* tokens |
-| `admin-web/src/pages/DepositTransactionDetail.tsx` | Rewrite | Two-column layout, ActionSection, SimulationRail, V4 data |
-| `admin-web/src/utils/transactionRootDisplay.ts` | Modify | Add V4 status labels |
-| `client-web/src/pages/Deposit.tsx` | Modify | Tipping-off-safe status mapping, remove stale statuses |
+### Frontend
 
-No new files created — all changes are modifications to existing files, reusing existing components (SimulationRail, ActionSection pattern from SwapTransactionDetail).
+| File | Action | Scope | Priority |
+|------|--------|-------|----------|
+| `admin-web/src/pages/DepositTransactionList.tsx` | Modify | V4 status badges, filter dropdown, adm-* tokens | High |
+| `admin-web/src/pages/DepositTransactionDetail.tsx` | Rewrite | Two-column layout, ActionSection, SimulationRail, V4 data | High |
+| `admin-web/src/utils/transactionRootDisplay.ts` | Modify | Add V4 status labels | High |
+| `client-web/src/pages/Deposit.tsx` | Modify | Tipping-off-safe status mapping, remove stale statuses | High |
+
+### Backend (Happy Path Linkage)
+
+| File | Action | Scope | Priority |
+|------|--------|-------|----------|
+| `src/modules/identity/client-risk-assessment/client-risk-assessment.service.ts` | Modify | Emit `compliance.aml.completed` event after GREEN result | **Critical** |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | Modify | Add `@OnEvent('compliance.aml.completed')` handler | **Critical** |
+| `src/modules/trading/deposit-transactions/events/deposit-transaction.events.ts` | Modify | Add `ComplianceAmlCompletedEvent` type | **Critical** |
