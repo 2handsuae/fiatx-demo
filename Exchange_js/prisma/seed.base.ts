@@ -576,7 +576,7 @@ async function seedBaseCustomers(prisma: PrismaClient): Promise<void> {
 async function seedAssets(prisma: PrismaClient): Promise<void> {
   const keepConditions = DEFAULT_ASSETS.map((asset) => ({
     type: asset.type,
-    code: asset.code,
+    currency: asset.currency,
     network: normalizeNetwork(asset.network),
   }));
 
@@ -584,14 +584,15 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     const normalizedNetwork = normalizeNetwork(asset.network);
     await prisma.asset.upsert({
       where: {
-        type_code_network: {
+        type_currency_network: {
           type: asset.type,
-          code: asset.code,
+          currency: asset.currency,
           network: normalizedNetwork,
         },
       },
       update: {
         assetNo: asset.assetNo,
+        code: asset.code,
         decimals: asset.decimals,
         description: asset.description,
         status: asset.status,
@@ -599,6 +600,7 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
       create: {
         assetNo: asset.assetNo,
         type: asset.type,
+        currency: asset.currency,
         code: asset.code,
         network: normalizedNetwork,
         decimals: asset.decimals,
