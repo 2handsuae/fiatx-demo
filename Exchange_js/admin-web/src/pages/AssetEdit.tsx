@@ -33,7 +33,6 @@ interface AssetData {
   code: string;
   network: string | null;
   decimals: number;
-  contractAddress: string | null;
   description: string | null;
   status: string;
   minDepositAmount: number;
@@ -62,7 +61,6 @@ const AssetEdit = () => {
 
   /* Editable fields */
   const [formData, setFormData] = useState({
-    contractAddress: '',
     description: '',
     minDepositAmount: 0,
     maxDepositAmount: 0,
@@ -98,7 +96,6 @@ const AssetEdit = () => {
         });
 
         setFormData({
-          contractAddress: data.contractAddress || '',
           description: data.description || '',
           minDepositAmount: data.minDepositAmount ?? 0,
           maxDepositAmount: data.maxDepositAmount ?? 0,
@@ -140,7 +137,6 @@ const AssetEdit = () => {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contractAddress: formData.contractAddress || undefined,
             description: formData.description || undefined,
             minDepositAmount: formData.minDepositAmount,
             maxDepositAmount: formData.maxDepositAmount,
@@ -250,10 +246,6 @@ const AssetEdit = () => {
               Metadata
             </p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <div className="col-span-2">
-                <Label>Contract Address</Label>
-                <input name="contractAddress" value={formData.contractAddress} onChange={handleChange} placeholder="0x..." className={`${fi} font-mono`} maxLength={128} />
-              </div>
               <div className="col-span-2">
                 <Label>Description</Label>
                 <textarea name="description" value={formData.description} onChange={handleChange} rows={2} className={fi} maxLength={256} placeholder="Optional description" />
