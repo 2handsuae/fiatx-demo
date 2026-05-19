@@ -100,9 +100,6 @@ export class RoleDefinitionCreateWorkflowService {
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_CREATE,
           entityRef: role.id,
-          workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_CREATE,
-          workflowId: role.id,
-          workflowNo: roleCode,
           traceId,
           objectSnapshot: {
             roleCode,
@@ -195,12 +192,6 @@ export class RoleDefinitionCreateWorkflowService {
       const role = await this.prisma.role.findUnique({ where: { id: roleId } });
       if (!role || role.status !== 'PENDING_APPROVAL') {
         this.logger.warn(`Role ${roleId} not found or not in PENDING_APPROVAL status`);
-        await this.approvalsService.markExecutionResult(
-          approvalId,
-          false,
-          SYSTEM_ACTOR,
-          'Role not found or wrong status',
-        );
         return;
       }
 
@@ -239,8 +230,6 @@ export class RoleDefinitionCreateWorkflowService {
         },
       });
 
-      await this.approvalsService.markExecutionResult(approvalId, true, SYSTEM_ACTOR);
-
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATED,
         entityType: AuditEntityTypes.ACCESS_CONTROL,
@@ -259,7 +248,6 @@ export class RoleDefinitionCreateWorkflowService {
       this.logger.log(`Role ${role.code} activated with ${uniqueCodes.length} permissions`);
     } catch (err: any) {
       this.logger.error(`Failed to activate role ${roleId}: ${err.message}`);
-      await this.approvalsService.markExecutionResult(approvalId, false, SYSTEM_ACTOR, err.message);
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ROLE_DEFINITION_CREATE.ROLE_ACTIVATE_FAILED,

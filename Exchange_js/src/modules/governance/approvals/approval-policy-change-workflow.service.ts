@@ -128,9 +128,6 @@ export class ApprovalPolicyChangeWorkflowService {
       {
         actionType: ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
         entityRef: request.id,
-        workflowType: AuditBusinessWorkflowTypes.APPROVAL_POLICY,
-        workflowId: request.id,
-        workflowNo: requestNo,
         traceId,
         objectSnapshot: {
           requestNo: request.requestNo,
@@ -265,18 +262,6 @@ export class ApprovalPolicyChangeWorkflowService {
         },
       );
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'Policy change applied successfully',
-      );
     } catch (error) {
       const failureReason =
         error instanceof Error ? error.message : 'Unknown execution error';
@@ -312,20 +297,6 @@ export class ApprovalPolicyChangeWorkflowService {
         },
       );
 
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          failureReason,
-        )
-        .catch(() => undefined);
     }
   }
 

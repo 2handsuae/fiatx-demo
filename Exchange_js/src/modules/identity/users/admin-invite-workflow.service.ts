@@ -69,9 +69,6 @@ export class AdminInviteWorkflowService {
         {
           actionType: ApprovalActionTypes.ADMIN_INVITE_APPROVAL,
           entityRef: user.id,
-          workflowType: AuditBusinessWorkflowTypes.ADMIN_INVITE,
-          workflowId: user.id,
-          workflowNo: user.userNo,
           traceId,
           objectSnapshot: {
             userNo: user.userNo,
@@ -180,18 +177,6 @@ export class AdminInviteWorkflowService {
         },
       );
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'Admin invite link dispatched',
-      );
     } catch (error) {
       await this.auditLogsService.recordByActor(
         {
@@ -213,21 +198,6 @@ export class AdminInviteWorkflowService {
           actorRole: event.decisionByRole || 'SYSTEM',
         },
       );
-
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          error instanceof Error ? error.message : 'Failed to dispatch invite',
-        )
-        .catch(() => undefined);
 
       throw error;
     }

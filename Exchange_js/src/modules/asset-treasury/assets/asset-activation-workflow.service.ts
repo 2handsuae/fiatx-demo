@@ -83,9 +83,6 @@ export class AssetActivationWorkflowService {
       {
         actionType: ApprovalActionTypes.ASSET_ACTIVATION,
         entityRef: asset.id,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_ACTIVATION,
-        workflowId: asset.id,
-        workflowNo: assetNo,
         traceId,
         objectSnapshot: {
           assetId: asset.id,
@@ -195,18 +192,6 @@ export class AssetActivationWorkflowService {
         sourcePlatform: 'ADMIN_API',
       });
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'Asset activated successfully',
-      );
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ASSET_ACTIVATION.ACTIVATION_FAILED,
@@ -220,21 +205,6 @@ export class AssetActivationWorkflowService {
         requestId: `ASSET_ACTIVATION_EXEC_FAILED_${event.entityRef}`,
         sourcePlatform: 'ADMIN_API',
       });
-
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          error instanceof Error ? error.message : 'Activation execution failed',
-        )
-        .catch(() => undefined);
 
       throw error;
     }

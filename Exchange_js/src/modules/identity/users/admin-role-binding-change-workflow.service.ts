@@ -84,9 +84,6 @@ export class AdminRoleBindingChangeWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL,
         entityRef: request.id,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-        workflowId: request.id,
-        workflowNo: requestNo,
         traceId,
         objectSnapshot: {
           requestNo: request.requestNo,
@@ -245,18 +242,6 @@ export class AdminRoleBindingChangeWorkflowService {
         },
       );
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'Role binding change applied successfully',
-      );
     } catch (error) {
       const failureReason =
         error instanceof Error ? error.message : 'Unknown execution error';
@@ -290,20 +275,6 @@ export class AdminRoleBindingChangeWorkflowService {
         },
       );
 
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          failureReason,
-        )
-        .catch(() => undefined);
     }
   }
 

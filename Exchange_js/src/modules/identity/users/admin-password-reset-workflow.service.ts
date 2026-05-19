@@ -170,9 +170,6 @@ export class AdminPasswordResetWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_PASSWORD_RESET,
         entityRef: targetUserId,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
-        workflowId: targetUserId,
-        workflowNo: target.userNo,
         traceId,
         objectSnapshot: {
           targetUserId,
@@ -276,18 +273,6 @@ export class AdminPasswordResetWorkflowService {
         sourcePlatform: 'ADMIN_API',
       });
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'Password reset token generated successfully',
-      );
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_FAILED,
@@ -301,21 +286,6 @@ export class AdminPasswordResetWorkflowService {
         requestId: `ADMIN_PASSWORD_RESET_FAILED_${event.entityRef}`,
         sourcePlatform: 'ADMIN_API',
       });
-
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          error instanceof Error ? error.message : 'Password reset execution failed',
-        )
-        .catch(() => undefined);
 
       throw error;
     }

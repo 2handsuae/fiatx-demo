@@ -117,9 +117,6 @@ export class AuditEvidenceExportWorkflowService {
       {
         actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
         entityRef: evidencePackage.id,
-        workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
-        workflowId: evidencePackage.id,
-        workflowNo: evidencePackage.packageNo,
         objectSnapshot: {
           packageNo: evidencePackage.packageNo,
           exportMode: evidencePackage.exportMode,
@@ -296,18 +293,6 @@ export class AuditEvidenceExportWorkflowService {
         this.toAuditActor(exporterActor),
       );
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || exporterActor.userId,
-          userNo: event.decisionByUserNo || exporterActor.userNo,
-          role: event.decisionByRole || exporterActor.role,
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : exporterActor.roleCodes,
-        },
-        'Evidence export package generated successfully',
-      );
     } catch (error) {
       await this.auditLogsService.markEvidencePackageFailed(evidencePackage.id);
 
@@ -327,18 +312,6 @@ export class AuditEvidenceExportWorkflowService {
         this.toAuditActor(exporterActor),
       ).catch(() => {});
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        false,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || exporterActor.userId,
-          userNo: event.decisionByUserNo || exporterActor.userNo,
-          role: event.decisionByRole || exporterActor.role,
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : exporterActor.roleCodes,
-        },
-        error instanceof Error ? error.message : 'Evidence export generation failed',
-      );
     }
   }
 

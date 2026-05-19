@@ -73,9 +73,6 @@ export class AssetSuspensionWorkflowService {
       {
         actionType: ApprovalActionTypes.ASSET_SUSPENSION,
         entityRef: asset.id,
-        workflowType: AuditBusinessWorkflowTypes.ASSET_SUSPENSION,
-        workflowId: asset.id,
-        workflowNo: assetNo,
         traceId,
         objectSnapshot: {
           assetId: asset.id,
@@ -156,18 +153,6 @@ export class AssetSuspensionWorkflowService {
         sourcePlatform: 'ADMIN_API',
       });
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'Asset suspended successfully',
-      );
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ASSET_SUSPENSION.SUSPENSION_EXECUTION_FAILED,
@@ -181,21 +166,6 @@ export class AssetSuspensionWorkflowService {
         requestId: `ASSET_SUSPENSION_EXEC_FAILED_${event.entityRef}`,
         sourcePlatform: 'ADMIN_API',
       });
-
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          error instanceof Error ? error.message : 'Suspension execution failed',
-        )
-        .catch(() => undefined);
 
       throw error;
     }

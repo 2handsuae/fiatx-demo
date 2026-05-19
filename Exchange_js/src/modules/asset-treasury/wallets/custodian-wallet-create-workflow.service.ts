@@ -132,9 +132,6 @@ export class CustodianWalletCreateWorkflowService {
         {
           actionType: ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
           entityRef: wallet.id,
-          workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
-          workflowId: wallet.id,
-          workflowNo: walletNo,
           traceId,
           objectSnapshot: {
             assetNo: dto.assetNo,
@@ -220,14 +217,12 @@ export class CustodianWalletCreateWorkflowService {
     });
     if (!wallet || wallet.status !== 'PENDING_APPROVAL') {
       this.logger.warn(`Wallet ${walletId} not found or not in PENDING_APPROVAL status`);
-      await this.approvalsService.markExecutionResult(approvalId, false, SYSTEM_ACTOR, 'Wallet not found or wrong status');
       return;
     }
 
     // Fiat system wallets with pre-filled IBAN skip adapter — activate directly
     if (wallet.iban) {
       await this.walletsService.transitionStatus(wallet.walletNo!, 'PENDING_APPROVAL', 'ACTIVE', { iban: wallet.iban });
-      await this.approvalsService.markExecutionResult(approvalId, true, SYSTEM_ACTOR);
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
@@ -261,8 +256,6 @@ export class CustodianWalletCreateWorkflowService {
         iban: result.iban ?? wallet.iban,
       });
 
-      await this.approvalsService.markExecutionResult(approvalId, true, SYSTEM_ACTOR);
-
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATED,
         entityType: AuditEntityTypes.WALLET,
@@ -280,7 +273,6 @@ export class CustodianWalletCreateWorkflowService {
       this.logger.error(`Custodian vault creation failed for wallet ${walletId}: ${err.message}`, err.stack);
 
       await this.walletsService.transitionStatus(wallet.walletNo!, 'CREATING', 'FAILED');
-      await this.approvalsService.markExecutionResult(approvalId, false, SYSTEM_ACTOR, err.message);
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.WALLET_CREATE_FAILED,

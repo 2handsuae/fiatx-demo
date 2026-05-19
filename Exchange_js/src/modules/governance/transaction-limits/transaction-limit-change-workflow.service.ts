@@ -108,9 +108,6 @@ export class TransactionLimitChangeWorkflowService {
         {
           actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
           entityRef: request.id,
-          workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
-          workflowId: request.id,
-          workflowNo: requestNo,
           traceId,
           objectSnapshot: {
             requestId: request.id,
@@ -202,12 +199,6 @@ export class TransactionLimitChangeWorkflowService {
       });
       if (!request || request.status !== 'PENDING_APPROVAL') {
         this.logger.warn(`Change request ${requestId} not found or not PENDING_APPROVAL`);
-        await this.approvalsService.markExecutionResult(
-          approvalId,
-          false,
-          SYSTEM_ACTOR,
-          'Change request not found or wrong status',
-        );
         return;
       }
 
@@ -217,12 +208,6 @@ export class TransactionLimitChangeWorkflowService {
       });
       if (!policy) {
         await this.limitsService.markRequestExecutionFailed(request.requestNo, 'Policy no longer exists');
-        await this.approvalsService.markExecutionResult(
-          approvalId,
-          false,
-          SYSTEM_ACTOR,
-          'Policy no longer exists',
-        );
         return;
       }
 
@@ -230,12 +215,6 @@ export class TransactionLimitChangeWorkflowService {
       if (!request.currentAmount.equals(policy.limitAmount)) {
         const reason = `Conflict: policy limit was changed since request submission (expected ${request.currentAmount}, actual ${policy.limitAmount})`;
         await this.limitsService.markRequestExecutionFailed(request.requestNo, reason);
-        await this.approvalsService.markExecutionResult(
-          approvalId,
-          false,
-          SYSTEM_ACTOR,
-          reason,
-        );
         await this.auditLogsService.recordSystem({
           action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
           entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
@@ -260,14 +239,6 @@ export class TransactionLimitChangeWorkflowService {
 
       // 4+5. Apply change and mark request as executed (L1 does both)
       await this.limitsService.executeChange(request.requestNo);
-
-      // 6. Mark execution result
-      await this.approvalsService.markExecutionResult(
-        approvalId,
-        true,
-        SYSTEM_ACTOR,
-        `Policy ${request.policyNo} limit updated to ${request.proposedAmount}`,
-      );
 
       // 7. Audit CHANGE_APPLIED
       await this.auditLogsService.recordSystem({
@@ -300,10 +271,6 @@ export class TransactionLimitChangeWorkflowService {
           await this.limitsService.markRequestExecutionFailed(request.requestNo, err.message);
         } catch { /* ignore */ }
       }
-
-      await this.approvalsService
-        .markExecutionResult(approvalId, false, SYSTEM_ACTOR, err.message)
-        .catch(() => undefined);
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,

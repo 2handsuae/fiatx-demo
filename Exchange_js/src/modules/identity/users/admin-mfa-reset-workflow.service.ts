@@ -92,9 +92,6 @@ export class AdminMfaResetWorkflowService {
       {
         actionType: ApprovalActionTypes.ADMIN_MFA_RESET,
         entityRef: targetUserId,
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_MFA_RESET,
-        workflowId: targetUserId,
-        workflowNo: targetUser.userNo,
         traceId,
         objectSnapshot: {
           targetUserId,
@@ -171,18 +168,6 @@ export class AdminMfaResetWorkflowService {
         sourcePlatform: 'ADMIN_API',
       });
 
-      await this.approvalsService.markExecutionResult(
-        event.approvalId,
-        true,
-        {
-          actorType: 'ADMIN',
-          userId: event.decisionByUserId || 'SYSTEM',
-          userNo: event.decisionByUserNo || undefined,
-          role: event.decisionByRole || 'SYSTEM',
-          roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-        },
-        'MFA reset executed successfully',
-      );
     } catch (error) {
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.ADMIN_MFA_RESET.RESET_FAILED,
@@ -196,21 +181,6 @@ export class AdminMfaResetWorkflowService {
         requestId: `ADMIN_MFA_RESET_FAILED_${event.entityRef}`,
         sourcePlatform: 'ADMIN_API',
       });
-
-      await this.approvalsService
-        .markExecutionResult(
-          event.approvalId,
-          false,
-          {
-            actorType: 'ADMIN',
-            userId: event.decisionByUserId || 'SYSTEM',
-            userNo: event.decisionByUserNo || undefined,
-            role: event.decisionByRole || 'SYSTEM',
-            roleCodes: event.decisionByRole ? [event.decisionByRole] : [],
-          },
-          error instanceof Error ? error.message : 'MFA reset execution failed',
-        )
-        .catch(() => undefined);
 
       throw error;
     }

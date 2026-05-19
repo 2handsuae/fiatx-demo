@@ -130,9 +130,6 @@ export class RoleDefinitionModifyWorkflowService {
         {
           actionType: ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
           entityRef: request.id,
-          workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
-          workflowId: request.id,
-          workflowNo: requestNo,
           traceId,
           objectSnapshot: {
             roleCode: role.code,
@@ -319,14 +316,6 @@ export class RoleDefinitionModifyWorkflowService {
       });
     });
 
-    /* Mark approval execution result */
-    await this.approvalsService.markExecutionResult(
-      approvalId,
-      true,
-      SYSTEM_ACTOR,
-      `Role ${role.code} modified successfully.`,
-    );
-
     /* Audit */
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.ROLE_MODIFIED,
@@ -355,8 +344,6 @@ export class RoleDefinitionModifyWorkflowService {
       where: { id: request.id },
       data: { status: 'APPROVED', failureReason: reason, executedAt: new Date() },
     });
-
-    await this.approvalsService.markExecutionResult(approvalId, false, SYSTEM_ACTOR, reason);
 
     await this.auditLogsService.recordSystem({
       action: AuditGovernanceActions.ROLE_DEFINITION_MODIFY.ROLE_MODIFY_FAILED,

@@ -101,9 +101,6 @@ export class TransactionLimitCreationWorkflowService {
         {
           actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
           entityRef: policy.id,
-          workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
-          workflowId: policy.id,
-          workflowNo: policyNo,
           traceId,
           objectSnapshot: {
             policyId: policy.id,
@@ -191,24 +188,11 @@ export class TransactionLimitCreationWorkflowService {
       });
       if (!policy || policy.status !== 'PENDING_APPROVAL') {
         this.logger.warn(`Policy ${policyId} not found or not in PENDING_APPROVAL status`);
-        await this.approvalsService.markExecutionResult(
-          approvalId,
-          false,
-          SYSTEM_ACTOR,
-          'Policy not found or wrong status',
-        );
         return;
       }
 
       // Activate
       await this.limitsService.activatePolicy(policy.policyNo);
-
-      await this.approvalsService.markExecutionResult(
-        approvalId,
-        true,
-        SYSTEM_ACTOR,
-        `Policy ${policy.policyNo} activated successfully`,
-      );
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLIED,
@@ -231,12 +215,6 @@ export class TransactionLimitCreationWorkflowService {
       this.logger.log(`Policy ${policy.policyNo} activated`);
     } catch (err: any) {
       this.logger.error(`Failed to activate policy ${policyId}: ${err.message}`);
-      await this.approvalsService.markExecutionResult(
-        approvalId,
-        false,
-        SYSTEM_ACTOR,
-        err.message,
-      );
 
       await this.auditLogsService.recordSystem({
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLY_FAILED,

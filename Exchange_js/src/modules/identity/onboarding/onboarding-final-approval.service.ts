@@ -308,9 +308,6 @@ export class OnboardingFinalApprovalService {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customer.id,
         traceId: traceCtx?.traceId || undefined,
-        workflowType: ONBOARDING_WORKFLOW,
-        workflowId: customer.id,
-        workflowNo: customer.customerNo || customer.id,
         objectSnapshot: {
           source: 'WAVE3_PHASE4_ONBOARDING',
           customerId: customer.id,
@@ -595,13 +592,6 @@ export class OnboardingFinalApprovalService {
       );
 
       if (normalizedStatus === ApprovalStatuses.APPROVED) {
-        await this.approvalsService.markExecutionResult(
-          event.approvalId,
-          true,
-          actor,
-          `Customer final approval projected as ${normalizedStatus}`,
-        );
-
         // Set riskRating based on level: level2 → HIGH, else → LOW
         const level = updated.sumsubCurrentLevelName || 'wave3-level-1';
         const defaultTier = level.includes('level-2') || level.includes('level2') ? 'HIGH' : 'LOW';
@@ -622,16 +612,6 @@ export class OnboardingFinalApprovalService {
 
       return updated;
     } catch (error) {
-      if (normalizedStatus === ApprovalStatuses.APPROVED) {
-        await this.approvalsService
-          .markExecutionResult(
-            event.approvalId,
-            false,
-            actor,
-            `Customer final approval projection failed for ${normalizedStatus}`,
-          )
-          .catch(() => undefined);
-      }
       this.logger.error(
         `Failed to project onboarding final approval ${event.approvalNo} to customer ${event.entityRef}`,
         error instanceof Error ? error.stack : undefined,
