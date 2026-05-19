@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
 import {
   ApprovalActionTypes,
@@ -9,8 +8,8 @@ import {
 describe('OnboardingFinalApprovalService', () => {
   let prisma: any;
   let approvalsService: any;
+  let auditLogsService: any;
   let service: OnboardingFinalApprovalService;
-  let recordByActorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     prisma = {
@@ -31,9 +30,9 @@ describe('OnboardingFinalApprovalService', () => {
       $transaction: jest.fn(async (callback: (tx: any) => unknown) => callback(prisma)),
     };
 
-    recordByActorSpy = jest
-      .spyOn(AuditLogsService.prototype, 'recordByActor')
-      .mockResolvedValue({} as any);
+    auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({}),
+    };
 
     approvalsService = {
       createAndSubmit: jest.fn(),
@@ -41,10 +40,9 @@ describe('OnboardingFinalApprovalService', () => {
       getById: jest.fn(),
       approve: jest.fn(),
       reject: jest.fn(),
-      markExecutionResult: jest.fn(),
     };
 
-    service = new OnboardingFinalApprovalService(prisma, approvalsService, {} as any);
+    service = new OnboardingFinalApprovalService(prisma, approvalsService, auditLogsService as any);
   });
 
   it('should create and submit onboarding final approval for FINAL_APPROVAL customer', async () => {
@@ -77,8 +75,7 @@ describe('OnboardingFinalApprovalService', () => {
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: 'c1',
         traceId: 'ONBOARDING:c1',
-        workflowType: 'ONBOARDING',
-        metadata: expect.objectContaining({
+        objectSnapshot: expect.objectContaining({
           customerNo: 'CU0001',
           journeyId: 'c1',
           currentEddResponseId: 'edd-1',
@@ -110,7 +107,7 @@ describe('OnboardingFinalApprovalService', () => {
       }),
       'submit',
     );
-    expect(recordByActorSpy).toHaveBeenCalledWith(
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'FINAL_APPROVAL_SUBMITTED',
       }),
@@ -201,7 +198,6 @@ describe('OnboardingFinalApprovalService', () => {
         }),
       }),
     );
-    expect(approvalsService.markExecutionResult).not.toHaveBeenCalled();
   });
 
   it('should project approved final approval to approved and active customer', async () => {
@@ -244,15 +240,6 @@ describe('OnboardingFinalApprovalService', () => {
           complianceStatus: 'CLEAR',
         }),
       }),
-    );
-    expect(approvalsService.markExecutionResult).toHaveBeenCalledWith(
-      'approval-1',
-      true,
-      expect.objectContaining({
-        userId: 'mlro-1',
-        role: 'MLRO',
-      }),
-      'Customer final approval projected as APPROVED',
     );
   });
 

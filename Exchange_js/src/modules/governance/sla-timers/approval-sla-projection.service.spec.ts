@@ -16,8 +16,6 @@ describe('ApprovalSlaProjectionService', () => {
       actionType: ApprovalActionTypes.ADMIN_INVITE_APPROVAL,
       entityRef: 'invite-1',
       traceId: 'trace-1',
-      workflowType: 'ADMIN_INVITE',
-      workflowNo: 'INV2604050001',
       status: 'PENDING',
     });
 
@@ -38,8 +36,6 @@ describe('ApprovalSlaProjectionService', () => {
       actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
       entityRef: 'pkg-1',
       traceId: 'trace-3',
-      workflowType: 'AUDIT_EVIDENCE_EXPORT',
-      workflowNo: 'EVP2604050001',
       status: 'PENDING',
     });
 
@@ -49,8 +45,6 @@ describe('ApprovalSlaProjectionService', () => {
       actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
       entityRef: 'pkg-1',
       traceId: 'trace-3',
-      workflowType: 'AUDIT_EVIDENCE_EXPORT',
-      workflowNo: 'EVP2604050001',
       status: 'APPROVED',
     });
 

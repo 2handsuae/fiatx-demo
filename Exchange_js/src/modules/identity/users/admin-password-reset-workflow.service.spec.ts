@@ -15,7 +15,6 @@ const mockAuditLogsService = {
 
 const mockApprovalsService = {
   createAndSubmit: jest.fn().mockResolvedValue({ approvalNo: 'APR001' }),
-  markExecutionResult: jest.fn().mockResolvedValue({}),
 };
 
 const mockPrisma: any = {

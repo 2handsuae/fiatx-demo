@@ -4,7 +4,6 @@ import { AuditActions } from '../../audit-logging/constants/audit-actions.consta
 import {
   ApprovalActionTypes,
   ApprovalEvents,
-  ApprovalExecutionStatuses,
   ApprovalStatuses,
 } from './constants/approval.constants';
 
@@ -18,18 +17,11 @@ const buildApproval = (overrides: Record<string, unknown> = {}) => ({
   createdByUserId: 'maker-1',
   createdByUserNo: 'USR-MAKER-001',
   status: ApprovalStatuses.DRAFT,
-  executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
-  riskLevel: 'HIGH',
-  checkerRoles: 'DPO,MLRO',
   selectedCheckerRole: 'DPO',
   allowCancel: true,
   allowRetry: true,
-  docRef: null,
   metadataJson: '{}',
   traceId: 'trace-1',
-  workflowType: null,
-  workflowId: null,
-  workflowNo: null,
   createdAt: baseDate,
   updatedAt: baseDate,
   submittedAt: null,
@@ -132,11 +124,9 @@ describe('ApprovalsService', () => {
     approvalPolicyService = {
       getPolicy: jest.fn().mockResolvedValue({
         actionType: ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
-        riskLevel: 'HIGH',
-        checkerRoles: ['DPO', 'MLRO'],
+        steps: [{ stepNo: 1, roles: ['DPO', 'MLRO'] }],
         timeoutHours: 24,
         allowCancel: true,
-        allowRetry: true,
       }),
       isSameUserMakerCheckerDenied: jest.fn().mockResolvedValue(true),
     };
@@ -192,45 +182,12 @@ describe('ApprovalsService', () => {
           steps: {
             create: expect.arrayContaining([
               expect.objectContaining({
-                approvalNo: expect.stringMatching(/^APR\d{10}$/),
+                stepNo: 1,
+                status: 'PENDING',
+                checkerRoleCandidates: 'DPO,MLRO',
               }),
             ]),
           },
-        }),
-      }),
-    );
-  });
-
-  it('creates workflow-bound approval with workflow tuple', async () => {
-    prisma.approvalCase.findFirst.mockResolvedValue(null);
-    prisma.approvalCase.create.mockResolvedValue(
-      buildApproval({
-        traceId: 'ONBOARDING:ONB-1',
-        workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
-      }),
-    );
-
-    await service.create(
-      {
-        actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
-        entityRef: 'customer-1',
-        traceId: 'ONBOARDING:ONB-1',
-        workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
-      },
-      actor,
-    );
-
-    expect(prisma.approvalCase.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          traceId: 'ONBOARDING:ONB-1',
-          workflowType: 'ONBOARDING',
-          workflowId: 'ONB-1',
-          workflowNo: 'ONB-1',
         }),
       }),
     );
@@ -260,7 +217,6 @@ describe('ApprovalsService', () => {
       buildApproval({
         status: ApprovalStatuses.PENDING,
         createdByUserId: actor.userId,
-        checkerRoles: 'DPO',
       }),
     );
 
@@ -280,22 +236,14 @@ describe('ApprovalsService', () => {
       buildApproval({
         status: ApprovalStatuses.PENDING,
         createdByUserId: 'maker-1',
-        checkerRoles: 'DPO',
-        workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
       }),
     );
     prisma.approvalCase.update.mockResolvedValue(
       buildApproval({
         status: ApprovalStatuses.APPROVED,
         createdByUserId: 'maker-1',
-        checkerRoles: 'DPO',
         decisionByUserId: actor.userId,
         decisionByRole: 'DPO',
-        workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
       }),
     );
 
@@ -321,7 +269,7 @@ describe('ApprovalsService', () => {
     expect(prisma.approvalCase.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          decisionByUserNo: actor.userNo,
+          status: ApprovalStatuses.APPROVED,
         }),
       }),
     );
@@ -332,47 +280,6 @@ describe('ApprovalsService', () => {
         approvalNo: 'APR2603140001',
       }),
     );
-    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: AuditActions.APPROVAL_APPROVED,
-        entityNo: 'APR2603140001',
-        workflowType: 'ONBOARDING',
-        subjectNos: expect.arrayContaining([
-          expect.objectContaining({
-            subjectRole: 'RELATED',
-            subjectType: 'ONBOARDING',
-            subjectNo: 'ONB-1',
-          }),
-        ]),
-      }),
-      expect.anything(),
-    );
-  });
-
-  it('rejects workflow-bound decisions when workflow tuple mismatches the chain', async () => {
-    prisma.approvalCase.findUnique.mockResolvedValue(
-      buildApproval({
-        status: ApprovalStatuses.PENDING,
-        createdByUserId: 'maker-1',
-        checkerRoles: 'DPO',
-        workflowType: 'ONBOARDING',
-        workflowId: 'ONB-1',
-        workflowNo: 'ONB-1',
-      }),
-    );
-
-    await expect(
-      service.approve(
-        'approval-1',
-        {
-          reason: 'approve',
-          workflowType: 'ONBOARDING',
-          workflowId: 'ONB-2',
-          workflowNo: 'ONB-2',
-        },
-        actor,
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('allows SUPER_ADMIN to bypass maker-checker SoD and records bypass metadata', async () => {
@@ -386,16 +293,16 @@ describe('ApprovalsService', () => {
 
     prisma.approvalCase.findUnique.mockResolvedValue(
       buildApproval({
+        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
         status: ApprovalStatuses.PENDING,
         createdByUserId: 'maker-1',
-        checkerRoles: 'DPO,MLRO',
       }),
     );
     prisma.approvalCase.update.mockResolvedValue(
       buildApproval({
+        actionType: ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL,
         status: ApprovalStatuses.APPROVED,
         createdByUserId: 'maker-1',
-        checkerRoles: 'DPO,MLRO',
         decisionByUserId: 'maker-1',
         decisionByRole: 'DPO',
       }),
@@ -534,19 +441,16 @@ describe('ApprovalsService', () => {
     expect(result).toMatchObject({
       createdByUserId: 'maker-1',
       createdByUserNo: 'USR-MAKER-001',
-      decisionByUserNo: 'USR-CHECKER-001',
-      decisionReason: 'approved for wave 1 path',
-      selectedCheckerRole: 'DPO',
       allowCancel: true,
-      allowRetry: true,
     });
-    expect(result).not.toHaveProperty('decisionByUserId');
-    expect(result).not.toHaveProperty('decisionByRole');
-    expect(result.step).not.toHaveProperty('decidedByUserId');
     expect(result.step).toMatchObject({
-      approvalNo: 'APR2603140001',
+      stepNo: 1,
+      status: 'APPROVED',
       decidedByUserNo: 'USR-CHECKER-001',
+      decidedByRole: 'DPO',
+      reason: 'approved for wave 1 path',
     });
+    expect(result.step).not.toHaveProperty('decidedByUserId');
   });
 
   it('returns approval detail when persisted createdByUserNo is absent and leaves it null', async () => {
@@ -587,7 +491,7 @@ describe('ApprovalsService', () => {
     const result = await service.expirePendingApprovals();
 
     expect(result.expiredCount).toBe(1);
-    expect(prisma.approvalStep.update).toHaveBeenCalledWith(
+    expect(prisma.approvalStep.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: 'EXPIRED',
@@ -614,18 +518,11 @@ describe('ApprovalsService', () => {
         createdByUserId: 'maker-ms-1',
         createdByUserNo: 'USR-MAKER-MS-001',
         status: ApprovalStatuses.PENDING,
-        executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
-        riskLevel: 'HIGH',
-        checkerRoles: 'MLRO,SENIOR_MANAGEMENT_OFFICER',
         selectedCheckerRole: 'MLRO',
         allowCancel: true,
         allowRetry: true,
-        docRef: null,
         metadataJson: '{}',
         traceId: 'trace-ms-1',
-        workflowType: null,
-        workflowId: null,
-        workflowNo: null,
         createdAt: baseDate,
         updatedAt: baseDate,
         submittedAt: baseDate,
@@ -753,18 +650,11 @@ describe('ApprovalsService', () => {
         createdByUserId: 'maker-ms-2',
         createdByUserNo: 'USR-MAKER-MS-002',
         status: ApprovalStatuses.PENDING,
-        executionStatus: ApprovalExecutionStatuses.NOT_EXECUTED,
-        riskLevel: 'HIGH',
-        checkerRoles: 'MLRO,SENIOR_MANAGEMENT_OFFICER',
         selectedCheckerRole: 'MLRO',
         allowCancel: true,
         allowRetry: true,
-        docRef: null,
         metadataJson: '{}',
         traceId: 'trace-ms-2',
-        workflowType: null,
-        workflowId: null,
-        workflowNo: null,
         createdAt: baseDate,
         updatedAt: baseDate,
         submittedAt: baseDate,

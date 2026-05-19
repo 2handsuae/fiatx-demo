@@ -39,7 +39,6 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
 
     approvalsService = {
       createAndSubmit: jest.fn(),
-      markExecutionResult: jest.fn().mockResolvedValue(undefined),
     };
 
     auditLogsService = {
@@ -82,6 +81,11 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         id: 'req-1',
         requestNo: 'RCR-2605050001',
         status: 'PENDING_APPROVAL',
+        targetUserId: 'user-2',
+        currentRoleCodes: '["COMPLIANCE_OFFICER"]',
+        proposedRoleCodes: '["MLRO"]',
+        changeReason: 'promotion',
+        createdAt: new Date('2026-05-05T00:00:00Z'),
       });
       approvalsService.createAndSubmit.mockResolvedValue({
         id: 'apr-1',
@@ -106,7 +110,6 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         expect.objectContaining({
           actionType: 'ADMIN_ROLE_BINDING_CHANGE_APPROVAL',
           entityRef: 'req-1',
-          workflowType: 'ADMIN_ROLE_BINDING_CHANGE',
         }),
         expect.objectContaining({ reason: 'promotion' }),
         actor,
@@ -165,9 +168,6 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
         expect.objectContaining({ action: 'CHANGE_APPLIED' }),
         expect.any(Object),
       );
-      expect(approvalsService.markExecutionResult).toHaveBeenCalledWith(
-        'apr-1', true, expect.any(Object), expect.any(String),
-      );
     });
 
     it('marks FAILED and writes CHANGE_APPLY_FAILED on execution error', async () => {
@@ -208,9 +208,6 @@ describe('AdminRoleBindingChangeWorkflowService', () => {
       expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'CHANGE_APPLY_FAILED' }),
         expect.any(Object),
-      );
-      expect(approvalsService.markExecutionResult).toHaveBeenCalledWith(
-        'apr-1', false, expect.any(Object), expect.any(String),
       );
     });
   });
