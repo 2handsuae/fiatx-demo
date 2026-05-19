@@ -262,19 +262,19 @@ async function seedGovernanceApprovalBaseline(prisma: PrismaClient): Promise<voi
     await prisma.approvalActionPolicy.upsert({
       where: { actionType },
       update: {
-        riskLevel: policy.riskLevel,
+        riskLevel: 'HIGH',
         checkerRoles: joinRoleCsv(deriveCheckerRoles(policy.steps)),
         timeoutHours: policy.timeoutHours,
         allowCancel: policy.allowCancel,
-        allowRetry: policy.allowRetry,
+        allowRetry: true,
       },
       create: {
         actionType,
-        riskLevel: policy.riskLevel,
+        riskLevel: 'HIGH',
         checkerRoles: joinRoleCsv(deriveCheckerRoles(policy.steps)),
         timeoutHours: policy.timeoutHours,
         allowCancel: policy.allowCancel,
-        allowRetry: policy.allowRetry,
+        allowRetry: true,
       },
     });
   }
@@ -912,11 +912,11 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       return false;
     }
     if (
-      existing.riskLevel !== policy.riskLevel ||
+      existing.riskLevel !== 'HIGH' ||
       existing.checkerRoles !== joinRoleCsv(deriveCheckerRoles(policy.steps)) ||
       existing.timeoutHours !== policy.timeoutHours ||
       existing.allowCancel !== policy.allowCancel ||
-      existing.allowRetry !== policy.allowRetry
+      existing.allowRetry !== true
     ) {
       return false;
     }
