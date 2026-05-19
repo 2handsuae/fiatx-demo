@@ -83,6 +83,27 @@ export class AdminPasswordResetWorkflowService {
 
     const traceId = randomUUID();
 
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.SELF_RESET_REQUESTED,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: user.id,
+        entityNo: user.userNo,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        traceId,
+        result: AuditResult.SUCCESS,
+        metadata: { email: user.email, requestSource: 'SELF' },
+        requestId: `SELF_RESET_REQUESTED_${user.userNo}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: user.id,
+        actorNo: user.userNo,
+        actorRole: 'SELF',
+      },
+    );
+
     const mfaSessionToken = this.jwtService.sign(
       {
         sub: user.id,
@@ -385,6 +406,29 @@ export class AdminPasswordResetWorkflowService {
       }
     }
 
+    if (requestSource === 'SELF') {
+      await this.auditLogsService.recordByActor(
+        {
+          action: AuditGovernanceActions.ADMIN_PASSWORD_RESET.SELF_RESET_TOKEN_CREATED,
+          entityType: AuditEntityTypes.ADMIN_USER,
+          entityId: userId,
+          entityNo: userNo,
+          workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+          traceId,
+          result: AuditResult.SUCCESS,
+          metadata: { resetNo, requestSource: 'SELF' },
+          requestId: `SELF_RESET_TOKEN_CREATED_${userNo}`,
+          sourcePlatform: 'ADMIN_API',
+        },
+        {
+          actorType: 'ADMIN',
+          actorId: userId,
+          actorNo: userNo,
+          actorRole: 'SELF',
+        },
+      );
+    }
+
     // TODO: Send email via notification service
     // await this.notificationService.sendPasswordResetEmail(email, plainToken, requestSource);
 
@@ -435,6 +479,34 @@ export class AdminPasswordResetWorkflowService {
         data: { status: 'CONSUMED', consumedAt: new Date() },
       });
     });
+
+    const consumeAction = tokenRecord.requestSource === 'SELF'
+      ? AuditGovernanceActions.ADMIN_PASSWORD_RESET.SELF_RESET_COMPLETED
+      : AuditGovernanceActions.ADMIN_PASSWORD_RESET.RESET_CONSUMED;
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: consumeAction,
+        entityType: AuditEntityTypes.ADMIN_USER,
+        entityId: targetUser.id,
+        entityNo: targetUser.userNo,
+        workflowType: AuditBusinessWorkflowTypes.ADMIN_PASSWORD_RESET,
+        traceId: tokenRecord.traceId,
+        result: AuditResult.SUCCESS,
+        metadata: {
+          resetNo: tokenRecord.resetNo,
+          requestSource: tokenRecord.requestSource,
+        },
+        requestId: `PASSWORD_RESET_CONSUMED_${targetUser.userNo}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: targetUser.id,
+        actorNo: targetUser.userNo,
+        actorRole: 'SELF',
+      },
+    );
 
     return { status: 'PASSWORD_RESET_COMPLETE' };
   }
