@@ -17,6 +17,15 @@ import { PageTitleBar } from '../components/ui/PageTitleBar';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
+interface ApprovalStep {
+  stepNo: number;
+  status: string;
+  checkerRoleCandidates: string[];
+  decidedByUserNo?: string | null;
+  decidedByRole?: string | null;
+  decidedAt?: string | null;
+}
+
 interface ApprovalItem {
   id: string;
   approvalNo: string;
@@ -26,8 +35,8 @@ interface ApprovalItem {
   createdByUserNo?: string | null;
   status: string;
   traceId?: string | null;
-  decidedAt?: string | null;
   createdAt: string;
+  steps?: ApprovalStep[];
   evidencePackage?: {
     id: string;
     packageNo: string;
@@ -57,6 +66,22 @@ const fmt = (v?: string | null): string => {
   if (!v) return '—';
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+const TERMINAL = new Set(['APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED']);
+
+const getLastDecidedStep = (steps?: ApprovalStep[]) => {
+  if (!steps?.length) return null;
+  return [...steps]
+    .filter((s) => s.decidedAt)
+    .sort((a, b) => new Date(b.decidedAt!).getTime() - new Date(a.decidedAt!).getTime())[0] || null;
+};
+
+const getCurrentChecker = (item: ApprovalItem): string => {
+  if (TERMINAL.has(item.status)) return '—';
+  const pending = item.steps?.find((s) => s.status === 'PENDING');
+  if (!pending) return '—';
+  return pending.checkerRoleCandidates?.join(', ') || '—';
 };
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -241,10 +266,12 @@ const ApprovalsPage = () => {
                 [
                   ['Approval No',   '170px'],
                   ['Action Type',   '150px'],
-                  ['Status',        '130px'],
-                  ['Maker',         '130px'],
+                  ['Status',        '110px'],
+                  ['Maker',         '120px'],
+                  ['Checker',       '140px'],
                   ['Created',       '150px'],
-                  ['Decided',       'auto'],
+                  ['Decided',       '150px'],
+                  ['Decided By',    'auto'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
@@ -260,14 +287,14 @@ const ApprovalsPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No approvals found.
                 </td>
               </tr>
@@ -300,6 +327,11 @@ const ApprovalsPage = () => {
                   {item.createdByUserNo ?? item.createdByUserId}
                 </td>
 
+                {/* Checker */}
+                <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                  {getCurrentChecker(item)}
+                </td>
+
                 {/* Created */}
                 <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                   {fmt(item.createdAt)}
@@ -307,7 +339,12 @@ const ApprovalsPage = () => {
 
                 {/* Decided */}
                 <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
-                  {fmt(item.decidedAt)}
+                  {fmt(getLastDecidedStep(item.steps)?.decidedAt)}
+                </td>
+
+                {/* Decided By */}
+                <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
+                  {getLastDecidedStep(item.steps)?.decidedByRole || '—'}
                 </td>
               </tr>
             ))}
