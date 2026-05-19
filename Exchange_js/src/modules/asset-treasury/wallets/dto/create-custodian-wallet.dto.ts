@@ -11,10 +11,10 @@ export class CreateCustodianWalletDto {
   @IsEnum(WalletRole)
   role!: WalletRole;
 
-  @ApiProperty({ required: false, description: 'Customer UUID — required for customer-level roles (C_DEP, C_VIBAN)' })
+  @ApiProperty({ required: false, description: 'Customer business key (e.g. CU2605130001) — required for customer-level roles (C_DEP, C_VIBAN)' })
   @IsString()
   @IsOptional()
-  ownerId?: string;
+  customerNo?: string;
 
   @ApiProperty({ required: false, description: 'Custodian provider — defaults to HEXTRUST' })
   @IsString()
