@@ -39,9 +39,9 @@ export class PasswordResetController {
     @Req() req: any,
     @Body(new ValidationPipe({ transform: true })) body: PasswordResetVerifyMfaDto,
   ) {
-    const { userId, userNo, email } = req.passwordResetMfaUser;
+    const { userId, userNo, email, traceId } = req.passwordResetMfaUser;
     await this.mfaBindingWorkflow.verifyMfaCode(userId, body.code);
-    return this.passwordResetWorkflow.createResetTokenForSelf(userId, userNo, email);
+    return this.passwordResetWorkflow.createResetTokenForSelf(userId, userNo, email, traceId);
   }
 
   @Post('consume')

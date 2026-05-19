@@ -88,7 +88,10 @@ describe('AdminPasswordResetWorkflowService', () => {
       const result = await service.requestSelfServiceReset('a@b.com');
       expect(result).toEqual({ status: 'MFA_REQUIRED', mfaSessionToken: 'mock-mfa-token' });
       expect(mockJwtService.sign).toHaveBeenCalledWith(
-        expect.objectContaining({ scope: 'password_reset_mfa' }),
+        expect.objectContaining({
+          scope: 'password_reset_mfa',
+          traceId: expect.any(String),
+        }),
         { expiresIn: '5m' },
       );
     });

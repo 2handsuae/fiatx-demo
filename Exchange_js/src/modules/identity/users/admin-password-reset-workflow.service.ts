@@ -81,6 +81,8 @@ export class AdminPasswordResetWorkflowService {
       return { status: 'MFA_REQUIRED' };
     }
 
+    const traceId = randomUUID();
+
     const mfaSessionToken = this.jwtService.sign(
       {
         sub: user.id,
@@ -88,6 +90,7 @@ export class AdminPasswordResetWorkflowService {
         userNo: user.userNo,
         scope: 'password_reset_mfa',
         type: 'ADMIN',
+        traceId,
       },
       { expiresIn: '5m' },
     );
@@ -198,8 +201,9 @@ export class AdminPasswordResetWorkflowService {
     userId: string,
     userNo: string,
     email: string,
+    traceId?: string,
   ): Promise<{ resetNo: string; status: string }> {
-    return this.createResetToken(userId, userNo, email, 'SELF', null, null);
+    return this.createResetToken(userId, userNo, email, 'SELF', null, null, traceId);
   }
 
   // --- Approval event handler ---
@@ -323,6 +327,7 @@ export class AdminPasswordResetWorkflowService {
     requestSource: string,
     requestedByUserId: string | null,
     requestedByUserNo: string | null,
+    externalTraceId?: string,
   ): Promise<{ resetNo: string; status: string }> {
     // Rate limit: one request per userId per 15 minutes
     const cutoff = new Date(Date.now() - RATE_LIMIT_MS);
@@ -349,7 +354,7 @@ export class AdminPasswordResetWorkflowService {
     }
 
     // Generate token
-    const traceId = randomUUID();
+    const traceId = externalTraceId || randomUUID();
     const plainToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(plainToken);
 

@@ -33,6 +33,7 @@ export class PasswordResetMfaGuard implements CanActivate {
       userId: payload.sub,
       userNo: payload.userNo,
       email: payload.username,
+      traceId: payload.traceId,
     };
     return true;
   }
