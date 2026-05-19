@@ -252,10 +252,11 @@ const CustodianWalletList = () => {
             <tr>
               {(
                 [
-                  ['Wallet No',  '160px'],
+                  ['Wallet No',  '150px'],
                   ['Role',       '100px'],
                   ['Owner',      '140px'],
-                  ['Asset',      '100px'],
+                  ['Asset',      '80px'],
+                  ['Network',    '90px'],
                   ['Balance',    '130px'],
                   ['Status',     '90px'],
                   ['Vault',      '110px'],
@@ -275,14 +276,14 @@ const CustodianWalletList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No wallets found.
                 </td>
               </tr>
@@ -300,7 +301,6 @@ const CustodianWalletList = () => {
                     <span className="font-mono text-[11px] font-semibold text-adm-amber">
                       {w.walletNo || w.id.slice(0, 8)}
                     </span>
-                    <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{w.type}</div>
                   </td>
 
                   {/* Role */}
@@ -310,14 +310,17 @@ const CustodianWalletList = () => {
 
                   {/* Owner */}
                   <td className="px-4 py-2.5">
-                    <div className="font-mono text-[11px] text-adm-t1">{ownerLabel}</div>
-                    <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{w.ownerType}</div>
+                    <span className="font-mono text-[11px] text-adm-t1">{ownerLabel}</span>
                   </td>
 
                   {/* Asset */}
                   <td className="px-4 py-2.5">
-                    <div className="font-mono text-[11px] text-adm-t1">{w.asset?.code || '—'}</div>
-                    <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{w.asset?.network || '—'}</div>
+                    <span className="font-mono text-[11px] text-adm-t1">{w.asset?.code || '—'}</span>
+                  </td>
+
+                  {/* Network */}
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono text-[11px] text-adm-t2">{w.asset?.network || '—'}</span>
                   </td>
 
                   {/* Balance */}

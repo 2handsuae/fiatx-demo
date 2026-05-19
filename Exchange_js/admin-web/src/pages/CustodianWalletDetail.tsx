@@ -288,6 +288,7 @@ export default function CustodianWalletDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
+        backLabel="Custodian Wallets"
         onBack={() => navigate('/dashboard/treasury/custodian-wallets')}
         onRefresh={() => void fetchWallet()}
         refreshing={loading}
@@ -337,6 +338,28 @@ export default function CustodianWalletDetail() {
               <InfoField label="Direction" value={wallet.direction} />
               <InfoField label="Asset" value={wallet.asset.code} />
               <InfoField label="Network" value={wallet.asset.network || '—'} />
+              <InfoField label="Vault ID" value={wallet.vaultId} mono />
+              <InfoField
+                label="Custodian"
+                value={wallet.type === 'FIAT_BANK' ? 'ZandBank' : 'HexTrust'}
+              />
+              {wallet.approvalCaseNo && (
+                <InfoField
+                  label="Approval Case"
+                  value={
+                    wallet.approvalCaseId ? (
+                      <button
+                        onClick={() => navigate(`/dashboard/control-gates/approvals/${wallet.approvalCaseId}`)}
+                        className="font-mono text-[10px] text-adm-amber underline"
+                      >
+                        {wallet.approvalCaseNo}
+                      </button>
+                    ) : (
+                      wallet.approvalCaseNo
+                    )
+                  }
+                />
+              )}
             </div>
           </section>
 
@@ -488,33 +511,6 @@ export default function CustodianWalletDetail() {
             <SidebarKV label="Role Name" value={WALLET_ROLE_LABEL[wallet.walletRole] || wallet.walletRole} />
             <SidebarKV label="Asset" value={wallet.asset.code} />
           </SidebarGroup>
-
-          {/* Vault Info */}
-          <SidebarGroup title="Vault Info">
-            <SidebarKV label="Vault ID" value={wallet.vaultId} mono />
-            <SidebarKV label="Custodian" value={wallet.type === 'FIAT_BANK' ? 'ZandBank' : 'HexTrust'} />
-          </SidebarGroup>
-
-          {/* Approval Info */}
-          {wallet.approvalCaseNo && (
-            <SidebarGroup title="Approval">
-              <SidebarKV
-                label="Case No"
-                value={
-                  wallet.approvalCaseId ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/control-gates/approvals/${wallet.approvalCaseId}`)}
-                      className="font-mono text-[10px] text-adm-amber underline"
-                    >
-                      {wallet.approvalCaseNo}
-                    </button>
-                  ) : (
-                    wallet.approvalCaseNo
-                  )
-                }
-              />
-            </SidebarGroup>
-          )}
 
           {/* Lifecycle */}
           <SidebarGroup title="Lifecycle">
