@@ -78,6 +78,7 @@ export class CustomerDepositWalletService {
         walletNo,
         ownerType: 'CUSTOMER',
         ownerId: customerId,
+        ownerNo: customer.customerNo,
         type: walletType,
         direction: 'INBOUND',
         walletRole,
