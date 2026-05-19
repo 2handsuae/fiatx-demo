@@ -71,7 +71,6 @@ export class WalletsService {
       ownerNo?: string;
       walletRole: string;
       type: string;
-      direction: string;
       status: 'PENDING_APPROVAL' | 'CREATING';
       vaultId?: string;
       iban?: string;
@@ -108,7 +107,6 @@ export class WalletsService {
             ownerNo: dto.ownerNo ?? null,
             walletRole: dto.walletRole,
             type: dto.type,
-            direction: dto.direction,
             assetId: dto.assetId,
             status: dto.status,
             vaultId: dto.vaultId ?? null,

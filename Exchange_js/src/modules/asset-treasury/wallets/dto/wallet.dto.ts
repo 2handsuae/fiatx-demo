@@ -12,12 +12,6 @@ export enum WalletType {
   CRYPTO_ADDRESS = 'CRYPTO_ADDRESS',
 }
 
-export enum WalletDirection {
-  INBOUND = 'INBOUND',
-  OUTBOUND = 'OUTBOUND',
-  BIDIRECTIONAL = 'BIDIRECTIONAL',
-}
-
 export enum WalletRole {
   C_DEP = 'C_DEP',
   C_VIBAN = 'C_VIBAN',

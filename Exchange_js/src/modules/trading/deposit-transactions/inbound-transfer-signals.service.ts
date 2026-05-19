@@ -555,7 +555,6 @@ export class InboundTransferSignalsService {
     if (
       wallet.ownerType !== 'CUSTOMER' ||
       wallet.ownerId !== customerId ||
-      wallet.direction !== 'INBOUND' ||
       wallet.walletRole !== WalletRole.C_DEP
     ) {
       throw new ForbiddenException('Customer can only use own deposit wallet');

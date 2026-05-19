@@ -80,7 +80,6 @@ export class CustomerDepositWalletService {
         ownerId: customerId,
         ownerNo: customer.customerNo,
         type: walletType,
-        direction: 'INBOUND',
         walletRole,
         assetId,
         status: WalletStatus.CREATING,

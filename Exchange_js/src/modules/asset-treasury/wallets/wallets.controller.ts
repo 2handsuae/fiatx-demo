@@ -16,7 +16,6 @@ import {
   WalletStatus,
   OwnerType,
   WalletType,
-  WalletDirection,
   WalletRole,
 } from './dto/wallet.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -60,7 +59,6 @@ export class WalletsController {
   @ApiQuery({ name: 'type', required: false, enum: WalletType })
   @ApiQuery({ name: 'assetId', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, enum: WalletStatus })
-  @ApiQuery({ name: 'direction', required: false, enum: WalletDirection })
   @ApiQuery({ name: 'walletRole', required: false, enum: WalletRole })
   findAll(
     @Request() req: any,
@@ -71,7 +69,6 @@ export class WalletsController {
     @Query('type') type?: string,
     @Query('assetId') assetId?: string,
     @Query('status') status?: string,
-    @Query('direction') direction?: string,
     @Query('walletRole') walletRole?: string,
   ) {
     this.ensureSupportedToken(req);
@@ -96,7 +93,6 @@ export class WalletsController {
     if (type) where.type = type;
     if (assetId) where.assetId = assetId;
     if (status) where.status = status;
-    if (direction) where.direction = direction;
     if (walletRole) where.walletRole = walletRole;
 
     return this.queryService.findAll({

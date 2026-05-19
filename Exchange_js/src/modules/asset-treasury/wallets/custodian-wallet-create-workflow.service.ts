@@ -110,7 +110,6 @@ export class CustodianWalletCreateWorkflowService {
     }
 
     const walletType = asset.type === 'FIAT' ? 'FIAT_BANK' : 'CRYPTO_ADDRESS';
-    const direction = (dto.role === WalletRole.C_DEP || dto.role === WalletRole.C_VIBAN) ? 'INBOUND' : 'BIDIRECTIONAL';
 
     const wallet = (await this.walletsService.createWalletRecord({
       assetId: asset.id,
@@ -120,7 +119,6 @@ export class CustodianWalletCreateWorkflowService {
       walletRole: dto.role,
       status: 'PENDING_APPROVAL',
       type: walletType,
-      direction,
       vaultId: dto.vaultId,
       iban: dto.iban,
     }))!;
