@@ -306,6 +306,8 @@ export class WalletsService {
       type: string;
       direction: string;
       status: 'PENDING_APPROVAL' | 'CREATING';
+      vaultId?: string;
+      iban?: string;
     },
     tx?: Prisma.TransactionClient,
   ) {
@@ -342,6 +344,8 @@ export class WalletsService {
             direction: dto.direction,
             assetId: dto.assetId,
             status: dto.status,
+            vaultId: dto.vaultId ?? null,
+            iban: dto.iban ?? null,
           },
         });
       } catch (e) {
