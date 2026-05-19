@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Repeat, Link2, Plus, RotateCcw } from 'lucide-react';
+import { Repeat, Link2, RotateCcw } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -196,10 +196,7 @@ export default function CustodianWalletDetail() {
   const isCrypto = wallet.type === 'CRYPTO_ADDRESS';
   const isFiat = wallet.type === 'FIAT_BANK';
   const isDepositWallet = wallet.walletRole === 'C_DEP';
-  const isCmaWallet = wallet.walletRole === 'C_CMA';
   const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
-  const canReadGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_DETAIL_READ]);
-  const canCreateGate = hasAnyPermission([PERMISSIONS.GOV_REGULATORY_GATE_CREATE]);
   const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
   const ownerLabel = wallet.ownerName || wallet.ownerNo || wallet.ownerId || '—';
   const surfaceLabel = SURFACE_LABELS[wallet.surfaceCategory || 'OTHER'] || 'Other Wallet';
@@ -285,14 +282,12 @@ export default function CustodianWalletDetail() {
 
   const canToggleStatus = wallet.status !== 'FROZEN';
   const isFailed = wallet.status === 'FAILED';
-  const showActions = canToggleStatus || isFailed || (isDepositWallet && canCreateCollection) || (isCmaWallet && (canReadGate || canCreateGate));
+  const showActions = canToggleStatus || isFailed || (isDepositWallet && canCreateCollection);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        title="CUSTODIAN WALLET"
-        subtitle={wallet.walletNo}
         onBack={() => navigate('/dashboard/treasury/custodian-wallets')}
         onRefresh={() => void fetchWallet()}
         refreshing={loading}
@@ -322,8 +317,7 @@ export default function CustodianWalletDetail() {
 
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Wallet</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {wallet.walletNo}
             </p>
             <div className="mt-2.5 flex items-center gap-2">
@@ -482,32 +476,6 @@ export default function CustodianWalletDetail() {
                     {collectionSubmitting ? 'Creating…' : 'Create Collection'}
                   </button>
                 )}
-                {isCmaWallet && wallet.regulatoryGateSummary && canReadGate && (
-                  <button
-                    onClick={() => navigate(`/dashboard/governance/regulatory-gates/${wallet.regulatoryGateSummary!.gateId}`)}
-                    className={adminButtonClass('detailUtility')}
-                  >
-                    <Link2 size={13} />
-                    View Regulatory Gate
-                  </button>
-                )}
-                {isCmaWallet && !wallet.regulatoryGateSummary && canCreateGate && (
-                  <button
-                    onClick={() => {
-                      const p = new URLSearchParams({
-                        gateType: 'CLIENT_BANK_ACCOUNT_ENABLEMENT',
-                        subjectType: 'WALLET',
-                        subjectId: wallet.id,
-                        subjectNo: wallet.walletNo,
-                      });
-                      navigate(`/dashboard/governance/regulatory-gates/create?${p.toString()}`);
-                    }}
-                    className={adminButtonClass('workflowPrimary')}
-                  >
-                    <Plus size={13} />
-                    Create Regulatory Gate
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -519,13 +487,12 @@ export default function CustodianWalletDetail() {
             <SidebarKV label="Role" value={wallet.walletRole} mono />
             <SidebarKV label="Role Name" value={WALLET_ROLE_LABEL[wallet.walletRole] || wallet.walletRole} />
             <SidebarKV label="Asset" value={wallet.asset.code} />
-            <SidebarKV label="Wallet ID" value={wallet.id} mono />
           </SidebarGroup>
 
           {/* Vault Info */}
           <SidebarGroup title="Vault Info">
             <SidebarKV label="Vault ID" value={wallet.vaultId} mono />
-            <SidebarKV label="Custodian" value="HexTrust" />
+            <SidebarKV label="Custodian" value={wallet.type === 'FIAT_BANK' ? 'ZandBank' : 'HexTrust'} />
           </SidebarGroup>
 
           {/* Approval Info */}
@@ -548,6 +515,12 @@ export default function CustodianWalletDetail() {
               />
             </SidebarGroup>
           )}
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={fmt(wallet.createdAt)} mono />
+            <SidebarKV label="Updated" value={fmt(wallet.updatedAt)} mono />
+          </SidebarGroup>
 
         </div>
       </div>
