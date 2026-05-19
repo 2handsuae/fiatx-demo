@@ -25,6 +25,7 @@ interface WalletItem {
   type: string;
   direction: string;
   walletRole?: string;
+  status: string;
   asset: { code: string; type: string; decimals?: number };
   address?: string;
   memo?: string;
@@ -171,7 +172,6 @@ const Deposit = () => {
           direction: 'INBOUND',
           walletRole: activeTab === 'crypto' ? 'C_DEP' : 'C_VIBAN',
           assetId: selectedAssetId,
-          status: 'ACTIVE',
         });
         const response = await customerFetch(
           `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
@@ -865,6 +865,21 @@ const Deposit = () => {
                 <div className="text-center py-16 text-fx-dust">
                   <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                   Checking for existing address...
+                </div>
+              ) : depositWallet && depositWallet.status !== 'ACTIVE' ? (
+                <div className="text-center py-16 bg-fx-charcoal/30 rounded-2xl border border-dashed border-amber-500/30">
+                  <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mb-4 mx-auto">
+                    <AlertTriangle size={32} className="text-amber-400" />
+                  </div>
+                  <h3 className="text-lg font-bold text-fx-sand mb-2">
+                    {activeTab === 'crypto' ? 'Deposit Address' : 'Deposit vIBAN'} Unavailable
+                  </h3>
+                  <p className="text-fx-dust mb-2 max-w-sm mx-auto">
+                    Your {activeTab === 'crypto' ? 'deposit address' : 'vIBAN'} for this asset is currently <span className="font-semibold text-amber-400">{depositWallet.status.replace(/_/g, ' ')}</span>.
+                  </p>
+                  <p className="text-fx-dust text-sm max-w-sm mx-auto">
+                    Please contact support if you need assistance.
+                  </p>
                 </div>
               ) : depositWallet ? (
                 <div className="bg-fx-charcoal/50 rounded-2xl p-6 border border-fx-rule space-y-6">
