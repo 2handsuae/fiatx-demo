@@ -59,7 +59,7 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
   const [assetNo, setAssetNo] = useState('');
   const [role, setRole] = useState('');
   const [vaultId, setVaultId] = useState('');
-  const [ownerId, setOwnerId] = useState('');
+  const [customerNo, setCustomerNo] = useState('');
   const [iban, setIban] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
@@ -113,14 +113,14 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
 
     if (!assetNo) { setError('Please select an asset.'); return; }
     if (!role) { setError('Please select a role.'); return; }
-    if (needsOwnerId && !ownerId.trim()) { setError('Owner ID is required for this role.'); return; }
+    if (needsOwnerId && !customerNo.trim()) { setError('Customer No is required for this role.'); return; }
     if (needsIban && !iban.trim()) { setError('IBAN is required for this role.'); return; }
 
     setSubmitting(true);
     try {
       const body: Record<string, string> = { assetNo, role, custodianProvider: provider };
       if (vaultId.trim()) body.vaultId = vaultId.trim();
-      if (needsOwnerId && ownerId.trim()) body.ownerId = ownerId.trim();
+      if (needsOwnerId && customerNo.trim()) body.customerNo = customerNo.trim();
       if (needsIban && iban.trim()) body.iban = iban.trim();
 
       const res = await adminFetch(
@@ -184,7 +184,7 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
               <option value="">{assetsLoading ? 'Loading assets…' : 'Select an asset'}</option>
               {assets.map((a) => (
                 <option key={a.assetNo} value={a.assetNo}>
-                  {a.code} ({a.type}) — {a.assetNo}
+                  {a.code} ({a.type})
                 </option>
               ))}
             </select>
@@ -245,12 +245,12 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
           {/* Owner ID (conditional) */}
           {needsOwnerId && (
             <div>
-              <label className={labelCls}>Owner ID (Customer UUID)</label>
+              <label className={labelCls}>Customer No</label>
               <input
                 type="text"
-                value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
-                placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                value={customerNo}
+                onChange={(e) => setCustomerNo(e.target.value)}
+                placeholder="e.g. CU2605130001"
                 className={inputCls}
               />
             </div>
