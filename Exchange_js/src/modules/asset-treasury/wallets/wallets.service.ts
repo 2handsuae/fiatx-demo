@@ -72,8 +72,13 @@ export class WalletsService {
       walletRole: string;
       type: string;
       status: 'PENDING_APPROVAL' | 'CREATING';
+      // CRYPTO-specific
+      address?: string;
       vaultId?: string;
+      // FIAT-specific
       iban?: string;
+      bankName?: string;
+      accountName?: string;
     },
     tx?: Prisma.TransactionClient,
   ) {
@@ -96,6 +101,17 @@ export class WalletsService {
       }
     }
 
+    // Type-field consistency
+    if (dto.type === 'CRYPTO_ADDRESS') {
+      if (dto.iban || dto.bankName || dto.accountName) {
+        throw new BadRequestException('CRYPTO_ADDRESS wallet must not have FIAT fields (iban, bankName, accountName)');
+      }
+    } else if (dto.type === 'FIAT_BANK') {
+      if (dto.address || dto.vaultId) {
+        throw new BadRequestException('FIAT_BANK wallet must not have CRYPTO fields (address, vaultId)');
+      }
+    }
+
     for (let attempt = 0; attempt < 3; attempt++) {
       const walletNo = generateReferenceNo('WA');
       try {
@@ -109,8 +125,11 @@ export class WalletsService {
             type: dto.type,
             assetId: dto.assetId,
             status: dto.status,
+            address: dto.address ?? null,
             vaultId: dto.vaultId ?? null,
             iban: dto.iban ?? null,
+            bankName: dto.bankName ?? null,
+            accountName: dto.accountName ?? null,
           },
         });
       } catch (e) {
