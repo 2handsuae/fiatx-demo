@@ -740,30 +740,13 @@ model ApprovalCase {
   createdByUserId                String
   createdByUserNo                String?
   status                         String                         @default("DRAFT")
-  executionStatus                String                         @default("NOT_EXECUTED")
-  riskLevel                      String                         @default("HIGH")
-  checkerRoles                   String
-  selectedCheckerRole            String
   allowCancel                    Boolean                        @default(true)
-  allowRetry                     Boolean                        @default(true)
-  docRef                         String?
   objectSnapshot                 String?
   traceId                        String
-  workflowType                   String?
-  workflowId                     String?
-  workflowNo                     String?
   createdAt                      DateTime                       @default(now())
   updatedAt                      DateTime                       @updatedAt
   submittedAt                    DateTime?
   timeoutAt                      DateTime?
-  decidedAt                      DateTime?
-  executedAt                     DateTime?
-  decisionByUserId               String?
-  decisionByUserNo               String?
-  decisionByRole                 String?
-  decisionReason                 String?
-  deletedAt                      DateTime?
-  deletedBy                      String?
   steps                          ApprovalStep[]
   evidencePackage                AuditEvidencePackage?          @relation("AuditEvidencePackageApprovalCase")
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
@@ -775,15 +758,12 @@ model ApprovalCase {
   @@index([actionType, entityRef, status])
   @@index([status, timeoutAt])
   @@index([traceId, createdAt])
-  @@index([workflowType, workflowNo, createdAt])
-  @@index([deletedAt])
   @@map("approval_cases")
 }
 
 model ApprovalStep {
   id                    String       @id @default(uuid())
   approvalCaseId        String
-  approvalNo            String?
   stepNo                Int
   status                String       @default("PENDING")
   checkerRoleCandidates String
@@ -798,7 +778,6 @@ model ApprovalStep {
 
   @@unique([approvalCaseId, stepNo])
   @@index([approvalCaseId, stepNo])
-  @@index([approvalNo, stepNo])
   @@map("approval_steps")
 }
 
