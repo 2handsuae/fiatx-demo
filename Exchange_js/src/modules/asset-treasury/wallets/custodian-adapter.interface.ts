@@ -10,7 +10,7 @@ export interface CreateVaultParams {
 }
 
 export interface CreateVaultResult {
-  vaultId: string;
+  vaultId?: string;
   address?: string;
   iban?: string;
 }

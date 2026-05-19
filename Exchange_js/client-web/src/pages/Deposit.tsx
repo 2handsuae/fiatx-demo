@@ -171,6 +171,7 @@ const Deposit = () => {
           direction: 'INBOUND',
           walletRole: activeTab === 'crypto' ? 'C_DEP' : 'C_VIBAN',
           assetId: selectedAssetId,
+          status: 'ACTIVE',
         });
         const response = await customerFetch(
           `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
