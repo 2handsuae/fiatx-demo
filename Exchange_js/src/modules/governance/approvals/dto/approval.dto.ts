@@ -16,10 +16,6 @@ export class CreateApprovalDto {
   @IsString()
   entityRef!: string;
 
-  @IsOptional()
-  @IsString()
-  docRef?: string;
-
   @ApiPropertyOptional({ type: Object, description: 'Frozen snapshot of the approval subject (request) at creation time' })
   @IsOptional()
   @IsObject()
@@ -28,22 +24,6 @@ export class CreateApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowType?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowNo?: string;
-
-  @IsOptional()
-  @IsString()
-  checkerRole?: string;
 }
 
 export class SubmitApprovalDto {
@@ -54,18 +34,6 @@ export class SubmitApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowType?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowNo?: string;
 }
 
 export class DecisionApprovalDto {
@@ -80,18 +48,6 @@ export class DecisionApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowType?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowNo?: string;
 }
 
 export class CancelApprovalDto {
@@ -102,18 +58,6 @@ export class CancelApprovalDto {
   @IsOptional()
   @IsString()
   traceId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowType?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowId?: string;
-
-  @IsOptional()
-  @IsString()
-  workflowNo?: string;
 }
 
 export class ApprovalQueryDto {

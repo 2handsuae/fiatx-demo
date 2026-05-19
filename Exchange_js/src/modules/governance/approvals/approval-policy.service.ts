@@ -14,12 +14,10 @@ import {
 
 export interface ResolvedApprovalPolicy {
   actionType: string;
-  riskLevel: string;
   steps: PolicyStepConfig[];
   checkerRoles: string[];
   timeoutHours: number;
   allowCancel: boolean;
-  allowRetry: boolean;
 }
 
 @Injectable()
@@ -49,12 +47,10 @@ export class ApprovalPolicyService {
 
     return {
       actionType: normalizedActionType,
-      riskLevel: policy?.riskLevel ?? fallback?.riskLevel ?? 'HIGH',
       steps,
       checkerRoles: deriveCheckerRoles(steps),
       timeoutHours: policy?.timeoutHours ?? fallback?.timeoutHours ?? 24,
       allowCancel: policy?.allowCancel ?? fallback?.allowCancel ?? true,
-      allowRetry: policy?.allowRetry ?? fallback?.allowRetry ?? true,
     };
   }
 
@@ -85,12 +81,10 @@ export class ApprovalPolicyService {
 
       return {
         actionType,
-        riskLevel: dbRow?.riskLevel ?? defaultPolicy.riskLevel,
         steps,
         checkerRoles: deriveCheckerRoles(steps),
         timeoutHours: dbRow?.timeoutHours ?? defaultPolicy.timeoutHours,
         allowCancel: dbRow?.allowCancel ?? defaultPolicy.allowCancel,
-        allowRetry: dbRow?.allowRetry ?? defaultPolicy.allowRetry,
         source: hasOverride ? ('CUSTOMIZED' as const) : ('DEFAULT' as const),
         editable: actionType !== ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
       };
@@ -124,12 +118,10 @@ export class ApprovalPolicyService {
       update: { stepsConfig, checkerRoles },
       create: {
         actionType,
-        riskLevel: defaultPolicy.riskLevel,
         stepsConfig,
         checkerRoles,
         timeoutHours: defaultPolicy.timeoutHours,
         allowCancel: defaultPolicy.allowCancel,
-        allowRetry: defaultPolicy.allowRetry,
       },
     });
   }

@@ -82,16 +82,6 @@ export const ApprovalStepStatuses = {
   CANCELLED: 'CANCELLED',
 } as const;
 
-export const ApprovalExecutionStatuses = {
-  NOT_EXECUTED: 'NOT_EXECUTED',
-  EXECUTED: 'EXECUTED',
-  EXECUTION_FAILED: 'EXECUTION_FAILED',
-} as const;
-
-export const ApprovalRiskLevels = {
-  HIGH: 'HIGH',
-} as const;
-
 export const ApprovalSoDRuleCodes = {
   DENY_SAME_USER_MAKER_CHECKER: 'DENY_SAME_USER_MAKER_CHECKER',
 } as const;
@@ -118,9 +108,6 @@ export interface ApprovalDecisionEvent {
   actionType: string;
   entityRef: string;
   traceId: string;
-  workflowType?: string | null;
-  workflowId?: string | null;
-  workflowNo?: string | null;
   status: string;
   decisionByUserId?: string | null;
   decisionByUserNo?: string | null;
@@ -183,226 +170,168 @@ export function checkerRolesToSteps(roles: string[]): PolicyStepConfig[] {
 export const DEFAULT_APPROVAL_POLICIES: Record<
   string,
   {
-    riskLevel: string;
     steps: PolicyStepConfig[];
     timeoutHours: number;
     allowCancel: boolean;
-    allowRetry: boolean;
   }
 > = {
   [ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 24,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.CASE_EVIDENCE_EXPORT_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['DPO'] }, { stepNo: 2, roles: ['MLRO'] }],
     timeoutHours: 24,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.POOL_SETTLEMENT_BATCH_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['TECH_OFFICER'] }],
     timeoutHours: 24,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.TREASURY_CROSS_POOL_TRANSFER_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['TECH_OFFICER'] }],
     timeoutHours: 24,
     allowCancel: true,
-    allowRetry: true,
   },
   // ─── Wave 3 (2026-04-09) ─────────────────────
   [ApprovalActionTypes.RISK_RATING_MEDIUM_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['COMPLIANCE_OFFICER'] }],
     timeoutHours: 168,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_HIGH_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_UPGRADE_PHASE1]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 168,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_MAINTENANCE_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 168,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.PEP_RELATIONSHIP_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_MLRO_REVIEW]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }],
     timeoutHours: 168,
     allowCancel: true,
-    allowRetry: true,
   },
   [ApprovalActionTypes.RISK_RATING_TIER_UPGRADE_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['MLRO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 240,
     allowCancel: true,
-    allowRetry: true,
   },
   // ─── Wave 1 Governance Redesign (2026-04-30) ─
   [ApprovalActionTypes.ADMIN_INVITE_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   [ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Wave 1 Governance Redesign — C4 (2026-05-05) ─
   [ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   [ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Approval Policy Governance (2026-05-06) ────
   [ApprovalActionTypes.APPROVAL_POLICY_CHANGE]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Role Definition Governance (2026-05-08) ────
   [ApprovalActionTypes.ROLE_DEFINITION_CREATE]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   [ApprovalActionTypes.ROLE_DEFINITION_MODIFY]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Credential Reset Governance (2026-05-10) ────
   [ApprovalActionTypes.ADMIN_PASSWORD_RESET]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   [ApprovalActionTypes.ADMIN_MFA_RESET]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Asset Listing (2026-05-11) ────
   [ApprovalActionTypes.ASSET_LISTING]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Custodian Wallet Create (2026-05-13) ────
   [ApprovalActionTypes.CUSTODIAN_WALLET_CREATE]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Asset Suspension (2026-05-14) ────
   [ApprovalActionTypes.ASSET_SUSPENSION]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 12,
     allowCancel: true,
-    allowRetry: false,
   },
   [ApprovalActionTypes.ASSET_REACTIVATION]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 12,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Asset Activation (2026-05-14) ────
   [ApprovalActionTypes.ASSET_ACTIVATION]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [{ stepNo: 1, roles: ['CISO'] }],
     timeoutHours: 12,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Transaction Limit Change (2026-05-16) ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [
       { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SMO'] },
+      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
     ],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
   // ─── Transaction Limit Creation (2026-05-16) ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CREATION]: {
-    riskLevel: ApprovalRiskLevels.HIGH,
     steps: [
       { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SMO'] },
+      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
     ],
     timeoutHours: 48,
     allowCancel: true,
-    allowRetry: false,
   },
 };
 
