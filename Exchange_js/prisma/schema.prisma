@@ -1361,26 +1361,16 @@ model Wallet {
   ownerId                                  String?
   ownerNo                                  String?
   type                                     String
-  direction                                String
   walletRole                               String                          @default("GENERAL")
   assetId                                  String
   address                                  String?
-  memo                                     String?
   bankName                                 String?
-  bankAccount                              String?
-  bankCode                                 String?
   status                                   String                          @default("ACTIVE")
   mockBalance                              Decimal                         @default(0)
-  regulatoryEnablementStatus               String                          @default("PENDING")
-  regulatoryEnabledAt                      DateTime?
   createdAt                                DateTime                        @default(now()) @map("created_at")
   updatedAt                                DateTime                        @updatedAt @map("updated_at")
   accountName                              String?
-  beneficiaryName                          String?
-  counterpartyVasp                         String?
   iban                                     String?
-  approvalCaseId                           String?
-  approvalCaseNo                           String?
   vaultId                                  String?
   depositTransactions                      DepositTransaction[]
   depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")

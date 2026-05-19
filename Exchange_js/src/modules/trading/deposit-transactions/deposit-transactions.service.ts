@@ -377,7 +377,6 @@ export class DepositTransactionsService {
             ownerType: 'CUSTOMER',
             ownerId: 'U_DEMO_' + Math.floor(Math.random() * 10000),
             type: asset.type === 'CRYPTO' ? 'CRYPTO_ADDRESS' : 'FIAT_BANK',
-            direction: 'INBOUND',
             assetId: asset.id,
             status: 'ACTIVE',
             address: asset.type === 'CRYPTO' ? 'T_DEMO_' + Date.now() + i : null,

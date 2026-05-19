@@ -646,7 +646,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           ownerId: null,
           ownerNo: config.ownerNo,
           type: 'CRYPTO_ADDRESS',
-          direction: 'BIDIRECTIONAL',
           walletRole: config.walletRole,
           assetId: asset.id,
           address,
@@ -658,7 +657,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           ownerId: null,
           ownerNo: config.ownerNo,
           type: 'CRYPTO_ADDRESS',
-          direction: 'BIDIRECTIONAL',
           walletRole: config.walletRole,
           assetId: asset.id,
           address,
@@ -687,7 +685,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           ownerId: null,
           ownerNo: config.ownerNo,
           type: 'FIAT_BANK',
-          direction: 'BIDIRECTIONAL',
           walletRole: config.walletRole,
           assetId: asset.id,
           iban,
@@ -704,7 +701,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
           ownerId: null,
           ownerNo: config.ownerNo,
           type: 'FIAT_BANK',
-          direction: 'BIDIRECTIONAL',
           walletRole: config.walletRole,
           assetId: asset.id,
           iban,
@@ -970,7 +966,6 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
       ownerNo: string;
       walletRole: string;
       type: 'CRYPTO_ADDRESS' | 'FIAT_BANK';
-      direction: 'BIDIRECTIONAL';
     }
   >();
   for (const asset of cryptoAssets) {
@@ -986,7 +981,6 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         ownerNo: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].ownerNo,
         walletRole: CRYPTO_SYSTEM_WALLET_KIND_CONFIG[kind].walletRole,
         type: 'CRYPTO_ADDRESS',
-        direction: 'BIDIRECTIONAL',
       });
     }
   }
@@ -999,7 +993,6 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         ownerNo: FIAT_POOL_WALLET_KIND_CONFIG[kind].ownerNo,
         walletRole: FIAT_POOL_WALLET_KIND_CONFIG[kind].walletRole,
         type: 'FIAT_BANK',
-        direction: 'BIDIRECTIONAL',
       });
     }
   }
@@ -1018,7 +1011,6 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         ownerId: true,
         ownerNo: true,
         type: true,
-        direction: true,
         status: true,
         walletRole: true,
       },
@@ -1038,7 +1030,6 @@ async function isBaseComplete(prisma: PrismaClient): Promise<boolean> {
         wallet.ownerType !== expected.ownerType ||
         wallet.ownerNo !== expected.ownerNo ||
         wallet.type !== expected.type ||
-        wallet.direction !== expected.direction ||
         wallet.walletRole !== expected.walletRole ||
         wallet.ownerId !== null ||
         wallet.status !== 'ACTIVE'

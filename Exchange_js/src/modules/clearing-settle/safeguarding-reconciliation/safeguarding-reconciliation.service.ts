@@ -468,7 +468,6 @@ export class SafeguardingReconciliationService {
         ownerId: true,
         ownerNo: true,
         type: true,
-        direction: true,
         walletRole: true,
         assetId: true,
         address: true,
