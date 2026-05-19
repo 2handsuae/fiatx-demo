@@ -70,23 +70,27 @@ export class CustodianWalletCreateWorkflowService {
     }
 
     const ownerType = policy.allowedOwnerTypes[0];
-    if (ownerType === 'CUSTOMER' && !dto.ownerId) {
+    if (ownerType === 'CUSTOMER' && !dto.customerNo) {
       throw new BadRequestException({
-        code: 'OWNER_ID_REQUIRED',
-        message: `ownerId is required for role ${dto.role}`,
+        code: 'CUSTOMER_NO_REQUIRED',
+        message: `customerNo is required for role ${dto.role}`,
       });
     }
-    if (ownerType === 'PLATFORM' && dto.ownerId) {
+    if (ownerType === 'PLATFORM' && dto.customerNo) {
       throw new BadRequestException({
         code: 'OWNER_TYPE_MISMATCH',
-        message: `Role ${dto.role} is platform-level, ownerId must not be provided`,
+        message: `Role ${dto.role} is platform-level, customerNo must not be provided`,
       });
     }
 
-    if (ownerType === 'CUSTOMER' && dto.ownerId) {
-      const customer = await this.prisma.customerMain.findUnique({ where: { id: dto.ownerId } });
+    let customer: { id: string; customerNo: string } | null = null;
+    if (ownerType === 'CUSTOMER' && dto.customerNo) {
+      customer = await this.prisma.customerMain.findUnique({
+        where: { customerNo: dto.customerNo },
+        select: { id: true, customerNo: true },
+      });
       if (!customer) {
-        throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: `Customer ${dto.ownerId} not found` });
+        throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: `Customer ${dto.customerNo} not found` });
       }
     }
 
@@ -95,7 +99,7 @@ export class CustodianWalletCreateWorkflowService {
         walletRole: dto.role,
         assetId: asset.id,
         ownerType,
-        ownerId: ownerType === 'PLATFORM' ? null : dto.ownerId,
+        ownerId: ownerType === 'PLATFORM' ? null : customer?.id,
       },
     });
     if (existingCount >= policy.maxPerOwnerPerAsset) {
@@ -111,11 +115,14 @@ export class CustodianWalletCreateWorkflowService {
     const wallet = (await this.walletsService.createWalletRecord({
       assetId: asset.id,
       ownerType,
-      ownerId: ownerType === 'PLATFORM' ? undefined : dto.ownerId,
+      ownerId: ownerType === 'PLATFORM' ? undefined : customer?.id,
+      ownerNo: ownerType === 'PLATFORM' ? undefined : customer?.customerNo,
       walletRole: dto.role,
       status: 'PENDING_APPROVAL',
       type: walletType,
       direction,
+      vaultId: dto.vaultId,
+      iban: dto.iban,
     }))!;
     const walletNo = wallet.walletNo!;
 
@@ -134,7 +141,11 @@ export class CustodianWalletCreateWorkflowService {
             assetCurrency: asset.currency,
             role: dto.role,
             ownerType,
-            ownerId: dto.ownerId || null,
+            customerNo: dto.customerNo || null,
+            ownerId: customer?.id || null,
+            vaultId: dto.vaultId || null,
+            iban: dto.iban || null,
+            custodianProvider: dto.custodianProvider || null,
           },
         },
         { reason: `Create ${dto.role} wallet for ${asset.currency}`, traceId },
@@ -167,6 +178,7 @@ export class CustodianWalletCreateWorkflowService {
           assetCurrency: asset.currency,
           role: dto.role,
           ownerType,
+          customerNo: dto.customerNo || null,
           approvalNo: approvalCase.approvalNo,
         },
         sourcePlatform: 'ADMIN_API',
