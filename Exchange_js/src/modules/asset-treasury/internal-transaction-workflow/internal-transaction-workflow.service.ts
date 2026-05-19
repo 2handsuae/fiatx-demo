@@ -99,25 +99,6 @@ export class InternalTransactionWorkflowService {
     }
   }
 
-  private ensureRegulatorEnabledCustBankWallet(wallet: {
-    walletRole?: string | null;
-    walletNo?: string | null;
-    regulatoryEnablementStatus?: string | null;
-  }) {
-    if (wallet.walletRole !== WalletRole.C_CMA) {
-      return;
-    }
-    if (
-      String(wallet.regulatoryEnablementStatus || '')
-        .trim()
-        .toUpperCase() !== 'EFFECTIVE'
-    ) {
-      throw new BadRequestException(
-        `C_CMA wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
-      );
-    }
-  }
-
   private isSelfApprovalAllowed(): boolean {
     const raw = (process.env.INTERNAL_TX_ALLOW_SELF_APPROVAL || 'false')
       .trim()
@@ -251,9 +232,6 @@ export class InternalTransactionWorkflowService {
       if (fromWallet.assetId !== asset.id || toWallet.assetId !== asset.id) {
         throw new BadRequestException('wallet asset must match selected assetId');
       }
-      this.ensureRegulatorEnabledCustBankWallet(fromWallet);
-      this.ensureRegulatorEnabledCustBankWallet(toWallet);
-
       if (fromWallet.walletRole !== policy.fromRole) {
         throw new BadRequestException(
           `fromWallet role mismatch: expected ${policy.fromRole}, got ${fromWallet.walletRole}`,

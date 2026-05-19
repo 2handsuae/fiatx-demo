@@ -1532,16 +1532,6 @@ export class SafeguardingReconciliationService {
     if (String(wallet.walletRole || '').toUpperCase() !== SafeguardingPoolRoles.CUST_BANK) {
       throw new BadRequestException('Only C_CMA wallet can accept fiat statements');
     }
-    if (
-      String(wallet.regulatoryEnablementStatus || '')
-        .trim()
-        .toUpperCase() !== 'EFFECTIVE'
-    ) {
-      throw new BadRequestException(
-        'C_CMA wallet must be regulator-enabled before statement import',
-      );
-    }
-
     const parsed = this.parseFiatStatementCsv(file.buffer);
     const businessDate = this.normalizeBusinessDate(dto.businessDate);
 

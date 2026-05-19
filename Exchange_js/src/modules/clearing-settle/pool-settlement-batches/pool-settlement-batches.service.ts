@@ -178,26 +178,6 @@ export class PoolSettlementBatchesService {
     };
   }
 
-  private ensureRegulatorEnabledCustBankWallet(wallet: {
-    walletRole?: string | null;
-    walletNo?: string | null;
-    regulatoryEnablementStatus?: string | null;
-  }) {
-    if (String(wallet.walletRole || '').trim().toUpperCase() !== WalletRoleEnum.C_CMA) {
-      return;
-    }
-
-    if (
-      String(wallet.regulatoryEnablementStatus || '')
-        .trim()
-        .toUpperCase() !== 'EFFECTIVE'
-    ) {
-      throw new BadRequestException(
-        `C_CMA wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
-      );
-    }
-  }
-
   private buildWalletPairKey(walletAId: string, walletBId: string) {
     return [walletAId, walletBId].sort().join('::');
   }
@@ -287,7 +267,6 @@ export class PoolSettlementBatchesService {
       );
     }
 
-    this.ensureRegulatorEnabledCustBankWallet(wallet);
     return wallet;
   }
 

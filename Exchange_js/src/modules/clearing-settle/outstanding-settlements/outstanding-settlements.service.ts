@@ -65,25 +65,6 @@ export class OutstandingSettlementsService {
     private readonly internalFundsService: InternalFundsService,
   ) {}
 
-  private ensureRegulatorEnabledCustBankWallet(wallet: {
-    walletRole?: string | null;
-    walletNo?: string | null;
-    regulatoryEnablementStatus?: string | null;
-  }) {
-    if (String(wallet.walletRole || '').trim().toUpperCase() !== WalletRole.C_CMA) {
-      return;
-    }
-    if (
-      String(wallet.regulatoryEnablementStatus || '')
-        .trim()
-        .toUpperCase() !== 'EFFECTIVE'
-    ) {
-      throw new BadRequestException(
-        `C_CMA wallet ${wallet.walletNo || 'UNKNOWN'} is not regulator-enabled`,
-      );
-    }
-  }
-
   private normalizeSourceType(value?: string | null) {
     const normalized = String(value || 'SWAP')
       .trim()
@@ -273,8 +254,6 @@ export class OutstandingSettlementsService {
         `No ACTIVE ${input.walletRole} wallet found for asset ${input.assetCurrency}`,
       );
     }
-
-    this.ensureRegulatorEnabledCustBankWallet(wallet);
 
     return wallet;
   }

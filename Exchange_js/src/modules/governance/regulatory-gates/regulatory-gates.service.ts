@@ -316,8 +316,6 @@ export class RegulatoryGatesService {
             id: row.wallet.id,
             walletNo: row.wallet.walletNo,
             walletRole: row.wallet.walletRole,
-            regulatoryEnablementStatus: row.wallet.regulatoryEnablementStatus,
-            regulatoryEnabledAt: row.wallet.regulatoryEnabledAt,
           }
         : null,
       linkedApproval: row.linkedApproval
@@ -968,17 +966,6 @@ export class RegulatoryGatesService {
         },
         actor,
       );
-    } else if (
-      updated.gateType === RegulatoryGateTypes.CLIENT_BANK_ACCOUNT_ENABLEMENT &&
-      updated.walletId
-    ) {
-      await this.prisma.wallet.update({
-        where: { id: updated.walletId },
-        data: {
-          regulatoryEnablementStatus: 'EFFECTIVE',
-          regulatoryEnabledAt: effectiveAt,
-        },
-      });
     }
 
     await this.recordAudit(
