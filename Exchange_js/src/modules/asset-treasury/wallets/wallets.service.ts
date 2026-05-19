@@ -129,19 +129,6 @@ export class WalletsService {
     }
   }
 
-  async linkApprovalCase(
-    walletNo: string,
-    caseId: string,
-    caseNo: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<void> {
-    const db = tx ?? this.prisma;
-    await db.wallet.updateMany({
-      where: { walletNo },
-      data: { approvalCaseId: caseId, approvalCaseNo: caseNo },
-    });
-  }
-
   async transitionStatus(
     walletNo: string,
     from: string,

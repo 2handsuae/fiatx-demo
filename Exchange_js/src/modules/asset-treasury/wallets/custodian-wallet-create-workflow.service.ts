@@ -151,8 +151,6 @@ export class CustodianWalletCreateWorkflowService {
       throw err;
     }
 
-    await this.walletsService.linkApprovalCase(walletNo, approvalCase.id, approvalCase.approvalNo);
-
     await this.auditLogsService.recordByActor(
       {
         action: AuditGovernanceActions.CUSTODIAN_WALLET_CREATE.CREATE_REQUESTED,
@@ -186,7 +184,7 @@ export class CustodianWalletCreateWorkflowService {
       },
     );
 
-    return { wallet: { ...wallet, approvalCaseId: approvalCase.id, approvalCaseNo: approvalCase.approvalNo }, approvalCase };
+    return { wallet, approvalCase };
   }
 
   @OnEvent(SECONDARY_EVENT, { async: true })
