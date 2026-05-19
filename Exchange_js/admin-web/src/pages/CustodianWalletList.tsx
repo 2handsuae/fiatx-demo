@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, Plus, RotateCcw } from 'lucide-react';
+import { RefreshCw, Search, Plus } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -78,7 +78,6 @@ const CustodianWalletList = () => {
   const navigate = useNavigate();
   const { hasAnyPermission } = useAdminSession();
   const canCreate = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_CREATE]);
-  const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -146,52 +145,6 @@ const CustodianWalletList = () => {
   const handleReset = () => {
     setFilters(DEFAULT_FILTERS);
     void fetchItems(1, DEFAULT_FILTERS);
-  };
-
-  /* ── Status toggle ── */
-
-  const handleStatusChange = async (wallet: WalletItem) => {
-    if (wallet.status === 'FROZEN') return;
-    const newStatus = wallet.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
-    if (!window.confirm(`${newStatus === 'DISABLED' ? 'Disable' : 'Enable'} wallet ${wallet.walletNo}?`)) return;
-
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/wallets/${wallet.id}/status`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newStatus }),
-        },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Failed to update wallet status.'));
-        return;
-      }
-      void fetchItems(currentPage);
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to update wallet status.');
-    }
-  };
-
-  const handleRetry = async (walletNo: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm(`Retry vault creation for wallet ${walletNo}?`)) return;
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/custodian-wallets/${walletNo}/retry`,
-        { method: 'POST' },
-      );
-      if (!res.ok) {
-        setError(await getApiErrorMessage(res, 'Retry failed.'));
-        return;
-      }
-      void fetchItems(currentPage);
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Retry failed.');
-    }
   };
 
   /* ── Render ── */
@@ -307,7 +260,6 @@ const CustodianWalletList = () => {
                   ['Status',     '90px'],
                   ['Vault',      '110px'],
                   ['Updated',    '150px'],
-                  ['Action',     '100px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
@@ -323,22 +275,20 @@ const CustodianWalletList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No wallets found.
                 </td>
               </tr>
             )}
             {!loading && items.map((w) => {
               const ownerLabel = w.ownerName || w.ownerNo || w.ownerId || '—';
-              const statusActionLabel = w.status === 'ACTIVE' ? 'Disable' : w.status === 'DISABLED' ? 'Enable' : null;
-
               return (
                 <tr
                   key={w.id}
@@ -375,7 +325,7 @@ const CustodianWalletList = () => {
                     <span className="font-mono text-[11px] text-adm-t1">
                       {formatAssetAmount(w.balance ?? '0', w.asset?.decimals)}
                     </span>
-                    <span className="ml-1 font-mono text-[9px] text-adm-t3">{w.asset?.code}</span>
+                    <span className="ml-1 font-mono text-[9px] text-adm-t3">{w.asset?.currency}</span>
                   </td>
 
                   {/* Status */}
@@ -395,28 +345,7 @@ const CustodianWalletList = () => {
                     {fmt(w.updatedAt)}
                   </td>
 
-                  {/* Action */}
-                  <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-2">
-                      {w.status === 'FAILED' && canRetry && w.walletNo && (
-                        <button
-                          onClick={(e) => void handleRetry(w.walletNo!, e)}
-                          className={adminButtonClass('rowSecondaryUtility')}
-                        >
-                          <RotateCcw size={11} />
-                          Retry
-                        </button>
-                      )}
-                      {statusActionLabel && (
-                        <button
-                          onClick={() => void handleStatusChange(w)}
-                          className={adminButtonClass('rowSecondaryUtility')}
-                        >
-                          {statusActionLabel}
-                        </button>
-                      )}
-                    </div>
-                  </td>
+
                 </tr>
               );
             })}
