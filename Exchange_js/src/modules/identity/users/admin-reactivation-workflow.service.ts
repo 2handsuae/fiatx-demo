@@ -76,7 +76,6 @@ export class AdminReactivationWorkflowService {
         actionType: ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
         entityRef: dto.targetUserId,
         status: 'PENDING',
-        deletedAt: null,
       },
     });
     if (existingPending) {

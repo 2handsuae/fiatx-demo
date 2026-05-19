@@ -76,7 +76,6 @@ export class AdminSuspensionWorkflowService {
         actionType: ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL,
         entityRef: dto.targetUserId,
         status: 'PENDING',
-        deletedAt: null,
       },
     });
     if (existingPending) {

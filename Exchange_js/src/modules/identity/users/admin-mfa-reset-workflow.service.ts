@@ -79,7 +79,6 @@ export class AdminMfaResetWorkflowService {
         actionType: ApprovalActionTypes.ADMIN_MFA_RESET,
         entityRef: targetUserId,
         status: 'PENDING',
-        deletedAt: null,
       },
     });
     if (existingPending) {

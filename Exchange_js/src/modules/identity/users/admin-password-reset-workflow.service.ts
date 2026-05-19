@@ -157,7 +157,6 @@ export class AdminPasswordResetWorkflowService {
         actionType: ApprovalActionTypes.ADMIN_PASSWORD_RESET,
         entityRef: targetUserId,
         status: 'PENDING',
-        deletedAt: null,
       },
     });
     if (existingPending) {

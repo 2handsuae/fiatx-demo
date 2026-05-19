@@ -115,7 +115,6 @@ describe('SlaTimersService', () => {
       status: ApprovalStatuses.PENDING,
       timeoutAt: new Date('2026-03-14T17:00:00.000Z'),
       traceId: 'trace-1',
-      deletedAt: null,
     });
     prisma.slaTimer.findFirst.mockResolvedValue(null);
     prisma.slaTimer.create.mockResolvedValue(buildTimer());
@@ -192,7 +191,6 @@ describe('SlaTimersService', () => {
     prisma.approvalCase.findUnique.mockResolvedValue({
       id: 'approval-1',
       status: ApprovalStatuses.PENDING,
-      deletedAt: null,
     });
     prisma.slaNotification.findFirst
       .mockResolvedValueOnce(buildNotification())
@@ -253,7 +251,6 @@ describe('SlaTimersService', () => {
       id: 'approval-1',
       approvalNo: 'APR2603140001',
       timeoutAt: new Date('2026-03-14T17:00:00.000Z'),
-      deletedAt: null,
     });
     prisma.approvalCase.update.mockResolvedValue({
       id: 'approval-1',

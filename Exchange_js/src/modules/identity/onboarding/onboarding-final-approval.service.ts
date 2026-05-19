@@ -173,7 +173,6 @@ export class OnboardingFinalApprovalService {
   ) {
     return client.approvalCase.findFirst({
       where: {
-        deletedAt: null,
         actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
         entityRef: customerId,
         status: ApprovalStatuses.PENDING,

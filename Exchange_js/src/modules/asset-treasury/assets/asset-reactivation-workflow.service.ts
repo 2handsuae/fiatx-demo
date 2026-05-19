@@ -60,7 +60,6 @@ export class AssetReactivationWorkflowService {
         actionType: ApprovalActionTypes.ASSET_REACTIVATION,
         entityRef: asset.id,
         status: 'PENDING',
-        deletedAt: null,
       },
     });
     if (existingPending) {

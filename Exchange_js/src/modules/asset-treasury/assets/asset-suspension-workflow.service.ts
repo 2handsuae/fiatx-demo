@@ -60,7 +60,6 @@ export class AssetSuspensionWorkflowService {
         actionType: ApprovalActionTypes.ASSET_SUSPENSION,
         entityRef: asset.id,
         status: 'PENDING',
-        deletedAt: null,
       },
     });
     if (existingPending) {

@@ -830,11 +830,10 @@ export class SlaTimersService {
         status: true,
         timeoutAt: true,
         traceId: true,
-        deletedAt: true,
       },
     });
 
-    if (!approval || approval.deletedAt || approval.status !== ApprovalStatuses.PENDING) {
+    if (!approval || approval.status !== ApprovalStatuses.PENDING) {
       return null;
     }
     if (!approval.timeoutAt) {
@@ -1032,11 +1031,10 @@ export class SlaTimersService {
           id: true,
           approvalNo: true,
           timeoutAt: true,
-          deletedAt: true,
         },
       });
 
-      if (!approval || approval.deletedAt) {
+      if (!approval) {
         throw new NotFoundException(`Approval case not found: ${current.subjectId}`);
       }
 
@@ -1264,11 +1262,10 @@ export class SlaTimersService {
           select: {
             id: true,
             status: true,
-            deletedAt: true,
           },
         });
 
-        if (!approval || approval.deletedAt || approval.status !== ApprovalStatuses.PENDING) {
+        if (!approval || approval.status !== ApprovalStatuses.PENDING) {
           const closed = await this.closeTimerRow(
             row,
             this.systemActor(),
