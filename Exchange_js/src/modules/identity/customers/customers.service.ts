@@ -13,8 +13,6 @@ const riskApprovalSummarySelect = {
   id: true,
   approvalNo: true,
   status: true,
-  decidedAt: true,
-  decisionByRole: true,
 } satisfies Prisma.ApprovalCaseSelect;
 
 const periodicReviewCycleSummarySelect = {
