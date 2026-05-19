@@ -23,24 +23,16 @@ interface WalletDetailData {
   ownerNo: string | null;
   ownerName?: string | null;
   type: string;
-  direction: string;
   assetId: string;
   balance: string;
 
   address: string | null;
-  memo: string | null;
-  beneficiaryName: string | null;
-  counterpartyVasp: string | null;
 
   bankName: string | null;
-  bankAccount: string | null;
-  bankCode: string | null;
   accountName: string | null;
   iban: string | null;
 
   vaultId: string | null;
-  approvalCaseId: string | null;
-  approvalCaseNo: string | null;
 
   status: string;
   regulatoryGateSummary?: {
@@ -335,7 +327,6 @@ export default function CustodianWalletDetail() {
               <InfoField label="Owner" value={ownerLabel} mono />
               <InfoField label="Owner Type" value={wallet.ownerType} />
               <InfoField label="Owner No" value={wallet.ownerNo} mono accent />
-              <InfoField label="Direction" value={wallet.direction} />
               <InfoField label="Asset" value={wallet.asset.code} />
               <InfoField label="Network" value={wallet.asset.network || '—'} />
               <InfoField label="Vault ID" value={wallet.vaultId} mono />
@@ -343,23 +334,6 @@ export default function CustodianWalletDetail() {
                 label="Custodian"
                 value={wallet.type === 'FIAT_BANK' ? 'ZandBank' : 'HexTrust'}
               />
-              {wallet.approvalCaseNo && (
-                <InfoField
-                  label="Approval Case"
-                  value={
-                    wallet.approvalCaseId ? (
-                      <button
-                        onClick={() => navigate(`/dashboard/control-gates/approvals/${wallet.approvalCaseId}`)}
-                        className="font-mono text-[10px] text-adm-amber underline"
-                      >
-                        {wallet.approvalCaseNo}
-                      </button>
-                    ) : (
-                      wallet.approvalCaseNo
-                    )
-                  }
-                />
-              )}
             </div>
           </section>
 
