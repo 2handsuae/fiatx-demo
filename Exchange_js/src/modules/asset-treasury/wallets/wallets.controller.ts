@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
   Body,
   Patch,
   Param,
@@ -13,7 +12,6 @@ import {
 import { WalletsService } from './wallets.service';
 import { WalletQueryService } from './wallet-query.service';
 import {
-  CreateWalletDto,
   UpdateWalletStatusDto,
   WalletStatus,
   OwnerType,
@@ -51,53 +49,6 @@ export class WalletsController {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
-  }
-
-  @Post()
-  @ApiOperation({ summary: 'Create a new wallet' })
-  create(@Request() req: any, @Body() dto: CreateWalletDto) {
-    this.ensureSupportedToken(req);
-    const payload: CreateWalletDto = { ...dto };
-
-    if (req.user.type === 'CUSTOMER') {
-      if (
-        payload.ownerType !== OwnerType.CUSTOMER ||
-        payload.ownerId !== req.user.userId
-      ) {
-        throw new ForbiddenException(
-          'Customer can only create CUSTOMER wallets for self',
-        );
-      }
-
-      if (payload.direction === WalletDirection.BIDIRECTIONAL) {
-        throw new ForbiddenException(
-          'Customer cannot create BIDIRECTIONAL wallets',
-        );
-      }
-
-      if (payload.direction === WalletDirection.INBOUND) {
-        if (payload.walletRole && payload.walletRole !== WalletRole.C_DEP && payload.walletRole !== WalletRole.C_VIBAN) {
-          throw new ForbiddenException(
-            'Customer inbound wallets must use DEPOSIT role',
-          );
-        }
-        // Role resolved by service based on asset type (C_DEP or C_VIBAN)
-        payload.walletRole = undefined;
-      } else if (payload.direction === WalletDirection.OUTBOUND) {
-        if (payload.walletRole && payload.walletRole !== WalletRole.C_OUT) {
-          throw new ForbiddenException(
-            'Customer outbound wallets must use GENERAL role',
-          );
-        }
-        payload.walletRole = WalletRole.C_OUT;
-      } else {
-        throw new ForbiddenException(
-          'Customer can only create INBOUND deposit wallets or OUTBOUND payout targets',
-        );
-      }
-    }
-
-    return this.service.create(payload);
   }
 
   @Get()

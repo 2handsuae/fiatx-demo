@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsEnum,
-  IsNumber,
-  IsOptional,
-  IsUUID,
-  Min,
-} from 'class-validator';
+import { IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum OwnerType {
@@ -42,84 +35,6 @@ export enum WalletStatus {
   FROZEN = 'FROZEN',
   DISABLED = 'DISABLED',
   FAILED = 'FAILED',
-}
-
-export class CreateWalletDto {
-  @ApiProperty({ enum: OwnerType })
-  @IsEnum(OwnerType)
-  ownerType!: OwnerType;
-
-  @ApiProperty({
-    required: false,
-    description: 'Required if ownerType is not PLATFORM',
-  })
-  @IsString()
-  @IsOptional()
-  ownerId?: string;
-
-  @ApiProperty({ enum: WalletType })
-  @IsEnum(WalletType)
-  type!: WalletType;
-
-  @ApiProperty({ enum: WalletDirection })
-  @IsEnum(WalletDirection)
-  direction!: WalletDirection;
-
-  @ApiProperty({ enum: WalletRole, required: false })
-  @IsEnum(WalletRole)
-  @IsOptional()
-  walletRole?: WalletRole;
-
-  @ApiProperty({ description: 'Asset ID' })
-  @IsUUID()
-  assetId!: string;
-
-  // Crypto specific
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  address?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  memo?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  beneficiaryName?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  counterpartyVasp?: string;
-
-  // Fiat specific
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  bankName?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  bankAccount?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  bankCode?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  accountName?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  iban?: string;
 }
 
 export class UpdateWalletStatusDto {
