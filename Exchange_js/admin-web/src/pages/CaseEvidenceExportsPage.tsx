@@ -35,7 +35,6 @@ interface CaseEvidenceExportItem {
     id: string;
     approvalNo?: string | null;
     status: string;
-    executionStatus: string;
   } | null;
   createdAt: string;
   updatedAt: string;

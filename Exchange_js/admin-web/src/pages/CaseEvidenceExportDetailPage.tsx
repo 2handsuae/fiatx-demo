@@ -39,10 +39,7 @@ interface CaseEvidenceExportDetail {
     actionType: string;
     entityRef: string;
     status: string;
-    executionStatus: string;
     traceId?: string | null;
-    decisionByUserNo?: string | null;
-    decisionByUserId?: string | null;
     decisionByRole?: string | null;
     decidedAt?: string | null;
     createdAt: string;
@@ -311,7 +308,6 @@ const CaseEvidenceExportDetailPage = () => {
   const hasManifest    = detail.manifest != null;
   const hasPackageBody = detail.packageBody != null;
   const hasDecision    = !!(
-    detail.approvalCase?.decisionByUserNo ||
     detail.approvalCase?.decisionByRole ||
     detail.approvalCase?.decidedAt
   );
@@ -378,7 +374,6 @@ const CaseEvidenceExportDetailPage = () => {
                 cap="Approval Case"
                 identifier={(detail.approvalCase?.approvalNo || detail.approvalCaseNo) as string}
                 statusValue={detail.approvalCase?.status}
-                secondaryStatus={detail.approvalCase?.executionStatus}
                 onClick={
                   canViewApproval
                     ? () =>
@@ -500,7 +495,6 @@ const CaseEvidenceExportDetailPage = () => {
           {/* Decision — lightweight fingerprint; full approval is in the main area */}
           {hasDecision && (
             <SidebarGroup title="Decision">
-              <SidebarKV label="Decided By"  value={detail.approvalCase?.decisionByUserNo}   />
               <SidebarKV label="Role"        value={detail.approvalCase?.decisionByRole}     />
               <SidebarKV label="Decided At"  value={fmt(detail.approvalCase?.decidedAt)} mono />
             </SidebarGroup>

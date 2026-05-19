@@ -346,11 +346,6 @@ const GovernanceRegistryFormPage = ({
             />
           )}
           <TextInput
-            label="Doc Ref"
-            value={formState.docRef}
-            onChange={(value) => updateField('docRef', value)}
-          />
-          <TextInput
             label="Evidence Ref"
             value={formState.evidenceRef}
             onChange={(value) => updateField('evidenceRef', value)}
@@ -481,11 +476,6 @@ const GovernanceRegistryFormPage = ({
             onChange={(value) => updateField('endedAt', value)}
           />
         ) : null}
-        <TextInput
-          label="Doc Ref"
-          value={formState.docRef}
-          onChange={(value) => updateField('docRef', value)}
-        />
         <TextInput
           label="Evidence Ref"
           value={formState.evidenceRef}

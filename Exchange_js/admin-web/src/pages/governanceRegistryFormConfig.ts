@@ -23,7 +23,6 @@ export type GovernanceRegistryFormState = {
   effectiveFrom: string;
   effectiveTo: string;
   supersedesId: string;
-  docRef: string;
   evidenceRef: string;
   metadataJson: string;
   traceId: string;
@@ -77,7 +76,6 @@ export const createInitialRegistryFormState = (
   effectiveFrom: '',
   effectiveTo: '',
   supersedesId: '',
-  docRef: '',
   evidenceRef: '',
   metadataJson: '{}',
   traceId: '',
@@ -115,7 +113,6 @@ export const hydrateRegistryFormState = (
   effectiveFrom: toDateTimeLocalValue(detail.effectiveFrom as string | null),
   effectiveTo: toDateTimeLocalValue(detail.effectiveTo as string | null),
   supersedesId: '',
-  docRef: String(detail.docRef || ''),
   evidenceRef: String(detail.evidenceRef || ''),
   metadataJson: toJsonInputValue(detail.metadataJson),
   traceId: String(detail.traceId || ''),
@@ -258,7 +255,6 @@ export const buildRegistryCreatePayload = (
       payload.participants = buildParticipantsPayload(formState.participants);
       setIfPresent(payload, 'versionLabel', formState.versionLabel);
       setIfPresent(payload, 'supersedesId', formState.supersedesId);
-      setIfPresent(payload, 'docRef', formState.docRef);
       setDateIfPresent(payload, 'effectiveFrom', formState.effectiveFrom);
       return payload;
     case 'appointments':
@@ -266,7 +262,6 @@ export const buildRegistryCreatePayload = (
       payload.personName = formState.personName.trim();
       payload.regulatedFlag = formState.regulatedFlag;
       payload.status = formState.status;
-      setIfPresent(payload, 'docRef', formState.docRef);
       setDateIfPresent(payload, 'proposedEffectiveAt', formState.proposedEffectiveAt);
       setDateIfPresent(payload, 'effectiveAt', formState.effectiveAt);
       return payload;
@@ -312,7 +307,6 @@ export const buildRegistryUpdatePayload = (
     case 'shareholding-versions':
       payload.versionLabel = optionalString(formState.versionLabel);
       payload.status = formState.status;
-      payload.docRef = optionalString(formState.docRef);
       payload.evidenceRef = optionalString(formState.evidenceRef);
       payload.traceId = optionalString(formState.traceId);
       payload.participants = buildParticipantsPayload(formState.participants);
@@ -324,7 +318,6 @@ export const buildRegistryUpdatePayload = (
       payload.personName = formState.personName.trim();
       payload.regulatedFlag = formState.regulatedFlag;
       payload.status = formState.status;
-      payload.docRef = optionalString(formState.docRef);
       setDateIfPresent(payload, 'proposedEffectiveAt', formState.proposedEffectiveAt);
       setDateIfPresent(payload, 'effectiveAt', formState.effectiveAt);
       setDateIfPresent(payload, 'endedAt', formState.endedAt);

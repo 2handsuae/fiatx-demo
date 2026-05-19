@@ -38,10 +38,7 @@ interface EvidenceExportDetail {
     actionType: string;
     entityRef: string;
     status: string;
-    executionStatus: string;
     traceId?: string | null;
-    decisionByUserNo?: string | null;
-    decisionByUserId?: string | null;
     decisionByRole?: string | null;
     decidedAt?: string | null;
     createdAt: string;

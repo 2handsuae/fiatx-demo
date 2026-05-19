@@ -25,8 +25,6 @@ interface ApprovalItem {
   createdByUserId: string;
   createdByUserNo?: string | null;
   status: string;
-  executionStatus: string;
-  workflowNo?: string | null;
   traceId?: string | null;
   decidedAt?: string | null;
   createdAt: string;
@@ -244,9 +242,7 @@ const ApprovalsPage = () => {
                   ['Approval No',   '170px'],
                   ['Action Type',   '150px'],
                   ['Status',        '130px'],
-                  ['Execution',     '140px'],
                   ['Maker',         '130px'],
-                  ['Workflow No',   '150px'],
                   ['Created',       '150px'],
                   ['Decided',       'auto'],
                 ] as [string, string][]
@@ -264,14 +260,14 @@ const ApprovalsPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No approvals found.
                 </td>
               </tr>
@@ -299,19 +295,9 @@ const ApprovalsPage = () => {
                   <AdminBadge value={item.status} />
                 </td>
 
-                {/* Execution */}
-                <td className="px-4 py-2.5">
-                  <AdminBadge value={item.executionStatus} />
-                </td>
-
                 {/* Maker */}
                 <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2 whitespace-nowrap">
                   {item.createdByUserNo ?? item.createdByUserId}
-                </td>
-
-                {/* Workflow No */}
-                <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
-                  {item.workflowNo ?? '—'}
                 </td>
 
                 {/* Created */}

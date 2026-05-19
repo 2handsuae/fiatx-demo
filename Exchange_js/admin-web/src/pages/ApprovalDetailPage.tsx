@@ -25,27 +25,18 @@ interface ApprovalDetail {
   entityRef: string;
   createdByUserId: string;
   createdByUserNo?: string | null;
-  decisionByUserNo?: string | null;
   status: string;
-  executionStatus: string;
-  riskLevel: string;
-  checkerRoles: string[];
-  selectedCheckerRole?: string | null;
   allowCancel: boolean;
-  allowRetry: boolean;
-  docRef?: string | null;
   objectSnapshot?: Record<string, unknown> | null;
   traceId: string;
-  workflowType?: string | null;
-  workflowId?: string | null;
-  workflowNo?: string | null;
   submittedAt?: string | null;
   timeoutAt?: string | null;
-  decidedAt?: string | null;
-  executedAt?: string | null;
-  decisionReason?: string | null;
   createdAt: string;
   updatedAt: string;
+  availableDecisionRoles: string[];
+  canApprove: boolean;
+  canReject: boolean;
+  canCancel: boolean;
   step?: ApprovalStepItem | null;
   steps?: ApprovalStepItem[];
 }
@@ -364,8 +355,6 @@ const ApprovalDetailPage = () => {
 
   const allSteps             = detail.steps || (detail.step ? [detail.step] : []);
   const hasSteps             = allSteps.length > 0;
-  const hasDecision          = !!(detail.decidedAt || detail.decisionByUserNo || detail.decisionReason);
-
   const showActionsBlock =
     (detail.canApprove && canDecide) ||
     (detail.canReject && canDecide) ||
@@ -442,10 +431,6 @@ const ApprovalDetailPage = () => {
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Status</p>
                 <AdminBadge value={detail.status} />
               </div>
-              <div>
-                <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Execution</p>
-                <AdminBadge value={detail.executionStatus} />
-              </div>
               <div className="col-span-2">
                 <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Action Type</p>
                 <p className="font-mono text-[11px] text-adm-t2">{detail.actionType}</p>
@@ -459,7 +444,6 @@ const ApprovalDetailPage = () => {
             <div className="mt-3">
               <FieldGrid>
                 <Field label="Entity Ref"            value={detail.entityRef}           mono full />
-                <Field label="Selected Checker Role" value={detail.selectedCheckerRole} />
               </FieldGrid>
             </div>
           </section>
@@ -511,33 +495,14 @@ const ApprovalDetailPage = () => {
             </section>
           )}
 
-          {/* ④ Decision & Execution */}
-          {hasDecision && (
-            <section className="px-6 py-5">
-              <Cap>Decision &amp; Execution</Cap>
-              <div className="mt-3">
-                <FieldGrid>
-                  <Field label="Decision By"    value={detail.decisionByUserNo} mono />
-                  <Field label="Decided At"     value={fmt(detail.decidedAt)}   mono />
-                  <Field label="Executed At"    value={fmt(detail.executedAt)}  mono />
-                  <Field label="Decision Reason" value={detail.decisionReason}  full />
-                </FieldGrid>
-              </div>
-            </section>
-          )}
-
-          {/* ⑤ Technical Detail */}
-          {(detail.workflowType || detail.workflowNo || detail.traceId || detail.docRef || (detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0)) && (
+          {/* ④ Technical Detail */}
+          {(detail.traceId || (detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0)) && (
             <section className="px-6 py-5">
               <Cap>Technical Detail</Cap>
               <div className="mt-3 space-y-4">
                 <FieldGrid>
-                  <Field label="Workflow Type" value={detail.workflowType}               />
-                  <Field label="Workflow No"   value={detail.workflowNo}        mono     />
                   <Field label="Trace ID"      value={detail.traceId}           mono     />
-                  <Field label="Doc Ref"       value={detail.docRef}            mono     />
                   <Field label="Allow Cancel"  value={detail.allowCancel ? 'YES' : 'NO'} />
-                  <Field label="Allow Retry"   value={detail.allowRetry  ? 'YES' : 'NO'} />
                 </FieldGrid>
                 {detail.objectSnapshot && Object.keys(detail.objectSnapshot).length > 0 && (
                   <div className="rounded border border-adm-border bg-adm-bg p-4">
@@ -588,8 +553,6 @@ const ApprovalDetailPage = () => {
 
           {/* Identity Summary */}
           <SidebarGroup title="Identity Summary">
-            <SidebarKV label="Risk Level"    value={detail.riskLevel}                    />
-            <SidebarKV label="Checker Roles" value={joinOrDash(detail.checkerRoles)}     />
             <SidebarKV label="Submitted By"  value={detail.createdByUserNo}       mono   />
           </SidebarGroup>
 

@@ -37,7 +37,6 @@ type RegistryDetail = {
   supersededById?: string | null;
   latestApprovalId?: string | null;
   latestApprovalStatus?: string | null;
-  docRef?: string | null;
   evidenceRef?: string | null;
   appointmentNo?: string | null;
   roleType?: string | null;
@@ -146,7 +145,6 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
             <InfoField label="Superseded By" value={detail.supersededById} mono />
             <InfoField label="Latest Approval Id" value={detail.latestApprovalId} mono />
             <InfoField label="Latest Approval Status" value={detail.latestApprovalStatus} />
-            <InfoField label="Doc Ref" value={detail.docRef} />
             <InfoField label="Evidence Ref" value={detail.evidenceRef} />
           </>
         );
@@ -166,7 +164,6 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
             <InfoField label="Ended At" value={formatDateTime(detail.endedAt as string | null)} />
             <InfoField label="Latest Approval Id" value={detail.latestApprovalId} mono />
             <InfoField label="Latest Approval Status" value={detail.latestApprovalStatus} />
-            <InfoField label="Doc Ref" value={detail.docRef} />
             <InfoField label="Evidence Ref" value={detail.evidenceRef} />
           </>
         );
