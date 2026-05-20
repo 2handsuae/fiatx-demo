@@ -1,7 +1,5 @@
 import { OnEvent } from '@nestjs/event-emitter';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import {
   ApprovalDecisionEvent,
   ApprovalEvents,
@@ -26,31 +24,12 @@ export interface ApprovalDecidedEvent {
 export abstract class ApprovalHandlerBase {
   abstract readonly actionType: string;
   abstract readonly workflowType: string;
-  abstract readonly auditActions: {
-    granted: string;
-    declined: string;
-    cancelled: string;
-    expired: string;
-  };
-  abstract readonly entityType: string;
 
-  constructor(
-    protected readonly auditLogsService: AuditLogsService,
-    protected readonly eventEmitter: EventEmitter2,
-  ) {}
+  constructor(protected readonly eventEmitter: EventEmitter2) {}
 
   private buildSecondaryEventName(): string {
     const kebab = this.workflowType.toLowerCase().replace(/_/g, '-');
     return `workflow.${kebab}.decided`;
-  }
-
-  private buildAuditActor(event: ApprovalDecisionEvent) {
-    return {
-      actorType: 'ADMIN' as const,
-      actorId: event.decisionByUserId || 'SYSTEM',
-      actorNo: (event.decisionByUserNo as string | undefined) || undefined,
-      actorRole: (event.decisionByRole as string | undefined) || 'SYSTEM',
-    };
   }
 
   private async emitDecidedEvent(
@@ -84,97 +63,24 @@ export abstract class ApprovalHandlerBase {
   @OnEvent(ApprovalEvents.APPROVED, { async: true })
   async handleApproved(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
-
-    await this.auditLogsService.recordByActor(
-      {
-        action: this.auditActions.granted,
-        entityType: this.entityType,
-        entityId: event.entityRef,
-        entityNo: event.approvalNo,
-        workflowType: this.workflowType,
-        traceId: event.traceId,
-        result: AuditResult.SUCCESS,
-        metadata: { approvalId: event.approvalId, approvalNo: event.approvalNo },
-        requestId: `${this.workflowType}_APPROVAL_GRANTED_${event.approvalNo}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.buildAuditActor(event),
-    );
-
     await this.emitDecidedEvent('APPROVED', event);
   }
 
   @OnEvent(ApprovalEvents.REJECTED, { async: true })
   async handleRejected(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
-
-    await this.auditLogsService.recordByActor(
-      {
-        action: this.auditActions.declined,
-        entityType: this.entityType,
-        entityId: event.entityRef,
-        entityNo: event.approvalNo,
-        workflowType: this.workflowType,
-        traceId: event.traceId,
-        result: AuditResult.REJECTED,
-        metadata: {
-          approvalId: event.approvalId,
-          approvalNo: event.approvalNo,
-          decisionReason: event.decisionReason,
-        },
-        requestId: `${this.workflowType}_APPROVAL_DECLINED_${event.approvalNo}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.buildAuditActor(event),
-    );
-
     await this.emitDecidedEvent('DECLINED', event);
   }
 
   @OnEvent(ApprovalEvents.CANCELLED, { async: true })
   async handleCancelled(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
-
-    await this.auditLogsService.recordByActor(
-      {
-        action: this.auditActions.cancelled,
-        entityType: this.entityType,
-        entityId: event.entityRef,
-        entityNo: event.approvalNo,
-        workflowType: this.workflowType,
-        traceId: event.traceId,
-        result: AuditResult.SUCCESS,
-        metadata: { approvalId: event.approvalId, approvalNo: event.approvalNo },
-        requestId: `${this.workflowType}_APPROVAL_CANCELLED_${event.approvalNo}`,
-        sourcePlatform: 'ADMIN_API',
-      },
-      this.buildAuditActor(event),
-    );
-
     await this.emitDecidedEvent('CANCELLED', event);
   }
 
   @OnEvent(ApprovalEvents.EXPIRED, { async: true })
   async handleExpired(event: ApprovalDecisionEvent) {
     if (event.actionType !== this.actionType) return;
-
-    await this.auditLogsService.recordSystem({
-      action: this.auditActions.expired,
-      entityType: this.entityType,
-      entityId: event.entityRef,
-      entityNo: event.approvalNo,
-      workflowType: this.workflowType,
-      traceId: event.traceId,
-      result: AuditResult.SUCCESS,
-      metadata: {
-        approvalId: event.approvalId,
-        approvalNo: event.approvalNo,
-        expiredAt: event.decidedAt,
-      },
-      requestId: `${this.workflowType}_APPROVAL_EXPIRED_${event.approvalNo}`,
-      sourcePlatform: 'ADMIN_API',
-    });
-
     await this.emitDecidedEvent('EXPIRED', event);
   }
 }

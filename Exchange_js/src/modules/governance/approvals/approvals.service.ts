@@ -21,7 +21,6 @@ import {
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalPolicyService } from './approval-policy.service';
 import {
-  ApprovalActionTypes,
   ApprovalActorContext,
   ApprovalDecisionEvent,
   ApprovalEvents,
@@ -141,29 +140,6 @@ export class ApprovalsService {
       },
       this.toAuditActor(actor),
     );
-  }
-
-  /**
-   * Returns true when this actionType has a dedicated service that owns
-   * ALL audit log writes for that workflow (Plan B pattern).
-   * approvals.service must skip its generic APPROVAL_CASE events for these
-   * action types to avoid duplicate entries in the audit log.
-   */
-  private hasDedicatedAuditService(actionType: string): boolean {
-    const DEDICATED: string[] = [
-      ApprovalActionTypes.AUDIT_EVIDENCE_EXPORT_APPROVAL,
-      ApprovalActionTypes.ADMIN_INVITE_APPROVAL,
-      ApprovalActionTypes.ADMIN_ROLE_BINDING_CHANGE_APPROVAL,
-      ApprovalActionTypes.ADMIN_SUSPENSION_APPROVAL,
-      ApprovalActionTypes.ADMIN_REACTIVATION_APPROVAL,
-      ApprovalActionTypes.APPROVAL_POLICY_CHANGE,
-      ApprovalActionTypes.ROLE_DEFINITION_CREATE,
-      ApprovalActionTypes.ROLE_DEFINITION_MODIFY,
-      ApprovalActionTypes.ADMIN_PASSWORD_RESET,
-      ApprovalActionTypes.ADMIN_MFA_RESET,
-      ApprovalActionTypes.CUSTODIAN_WALLET_CREATE,
-    ];
-    return DEDICATED.includes(actionType);
   }
 
   private buildEventPayload(approval: ApprovalCaseRow): ApprovalDecisionEvent {
@@ -551,18 +527,16 @@ export class ApprovalsService {
     reason?: string | null,
   ) {
     const approval = await this.findCaseOrThrow(approvalId);
-    if (!this.hasDedicatedAuditService(approval.actionType)) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_SUBMITTED,
-        approval,
-        actor,
-        AuditResult.SUCCESS,
-        reason || 'Approval submitted',
-        {
-          timeoutAt: approval.timeoutAt?.toISOString(),
-        },
-      );
-    }
+    await this.recordAudit(
+      AuditActions.APPROVAL_SUBMITTED,
+      approval,
+      actor,
+      AuditResult.SUCCESS,
+      reason || 'Approval submitted',
+      {
+        timeoutAt: approval.timeoutAt?.toISOString(),
+      },
+    );
     await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(approval));
     return this.mapApproval(approval, actor);
   }
@@ -581,18 +555,16 @@ export class ApprovalsService {
         : await this.submitCase(created.id, submitDto, actor, client);
 
     if (options?.emitSideEffects !== false && submitted.status === ApprovalStatuses.PENDING) {
-      if (!this.hasDedicatedAuditService(submitted.actionType)) {
-        await this.recordAudit(
-          AuditActions.APPROVAL_SUBMITTED,
-          submitted,
-          actor,
-          AuditResult.SUCCESS,
-          submitDto.reason || 'Approval submitted',
-          {
-            timeoutAt: submitted.timeoutAt?.toISOString(),
-          },
-        );
-      }
+      await this.recordAudit(
+        AuditActions.APPROVAL_SUBMITTED,
+        submitted,
+        actor,
+        AuditResult.SUCCESS,
+        submitDto.reason || 'Approval submitted',
+        {
+          timeoutAt: submitted.timeoutAt?.toISOString(),
+        },
+      );
       await this.emitApprovalEvent(ApprovalEvents.SUBMITTED, this.buildEventPayload(submitted));
     }
 
@@ -684,18 +656,16 @@ export class ApprovalsService {
       }) as Promise<ApprovalCaseRow>;
     });
 
-    if (!this.hasDedicatedAuditService(updated.actionType)) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_APPROVED,
-        updated,
-        actor,
-        AuditResult.SUCCESS,
-        dto.reason || 'Approval approved',
-        this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-          ? { superAdminBypass: true }
-          : undefined,
-      );
-    }
+    await this.recordAudit(
+      AuditActions.APPROVAL_APPROVED,
+      updated,
+      actor,
+      AuditResult.SUCCESS,
+      dto.reason || 'Approval approved',
+      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+        ? { superAdminBypass: true }
+        : undefined,
+    );
     if (updated.status === ApprovalStatuses.APPROVED) {
       await this.projectGovernanceApprovalDecision(updated);
       await this.emitApprovalEvent(ApprovalEvents.APPROVED, this.buildEventPayload(updated));
@@ -770,18 +740,16 @@ export class ApprovalsService {
       }) as Promise<ApprovalCaseRow>;
     });
 
-    if (!this.hasDedicatedAuditService(updated.actionType)) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_REJECTED,
-        updated,
-        actor,
-        AuditResult.SUCCESS,
-        dto.reason || 'Approval rejected',
-        this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
-          ? { superAdminBypass: true }
-          : undefined,
-      );
-    }
+    await this.recordAudit(
+      AuditActions.APPROVAL_REJECTED,
+      updated,
+      actor,
+      AuditResult.SUCCESS,
+      dto.reason || 'Approval rejected',
+      this.isSuperAdmin(actor) && actor.userId === updated.createdByUserId
+        ? { superAdminBypass: true }
+        : undefined,
+    );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.REJECTED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
@@ -835,18 +803,16 @@ export class ApprovalsService {
       return next as ApprovalCaseRow;
     });
 
-    if (!this.hasDedicatedAuditService(updated.actionType)) {
-      await this.recordAudit(
-        AuditActions.APPROVAL_CANCELLED,
-        updated,
-        actor,
-        AuditResult.SUCCESS,
-        dto.reason || 'Approval cancelled',
-        this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
-          ? { superAdminBypass: true }
-          : undefined,
-      );
-    }
+    await this.recordAudit(
+      AuditActions.APPROVAL_CANCELLED,
+      updated,
+      actor,
+      AuditResult.SUCCESS,
+      dto.reason || 'Approval cancelled',
+      this.isSuperAdmin(actor) && actor.userId !== updated.createdByUserId
+        ? { superAdminBypass: true }
+        : undefined,
+    );
     await this.projectGovernanceApprovalDecision(updated);
     await this.emitApprovalEvent(ApprovalEvents.CANCELLED, this.buildEventPayload(updated));
     return this.mapApproval(updated, actor);
