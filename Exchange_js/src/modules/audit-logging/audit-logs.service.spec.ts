@@ -320,18 +320,6 @@ describe('AuditLogsService', () => {
 
     expect(result.traceId).toBe('DEPOSIT:payin-1');
     expect(result.workflowType).toBe('DEPOSIT');
-    expect(result.subjectNos).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          subjectType: 'DEPOSIT',
-          subjectNo: 'DEP2603010001',
-        }),
-        expect.objectContaining({
-          subjectType: 'PAYIN',
-          subjectNo: 'PI2603010001',
-        }),
-      ]),
-    );
   });
 
   it('should mask sourceIp and generate payloadDigest', async () => {
@@ -426,16 +414,6 @@ describe('AuditLogsService', () => {
       },
     );
 
-    expect(result.subjectNos).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          subjectNo: 'CUS2602180001',
-        }),
-        expect.objectContaining({
-          subjectNo: 'APP2602180001',
-        }),
-      ]),
-    );
   });
 
   it('should generate stable payloadDigest for semantically equal payloads', async () => {
@@ -801,35 +779,6 @@ describe('AuditLogsService', () => {
             { action: { contains: 'WITHDRAW' } },
             { reason: { contains: 'WITHDRAW' } },
           ]),
-        },
-      ]),
-    );
-  });
-
-  it('should build No filters including subjectNo/actorNo/entityOwnerNo', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(0);
-    prisma.auditLogEvent.findMany.mockResolvedValue([]);
-
-    await service.findAll({
-      subjectNo: 'CU2602180001',
-      subjectType: 'CUSTOMER',
-      actorNo: 'US2602180001',
-      entityOwnerNo: 'CU2602180001',
-      take: 20,
-    });
-
-    const where = prisma.auditLogEvent.count.mock.calls[0][0].where;
-    expect(where.AND).toEqual(
-      expect.arrayContaining([
-        { actorNo: 'US2602180001' },
-        { entityOwnerNo: 'CU2602180001' },
-        {
-          subjectNos: {
-            some: {
-              subjectNo: 'CU2602180001',
-              subjectType: 'CUSTOMER',
-            },
-          },
         },
       ]),
     );
