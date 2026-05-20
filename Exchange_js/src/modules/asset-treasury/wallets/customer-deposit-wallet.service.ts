@@ -73,6 +73,25 @@ export class CustomerDepositWalletService {
 
     const traceId = crypto.randomUUID();
     const walletNo = generateReferenceNo('WA');
+
+    // Inherit bankName/accountName from CMA for FIAT vIBAN
+    let bankName: string | null = null;
+    let accountName: string | null = null;
+    if (walletRole === WalletRole.C_VIBAN) {
+      const cma = await this.prisma.wallet.findFirst({
+        where: {
+          walletRole: WalletRole.C_CMA,
+          assetId,
+          status: WalletStatus.ACTIVE,
+        },
+        select: { bankName: true, accountName: true },
+      });
+      if (cma) {
+        bankName = cma.bankName;
+        accountName = cma.accountName;
+      }
+    }
+
     const wallet = await this.prisma.wallet.create({
       data: {
         walletNo,
@@ -83,6 +102,8 @@ export class CustomerDepositWalletService {
         walletRole,
         assetId,
         status: WalletStatus.CREATING,
+        bankName,
+        accountName,
       },
     });
 
