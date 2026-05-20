@@ -9,7 +9,6 @@ import {
 import {
   AuditEvidencePackageStatus,
   AuditResult,
-  AuditSubjectRole,
   ExportEvidencePackageDto,
 } from './dto/audit-log.dto';
 import { sha256Hex } from './utils/audit-digest.util';
@@ -56,30 +55,6 @@ export class AuditEvidenceExportWorkflowService {
       actorNo: actor.userNo,
       actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
     };
-  }
-
-  private buildApprovalRelatedSubjects(
-    packageId: string,
-    packageNo: string,
-    approvalId?: string | null,
-    approvalNo?: string | null,
-  ) {
-    const subjects: Array<{ subjectRole: AuditSubjectRole; subjectType: string; subjectId?: string; subjectNo: string }> = [];
-    if (approvalNo) {
-      subjects.push({
-        subjectRole: AuditSubjectRole.RELATED,
-        subjectType: AuditEntityTypes.APPROVAL_CASE,
-        subjectId: approvalId || undefined,
-        subjectNo: approvalNo,
-      });
-    }
-    subjects.push({
-      subjectRole: AuditSubjectRole.RELATED,
-      subjectType: AuditEntityTypes.AUDIT_EVIDENCE_PACKAGE,
-      subjectId: packageId,
-      subjectNo: packageNo,
-    });
-    return subjects;
   }
 
   async createExportRequest(query: ExportEvidencePackageDto, actor: ApprovalActorContext) {
@@ -155,12 +130,6 @@ export class AuditEvidenceExportWorkflowService {
         traceId: submitted.traceId,
         result: AuditResult.SUCCESS,
         metadata: { dateRangeFrom, dateRangeTo, itemCount: selection.itemCount },
-        subjectNos: this.buildApprovalRelatedSubjects(
-          evidencePackage.id,
-          evidencePackage.packageNo,
-          submitted.id,
-          submitted.approvalNo || null,
-        ),
         requestId: `EVIDENCE_EXPORT_REQUESTED_${evidencePackage.packageNo}`,
         sourcePlatform: 'ADMIN_API',
       },
@@ -201,12 +170,6 @@ export class AuditEvidenceExportWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
         traceId: this.normalizeOptionalString(found.approvalCase?.traceId) || undefined,
         result: AuditResult.SUCCESS,
-        subjectNos: this.buildApprovalRelatedSubjects(
-          found.id,
-          found.packageNo,
-          found.approvalCaseId,
-          this.normalizeOptionalString(found.approvalCase?.approvalNo),
-        ),
         requestId: `EVIDENCE_EXPORT_DOWNLOAD_${found.packageNo}_${Date.now()}`,
         sourcePlatform: 'ADMIN_API',
       },

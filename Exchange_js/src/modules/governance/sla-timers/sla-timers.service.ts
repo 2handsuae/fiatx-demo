@@ -17,7 +17,6 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   AuditResult,
-  AuditSubjectRole,
 } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../approvals/approvals.service';
 import {
@@ -146,39 +145,6 @@ export class SlaTimersService {
     timerType: string,
   ) {
     return `${workflowType}|${subjectType}|${subjectId}|${timerType}`;
-  }
-
-  private timerSubjectNos(timer: SlaTimerRow) {
-    const subjectNos: Array<{
-      subjectRole: AuditSubjectRole;
-      subjectType: string;
-      subjectId?: string;
-      subjectNo: string;
-    }> = [
-      {
-        subjectRole: AuditSubjectRole.ENTITY,
-        subjectType: AuditEntityTypes.SLA_TIMER,
-        subjectId: timer.id,
-        subjectNo: timer.timerNo,
-      },
-      {
-        subjectRole: AuditSubjectRole.RELATED,
-        subjectType: timer.workflowType,
-        subjectId: timer.workflowId,
-        subjectNo: timer.workflowNo,
-      },
-    ];
-
-    if (timer.subjectNo !== timer.workflowNo) {
-      subjectNos.push({
-        subjectRole: AuditSubjectRole.RELATED,
-        subjectType: timer.subjectType,
-        subjectId: timer.subjectId,
-        subjectNo: timer.subjectNo,
-      });
-    }
-
-    return subjectNos;
   }
 
   private mapNotification(notification: SlaNotificationRow) {
@@ -491,7 +457,6 @@ export class SlaTimersService {
           graceSeconds: timer.graceSeconds,
           ...(metadata || {}),
         },
-        subjectNos: this.timerSubjectNos(timer),
         requestId: `SLA_TIMER_${timer.timerNo}_${action}`,
         sourcePlatform: 'ADMIN_API',
       },

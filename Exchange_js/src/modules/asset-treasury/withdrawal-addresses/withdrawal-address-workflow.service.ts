@@ -6,7 +6,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { WithdrawalAddressService } from './withdrawal-address.service';
 import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from './travel-rule-adapter.interface';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
@@ -74,7 +74,6 @@ export class WithdrawalAddressWorkflowService {
       workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
       traceId,
       result: AuditResult.SUCCESS,
-      subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: address.id, subjectNo: address.addressNo }],
       metadata: { addressType, address: dto.address, network: asset.network, assetCurrency: asset.currency, counterpartyVaspName: attribution.vaspName, label: dto.label },
       sourcePlatform: 'CLIENT_API',
       entityOwnerId: customerId,
@@ -133,7 +132,6 @@ export class WithdrawalAddressWorkflowService {
       workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
       traceId,
       result: AuditResult.SUCCESS,
-      subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: address.id, subjectNo: address.addressNo }],
       metadata: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency },
       sourcePlatform: 'CLIENT_API',
       entityOwnerId: customerId,
@@ -158,7 +156,6 @@ export class WithdrawalAddressWorkflowService {
       workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
       traceId: existing.traceId,
       result: AuditResult.SUCCESS,
-      subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: existing.id, subjectNo: addressNo }],
       metadata: { cancelledByCustomerNo: customerNo },
       sourcePlatform: 'CLIENT_API',
       entityOwnerId: customerId,
@@ -183,7 +180,6 @@ export class WithdrawalAddressWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
         traceId: existing.traceId,
         result: AuditResult.SUCCESS,
-        subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: existing.id, subjectNo: addressNo }],
         metadata: { activatedBy },
         sourcePlatform: 'SYSTEM',
         entityOwnerId: existing.customerId,
@@ -209,7 +205,6 @@ export class WithdrawalAddressWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
         traceId: existing.traceId,
         result: AuditResult.SUCCESS,
-        subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: existing.id, subjectNo: addressNo }],
         metadata: { reason, suspendedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         entityOwnerId: existing.customerId,
@@ -253,7 +248,6 @@ export class WithdrawalAddressWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
         traceId: existing.traceId,
         result: AuditResult.SUCCESS,
-        subjectNos: [{ subjectRole: AuditSubjectRole.ENTITY, subjectType: 'WITHDRAWAL_ADDRESS', subjectId: existing.id, subjectNo: addressNo }],
         metadata: { skippedBy: actor.userNo },
         sourcePlatform: 'ADMIN_API',
         entityOwnerId: existing.customerId,

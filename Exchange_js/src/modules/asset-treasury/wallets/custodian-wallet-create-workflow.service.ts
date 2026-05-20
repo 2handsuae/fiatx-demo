@@ -12,7 +12,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { WalletRole } from './dto/wallet.dto';
 import { CreateCustodianWalletDto } from './dto/create-custodian-wallet.dto';
 import { getWalletRolePolicy } from './wallet-role-policies.constant';
@@ -200,12 +200,6 @@ export class CustodianWalletCreateWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
         traceId,
         result: AuditResult.SUCCESS,
-        subjectNos: [{
-          subjectRole: AuditSubjectRole.ENTITY,
-          subjectType: 'WALLET',
-          subjectId: wallet.id,
-          subjectNo: walletNo,
-        }],
         metadata: {
           assetNo: dto.assetNo,
           assetCurrency: asset.currency,

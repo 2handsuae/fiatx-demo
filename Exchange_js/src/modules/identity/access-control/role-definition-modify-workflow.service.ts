@@ -12,7 +12,7 @@ import {
   AuditEntityTypes,
   AuditGovernanceActions,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { RBAC_PERMISSION_DEFINITIONS, type PermissionGroup } from './rbac.catalog';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 
@@ -169,14 +169,6 @@ export class RoleDefinitionModifyWorkflowService {
         workflowType: AuditBusinessWorkflowTypes.ROLE_DEFINITION_MODIFY,
         traceId,
         result: AuditResult.SUCCESS,
-        subjectNos: [
-          {
-            subjectRole: AuditSubjectRole.ENTITY,
-            subjectType: 'ROLE_DEFINITION_MODIFY_REQUEST',
-            subjectId: request.id,
-            subjectNo: requestNo,
-          },
-        ],
         metadata: {
           roleCode: role.code,
           proposedName: proposedName.trim(),
