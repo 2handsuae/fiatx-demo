@@ -61,6 +61,9 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
   const [vaultId, setVaultId] = useState('');
   const [customerNo, setCustomerNo] = useState('');
   const [iban, setIban] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [cmaLoading, setCmaLoading] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -94,6 +97,9 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
 
   const needsOwnerId = role ? ROLE_OWNER_TYPE[role] === 'CUSTOMER' : false;
   const needsIban = isFiat && role && FIAT_SYSTEM_ROLES.has(role);
+  const isCma = role === 'C_CMA';
+  const isViban = role === 'C_VIBAN';
+  const needsBankFields = isCma || isViban;
   const provider = isFiat ? 'ZANDBANK' : 'HEXTRUST';
   const providerLabel = isFiat ? 'ZandBank' : 'HexTrust';
 
@@ -104,7 +110,41 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
       setRole('');
     }
     setIban('');
+    setBankName('');
+    setAccountName('');
   }, [assetNo]);
+
+  /* ── Fetch CMA bank fields when role=C_VIBAN ── */
+
+  useEffect(() => {
+    if (!isViban || !selectedAsset) {
+      return;
+    }
+    const fetchCma = async () => {
+      setCmaLoading(true);
+      try {
+        const res = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/custodian-wallets?walletRole=C_CMA&assetId=${selectedAsset.id}&status=ACTIVE&take=1`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const items = data.items ?? data;
+          if (items.length > 0) {
+            setBankName(items[0].bankName || '');
+            setAccountName(items[0].accountName || '');
+          } else {
+            setBankName('');
+            setAccountName('');
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        setCmaLoading(false);
+      }
+    };
+    void fetchCma();
+  }, [role, assetNo]);
 
   /* ── Submit ── */
 
@@ -115,6 +155,8 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
     if (!role) { setError('Please select a role.'); return; }
     if (needsOwnerId && !customerNo.trim()) { setError('Customer No is required for this role.'); return; }
     if (needsIban && !iban.trim()) { setError('IBAN is required for this role.'); return; }
+    if (isCma && !bankName.trim()) { setError('Bank Name is required for CMA wallets.'); return; }
+    if (isCma && !accountName.trim()) { setError('Account Holder is required for CMA wallets.'); return; }
 
     setSubmitting(true);
     try {
@@ -122,6 +164,8 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
       if (vaultId.trim()) body.vaultId = vaultId.trim();
       if (needsOwnerId && customerNo.trim()) body.customerNo = customerNo.trim();
       if (needsIban && iban.trim()) body.iban = iban.trim();
+      if (isCma && bankName.trim()) body.bankName = bankName.trim();
+      if (isCma && accountName.trim()) body.accountName = accountName.trim();
 
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/custodian-wallets`,
@@ -238,6 +282,36 @@ export default function CustodianWalletCreateModal({ onClose, onCreated }: Props
                 onChange={(e) => setIban(e.target.value)}
                 placeholder="e.g. AE070331234567890123456"
                 className={inputCls}
+              />
+            </div>
+          )}
+
+          {/* Bank Name — CMA: editable, vIBAN: read-only from CMA */}
+          {needsBankFields && (
+            <div>
+              <label className={labelCls}>Bank Name{isCma ? ' *' : ''}</label>
+              <input
+                type="text"
+                value={bankName}
+                onChange={(e) => isCma && setBankName(e.target.value)}
+                readOnly={isViban}
+                placeholder={isViban ? (cmaLoading ? 'Loading from CMA…' : 'Inherited from CMA') : 'e.g. Zand Bank PJSC'}
+                className={`${inputCls} ${isViban ? 'bg-gray-50 text-adm-t3' : ''}`}
+              />
+            </div>
+          )}
+
+          {/* Account Holder — CMA: editable, vIBAN: read-only from CMA */}
+          {needsBankFields && (
+            <div>
+              <label className={labelCls}>Account Holder{isCma ? ' *' : ''}</label>
+              <input
+                type="text"
+                value={accountName}
+                onChange={(e) => isCma && setAccountName(e.target.value)}
+                readOnly={isViban}
+                placeholder={isViban ? (cmaLoading ? 'Loading from CMA…' : 'Inherited from CMA') : 'e.g. FiatX Ltd'}
+                className={`${inputCls} ${isViban ? 'bg-gray-50 text-adm-t3' : ''}`}
               />
             </div>
           )}
