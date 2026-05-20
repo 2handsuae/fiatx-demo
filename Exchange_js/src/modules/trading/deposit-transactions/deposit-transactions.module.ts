@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { DepositTransactionsController } from './deposit-transactions.controller';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
@@ -8,7 +8,7 @@ import { DepositWorkflowService } from './deposit-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 
 @Module({
-  imports: [PayinsModule, OnboardingModule, TigerBeetleModule],
+  imports: [forwardRef(() => PayinsModule), forwardRef(() => OnboardingModule), TigerBeetleModule],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,
