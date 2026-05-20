@@ -30,4 +30,14 @@ export class CreateCustodianWalletDto {
   @IsString()
   @IsOptional()
   iban?: string;
+
+  @ApiProperty({ required: false, description: 'Bank name — required for C_CMA role' })
+  @IsString()
+  @IsOptional()
+  bankName?: string;
+
+  @ApiProperty({ required: false, description: 'Account holder name — required for C_CMA role' })
+  @IsString()
+  @IsOptional()
+  accountName?: string;
 }
