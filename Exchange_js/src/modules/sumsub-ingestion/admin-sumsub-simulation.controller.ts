@@ -6,6 +6,8 @@ import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
+import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
 
 @ApiTags('Admin - Sumsub Simulation')
 @Controller('admin/sumsub/simulate')
@@ -18,6 +20,8 @@ export class AdminSumsubSimulationController {
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
+    private readonly depositWorkflowService: DepositWorkflowService,
+    private readonly depositTransactionsService: DepositTransactionsService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -340,5 +344,83 @@ export class AdminSumsubSimulationController {
       },
       { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION' },
     );
+  }
+
+  @Post('kyt-check')
+  @ApiOperation({ summary: 'Simulate KYT (Know Your Transaction) check result' })
+  async simulateKytCheck(
+    @Req() req: any,
+    @Body() body: { txHash: string; result: 'PASS' | 'FAIL'; riskScore?: number },
+  ) {
+    this.ensureAdmin(req);
+
+    if (!body.txHash || !body.result) {
+      throw new BadRequestException('txHash and result (PASS|FAIL) are required');
+    }
+    if (!['PASS', 'FAIL'].includes(body.result)) {
+      throw new BadRequestException('result must be PASS or FAIL');
+    }
+
+    const deposit = await (this.prisma as any).depositTransaction.findFirst({
+      where: { txHash: body.txHash },
+    });
+    if (!deposit) {
+      throw new NotFoundException(`No deposit found with txHash: ${body.txHash}`);
+    }
+
+    const kytStatus = body.result === 'PASS' ? 'PASSED' : 'FAILED';
+    await this.depositTransactionsService.updateKytStatus(
+      deposit.id,
+      kytStatus,
+      body.riskScore ?? null,
+    );
+
+    await this.depositWorkflowService.checkAutoApproval(deposit.id);
+
+    return {
+      depositId: deposit.id,
+      depositNo: deposit.depositNo,
+      kytStatus,
+      riskScore: body.riskScore ?? null,
+      message: `KYT check simulated: ${kytStatus}`,
+    };
+  }
+
+  @Post('tr-check')
+  @ApiOperation({ summary: 'Simulate Travel Rule (TR) check result' })
+  async simulateTrCheck(
+    @Req() req: any,
+    @Body() body: { txHash: string; result: 'PASS' | 'FAIL' },
+  ) {
+    this.ensureAdmin(req);
+
+    if (!body.txHash || !body.result) {
+      throw new BadRequestException('txHash and result (PASS|FAIL) are required');
+    }
+    if (!['PASS', 'FAIL'].includes(body.result)) {
+      throw new BadRequestException('result must be PASS or FAIL');
+    }
+
+    const deposit = await (this.prisma as any).depositTransaction.findFirst({
+      where: { txHash: body.txHash },
+    });
+    if (!deposit) {
+      throw new NotFoundException(`No deposit found with txHash: ${body.txHash}`);
+    }
+
+    const trStatus = body.result === 'PASS' ? 'PASSED' : 'FAILED';
+    await this.depositTransactionsService.updateTravelRuleStatus(
+      deposit.id,
+      trStatus,
+    );
+
+    await this.depositWorkflowService.checkAutoApproval(deposit.id);
+
+    return {
+      depositId: deposit.id,
+      depositNo: (deposit as any).depositNo,
+      travelRuleStatus: trStatus,
+      message: `Travel Rule check simulated: ${trStatus}`,
+    };
   }
 }
