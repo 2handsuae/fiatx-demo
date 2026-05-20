@@ -19,13 +19,6 @@ export enum AuditResult {
   REJECTED = 'REJECTED',
 }
 
-export enum AuditSubjectRole {
-  ENTITY = 'ENTITY',
-  ACTOR = 'ACTOR',
-  TARGET = 'TARGET',
-  RELATED = 'RELATED',
-}
-
 export enum AuditEvidencePackageStatus {
   PENDING_APPROVAL = 'PENDING_APPROVAL',
   READY = 'READY',
@@ -157,16 +150,6 @@ export class CreateAuditLogEventDto {
   @IsOptional()
   @IsString()
   sourcePlatform?: string;
-
-  @ApiPropertyOptional({ description: '关联主体列表' })
-  @IsOptional()
-  @IsArray()
-  subjectNos?: Array<{
-    subjectRole: string;
-    subjectType: string;
-    subjectId?: string;
-    subjectNo: string;
-  }>;
 
   @ApiPropertyOptional({ description: 'UTC 时间字符串，不传则默认当前时间' })
   @IsOptional()
