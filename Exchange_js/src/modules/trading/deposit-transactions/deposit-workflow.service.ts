@@ -26,6 +26,10 @@ import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-tra
 
 @Injectable()
 export class DepositWorkflowService implements OnModuleInit {
+  private static readonly ABNORMAL_COMPLIANCE = new Set([
+    'FROZEN', 'SUSPENDED', 'BLOCKED', 'REJECTED',
+  ]);
+
   private readonly logger = new Logger(DepositWorkflowService.name);
 
   constructor(
@@ -70,7 +74,75 @@ export class DepositWorkflowService implements OnModuleInit {
   @OnEvent('deposit.status.changed')
   async handleDepositStatusChanged(event: DepositStatusChangedEvent) {
     const { depositId, oldStatus, newStatus } = event;
-    this.logger.log(`Deposit ${depositId} transitioned ${oldStatus} → ${newStatus}`);
+    this.logger.log(
+      `Deposit ${depositId} transitioned ${oldStatus} → ${newStatus}`,
+    );
+
+    if (newStatus === DepositTransactionStatus.COMPLIANCE_PENDING) {
+      await this.runGate0(depositId);
+    }
+  }
+
+  private async runGate0(depositId: string) {
+    const complianceStatus =
+      await this.depositService.getOwnerComplianceStatus(depositId);
+
+    if (DepositWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) {
+      this.logger.warn(
+        `Gate 0 FAIL: deposit ${depositId} — customer compliance status: ${complianceStatus}`,
+      );
+      await this.depositService.updateStatus(
+        depositId,
+        { action: DepositTransactionAction.FREEZE },
+        {
+          reason: `Customer compliance status: ${complianceStatus}`,
+          actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
+        },
+      );
+      return;
+    }
+
+    this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
+    await this.depositService.initializeComplianceGates(depositId);
+  }
+
+  async checkAutoApproval(depositId: string) {
+    const deposit = await this.depositService.findOne(depositId);
+
+    if (deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
+      this.logger.debug(
+        `Auto-approval skip: deposit ${depositId} status is ${deposit.status}`,
+      );
+      return;
+    }
+
+    if (deposit.kytStatus !== 'PASSED') {
+      this.logger.debug(
+        `Auto-approval skip: deposit ${depositId} kytStatus=${deposit.kytStatus}`,
+      );
+      return;
+    }
+
+    if (deposit.travelRuleStatus !== 'PASSED') {
+      this.logger.debug(
+        `Auto-approval skip: deposit ${depositId} travelRuleStatus=${deposit.travelRuleStatus}`,
+      );
+      return;
+    }
+
+    const complianceStatus =
+      await this.depositService.getOwnerComplianceStatus(depositId);
+    if (DepositWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) {
+      this.logger.warn(
+        `Auto-approval skip: deposit ${depositId} customer status=${complianceStatus}`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `All gates PASSED for deposit ${depositId} — auto-approving`,
+    );
+    await this.approveDeposit(depositId);
   }
 
   async approveDeposit(depositId: string) {
