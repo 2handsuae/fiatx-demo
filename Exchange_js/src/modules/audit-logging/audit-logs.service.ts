@@ -22,7 +22,6 @@ import {
   AuditLogView,
   AuditLogQueryDto,
   AuditResult,
-  AuditSubjectRole,
   CreateAuditLogEventDto,
   EvidencePackageQueryDto,
   ExportEvidencePackageDto,
@@ -31,10 +30,6 @@ import {
   maskIpAddress,
 } from './utils/audit-mask.util';
 import { sha256Hex } from './utils/audit-digest.util';
-import {
-  buildAuditSubjectNos,
-  type AuditSubjectNoRecord,
-} from './utils/audit-subject-no.util';
 
 export interface EvidenceExportResult {
   id: string;
@@ -153,7 +148,6 @@ interface AuditWorkflowContext {
   traceId: string | null;
   workflowType: string | null;
   entityOwnerNo: string | null;
-  relatedSubjectNos: AuditSubjectNoRecord[];
 }
 
 type AuditWriteClient = any;
@@ -187,14 +181,6 @@ export class AuditLogsService {
       db.auditLogEvent &&
       typeof db.auditLogEvent.create === 'function' &&
       typeof db.auditLogEvent.findUnique === 'function'
-    );
-  }
-
-  private canOperateAuditLogSubjectNo(db: any): boolean {
-    return !!(
-      db &&
-      db.auditLogSubjectNo &&
-      typeof db.auditLogSubjectNo.findMany === 'function'
     );
   }
 
@@ -362,72 +348,10 @@ export class AuditLogsService {
     }
   }
 
-  private buildSubjectNos(
-    input: CreateAuditLogEventDto,
-    actor: AuditActorContext,
-    actorNo: string | null,
-    entityNo: string | null,
-    entityOwnerNo: string | null,
-    extraSubjectNos: AuditSubjectNoRecord[] = [],
-  ): AuditSubjectNoRecord[] {
-    return this.mergeSubjectNos(
-      buildAuditSubjectNos({
-        actor: {
-          ...actor,
-          actorNo: actorNo || undefined,
-        },
-        entityType: input.entityType,
-        entityId: input.entityId || null,
-        entityNo,
-        entityOwnerType: input.entityOwnerType || null,
-        entityOwnerId: input.entityOwnerId || null,
-        entityOwnerNo,
-        explicitSubjectNos: input.subjectNos,
-      }),
-      extraSubjectNos,
-    );
-  }
-
-  private mergeSubjectNos(
-    current: AuditSubjectNoRecord[],
-    extra: AuditSubjectNoRecord[],
-  ): AuditSubjectNoRecord[] {
-    const seen = new Set<string>();
-
-    return [...current, ...extra].filter((item) => {
-      const key = [
-        item.subjectRole,
-        item.subjectType,
-        item.subjectId || '',
-        item.subjectNo,
-      ].join('|');
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
-
   private buildDepositTraceId(payinId?: string | null, depositId?: string | null) {
     const rootId =
       this.normalizeOptionalString(payinId) || this.normalizeOptionalString(depositId);
     return rootId ? `${AuditWorkflowTypes.DEPOSIT}:${rootId}` : null;
-  }
-
-  private buildRelatedSubjectNo(
-    subjectType: string,
-    subjectId: string | null | undefined,
-    subjectNo: string | null | undefined,
-  ): AuditSubjectNoRecord[] {
-    if (!subjectNo) return [];
-
-    return [
-      {
-        subjectRole: AuditSubjectRole.RELATED,
-        subjectType,
-        subjectId: subjectId || null,
-        subjectNo,
-      },
-    ];
   }
 
   private async resolveDepositWorkflowContext(
@@ -456,7 +380,6 @@ export class AuditLogsService {
         traceId: this.normalizeOptionalString(input.traceId),
         workflowType: this.normalizeOptionalString(input.workflowType),
         entityOwnerNo,
-        relatedSubjectNos: [],
       };
     }
 
@@ -580,18 +503,6 @@ export class AuditLogsService {
         withdraw?.customer?.customerNo ||
         payout?.withdraw?.customer?.customerNo ||
         null;
-      const relatedSubjectNos = this.mergeSubjectNos(
-        this.buildRelatedSubjectNo(
-          'WITHDRAW',
-          withdraw?.id || payout?.withdraw?.id,
-          withdraw?.withdrawNo || payout?.withdraw?.withdrawNo,
-        ),
-        this.buildRelatedSubjectNo(
-          'PAYOUT',
-          payout?.id || withdraw?.payout?.id,
-          payout?.payoutNo || withdraw?.payout?.payoutNo,
-        ),
-      );
 
       return {
         traceId:
@@ -599,7 +510,6 @@ export class AuditLogsService {
           (withdrawId ? `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}` : null),
         workflowType: AuditWorkflowTypes.WITHDRAW,
         entityOwnerNo: resolvedEntityOwnerNo,
-        relatedSubjectNos,
       };
     }
 
@@ -703,10 +613,6 @@ export class AuditLogsService {
         swap?.customer?.customerNo ||
         quote?.ownerNo ||
         null;
-      const relatedSubjectNos = this.mergeSubjectNos(
-        this.buildRelatedSubjectNo('SWAP', swap?.id, swap?.swapNo),
-        this.buildRelatedSubjectNo('SWAP_QUOTE', quote?.id, quote?.quoteNo),
-      );
 
       return {
         traceId:
@@ -714,7 +620,6 @@ export class AuditLogsService {
           (swapId ? `${AuditWorkflowTypes.SWAP}:${swapId}` : null),
         workflowType: AuditWorkflowTypes.SWAP,
         entityOwnerNo: resolvedEntityOwnerNo,
-        relatedSubjectNos,
       };
     }
 
@@ -788,18 +693,12 @@ export class AuditLogsService {
       payin?.customer?.customerNo ||
       null;
 
-    const relatedSubjectNos = this.mergeSubjectNos(
-      this.buildRelatedSubjectNo('DEPOSIT', deposit?.id, deposit?.depositNo),
-      this.buildRelatedSubjectNo('PAYIN', payin?.id, payin?.payinNo),
-    );
-
     return {
       traceId:
         this.normalizeOptionalString(input.traceId) ||
         this.buildDepositTraceId(payin?.id || deposit?.payinId, deposit?.id),
       workflowType: AuditWorkflowTypes.DEPOSIT,
       entityOwnerNo: resolvedEntityOwnerNo,
-      relatedSubjectNos,
     };
   }
 
@@ -916,28 +815,14 @@ export class AuditLogsService {
 
   private mapEvent(raw: any): AuditLogView {
     const metadata = this.parseJson(raw.metadata);
-    const subjectNos = Array.isArray(raw.subjectNos)
-      ? raw.subjectNos.map((item: any) => ({
-          id: item.id,
-          eventId: item.eventId,
-          subjectRole: item.subjectRole,
-          subjectType: item.subjectType,
-          subjectId: item.subjectId,
-          subjectNo: item.subjectNo,
-          occurredAt: item.occurredAt,
-          createdAt: item.createdAt,
-        }))
-      : [];
     const businessWorkflow = this.deriveBusinessWorkflow(raw);
     const userAction = this.deriveUserAction(raw.action, businessWorkflow);
-    const primaryRefNo = this.derivePrimaryRefNo(raw, subjectNos);
 
     return {
       id: raw.id,
       auditNo: raw.auditNo,
       businessWorkflow,
       businessWorkflowLabel: this.toDisplayLabel(businessWorkflow),
-      primaryRefNo,
       userAction,
       userActionLabel: this.toDisplayLabel(userAction),
       action: raw.action,
@@ -961,7 +846,6 @@ export class AuditLogsService {
       metadata,
       payloadDigest: raw.payloadDigest ?? null,
       retainedUntil: raw.retainedUntil ?? null,
-      subjectNos,
       occurredAt: raw.occurredAt,
       createdAt: raw.createdAt ?? null,
       updatedAt: raw.updatedAt ?? null,
@@ -1007,56 +891,6 @@ export class AuditLogsService {
     }
 
     return mapRawAuditActionToUserAction(normalizedAction) || normalizedAction;
-  }
-
-  private derivePrimaryRefNo(
-    raw: {
-      entityNo?: string | null;
-    },
-    subjectNos: Array<{ subjectRole?: string | null; subjectNo?: string | null }>,
-  ): string | null {
-    const preferredSubject =
-      subjectNos.find(
-        (subject) =>
-          subject.subjectRole === AuditSubjectRole.RELATED &&
-          this.normalizeOptionalString(subject.subjectNo),
-      ) ||
-      subjectNos.find(
-        (subject) =>
-          subject.subjectRole === AuditSubjectRole.OWNER &&
-          this.normalizeOptionalString(subject.subjectNo),
-      ) ||
-      subjectNos.find(
-        (subject) =>
-          subject.subjectRole === AuditSubjectRole.ENTITY &&
-          this.normalizeOptionalString(subject.subjectNo) &&
-          !String(subject.subjectNo).trim().toUpperCase().startsWith('APR'),
-      ) ||
-      subjectNos.find(
-        (subject) =>
-          subject.subjectRole !== AuditSubjectRole.ACTOR &&
-          this.normalizeOptionalString(subject.subjectNo) &&
-          !String(subject.subjectNo).trim().toUpperCase().startsWith('APR'),
-      ) ||
-      null;
-
-    if (preferredSubject) {
-      return this.normalizeOptionalString(preferredSubject.subjectNo);
-    }
-
-    const entityNo = this.normalizeOptionalString(raw.entityNo);
-    if (entityNo) {
-      return entityNo;
-    }
-
-    const fallbackSubject =
-      subjectNos.find(
-        (subject) =>
-          subject.subjectRole !== AuditSubjectRole.ACTOR &&
-          this.normalizeOptionalString(subject.subjectNo),
-      ) || null;
-
-    return fallbackSubject ? this.normalizeOptionalString(fallbackSubject.subjectNo) : null;
   }
 
   private toDisplayLabel(value: string | null): string | null {
@@ -1190,17 +1024,6 @@ export class AuditLogsService {
     if (query.result) andClauses.push({ result: query.result });
 
 
-    if (query.subjectNo || query.subjectType) {
-      andClauses.push({
-        subjectNos: {
-          some: {
-            ...(query.subjectNo ? { subjectNo: query.subjectNo } : {}),
-            ...(query.subjectType ? { subjectType: query.subjectType } : {}),
-          },
-        },
-      });
-    }
-
     if (query.includeArchived !== true) {
       andClauses.push({ archivedAt: null });
     }
@@ -1223,13 +1046,6 @@ export class AuditLogsService {
           { entityOwnerNo: { contains: query.keyword } },
           { traceId: { contains: query.keyword } },
           { reason: { contains: query.keyword } },
-          {
-            subjectNos: {
-              some: {
-                subjectNo: { contains: query.keyword },
-              },
-            },
-          },
         ],
       });
     }
@@ -1245,23 +1061,9 @@ export class AuditLogsService {
 
   private async createEventWithUniqueNo(
     data: any,
-    subjectNos: AuditSubjectNoRecord[],
     client?: AuditWriteClient,
   ): Promise<any> {
     const db = this.getDb(client) as any;
-    const withSubjectNoRelation =
-      this.canOperateAuditLogSubjectNo(db) &&
-      Array.isArray(subjectNos) &&
-      subjectNos.length > 0;
-    const includeSubjectNos = withSubjectNoRelation
-      ? {
-          include: {
-            subjectNos: {
-              orderBy: { createdAt: 'asc' },
-            },
-          },
-        }
-      : {};
 
     if (!this.canOperateAuditLogEvent(db)) {
       throw this.auditStorageUnavailable('Audit log event storage');
@@ -1270,7 +1072,6 @@ export class AuditLogsService {
     if (data.idempotencyKey) {
       const existing = await db.auditLogEvent.findUnique({
         where: { idempotencyKey: data.idempotencyKey },
-        ...includeSubjectNos,
       });
       if (existing) return existing;
     }
@@ -1281,21 +1082,9 @@ export class AuditLogsService {
           ...data,
           auditNo: generateReferenceNo('AUD'),
         };
-        if (withSubjectNoRelation) {
-          createData.subjectNos = {
-            create: subjectNos.map((item) => ({
-              subjectRole: item.subjectRole,
-              subjectType: item.subjectType,
-              subjectId: item.subjectId ?? null,
-              subjectNo: item.subjectNo,
-              occurredAt: data.occurredAt,
-            })),
-          };
-        }
 
         return await db.auditLogEvent.create({
           data: createData,
-          ...includeSubjectNos,
         });
       } catch (error) {
         if (this.isUniqueConflict(error, 'auditNo')) continue;
@@ -1303,7 +1092,6 @@ export class AuditLogsService {
         if (data.idempotencyKey && this.isUniqueConflict(error, 'idempotencyKey')) {
           const existing = await db.auditLogEvent.findUnique({
             where: { idempotencyKey: data.idempotencyKey },
-            ...includeSubjectNos,
           });
           if (existing) return existing;
         }
@@ -1372,21 +1160,11 @@ export class AuditLogsService {
       id: { in: selectedEventIds },
     };
 
-    const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
-      ? {
-          include: {
-            subjectNos: {
-              orderBy: { createdAt: 'asc' },
-            },
-          },
-        }
-      : {};
     const rows = await db.auditLogEvent.findMany({
       where,
       skip,
       take: maxItems,
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-      ...includeSubjectNos,
     });
 
     if (!rows.length) {
@@ -1438,8 +1216,6 @@ export class AuditLogsService {
         includeRecords: query.includeRecords !== false,
         workflowType: explicitWorkflowType,
         traceId: query.traceId || null,
-        subjectNo: query.subjectNo || null,
-        subjectType: query.subjectType || null,
         actorNo: query.actorNo || null,
         entityOwnerNo: query.entityOwnerNo || null,
       },
@@ -1574,14 +1350,6 @@ export class AuditLogsService {
       db,
     );
     const entityOwnerNo = workflowContext.entityOwnerNo;
-    const subjectNos = this.buildSubjectNos(
-      input,
-      actor,
-      actorNo,
-      entityNo,
-      entityOwnerNo,
-      workflowContext.relatedSubjectNos,
-    );
 
     const payloadDigest = sha256Hex({
       action: input.action,
@@ -1605,7 +1373,6 @@ export class AuditLogsService {
       metadata: input.metadata ?? null,
       occurredAt: occurredAt.toISOString(),
       retainedUntil: retainedUntil.toISOString(),
-      subjectNos,
     });
 
     const created = await this.createEventWithUniqueNo(
@@ -1634,7 +1401,6 @@ export class AuditLogsService {
         retainedUntil,
         occurredAt,
       },
-      subjectNos,
       client,
     );
 
@@ -1669,15 +1435,6 @@ export class AuditLogsService {
       throw this.auditStorageUnavailable('Audit log event storage');
     }
     const where = await this.buildWhere(query, db);
-    const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
-      ? {
-          include: {
-            subjectNos: {
-              orderBy: { createdAt: 'asc' },
-            },
-          },
-        }
-      : {};
 
     const [total, rows] = await Promise.all([
       db.auditLogEvent.count({ where }),
@@ -1686,7 +1443,6 @@ export class AuditLogsService {
         skip,
         take,
         orderBy: { occurredAt: 'desc' },
-        ...includeSubjectNos,
       }),
     ]);
 
@@ -1703,18 +1459,8 @@ export class AuditLogsService {
     if (!this.canOperateAuditLogEvent(db)) {
       throw this.auditStorageUnavailable('Audit log event storage');
     }
-    const includeSubjectNos = this.canOperateAuditLogSubjectNo(db)
-      ? {
-          include: {
-            subjectNos: {
-              orderBy: { createdAt: 'asc' },
-            },
-          },
-        }
-      : {};
     const found = await db.auditLogEvent.findUnique({
       where: { id },
-      ...includeSubjectNos,
     });
 
     if (!found) {
