@@ -111,6 +111,44 @@ export class CustodianWalletCreateWorkflowService {
 
     const walletType = asset.type === 'FIAT' ? 'FIAT_BANK' : 'CRYPTO_ADDRESS';
 
+    // ── bankName / accountName: CMA = required from DTO, vIBAN = inherit from CMA ──
+    let bankName: string | undefined;
+    let accountName: string | undefined;
+
+    if (dto.role === WalletRole.C_CMA) {
+      if (!dto.bankName?.trim()) {
+        throw new BadRequestException({
+          code: 'BANK_NAME_REQUIRED',
+          message: 'bankName is required for C_CMA wallets',
+        });
+      }
+      if (!dto.accountName?.trim()) {
+        throw new BadRequestException({
+          code: 'ACCOUNT_NAME_REQUIRED',
+          message: 'accountName is required for C_CMA wallets',
+        });
+      }
+      bankName = dto.bankName.trim();
+      accountName = dto.accountName.trim();
+    } else if (dto.role === WalletRole.C_VIBAN) {
+      const cma = await this.prisma.wallet.findFirst({
+        where: {
+          walletRole: WalletRole.C_CMA,
+          assetId: asset.id,
+          status: 'ACTIVE',
+        },
+        select: { bankName: true, accountName: true },
+      });
+      if (!cma) {
+        throw new BadRequestException({
+          code: 'CMA_NOT_FOUND',
+          message: `No active CMA wallet found for asset ${dto.assetNo}. Create the CMA first.`,
+        });
+      }
+      bankName = cma.bankName ?? undefined;
+      accountName = cma.accountName ?? undefined;
+    }
+
     const wallet = (await this.walletsService.createWalletRecord({
       assetId: asset.id,
       ownerType,
@@ -121,6 +159,8 @@ export class CustodianWalletCreateWorkflowService {
       type: walletType,
       vaultId: dto.vaultId,
       iban: dto.iban,
+      bankName,
+      accountName,
     }))!;
     const walletNo = wallet.walletNo!;
 
