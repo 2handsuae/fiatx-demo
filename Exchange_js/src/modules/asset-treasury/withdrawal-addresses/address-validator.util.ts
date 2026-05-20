@@ -8,8 +8,17 @@ const VALIDATORS: Record<string, { pattern: RegExp; label: string }> = {
   SOL: { pattern: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/, label: 'Solana address (Base58)' },
 };
 
+/** Map common network name variants to validator keys */
+const NETWORK_ALIASES: Record<string, string> = {
+  TRON: 'TRX',
+  ETHEREUM: 'ETH',
+  BITCOIN: 'BTC',
+  SOLANA: 'SOL',
+};
+
 export function validateCryptoAddress(network: string, address: string): { valid: boolean; reason?: string } {
-  const validator = VALIDATORS[network];
+  const key = NETWORK_ALIASES[network] ?? network;
+  const validator = VALIDATORS[key];
   if (!validator) return { valid: false, reason: `Unsupported network: ${network}` };
   if (!validator.pattern.test(address)) {
     return { valid: false, reason: `Invalid format for ${network}. Expected: ${validator.label}` };
