@@ -303,6 +303,51 @@ export class DepositTransactionsService {
     return nextStatus;
   }
 
+  async initializeComplianceGates(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: {
+        travelRuleRequired: true,
+        travelRuleStatus: 'PENDING',
+      },
+    });
+  }
+
+  async updateKytStatus(id: string, status: string, riskScore?: number | null) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: {
+        kytStatus: status,
+        kytRiskScore: riskScore ?? null,
+        kytCheckedAt: new Date(),
+      },
+    });
+  }
+
+  async updateTravelRuleStatus(id: string, status: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: {
+        travelRuleStatus: status,
+        travelRuleCheckedAt: new Date(),
+      },
+    });
+  }
+
+  async getOwnerComplianceStatus(depositId: string): Promise<string> {
+    const deposit = await (this.prisma as any).depositTransaction.findUnique({
+      where: { id: depositId },
+      select: { ownerId: true },
+    });
+    if (!deposit) throw new NotFoundException('Deposit transaction not found');
+
+    const customer = await (this.prisma as any).customerMain.findUnique({
+      where: { id: deposit.ownerId },
+      select: { complianceStatus: true },
+    });
+    return customer?.complianceStatus || 'UNKNOWN';
+  }
+
   async createFromPayin(
     amount: string,
     assetId: string,

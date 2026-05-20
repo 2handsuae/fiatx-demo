@@ -5,7 +5,7 @@ import {
   DepositTransactionStatus,
   DepositTransactionAction,
 } from './dto/deposit-transaction.dto';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 describe('DepositTransactionsService', () => {
@@ -29,6 +29,9 @@ describe('DepositTransactionsService', () => {
               count: jest.fn(),
             },
             wallet: {
+              findUnique: jest.fn(),
+            },
+            customerMain: {
               findUnique: jest.fn(),
             },
           },
@@ -314,6 +317,96 @@ describe('DepositTransactionsService', () => {
 
       const result = await service.findByPayinId('nonexistent');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('Compliance Gate Methods', () => {
+    it('initializeComplianceGates sets travelRule fields', async () => {
+      const mockRecord = { id: 'dep-1', travelRuleRequired: true, travelRuleStatus: 'PENDING' };
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+
+      const result = await service.initializeComplianceGates('dep-1');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: {
+          travelRuleRequired: true,
+          travelRuleStatus: 'PENDING',
+        },
+      });
+      expect(result.travelRuleStatus).toBe('PENDING');
+    });
+
+    it('updateKytStatus sets kytStatus, riskScore, and checkedAt', async () => {
+      const mockRecord = { id: 'dep-1', kytStatus: 'PASSED', kytRiskScore: 15, kytCheckedAt: new Date() };
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+
+      const result = await service.updateKytStatus('dep-1', 'PASSED', 15);
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: expect.objectContaining({
+          kytStatus: 'PASSED',
+          kytRiskScore: 15,
+          kytCheckedAt: expect.any(Date),
+        }),
+      });
+      expect(result.kytStatus).toBe('PASSED');
+    });
+
+    it('updateTravelRuleStatus sets travelRuleStatus and checkedAt', async () => {
+      const mockRecord = { id: 'dep-1', travelRuleStatus: 'PASSED', travelRuleCheckedAt: new Date() };
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+
+      const result = await service.updateTravelRuleStatus('dep-1', 'PASSED');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: expect.objectContaining({
+          travelRuleStatus: 'PASSED',
+          travelRuleCheckedAt: expect.any(Date),
+        }),
+      });
+      expect(result.travelRuleStatus).toBe('PASSED');
+    });
+
+    it('getOwnerComplianceStatus returns customer complianceStatus', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        ownerId: 'cust-1',
+      });
+      ((prisma as any).customerMain.findUnique as jest.Mock).mockResolvedValue({
+        id: 'cust-1',
+        complianceStatus: 'ACTIVE',
+      });
+
+      const result = await service.getOwnerComplianceStatus('dep-1');
+
+      expect(result).toBe('ACTIVE');
+      expect((prisma as any).depositTransaction.findUnique).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        select: { ownerId: true },
+      });
+    });
+
+    it('getOwnerComplianceStatus throws if deposit not found', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.getOwnerComplianceStatus('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('getOwnerComplianceStatus returns UNKNOWN when customer not found', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        ownerId: 'missing-cust',
+      });
+      ((prisma as any).customerMain.findUnique as jest.Mock).mockResolvedValue(null);
+
+      const result = await service.getOwnerComplianceStatus('dep-1');
+
+      expect(result).toBe('UNKNOWN');
     });
   });
 });
