@@ -682,8 +682,6 @@ model AuditLogEvent {
   occurredAt      DateTime            @default(now())
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
-  subjectNos      AuditLogSubjectNo[]
-
   @@index([occurredAt])
   @@index([entityType, entityId])
   @@index([actorType, actorId])
@@ -1083,22 +1081,6 @@ model SlaNotification {
   @@map("sla_notifications")
 }
 
-model AuditLogSubjectNo {
-  id          String        @id @default(uuid())
-  eventId     String
-  subjectRole String
-  subjectType String
-  subjectId   String?
-  subjectNo   String
-  occurredAt  DateTime
-  createdAt   DateTime      @default(now())
-  event       AuditLogEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-
-  @@index([subjectNo, occurredAt])
-  @@index([subjectType, subjectNo, occurredAt])
-  @@index([eventId])
-  @@map("audit_log_subject_nos")
-}
 
 
 model LiquidityProvider {
