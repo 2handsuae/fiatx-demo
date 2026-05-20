@@ -12,15 +12,22 @@
 
 ---
 
-## 1. Happy Path 端到端模拟
+## 1. Happy Path 端到端模拟（Crypto）
 
 | 步骤 | 位置 | 操作 | 系统效果 |
 |------|------|------|---------|
-| 1 | Client-web 充值页 | 点击 "Simulate Deposit" | 创建 inbound transfer signal → scan → payin + deposit（PAYIN_PENDING） |
-| 2 | Admin PayinDetail | SimulationRail → 点击 CLEARED | Payin CLEARED → `@OnEvent('payin.status.changed')` → TB Step 1 + deposit 进入 COMPLIANCE_PENDING |
-| — | （自动） | Gate 0：客户合规状态检查 | 客户正常 → kytStatus=PENDING, trStatus=PENDING。_（异常 → FROZEN）_ |
+| 1 | Client-web 充值页 | 点击 "Simulate Deposit" | 创建 inbound transfer signal → scan → payin（DETECTED）+ deposit（PAYIN_PENDING） |
+| 2a | Admin PayinDetail | SimulationRail → advance to CONFIRMING | Payin DETECTED → CONFIRMING（MEMPOOL_SEEN） |
+| 2b | Admin PayinDetail | SimulationRail → advance to CONFIRMED | Payin CONFIRMING → CONFIRMED → `@OnEvent('payin.status.changed')` 触发 `orchestratePayinConfirmed` |
+| — | （自动） | TB Step 1 + 状态转换 | TB: debit CUSTODY（资产↑）, credit CLIENT_AUDIT（负债↑）→ deposit COMPLIANCE_PENDING → payin CLEARED |
+| — | （自动） | Gate 0：客户合规状态检查 | 客户正常 → travelRuleRequired=true, travelRuleStatus=PENDING。_（异常 → FROZEN）_ |
 | 3a | Admin Sumsub Events | `simulate/kyt-check`：输入 txHash，结果 PASS | Gate 1：kytStatus → PASSED。审批门检查：TR 仍 PENDING → 等待 |
-| 3b | Admin Sumsub Events | `simulate/tr-check`：输入 txHash，结果 PASS | Gate 2：trStatus → PASSED。三道闸门全绿 → `approveDeposit()` → TB Step 2 + deposit SUCCESS |
+| 3b | Admin Sumsub Events | `simulate/tr-check`：输入 txHash，结果 PASS | Gate 2：travelRuleStatus → PASSED。三道闸门全绿 → `approveDeposit()` → TB Step 2 + deposit SUCCESS |
+
+**TB 记账方向**：
+- **Step 1**（Payin CONFIRMED）：debit CUSTODY（资产增加 — 交易所收到钱）, credit CLIENT_AUDIT（负债增加 — 暂挂）
+- **Step 2**（Deposit APPROVED）：debit CLIENT_AUDIT（负债减少 — 暂挂清零）, credit CLIENT_CREDIT（负债增加 — 客户可用余额）
+- **最终结果**：CUSTODY ↑，CLIENT_CREDIT ↑（都增加）。CLIENT_AUDIT 净零。
 
 **步骤 3b 完成后**：deposit 为 SUCCESS，TB 记账完整（Step 1 + Step 2 均已记录）。
 
@@ -33,15 +40,15 @@ COMPLIANCE_PENDING
   │
   ├── Gate 0：客户合规状态（自动，进入 COMPLIANCE_PENDING 时立即检查）
   │     ✗ 异常（FROZEN/SUSPENDED 等） → deposit 冻结为 FROZEN
-  │     ✓ 正常 → 继续，设置 kytStatus=PENDING, trStatus=PENDING
+  │     ✓ 正常 → 继续，设置 travelRuleRequired=true, travelRuleStatus=PENDING（kytStatus 已默认为 PENDING）
   │
   ├── Gate 1：KYT — Know Your Transaction（Sumsub 交易级检查）
   │     输入：deposit 的 txHash
   │     结果：PASSED / FAILED
   │
-  ├── Gate 2：TR — Transaction Report（Sumsub 交易级检查）
+  ├── Gate 2：TR — Travel Rule（Sumsub 交易级检查）
   │     输入：deposit 的 txHash
-  │     结果：PASSED / FAILED
+  │     结果：travelRuleStatus = PASSED / FAILED
   │
   └── 自动审批：仅当 deposit 仍在 COMPLIANCE_PENDING 且三门全绿
 ```
@@ -53,7 +60,7 @@ COMPLIANCE_PENDING
   - deposit 状态为 `COMPLIANCE_PENDING`（非 FROZEN）
   - 客户 complianceStatus 正常
   - kytStatus === `PASSED`
-  - trStatus === `PASSED`
+  - travelRuleStatus === `PASSED`
 - **FROZEN deposit 接受 KYT/TR 结果但不自动转换**。Admin 在详情页看到三道闸门的完整信息后手动 approve/confiscate。
 
 ### 审批门检查逻辑
@@ -65,7 +72,7 @@ function checkAutoApproval(deposit, customer) {
   if (deposit.status !== 'COMPLIANCE_PENDING') return;
   if (!isNormalComplianceStatus(customer.complianceStatus)) return;
   if (deposit.kytStatus !== 'PASSED') return;
-  if (deposit.trStatus !== 'PASSED') return;
+  if (deposit.travelRuleStatus !== 'PASSED') return;
   await approveDeposit(deposit.id); // TB Step 2 + SUCCESS
 }
 ```
@@ -128,31 +135,39 @@ FROZEN ──confiscate─→ CONFISCATED  (法务/操作员手动)
 
 ## 4. 后端变更
 
-### 4.1 Prisma 模型变更
+### 4.1 Prisma 模型 — 已有字段，无需迁移
 
-```prisma
-model DepositTransaction {
-  // ... 现有字段 ...
-  kytStatus   String?   // PENDING | PASSED | FAILED
-  trStatus    String?   // PENDING | PASSED | FAILED
-}
-```
+DepositTransaction 模型已有以下字段（schema.prisma L1484-1492）：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `kytStatus` | String | `"PENDING"` | KYT 检查状态 |
+| `kytScreeningId` | String? | — | Sumsub KYT screening ID |
+| `kytRiskScore` | Int? | — | KYT 风险评分 |
+| `kytCheckedAt` | DateTime? | — | KYT 检查时间 |
+| `travelRuleRequired` | Boolean | `false` | 是否需要 Travel Rule |
+| `travelRuleStatus` | String | `"NOT_REQUIRED"` | TR 检查状态 |
+| `travelRuleTransferId` | String? | — | Sumsub TR transfer ID |
+| `counterpartyVasp` | String? | — | 对手方 VASP |
+| `travelRuleCheckedAt` | DateTime? | — | TR 检查时间 |
+
+**无需数据库迁移。**
 
 ### 4.2 Gate 0：客户合规状态检查
 
-**触发时机**：deposit 进入 COMPLIANCE_PENDING 时（`@OnEvent('deposit.status.changed')` 或 `orchestratePayinConfirmed` 内）。
+**触发时机**：deposit 进入 COMPLIANCE_PENDING 时（`@OnEvent('deposit.status.changed')`）。
 
 **逻辑**：
 - 查询 customer.complianceStatus
 - 异常（FROZEN / SUSPENDED 等）→ 立即冻结 deposit（action=freeze，reason=`customer compliance status: {status}`）
-- 正常 → 设置 kytStatus=PENDING, trStatus=PENDING
+- 正常 → 设置 travelRuleRequired=true, travelRuleStatus=PENDING（kytStatus 已默认 PENDING，无需重复设置）
 
 ### 4.3 KYT/TR 模拟端点
 
 | 端点 | 输入 | 效果 |
 |------|------|------|
 | `POST /admin/sumsub/simulate/kyt-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | 按 txHash 找到 deposit → 更新 kytStatus → 执行审批门检查 |
-| `POST /admin/sumsub/simulate/tr-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | 按 txHash 找到 deposit → 更新 trStatus → 执行审批门检查 |
+| `POST /admin/sumsub/simulate/tr-check` | `{ txHash, result: 'PASS' \| 'FAIL' }` | 按 txHash 找到 deposit → 更新 travelRuleStatus → 执行审批门检查 |
 
 两个端点均可对任意状态的 deposit 写入结果（包括 FROZEN），但自动审批仅对 COMPLIANCE_PENDING 生效。
 
@@ -166,10 +181,9 @@ model DepositTransaction {
 
 | 文件 | 变更 |
 |------|------|
-| `prisma/schema.prisma` | DepositTransaction 新增 `kytStatus`、`trStatus` |
 | `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | 新增 `simulateKytCheck()`、`simulateTrCheck()` |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | 新增 Gate 0 检查 + KYT/TR 审批门逻辑 + `checkAutoApproval()` |
-| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | 进入 COMPLIANCE_PENDING 时设置 kytStatus/trStatus=PENDING |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | 新增 Gate 0 检查 + `checkAutoApproval()` |
+| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | 新增 L1 方法：`initializeComplianceGates()`、`updateKytStatus()`、`updateTravelRuleStatus()`、`getOwnerComplianceStatus()` |
 
 ---
 
@@ -258,7 +272,7 @@ model DepositTransaction {
 
 - **Gate 0**：客户状态 — complianceStatus badge（ACTIVE / FROZEN / ...）
 - **Gate 1**：KYT — kytStatus badge（PENDING / PASSED / FAILED）
-- **Gate 2**：TR — trStatus badge（PENDING / PASSED / FAILED）
+- **Gate 2**：TR — travelRuleStatus badge（PENDING / PASSED / FAILED）
 
 对 FROZEN deposit 尤为重要：admin 在 approve/confiscate 前看到完整的三门信息，做综合判断。
 
@@ -331,10 +345,9 @@ model DepositTransaction {
 
 | 文件 | 操作 | 范围 | 优先级 |
 |------|------|------|-------|
-| `prisma/schema.prisma` | 修改 | DepositTransaction 新增 kytStatus、trStatus | 关键 |
+| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | 修改 | 新增 L1 方法（initializeComplianceGates, updateKytStatus, updateTravelRuleStatus, getOwnerComplianceStatus） | 关键 |
+| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | 修改 | Gate 0 检查 + checkAutoApproval() | 关键 |
 | `src/modules/sumsub-ingestion/admin-sumsub-simulation.controller.ts` | 修改 | 新增 simulateKytCheck()、simulateTrCheck() | 关键 |
-| `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` | 修改 | Gate 0 检查 + KYT/TR 审批门 + checkAutoApproval() | 关键 |
-| `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` | 修改 | 进入 COMPLIANCE_PENDING 时设置 kytStatus/trStatus=PENDING | 关键 |
 
 ### 前端
 
