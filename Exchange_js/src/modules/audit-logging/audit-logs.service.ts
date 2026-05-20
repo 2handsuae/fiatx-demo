@@ -928,13 +928,13 @@ export class AuditLogsService {
     }>;
   }> {
     const candidateNos = this.toSortedUniqueStrings(
-      records.flatMap((item) =>
-        Array.isArray(item.subjectNos)
-          ? item.subjectNos.map((subject: any) =>
-              this.normalizeOptionalString(subject?.subjectNo),
-            )
-          : [],
-      ) as Array<string | null>,
+      records
+        .filter((item) =>
+          item.entityNo &&
+          (item.entityType === AuditEntityTypes.SWAP_TRANSACTION ||
+           item.entityType === AuditEntityTypes.SWAP_QUOTE),
+        )
+        .map((item) => this.normalizeOptionalString(item.entityNo)) as Array<string | null>,
     );
 
     if (!candidateNos.length) {

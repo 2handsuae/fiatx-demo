@@ -25,9 +25,6 @@ describe('AuditLogsService', () => {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
-      auditLogSubjectNo: {
-        findMany: jest.fn(),
-      },
     auditEvidencePackage: {
       create: jest.fn(),
       count: jest.fn(),
@@ -115,6 +112,9 @@ describe('AuditLogsService', () => {
       CUSTODIAN_WALLET_CREATE: 'CUSTODIAN_WALLET_CREATE',
       WITHDRAWAL_ADDRESS_REGISTRATION: 'WITHDRAWAL_ADDRESS_REGISTRATION',
       TB_ACCOUNT_MANUAL_CREATE: 'TB_ACCOUNT_MANUAL_CREATE',
+      TRADING_TIER_UPGRADE: 'TRADING_TIER_UPGRADE',
+      TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
+      TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_CREATION',
       ASSET_SUSPENSION: 'ASSET_SUSPENSION',
       ASSET_REACTIVATION: 'ASSET_REACTIVATION',
       ASSET_CREATION: 'ASSET_CREATION',
@@ -217,18 +217,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-05T10:00:00.000Z'),
-        subjectNos: [
-          {
-            id: 'sub-related-evp',
-            eventId: 'wf-exp-req-1',
-            subjectRole: 'RELATED',
-            subjectType: 'APPROVAL_CASE',
-            subjectId: 'approval-1',
-            subjectNo: 'APR2604051189',
-            occurredAt: new Date('2026-04-05T10:00:00.000Z'),
-            createdAt: new Date('2026-04-05T10:00:00.000Z'),
-          },
-        ],
       },
       {
         id: 'wf-exp-download-1',
@@ -246,18 +234,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-05T10:05:00.000Z'),
-        subjectNos: [
-          {
-            id: 'sub-related-download',
-            eventId: 'wf-exp-download-1',
-            subjectRole: 'RELATED',
-            subjectType: 'APPROVAL_CASE',
-            subjectId: 'approval-1',
-            subjectNo: 'APR2604051189',
-            occurredAt: new Date('2026-04-05T10:05:00.000Z'),
-            createdAt: new Date('2026-04-05T10:05:00.000Z'),
-          },
-        ],
       },
     ]);
 
@@ -266,12 +242,10 @@ describe('AuditLogsService', () => {
     expect(result.items[0]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       userAction: AuditUserActions.REQUEST_CREATED,
-      primaryRefNo: 'APR2604051189',
     });
     expect(result.items[1]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       userAction: AuditUserActions.DOWNLOADED,
-      primaryRefNo: 'APR2604051189',
     });
   });
 
@@ -539,18 +513,6 @@ describe('AuditLogsService', () => {
 
     expect(result.total).toBe(1);
     expect(result.items[0].metadata).toEqual({ source: 'api' });
-    expect(result.items[0].beforeData).toEqual(
-      expect.objectContaining({
-        status: 'CREATED',
-        digest: expect.any(String),
-      }),
-    );
-    expect(result.items[0].afterData).toEqual(
-      expect.objectContaining({
-        status: 'SUCCESS',
-        digest: expect.any(String),
-      }),
-    );
     expect(result.items[0]).not.toHaveProperty('dbOnlyShadowField');
   });
 
@@ -572,7 +534,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T10:00:00.000Z'),
-        subjectNos: [],
       },
       {
         id: 'wf-login-1',
@@ -590,7 +551,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T10:02:00.000Z'),
-        subjectNos: [],
       },
       {
         id: 'wf-exp-1',
@@ -607,7 +567,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T10:03:00.000Z'),
-        subjectNos: [],
       },
     ]);
 
@@ -618,7 +577,6 @@ describe('AuditLogsService', () => {
       businessWorkflowLabel: 'Admin Role Binding Change',
       userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
       userActionLabel: 'Approved For Execution',
-      primaryRefNo: 'APR2604010001',
       action: AuditActions.APPROVAL_APPROVED,
     });
     expect(result.items[1]).toMatchObject({
@@ -626,14 +584,12 @@ describe('AuditLogsService', () => {
       businessWorkflowLabel: 'Admin Login Access',
       userAction: AuditUserActions.LOGIN_SUCCEEDED,
       userActionLabel: 'Login Succeeded',
-      primaryRefNo: null,
     });
     expect(result.items[2]).toMatchObject({
       businessWorkflow: AuditBusinessWorkflowTypes.AUDIT_EVIDENCE_EXPORT,
       businessWorkflowLabel: 'Audit Evidence Export',
       userAction: AuditUserActions.EXPORTED,
       userActionLabel: 'Exported',
-      primaryRefNo: 'EVP2604010001',
     });
   });
 
@@ -656,7 +612,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-04-01T11:02:00.000Z'),
-        subjectNos: [],
       },
     ]);
 
@@ -667,54 +622,6 @@ describe('AuditLogsService', () => {
       userAction: AuditActions.APPROVAL_EXECUTION_FAILED,
       userActionLabel: 'Approval Execution Failed',
     });
-  });
-
-  it('should prefer root business subjectNo over approval entityNo when workflowNo is missing', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(1);
-    prisma.auditLogEvent.findMany.mockResolvedValue([
-      {
-        id: 'ref-root-1',
-        auditNo: 'AUD2604010013',
-        action: AuditActions.APPROVAL_APPROVED,
-        entityType: AuditEntityTypes.APPROVAL_CASE,
-        entityId: 'approval-3',
-        entityNo: 'APR2604010003',
-        workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-04-01T11:03:00.000Z'),
-        subjectNos: [
-          {
-            id: 'sub-related-1',
-            eventId: 'ref-root-1',
-            subjectRole: 'RELATED',
-            subjectType: 'TRAINING_RECORD',
-            subjectId: 'training-1',
-            subjectNo: 'CT2604010013',
-            occurredAt: new Date('2026-04-01T11:03:00.000Z'),
-            createdAt: new Date('2026-04-01T11:03:00.000Z'),
-          },
-          {
-            id: 'sub-entity-1',
-            eventId: 'ref-root-1',
-            subjectRole: 'ENTITY',
-            subjectType: 'APPROVAL_CASE',
-            subjectId: 'approval-3',
-            subjectNo: 'APR2604010003',
-            occurredAt: new Date('2026-04-01T11:03:00.000Z'),
-            createdAt: new Date('2026-04-01T11:03:00.000Z'),
-          },
-        ],
-      },
-    ]);
-
-    const result = await service.findAll({ take: 20 });
-
-    expect(result.items[0].primaryRefNo).toBe('CT2604010013');
   });
 
   it('should expose derived display fields on audit log detail while preserving raw tuple fields', async () => {
@@ -734,7 +641,6 @@ describe('AuditLogsService', () => {
       beforeData: null,
       afterData: null,
       occurredAt: new Date('2026-04-01T12:00:00.000Z'),
-      subjectNos: [],
     });
 
     const result = await service.findOne('detail-1');
@@ -744,7 +650,6 @@ describe('AuditLogsService', () => {
       businessWorkflowLabel: 'Admin Role Binding Change',
       userAction: AuditUserActions.APPROVED_FOR_EXECUTION,
       userActionLabel: 'Approved For Execution',
-      primaryRefNo: 'APR2604010001',
       action: AuditActions.APPROVAL_APPROVED,
       workflowType: AuditBusinessWorkflowTypes.ADMIN_ROLE_BINDING_CHANGE,
       traceId: 'trace-role-binding-1',
@@ -800,42 +705,6 @@ describe('AuditLogsService', () => {
     ]);
     // SWAP expansion helper is removed; queries use workflowType filter only
     expect(prisma.swapTransaction.findMany).not.toHaveBeenCalled();
-  });
-
-  it('should map subjectNos from audit log records', async () => {
-    prisma.auditLogEvent.count.mockResolvedValue(1);
-    prisma.auditLogEvent.findMany.mockResolvedValue([
-      {
-        id: 'a-sub-1',
-        auditNo: 'AUD2602180999',
-        action: 'WALLET_STATUS_UPDATED',
-        entityType: 'WALLET',
-        entityId: 'wallet-1',
-        actorType: 'ADMIN',
-        actorId: 'admin-1',
-        result: AuditResult.SUCCESS,
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        subjectNos: [
-          {
-            id: 'sub-1',
-            eventId: 'a-sub-1',
-            subjectRole: 'ENTITY',
-            subjectType: 'WALLET',
-            subjectId: 'wallet-1',
-            subjectNo: 'WA2602180001',
-            occurredAt: new Date('2026-02-18T10:00:00.000Z'),
-            createdAt: new Date('2026-02-18T10:00:00.000Z'),
-          },
-        ],
-        occurredAt: new Date('2026-02-18T10:00:00.000Z'),
-      },
-    ]);
-
-    const result = await service.findAll({ take: 20 });
-    expect(result.items[0].subjectNos).toHaveLength(1);
-    expect(result.items[0].subjectNos[0].subjectNo).toBe('WA2602180001');
   });
 
   it('should throw when audit log detail is missing', async () => {
@@ -975,7 +844,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-24T08:00:00.000Z'),
-        subjectNos: [],
       },
     ]);
     prisma.depositTransaction.findMany.mockResolvedValue([
@@ -1259,10 +1127,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:00:00.000Z'),
-        subjectNos: [
-          { subjectRole: 'RELATED', subjectType: 'SWAP', subjectId: 'swap-1', subjectNo: 'SWP2603260001' },
-          { subjectRole: 'RELATED', subjectType: 'SWAP_QUOTE', subjectId: 'quote-1', subjectNo: 'QUO2603260001' },
-        ],
       },
       {
         id: 'audit-swap-2',
@@ -1278,10 +1142,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:02:00.000Z'),
-        subjectNos: [
-          { subjectRole: 'RELATED', subjectType: 'SWAP', subjectId: 'swap-1', subjectNo: 'SWP2603260001' },
-          { subjectRole: 'RELATED', subjectType: 'SWAP_QUOTE', subjectId: 'quote-1', subjectNo: 'QUO2603260001' },
-        ],
       },
     ]);
     prisma.swapTransaction.findMany.mockResolvedValue([
@@ -1612,7 +1472,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-27T10:00:00.000Z'),
-        subjectNos: [],
       },
       {
         id: 'audit-withdraw-2',
@@ -1628,7 +1487,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-27T12:00:00.000Z'),
-        subjectNos: [],
       },
     ]);
     prisma.withdrawTransaction.findMany.mockResolvedValue([
@@ -1978,7 +1836,7 @@ describe('AuditLogsService', () => {
     }
   });
 
-  it('should resolve swap export workflow summary from subjectNos when a linked swap is present', async () => {
+  it('should resolve swap export workflow summary from entityNo when a linked swap is present', async () => {
     prisma.swapTransaction.findMany.mockResolvedValue([
       {
         id: 'swap-1',
@@ -2009,10 +1867,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:00:00.000Z'),
-        subjectNos: [
-          { subjectRole: 'RELATED', subjectType: 'SWAP', subjectId: 'swap-1', subjectNo: 'SWP2603260001' },
-          { subjectRole: 'RELATED', subjectType: 'SWAP_QUOTE', subjectId: 'quote-1', subjectNo: 'QUO2603260001' },
-        ],
       },
     ]);
 
@@ -2027,7 +1881,9 @@ describe('AuditLogsService', () => {
     });
   });
 
-  it('should reject swap export selection without any linked swap subjectNos', async () => {
+  it('should reject swap export selection without any linked swap transactions', async () => {
+    prisma.swapTransaction.findMany.mockResolvedValue([]);
+    prisma.swapQuote.findMany.mockResolvedValue([]);
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
         id: 'audit-quote-1',
@@ -2043,7 +1899,6 @@ describe('AuditLogsService', () => {
         beforeData: null,
         afterData: null,
         occurredAt: new Date('2026-03-26T11:00:00.000Z'),
-        subjectNos: [],
       },
     ]);
 

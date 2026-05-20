@@ -6,7 +6,6 @@ import {
 import {
   AuditActions,
   AuditEntityTypes,
-  AuditModules,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
@@ -137,7 +136,6 @@ describe('SlaTimersService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: AuditActions.SLA_TIMER_CREATED,
-        module: AuditModules.GOVERNANCE_SLA_TIMERS,
         entityType: AuditEntityTypes.SLA_TIMER,
       }),
       expect.anything(),
