@@ -1,8 +1,7 @@
 const TRANSACTION_ROOT_STATUS_LABELS: Record<string, string> = {
   PAYIN_PENDING: 'Payin Pending',
-  PENDING_COMPLIANCE: 'Compliance Pending',
   COMPLIANCE_PENDING: 'Compliance Pending',
-  UNDER_REVIEW: 'Under Review',
+  ACTION_PENDING: 'Action Pending',
   PAYOUT_PENDING: 'Payout Pending',
   SEEN_IN_MEMPOOL: 'Seen In Mempool',
 };
