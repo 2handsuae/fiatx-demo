@@ -295,22 +295,33 @@ const Deposit = () => {
     setSelectedAssetId(filteredAssets[0]?.id || '');
   }, [activeTab, filteredAssets, selectedAssetId]);
 
+  const getCustomerFacingStatus = (internalStatus: string): { label: string; color: string } => {
+    switch (internalStatus) {
+      case 'PAYIN_PENDING':
+      case 'COMPLIANCE_PENDING':
+      case 'ACTION_PENDING':
+      case 'FROZEN':
+        return { label: 'Processing', color: 'bg-blue-500/20 text-blue-400' };
+      case 'SUCCESS':
+        return { label: 'Completed', color: 'bg-fx-sage/20 text-fx-sage' };
+      case 'REJECTED':
+        return { label: 'Declined', color: 'bg-rose-500/20 text-rose-400' };
+      case 'FAILED':
+        return { label: 'Failed', color: 'bg-fx-rust/20 text-fx-rust' };
+      case 'EXPIRED':
+        return { label: 'Expired', color: 'bg-fx-dust/20 text-fx-dust' };
+      case 'CONFISCATED':
+        return { label: 'Contact Support', color: 'bg-rose-500/20 text-rose-400' };
+      default:
+        return { label: 'Processing', color: 'bg-fx-dust/20 text-fx-dust' };
+    }
+  };
+
   const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      CREATED: 'bg-fx-dust/20 text-fx-dust',
-      PAYIN_LINKED: 'bg-yellow-500/20 text-yellow-400',
-      CONFIRMED: 'bg-indigo-500/20 text-indigo-400',
-      COMPLIANCE_PENDING: 'bg-purple-500/20 text-purple-400',
-      UNDER_REVIEW: 'bg-amber-500/20 text-amber-400',
-      FROZEN: 'bg-sky-500/20 text-sky-400',
-      HELD: 'bg-orange-500/20 text-orange-400',
-      SUCCESS: 'bg-fx-sage/20 text-fx-sage',
-      REJECTED: 'bg-rose-500/20 text-rose-400',
-      FAILED: 'bg-fx-rust/20 text-fx-rust',
-    };
+    const { label, color } = getCustomerFacingStatus(status);
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colors[status] || 'bg-fx-dust/20 text-fx-dust'}`}>
-        {status}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${color}`}>
+        {label}
       </span>
     );
   };
@@ -696,13 +707,11 @@ const Deposit = () => {
                           className="bg-transparent text-sm text-fx-sand focus:outline-none"
                         >
                             <option value="">All Status</option>
-                            <option value="PAYIN_PENDING">Payin Pending</option>
-                            <option value="COMPLIANCE_PENDING">Compliance Pending</option>
-                            <option value="UNDER_REVIEW">Under Review</option>
-                            <option value="SUCCESS">Success</option>
-                            <option value="FROZEN">Frozen</option>
-                            <option value="REJECTED">Rejected</option>
+                            <option value="PAYIN_PENDING">Processing</option>
+                            <option value="SUCCESS">Completed</option>
+                            <option value="REJECTED">Declined</option>
                             <option value="FAILED">Failed</option>
+                            <option value="EXPIRED">Expired</option>
                         </select>
                     </div>
                     <div className="flex items-center gap-2 bg-fx-charcoal/50 px-3 py-2 rounded-lg border border-fx-rule">
