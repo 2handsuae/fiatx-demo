@@ -26,16 +26,6 @@ interface AuditLogItem {
   occurredAt: string;
   traceId?: string | null;
   workflowType?: string | null;
-  subjectNos?: AuditSubjectNo[] | null;
-}
-
-interface AuditSubjectNo {
-  id: string;
-  subjectRole: string;
-  subjectType: string;
-  subjectId?: string | null;
-  subjectNo: string;
-  occurredAt: string;
 }
 
 interface AuditLogListResponse {

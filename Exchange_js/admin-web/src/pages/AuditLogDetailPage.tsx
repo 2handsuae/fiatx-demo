@@ -11,15 +11,6 @@ import { AdminBadge } from '../components/ui/AdminBadge';
 
 type AuditResult = 'SUCCESS' | 'FAILED' | 'REJECTED';
 
-interface AuditSubjectNo {
-  id: string;
-  subjectRole: string;
-  subjectType: string;
-  subjectId?: string | null;
-  subjectNo: string;
-  occurredAt: string;
-}
-
 interface AuditLogDetail {
   id: string;
   auditNo: string;
@@ -54,7 +45,7 @@ interface AuditLogDetail {
   archivedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
-  subjectNos?: AuditSubjectNo[];
+
 }
 
 const fmt = (v?: string | null): string => {
@@ -243,7 +234,6 @@ const AuditLogDetailPage = () => {
   const hasStateChange = !!(detail.statusFrom || detail.statusTo);
   const hasOwner      = !!(detail.entityOwnerType || detail.entityOwnerId || detail.entityOwnerNo);
   const hasPayload    = detail.metadata != null || detail.beforeData != null || detail.afterData != null;
-  const hasSubjects   = !!(detail.subjectNos?.length);
   const hasWorkflow   = !!(detail.workflowType || detail.traceId);
 
   const payloadBlocks = [
@@ -375,28 +365,7 @@ const AuditLogDetailPage = () => {
             </section>
           )}
 
-          {/* ── 5 · SUBJECT ANCHORS ── */}
-          {hasSubjects && (
-            <section className="px-6 py-5">
-              <Cap>Subject Anchors</Cap>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {detail.subjectNos!.map((s) => (
-                  <span
-                    key={s.id}
-                    className="inline-flex items-center gap-1.5 rounded border border-adm-border bg-adm-card px-2.5 py-1.5 font-mono text-[10px]"
-                  >
-                    <span className="text-adm-t3">{s.subjectRole}</span>
-                    <span className="text-adm-border">/</span>
-                    <span className="text-adm-t2">{s.subjectType}</span>
-                    <span className="text-adm-border">/</span>
-                    <span className="font-semibold text-adm-amber">{s.subjectNo}</span>
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* ── 6 · PAYLOAD ── */}
+          {/* ── 5 · PAYLOAD ── */}
           {hasPayload && (
             <section className="px-6 py-5">
               <Cap>Payload</Cap>
@@ -417,7 +386,7 @@ const AuditLogDetailPage = () => {
             </section>
           )}
 
-          {/* ── 7 · INTEGRITY ── */}
+          {/* ── 6 · INTEGRITY ── */}
           <section className="px-6 py-5">
             <Cap>Integrity</Cap>
             <div className="mt-3">
@@ -431,7 +400,7 @@ const AuditLogDetailPage = () => {
             </div>
           </section>
 
-          {/* ── 8 · RAW RECORD ── */}
+          {/* ── 7 · RAW RECORD ── */}
           <RawRecordBlock detail={detail} />
 
         </div>
