@@ -197,10 +197,13 @@ const DepositTransactionList = () => {
     const colors: Record<string, string> = {
       PAYIN_PENDING: 'bg-blue-100 text-blue-800',
       COMPLIANCE_PENDING: 'bg-purple-100 text-purple-800',
-      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
+      ACTION_PENDING: 'bg-amber-100 text-amber-800',
       SUCCESS: 'bg-green-100 text-green-800',
+      FROZEN: 'bg-cyan-100 text-cyan-800',
       REJECTED: 'bg-red-100 text-red-800',
       FAILED: 'bg-orange-100 text-orange-800',
+      EXPIRED: 'bg-gray-100 text-gray-800',
+      CONFISCATED: 'bg-red-200 text-red-900',
     };
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
@@ -297,10 +300,13 @@ const DepositTransactionList = () => {
               <option value="">All Status</option>
               <option value="PAYIN_PENDING">Payin Pending</option>
               <option value="COMPLIANCE_PENDING">Compliance Pending</option>
-              <option value="UNDER_REVIEW">Under Review</option>
+              <option value="ACTION_PENDING">Action Pending</option>
               <option value="SUCCESS">Success</option>
+              <option value="FROZEN">Frozen</option>
               <option value="REJECTED">Rejected</option>
               <option value="FAILED">Failed</option>
+              <option value="EXPIRED">Expired</option>
+              <option value="CONFISCATED">Confiscated</option>
             </select>
           </div>
         </div>
