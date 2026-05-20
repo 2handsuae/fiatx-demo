@@ -23,17 +23,13 @@ interface WalletItem {
   id: string;
   assetId: string;
   type: string;
-  direction: string;
   walletRole?: string;
   status: string;
   asset: { code: string; type: string; decimals?: number };
   address?: string;
-  memo?: string;
   bankName?: string;
-  bankAccount?: string;
   iban?: string;
   accountName?: string;
-  bankCode?: string;
 }
 
 interface Transaction {
@@ -169,7 +165,6 @@ const Deposit = () => {
         const params = new URLSearchParams({
           ownerType: 'CUSTOMER',
           ownerId: user.id,
-          direction: 'INBOUND',
           walletRole: activeTab === 'crypto' ? 'C_DEP' : 'C_VIBAN',
           assetId: selectedAssetId,
         });
@@ -182,7 +177,6 @@ const Deposit = () => {
             const items: WalletItem[] = data.items || [];
             const found = items.find(w =>
                 w.assetId === selectedAssetId &&
-                w.direction === 'INBOUND' &&
                 (w.walletRole === 'C_DEP' || w.walletRole === 'C_VIBAN')
             );
             setDepositWallet(found || null);
