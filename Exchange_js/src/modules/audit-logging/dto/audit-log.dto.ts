@@ -11,7 +11,6 @@ import {
   IsString,
   Max,
   Min,
-  ValidateNested,
 } from 'class-validator';
 
 export enum AuditResult {
@@ -40,50 +39,11 @@ export interface AuditActorContext {
   actorRole?: string;
 }
 
-export enum AuditSubjectRole {
-  ACTOR = 'ACTOR',
-  OWNER = 'OWNER',
-  ENTITY = 'ENTITY',
-  RELATED = 'RELATED',
-  SOURCE = 'SOURCE',
-}
-
-export class AuditSubjectNoDto {
-  @ApiPropertyOptional({ enum: AuditSubjectRole })
-  @IsEnum(AuditSubjectRole)
-  subjectRole!: AuditSubjectRole;
-
-  @ApiPropertyOptional({ description: '主体类型，例如 CUSTOMER/WITHDRAW/PAYOUT/KYT_CASE' })
-  @IsString()
-  subjectType!: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  subjectId?: string;
-
-  @ApiPropertyOptional()
-  @IsString()
-  subjectNo!: string;
-}
-
-export interface AuditLogSubjectNoView {
-  id?: string;
-  eventId?: string;
-  subjectRole: AuditSubjectRole;
-  subjectType: string;
-  subjectId?: string | null;
-  subjectNo: string;
-  occurredAt?: Date | string | null;
-  createdAt?: Date | string | null;
-}
-
 export interface AuditLogView {
   id: string;
   auditNo: string;
   businessWorkflow: string | null;
   businessWorkflowLabel: string | null;
-  primaryRefNo: string | null;
   userAction: string | null;
   userActionLabel: string | null;
   action: string;
@@ -107,7 +67,6 @@ export interface AuditLogView {
   metadata: unknown;
   payloadDigest: string | null;
   retainedUntil: Date | string | null;
-  subjectNos: AuditLogSubjectNoView[];
   occurredAt: Date | string;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
@@ -171,16 +130,6 @@ export class CreateAuditLogEventDto {
   @ApiPropertyOptional({ type: Object })
   @IsOptional()
   metadata?: Record<string, unknown>;
-
-  @ApiPropertyOptional({
-    type: [AuditSubjectNoDto],
-    description: '事件关联主体No集合（可选，未传则由系统自动构造）',
-  })
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => AuditSubjectNoDto)
-  subjectNos?: AuditSubjectNoDto[];
 
   @ApiPropertyOptional({ description: '幂等键，不传则系统按规则自动生成' })
   @IsOptional()
@@ -248,16 +197,6 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsString()
   entityOwnerNo?: string;
-
-  @ApiPropertyOptional({ description: '按主体No精确匹配' })
-  @IsOptional()
-  @IsString()
-  subjectNo?: string;
-
-  @ApiPropertyOptional({ description: '按主体类型过滤（可选）' })
-  @IsOptional()
-  @IsString()
-  subjectType?: string;
 
   @ApiPropertyOptional({ description: '按流程链ID过滤' })
   @IsOptional()
