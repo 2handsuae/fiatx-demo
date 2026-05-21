@@ -309,6 +309,7 @@ describe('DepositTransactionsService', () => {
       expect(result).toEqual(mockDeposit);
       expect((prisma as any).depositTransaction.findUnique).toHaveBeenCalledWith({
         where: { payinId: 'payin-1' },
+        include: { asset: true },
       });
     });
 
