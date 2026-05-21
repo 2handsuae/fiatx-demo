@@ -397,6 +397,7 @@ export class DepositTransactionsService {
   async findByPayinId(payinId: string) {
     return (this.prisma as any).depositTransaction.findUnique({
       where: { payinId },
+      include: { asset: true },
     });
   }
 
