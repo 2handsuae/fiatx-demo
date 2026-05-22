@@ -155,6 +155,10 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **EvidencePackage** | account `status` badge, `exportMode`, `itemCount`, `exportedByNo` | `createdAt`, `updatedAt` |
 | **Asset** | `assetNo`, `status` badge, `code`, `type` | `createdAt`, `updatedAt` |
 | **CustodianWallet** | `walletNo`, `status` badge, `walletRole`, `roleName`, `asset.code` | `createdAt`, `updatedAt` |
+| **WithdrawalAddress** | `addressNo`, `status` badge, `addressType`, `asset.code`, `customerNo` | `createdAt`, `updatedAt` |
+| **LedgerAccount** | `codeLabel · assetCode`, `status` badge, `ownerType`, `assetCode`, `tbAccountId` | `createdAt` |
+| **DepositTransaction** | `depositNo`, `status` badge, `ownerNo`, `ownerType`, `asset.code` | `createdAt`, `completedAt` |
+| **Payin** | `payinNo`, `status` badge, `type`, `asset.code`, linked `depositNo` | `createdAt`, `completedAt` |
 
 ---
 
