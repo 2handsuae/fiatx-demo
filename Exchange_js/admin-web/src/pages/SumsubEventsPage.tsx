@@ -45,7 +45,7 @@ interface FilterState {
 
 /* ── Simulation tabs & scenarios ────────────────────────────────── */
 
-type SimTab = 'onboarding' | 'material' | 'craSimulation' | 'ongoingMonitoring' | 'level2Simulation';
+type SimTab = 'onboarding' | 'material' | 'craSimulation' | 'ongoingMonitoring' | 'level2Simulation' | 'kyt' | 'travelRule';
 
 type OnboardingScenario =
   | 'LOW_RISK_PASS'
@@ -151,6 +151,9 @@ export default function SumsubEventsPage() {
   // Level 2 simulation tab
   const [l2CustomerNo, setL2CustomerNo] = useState('');
 
+  // KYT / Travel Rule simulation — shared depositNo
+  const [simDepositNo, setSimDepositNo] = useState('');
+
   // Shared result display
   const [simResult, setSimResult] = useState('');
 
@@ -240,6 +243,34 @@ export default function SumsubEventsPage() {
         setShowSimulate(false);
         setSimCycleNo('');
         setMessage(`Material simulation: ${simMaterialScenario} for cycle ${simCycleNo}`);
+      } else if (simTab === 'kyt') {
+        if (!simDepositNo.trim()) { setSimError('Deposit No is required'); setSimLoading(false); return; }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/kyt-check`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ depositNo: simDepositNo, result: 'PASS' }),
+          },
+        );
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'KYT simulation failed.'));
+        const res = await response.json();
+        setShowSimulate(false);
+        setMessage(`KYT check simulated: PASSED for ${res.depositNo ?? simDepositNo}`);
+      } else if (simTab === 'travelRule') {
+        if (!simDepositNo.trim()) { setSimError('Deposit No is required'); setSimLoading(false); return; }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/tr-check`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ depositNo: simDepositNo, result: 'PASS' }),
+          },
+        );
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Travel Rule simulation failed.'));
+        const res = await response.json();
+        setShowSimulate(false);
+        setMessage(`Travel Rule check simulated: PASSED for ${res.depositNo ?? simDepositNo}`);
       }
       void fetchEvents(1, filters);
     } catch (e) {
@@ -453,6 +484,8 @@ export default function SumsubEventsPage() {
                 { key: 'craSimulation' as SimTab, label: 'CRA Result' },
                 { key: 'ongoingMonitoring' as SimTab, label: 'Ongoing Monitoring' },
                 { key: 'level2Simulation' as SimTab, label: 'Level 2 Complete' },
+                { key: 'kyt' as SimTab, label: 'KYT Check' },
+                { key: 'travelRule' as SimTab, label: 'Travel Rule' },
               ]).map((tab) => (
                 <button
                   key={tab.key}
@@ -720,6 +753,44 @@ export default function SumsubEventsPage() {
                 </div>
               )}
 
+              {/* KYT Check tab */}
+              {simTab === 'kyt' && (
+                <div className="space-y-4">
+                  <p className="font-mono text-[10px] text-adm-t3">
+                    Simulate a KYT (Know Your Transaction) check PASS for a deposit.
+                    After both KYT and Travel Rule pass, the deposit auto-approves.
+                  </p>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Deposit No</label>
+                    <input
+                      value={simDepositNo}
+                      onChange={e => setSimDepositNo(e.target.value)}
+                      placeholder="DEP-…"
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Travel Rule tab */}
+              {simTab === 'travelRule' && (
+                <div className="space-y-4">
+                  <p className="font-mono text-[10px] text-adm-t3">
+                    Simulate a Travel Rule check PASS for a deposit.
+                    After both KYT and Travel Rule pass, the deposit auto-approves.
+                  </p>
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Deposit No</label>
+                    <input
+                      value={simDepositNo}
+                      onChange={e => setSimDepositNo(e.target.value)}
+                      placeholder="DEP-…"
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                    />
+                  </div>
+                </div>
+              )}
+
               {simError && (
                 <div className="rounded border border-adm-red/20 bg-adm-red/6 px-3 py-2 font-mono text-[11px] text-adm-red">
                   {simError}
@@ -734,7 +805,7 @@ export default function SumsubEventsPage() {
             </div>
 
             {/* Modal footer */}
-            {(simTab === 'onboarding' || simTab === 'material') && (
+            {(simTab === 'onboarding' || simTab === 'material' || simTab === 'kyt' || simTab === 'travelRule') && (
               <div className="flex justify-end gap-2 border-t border-adm-border px-5 py-3">
                 <button
                   onClick={() => { setShowSimulate(false); setSimError(null); setSimResult(''); }}
@@ -747,7 +818,7 @@ export default function SumsubEventsPage() {
                   disabled={simLoading}
                   className={adminButtonClass('modalConfirm')}
                 >
-                  {simLoading ? 'Sending…' : 'Send Event'}
+                  {simLoading ? 'Sending…' : simTab === 'kyt' ? 'Simulate KYT PASS' : simTab === 'travelRule' ? 'Simulate TR PASS' : 'Send Event'}
                 </button>
               </div>
             )}
