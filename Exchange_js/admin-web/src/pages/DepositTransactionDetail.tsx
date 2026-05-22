@@ -1,25 +1,16 @@
+// admin-web/src/pages/DepositTransactionDetail.tsx
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { RefreshCw, User } from 'lucide-react';
 import {
-  RefreshCw,
-  ExternalLink,
-  FileText,
-  User,
-  CreditCard,
-  Activity,
-  Clock,
-  Globe,
-  MapPin,
-  ShieldCheck,
-  Scale,
-  Workflow,
-  Compass,
-} from 'lucide-react';
-import {
-  DetailCard,
   DetailPageHeader,
+  DetailCard,
   InfoField,
+  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
+import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
 import { copyToClipboard } from '../utils/clipboard';
 import {
   AdminSessionError,
@@ -27,16 +18,20 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
-import { useSimulationMode } from '../utils/simulationMode';
 import {
-  formatDerivedComplianceStatusLabel,
-  formatResponseLifecycleLabel,
   formatStatusLabel,
   formatTransactionTypeLabel,
-  normalizeResponseLifecycle,
+  normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
+import {
+  getDepositActionsForStatus,
+  getDepositStatusBadgeClass,
+  getComplianceGateStyle,
+} from '../utils/depositActionMap';
 
-interface DepositTransactionDetail {
+/* ── Types ──────────────────────────────────────────────────── */
+
+interface DepositDetail {
   id: string;
   depositNo: string;
   ownerType: string;
@@ -45,113 +40,52 @@ interface DepositTransactionDetail {
   type?: string | null;
   status: string;
   assetId: string;
-  
-  // Amounts
   amount: string;
   netAmount: string;
   feeAmount: string;
-  
-  // Destination
   toWalletId: string;
   toWalletNo: string | null;
   toAddress: string | null;
   toIban: string | null;
-  
-  // Source
   fromWalletId: string | null;
   fromWalletNo: string | null;
   fromAddress: string | null;
   fromIban: string | null;
-  
-  // External
   txHash: string | null;
   confirmations: number;
   referenceNo: string | null;
-  
-  // Compliance (KYT)
   kytStatus: string;
-  kytScreeningId: string | null;
   kytRiskScore: number | null;
   kytCheckedAt: string | null;
-  
-  // Regulation (Travel Rule)
   travelRuleRequired: boolean;
   travelRuleStatus: string;
-  travelRuleTransferId: string | null;
-  counterpartyVasp: string | null;
   travelRuleCheckedAt: string | null;
-  derivedComplianceStatus?: string;
-  
-  // Timings
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-  
-  // Relations
   payinId: string | null;
   payinNo: string | null;
   payinStatus?: string | null;
   payinType?: string | null;
+  traceId?: string | null;
   asset: {
-    currency: string;
     code: string;
     type: string;
     network: string | null;
     decimals: number;
   };
-  
-  // Audit
   statusHistory: string | null;
-  kytCase?: {
-    id: string;
-    caseNo: string;
-    status: string;
-    provider?: string;
-    providerCaseId?: string | null;
-  } | null;
-  travelRuleCase?: {
-    id: string;
-    caseNo: string;
-    status: string;
-    provider?: string;
-    providerTransferId?: string | null;
-  } | null;
-  finalAlert?: {
-    id: string;
-    alertNo: string;
-    status: string;
-  } | null;
-  finalCase?: {
-    id: string;
-    caseNo: string;
-    status: string;
-  } | null;
-  simulationProfile?: {
-    signalId: string;
-    signalNo: string;
-    riskLevel: string;
-    riskReason: string | null;
-  } | null;
-  auditLogs?: Array<{
-    id: string;
-    oldStatus: string;
-    newStatus: string;
-    reason: string | null;
-    createdAt: string;
-    operatorId: string;
-  }>;
-  customer?: {
-    complianceStatus?: string | null;
-  } | null;
+  customer?: { complianceStatus?: string | null } | null;
 }
+
+/* ── Page Component ─────────────────────────────────────────── */
 
 const DepositTransactionDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [data, setData] = useState<DepositTransactionDetail | null>(null);
+  const [data, setData] = useState<DepositDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const { enabled: simulationModeEnabled } = useSimulationMode();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState('');
   const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
@@ -161,11 +95,11 @@ const DepositTransactionDetail = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/deposit-transactions/${id}`);
-
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}`,
+      );
       if (response.ok) {
-        const result = await response.json();
-        setData(result);
+        setData(await response.json());
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load detail'));
         navigate('/exchange/deposit-transactions');
@@ -180,7 +114,7 @@ const DepositTransactionDetail = () => {
 
   useEffect(() => {
     if (id) fetchData();
-  }, [id, navigate]);
+  }, [id]);
 
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
@@ -188,28 +122,7 @@ const DepositTransactionDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  interface WorkflowAction {
-    action: string;
-    label: string;
-    variant: 'workflowPrimary' | 'workflowSecondary' | 'workflowNegative';
-  }
-
-  const availableActions: WorkflowAction[] = (() => {
-    if (!data) return [];
-    switch (data.status) {
-      case 'ACTION_PENDING':
-        return [
-          { action: 'expire', label: 'Expire', variant: 'workflowSecondary' as const },
-        ];
-      case 'FROZEN':
-        return [
-          { action: 'approve', label: 'Release Funds', variant: 'workflowPrimary' as const },
-          { action: 'confiscate', label: 'Confiscate', variant: 'workflowNegative' as const },
-        ];
-      default:
-        return [];
-    }
-  })();
+  /* ── Action handlers ── */
 
   const handleAction = async (action: string, reason?: string) => {
     if (!id) return;
@@ -240,8 +153,8 @@ const DepositTransactionDetail = () => {
     }
   };
 
-  const onActionClick = (action: string) => {
-    if (action === 'confiscate') {
+  const onActionClick = (action: string, requiresReason: boolean) => {
+    if (requiresReason) {
       setPendingAction(action);
       setIsReasonModalOpen(true);
     } else {
@@ -249,447 +162,226 @@ const DepositTransactionDetail = () => {
     }
   };
 
-  const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      PAYIN_PENDING: 'bg-blue-100 text-blue-800',
-      COMPLIANCE_PENDING: 'bg-purple-100 text-purple-800',
-      ACTION_PENDING: 'bg-amber-100 text-amber-800',
-      FROZEN: 'bg-cyan-100 text-cyan-800',
-      SUCCESS: 'bg-green-100 text-green-800',
-      REJECTED: 'bg-red-100 text-red-800',
-      FAILED: 'bg-orange-100 text-orange-800',
-      EXPIRED: 'bg-gray-100 text-gray-800',
-      CONFISCATED: 'bg-red-200 text-red-900',
-    };
-    return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {formatStatusLabel(status)}
-      </span>
-    );
-  };
-
-  const getNextStepLabel = (detail: DepositTransactionDetail) => {
-    if (detail.status === 'PAYIN_PENDING') return 'Payin rail';
-    if (detail.status === 'FAILED') return 'Terminal: failed';
-    if (detail.status === 'SUCCESS') return 'Terminal: success';
-    if (detail.status === 'REJECTED') return 'Terminal: rejected';
-    if (detail.status === 'FROZEN') return 'Terminal: frozen';
-    if (detail.finalCase?.id) return 'Compliance Case';
-    if (detail.finalAlert?.id) return 'Compliance Alert';
-    if (detail.asset.type === 'FIAT' && detail.status === 'COMPLIANCE_PENDING') {
-      return 'Final review bridge';
-    }
-    const kytLifecycle = normalizeResponseLifecycle(detail.kytStatus);
-    const travelLifecycle = normalizeResponseLifecycle(detail.travelRuleStatus);
-    if (!kytLifecycle) {
-      return detail.kytCase?.id ? 'KYT response' : 'Waiting for KYT case';
-    }
-    if (['CREATED', 'RECEIVED'].includes(kytLifecycle)) {
-      return detail.kytCase?.id ? 'KYT response' : 'Waiting for KYT case';
-    }
-    if (['CREATED', 'RECEIVED'].includes(travelLifecycle)) {
-      return detail.travelRuleCase?.id ? 'Travel Rule response' : 'Waiting for Travel Rule case';
-    }
-    if (detail.status === 'COMPLIANCE_PENDING') return 'Final review bridge';
-    return 'No further step';
-  };
-
-  const getProjectedFinalStates = (detail: DepositTransactionDetail) => {
-    if (detail.status === 'FAILED') {
-      return { payin: detail.payinStatus || 'FAILED', deposit: 'FAILED' };
-    }
-    if (detail.status === 'SUCCESS') {
-      return { payin: detail.payinStatus || 'CLEARED', deposit: 'SUCCESS' };
-    }
-    if (detail.status === 'REJECTED') {
-      return { payin: detail.payinStatus || 'CLEARED', deposit: 'REJECTED' };
-    }
-    if (detail.status === 'FROZEN') {
-      return { payin: detail.payinStatus || 'CLEARED', deposit: 'FROZEN' };
-    }
-    if (detail.finalCase?.id) {
-      return { payin: detail.payinStatus || 'CLEARED', deposit: 'SUCCESS / REJECTED / FROZEN' };
-    }
-    if (detail.finalAlert?.id) {
-      return { payin: detail.payinStatus || 'CLEARED', deposit: 'SUCCESS or FROZEN' };
-    }
-    return {
-      payin: detail.payinStatus || 'FAILED / CONFIRMED / CLEARED',
-      deposit: 'SUCCESS / REJECTED / FROZEN / FAILED',
-    };
-  };
+  /* ── Loading / Empty ── */
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <RefreshCw className="animate-spin mb-4 text-brand-primary" size={32} />
-        <p className="text-gray-500">Loading details...</p>
+        <RefreshCw className="animate-spin mb-4 text-adm-amber" size={32} />
+        <p className="text-adm-t3">Loading details...</p>
       </div>
     );
   }
 
   if (!data) return null;
 
-  const nextStepLabel = getNextStepLabel(data);
-  const projectedFinalStates = getProjectedFinalStates(data);
-  const isFiatFlow = String(data.asset.type || '').toUpperCase() === 'FIAT';
-  const kytLifecycleDisplay =
-    isFiatFlow && !data.kytCase?.id
-      ? 'Not created for fiat flow'
-      : formatResponseLifecycleLabel(data.kytStatus);
-  const travelRuleLifecycleDisplay =
-    isFiatFlow && !data.travelRuleCase?.id
-      ? 'Not created for fiat flow'
-      : formatResponseLifecycleLabel(data.travelRuleStatus);
+  const actions = getDepositActionsForStatus(data.status);
+  const customerGate = getComplianceGateStyle(data.customer?.complianceStatus);
+  const kytGate = getComplianceGateStyle(data.kytStatus);
+  const trGate = getComplianceGateStyle(
+    data.travelRuleRequired ? data.travelRuleStatus : null,
+  );
 
   return (
-    <div className="max-w-6xl mx-auto pb-12">
+    <div className="flex h-full flex-col">
+      {/* ── Nav Header ── */}
       <DetailPageHeader
-        title="Deposit Details"
-        subtitle={`No: ${data.depositNo} · ID: ${data.id} · Created: ${new Date(data.createdAt).toLocaleString()}`}
         onBack={() => navigate('/exchange/deposit-transactions')}
         onRefresh={fetchData}
         refreshing={loading}
-        backLabel="Back to Deposits"
-      >
-        {renderStatusBadge(data.status)}
-      </DetailPageHeader>
+        backLabel="Deposits"
+      />
 
-      <div className="flex gap-6 mt-6">
-        {/* Main column */}
-        <div className="flex-1 space-y-6">
-          <DetailCard title="Workflow Summary" icon={<Workflow size={18} />} columns={2}>
-              <InfoField label="Current Deposit Status" value={formatStatusLabel(data.status)} highlight source="main" />
-              <InfoField label="Current Payin Status" value={data.payinStatus ? formatStatusLabel(data.payinStatus) : 'N/A'} highlight source="main" />
-              <InfoField label="Next Step" value={nextStepLabel} source="main" />
-              <InfoField label="Projected Payin Final" value={formatStatusLabel(projectedFinalStates.payin)} source="main" />
-              <InfoField label="Projected Deposit Final" value={formatStatusLabel(projectedFinalStates.deposit)} source="main" />
-              <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} source="main" />
-              <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 space-y-2">
-                <div>
-                  This chain continues into the linked subject detail pages. Payin progression stays
-                  inside the payin icon rail, while alert and case handling remains in the formal
-                  text-action surfaces.
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {data.payinId ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/treasury/payins/${data.payinId}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open Payin
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                  {data.kytCase?.id ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${data.kytCase?.id}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open KYT Response
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                  {data.travelRuleCase?.id ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/compliance/tx-travel-rule-responses/${data.travelRuleCase?.id}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open Travel Rule Response
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                  {data.finalAlert?.id ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/compliance/alerts/${data.finalAlert?.id}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open Final Alert
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                  {data.finalCase?.id ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/compliance/cases/${data.finalCase?.id}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open Final Case
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-          </DetailCard>
+      {/* ── Body: Main + Sidebar ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* ── Main Body ── */}
+        <div className="flex-1 overflow-y-auto divide-y divide-adm-border">
 
-          {simulationModeEnabled && data.simulationProfile ? (
-            <DetailCard title="Compatibility Signal Profile" icon={<Compass size={18} />} columns={2}>
-              <InfoField label="Signal No" value={data.simulationProfile.signalNo} source="main" />
-              <InfoField label="Signal Risk Level" value={data.simulationProfile.riskLevel} highlight source="main" />
-              <InfoField label="Signal Risk Reason" value={data.simulationProfile.riskReason || 'LOW has no reason'} source="main" />
-              <InfoField label="Signal ID" value={data.simulationProfile.signalId} source="main" />
-              <InfoField
-                label="Interpretation"
-                value="Signal-level compatibility evidence only. Final deposit risk outcome is decided in Risk Policy Executions."
-                source="main"
-              />
-            </DetailCard>
-          ) : null}
-
-          {/* 1. Basic Identification */}
-          <DetailCard title="Basic Identification" icon={<FileText size={18} />} columns={2}>
-              <InfoField label="ID" value={data.id} source="main" />
-              <InfoField label="Deposit No" value={data.depositNo} highlight source="main" />
-              <InfoField label="Type" value={formatTransactionTypeLabel(data.type || data.asset.type)} source="main" />
-              <InfoField label="Owner Type" value={data.ownerType} source="main" />
-              <InfoField label="Owner ID" value={data.ownerId} icon={<User size={14}/>} source="main" />
-              <InfoField label="Owner No" value={data.ownerNo} source="main" />
-          </DetailCard>
-
-          {/* 2. Assets & Amount */}
-          <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />} columns={2}>
-              <InfoField label="Asset ID" value={data.assetId} source="main" />
-              <InfoField label="Asset Code" value={data.asset.code} source="main" />
-              <InfoField label="Asset Network" value={data.asset.network} source="main" />
-              <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} highlight source="main" />
-              <InfoField label="Fee Amount" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} source="main" />
-              <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} highlight source="main" />
-          </DetailCard>
-
-          {/* 3. Endpoint / Destination */}
-          <DetailCard title="Endpoint / Destination" icon={<MapPin size={18} />} columns={2}>
-              <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
-              <InfoField label="To Wallet No" value={data.toWalletNo} source="main" />
-              <InfoField label="To Address" value={data.toAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toAddress')} isCopied={copiedField === 'toAddress'} source="main" />
-              <InfoField label="To IBAN" value={data.toIban || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} source="main" />
-          </DetailCard>
-
-          {/* 4. Source / Origin */}
-          <DetailCard title="Source / Origin" icon={<Activity size={18} />} columns={2}>
-              <InfoField label="From Wallet ID" value={data.fromWalletId} source="main" />
-              <InfoField label="From Wallet No" value={data.fromWalletNo} source="main" />
-              <InfoField label="From Address" value={data.fromAddress || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'fromAddress')} isCopied={copiedField === 'fromAddress'} source="main" />
-              <InfoField label="From IBAN" value={data.fromIban || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'fromIban')} isCopied={copiedField === 'fromIban'} source="main" />
-          </DetailCard>
-
-          {/* 5. External Transaction */}
-          <DetailCard title="External Transaction Info" icon={<Globe size={18} />} columns={2}>
-              <InfoField
-                  label="Tx Hash"
-                  value={data.txHash || 'N/A'}
-                  copyable
-                  onCopy={(v) => handleCopy(v, 'txHash')}
-                  isCopied={copiedField === 'txHash'}
-                  link={data.txHash ? `https://etherscan.io/tx/${data.txHash}` : undefined}
-                  source="main"
-              />
-              <InfoField label="Confirmations" value={data.confirmations?.toString() || '0'} source="main" />
-              <InfoField label="Reference No" value={data.referenceNo || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'refNo')} isCopied={copiedField === 'refNo'} source="main" />
-          </DetailCard>
-
-          {/* 6. Response Container (KYT) */}
-          <DetailCard title="Response Container (KYT)" icon={<ShieldCheck size={18} />} columns={2}>
-              <InfoField label="Lifecycle" value={kytLifecycleDisplay} highlight source="main" />
-              <InfoField label="Screening ID" value={data.kytScreeningId} source="main" />
-              <InfoField label="Risk Score" value={data.kytRiskScore?.toString()} source="main" />
-              <InfoField label="Checked At" value={data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : 'N/A'} source="main" />
-              <InfoField label="Case No" value={data.kytCase?.caseNo} source="main" />
-              <InfoField label="Provider Case ID" value={data.kytCase?.providerCaseId || null} source="main" />
-              <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
-                {data.kytCase?.id ? (
-                  <button
-                    onClick={() => navigate(`/dashboard/compliance/tx-kyt-responses/${data.kytCase?.id}`)}
-                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                  >
-                    Open KYT response detail
-                    <ExternalLink size={12} />
-                  </button>
-                ) : (
-                  <span>
-                    {isFiatFlow
-                      ? 'Not created for fiat flow.'
-                      : 'No KYT response detail available.'}
-                  </span>
-                )}
-              </div>
-          </DetailCard>
-
-          {/* 7. Response Container (Travel Rule) */}
-          <DetailCard title="Response Container (Travel Rule)" icon={<Scale size={18} />} columns={2}>
-              <InfoField label="Travel Rule Required" value={data.travelRuleRequired ? 'Yes' : 'No'} source="main" />
-              <InfoField label="Lifecycle" value={travelRuleLifecycleDisplay} highlight source="main" />
-              <InfoField label="Transfer ID" value={data.travelRuleTransferId} source="main" />
-              <InfoField label="Counterparty VASP" value={data.counterpartyVasp} source="main" />
-              <InfoField label="Checked At" value={data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : 'N/A'} source="main" />
-              <InfoField label="Case No" value={data.travelRuleCase?.caseNo} source="main" />
-              <InfoField
-                label="Provider Transfer ID"
-                value={data.travelRuleCase?.providerTransferId || null}
-                source="main"
-              />
-              <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
-                {data.travelRuleCase?.id ? (
-                  <button
-                    onClick={() =>
-                      navigate(`/dashboard/compliance/tx-travel-rule-responses/${data.travelRuleCase?.id}`)
-                    }
-                    className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                  >
-                    Open Travel Rule response detail
-                    <ExternalLink size={12} />
-                  </button>
-                ) : (
-                  <span>
-                    {isFiatFlow
-                      ? 'Not created for fiat flow.'
-                      : 'No Travel Rule response detail available.'}
-                  </span>
-                )}
-              </div>
-          </DetailCard>
-
-          {/* 8. Derived Compliance & Timings */}
-          <DetailCard title="Derived Compliance & Timings" icon={<Clock size={18} />} columns={2}>
-              <InfoField label="Current Status" value={formatStatusLabel(data.status)} highlight source="main" />
-              <InfoField label="Derived Compliance" value={data.derivedComplianceStatus ? formatDerivedComplianceStatusLabel(data.derivedComplianceStatus) : null} highlight source="main" />
-              <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
-              <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} source="main" />
-              <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
-          </DetailCard>
-
-          <DetailCard title="Linked Rail" icon={<Workflow size={18} />} columns={2}>
-              <InfoField label="Payin ID" value={data.payinId} source="main" />
-              <InfoField label="Payin No" value={data.payinNo} source="main" />
-              <InfoField label="Payin Status" value={data.payinStatus ? formatStatusLabel(data.payinStatus) : null} source="main" />
-              <InfoField label="Payin Type" value={data.payinType ? formatTransactionTypeLabel(data.payinType) : null} source="main" />
-              <InfoField label="Final Alert" value={data.finalAlert?.alertNo || null} source="main" />
-              <InfoField label="Final Alert Status" value={data.finalAlert?.status || null} source="main" />
-              <InfoField label="Final Case" value={data.finalCase?.caseNo || null} source="main" />
-              <InfoField label="Final Case Status" value={data.finalCase?.status || null} source="main" />
-              <div className="sm:col-span-2 rounded border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 space-y-2">
-                {data.status === 'COMPLIANCE_PENDING' || data.status === 'ACTION_PENDING' ? (
-                  <div>
-                    Deposit-side manual actions are disabled in final transaction review. Continue investigation from the linked alert or case.
-                  </div>
-                ) : (
-                  <div>
-                    Final transaction review is reflected here when applicable. Deposit status is driven by alert or case closure.
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {data.finalAlert?.id ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/compliance/alerts/${data.finalAlert?.id}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open Final Alert
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                  {data.finalCase?.id ? (
-                    <button
-                      onClick={() => navigate(`/dashboard/compliance/cases/${data.finalCase?.id}`)}
-                      className="inline-flex items-center gap-1 text-brand-primary hover:underline"
-                    >
-                      Open Final Case
-                      <ExternalLink size={12} />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-          </DetailCard>
-
-          {/* 9. Audit & History */}
-          <DetailCard title="Audit Trail" icon={<Activity size={18} />} columns={1}>
-               <StatusTimeline historyJson={data.statusHistory} />
-          </DetailCard>
-        </div>
-
-        {/* Sidebar */}
-        <div className="w-[272px] shrink-0 space-y-4">
-          {/* ActionSection */}
-          {availableActions.length > 0 && (
-            <div className="bg-white rounded-lg border border-admin-border p-4">
-              <h3 className="text-sm font-medium text-gray-500 mb-3">Workflow Actions</h3>
-              {actionError && <p className="text-red-600 text-xs mb-2">{actionError}</p>}
-              <div className="space-y-2">
-                {availableActions.map((wa) => (
-                  <button
-                    key={wa.action}
-                    onClick={() => onActionClick(wa.action)}
-                    disabled={isSubmitting}
-                    className={`w-full px-3 py-2 rounded text-sm font-medium transition-colors ${
-                      wa.variant === 'workflowPrimary'
-                        ? 'bg-green-600 text-white hover:bg-green-700'
-                        : wa.variant === 'workflowNegative'
-                          ? 'bg-red-600 text-white hover:bg-red-700'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    } disabled:opacity-50`}
-                  >
-                    {isSubmitting ? 'Processing...' : wa.label}
-                  </button>
-                ))}
-              </div>
+          {/* 1. Hero */}
+          <div className="bg-adm-card px-6 py-5">
+            <div className="font-mono text-[19px] font-bold text-adm-amber">
+              {data.depositNo}
             </div>
-          )}
-
-          {/* Compliance Gates */}
-          <div className="bg-white rounded-lg border border-admin-border p-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Compliance Gates</h3>
-            <div className="space-y-2">
-              <GateBadge label="Customer" status={data.customer?.complianceStatus} />
-              <GateBadge label="KYT" status={data.kytStatus} />
-              <GateBadge label="Travel Rule" status={data.travelRuleStatus} />
-            </div>
-          </div>
-
-          {/* Identity */}
-          <div className="bg-white rounded-lg border border-admin-border p-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Identity</h3>
-            <div className="space-y-1 text-sm">
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Status</span>
+                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getDepositStatusBadgeClass(data.status)}`}>
+                  {formatStatusLabel(data.status)}
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Amount</span>
+                <span className="font-semibold text-adm-t1">{formatAssetAmount(data.amount, data.asset.decimals)} {data.asset.code}</span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Type</span>
+                <span className="text-adm-t1">{formatTransactionTypeLabel(data.type || data.asset.type)}</span>
+              </div>
               {data.ownerNo && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Owner</span>
+                <div>
+                  <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Owner</span>
                   <button
                     onClick={() => navigate(`/customers/${data.ownerId}`)}
-                    className="text-brand-primary hover:underline"
+                    className="text-adm-blue hover:underline"
                   >
                     {data.ownerNo}
                   </button>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-gray-500">Type</span>
-                <span>{data.ownerType}</span>
+            </div>
+          </div>
+
+          {/* 2. Compliance Gates */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Compliance Gates
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              {/* Gate 0: Customer */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${customerGate.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 0 · Customer</div>
+                <div className={`mt-1 text-sm font-bold ${customerGate.textColor}`}>{customerGate.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Sumsub</div>
+              </div>
+              {/* Gate 1: KYT */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${kytGate.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 1 · KYT</div>
+                <div className={`mt-1 text-sm font-bold ${kytGate.textColor}`}>{kytGate.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
+                  Risk: {data.kytRiskScore ?? '—'}
+                </div>
+                <div className="font-mono text-[10px] text-adm-t3">
+                  Checked: {data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : '—'}
+                </div>
+              </div>
+              {/* Gate 2: Travel Rule */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${trGate.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 2 · Travel Rule</div>
+                <div className={`mt-1 text-sm font-bold ${trGate.textColor}`}>
+                  {data.travelRuleRequired ? trGate.label : 'NOT REQUIRED'}
+                </div>
+                {data.travelRuleRequired && (
+                  <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
+                    Checked: {data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : '—'}
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Lifecycle */}
-          <div className="bg-white rounded-lg border border-admin-border p-4">
-            <h3 className="text-sm font-medium text-gray-500 mb-3">Lifecycle</h3>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Created</span>
-                <span>{new Date(data.createdAt).toLocaleString()}</span>
-              </div>
-              {data.completedAt && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Completed</span>
-                  <span>{new Date(data.completedAt).toLocaleString()}</span>
-                </div>
-              )}
+          {/* 3. Transaction Details */}
+          <DetailCard title="Transaction Details" columns={2}>
+            <InfoField label="Asset" value={`${data.asset.code} · ${data.asset.type} · ${data.asset.network || 'N/A'}`} />
+            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
+            <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
+            <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
+            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono />
+            <InfoField label="From Address" value={data.fromAddress} copyable onCopy={(v) => handleCopy(v, 'fromAddr')} isCopied={copiedField === 'fromAddr'} mono />
+            <InfoField label="To Wallet" value={data.toWalletNo} mono />
+            <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
+            <InfoField label="Reference No" value={data.referenceNo} mono />
+          </DetailCard>
+
+          {/* 4. Linked Payin (conditional) */}
+          {data.payinNo && (
+            <div className="px-6 py-5">
+              <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+                Linked Payin
+              </h3>
+              <LinkedRelationCard
+                cap="Payin"
+                identifier={data.payinNo}
+                statusValue={data.payinStatus ? normalizeRailDisplayStatus(data.payinStatus) : undefined}
+                meta={data.payinType ? formatTransactionTypeLabel(data.payinType) : undefined}
+                onClick={() => navigate(`/dashboard/treasury/payins/${data.payinId}`)}
+              />
+            </div>
+          )}
+
+          {/* 5. Status History */}
+          <DetailCard title="Status History" columns={1}>
+            <StatusTimeline historyJson={data.statusHistory} />
+          </DetailCard>
+
+          {/* 6. Technical Detail */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Technical Detail
+            </h3>
+            <InfoField label="Trace ID" value={data.traceId} mono />
+            <div className="mt-3">
+              <JsonBlock title="Status History (raw)" value={data.statusHistory} compact />
             </div>
           </div>
         </div>
+
+        {/* ── Sidebar ── */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+
+          {/* Actions */}
+          <SidebarGroup title="Actions">
+            {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
+            <div className="flex flex-col gap-2">
+              {actions.map((a) => {
+                const baseCls = a.variant === 'workflowPrimary'
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : a.variant === 'workflowNegative'
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
+                return (
+                  <button
+                    key={a.action}
+                    onClick={() => onActionClick(a.action, a.requiresReason)}
+                    disabled={!a.enabled || isSubmitting}
+                    className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
+                  </button>
+                );
+              })}
+            </div>
+          </SidebarGroup>
+
+          {/* Identity */}
+          <SidebarGroup title="Identity">
+            <SidebarKV label="Deposit No" value={data.depositNo} mono />
+            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
+            <SidebarKV
+              label="Owner"
+              value={
+                data.ownerNo ? (
+                  <button
+                    onClick={() => navigate(`/customers/${data.ownerId}`)}
+                    className="text-adm-blue hover:underline"
+                  >
+                    {data.ownerNo}
+                  </button>
+                ) : null
+              }
+            />
+            <SidebarKV label="Owner Type" value={data.ownerType} />
+            <SidebarKV label="Asset" value={data.asset.code} />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={new Date(data.createdAt).toLocaleString()} mono />
+            <SidebarKV
+              label="Completed"
+              value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}
+              mono
+            />
+          </SidebarGroup>
+        </div>
       </div>
 
-      {/* Reason Modal */}
+      {/* ── Reason Modal ── */}
       {isReasonModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[400px] shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[400px] rounded-lg bg-white p-6 shadow-xl">
             <h3 className="text-lg font-bold mb-4">Reason Required</h3>
             <textarea
-              className="w-full border rounded p-2 text-sm mb-4"
+              className="w-full rounded border p-2 text-sm mb-4"
               rows={3}
               placeholder="Enter reason for this action..."
               value={reasonText}
@@ -698,14 +390,14 @@ const DepositTransactionDetail = () => {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => { setIsReasonModalOpen(false); setReasonText(''); setPendingAction(''); }}
-                className="px-4 py-2 border rounded text-sm"
+                className="rounded border px-4 py-2 text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleAction(pendingAction, reasonText)}
                 disabled={isSubmitting || !reasonText.trim()}
-                className="px-4 py-2 bg-red-600 text-white rounded text-sm disabled:opacity-50"
+                className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
               >
                 {isSubmitting ? 'Processing...' : 'Confirm'}
               </button>
@@ -717,102 +409,76 @@ const DepositTransactionDetail = () => {
   );
 };
 
-// --- Timeline Component ---
+/* ── StatusTimeline (preserved from existing) ── */
+
 const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-    if (!historyJson) return <div className="text-gray-400 text-sm italic p-4 text-center">No history available</div>;
+  if (!historyJson) return <div className="text-adm-t3 text-sm italic p-4 text-center">No history available</div>;
 
-    let history: any[] = [];
-    try {
-        history = JSON.parse(historyJson);
-        // Ensure sorted by date descending (newest first)
-        history.sort((a, b) => new Date(b.timestamp || b.changedAt).getTime() - new Date(a.timestamp || a.changedAt).getTime());
-    } catch (e) {
-        return <div className="text-red-400 text-sm p-4">Error parsing history data</div>;
-    }
-
-    if (history.length === 0) return <div className="text-gray-400 text-sm italic p-4 text-center">No history events</div>;
-
-    return (
-        <div className="relative border-l-2 border-gray-100 ml-4 space-y-8 my-2">
-            {history.map((item, idx) => (
-                <div key={idx} className="ml-8 relative">
-                    {/* Dot on the line */}
-                    <span className="absolute flex items-center justify-center w-6 h-6 bg-white rounded-full -left-[44px] top-0 ring-4 ring-white">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(item.status)} shadow-sm`}></div>
-                    </span>
-                    
-                    {/* Content Card */}
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start bg-gray-50/50 p-4 rounded-lg border border-gray-100 hover:bg-white hover:shadow-sm transition-all duration-200">
-                        <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {formatStatusLabel(item.status)}
-                                </span>
-                            </div>
-                            <p className="text-sm text-gray-600 leading-relaxed">{item.reason || 'No reason provided'}</p>
-                            
-                            <div className="flex items-center gap-2 text-xs text-gray-400 pt-1">
-                                <User size={12} />
-                                <span className="font-mono">{item.operatorId || 'SYSTEM'}</span>
-                            </div>
-                        </div>
-                        
-                        <div className="mt-3 sm:mt-0 sm:ml-4 text-right shrink-0">
-                            <time className="block text-xs font-mono text-gray-500 bg-white px-2 py-1 rounded border border-gray-100">
-                                {new Date(item.timestamp || item.changedAt).toLocaleString()}
-                            </time>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
+  let history: any[] = [];
+  try {
+    history = JSON.parse(historyJson);
+    history.sort((a: any, b: any) =>
+      new Date(b.timestamp || b.changedAt).getTime() -
+      new Date(a.timestamp || a.changedAt).getTime(),
     );
-};
+  } catch {
+    return <div className="text-adm-red text-sm p-4">Error parsing history</div>;
+  }
 
-const GateBadge = ({ label, status }: { label: string; status?: string | null }) => {
-  const s = status || 'PENDING';
-  const style =
-    s === 'PASSED' || s === 'ACTIVE' || s === 'APPROVED' || s === 'CLEAR'
-      ? 'bg-green-50 text-green-700'
-      : s === 'FAILED' || s === 'FROZEN' || s === 'SUSPENDED' || s === 'BLOCKED' || s === 'REJECTED'
-        ? 'bg-red-50 text-red-700'
-        : 'bg-gray-50 text-gray-500';
+  if (history.length === 0) return <div className="text-adm-t3 text-sm italic p-4 text-center">No events</div>;
+
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span className={`px-2 py-0.5 rounded text-xs font-medium ${style}`}>{s}</span>
+    <div className="relative ml-4 space-y-6 border-l-2 border-adm-border my-2">
+      {history.map((item: any, idx: number) => (
+        <div key={idx} className="ml-8 relative">
+          <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
+            <div className={`h-3 w-3 rounded-full ${getTimelineDotColor(item.status)}`} />
+          </span>
+          <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
+            <div className="flex items-center gap-2">
+              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getTimelineBadge(item.status)}`}>
+                {formatStatusLabel(item.status)}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-adm-t2">{item.reason || 'No reason provided'}</p>
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
+              <User size={10} />
+              <span className="font-mono">{item.operatorId || item.actorType || 'SYSTEM'}</span>
+              <span>·</span>
+              <time className="font-mono">
+                {new Date(item.timestamp || item.changedAt).toLocaleString()}
+              </time>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
 
-const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'SUCCESS': return 'bg-green-500';
-        case 'FAILED': return 'bg-orange-500';
-        case 'REJECTED': return 'bg-red-500';
-        case 'CONFISCATED': return 'bg-red-700';
-        case 'COMPLIANCE_PENDING': return 'bg-purple-500';
-        case 'ACTION_PENDING': return 'bg-amber-500';
-        case 'FROZEN': return 'bg-cyan-500';
-        case 'PAYIN_PENDING': return 'bg-blue-500';
-        case 'EXPIRED': return 'bg-gray-400';
-        default: return 'bg-gray-300';
-    }
+const getTimelineDotColor = (status: string) => {
+  const map: Record<string, string> = {
+    SUCCESS: 'bg-green-500', FAILED: 'bg-orange-500', REJECTED: 'bg-red-500',
+    CONFISCATED: 'bg-red-700', COMPLIANCE_PENDING: 'bg-purple-500',
+    ACTION_PENDING: 'bg-amber-500', FROZEN: 'bg-cyan-500',
+    PAYIN_PENDING: 'bg-blue-500', EXPIRED: 'bg-gray-400',
+  };
+  return map[status] || 'bg-gray-300';
 };
 
-const getStatusBadgeStyle = (status: string) => {
-    switch (status) {
-        case 'SUCCESS': return 'bg-green-50 text-green-700 border-green-200';
-        case 'FAILED': return 'bg-orange-50 text-orange-700 border-orange-200';
-        case 'REJECTED': return 'bg-red-50 text-red-700 border-red-200';
-        case 'CONFISCATED': return 'bg-red-100 text-red-800 border-red-300';
-        case 'COMPLIANCE_PENDING': return 'bg-purple-50 text-purple-700 border-purple-200';
-        case 'ACTION_PENDING': return 'bg-amber-50 text-amber-700 border-amber-200';
-        case 'FROZEN': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
-        case 'PAYIN_PENDING': return 'bg-blue-50 text-blue-700 border-blue-200';
-        case 'EXPIRED': return 'bg-gray-50 text-gray-700 border-gray-200';
-        default: return 'bg-gray-50 text-gray-700 border-gray-200';
-    }
+const getTimelineBadge = (status: string) => {
+  const map: Record<string, string> = {
+    SUCCESS: 'bg-green-50 text-green-700 border-green-200',
+    FAILED: 'bg-orange-50 text-orange-700 border-orange-200',
+    REJECTED: 'bg-red-50 text-red-700 border-red-200',
+    CONFISCATED: 'bg-red-100 text-red-800 border-red-300',
+    COMPLIANCE_PENDING: 'bg-purple-50 text-purple-700 border-purple-200',
+    ACTION_PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
+    FROZEN: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    PAYIN_PENDING: 'bg-blue-50 text-blue-700 border-blue-200',
+    EXPIRED: 'bg-gray-50 text-gray-700 border-gray-200',
+  };
+  return map[status] || 'bg-gray-50 text-gray-700 border-gray-200';
 };
 
 export default DepositTransactionDetail;
