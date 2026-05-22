@@ -350,22 +350,27 @@ export class AdminSumsubSimulationController {
   @ApiOperation({ summary: 'Simulate KYT (Know Your Transaction) check result' })
   async simulateKytCheck(
     @Req() req: any,
-    @Body() body: { txHash: string; result: 'PASS' | 'FAIL'; riskScore?: number },
+    @Body() body: { depositNo?: string; txHash?: string; result: 'PASS' | 'FAIL'; riskScore?: number },
   ) {
     this.ensureAdmin(req);
 
-    if (!body.txHash || !body.result) {
-      throw new BadRequestException('txHash and result (PASS|FAIL) are required');
+    if (!body.depositNo && !body.txHash) {
+      throw new BadRequestException('depositNo or txHash is required');
     }
-    if (!['PASS', 'FAIL'].includes(body.result)) {
+    if (!body.result || !['PASS', 'FAIL'].includes(body.result)) {
       throw new BadRequestException('result must be PASS or FAIL');
     }
 
-    const deposit = await (this.prisma as any).depositTransaction.findFirst({
-      where: { txHash: body.txHash },
-    });
+    const where = body.depositNo
+      ? { depositNo: body.depositNo }
+      : { txHash: body.txHash };
+    const deposit = await (this.prisma as any).depositTransaction.findFirst({ where });
     if (!deposit) {
-      throw new NotFoundException(`No deposit found with txHash: ${body.txHash}`);
+      throw new NotFoundException(
+        body.depositNo
+          ? `No deposit found with depositNo: ${body.depositNo}`
+          : `No deposit found with txHash: ${body.txHash}`,
+      );
     }
 
     const kytStatus = body.result === 'PASS' ? 'PASSED' : 'FAILED';
@@ -390,22 +395,27 @@ export class AdminSumsubSimulationController {
   @ApiOperation({ summary: 'Simulate Travel Rule (TR) check result' })
   async simulateTrCheck(
     @Req() req: any,
-    @Body() body: { txHash: string; result: 'PASS' | 'FAIL' },
+    @Body() body: { depositNo?: string; txHash?: string; result: 'PASS' | 'FAIL' },
   ) {
     this.ensureAdmin(req);
 
-    if (!body.txHash || !body.result) {
-      throw new BadRequestException('txHash and result (PASS|FAIL) are required');
+    if (!body.depositNo && !body.txHash) {
+      throw new BadRequestException('depositNo or txHash is required');
     }
-    if (!['PASS', 'FAIL'].includes(body.result)) {
+    if (!body.result || !['PASS', 'FAIL'].includes(body.result)) {
       throw new BadRequestException('result must be PASS or FAIL');
     }
 
-    const deposit = await (this.prisma as any).depositTransaction.findFirst({
-      where: { txHash: body.txHash },
-    });
+    const where = body.depositNo
+      ? { depositNo: body.depositNo }
+      : { txHash: body.txHash };
+    const deposit = await (this.prisma as any).depositTransaction.findFirst({ where });
     if (!deposit) {
-      throw new NotFoundException(`No deposit found with txHash: ${body.txHash}`);
+      throw new NotFoundException(
+        body.depositNo
+          ? `No deposit found with depositNo: ${body.depositNo}`
+          : `No deposit found with txHash: ${body.txHash}`,
+      );
     }
 
     const trStatus = body.result === 'PASS' ? 'PASSED' : 'FAILED';
@@ -418,7 +428,7 @@ export class AdminSumsubSimulationController {
 
     return {
       depositId: deposit.id,
-      depositNo: (deposit as any).depositNo,
+      depositNo: deposit.depositNo,
       travelRuleStatus: trStatus,
       message: `Travel Rule check simulated: ${trStatus}`,
     };
