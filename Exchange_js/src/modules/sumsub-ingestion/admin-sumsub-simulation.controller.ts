@@ -6,8 +6,6 @@ import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
-import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
-import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
 
 @ApiTags('Admin - Sumsub Simulation')
 @Controller('admin/sumsub/simulate')
@@ -20,8 +18,6 @@ export class AdminSumsubSimulationController {
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
-    private readonly depositWorkflowService: DepositWorkflowService,
-    private readonly depositTransactionsService: DepositTransactionsService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -152,45 +148,25 @@ export class AdminSumsubSimulationController {
       where: { id: assessment.customerId },
     });
 
-    if (body.decision === 'APPROVE') {
-      // False positive: clear freeze
-      await this.prisma.customerMain.update({
-        where: { id: customer!.id },
-        data: { complianceStatus: 'CLEAR', complianceFreezeReason: null },
-      });
-      await this.prisma.clientRiskAssessment.update({
-        where: { id: assessment.id },
-        data: {
-          status: 'SIGNED',
-          signedBy: 'SUMSUB_MLRO',
-          signedAt: new Date(),
-          sumsubCaseFinalDecision: 'APPROVE',
-          sumsubCaseDecidedAt: new Date(),
-        },
-      });
-    } else {
-      // True match: offboard
-      await this.prisma.customerMain.update({
-        where: { id: customer!.id },
-        data: {
-          onboardingStatus: 'REJECTED',
-          adminStatus: 'INACTIVE',
-          complianceStatus: 'FROZEN',
-        },
-      });
-      await this.prisma.clientRiskAssessment.update({
-        where: { id: assessment.id },
-        data: {
-          status: 'SIGNED',
-          signedBy: 'SUMSUB_MLRO',
-          signedAt: new Date(),
-          sumsubCaseFinalDecision: 'REJECT',
-          sumsubCaseDecidedAt: new Date(),
-        },
-      });
-    }
-
-    return { ok: true };
+    const { event, dispatchResult } = await this.ingestionService.ingest(
+      {
+        type: 'caseDecisionSimulated',
+        applicantId: customer!.sumsubApplicantId ?? '',
+        externalUserId: customer!.id,
+        assessmentId: assessment.id,
+        customerId: customer!.id,
+        decision: body.decision,
+        reason: body.reason,
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION', context: 'CASE_DECISION' },
+    );
+    const dr = dispatchResult as any;
+    return {
+      ok: true,
+      assessmentId: dr?.assessmentId,
+      decision: dr?.decision,
+      eventNo: event.eventNo,
+    };
   }
 
   @Post('risk-assessment-scenario')
@@ -373,21 +349,25 @@ export class AdminSumsubSimulationController {
       );
     }
 
-    const kytStatus = body.result === 'PASS' ? 'PASSED' : 'FAILED';
-    await this.depositTransactionsService.updateKytStatus(
-      deposit.id,
-      kytStatus,
-      body.riskScore ?? null,
+    const { event, dispatchResult } = await this.ingestionService.ingest(
+      {
+        type: 'kytCheckSimulated',
+        externalUserId: deposit.depositNo,
+        depositId: deposit.id,
+        depositNo: deposit.depositNo,
+        result: body.result,
+        riskScore: body.riskScore ?? null,
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION', context: 'KYT_CHECK' },
     );
-
-    await this.depositWorkflowService.checkAutoApproval(deposit.id);
-
+    const dr = dispatchResult as any;
     return {
-      depositId: deposit.id,
+      depositId: dr?.depositId,
       depositNo: deposit.depositNo,
-      kytStatus,
-      riskScore: body.riskScore ?? null,
-      message: `KYT check simulated: ${kytStatus}`,
+      kytStatus: dr?.kytStatus,
+      riskScore: dr?.riskScore ?? null,
+      message: `KYT check simulated: ${dr?.kytStatus}`,
+      eventNo: event.eventNo,
     };
   }
 
@@ -418,19 +398,23 @@ export class AdminSumsubSimulationController {
       );
     }
 
-    const trStatus = body.result === 'PASS' ? 'PASSED' : 'FAILED';
-    await this.depositTransactionsService.updateTravelRuleStatus(
-      deposit.id,
-      trStatus,
+    const { event, dispatchResult } = await this.ingestionService.ingest(
+      {
+        type: 'travelRuleCheckSimulated',
+        externalUserId: deposit.depositNo,
+        depositId: deposit.id,
+        depositNo: deposit.depositNo,
+        result: body.result,
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION', context: 'TRAVEL_RULE_CHECK' },
     );
-
-    await this.depositWorkflowService.checkAutoApproval(deposit.id);
-
+    const dr = dispatchResult as any;
     return {
-      depositId: deposit.id,
+      depositId: dr?.depositId,
       depositNo: deposit.depositNo,
-      travelRuleStatus: trStatus,
-      message: `Travel Rule check simulated: ${trStatus}`,
+      travelRuleStatus: dr?.trStatus,
+      message: `Travel Rule check simulated: ${dr?.trStatus}`,
+      eventNo: event.eventNo,
     };
   }
 }
