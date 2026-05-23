@@ -10,6 +10,8 @@ import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
 import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
+import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
+import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
@@ -27,13 +29,19 @@ export class SumsubIngestionService {
     private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
     private readonly materialRefreshService: MaterialRefreshService,
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
+    private readonly depositTransactionsService: DepositTransactionsService,
+    private readonly depositWorkflowService: DepositWorkflowService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
 
   async ingest(
     rawPayload: Record<string, unknown>,
-    options: { isSimulated?: boolean; simulatedByUserId?: string } = {},
+    options: {
+      isSimulated?: boolean;
+      simulatedByUserId?: string;
+      context?: string;
+    } = {},
   ): Promise<{ event: SumsubWebhookEvent; dispatchResult?: unknown }> {
     const eventType = String(rawPayload.type ?? 'unknown');
     const applicantId = String(rawPayload.applicantId ?? '');
@@ -65,6 +73,7 @@ export class SumsubIngestionService {
       rawPayload,
       isSimulated: options.isSimulated ?? false,
       simulatedByUserId: options.simulatedByUserId ?? null,
+      context: options.context ?? 'ONBOARDING',
     });
 
     if (options.isSimulated) {
@@ -99,8 +108,62 @@ export class SumsubIngestionService {
         reviewRejectType?: string;
       } | null;
 
+      // ── Synthetic simulation event types (exact eventType match, highest priority) ──
+      if (event.eventType === 'kytCheckSimulated') {
+        const depositId = String(payload.depositId ?? '');
+        const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
+        const riskScore = (payload.riskScore as number | null) ?? null;
+        await this.depositTransactionsService.updateKytStatus(depositId, kytStatus, riskScore);
+        await this.depositWorkflowService.checkAutoApproval(depositId);
+        result = { depositId, kytStatus, riskScore };
+        dispatchedContext = 'KYT_CHECK';
+      } else if (event.eventType === 'travelRuleCheckSimulated') {
+        const depositId = String(payload.depositId ?? '');
+        const trStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
+        await this.depositTransactionsService.updateTravelRuleStatus(depositId, trStatus);
+        await this.depositWorkflowService.checkAutoApproval(depositId);
+        result = { depositId, trStatus };
+        dispatchedContext = 'TRAVEL_RULE_CHECK';
+      } else if (event.eventType === 'caseDecisionSimulated') {
+        const assessmentId = String(payload.assessmentId ?? '');
+        const customerId = String(payload.customerId ?? '');
+        const decision = String(payload.decision ?? '');
+        if (decision === 'APPROVE') {
+          await this.prisma.customerMain.update({
+            where: { id: customerId },
+            data: { complianceStatus: 'CLEAR', complianceFreezeReason: null },
+          });
+          await this.prisma.clientRiskAssessment.update({
+            where: { id: assessmentId },
+            data: {
+              status: 'SIGNED',
+              signedBy: 'SUMSUB_MLRO',
+              signedAt: new Date(),
+              sumsubCaseFinalDecision: 'APPROVE',
+              sumsubCaseDecidedAt: new Date(),
+            },
+          });
+        } else {
+          await this.prisma.customerMain.update({
+            where: { id: customerId },
+            data: { onboardingStatus: 'REJECTED', adminStatus: 'INACTIVE', complianceStatus: 'FROZEN' },
+          });
+          await this.prisma.clientRiskAssessment.update({
+            where: { id: assessmentId },
+            data: {
+              status: 'SIGNED',
+              signedBy: 'SUMSUB_MLRO',
+              signedAt: new Date(),
+              sumsubCaseFinalDecision: 'REJECT',
+              sumsubCaseDecidedAt: new Date(),
+            },
+          });
+        }
+        result = { assessmentId, decision };
+        dispatchedContext = 'CASE_DECISION';
+      }
       // Clue 1: explicit reviewMode → ongoing doc monitoring
-      if (reviewMode === 'ongoingDocExpired') {
+      else if (reviewMode === 'ongoingDocExpired') {
         result = await this.materialRefreshService.handleSumsubDocMonitoringFire({ applicantId });
         dispatchedContext = 'MATERIAL_REFRESH_MONITORING';
       }
@@ -388,6 +451,7 @@ export class SumsubIngestionService {
     rawPayload: Record<string, unknown>;
     isSimulated: boolean;
     simulatedByUserId: string | null;
+    context: string;
   }): Promise<SumsubWebhookEvent> {
     for (let i = 0; i < MAX_NO_RETRIES; i++) {
       try {
@@ -397,7 +461,7 @@ export class SumsubIngestionService {
             eventType: data.eventType,
             applicantId: data.applicantId,
             externalUserId: data.externalUserId,
-            context: 'ONBOARDING',
+            context: data.context,
             rawPayload: JSON.stringify(data.rawPayload),
             receivedAt: new Date(),
             status: 'PENDING',
