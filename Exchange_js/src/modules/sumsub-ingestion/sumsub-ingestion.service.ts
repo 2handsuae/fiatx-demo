@@ -128,6 +128,10 @@ export class SumsubIngestionService {
         const assessmentId = String(payload.assessmentId ?? '');
         const customerId = String(payload.customerId ?? '');
         const decision = String(payload.decision ?? '');
+        const assessment = await this.prisma.clientRiskAssessment.findUnique({ where: { id: assessmentId } });
+        if (!assessment || assessment.status !== 'ESCALATED_TO_SUMSUB') {
+          throw new Error(`Assessment ${assessmentId} is not in ESCALATED_TO_SUMSUB status`);
+        }
         if (decision === 'APPROVE') {
           await this.prisma.customerMain.update({
             where: { id: customerId },
