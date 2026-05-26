@@ -549,10 +549,11 @@ export class InboundTransferSignalsService {
     if (!wallet) {
       throw new NotFoundException('Wallet not found');
     }
+    const DEPOSIT_WALLET_ROLES = new Set([WalletRole.C_DEP, WalletRole.C_VIBAN]);
     if (
       wallet.ownerType !== 'CUSTOMER' ||
       wallet.ownerId !== customerId ||
-      wallet.walletRole !== WalletRole.C_DEP
+      !DEPOSIT_WALLET_ROLES.has(wallet.walletRole as WalletRole)
     ) {
       throw new ForbiddenException('Customer can only use own deposit wallet');
     }

@@ -504,4 +504,54 @@ describe('InboundTransferSignalsService', () => {
       }),
     ]);
   });
+
+  it('should accept C_VIBAN wallet role for fiat deposit signal creation', async () => {
+    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    prisma.wallet.findUnique.mockResolvedValue({
+      id: 'wallet-viban-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      direction: 'INBOUND',
+      walletRole: 'C_VIBAN',
+      status: 'ACTIVE',
+      assetId: 'asset-fiat-1',
+      asset: { type: 'FIAT' },
+    });
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
+    prisma.inboundTransferSignal.create.mockResolvedValue({
+      id: 'sig-viban-1',
+      signalNo: 'SIG-VIBAN-1',
+      ownerId: 'cust-1',
+      walletId: 'wallet-viban-1',
+      assetId: 'asset-fiat-1',
+      status: InboundTransferSignalStatus.PENDING_SCAN,
+    });
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce({
+      id: 'sig-viban-1',
+      signalNo: 'SIG-VIBAN-1',
+      ownerId: 'cust-1',
+      walletId: 'wallet-viban-1',
+      assetId: 'asset-fiat-1',
+      status: InboundTransferSignalStatus.PENDING_SCAN,
+    });
+
+    const result = await service.createForCustomer('cust-1', {
+      walletId: 'wallet-viban-1',
+      amount: '500.00',
+      referenceNo: 'REF-VIBAN-1',
+      fromIban: 'IBAN-VIBAN-1',
+    });
+
+    expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ownerId: 'cust-1',
+          walletId: 'wallet-viban-1',
+          assetId: 'asset-fiat-1',
+          status: InboundTransferSignalStatus.PENDING_SCAN,
+        }),
+      }),
+    );
+    expect(result.id).toBe('sig-viban-1');
+  });
 });
