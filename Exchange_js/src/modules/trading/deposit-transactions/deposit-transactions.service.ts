@@ -304,11 +304,17 @@ export class DepositTransactionsService {
   }
 
   async initializeComplianceGates(id: string) {
+    const deposit = await (this.prisma as any).depositTransaction.findUnique({
+      where: { id },
+      include: { asset: true },
+    });
+    const isCrypto = deposit?.asset?.type === 'CRYPTO';
+
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: {
-        travelRuleRequired: true,
-        travelRuleStatus: 'PENDING',
+        travelRuleRequired: isCrypto,
+        travelRuleStatus: isCrypto ? 'PENDING' : 'NOT_REQUIRED',
       },
     });
   }

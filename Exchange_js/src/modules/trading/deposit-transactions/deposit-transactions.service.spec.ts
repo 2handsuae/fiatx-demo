@@ -321,12 +321,15 @@ describe('DepositTransactionsService', () => {
     });
   });
 
-  describe('Compliance Gate Methods', () => {
-    it('initializeComplianceGates sets travelRule fields', async () => {
-      const mockRecord = { id: 'dep-1', travelRuleRequired: true, travelRuleStatus: 'PENDING' };
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+  describe('initializeComplianceGates', () => {
+    it('CRYPTO asset → travelRuleRequired true, travelRuleStatus PENDING', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        asset: { type: 'CRYPTO' },
+      });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
 
-      const result = await service.initializeComplianceGates('dep-1');
+      await service.initializeComplianceGates('dep-1');
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
@@ -335,8 +338,28 @@ describe('DepositTransactionsService', () => {
           travelRuleStatus: 'PENDING',
         },
       });
-      expect(result.travelRuleStatus).toBe('PENDING');
     });
+
+    it('FIAT asset → travelRuleRequired false, travelRuleStatus NOT_REQUIRED', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        asset: { type: 'FIAT' },
+      });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
+
+      await service.initializeComplianceGates('dep-1');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: {
+          travelRuleRequired: false,
+          travelRuleStatus: 'NOT_REQUIRED',
+        },
+      });
+    });
+  });
+
+  describe('Compliance Gate Methods', () => {
 
     it('updateKytStatus sets kytStatus, riskScore, and checkedAt', async () => {
       const mockRecord = { id: 'dep-1', kytStatus: 'PASSED', kytRiskScore: 15, kytCheckedAt: new Date() };
