@@ -196,5 +196,29 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
+
+    it('approves fiat deposit when kytStatus=PASSED and travelRuleStatus=NOT_REQUIRED', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-fiat-1',
+        depositNo: 'DEP-FIAT-001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        kytStatus: 'PASSED',
+        travelRuleStatus: 'NOT_REQUIRED',
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        assetId: 'asset-usd',
+        amount: '500',
+        payinId: 'payin-fiat-1',
+        traceId: 'trace-fiat-1',
+        asset: { currency: 'USD', tbLedgerId: 3, decimals: 2 },
+      });
+      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      depositService.updateStatus.mockResolvedValue({});
+
+      await service.checkAutoApproval('dep-fiat-1');
+
+      expect(depositService.findOne).toHaveBeenCalledWith('dep-fiat-1');
+      expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-fiat-1');
+    });
   });
 });

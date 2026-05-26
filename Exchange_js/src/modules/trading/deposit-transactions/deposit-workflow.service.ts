@@ -123,7 +123,7 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    if (deposit.travelRuleStatus !== 'PASSED') {
+    if (deposit.travelRuleStatus !== 'PASSED' && deposit.travelRuleStatus !== 'NOT_REQUIRED') {
       this.logger.debug(
         `Auto-approval skip: deposit ${depositId} travelRuleStatus=${deposit.travelRuleStatus}`,
       );
