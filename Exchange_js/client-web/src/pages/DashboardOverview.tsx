@@ -2,9 +2,6 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   RefreshCw,
-  ArrowDownCircle,
-  ArrowUpCircle,
-  ArrowLeftRight,
   Lock,
   History,
   AlertCircle,
@@ -20,8 +17,8 @@ import {
 
 /* ────────────────────────────────────────────────────────────────
  *  Overview — FIATX Terminal dialect.
- *  Compact portfolio view. Holdings table + quick actions.
- *  No marketing copy, no external API calls, no rate speculation.
+ *  Portfolio value in AED, holdings with AED valuation, and
+ *  indicative exchange rates. No external API calls.
  * ──────────────────────────────────────────────────────────────── */
 
 interface AssetData {
@@ -37,10 +34,24 @@ interface AssetData {
 interface PlatformAsset {
   id: string;
   code: string;
+  currency: string;
   type: string;
   status: string;
   name?: string;
   decimals?: number;
+}
+
+/* ─── Indicative rates: asset → AED ──────────────────────────── */
+
+const RATES_TO_AED: Record<string, number> = {
+  AED: 1.0,
+  USDT: 3.6725,
+  USDC: 3.6725,
+  USD: 3.6725,
+};
+
+function getAedRate(code: string, currency: string): number | null {
+  return RATES_TO_AED[code] ?? RATES_TO_AED[currency] ?? null;
 }
 
 /* ─── Section heading — matches Profile page pattern ─────────── */
@@ -58,31 +69,6 @@ function SectionTitle({
       </h2>
       {right}
     </div>
-  );
-}
-
-/* ─── Quick-action button ────────────────────────────────────── */
-function ActionButton({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="group flex items-center gap-2.5 rounded-none border border-fx-rule px-5 py-3 transition-colors hover:border-fx-brass/40 hover:bg-fx-brass/5 active:bg-fx-brass/10"
-    >
-      <span className="text-fx-dust group-hover:text-fx-brass transition-colors">
-        {icon}
-      </span>
-      <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fx-dune group-hover:text-fx-sand transition-colors">
-        {label}
-      </span>
-    </button>
   );
 }
 
@@ -154,69 +140,32 @@ const DashboardOverview = () => {
   if (loading && assets.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <RefreshCw
-          className="animate-spin text-fx-dust"
-          size={20}
-        />
+        <RefreshCw className="animate-spin text-fx-dust" size={20} />
       </div>
     );
   }
 
-  /* ── Merged list: platform assets with user balances ─────────── */
+  /* ── Merged list: platform assets with user balances + AED ───── */
   const rows = platformAssets.map((pa) => {
     const ua = assets.find((a) => a.assetCode === pa.code);
     const available = ua ? parseFloat(ua.clientCredit) : 0;
     const locked = ua ? parseFloat(ua.lockedBalance) : 0;
     const decimals = pa.decimals ?? ua?.assetDecimals;
-    return { ...pa, available, locked, decimals, assetId: pa.id };
+    const rate = getAedRate(pa.code, pa.currency);
+    const totalBalance = available + locked;
+    const aedValue = rate !== null ? totalBalance * rate : null;
+    return { ...pa, available, locked, decimals, assetId: pa.id, rate, aedValue };
   });
 
   const nonZeroCount = rows.filter(
     (r) => r.available > 0 || r.locked > 0,
   ).length;
 
+  const totalAed = rows.reduce((sum, r) => sum + (r.aedValue ?? 0), 0);
+
   return (
     <div className="space-y-10">
-      {/* ── Page header ───────────────────────────────────────── */}
-      <div>
-        <h1 className="fx-display font-light text-[28px] text-fx-sand leading-tight">
-          Overview
-        </h1>
-        <p className="mt-2 font-mono text-[11px] text-fx-dust tracking-wide">
-          {nonZeroCount} asset{nonZeroCount !== 1 ? 's' : ''} with balance
-          {' · '}
-          {platformAssets.length} supported
-        </p>
-      </div>
-
-      {/* ── Quick actions ─────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Actions</SectionTitle>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <ActionButton
-            icon={<ArrowDownCircle size={14} />}
-            label="Deposit"
-            onClick={() => navigate('/deposit')}
-          />
-          <ActionButton
-            icon={<ArrowUpCircle size={14} />}
-            label="Withdraw"
-            onClick={() => navigate('/withdraw')}
-          />
-          <ActionButton
-            icon={<ArrowLeftRight size={14} />}
-            label="Swap"
-            onClick={() => navigate('/swap')}
-          />
-          <ActionButton
-            icon={<History size={14} />}
-            label="History"
-            onClick={() => navigate('/transactions')}
-          />
-        </div>
-      </div>
-
-      {/* ── Holdings ──────────────────────────────────────────── */}
+      {/* ── Portfolio Value ────────────────────────────────────── */}
       <div>
         <SectionTitle
           right={
@@ -232,8 +181,32 @@ const DashboardOverview = () => {
             </button>
           }
         >
-          Holdings
+          Portfolio Value
         </SectionTitle>
+        <div className="mt-5">
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono text-[9px] text-fx-dust tracking-wide">≈</span>
+            <span className="font-mono text-[36px] font-light tabular-nums text-fx-sand leading-none tracking-tight">
+              {totalAed.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+            <span className="font-mono text-[14px] text-fx-brass tracking-wide">
+              AED
+            </span>
+          </div>
+          <p className="mt-3 font-mono text-[11px] text-fx-dust tracking-wide">
+            {nonZeroCount} asset{nonZeroCount !== 1 ? 's' : ''} with balance
+            {' · '}
+            {platformAssets.length} supported
+          </p>
+        </div>
+      </div>
+
+      {/* ── Holdings ──────────────────────────────────────────── */}
+      <div>
+        <SectionTitle>Holdings</SectionTitle>
 
         {error ? (
           <div className="mt-8 flex flex-col items-center gap-3 text-center">
@@ -263,13 +236,16 @@ const DashboardOverview = () => {
               <div className="col-span-2 font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70">
                 Type
               </div>
-              <div className="col-span-3 font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 text-right">
+              <div className="col-span-2 font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 text-right">
                 Available
               </div>
               <div className="col-span-2 font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 text-right">
                 Locked
               </div>
-              <div className="col-span-2" />
+              <div className="col-span-2 font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 text-right">
+                ≈ AED
+              </div>
+              <div className="col-span-1" />
             </div>
 
             {/* Rows */}
@@ -301,7 +277,7 @@ const DashboardOverview = () => {
                     </div>
 
                     {/* Available */}
-                    <div className="col-span-3 text-right">
+                    <div className="col-span-2 text-right">
                       <span
                         className={`font-mono text-[13px] tabular-nums ${
                           row.available > 0 ? 'text-fx-sand' : 'text-fx-dust'
@@ -325,28 +301,88 @@ const DashboardOverview = () => {
                       </span>
                     </div>
 
+                    {/* ≈ AED */}
+                    <div className="col-span-2 text-right">
+                      <span
+                        className={`font-mono text-[13px] tabular-nums ${
+                          row.aedValue !== null && row.aedValue > 0
+                            ? 'text-fx-sand'
+                            : 'text-fx-dust'
+                        }`}
+                      >
+                        {row.aedValue !== null
+                          ? formatAssetAmount(row.aedValue, 2)
+                          : '—'}
+                      </span>
+                    </div>
+
                     {/* History link */}
-                    <div className="col-span-2 flex justify-end">
+                    <div className="col-span-1 flex justify-end">
                       <button
                         onClick={() =>
                           navigate(`/transactions?assetId=${row.assetId}`)
                         }
-                        className="flex items-center gap-1 text-fx-dust hover:text-fx-brass transition-colors"
+                        className="text-fx-dust hover:text-fx-brass transition-colors"
                         title={`${row.code} history`}
                       >
                         <History size={12} />
-                        <span className="hidden lg:inline font-mono text-[9px] uppercase tracking-[0.10em]">
-                          Ledger
-                        </span>
                       </button>
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Total row */}
+            <div className="grid grid-cols-12 gap-4 items-center px-4 py-3 border-t border-fx-rule">
+              <div className="col-span-9" />
+              <div className="col-span-2 text-right">
+                <span className="font-mono text-[13px] tabular-nums text-fx-sand font-medium">
+                  {formatAssetAmount(totalAed, 2)}
+                </span>
+              </div>
+              <div className="col-span-1 text-right">
+                <span className="font-mono text-[9px] uppercase tracking-[0.10em] text-fx-dust">
+                  AED
+                </span>
+              </div>
+            </div>
           </>
         )}
       </div>
+
+      {/* ── Indicative Rates ──────────────────────────────────── */}
+      {platformAssets.length > 0 && (
+        <div>
+          <SectionTitle>Indicative Rates</SectionTitle>
+          <div className="mt-4 space-y-0 divide-y divide-fx-rule/50">
+            {platformAssets.map((pa) => {
+              const rate = getAedRate(pa.code, pa.currency);
+              return (
+                <div
+                  key={pa.id}
+                  className="flex items-center justify-between px-4 py-2.5"
+                >
+                  <span className="font-mono text-[12px] text-fx-dune">
+                    {pa.currency}
+                  </span>
+                  <span className="font-mono text-[12px] tabular-nums text-fx-sand">
+                    {rate !== null
+                      ? `${rate.toLocaleString('en-US', {
+                          minimumFractionDigits: 4,
+                          maximumFractionDigits: 4,
+                        })} AED`
+                      : '—'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 px-4 font-mono text-[9px] text-fx-dust/60 tracking-wide">
+            Indicative only · AED pegged at 3.6725 AED/USD
+          </p>
+        </div>
+      )}
     </div>
   );
 };
