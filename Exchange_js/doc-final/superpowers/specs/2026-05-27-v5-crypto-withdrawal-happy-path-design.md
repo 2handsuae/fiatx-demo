@@ -15,7 +15,7 @@
 | 触发 | 链上到账（被动） | 客户发起（主动） |
 | TB 机制 | 两步 Posted Transfer（经 CLIENT_AUDIT 中转） | 两阶段 Pending Transfer（CLIENT_CREDIT → CUSTODY / FEE_RECEIVABLE） |
 | 为何不同 | 充值资金来自外部，需 CLIENT_AUDIT "隔离区" | 提现资金已在客户账户，TB pending 原生锁定即可 |
-| 合规时序 | KYT 阻塞在记账之前 | 地址筛查+TR 阻塞在 payout 之前；KYT 异步在 payout 之后 |
+| 合规时序 | KYT 阻塞在记账之前 | KYT Phase 1（预筛）+ TR 阻塞在 payout 之前；KYT Phase 2（txHash 补全）异步在 payout 之后 |
 | 记账时点 | STEP_1(到账确认) + STEP_2(合规通过) | 一次性 POST pending（链上确认时） |
 | 取消/失败 | 充值一般不可取消 | VOID pending transfer → 余额自动恢复 |
 
@@ -36,8 +36,8 @@ V5 提现相反：资金已在客户 CLIENT_CREDIT 账户中。只需要"冻结"
 
 1. 编排层：`withdraw-workflow.orchestrator.ts` → 标准 `withdraw-workflow.service.ts`（3-Layer）
 2. 新增：TB pending/post/void 调用（AccountingService 扩展）
-3. 新增：Gate 0 / Gate 1(Address Screening) / Gate 2(Travel Rule) 门控
-4. 新增：Sumsub KYT 异步回调处理
+3. 新增：Gate 0 / Gate 1(KYT 预筛) / Gate 2(Travel Rule) 门控
+4. 新增：Sumsub KYT Phase 2 异步回调处理（txHash 补全）
 5. 迁移：审计日志从 WithdrawAuditLog → AuditLogsService
 
 ---
@@ -56,7 +56,7 @@ V5 提现相反：资金已在客户 CLIENT_CREDIT 账户中。只需要"冻结"
                │               │  ② CLIENT_CREDIT→FEE_RECEIVABLE (feeAmount)
                └───────┬───────┘
                        │ Gate 0 PASS
-                       │ Gate 1 PASS (Address Screening)
+                       │ Gate 1 PASS (KYT Phase 1 预筛)
                        │ Gate 2 PASS (Travel Rule ACK)
                        ▼
                ┌───────────────┐
@@ -74,7 +74,7 @@ V5 提现相反：资金已在客户 CLIENT_CREDIT 账户中。只需要"冻结"
 Happy path 只涉及三个状态：`COMPLIANCE_PENDING` → `PAYOUT_PENDING` → `SUCCESS`。
 
 异常分支（本 spec 不实现，后续 spec 补充）使用的状态：
-- `FROZEN`：Gate 0/1 失败，合规冻结
+- `FROZEN`：Gate 0 客户异常 / Gate 1 KYT 预筛失败，合规冻结
 - `UNDER_REVIEW`：大额审批门或人工审核
 - `FAILED`：Payout 链上失败
 - `CANCELLED`：Gate 2 TR 超时/拒绝，或客户取消
@@ -199,16 +199,27 @@ private async runGate0(withdrawId: string) {
 }
 ```
 
-### 4.2 Gate 1 — 目标地址筛查（Address Screening）
+### 4.2 Gate 1 — KYT（两阶段模型）
 
-提现前检查目标地址是否在制裁名单或高风险地址库中。
+提现方向的 KYT 是**一个流程、两个阶段**，与充值 KYT（单阶段阻塞）不同：
 
+| 阶段 | 时机 | 输入 | 输出 | 是否阻塞 |
+|------|------|------|------|----------|
+| **Phase 1（预筛）** | Payout 之前 | 目标地址 + 金额 + 币种 | 地址风险评分 + 初步 PASS/FAIL | **阻塞** — Gate 1 放行条件 |
+| **Phase 2（完整）** | Payout 广播后 | 补提 txHash 到同一笔 KYT 记录 | 完整链上分析 + 最终风险评分 | **不阻塞** — 更新同一个 kytStatus |
+
+**Phase 1（预筛，阻塞门）：**
 - **触发时机**：Gate 0 通过后立即发起
-- **Provider**：Sumsub Address Screening API
-- **Happy path 行为**：地址通过筛查 → `addressScreeningStatus = 'PASSED'`
-- **字段**：WithdrawTransaction 新增 `addressScreeningStatus`（PENDING → PASSED / FAILED）、`addressScreeningId`、`addressScreenedAt`
+- **Provider**：Sumsub KYT API — 提交目标地址 + 金额 + 币种，创建 KYT screening 记录
+- **Happy path 行为**：Sumsub 返回地址预筛 PASS → `kytStatus = 'PASSED'`
+- **Gate 1 放行条件**：`kytStatus === 'PASSED'`
+- **字段**：复用现有 `kytStatus`（PENDING → PASSED / FAILED）、`kytScreeningId`（Sumsub screening reference）、`kytRiskScore`、`kytCheckedAt`
 
-Happy path 中此步同步返回 PASSED（演示模式可模拟）。
+**Phase 2（完整分析，不阻塞）：**
+- **触发时机**：Payout BROADCASTED，拿到 txHash 后
+- **操作**：将 txHash 补提到 Phase 1 创建的同一笔 Sumsub KYT 记录
+- **Happy path 行为**：Sumsub 完整链上分析确认 PASSED（kytStatus 无变化）
+- **异常行为**（后续 spec）：Sumsub 返回 HIGH_RISK → kytStatus 升级 → 提现已 SUCCESS，创建合规 Case 供 MLRO 审查
 
 ### 4.3 Gate 2 — Travel Rule
 
@@ -227,7 +238,7 @@ Gate 1 和 Gate 2 并行发起。全部 PASS 后自动推进到 PAYOUT_PENDING�
 async checkAllGatesPass(withdrawId: string) {
   const w = await this.withdrawService.findOne(withdrawId);
 
-  const gate1Pass = w.addressScreeningStatus === 'PASSED';
+  const gate1Pass = w.kytStatus === 'PASSED';
   const gate2Pass = w.travelRuleStatus === 'PASSED'
                  || w.travelRuleStatus === 'NOT_REQUIRED';
 
@@ -269,10 +280,11 @@ async checkAllGatesPass(withdrawId: string) {
 │   └─ ACTIVE → PASS                                              │
 │                                                                 │
 │  并行发起:                                                      │
-│   Gate 1: submitAddressScreening(withdrawId)                    │
-│    → 设置 addressScreeningStatus = 'PENDING'                    │
-│    → (Happy path) Sumsub 返回 PASS                              │
-│    → 更新 addressScreeningStatus = 'PASSED'                     │
+│   Gate 1: submitKytPreScreening(withdrawId)                     │
+│    → Sumsub KYT API: 提交目标地址 + 金额 + 币种                 │
+│    → 设置 kytStatus = 'PENDING', kytScreeningId = ref           │
+│    → (Happy path) Sumsub 返回预筛 PASS                          │
+│    → 更新 kytStatus = 'PASSED', kytRiskScore, kytCheckedAt      │
 │    → checkAllGatesPass(withdrawId)                              │
 │                                                                 │
 │   Gate 2: submitTravelRule(withdrawId)                          │
@@ -296,9 +308,9 @@ async checkAllGatesPass(withdrawId: string) {
 │                                                                 │
 │  BROADCASTED 时拿到 txHash:                                     │
 │   → 更新 withdraw.txHash = txHash                               │
-│   → 异步提交 Sumsub KYT（不阻塞流程）                            │
-│     POST sumsub KYT API with txHash                             │
-│     回调更新 withdraw.kytStatus                                 │
+│   → KYT Phase 2: 补提 txHash 到 Phase 1 同一笔 Sumsub 记录     │
+│     （不阻塞流程；Sumsub 异步完成完整链上分析）                    │
+│     → Happy path: kytStatus 保持 PASSED                         │
 │                                                                 │
 │  CONFIRMED 时:                                                  │
 │   → emit 'payout.status.confirmed'                              │
@@ -328,7 +340,8 @@ async checkAllGatesPass(withdrawId: string) {
 |--------|--------|--------|---------|
 | `withdrawal.created` | WithdrawTransactionsService | WithdrawWorkflowService | `{ withdrawId, status, ownerType, ownerId, assetId, amount }` |
 | `withdrawal.status.changed` | WithdrawTransactionsService | WithdrawWorkflowService | `{ withdrawId, oldStatus, newStatus, ownerType, ownerId, assetId }` |
-| `withdrawal.compliance.gate.updated` | WithdrawWorkflowService (Gate 1/2 回调) | WithdrawWorkflowService | `{ withdrawId, gate, status }` |
+| `withdrawal.kyt.updated` | WithdrawTransactionsService | WithdrawWorkflowService | `{ withdrawId, kytStatus, phase }` |
+| `withdrawal.travelrule.updated` | WithdrawTransactionsService | WithdrawWorkflowService | `{ withdrawId, travelRuleStatus }` |
 | `payout.created` | PayoutsService | WithdrawWorkflowService | `{ payoutId, withdrawId, type, status }` |
 | `payout.status.confirmed` | PayoutsService | WithdrawWorkflowService | `{ payoutId, withdrawId, txHash }` |
 
@@ -344,11 +357,11 @@ async checkAllGatesPass(withdrawId: string) {
 |------|--------|-------------|----------|
 | 1 | `WITHDRAW_REQUESTED` | `WITHDRAWAL` | 提现单创建 + TB pending |
 | 2 | `WITHDRAW_GATE0_PASSED` | `WITHDRAWAL` | 客户合规检查通过 |
-| 3 | `WITHDRAW_ADDRESS_SCREENING_PASSED` | `WITHDRAWAL` | Gate 1 地址筛查通过 |
+| 3 | `WITHDRAW_KYT_PHASE1_PASSED` | `WITHDRAWAL` | Gate 1 KYT 预筛通过 |
 | 4 | `WITHDRAW_TRAVEL_RULE_PASSED` | `WITHDRAWAL` | Gate 2 TR ACK 或 NOT_REQUIRED |
 | 5 | `WITHDRAW_COMPLIANCE_PASSED` | `WITHDRAWAL` | 三门全过，进入 PAYOUT_PENDING |
 | 6 | `PAYOUT_CREATED` | `WITHDRAWAL` | Payout 创建 |
-| 7 | `WITHDRAW_KYT_SUBMITTED` | `WITHDRAWAL` | txHash 提交 Sumsub KYT（异步） |
+| 7 | `WITHDRAW_KYT_PHASE2_SUBMITTED` | `WITHDRAWAL` | txHash 补提到同一笔 Sumsub KYT 记录 |
 | 8 | `WITHDRAW_ACCOUNTING_POSTED` | `WITHDRAWAL` | TB POST pending 成功 |
 | 9 | `WITHDRAW_SUCCESS` | `WITHDRAWAL` | 提现完成 |
 
@@ -368,18 +381,16 @@ WithdrawTransaction 新增字段（现有字段保留不动）：
 model WithdrawTransaction {
   // ... 现有字段 ...
 
-  // Gate 1: Address Screening（新增）
-  addressScreeningStatus  String?    // PENDING, PASSED, FAILED
-  addressScreeningId      String?    // Sumsub screening reference
-  addressScreenedAt       DateTime?
-
   // TB Pending Transfer IDs（新增）
   tbPendingNetId          String?    // hex of TB pending transfer ID (net amount)
   tbPendingFeeId          String?    // hex of TB pending transfer ID (fee amount)
 }
 ```
 
-> `kytStatus`、`travelRuleStatus`、`txHash`、`traceId` 等字段已存在于现有 schema。
+> Gate 1 KYT 复用现有字段：`kytStatus`、`kytScreeningId`、`kytRiskScore`、`kytCheckedAt`。
+> Gate 2 Travel Rule 复用现有字段：`travelRuleStatus`、`travelRuleTransferId`、`travelRuleCheckedAt`。
+> 其他复用：`txHash`、`traceId`、`complianceStatus`。
+> 无需新增 `addressScreeningStatus` 等独立字段——KYT Phase 1 已覆盖地址筛查能力。
 
 ---
 
@@ -411,8 +422,8 @@ model WithdrawTransaction {
 | 方法 | 路由 | 说明 |
 |------|------|------|
 | POST | `/admin/payouts/:payoutNo/simulate` | 模拟 Payout 状态推进（SIGN→BROADCAST→CONFIRM） |
-| POST | `/admin/sumsub/simulate/address-screening` | 模拟地址筛查结果 |
-| POST | `/admin/sumsub/simulate/withdrawal-kyt` | 模拟提现 KYT 结果 |
+| POST | `/admin/sumsub/simulate/withdrawal-kyt` | 模拟 KYT Phase 1 预筛结果 |
+| POST | `/admin/sumsub/simulate/withdrawal-kyt-phase2` | 模拟 KYT Phase 2 完整分析结果（txHash 补全后） |
 
 ---
 
@@ -423,18 +434,18 @@ model WithdrawTransaction {
 | # | 异常 | 触发点 | 状态 | TB |
 |---|------|--------|------|-----|
 | 1 | Gate 0 失败 — 客户被冻结/暂停 | Gate 0 | FROZEN → MLRO 审批 | VOID pending |
-| 2 | Gate 1 失败 — 目标地址命中制裁 | Address Screening | FROZEN → MLRO 审批 | VOID pending |
+| 2 | Gate 1 失败 — KYT 预筛目标地址命中制裁/高风险 | KYT Phase 1 | FROZEN → MLRO 审批 | VOID pending |
 | 3 | Gate 2 失败 — TR ACK 超时/拒绝 | Travel Rule | CANCELLED | VOID pending |
 | 4 | Payout 签名/广播失败 | SIGNING/BROADCAST | FAILED | VOID pending |
 | 5 | 链上交易失败 — tx dropped/stuck | CONFIRMING | FAILED/TIMEOUT | VOID pending |
-| 6 | Post-KYT 高风险 | 异步 KYT 回调 | 已 SUCCESS，创建合规 Case | 无 TB 动作 |
+| 6 | KYT Phase 2 高风险 — 完整分析返回 HIGH_RISK | KYT Phase 2 回调 | 已 SUCCESS，创建合规 Case | 无 TB 动作（资金已走）→ MLRO 审查存档 |
 
 ### 法币提现异常（5 种）
 
 | # | 异常 | 触发点 | 状态 | TB |
 |---|------|--------|------|-----|
 | 1 | Gate 0 失败 | Gate 0 | FROZEN | VOID pending |
-| 2 | 目标银行账户制裁筛查失败 | Screening | FROZEN | VOID pending |
+| 2 | 目标银行账户 KYT 筛查失败 | KYT Phase 1 | FROZEN | VOID pending |
 | 3 | 银行转账失败 | Bank instruction | FAILED | VOID pending |
 | 4 | 银行退汇（Bounce） | 到账后 | RETURNED | 反向 Posted Transfer |
 | 5 | Post-KYT 高风险 | 异步 KYT | 已 SUCCESS | 创建合规 Case |
@@ -446,7 +457,7 @@ model WithdrawTransaction {
 ### Admin Web
 - DepositTransaction 详情页已有的模式可复用到 WithdrawTransaction 详情页
 - 新增 Payout 模拟控件（simulate 按钮，推进 payout 状态）
-- 新增 Address Screening / KYT 模拟控件
+- 新增 KYT Phase 1/Phase 2 模拟控件
 
 ### Client Web
 - `Withdraw.tsx` 已有提现表单，需对接新 API
