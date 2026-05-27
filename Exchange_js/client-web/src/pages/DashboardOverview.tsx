@@ -21,24 +21,14 @@ import {
  *  indicative exchange rates. No external API calls.
  * ──────────────────────────────────────────────────────────────── */
 
-interface AssetData {
+interface PortfolioItem {
   assetId: string;
   assetCode: string;
   assetType: string;
-  clientCredit: string;
-  lockedBalance: string;
-  walletId: string;
-  assetDecimals?: number;
-}
-
-interface PlatformAsset {
-  id: string;
-  code: string;
   currency: string;
-  type: string;
-  status: string;
-  name?: string;
-  decimals?: number;
+  available: string;
+  locked: string;
+  decimals: number;
 }
 
 /* ─── Indicative rates: asset → AED ──────────────────────────── */
@@ -92,33 +82,24 @@ function TypeBadge({ type }: { type: string }) {
 const DashboardOverview = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [assets, setAssets] = useState<AssetData[]>([]);
-  const [platformAssets, setPlatformAssets] = useState<PlatformAsset[]>([]);
+  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchAssets = async () => {
+  const fetchPortfolio = async () => {
     if (!user) return;
     setLoading(true);
     setError('');
     try {
-      const platformResponse = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`,
-      );
-      if (platformResponse.ok) {
-        const platformData = await platformResponse.json();
-        setPlatformAssets(platformData.items || []);
-      }
-
       const response = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`,
+        `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
       );
       if (response.ok) {
         const data = await response.json();
-        setAssets(data);
+        setPortfolio(data);
       } else {
         setError(
-          await getCustomerApiErrorMessage(response, 'Failed to load assets'),
+          await getCustomerApiErrorMessage(response, 'Failed to load portfolio'),
         );
       }
     } catch (err: unknown) {
@@ -133,11 +114,11 @@ const DashboardOverview = () => {
   };
 
   useEffect(() => {
-    fetchAssets();
+    fetchPortfolio();
   }, [user]);
 
   /* ── Loading ─────────────────────────────────────────────────── */
-  if (loading && assets.length === 0) {
+  if (loading && portfolio.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <RefreshCw className="animate-spin text-fx-dust" size={20} />
@@ -145,16 +126,14 @@ const DashboardOverview = () => {
     );
   }
 
-  /* ── Merged list: platform assets with user balances + AED ───── */
-  const rows = platformAssets.map((pa) => {
-    const ua = assets.find((a) => a.assetCode === pa.code);
-    const available = ua ? parseFloat(ua.clientCredit) : 0;
-    const locked = ua ? parseFloat(ua.lockedBalance) : 0;
-    const decimals = pa.decimals ?? ua?.assetDecimals;
-    const rate = getAedRate(pa.code, pa.currency);
+  /* ── Build display rows from portfolio data ─────────────────── */
+  const rows = portfolio.map((item) => {
+    const available = parseFloat(item.available);
+    const locked = parseFloat(item.locked);
+    const rate = getAedRate(item.assetCode, item.currency);
     const totalBalance = available + locked;
     const aedValue = rate !== null ? totalBalance * rate : null;
-    return { ...pa, available, locked, decimals, assetId: pa.id, rate, aedValue };
+    return { ...item, available, locked, rate, aedValue };
   });
 
   const nonZeroCount = rows.filter(
@@ -170,7 +149,7 @@ const DashboardOverview = () => {
         <SectionTitle
           right={
             <button
-              onClick={fetchAssets}
+              onClick={fetchPortfolio}
               className="flex items-center gap-1.5 text-fx-dust hover:text-fx-brass transition-colors"
               title="Refresh"
             >
@@ -199,7 +178,7 @@ const DashboardOverview = () => {
           <p className="mt-3 font-mono text-[11px] text-fx-dust tracking-wide">
             {nonZeroCount} asset{nonZeroCount !== 1 ? 's' : ''} with balance
             {' · '}
-            {platformAssets.length} supported
+            {portfolio.length} supported
           </p>
         </div>
       </div>
@@ -213,7 +192,7 @@ const DashboardOverview = () => {
             <AlertCircle size={24} className="text-fx-rust" />
             <p className="font-mono text-[12px] text-fx-rust">{error}</p>
             <button
-              onClick={fetchAssets}
+              onClick={fetchPortfolio}
               className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-fx-dust hover:text-fx-brass transition-colors border border-fx-rule px-3 py-1.5"
             >
               Retry
@@ -254,7 +233,7 @@ const DashboardOverview = () => {
                 const hasBalance = row.available > 0 || row.locked > 0;
                 return (
                   <div
-                    key={row.id}
+                    key={row.assetId}
                     className={`grid grid-cols-12 gap-4 items-center px-4 py-3 transition-colors ${
                       hasBalance
                         ? 'hover:bg-fx-sand/[0.02]'
@@ -264,16 +243,16 @@ const DashboardOverview = () => {
                     {/* Asset code */}
                     <div className="col-span-3 flex items-center gap-3">
                       <div className="w-8 h-8 border border-fx-rule flex items-center justify-center font-mono text-[10px] text-fx-dune">
-                        {row.code.substring(0, 3)}
+                        {row.assetCode.substring(0, 3)}
                       </div>
                       <span className="font-sans text-[13px] text-fx-sand font-medium">
-                        {row.code}
+                        {row.assetCode}
                       </span>
                     </div>
 
                     {/* Type */}
                     <div className="col-span-2">
-                      <TypeBadge type={row.type} />
+                      <TypeBadge type={row.assetType} />
                     </div>
 
                     {/* Available */}
@@ -323,7 +302,7 @@ const DashboardOverview = () => {
                           navigate(`/transactions?assetId=${row.assetId}`)
                         }
                         className="text-fx-dust hover:text-fx-brass transition-colors"
-                        title={`${row.code} history`}
+                        title={`${row.assetCode} history`}
                       >
                         <History size={12} />
                       </button>
@@ -352,19 +331,19 @@ const DashboardOverview = () => {
       </div>
 
       {/* ── Indicative Rates ──────────────────────────────────── */}
-      {platformAssets.length > 0 && (
+      {portfolio.length > 0 && (
         <div>
           <SectionTitle>Indicative Rates</SectionTitle>
           <div className="mt-4 space-y-0 divide-y divide-fx-rule/50">
-            {platformAssets.map((pa) => {
-              const rate = getAedRate(pa.code, pa.currency);
+            {portfolio.map((item) => {
+              const rate = getAedRate(item.assetCode, item.currency);
               return (
                 <div
-                  key={pa.id}
+                  key={item.assetId}
                   className="flex items-center justify-between px-4 py-2.5"
                 >
                   <span className="font-mono text-[12px] text-fx-dune">
-                    {pa.currency}
+                    {item.currency}
                   </span>
                   <span className="font-mono text-[12px] tabular-nums text-fx-sand">
                     {rate !== null
