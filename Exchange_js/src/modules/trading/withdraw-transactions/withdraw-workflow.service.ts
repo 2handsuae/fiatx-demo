@@ -15,7 +15,6 @@ import { AccountingService } from '../../accounting/tigerbeetle/accounting.servi
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
-import { PrismaService } from '../../../core/prisma/prisma.service';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
@@ -29,7 +28,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
-    private readonly prisma: PrismaService,
   ) {}
 
   onModuleInit() {
