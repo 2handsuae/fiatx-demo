@@ -125,16 +125,20 @@ const Withdraw = () => {
 
         // Fetch Balances
         const balancesResponse = await customerFetch(
-          `${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`,
+          `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
         );
         if (balancesResponse.ok) {
           const data = await balancesResponse.json();
           setBalances(data);
+          setBalanceError(null);
+        } else {
+          setBalanceError('Failed to load balances');
         }
       } catch (error: unknown) {
         if (error instanceof CustomerSessionError) {
           return;
         }
+        setBalanceError('Failed to load balances');
         console.error('Failed to fetch data', error);
       } finally {
         setBalanceLoading(false);
@@ -146,40 +150,36 @@ const Withdraw = () => {
   // Fetch Wallets (Outbound) when Asset Changes
   useEffect(() => {
     if (!user || activeTab === 'history' || !selectedAssetId) {
-        setWallets([]);
+        setAddresses([]);
         return;
     }
 
-    const fetchWallets = async () => {
+    const fetchAddresses = async () => {
       setLoading(true);
       try {
-        // Following requirement: direction=OUTBOUND & assetId=...
         const params = new URLSearchParams({
-            ownerType: 'CUSTOMER',
-            ownerId: user.id,
-            direction: 'OUTBOUND',
-            walletRole: 'GENERAL',
-            assetId: selectedAssetId
+            assetId: selectedAssetId,
+            status: 'ACTIVE',
         });
         const response = await customerFetch(
-          `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
+          `${import.meta.env.VITE_API_URL}/client/withdrawal-addresses?${params.toString()}`,
         );
 
         if (response.ok) {
             const data = await response.json();
-            setWallets(data.items || []);
+            setAddresses(data.items || []);
         }
       } catch (error: unknown) {
         if (error instanceof CustomerSessionError) {
           return;
         }
-        console.error('Failed to fetch wallets', error);
+        console.error('Failed to fetch addresses', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchWallets();
+    fetchAddresses();
   }, [user, activeTab, selectedAssetId]);
 
   // Fetch History
@@ -200,7 +200,7 @@ const Withdraw = () => {
           if (historyAssetId) params.append('assetId', historyAssetId);
 
           const response = await customerFetch(
-            `${import.meta.env.VITE_API_URL}/withdraw-transactions/my?${params.toString()}`,
+            `${import.meta.env.VITE_API_URL}/client/withdraw-transactions?${params.toString()}`,
           );
 
           if (response.ok) {
@@ -219,7 +219,7 @@ const Withdraw = () => {
   };
 
   const selectedBalance = balances.find(b => b.assetId === selectedAssetId);
-  const availableBalance = selectedBalance ? selectedBalance.clientCredit : 0;
+  const availableBalance = selectedBalance ? parseFloat(selectedBalance.available) : 0;
   const selectedAsset = assets.find((a) => a.id === selectedAssetId);
 
   const clearQuoteState = () => {
@@ -322,19 +322,18 @@ const Withdraw = () => {
     const withdrawAmount = parseFloat(amount);
     setSubmitting(true);
     try {
-      const wallet = wallets.find(w => w.id === selectedWalletId);
+      const selectedAddr = addresses.find(a => a.addressNo === selectedAddressNo);
       const asset = selectedAsset;
 
       const payload = {
           assetId: selectedAssetId,
           amount: withdrawAmount,
-          toWalletId: isManualInput ? undefined : selectedWalletId,
-          toAddress: isManualInput ? (asset?.type === 'CRYPTO' ? manualAddress : undefined) : wallet?.address,
-          toIban: isManualInput ? (asset?.type === 'FIAT' ? manualAddress : undefined) : wallet?.iban,
+          toAddress: isManualInput ? (asset?.type === 'CRYPTO' ? manualAddress : undefined) : selectedAddr?.address,
+          toIban: isManualInput ? (asset?.type === 'FIAT' ? manualAddress : undefined) : selectedAddr?.iban,
           quoteId: quote.quoteId,
       };
 
-        const response = await customerFetch(`${import.meta.env.VITE_API_URL}/withdraw-transactions`, {
+        const response = await customerFetch(`${import.meta.env.VITE_API_URL}/client/withdraw-transactions`, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -343,12 +342,12 @@ const Withdraw = () => {
             alert('Withdrawal request submitted successfully!');
             setActiveTab('history');
             setAmount('');
-            setSelectedWalletId('');
+            setSelectedAddressNo('');
             setManualAddress('');
             clearQuoteState();
             // Refresh balances
             const balancesResponse = await customerFetch(
-              `${import.meta.env.VITE_API_URL}/treasury/customer/${user?.id}/assets`,
+              `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
             );
             if (balancesResponse.ok) {
                 const data = await balancesResponse.json();
@@ -381,13 +380,13 @@ const Withdraw = () => {
     activeTab === 'crypto' ? a.type === 'CRYPTO' : a.type === 'FIAT'
   );
 
-  const filteredWallets = wallets; // Now filtered by API
-  const destinationReady = isManualInput ? Boolean(manualAddress) : Boolean(selectedWalletId);
+  const filteredAddresses = addresses; // Now filtered by API
+  const destinationReady = isManualInput ? Boolean(manualAddress) : Boolean(selectedAddressNo);
 
   useEffect(() => {
     clearQuoteState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAssetId, amount, selectedWalletId, manualAddress, isManualInput]);
+  }, [selectedAssetId, amount, selectedAddressNo, manualAddress, isManualInput]);
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
