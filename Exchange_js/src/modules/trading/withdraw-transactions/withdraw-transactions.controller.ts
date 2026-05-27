@@ -13,6 +13,9 @@ import {
 } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { 
   WithdrawTransactionQueryDto,
   AdminUpdateWithdrawTransactionStatusDto,
@@ -35,6 +38,8 @@ export class WithdrawTransactionsController {
   constructor(
     private readonly service: WithdrawTransactionsService,
     private readonly onboardingService: OnboardingService,
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   @Get('my')
@@ -93,5 +98,48 @@ export class WithdrawTransactionsController {
         sourcePlatform: 'ADMIN_API',
       },
     );
+  }
+
+  @Post(':id/simulate/kyt-phase1')
+  @ApiOperation({ summary: '[DEV] Simulate KYT Phase 1 result' })
+  async simulateKytPhase1(
+    @Param('id') id: string,
+    @Body() body: { result?: string; riskScore?: number },
+  ) {
+    const result = body.result || 'PASSED';
+    const riskScore = body.riskScore ?? 10;
+    await this.service.updateKytStatus(id, result, `SIM-KYT-${Date.now()}`, riskScore, 1);
+    return { message: `KYT Phase 1 simulated: ${result}`, withdrawId: id, kytStatus: result };
+  }
+
+  @Post(':id/simulate/travel-rule')
+  @ApiOperation({ summary: '[DEV] Simulate Travel Rule result' })
+  async simulateTravelRule(
+    @Param('id') id: string,
+    @Body() body: { result?: string },
+  ) {
+    const result = body.result || 'PASSED';
+    await this.service.updateTravelRuleStatus(id, result, result === 'PASSED' ? `SIM-TR-${Date.now()}` : null);
+    return { message: `Travel Rule simulated: ${result}`, withdrawId: id, travelRuleStatus: result };
+  }
+
+  @Post(':id/simulate/payout-confirmed')
+  @ApiOperation({ summary: '[DEV] Simulate payout confirmed event' })
+  async simulatePayoutConfirmed(
+    @Param('id') id: string,
+    @Body() body: { txHash?: string },
+  ) {
+    const w = await this.service.findOne(id);
+    const txHash = body.txHash || `0xSIM${Date.now().toString(16)}`;
+    await (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { txHash },
+    });
+    this.eventEmitter.emit(DomainEventNames.PAYOUT_STATUS_CONFIRMED, {
+      payoutId: (w as any).payoutId || id,
+      withdrawId: id,
+      txHash,
+    });
+    return { message: 'Payout confirmed simulated', withdrawId: id, txHash };
   }
 }
