@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-15
+Last Updated: 2026-05-27
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -62,6 +62,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **SoD rule config** — 角色互斥表硬编码常量 + Admin UI SoD Rules tab（MVP）
 - **Notification send** — 事件驱动通知服务，邮件 + webhook（MVP）
 - **Notification retry** — 发送失败 3 次退避重试（MVP）
+- **审计 SubjectNo 移除** — 移除 `audit_log_subject_nos` 关联表及 SubjectNo 逻辑，简化审计模型；审批处理器 `hasDedicatedAuditService` 简化 ✅ 2026-05-19
 - **Approval delegation config** — 审批人预配置委托人（ADVANCED）
 - **Login anomaly detection** — 异常登录监控告警（ADVANCED）
 
@@ -75,11 +76,11 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ### MVP（6 workflows）
 
-- [ ] Sumsub Webhook 翻译层（基础设施，非 workflow；接收 Sumsub webhook → 翻译成内部事件广播，V2 所有合规结果的前置） — **业务必须**：没有翻译层，平台无法接收任何 Sumsub 验证结果和监控告警
+- [x] Sumsub Webhook 翻译层（基础设施，非 workflow；接收 Sumsub webhook → 翻译成内部事件广播，V2 所有合规结果的前置；`POST /webhooks/sumsub` 签名验证 → `ingest()` 创建 `SumsubWebhookEvent` 记录 → `dispatch()` 按 eventType 路由到领域处理器；已处理类型：applicantReviewed / applicantActionReviewed / applicantWorkflowCompleted / ongoingDocExpired；模拟事件含 kytCheckSimulated / travelRuleCheckSimulated / caseDecisionSimulated 均走同一管道；Admin Sumsub Events 列表页展示全部事件记录；支持 retry、dead-letter） — **业务必须**：没有翻译层，平台无法接收任何 Sumsub 验证结果和监控告警 ✅ 2026-05-23
 - [ ] 客户 Onboarding（CDD 全套：ID + 自拍 + 地址证明 + 风险问卷 + PEP/制裁筛查 → 通过即 Level 1 开户） — **VARA**：CRM Rulebook II.A Customer Due Diligence — 客户准入强制尽职调查
 - [ ] CRA Review（客户风险评估与定期重审；三种触发：① cron 按风险等级定期触发完整 re-KYC ② Sumsub ongoing monitoring alert ③ MLRO 手动；Risk = HIGH 时启动 EDD 调查分支——MLRO 在平台内部收集 SOW/SOF 并人工审查决策） — **VARA**：CRM Rulebook II.C Risk-Based Approach + III.B Enhanced Due Diligence — AML 风险持续评估与高风险客户深度调查义务
 - [ ] Material Refresh（材料过期补充：NUDGE → URGENT → BLOCKING → RESOLVED） — **VARA**：CRM Rulebook II.A.3 Ongoing CDD — 客户身份材料必须保持有效
-- [ ] Trading Tier Upgrade（交易层级升级审批：客户申请 BASIC → PREMIUM → 提交收入/流水证明 → Sumsub 增强验证 → 前置校验 riskLevel ≠ HIGH → MLRO + SMO 审批门（48h）→ tradingTier = PREMIUM，适用 PREMIUM 限额组） — **业务必须**：客户需要更高交易限额的标准化升级路径
+- [ ] Trading Tier Upgrade（交易层级升级审批：客户申请升级 tradingTier（如 BASIC → PREMIUM → VIP）→ 提交收入/流水证明等材料 → Sumsub 增强验证（Enhanced KYC）→ 前置校验 riskLevel ≠ HIGH → MLRO + SMO 审批门（48h）→ 更新 customer.tradingTier，适用新 tier 限额组） — **业务必须**：客户需要更高交易限额的标准化升级路径 ⛔ BLOCKED：依赖客户端材料提交 UI 设计
 - [ ] 客户账号冻结 / 解冻（统一 workflow：管理层手动触发走先审批后冻结；合规事件自动触发走先冻结后 MLRO 审查；解冻统一需 MLRO 审批；冻结期间客户不可交易） — **VARA**：CRM Rulebook IV.A Suspicious Activity Response + TIR Rulebook IV.C Incident Response — 合规事件必须能立即冻结客户并有正式解冻决策路径
 
 ### ADVANCED
@@ -107,7 +108,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 > 三个独立基础能力（Asset / Wallet / TB Account）+ 提现地址注册 + 限额配置。三个 primitive 互不依赖，上层编排按需动态组合（如 Asset Listing 通过后触发 Wallet Creation + TB Account Creation）。V4–V7 所有记账操作的硬前置依赖。
 > Wallet Creation 是一个 workflow、两个入口（Admin 系统级 + Client 客户级），按 ownerType / walletRole 区分。
 
-### MVP（8 workflows）
+### MVP（9 workflows）
 
 - [x] Asset Creation & Activation（资产创建与上线：① 直接创建（无审批门）+ 同事务 TB 系统账户 provisioning → PROVISIONING；② 异步批量创建客户 TB 账户（event-driven + TbAccountBacklog 失败追踪）；③ PROVISIONING 期间可编辑运营字段（限额/开关/合约地址/描述），身份字段锁定；④ 激活走 CISO 审批门 + 就绪检查（TB 账户 + 活跃钱包）→ ACTIVE；⑤ 客户端资产状态守卫：非 ACTIVE 资产不展示、不可创建钱包） — **VARA + 业务**：没有资产定义，V4-V7 全部无法运行 ✅ 2026-05-15
 - [x] Custodian Wallet Creation — Crypto（在 HexTrust 创建钱包：Admin 入口创建系统钱包组 MASTER / OUTBOUND / LIQ 等；Client 入口创建客户充值地址；按 ownerType + walletRole 区分） — **业务必须**：V4-V7 充提和内部转账的物理执行依赖 ✅ 2026-05-13
@@ -116,7 +117,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [x] Withdrawal Address Registration — Crypto（客户注册提现虚拟币地址：提交地址 → 地址格式 + 网络校验 → PENDING_ACTIVATION → 安全冷却期 24h → 冷却期内客户可取消 → 冷却期满自动 ACTIVE → 方可用于提现；含 skip-cooling 管理员后门；前端完整 UI 含地址管理、详情弹窗、冷却倒计时） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移 ✅ 2026-05-13
 - [x] Withdrawal Address Registration — Bank（客户注册提现银行账户：提交银行账户信息 → PENDING_ACTIVATION → 安全冷却期 → 冷却期满 ACTIVE；含完整银行账户字段（accountName/bankName/iban/bankCode）；前端 UI 与 Crypto 地址共享管理页面） — **VARA**：TIR Rulebook III.A Authentication — 安全冷却防止凭证泄露后资产被立即转移；CRM Rulebook IV.A — 第三方账户禁止 ✅ 2026-05-13
 - [x] TB Account Creation（在 TigerBeetle 创建账户：① 系统级 3 账户（BANK/CUSTODY + TRADE_CLEARING + FEE_RECEIVABLE）在资产创建事务中同步 provision；② 客户级 2 账户（CLIENT_CREDIT + CLIENT_AUDIT）在 `asset.provisioned` 事件后异步批量创建；TbAccountRegistry 持久化映射；TbAccountBacklog 追踪失败项支持重试；含手动创建 API `POST /admin/tb/accounts`） — **业务必须**：V4-V6 的前置，没有 TB 账户就无法记账 ✅ 2026-05-15
-- [x] Transaction Limit Configuration（交易限额配置变更审批：BASIC/PREMIUM × WITHDRAWAL/SWAP × DAILY 的 AED 金额上限矩阵（4 行）；变更走 MLRO → SMO 两步审批（48h 超时）；独立 Prisma 模型（非 config-release）；运行时两层校验设计（Layer 1 per-tx Asset min/max + Layer 2 cumulative daily check）；V4+ 运行时消费此配置做前置校验；Customer 模型新增 tradingTier/riskLevel/sumsubVerificationLevel 三字段） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额是 AML 风控的核心参数 ✅ 2026-05-16
+- [x] Transaction Limit Policy Creation（限额策略创建审批：管理员创建新 TransactionLimitPolicy 行（扩展 tradingTier × operationType × period 矩阵）；3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务；INSERT PENDING_APPROVAL → MLRO + SMO 两步审批（48h 超时）→ 通过激活 ACTIVE / 拒绝物理 DELETE；tradingTier 支持动态创建（不限预设枚举）；composite unique 约束防重复；policyNo 自增 TLP-NNN；前端 List 页 Create Policy 按钮 + 模态框含"Create New Tier"内联输入） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额矩阵扩展的标准化路径 ✅ 2026-05-16
+- [x] Transaction Limit Change（限额策略变更审批：request-record 模式——创建 TransactionLimitChangeRequest 行记录变更生命周期，主 policy 保持 ACTIVE 不变；3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务；提交时快照 currentAmount → MLRO + SMO 两步审批（48h 超时）→ 执行时冲突检测（snapshot vs actual，防静默覆盖）→ 通过更新 policy.limitAmount / 拒绝仅标记 request REJECTED；requestNo 自增 TLC-NNN；同一 policy 不可有多个 PENDING 请求（409）；前端 Detail 页 Edit Limit 模态框 POST .../change） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach — 限额变更的受控审批路径，含冲突检测防止并发覆盖 ✅ 2026-05-16
 
 ### ADVANCED（3 workflows）
 
@@ -129,6 +131,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **TB Account 类型定义** — 全量定义资产侧 / 负债侧 / 系统级 / 客户级账户类型及 flags ✅ 2026-05-11
 - **钱包模型（V3 适配）** — V1 Wallet 模型已有角色体系（DEPOSIT / MASTER / OUTBOUND / LIQ / OPS），需清理适配 V3：去除旧 Journal/Balance 依赖，明确 TB 记账层与物理钱包层的职责分离 ✅ 2026-05-12
 - **资产状态守卫** — 钱包创建 API 拒绝非 ACTIVE 资产；客户端所有页面强制 `status=ACTIVE` 过滤 ✅ 2026-05-15
+- **资产字段重命名 code→currency** — schema/DTO/service/controller/frontend 全量重命名 `code` → `currency`，新增 compound code 字段（`{currency}-{network}`）作为用户可见主标识 ✅ 2026-05-20
+- **资产前端清理** — 移除 contractAddress 字段（admin 创建/编辑表单 + 详情页），清理 dead description 字段 ✅ 2026-05-19
 
 ---
 
@@ -138,29 +142,66 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **前置：** V2（客户合规资格）+ V3（账户模型）
 
-### MVP（6 workflows）
+### MVP（2 workflows + 8 sub-flows）
 
-- [ ] 虚拟币充值工作流（链上确认 → Payin 匹配 → Deposit 创建 → 路由判断：小额/自托管钱包直接 KYT → 记账；大额 VASP 来源需先完成 Travel Rule 匹配再 KYT → 记账；内嵌：大额超限触发 Tier Upgrade 引导、客户暂停时挂起进 Suspense 等恢复事件） — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1 — 充值是资金入口，KYT + Travel Rule 是 VARA 强制合规门
-- [ ] 法币充值工作流（VIBAN 到账 → Payin 匹配 → Deposit 创建 → KYT → 记账；内嵌同上） — **VARA + 业务**：同上
-- [ ] Travel Rule 接收匹配工作流（接收 originating VASP 推送的 TR 数据包 → 暂存等待 Payin 到达匹配；或 Payin 先到进入 TRAVEL_RULE_PENDING 等 TR 数据；两者到齐后做 originator 身份筛查 → 通过继续 KYT → 超时未匹配进人工审核） — **VARA**：FATF Travel Rule / VARA TIR Rulebook — 持牌 VASP 间转账强制要求交换 originator/beneficiary 信息
-- [ ] KYT 材料补充工作流（KYT RETRY → applicantActionPending → 客户补资金来源证明 → Sumsub 复审 → 放行 / 拒绝） — **VARA**：CRM Rulebook III.B Enhanced Due Diligence — KYT 可疑时必须收集资金来源说明
-- [ ] 制裁 / 高风险地址冻结审批工作流（命中制裁名单或混币器 → 资金进 Frozen Account → MLRO 审批 → 解冻放行 / 确认没收 / SAR） — **VARA**：CRM Rulebook IV.A Suspicious Activity + OFAC/SDN 合规 — 制裁地址资金必须冻结并上报
-- [ ] 第三方付款退回工作流（汇款人与客户不符 → 拒绝入账 → 发起银行退款 → 确认完成 → 审计记录） — **VARA**：CRM Rulebook II.A CDD — 禁止第三方代付，法币充值汇款人必须与客户身份一致
+**虚拟币充值工作流** — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1
+
+- [x] Happy Path：链上广播 → Payin DETECTED → Deposit PAYIN_PENDING → Payin CONFIRMING → Payin CONFIRMED → Deposit COMPLIANCE_PENDING + TB 记账 CUSTODY→CLIENT_AUDIT → Gate 0 客户合规校验 → 初始化 KYT/TR 门 → KYT PASS + TR PASS → 自动审批 → Deposit SUCCESS + TB 记账 CLIENT_AUDIT→CLIENT_CREDIT → Payin CLEARED（KYT/TR 结果目前通过模拟端点注入，Sumsub 实时 KYT webhook 集成待后续） ✅ 2026-05-22
+- [ ] 异常分支 — ACTION_PENDING：Sumsub 返回 applicantActionPending → Deposit ACTION_PENDING（客户补资金来源证明等材料）→ 客户通过 Sumsub 提交 → Sumsub 复审 webhook → approved 回 SUCCESS / rejected 回 REJECTED
+- [ ] 异常分支 — FROZEN：Sumsub 返回制裁命中 → Deposit FROZEN → MLRO 审批门（L2 ApprovalHandlerBase）→ 放行回 SUCCESS（极少）/ 确认没收 CONFISCATED（Gate 0 入口检查已实现：客户 complianceStatus 异常时自动 FREEZE + 审计记录 ✅ 2026-05-22；MLRO 审批门 + 放行/没收路径待实现）
+- [ ] 异常分支 — REJECTED：Sumsub 返回 rejected → Deposit REJECTED → TB 记账回退 CLIENT_AUDIT→CUSTODY
+- [ ] 异常分支 — Payin FAILED：链重组 / 交易 drop → Payin FAILED → Deposit FAILED（状态转换 + 审计记录已实现 ✅ 2026-05-22；TB 记账回退待实现）
+- [ ] 异常分支 — EXPIRED：ACTION_PENDING 客户超时未提交 → Deposit EXPIRED → TB 记账回退 CLIENT_AUDIT→CUSTODY
+
+> KYT/Travel Rule 合规审查拆分为独立双门：`kytStatus`（PENDING→PASSED/FAILED）+ `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），两门全部 PASSED 方可自动审批。合规结果通过 Sumsub Webhook 翻译层统一分发。
+
+**法币充值工作流** — **VARA + 业务**：同上
+
+- [x] Happy Path：银行 VIBAN 到账 → Payin DETECTED（type=FIAT, referenceNo + fromIban）→ Deposit PAYIN_PENDING → Payin CONFIRMED（无 CONFIRMING 阶段，法币直接 DETECTED→CONFIRMED）→ Deposit COMPLIANCE_PENDING + TB 记账 BANK→CLIENT_AUDIT → Gate 0 客户合规校验 → KYT 门（travelRule 自动 NOT_REQUIRED，无需 Travel Rule）→ KYT PASS → 自动审批 → Deposit SUCCESS + TB 记账 CLIENT_AUDIT→CLIENT_CREDIT → Payin CLEARED（法币 Payin 通过 InboundTransferSignals 服务创建，客户端提交转账凭证或 Admin 模拟 FIAT_CONFIRMED 事件；TB Step 1 BANK/CUSTODY 按 asset.type 自动切换已修复 ✅ 2026-05-27） ✅ 2026-05-27
+- [ ] 异常分支 — 名义不符（Sender Name Mismatch）：银行到账人名 ≠ 客户注册姓名 → Payin 创建时标记 `senderMismatch: true` → Deposit 进入 ACTION_PENDING → 运营人工核实（比对银行转账人 vs KYC 姓名）→ 确认同人放行 / 确认第三方拒绝并退回
+- [ ] 异常分支 — 银行退汇（Bank Return/Bounce）：在 Payin DETECTED 但尚未 CONFIRMED 阶段，银行通知资金被退回（发送方银行撤回 / 反洗钱拦截 / 账户异常）→ Payin FAILED → Deposit FAILED → 无需 TB 回退（Step 1 尚未执行）
+- [ ] 异常分支 — KYT 失败（AML Flag）：Sumsub 返回 KYT FAILED（大额现金入账 / 高风险来源地 / 结构化分拆嫌疑）→ 与虚拟币共享 FROZEN → MLRO 审批路径
+
+> 法币充值与虚拟币的关键差异：
+> 1. **TB 账户**：法币用 BANK（code 1），虚拟币用 CUSTODY（code 10）——`executeDepositAccounting` 已按 `asset.type` 自动选择
+> 2. **Payin 状态机**：法币无 CONFIRMING 阶段（DETECTED→CONFIRMED），虚拟币有（DETECTED→CONFIRMING→CONFIRMED）
+> 3. **Travel Rule**：法币自动标记 `travelRuleStatus=NOT_REQUIRED`，无需等待 TR 门
 
 ### ADVANCED（3 workflows）
 
 - [ ] 充值渠道暂停 / 恢复工作流（指定链/token/法币渠道：Maker 提案 + Checker 审批 → 暂停，在途 Payin 处理策略明确；恢复同样需审批门；全程审计） — **业务必须**：运营治理能力，上线初期可人工处理
-- [ ] 孤儿充值处理工作流（资金到达无活跃客户的地址 → 进 Suspense → 人工识别归属 → 可恢复客户则补记账 / 无法归属则 MLRO 审批处置：退回 / 没收 / SAR） — **VARA + 业务**：CRM Rulebook III.A Record Keeping — 无主资金必须有正式处置流程和审计记录
+- [ ] 孤儿充值处理工作流（资金到达无活跃客户的地址/VIBAN → 进 Suspense → 人工识别归属 → 可恢复客户则补记账 / 无法归属则 MLRO 审批处置：退回 / 没收 / SAR） — **VARA + 业务**：CRM Rulebook III.A Record Keeping — 无主资金必须有正式处置流程和审计记录
 - [ ] 法币充值 Bank Reversal 工作流（银行在到账后发起冲正 → 平台收到 reversal 通知 → 客户余额充足：冻结等额资金 → 自动扣回 → 通知客户；客户余额不足：冻结账户 → 创建应收记录 → 通知客户 → 催收/处置路径；全程审计） — **业务必须**：法币充值特有的信用风险，区别于"第三方退回"——第三方退回是入账前拦截，Bank Reversal 是入账后被银行反向拉回
 
 ### Supporting Features（非 workflow，无独立状态机）
 
+- **Deposit 事件驱动编排** — Payin 事件（created/status.changed）→ DepositWorkflowService 自动创建 Deposit 并推进状态机；Deposit 事件（status.changed）→ 触发 Gate 0 校验（MVP）✅ 2026-05-22
+- **TB 双步记账** — Step 1：法币 BANK→CLIENT_AUDIT / 虚拟币 CUSTODY→CLIENT_AUDIT（按 asset.type 自动选择）；Step 2：CLIENT_AUDIT→CLIENT_CREDIT（通用）；含 TB 记账失败的审计记录（MVP）✅ 2026-05-22（法币 BANK/CUSTODY 适配 ✅ 2026-05-27）
+- **KYT/TR 模拟端点** — `POST /admin/sumsub/simulate/kyt-check` + `POST /admin/sumsub/simulate/tr-check`，支持 depositNo / txHash 查找，模拟事件走 ingest 管道留 SumsubWebhookEvent 审计记录（MVP）✅ 2026-05-23
+- **Admin 充值页面重写** — Deposit 列表（状态筛选、合规门列）+ Deposit 详情（合规优先 IA、侧边栏、操作区）+ Payin 列表（关联 Deposit 列）+ Payin 详情（侧边栏 + 模拟控件）；深色主题 adm-* token 统一（MVP）✅ 2026-05-23
+- **Client 充值页面** — Deposit.tsx 三 Tab（Crypto/Fiat/History）：Crypto tab 展示充值地址 + QR 码；Fiat tab 展示 VIBAN 信息（IBAN / 户名 / 银行 / SWIFT）；History tab 分页展示充值记录含状态筛选；客户端 InboundSignal 提交入口（MVP）✅ 2026-05-22
+- **Client 充值 Tipping-Off Safe 映射** — 客户端状态映射隐藏合规细节（FROZEN/REJECTED → Processing，CONFISCATED → Contact Support），防止 tipping-off（MVP）✅ 2026-05-22
+- **Client Overview TB 数据源** — Overview 页面组合余额改为从 TigerBeetle 实时读取（`GET /client/portfolio/balances`），包含 AED 估值和汇率表（MVP）✅ 2026-05-27
 - **区块重组自动回退** — 链上确认数回退时自动撤销对应 Deposit 记账，append 补偿凭证（MVP）
 - **重复 txHash 幂等去重** — 同一 txHash 重复推送不产生重复 Deposit（MVP）
 - **ERC-20 合约失败忽略** — 合约执行失败的交易不创建 Payin（MVP）
 - **KYT 超时转人工** — KYT 审查超时后自动转运营人工决策（MVP）
 - **TB 记账失败 repair surface** — Deposit 合规通过但 TB 记账失败时的专用修复路径，范围窄于正常路径（MVP）
 - **充值成功通知** — 充值到账后推送客户通知，复用 V1 Notification send（MVP）
+
+### V4 审计发现（2026-05-27）
+
+> 以下问题在本次审计中发现，按优先级排列：
+
+**已修复：**
+- ~~**[CRITICAL] TB Step 1 法币记账用错账户**：`executeDepositAccounting` 硬编码 CUSTODY（code 10），法币只有 BANK（code 1）→ 法币充值 TB 落账必失败~~ → 已修复，按 `asset.type` 动态选择 ✅ 2026-05-27
+- ~~**[CRITICAL] Overview 页面余额数据源断裂**：前端调用已废弃的 `GET /treasury/customer/:id/assets`（抛 500）→ 余额全部显示 0~~ → 已修复，新建 `GET /client/portfolio/balances` 从 TB 实时读取 ✅ 2026-05-27
+
+**待修复：**
+- **[HIGH] Swap 页面泄露合规内部状态**：`Swap.tsx` 直接渲染 PENDING_COMPLIANCE / UNDER_REVIEW 等内部状态给客户，违反 tipping-off 防护要求（Deposit.tsx 已有正确映射可复用）
+- **[MEDIUM] Admin PATCH deposit status 绕过 workflow**：`deposit-transactions.controller.ts` 的 `PATCH :id/status` 直接调用 `service.updateStatus`，跳过 `DepositWorkflowService` 的 TB 记账和审计逻辑
+- **[LOW] deposit.status.changed 用同步 emit**：`deposit-transactions.service.ts` 用 `emit` 而非 `emitAsync`，如果 `runGate0` 抛异常不会传播到调用方（payin 事件正确使用了 `emitAsync`）
+- **[LOW] initializeComplianceGates 未显式设置 kytStatus**：依赖 Prisma schema default，非 bug 但方法语义不完整
 
 ---
 
