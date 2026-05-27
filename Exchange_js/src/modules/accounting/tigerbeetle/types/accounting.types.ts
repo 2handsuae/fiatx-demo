@@ -43,3 +43,20 @@ export interface CustomerAvailableBalance {
   held: bigint;
   total: bigint;
 }
+
+export interface ExecutePendingTransferParams {
+  debitAccountId: bigint;
+  creditAccountId: bigint;
+  amount: bigint;
+  ledger: number;
+  code: number;
+  timeout: number;
+  evidence: EvidenceParams;
+  tx?: any;
+}
+
+export interface PostOrVoidPendingTransferParams {
+  pendingTransferId: bigint;
+  evidence: EvidenceParams;
+  tx?: any;
+}

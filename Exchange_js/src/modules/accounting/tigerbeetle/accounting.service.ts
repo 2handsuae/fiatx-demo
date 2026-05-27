@@ -5,10 +5,10 @@ import { TigerBeetleService } from './tigerbeetle.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { deterministicTransferId, bigintToHex, hexToBigint } from './utils/tb-id.util';
-import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance } from './types/accounting.types';
+import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance, ExecutePendingTransferParams, PostOrVoidPendingTransferParams } from './types/accounting.types';
 import { TB_ACCOUNT_CODES } from './constants/tb-account-codes.constant';
 import { TB_LEDGERS } from './constants/tb-ledgers.constant';
-import { id as tbId, CreateAccountStatus, CreateTransferStatus } from 'tigerbeetle-node';
+import { id as tbId, CreateAccountStatus, CreateTransferStatus, TransferFlags } from 'tigerbeetle-node';
 
 @Injectable()
 export class AccountingService {
@@ -134,6 +134,153 @@ export class AccountingService {
     }, params.tx);
 
     return { tbTransferId: transferId };
+  }
+
+  async executePendingTransfer(params: ExecutePendingTransferParams): Promise<{ tbTransferId: bigint }> {
+    const transferId = deterministicTransferId(
+      params.evidence.sourceType,
+      params.evidence.sourceNo,
+      params.evidence.eventCode,
+      0,
+    );
+
+    const errors = await this.tbService.createTransfers([{
+      id: transferId,
+      debit_account_id: params.debitAccountId,
+      credit_account_id: params.creditAccountId,
+      amount: params.amount,
+      pending_id: 0n,
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      timeout: params.timeout,
+      ledger: params.ledger,
+      code: params.code,
+      flags: TransferFlags.pending,
+      timestamp: 0n,
+    }]);
+
+    const realErrors = errors.filter((e: any) =>
+      e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+    );
+    if (realErrors.length > 0) {
+      throw new BadRequestException({
+        code: 'TB_PENDING_TRANSFER_FAILED',
+        message: `TigerBeetle pending transfer rejected: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
+      });
+    }
+
+    await this.evidenceService.writeEvidence({
+      tbTransferId: bigintToHex(transferId),
+      sourceType: params.evidence.sourceType,
+      sourceNo: params.evidence.sourceNo,
+      eventCode: params.evidence.eventCode,
+      debitCode: params.evidence.debitCode,
+      creditCode: params.evidence.creditCode,
+      amount: Number(params.amount),
+      assetCurrency: params.evidence.assetCurrency,
+      traceId: params.evidence.traceId,
+      actorType: params.evidence.actorType,
+      actorId: params.evidence.actorId,
+      memo: params.evidence.memo,
+      transferType: 'PENDING',
+    }, params.tx);
+
+    return { tbTransferId: transferId };
+  }
+
+  async postPendingTransfer(params: PostOrVoidPendingTransferParams): Promise<void> {
+    const postId = tbId();
+
+    const errors = await this.tbService.createTransfers([{
+      id: postId,
+      debit_account_id: 0n,
+      credit_account_id: 0n,
+      amount: 0n,
+      pending_id: params.pendingTransferId,
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      timeout: 0,
+      ledger: 0,
+      code: 0,
+      flags: TransferFlags.post_pending_transfer,
+      timestamp: 0n,
+    }]);
+
+    const realErrors = errors.filter((e: any) =>
+      e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+    );
+    if (realErrors.length > 0) {
+      throw new BadRequestException({
+        code: 'TB_POST_PENDING_FAILED',
+        message: `TigerBeetle post pending transfer failed: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
+      });
+    }
+
+    await this.evidenceService.writeEvidence({
+      tbTransferId: bigintToHex(postId),
+      sourceType: params.evidence.sourceType,
+      sourceNo: params.evidence.sourceNo,
+      eventCode: params.evidence.eventCode,
+      debitCode: params.evidence.debitCode,
+      creditCode: params.evidence.creditCode,
+      amount: 0,
+      assetCurrency: params.evidence.assetCurrency,
+      traceId: params.evidence.traceId,
+      actorType: params.evidence.actorType,
+      actorId: params.evidence.actorId,
+      memo: params.evidence.memo,
+      pendingId: bigintToHex(params.pendingTransferId),
+      transferType: 'POST_PENDING',
+    }, params.tx);
+  }
+
+  async voidPendingTransfer(params: PostOrVoidPendingTransferParams): Promise<void> {
+    const voidId = tbId();
+
+    const errors = await this.tbService.createTransfers([{
+      id: voidId,
+      debit_account_id: 0n,
+      credit_account_id: 0n,
+      amount: 0n,
+      pending_id: params.pendingTransferId,
+      user_data_128: 0n,
+      user_data_64: 0n,
+      user_data_32: 0,
+      timeout: 0,
+      ledger: 0,
+      code: 0,
+      flags: TransferFlags.void_pending_transfer,
+      timestamp: 0n,
+    }]);
+
+    const realErrors = errors.filter((e: any) =>
+      e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+    );
+    if (realErrors.length > 0) {
+      throw new BadRequestException({
+        code: 'TB_VOID_PENDING_FAILED',
+        message: `TigerBeetle void pending transfer failed: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
+      });
+    }
+
+    await this.evidenceService.writeEvidence({
+      tbTransferId: bigintToHex(voidId),
+      sourceType: params.evidence.sourceType,
+      sourceNo: params.evidence.sourceNo,
+      eventCode: params.evidence.eventCode,
+      debitCode: params.evidence.debitCode,
+      creditCode: params.evidence.creditCode,
+      amount: 0,
+      assetCurrency: params.evidence.assetCurrency,
+      traceId: params.evidence.traceId,
+      actorType: params.evidence.actorType,
+      actorId: params.evidence.actorId,
+      memo: params.evidence.memo,
+      pendingId: bigintToHex(params.pendingTransferId),
+      transferType: 'VOID_PENDING',
+    }, params.tx);
   }
 
   // ── Balance Queries ──
