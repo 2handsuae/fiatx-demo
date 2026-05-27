@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawTransactionsController } from './withdraw-transactions.controller';
+import { CustomerWithdrawController } from './customer-withdraw.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { TransactionComplianceModule } from '../../risk-engine/transaction-compliance/transaction-compliance.module';
@@ -17,7 +18,7 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
     PricingCenterModule,
     TigerBeetleModule,
   ],
-  controllers: [WithdrawTransactionsController],
+  controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [
     WithdrawTransactionsService,
     WithdrawTransactionWorkflowService,
