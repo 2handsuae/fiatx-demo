@@ -129,14 +129,13 @@ export class WithdrawTransactionsController {
     @Param('id') id: string,
     @Body() body: { txHash?: string },
   ) {
-    const w = await this.service.findOne(id);
     const txHash = body.txHash || `0xSIM${Date.now().toString(16)}`;
     await (this.prisma as any).withdrawTransaction.update({
       where: { id },
       data: { txHash },
     });
     this.eventEmitter.emit(DomainEventNames.PAYOUT_STATUS_CONFIRMED, {
-      payoutId: (w as any).payoutId || id,
+      payoutId: id,
       withdrawId: id,
       txHash,
     });

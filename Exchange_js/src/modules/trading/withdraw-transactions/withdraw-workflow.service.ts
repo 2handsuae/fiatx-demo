@@ -99,7 +99,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     this.logger.log(`Gate 0 PASS: withdrawal ${withdrawId}`);
 
-    const w = await this.withdrawService.findOne(withdrawId);
+    const w = await this.withdrawService.findOneInternal(withdrawId);
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_GATE0_PASSED,
       entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
@@ -128,7 +128,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Gate Convergence Check ──
 
   private async checkAllGatesPass(withdrawId: string) {
-    const w = await this.withdrawService.findOne(withdrawId);
+    const w = await this.withdrawService.findOneInternal(withdrawId);
 
     if (w.status !== WithdrawTransactionStatus.PENDING_COMPLIANCE) {
       this.logger.debug(`Skip gate check: withdrawal ${withdrawId} status is ${w.status}`);
@@ -179,7 +179,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Payout Phase ──
 
   private async initiatePayoutPhase(withdrawId: string) {
-    const w = await this.withdrawService.findOne(withdrawId);
+    const w = await this.withdrawService.findOneInternal(withdrawId);
 
     await this.withdrawService.updateStatus(w.id, {
       action: WithdrawTransactionAction.APPROVE,
@@ -209,7 +209,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Finalization: TB POST on chain confirmation ──
 
   private async finalizeWithdrawal(withdrawId: string) {
-    const w = await this.withdrawService.findOne(withdrawId);
+    const w = await this.withdrawService.findOneInternal(withdrawId);
 
     if (w.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
       this.logger.warn(`Cannot finalize withdrawal ${withdrawId}: status is ${w.status}`);

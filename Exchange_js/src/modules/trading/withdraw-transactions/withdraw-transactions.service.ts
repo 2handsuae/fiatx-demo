@@ -385,6 +385,15 @@ export class WithdrawTransactionsService {
     };
   }
 
+  async findOneInternal(id: string) {
+    const item = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { id },
+      include: { asset: true, customer: true },
+    });
+    if (!item) throw new NotFoundException('Withdraw transaction not found');
+    return item;
+  }
+
   async findOne(id: string) {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({
       where: { id },
