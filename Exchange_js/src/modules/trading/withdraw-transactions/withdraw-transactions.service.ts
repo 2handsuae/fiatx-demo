@@ -391,15 +391,7 @@ export class WithdrawTransactionsService {
       include: {
         asset: true,
         customer: true,
-        payout: {
-          include: {
-            clearings: {
-              include: {
-                lines: true
-              }
-            }
-          }
-        },
+        payout: true,
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
