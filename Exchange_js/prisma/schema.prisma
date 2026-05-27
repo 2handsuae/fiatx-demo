@@ -2069,6 +2069,9 @@ model WithdrawTransaction {
   travelRuleCheckedAt  DateTime?
   complianceStatus     String                @default("PENDING")
   complianceReviewedAt DateTime?
+  traceId              String?
+  tbPendingNetId       String?
+  tbPendingFeeId       String?
   parentType           String?
   parentId             String?
   pricingQuoteId       String?               @unique
