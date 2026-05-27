@@ -225,7 +225,7 @@ export default function TransactionLimitDetail() {
             <Cap>Limit Configuration</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField label="Daily Limit (AED)" value={fmtAmount(policy.limitAmount)} mono />
-              <InfoField label="Status" value={<AdminBadge value={policy.status} />} />
+              <InfoField label="Status" value={policy.status} />
               <InfoField label="Trading Tier" value={policy.tradingTier} />
               <InfoField label="Operation Type" value={policy.operationType} />
               <InfoField label="Period" value={policy.period} />

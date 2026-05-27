@@ -80,17 +80,12 @@ export class TransactionLimitCreationWorkflowService {
       );
     }
 
-    // Generate policyNo
-    const policyNo = await this.limitsService.generateNextPolicyNo();
-
-    // INSERT with PENDING_APPROVAL
-    const policy = await this.limitsService.create({
-      policyNo,
+    // INSERT with PENDING_APPROVAL (retry-safe policyNo generation)
+    const policy = await this.limitsService.createPolicy({
       tradingTier,
       operationType,
       period,
       limitAmount: new Prisma.Decimal(limitAmount),
-      status: 'PENDING_APPROVAL',
     });
 
     // Create approval case
@@ -104,7 +99,7 @@ export class TransactionLimitCreationWorkflowService {
           traceId,
           objectSnapshot: {
             policyId: policy.id,
-            policyNo,
+            policyNo: policy.policyNo,
             tradingTier,
             operationType,
             period,
@@ -125,7 +120,7 @@ export class TransactionLimitCreationWorkflowService {
     }
 
     // Link approval case to policy
-    await this.limitsService.linkApprovalCaseToPolicy(policyNo, approvalCase.id);
+    await this.limitsService.linkApprovalCaseToPolicy(policy.policyNo, approvalCase.id);
 
     // Audit
     await this.auditLogsService.recordByActor(
@@ -133,7 +128,7 @@ export class TransactionLimitCreationWorkflowService {
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_REQUESTED,
         entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
         entityId: policy.id,
-        entityNo: policyNo,
+        entityNo: policy.policyNo,
         workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
         traceId,
         result: AuditResult.SUCCESS,
@@ -145,7 +140,7 @@ export class TransactionLimitCreationWorkflowService {
           reason,
           approvalNo: approvalCase.approvalNo,
         },
-        requestId: `TRANSACTION_LIMIT_CREATION_REQUESTED_${policyNo}`,
+        requestId: `TRANSACTION_LIMIT_CREATION_REQUESTED_${policy.policyNo}`,
         sourcePlatform: 'ADMIN_API',
       },
       {
@@ -157,7 +152,7 @@ export class TransactionLimitCreationWorkflowService {
     );
 
     return {
-      policyNo,
+      policyNo: policy.policyNo,
       approvalNo: approvalCase.approvalNo,
       status: 'PENDING_APPROVAL',
     };
@@ -182,8 +177,9 @@ export class TransactionLimitCreationWorkflowService {
   }
 
   private async executeActivation(approvalId: string, policyId: string, event: any) {
+    let policy: any;
     try {
-      const policy = await this.prisma.transactionLimitPolicy.findUnique({
+      policy = await this.prisma.transactionLimitPolicy.findUnique({
         where: { id: policyId },
       });
       if (!policy || policy.status !== 'PENDING_APPROVAL') {
@@ -220,6 +216,7 @@ export class TransactionLimitCreationWorkflowService {
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CREATION.CREATION_APPLY_FAILED,
         entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
         entityId: policyId,
+        entityNo: policy?.policyNo,
         workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CREATION,
         traceId: event?.traceId,
         result: AuditResult.FAILED,

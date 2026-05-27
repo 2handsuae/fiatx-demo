@@ -157,9 +157,12 @@ export default function LedgerAccountDetail() {
 
   if (loading && !detail) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center">
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
-        <p className="mt-3 font-mono text-[11px] text-adm-t3">Loading ledger account…</p>
+        <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading ledger account…</p>
+        <button onClick={() => navigate('/ledger/accounts')} className={adminButtonClass('detailUtility')}>
+          ← Back to Accounts
+        </button>
       </div>
     );
   }
@@ -186,8 +189,7 @@ export default function LedgerAccountDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        title="LEDGER ACCOUNT"
-        subtitle={`${codeLabel} · ${detail.assetCode}`}
+        backLabel="Ledger Accounts"
         onBack={() => navigate('/ledger/accounts')}
         onRefresh={() => void fetchData()}
         refreshing={loading}
@@ -201,15 +203,19 @@ export default function LedgerAccountDetail() {
 
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Ledger Account</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {codeLabel} · {detail.assetCode}
             </p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <AdminBadge value={detail.status} />
-              <span className="font-mono text-[10px] text-adm-t2">
-                Code {detail.code} · Ledger {detail.ledger} · {detail.ownerType}
-              </span>
+            <div className="mt-3 flex items-center gap-4 flex-wrap">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Status</div>
+                <div className="mt-1"><AdminBadge value={detail.status} /></div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">
+              <InfoField label="Code" value={String(detail.code)} mono />
+              <InfoField label="Ledger" value={String(detail.ledger)} mono />
+              <InfoField label="Owner Type" value={detail.ownerType} />
             </div>
           </section>
 
@@ -218,9 +224,9 @@ export default function LedgerAccountDetail() {
             <Cap>Balance (Real-Time)</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <BalanceField label="Debits Posted" value={detail.debitsPosted} colorClass="text-adm-amber" />
-              <BalanceField label="Credits Posted" value={detail.creditsPosted} colorClass="text-blue-400" />
+              <BalanceField label="Credits Posted" value={detail.creditsPosted} colorClass="text-adm-blue" />
               <BalanceField label="Debits Pending" value={detail.debitsPending} colorClass="text-adm-amber/60" />
-              <BalanceField label="Credits Pending" value={detail.creditsPending} colorClass="text-blue-400/60" />
+              <BalanceField label="Credits Pending" value={detail.creditsPending} colorClass="text-adm-blue/60" />
               <BalanceField label="Net Balance" value={detail.netBalance} colorClass={netBalanceColor} />
             </div>
           </section>
@@ -231,7 +237,7 @@ export default function LedgerAccountDetail() {
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField
                 label="Owner Type"
-                value={<AdminBadge value={detail.ownerType} />}
+                value={detail.ownerType}
               />
               <InfoField
                 label="Owner No"
@@ -267,12 +273,10 @@ export default function LedgerAccountDetail() {
         {/* ════ RIGHT SIDEBAR ════ */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
-          <SidebarGroup title="Quick Reference">
+          <SidebarGroup title="Identity Summary">
             <SidebarKV label="Account" value={`${codeLabel} · ${detail.assetCode}`} />
             <SidebarKV label="Status" value={<AdminBadge value={detail.status} />} />
-            <SidebarKV label="Type" value={detail.ownerType} />
-            <SidebarKV label="Code" value={String(detail.code)} mono />
-            <SidebarKV label="Ledger" value={String(detail.ledger)} mono />
+            <SidebarKV label="Owner Type" value={detail.ownerType} />
             <SidebarKV label="Asset" value={detail.assetCode} mono />
             <SidebarKV
               label="TB ID"
@@ -292,6 +296,10 @@ export default function LedgerAccountDetail() {
                 </span>
               }
             />
+          </SidebarGroup>
+
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={formatDate(detail.createdAt)} mono />
           </SidebarGroup>
 
         </div>

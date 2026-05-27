@@ -200,10 +200,14 @@ export const PERMISSIONS = {
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',
   TB_TRANSFERS_READ: 'api.get.admin_tb_transfers',
-  TB_BACKLOG_READ: 'api.get.admin_tb_backlog',
 
   TRANSACTION_LIMIT_POLICIES_READ: 'api.get.admin_transaction_limit_policies',
-  TRANSACTION_LIMIT_POLICIES_WRITE: 'api.patch.admin_transaction_limit_policies',
+  TRANSACTION_LIMIT_POLICIES_WRITE: 'api.post.admin_transaction_limit_policies',
+
+  WITHDRAWAL_ADDRESSES_READ: 'api.get.admin_withdrawal_addresses',
+  WITHDRAWAL_ADDRESS_DETAIL_READ: 'api.get.admin_withdrawal_addresses_addressno',
+  WITHDRAWAL_ADDRESS_SUSPEND: 'api.post.admin_withdrawal_addresses_addressno_suspend',
+  WITHDRAWAL_ADDRESS_SKIP_COOLING: 'api.post.admin_withdrawal_addresses_addressno_skip_cooling',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -118,7 +118,7 @@ const LedgerAccountList = () => {
       const params = new URLSearchParams();
       params.set('skip', String((p - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
-      if (f.assetCode) params.set('assetCode', f.assetCode);
+      if (f.assetCode) params.set('assetCurrency', f.assetCode);
       if (f.ownerType) params.set('ownerType', f.ownerType);
       if (f.code) params.set('code', f.code);
 
@@ -199,7 +199,7 @@ const LedgerAccountList = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accountCategory: form.accountCategory,
-            assetCode: form.assetCode,
+            assetCurrency: form.assetCode,
             code: Number(form.code),
             customerNo:
               form.accountCategory === 'CUSTOMER'

@@ -1,6 +1,5 @@
 import { IsIn, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
 import {
-  TRADING_TIERS,
   OPERATION_TYPES,
   LIMIT_PERIODS,
 } from '../constants/limit-policy.constants';
@@ -8,7 +7,6 @@ import {
 export class CreateLimitPolicyDto {
   @IsString()
   @IsNotEmpty()
-  @IsIn([...TRADING_TIERS])
   tradingTier!: string;
 
   @IsString()

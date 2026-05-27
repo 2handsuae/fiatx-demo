@@ -182,6 +182,8 @@ export class TransactionLimitsService {
         throw e;
       }
     }
+    // Unreachable: the loop always returns or throws
+    throw new ConflictException('Failed to generate unique policyNo after 3 attempts');
   }
 
   async linkApprovalCaseToPolicy(policyNo: string, caseId: string, tx?: Prisma.TransactionClient): Promise<void> {
@@ -271,37 +273,42 @@ export class TransactionLimitsService {
   }
 
   async executeChange(requestNo: string, tx?: Prisma.TransactionClient) {
-    const db = tx ?? this.prisma;
+    const run = async (db: Prisma.TransactionClient | PrismaService) => {
+      const request = await db.transactionLimitChangeRequest.findUnique({ where: { requestNo } });
+      if (!request) throw new NotFoundException(`Change request ${requestNo} not found`);
+      if (request.status !== 'PENDING_APPROVAL') {
+        throw new ConflictException(`Request ${requestNo} is ${request.status}, expected PENDING_APPROVAL`);
+      }
 
-    const request = await db.transactionLimitChangeRequest.findUnique({ where: { requestNo } });
-    if (!request) throw new NotFoundException(`Change request ${requestNo} not found`);
-    if (request.status !== 'PENDING_APPROVAL') {
-      throw new ConflictException(`Request ${requestNo} is ${request.status}, expected PENDING_APPROVAL`);
+      const policy = await db.transactionLimitPolicy.findUnique({ where: { id: request.policyId } });
+      if (!policy) throw new NotFoundException(`Policy for request ${requestNo} not found`);
+      if (policy.status !== 'ACTIVE') {
+        throw new ConflictException(`Policy ${policy.policyNo} is ${policy.status}, must be ACTIVE to apply change`);
+      }
+
+      if (request.currentAmount.toString() !== policy.limitAmount.toString()) {
+        throw new ConflictException(
+          `Conflict: policy limit changed since request was created (snapshot: ${request.currentAmount}, actual: ${policy.limitAmount})`,
+        );
+      }
+
+      const updatedPolicy = await db.transactionLimitPolicy.update({
+        where: { id: policy.id },
+        data: { limitAmount: request.proposedAmount },
+      });
+
+      const updatedRequest = await db.transactionLimitChangeRequest.update({
+        where: { requestNo },
+        data: { status: 'EXECUTED', executedAt: new Date() },
+      });
+
+      return { policy: updatedPolicy, request: updatedRequest };
+    };
+
+    if (tx) {
+      return run(tx);
     }
-
-    const policy = await db.transactionLimitPolicy.findUnique({ where: { id: request.policyId } });
-    if (!policy) throw new NotFoundException(`Policy for request ${requestNo} not found`);
-    if (policy.status !== 'ACTIVE') {
-      throw new ConflictException(`Policy ${policy.policyNo} is ${policy.status}, must be ACTIVE to apply change`);
-    }
-
-    if (request.currentAmount.toString() !== policy.limitAmount.toString()) {
-      throw new ConflictException(
-        `Conflict: policy limit changed since request was created (snapshot: ${request.currentAmount}, actual: ${policy.limitAmount})`,
-      );
-    }
-
-    const updatedPolicy = await db.transactionLimitPolicy.update({
-      where: { id: policy.id },
-      data: { limitAmount: request.proposedAmount },
-    });
-
-    const updatedRequest = await db.transactionLimitChangeRequest.update({
-      where: { requestNo },
-      data: { status: 'EXECUTED', executedAt: new Date() },
-    });
-
-    return { policy: updatedPolicy, request: updatedRequest };
+    return this.prisma.$transaction(async (txn) => run(txn));
   }
 
   async rejectChangeRequest(requestNo: string, tx?: Prisma.TransactionClient): Promise<void> {

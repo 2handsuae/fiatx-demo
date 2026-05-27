@@ -81,7 +81,7 @@ const SidebarKV = ({
 /* ── Main Component ──────────────────────────────────────────── */
 
 export default function AssetDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { assetNo } = useParams<{ assetNo: string }>();
   const navigate = useNavigate();
 
   const [asset, setAsset] = useState<AssetDetailData | null>(null);
@@ -100,11 +100,11 @@ export default function AssetDetail() {
   const [submittingReactivate, setSubmittingReactivate] = useState(false);
 
   const fetchDetail = async () => {
-    if (!id) return;
+    if (!assetNo) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets/${id}`);
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets/${assetNo}`);
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load asset detail.'));
       setAsset(await res.json());
     } catch (err) {
@@ -115,7 +115,7 @@ export default function AssetDetail() {
     }
   };
 
-  useEffect(() => { void fetchDetail(); }, [id]);
+  useEffect(() => { void fetchDetail(); }, [assetNo]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -197,9 +197,12 @@ export default function AssetDetail() {
 
   if (loading && !asset) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center">
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
-        <p className="mt-3 font-mono text-[11px] text-adm-t3">Loading asset…</p>
+        <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading asset…</p>
+        <button onClick={() => navigate('/dashboard/system/assets')} className={adminButtonClass('detailUtility')}>
+          ← Back to Assets
+        </button>
       </div>
     );
   }
@@ -256,11 +259,16 @@ export default function AssetDetail() {
             <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {asset.code}
             </p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <AdminBadge value={asset.status} />
-              <span className="font-mono text-[10px] text-adm-t2">
-                {asset.currency} · {asset.type}{asset.network ? ` · ${asset.network}` : ''}
-              </span>
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Status</div>
+                <div className="mt-1"><AdminBadge value={asset.status} /></div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">
+              <InfoField label="Currency" value={asset.currency} mono />
+              <InfoField label="Type" value={asset.type} />
+              {asset.network && <InfoField label="Network" value={asset.network} />}
             </div>
           </section>
 
@@ -313,7 +321,7 @@ export default function AssetDetail() {
                 {asset.status === 'PROVISIONING' && (
                   <>
                     <button
-                      onClick={() => navigate(`/dashboard/system/assets/${id}/edit`)}
+                      onClick={() => navigate(`/dashboard/system/assets/${assetNo}/edit`)}
                       className={adminButtonClass('detailUtility')}
                     >
                       <Pencil size={13} />

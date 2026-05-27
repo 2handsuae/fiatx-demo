@@ -23,6 +23,11 @@ export class ListWithdrawalAddressQueryDto {
   @IsOptional()
   customerId?: string;
 
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  customerNo?: string;
+
   @ApiProperty({ required: false, default: 50 })
   @Type(() => Number)
   @IsInt()

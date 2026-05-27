@@ -85,7 +85,25 @@ const TransactionLimitList = () => {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Dynamic trading tiers
+  const [availableTiers, setAvailableTiers] = useState<string[]>(['BASIC', 'PREMIUM']);
+  const [showNewTierInput, setShowNewTierInput] = useState(false);
+  const [newTierName, setNewTierName] = useState('');
+
   const requestSeqRef = useRef(0);
+
+  /* ── Fetch available tiers ── */
+  const fetchTiers = async () => {
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-policies/trading-tiers`,
+      );
+      if (res.ok) {
+        const tiers = (await res.json()) as string[];
+        if (Array.isArray(tiers) && tiers.length > 0) setAvailableTiers(tiers);
+      }
+    } catch { /* ignore */ }
+  };
 
   /* ── Data fetching ── */
 
@@ -122,7 +140,7 @@ const TransactionLimitList = () => {
     }
   };
 
-  useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); }, []);
+  useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); void fetchTiers(); }, []);
 
   /* ── Create modal handlers ── */
 
@@ -229,8 +247,9 @@ const TransactionLimitList = () => {
           onChange={(e) => updateFilter('tradingTier', e.target.value)}
         >
           <option value="">All tiers</option>
-          <option value="BASIC">BASIC</option>
-          <option value="PREMIUM">PREMIUM</option>
+          {availableTiers.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
         </select>
         <select
           className={`${fi} w-[150px]`}
@@ -357,14 +376,61 @@ const TransactionLimitList = () => {
               )}
               <div>
                 <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Trading Tier</label>
-                <select
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
-                  value={createForm.tradingTier}
-                  onChange={(e) => setCreateForm((f) => ({ ...f, tradingTier: e.target.value }))}
-                >
-                  <option value="BASIC">BASIC</option>
-                  <option value="PREMIUM">PREMIUM</option>
-                </select>
+                {!showNewTierInput ? (
+                  <select
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                    value={createForm.tradingTier}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setShowNewTierInput(true);
+                        setNewTierName('');
+                      } else {
+                        setCreateForm((f) => ({ ...f, tradingTier: e.target.value }));
+                      }
+                    }}
+                  >
+                    {availableTiers.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                    <option value="__NEW__">+ Create New Tier...</option>
+                  </select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1 uppercase"
+                      value={newTierName}
+                      onChange={(e) => setNewTierName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                      placeholder="e.g. VIP"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      className={adminButtonClass('listPrimary')}
+                      disabled={!newTierName.trim()}
+                      onClick={() => {
+                        const tier = newTierName.trim();
+                        if (tier) {
+                          if (!availableTiers.includes(tier)) {
+                            setAvailableTiers((prev) => [...prev, tier].sort());
+                          }
+                          setCreateForm((f) => ({ ...f, tradingTier: tier }));
+                          setShowNewTierInput(false);
+                          setNewTierName('');
+                        }
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className={adminButtonClass('listSecondary')}
+                      onClick={() => { setShowNewTierInput(false); setNewTierName(''); }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">Operation Type</label>

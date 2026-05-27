@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
@@ -65,9 +66,9 @@ export class TbManualAccountService {
       });
     }
 
-    // 2. Load and validate asset
+    // 2. Load and validate asset (frontend sends asset.code e.g. "USDT-TRON")
     const asset = await this.prisma.asset.findFirst({
-      where: { currency: input.assetCurrency },
+      where: { code: input.assetCurrency },
     });
     if (!asset || asset.tbLedgerId == null) {
       throw new BadRequestException({
@@ -135,8 +136,8 @@ export class TbManualAccountService {
       ownerType,
       ownerUuid,
       ownerNo: customer?.customerNo,
-      assetCurrency: input.assetCurrency,
-      description: input.description || `Manual: ${codeName} for ${input.assetCurrency}`,
+      assetCurrency: asset.currency,
+      description: input.description || `Manual: ${codeName} for ${asset.currency}`,
       flags,
     };
 
@@ -157,10 +158,13 @@ export class TbManualAccountService {
         entityType: AuditEntityTypes.TB_ACCOUNT,
         entityId: created?.tbAccountId,
         workflowType: AuditBusinessWorkflowTypes.TB_ACCOUNT_MANUAL_CREATE,
+        traceId: randomUUID(),
         result: AuditResult.SUCCESS,
+        sourcePlatform: 'ADMIN_API',
         metadata: {
           accountCategory: input.accountCategory,
-          assetCurrency: input.assetCurrency,
+          assetCode: input.assetCurrency,
+          assetCurrency: asset.currency,
           code: input.code,
           codeName,
           customerNo: customer?.customerNo || null,

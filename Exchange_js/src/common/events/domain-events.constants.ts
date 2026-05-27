@@ -7,12 +7,6 @@
  * - Subscribers: Workflow Services only
  */
 export const DOMAIN_EVENTS = {
-  ASSET_PROVISIONED: {
-    name: 'asset.provisioned',
-    emitter: 'AssetListingWorkflowService',
-    subscribers: ['TbAccountBatchService (to be refactored to workflow in Batch 2)'],
-    payload: '{ assetId: string, assetNo: string, assetCurrency: string, tbLedgerId: number }',
-  },
   PAYIN_CREATED: {
     name: 'payin.created',
     emitter: 'PayinsService',
@@ -35,7 +29,6 @@ export const DOMAIN_EVENTS = {
 
 /** Type-safe event name accessor */
 export const DomainEventNames = {
-  ASSET_PROVISIONED: DOMAIN_EVENTS.ASSET_PROVISIONED.name,
   PAYIN_CREATED: DOMAIN_EVENTS.PAYIN_CREATED.name,
   PAYIN_STATUS_CHANGED: DOMAIN_EVENTS.PAYIN_STATUS_CHANGED.name,
   DEPOSIT_STATUS_CHANGED: DOMAIN_EVENTS.DEPOSIT_STATUS_CHANGED.name,

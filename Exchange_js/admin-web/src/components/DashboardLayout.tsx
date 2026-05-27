@@ -148,12 +148,6 @@ const DashboardLayout = () => {
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
         },
-        {
-          path: '/dashboard/system/transaction-limits',
-          label: 'Transaction Limits',
-          icon: <Gauge size={13} />,
-          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
-        },
         // Hidden: objectSnapshot on approval replaces direct navigation
         // {
         //   path: '/dashboard/governance/policy-change-requests',
@@ -274,12 +268,6 @@ const DashboardLayout = () => {
           icon: <Database size={13} />,
           requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
-        {
-          path: '/ledger/retry-queue',
-          label: 'Retry Queue',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_BACKLOG_READ],
-        },
       ],
     },
     // ─── Treasury ─────────────────────────────────────────────────
@@ -346,6 +334,12 @@ const DashboardLayout = () => {
           label: 'Deposit Wallet Monitor',
           icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE],
+        },
+        {
+          path: '/dashboard/system/transaction-limits',
+          label: 'Transaction Limits',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
         },
       ],
     },

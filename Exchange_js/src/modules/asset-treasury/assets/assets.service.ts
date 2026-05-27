@@ -1,21 +1,13 @@
 import {
   Injectable,
-  BadRequestException,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { CreateAssetDto, AssetStatus, AssetType } from './dto/asset.dto';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditModules,
-} from '../../audit-logging/constants/audit-actions.constant';
-import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
 @Injectable()
 export class AssetsService {
@@ -23,64 +15,7 @@ export class AssetsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditLogsService: AuditLogsService,
   ) {}
-
-  async create(data: CreateAssetDto) {
-    this.logger.log(
-      `Creating asset: ${data.type} ${data.currency} ${data.network || ''}`,
-    );
-
-    const existing = await this.prisma.asset.findFirst({
-      where: {
-        type: data.type,
-        currency: data.currency,
-        network: data.network || null,
-      },
-    });
-
-    if (existing) {
-      this.logger.warn(
-        `Failed to create asset: Asset combination already exists`,
-      );
-      throw new BadRequestException(
-        'Asset with this type, currency and network combination already exists',
-      );
-    }
-
-    if (data.type === AssetType.CRYPTO && !data.network) {
-      throw new BadRequestException('Network is required for CRYPTO assets');
-    }
-
-    const code = data.network ? `${data.currency}-${data.network}` : data.currency;
-
-    const result = await this.prisma.asset.create({
-      data: {
-        assetNo: generateReferenceNo('AS'),
-        type: data.type,
-        currency: data.currency,
-        code,
-        network: data.network,
-        decimals: data.decimals,
-        description: data.description,
-        status: AssetStatus.ACTIVE,
-      },
-    });
-
-    await this.auditLogsService.recordSystem({
-
-      action: AuditActions.ASSET_CONFIG_UPDATED,
-      entityType: AuditEntityTypes.ASSET,
-      entityId: result.id,
-      entityNo: result.assetNo || undefined,
-      result: AuditResult.SUCCESS,
-      reason: 'Asset config created',
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    this.logger.log(`Asset created: ${result.id}`);
-    return result;
-  }
 
   async findAll(params: {
     skip?: number;
@@ -102,38 +37,20 @@ export class AssetsService {
     return { items, total };
   }
 
-  async findOne(id: string) {
+  async findOne(idOrAssetNo: string) {
+    // Try assetNo lookup first if the value matches the assetNo prefix pattern
+    if (idOrAssetNo.startsWith('AS')) {
+      const item = await this.prisma.asset.findFirst({
+        where: { assetNo: idOrAssetNo },
+      });
+      if (item) return item;
+    }
+
     const item = await this.prisma.asset.findUnique({
-      where: { id },
+      where: { id: idOrAssetNo },
     });
     if (!item) throw new NotFoundException('Asset not found');
     return item;
-  }
-
-  async changeStatus(id: string, status: AssetStatus) {
-    this.logger.log(`Changing status of Asset ${id} to ${status}`);
-
-    // Validate status transition if needed, currently only ACTIVE <-> DISABLED
-    const before = await this.findOne(id);
-
-    const result = await this.prisma.asset.update({
-      where: { id },
-      data: { status },
-    });
-
-    await this.auditLogsService.recordSystem({
-
-      action: AuditActions.ASSET_CONFIG_UPDATED,
-      entityType: AuditEntityTypes.ASSET,
-      entityId: result.id,
-      entityNo: result.assetNo || undefined,
-      result: AuditResult.SUCCESS,
-      reason: 'Asset status changed',
-      sourcePlatform: 'ADMIN_API',
-    });
-
-    this.logger.log(`Status changed for Asset: ${id}`);
-    return result;
   }
 
   async suspendAsset(

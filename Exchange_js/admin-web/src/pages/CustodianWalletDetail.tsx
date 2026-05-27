@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Repeat, Link2, RotateCcw } from 'lucide-react';
+import { Repeat, RotateCcw } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -165,9 +165,12 @@ export default function CustodianWalletDetail() {
 
   if (loading && !wallet) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center">
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
-        <p className="mt-3 font-mono text-[11px] text-adm-t3">Loading wallet…</p>
+        <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading wallet…</p>
+        <button onClick={() => navigate('/dashboard/treasury/custodian-wallets')} className={adminButtonClass('detailUtility')}>
+          ← Back to Custodian Wallets
+        </button>
       </div>
     );
   }
@@ -313,11 +316,19 @@ export default function CustodianWalletDetail() {
             <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {wallet.walletNo}
             </p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <AdminBadge value={wallet.status} />
-              <WalletRoleBadge role={wallet.walletRole} />
+            <div className="mt-3 flex items-center gap-4 flex-wrap">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Status</div>
+                <div className="mt-1"><AdminBadge value={wallet.status} /></div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Role</div>
+                <div className="mt-1"><WalletRoleBadge role={wallet.walletRole} /></div>
+              </div>
             </div>
-            <div className="mt-2 font-mono text-[10px] text-adm-t3">{surfaceLabel}</div>
+            <div className="mt-3">
+              <InfoField label="Surface" value={surfaceLabel} />
+            </div>
           </section>
 
           {/* ② Details */}
@@ -364,17 +375,12 @@ export default function CustodianWalletDetail() {
                       copied={copiedField === 'address'}
                       onCopy={(v) => handleCopy(v, 'address')}
                     />
-                    <InfoField label="Memo / Tag" value={wallet.memo} />
-                    <InfoField label="Beneficiary Name" value={wallet.beneficiaryName} />
-                    <InfoField label="Counterparty VASP" value={wallet.counterpartyVasp} />
                   </>
                 ) : (
                   <>
                     <InfoField label="Bank Name" value={wallet.bankName} />
                     <InfoField label="Account Holder" value={wallet.accountName} />
-                    <InfoField label="Account Number" value={wallet.bankAccount} />
                     <InfoField label="IBAN" value={wallet.iban} />
-                    <InfoField label="Bank Code (SWIFT/BIC)" value={wallet.bankCode} />
                   </>
                 )}
               </div>
@@ -406,13 +412,9 @@ export default function CustodianWalletDetail() {
                     </div>
                   )}
                   {collectionResult.internalTransactionId && (
-                    <button
-                      onClick={() => navigate(`/exchange/internal-transactions/${collectionResult.internalTransactionId}`)}
-                      className={`mt-2 ${adminButtonClass('detailUtility')}`}
-                    >
-                      <Link2 size={13} />
-                      View Collection
-                    </button>
+                    <div className="mt-1 text-[10px]">
+                      Transaction: {collectionResult.internalTransactionId}
+                    </div>
                   )}
                 </div>
               )}

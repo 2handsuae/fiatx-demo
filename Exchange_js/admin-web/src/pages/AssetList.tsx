@@ -231,7 +231,7 @@ const AssetList = () => {
                 <tr
                   key={a.id}
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover transition-colors"
-                  onClick={() => navigate(`/dashboard/system/assets/${a.id}`)}
+                  onClick={() => navigate(`/dashboard/system/assets/${a.assetNo}`)}
                 >
                   <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-amber">
                     {a.code}

@@ -17,7 +17,7 @@ import {
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
 import { WalletRole, WalletStatus } from './dto/wallet.dto';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { WalletsService } from './wallets.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -27,11 +27,13 @@ export class CustomerDepositWalletService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly walletsService: WalletsService,
     @Inject(CUSTODIAN_ADAPTER)
     private readonly custodianAdapter: CustodianAdapter,
   ) {}
 
   async createOrReturn(customerId: string, assetId: string) {
+    // ── Validate customer & asset (reads only, outside tx) ──
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
       select: { id: true, customerNo: true, onboardingStatus: true, adminStatus: true },
@@ -57,56 +59,69 @@ export class CustomerDepositWalletService {
     const walletRole = asset.type === 'FIAT' ? WalletRole.C_VIBAN : WalletRole.C_DEP;
     const walletType = asset.type === 'FIAT' ? 'FIAT_BANK' : 'CRYPTO_ADDRESS';
 
-    const existing = await this.prisma.wallet.findFirst({
-      where: {
-        ownerType: 'CUSTOMER',
-        ownerId: customerId,
-        assetId,
-        walletRole,
-        status: WalletStatus.ACTIVE,
-      },
-      include: { asset: { select: { code: true, type: true, decimals: true } } },
-    });
-    if (existing) {
-      return existing;
-    }
-
-    const traceId = crypto.randomUUID();
-    const walletNo = generateReferenceNo('WA');
-
-    // Inherit bankName/accountName from CMA for FIAT vIBAN
-    let bankName: string | null = null;
-    let accountName: string | null = null;
-    if (walletRole === WalletRole.C_VIBAN) {
-      const cma = await this.prisma.wallet.findFirst({
+    // ── H5: Atomic check-then-create inside $transaction (prevents race condition) ──
+    const txResult = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.wallet.findFirst({
         where: {
-          walletRole: WalletRole.C_CMA,
+          ownerType: 'CUSTOMER',
+          ownerId: customerId,
           assetId,
+          walletRole,
           status: WalletStatus.ACTIVE,
         },
-        select: { bankName: true, accountName: true },
+        include: { asset: { select: { code: true, type: true, decimals: true } } },
       });
-      if (cma) {
-        bankName = cma.bankName;
-        accountName = cma.accountName;
+      if (existing) {
+        return { kind: 'existing' as const, wallet: existing };
       }
-    }
 
-    const wallet = await this.prisma.wallet.create({
-      data: {
-        walletNo,
-        ownerType: 'CUSTOMER',
-        ownerId: customerId,
-        ownerNo: customer.customerNo,
-        type: walletType,
-        walletRole,
-        assetId,
-        status: WalletStatus.CREATING,
-        bankName,
-        accountName,
-      },
+      // Inherit bankName/accountName from CMA for FIAT vIBAN
+      let bankName: string | undefined;
+      let accountName: string | undefined;
+      if (walletRole === WalletRole.C_VIBAN) {
+        const cma = await tx.wallet.findFirst({
+          where: {
+            walletRole: WalletRole.C_CMA,
+            assetId,
+            status: WalletStatus.ACTIVE,
+          },
+          select: { bankName: true, accountName: true },
+        });
+        if (cma) {
+          bankName = cma.bankName ?? undefined;
+          accountName = cma.accountName ?? undefined;
+        }
+      }
+
+      // H4: Use WalletsService domain method instead of direct prisma.wallet.create
+      const wallet = await this.walletsService.createWalletRecord(
+        {
+          assetId,
+          ownerType: 'CUSTOMER',
+          ownerId: customerId,
+          ownerNo: customer.customerNo,
+          walletRole,
+          type: walletType,
+          status: 'CREATING',
+          bankName,
+          accountName,
+        },
+        tx,
+      );
+
+      return { kind: 'created' as const, wallet: wallet! };
     });
 
+    // Short-circuit if existing wallet found
+    if (txResult.kind === 'existing') {
+      return txResult.wallet;
+    }
+
+    const wallet = txResult.wallet;
+    const walletNo = wallet.walletNo!; // guaranteed non-null by createWalletRecord
+    const traceId = crypto.randomUUID();
+
+    // ── Call custodian adapter (outside tx — external API call) ──
     try {
       const result = await this.custodianAdapter.createVault({
         assetCurrency: asset.currency,
@@ -114,14 +129,21 @@ export class CustomerDepositWalletService {
         role: walletRole,
       });
 
-      const updated = await this.prisma.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          status: WalletStatus.ACTIVE,
+      // H4: Transition via domain method instead of direct prisma.wallet.update
+      await this.walletsService.transitionStatus(
+        walletNo,
+        'CREATING',
+        'ACTIVE',
+        {
           vaultId: result.vaultId,
           address: result.address ?? null,
           iban: result.iban ?? null,
         },
+      );
+
+      // Re-fetch with asset include for API response
+      const updated = await this.prisma.wallet.findUnique({
+        where: { id: wallet.id },
         include: { asset: { select: { code: true, type: true, decimals: true } } },
       });
 
@@ -149,7 +171,18 @@ export class CustomerDepositWalletService {
       this.logger.log(`Deposit wallet ${walletNo} created for customer ${customer.customerNo}, asset ${asset.currency}`);
       return updated;
     } catch (err: any) {
-      await this.prisma.wallet.delete({ where: { id: wallet.id } });
+      // H4: Transition to FAILED via domain method instead of direct delete
+      try {
+        await this.walletsService.transitionStatus(
+          walletNo,
+          'CREATING',
+          'FAILED',
+        );
+      } catch (transitionErr) {
+        this.logger.error(
+          `Failed to transition wallet ${walletNo} to FAILED: ${(transitionErr as Error).message}`,
+        );
+      }
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_WALLET_CREATE_FAILED,

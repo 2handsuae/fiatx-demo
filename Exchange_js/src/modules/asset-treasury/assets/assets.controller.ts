@@ -1,18 +1,12 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
-  Patch,
   Param,
   Query,
   UseGuards,
-  BadRequestException,
 } from '@nestjs/common';
 import { AssetsService } from './assets.service';
 import {
-  CreateAssetDto,
-  UpdateAssetStatusDto,
   AssetStatus,
   AssetType,
 } from './dto/asset.dto';
@@ -32,15 +26,6 @@ import { Prisma } from '@prisma/client';
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class AssetsController {
   constructor(private readonly service: AssetsService) {}
-
-  @Post()
-  @ApiOperation({
-    summary: '[DEPRECATED] Create a new asset — use ASSET_CONFIG release instead',
-    deprecated: true,
-  })
-  create(@Body() dto: CreateAssetDto) {
-    return this.service.create(dto);
-  }
 
   @Get()
   @ApiOperation({ summary: 'List all assets' })
@@ -80,11 +65,5 @@ export class AssetsController {
   @ApiOperation({ summary: 'Get an asset by ID' })
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
-  }
-
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Change asset status' })
-  changeStatus(@Param('id') id: string, @Body() dto: UpdateAssetStatusDto) {
-    return this.service.changeStatus(id, dto.status);
   }
 }

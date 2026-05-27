@@ -143,6 +143,10 @@ export class WalletsController {
     @Body() dto: UpdateWalletStatusDto,
   ) {
     this.ensureAdmin(req);
-    return this.service.changeStatus(id, dto.status);
+    return this.service.changeStatus(id, dto.status, {
+      actorId: req.user.userId,
+      actorNo: req.user.adminNo,
+      actorRole: req.user.role,
+    });
   }
 }

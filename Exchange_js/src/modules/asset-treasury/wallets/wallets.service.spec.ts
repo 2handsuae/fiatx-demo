@@ -22,7 +22,10 @@ describe('WalletsService', () => {
 
   const auditMock = {
     recordSystem: jest.fn().mockResolvedValue(undefined),
+    recordByActor: jest.fn().mockResolvedValue(undefined),
   };
+
+  const mockActor = { actorId: 'admin-1', actorNo: 'ADM001', actorRole: 'TECH_OFFICER' };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -62,7 +65,7 @@ describe('WalletsService', () => {
       });
 
       await expect(
-        service.changeStatus('wallet-protected', WalletStatus.DISABLED),
+        service.changeStatus('wallet-protected', WalletStatus.DISABLED, mockActor),
       ).rejects.toThrow(
         'C_MAIN wallets are system-provisioned and cannot be manually disabled',
       );
@@ -80,7 +83,7 @@ describe('WalletsService', () => {
         status: WalletStatus.ACTIVE,
       });
 
-      await service.changeStatus('wallet-normal', WalletStatus.DISABLED);
+      await service.changeStatus('wallet-normal', WalletStatus.DISABLED, mockActor);
 
       expect((prisma as any).wallet.update).toHaveBeenCalledWith({
         where: { id: 'wallet-normal' },
@@ -92,7 +95,7 @@ describe('WalletsService', () => {
       (prisma as any).wallet.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.changeStatus('nonexistent', WalletStatus.DISABLED),
+        service.changeStatus('nonexistent', WalletStatus.DISABLED, mockActor),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -107,13 +110,17 @@ describe('WalletsService', () => {
         status: WalletStatus.ACTIVE,
       });
 
-      await service.changeStatus('wallet-audit', WalletStatus.FROZEN);
+      await service.changeStatus('wallet-audit', WalletStatus.FROZEN, mockActor);
 
-      expect(auditMock.recordSystem).toHaveBeenCalledWith(
+      expect(auditMock.recordByActor).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'WALLET_STATUS_UPDATED',
           entityId: expect.any(String),
           result: 'SUCCESS',
+        }),
+        expect.objectContaining({
+          actorType: 'ADMIN',
+          actorId: mockActor.actorId,
         }),
       );
     });

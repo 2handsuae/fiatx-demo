@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, Wallet, Building2, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Wallet, Building2, RefreshCw, Copy, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
   CustomerSessionError,
@@ -7,19 +7,23 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 
-interface WalletItem {
-  id: string;
+interface WalletAsset {
+  code: string;
   type: string;
-  direction?: string;
-  walletRole?: string;
-  asset: { code: string; type: string };
-  address?: string;
-  memo?: string;
-  bankName?: string;
-  bankAccount?: string;
-  iban?: string;
-  accountName?: string;
+  decimals: number;
+}
+
+interface DepositWallet {
+  id: string;
+  walletNo: string;
+  type: string;
+  walletRole: string;
   status: string;
+  address: string | null;
+  iban: string | null;
+  bankName: string | null;
+  accountName: string | null;
+  asset: WalletAsset;
 }
 
 interface Asset {
@@ -30,50 +34,30 @@ interface Asset {
   network: string | null;
 }
 
+const DEPOSIT_ROLES = ['C_DEP', 'C_VIBAN'];
+
 const WalletManagement = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
-  const [wallets, setWallets] = useState<WalletItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  
-  // Create Form State
+  const [wallets, setWallets] = useState<DepositWallet[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [formData, setFormData] = useState({
-    assetId: '',
-    // Crypto
-    beneficiaryName: '',
-    counterpartyVasp: '',
-    address: '',
-    memo: '',
-    // Fiat
-    accountName: '',
-    bankName: '',
-    bankAccount: '',
-    iban: '',
-    bankCode: '',
-  });
-  const [creating, setCreating] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const fetchWallets = async () => {
+  const fetchWallets = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        ownerType: 'CUSTOMER',
-        ownerId: user?.id || '',
-        direction: 'OUTBOUND',
-        walletRole: 'GENERAL',
-      });
+      const params = new URLSearchParams({ status: 'ACTIVE', take: '100' });
       const response = await customerFetch(
         `${import.meta.env.VITE_API_URL}/wallets?${params.toString()}`,
       );
-      
       if (response.ok) {
         const data = await response.json();
-        const outboundWallets = (data.items || []).filter(
-          (w: any) => w.direction === 'OUTBOUND' && (w.walletRole || 'GENERAL') === 'GENERAL',
+        const depositWallets = (data.items || []).filter(
+          (w: DepositWallet) => DEPOSIT_ROLES.includes(w.walletRole),
         );
-        setWallets(outboundWallets);
+        setWallets(depositWallets);
       }
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
@@ -81,11 +65,13 @@ const WalletManagement = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
     try {
-      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`);
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`,
+      );
       if (response.ok) {
         const data = await response.json();
         setAssets(data.items || []);
@@ -94,52 +80,24 @@ const WalletManagement = () => {
       if (error instanceof CustomerSessionError) return;
       console.error('Failed to fetch assets', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (user) {
       fetchWallets();
       fetchAssets();
     }
-  }, [user]);
+  }, [user, fetchWallets, fetchAssets]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreating(true);
-
+  const handleCreateWallet = async (assetId: string) => {
+    setCreating(assetId);
     try {
-      const payload = {
-        ownerType: 'CUSTOMER',
-        ownerId: user?.id,
-        direction: 'OUTBOUND', // As per requirements for withdrawal wallets
-        type: activeTab === 'crypto' ? 'CRYPTO_ADDRESS' : 'FIAT_BANK',
-        assetId: formData.assetId,
-        ...(activeTab === 'crypto' ? {
-            address: formData.address,
-            memo: formData.memo,
-            beneficiaryName: formData.beneficiaryName,
-            counterpartyVasp: formData.counterpartyVasp,
-        } : {
-            accountName: formData.accountName,
-            bankName: formData.bankName,
-            bankAccount: formData.bankAccount,
-            iban: formData.iban,
-            bankCode: formData.bankCode,
-        })
-      };
-
-      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/wallets`, {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/client/deposit-wallets`,
+        { method: 'POST', body: JSON.stringify({ assetId }) },
+      );
       if (response.ok) {
-        setShowCreateModal(false);
-        setFormData({
-            assetId: '', beneficiaryName: '', counterpartyVasp: '', address: '', memo: '',
-            accountName: '', bankName: '', bankAccount: '', iban: '', bankCode: ''
-        });
-        fetchWallets();
+        await fetchWallets();
       } else {
         alert(await getCustomerApiErrorMessage(response, 'Failed to create wallet'));
       }
@@ -148,32 +106,34 @@ const WalletManagement = () => {
       console.error('Failed to create wallet', error);
       alert('An unexpected error occurred');
     } finally {
-      setCreating(false);
+      setCreating(null);
     }
   };
 
-  const filteredWallets = wallets.filter(w => 
-    activeTab === 'crypto' ? w.asset.type === 'CRYPTO' : w.asset.type === 'FIAT'
+  const copyToClipboard = (text: string, walletId: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(walletId);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const filteredWallets = wallets.filter((w) =>
+    activeTab === 'crypto' ? w.asset.type === 'CRYPTO' : w.asset.type === 'FIAT',
   );
 
-  const filteredAssets = assets.filter(a => 
-    activeTab === 'crypto' ? a.type === 'CRYPTO' : a.type === 'FIAT'
-  );
+  // Assets that don't have an ACTIVE deposit wallet yet
+  const availableAssets = assets.filter((a) => {
+    const matchesTab = activeTab === 'crypto' ? a.type === 'CRYPTO' : a.type === 'FIAT';
+    if (!matchesTab) return false;
+    return !wallets.some((w) => w.asset.code === a.code && w.status === 'ACTIVE');
+  });
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Wallets & Accounts</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your withdrawal target addresses and bank accounts</p>
-        </div>
-        <button 
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors"
-        >
-          <Plus size={20} />
-          {activeTab === 'crypto' ? 'Add Wallet Address' : 'Add Bank Account'}
-        </button>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Deposit Wallets</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">
+          Your deposit addresses and bank accounts for receiving funds
+        </p>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -182,27 +142,27 @@ const WalletManagement = () => {
             <button
               onClick={() => setActiveTab('crypto')}
               className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
-                activeTab === 'crypto' 
-                  ? 'border-brand-primary text-brand-primary' 
+                activeTab === 'crypto'
+                  ? 'border-brand-primary text-brand-primary'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
               <div className="flex items-center gap-2">
                 <Wallet size={18} />
-                Crypto Wallets
+                Crypto
               </div>
             </button>
             <button
               onClick={() => setActiveTab('fiat')}
               className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 ${
-                activeTab === 'fiat' 
-                  ? 'border-brand-primary text-brand-primary' 
+                activeTab === 'fiat'
+                  ? 'border-brand-primary text-brand-primary'
                   : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
               <div className="flex items-center gap-2">
                 <Building2 size={18} />
-                Bank Accounts
+                Fiat
               </div>
             </button>
           </div>
@@ -211,188 +171,125 @@ const WalletManagement = () => {
         <div className="p-6">
           {loading ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
-                Loading...
-            </div>
-          ) : filteredWallets.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-dashed border-gray-200 dark:border-gray-700">
-              <p>No {activeTab === 'crypto' ? 'withdrawal target addresses' : 'withdrawal bank accounts'} found.</p>
+              <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
+              Loading...
             </div>
           ) : (
-            <div className="grid gap-4">
-              {filteredWallets.map(wallet => (
-                <div key={wallet.id} className="p-4 border border-gray-100 dark:border-gray-700 rounded-lg hover:shadow-md dark:hover:bg-gray-700/50 transition-all">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-gray-900 dark:text-white">{wallet.asset.code}</span>
-                        <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-gray-600 dark:text-gray-400">{wallet.type}</span>
+            <div className="space-y-6">
+              {/* Existing deposit wallets */}
+              {filteredWallets.length > 0 && (
+                <div className="grid gap-4">
+                  {filteredWallets.map((wallet) => (
+                    <div
+                      key={wallet.id}
+                      className="p-4 border border-gray-100 dark:border-gray-700 rounded-lg"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="font-bold text-gray-900 dark:text-white">
+                              {wallet.asset.code}
+                            </span>
+                            <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 rounded text-xs font-medium">
+                              {wallet.status}
+                            </span>
+                          </div>
+
+                          {activeTab === 'crypto' && wallet.address && (
+                            <div className="flex items-center gap-2">
+                              <code className="text-sm text-gray-600 dark:text-gray-300 font-mono break-all">
+                                {wallet.address}
+                              </code>
+                              <button
+                                onClick={() => copyToClipboard(wallet.address!, wallet.id)}
+                                className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                title="Copy address"
+                              >
+                                {copiedId === wallet.id ? (
+                                  <Check size={16} className="text-green-500" />
+                                ) : (
+                                  <Copy size={16} />
+                                )}
+                              </button>
+                            </div>
+                          )}
+
+                          {activeTab === 'fiat' && (
+                            <div className="space-y-1 text-sm">
+                              {wallet.bankName && (
+                                <div className="text-gray-600 dark:text-gray-300">
+                                  Bank: {wallet.bankName}
+                                </div>
+                              )}
+                              {wallet.accountName && (
+                                <div className="text-gray-600 dark:text-gray-300">
+                                  Account: {wallet.accountName}
+                                </div>
+                              )}
+                              {wallet.iban && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-gray-600 dark:text-gray-300 font-mono">
+                                    IBAN: {wallet.iban}
+                                  </span>
+                                  <button
+                                    onClick={() => copyToClipboard(wallet.iban!, wallet.id)}
+                                    className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                    title="Copy IBAN"
+                                  >
+                                    {copiedId === wallet.id ? (
+                                      <Check size={16} className="text-green-500" />
+                                    ) : (
+                                      <Copy size={16} />
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      
-                      {activeTab === 'crypto' ? (
-                        <div className="space-y-1">
-                          <div className="text-sm text-gray-600 dark:text-gray-300 font-mono break-all">{wallet.address}</div>
-                          {wallet.memo && <div className="text-xs text-gray-500 dark:text-gray-400">Memo: {wallet.memo}</div>}
-                          <div className="text-xs text-gray-400 dark:text-gray-500 mt-2">Beneficiary: {
-                            // Ideally these fields should be in the wallet object if we updated the backend DTO return
-                            // Assuming backend returns all fields
-                            (wallet as any).beneficiaryName || '-'
-                          }</div>
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">{(wallet as any).bankName}</div>
-                          <div className="text-sm text-gray-600 dark:text-gray-300">{(wallet as any).accountName}</div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400 font-mono">{(wallet as any).iban || (wallet as any).bankAccount}</div>
-                        </div>
-                      )}
                     </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      wallet.status === 'ACTIVE' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
-                    }`}>
-                      {wallet.status}
-                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Available assets to create wallets for */}
+              {availableAssets.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
+                    Get a deposit {activeTab === 'crypto' ? 'address' : 'account'}
+                  </h3>
+                  <div className="grid gap-2">
+                    {availableAssets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="flex items-center justify-between p-3 border border-dashed border-gray-200 dark:border-gray-600 rounded-lg"
+                      >
+                        <span className="font-medium text-gray-700 dark:text-gray-300">
+                          {asset.code}
+                        </span>
+                        <button
+                          onClick={() => handleCreateWallet(asset.id)}
+                          disabled={creating !== null}
+                          className="px-3 py-1.5 text-sm bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors disabled:opacity-50"
+                        >
+                          {creating === asset.id ? 'Creating...' : 'Get Address'}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {filteredWallets.length === 0 && availableAssets.length === 0 && (
+                <div className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-dashed border-gray-200 dark:border-gray-700">
+                  <p>No {activeTab === 'crypto' ? 'crypto assets' : 'fiat currencies'} available.</p>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
-
-      {/* Create Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-gray-100 dark:border-gray-700">
-            <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
-              <h3 className="font-bold text-lg text-gray-900 dark:text-white">
-                {activeTab === 'crypto' ? 'Add Crypto Address' : 'Add Bank Account'}
-              </h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-                <span className="text-2xl">&times;</span>
-              </button>
-            </div>
-            
-            <form onSubmit={handleCreate} className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Asset</label>
-                <select
-                  required
-                  value={formData.assetId}
-                  onChange={e => setFormData({...formData, assetId: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="">Select Asset</option>
-                  {filteredAssets.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {activeTab === 'crypto' ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Beneficiary Name</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.beneficiaryName}
-                      onChange={e => setFormData({...formData, beneficiaryName: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="e.g. John Doe"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Counterparty VASP</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.counterpartyVasp}
-                      onChange={e => setFormData({...formData, counterpartyVasp: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="e.g. Binance, Coinbase, or Self-hosted"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Wallet Address</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.address}
-                      onChange={e => setFormData({...formData, address: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="0x..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Memo / Tag (Optional)</label>
-                    <input
-                      type="text"
-                      value={formData.memo}
-                      onChange={e => setFormData({...formData, memo: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Account Holder Name</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.accountName}
-                      onChange={e => setFormData({...formData, accountName: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bank Name</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.bankName}
-                      onChange={e => setFormData({...formData, bankName: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IBAN</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.iban}
-                      onChange={e => setFormData({...formData, iban: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SWIFT / BIC Code (Optional)</label>
-                    <input
-                      type="text"
-                      value={formData.bankCode}
-                      onChange={e => setFormData({...formData, bankCode: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-brand-primary bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                  </div>
-                </>
-              )}
-
-              <div className="pt-4">
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="w-full py-2 bg-brand-primary text-white rounded-lg hover:bg-brand-primary/90 transition-colors disabled:opacity-50"
-                >
-                  {creating ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

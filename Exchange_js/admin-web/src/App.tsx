@@ -47,10 +47,6 @@ const WithdrawTransactionList = lazy(() => import('./pages/WithdrawTransactionLi
 const WithdrawTransactionDetail = lazy(() => import('./pages/WithdrawTransactionDetail'));
 const SwapTransactionList = lazy(() => import('./pages/SwapTransactionList'));
 const SwapTransactionDetail = lazy(() => import('./pages/SwapTransactionDetail'));
-const AssetConfigList = lazy(() => import('./pages/AssetConfigList'));
-const AssetConfigDetail = lazy(() => import('./pages/AssetConfigDetail'));
-const AssetConfigHistory = lazy(() => import('./pages/AssetConfigHistory'));
-const AssetConfigSnapshot = lazy(() => import('./pages/AssetConfigSnapshot'));
 const CddResponsesPage = lazy(() => import('./pages/CddResponsesPage'));
 const EddResponsesPage = lazy(() => import('./pages/EddResponsesPage'));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage'));
@@ -123,7 +119,6 @@ const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeReq
 const LedgerAccountList = lazy(() => import('./pages/LedgerAccountList'));
 const LedgerAccountDetail = lazy(() => import('./pages/LedgerAccountDetail'));
 const TransferEvidenceList = lazy(() => import('./pages/TransferEvidenceList'));
-const RetryQueueList = lazy(() => import('./pages/RetryQueueList'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
@@ -816,31 +811,15 @@ function App() {
             />
             <Route
               path="system/assets/create"
-              element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_READ])}
+              element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])}
             />
             <Route
-              path="system/assets/:id/edit"
-              element={withPermission(<AssetEdit />, [PERMISSIONS.ASSETS_READ])}
+              path="system/assets/:assetNo/edit"
+              element={withPermission(<AssetEdit />, [PERMISSIONS.ASSETS_CREATE])}
             />
             <Route
-              path="system/assets/:id"
+              path="system/assets/:assetNo"
               element={withPermission(<AssetDetail />, [PERMISSIONS.ASSETS_READ])}
-            />
-            <Route
-              path="system/asset-configs"
-              element={withPermission(<AssetConfigList />, [PERMISSIONS.ASSETS_READ])}
-            />
-            <Route
-              path="system/asset-configs/history"
-              element={withPermission(<AssetConfigHistory />, [PERMISSIONS.ASSETS_READ])}
-            />
-            <Route
-              path="system/asset-configs/history/:releaseNo"
-              element={withPermission(<AssetConfigSnapshot />, [PERMISSIONS.ASSETS_READ])}
-            />
-            <Route
-              path="system/asset-configs/:assetNo"
-              element={withPermission(<AssetConfigDetail />, [PERMISSIONS.ASSETS_READ])}
             />
             <Route
               path="system/transaction-limits"
@@ -852,11 +831,11 @@ function App() {
             />
             <Route
               path="treasury/withdrawal-addresses"
-              element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.BASE_ACCESS])}
+              element={withPermission(<WithdrawalAddressList />, [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ])}
             />
             <Route
               path="treasury/withdrawal-addresses/:addressNo"
-              element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.BASE_ACCESS])}
+              element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.WITHDRAWAL_ADDRESS_DETAIL_READ])}
             />
           </Route>
 
@@ -907,10 +886,6 @@ function App() {
             <Route
               path="transfers"
               element={withPermission(<TransferEvidenceList />, [PERMISSIONS.TB_TRANSFERS_READ])}
-            />
-            <Route
-              path="retry-queue"
-              element={withPermission(<RetryQueueList />, [PERMISSIONS.TB_BACKLOG_READ])}
             />
           </Route>
 

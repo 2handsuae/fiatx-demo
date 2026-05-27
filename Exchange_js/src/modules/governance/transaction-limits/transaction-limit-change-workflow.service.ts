@@ -276,6 +276,7 @@ export class TransactionLimitChangeWorkflowService {
         action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
         entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
         entityId: requestId,
+        entityNo: request?.requestNo,
         workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
         traceId: event?.traceId,
         result: AuditResult.FAILED,

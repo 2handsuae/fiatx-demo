@@ -45,7 +45,7 @@ interface AssetData {
 }
 
 const AssetEdit = () => {
-  const { id } = useParams<{ id: string }>();
+  const { assetNo: assetNoParam } = useParams<{ assetNo: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -74,12 +74,12 @@ const AssetEdit = () => {
 
   /* ── Fetch existing asset ── */
   useEffect(() => {
-    if (!id) return;
+    if (!assetNoParam) return;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets/${id}`);
+        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets/${assetNoParam}`);
         if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load asset'));
         const data: AssetData = await res.json();
 
@@ -114,7 +114,7 @@ const AssetEdit = () => {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [assetNoParam]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -152,7 +152,7 @@ const AssetEdit = () => {
       );
 
       if (res.ok) {
-        navigate(`/dashboard/system/assets/${id}`);
+        navigate(`/dashboard/system/assets/${assetNoParam}`);
       } else {
         setError(await getApiErrorMessage(res, 'Failed to update asset'));
       }
@@ -191,7 +191,7 @@ const AssetEdit = () => {
       {/* ── Header ── */}
       <div className="flex shrink-0 items-center gap-3 border-b border-adm-border bg-adm-panel px-4 py-3">
         <button
-          onClick={() => navigate(`/dashboard/system/assets/${id}`)}
+          onClick={() => navigate(`/dashboard/system/assets/${assetNoParam}`)}
           className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
         >
           <ArrowLeft size={16} />
@@ -302,7 +302,7 @@ const AssetEdit = () => {
 
           {/* ⑤ Submit */}
           <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
-            <button type="button" onClick={() => navigate(`/dashboard/system/assets/${id}`)} className={adminButtonClass('modalCancel')}>
+            <button type="button" onClick={() => navigate(`/dashboard/system/assets/${assetNoParam}`)} className={adminButtonClass('modalCancel')}>
               Cancel
             </button>
             <button type="submit" disabled={saving} className={adminButtonClass('modalConfirm')}>

@@ -115,17 +115,4 @@ export class TbAdminController {
     });
   }
 
-  @Get('backlog')
-  @ApiOperation({ summary: 'List TB evidence backlog entries' })
-  findBacklog(
-    @Query('skip') skip?: string,
-    @Query('take') take?: string,
-    @Query('status') status?: string,
-  ) {
-    return this.tbEvidenceService.findBacklog({
-      status: status || undefined,
-      skip: skip ? Number(skip) : 0,
-      take: take ? Number(take) : 50,
-    });
-  }
 }

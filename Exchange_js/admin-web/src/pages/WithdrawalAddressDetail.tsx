@@ -200,9 +200,12 @@ export default function WithdrawalAddressDetail() {
 
   if (loading && !data) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center">
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
-        <p className="mt-3 font-mono text-[11px] text-adm-t3">Loading address…</p>
+        <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading address…</p>
+        <button onClick={() => navigate('/dashboard/treasury/withdrawal-addresses')} className={adminButtonClass('detailUtility')}>
+          ← Back to Withdrawal Addresses
+        </button>
       </div>
     );
   }
@@ -237,8 +240,7 @@ export default function WithdrawalAddressDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        title="WITHDRAWAL ADDRESS"
-        subtitle={data.addressNo}
+        backLabel="Withdrawal Addresses"
         onBack={() => navigate('/dashboard/treasury/withdrawal-addresses')}
         onRefresh={() => void fetchData()}
         refreshing={loading}
@@ -268,16 +270,23 @@ export default function WithdrawalAddressDetail() {
 
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
-            <Cap>Address</Cap>
-            <p className="mt-1.5 font-mono text-[19px] font-bold leading-snug text-adm-amber">
+            <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
               {data.addressNo}
             </p>
-            <div className="mt-2.5 flex items-center gap-2">
-              <AdminBadge value={data.status} />
-              <AddressTypeBadge type={data.addressType} />
+            <div className="mt-3 flex items-center gap-4 flex-wrap">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Status</div>
+                <div className="mt-1"><AdminBadge value={data.status} /></div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Type</div>
+                <div className="mt-1"><AddressTypeBadge type={data.addressType} /></div>
+              </div>
             </div>
             {data.label && (
-              <div className="mt-2 font-mono text-[10px] text-adm-t3">{data.label}</div>
+              <div className="mt-3">
+                <InfoField label="Label" value={data.label} />
+              </div>
             )}
           </section>
 
@@ -411,20 +420,19 @@ export default function WithdrawalAddressDetail() {
             </div>
           )}
 
-          {/* Quick Reference */}
-          <SidebarGroup title="Quick Reference">
+          {/* Identity Summary */}
+          <SidebarGroup title="Identity Summary">
             <SidebarKV label="Address No" value={data.addressNo} mono />
             <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
             <SidebarKV label="Type" value={data.addressType} mono />
             <SidebarKV label="Asset" value={data.asset.code} />
-            <SidebarKV label="Network" value={data.network} />
             <SidebarKV label="Customer" value={data.customerNo} mono />
           </SidebarGroup>
 
-          {/* Audit Trace */}
-          <SidebarGroup title="Audit Trace">
-            <SidebarKV label="Trace ID" value={data.traceId} mono />
-            <SidebarKV label="Address ID" value={data.id} mono />
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={fmt(data.createdAt)} mono />
+            <SidebarKV label="Updated" value={fmt(data.updatedAt)} mono />
           </SidebarGroup>
 
         </div>

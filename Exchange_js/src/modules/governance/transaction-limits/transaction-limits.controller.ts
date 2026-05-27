@@ -47,6 +47,12 @@ export class TransactionLimitsController {
     };
   }
 
+  @Get('trading-tiers')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/transaction-limit-policies'))
+  async getTradingTiers() {
+    return this.limitsService.getAvailableTradingTiers();
+  }
+
   @Get()
   @RequirePermissions(buildPermissionCode('GET', '/admin/transaction-limit-policies'))
   async findAll(
@@ -59,17 +65,29 @@ export class TransactionLimitsController {
     if (tradingTier) where.tradingTier = tradingTier;
     if (operationType) where.operationType = operationType;
 
-    return this.limitsService.findAll({
+    const result = await this.limitsService.findAll({
       skip: skip ? parseInt(skip, 10) : undefined,
       take: take ? parseInt(take, 10) : undefined,
       where,
     });
+    return {
+      items: result.items.map(this.serializePolicy),
+      total: result.total,
+    };
   }
 
   @Get(':policyNo')
   @RequirePermissions(buildPermissionCode('GET', '/admin/transaction-limit-policies/:policyNo'))
   async findOne(@Param('policyNo') policyNo: string) {
-    return this.limitsService.findByPolicyNo(policyNo);
+    const policy = await this.limitsService.findByPolicyNo(policyNo);
+    return this.serializePolicy(policy);
+  }
+
+  private serializePolicy(policy: any) {
+    return {
+      ...policy,
+      limitAmount: policy.limitAmount?.toString?.() ?? String(policy.limitAmount),
+    };
   }
 
   @Post()

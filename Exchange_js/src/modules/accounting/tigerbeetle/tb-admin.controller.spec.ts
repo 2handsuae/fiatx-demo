@@ -18,7 +18,6 @@ describe('TbAdminController', () => {
     };
     evidenceService = {
       findAll: jest.fn(),
-      findBacklog: jest.fn(),
     };
     tbManualAccountService = {
       manualCreate: jest.fn(),

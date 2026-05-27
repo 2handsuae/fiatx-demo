@@ -5,6 +5,7 @@ import {
   ConflictException,
   Logger,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { WalletStatus } from './dto/wallet.dto';
@@ -12,6 +13,7 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
+  AuditBusinessWorkflowTypes,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
@@ -24,6 +26,9 @@ export class WalletsService {
   private static readonly WALLET_STATUS_TRANSITIONS: Record<string, string[]> = {
     PENDING_APPROVAL: ['CREATING', 'ACTIVE'],
     CREATING: ['ACTIVE', 'FAILED'],
+    ACTIVE: ['DISABLED', 'FROZEN'],
+    FROZEN: ['ACTIVE', 'DISABLED'],
+    DISABLED: ['ACTIVE'],
     FAILED: ['CREATING'],
   };
 
@@ -32,7 +37,11 @@ export class WalletsService {
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
-  async changeStatus(id: string, status: WalletStatus) {
+  async changeStatus(
+    id: string,
+    status: WalletStatus,
+    actor: { actorId: string; actorNo?: string; actorRole?: string },
+  ) {
     this.logger.log(`Changing status of wallet ${id} to ${status}`);
     const before = await this.prisma.wallet.findUnique({ where: { id } });
     if (!before) throw new NotFoundException('Wallet not found');
@@ -42,22 +51,40 @@ export class WalletsService {
         `${before.walletRole} wallets are system-provisioned and cannot be manually disabled`,
       );
     }
+
+    const allowed = WalletsService.WALLET_STATUS_TRANSITIONS[before.status];
+    if (!allowed || !allowed.includes(status)) {
+      throw new BadRequestException(
+        `Invalid wallet status transition: ${before.status} → ${status}`,
+      );
+    }
+
     const result = await this.prisma.wallet.update({
       where: { id },
       data: { status },
     });
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WALLET_STATUS_UPDATED,
-      entityType: AuditEntityTypes.WALLET,
-      entityId: result.id,
-      entityNo: result.walletNo || undefined,
-      entityOwnerType: result.ownerType,
-      entityOwnerId: result.ownerId || undefined,
-      entityOwnerNo: before.ownerNo || undefined,
-      result: AuditResult.SUCCESS,
-      reason: 'Wallet status changed',
-      sourcePlatform: 'ADMIN_API',
-    });
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WALLET_STATUS_UPDATED,
+        entityType: AuditEntityTypes.WALLET,
+        entityId: result.id,
+        entityNo: result.walletNo || undefined,
+        entityOwnerType: result.ownerType,
+        entityOwnerId: result.ownerId || undefined,
+        entityOwnerNo: before.ownerNo || undefined,
+        workflowType: AuditBusinessWorkflowTypes.CUSTODIAN_WALLET_CREATE,
+        traceId: randomUUID(),
+        result: AuditResult.SUCCESS,
+        reason: `Wallet status changed: ${before.status} → ${status}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor.actorId,
+        actorNo: actor.actorNo,
+        actorRole: actor.actorRole || 'ADMIN',
+      },
+    );
     return result;
   }
 

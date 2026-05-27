@@ -77,7 +77,11 @@ export type PermissionGroup =
   | 'GOV_REGULATORY_GATE_READ'
   | 'GOV_REGULATORY_GATE_WRITE'
   | 'GOV_APPROVAL_POLICY_READ'
-  | 'GOV_APPROVAL_POLICY_WRITE';
+  | 'GOV_APPROVAL_POLICY_WRITE'
+  | 'TRANSACTION_LIMIT_READ'
+  | 'TRANSACTION_LIMIT_WRITE'
+  | 'WITHDRAWAL_ADDRESS_READ'
+  | 'WITHDRAWAL_ADDRESS_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -568,16 +572,22 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/pool-settlement-batches', 'Create pool settlement batch', ['SETTLEMENT_WRITE']),
   route('POST', '/admin/pool-settlement-batches/:id/submit', 'Submit pool settlement batch', ['SETTLEMENT_WRITE']),
 
-  // TB Ledger (read-only)
+  // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['ACCOUNTING_CONFIG_READ']),
+  route('POST', '/admin/tb/accounts', 'Create manual TB account', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/admin/tb/backlog', 'List TB evidence backlog', ['ACCOUNTING_CONFIG_READ']),
 
   // Assets
   route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),
   route('GET', '/assets', 'List assets', ['ASSET_CONFIG_READ']),
   route('GET', '/assets/:id', 'Get asset detail', ['ASSET_CONFIG_READ']),
   route('PATCH', '/assets/:id/status', 'Update asset status', ['ASSET_CONFIG_WRITE']),
+  route('POST', '/admin/assets/listing', 'Submit asset listing request', ['ASSET_CONFIG_WRITE']),
+  route('PATCH', '/admin/assets/:assetNo', 'Update asset metadata', ['ASSET_CONFIG_WRITE']),
+  route('POST', '/admin/assets/:assetNo/activate', 'Activate asset', ['ASSET_CONFIG_WRITE']),
+  route('POST', '/admin/assets/:assetNo/suspend', 'Suspend asset', ['ASSET_CONFIG_WRITE']),
+  route('POST', '/admin/assets/:assetNo/reactivate', 'Reactivate asset', ['ASSET_CONFIG_WRITE']),
 
   // Counterparty
   route('POST', '/liquidity-providers', 'Create liquidity provider', ['COUNTERPARTY_WRITE']),
@@ -731,6 +741,34 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GOV_APPROVAL_POLICY_READ',
   ]),
 
+  // Transaction Limit Policies
+  route('GET', '/admin/transaction-limit-policies', 'List transaction limit policies', [
+    'TRANSACTION_LIMIT_READ',
+  ]),
+  route('GET', '/admin/transaction-limit-policies/:policyNo', 'Get transaction limit policy detail', [
+    'TRANSACTION_LIMIT_READ',
+  ]),
+  route('POST', '/admin/transaction-limit-policies', 'Create transaction limit policy', [
+    'TRANSACTION_LIMIT_WRITE',
+  ]),
+  route('POST', '/admin/transaction-limit-policies/:policyNo/change', 'Submit transaction limit change request', [
+    'TRANSACTION_LIMIT_WRITE',
+  ]),
+
+  // Withdrawal Addresses
+  route('GET', '/admin/withdrawal-addresses', 'List withdrawal addresses', [
+    'WITHDRAWAL_ADDRESS_READ',
+  ]),
+  route('GET', '/admin/withdrawal-addresses/:addressNo', 'Get withdrawal address detail', [
+    'WITHDRAWAL_ADDRESS_READ',
+  ]),
+  route('POST', '/admin/withdrawal-addresses/:addressNo/suspend', 'Suspend withdrawal address', [
+    'WITHDRAWAL_ADDRESS_WRITE',
+  ]),
+  route('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling', 'Skip withdrawal address cooling period', [
+    'WITHDRAWAL_ADDRESS_WRITE',
+  ]),
+
 ];
 
 /* ═══════════════════════════════════════════════════════════════
@@ -873,8 +911,80 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
   { id: 'customer', label: 'Customer Management', icon: '👥', buckets: [] },
   { id: 'compliance', label: 'Compliance', icon: '🛡️', buckets: [] },
   { id: 'trading', label: 'Trading', icon: '📊', buckets: [] },
-  { id: 'accounting', label: 'Accounting', icon: '📒', buckets: [] },
-  { id: 'treasury', label: 'Treasury', icon: '📦', buckets: [] },
+  {
+    id: 'accounting',
+    label: 'Accounting',
+    icon: '📒',
+    buckets: [
+      {
+        key: 'accounting.view_tb',
+        label: 'View TB records',
+        description: 'Browse TigerBeetle account registry and transfer evidence',
+        groups: ['ACCOUNTING_CONFIG_READ'],
+      },
+      {
+        key: 'accounting.manage_tb',
+        label: 'Create TB accounts',
+        description: 'Manually create TigerBeetle accounts for operational needs',
+        groups: ['ACCOUNTING_CONFIG_WRITE'],
+      },
+    ],
+  },
+  {
+    id: 'treasury',
+    label: 'Treasury',
+    icon: '📦',
+    buckets: [
+      {
+        key: 'treasury.view_assets',
+        label: 'View assets',
+        description: 'Browse asset list and asset detail',
+        groups: ['ASSET_CONFIG_READ'],
+      },
+      {
+        key: 'treasury.manage_assets',
+        label: 'Manage asset lifecycle',
+        description: 'Submit asset listing, update metadata, activate, suspend, or reactivate assets',
+        groups: ['ASSET_CONFIG_WRITE'],
+      },
+      {
+        key: 'treasury.view_wallets',
+        label: 'View wallets',
+        description: 'Browse wallet list, wallet detail, and balance queries',
+        groups: ['WALLET_READ'],
+      },
+      {
+        key: 'treasury.manage_wallets',
+        label: 'Manage wallets',
+        description: 'Create custodian wallets, retry failed creations, update wallet status',
+        groups: ['WALLET_WRITE'],
+      },
+      {
+        key: 'treasury.view_addresses',
+        label: 'View withdrawal addresses',
+        description: 'Browse withdrawal address list and detail',
+        groups: ['WITHDRAWAL_ADDRESS_READ'],
+      },
+      {
+        key: 'treasury.manage_addresses',
+        label: 'Manage withdrawal addresses',
+        description: 'Suspend withdrawal addresses, skip cooling period',
+        groups: ['WITHDRAWAL_ADDRESS_WRITE'],
+      },
+      {
+        key: 'treasury.view_limits',
+        label: 'View transaction limits',
+        description: 'Browse transaction limit policy list and detail',
+        groups: ['TRANSACTION_LIMIT_READ'],
+      },
+      {
+        key: 'treasury.manage_limits',
+        label: 'Manage transaction limits',
+        description: 'Create transaction limit policies, submit limit change requests',
+        groups: ['TRANSACTION_LIMIT_WRITE'],
+      },
+    ],
+  },
   { id: 'recon', label: 'Reconciliation', icon: '🔍', buckets: [] },
   { id: 'pricing', label: 'Pricing', icon: '💰', buckets: [] },
   { id: 'config', label: 'Configuration', icon: '⚙️', buckets: [] },
@@ -912,7 +1022,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
     'GOV_APPROVAL_POLICY_READ',
-
+    'TRANSACTION_LIMIT_READ',
+    'ASSET_CONFIG_READ',
+    'WALLET_READ',
+    'ACCOUNTING_CONFIG_READ',
   ],
   TECH_OFFICER: [
     'BASE_ACCESS',
@@ -934,7 +1047,16 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
-
+    'TRANSACTION_LIMIT_READ',
+    'TRANSACTION_LIMIT_WRITE',
+    'ASSET_CONFIG_READ',
+    'ASSET_CONFIG_WRITE',
+    'ACCOUNTING_CONFIG_READ',
+    'ACCOUNTING_CONFIG_WRITE',
+    'WALLET_READ',
+    'WALLET_WRITE',
+    'WITHDRAWAL_ADDRESS_READ',
+    'WITHDRAWAL_ADDRESS_WRITE',
   ],
   OPS_OFFICER: [
     'BASE_ACCESS',
@@ -945,6 +1067,12 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_READ',
     'GOV_REGISTRY_READ',
     'GOV_REGULATORY_GATE_READ',
+    'ASSET_CONFIG_READ',
+    'WALLET_READ',
+    'WALLET_WRITE',
+    'ACCOUNTING_CONFIG_READ',
+    'TRANSACTION_LIMIT_READ',
+    'WITHDRAWAL_ADDRESS_READ',
   ],
   COMPLIANCE_OFFICER: [
     'BASE_ACCESS',
@@ -970,7 +1098,11 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
-
+    'TRANSACTION_LIMIT_READ',
+    'TRANSACTION_LIMIT_WRITE',
+    'ASSET_CONFIG_READ',
+    'WALLET_READ',
+    'WITHDRAWAL_ADDRESS_READ',
   ],
   MLRO: [
     'BASE_ACCESS',
@@ -994,6 +1126,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_APPROVAL_DECIDE',
     'GOV_REGISTRY_READ',
     'GOV_APPROVAL_POLICY_READ',
+    'TRANSACTION_LIMIT_READ',
+    'TRANSACTION_LIMIT_WRITE',
 
   ],
   DPO: [
@@ -1033,6 +1167,7 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'GOV_REGULATORY_GATE_WRITE',
     'GOV_APPROVAL_POLICY_READ',
     'GOV_APPROVAL_POLICY_WRITE',
+    'TRANSACTION_LIMIT_READ',
 
   ],
 };

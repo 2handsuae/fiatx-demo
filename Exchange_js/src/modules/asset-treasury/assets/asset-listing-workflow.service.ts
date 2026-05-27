@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -27,11 +27,12 @@ export class AssetListingWorkflowService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly provisioningService: AssetProvisioningService,
-    private readonly eventEmitter: EventEmitter2,
     private readonly assetsService: AssetsService,
   ) {}
 
   async submitListing(dto: SubmitAssetListingDto, actor: AssetCreationActor): Promise<any> {
+    const traceId = randomUUID();
+
     // 1. Create asset + provision TB accounts in one transaction
     let asset: any;
     let tbLedgerId: number;
@@ -68,6 +69,7 @@ export class AssetListingWorkflowService {
           action: AuditGovernanceActions.ASSET_CREATION.ASSET_CREATION_FAILED,
           entityType: AuditEntityTypes.ASSET,
           workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+          traceId,
           result: AuditResult.FAILED,
           reason: error instanceof Error ? error.message : 'Asset creation failed',
           metadata: { assetCurrency: dto.currency, assetType: dto.type, network: dto.network },
@@ -92,6 +94,7 @@ export class AssetListingWorkflowService {
         entityId: asset.id,
         entityNo: asset.assetNo,
         workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+        traceId,
         result: AuditResult.SUCCESS,
         metadata: {
           assetCurrency: dto.currency,
@@ -109,13 +112,6 @@ export class AssetListingWorkflowService {
         actorRole: actor.role || 'ADMIN',
       },
     );
-
-    // 3. Fire-and-forget: trigger async customer TB account batch creation
-    this.eventEmitter.emit('asset.provisioned', {
-      assetId: asset.id,
-      assetCurrency: dto.currency,
-      tbLedgerId,
-    });
 
     return { asset };
   }
@@ -146,6 +142,7 @@ export class AssetListingWorkflowService {
         entityId: asset.id,
         entityNo: assetNo,
         workflowType: AuditBusinessWorkflowTypes.ASSET_CREATION,
+        traceId: randomUUID(),
         result: AuditResult.SUCCESS,
         reason: 'Asset updated during provisioning',
         metadata: { updatedFields: fieldsToUpdate },

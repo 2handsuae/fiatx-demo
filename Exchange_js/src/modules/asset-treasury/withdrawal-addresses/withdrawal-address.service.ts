@@ -248,9 +248,10 @@ export class WithdrawalAddressService {
     return { items, total };
   }
 
-  async listAll(filters: { customerId?: string; assetId?: string; status?: string; addressType?: string; take?: number; skip?: number }) {
+  async listAll(filters: { customerId?: string; customerNo?: string; assetId?: string; status?: string; addressType?: string; take?: number; skip?: number }) {
     const where: any = {};
     if (filters.customerId) where.customerId = filters.customerId;
+    if (filters.customerNo) where.customerNo = filters.customerNo;
     if (filters.assetId) where.assetId = filters.assetId;
     if (filters.status) where.status = filters.status;
     if (filters.addressType) where.addressType = filters.addressType;
