@@ -21,23 +21,26 @@ interface Asset {
 interface AssetBalance {
   assetId: string;
   assetCode: string;
-  clientCredit: number;
-  lockedBalance: number;
-  assetDecimals?: number;
+  assetType: string;
+  currency: string;
+  available: string;
+  locked: string;
+  decimals: number;
 }
 
-interface WalletItem {
+interface WithdrawalAddressItem {
   id: string;
-  type: string;
-  direction: string;
-  asset: { id: string; code: string; type: string; decimals?: number };
-  address?: string;
-  memo?: string;
-  bankName?: string;
-  bankAccount?: string;
-  iban?: string;
-  accountName?: string;
+  addressNo: string;
+  assetId: string;
+  address: string;
+  addressType: string;
+  label?: string;
   beneficiaryName?: string;
+  memo?: string;
+  iban?: string;
+  bankName?: string;
+  status: string;
+  asset: { id: string; code: string; type: string; decimals?: number };
 }
 
 interface WithdrawTransaction {
@@ -80,10 +83,10 @@ const Withdraw = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [wallets, setWallets] = useState<WalletItem[]>([]);
+  const [addresses, setAddresses] = useState<WithdrawalAddressItem[]>([]);
   const [balances, setBalances] = useState<AssetBalance[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
-  const [selectedWalletId, setSelectedWalletId] = useState('');
+  const [selectedAddressNo, setSelectedAddressNo] = useState('');
   const [manualAddress, setManualAddress] = useState('');
   const [isManualInput, setIsManualInput] = useState(false);
   const [amount, setAmount] = useState('');
@@ -92,6 +95,7 @@ const Withdraw = () => {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
   const [quote, setQuote] = useState<WithdrawQuoteResult | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   
