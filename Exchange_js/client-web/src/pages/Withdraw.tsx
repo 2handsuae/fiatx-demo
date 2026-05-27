@@ -460,7 +460,7 @@ const Withdraw = () => {
               onClick={() => {
                 setActiveTab('crypto');
                 setSelectedAssetId('');
-                setSelectedWalletId('');
+                setSelectedAddressNo('');
                 setAmount('');
                 clearQuoteState();
               }}
@@ -479,7 +479,7 @@ const Withdraw = () => {
               onClick={() => {
                 setActiveTab('fiat');
                 setSelectedAssetId('');
-                setSelectedWalletId('');
+                setSelectedAddressNo('');
                 setAmount('');
                 clearQuoteState();
               }}
@@ -648,7 +648,7 @@ const Withdraw = () => {
                             <select
                                 required
                                 value={selectedAssetId}
-                                onChange={(e) => { setSelectedAssetId(e.target.value); setSelectedWalletId(''); }}
+                                onChange={(e) => { setSelectedAssetId(e.target.value); setSelectedAddressNo(''); }}
                                 className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                             >
                                 <option value="">Select a currency...</option>
@@ -682,7 +682,7 @@ const Withdraw = () => {
                                     </label>
                                     <button 
                                         type="button"
-                                        onClick={() => { setIsManualInput(!isManualInput); setSelectedWalletId(''); setManualAddress(''); }}
+                                        onClick={() => { setIsManualInput(!isManualInput); setSelectedAddressNo(''); setManualAddress(''); }}
                                         className="text-xs text-brand-primary hover:underline font-medium"
                                     >
                                         {isManualInput ? 'Choose from saved' : 'Input manually'}
@@ -698,17 +698,17 @@ const Withdraw = () => {
                                         placeholder={activeTab === 'crypto' ? 'Enter wallet address...' : 'Enter IBAN / Account Number...'}
                                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                                     />
-                                ) : filteredWallets.length > 0 ? (
+                                ) : filteredAddresses.length > 0 ? (
                                     <select
                                         required
-                                        value={selectedWalletId}
-                                        onChange={(e) => setSelectedWalletId(e.target.value)}
+                                        value={selectedAddressNo}
+                                        onChange={(e) => setSelectedAddressNo(e.target.value)}
                                         className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
                                     >
                                         <option value="">Select an address...</option>
-                                        {filteredWallets.map(w => (
-                                            <option key={w.id} value={w.id}>
-                                                {activeTab === 'crypto' ? w.address : `${w.bankName} - ${w.iban || w.bankAccount}`}
+                                        {filteredAddresses.map(a => (
+                                            <option key={a.addressNo} value={a.addressNo}>
+                                                {activeTab === 'crypto' ? (a.label ? `${a.label} (${a.address})` : a.address) : `${a.bankName} - ${a.iban}`}
                                             </option>
                                         ))}
                                     </select>
@@ -717,9 +717,9 @@ const Withdraw = () => {
                                         <AlertTriangle className="text-amber-500 shrink-0" size={20} />
                                         <div className="text-sm text-amber-800 dark:text-amber-300">
                                             <p className="font-bold">No saved {activeTab === 'crypto' ? 'addresses' : 'accounts'} found.</p>
-                                            <button 
+                                            <button
                                                 type="button"
-                                                onClick={() => navigate('/wallet')}
+                                                onClick={() => navigate('/withdrawal-addresses')}
                                                 className="mt-1 text-amber-600 dark:text-amber-400 underline font-bold flex items-center gap-1"
                                             >
                                                 Add one in Wallet Management <Plus size={14} />
@@ -731,6 +731,12 @@ const Withdraw = () => {
 
                         {/* Amount Input */}
                             <div>
+                                {balanceError && (
+                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
+                                        <AlertTriangle size={16} />
+                                        {balanceError}
+                                    </div>
+                                )}
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Amount</label>
                                 <div className="relative">
                                     <input
@@ -1004,8 +1010,8 @@ const Withdraw = () => {
                           </div>
                           <div className="mt-2 flex justify-between text-sm">
                               <span className="text-slate-500 dark:text-slate-400">Destination</span>
-                              <span className="max-w-[240px] truncate text-right font-medium text-gray-900 dark:text-white" title={manualAddress || selectedWalletId}>
-                                  {isManualInput ? manualAddress : wallets.find((wallet) => wallet.id === selectedWalletId)?.address || wallets.find((wallet) => wallet.id === selectedWalletId)?.iban || 'Saved destination'}
+                              <span className="max-w-[240px] truncate text-right font-medium text-gray-900 dark:text-white" title={manualAddress || selectedAddressNo}>
+                                  {isManualInput ? manualAddress : addresses.find(a => a.addressNo === selectedAddressNo)?.address || addresses.find(a => a.addressNo === selectedAddressNo)?.iban || 'Saved destination'}
                               </span>
                           </div>
                           <div className="mt-2 flex justify-between text-sm">
