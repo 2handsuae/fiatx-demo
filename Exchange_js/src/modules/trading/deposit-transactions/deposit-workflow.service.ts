@@ -289,7 +289,7 @@ export class DepositWorkflowService implements OnModuleInit {
           workflowType: 'DEPOSIT',
           result: AuditResult.FAILED,
           reason: `TB Step 1 failed: ${error.message}`,
-          metadata: { eventCode: 'DEPOSIT_CUSTODY_TO_AUDIT', step: 'STEP_1' },
+          metadata: { eventCode: 'DEPOSIT_HOLDING_TO_AUDIT', step: 'STEP_1' },
           sourcePlatform: 'SYSTEM',
         });
         return;
@@ -325,8 +325,13 @@ export class DepositWorkflowService implements OnModuleInit {
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
     if (step === 'STEP_1') {
+      // Fiat assets use BANK (code 1), crypto uses CUSTODY (code 10)
+      const holdingCode = asset.type === 'FIAT'
+        ? TB_ACCOUNT_CODES.BANK
+        : TB_ACCOUNT_CODES.CUSTODY;
+
       const debitAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.CUSTODY,
+        code: holdingCode,
         ledger,
         ownerType: 'SYSTEM',
       });
@@ -346,18 +351,18 @@ export class DepositWorkflowService implements OnModuleInit {
         evidence: {
           sourceType: 'DEPOSIT',
           sourceNo: deposit.depositNo,
-          eventCode: 'DEPOSIT_CUSTODY_TO_AUDIT',
-          debitCode: String(TB_ACCOUNT_CODES.CUSTODY),
+          eventCode: 'DEPOSIT_HOLDING_TO_AUDIT',
+          debitCode: String(holdingCode),
           creditCode: String(TB_ACCOUNT_CODES.CLIENT_AUDIT),
           assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
-          memo: 'Payin confirmed, funds in audit hold',
+          memo: `Payin confirmed, funds in audit hold (${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'}→AUDIT)`,
         },
       });
 
-      this.logger.log(`TB Step 1 complete: CUSTODY→CLIENT_AUDIT for deposit ${deposit.depositNo}`);
+      this.logger.log(`TB Step 1 complete: ${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'}→CLIENT_AUDIT for deposit ${deposit.depositNo}`);
     } else {
       const debitAccountId = await this.accountingService.resolveTbAccountId({
         code: TB_ACCOUNT_CODES.CLIENT_AUDIT,
