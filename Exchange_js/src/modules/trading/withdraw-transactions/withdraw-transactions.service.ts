@@ -25,6 +25,13 @@ import {
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { randomUUID } from 'node:crypto';
+import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
+import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
 
@@ -106,7 +113,15 @@ export class WithdrawTransactionsService {
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly pricingCenterService: PricingCenterService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly accountingService: AccountingService,
   ) {}
+
+  private decimalToBigint(decimalValue: any, decimals: number): bigint {
+    const str = String(decimalValue);
+    const [whole, frac = ''] = str.split('.');
+    const paddedFrac = frac.padEnd(decimals, '0').slice(0, decimals);
+    return BigInt(whole + paddedFrac);
+  }
 
   private createAccountingContext(withdrawal: {
     ownerId: string;
@@ -527,6 +542,8 @@ export class WithdrawTransactionsService {
           throw new BadRequestException('Net amount must not be negative');
         }
 
+        const traceId = randomUUID();
+
         const isCryptoWithdraw = this.deriveWithdrawType(asset.type) === 'crypto';
 
         const record = await tx.withdrawTransaction.create({
@@ -548,6 +565,7 @@ export class WithdrawTransactionsService {
             travelRuleRequired: isCryptoWithdraw,
             travelRuleStatus: isCryptoWithdraw ? 'FINAL' : '',
             complianceStatus: 'PENDING',
+            traceId,
             parentType,
             parentId,
             pricingQuoteId: consumedQuoteId,
@@ -560,15 +578,98 @@ export class WithdrawTransactionsService {
           },
         });
 
+        // TB: create 2 pending transfers — lock customer balance
+        const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
+        if (ledger && ownerType === 'CUSTOMER') {
+          const clientCreditId = await this.accountingService.resolveTbAccountId({
+            code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+            ledger,
+            ownerType: 'CUSTOMER',
+            ownerUuid: userId,
+          });
+          const custodyId = await this.accountingService.resolveTbAccountId({
+            code: TB_ACCOUNT_CODES.CUSTODY,
+            ledger,
+            ownerType: 'SYSTEM',
+          });
+
+          const netBigint = this.decimalToBigint(netAmount, asset.decimals);
+          const feeBigint = this.decimalToBigint(quoteFeeAmount, asset.decimals);
+
+          const evidenceBase = {
+            sourceType: 'WITHDRAWAL',
+            sourceNo: withdrawNo,
+            debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
+            assetCurrency: asset.currency,
+            traceId,
+            actorType: ownerType,
+            actorId: userId,
+          };
+
+          // Pending #1: net amount CLIENT_CREDIT → CUSTODY
+          const { tbTransferId: pendingNetId } = await this.accountingService.executePendingTransfer({
+            debitAccountId: clientCreditId,
+            creditAccountId: custodyId,
+            amount: netBigint,
+            ledger,
+            code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_CUSTODY_PENDING,
+            timeout: 0,
+            evidence: {
+              ...evidenceBase,
+              eventCode: 'WITHDRAW_LOCK_NET',
+              creditCode: String(TB_ACCOUNT_CODES.CUSTODY),
+              memo: 'Withdrawal pending lock: net amount',
+            },
+            tx,
+          });
+
+          // Pending #2: fee amount CLIENT_CREDIT → FEE_RECEIVABLE
+          let pendingFeeId: bigint | undefined;
+          if (feeBigint > 0n) {
+            const feeReceivableId = await this.accountingService.resolveTbAccountId({
+              code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
+              ledger,
+              ownerType: 'SYSTEM',
+            });
+
+            const result = await this.accountingService.executePendingTransfer({
+              debitAccountId: clientCreditId,
+              creditAccountId: feeReceivableId,
+              amount: feeBigint,
+              ledger,
+              code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_FEE_PENDING,
+              timeout: 0,
+              evidence: {
+                ...evidenceBase,
+                eventCode: 'WITHDRAW_LOCK_FEE',
+                creditCode: String(TB_ACCOUNT_CODES.FEE_RECEIVABLE),
+                memo: 'Withdrawal pending lock: fee amount',
+              },
+              tx,
+            });
+            pendingFeeId = result.tbTransferId;
+          }
+
+          // Store pending transfer IDs on the record
+          await tx.withdrawTransaction.update({
+            where: { id: record.id },
+            data: {
+              tbPendingNetId: bigintToHex(pendingNetId),
+              tbPendingFeeId: pendingFeeId ? bigintToHex(pendingFeeId) : null,
+            },
+          });
+        }
+
         await this.auditLogsService.recordByActor(
           {
-
-            action: AuditActions.WITHDRAW_CREATED,
+            action: AuditActions.WITHDRAW_REQUESTED,
             entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
             entityId: record.id,
             entityNo: record.withdrawNo,
             entityOwnerType: record.ownerType,
             entityOwnerId: record.ownerId,
+            traceId,
+            workflowType: AuditWorkflowTypes.WITHDRAW,
             reason: 'Customer initiated withdrawal',
             sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
           },
@@ -590,17 +691,20 @@ export class WithdrawTransactionsService {
       },
     );
 
-    // Notification/observation only
-    this.eventEmitter.emit(WithdrawEvents.EVT_WITHDRAWAL_CREATED, {
+    this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_CREATED, {
       withdrawId: created.id,
+      withdrawNo: created.withdrawNo,
+      status: created.status,
+      ownerType: created.ownerType,
+      ownerId: created.ownerId,
+      assetId: created.assetId,
+      amount: created.amount.toString(),
+      traceId: created.traceId,
     });
 
-    await this.transactionComplianceService.ensureWithdrawPreKytCaseOnCreate(
-      created.id,
-    );
-    await this.transactionComplianceService.initializeWithdrawFinalDecisionRecord(
-      created.id,
-    );
+    // V5: compliance gate logic moved to WithdrawWorkflowService
+    // await this.transactionComplianceService.ensureWithdrawPreKytCaseOnCreate(created.id);
+    // await this.transactionComplianceService.initializeWithdrawFinalDecisionRecord(created.id);
 
     return {
       ...created,
@@ -856,5 +960,68 @@ export class WithdrawTransactionsService {
     }
 
     return records;
+  }
+
+  async updateKytStatus(
+    id: string,
+    kytStatus: string,
+    kytScreeningId: string | null,
+    kytRiskScore: number | null,
+    phase: number,
+  ) {
+    const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException('Withdraw transaction not found');
+
+    const updated = await (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: {
+        kytStatus,
+        kytScreeningId: kytScreeningId ?? item.kytScreeningId,
+        kytRiskScore: kytRiskScore ?? item.kytRiskScore,
+        kytCheckedAt: new Date(),
+      },
+    });
+
+    this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_KYT_UPDATED, {
+      withdrawId: id,
+      kytStatus,
+      phase,
+    });
+
+    return updated;
+  }
+
+  async updateTravelRuleStatus(
+    id: string,
+    travelRuleStatus: string,
+    travelRuleTransferId: string | null,
+  ) {
+    const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException('Withdraw transaction not found');
+
+    const updated = await (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: {
+        travelRuleStatus,
+        travelRuleTransferId: travelRuleTransferId ?? item.travelRuleTransferId,
+        travelRuleCheckedAt: new Date(),
+      },
+    });
+
+    this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_TRAVELRULE_UPDATED, {
+      withdrawId: id,
+      travelRuleStatus,
+    });
+
+    return updated;
+  }
+
+  async getOwnerComplianceStatus(withdrawId: string): Promise<string> {
+    const item = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { id: withdrawId },
+      include: { customer: { select: { complianceStatus: true } } },
+    });
+    if (!item) throw new NotFoundException('Withdraw transaction not found');
+    return item.customer?.complianceStatus || 'UNKNOWN';
   }
 }
