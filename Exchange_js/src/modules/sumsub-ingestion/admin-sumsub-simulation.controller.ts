@@ -417,4 +417,95 @@ export class AdminSumsubSimulationController {
       eventNo: event.eventNo,
     };
   }
+
+  @Post('withdraw-kyt')
+  @ApiOperation({ summary: 'Simulate KYT check result for a withdraw transaction' })
+  async simulateWithdrawKytCheck(
+    @Req() req: any,
+    @Body() body: { withdrawNo: string; stage: 'PRE' | 'POST'; result: 'PASS' | 'FAIL'; riskScore?: number },
+  ) {
+    this.ensureAdmin(req);
+
+    if (!body.withdrawNo) {
+      throw new BadRequestException('withdrawNo is required');
+    }
+    if (!body.stage || !['PRE', 'POST'].includes(body.stage)) {
+      throw new BadRequestException('stage must be PRE or POST');
+    }
+    if (!body.result || !['PASS', 'FAIL'].includes(body.result)) {
+      throw new BadRequestException('result must be PASS or FAIL');
+    }
+
+    const withdraw = await (this.prisma as any).withdrawTransaction.findFirst({
+      where: { withdrawNo: body.withdrawNo },
+    });
+    if (!withdraw) {
+      throw new NotFoundException(`No withdraw found with withdrawNo: ${body.withdrawNo}`);
+    }
+
+    const { event, dispatchResult } = await this.ingestionService.ingest(
+      {
+        type: 'withdrawKytCheckSimulated',
+        externalUserId: withdraw.withdrawNo,
+        withdrawId: withdraw.id,
+        withdrawNo: withdraw.withdrawNo,
+        stage: body.stage,
+        result: body.result,
+        riskScore: body.riskScore ?? null,
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION', context: 'WITHDRAW_KYT_CHECK' },
+    );
+    const dr = dispatchResult as any;
+    return {
+      withdrawId: withdraw.id,
+      withdrawNo: withdraw.withdrawNo,
+      stage: body.stage,
+      kytStatus: dr?.kytStatus,
+      riskScore: dr?.riskScore ?? null,
+      message: `Withdraw KYT check simulated (${body.stage}): ${dr?.kytStatus}`,
+      eventNo: event.eventNo,
+    };
+  }
+
+  @Post('withdraw-tr')
+  @ApiOperation({ summary: 'Simulate Travel Rule check result for a withdraw transaction' })
+  async simulateWithdrawTrCheck(
+    @Req() req: any,
+    @Body() body: { withdrawNo: string; result: 'PASS' | 'FAIL' },
+  ) {
+    this.ensureAdmin(req);
+
+    if (!body.withdrawNo) {
+      throw new BadRequestException('withdrawNo is required');
+    }
+    if (!body.result || !['PASS', 'FAIL'].includes(body.result)) {
+      throw new BadRequestException('result must be PASS or FAIL');
+    }
+
+    const withdraw = await (this.prisma as any).withdrawTransaction.findFirst({
+      where: { withdrawNo: body.withdrawNo },
+    });
+    if (!withdraw) {
+      throw new NotFoundException(`No withdraw found with withdrawNo: ${body.withdrawNo}`);
+    }
+
+    const { event, dispatchResult } = await this.ingestionService.ingest(
+      {
+        type: 'withdrawTravelRuleCheckSimulated',
+        externalUserId: withdraw.withdrawNo,
+        withdrawId: withdraw.id,
+        withdrawNo: withdraw.withdrawNo,
+        result: body.result,
+      },
+      { isSimulated: true, simulatedByUserId: 'ADMIN_SIMULATION', context: 'WITHDRAW_TR_CHECK' },
+    );
+    const dr = dispatchResult as any;
+    return {
+      withdrawId: withdraw.id,
+      withdrawNo: withdraw.withdrawNo,
+      travelRuleStatus: dr?.travelRuleStatus,
+      message: `Withdraw TR check simulated: ${dr?.travelRuleStatus}`,
+      eventNo: event.eventNo,
+    };
+  }
 }

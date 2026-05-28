@@ -10,8 +10,8 @@ import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
 import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
-import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
+import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
@@ -29,8 +29,8 @@ export class SumsubIngestionService {
     private readonly clientRiskAssessmentService: ClientRiskAssessmentService,
     private readonly materialRefreshService: MaterialRefreshService,
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
-    private readonly depositTransactionsService: DepositTransactionsService,
     private readonly depositWorkflowService: DepositWorkflowService,
+    private readonly withdrawService: WithdrawTransactionsService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -113,17 +113,30 @@ export class SumsubIngestionService {
         const depositId = String(payload.depositId ?? '');
         const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
         const riskScore = (payload.riskScore as number | null) ?? null;
-        await this.depositTransactionsService.updateKytStatus(depositId, kytStatus, riskScore);
-        await this.depositWorkflowService.checkAutoApproval(depositId);
+        await this.depositWorkflowService.applyKytResult(depositId, kytStatus, riskScore);
         result = { depositId, kytStatus, riskScore };
         dispatchedContext = 'KYT_CHECK';
       } else if (event.eventType === 'travelRuleCheckSimulated') {
         const depositId = String(payload.depositId ?? '');
         const trStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        await this.depositTransactionsService.updateTravelRuleStatus(depositId, trStatus);
-        await this.depositWorkflowService.checkAutoApproval(depositId);
+        await this.depositWorkflowService.applyTrResult(depositId, trStatus);
         result = { depositId, trStatus };
         dispatchedContext = 'TRAVEL_RULE_CHECK';
+      } else if (event.eventType === 'withdrawKytCheckSimulated') {
+        const withdrawId = String(payload.withdrawId ?? '');
+        const stage = String(payload.stage ?? 'PRE');
+        const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
+        const riskScore = (payload.riskScore as number | null) ?? null;
+        const phase = stage === 'PRE' ? 1 : 2;
+        await this.withdrawService.updateKytStatus(withdrawId, kytStatus, null, riskScore, phase);
+        result = { withdrawId, kytStatus, riskScore, phase };
+        dispatchedContext = 'WITHDRAW_KYT_CHECK';
+      } else if (event.eventType === 'withdrawTravelRuleCheckSimulated') {
+        const withdrawId = String(payload.withdrawId ?? '');
+        const trStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
+        await this.withdrawService.updateTravelRuleStatus(withdrawId, trStatus, null);
+        result = { withdrawId, travelRuleStatus: trStatus };
+        dispatchedContext = 'WITHDRAW_TR_CHECK';
       } else if (event.eventType === 'caseDecisionSimulated') {
         const assessmentId = String(payload.assessmentId ?? '');
         const customerId = String(payload.customerId ?? '');
