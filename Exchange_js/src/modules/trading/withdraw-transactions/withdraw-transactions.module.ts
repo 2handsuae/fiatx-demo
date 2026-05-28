@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawTransactionsController } from './withdraw-transactions.controller';
 import { CustomerWithdrawController } from './customer-withdraw.controller';
@@ -13,9 +13,9 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 @Module({
   imports: [
     PrismaModule,
-    OnboardingModule,
-    TransactionComplianceModule,
-    PricingCenterModule,
+    forwardRef(() => OnboardingModule),
+    forwardRef(() => TransactionComplianceModule),
+    forwardRef(() => PricingCenterModule),
     TigerBeetleModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
