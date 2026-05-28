@@ -243,29 +243,39 @@ export class WithdrawTransactionsService {
   }
 
   private mapCanonicalAuditLogs(events: any[]) {
-    return events.map((event: any) => ({
-      id: event.id,
-      action: event.action || null,
-      statusFrom: event.statusFrom || null,
-      statusTo: event.statusTo || null,
-      actorType: event.actorType || null,
-      actorId: event.actorId || null,
-      actorNo: event.actorNo || null,
-      reason: event.reason || null,
-      occurredAt: event.occurredAt || event.createdAt || null,
-      result: event.result || null,
-      oldStatus: event.statusFrom || null,
-      newStatus: event.statusTo || null,
-      operatorId: event.actorId || null,
-      createdAt: event.occurredAt || event.createdAt || null,
-    }));
+    return events.map((event: any) => {
+      // Parse status transition from action string (format: WITHDRAW_FROM_TO_TO)
+      const { from: oldStatus, to: newStatus } = this.parseStatusTransitionFromAction(event.action);
+      return {
+        id: event.id,
+        action: event.action || null,
+        statusFrom: oldStatus,
+        statusTo: newStatus,
+        actorType: event.actorType || null,
+        actorId: event.actorId || null,
+        actorNo: event.actorNo || null,
+        reason: event.reason || null,
+        occurredAt: event.occurredAt || event.createdAt || null,
+        result: event.result || null,
+        oldStatus,
+        newStatus,
+        operatorId: event.actorId || null,
+        createdAt: event.occurredAt || event.createdAt || null,
+      };
+    });
+  }
+
+  private parseStatusTransitionFromAction(action?: string): { from: string | null; to: string | null } {
+    if (!action) return { from: null, to: null };
+    const match = action.match(/^WITHDRAW_(.+)_TO_(.+)$/);
+    if (!match) return { from: null, to: null };
+    return { from: match[1], to: match[2] };
   }
 
   private async getCanonicalWithdrawAuditLogs(
     withdrawId: string,
     withdrawNo?: string | null,
   ) {
-    const workflowNo = withdrawNo || null;
     const events = await (this.prisma as any).auditLogEvent.findMany({
       where: {
         OR: [
@@ -273,15 +283,12 @@ export class WithdrawTransactionsService {
             entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
             entityId: withdrawId,
           },
-          workflowNo
+          withdrawNo
             ? {
                 workflowType: AuditWorkflowTypes.WITHDRAW,
-                workflowNo,
+                entityNo: withdrawNo,
               }
             : undefined,
-          {
-            workflowType: AuditWorkflowTypes.WITHDRAW,
-          },
           {
             traceId: `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}`,
           },
