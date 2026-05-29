@@ -9,6 +9,7 @@ import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { WithdrawTransactionWorkflowService } from './withdraw-transaction-workflow.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
+import { PayoutsModule } from '../../asset-treasury/payouts/payouts.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
     forwardRef(() => TransactionComplianceModule),
     forwardRef(() => PricingCenterModule),
     TigerBeetleModule,
+    forwardRef(() => PayoutsModule),
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

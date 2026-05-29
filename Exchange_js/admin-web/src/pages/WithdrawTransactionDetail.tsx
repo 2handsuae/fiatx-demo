@@ -175,17 +175,21 @@ const WithdrawTransactionDetail = () => {
   const actions = getWithdrawActionsForStatus(data.status);
   const customerGate = getComplianceGateStyle(data.customer?.complianceStatus);
 
-  /* Compute worst KYT status across pre-broadcast and post-broadcast */
+  /* Compute overall KYT gate status:
+     PASSED only when BOTH pre-broadcast (phase 1) AND post-broadcast (phase 2) pass */
   const GATE_FAIL_SET = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
-  const GATE_PENDING_SET = new Set(['PENDING', 'CREATED', 'RECEIVED']);
-  const worstKytStatus =
-    GATE_FAIL_SET.has(data.preKytStatus) || GATE_FAIL_SET.has(data.kytStatus)
-      ? GATE_FAIL_SET.has(data.preKytStatus)
-        ? data.preKytStatus
-        : data.kytStatus
-      : GATE_PENDING_SET.has(data.preKytStatus) || GATE_PENDING_SET.has(data.kytStatus)
-        ? 'PENDING'
-        : data.kytStatus;
+  const worstKytStatus = (() => {
+    if (GATE_FAIL_SET.has(data.preKytStatus) || GATE_FAIL_SET.has(data.kytStatus)) {
+      return GATE_FAIL_SET.has(data.preKytStatus) ? data.preKytStatus : data.kytStatus;
+    }
+    if (data.preKytStatus === 'PASSED' && data.kytStatus === 'PASSED') {
+      return 'PASSED';
+    }
+    if (data.preKytStatus || data.kytStatus) {
+      return 'PENDING';
+    }
+    return '';
+  })();
   const kytGate = getComplianceGateStyle(worstKytStatus);
 
   const trGate = getComplianceGateStyle(
@@ -260,14 +264,14 @@ const WithdrawTransactionDetail = () => {
                 <div className="mt-2 flex items-center gap-2">
                   <span className="font-mono text-[9px] text-adm-t3 w-24">Pre-broadcast:</span>
                   <span className={`text-[11px] font-semibold ${getComplianceGateStyle(data.preKytStatus).textColor}`}>
-                    {data.preKytStatus}
+                    {data.preKytStatus || '—'}
                   </span>
                   <span className="font-mono text-[10px] text-adm-t3">Risk: {data.preKytRiskScore ?? '—'}</span>
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="font-mono text-[9px] text-adm-t3 w-24">Post-broadcast:</span>
                   <span className={`text-[11px] font-semibold ${getComplianceGateStyle(data.kytStatus).textColor}`}>
-                    {data.kytStatus}
+                    {data.kytStatus || '—'}
                   </span>
                   <span className="font-mono text-[10px] text-adm-t3">Risk: {data.kytRiskScore ?? '—'}</span>
                 </div>

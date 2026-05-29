@@ -3,7 +3,7 @@
 set -euo pipefail
 
 TB_DATA="/tmp/exchange_js_branch/0_0.tigerbeetle"
-TB_ADDR="127.0.0.1:3001"
+TB_ADDR="127.0.0.1:3503"
 ACTION="${1:-help}"
 
 case "$ACTION" in

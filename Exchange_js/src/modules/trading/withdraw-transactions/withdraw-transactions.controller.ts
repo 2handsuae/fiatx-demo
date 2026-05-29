@@ -106,6 +106,20 @@ export class WithdrawTransactionsController {
     return { message: `KYT Phase 1 simulated: ${result}`, withdrawId: id, kytStatus: result };
   }
 
+  @Post(':id/simulate/kyt-phase2')
+  @ApiOperation({ summary: '[DEV] Simulate KYT Phase 2 (post-broadcast) result' })
+  async simulateKytPhase2(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { result?: string; riskScore?: number },
+  ) {
+    this.assertAdmin(req);
+    const result = body.result || 'PASSED';
+    const riskScore = body.riskScore ?? 5;
+    await this.service.updateKytStatus(id, result, `SIM-KYT2-${Date.now()}`, riskScore, 2);
+    return { message: `KYT Phase 2 simulated: ${result}`, withdrawId: id, kytStatus: result };
+  }
+
   @Post(':id/simulate/travel-rule')
   @ApiOperation({ summary: '[DEV] Simulate Travel Rule result' })
   async simulateTravelRule(

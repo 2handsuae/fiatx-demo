@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import {
@@ -15,6 +15,7 @@ import { AccountingService } from '../../accounting/tigerbeetle/accounting.servi
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
@@ -28,6 +29,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
+    @Inject(forwardRef(() => PayoutsService))
+    private readonly payoutsService: PayoutsService,
   ) {}
 
   onModuleInit() {
@@ -64,7 +67,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
     this.logger.log(`KYT updated for withdrawal ${event.withdrawId}: phase=${event.phase} status=${event.kytStatus}`);
 
     if (event.phase === 1) {
+      // Pre-broadcast KYT — check if pre-KYT + TR both pass → move to payout
       await this.checkAllGatesPass(event.withdrawId);
+    } else if (event.phase === 2) {
+      // Post-broadcast KYT — payout already in flight, just audit
+      await this.handlePostBroadcastKyt(event.withdrawId, event.kytStatus);
     }
   }
 
@@ -135,17 +142,17 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
-    const gate1Pass = w.kytStatus === 'PASSED';
+    const gate1Phase1Pass = w.preKytStatus === 'PASSED';
     const gate2Pass = w.travelRuleStatus === 'PASSED' || w.travelRuleStatus === 'NOT_REQUIRED';
 
-    if (!gate1Pass || !gate2Pass) {
+    if (!gate1Phase1Pass || !gate2Pass) {
       this.logger.debug(
-        `Gates not yet all passed for ${withdrawId}: kyt=${w.kytStatus} tr=${w.travelRuleStatus}`,
+        `Gates not yet all passed for ${withdrawId}: preKyt=${w.preKytStatus} tr=${w.travelRuleStatus}`,
       );
       return;
     }
 
-    this.logger.log(`All gates PASSED for withdrawal ${withdrawId} — initiating payout phase`);
+    this.logger.log(`Pre-broadcast gates PASSED for withdrawal ${withdrawId} — initiating payout phase`);
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_KYT_PHASE1_PASSED,
@@ -156,7 +163,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       entityOwnerId: w.ownerId,
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `KYT Phase 1 passed: score=${w.kytRiskScore}`,
+      reason: `Pre-KYT passed: score=${w.preKytRiskScore}`,
       sourcePlatform: 'SYSTEM',
     });
 
@@ -199,11 +206,46 @@ export class WithdrawWorkflowService implements OnModuleInit {
       entityOwnerId: w.ownerId,
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: 'All compliance gates passed, payout initiated',
+      reason: 'Pre-broadcast compliance gates passed, payout initiated',
       sourcePlatform: 'SYSTEM',
     });
 
-    this.logger.log(`Withdrawal ${withdrawId} now PAYOUT_PENDING — awaiting payout creation`);
+    // Auto-create payout record and link back to withdrawal
+    const payoutType = w.asset?.type === 'CRYPTO' ? 'CRYPTO' : 'FIAT';
+    const payout = await this.payoutsService.create({
+      withdrawId: w.id,
+      type: payoutType as any,
+      amount: Number(w.netAmount),
+      assetId: w.assetId,
+      toWalletId: w.toWalletId || undefined,
+      toAddress: w.toAddress || undefined,
+      toIban: w.toIban || undefined,
+    }, 'SYSTEM');
+
+    await this.withdrawService.linkPayout(w.id, payout.id, payout.payoutNo);
+
+    this.logger.log(`Withdrawal ${withdrawId} now PAYOUT_PENDING — payout ${payout.payoutNo} created`);
+  }
+
+  // ── Post-Broadcast KYT (Phase 2): after payout is in-flight ──
+
+  private async handlePostBroadcastKyt(withdrawId: string, kytStatus: string) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_KYT_PHASE1_PASSED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `Post-broadcast KYT completed: status=${kytStatus} score=${w.kytRiskScore}`,
+      sourcePlatform: 'SYSTEM',
+    });
+
+    this.logger.log(`Post-broadcast KYT recorded for withdrawal ${withdrawId}: ${kytStatus}`);
   }
 
   // ── Finalization: TB POST on chain confirmation ──

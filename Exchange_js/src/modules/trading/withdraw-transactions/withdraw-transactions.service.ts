@@ -448,9 +448,11 @@ export class WithdrawTransactionsService {
     return {
       ...item,
       type: this.deriveWithdrawType(item.asset?.type),
-      preKytStatus: normalizedPreKytStatus,
-      kytStatus: normalizedKytStatus,
-      travelRuleStatus: normalizedTravelRuleStatus,
+      // Keep raw DB statuses for admin UI gate display (PASSED/PENDING/FAILED etc.)
+      // Normalized lifecycle statuses available via case objects for compliance engine
+      lifecyclePreKytStatus: normalizedPreKytStatus,
+      lifecycleKytStatus: normalizedKytStatus,
+      lifecycleTravelRuleStatus: normalizedTravelRuleStatus,
       preKytCase: caseAggregate.preKytCase,
       kytCase: caseAggregate.mainKytCase,
       travelRuleCase: caseAggregate.travelRuleCase,
@@ -568,10 +570,10 @@ export class WithdrawTransactionsService {
             toWalletId,
             toAddress,
             toIban,
-            preKytStatus: isCryptoWithdraw ? 'FINAL' : '',
+            preKytStatus: isCryptoWithdraw ? 'PENDING' : '',
             kytStatus: '',
             travelRuleRequired: isCryptoWithdraw,
-            travelRuleStatus: isCryptoWithdraw ? 'FINAL' : '',
+            travelRuleStatus: isCryptoWithdraw ? 'PENDING' : '',
             complianceStatus: 'PENDING',
             traceId,
             parentType,
@@ -928,6 +930,7 @@ export class WithdrawTransactionsService {
       const customer = customers[Math.floor(Math.random() * customers.length)];
       const amount = (Math.random() * 1000 + 10).toFixed(2);
       
+      const isCrypto = asset.type !== 'FIAT';
       const created = await (this.prisma as any).withdrawTransaction.create({
         data: {
           withdrawNo: `WDR-${Date.now()}-${i}`,
@@ -939,8 +942,13 @@ export class WithdrawTransactionsService {
           amount: new Prisma.Decimal(amount),
           netAmount: new Prisma.Decimal(amount),
           feeAmount: new Prisma.Decimal(0),
-          toAddress: asset.type !== 'FIAT' ? '0x' + Math.random().toString(16).slice(2) : null,
-          toIban: asset.type === 'FIAT' ? 'IBAN' + Math.random().toString().slice(2) : null,
+          toAddress: isCrypto ? '0x' + Math.random().toString(16).slice(2) : null,
+          toIban: !isCrypto ? 'IBAN' + Math.random().toString().slice(2) : null,
+          preKytStatus: isCrypto ? 'PENDING' : '',
+          kytStatus: '',
+          travelRuleRequired: isCrypto,
+          travelRuleStatus: isCrypto ? 'PENDING' : '',
+          complianceStatus: 'PENDING',
           statusHistory: JSON.stringify([{
             from: 'NONE',
             to: WithdrawTransactionStatus.CREATED,
@@ -980,14 +988,25 @@ export class WithdrawTransactionsService {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
 
+    // Phase 1 = pre-broadcast KYT → preKyt* fields
+    // Phase 2 = post-broadcast KYT → kyt* fields
+    const data = phase === 1
+      ? {
+          preKytStatus: kytStatus,
+          preKytId: kytScreeningId ?? item.preKytId,
+          preKytRiskScore: kytRiskScore ?? item.preKytRiskScore,
+          preKytCheckedAt: new Date(),
+        }
+      : {
+          kytStatus,
+          kytScreeningId: kytScreeningId ?? item.kytScreeningId,
+          kytRiskScore: kytRiskScore ?? item.kytRiskScore,
+          kytCheckedAt: new Date(),
+        };
+
     const updated = await (this.prisma as any).withdrawTransaction.update({
       where: { id },
-      data: {
-        kytStatus,
-        kytScreeningId: kytScreeningId ?? item.kytScreeningId,
-        kytRiskScore: kytRiskScore ?? item.kytRiskScore,
-        kytCheckedAt: new Date(),
-      },
+      data,
     });
 
     this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_KYT_UPDATED, {
@@ -1022,6 +1041,13 @@ export class WithdrawTransactionsService {
     });
 
     return updated;
+  }
+
+  async linkPayout(withdrawId: string, payoutId: string, payoutNo: string) {
+    await (this.prisma as any).withdrawTransaction.update({
+      where: { id: withdrawId },
+      data: { payoutId, payoutNo },
+    });
   }
 
   async getOwnerComplianceStatus(withdrawId: string): Promise<string> {
