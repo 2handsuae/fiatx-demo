@@ -218,22 +218,14 @@ export class AccountingService {
       });
     }
 
-    await this.evidenceService.writeEvidence({
-      tbTransferId: bigintToHex(postId),
-      sourceType: params.evidence.sourceType,
-      sourceNo: params.evidence.sourceNo,
-      eventCode: params.evidence.eventCode,
-      debitCode: params.evidence.debitCode,
-      creditCode: params.evidence.creditCode,
-      amount: 0,
-      assetCurrency: params.evidence.assetCurrency,
-      traceId: params.evidence.traceId,
-      actorType: params.evidence.actorType,
-      actorId: params.evidence.actorId,
-      memo: params.evidence.memo,
-      pendingId: bigintToHex(params.pendingTransferId),
-      transferType: 'POST_PENDING',
-    }, params.tx);
+    // Update the original PENDING evidence record → POSTED (not create a new row)
+    const originalTbTransferId = bigintToHex(params.pendingTransferId);
+    await this.evidenceService.updateTransferType(
+      originalTbTransferId,
+      'POSTED',
+      bigintToHex(postId),
+      params.tx,
+    );
   }
 
   async voidPendingTransfer(params: PostOrVoidPendingTransferParams): Promise<void> {
@@ -265,22 +257,14 @@ export class AccountingService {
       });
     }
 
-    await this.evidenceService.writeEvidence({
-      tbTransferId: bigintToHex(voidId),
-      sourceType: params.evidence.sourceType,
-      sourceNo: params.evidence.sourceNo,
-      eventCode: params.evidence.eventCode,
-      debitCode: params.evidence.debitCode,
-      creditCode: params.evidence.creditCode,
-      amount: 0,
-      assetCurrency: params.evidence.assetCurrency,
-      traceId: params.evidence.traceId,
-      actorType: params.evidence.actorType,
-      actorId: params.evidence.actorId,
-      memo: params.evidence.memo,
-      pendingId: bigintToHex(params.pendingTransferId),
-      transferType: 'VOID_PENDING',
-    }, params.tx);
+    // Update the original PENDING evidence record → VOIDED (not create a new row)
+    const originalTbTransferId = bigintToHex(params.pendingTransferId);
+    await this.evidenceService.updateTransferType(
+      originalTbTransferId,
+      'VOIDED',
+      bigintToHex(voidId),
+      params.tx,
+    );
   }
 
   // ── Balance Queries ──

@@ -74,6 +74,21 @@ export class TbEvidenceService {
     }
   }
 
+  async updateTransferType(
+    tbTransferId: string,
+    newTransferType: string,
+    postTbTransferId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
+    const data: any = { transferType: newTransferType };
+    if (postTbTransferId) data.pendingId = postTbTransferId;
+    await (client as any).tbTransferEvidence.update({
+      where: { tbTransferId },
+      data,
+    });
+  }
+
   async findBySource(sourceType: string, sourceNo: string) {
     return (this.prisma as any).tbTransferEvidence.findMany({
       where: { sourceType, sourceNo },
