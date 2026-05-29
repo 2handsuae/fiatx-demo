@@ -1,6 +1,6 @@
-# 提现费率等级（Withdrawal Fee Level）— 设计文档
+# 提现费率层级（Withdrawal Fee Tier）— 设计文档
 
-> Scope: 费率等级 CRUD + 变更审批 + 客户绑定 + Quote 拆分重构
+> Scope: 费率层级 CRUD + 变更审批 + 客户绑定 + Quote 拆分重构
 > 前置: V3（资产/钱包）、V5 提现 Happy Path 已完成
 > 不含: Swap 费率改造（V6）、itemCode 枚举扩展（后续需求）、itemCode → TB 账户映射拆分（V7）
 
@@ -17,19 +17,19 @@
 3. **PricingCenterService 2927 行巨石** — 策略配置 + Quote 生命周期 + Swap + Withdrawal 混在一个 service 里，L1/L3 混合，domain service 写审计日志，多项架构违规
 
 决策：
-- **拆表** — 新建 `WithdrawalFeeLevel`，与 `PricingPolicy` 完全独立
+- **拆表** — 新建 `WithdrawalFeeTier`，与 `PricingPolicy` 完全独立
 - **拆服务** — Withdrawal 费率和 Quote 从 `PricingCenterService` 拆出，Swap 代码留原处不动（V6 处理）
-- **Level 概念** — 每个 level 绑一个资产、存自己的分档配置，支持多 level 取最优
+- **Tier 概念** — 每个 tier 绑一个资产、存自己的分档配置，支持多 tier 取最优
 
-### 1.2 Level 概念
+### 1.2 Tier 概念
 
-Level 是"一个资产的一套费率方案"。核心特性：
+Tier 是"一个资产的一套费率方案"。核心特性：
 
-- 每个 level 绑定一个资产（如 USDT-TRC20）
-- 同一资产可有多个 level（Standard / VIP Gold / Promo 等）
-- `isDefault=true` 的 level 对所有客户适用
-- 非 default 的 level 通过 `WithdrawalFeeLevelBinding` 绑定到特定客户
-- 提现时，系统找到所有适用 level → 各自计算费用 → 取最低总费的给客户
+- 每个 tier 绑定一个资产（如 USDT-TRC20）
+- 同一资产可有多个 tier（Standard / VIP Gold / Promo 等）
+- `isDefault=true` 的 tier 对所有客户适用
+- 非 default 的 tier 通过 `WithdrawalFeeTierBinding` 绑定到特定客户
+- 提现时，系统找到所有适用 tier → 各自计算费用 → 取最低总费的给客户
 
 ### 1.3 itemCode
 
@@ -47,18 +47,18 @@ V5 阶段不变 — 所有费用项合计为一个 `feeAmount`，走一笔 TB pe
 
 ## 2. 数据模型
 
-### 2.1 WithdrawalFeeLevel（费率等级）
+### 2.1 WithdrawalFeeTier（费率层级）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | UUID PK | 内部主键 |
-| `levelCode` | String unique | operator key，如 `STD-USDT-TRC20`、`VIP-GOLD-BTC` |
+| `tierCode` | String unique | operator key，如 `STD-USDT-TRC20`、`VIP-GOLD-BTC` |
 | `name` | String | 展示名 |
 | `assetId` | String FK → Asset | 绑定一个资产 |
-| `isDefault` | Boolean | 默认等级（所有客户适用） |
+| `isDefault` | Boolean | 默认层级（所有客户适用） |
 | `enabled` | Boolean | 开关 |
-| `tiersJson` | String | 该 level 的分档 + 费用项 JSON |
-| `configHash` | String | tiersJson 的 SHA-256，冲突检测用 |
+| `bracketsJson` | String | 该 tier 的分档 + 费用项 JSON |
+| `configHash` | String | bracketsJson 的 SHA-256，冲突检测用 |
 | `status` | String | `PENDING_APPROVAL` / `ACTIVE` |
 | `approvalCaseId` | String? | 创建审批单 ID |
 | `approvalCaseNo` | String? | 创建审批单 No |
@@ -68,16 +68,16 @@ V5 阶段不变 — 所有费用项合计为一个 `feeAmount`，走一笔 TB pe
 | `updatedAt` | DateTime | 更新时间 |
 
 约束：
-- 同一 asset 可有多个 level
+- 同一 asset 可有多个 tier
 - 同一 asset 的 `isDefault=true` 建议至多一个（业务约束，非 DB unique）
 
-### 2.2 tiersJson 结构
+### 2.2 bracketsJson 结构
 
 ```json
 {
-  "tiers": [
+  "brackets": [
     {
-      "id": "TIER-001",
+      "id": "BKT-001",
       "name": "小额",
       "priority": 1,
       "enabled": true,
@@ -100,7 +100,7 @@ V5 阶段不变 — 所有费用项合计为一个 `feeAmount`，走一笔 TB pe
       ]
     },
     {
-      "id": "TIER-002",
+      "id": "BKT-002",
       "name": "大额",
       "priority": 2,
       "enabled": true,
@@ -126,19 +126,19 @@ V5 阶段不变 — 所有费用项合计为一个 `feeAmount`，走一笔 TB pe
 }
 ```
 
-分档匹配逻辑：按 `priority` 排序，找到 amount 落在 `[amountMin, amountMax)` 区间的第一个 enabled tier。复用现有 `PricingEngineService.findMatchedWithdrawalTier()`。
+分档匹配逻辑：按 `priority` 排序，找到 amount 落在 `[amountMin, amountMax)` 区间的第一个 enabled bracket。复用现有 `PricingEngineService.findMatchedWithdrawalTier()`。
 
-### 2.3 WithdrawalFeeLevelChangeRequest（变更请求）
+### 2.3 WithdrawalFeeTierChangeRequest（变更请求）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | UUID PK | 内部主键 |
-| `requestNo` | String unique | operator key，自增 `WFLC-NNN` |
-| `levelId` | String FK | 关联 WithdrawalFeeLevel |
-| `levelCode` | String | 冗余，审计用 |
-| `currentTiersJson` | String | 提交时的完整快照 |
+| `requestNo` | String unique | operator key，自增 `WFTC-NNN` |
+| `tierId` | String FK | 关联 WithdrawalFeeTier |
+| `tierCode` | String | 冗余，审计用 |
+| `currentBracketsJson` | String | 提交时的完整快照 |
 | `currentConfigHash` | String | 提交时的 hash |
-| `proposedTiersJson` | String | 提案的新配置 |
+| `proposedBracketsJson` | String | 提案的新配置 |
 | `changeReason` | String | 变更理由 |
 | `status` | String | `PENDING_APPROVAL` / `APPROVED` / `REJECTED` / `CANCELLED` / `FAILED` |
 | `requestedByUserId` | String | 发起人 |
@@ -149,37 +149,62 @@ V5 阶段不变 — 所有费用项合计为一个 `feeAmount`，走一笔 TB pe
 | `createdAt` | DateTime | 创建时间 |
 | `updatedAt` | DateTime | 更新时间 |
 
-冲突检测：执行时比较 `currentConfigHash` 与 level 当前 `configHash`，不一致则失败。与 TransactionLimitChange 同构。
+冲突检测：执行时比较 `currentConfigHash` 与 tier 当前 `configHash`，不一致则失败。与 TransactionLimitChange 同构。
 
-### 2.4 WithdrawalFeeLevelBinding（客户绑定）
+### 2.4 WithdrawalFeeTierBinding（客户绑定）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | UUID PK | 内部主键 |
 | `customerId` | String FK | 客户 |
-| `levelId` | String FK | 费率等级 |
+| `tierId` | String FK | 费率层级 |
 | `boundByUserId` | String | 操作人 |
 | `boundAt` | DateTime | 绑定时间 |
 | `createdAt` | DateTime | 创建时间 |
 
-约束：`@@unique([customerId, levelId])` — 同一客户不重复绑定同一 level。
+约束：`@@unique([customerId, tierId])` — 同一客户不重复绑定同一 tier。
 
-### 2.5 WithdrawPricingQuote（已有，微调）
+### 2.5 WithdrawPricingQuote（已有，补全 + 新增字段）
 
-新增字段：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | UUID PK | 内部主键 |
+| `quoteNo` | String unique | 报价单号 |
+| `status` | String | `ACTIVE` / `USED` / `EXPIRED` / `CANCELLED` |
+| `ownerType` | String | 所有者类型 |
+| `ownerId` | String | 所有者 ID |
+| `ownerNo` | String? | 所有者编号 |
+| `assetId` | String FK → Asset | 资产 ID |
+| `assetCode` | String | 资产代码（冗余） |
+| `amount` | Decimal | 提现金额 |
+| `segment` | String | 客户分段 |
+| `riskTier` | String | 风险等级 |
+| `matchedAssetId` | String | 旧 policy 匹配的 asset entry（迁移后废弃） |
+| `matchedTierId` | String | 匹配的分档(bracket) ID |
+| `matchedTierName` | String | 匹配的分档名称 |
+| `feeBreakdown` | String (JSON) | 费用明细 |
+| `totalsJson` | String (JSON) | 费用汇总 |
+| `policyRef` | String | 旧 policy 引用（迁移后废弃） |
+| `expiresAt` | DateTime | 过期时间（TTL 30s） |
+| `usedAt` | DateTime? | 消费时间 |
+| `cancelledAt` | DateTime? | 取消时间 |
+| `createdAt` | DateTime | 创建时间 |
+| `updatedAt` | DateTime | 更新时间 |
+| **`feeTierId`** | **String? 新增** | **命中的 WithdrawalFeeTier ID** |
+| **`feeTierCode`** | **String? 新增** | **命中的 WithdrawalFeeTier code** |
 
-| 字段 | 说明 |
-|------|------|
-| `matchedLevelId` | String? — 命中的 level ID |
-| `matchedLevelCode` | String? — 命中的 level code |
+索引：
+- `@@index([status, expiresAt])`
+- `@@index([ownerType, ownerId])`
+- `@@index([assetId, createdAt])`
 
-其余字段不动。
+关系：`withdrawals WithdrawTransaction[]` — 一个 quote 对应一笔提现。
 
 ---
 
 ## 3. 状态机
 
-### 3.1 WithdrawalFeeLevel 状态机
+### 3.1 WithdrawalFeeTier 状态机
 
 ```
 Admin 创建
@@ -195,9 +220,9 @@ PENDING_APPROVAL ──审批通过──→ ACTIVE
 
 状态只有两个：`PENDING_APPROVAL`（创建待审批）、`ACTIVE`（生效中）。
 
-`enabled` 字段是运营开关，不属于状态机 — ACTIVE 的 level 可以 enabled=false（暂停使用但保留配置）。
+`enabled` 字段是运营开关，不属于状态机 — ACTIVE 的 tier 可以 enabled=false（暂停使用但保留配置）。
 
-### 3.2 WithdrawalFeeLevelChangeRequest 状态机
+### 3.2 WithdrawalFeeTierChangeRequest 状态机
 
 ```
 Admin 提交变更
@@ -205,7 +230,7 @@ Admin 提交变更
     ▼
 PENDING_APPROVAL
     │
-    ├── 审批通过 → APPROVED (执行: 更新 level.tiersJson + configHash)
+    ├── 审批通过 → APPROVED (执行: 更新 tier.bracketsJson + configHash)
     ├── 审批拒绝 → REJECTED (终态)
     ├── 发起人取消 → CANCELLED (终态)
     └── 执行失败 → FAILED (hash 冲突等)
@@ -217,64 +242,64 @@ PENDING_APPROVAL
 
 ## 4. 工作流
 
-### 4.1 Level Creation Workflow
+### 4.1 Tier Creation Workflow
 
 **触发：** Admin 提交创建请求
 
 **流程：**
-1. Admin 提交 `{ levelCode, name, assetId, isDefault, tiersJson }`
-2. L1 校验：asset 存在且 ACTIVE、levelCode 唯一、tiersJson 格式合法（tier 区间无重叠、feeItem itemCode 合法）
-3. L1 创建 WithdrawalFeeLevel，status=`PENDING_APPROVAL`
+1. Admin 提交 `{ tierCode, name, assetId, isDefault, bracketsJson }`
+2. L1 校验：asset 存在且 ACTIVE、tierCode 唯一、bracketsJson 格式合法（bracket 区间无重叠、feeItem itemCode 合法）
+3. L1 创建 WithdrawalFeeTier，status=`PENDING_APPROVAL`
 4. L3 创建审批单（L2 处理），objectSnapshot 含完整配置
 5. 审批通过 → L3 调 L1 将 status 改为 `ACTIVE`
 6. 审批拒绝 → L3 调 L1 物理删除该行
 7. L3 全程写审计日志
 
 **审计 Actions：**
-- `WITHDRAWAL_FEE_LEVEL_CREATION_REQUESTED`
-- `WITHDRAWAL_FEE_LEVEL_CREATION_APPROVED`
-- `WITHDRAWAL_FEE_LEVEL_CREATION_REJECTED`
+- `WITHDRAWAL_FEE_TIER_CREATION_REQUESTED`
+- `WITHDRAWAL_FEE_TIER_CREATION_APPROVED`
+- `WITHDRAWAL_FEE_TIER_CREATION_REJECTED`
 
-### 4.2 Level Change Workflow
+### 4.2 Tier Change Workflow
 
-**触发：** Admin 对 ACTIVE 的 level 提交变更
+**触发：** Admin 对 ACTIVE 的 tier 提交变更
 
 **流程：**
-1. Admin 提交 `{ levelCode, proposedTiersJson, changeReason }`
-2. L3 校验：level 存在且 ACTIVE、无同 level 的 PENDING 变更请求
-3. L3 调 L1 创建 ChangeRequest — L1 校验 proposedTiersJson 格式合法 + 快照 currentTiersJson + currentConfigHash
+1. Admin 提交 `{ tierCode, proposedBracketsJson, changeReason }`
+2. L3 校验：tier 存在且 ACTIVE、无同 tier 的 PENDING 变更请求
+3. L3 调 L1 创建 ChangeRequest — L1 校验 proposedBracketsJson 格式合法 + 快照 currentBracketsJson + currentConfigHash
 4. L3 创建审批单（L2 处理），objectSnapshot 含新旧配置
-5. 审批通过 → L3 冲突检测（currentConfigHash vs level 当前 configHash）→ 无冲突则 L3 调 L1 更新 level.tiersJson + configHash
+5. 审批通过 → L3 冲突检测（currentConfigHash vs tier 当前 configHash）→ 无冲突则 L3 调 L1 更新 tier.bracketsJson + configHash
 6. 审批拒绝 → L3 调 L1 标记 request REJECTED
 7. 冲突 → L3 调 L1 标记 request FAILED + failureReason
 8. L3 全程写审计日志
 
 **审计 Actions：**
-- `WITHDRAWAL_FEE_LEVEL_CHANGE_REQUESTED`
-- `WITHDRAWAL_FEE_LEVEL_CHANGE_APPROVED`
-- `WITHDRAWAL_FEE_LEVEL_CHANGE_REJECTED`
-- `WITHDRAWAL_FEE_LEVEL_CHANGE_FAILED`
+- `WITHDRAWAL_FEE_TIER_CHANGE_REQUESTED`
+- `WITHDRAWAL_FEE_TIER_CHANGE_APPROVED`
+- `WITHDRAWAL_FEE_TIER_CHANGE_REJECTED`
+- `WITHDRAWAL_FEE_TIER_CHANGE_FAILED`
 
-### 4.3 Level Binding Workflow
+### 4.3 Tier Binding Workflow
 
-**触发：** Admin 给客户绑定或解绑 level
+**触发：** Admin 给客户绑定或解绑 tier
 
 **流程（绑定）：**
-1. Admin 提交 `{ customerId, levelId }`
-2. L3 校验：客户存在、level 存在且 ACTIVE
+1. Admin 提交 `{ customerId, tierId }`
+2. L3 校验：客户存在、tier 存在且 ACTIVE
 3. L3 调 L1 创建 binding 记录
 4. L3 写审计日志
 
 **流程（解绑）：**
-1. Admin 提交 `{ customerId, levelId }`
+1. Admin 提交 `{ customerId, tierId }`
 2. L3 调 L1 删除 binding 记录
 3. L3 写审计日志
 
 **无 L2 审批门。**
 
 **审计 Actions：**
-- `WITHDRAWAL_FEE_LEVEL_BOUND`
-- `WITHDRAWAL_FEE_LEVEL_UNBOUND`
+- `WITHDRAWAL_FEE_TIER_BOUND`
+- `WITHDRAWAL_FEE_TIER_UNBOUND`
 
 ---
 
@@ -285,21 +310,21 @@ PENDING_APPROVAL
 ```
 输入: assetId, amount, customerId
     │
-    ├─ 1. 查 WithdrawalFeeLevel
+    ├─ 1. 查 WithdrawalFeeTier
     │     WHERE assetId = ? AND enabled = true AND status = 'ACTIVE'
     │
-    ├─ 2. 过滤适用 levels:
-    │     - isDefault = true 的 level（所有客户适用）
-    │     - 该 customerId 通过 binding 绑定的 level
+    ├─ 2. 过滤适用 tiers:
+    │     - isDefault = true 的 tier（所有客户适用）
+    │     - 该 customerId 通过 binding 绑定的 tier
     │
-    ├─ 3. 每个适用 level:
-    │     findMatchedTier(amount) → calculateFeeLines()
-    │     得到 { levelCode, totalFee, feeBreakdown }
+    ├─ 3. 每个适用 tier:
+    │     findMatchedBracket(amount) → calculateFeeLines()
+    │     得到 { tierCode, totalFee, feeBreakdown }
     │
-    ├─ 4. 取 totalFee 最低的 level
+    ├─ 4. 取 totalFee 最低的 tier
     │
     └─ 5. 生成 WithdrawPricingQuote
-          记录 matchedLevelId, matchedLevelCode, feeBreakdown, totalsJson
+          记录 feeTierId, feeTierCode, matchedTierId(bracket), feeBreakdown, totalsJson
           TTL = 30 秒
 ```
 
@@ -312,7 +337,7 @@ ACTIVE ──消费──→ USED (绑定 WithdrawTransaction)
   └── 客户取消 → CANCELLED
 ```
 
-现有 `WithdrawPricingQuote` 模型和生命周期不动，新增 `matchedLevelId` / `matchedLevelCode` 字段。
+现有 `WithdrawPricingQuote` 模型和生命周期不动，新增 `feeTierId` / `feeTierCode` 字段。
 
 ---
 
@@ -320,19 +345,19 @@ ACTIVE ──消费──→ USED (绑定 WithdrawTransaction)
 
 | 文件 | 层 | 职责 |
 |------|---|------|
-| `WithdrawalFeeLevelService` | L1 Domain | Level CRUD + 状态转换 + tiersJson 校验，不写审计 |
-| `WithdrawalFeeLevelCreationApprovalService` | L2 Approval | 创建审批处理器 |
-| `WithdrawalFeeLevelCreationWorkflowService` | L3 Workflow | 创建流程编排 + 审计 |
-| `WithdrawalFeeLevelChangeApprovalService` | L2 Approval | 变更审批处理器 |
-| `WithdrawalFeeLevelChangeWorkflowService` | L3 Workflow | 变更流程编排（request-record + snapshot 冲突检测）+ 审计 |
-| `WithdrawalFeeLevelBindingService` | L1 Domain | bind/unbind CRUD，不写审计 |
-| `WithdrawalFeeLevelBindingWorkflowService` | L3 Workflow | 绑定/解绑编排 + 审计，无 L2 |
-| `WithdrawQuoteService` | L3 Workflow | 费率解析（多 level 取最优）+ quote 生命周期 + 审计 |
+| `WithdrawalFeeTierService` | L1 Domain | Tier CRUD + 状态转换 + bracketsJson 校验，不写审计 |
+| `WithdrawalFeeTierCreationApprovalService` | L2 Approval | 创建审批处理器 |
+| `WithdrawalFeeTierCreationWorkflowService` | L3 Workflow | 创建流程编排 + 审计 |
+| `WithdrawalFeeTierChangeApprovalService` | L2 Approval | 变更审批处理器 |
+| `WithdrawalFeeTierChangeWorkflowService` | L3 Workflow | 变更流程编排（request-record + snapshot 冲突检测）+ 审计 |
+| `WithdrawalFeeTierBindingService` | L1 Domain | bind/unbind CRUD，不写审计 |
+| `WithdrawalFeeTierBindingWorkflowService` | L3 Workflow | 绑定/解绑编排 + 审计，无 L2 |
+| `WithdrawQuoteService` | L3 Workflow | 费率解析（多 tier 取最优）+ quote 生命周期 + 审计 |
 | `PricingEngineService` | 共享计算 | 不动 — calculateFeeLines() / findMatchedWithdrawalTier() 复用 |
 
 ### 6.1 模块归属
 
-新建 `src/modules/trading/withdrawal-fee-level/` 模块，包含 Level + Binding + Quote 所有服务。
+新建 `src/modules/trading/withdrawal-fee-tier/` 模块，包含 Tier + Binding + Quote 所有服务。
 
 `PricingCenterService` 中 Withdrawal 相关代码迁出后，Swap 代码留原处不动（V6 处理）。
 
@@ -342,11 +367,11 @@ ACTIVE ──消费──→ USED (绑定 WithdrawTransaction)
 
 ### 7.1 数据迁移
 
-现有 `PricingPolicy` 表中 `WITHDRAWAL_PRICING` 行的 `configJson` → 拆成多个 `WithdrawalFeeLevel` 行：
+现有 `PricingPolicy` 表中 `WITHDRAWAL_PRICING` 行的 `configJson` → 拆成多个 `WithdrawalFeeTier` 行：
 
-- 每个 `assets[]` entry → 一个 `WithdrawalFeeLevel`（`isDefault=true`, `status=ACTIVE`）
-- `levelCode` = `STD-{asset.currency}-{asset.network || 'FIAT'}`
-- `tiersJson` = 该 entry 的 `tiers` 数组
+- 每个 `assets[]` entry → 一个 `WithdrawalFeeTier`（`isDefault=true`, `status=ACTIVE`）
+- `tierCode` = `STD-{asset.currency}-{asset.network || 'FIAT'}`
+- `bracketsJson` = 该 entry 的 `tiers` 数组（重命名为 `brackets`）
 
 ### 7.2 代码迁移
 
@@ -355,8 +380,8 @@ ACTIVE ──消费──→ USED (绑定 WithdrawTransaction)
 - `consumeWithdrawQuoteForWithdraw()` → `WithdrawQuoteService`
 - `cancelWithdrawPricingQuote()` → `WithdrawQuoteService`
 - `getActiveWithdrawQuoteOrThrow()` → `WithdrawQuoteService`
-- `resolveWithdrawalQuote()` → `WithdrawQuoteService`（重构为多 level 取最优逻辑）
-- `getWithdrawalPolicy()` → 不再需要（被 `WithdrawalFeeLevelService.findByAsset()` 替代）
+- `resolveWithdrawalQuote()` → `WithdrawQuoteService`（重构为多 tier 取最优逻辑）
+- `getWithdrawalPolicy()` → 不再需要（被 `WithdrawalFeeTierService.findByAsset()` 替代）
 - `simulateWithdrawal()` → `WithdrawQuoteService`
 - `assertWithdrawExtremeVolatilityNotBlocked()` → 评估是否保留
 
@@ -374,13 +399,13 @@ ACTIVE ──消费──→ USED (绑定 WithdrawTransaction)
 
 以下工作流写入 V5 MVP：
 
-- Withdrawal Fee Level Creation（费率等级创建审批）
-- Withdrawal Fee Level Change（费率等级变更审批）
-- Withdrawal Fee Level Binding（客户费率等级绑定/解绑）
+- Withdrawal Fee Tier Creation（费率层级创建审批）
+- Withdrawal Fee Tier Change（费率层级变更审批）
+- Withdrawal Fee Tier Binding（客户费率层级绑定/解绑）
 
 Supporting Features：
 - WithdrawQuoteService 拆分重构
-- 数据迁移（PricingPolicy → WithdrawalFeeLevel）
+- 数据迁移（PricingPolicy → WithdrawalFeeTier）
 - PricingCenterService Withdrawal 代码迁出
 
 ---
@@ -390,5 +415,5 @@ Supporting Features：
 - Swap 费率改造 — V6
 - itemCode 枚举扩展机制 — 后续需求
 - itemCode → TB 账户映射拆分 — V7 Gas 记账完成后
-- Level enabled/disabled 审批门 — 评估后决定是否需要
-- Level 删除/归档工作流 — 后续需求
+- Tier enabled/disabled 审批门 — 评估后决定是否需要
+- Tier 删除/归档工作流 — 后续需求
