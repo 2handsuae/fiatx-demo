@@ -1,26 +1,16 @@
+// admin-web/src/pages/PayoutDetail.tsx
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { RefreshCw, User } from 'lucide-react';
 import {
-  RefreshCw,
-  FileText,
-  User,
-  CreditCard,
-  Activity,
-  Clock,
-  MapPin,
-  CircleDashed,
-  CheckCircle2,
-  Waves,
-  Landmark,
-  ShieldAlert,
-} from 'lucide-react';
-import {
-  ActionSection,
-  DetailCard,
   DetailPageHeader,
+  DetailCard,
   InfoField,
+  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
-import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
 import { copyToClipboard } from '../utils/clipboard';
 import {
   AdminSessionError,
@@ -28,28 +18,35 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
-import { SimulationRail, type SimulationRailItem } from '../components/SimulationRail';
-import { useSimulationMode } from '../utils/simulationMode';
 import {
   formatRailStatusLabel,
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
+import { useSimulationMode } from '../utils/simulationMode';
+import {
+  getPayoutStatusBadgeClass,
+  getPayoutSimActionsForStatus,
+} from '../utils/payoutActionMap';
 
-interface PayoutDetail {
+/* ── Types ── */
+
+interface PayoutDetailData {
   id: string;
   payoutNo: string;
-  withdrawId: string;
-  ownerNo?: string | null;
-  transactionType?: string | null;
-  transactionId?: string | null;
-  transactionNo?: string | null;
+  ownerType: string;
+  ownerId: string | null;
+  ownerNo: string | null;
+  customer?: { customerNo: string; firstName: string | null; lastName: string | null };
+  withdrawId: string | null;
+  transactionNo: string | null;
+  withdraw?: { withdrawNo: string } | null;
   type: string;
   status: string;
   displayStatus?: string | null;
-  amount: string;
   assetId: string;
-  asset: { currency: string; code: string; type: string; network: string | null; decimals?: number };
+  asset: { currency: string; code: string; type: string; network: string | null; decimals: number };
+  amount: string;
   toWalletId: string | null;
   toAddress: string | null;
   toIban: string | null;
@@ -59,160 +56,47 @@ interface PayoutDetail {
   confirmations: number;
   referenceNo: string | null;
   providerTxnId: string | null;
-  createdAt: string;
   sentAt: string | null;
-  updatedAt: string;
   completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
   statusHistory: string | null;
-  withdraw: {
-    withdrawNo: string;
-    ownerId: string;
-    status: string;
-  };
-  customer?: {
-    firstName: string | null;
-    lastName: string | null;
-    customerNo: string;
-  };
-  clearings?: Array<{
-    id: string;
-    status: string; // Using clearingStatus field from schema which is usually mapped to status in API
-    clearingStatus?: string;
-    createdAt: string;
-    lines: Array<{
-        id: string;
-        partyType: string;
-        partyId: string;
-        amount: string;
-        lineType: string;
-        description: string | null;
-    }>
-  }>;
-  auditLogs: Array<{
-    id: string;
-    action?: string | null;
-    operatorId?: string | null;
-    actorId?: string | null;
-    actorType?: string | null;
-    oldStatus?: string | null;
-    newStatus?: string | null;
-    statusFrom?: string | null;
-    statusTo?: string | null;
-    reason: string | null;
-    createdAt?: string | null;
-    occurredAt?: string | null;
-    result?: string | null;
-  }>;
-  feeOccurrences?: Array<{
-    id: string;
-    feeNo: string;
-    feeType: string;
-    amount: string;
-    status?: string | null;
-  }>;
 }
 
+/* ── Page ── */
+
 const PayoutDetail = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams();
   const navigate = useNavigate();
-  const [data, setData] = useState<PayoutDetail | null>(null);
+  const [data, setData] = useState<PayoutDetailData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [referenceNoDraft, setReferenceNoDraft] = useState('');
+  const [simSubmitting, setSimSubmitting] = useState(false);
   const { enabled: simulationModeEnabled } = useSimulationMode();
 
-  const fetchPayout = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}`);
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/payouts/${id}`,
+      );
       if (response.ok) {
-        const result = await response.json();
-        setData(result);
-        setReferenceNoDraft(result.referenceNo || '');
+        setData(await response.json());
       } else {
-        alert(await getApiErrorMessage(response, 'Failed to fetch payout details'));
+        alert(await getApiErrorMessage(response, 'Failed to load payout'));
         navigate('/dashboard/treasury/payouts');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
       console.error('Failed to fetch payout', error);
-      alert('Network error');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchPayout();
+    if (id) fetchData();
   }, [id]);
-
-  const handleUpdateAction = async (
-    action: string,
-    extraPayload?: Record<string, unknown>,
-  ) => {
-    setUpdating(true);
-    try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ action, ...extraPayload })
-      });
-
-      if (response.ok) {
-        fetchPayout();
-      } else {
-        alert(`Update failed: ${await getApiErrorMessage(response, 'Unknown error')}`);
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Update failed', error);
-      alert('Update failed due to network error');
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const handleReCloseout = async () => {
-    setUpdating(true);
-    try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-closeout`, {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        fetchPayout();
-      } else {
-        alert(`Re-run closeout failed: ${await getApiErrorMessage(response, 'Unknown error')}`);
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Re-run closeout failed', error);
-      alert('Re-run closeout failed due to network error');
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const handleReCompensate = async () => {
-    setUpdating(true);
-    try {
-      const response = await adminFetch(`${import.meta.env.VITE_API_URL}/payouts/${id}/re-compensate`, {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        fetchPayout();
-      } else {
-        alert(`Re-run compensation failed: ${await getApiErrorMessage(response, 'Unknown error')}`);
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Re-run compensation failed', error);
-      alert('Re-run compensation failed due to network error');
-    } finally {
-      setUpdating(false);
-    }
-  };
 
   const handleCopy = (text: string, field: string) => {
     copyToClipboard(text);
@@ -220,600 +104,364 @@ const PayoutDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const effectiveFiatReferenceNo =
-    referenceNoDraft.trim() || data?.referenceNo || '';
-
-  const getPayoutRailItems = (payout: PayoutDetail): SimulationRailItem[] => {
-    const { status, type } = payout;
-    const normalized = normalizeRailDisplayStatus(status);
-    const normalizedType = formatTransactionTypeLabel(type);
-
-    if (normalizedType === 'CRYPTO') {
-      return [
-        {
-          id: 'sign',
-          label: 'Sign',
-          icon: <CircleDashed size={14} />,
-          state:
-            normalized === 'SIGNING'
-              ? 'current'
-              : ['BROADCASTED', 'CONFIRMING', 'CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT'].includes(normalized)
-                ? 'completed'
-                : normalized === 'CREATED'
-                  ? 'available'
-                  : 'readonly',
-          onClick: normalized === 'CREATED' ? () => handleUpdateAction('SIGN') : undefined,
-          disabled: updating,
-          helperText: 'Advance to SIGNING after the signature is generated.',
-        },
-        {
-          id: 'broadcast',
-          label: 'Broadcast',
-          icon: <Waves size={14} />,
-          state:
-            normalized === 'BROADCASTED'
-              ? 'current'
-              : ['CONFIRMING', 'CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT'].includes(normalized)
-                ? 'completed'
-                : normalized === 'SIGNING'
-                  ? 'available'
-                  : 'readonly',
-          onClick: normalized === 'SIGNING' ? () => handleUpdateAction('BROADCAST') : undefined,
-          disabled: updating,
-          helperText: 'Advance to BROADCASTED after submission to the network.',
-        },
-        {
-          id: 'mempool',
-          label: 'Seen in Mempool',
-          icon: <Activity size={14} />,
-          state:
-            normalized === 'CONFIRMING'
-              ? 'current'
-              : ['CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT'].includes(normalized)
-                ? 'completed'
-                : normalized === 'BROADCASTED'
-                  ? 'available'
-                  : 'readonly',
-          onClick:
-            normalized === 'BROADCASTED'
-              ? () => handleUpdateAction('SEEN_IN_MEMPOOL')
-              : undefined,
-          disabled: updating,
-          helperText: 'Advance to CONFIRMING after the mempool signal is observed.',
-        },
-        {
-          id: 'confirmed',
-          label: 'Confirm',
-          icon: <CheckCircle2 size={14} />,
-          state:
-            normalized === 'CONFIRMED'
-              ? 'current'
-              : normalized === 'CLEARED'
-                ? 'completed'
-                : normalized === 'CONFIRMING'
-                  ? 'available'
-                  : 'readonly',
-          onClick: normalized === 'CONFIRMING' ? () => handleUpdateAction('CONFIRM') : undefined,
-          disabled: updating,
-          helperText: 'Advance to CONFIRMED, then let the system write CLEARED automatically.',
-        },
-        {
-          id: 'cleared',
-          label: 'Cleared',
-          icon: <CheckCircle2 size={14} />,
-          state: normalized === 'CLEARED' ? 'current' : 'readonly',
-          tone: 'success',
-          helperText: 'Shown automatically after closeout accounting succeeds.',
-        },
-        {
-          id: 'failed',
-          label: 'Fail / Timeout',
-          icon: <ShieldAlert size={14} />,
-          state: ['FAILED', 'TIMEOUT'].includes(normalized)
-            ? 'current'
-            : ['CREATED', 'SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(normalized)
-              ? 'available'
-              : 'readonly',
-          tone: 'danger',
-          onClick:
-            normalized === 'CREATED' ||
-            normalized === 'SIGNING' ||
-            normalized === 'BROADCASTED' ||
-            normalized === 'CONFIRMING'
-              ? () =>
-                  handleUpdateAction(
-                    normalized === 'CONFIRMING' ? 'TIMEOUT' : 'FAIL',
-                  )
-              : undefined,
-          disabled: updating,
-          helperText: 'Terminal exceptions continue through canonical compensation.',
-        },
-      ];
+  const handleSimAction = async (action: string) => {
+    setSimSubmitting(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/payouts/${id}/status`,
+        { method: 'PATCH', body: JSON.stringify({ action }) },
+      );
+      if (response.ok) {
+        await fetchData();
+      } else {
+        alert(await getApiErrorMessage(response, 'Simulation failed'));
+      }
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Sim failed', error);
+    } finally {
+      setSimSubmitting(false);
     }
-
-    return [
-      {
-        id: 'submit',
-        label: 'Submit',
-        icon: <Landmark size={14} />,
-        state:
-          normalized === 'CONFIRMING'
-            ? 'current'
-            : ['CONFIRMED', 'CLEARED', 'FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)
-              ? 'completed'
-              : normalized === 'CREATED'
-                ? 'available'
-                : 'readonly',
-        onClick:
-          normalized === 'CREATED'
-            ? () =>
-                handleUpdateAction('SUBMIT', {
-                  referenceNo: referenceNoDraft.trim() || undefined,
-                })
-            : undefined,
-        disabled: updating,
-        helperText: 'Advance to CONFIRMING after the bank submission is recorded.',
-      },
-      {
-        id: 'confirm',
-        label: 'Confirm',
-        icon: <CheckCircle2 size={14} />,
-        state:
-          normalized === 'CONFIRMED'
-            ? 'current'
-            : normalized === 'CLEARED'
-              ? 'completed'
-              : normalized === 'CONFIRMING'
-                ? 'available'
-                : 'readonly',
-        onClick:
-          normalized === 'CONFIRMING'
-            ? () =>
-                handleUpdateAction('CONFIRM', {
-                  referenceNo: referenceNoDraft.trim() || undefined,
-                })
-            : undefined,
-        disabled: updating,
-        helperText: effectiveFiatReferenceNo
-          ? 'Advance to CONFIRMED, then let the system write CLEARED automatically.'
-          : 'If Reference No is blank, the system generates it during CONFIRM.',
-      },
-      {
-        id: 'cleared',
-        label: 'Cleared',
-        icon: <CheckCircle2 size={14} />,
-        state: normalized === 'CLEARED' ? 'current' : 'readonly',
-        tone: 'success',
-        helperText: 'Shown automatically after closeout accounting succeeds.',
-      },
-      {
-        id: 'fail',
-        label: 'Fail',
-        icon: <ShieldAlert size={14} />,
-        state:
-          normalized === 'FAILED'
-            ? 'current'
-            : ['CREATED', 'CONFIRMING'].includes(normalized)
-              ? 'available'
-              : 'readonly',
-        tone: 'danger',
-        onClick:
-          ['CREATED', 'CONFIRMING'].includes(normalized)
-            ? () => handleUpdateAction('FAIL')
-            : undefined,
-        disabled: updating,
-        helperText: 'Failed payouts continue through canonical compensation.',
-      },
-      {
-        id: 'return',
-        label: 'Return',
-        icon: <Activity size={14} />,
-        state:
-          normalized === 'RETURNED'
-            ? 'current'
-            : normalized === 'CONFIRMED'
-              ? 'available'
-              : 'readonly',
-        tone: 'warning',
-        onClick: normalized === 'CONFIRMED' ? () => handleUpdateAction('RETURN') : undefined,
-        disabled: updating,
-        helperText: 'Returned payouts continue through canonical compensation.',
-      },
-    ];
-  };
-
-  const renderStatusBadge = (
-    status: string,
-    displayStatus?: string | null,
-  ) => {
-    const normalizedDisplayStatus = normalizeRailDisplayStatus(
-      displayStatus || status,
-    );
-    const colors: Record<string, string> = {
-      CREATED: 'bg-gray-100 text-gray-800',
-      SIGNING: 'bg-indigo-100 text-indigo-800',
-      BROADCASTED: 'bg-blue-100 text-blue-800',
-      CONFIRMING: 'bg-yellow-100 text-yellow-800',
-      CONFIRMED: 'bg-green-100 text-green-800',
-      CLEARED: 'bg-emerald-100 text-emerald-800',
-      FAILED: 'bg-red-100 text-red-800',
-      TIMEOUT: 'bg-orange-100 text-orange-800',
-      RETURNED: 'bg-purple-100 text-purple-800',
-    };
-    return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[normalizedDisplayStatus] || 'bg-gray-100 text-gray-800'}`}>
-        {formatRailStatusLabel(normalizedDisplayStatus)}
-      </span>
-    );
   };
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <RefreshCw className="animate-spin text-brand-primary mb-4" size={32} />
-        <p className="text-gray-500">Loading payout details...</p>
+        <RefreshCw className="animate-spin mb-4 text-adm-amber" size={32} />
+        <p className="text-adm-t3">Loading payout details...</p>
       </div>
     );
   }
 
   if (!data) return null;
 
-  const ownerName = data.customer ? `${data.customer.firstName || ''} ${data.customer.lastName || ''}`.trim() || data.customer.customerNo : 'N/A';
-  const ownerNo = data.ownerNo || data.customer?.customerNo || 'N/A';
-  const canRepairCloseout =
-    data.status === 'CONFIRMED' && data.withdraw?.status === 'PAYOUT_PENDING';
-  const canRepairCompensation =
-    ((data.status === 'FAILED' || data.status === 'TIMEOUT') &&
-      data.withdraw?.status === 'PAYOUT_PENDING') ||
-    (data.status === 'RETURNED' && data.withdraw?.status === 'SUCCESS');
-  const payoutRailItems = getPayoutRailItems(data);
+  const normalizedStatus = normalizeRailDisplayStatus(
+    data.displayStatus || data.status,
+  );
+  const simActions = simulationModeEnabled
+    ? getPayoutSimActionsForStatus(normalizedStatus, data.type)
+    : [];
+  const linkedWithdrawNo = data.withdraw?.withdrawNo || data.transactionNo;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="flex h-full flex-col">
+      {/* Nav Header */}
       <DetailPageHeader
-        title="Payout Details"
-        subtitle={`No: ${data.payoutNo || data.id} · Created: ${new Date(data.createdAt).toLocaleString()}`}
         onBack={() => navigate('/dashboard/treasury/payouts')}
-        onRefresh={fetchPayout}
-        refreshing={loading || updating}
-        backLabel="Back to Payouts"
-      >
-        {renderStatusBadge(data.status, data.displayStatus)}
-      </DetailPageHeader>
+        onRefresh={fetchData}
+        refreshing={loading}
+        backLabel="Payouts"
+      />
 
-      {data.status === 'CONFIRMED' ? (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
-          <div className="font-semibold">Receipt recorded</div>
-          <div className="mt-1">
-            This payout has already reached `CONFIRMED`. `CLEARED` must be written by system canonical closeout after withdraw success posting.
-          </div>
-          {canRepairCloseout ? (
-            <div className="mt-1 text-blue-800">
-              The linked withdraw is still `PAYOUT_PENDING`. Use `Re-run Closeout` only to retry the canonical closeout path.
+      {/* Body */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Main */}
+        <div className="flex-1 overflow-y-auto divide-y divide-adm-border">
+          {/* 1. Hero */}
+          <div className="bg-adm-card px-6 py-5">
+            <div className="font-mono text-[19px] font-bold text-adm-amber">
+              {data.payoutNo}
             </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {(data.status === 'FAILED' || data.status === 'TIMEOUT' || data.status === 'RETURNED') ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-900">
-          <div className="font-semibold">Terminal payout compensation</div>
-          <div className="mt-1">
-            Terminal payout outcomes must back-propagate through canonical withdraw compensation. Do not manually mutate withdraw terminal status from admin surfaces.
-          </div>
-          {canRepairCompensation ? (
-            <div className="mt-1 text-red-800">
-              The linked withdraw is still waiting for canonical compensation closeout. Use `Re-run Compensation` only to retry the system compensation path.
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <ActionSection
-        title="Repair Actions"
-        description="Repair actions retry canonical payout closeout or compensation paths. They are not business workflow actions and do not replace the simulation rail."
-        emptyText="No repair actions are currently available."
-      >
-        {canRepairCloseout || canRepairCompensation ? (
-          <div className="flex flex-wrap gap-3">
-            {canRepairCloseout ? (
-              <button
-                onClick={handleReCloseout}
-                disabled={updating}
-                className={adminButtonClass('repair')}
-              >
-                Re-run Closeout
-              </button>
-            ) : null}
-            {canRepairCompensation ? (
-              <button
-                onClick={handleReCompensate}
-                disabled={updating}
-                className={adminButtonClass('repair')}
-              >
-                Re-run Compensation
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </ActionSection>
-
-      {simulationModeEnabled ? (
-        <div className="space-y-3">
-          {formatTransactionTypeLabel(data.type) === 'FIAT' ? (
-            <div className="rounded-xl border border-admin-border bg-white p-4">
-              <div className="text-sm font-semibold text-gray-900">FIAT Receipt Reference</div>
-              <p className="mt-1 text-xs text-gray-500">
-                `SUBMIT` can prefill Reference No. If left blank, the system generates it during
-                `CONFIRM`.
-              </p>
-              <div className="mt-3">
-                <input
-                  type="text"
-                  value={referenceNoDraft}
-                  onChange={(event) => setReferenceNoDraft(event.target.value)}
-                  placeholder="Enter bank reference no"
-                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:outline-none focus:border-brand-primary"
-                />
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Status
+                </span>
+                <span
+                  className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getPayoutStatusBadgeClass(normalizedStatus)}`}
+                >
+                  {formatRailStatusLabel(normalizedStatus)}
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Amount
+                </span>
+                <span className="font-semibold text-adm-t1">
+                  {formatAssetAmount(data.amount, data.asset.decimals)}{' '}
+                  {data.asset.code}
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Type
+                </span>
+                <span className="text-adm-t1">
+                  {formatTransactionTypeLabel(data.type)}
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Asset
+                </span>
+                <span className="text-adm-t1">
+                  {data.asset.code} · {data.asset.network || 'N/A'}
+                </span>
               </div>
             </div>
-          ) : null}
-          <SimulationRail
-            title="Payout Execution Rail"
-            description="Payout is the outbound execution rail. Advance it step by step like Payin; Cleared is read-only output."
-            items={payoutRailItems}
-          />
-        </div>
-      ) : null}
+          </div>
 
-      <div className="flex flex-col gap-6">
-        {/* 1. Basic Identification */}
-        <DetailCard title="Basic Identification" icon={<FileText size={18} />} columns={2}>
-            <InfoField label="Payout ID" value={data.id} source="main" />
-            <InfoField label="Payout No" value={data.payoutNo} highlight source="main" />
-            <InfoField label="Transaction Type" value={data.transactionType || 'WITHDRAW'} source="main" />
-            <InfoField label="Transaction ID" value={data.transactionId || data.withdrawId} source="main" />
-            <InfoField label="Transaction No" value={data.transactionNo || data.withdraw.withdrawNo}
-                       link={`/exchange/withdraw-transactions/${data.withdrawId}`}
-                       source="main" />
-            <InfoField label="Owner ID" value={data.withdraw.ownerId} icon={<User size={14}/>} source="main" />
-            <InfoField label="Owner Name" value={ownerName} source="main" />
-            <InfoField label="Owner No" value={ownerNo} source="main" />
-            <InfoField label="Type" value={formatTransactionTypeLabel(data.type)} source="main" />
-        </DetailCard>
-
-        {/* 2. Assets & Amount */}
-        <DetailCard title="Assets & Amount" icon={<CreditCard size={18} />} columns={2}>
-            <InfoField label="Asset ID" value={data.assetId} source="main" />
-            <InfoField label="Asset Code" value={data.asset.code} highlight source="main" />
-            <InfoField label="Asset Network" value={data.asset.network} source="main" />
-            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset?.decimals)} highlight source="main" />
-        </DetailCard>
-
-        {/* 3. Settlement Endpoint / Path */}
-        <DetailCard title="Settlement Endpoint / Path" icon={<MapPin size={18} />} columns={2}>
-            <InfoField label="To Wallet ID" value={data.toWalletId} source="main" />
-            <InfoField 
-                label="To Address" 
-                value={data.toAddress || 'N/A'} 
-                copyable 
-                onCopy={(v) => handleCopy(v, 'toAddress')} 
-                isCopied={copiedField === 'toAddress'} 
-                source="main" 
+          {/* 2. Chain Details */}
+          <DetailCard title="Chain Details" columns={2}>
+            <InfoField
+              label="Tx Hash"
+              value={data.txHash}
+              copyable
+              onCopy={(v) => handleCopy(v, 'txHash')}
+              isCopied={copiedField === 'txHash'}
+              mono
+              link={
+                data.txHash && data.asset.type !== 'FIAT'
+                  ? `https://etherscan.io/tx/${data.txHash}`
+                  : undefined
+              }
             />
-            <InfoField 
-                label="To IBAN" 
-                value={data.toIban || 'N/A'} 
-                copyable 
-                onCopy={(v) => handleCopy(v, 'toIban')} 
-                isCopied={copiedField === 'toIban'} 
-                source="main" 
+            <InfoField
+              label="Confirmations"
+              value={data.confirmations?.toString()}
             />
-            <InfoField 
-                label="From Address" 
-                value={data.fromAddress || 'N/A'} 
-                copyable 
-                onCopy={(v) => handleCopy(v, 'fromAddress')} 
-                isCopied={copiedField === 'fromAddress'} 
-                source="main" 
+            <InfoField
+              label="From Address"
+              value={data.fromAddress}
+              copyable
+              onCopy={(v) => handleCopy(v, 'from')}
+              isCopied={copiedField === 'from'}
+              mono
             />
-            <InfoField 
-                label="From IBAN" 
-                value={data.fromIban || 'N/A'} 
-                copyable 
-                onCopy={(v) => handleCopy(v, 'fromIban')} 
-                isCopied={copiedField === 'fromIban'} 
-                source="main" 
+            <InfoField
+              label="To Address"
+              value={data.toAddress}
+              copyable
+              onCopy={(v) => handleCopy(v, 'to')}
+              isCopied={copiedField === 'to'}
+              mono
             />
-        </DetailCard>
+            <InfoField label="From IBAN" value={data.fromIban} mono />
+            <InfoField label="To IBAN" value={data.toIban} mono />
+            <InfoField label="Reference No" value={data.referenceNo} mono />
+            <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
+          </DetailCard>
 
-        {/* 4. Settlement Evidence */}
-        <DetailCard title="Settlement Evidence" icon={<Activity size={18} />} columns={2}>
-            <InfoField 
-                label="Tx Hash" 
-                value={data.txHash || 'N/A'} 
-                copyable 
-                onCopy={(v) => handleCopy(v, 'txHash')} 
-                isCopied={copiedField === 'txHash'}
-                link={data.txHash ? `https://etherscan.io/tx/${data.txHash}` : undefined}
-                source="main" 
-            />
-            <InfoField label="Confirmations" value={data.confirmations?.toString() || '0'} source="main" />
-            <InfoField label="Reference No" value={data.referenceNo || 'N/A'} copyable onCopy={(v) => handleCopy(v, 'refNo')} isCopied={copiedField === 'refNo'} source="main" />
-            <InfoField label="Provider Txn ID" value={data.providerTxnId} source="main" />
-        </DetailCard>
-
-        {/* 5. Status & Timings */}
-        <DetailCard title="Status & Timings" icon={<Clock size={18} />} columns={2}>
-             <InfoField label="Current Status" value={formatRailStatusLabel(data.displayStatus || data.status)} highlight source="main" />
-             <InfoField label="Created At" value={new Date(data.createdAt).toLocaleString()} source="main" />
-             <InfoField label="Sent At" value={data.sentAt ? new Date(data.sentAt).toLocaleString() : 'N/A'} source="main" />
-             <InfoField label="Completed At" value={data.completedAt ? new Date(data.completedAt).toLocaleString() : 'N/A'} source="main" />
-             <InfoField label="Updated At" value={new Date(data.updatedAt).toLocaleString()} source="main" />
-        </DetailCard>
-
-        {/* 7. Clearing & Settlement Info - HIDDEN */}
-        {/* Clearing section removed as per requirement */}
-
-        <DetailCard title="Linked Fee Occurrences" icon={<CreditCard size={18} />} columns={1}>
-          {data.feeOccurrences && data.feeOccurrences.length > 0 ? (
-            <div className="space-y-3">
-              {data.feeOccurrences.map((fee) => (
-                <div
-                  key={fee.id}
-                  className="rounded-lg border border-admin-border bg-gray-50/60 px-4 py-3"
-                >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="font-mono text-xs text-brand-primary">{fee.feeNo}</div>
-                      <div className="mt-1 text-sm font-medium text-gray-900">{fee.feeType}</div>
-                    </div>
-                    <div className="text-sm text-gray-700">
-                      {formatAssetAmount(fee.amount, data.asset?.decimals)}
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-gray-500">{fee.status || 'RECORDED'}</div>
-                </div>
-              ))}
+          {/* 3. Linked Withdraw (conditional) */}
+          {linkedWithdrawNo && (
+            <div className="px-6 py-5">
+              <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+                Linked Withdraw
+              </h3>
+              <LinkedRelationCard
+                cap="Withdraw"
+                identifier={linkedWithdrawNo}
+                onClick={
+                  data.withdrawId
+                    ? () =>
+                        navigate(
+                          `/exchange/withdraw-transactions/${data.withdrawId}`,
+                        )
+                    : undefined
+                }
+              />
             </div>
-          ) : (
-            <div className="text-sm text-gray-500">No linked fee occurrences.</div>
           )}
-        </DetailCard>
 
-        {/* 6. Status History & Audit */}
-        <DetailCard title="Status History & Audit" icon={<Activity size={18} />} columns={1}>
-             {data.statusHistory ? <StatusTimeline historyJson={data.statusHistory} /> : null}
-             <AuditEventList events={data.auditLogs} />
-        </DetailCard>
+          {/* 4. Status History */}
+          <DetailCard title="Status History" columns={1}>
+            <PayoutTimeline historyJson={data.statusHistory} />
+          </DetailCard>
+
+          {/* 5. Technical */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Technical Detail
+            </h3>
+            <div className="mt-3">
+              <JsonBlock
+                title="Status History (raw)"
+                value={data.statusHistory}
+                compact
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* Simulation Actions (only in sim mode) */}
+          {simulationModeEnabled && simActions.length > 0 && (
+            <SidebarGroup title="Simulation Controls">
+              <div className="rounded border border-dashed border-amber-400 bg-amber-900/20 p-2">
+                <div className="mb-2 flex items-center gap-1 font-mono text-[9px] text-amber-400">
+                  ⚡ SIM MODE
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {simActions.map((a) => (
+                    <button
+                      key={a.action}
+                      onClick={() => handleSimAction(a.action)}
+                      disabled={!a.enabled || simSubmitting}
+                      className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {simSubmitting ? '...' : a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </SidebarGroup>
+          )}
+
+          {/* Identity */}
+          <SidebarGroup title="Identity">
+            <SidebarKV label="Payout No" value={data.payoutNo} mono />
+            <SidebarKV
+              label="Status"
+              value={<AdminBadge value={normalizedStatus} />}
+            />
+            <SidebarKV
+              label="Type"
+              value={formatTransactionTypeLabel(data.type)}
+            />
+            <SidebarKV label="Asset" value={data.asset.code} />
+            <SidebarKV label="Owner" value={data.ownerNo} mono />
+            <SidebarKV
+              label="Withdraw"
+              value={
+                linkedWithdrawNo && data.withdrawId ? (
+                  <button
+                    onClick={() =>
+                      navigate(
+                        `/exchange/withdraw-transactions/${data.withdrawId}`,
+                      )
+                    }
+                    className="text-adm-blue hover:underline"
+                  >
+                    {linkedWithdrawNo}
+                  </button>
+                ) : (
+                  linkedWithdrawNo || null
+                )
+              }
+            />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV
+              label="Created"
+              value={new Date(data.createdAt).toLocaleString()}
+              mono
+            />
+            {data.sentAt && (
+              <SidebarKV
+                label="Sent"
+                value={new Date(data.sentAt).toLocaleString()}
+                mono
+              />
+            )}
+            {data.completedAt && (
+              <SidebarKV
+                label="Completed"
+                value={new Date(data.completedAt).toLocaleString()}
+                mono
+              />
+            )}
+          </SidebarGroup>
+        </div>
       </div>
     </div>
   );
 };
 
-const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-    if (!historyJson) return <div className="text-gray-400 text-sm italic p-4 text-center">No history available</div>;
+/* ── PayoutTimeline ── */
 
-    let history: any[] = [];
-    try {
-        history = JSON.parse(historyJson);
-        history.sort((a, b) => new Date(b.timestamp || b.changedAt).getTime() - new Date(a.timestamp || a.changedAt).getTime());
-    } catch (e) {
-        return <div className="text-red-400 text-sm p-4">Error parsing history data</div>;
-    }
-
-    if (history.length === 0) return <div className="text-gray-400 text-sm italic p-4 text-center">No history events</div>;
-
+const PayoutTimeline = ({ historyJson }: { historyJson: string | null }) => {
+  if (!historyJson)
     return (
-        <div className="relative border-l-2 border-gray-100 ml-4 space-y-8 my-2">
-            {history.map((item, idx) => (
-                <div key={idx} className="ml-8 relative">
-                    <span className="absolute flex items-center justify-center w-6 h-6 bg-white rounded-full -left-[44px] top-0 ring-4 ring-white">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor(item.status)} shadow-sm`}></div>
-                    </span>
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start bg-gray-50/50 p-4 rounded-lg border border-gray-100 hover:bg-white hover:shadow-sm transition-all duration-200">
-                        <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getStatusBadgeStyle(item.status)}`}>
-                                    {formatRailStatusLabel(item.status)}
-                                </span>
-                            </div>
-                            <p className="text-sm text-gray-600 leading-relaxed">{item.note || item.reason || 'No reason provided'}</p>
-                            <div className="flex items-center gap-2 text-xs text-gray-400 pt-1">
-                                <User size={12} />
-                                <span className="font-mono">{item.operator || item.operatorId || 'SYSTEM'}</span>
-                            </div>
-                        </div>
-                        <div className="mt-3 sm:mt-0 sm:ml-4 text-right shrink-0">
-                            <time className="block text-xs font-mono text-gray-500 bg-white px-2 py-1 rounded border border-gray-100">
-                                {new Date(item.timestamp || item.changedAt).toLocaleString()}
-                            </time>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-};
-
-const AuditEventList = ({
-  events,
-}: {
-  events: Array<{
-    id: string;
-    action?: string | null;
-    operatorId?: string | null;
-    actorId?: string | null;
-    actorType?: string | null;
-    oldStatus?: string | null;
-    newStatus?: string | null;
-    statusFrom?: string | null;
-    statusTo?: string | null;
-    reason?: string | null;
-    createdAt?: string | null;
-    occurredAt?: string | null;
-    result?: string | null;
-  }>;
-}) => {
-  if (events.length === 0) {
-    return (
-      <div className="mt-4 rounded-lg border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-400">
-        No canonical audit events found.
+      <div className="text-adm-t3 text-sm italic p-4 text-center">
+        No history
       </div>
+    );
+
+  let history: any[] = [];
+  try {
+    history = JSON.parse(historyJson);
+    history.sort(
+      (a: any, b: any) =>
+        new Date(b.changedAt || b.timestamp).getTime() -
+        new Date(a.changedAt || a.timestamp).getTime(),
+    );
+  } catch {
+    return (
+      <div className="text-adm-red text-sm p-4">Error parsing history</div>
     );
   }
 
-  return (
-    <div className="mt-4 space-y-3">
-      <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-        Canonical Audit Trail
+  if (!history.length)
+    return (
+      <div className="text-adm-t3 text-sm italic p-4 text-center">
+        No events
       </div>
-      {events.map((event) => (
-        <div key={event.id} className="rounded-lg border border-gray-100 bg-gray-50/70 p-4 text-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <div className="font-semibold text-gray-900">
-                {event.action || formatRailStatusLabel(event.newStatus) || 'AUDIT_EVENT'}
-              </div>
-              <div className="text-xs text-gray-500">
-                {event.statusFrom || event.oldStatus ? `From: ${formatRailStatusLabel(event.statusFrom || event.oldStatus)}` : 'From: N/A'}
-                {'  '}
-                {event.statusTo || event.newStatus ? `To: ${formatRailStatusLabel(event.statusTo || event.newStatus)}` : 'To: N/A'}
-              </div>
-              <div className="text-sm text-gray-600">
-                {event.reason || 'No reason provided'}
-              </div>
-              <div className="text-xs text-gray-400">
-                {(event.actorType || 'SYSTEM')}: {event.actorId || event.operatorId || 'SYSTEM'}
-                {event.result ? ` · ${event.result}` : ''}
+    );
+
+  const dotColor: Record<string, string> = {
+    CREATED: 'bg-gray-300',
+    SIGNING: 'bg-amber-500',
+    BROADCASTED: 'bg-blue-500',
+    CONFIRMING: 'bg-amber-500',
+    CONFIRMED: 'bg-green-500',
+    CLEARED: 'bg-green-500',
+    FAILED: 'bg-red-500',
+    TIMEOUT: 'bg-gray-500',
+    RETURNED: 'bg-red-500',
+  };
+  const badgeCls: Record<string, string> = {
+    CREATED: 'bg-gray-50 text-gray-700 border-gray-200',
+    SIGNING: 'bg-amber-50 text-amber-700 border-amber-200',
+    BROADCASTED: 'bg-blue-50 text-blue-700 border-blue-200',
+    CONFIRMING: 'bg-amber-50 text-amber-700 border-amber-200',
+    CONFIRMED: 'bg-green-50 text-green-700 border-green-200',
+    CLEARED: 'bg-green-50 text-green-700 border-green-200',
+    FAILED: 'bg-red-50 text-red-700 border-red-200',
+    TIMEOUT: 'bg-gray-50 text-gray-700 border-gray-200',
+    RETURNED: 'bg-red-50 text-red-700 border-red-200',
+  };
+
+  return (
+    <div className="relative ml-4 space-y-6 border-l-2 border-adm-border my-2">
+      {history.map((item: any, idx: number) => {
+        const st = normalizeRailDisplayStatus(item.status);
+        return (
+          <div key={idx} className="ml-8 relative">
+            <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
+              <div
+                className={`h-3 w-3 rounded-full ${dotColor[st] || 'bg-gray-300'}`}
+              />
+            </span>
+            <div className="rounded-lg border border-adm-border bg-adm-bg p-3">
+              <span
+                className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${badgeCls[st] || 'bg-gray-50 text-gray-700 border-gray-200'}`}
+              >
+                {formatRailStatusLabel(st)}
+              </span>
+              <p className="mt-1 text-sm text-adm-t2">
+                {item.reason || '—'}
+              </p>
+              <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
+                <User size={10} />
+                <span className="font-mono">
+                  {item.operatorId || 'SYSTEM'}
+                </span>
+                <span>·</span>
+                <time className="font-mono">
+                  {new Date(
+                    item.changedAt || item.timestamp,
+                  ).toLocaleString()}
+                </time>
               </div>
             </div>
-            <time className="text-xs font-mono text-gray-500">
-              {new Date(event.occurredAt || event.createdAt || '').toLocaleString()}
-            </time>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
-};
-
-const getStatusColor = (status: string) => {
-    const normalized = normalizeRailDisplayStatus(status);
-    if (['CONFIRMED', 'CLEARED', 'SUCCESS'].includes(normalized)) return 'bg-green-500';
-    if (['FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)) return 'bg-red-500';
-    if (['CREATED', 'PENDING'].includes(normalized)) return 'bg-gray-300';
-    if (['SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(normalized)) return 'bg-blue-500';
-    return 'bg-yellow-500';
-};
-
-const getStatusBadgeStyle = (status: string) => {
-    const normalized = normalizeRailDisplayStatus(status);
-    if (['CONFIRMED', 'CLEARED', 'SUCCESS'].includes(normalized)) return 'bg-green-50 text-green-700 border-green-200';
-    if (['FAILED', 'TIMEOUT', 'RETURNED'].includes(normalized)) return 'bg-red-50 text-red-700 border-red-200';
-    if (['CREATED', 'PENDING'].includes(normalized)) return 'bg-gray-50 text-gray-700 border-gray-200';
-    if (['SIGNING', 'BROADCASTED', 'CONFIRMING'].includes(normalized)) return 'bg-blue-50 text-blue-700 border-blue-200';
-    return 'bg-yellow-50 text-yellow-700 border-yellow-200';
 };
 
 export default PayoutDetail;
