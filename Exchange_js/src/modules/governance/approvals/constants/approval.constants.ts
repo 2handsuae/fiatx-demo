@@ -63,6 +63,9 @@ export const ApprovalActionTypes = {
   TRANSACTION_LIMIT_CHANGE: 'TRANSACTION_LIMIT_CHANGE',
   // Transaction Limit Creation (2026-05-16)
   TRANSACTION_LIMIT_CREATION: 'TRANSACTION_LIMIT_CREATION',
+  // Withdrawal Fee Level (2026-05-30)
+  WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_CREATION',
+  WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_CHANGE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -333,6 +336,23 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // ─── Withdrawal Fee Level (2026-05-30) ────
+  [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION]: {
+    steps: [
+      { stepNo: 1, roles: ['MLRO'] },
+      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
+    ],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE]: {
+    steps: [
+      { stepNo: 1, roles: ['MLRO'] },
+      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
+    ],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -356,6 +376,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.ASSET_REACTIVATION,
   ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
   ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
+  ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION,
+  ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
