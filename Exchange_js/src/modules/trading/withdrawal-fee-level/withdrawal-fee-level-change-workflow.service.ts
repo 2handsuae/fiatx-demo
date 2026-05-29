@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -63,13 +64,13 @@ export class WithdrawalFeeLevelChangeWorkflowService {
     }
 
     // 3. Create change request via L1 (validates tiersJson, checks pending duplicates)
-    const request = (await this.feeLevelService.createChangeRequest({
+    const request = await this.feeLevelService.createChangeRequest({
       levelId: level.id,
       levelCode: level.levelCode,
       proposedTiersJson,
       changeReason: changeReason.trim(),
       requestedByUserId: actor.userId,
-    }))!;
+    });
     const requestNo = request.requestNo;
 
     // 4. Create approval case (entityRef = request.id)
@@ -168,43 +169,31 @@ export class WithdrawalFeeLevelChangeWorkflowService {
         return;
       }
 
-      // 2. Load level
-      const level = await this.prisma.withdrawalFeeLevel.findUnique({
-        where: { id: request.levelId },
-      });
-      if (!level) {
-        await this.feeLevelService.markRequestExecutionFailed(request.requestNo, 'Level no longer exists');
-        return;
+      // 2. Apply change via L1 (hash conflict check runs inside transaction)
+      try {
+        await this.feeLevelService.executeChange(request.requestNo);
+      } catch (err) {
+        if (err instanceof ConflictException || err instanceof NotFoundException) {
+          const reason = err.message;
+          await this.feeLevelService.markRequestExecutionFailed(request.requestNo, reason);
+          await this.auditLogsService.recordSystem({
+            action: AuditGovernanceActions.WITHDRAWAL_FEE_LEVEL_CHANGE.CHANGE_APPLY_FAILED,
+            entityType: AuditEntityTypes.WITHDRAWAL_FEE_LEVEL,
+            entityId: request.id,
+            entityNo: request.requestNo,
+            workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
+            traceId: event?.traceId,
+            result: AuditResult.FAILED,
+            reason,
+            metadata: { levelId: request.levelId, levelCode: request.levelCode },
+            requestId: `WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED_${request.requestNo}`,
+            sourcePlatform: 'SYSTEM',
+          });
+          this.logger.warn(`Change request ${request.requestNo} failed: ${reason}`);
+          return;
+        }
+        throw err;
       }
-
-      // 3. Conflict check: currentConfigHash snapshot vs actual
-      if (request.currentConfigHash !== level.configHash) {
-        const reason = `Conflict: level config was changed since request submission (expected hash ${request.currentConfigHash}, actual ${level.configHash})`;
-        await this.feeLevelService.markRequestExecutionFailed(request.requestNo, reason);
-        await this.auditLogsService.recordSystem({
-          action: AuditGovernanceActions.WITHDRAWAL_FEE_LEVEL_CHANGE.CHANGE_APPLY_FAILED,
-          entityType: AuditEntityTypes.WITHDRAWAL_FEE_LEVEL,
-          entityId: request.id,
-          entityNo: request.requestNo,
-          workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
-          traceId: event?.traceId,
-          result: AuditResult.FAILED,
-          reason,
-          metadata: {
-            levelId: request.levelId,
-            levelCode: request.levelCode,
-            expectedHash: request.currentConfigHash,
-            actualHash: level.configHash,
-          },
-          requestId: `WITHDRAWAL_FEE_LEVEL_CHANGE_APPLY_FAILED_${request.requestNo}`,
-          sourcePlatform: 'SYSTEM',
-        });
-        this.logger.warn(`Change request ${request.requestNo} failed: ${reason}`);
-        return;
-      }
-
-      // 4. Apply change via L1
-      await this.feeLevelService.executeChange(request.requestNo);
 
       // 5. Audit CHANGE_APPLIED
       await this.auditLogsService.recordSystem({

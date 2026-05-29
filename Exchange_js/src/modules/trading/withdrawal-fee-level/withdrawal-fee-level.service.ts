@@ -227,6 +227,7 @@ export class WithdrawalFeeLevelService {
         throw e;
       }
     }
+    throw new ConflictException('Failed to generate unique requestNo after 3 attempts');
   }
 
   async linkApprovalCaseToRequest(requestNo: string, caseId: string, caseNo: string, tx?: Prisma.TransactionClient): Promise<void> {

@@ -166,7 +166,6 @@ export class WithdrawQuoteService {
     ownerType: string,
     ownerId: string,
     withdrawAmount: Prisma.Decimal,
-    withdrawId: string,
     tx?: Prisma.TransactionClient,
   ) {
     const db = tx ?? this.prisma;

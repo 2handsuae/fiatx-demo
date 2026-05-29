@@ -546,7 +546,6 @@ export class WithdrawTransactionsService {
           ownerType,
           userId,
           amountDecimal,
-          '', // withdrawId not yet available; consumeQuote does not persist it
           tx,
         );
 
