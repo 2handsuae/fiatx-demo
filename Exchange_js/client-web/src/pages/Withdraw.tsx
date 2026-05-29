@@ -90,7 +90,6 @@ const Withdraw = () => {
   const [manualAddress, setManualAddress] = useState('');
   const [isManualInput, setIsManualInput] = useState(false);
   const [amount, setAmount] = useState('');
-  const [, setLoading] = useState(false);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -155,7 +154,6 @@ const Withdraw = () => {
     }
 
     const fetchAddresses = async () => {
-      setLoading(true);
       try {
         const params = new URLSearchParams({
             assetId: selectedAssetId,
@@ -174,8 +172,6 @@ const Withdraw = () => {
           return;
         }
         console.error('Failed to fetch addresses', error);
-      } finally {
-        setLoading(false);
       }
     };
 
@@ -388,73 +384,29 @@ const Withdraw = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAssetId, amount, selectedAddressNo, manualAddress, isManualInput]);
 
-  const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      CREATED: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
-      PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-      APPROVED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-      PAYOUT_PENDING: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
-      SUCCESS: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-      FAILED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-      REJECTED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-      CANCELLED: 'bg-slate-400 text-white dark:bg-slate-600',
-      RETURNED: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-    };
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-slate-100 text-slate-800'}`}>
-        {status}
-      </span>
-    );
+  const getCustomerFacingWithdrawStatus = (status: string): { label: string; className: string } => {
+    const s = status?.toUpperCase() || '';
+    if (['SUCCESS'].includes(s))
+      return { label: 'Completed', className: 'text-fx-sage bg-fx-sage/10' };
+    if (['REJECTED', 'CANCELLED'].includes(s))
+      return { label: 'Declined', className: 'text-rose-400 bg-rose-500/10' };
+    if (['FAILED', 'RETURNED'].includes(s))
+      return { label: 'Failed', className: 'text-fx-rust bg-fx-rust/10' };
+    if (['EXPIRED'].includes(s))
+      return { label: 'Expired', className: 'text-fx-dust bg-fx-dust/10' };
+    return { label: 'Processing', className: 'text-fx-brass bg-fx-brass/10' };
   };
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,rgba(15,23,42,1),rgba(15,23,42,0.92),rgba(30,41,59,0.98))] p-7 text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
-        <div className="pointer-events-none absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(148,163,184,0.38)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.38)_1px,transparent_1px)] [background-size:28px_28px]" />
-        <div className="pointer-events-none absolute -right-16 top-0 h-48 w-48 rounded-full bg-brand-accent/20 blur-3xl" />
-        <div className="pointer-events-none absolute bottom-0 left-0 h-48 w-48 rounded-full bg-brand-primary/20 blur-3xl" />
-        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100">
-              <ShieldCheck size={14} />
-              Guided Funding Out
-            </div>
-            <div>
-              <h1 className="text-4xl font-black tracking-[-0.04em] text-white sm:text-5xl">
-                Withdraw with rail clarity,
-                <span className="block text-cyan-200">quote review, and history in one surface.</span>
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                This page keeps the journey simple: choose the rail, preview the quote, confirm
-                the payout path, then review the lifecycle in history without dropping into raw
-                technical detail.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
-            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Surface</div>
-              <div className="mt-2 text-lg font-bold text-white">
-                {activeTab === 'history' ? 'History' : activeTab === 'crypto' ? 'Crypto Rail' : 'Fiat Rail'}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Quote State</div>
-              <div className="mt-2 text-lg font-bold text-white">{quote ? 'Ready' : 'Preview First'}</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Lifecycle</div>
-              <div className="mt-2 text-lg font-bold text-white">Operator Reviewed</div>
-            </div>
-          </div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-fx-sand">Withdraw</h1>
+        <p className="mt-1 text-sm text-fx-dust">Send funds to your wallet or bank account</p>
       </div>
 
-      <div className="min-h-[600px] bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="min-h-[600px] bg-fx-ink/40 rounded-3xl shadow-sm border border-fx-rule overflow-hidden">
         {/* Tabs */}
-        <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+        <div className="border-b border-fx-rule">
           <div className="flex overflow-x-auto px-6">
             <button
               onClick={() => {
@@ -465,9 +417,9 @@ const Withdraw = () => {
                 clearQuoteState();
               }}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
-                activeTab === 'crypto' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                activeTab === 'crypto'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-sand'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -484,9 +436,9 @@ const Withdraw = () => {
                 clearQuoteState();
               }}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
-                activeTab === 'fiat' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                activeTab === 'fiat'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-sand'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -500,9 +452,9 @@ const Withdraw = () => {
                 clearQuoteState();
               }}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
-                activeTab === 'history' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                activeTab === 'history'
+                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                  : 'border-transparent text-fx-dust hover:text-fx-sand'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -517,26 +469,26 @@ const Withdraw = () => {
           {activeTab === 'history' ? (
               <div className="space-y-4">
                   <div className="flex flex-wrap gap-3 mb-4">
-                      <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                          <Filter size={16} className="text-slate-500 dark:text-slate-400" />
-                          <select 
+                      <div className="flex items-center gap-2 bg-fx-charcoal px-3 py-2 rounded-lg border border-fx-rule">
+                          <Filter size={16} className="text-fx-dust" />
+                          <select
                             value={historyStatus}
                             onChange={(e) => setHistoryStatus(e.target.value)}
-                            className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                            className="bg-transparent text-sm text-fx-sand focus:outline-none"
                           >
                               <option value="">All Status</option>
-                              <option value="CREATED">Created</option>
-                              <option value="SUCCESS">Success</option>
-                              <option value="PENDING_COMPLIANCE">Pending Compliance</option>
-                              <option value="PAYOUT_PENDING">Payout Pending</option>
+                              <option value="CREATED,PENDING_COMPLIANCE,UNDER_REVIEW,APPROVED,PAYOUT_PENDING,FROZEN">Processing</option>
+                              <option value="SUCCESS">Completed</option>
+                              <option value="REJECTED,CANCELLED">Declined</option>
+                              <option value="FAILED,RETURNED">Failed</option>
                           </select>
                       </div>
-                      <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                          <Wallet size={16} className="text-slate-500 dark:text-slate-400" />
-                          <select 
+                      <div className="flex items-center gap-2 bg-fx-charcoal px-3 py-2 rounded-lg border border-fx-rule">
+                          <Wallet size={16} className="text-fx-dust" />
+                          <select
                             value={historyAssetId}
                             onChange={(e) => setHistoryAssetId(e.target.value)}
-                            className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                            className="bg-transparent text-sm text-fx-sand focus:outline-none"
                           >
                               <option value="">All Assets</option>
                               {assets.map(a => (
@@ -544,9 +496,9 @@ const Withdraw = () => {
                               ))}
                           </select>
                       </div>
-                      <button 
+                      <button
                         onClick={fetchHistory}
-                        className="p-2 text-slate-500 dark:text-slate-400 hover:text-brand-primary hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors ml-auto"
+                        className="p-2 text-fx-dust hover:text-fx-brass hover:bg-fx-ink/60 rounded-lg transition-colors ml-auto"
                         title="Refresh"
                       >
                           <RefreshCw size={18} className={historyLoading ? 'animate-spin' : ''} />
@@ -554,83 +506,88 @@ const Withdraw = () => {
                   </div>
 
                   {/* Table */}
-                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                  <div className="overflow-x-auto rounded-xl border border-fx-rule">
                       <table className="w-full text-left text-sm">
-                          <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                          <thead className="border-b border-fx-rule">
                               <tr>
-                                  <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Transaction No</th>
-                                  <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Time</th>
-                                  <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Asset / Amount</th>
-                                  <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400">Status</th>
-                                  <th className="px-4 py-3 font-medium text-slate-500 dark:text-slate-400 text-right">Action</th>
+                                  <th className="px-4 py-3 font-medium text-fx-dust">Transaction No</th>
+                                  <th className="px-4 py-3 font-medium text-fx-dust">Time</th>
+                                  <th className="px-4 py-3 font-medium text-fx-dust">Asset / Amount</th>
+                                  <th className="px-4 py-3 font-medium text-fx-dust">Status</th>
+                                  <th className="px-4 py-3 font-medium text-fx-dust text-right">Action</th>
                               </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                          <tbody className="divide-y divide-fx-rule">
                               {historyLoading && transactions.length === 0 ? (
                                   <tr>
-                                      <td colSpan={5} className="px-4 py-8 text-center text-slate-500 dark:text-slate-400">
+                                      <td colSpan={5} className="px-4 py-8 text-center text-fx-dust">
                                           Loading transactions...
                                       </td>
                                   </tr>
                               ) : transactions.length === 0 ? (
                                   <tr>
-                                      <td colSpan={5} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
+                                      <td colSpan={5} className="px-4 py-12 text-center text-fx-dust">
                                           <div className="flex flex-col items-center">
-                                              <History size={32} className="text-slate-300 dark:text-slate-600 mb-2" />
+                                              <History size={32} className="text-fx-dust/50 mb-2" />
                                               <p>No transactions found</p>
                                           </div>
                                       </td>
                                   </tr>
                               ) : (
-                                  transactions.map(tx => (
-                                      <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                                  transactions.map(tx => {
+                                      const st = getCustomerFacingWithdrawStatus(tx.status);
+                                      return (
+                                      <tr key={tx.id} className="hover:bg-fx-ink/60 transition-colors">
                                           <td className="px-4 py-3">
-                                              <div className="font-mono text-gray-900 dark:text-white">{tx.withdrawNo}</div>
+                                              <div className="font-mono text-fx-sand">{tx.withdrawNo}</div>
                                           </td>
-                                          <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
+                                          <td className="px-4 py-3 text-fx-dust text-xs">
                                               <div>{new Date(tx.createdAt).toLocaleDateString()}</div>
                                               <div>{new Date(tx.createdAt).toLocaleTimeString()}</div>
                                           </td>
                                           <td className="px-4 py-3">
-                                              <div className="font-medium text-gray-900 dark:text-white">
+                                              <div className="font-medium text-fx-sand">
                                                   {formatAssetAmount(tx.amount, tx.asset.decimals)} {tx.asset.currency}
                                               </div>
                                           </td>
                                           <td className="px-4 py-3">
-                                              {renderStatusBadge(tx.status)}
+                                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${st.className}`}>
+                                                  {st.label}
+                                              </span>
                                           </td>
                                           <td className="px-4 py-3 text-right">
-                                              <button 
+                                              <button
                                                 onClick={() => setSelectedTx(tx)}
-                                                className="text-brand-primary hover:text-brand-primary/80 text-xs font-medium px-3 py-1.5 bg-brand-primary/10 rounded-lg hover:bg-brand-primary/20 transition-colors"
+                                                className="text-fx-brass hover:text-fx-brass/80 text-xs font-medium px-3 py-1.5 bg-fx-brass/10 rounded-lg hover:bg-fx-brass/20 transition-colors"
                                               >
                                                   Details
                                               </button>
                                           </td>
                                       </tr>
-                                  ))
+                                      );
+                                  })
                               )}
                           </tbody>
                       </table>
                   </div>
 
                   {/* Pagination */}
-                  <div className="flex justify-between items-center pt-2 text-sm text-slate-500 dark:text-slate-400">
+                  <div className="flex justify-between items-center pt-2 text-sm text-fx-dust">
                       <div>
                           Showing {transactions.length} of {total} records
                       </div>
                       <div className="flex gap-2">
-                          <button 
+                          <button
                             disabled={page === 1}
                             onClick={() => setPage(p => p - 1)}
-                            className="px-3 py-1 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                            className="px-3 py-1 border border-fx-rule rounded-lg text-fx-dust hover:text-fx-sand hover:bg-fx-ink/60 disabled:opacity-50"
                           >
                               Previous
                           </button>
-                          <button 
+                          <button
                             disabled={page * 10 >= total}
                             onClick={() => setPage(p => p + 1)}
-                            className="px-3 py-1 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                            className="px-3 py-1 border border-fx-rule rounded-lg text-fx-dust hover:text-fx-sand hover:bg-fx-ink/60 disabled:opacity-50"
                           >
                               Next
                           </button>
@@ -641,15 +598,15 @@ const Withdraw = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column: Form */}
                 <div className="lg:col-span-2 space-y-6">
-                    <form onSubmit={handleWithdraw} className="space-y-6 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <form onSubmit={handleWithdraw} className="space-y-6 p-6 bg-fx-ink/40 rounded-2xl border border-fx-rule">
                         {/* Asset Selector */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select Asset</label>
+                            <label className="block text-sm font-medium text-fx-dune mb-2">Select Asset</label>
                             <select
                                 required
                                 value={selectedAssetId}
                                 onChange={(e) => { setSelectedAssetId(e.target.value); setSelectedAddressNo(''); }}
-                                className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                className="w-full px-4 py-3 border border-fx-rule rounded-xl focus:outline-none focus:border-fx-brass focus:ring-2 focus:ring-fx-brass/20 bg-fx-charcoal text-fx-sand"
                             >
                                 <option value="">Select a currency...</option>
                                 {filteredAssets.map(a => (
@@ -661,14 +618,14 @@ const Withdraw = () => {
                         </div>
 
                         {!selectedAssetId ? (
-                            <div className="text-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-                                <div className="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-3 text-slate-400 mx-auto">
+                            <div className="text-center py-12 border-2 border-dashed border-fx-rule rounded-xl">
+                                <div className="w-12 h-12 bg-fx-charcoal rounded-full flex items-center justify-center mb-3 text-fx-dust mx-auto">
                                     {activeTab === 'crypto' ? <Wallet size={24} /> : <Building2 size={24} />}
                                 </div>
-                                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                                <h3 className="text-sm font-bold text-fx-sand mb-1">
                                     Select {activeTab === 'crypto' ? 'Asset' : 'Currency'}
                                 </h3>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                <p className="text-xs text-fx-dust">
                                     Choose an asset above to continue withdrawal.
                                 </p>
                             </div>
@@ -677,13 +634,13 @@ const Withdraw = () => {
                                 {/* Recipient */}
                                 <div>
                                 <div className="flex justify-between items-center mb-2">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    <label className="block text-sm font-medium text-fx-dune">
                                         {activeTab === 'crypto' ? 'Withdrawal Address' : 'Withdrawal Bank Account'}
                                     </label>
-                                    <button 
+                                    <button
                                         type="button"
                                         onClick={() => { setIsManualInput(!isManualInput); setSelectedAddressNo(''); setManualAddress(''); }}
-                                        className="text-xs text-brand-primary hover:underline font-medium"
+                                        className="text-xs text-fx-brass hover:underline font-medium"
                                     >
                                         {isManualInput ? 'Choose from saved' : 'Input manually'}
                                     </button>
@@ -696,14 +653,14 @@ const Withdraw = () => {
                                         value={manualAddress}
                                         onChange={(e) => setManualAddress(e.target.value)}
                                         placeholder={activeTab === 'crypto' ? 'Enter wallet address...' : 'Enter IBAN / Account Number...'}
-                                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                                        className="w-full px-4 py-3 border border-fx-rule rounded-xl focus:outline-none focus:border-fx-brass focus:ring-2 focus:ring-fx-brass/20 bg-fx-charcoal text-fx-sand placeholder:text-fx-dust"
                                     />
                                 ) : filteredAddresses.length > 0 ? (
                                     <select
                                         required
                                         value={selectedAddressNo}
                                         onChange={(e) => setSelectedAddressNo(e.target.value)}
-                                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+                                        className="w-full px-4 py-3 border border-fx-rule rounded-xl focus:outline-none focus:border-fx-brass focus:ring-2 focus:ring-fx-brass/20 bg-fx-charcoal text-fx-sand"
                                     >
                                         <option value="">Select an address...</option>
                                         {filteredAddresses.map(a => (
@@ -713,14 +670,14 @@ const Withdraw = () => {
                                         ))}
                                     </select>
                                 ) : (
-                                    <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-xl flex items-start gap-3">
+                                    <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
                                         <AlertTriangle className="text-amber-500 shrink-0" size={20} />
-                                        <div className="text-sm text-amber-800 dark:text-amber-300">
+                                        <div className="text-sm text-amber-300">
                                             <p className="font-bold">No saved {activeTab === 'crypto' ? 'addresses' : 'accounts'} found.</p>
                                             <button
                                                 type="button"
                                                 onClick={() => navigate('/withdrawal-addresses')}
-                                                className="mt-1 text-amber-600 dark:text-amber-400 underline font-bold flex items-center gap-1"
+                                                className="mt-1 text-amber-400 underline font-bold flex items-center gap-1"
                                             >
                                                 Add one in Wallet Management <Plus size={14} />
                                             </button>
@@ -732,12 +689,12 @@ const Withdraw = () => {
                         {/* Amount Input */}
                             <div>
                                 {balanceError && (
-                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
+                                    <div className="p-3 bg-fx-rust/10 border border-fx-rust/30 rounded-xl text-sm text-fx-rust flex items-center gap-2">
                                         <AlertTriangle size={16} />
                                         {balanceError}
                                     </div>
                                 )}
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Amount</label>
+                                <label className="block text-sm font-medium text-fx-dune mb-2">Amount</label>
                                 <div className="relative">
                                     <input
                                         required
@@ -746,13 +703,13 @@ const Withdraw = () => {
                                         value={amount}
                                         onChange={(e) => setAmount(e.target.value)}
                                         placeholder="0.00"
-                                        className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                                        className="w-full px-4 py-3 border border-fx-rule rounded-xl focus:outline-none focus:border-fx-brass focus:ring-2 focus:ring-fx-brass/20 bg-fx-charcoal text-fx-sand placeholder:text-fx-dust"
                                     />
-                                    <div className="absolute right-4 top-3.5 text-slate-400 dark:text-slate-500 font-medium">
+                                    <div className="absolute right-4 top-3.5 text-fx-dust font-medium">
                                         {assets.find(a => a.id === selectedAssetId)?.currency}
                                     </div>
                                 </div>
-                                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex justify-between">
+                                <div className="mt-2 text-xs text-fx-dust flex justify-between">
                                     <span>
                                         {balanceLoading ? (
                                             <span className="flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Loading balance...</span>
@@ -767,31 +724,31 @@ const Withdraw = () => {
                                     <button 
                                         type="button" 
                                         onClick={() => setAmount(availableBalance.toString())}
-                                        className="text-brand-primary hover:underline font-medium"
+                                        className="text-fx-brass hover:underline font-medium"
                                     >
                                         Withdraw All
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/30 p-4 space-y-3">
+                            <div className="rounded-xl border border-fx-rule bg-fx-charcoal p-4 space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <h4 className="text-sm font-bold text-gray-900 dark:text-white">Fee Summary</h4>
+                                    <h4 className="text-sm font-bold text-fx-sand">Fee Summary</h4>
                                     {quote ? (
-                                        <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                                        <span className="text-[11px] font-mono text-fx-dust">
                                             {quote.quoteNo}
                                         </span>
                                     ) : null}
                                 </div>
 
                                 {quoteError && (
-                                    <div className="text-xs text-red-600 dark:text-red-300">
+                                    <div className="text-xs text-fx-rust">
                                         {quoteError}
                                     </div>
                                 )}
 
                                 {!quote && !quoteError && (
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    <div className="text-xs text-fx-dust">
                                         Click submit once to generate a quote and review the fee breakdown in the confirmation modal.
                                     </div>
                                 )}
@@ -799,8 +756,8 @@ const Withdraw = () => {
                                 {quote && (
                                     <div className="space-y-2 text-xs">
                                         <div className="flex justify-between">
-                                            <span className="text-slate-500 dark:text-slate-400">Service Fee</span>
-                                            <span className="font-medium text-gray-900 dark:text-white">
+                                            <span className="text-fx-dust">Service Fee</span>
+                                            <span className="font-medium text-fx-sand">
                                                 {formatAssetAmount(
                                                     quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
                                                     selectedAsset?.decimals,
@@ -808,17 +765,17 @@ const Withdraw = () => {
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
-                                            <span className="text-slate-500 dark:text-slate-400">Gas Fee</span>
-                                            <span className="font-medium text-gray-900 dark:text-white">
+                                            <span className="text-fx-dust">Gas Fee</span>
+                                            <span className="font-medium text-fx-sand">
                                                 {formatAssetAmount(
                                                     quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
                                                     selectedAsset?.decimals,
                                                 )} {selectedAsset?.currency}
                                             </span>
                                         </div>
-                                        <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2">
-                                            <span className="text-slate-500 dark:text-slate-400">Total Fee</span>
-                                            <span className="font-medium text-gray-900 dark:text-white">
+                                        <div className="flex justify-between border-t border-fx-rule pt-2">
+                                            <span className="text-fx-dust">Total Fee</span>
+                                            <span className="font-medium text-fx-sand">
                                                 {formatAssetAmount(
                                                     quote.totals[selectedAsset?.currency || ''] || 0,
                                                     selectedAsset?.decimals,
@@ -826,8 +783,8 @@ const Withdraw = () => {
                                             </span>
                                         </div>
                                         <div className="flex justify-between">
-                                            <span className="text-slate-500 dark:text-slate-400">Net Amount</span>
-                                            <span className="font-bold text-gray-900 dark:text-white">
+                                            <span className="text-fx-dust">Net Amount</span>
+                                            <span className="font-bold text-fx-sand">
                                                 {formatAssetAmount(
                                                     Number(amount || 0) -
                                                       Number(quote.totals[selectedAsset?.currency || ''] || 0),
@@ -835,7 +792,7 @@ const Withdraw = () => {
                                                 )} {selectedAsset?.currency}
                                             </span>
                                         </div>
-                                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                                        <div className="text-[10px] text-fx-dust/60 font-mono">
                                             Quote: {quote.quoteId}
                                         </div>
                                     </div>
@@ -854,7 +811,7 @@ const Withdraw = () => {
                                     !amount ||
                                     Number(amount) <= 0
                                 }
-                                className="w-full py-4 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-xl hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all disabled:opacity-50 font-bold shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
+                                className="w-full py-4 bg-fx-brass text-fx-obsidian rounded-xl hover:bg-fx-brass/90 transition-all disabled:opacity-50 font-bold flex items-center justify-center gap-2"
                             >
                                 {quoteLoading ? (
                                     <>
@@ -873,7 +830,7 @@ const Withdraw = () => {
                                     </>
                                 )}
                             </button>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+                            <p className="text-xs text-fx-dust mt-2">
                                 Submit once to review fees. The withdrawal is created only after the second confirmation.
                             </p>
                         </div>
@@ -884,9 +841,9 @@ const Withdraw = () => {
 
                 {/* Right Column: Instructions */}
                 <div className="lg:col-span-1">
-                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/30 sticky top-6">
-                        <div className="flex items-center gap-2 mb-4 text-blue-800 dark:text-blue-300">
-                            <div className="p-2 bg-blue-100 dark:bg-blue-800/30 rounded-lg">
+                    <div className="bg-fx-ink/60 rounded-2xl p-6 border border-fx-rule sticky top-6">
+                        <div className="flex items-center gap-2 mb-4 text-fx-brass">
+                            <div className="p-2 bg-fx-brass/10 rounded-lg">
                                 <Info size={24} />
                             </div>
                             <h3 className="font-bold text-lg">Instructions</h3>
@@ -895,39 +852,39 @@ const Withdraw = () => {
                         {activeTab === 'crypto' ? (
                             <div className="space-y-4">
                                 <div className="flex gap-3">
-                                    <ShieldCheck size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                                    <ShieldCheck size={20} className="text-fx-brass shrink-0 mt-1" />
                                     <div>
-                                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Network Selection</h4>
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                                        <h4 className="text-sm font-bold text-fx-brass">Network Selection</h4>
+                                        <p className="text-xs text-fx-dust mt-1">
                                             Ensure withdrawal network matches recipient's. Wrong network = <strong className="underline">permanent loss</strong>.
                                         </p>
                                     </div>
                                 </div>
 
                                 <div className="flex gap-3">
-                                    <Clock size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                                    <Clock size={20} className="text-fx-brass shrink-0 mt-1" />
                                     <div>
-                                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Withdrawal Time</h4>
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                                        <h4 className="text-sm font-bold text-fx-brass">Withdrawal Time</h4>
+                                        <p className="text-xs text-fx-dust mt-1">
                                             Typically processed within <strong className="underline">30-60 minutes</strong> after network confirmation.
                                         </p>
                                     </div>
                                 </div>
 
                                 <div className="flex gap-3">
-                                    <Coins size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                                    <Coins size={20} className="text-fx-brass shrink-0 mt-1" />
                                     <div>
-                                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Minimum Withdrawal</h4>
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                                        <h4 className="text-sm font-bold text-fx-brass">Minimum Withdrawal</h4>
+                                        <p className="text-xs text-fx-dust mt-1">
                                             Min: <strong>0.001 BTC / 0.01 ETH</strong>. Fees deducted from amount.
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2">
+                                <div className="p-4 bg-fx-charcoal/60 rounded-xl border border-fx-rule mt-2">
                                     <div className="flex gap-2 items-start">
                                         <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                                        <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
+                                        <p className="text-[11px] font-bold text-fx-dust leading-relaxed">
                                             For security reasons, your first withdrawal after changing security settings will be delayed by 24 hours.
                                         </p>
                                     </div>
@@ -936,39 +893,39 @@ const Withdraw = () => {
                         ) : (
                             <div className="space-y-4">
                                 <div className="flex gap-3">
-                                    <Building2 size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                                    <Building2 size={20} className="text-fx-brass shrink-0 mt-1" />
                                     <div>
-                                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Beneficiary Name</h4>
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                                        <h4 className="text-sm font-bold text-fx-brass">Beneficiary Name</h4>
+                                        <p className="text-xs text-fx-dust mt-1">
                                             Withdrawals can only be made to bank accounts held in <strong className="underline">your own name</strong>.
                                         </p>
                                     </div>
                                 </div>
 
                                 <div className="flex gap-3">
-                                    <Clock size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                                    <Clock size={20} className="text-fx-brass shrink-0 mt-1" />
                                     <div>
-                                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Processing Time</h4>
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                                        <h4 className="text-sm font-bold text-fx-brass">Processing Time</h4>
+                                        <p className="text-xs text-fx-dust mt-1">
                                             <strong className="underline">1-3 business days</strong>. No processing on weekends/holidays.
                                         </p>
                                     </div>
                                 </div>
 
                                 <div className="flex gap-3">
-                                    <Coins size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                                    <Coins size={20} className="text-fx-brass shrink-0 mt-1" />
                                     <div>
-                                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Withdrawal Fees</h4>
-                                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">
+                                        <h4 className="text-sm font-bold text-fx-brass">Withdrawal Fees</h4>
+                                        <p className="text-xs text-fx-dust mt-1">
                                             Standard SEPA/SWIFT fees apply. Refer to Fee Schedule.
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-blue-100 dark:border-blue-900/30 mt-2">
+                                <div className="p-4 bg-fx-charcoal/60 rounded-xl border border-fx-rule mt-2">
                                     <div className="flex gap-2 items-start">
                                         <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                                        <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
+                                        <p className="text-[11px] font-bold text-fx-dust leading-relaxed">
                                             Ensure all bank details are correct. Incorrect IBANs may lead to significant delays and return fees.
                                         </p>
                                     </div>
@@ -983,40 +940,40 @@ const Withdraw = () => {
       </div>
 
       {confirmModalOpen && quote ? (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm">
-              <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5 dark:border-slate-700">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="w-full max-w-lg rounded-2xl border border-fx-rule bg-fx-ink shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-fx-rule px-6 py-5">
                       <div>
-                          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Confirm Withdrawal</h3>
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          <h3 className="text-lg font-bold text-fx-sand">Confirm Withdrawal</h3>
+                          <p className="mt-1 text-xs text-fx-dust">
                               Review all fees before consuming quote `{quote.quoteNo}`.
                           </p>
                       </div>
                       <button
                           onClick={clearQuoteState}
-                          className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                          className="rounded-full p-2 text-fx-dust transition-colors hover:bg-fx-charcoal"
                       >
                           <X size={18} />
                       </button>
                   </div>
 
                   <div className="space-y-5 px-6 py-5">
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                      <div className="rounded-xl border border-fx-rule bg-fx-charcoal p-4">
                           <div className="flex justify-between text-sm">
-                              <span className="text-slate-500 dark:text-slate-400">Amount</span>
-                              <span className="font-semibold text-gray-900 dark:text-white">
+                              <span className="text-fx-dust">Amount</span>
+                              <span className="font-semibold text-fx-sand">
                                   {formatAssetAmount(amount, selectedAsset?.decimals)} {selectedAsset?.currency}
                               </span>
                           </div>
                           <div className="mt-2 flex justify-between text-sm">
-                              <span className="text-slate-500 dark:text-slate-400">Destination</span>
-                              <span className="max-w-[240px] truncate text-right font-medium text-gray-900 dark:text-white" title={manualAddress || selectedAddressNo}>
+                              <span className="text-fx-dust">Destination</span>
+                              <span className="max-w-[240px] truncate text-right font-medium text-fx-sand" title={manualAddress || selectedAddressNo}>
                                   {isManualInput ? manualAddress : addresses.find(a => a.addressNo === selectedAddressNo)?.address || addresses.find(a => a.addressNo === selectedAddressNo)?.iban || 'Saved destination'}
                               </span>
                           </div>
                           <div className="mt-2 flex justify-between text-sm">
-                              <span className="text-slate-500 dark:text-slate-400">Expires At</span>
-                              <span className="font-medium text-gray-900 dark:text-white">
+                              <span className="text-fx-dust">Expires At</span>
+                              <span className="font-medium text-fx-sand">
                                   {new Date(quote.expiresAt).toLocaleString()}
                               </span>
                           </div>
@@ -1024,8 +981,8 @@ const Withdraw = () => {
 
                       <div className="space-y-3 text-sm">
                           <div className="flex justify-between">
-                              <span className="text-slate-500 dark:text-slate-400">Service Fee</span>
-                              <span className="font-medium text-gray-900 dark:text-white">
+                              <span className="text-fx-dust">Service Fee</span>
+                              <span className="font-medium text-fx-sand">
                                   {formatAssetAmount(
                                       quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
                                       selectedAsset?.decimals,
@@ -1033,17 +990,17 @@ const Withdraw = () => {
                               </span>
                           </div>
                           <div className="flex justify-between">
-                              <span className="text-slate-500 dark:text-slate-400">Network Fee</span>
-                              <span className="font-medium text-gray-900 dark:text-white">
+                              <span className="text-fx-dust">Network Fee</span>
+                              <span className="font-medium text-fx-sand">
                                   {formatAssetAmount(
                                       quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
                                       selectedAsset?.decimals,
                                   )} {selectedAsset?.currency}
                               </span>
                           </div>
-                          <div className="flex justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
-                              <span className="text-slate-500 dark:text-slate-400">Total Fee</span>
-                              <span className="font-semibold text-gray-900 dark:text-white">
+                          <div className="flex justify-between border-t border-fx-rule pt-3">
+                              <span className="text-fx-dust">Total Fee</span>
+                              <span className="font-semibold text-fx-sand">
                                   {formatAssetAmount(
                                       quote.totals[selectedAsset?.currency || ''] || 0,
                                       selectedAsset?.decimals,
@@ -1051,8 +1008,8 @@ const Withdraw = () => {
                               </span>
                           </div>
                           <div className="flex justify-between">
-                              <span className="text-slate-500 dark:text-slate-400">Net Amount</span>
-                              <span className="font-bold text-gray-900 dark:text-white">
+                              <span className="text-fx-dust">Net Amount</span>
+                              <span className="font-bold text-fx-sand">
                                   {formatAssetAmount(
                                       Number(amount || 0) - Number(quote.totals[selectedAsset?.currency || ''] || 0),
                                       selectedAsset?.decimals,
@@ -1062,17 +1019,17 @@ const Withdraw = () => {
                       </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-5 dark:border-slate-700">
+                  <div className="flex items-center justify-end gap-3 border-t border-fx-rule px-6 py-5">
                       <button
                           onClick={clearQuoteState}
-                          className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-700"
+                          className="rounded-xl border border-fx-rule px-4 py-2 text-sm font-medium text-fx-dust transition-colors hover:text-fx-sand"
                       >
                           Cancel
                       </button>
                       <button
                           onClick={handleConfirmWithdraw}
                           disabled={submitting}
-                          className="inline-flex items-center gap-2 rounded-xl bg-brand-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-primary/90 disabled:opacity-50"
+                          className="inline-flex items-center gap-2 rounded-xl bg-fx-brass px-4 py-2 text-sm font-semibold text-fx-obsidian transition-colors hover:bg-fx-brass/90 disabled:opacity-50"
                       >
                           {submitting ? <RefreshCw size={16} className="animate-spin" /> : <ArrowRight size={16} />}
                           Confirm and Submit
@@ -1083,44 +1040,55 @@ const Withdraw = () => {
       ) : null}
 
       {/* Detail Modal (Simplified) */}
-      {selectedTx && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-700">
-                  <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-                      <h3 className="text-xl font-bold text-gray-900 dark:text-white">Withdrawal Details</h3>
-                      <button onClick={() => setSelectedTx(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500 dark:text-slate-400">
+      {selectedTx && (() => {
+          const detailSt = getCustomerFacingWithdrawStatus(selectedTx.status);
+          return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-fx-rule">
+                  <div className="flex justify-between items-center p-6 border-b border-fx-rule">
+                      <h3 className="text-xl font-bold text-fx-sand">Withdrawal Details</h3>
+                      <button onClick={() => setSelectedTx(null)} className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust">
                           <X size={20} />
                       </button>
                   </div>
                   <div className="p-6 space-y-6">
                       <div className="text-center">
-                          <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-                              {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-slate-500 dark:text-slate-400 text-xl">{selectedTx.asset.currency}</span>
+                          <div className="text-3xl font-bold text-fx-sand mb-1">
+                              {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.currency}</span>
                           </div>
                           <div className="mt-2">
-                               {renderStatusBadge(selectedTx.status)}
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${detailSt.className}`}>
+                                  {detailSt.label}
+                              </span>
                           </div>
                       </div>
-                      <div className="space-y-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
+                      <div className="space-y-4 bg-fx-charcoal p-4 rounded-xl border border-fx-rule">
                           <div className="flex justify-between text-sm">
-                              <span className="text-slate-500 dark:text-slate-400">Withdraw No</span>
-                              <span className="font-mono font-medium text-gray-900 dark:text-white">{selectedTx.withdrawNo}</span>
+                              <span className="text-fx-dust">Withdraw No</span>
+                              <span className="font-mono font-medium text-fx-sand">{selectedTx.withdrawNo}</span>
                           </div>
                           <div className="flex justify-between text-sm">
-                              <span className="text-slate-500 dark:text-slate-400">Date</span>
-                              <span className="font-medium text-gray-900 dark:text-white">{new Date(selectedTx.createdAt).toLocaleString()}</span>
+                              <span className="text-fx-dust">Date</span>
+                              <span className="font-medium text-fx-sand">{new Date(selectedTx.createdAt).toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between text-sm">
-                              <span className="text-slate-500 dark:text-slate-400">Destination</span>
-                              <span className="font-medium text-gray-900 dark:text-white truncate max-w-[200px]" title={selectedTx.toAddress || selectedTx.toIban || ''}>
+                              <span className="text-fx-dust">Destination</span>
+                              <span className="font-medium text-fx-sand truncate max-w-[200px]" title={selectedTx.toAddress || selectedTx.toIban || ''}>
                                   {selectedTx.toAddress || selectedTx.toIban || 'N/A'}
                               </span>
                           </div>
                       </div>
+                      <button
+                        onClick={() => setSelectedTx(null)}
+                        className="mt-4 w-full rounded-xl bg-fx-charcoal py-2.5 text-sm font-medium text-fx-sand hover:bg-fx-charcoal/80"
+                      >
+                        Close
+                      </button>
                   </div>
               </div>
           </div>
-      )}
+          );
+      })()}
     </div>
   );
 };
