@@ -120,7 +120,9 @@ export class WithdrawWorkflowOrchestrator {
 
   // --- Payout Listeners ---
 
-  @OnEvent(PayoutEvents.EVT_PAYOUT_CONFIRMED)
+  // V5: Payout-confirmed is now handled by WithdrawWorkflowService.handlePayoutConfirmed
+  // which posts TB pending transfers before marking SUCCESS. This old handler raced it
+  // and set SUCCESS without TB posting, so the @OnEvent decorator is removed.
   async onPayoutConfirmed(payload: { withdrawId: string; payoutId: string }) {
     return this.orchestrateSuccessPath(payload.withdrawId, payload.payoutId);
   }

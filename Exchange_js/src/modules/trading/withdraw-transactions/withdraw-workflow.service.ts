@@ -16,6 +16,7 @@ import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-acco
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
+import { PayoutAction } from '../../asset-treasury/payouts/dto/payout.dto';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
@@ -332,6 +333,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
       reason: 'Withdrawal completed successfully',
       sourcePlatform: 'SYSTEM',
     });
+
+    // Clear the linked payout (internal accounting settled)
+    if (w.payoutId) {
+      try {
+        await this.payoutsService.updateStatus(w.payoutId, {
+          action: PayoutAction.CLEAR,
+          reason: 'Internal accounting completed after chain confirmation',
+        }, 'SYSTEM');
+      } catch (err) {
+        this.logger.warn(`Payout CLEAR failed for ${w.payoutId}: ${(err as Error).message}`);
+      }
+    }
 
     this.logger.log(`Withdrawal ${withdrawId} finalized: TB posted, status SUCCESS`);
   }
