@@ -384,7 +384,6 @@ export class PayoutsService {
           asset: true,
           withdraw: {
             include: {
-              fromWallet: true,
               asset: {
                 select: {
                   type: true,
