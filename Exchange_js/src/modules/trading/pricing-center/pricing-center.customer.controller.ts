@@ -2,17 +2,23 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Inject,
+  NotFoundException,
   Param,
   Post,
   Req,
   UseGuards,
+  forwardRef,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { CreateWithdrawPricingQuoteDto } from './dto/pricing-center.dto';
 import { PricingCenterService } from './pricing-center.service';
+import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 
 @ApiTags('Withdraw Pricing Quotes')
 @ApiBearerAuth()
@@ -21,7 +27,10 @@ import { PricingCenterService } from './pricing-center.service';
 export class PricingCenterCustomerController {
   constructor(
     private readonly pricingCenterService: PricingCenterService,
+    @Inject(forwardRef(() => WithdrawQuoteService))
+    private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly onboardingService: OnboardingService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post('quotes')
@@ -39,12 +48,20 @@ export class PricingCenterCustomerController {
 
     const ownerNo = await this.pricingCenterService.resolveOwnerNo(ownerType, ownerId);
 
-    return this.pricingCenterService.createWithdrawPricingQuote(
+    const asset = await this.prisma.asset.findUnique({ where: { id: dto.assetId } });
+    if (!asset) {
+      throw new NotFoundException('Asset not found');
+    }
+
+    return this.withdrawQuoteService.createQuote({
       ownerType,
       ownerId,
-      ownerNo,
-      dto,
-    );
+      ownerNo: ownerNo ?? undefined,
+      assetId: dto.assetId,
+      assetCode: asset.currency,
+      amount: new Prisma.Decimal(dto.amount),
+      customerId: ownerId,
+    });
   }
 
   @Post('quotes/:id/cancel')
@@ -56,7 +73,7 @@ export class PricingCenterCustomerController {
       throw new BadRequestException('Token userId missing');
     }
 
-    return this.pricingCenterService.cancelWithdrawPricingQuote(
+    return this.withdrawQuoteService.cancelQuote(
       id,
       ownerType,
       ownerId,
