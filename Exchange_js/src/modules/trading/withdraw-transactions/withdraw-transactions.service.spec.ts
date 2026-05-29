@@ -11,6 +11,7 @@ import {
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -18,6 +19,7 @@ describe('WithdrawTransactionsService', () => {
   let transactionComplianceService: any;
   let eventEmitter: any;
   let pricingCenterService: any;
+  let withdrawQuoteService: any;
 
   const mockTx: any = {
     withdrawTransaction: {
@@ -84,8 +86,14 @@ describe('WithdrawTransactionsService', () => {
           useValue: {
             resolveOwnerNo: jest.fn(),
             assertWithdrawExtremeVolatilityNotBlocked: jest.fn(),
-            getActiveWithdrawQuoteOrThrow: jest.fn(),
-            consumeWithdrawQuoteForWithdraw: jest.fn(),
+          },
+        },
+        {
+          provide: WithdrawQuoteService,
+          useValue: {
+            getActiveQuoteOrThrow: jest.fn(),
+            consumeQuote: jest.fn(),
+            cancelQuote: jest.fn(),
           },
         },
       ],
@@ -98,6 +106,7 @@ describe('WithdrawTransactionsService', () => {
     );
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
     pricingCenterService = module.get<PricingCenterService>(PricingCenterService);
+    withdrawQuoteService = module.get<WithdrawQuoteService>(WithdrawQuoteService);
 
     jest.clearAllMocks();
     mockTx.withdrawTransaction.findUnique.mockReset();
@@ -119,13 +128,13 @@ describe('WithdrawTransactionsService', () => {
     pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockResolvedValue(
       undefined,
     );
-    pricingCenterService.getActiveWithdrawQuoteOrThrow.mockResolvedValue({
+    withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
       id: 'wq-1',
       assetId: 'asset-1',
       amount: new Prisma.Decimal(100),
       totalsJson: JSON.stringify({}),
     });
-    pricingCenterService.consumeWithdrawQuoteForWithdraw.mockResolvedValue({
+    withdrawQuoteService.consumeQuote.mockResolvedValue({
       id: 'wq-1',
       status: 'USED',
     });
@@ -213,13 +222,13 @@ describe('WithdrawTransactionsService', () => {
       null,
     );
 
-    pricingCenterService.getActiveWithdrawQuoteOrThrow.mockResolvedValue({
+    withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
       id: 'wq-2',
       assetId: 'asset-fiat-1',
       amount: new Prisma.Decimal(100),
       totalsJson: JSON.stringify({}),
     });
-    pricingCenterService.consumeWithdrawQuoteForWithdraw.mockResolvedValue({
+    withdrawQuoteService.consumeQuote.mockResolvedValue({
       id: 'wq-2',
       status: 'USED',
     });
@@ -289,7 +298,7 @@ describe('WithdrawTransactionsService', () => {
     });
 
     expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
-    expect(pricingCenterService.getActiveWithdrawQuoteOrThrow).not.toHaveBeenCalled();
+    expect(withdrawQuoteService.getActiveQuoteOrThrow).not.toHaveBeenCalled();
   });
 
   it('should block admin approve because payout progression is workflow-driven', async () => {

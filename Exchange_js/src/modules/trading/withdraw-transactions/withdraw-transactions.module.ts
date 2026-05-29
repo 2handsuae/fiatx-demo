@@ -10,6 +10,7 @@ import { WithdrawTransactionWorkflowService } from './withdraw-transaction-workf
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { PayoutsModule } from '../../asset-treasury/payouts/payouts.module';
+import { WithdrawalFeeLevelModule } from '../withdrawal-fee-level/withdrawal-fee-level.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PayoutsModule } from '../../asset-treasury/payouts/payouts.module';
     forwardRef(() => PricingCenterModule),
     TigerBeetleModule,
     forwardRef(() => PayoutsModule),
+    WithdrawalFeeLevelModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

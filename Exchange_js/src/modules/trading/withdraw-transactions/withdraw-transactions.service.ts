@@ -25,6 +25,7 @@ import {
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { randomUUID } from 'node:crypto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -112,6 +113,7 @@ export class WithdrawTransactionsService {
     @Inject(forwardRef(() => TransactionComplianceService))
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly pricingCenterService: PricingCenterService,
+    private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
   ) {}
@@ -519,7 +521,7 @@ export class WithdrawTransactionsService {
         let quoteFeeAmount = new Prisma.Decimal(0);
         let consumedQuoteId: string | null = null;
         const now = new Date();
-        const activeQuote = await this.pricingCenterService.getActiveWithdrawQuoteOrThrow(
+        const activeQuote = await this.withdrawQuoteService.getActiveQuoteOrThrow(
           quoteId,
           ownerType,
           userId,
@@ -539,12 +541,13 @@ export class WithdrawTransactionsService {
           : {};
         quoteFeeAmount = new Prisma.Decimal(totals[asset.currency] || '0');
         consumedQuoteId = activeQuote.id;
-        await this.pricingCenterService.consumeWithdrawQuoteForWithdraw(
-          tx,
+        await this.withdrawQuoteService.consumeQuote(
           quoteId,
           ownerType,
           userId,
-          now,
+          amountDecimal,
+          '', // withdrawId not yet available; consumeQuote does not persist it
+          tx,
         );
 
         const netAmount = amountDecimal.sub(quoteFeeAmount);
