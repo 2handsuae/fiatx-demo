@@ -249,11 +249,6 @@ export class PayoutsService {
         asset: true,
         withdraw: true,
         customer: true,
-        clearings: {
-          include: {
-            lines: true
-          }
-        },
       },
     });
     if (!item) throw new NotFoundException('Payout not found');
