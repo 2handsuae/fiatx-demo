@@ -57,6 +57,7 @@ export interface ExecutePendingTransferParams {
 
 export interface PostOrVoidPendingTransferParams {
   pendingTransferId: bigint;
+  amount: bigint;
   evidence: EvidenceParams;
   tx?: any;
 }

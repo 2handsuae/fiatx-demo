@@ -259,11 +259,15 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
+    const decimals = w.asset?.decimals ?? 8;
+
     // POST pending transfer #1: net amount
     if (w.tbPendingNetId) {
       const pendingNetBigint = hexToBigint(w.tbPendingNetId);
+      const netBigint = this.decimalToBigint(w.netAmount, decimals);
       await this.accountingService.postPendingTransfer({
         pendingTransferId: pendingNetBigint,
+        amount: netBigint,
         evidence: {
           sourceType: 'WITHDRAWAL',
           sourceNo: w.withdrawNo,
@@ -282,8 +286,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // POST pending transfer #2: fee amount
     if (w.tbPendingFeeId) {
       const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
+      const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
       await this.accountingService.postPendingTransfer({
         pendingTransferId: pendingFeeBigint,
+        amount: feeBigint,
         evidence: {
           sourceType: 'WITHDRAWAL',
           sourceNo: w.withdrawNo,
@@ -347,5 +353,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     this.logger.log(`Withdrawal ${withdrawId} finalized: TB posted, status SUCCESS`);
+  }
+
+  private decimalToBigint(decimalValue: any, decimals: number): bigint {
+    const str = String(decimalValue);
+    const [whole, frac = ''] = str.split('.');
+    const paddedFrac = frac.padEnd(decimals, '0').slice(0, decimals);
+    return BigInt(whole + paddedFrac);
   }
 }
