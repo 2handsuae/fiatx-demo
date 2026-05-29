@@ -1,10 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'crypto';
 import { ensureBaseSeeded } from './seed.base';
 import {
   buildDefaultPricingPolicyManifest,
   PricingPolicyManifestAsset,
 } from '../src/config/manifests/pricing-policies.manifest';
+import { WITHDRAWAL_POLICY_CODE } from '../src/modules/trading/pricing-center/types/pricing.types';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -22,6 +24,7 @@ export async function seedBusiness(
 
   await seedCustomersMinimal(prisma);
   await seedPricingPolicies(prisma);
+  await seedWithdrawalFeeLevels(prisma);
   await seedTransactionLimitPolicies(prisma);
   console.log('✅ Business data seeded.');
 }
@@ -151,6 +154,7 @@ async function seedPricingPolicies(prisma: PrismaClient): Promise<void> {
     select: {
       id: true,
       code: true,
+      currency: true,
       type: true,
       network: true,
       decimals: true,
@@ -197,6 +201,54 @@ async function seedPricingPolicies(prisma: PrismaClient): Promise<void> {
   console.log(
     `Seeded pricing policies (swap pairs: ${swapManifest?.config.pairs.length || 0}, withdrawal assets: ${withdrawalManifest?.config.assets.length || 0}).`,
   );
+}
+
+async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
+  const withdrawalPolicy = await prisma.pricingPolicy.findFirst({
+    where: { policyCode: WITHDRAWAL_POLICY_CODE },
+  });
+
+  if (!withdrawalPolicy) {
+    console.log('Skip withdrawal fee level seed: no WITHDRAWAL_PRICING policy found.');
+    return;
+  }
+
+  // Build assetId → currency lookup so we don't rely on configJson having assetCurrency
+  const assets = await prisma.asset.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, currency: true },
+  });
+  const currencyById = new Map(assets.map((a) => [a.id, a.currency]));
+
+  const config = JSON.parse(withdrawalPolicy.configJson);
+  let count = 0;
+
+  for (const assetEntry of config.assets) {
+    const currency = assetEntry.assetCurrency || currencyById.get(assetEntry.assetId) || 'UNKNOWN';
+    const networkLabel = assetEntry.network || 'FIAT';
+    const levelCode = `STD-${currency}-${networkLabel}`;
+    const tiersJson = JSON.stringify({ tiers: assetEntry.tiers });
+    const configHash = createHash('sha256').update(tiersJson).digest('hex');
+
+    await prisma.withdrawalFeeLevel.upsert({
+      where: { levelCode },
+      update: { tiersJson, configHash },
+      create: {
+        levelCode,
+        name: `Standard ${currency}`,
+        assetId: assetEntry.assetId,
+        isDefault: true,
+        enabled: true,
+        tiersJson,
+        configHash,
+        status: 'ACTIVE',
+        createdByUserId: 'SYSTEM',
+      },
+    });
+    count++;
+  }
+
+  console.log(`Seeded ${count} withdrawal fee levels.`);
 }
 
 export async function seedTransactionLimitPolicies(prisma: PrismaClient): Promise<void> {
