@@ -239,6 +239,11 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **热钱包余额校验** — Payout 前检查 Outbound Wallet 余额，不足时显式失败
 - **提现成功通知** — 完成推送客户通知，复用 V1 Notification send
 - **TB 记账失败 repair surface** — 合规通过但 TB 记账失败时的修复路径
+- **Withdrawal Fee Level Creation** — 费率等级创建审批（MLRO + SMO 两步审批，48h 超时）
+- **Withdrawal Fee Level Change** — 费率等级变更审批（request-record 模式 + hash 冲突检测）
+- **Withdrawal Fee Level Binding** — 客户费率等级绑定/解绑（无审批门，审计记录）
+- **WithdrawQuoteService 拆分重构** — 从 PricingCenterService 迁出 Withdrawal quote 逻辑，多 level 取最优费率
+- **数据迁移** — PricingPolicy WITHDRAWAL_PRICING → WithdrawalFeeLevel 行
 
 ---
 
