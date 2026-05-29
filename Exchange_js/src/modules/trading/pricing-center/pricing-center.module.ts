@@ -15,6 +15,6 @@ import { BinanceRateProvider } from './providers/binance-rate.provider';
     PricingEngineService,
     BinanceRateProvider,
   ],
-  exports: [PricingCenterService],
+  exports: [PricingCenterService, PricingEngineService],
 })
 export class PricingCenterModule {}
