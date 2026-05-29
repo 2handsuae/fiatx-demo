@@ -287,6 +287,7 @@ model CustomerMain {
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
   withdrawalAddresses       WithdrawalAddress[]
+  withdrawalFeeLevelBindings  WithdrawalFeeLevelBinding[]
 
   @@index([adminStatus])
   @@index([complianceStatus])
@@ -1153,6 +1154,7 @@ model Asset {
   fiatStatementImports           FiatStatementImport[]
   valuationRates                 AssetValuationRate[]
   withdrawalAddresses            WithdrawalAddress[]
+  withdrawalFeeLevels            WithdrawalFeeLevel[]
 
   @@unique([type, currency, network])
   @@map("assets")
@@ -1325,6 +1327,8 @@ model WithdrawPricingQuote {
   expiresAt       DateTime
   usedAt          DateTime?
   cancelledAt     DateTime?
+  feeLevelId      String?
+  feeLevelCode    String?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   asset           Asset                 @relation(fields: [assetId], references: [id])
@@ -2663,4 +2667,71 @@ model TransactionLimitChangeRequest {
 
   @@index([policyId, status])
   @@map("transaction_limit_change_requests")
+}
+
+// ─── Withdrawal Fee Level (2026-05-30) ─────────────────────
+model WithdrawalFeeLevel {
+  id               String    @id @default(uuid())
+  levelCode        String    @unique
+  name             String
+  assetId          String
+  isDefault        Boolean   @default(false)
+  enabled          Boolean   @default(true)
+  tiersJson        String
+  configHash       String
+  status           String    @default("PENDING_APPROVAL")
+  approvalCaseId   String?
+  approvalCaseNo   String?
+  createdByUserId  String
+  updatedByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  asset            Asset     @relation(fields: [assetId], references: [id])
+  bindings         WithdrawalFeeLevelBinding[]
+  changeRequests   WithdrawalFeeLevelChangeRequest[]
+
+  @@index([assetId, status, enabled])
+  @@map("withdrawal_fee_levels")
+}
+
+model WithdrawalFeeLevelChangeRequest {
+  id                 String    @id @default(uuid())
+  requestNo          String    @unique @default("TEMP")
+  levelId            String
+  levelCode          String
+  currentTiersJson   String
+  currentConfigHash  String
+  proposedTiersJson  String
+  changeReason       String
+  status             String    @default("PENDING_APPROVAL")
+  requestedByUserId  String
+  approvalCaseId     String?
+  approvalCaseNo     String?
+  executedAt         DateTime?
+  failureReason      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  level              WithdrawalFeeLevel @relation(fields: [levelId], references: [id])
+
+  @@index([levelId, status])
+  @@map("withdrawal_fee_level_change_requests")
+}
+
+model WithdrawalFeeLevelBinding {
+  id              String   @id @default(uuid())
+  customerId      String
+  levelId         String
+  boundByUserId   String
+  boundAt         DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  customer        CustomerMain             @relation(fields: [customerId], references: [id])
+  level           WithdrawalFeeLevel   @relation(fields: [levelId], references: [id])
+
+  @@unique([customerId, levelId])
+  @@index([customerId])
+  @@index([levelId])
+  @@map("withdrawal_fee_level_bindings")
 }
