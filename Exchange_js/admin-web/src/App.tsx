@@ -119,6 +119,7 @@ const PolicyChangeRequestDetailPage = lazy(() => import('./pages/PolicyChangeReq
 const LedgerAccountList = lazy(() => import('./pages/LedgerAccountList'));
 const LedgerAccountDetail = lazy(() => import('./pages/LedgerAccountDetail'));
 const TransferEvidenceList = lazy(() => import('./pages/TransferEvidenceList'));
+const TransferEvidenceDetail = lazy(() => import('./pages/TransferEvidenceDetail'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
@@ -896,6 +897,10 @@ function App() {
             <Route
               path="transfers"
               element={withPermission(<TransferEvidenceList />, [PERMISSIONS.TB_TRANSFERS_READ])}
+            />
+            <Route
+              path="transfers/:tbTransferId"
+              element={withPermission(<TransferEvidenceDetail />, [PERMISSIONS.TB_TRANSFER_DETAIL_READ])}
             />
           </Route>
 
