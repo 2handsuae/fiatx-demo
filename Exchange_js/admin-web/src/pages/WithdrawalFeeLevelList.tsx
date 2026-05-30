@@ -24,14 +24,14 @@ import TierEditor, {
 interface AssetOption {
   id: string;
   code: string;
-  assetType: string;
+  type: string;
 }
 
 interface FeeLevelItem {
   id: string;
   levelCode: string;
   name: string;
-  asset: { id: string; code: string; assetType: string };
+  asset: { id: string; code: string; type: string };
   isDefault: boolean;
   tiersJson: string;
   status: string;
@@ -391,7 +391,7 @@ const WithdrawalFeeLevelList = () => {
                   <td className="px-3 py-2">
                     <span
                       className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${
-                        l.asset.assetType === 'CRYPTO'
+                        l.asset.type === 'CRYPTO'
                           ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
                           : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
                       }`}
@@ -490,7 +490,7 @@ const WithdrawalFeeLevelList = () => {
                   <option value="">Select asset…</option>
                   {assets.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.code} ({a.assetType})
+                      {a.code} ({a.type})
                     </option>
                   ))}
                 </select>

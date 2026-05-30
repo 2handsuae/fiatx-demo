@@ -81,7 +81,9 @@ export type PermissionGroup =
   | 'TRANSACTION_LIMIT_READ'
   | 'TRANSACTION_LIMIT_WRITE'
   | 'WITHDRAWAL_ADDRESS_READ'
-  | 'WITHDRAWAL_ADDRESS_WRITE';
+  | 'WITHDRAWAL_ADDRESS_WRITE'
+  | 'WITHDRAWAL_FEE_LEVEL_READ'
+  | 'WITHDRAWAL_FEE_LEVEL_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -767,6 +769,29 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ]),
   route('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling', 'Skip withdrawal address cooling period', [
     'WITHDRAWAL_ADDRESS_WRITE',
+  ]),
+
+  // Withdrawal Fee Levels
+  route('GET', '/admin/withdrawal-fee-levels', 'List withdrawal fee levels', [
+    'WITHDRAWAL_FEE_LEVEL_READ',
+  ]),
+  route('GET', '/admin/withdrawal-fee-levels/:levelCode', 'Get withdrawal fee level detail', [
+    'WITHDRAWAL_FEE_LEVEL_READ',
+  ]),
+  route('POST', '/admin/withdrawal-fee-levels', 'Create withdrawal fee level', [
+    'WITHDRAWAL_FEE_LEVEL_WRITE',
+  ]),
+  route('POST', '/admin/withdrawal-fee-levels/:levelCode/change', 'Submit withdrawal fee level change request', [
+    'WITHDRAWAL_FEE_LEVEL_WRITE',
+  ]),
+  route('GET', '/admin/withdrawal-fee-levels/:levelCode/bindings', 'List withdrawal fee level bindings', [
+    'WITHDRAWAL_FEE_LEVEL_READ',
+  ]),
+  route('POST', '/admin/withdrawal-fee-levels/bindings', 'Bind customer to withdrawal fee level', [
+    'WITHDRAWAL_FEE_LEVEL_WRITE',
+  ]),
+  route('DELETE', '/admin/withdrawal-fee-levels/bindings', 'Unbind customer from withdrawal fee level', [
+    'WITHDRAWAL_FEE_LEVEL_WRITE',
   ]),
 
 ];

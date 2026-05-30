@@ -17,7 +17,7 @@ interface FeeLevelDetail {
   id: string;
   levelCode: string;
   name: string;
-  asset: { id: string; code: string; assetType: string; decimals?: number };
+  asset: { id: string; code: string; type: string; decimals?: number };
   isDefault: boolean;
   tiersJson: string;
   status: string;
@@ -390,7 +390,7 @@ export default function WithdrawalFeeLevelDetail() {
             </div>
             <p className="mt-1 text-[13px] text-adm-t1">{level.name}</p>
             <p className="mt-0.5 font-mono text-[11px] text-adm-t3">
-              Asset: {level.asset.code} ({level.asset.assetType}) · {parsedTiers.length} tier
+              Asset: {level.asset.code} ({level.asset.type}) · {parsedTiers.length} tier
               {parsedTiers.length !== 1 ? 's' : ''}
             </p>
           </section>
@@ -568,7 +568,7 @@ export default function WithdrawalFeeLevelDetail() {
             <SidebarKV label="Status" value={<AdminBadge value={level.status} />} />
             <SidebarKV
               label="Asset"
-              value={`${level.asset.code} (${level.asset.assetType})`}
+              value={`${level.asset.code} (${level.asset.type})`}
             />
             <SidebarKV label="Default" value={level.isDefault ? 'Yes' : 'No'} />
             <SidebarKV label="Config Hash" value={truncateHash(level.configHash)} mono />
