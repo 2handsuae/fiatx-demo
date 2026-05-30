@@ -85,6 +85,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }) {
     this.logger.log(`Payout confirmed for withdrawal ${event.withdrawId}`);
     await this.finalizeWithdrawal(event.withdrawId);
+
+    // L3: Post-Tx Archive — fire-and-forget txHash archival (crypto only)
+    const w = await this.withdrawService.findOneInternal(event.withdrawId);
+    if (w.asset?.type !== 'FIAT' && w.txHash) {
+      this.archivePostKyt(w).catch(err =>
+        this.logger.warn(`Post-KYT archive failed for ${event.withdrawId}: ${(err as Error).message}`),
+      );
+    }
   }
 
   // ── L2: Transaction Screen — Initialize ──
@@ -332,6 +340,20 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     this.logger.log(`Withdrawal ${withdrawId} finalized: TB posted, status SUCCESS`);
+  }
+
+  // ── L3: Post-Tx Archive — fire-and-forget ──
+
+  private async archivePostKyt(withdrawal: {
+    id: string;
+    withdrawNo: string;
+    txHash: string | null;
+  }): Promise<void> {
+    // Stub: when Sumsub KYT is integrated, this becomes a PATCH /kyt/txns/{id}/data/info
+    // to archive the txHash for on-chain tracing.
+    this.logger.log(
+      `Post-KYT archive stub: withdrawal ${withdrawal.withdrawNo} txHash=${withdrawal.txHash}`,
+    );
   }
 
   private decimalToBigint(decimalValue: any, decimals: number): bigint {
