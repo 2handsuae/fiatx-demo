@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { adminIconButtonClass, adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
@@ -58,6 +59,7 @@ const TransferEvidenceList = () => {
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const requestSeqRef = useRef(0);
+  const navigate = useNavigate();
 
   /* ── Data fetching ── */
 
@@ -261,7 +263,8 @@ const TransferEvidenceList = () => {
             {items.map((row) => (
               <tr
                 key={row.tbTransferId}
-                className="border-b border-adm-border transition-colors hover:bg-adm-hover"
+                onClick={() => navigate(`/ledger/transfers/${row.tbTransferId}`)}
+                className="border-b border-adm-border transition-colors hover:bg-adm-hover cursor-pointer"
               >
                 <td className="px-3 py-2">
                   <AdminBadge value={row.sourceType} />
