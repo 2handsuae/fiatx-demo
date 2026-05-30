@@ -416,6 +416,12 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
         {
+          path: '/dashboard/pricing/withdraw-quotes',
+          label: 'Withdraw Quotes',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
+        },
+        {
           path: '/dashboard/pricing/withdrawal-fee-levels',
           label: 'Withdrawal Fee Levels',
           icon: <Layers size={13} />,

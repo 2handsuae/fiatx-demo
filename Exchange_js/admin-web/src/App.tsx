@@ -126,6 +126,8 @@ const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
 const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
 const WithdrawalFeeLevelList = lazy(() => import('./pages/WithdrawalFeeLevelList'));
 const WithdrawalFeeLevelDetail = lazy(() => import('./pages/WithdrawalFeeLevelDetail'));
+const WithdrawQuoteList = lazy(() => import('./pages/WithdrawQuoteList'));
+const WithdrawQuoteDetail = lazy(() => import('./pages/WithdrawQuoteDetail'));
 
 const FullPageMessage = ({
   title,
@@ -300,6 +302,14 @@ function App() {
             <Route
               path="pricing/quotes/:business/:id"
               element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])}
+            />
+            <Route
+              path="pricing/withdraw-quotes"
+              element={withPermission(<WithdrawQuoteList />, [PERMISSIONS.WITHDRAW_QUOTES_READ])}
+            />
+            <Route
+              path="pricing/withdraw-quotes/:id"
+              element={withPermission(<WithdrawQuoteDetail />, [PERMISSIONS.WITHDRAW_QUOTES_DETAIL_READ])}
             />
             <Route
               path="reconciliation/safeguarding-breaks"
