@@ -124,8 +124,6 @@ export class TbManualAccountService {
     let flags = 0;
     if (input.code === TB_ACCOUNT_CODES.CLIENT_CREDIT) {
       flags = AccountFlags.debits_must_not_exceed_credits;
-    } else if (input.code === TB_ACCOUNT_CODES.FEE_RECEIVABLE) {
-      flags = AccountFlags.credits_must_not_exceed_debits;
     }
 
     // 6. Build params and create

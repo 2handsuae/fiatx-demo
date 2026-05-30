@@ -829,7 +829,7 @@ async function seedTbAccountRegistry(prisma: PrismaClient): Promise<void> {
     const systemAccounts = [
       { code: custodyCode, desc: asset.type === 'FIAT' ? 'BANK' : 'CUSTODY' },
       { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
-      { code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, desc: 'FEE_RECEIVABLE', flags: 0x04 },
+      { code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, desc: 'FEE_RECEIVABLE' },
     ];
 
     for (const acct of systemAccounts) {
@@ -858,7 +858,7 @@ async function seedTbAccountRegistry(prisma: PrismaClient): Promise<void> {
             ownerNo: null,
             assetCode: asset.code,
             description: `${acct.desc} for ${asset.code}`,
-            flags: acct.flags ?? 0,
+            flags: (acct as any).flags ?? 0,
           },
         });
       }

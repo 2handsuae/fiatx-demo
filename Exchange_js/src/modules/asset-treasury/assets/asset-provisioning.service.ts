@@ -51,7 +51,6 @@ export class AssetProvisioningService {
         ownerType: 'SYSTEM',
         assetCurrency: asset.currency,
         description: `FEE_RECEIVABLE for ${asset.currency}`,
-        flags: 0x04,
       },
     ];
 
