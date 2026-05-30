@@ -21,6 +21,8 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   PENDING_ACTIVATION:   'pending',
   CANCELLED:            'deleted',
   SUSPENDED:            'failed',
+  USED:                 'info',
+  EXPIRED:              'deleted',
 };
 
 // Note: `active` and `success` intentionally use the same green colour — both represent "positive/live" states.
