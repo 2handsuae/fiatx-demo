@@ -285,12 +285,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
           sourceNo: w.withdrawNo,
           eventCode: 'WITHDRAW_POST_NET',
           debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-          creditCode: String(TB_ACCOUNT_CODES.CUSTODY),
+          creditCode: String(w.asset?.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY),
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
-          memo: 'Chain confirmed: POST net pending transfer',
+          memo: w.asset?.type === 'FIAT'
+            ? 'Bank transfer confirmed: POST net pending transfer'
+            : 'Chain confirmed: POST net pending transfer',
         },
       });
     }
@@ -326,7 +328,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       entityOwnerId: w.ownerId,
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: 'TB pending transfers posted after chain confirmation',
+      reason: w.asset?.type === 'FIAT'
+        ? 'TB pending transfers posted after bank confirmation'
+        : 'TB pending transfers posted after chain confirmation',
       sourcePlatform: 'SYSTEM',
     });
 
