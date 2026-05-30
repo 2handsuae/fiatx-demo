@@ -251,25 +251,6 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Ledger ───────────────────────────────────────────────────
-    {
-      label: 'Ledger',
-      icon: <Library size={12} />,
-      children: [
-        {
-          path: '/ledger/accounts',
-          label: 'Ledger Accounts',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
-        },
-        {
-          path: '/ledger/transfers',
-          label: 'Transfer Evidence',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
-        },
-      ],
-    },
     // ─── Treasury ─────────────────────────────────────────────────
     {
       label: 'Treasury',
@@ -280,6 +261,12 @@ const DashboardLayout = () => {
           label: 'Assets',
           icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
+        },
+        {
+          path: '/dashboard/system/transaction-limits',
+          label: 'Transaction Limits',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
         },
         {
           path: '/dashboard/treasury/custodian-wallets',
@@ -305,41 +292,55 @@ const DashboardLayout = () => {
           icon: <LogOut size={13} />,
           requiredPermissions: [PERMISSIONS.PAYOUTS_READ],
         },
+      ],
+    },
+    // ─── Ledger ───────────────────────────────────────────────────
+    {
+      label: 'Ledger',
+      icon: <Library size={12} />,
+      children: [
         {
-          path: '/dashboard/treasury/internal-funds',
-          label: 'Internal Funds',
-          icon: <Activity size={13} />,
-          requiredPermissions: [PERMISSIONS.INTERNAL_FUNDS_READ],
+          path: '/ledger/accounts',
+          label: 'Ledger Accounts',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
         },
         {
-          path: '/dashboard/treasury/pool-settlement-batches',
-          label: 'Pool Settlement Batches',
+          path: '/ledger/transfers',
+          label: 'Transfer Evidence',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
+        },
+      ],
+    },
+    // ─── Pricing ──────────────────────────────────────────────────
+    {
+      label: 'Pricing',
+      icon: <Coins size={12} />,
+      children: [
+        {
+          path: '/dashboard/pricing/withdrawal-fee-levels',
+          label: 'Withdrawal Fee Levels',
           icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.POOL_SETTLEMENT_BATCH_READ],
+          requiredPermissions: [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ],
         },
         {
-          path: '/dashboard/treasury/fee-occurrences',
-          label: 'Fee Occurrences',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.FEE_OCCURRENCES_READ],
+          path: '/dashboard/pricing/withdraw-quotes',
+          label: 'Withdraw Quotes',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
         },
         {
-          path: '/dashboard/treasury/reimbursement-obligations',
-          label: 'Reimbursement Obligations',
-          icon: <Wallet size={13} />,
-          requiredPermissions: [PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ],
-        },
-        {
-          path: '/dashboard/treasury/deposit-wallet-monitor',
-          label: 'Deposit Wallet Monitor',
+          path: '/dashboard/pricing/swap-config',
+          label: 'Swap Config',
           icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE],
+          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
         },
         {
-          path: '/dashboard/system/transaction-limits',
-          label: 'Transaction Limits',
-          icon: <Gauge size={13} />,
-          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
+          path: '/dashboard/pricing/quotes',
+          label: 'Quote Center',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
       ],
     },
@@ -383,49 +384,6 @@ const DashboardLayout = () => {
           label: 'Swap Outstandings',
           icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
-        },
-      ],
-    },
-    // ─── Pricing ──────────────────────────────────────────────────
-    {
-      label: 'Pricing',
-      icon: <Coins size={12} />,
-      children: [
-        {
-          path: '/dashboard/pricing/policies',
-          label: 'Pricing Policies',
-          icon: <Tag size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
-        },
-        {
-          path: '/dashboard/pricing/swap-config',
-          label: 'Swap Config',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
-        },
-        {
-          path: '/dashboard/pricing/withdraw-config',
-          label: 'Withdrawal Config',
-          icon: <Upload size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_WITHDRAW_CONFIG_READ],
-        },
-        {
-          path: '/dashboard/pricing/quotes',
-          label: 'Quote Center',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
-        },
-        {
-          path: '/dashboard/pricing/withdraw-quotes',
-          label: 'Withdraw Quotes',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
-        },
-        {
-          path: '/dashboard/pricing/withdrawal-fee-levels',
-          label: 'Withdrawal Fee Levels',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ],
         },
       ],
     },
