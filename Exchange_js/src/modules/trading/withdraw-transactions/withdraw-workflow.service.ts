@@ -48,7 +48,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     traceId: string;
   }) {
     this.logger.log(`Orchestrating new withdrawal ${event.withdrawId}`);
-    await this.initializeComplianceGates(event.withdrawId);
+    await this.initializeTransactionScreen(event.withdrawId);
   }
 
   @OnEvent(DomainEventNames.WITHDRAWAL_KYT_UPDATED)
@@ -61,7 +61,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     if (event.phase === 1) {
       // Pre-broadcast KYT — check if pre-KYT + TR both pass → move to payout
-      await this.checkAllGatesPass(event.withdrawId);
+      await this.checkScreenPass(event.withdrawId);
     } else if (event.phase === 2) {
       // Post-broadcast KYT — payout already in flight, just audit
       await this.handlePostBroadcastKyt(event.withdrawId, event.kytStatus);
@@ -74,7 +74,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     travelRuleStatus: string;
   }) {
     this.logger.log(`Travel Rule updated for withdrawal ${event.withdrawId}: status=${event.travelRuleStatus}`);
-    await this.checkAllGatesPass(event.withdrawId);
+    await this.checkScreenPass(event.withdrawId);
   }
 
   @OnEvent(DomainEventNames.PAYOUT_STATUS_CONFIRMED)
@@ -87,9 +87,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.finalizeWithdrawal(event.withdrawId);
   }
 
-  // ── Gate 1 + Gate 2: Initialize Compliance Gates ──
+  // ── L2: Transaction Screen — Initialize ──
 
-  private async initializeComplianceGates(withdrawId: string) {
+  private async initializeTransactionScreen(withdrawId: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
     const isFiat = w.asset?.type === 'FIAT';
 
@@ -105,12 +105,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     // Re-check gates — for fiat this will immediately pass and move to payout phase
-    await this.checkAllGatesPass(withdrawId);
+    await this.checkScreenPass(withdrawId);
   }
 
-  // ── Gate Convergence Check ──
+  // ── L2: Transaction Screen — Convergence Check ──
 
-  private async checkAllGatesPass(withdrawId: string) {
+  private async checkScreenPass(withdrawId: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
 
     if (w.status !== WithdrawTransactionStatus.PENDING_COMPLIANCE) {
