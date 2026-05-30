@@ -200,7 +200,7 @@ export const PERMISSIONS = {
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',
   TB_TRANSFERS_READ: 'api.get.admin_tb_transfers',
-  TB_TRANSFER_DETAIL_READ: 'api.get.admin_tb_transfers_*',
+  TB_TRANSFER_DETAIL_READ: 'api.get.admin_tb_transfers_tbtransferid',
 
   TRANSACTION_LIMIT_POLICIES_READ: 'api.get.admin_transaction_limit_policies',
   TRANSACTION_LIMIT_POLICIES_WRITE: 'api.post.admin_transaction_limit_policies',
