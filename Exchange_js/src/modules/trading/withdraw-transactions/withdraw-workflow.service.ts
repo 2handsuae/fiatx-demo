@@ -127,10 +127,22 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Gate 1 + Gate 2: Initialize Compliance Gates ──
 
   private async initializeComplianceGates(withdrawId: string) {
-    await this.withdrawService.updateKytStatus(withdrawId, 'PENDING', null, null, 1);
-    await this.withdrawService.updateTravelRuleStatus(withdrawId, 'PENDING', null);
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    const isFiat = w.asset?.type === 'FIAT';
 
-    this.logger.log(`Compliance gates initialized for withdrawal ${withdrawId} — awaiting KYT Phase 1 + Travel Rule`);
+    if (isFiat) {
+      // Fiat withdrawals skip KYT and Travel Rule — auto-pass both gates
+      await this.withdrawService.updateKytStatus(withdrawId, 'PASSED', null, null, 1);
+      await this.withdrawService.updateTravelRuleStatus(withdrawId, 'NOT_REQUIRED', null);
+      this.logger.log(`Compliance gates auto-passed for fiat withdrawal ${withdrawId}`);
+    } else {
+      await this.withdrawService.updateKytStatus(withdrawId, 'PENDING', null, null, 1);
+      await this.withdrawService.updateTravelRuleStatus(withdrawId, 'PENDING', null);
+      this.logger.log(`Compliance gates initialized for withdrawal ${withdrawId} — awaiting KYT Phase 1 + Travel Rule`);
+    }
+
+    // Re-check gates — for fiat this will immediately pass and move to payout phase
+    await this.checkAllGatesPass(withdrawId);
   }
 
   // ── Gate Convergence Check ──
