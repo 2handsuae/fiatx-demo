@@ -20,10 +20,6 @@ import { PayoutAction } from '../../asset-treasury/payouts/dto/payout.dto';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
-  private static readonly ABNORMAL_COMPLIANCE = new Set([
-    'FROZEN', 'SUSPENDED', 'BLOCKED', 'REJECTED',
-  ]);
-
   private readonly logger = new Logger(WithdrawWorkflowService.name);
 
   constructor(
@@ -52,10 +48,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     traceId: string;
   }) {
     this.logger.log(`Orchestrating new withdrawal ${event.withdrawId}`);
-
-    const gate0Pass = await this.runGate0(event.withdrawId);
-    if (!gate0Pass) return;
-
     await this.initializeComplianceGates(event.withdrawId);
   }
 
@@ -93,35 +85,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }) {
     this.logger.log(`Payout confirmed for withdrawal ${event.withdrawId}`);
     await this.finalizeWithdrawal(event.withdrawId);
-  }
-
-  // ── Gate 0: Customer Compliance Status ──
-
-  private async runGate0(withdrawId: string): Promise<boolean> {
-    const complianceStatus = await this.withdrawService.getOwnerComplianceStatus(withdrawId);
-
-    if (WithdrawWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) {
-      this.logger.warn(`Gate 0 FAIL: withdrawal ${withdrawId} — customer compliance: ${complianceStatus}`);
-      return false;
-    }
-
-    this.logger.log(`Gate 0 PASS: withdrawal ${withdrawId}`);
-
-    const w = await this.withdrawService.findOneInternal(withdrawId);
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WITHDRAW_GATE0_PASSED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
-      traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Customer compliance status: ${complianceStatus}`,
-      sourcePlatform: 'SYSTEM',
-    });
-
-    return true;
   }
 
   // ── Gate 1 + Gate 2: Initialize Compliance Gates ──
