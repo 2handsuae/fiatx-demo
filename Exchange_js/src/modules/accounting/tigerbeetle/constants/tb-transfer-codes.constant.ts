@@ -15,6 +15,13 @@ export const TB_TRANSFER_CODES = {
   // Withdrawal: void — cancel/fail (14–15)
   WITHDRAW_CREDIT_TO_CUSTODY_VOID: 14,
   WITHDRAW_CREDIT_TO_FEE_VOID: 15,
+
+  // Fiat withdrawal: pending lock (20)
+  WITHDRAW_CREDIT_TO_BANK_PENDING: 20,
+  // Fiat withdrawal: post — bank confirmed (21)
+  WITHDRAW_CREDIT_TO_BANK_POST: 21,
+  // Fiat withdrawal: void — cancel/fail (22)
+  WITHDRAW_CREDIT_TO_BANK_VOID: 22,
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
