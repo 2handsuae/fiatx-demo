@@ -105,7 +105,7 @@ const WithdrawalFeeLevelList = () => {
   const fetchAssets = async () => {
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/assets?status=ACTIVE&take=200`,
+        `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE&take=200`,
       );
       if (res.ok) {
         const data = (await res.json()) as { items: AssetOption[] };
@@ -437,7 +437,7 @@ const WithdrawalFeeLevelList = () => {
       {/* ════ Create Level Modal ════ */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+          <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-xl border border-adm-border bg-adm-panel shadow-xl">
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <p className="font-mono text-[11px] font-semibold text-adm-t1">
