@@ -18,6 +18,7 @@ describe('TbAdminController', () => {
     };
     evidenceService = {
       findAll: jest.fn(),
+      findOne: jest.fn(),
     };
     tbManualAccountService = {
       manualCreate: jest.fn(),
@@ -82,6 +83,42 @@ describe('TbAdminController', () => {
       registryService.findByTbAccountId.mockResolvedValue(null);
 
       await expect(controller.findOneAccount('nonexistent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findOneTransfer', () => {
+    const mockEvidence = {
+      tbTransferId: 'aabb00112233',
+      sourceType: 'DEPOSIT',
+      sourceNo: 'DEP2605120001',
+      eventCode: 'EVT_DEPOSIT_SUCCESS',
+      debitCode: 'L.CLIENT_CREDIT',
+      creditCode: 'A.CUSTODY',
+      amount: '1000.00',
+      assetCode: 'USDT',
+      transferType: 'POSTED',
+      traceId: '550e8400-e29b-41d4-a716-446655440000',
+      actorType: 'SYSTEM',
+      actorId: 'SYSTEM',
+      memo: null,
+      pendingId: null,
+      createdAt: new Date('2026-05-30T10:00:00Z'),
+    };
+
+    it('returns evidence when found', async () => {
+      evidenceService.findOne.mockResolvedValue(mockEvidence);
+
+      const result = await controller.findOneTransfer('aabb00112233');
+
+      expect(result.tbTransferId).toBe('aabb00112233');
+      expect(result.sourceType).toBe('DEPOSIT');
+      expect(evidenceService.findOne).toHaveBeenCalledWith('aabb00112233');
+    });
+
+    it('throws 404 when evidence not found', async () => {
+      evidenceService.findOne.mockResolvedValue(null);
+
+      await expect(controller.findOneTransfer('nonexistent')).rejects.toThrow(NotFoundException);
     });
   });
 });

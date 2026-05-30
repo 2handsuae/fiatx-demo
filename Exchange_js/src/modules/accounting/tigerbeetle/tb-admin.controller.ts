@@ -115,4 +115,16 @@ export class TbAdminController {
     });
   }
 
+  @Get('transfers/:tbTransferId')
+  @ApiOperation({ summary: 'Get a single TB transfer evidence record' })
+  async findOneTransfer(@Param('tbTransferId') tbTransferId: string) {
+    const evidence = await this.tbEvidenceService.findOne(tbTransferId);
+    if (!evidence) {
+      throw new NotFoundException({
+        code: 'TRANSFER_EVIDENCE_NOT_FOUND',
+        message: `Transfer evidence ${tbTransferId} not found`,
+      });
+    }
+    return evidence;
+  }
 }
