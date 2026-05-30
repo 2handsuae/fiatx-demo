@@ -123,6 +123,8 @@ const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList')
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
 const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
+const WithdrawalFeeLevelList = lazy(() => import('./pages/WithdrawalFeeLevelList'));
+const WithdrawalFeeLevelDetail = lazy(() => import('./pages/WithdrawalFeeLevelDetail'));
 
 const FullPageMessage = ({
   title,
@@ -828,6 +830,14 @@ function App() {
             <Route
               path="system/transaction-limits/:policyNo"
               element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])}
+            />
+            <Route
+              path="pricing/withdrawal-fee-levels"
+              element={withPermission(<WithdrawalFeeLevelList />, [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ])}
+            />
+            <Route
+              path="pricing/withdrawal-fee-levels/:levelCode"
+              element={withPermission(<WithdrawalFeeLevelDetail />, [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ])}
             />
             <Route
               path="treasury/withdrawal-addresses"
