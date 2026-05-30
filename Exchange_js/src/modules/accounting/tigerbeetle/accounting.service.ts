@@ -131,6 +131,8 @@ export class AccountingService {
       actorId: params.evidence.actorId,
       memo: params.evidence.memo,
       transferType: 'POSTED',
+      debitTbAccountId: bigintToHex(params.debitAccountId),
+      creditTbAccountId: bigintToHex(params.creditAccountId),
     }, params.tx);
 
     return { tbTransferId: transferId };
@@ -184,6 +186,8 @@ export class AccountingService {
       actorId: params.evidence.actorId,
       memo: params.evidence.memo,
       transferType: 'PENDING',
+      debitTbAccountId: bigintToHex(params.debitAccountId),
+      creditTbAccountId: bigintToHex(params.creditAccountId),
     }, params.tx);
 
     return { tbTransferId: transferId };
@@ -265,6 +269,44 @@ export class AccountingService {
       bigintToHex(voidId),
       params.tx,
     );
+  }
+
+  /**
+   * Best-effort void of a pending transfer — used for compensation when a
+   * Prisma transaction rolls back but TB transfers have already been created.
+   * Skips evidence update (the evidence was rolled back with the Prisma tx).
+   * Returns true if the void succeeded, false otherwise.
+   */
+  async voidPendingTransferBestEffort(pendingTransferId: bigint, amount: bigint): Promise<boolean> {
+    try {
+      const voidId = tbId();
+      const errors = await this.tbService.createTransfers([{
+        id: voidId,
+        debit_account_id: 0n,
+        credit_account_id: 0n,
+        amount,
+        pending_id: pendingTransferId,
+        user_data_128: 0n,
+        user_data_64: 0n,
+        user_data_32: 0,
+        timeout: 0,
+        ledger: 0,
+        code: 0,
+        flags: TransferFlags.void_pending_transfer,
+        timestamp: 0n,
+      }]);
+      const realErrors = errors.filter((e: any) =>
+        e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+      );
+      if (realErrors.length > 0) {
+        this.logger.error(`Best-effort void failed for ${pendingTransferId}: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      this.logger.error(`Best-effort void threw for ${pendingTransferId}: ${err.message}`);
+      return false;
+    }
   }
 
   // ── Balance Queries ──

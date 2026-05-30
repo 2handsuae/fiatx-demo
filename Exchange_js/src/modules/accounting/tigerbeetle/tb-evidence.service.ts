@@ -18,6 +18,8 @@ interface WriteEvidenceParams {
   memo?: string;
   pendingId?: string;
   transferType?: string;
+  debitTbAccountId?: string;
+  creditTbAccountId?: string;
 }
 
 @Injectable()
@@ -45,6 +47,8 @@ export class TbEvidenceService {
           memo: params.memo ?? null,
           pendingId: params.pendingId ?? null,
           transferType: params.transferType ?? 'POSTED',
+          debitTbAccountId: params.debitTbAccountId ?? null,
+          creditTbAccountId: params.creditTbAccountId ?? null,
         },
       });
     } catch (error: any) {

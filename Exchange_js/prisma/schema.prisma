@@ -2596,6 +2596,8 @@ model TbTransferEvidence {
   eventCode    String                   // From events.manifest
   debitCode    String                   // Human-readable COA, e.g. 'L.CLIENT_CREDIT'
   creditCode   String                   // e.g. 'A.CUSTODY'
+  debitTbAccountId  String?             // TB account hex ID for debit side
+  creditTbAccountId String?             // TB account hex ID for credit side
   amount       Decimal
   assetCode    String
   traceId      String

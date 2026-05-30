@@ -28,6 +28,8 @@ interface TransferEvidenceData {
   actorId: string;
   memo: string | null;
   pendingId: string | null;
+  debitTbAccountId: string | null;
+  creditTbAccountId: string | null;
   createdAt: string;
 }
 
@@ -238,6 +240,26 @@ export default function TransferEvidenceDetail() {
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField label="Debit" value={detail.debitCode} mono />
               <InfoField label="Credit" value={detail.creditCode} mono />
+              <InfoField
+                label="Debit Account"
+                value={
+                  detail.debitTbAccountId ? (
+                    <Link to={`/ledger/accounts/${detail.debitTbAccountId}`} className="font-mono text-[11px] text-adm-amber hover:underline">
+                      {detail.debitTbAccountId}
+                    </Link>
+                  ) : '—'
+                }
+              />
+              <InfoField
+                label="Credit Account"
+                value={
+                  detail.creditTbAccountId ? (
+                    <Link to={`/ledger/accounts/${detail.creditTbAccountId}`} className="font-mono text-[11px] text-adm-amber hover:underline">
+                      {detail.creditTbAccountId}
+                    </Link>
+                  ) : '—'
+                }
+              />
               <InfoField label="Amount" value={detail.amount} mono />
               <InfoField label="Asset" value={detail.assetCode} />
             </div>
