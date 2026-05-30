@@ -170,7 +170,7 @@ Same convergence logic, new name. No functional change.
 
 ### 4. Delete `runGate0()` method and related constants
 
-Remove the method body, the `ABNORMAL_COMPLIANCE` set (if only used by Gate 0), and any audit log entries specific to Gate 0.
+Remove the method body and the `ABNORMAL_COMPLIANCE` set from `WithdrawWorkflowService` (it is only used by `runGate0`; the deposit service has its own independent copy). Also remove any audit log entries specific to Gate 0.
 
 ### 5. Add `archivePostKyt()` to payout confirmation handler
 
