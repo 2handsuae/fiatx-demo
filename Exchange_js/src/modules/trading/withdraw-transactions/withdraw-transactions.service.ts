@@ -513,195 +513,229 @@ export class WithdrawTransactionsService {
       throw new BadRequestException('quoteId is required for withdrawal');
     }
 
-    const created = await (this.prisma as any).$transaction(
-      async (tx: any) => {
-        // V2 balance check removed — migrated to TigerBeetle
-        // TODO: re-wire balance guard via TigerBeetle adapter
+    // Track TB pending transfer IDs in outer scope for compensation on failure.
+    // If the Prisma transaction rolls back, we must void any TB transfers that
+    // were already created (TB is a separate system, not part of the SQL tx).
+    let tbPendingNetBigint: bigint | undefined;
+    let tbPendingFeeBigint: bigint | undefined;
+    let netBigintForVoid: bigint = 0n;
+    let feeBigintForVoid: bigint = 0n;
 
-        let quoteFeeAmount = new Prisma.Decimal(0);
-        let consumedQuoteId: string | null = null;
-        const now = new Date();
-        const activeQuote = await this.withdrawQuoteService.getActiveQuoteOrThrow(
-          quoteId,
-          ownerType,
-          userId,
-          now,
-          tx,
-        );
+    let created: any;
+    try {
+      created = await (this.prisma as any).$transaction(
+        async (tx: any) => {
 
-        if (activeQuote.assetId !== assetId) {
-          throw new BadRequestException('Withdrawal quote asset mismatch');
-        }
-        if (!new Prisma.Decimal(activeQuote.amount).eq(amountDecimal)) {
-          throw new BadRequestException('Withdrawal quote amount mismatch');
-        }
-
-        const totals = activeQuote.totalsJson
-          ? (JSON.parse(activeQuote.totalsJson) as Record<string, string>)
-          : {};
-        quoteFeeAmount = new Prisma.Decimal(totals[asset.currency] || '0');
-        consumedQuoteId = activeQuote.id;
-        await this.withdrawQuoteService.consumeQuote(
-          quoteId,
-          ownerType,
-          userId,
-          amountDecimal,
-          tx,
-        );
-
-        const netAmount = amountDecimal.sub(quoteFeeAmount);
-        if (netAmount.lt(0)) {
-          throw new BadRequestException('Net amount must not be negative');
-        }
-
-        const traceId = randomUUID();
-
-        const isCryptoWithdraw = this.deriveWithdrawType(asset.type) === 'crypto';
-
-        const record = await tx.withdrawTransaction.create({
-          data: {
-            withdrawNo,
+          let quoteFeeAmount = new Prisma.Decimal(0);
+          let consumedQuoteId: string | null = null;
+          const now = new Date();
+          const activeQuote = await this.withdrawQuoteService.getActiveQuoteOrThrow(
+            quoteId,
             ownerType,
-            ownerId: userId,
-            ownerNo,
-            status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-            assetId,
-            amount: amountDecimal,
-            netAmount,
-            feeAmount: quoteFeeAmount,
-            toWalletId,
-            toAddress,
-            toIban,
-            preKytStatus: isCryptoWithdraw ? 'PENDING' : '',
-            kytStatus: '',
-            travelRuleRequired: isCryptoWithdraw,
-            travelRuleStatus: isCryptoWithdraw ? 'PENDING' : '',
-            complianceStatus: 'PENDING',
-            traceId,
-            parentType,
-            parentId,
-            pricingQuoteId: consumedQuoteId,
-            statusHistory: JSON.stringify([{
-              status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-              timestamp: new Date().toISOString(),
-              operator: 'SYSTEM',
-              note: 'Withdrawal created and moved to compliance pending'
-            }]),
-          },
-        });
-
-        // TB: create 2 pending transfers — lock customer balance
-        const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
-        if (ledger && ownerType === 'CUSTOMER') {
-          const clientCreditId = await this.accountingService.resolveTbAccountId({
-            code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
-            ledger,
-            ownerType: 'CUSTOMER',
-            ownerUuid: userId,
-          });
-          const custodyId = await this.accountingService.resolveTbAccountId({
-            code: TB_ACCOUNT_CODES.CUSTODY,
-            ledger,
-            ownerType: 'SYSTEM',
-          });
-
-          const netBigint = this.decimalToBigint(netAmount, asset.decimals);
-          const feeBigint = this.decimalToBigint(quoteFeeAmount, asset.decimals);
-
-          const evidenceBase = {
-            sourceType: 'WITHDRAWAL',
-            sourceNo: withdrawNo,
-            debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-            assetCurrency: asset.currency,
-            traceId,
-            actorType: ownerType,
-            actorId: userId,
-          };
-
-          // Pending #1: net amount CLIENT_CREDIT → CUSTODY
-          const { tbTransferId: pendingNetId } = await this.accountingService.executePendingTransfer({
-            debitAccountId: clientCreditId,
-            creditAccountId: custodyId,
-            amount: netBigint,
-            ledger,
-            code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_CUSTODY_PENDING,
-            timeout: 0,
-            evidence: {
-              ...evidenceBase,
-              eventCode: 'WITHDRAW_LOCK_NET',
-              creditCode: String(TB_ACCOUNT_CODES.CUSTODY),
-              memo: 'Withdrawal pending lock: net amount',
-            },
+            userId,
+            now,
             tx,
+          );
+
+          if (activeQuote.assetId !== assetId) {
+            throw new BadRequestException('Withdrawal quote asset mismatch');
+          }
+          if (!new Prisma.Decimal(activeQuote.amount).eq(amountDecimal)) {
+            throw new BadRequestException('Withdrawal quote amount mismatch');
+          }
+
+          const totals = activeQuote.totalsJson
+            ? (JSON.parse(activeQuote.totalsJson) as Record<string, string>)
+            : {};
+          quoteFeeAmount = new Prisma.Decimal(totals[asset.currency] || '0');
+          consumedQuoteId = activeQuote.id;
+          await this.withdrawQuoteService.consumeQuote(
+            quoteId,
+            ownerType,
+            userId,
+            amountDecimal,
+            tx,
+          );
+
+          const netAmount = amountDecimal.sub(quoteFeeAmount);
+          if (netAmount.lt(0)) {
+            throw new BadRequestException('Net amount must not be negative');
+          }
+
+          const traceId = randomUUID();
+
+          const isCryptoWithdraw = this.deriveWithdrawType(asset.type) === 'crypto';
+
+          const record = await tx.withdrawTransaction.create({
+            data: {
+              withdrawNo,
+              ownerType,
+              ownerId: userId,
+              ownerNo,
+              status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+              assetId,
+              amount: amountDecimal,
+              netAmount,
+              feeAmount: quoteFeeAmount,
+              toWalletId,
+              toAddress,
+              toIban,
+              preKytStatus: isCryptoWithdraw ? 'PENDING' : '',
+              kytStatus: '',
+              travelRuleRequired: isCryptoWithdraw,
+              travelRuleStatus: isCryptoWithdraw ? 'PENDING' : '',
+              complianceStatus: 'PENDING',
+              traceId,
+              parentType,
+              parentId,
+              pricingQuoteId: consumedQuoteId,
+              statusHistory: JSON.stringify([{
+                status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+                timestamp: new Date().toISOString(),
+                operator: 'SYSTEM',
+                note: 'Withdrawal created and moved to compliance pending'
+              }]),
+            },
           });
 
-          // Pending #2: fee amount CLIENT_CREDIT → FEE_RECEIVABLE
-          let pendingFeeId: bigint | undefined;
-          if (feeBigint > 0n) {
-            const feeReceivableId = await this.accountingService.resolveTbAccountId({
-              code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
+          // TB: create 2 pending transfers — lock customer balance
+          const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
+          if (ledger && ownerType === 'CUSTOMER') {
+            const clientCreditId = await this.accountingService.resolveTbAccountId({
+              code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+              ledger,
+              ownerType: 'CUSTOMER',
+              ownerUuid: userId,
+            });
+            const netTargetCode = isCryptoWithdraw ? TB_ACCOUNT_CODES.CUSTODY : TB_ACCOUNT_CODES.BANK;
+            const netTargetId = await this.accountingService.resolveTbAccountId({
+              code: netTargetCode,
               ledger,
               ownerType: 'SYSTEM',
             });
 
-            const result = await this.accountingService.executePendingTransfer({
+            const netBigint = this.decimalToBigint(netAmount, asset.decimals);
+            const feeBigint = this.decimalToBigint(quoteFeeAmount, asset.decimals);
+
+            const evidenceBase = {
+              sourceType: 'WITHDRAWAL',
+              sourceNo: withdrawNo,
+              debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
+              assetCurrency: asset.currency,
+              traceId,
+              actorType: ownerType,
+              actorId: userId,
+            };
+
+            // Pending #1: net amount CLIENT_CREDIT → CUSTODY (crypto) or BANK (fiat)
+            const { tbTransferId: pendingNetId } = await this.accountingService.executePendingTransfer({
               debitAccountId: clientCreditId,
-              creditAccountId: feeReceivableId,
-              amount: feeBigint,
+              creditAccountId: netTargetId,
+              amount: netBigint,
               ledger,
-              code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_FEE_PENDING,
+              code: isCryptoWithdraw
+                ? TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_CUSTODY_PENDING
+                : TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_BANK_PENDING,
               timeout: 0,
               evidence: {
                 ...evidenceBase,
-                eventCode: 'WITHDRAW_LOCK_FEE',
-                creditCode: String(TB_ACCOUNT_CODES.FEE_RECEIVABLE),
-                memo: 'Withdrawal pending lock: fee amount',
+                eventCode: 'WITHDRAW_LOCK_NET',
+                creditCode: String(netTargetCode),
+                memo: 'Withdrawal pending lock: net amount',
               },
               tx,
             });
-            pendingFeeId = result.tbTransferId;
+            tbPendingNetBigint = pendingNetId;
+            netBigintForVoid = netBigint;
+
+            // Pending #2: fee amount CLIENT_CREDIT → FEE_RECEIVABLE
+            let pendingFeeId: bigint | undefined;
+            if (feeBigint > 0n) {
+              const feeReceivableId = await this.accountingService.resolveTbAccountId({
+                code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
+                ledger,
+                ownerType: 'SYSTEM',
+              });
+
+              const result = await this.accountingService.executePendingTransfer({
+                debitAccountId: clientCreditId,
+                creditAccountId: feeReceivableId,
+                amount: feeBigint,
+                ledger,
+                code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_FEE_PENDING,
+                timeout: 0,
+                evidence: {
+                  ...evidenceBase,
+                  eventCode: 'WITHDRAW_LOCK_FEE',
+                  creditCode: String(TB_ACCOUNT_CODES.FEE_RECEIVABLE),
+                  memo: 'Withdrawal pending lock: fee amount',
+                },
+                tx,
+              });
+              pendingFeeId = result.tbTransferId;
+              tbPendingFeeBigint = pendingFeeId;
+              feeBigintForVoid = feeBigint;
+            }
+
+            // Store pending transfer IDs on the record
+            await tx.withdrawTransaction.update({
+              where: { id: record.id },
+              data: {
+                tbPendingNetId: bigintToHex(pendingNetId),
+                tbPendingFeeId: pendingFeeId ? bigintToHex(pendingFeeId) : null,
+              },
+            });
           }
 
-          // Store pending transfer IDs on the record
-          await tx.withdrawTransaction.update({
-            where: { id: record.id },
-            data: {
-              tbPendingNetId: bigintToHex(pendingNetId),
-              tbPendingFeeId: pendingFeeId ? bigintToHex(pendingFeeId) : null,
+          await this.auditLogsService.recordByActor(
+            {
+              action: AuditActions.WITHDRAW_REQUESTED,
+              entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+              entityId: record.id,
+              entityNo: record.withdrawNo,
+              entityOwnerType: record.ownerType,
+              entityOwnerId: record.ownerId,
+              traceId,
+              workflowType: AuditWorkflowTypes.WITHDRAW,
+              reason: 'Customer initiated withdrawal',
+              sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
             },
-          });
+            {
+              actorType: ownerType,
+              actorId: userId,
+              actorRole: ownerType,
+            },
+            tx,
+          );
+
+          return record;
+        },
+        {
+          maxWait: 5000,
+          timeout: 20000,
+        },
+      );
+    } catch (err) {
+      // Compensate: void any orphaned TB pending transfers that survived
+      // the Prisma rollback. TB is a separate system so its writes persist.
+      if (tbPendingNetBigint) {
+        const voided = await this.accountingService.voidPendingTransferBestEffort(tbPendingNetBigint, netBigintForVoid);
+        if (voided) {
+          this.logger.warn(`Voided orphaned TB net pending transfer ${tbPendingNetBigint} after Prisma rollback`);
+        } else {
+          this.logger.error(`CRITICAL: Failed to void orphaned TB net pending transfer ${tbPendingNetBigint} — funds may be stuck`);
         }
-
-        await this.auditLogsService.recordByActor(
-          {
-            action: AuditActions.WITHDRAW_REQUESTED,
-            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-            entityId: record.id,
-            entityNo: record.withdrawNo,
-            entityOwnerType: record.ownerType,
-            entityOwnerId: record.ownerId,
-            traceId,
-            workflowType: AuditWorkflowTypes.WITHDRAW,
-            reason: 'Customer initiated withdrawal',
-            sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
-          },
-          {
-            actorType: ownerType,
-            actorId: userId,
-            actorRole: ownerType,
-          },
-          tx,
-        );
-
-        // V2 accounting removed — migrated to TigerBeetle
-
-        return record;
-      },
-      {
-        maxWait: 5000,
-        timeout: 20000,
-      },
-    );
+      }
+      if (tbPendingFeeBigint) {
+        const voided = await this.accountingService.voidPendingTransferBestEffort(tbPendingFeeBigint, feeBigintForVoid);
+        if (voided) {
+          this.logger.warn(`Voided orphaned TB fee pending transfer ${tbPendingFeeBigint} after Prisma rollback`);
+        } else {
+          this.logger.error(`CRITICAL: Failed to void orphaned TB fee pending transfer ${tbPendingFeeBigint} — funds may be stuck`);
+        }
+      }
+      throw err;
+    }
 
     this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_CREATED, {
       withdrawId: created.id,
@@ -713,10 +747,6 @@ export class WithdrawTransactionsService {
       amount: created.amount.toString(),
       traceId: created.traceId,
     });
-
-    // V5: compliance gate logic moved to WithdrawWorkflowService
-    // await this.transactionComplianceService.ensureWithdrawPreKytCaseOnCreate(created.id);
-    // await this.transactionComplianceService.initializeWithdrawFinalDecisionRecord(created.id);
 
     return {
       ...created,
