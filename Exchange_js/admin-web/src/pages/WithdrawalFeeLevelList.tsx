@@ -265,7 +265,7 @@ const WithdrawalFeeLevelList = () => {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ─── Zone 1: Title ─── */}
-      <PageTitleBar title="Withdrawal Fee Levels" meta={`${total} levels`}>
+      <PageTitleBar title="Withdrawal Fee Levels" meta={`${filters.defaultOnly ? items.length : total} levels`}>
         <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
           <Plus size={13} />
           Create Level
@@ -421,14 +421,17 @@ const WithdrawalFeeLevelList = () => {
       {/* ─── Zone 4: Footer ─── */}
       <div className="flex shrink-0 items-center justify-between border-t border-adm-border px-4 py-2 text-[10px] text-adm-t3">
         <span>
-          Showing {items.length} / {total} levels
+          Showing {items.length} / {filters.defaultOnly ? items.length : total} levels
+          {filters.defaultOnly ? ' (default only)' : ''}
         </span>
-        <Pagination
-          currentPage={currentPage}
-          totalItems={total}
-          pageSize={PAGE_SIZE}
-          onPageChange={(p: number) => void fetchItems(p, filters)}
-        />
+        {!filters.defaultOnly && (
+          <Pagination
+            currentPage={currentPage}
+            totalItems={total}
+            pageSize={PAGE_SIZE}
+            onPageChange={(p: number) => void fetchItems(p, filters)}
+          />
+        )}
       </div>
 
       {/* ════ Create Level Modal ════ */}
