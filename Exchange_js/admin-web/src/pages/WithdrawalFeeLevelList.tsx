@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw, X } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -436,13 +436,19 @@ const WithdrawalFeeLevelList = () => {
 
       {/* ════ Create Level Modal ════ */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-bg shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl border border-adm-border bg-adm-panel shadow-xl">
             {/* Header */}
-            <div className="sticky top-0 z-10 border-b border-adm-border bg-adm-bg px-5 py-3">
-              <h2 className="font-mono text-sm font-semibold text-adm-t1">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">
                 Create Withdrawal Fee Level
-              </h2>
+              </p>
+              <button
+                onClick={closeCreateModal}
+                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
+              >
+                <X size={15} />
+              </button>
             </div>
             {/* Body */}
             <div className="space-y-3 px-5 py-4">
@@ -457,7 +463,7 @@ const WithdrawalFeeLevelList = () => {
                   Level Code
                 </label>
                 <input
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1 uppercase"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors uppercase"
                   value={createForm.levelCode}
                   onChange={(e) =>
                     setCreateForm((f) => ({
@@ -474,7 +480,7 @@ const WithdrawalFeeLevelList = () => {
                   Name
                 </label>
                 <input
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
                   value={createForm.name}
                   onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder="e.g. Standard USDT"
@@ -486,7 +492,7 @@ const WithdrawalFeeLevelList = () => {
                   Asset
                 </label>
                 <select
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors"
                   value={createForm.assetId}
                   onChange={(e) => setCreateForm((f) => ({ ...f, assetId: e.target.value }))}
                 >
@@ -528,8 +534,8 @@ const WithdrawalFeeLevelList = () => {
                   Reason
                 </label>
                 <textarea
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1"
-                  rows={2}
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[10px] text-adm-t2 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none resize-none transition-colors"
+                  rows={3}
                   value={createForm.reason}
                   onChange={(e) => setCreateForm((f) => ({ ...f, reason: e.target.value }))}
                   placeholder="Why is this level needed?"
@@ -537,7 +543,7 @@ const WithdrawalFeeLevelList = () => {
               </div>
             </div>
             {/* Footer */}
-            <div className="sticky bottom-0 flex justify-end gap-2 border-t border-adm-border bg-adm-bg px-5 py-3">
+            <div className="sticky bottom-0 flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
               <button onClick={closeCreateModal} className={adminButtonClass('modalCancel')}>
                 Cancel
               </button>
@@ -550,7 +556,7 @@ const WithdrawalFeeLevelList = () => {
                   !createForm.assetId ||
                   !createForm.reason.trim()
                 }
-                className={adminButtonClass('workflowPrimary')}
+                className={adminButtonClass('modalConfirm')}
               >
                 {createLoading ? 'Submitting…' : 'Submit for Approval'}
               </button>
