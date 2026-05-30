@@ -292,6 +292,36 @@ const DashboardLayout = () => {
           icon: <LogOut size={13} />,
           requiredPermissions: [PERMISSIONS.PAYOUTS_READ],
         },
+        {
+          path: '/dashboard/treasury/internal-funds',
+          label: 'Internal Funds',
+          icon: <Activity size={13} />,
+          requiredPermissions: [PERMISSIONS.INTERNAL_FUNDS_READ],
+        },
+        {
+          path: '/dashboard/treasury/pool-settlement-batches',
+          label: 'Pool Settlement Batches',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.POOL_SETTLEMENT_BATCH_READ],
+        },
+        {
+          path: '/dashboard/treasury/fee-occurrences',
+          label: 'Fee Occurrences',
+          icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.FEE_OCCURRENCES_READ],
+        },
+        {
+          path: '/dashboard/treasury/reimbursement-obligations',
+          label: 'Reimbursement Obligations',
+          icon: <Wallet size={13} />,
+          requiredPermissions: [PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ],
+        },
+        {
+          path: '/dashboard/treasury/deposit-wallet-monitor',
+          label: 'Deposit Wallet Monitor',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE],
+        },
       ],
     },
     // ─── Ledger ───────────────────────────────────────────────────
