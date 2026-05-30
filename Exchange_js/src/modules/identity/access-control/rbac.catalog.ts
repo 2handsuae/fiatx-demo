@@ -579,6 +579,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['ACCOUNTING_CONFIG_READ']),
   route('POST', '/admin/tb/accounts', 'Create manual TB account', ['ACCOUNTING_CONFIG_WRITE']),
   route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['ACCOUNTING_CONFIG_READ']),
 
   // Assets
   route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),
