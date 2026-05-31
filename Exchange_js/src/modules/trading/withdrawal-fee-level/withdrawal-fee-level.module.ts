@@ -12,10 +12,12 @@ import { WithdrawalFeeLevelChangeWorkflowService } from './withdrawal-fee-level-
 import { WithdrawalFeeLevelBindingWorkflowService } from './withdrawal-fee-level-binding-workflow.service';
 import { WithdrawQuoteService } from './withdraw-quote.service';
 import { WithdrawalFeeLevelController } from './withdrawal-fee-level.controller';
+import { WithdrawQuoteCustomerController } from './withdraw-quote-customer.controller';
+import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 
 @Module({
-  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule)],
-  controllers: [WithdrawalFeeLevelController],
+  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule), forwardRef(() => OnboardingModule)],
+  controllers: [WithdrawalFeeLevelController, WithdrawQuoteCustomerController],
   providers: [
     WithdrawalFeeLevelService,
     WithdrawalFeeLevelBindingService,

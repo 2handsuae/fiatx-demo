@@ -62,7 +62,6 @@ import {
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
 
 @Injectable()
@@ -74,7 +73,6 @@ export class PayoutsService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly transactionComplianceService: TransactionComplianceService,
-    private readonly pricingCenterService: PricingCenterService,
     private readonly feeOccurrencesService: FeeOccurrencesService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
@@ -420,31 +418,6 @@ export class PayoutsService {
           this.normalizeOptionalString(item.referenceNo) ||
           `BANK-${item.payoutNo || item.id}`;
         dto.referenceNo = effectiveReferenceNo;
-      }
-
-      const isDispatchStart =
-        (type === PayoutType.CRYPTO && action === PayoutAction.SIGN) ||
-        (type === PayoutType.FIAT && action === PayoutAction.SUBMIT);
-      if (isDispatchStart && item.withdrawId) {
-        await this.pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked({
-          ownerType: 'CUSTOMER',
-          ownerId: item.ownerId || item.withdraw?.ownerId || 'UNKNOWN_OWNER',
-          ownerNo: item.withdraw?.ownerNo || null,
-          assetId: item.assetId,
-          entityType: AuditEntityTypes.PAYOUT,
-          entityId: item.id,
-          entityNo: item.payoutNo || null,
-          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-          auditActor: {
-            actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-            actorId: operatorId,
-            actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-          },
-          surface: 'PAYOUT_DISPATCH',
-          action,
-          withdrawId: item.withdrawId,
-          payoutId: item.id,
-        });
       }
 
       const updateData: any = { status: nextStatus };

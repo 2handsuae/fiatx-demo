@@ -20,7 +20,6 @@ import {
   AssetConfigManifestItem,
   DEFAULT_ASSET_CONFIGS,
 } from '../../../config/manifests/asset-config.manifest';
-import { PricingCenterService } from '../../trading/pricing-center/pricing-center.service';
 import { ChangeTicketStatuses, LegacyChangeTicketsServiceStub } from './legacy-ct-stubs';
 import {
   RegulatoryGateEffectivenessStatuses,
@@ -48,9 +47,7 @@ import {
 } from './business-config.types';
 import {
   SWAP_POLICY_CODE,
-  SwapPricingPolicyConfig,
   WITHDRAWAL_POLICY_CODE,
-  WithdrawalPricingPolicyConfig,
 } from '../../trading/pricing-center/types/pricing.types';
 
 type GovernanceClient = PrismaService | Prisma.TransactionClient;
@@ -82,7 +79,6 @@ export class BusinessConfigService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
-    private readonly pricingCenterService: PricingCenterService,
     private readonly changeTicketsService: LegacyChangeTicketsServiceStub,
   ) {}
 
@@ -436,22 +432,6 @@ export class BusinessConfigService {
       );
     }
 
-    for (const item of items) {
-      try {
-        if (item.businessKey === SWAP_POLICY_CODE) {
-          await this.pricingCenterService.assertSwapPolicyConfig(
-            item.payload.config as SwapPricingPolicyConfig,
-          );
-        } else if (item.businessKey === WITHDRAWAL_POLICY_CODE) {
-          await this.pricingCenterService.assertWithdrawalPolicyConfig(
-            item.payload.config as WithdrawalPricingPolicyConfig,
-          );
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        issues.push(`PricingPolicy ${item.businessKey} invalid: ${message}`);
-      }
-    }
     return issues;
   }
 

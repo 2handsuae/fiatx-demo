@@ -24,7 +24,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { randomUUID } from 'node:crypto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -112,7 +111,6 @@ export class WithdrawTransactionsService {
     private readonly eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => TransactionComplianceService))
     private readonly transactionComplianceService: TransactionComplianceService,
-    private readonly pricingCenterService: PricingCenterService,
     private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
@@ -489,24 +487,12 @@ export class WithdrawTransactionsService {
 
     const withdrawNo = this.generateWithdrawNo();
     
-    // Fetch owner info if needed
-    const ownerNo = await this.pricingCenterService.resolveOwnerNo(ownerType, userId);
-    await this.pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked({
-      ownerType,
-      ownerId: userId,
-      ownerNo,
-      assetId,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: `WITHDRAW_CREATE_RESTRICTION:${userId}:${assetId}`,
-      sourcePlatform: ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'ADMIN_API',
-      auditActor: {
-        actorType: ownerType === 'CUSTOMER' ? 'CUSTOMER' : 'ADMIN',
-        actorId: userId,
-        actorRole: ownerType,
-      },
-      surface: 'WITHDRAW_CREATE',
-      action: 'WITHDRAW_CREATE',
-    });
+    // Resolve owner number inline (no PricingCenterService dependency)
+    let ownerNo: string | null = null;
+    if (ownerType === 'CUSTOMER') {
+      const cust = await (this.prisma as any).customerMain.findUnique({ where: { id: userId }, select: { customerNo: true } });
+      ownerNo = cust?.customerNo || null;
+    }
 
     const amountDecimal = new Prisma.Decimal(amount);
     if (!quoteId) {

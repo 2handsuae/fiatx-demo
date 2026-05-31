@@ -4,6 +4,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -21,6 +22,7 @@ import { WithdrawalFeeLevelCreationWorkflowService } from './withdrawal-fee-leve
 import { WithdrawalFeeLevelChangeWorkflowService } from './withdrawal-fee-level-change-workflow.service';
 import { WithdrawalFeeLevelBindingWorkflowService } from './withdrawal-fee-level-binding-workflow.service';
 import { WithdrawalFeeLevelBindingService } from './withdrawal-fee-level-binding.service';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 
 @Controller('admin/withdrawal-fee-levels')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -31,6 +33,7 @@ export class WithdrawalFeeLevelController {
     private readonly changeWorkflowService: WithdrawalFeeLevelChangeWorkflowService,
     private readonly bindingWorkflowService: WithdrawalFeeLevelBindingWorkflowService,
     private readonly bindingService: WithdrawalFeeLevelBindingService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -124,5 +127,42 @@ export class WithdrawalFeeLevelController {
   ) {
     this.ensureAdmin(req);
     return this.bindingWorkflowService.unbindLevel(dto, this.buildAdminActor(req));
+  }
+
+  @Get('quotes')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes'))
+  async findAllQuotes(
+    @Query('status') status?: string,
+    @Query('quoteNo') quoteNo?: string,
+    @Query('ownerNo') ownerNo?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
+    const where: any = {};
+    if (status) where.status = status;
+    if (quoteNo) where.quoteNo = { contains: quoteNo };
+    if (ownerNo) where.ownerNo = { contains: ownerNo };
+    const [items, total] = await Promise.all([
+      (this.prisma as any).withdrawPricingQuote.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: skip ? parseInt(skip, 10) : 0,
+        take: take ? parseInt(take, 10) : 20,
+        include: { asset: true },
+      }),
+      (this.prisma as any).withdrawPricingQuote.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  @Get('quotes/:id')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes/:id'))
+  async findOneQuote(@Param('id') id: string) {
+    const quote = await (this.prisma as any).withdrawPricingQuote.findUnique({
+      where: { id },
+      include: { asset: true },
+    });
+    if (!quote) throw new NotFoundException(`Quote ${id} not found`);
+    return quote;
   }
 }

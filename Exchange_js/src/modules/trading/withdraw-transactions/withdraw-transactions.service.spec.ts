@@ -10,7 +10,6 @@ import {
 } from './dto/withdraw-transaction.dto';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 
 describe('WithdrawTransactionsService', () => {
@@ -18,7 +17,6 @@ describe('WithdrawTransactionsService', () => {
   let prisma: any;
   let transactionComplianceService: any;
   let eventEmitter: any;
-  let pricingCenterService: any;
   let withdrawQuoteService: any;
 
   const mockTx: any = {
@@ -82,13 +80,6 @@ describe('WithdrawTransactionsService', () => {
           },
         },
         {
-          provide: PricingCenterService,
-          useValue: {
-            resolveOwnerNo: jest.fn(),
-            assertWithdrawExtremeVolatilityNotBlocked: jest.fn(),
-          },
-        },
-        {
           provide: WithdrawQuoteService,
           useValue: {
             getActiveQuoteOrThrow: jest.fn(),
@@ -105,7 +96,6 @@ describe('WithdrawTransactionsService', () => {
       TransactionComplianceService,
     );
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
-    pricingCenterService = module.get<PricingCenterService>(PricingCenterService);
     withdrawQuoteService = module.get<WithdrawQuoteService>(WithdrawQuoteService);
 
     jest.clearAllMocks();
@@ -123,10 +113,6 @@ describe('WithdrawTransactionsService', () => {
     });
     transactionComplianceService.initializeWithdrawFinalDecisionRecord.mockResolvedValue(
       {},
-    );
-    pricingCenterService.resolveOwnerNo.mockResolvedValue('C001');
-    pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockResolvedValue(
-      undefined,
     );
     withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
       id: 'wq-1',
@@ -274,32 +260,7 @@ describe('WithdrawTransactionsService', () => {
     ).rejects.toThrow('quoteId is required for withdrawal');
   });
 
-  it('should block create when extreme volatility restriction is enabled', async () => {
-    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
-    pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockRejectedValue(
-      new BadRequestException({
-        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
-      }),
-    );
-
-    await expect(
-      service.create(
-        {
-          assetId: 'asset-1',
-          amount: 100,
-          quoteId: 'wq-1',
-        } as any,
-        'user-1',
-      ),
-    ).rejects.toMatchObject({
-      response: expect.objectContaining({
-        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
-      }),
-    });
-
-    expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
-    expect(withdrawQuoteService.getActiveQuoteOrThrow).not.toHaveBeenCalled();
-  });
+  // Legacy extreme volatility check removed — no longer applies.
 
   it('should block admin approve because payout progression is workflow-driven', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({

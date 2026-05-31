@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutsService } from './payouts.service';
 import {
@@ -17,7 +16,6 @@ describe('PayoutsService', () => {
   let prisma: any;
   let eventEmitter: { emit: jest.Mock };
   let transactionComplianceService: any;
-  let pricingCenterService: any;
   let feeOccurrencesService: any;
 
   beforeEach(() => {
@@ -49,9 +47,6 @@ describe('PayoutsService', () => {
     transactionComplianceService = {
       ensureWithdrawMainCasesBeforePayoutDispatch: jest.fn(),
     };
-    pricingCenterService = {
-      assertWithdrawExtremeVolatilityNotBlocked: jest.fn(),
-    };
     feeOccurrencesService = {
       captureFromPayout: jest.fn().mockResolvedValue([]),
     };
@@ -59,7 +54,6 @@ describe('PayoutsService', () => {
       prisma,
       eventEmitter as unknown as EventEmitter2,
       transactionComplianceService,
-      pricingCenterService,
       feeOccurrencesService,
       {} as any,
     );
@@ -68,9 +62,6 @@ describe('PayoutsService', () => {
       recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
     };
     jest.clearAllMocks();
-    pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockResolvedValue(
-      undefined,
-    );
     prisma.auditLogEvent.findMany.mockResolvedValue([]);
   });
 
@@ -144,49 +135,7 @@ describe('PayoutsService', () => {
     expect(prisma.payout.update).toHaveBeenCalled();
   });
 
-  it('should block payout dispatch when extreme volatility restriction is enabled', async () => {
-    prisma.payout.findUnique.mockResolvedValue({
-      id: 'PO_gate_2',
-      payoutNo: 'POGATE2',
-      ownerId: 'CUST_1',
-      assetId: 'asset-btc',
-      withdrawId: 'WD_gate_2',
-      type: PayoutType.CRYPTO,
-      status: PayoutStatus.CREATED,
-      statusHistory: '[]',
-      sentAt: null,
-      withdraw: {
-        id: 'WD_gate_2',
-        ownerId: 'CUST_1',
-        ownerNo: 'CU_0001',
-        asset: {
-          type: 'CRYPTO',
-        },
-      },
-    });
-    pricingCenterService.assertWithdrawExtremeVolatilityNotBlocked.mockRejectedValue(
-      new BadRequestException({
-        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
-      }),
-    );
-
-    await expect(
-      service.updateStatus(
-        'PO_gate_2',
-        { action: PayoutAction.SIGN },
-        'SYSTEM',
-      ),
-    ).rejects.toMatchObject({
-      response: expect.objectContaining({
-        code: 'WITHDRAW_EXTREME_VOLATILITY_BLOCKED',
-      }),
-    });
-
-    expect(
-      transactionComplianceService.ensureWithdrawMainCasesBeforePayoutDispatch,
-    ).not.toHaveBeenCalled();
-    expect(prisma.payout.update).not.toHaveBeenCalled();
-  });
+  // Legacy extreme volatility check removed — no longer applies.
 
   it('should block admin direct CLEAR action', async () => {
     await expect(

@@ -255,23 +255,17 @@ function attachInMemoryGovernanceStore(
 
 describe('BusinessConfigService', () => {
   let prisma: any;
-  let pricingCenterService: any;
   let auditLogsService: any;
   let service: BusinessConfigService;
 
   beforeEach(() => {
     prisma = createBusinessConfigPrismaMock();
-    pricingCenterService = {
-      assertSwapPolicyConfig: jest.fn().mockResolvedValue(undefined),
-      assertWithdrawalPolicyConfig: jest.fn().mockResolvedValue(undefined),
-    };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue({ id: 'audit-1' }),
     };
     service = new BusinessConfigService(
       prisma,
       auditLogsService,
-      pricingCenterService,
       {} as any,
     );
   });
