@@ -22,6 +22,13 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_CREDIT_TO_BANK_POST: 21,
   // Fiat withdrawal: void — cancel/fail (22)
   WITHDRAW_CREDIT_TO_BANK_VOID: 22,
+
+  // Swap: from-leg lock + to-leg credit + fee (30–34)
+  SWAP_CREDIT_TO_CLEARING_PENDING: 30,
+  SWAP_CREDIT_TO_CLEARING_POST: 31,
+  SWAP_CREDIT_TO_CLEARING_VOID: 32,
+  SWAP_CLEARING_TO_CREDIT: 33,
+  SWAP_CLEARING_TO_FEE: 34,
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

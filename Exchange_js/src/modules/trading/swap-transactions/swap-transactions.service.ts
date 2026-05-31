@@ -312,4 +312,70 @@ export class SwapTransactionsService {
     if (!item) throw new NotFoundException('Swap transaction not found');
     return item;
   }
+
+  async create(
+    input: {
+      swapNo: string;
+      quoteId: string;
+      quoteNo: string | null;
+      ownerType: string;
+      ownerId: string;
+      ownerNo: string | null;
+      fromAssetId: string;
+      fromAssetCode: string | null;
+      fromAmount: Prisma.Decimal;
+      toAssetId: string;
+      toAssetCode: string | null;
+      toAmount: Prisma.Decimal;
+      netToAmount: Prisma.Decimal;
+      feeAmount: Prisma.Decimal;
+      feeCurrency: string | null;
+      feeBreakdown: string | null;
+      exchangeRate: Prisma.Decimal;
+      tbFromTransferId: string | null;
+      tbToTransferId: string | null;
+      tbFeeTransferId: string | null;
+      traceId: string;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    return tx.swapTransaction.create({
+      data: {
+        swapNo: input.swapNo,
+        quoteId: input.quoteId,
+        quoteNo: input.quoteNo,
+        quoteSnapshotRef: input.quoteId,
+        ownerType: input.ownerType,
+        ownerId: input.ownerId,
+        ownerNo: input.ownerNo,
+        status: 'SUCCESS',
+        fromAssetId: input.fromAssetId,
+        fromAssetCode: input.fromAssetCode,
+        fromAmount: input.fromAmount,
+        toAssetId: input.toAssetId,
+        toAssetCode: input.toAssetCode,
+        toAmount: input.toAmount,
+        netToAmount: input.netToAmount,
+        feeAmount: input.feeAmount,
+        feeCurrency: input.feeCurrency,
+        feeBreakdown: input.feeBreakdown,
+        exchangeRate: input.exchangeRate,
+        tbFromTransferId: input.tbFromTransferId,
+        tbToTransferId: input.tbToTransferId,
+        tbFeeTransferId: input.tbFeeTransferId,
+        traceId: input.traceId,
+        completedAt: new Date(),
+        statusHistory: JSON.stringify([
+          {
+            status: 'SUCCESS',
+            timestamp: new Date().toISOString(),
+            operator: input.ownerId,
+            source: 'CUSTOMER',
+            note: `Swap executed from quote ${input.quoteNo || input.quoteId}`,
+          },
+        ]),
+      },
+      include: { fromAsset: true, toAsset: true },
+    });
+  }
 }
