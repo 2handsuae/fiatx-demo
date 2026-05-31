@@ -126,6 +126,8 @@ const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
 const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
 const WithdrawalFeeLevelList = lazy(() => import('./pages/WithdrawalFeeLevelList'));
 const WithdrawalFeeLevelDetail = lazy(() => import('./pages/WithdrawalFeeLevelDetail'));
+const SwapFeeLevelList = lazy(() => import('./pages/SwapFeeLevelList'));
+const SwapFeeLevelDetail = lazy(() => import('./pages/SwapFeeLevelDetail'));
 const WithdrawQuoteList = lazy(() => import('./pages/WithdrawQuoteList'));
 const WithdrawQuoteDetail = lazy(() => import('./pages/WithdrawQuoteDetail'));
 
@@ -849,6 +851,14 @@ function App() {
             <Route
               path="pricing/withdrawal-fee-levels/:levelCode"
               element={withPermission(<WithdrawalFeeLevelDetail />, [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ])}
+            />
+            <Route
+              path="pricing/swap-fee-levels"
+              element={withPermission(<SwapFeeLevelList />, [PERMISSIONS.SWAP_FEE_LEVELS_READ])}
+            />
+            <Route
+              path="pricing/swap-fee-levels/:levelCode"
+              element={withPermission(<SwapFeeLevelDetail />, [PERMISSIONS.SWAP_FEE_LEVELS_READ])}
             />
             <Route
               path="treasury/withdrawal-addresses"
