@@ -9,18 +9,8 @@ import {
 import { Type } from 'class-transformer';
 
 export enum SwapTransactionStatus {
-  PENDING_COMPLIANCE = 'PENDING_COMPLIANCE',
-  UNDER_REVIEW = 'UNDER_REVIEW',
   SUCCESS = 'SUCCESS',
-  REJECTED = 'REJECTED',
   FAILED = 'FAILED',
-}
-
-export enum SwapTransactionAction {
-  SUCCESS = 'success',
-  REJECT = 'reject',
-  FLAG = 'flag',
-  FAIL = 'fail',
 }
 
 export class CreateSwapTransactionDto {
@@ -54,20 +44,6 @@ export class CreateSwapTransactionDto {
   @IsNumber()
   @Type(() => Number)
   toAmount!: number;
-}
-
-export class UpdateSwapTransactionStatusDto {
-  @ApiProperty({
-    enum: SwapTransactionAction,
-    description: 'Action to perform',
-  })
-  @IsEnum(SwapTransactionAction)
-  action!: SwapTransactionAction;
-
-  @ApiPropertyOptional({ description: 'Reason for status change' })
-  @IsOptional()
-  @IsString()
-  reason?: string;
 }
 
 export class SwapTransactionQueryDto {
