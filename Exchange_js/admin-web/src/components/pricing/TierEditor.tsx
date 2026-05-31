@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { adminButtonClass } from '../common/adminButtonStyles';
 
@@ -155,6 +156,25 @@ interface TierEditorProps {
 
 export default function TierEditor({ tiers, onChange, defaultCurrency = '', currencyOptions, mode = 'withdrawal' }: TierEditorProps) {
   const ITEM_CODES = mode === 'swap' ? SWAP_ITEM_CODES : WITHDRAWAL_ITEM_CODES;
+
+  // Normalize any fee-item code that isn't valid for the current mode (e.g. a
+  // withdrawal default code carried into a swap tier) to the first valid code.
+  useEffect(() => {
+    const valid = new Set<string>(ITEM_CODES as readonly string[]);
+    let changed = false;
+    const next = tiers.map((t) => ({
+      ...t,
+      feeItems: t.feeItems.map((f) => {
+        if (!valid.has(f.itemCode)) {
+          changed = true;
+          return { ...f, itemCode: ITEM_CODES[0] };
+        }
+        return f;
+      }),
+    }));
+    if (changed) onChange(next);
+  }, [mode, tiers, ITEM_CODES, onChange]);
+
   const updateTier = (idx: number, patch: Partial<TierState>) => {
     const next = tiers.map((t, i) => (i === idx ? { ...t, ...patch } : t));
     onChange(next);

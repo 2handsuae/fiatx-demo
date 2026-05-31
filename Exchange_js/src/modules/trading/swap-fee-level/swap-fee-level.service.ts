@@ -91,10 +91,11 @@ export class SwapFeeLevelService {
       if (typeof tier.rateMarkupBps !== 'number' || tier.rateMarkupBps < 0) {
         throw new BadRequestException(`Tier ${tier.id} rateMarkupBps must be a non-negative number`);
       }
-      if (!Array.isArray(tier.feeItems) || tier.feeItems.length === 0) {
-        throw new BadRequestException(`Tier ${tier.id} must have at least one feeItem`);
+      // Swap tiers may be spread-only (no fee items). Validate codes only when present.
+      if (tier.feeItems !== undefined && !Array.isArray(tier.feeItems)) {
+        throw new BadRequestException(`Tier ${tier.id} feeItems must be an array`);
       }
-      for (const item of tier.feeItems) {
+      for (const item of tier.feeItems ?? []) {
         if (!(SWAP_FEE_ITEM_CODES as readonly string[]).includes(item.itemCode)) {
           throw new BadRequestException(`Invalid itemCode: ${item.itemCode}`);
         }
