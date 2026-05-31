@@ -11,9 +11,11 @@ import { SwapFeeLevelCreationWorkflowService } from './swap-fee-level-creation-w
 import { SwapFeeLevelChangeWorkflowService } from './swap-fee-level-change-workflow.service';
 import { SwapFeeLevelBindingWorkflowService } from './swap-fee-level-binding-workflow.service';
 import { SwapQuoteService } from './swap-quote.service';
+import { SwapFeeLevelController } from './swap-fee-level.controller';
 
 @Module({
   imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule)],
+  controllers: [SwapFeeLevelController],
   providers: [
     SwapFeeLevelService,
     SwapFeeLevelBindingService,
