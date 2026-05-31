@@ -820,6 +820,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
 
+  // Withdrawal Quote Admin
+  route('GET', '/admin/withdrawal-fee-levels/quotes', 'List withdrawal quotes', [
+    'WITHDRAWAL_FEE_LEVEL_READ',
+  ]),
+  route('GET', '/admin/withdrawal-fee-levels/quotes/:id', 'Get withdrawal quote detail', [
+    'WITHDRAWAL_FEE_LEVEL_READ',
+  ]),
+
 ];
 
 /* ═══════════════════════════════════════════════════════════════
