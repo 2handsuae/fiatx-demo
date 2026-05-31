@@ -12,7 +12,7 @@ describe('SwapTransactionsService', () => {
       },
     };
 
-    service = new SwapTransactionsService(prisma as any, {} as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any);
   });
 
   it('should return swap detail without including legacy auditLogs relation', async () => {

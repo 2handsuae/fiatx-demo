@@ -23,7 +23,9 @@ import {
   CreateSwapFromQuoteDto,
   CreateSwapQuoteDto,
 } from './dto/swap-quote.dto';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 
 @ApiTags('Customer - Swap Transactions')
 @Controller('swap-transactions')
@@ -32,20 +34,55 @@ import { PricingCenterService } from '../pricing-center/pricing-center.service';
 export class SwapTransactionsCustomerController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
-    private readonly pricingCenterService: PricingCenterService,
+    private readonly swapQuoteService: SwapQuoteService,
     private readonly orchestrator: SwapWorkflowOrchestrator,
     private readonly onboardingService: OnboardingService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post('quotes')
   @ApiOperation({ summary: 'Create a firm quote for customer swap' })
   async createQuote(@Request() req: any, @Body() dto: CreateSwapQuoteDto) {
     await this.onboardingService.assertTradingEligibility(req.user.userId, 'SWAP');
-    return this.pricingCenterService.createSwapQuote(
-      'CUSTOMER',
-      req.user.userId,
-      dto,
-    );
+    const fromAmount = new Prisma.Decimal(dto.fromAmount);
+    if (fromAmount.lte(0)) {
+      throw new BadRequestException('fromAmount must be greater than 0');
+    }
+    const [fromAsset, toAsset] = await Promise.all([
+      this.prisma.asset.findUnique({ where: { id: dto.fromAssetId } }),
+      this.prisma.asset.findUnique({ where: { id: dto.toAssetId } }),
+    ]);
+    if (!fromAsset || !toAsset) {
+      throw new BadRequestException('Asset not found');
+    }
+    const ownerNo = await this.swapQuoteService.resolveOwnerNo('CUSTOMER', req.user.userId);
+    const quote = await this.swapQuoteService.createQuote({
+      ownerType: 'CUSTOMER',
+      ownerId: req.user.userId,
+      ownerNo: ownerNo ?? undefined,
+      fromAssetId: fromAsset.id,
+      fromAssetCode: fromAsset.currency,
+      toAssetId: toAsset.id,
+      toAssetCode: toAsset.currency,
+      amount: fromAmount,
+      customerId: req.user.userId,
+    });
+    return {
+      quoteId: quote.id,
+      quoteNo: quote.quoteNo,
+      status: quote.status,
+      fromAssetCode: quote.fromAssetCode,
+      toAssetCode: quote.toAssetCode,
+      amountIn: quote.amountIn.toString(),
+      amountOut: quote.amountOut.toString(),
+      rateAllIn: quote.rateAllIn.toString(),
+      marketRate: quote.marketRate.toString(),
+      spreadBps: quote.spreadBps,
+      feeTotal: quote.feeTotal.toString(),
+      feeCurrency: quote.feeCurrency,
+      createdAt: quote.createdAt,
+      expiresAt: quote.expiresAt,
+    };
   }
 
   @Post('quotes/:id/cancel')
@@ -55,7 +92,7 @@ export class SwapTransactionsCustomerController {
     @Param('id') id: string,
     @Body() _dto?: CancelSwapQuoteDto,
   ) {
-    return this.pricingCenterService.cancelSwapQuote(
+    return this.swapQuoteService.cancelQuote(
       id,
       'CUSTOMER',
       req.user.userId,

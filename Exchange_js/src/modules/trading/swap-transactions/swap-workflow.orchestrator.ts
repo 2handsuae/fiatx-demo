@@ -15,7 +15,7 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { SwapEvents } from './constants/swap-events.constant';
 import {
   SwapTransactionAction,
@@ -42,7 +42,7 @@ export class SwapWorkflowOrchestrator {
   constructor(
     private readonly prisma: PrismaService,
     private readonly swapService: SwapTransactionsService,
-    private readonly pricingCenterService: PricingCenterService,
+    private readonly swapQuoteService: SwapQuoteService,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly swapTransactionWorkflowService: SwapTransactionWorkflowService,
     private readonly auditLogsService: AuditLogsService,
@@ -184,22 +184,13 @@ export class SwapWorkflowOrchestrator {
     const now = new Date();
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const quote = await this.pricingCenterService.getActiveSwapQuoteOrThrow(
+      const quote = await this.swapQuoteService.getActiveQuoteOrThrow(
         quoteId,
         'CUSTOMER',
         ownerId,
         now,
         tx,
       );
-
-      await this.pricingCenterService.assertSwapProductAllowedForOwner({
-        ownerType: 'CUSTOMER',
-        ownerId,
-        ownerNo: quote.ownerNo,
-        fromAssetId: quote.fromAssetId,
-        toAssetId: quote.toAssetId,
-        sourcePlatform: 'CUSTOMER_API',
-      });
 
       const fromAmount = new Prisma.Decimal(quote.amountIn);
       const toAmount = new Prisma.Decimal(quote.amountOut);
@@ -214,12 +205,12 @@ export class SwapWorkflowOrchestrator {
       // V2 balance check removed — migrated to TigerBeetle
       // TODO: re-wire balance guard via TigerBeetle adapter
 
-      await this.pricingCenterService.consumeSwapQuoteForSwap(
-        tx,
+      await this.swapQuoteService.consumeQuote(
         quote.id,
         'CUSTOMER',
         ownerId,
-        now,
+        new Prisma.Decimal(quote.amountIn),
+        tx,
       );
 
       const transaction = await tx.swapTransaction.create({

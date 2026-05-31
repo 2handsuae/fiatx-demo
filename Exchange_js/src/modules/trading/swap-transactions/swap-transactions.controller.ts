@@ -21,8 +21,7 @@ import {
   UpdateSwapTransactionStatusDto,
 } from './dto/swap-transaction.dto';
 import { AdminSwapQuoteQueryDto } from './dto/swap-quote.dto';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
-import { PricingQuoteBusiness } from '../pricing-center/dto/pricing-center.dto';
+import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 
 @ApiTags('Admin - Swap Transactions')
 @Controller('admin/swap-transactions')
@@ -32,7 +31,7 @@ export class SwapTransactionsController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly orchestrator: SwapWorkflowOrchestrator,
-    private readonly pricingCenterService: PricingCenterService,
+    private readonly swapQuoteService: SwapQuoteService,
   ) {}
 
   @Post()
@@ -48,21 +47,15 @@ export class SwapTransactionsController {
   }
 
   @Get('quotes')
-  @ApiOperation({ summary: 'Compatibility alias: get swap quotes through the unified Quote Center read model' })
+  @ApiOperation({ summary: 'List swap quotes' })
   findAllQuotes(@Query() query: AdminSwapQuoteQueryDto) {
-    return this.pricingCenterService.listAdminPricingQuotes({
-      ...query,
-      business: PricingQuoteBusiness.SWAP,
-    });
+    return this.swapQuoteService.findAllForAdmin(query);
   }
 
   @Get('quotes/:id')
-  @ApiOperation({ summary: 'Compatibility alias: get swap quote detail through the unified Quote Center read model' })
+  @ApiOperation({ summary: 'Get swap quote detail' })
   findOneQuote(@Param('id') id: string) {
-    return this.pricingCenterService.getAdminPricingQuoteDetail(
-      PricingQuoteBusiness.SWAP,
-      id,
-    );
+    return this.swapQuoteService.findOneForAdmin(id);
   }
 
   @Get(':id')

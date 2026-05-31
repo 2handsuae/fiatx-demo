@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
 import { SwapTransactionsController } from './swap-transactions.controller';
@@ -7,6 +7,7 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { OutstandingsModule } from '../../clearing-settle/outstandings/outstandings.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
+import { SwapFeeLevelModule } from '../swap-fee-level/swap-fee-level.module';
 import { TransactionComplianceModule } from '../../risk-engine/transaction-compliance/transaction-compliance.module';
 import { SwapTransactionWorkflowService } from './swap-transaction-workflow.service';
 
@@ -15,6 +16,7 @@ import { SwapTransactionWorkflowService } from './swap-transaction-workflow.serv
     PrismaModule,
     OnboardingModule,
     PricingCenterModule,
+    forwardRef(() => SwapFeeLevelModule),
     OutstandingsModule,
     TransactionComplianceModule,
   ],

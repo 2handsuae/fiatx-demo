@@ -6,7 +6,8 @@ import {
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SwapTransactionQueryDto } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
+import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -76,7 +77,8 @@ export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
 export class SwapTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly pricingCenterService: PricingCenterService,
+    private readonly swapQuoteService: SwapQuoteService,
+    private readonly binanceRateProvider: BinanceRateProvider,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -119,45 +121,80 @@ export class SwapTransactionsService {
       throw new BadRequestException('amount must be greater than 0');
     }
 
-    const resolved = await this.pricingCenterService.resolveSwapQuoteForExecution({
+    const resolved = await this.swapQuoteService.resolveBestLevel({
       fromAssetId,
       toAssetId,
       amount,
+      customerId: options.ownerId || '',
     });
-    const spreadPercent = new Prisma.Decimal(resolved.markupBps).div(100);
+
+    if (!resolved) {
+      throw new BadRequestException('No applicable fee level found for this currency pair and amount');
+    }
+
+    const rateResult = await this.binanceRateProvider.fetchRate(
+      fromAsset.currency,
+      toAsset.currency,
+    );
+
+    const marketRate = rateResult.rate;
+    const markupMultiplier = new Prisma.Decimal(1).add(
+      new Prisma.Decimal(resolved.rateMarkupBps).div(10000),
+    );
+    const executableRate = marketRate.mul(markupMultiplier);
+    const grossAmountOut = amount.mul(executableRate);
+    const netAmountOut = grossAmountOut.minus(resolved.totalFee);
+    const spreadPercent = new Prisma.Decimal(resolved.rateMarkupBps).div(100);
 
     return {
       fromAssetId: fromAsset.id,
       toAssetId: toAsset.id,
       fromAssetCurrency: fromAsset.currency,
       toAssetCurrency: toAsset.currency,
-      fromAssetDecimals: resolved.fromAssetDecimals,
-      toAssetDecimals: resolved.toAssetDecimals,
-      marketRate: resolved.baseRate.toNumber(),
+      fromAssetDecimals: fromAsset.decimals,
+      toAssetDecimals: toAsset.decimals,
+      marketRate: marketRate.toNumber(),
       spreadPercent: spreadPercent.toNumber(),
-      executableRate: resolved.quotedRate.toNumber(),
-      spreadBps: resolved.markupBps,
-      rateSource: resolved.baseProvider,
-      fetchedAt: resolved.fetchedAt.toISOString(),
-      quoteLockSeconds: resolved.quoteLockSeconds,
-      pairId: resolved.pairId,
-      pairName: resolved.pairName,
-      tierId: resolved.tierId,
-      tierName: resolved.tierName,
+      executableRate: executableRate.toNumber(),
+      spreadBps: resolved.rateMarkupBps,
+      rateSource: 'BINANCE',
+      fetchedAt: rateResult.fetchedAt.toISOString(),
+      quoteLockSeconds: 30,
+      pairId: resolved.feeLevelCode,
+      pairName: resolved.feeLevelCode,
+      tierId: resolved.matchedTierId,
+      tierName: resolved.matchedTierName,
       matched: {
-        pairId: resolved.pairId,
-        pairName: resolved.pairName,
-        tierId: resolved.tierId,
-        tierName: resolved.tierName,
+        pairId: resolved.feeLevelCode,
+        pairName: resolved.feeLevelCode,
+        tierId: resolved.matchedTierId,
+        tierName: resolved.matchedTierName,
       },
-      pricingSource: resolved.pricingSource,
+      pricingSource: {
+        provider: 'BINANCE' as const,
+        endpoint: 'api/v3/ticker/bookTicker' as const,
+        symbol: rateResult.symbol,
+        bid: rateResult.bid,
+        ask: rateResult.ask,
+        sideUsed: rateResult.sideUsed,
+        aedPegApplied: rateResult.aedPegApplied,
+        aedPegRate: rateResult.aedPegRate,
+        formula: rateResult.formula,
+        effectiveBaseRate: rateResult.rate.toString(),
+        fetchedAt: rateResult.fetchedAt.toISOString(),
+      },
       feeBreakdown: resolved.fees,
       feeTotals: resolved.totals,
-      grossAmountOut: resolved.grossAmountOut.toNumber(),
-      netAmountOut: resolved.netAmountOut.toNumber(),
-      feeTotal: resolved.feeTotal.toNumber(),
-      feeCurrency: resolved.feeCurrency,
-      policyRef: resolved.policyRef,
+      grossAmountOut: grossAmountOut.toNumber(),
+      netAmountOut: netAmountOut.toNumber(),
+      feeTotal: resolved.totalFee.toNumber(),
+      feeCurrency: Object.keys(resolved.totals).find((k) => !['amountIn', 'amountOutGross', 'amountOutNet', 'feeTotal', 'feeCurrency'].includes(k)) || null,
+      policyRef: {
+        policyCode: `LEVEL:${resolved.feeLevelCode}`,
+        policyId: resolved.feeLevelId,
+        business: 'SWAP' as const,
+        channel: 'ONLINE' as const,
+      },
     };
   }
 
