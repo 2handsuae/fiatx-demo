@@ -23,7 +23,7 @@ import {
   CreateSwapFromQuoteDto,
   CreateSwapQuoteDto,
 } from './dto/swap-quote.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma, SwapQuote } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 
@@ -67,21 +67,48 @@ export class SwapTransactionsCustomerController {
       amount: fromAmount,
       customerId: req.user.userId,
     });
+    return this.toCustomerQuoteResponse(quote);
+  }
+
+  private parseJson<T>(value: string | null | undefined, fallback: T): T {
+    if (!value) return fallback;
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private toCustomerQuoteResponse(quote: SwapQuote) {
+    const totals = this.parseJson<Record<string, string>>(quote.totalsJson, {});
+    const netAmountOut = Number(totals.amountOutNet ?? quote.amountOut);
     return {
       quoteId: quote.id,
       quoteNo: quote.quoteNo,
+      quoteType: quote.quoteType,
       status: quote.status,
-      fromAssetCode: quote.fromAssetCode,
-      toAssetCode: quote.toAssetCode,
-      amountIn: quote.amountIn.toString(),
-      amountOut: quote.amountOut.toString(),
-      rateAllIn: quote.rateAllIn.toString(),
-      marketRate: quote.marketRate.toString(),
-      spreadBps: quote.spreadBps,
-      feeTotal: quote.feeTotal.toString(),
-      feeCurrency: quote.feeCurrency,
       createdAt: quote.createdAt,
       expiresAt: quote.expiresAt,
+      usedAt: quote.usedAt,
+      baseCurrency: quote.fromAssetCode,
+      quoteCurrency: quote.toAssetCode,
+      side: quote.side,
+      amountType: quote.amountType,
+      amountIn: Number(quote.amountIn),
+      currencyIn: quote.currencyIn,
+      amountOut: Number(quote.amountOut),
+      netAmountOut,
+      currencyOut: quote.currencyOut,
+      rateDisplay: Number(quote.rateDisplay),
+      rateAllIn: Number(quote.rateAllIn),
+      marketRate: Number(quote.marketRate),
+      spreadPercent: Number(quote.spreadPercent),
+      spreadBps: quote.spreadBps,
+      rateSource: quote.rateSource,
+      fetchedAt: quote.fetchedAt,
+      feeTotal: Number(quote.feeTotal),
+      feeCurrency: quote.feeCurrency,
+      feeBreakdown: this.parseJson<unknown[]>(quote.feeBreakdown, []),
     };
   }
 
