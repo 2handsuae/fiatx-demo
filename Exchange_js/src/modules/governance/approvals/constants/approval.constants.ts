@@ -66,6 +66,9 @@ export const ApprovalActionTypes = {
   // Withdrawal Fee Level (2026-05-30)
   WITHDRAWAL_FEE_LEVEL_CREATION: 'WITHDRAWAL_FEE_LEVEL_CREATION',
   WITHDRAWAL_FEE_LEVEL_CHANGE: 'WITHDRAWAL_FEE_LEVEL_CHANGE',
+  // Swap Fee Level (2026-05-31)
+  SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_CREATION',
+  SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -353,6 +356,23 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // ─── Swap Fee Level (2026-05-31) ────
+  [ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION]: {
+    steps: [
+      { stepNo: 1, roles: ['MLRO'] },
+      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
+    ],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE]: {
+    steps: [
+      { stepNo: 1, roles: ['MLRO'] },
+      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
+    ],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -378,6 +398,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.TRANSACTION_LIMIT_CREATION,
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION,
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
+  ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
+  ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {
