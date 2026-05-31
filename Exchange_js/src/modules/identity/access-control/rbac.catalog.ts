@@ -83,7 +83,9 @@ export type PermissionGroup =
   | 'WITHDRAWAL_ADDRESS_READ'
   | 'WITHDRAWAL_ADDRESS_WRITE'
   | 'WITHDRAWAL_FEE_LEVEL_READ'
-  | 'WITHDRAWAL_FEE_LEVEL_WRITE';
+  | 'WITHDRAWAL_FEE_LEVEL_WRITE'
+  | 'SWAP_FEE_LEVEL_READ'
+  | 'SWAP_FEE_LEVEL_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -793,6 +795,29 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ]),
   route('DELETE', '/admin/withdrawal-fee-levels/bindings', 'Unbind customer from withdrawal fee level', [
     'WITHDRAWAL_FEE_LEVEL_WRITE',
+  ]),
+
+  // Swap Fee Levels
+  route('GET', '/admin/swap-fee-levels', 'List swap fee levels', [
+    'SWAP_FEE_LEVEL_READ',
+  ]),
+  route('GET', '/admin/swap-fee-levels/:levelCode', 'Get swap fee level detail', [
+    'SWAP_FEE_LEVEL_READ',
+  ]),
+  route('POST', '/admin/swap-fee-levels', 'Create swap fee level', [
+    'SWAP_FEE_LEVEL_WRITE',
+  ]),
+  route('POST', '/admin/swap-fee-levels/:levelCode/change', 'Submit swap fee level change request', [
+    'SWAP_FEE_LEVEL_WRITE',
+  ]),
+  route('GET', '/admin/swap-fee-levels/:levelCode/bindings', 'List swap fee level bindings', [
+    'SWAP_FEE_LEVEL_READ',
+  ]),
+  route('POST', '/admin/swap-fee-levels/bindings', 'Bind customer to swap fee level', [
+    'SWAP_FEE_LEVEL_WRITE',
+  ]),
+  route('DELETE', '/admin/swap-fee-levels/bindings', 'Unbind customer from swap fee level', [
+    'SWAP_FEE_LEVEL_WRITE',
   ]),
 
 ];
