@@ -321,55 +321,37 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 12,
     allowCancel: true,
   },
-  // ─── Transaction Limit Change (2026-05-16) ────
+  // ─── Transaction Limit Change ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE]: {
-    steps: [
-      { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
-    ],
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
-  // ─── Transaction Limit Creation (2026-05-16) ────
+  // ─── Transaction Limit Creation ────
   [ApprovalActionTypes.TRANSACTION_LIMIT_CREATION]: {
-    steps: [
-      { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
-    ],
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
-  // ─── Withdrawal Fee Level (2026-05-30) ────
+  // ─── Withdrawal Fee Level ────
   [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CREATION]: {
-    steps: [
-      { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
-    ],
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
   [ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE]: {
-    steps: [
-      { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
-    ],
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
-  // ─── Swap Fee Level (2026-05-31) ────
+  // ─── Swap Fee Level ────
   [ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION]: {
-    steps: [
-      { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
-    ],
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
   [ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE]: {
-    steps: [
-      { stepNo: 1, roles: ['MLRO'] },
-      { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] },
-    ],
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
