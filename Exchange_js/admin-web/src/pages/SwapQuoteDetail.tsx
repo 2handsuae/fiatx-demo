@@ -1,17 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
+import {
+  DetailPageHeader,
+  DetailCard,
+  InfoField,
+  JsonBlock,
+} from '../components/compliance/DetailPageComponents';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
-import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { adminButtonClass } from '../components/common/adminButtonStyles';
-import { DetailCard, DetailPageHeader } from '../components/compliance/DetailPageComponents';
 
-type QuoteBusiness = 'SWAP' | 'WITHDRAWAL';
+/* ── Types ──────────────────────────────────────────────────── */
 
-interface PricingQuoteDetailData {
+interface FeeItem {
+  code: string;
+  label: string;
+  amount: string;
+  currency: string;
+}
+
+interface SwapQuoteDetailData {
   quoteId: string;
   quoteNo: string | null;
-  business: QuoteBusiness;
+  business: 'SWAP';
   status: string;
   ownerType: string;
   ownerNo: string | null;
@@ -19,10 +36,10 @@ interface PricingQuoteDetailData {
   expiresAt: string;
   usedAt: string | null;
   cancelledAt: string | null;
-  fees: Array<Record<string, unknown>>;
+  fees: FeeItem[];
   totals: Record<string, string>;
   policyRef: Record<string, unknown>;
-  swap?: {
+  swap: {
     quoteType: string;
     fromAssetCode: string;
     toAssetCode: string;
@@ -50,96 +67,69 @@ interface PricingQuoteDetailData {
       createdAt: string;
     } | null;
   };
-  withdrawal?: {
-    assetId: string;
-    assetCode: string;
-    asset?: { code: string; decimals?: number | null; network?: string | null } | null;
-    amount: string;
-    segment: string;
-    riskTier: string;
-    matchedAssetEntryId: string;
-    matchedTierId: string;
-    matchedTierName: string;
-    linkedWithdrawals: Array<{
-      withdrawNo: string | null;
-      status: string;
-      createdAt: string;
-    }>;
-  };
 }
 
-const Field = ({ label, value }: { label: string; value: string }) => (
-  <div className="flex flex-col gap-1.5">
-    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
-    <span className="text-sm text-gray-900 break-all">{value}</span>
-  </div>
-);
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/* ── Component ──────────────────────────────────────────────── */
 
 const SwapQuoteDetail = () => {
-  const { id, business } = useParams<{ id: string; business?: QuoteBusiness }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const resolvedBusiness: QuoteBusiness = business === 'WITHDRAWAL' ? 'WITHDRAWAL' : 'SWAP';
+  const [data, setData] = useState<SwapQuoteDetailData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<PricingQuoteDetailData | null>(null);
   const [error, setError] = useState('');
-
-  const fees = useMemo(() => data?.fees || [], [data?.fees]);
-  const totals = useMemo(() => data?.totals || {}, [data?.totals]);
-  const policyRef = useMemo(() => data?.policyRef || {}, [data?.policyRef]);
 
   const fetchDetail = async () => {
     if (!id) return;
     setLoading(true);
     setError('');
     try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/pricing/quotes/${resolvedBusiness}/${id}`,
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/pricing/quotes/SWAP/${id}`,
       );
-
-      if (response.ok) {
-        const result = await response.json();
-        setData(result);
-      } else {
-        throw new Error(await getApiErrorMessage(response, 'Failed to load quote detail.'));
-      }
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Failed to fetch quote detail', error);
-      setError(error instanceof Error ? error.message : 'Failed to load quote detail.');
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load quote detail'));
+      setData(await res.json());
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      console.error('Failed to fetch swap quote detail', err);
+      setError(err instanceof Error ? err.message : 'Failed to load quote detail');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDetail();
-  }, [id, resolvedBusiness]);
+    void fetchDetail();
+  }, [id]);
 
+  /* Loading state */
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[360px] text-gray-500">
-        <RefreshCw className="animate-spin mb-2 text-brand-primary" size={26} />
+      <div className="flex min-h-[360px] flex-col items-center justify-center text-adm-t3">
+        <RefreshCw className="mb-2 animate-spin text-adm-amber" size={22} />
         Loading quote detail...
       </div>
     );
   }
 
+  /* Error state (no data loaded) */
   if (error && !data) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/dashboard/pricing/quotes')}
-            className={adminButtonClass('detailUtility')}
-          >
-            Back to Quotes
-          </button>
-          <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
-            <RefreshCw size={16} />
-            Retry
-          </button>
-        </div>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="p-6">
+        <DetailPageHeader
+          title="Swap Quote Detail"
+          onBack={() => navigate('/dashboard/pricing/quotes')}
+          onRefresh={() => void fetchDetail()}
+          backLabel="Back to Swap Quotes"
+        />
+        <div className="mt-4 rounded-lg border border-adm-red/30 bg-adm-red/5 px-4 py-3 font-mono text-xs text-adm-red">
           {error}
         </div>
       </div>
@@ -149,122 +139,200 @@ const SwapQuoteDetail = () => {
   if (!data) return null;
 
   const swap = data.swap;
-  const withdrawal = data.withdrawal;
-  const grossAmountOut = swap ? totals.amountOutGross || swap.amountOut : null;
-  const netAmountOut = swap ? totals.amountOutNet || swap.amountOut : null;
-  const feeTotal = swap ? totals.feeTotal || '0' : null;
-  const feeCurrency = swap ? totals.feeCurrency || swap.currencyOut : null;
+  const fees: FeeItem[] = Array.isArray(data.fees) ? data.fees : [];
+  const totals = data.totals ?? {};
+  const grossAmountOut = totals.amountOutGross || swap.amountOut;
+  const netAmountOut = totals.amountOutNet || swap.amountOut;
+  const feeTotal = totals.feeTotal || '0';
+  const feeCurrency = totals.feeCurrency || swap.currencyOut;
   const feeDecimals =
-    !swap || !feeCurrency
+    !feeCurrency
       ? undefined
       : feeCurrency === swap.fromAssetCode
         ? swap.fromAsset?.decimals
         : swap.toAsset?.decimals;
+  const linkedSwap = swap.linkedSwap;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="flex h-full flex-col">
+      {/* Hero */}
       <DetailPageHeader
-        title="Quote Detail"
-        subtitle={`${data.business} · ${data.quoteNo || 'N/A'}`}
+        title="Swap Quote Detail"
+        subtitle={data.quoteNo}
         onBack={() => navigate('/dashboard/pricing/quotes')}
         onRefresh={() => void fetchDetail()}
-        backLabel="Back to Quotes"
+        refreshing={loading}
+        backLabel="Back to Swap Quotes"
       >
-        <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700">
-          {data.status}
-        </span>
+        <AdminBadge value={data.status} />
       </DetailPageHeader>
 
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
+      {/* Two-column layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Main body */}
+        <div className="flex-1 space-y-4 overflow-auto p-5">
+          {error ? (
+            <div className="rounded-lg border border-adm-red/30 bg-adm-red/5 px-4 py-3 font-mono text-xs text-adm-red">
+              {error}
+            </div>
+          ) : null}
 
-      <DetailCard title="Identification" columns={1}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Field label="Quote No" value={data.quoteNo || 'N/A'} />
-          <Field label="Business" value={data.business} />
-          <Field label="Status" value={data.status} />
-          <Field label="Owner Type" value={data.ownerType} />
-          <Field label="Owner No" value={data.ownerNo || 'N/A'} />
-        </div>
-      </DetailCard>
+          {/* Swap Terms */}
+          <DetailCard title="Swap Terms">
+            <InfoField label="Pair" value={`${swap.fromAssetCode} → ${swap.toAssetCode}`} mono />
+            <InfoField label="Side / Amount Type" value={`${swap.side} / ${swap.amountType}`} />
+            <InfoField
+              label="Amount In"
+              value={`${formatAssetAmount(swap.amountIn, swap.fromAsset?.decimals)} ${swap.currencyIn}`}
+              mono
+            />
+            <InfoField
+              label="Gross Receive"
+              value={`${formatAssetAmount(grossAmountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`}
+              mono
+            />
+            <InfoField
+              label="Fee"
+              value={`${formatAssetAmount(feeTotal, feeDecimals)} ${feeCurrency}`}
+              mono
+            />
+            <InfoField
+              label="Net Receive"
+              value={`${formatAssetAmount(netAmountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`}
+              mono
+            />
+            <InfoField label="Rate Display" value={formatRate8(swap.rateDisplay)} mono />
+            <InfoField label="Rate All-In" value={formatRate8(swap.rateAllIn)} mono />
+            <InfoField label="Market Rate" value={formatRate8(swap.marketRate)} mono />
+            <InfoField
+              label="Spread"
+              value={`${Number(swap.spreadPercent)}% (${swap.spreadBps} bps)`}
+            />
+            <InfoField label="Rate Source" value={swap.rateSource} />
+            <InfoField label="Fetched At" value={fmt(swap.fetchedAt)} mono />
+          </DetailCard>
 
-      {swap && (
-        <DetailCard title="Swap Terms" columns={1}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Field label="Pair" value={`${swap.fromAssetCode} -> ${swap.toAssetCode}`} />
-            <Field label="Side / Amount Type" value={`${swap.side} / ${swap.amountType}`} />
-            <Field label="Amount In" value={`${formatAssetAmount(swap.amountIn, swap.fromAsset?.decimals)} ${swap.currencyIn}`} />
-            <Field label="Gross Receive" value={`${formatAssetAmount(grossAmountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`} />
-            <Field label="Fee" value={`${formatAssetAmount(feeTotal, feeDecimals)} ${feeCurrency || swap.currencyOut}`} />
-            <Field label="Net Receive" value={`${formatAssetAmount(netAmountOut, swap.toAsset?.decimals)} ${swap.currencyOut}`} />
-            <Field label="Rate Display" value={formatRate8(swap.rateDisplay)} />
-            <Field label="Rate All-In" value={formatRate8(swap.rateAllIn)} />
-            <Field label="Market Rate" value={formatRate8(swap.marketRate)} />
-            <Field label="Spread" value={`${Number(swap.spreadPercent)}% (${swap.spreadBps} bps)`} />
-            <Field label="Rate Source" value={swap.rateSource} />
-            <Field label="Fetched At" value={new Date(swap.fetchedAt).toLocaleString('en-US')} />
-          </div>
-          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700 mt-4">
-            {JSON.stringify(
-              {
-                matched: swap.matched,
-                pricingSource: swap.pricingSource,
-              },
-              null,
-              2,
+          {/* Fee Breakdown */}
+          <DetailCard title="Fee Breakdown" columns={1}>
+            {fees.length > 0 ? (
+              <div className="overflow-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-adm-border">
+                      {['Code', 'Label', 'Amount', 'Currency'].map((h) => (
+                        <th
+                          key={h}
+                          className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-adm-border">
+                    {fees.map((fee, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
+                          {fee.code}
+                        </td>
+                        <td className="px-3 py-2 text-[11px] text-adm-t1">{fee.label}</td>
+                        <td className="px-3 py-2 font-mono text-[11px] text-adm-t1">
+                          {formatAssetAmount(fee.amount)}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
+                          {fee.currency}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {/* Totals */}
+                {Object.keys(totals).length > 0 ? (
+                  <div className="mt-2 border-t border-adm-border pt-2">
+                    <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                      Totals
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-4">
+                      {Object.entries(totals).map(([key, amount]) => (
+                        <span
+                          key={key}
+                          className="font-mono text-[11px] font-semibold text-adm-amber"
+                        >
+                          {key}: {amount}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="font-mono text-[11px] text-adm-t3">No fee items</p>
             )}
-          </pre>
-        </DetailCard>
-      )}
+          </DetailCard>
 
-      {withdrawal && (
-        <DetailCard title="Withdrawal Terms" columns={1}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Field label="Asset" value={withdrawal.assetCode} />
-            <Field label="Amount" value={`${formatAssetAmount(withdrawal.amount, withdrawal.asset?.decimals)} ${withdrawal.assetCode}`} />
-            <Field label="Segment / Risk Tier" value={`${withdrawal.segment} / ${withdrawal.riskTier}`} />
-            <Field label="Matched Asset Entry" value={withdrawal.matchedAssetEntryId} />
-            <Field label="Matched Tier" value={`${withdrawal.matchedTierId} / ${withdrawal.matchedTierName}`} />
-            <Field label="Linked Withdrawals" value={String(withdrawal.linkedWithdrawals.length)} />
-          </div>
-          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700 mt-4">
-            {JSON.stringify(withdrawal.linkedWithdrawals, null, 2)}
-          </pre>
-        </DetailCard>
-      )}
+          {/* Linked Swap Transaction */}
+          {linkedSwap ? (
+            <DetailCard title="Linked Swap Transaction" columns={1}>
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-adm-border">
+                    {['Swap No', 'Status', 'Created'].map((h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-adm-border">
+                  <tr>
+                    <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
+                      {linkedSwap.swapNo || '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <AdminBadge value={linkedSwap.status} />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-adm-t3">
+                      {fmt(linkedSwap.createdAt)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </DetailCard>
+          ) : null}
 
-      <DetailCard title="Fee Snapshot" columns={1}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-          <Field label="Fee Items" value={String(fees.length)} />
-          <Field label="Total Currencies" value={String(Object.keys(totals).length)} />
+          {/* Technical Detail */}
+          <DetailCard title="Technical Detail" columns={1}>
+            <JsonBlock title="Policy Reference" value={data.policyRef} />
+            {swap.matched || swap.pricingSource ? (
+              <JsonBlock
+                title="Matched / Pricing Source"
+                value={{ matched: swap.matched, pricingSource: swap.pricingSource }}
+              />
+            ) : null}
+          </DetailCard>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
-            {JSON.stringify(fees, null, 2)}
-          </pre>
-          <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
-            {JSON.stringify(totals, null, 2)}
-          </pre>
-        </div>
-      </DetailCard>
 
-      <DetailCard title="Policy Reference" columns={1}>
-        <pre className="text-xs bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-auto text-gray-700">
-          {JSON.stringify(policyRef, null, 2)}
-        </pre>
-      </DetailCard>
+        {/* Sidebar */}
+        <aside className="hidden w-[272px] shrink-0 overflow-auto border-l border-adm-border bg-adm-panel px-4 lg:block">
+          <SidebarGroup title="Identity Summary">
+            <SidebarKV label="Business" value="SWAP" />
+            <SidebarKV label="Owner Type" value={data.ownerType} />
+            <SidebarKV label="Owner No" value={data.ownerNo} mono />
+            <SidebarKV label="Quote No" value={data.quoteNo} mono />
+            <SidebarKV label="Quote Type" value={swap.quoteType} />
+          </SidebarGroup>
 
-      <DetailCard title="Lifecycle" columns={1}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Field label="Created At" value={new Date(data.createdAt).toLocaleString('en-US')} />
-          <Field label="Expires At" value={new Date(data.expiresAt).toLocaleString('en-US')} />
-          <Field label="Used At" value={data.usedAt ? new Date(data.usedAt).toLocaleString('en-US') : 'N/A'} />
-          <Field label="Cancelled At" value={data.cancelledAt ? new Date(data.cancelledAt).toLocaleString('en-US') : 'N/A'} />
-        </div>
-      </DetailCard>
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={fmt(data.createdAt)} />
+            <SidebarKV label="Expires" value={fmt(data.expiresAt)} />
+            <SidebarKV label="Used" value={fmt(data.usedAt)} />
+            <SidebarKV label="Cancelled" value={fmt(data.cancelledAt)} />
+          </SidebarGroup>
+        </aside>
+      </div>
     </div>
   );
 };
