@@ -202,7 +202,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **前置：** V2 + V3 + V4（余额依赖充值）
 
-### MVP（2 workflows + 6 sub-flows + 3 配置治理 workflows）
+### MVP（2 workflows + 8 sub-flows + 3 配置治理 workflows）
 
 **虚拟币提现工作流** — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1
 
@@ -217,7 +217,12 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 **法币提现工作流** — **VARA + 业务**：同上
 
 - [x] Happy Path：客户提交法币提现 → L1 Eligibility → Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_CREDIT→BANK net + fee）→ L2 Transaction Screen（Pre-KYT PENDING + TR NOT_REQUIRED）→ Pre-KYT PASSED → 自动审批 → 创建 Payout（FIAT）→ 银行到账确认 → TB post → Withdraw SUCCESS ✅ 2026-05-31
+- [ ] 异常分支 — KYT 高风险受益人：大额/结构化汇款/高风险受益人 → FROZEN → MLRO 审批门 → 放行 / 拒绝解锁余额（TB void pending）
+- [ ] 异常分支 — 制裁命中：受益人银行/国家命中制裁名单 → 强制取消 → 余额解锁（TB void pending）→ MLRO 审计确认 → SAR
 - [ ] 异常分支 — 银行退回（bounced）：银行退汇 → 余额恢复记账（TB void pending）→ 通知客户 → 审计记录
+- [ ] 异常分支 — REJECTED：管理员拒绝 → TB void pending 解锁余额 → 通知客户
+
+> 法币 vs 虚拟币差异：① TB 账户：法币 BANK（code 1），虚拟币 CUSTODY（code 10）；② Travel Rule：法币自动 NOT_REQUIRED；③ L3 Archive：法币无（仅虚拟币有 txHash 归档）；④ KYT/制裁/REJECTED 异常路径共享同一 workflow 逻辑，仅触发场景不同（IBAN+受益人 vs 链上地址）；⑤ 法币独有：银行退回（bounced），虚拟币独有：链上失败（stuck/failed tx）
 
 **提现费率配置治理** — **业务必须**：费率结构变更的受控审批路径
 
@@ -229,6 +234,13 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [ ] 提现渠道暂停 / 恢复工作流（指定链/token/法币渠道：Maker 提案 + Checker 审批 → 暂停，在途提现处理策略明确；恢复同样需审批门；全程审计）
 
 不单做工作流（技术处理 / 主流程内嵌）：余额不足 / 地址未白名单 / 日限额超出 → 前置校验失败不创建订单；大额审批 → 主流程内审批门；VASP TR 超时 → 主流程内状态转换取消；自托管声明 → 主流程内嵌步骤；热钱包不足（V5 阶段）→ 显式错误码 + repair surface，V7 自动化。
+
+### ADVANCED（4 workflows）
+
+- [ ] 批量提现处理（机构客户批量提交提现请求 CSV → 逐笔校验地址/余额/限额 → 批量合规审查 → 统一审批门 → 逐笔 Payout 执行 → 汇总报告） — **业务必须**：机构客户高频提现的标准化路径
+- [ ] 大额提现增强审查（超额提现强制 EDD：要求客户提供 SOF/SOW 证明 → Sumsub 增强验证 → MLRO 审批门 → 通过后恢复正常提现流程；阈值按 tradingTier 配置） — **VARA**：CRM Rulebook III.B Enhanced Due Diligence — 大额资金流出的强化尽职调查义务
+- [ ] 提现渠道切换/降级（主渠道故障时切备用渠道：自动检测主渠道健康 → 降级通知 + 审批 → 在途提现处理策略 → 备用渠道执行 → 主渠道恢复后切回） — **业务必须**：渠道容灾能力
+- [ ] 提现限额变更（提现专属阈值变更审批：request-record 模式 → MLRO + SMO 两步审批 → 冲突检测 → 生效；区别于 V3 Transaction Limit Policy 的通用限额） — **业务必须**：提现维度独立限额治理
 
 ### Supporting Features（非 workflow，无独立状态机）
 
