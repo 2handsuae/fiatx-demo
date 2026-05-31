@@ -374,7 +374,7 @@ const DashboardLayout = () => {
         },
         {
           path: '/dashboard/pricing/quotes',
-          label: 'Quote Center',
+          label: 'Swap Quotes',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
