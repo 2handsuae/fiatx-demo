@@ -82,7 +82,7 @@ const WithdrawQuoteDetail = () => {
     setError('');
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/pricing/quotes/WITHDRAWAL/${id}`,
+        `${import.meta.env.VITE_API_URL}/admin/withdrawal-fee-levels/quotes/${id}`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load quote detail'));
       setData(await res.json());

@@ -95,7 +95,7 @@ const SwapQuoteList = () => {
       if (f.endDate) params.set('endDate', f.endDate);
 
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/pricing/quotes?${params.toString()}`,
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/quotes?${params.toString()}`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to fetch swap quotes'));
       const body = await res.json();
