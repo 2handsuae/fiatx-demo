@@ -181,8 +181,8 @@ export default function SwapFeeLevelDetail() {
       setChangeError('Change reason is required');
       return;
     }
-    if (changeTiers.length === 0 || changeTiers.some((t) => t.feeItems.length === 0)) {
-      setChangeError('At least 1 tier with 1 fee item is required');
+    if (changeTiers.length === 0) {
+      setChangeError('At least 1 tier is required');
       return;
     }
 

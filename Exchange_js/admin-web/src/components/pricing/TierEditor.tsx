@@ -184,7 +184,7 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
 
   const removeFeeItem = (tierIdx: number, feeIdx: number) => {
     const tier = tiers[tierIdx];
-    if (tier.feeItems.length <= 1) return;
+    if (mode !== 'swap' && tier.feeItems.length <= 1) return;
     updateTier(tierIdx, {
       feeItems: tier.feeItems.filter((_, i) => i !== feeIdx),
     });
@@ -385,7 +385,7 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
                     </select>
                   </td>
                   <td className="px-1 py-1">
-                    {tier.feeItems.length > 1 && (
+                    {(tier.feeItems.length > 1 || mode === 'swap') && (
                       <button
                         type="button"
                         onClick={() => removeFeeItem(tierIdx, feeIdx)}

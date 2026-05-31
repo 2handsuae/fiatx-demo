@@ -207,8 +207,8 @@ const SwapFeeLevelList = () => {
       setCreateError('Reason is required');
       return;
     }
-    if (createTiers.length === 0 || createTiers.some((t) => t.feeItems.length === 0)) {
-      setCreateError('At least 1 tier with 1 fee item is required');
+    if (createTiers.length === 0) {
+      setCreateError('At least 1 tier is required');
       return;
     }
 
