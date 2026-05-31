@@ -1,0 +1,65 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "audit-log-redesign",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["/tmp/serve-audit.py"],
+      "port": 7788
+    },
+    {
+      "name": "branch-admin",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3201 --host 127.0.0.1"
+      ],
+      "port": 3201
+    },
+    {
+      "name": "admin-web",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/admin-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3501 --host 127.0.0.1"
+      ],
+      "port": 3501
+    },
+    {
+      "name": "client-web",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/.wt/branch/Exchange_js/client-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3502 --host 127.0.0.1"
+      ],
+      "port": 3502
+    },
+    {
+      "name": "admin-web-main",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/admin-web && exec /opt/homebrew/bin/node ./node_modules/.bin/vite --port 3103 --host 127.0.0.1"
+      ],
+      "port": 3103
+    },
+    {
+      "name": "backend-main",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js && API_PORT=3010 ADMIN_URL=http://localhost:3103 CLIENT_URL=http://localhost:3102 exec /opt/homebrew/bin/node dist/main"
+      ],
+      "port": 3010
+    },
+    {
+      "name": "client-web-main",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/client-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3102 --host 127.0.0.1"
+      ],
+      "port": 3102
+    }
+  ]
+}

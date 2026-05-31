@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin-branch",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["scripts/dev-start-all.sh"],
+      "port": 3501
+    },
+    {
+      "name": "client-branch",
+      "runtimeExecutable": "echo",
+      "runtimeArgs": ["client already running"],
+      "port": 3502
+    }
+  ]
+}

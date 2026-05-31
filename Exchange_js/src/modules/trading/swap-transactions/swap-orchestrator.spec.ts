@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import { PricingCenterService } from '../pricing-center/pricing-center.service';
+import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { SwapEvents } from './constants/swap-events.constant';
 import {
   SwapTransactionAction,
@@ -36,10 +36,9 @@ describe('SwapWorkflowOrchestrator', () => {
     findOne: jest.fn(),
   };
 
-  const mockPricingCenterService = {
-    getActiveSwapQuoteOrThrow: jest.fn(),
-    consumeSwapQuoteForSwap: jest.fn(),
-    assertSwapProductAllowedForOwner: jest.fn(),
+  const mockSwapQuoteService = {
+    getActiveQuoteOrThrow: jest.fn(),
+    consumeQuote: jest.fn(),
   };
 
   const mockTransactionComplianceService = {
@@ -56,7 +55,7 @@ describe('SwapWorkflowOrchestrator', () => {
         SwapWorkflowOrchestrator,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SwapTransactionsService, useValue: mockSwapService },
-        { provide: PricingCenterService, useValue: mockPricingCenterService },
+        { provide: SwapQuoteService, useValue: mockSwapQuoteService },
         {
           provide: TransactionComplianceService,
           useValue: mockTransactionComplianceService,
@@ -124,7 +123,7 @@ describe('SwapWorkflowOrchestrator', () => {
       completedAt: new Date('2026-03-26T12:00:00.000Z'),
     };
 
-    mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue(quote);
+    mockSwapQuoteService.getActiveQuoteOrThrow.mockResolvedValue(quote);
     mockPrisma.swapTransaction.create.mockResolvedValue(createdSwap);
     mockTransactionComplianceService.evaluateSwapFinalReview.mockResolvedValue({
       skipped: false,
@@ -137,7 +136,8 @@ describe('SwapWorkflowOrchestrator', () => {
       'quote-1',
     );
 
-    expect(mockPricingCenterService.assertSwapProductAllowedForOwner).toHaveBeenCalledWith(
+    expect(// assertSwapProductAllowedForOwner removed — SwapFeeLevel pair matching is the product gate
+// mockSwapQuoteService.assertSwapProductAllowedForOwner).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerType: 'CUSTOMER',
         ownerId: 'customer-1',
@@ -145,7 +145,7 @@ describe('SwapWorkflowOrchestrator', () => {
         toAssetId: 'asset-usdt',
       }),
     );
-    expect(mockPricingCenterService.consumeSwapQuoteForSwap).toHaveBeenCalledWith(
+    expect(mockSwapQuoteService.consumeQuote).toHaveBeenCalledWith(
       mockPrisma,
       'quote-1',
       'CUSTOMER',
@@ -220,7 +220,7 @@ describe('SwapWorkflowOrchestrator', () => {
       failureCode: 'TX_SWAP_FINAL_EVALUATION_FAILED',
     };
 
-    mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue(quote);
+    mockSwapQuoteService.getActiveQuoteOrThrow.mockResolvedValue(quote);
     mockPrisma.swapTransaction.create.mockResolvedValue(createdSwap);
     mockTransactionComplianceService.evaluateSwapFinalReview.mockRejectedValue(
       new Error('bridge failed'),
@@ -254,52 +254,8 @@ describe('SwapWorkflowOrchestrator', () => {
   // V2 balance check removed — migrated to TigerBeetle
   // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
-  it.each([
-    ['PAIR_DISABLED'],
-    ['CHANNEL_ONLINE_DISABLED'],
-    ['TIER_DISABLED'],
-  ])(
-    'blocks swap creation from quote when restriction re-check returns %s',
-    async (restrictionCode) => {
-      mockPricingCenterService.getActiveSwapQuoteOrThrow.mockResolvedValue({
-        id: 'quote-restricted',
-        quoteNo: 'QUO_9001',
-        ownerNo: 'CU_0001',
-        fromAssetId: 'asset-btc',
-        fromAssetCode: 'BTC',
-        toAssetId: 'asset-usdt',
-        toAssetCode: 'USDT',
-        amountIn: new Prisma.Decimal('1'),
-        amountOut: new Prisma.Decimal('100000'),
-        rateAllIn: new Prisma.Decimal('100000'),
-        feeTotal: new Prisma.Decimal('0'),
-        feeCurrency: 'USDT',
-        feeBreakdown: '[]',
-        totalsJson: JSON.stringify({
-          amountOutNet: '100000',
-        }),
-      });
-      mockPricingCenterService.assertSwapProductAllowedForOwner.mockRejectedValue(
-        new ForbiddenException({
-          code: 'SWAP_PRODUCT_RESTRICTED',
-          restrictionCode,
-          message: `${restrictionCode} blocked`,
-        }),
-      );
-
-      await expect(
-        orchestrator.createSwapFromQuote('customer-1', 'quote-restricted'),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({
-          code: 'SWAP_PRODUCT_RESTRICTED',
-          restrictionCode,
-        }),
-      });
-
-      expect(mockPricingCenterService.consumeSwapQuoteForSwap).not.toHaveBeenCalled();
-      expect(mockPrisma.swapTransaction.create).not.toHaveBeenCalled();
-    },
-  );
+  // Product restriction test removed — assertSwapProductAllowedForOwner eliminated;
+  // SwapFeeLevel pair matching is now the product gate.
 
   it.each([
     [

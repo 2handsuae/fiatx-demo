@@ -103,7 +103,65 @@ export class DepositWorkflowService implements OnModuleInit {
     }
 
     this.logger.log(`Gate 0 PASS: deposit ${depositId}`);
+
+    const deposit = await this.depositService.findOne(depositId);
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_GATE0_PASSED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Gate 0 passed: customer compliance status is normal',
+      metadata: { complianceStatus: complianceStatus },
+      sourcePlatform: 'SYSTEM',
+    });
+
     await this.depositService.initializeComplianceGates(depositId);
+  }
+
+  async applyKytResult(depositId: string, kytStatus: string, riskScore?: number | null) {
+    await this.depositService.updateKytStatus(depositId, kytStatus, riskScore);
+
+    const deposit = await this.depositService.findOne(depositId);
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_KYT_APPLIED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: `KYT result applied: ${kytStatus}`,
+      metadata: { kytStatus, riskScore: riskScore ?? null },
+      sourcePlatform: 'SYSTEM',
+    });
+
+    await this.checkAutoApproval(depositId);
+  }
+
+  async applyTrResult(depositId: string, trStatus: string) {
+    await this.depositService.updateTravelRuleStatus(depositId, trStatus);
+
+    const deposit = await this.depositService.findOne(depositId);
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_TR_APPLIED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: `Travel rule result applied: ${trStatus}`,
+      metadata: { trStatus },
+      sourcePlatform: 'SYSTEM',
+    });
+
+    await this.checkAutoApproval(depositId);
   }
 
   async checkAutoApproval(depositId: string) {
@@ -158,6 +216,25 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
+    // ⑥ DEPOSIT_APPROVED — record before state change
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_APPROVED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Compliance approved, funds credited to client',
+      metadata: {
+        kytStatus: deposit.kytStatus,
+        travelRuleStatus: deposit.travelRuleStatus,
+        oldStatus,
+      },
+      sourcePlatform: 'SYSTEM',
+    });
+
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
       try {
         await this.executeDepositAccounting(deposit, 'STEP_2');
@@ -182,19 +259,13 @@ export class DepositWorkflowService implements OnModuleInit {
       }
     }
 
-    const updated = await this.depositService.updateStatus(deposit.id, {
+    await this.depositService.updateStatus(deposit.id, {
       action: DepositTransactionAction.APPROVE,
     });
 
-    await this.recordStateTransitionAudit(
-      { ...deposit, ...updated },
-      oldStatus,
-      DepositTransactionStatus.SUCCESS,
-      'Compliance approved, funds credited to client',
-    );
-
+    // ⑦ DEPOSIT_COMPLETED — record after state change
     await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_ACCOUNTING_POSTED,
+      action: AuditActions.DEPOSIT_COMPLETED,
       entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
       entityId: deposit.id,
       entityNo: deposit.depositNo,
@@ -202,8 +273,7 @@ export class DepositWorkflowService implements OnModuleInit {
       entityOwnerId: deposit.ownerId,
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
-      reason: 'Compliance approved, funds credited to client',
-      metadata: { eventCode: 'DEPOSIT_AUDIT_TO_CREDIT', step: 'STEP_2', oldStatus },
+      reason: 'Deposit completed successfully',
       sourcePlatform: 'SYSTEM',
     });
 
@@ -225,7 +295,7 @@ export class DepositWorkflowService implements OnModuleInit {
       await this.payinsService.linkDeposit(payinId, deposit.id);
 
       await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CREATED_FROM_PAYIN,
+        action: AuditActions.DEPOSIT_CREATED,
         entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id,
         entityNo: deposit.depositNo,
@@ -234,6 +304,12 @@ export class DepositWorkflowService implements OnModuleInit {
         traceId: deposit.traceId || undefined,
         workflowType: 'DEPOSIT',
         reason: 'Deposit created from payin detection',
+        metadata: {
+          payinId: payin.id,
+          amount: payin.amount.toString(),
+          assetCurrency: payin.assetId,
+          txHash: payin.txHash || null,
+        },
         sourcePlatform: 'SYSTEM',
       });
     }
@@ -300,12 +376,18 @@ export class DepositWorkflowService implements OnModuleInit {
       action: DepositTransactionAction.PAYIN_CONFIRMED,
     });
 
-    await this.recordStateTransitionAudit(
-      { ...deposit, ...updated },
-      DepositTransactionStatus.PAYIN_PENDING,
-      DepositTransactionStatus.COMPLIANCE_PENDING,
-      'Payin confirmed, deposit entering compliance review',
-    );
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_COMPLIANCE_STARTED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Payin confirmed, deposit entering compliance review',
+      sourcePlatform: 'SYSTEM',
+    });
 
     await this.payinsService.updateStatus(payinId, PayinAction.CLEAR);
 
