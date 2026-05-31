@@ -120,9 +120,10 @@ interface AssetBalance {
   assetId: string;
   assetCode: string;
   assetType: string;
-  clientCredit: string;
-  lockedBalance: string;
-  walletId: string;
+  currency: string;
+  available: string;
+  locked: string;
+  decimals: number;
 }
 
 const Swap = () => {
@@ -172,7 +173,7 @@ const Swap = () => {
     if (!user) return;
     try {
       const response = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/treasury/customer/${user.id}/assets`,
+        `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
       );
       if (response.ok) {
         const data = await response.json();
@@ -309,7 +310,7 @@ const Swap = () => {
     };
   }, [fromAssetId, toAssetId, fromAmount, assets]);
 
-  const currentBalance = balances.find(b => b.assetId === fromAssetId)?.clientCredit || '0';
+  const currentBalance = balances.find(b => b.assetId === fromAssetId)?.available || '0';
   const fromAsset = assets.find((a) => a.id === fromAssetId);
   const toAsset = assets.find((a) => a.id === toAssetId);
   const fromAssetDecimals = normalizeDecimals(fromAsset?.decimals, 8);
