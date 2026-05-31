@@ -367,12 +367,6 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
         },
         {
-          path: '/dashboard/pricing/swap-config',
-          label: 'Swap Config',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.PRICING_POLICIES_READ],
-        },
-        {
           path: '/dashboard/pricing/quotes',
           label: 'Swap Quotes',
           icon: <FileText size={13} />,
