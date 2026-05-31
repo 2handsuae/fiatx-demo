@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-30
+Last Updated: 2026-05-31
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -146,18 +146,18 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **虚拟币充值工作流** — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1
 
-- [x] Happy Path：链上广播 → Payin DETECTED → Deposit PAYIN_PENDING → Payin CONFIRMING → Payin CONFIRMED → Deposit COMPLIANCE_PENDING + TB Step 1（CUSTODY→CLIENT_AUDIT）→ Gate 0 客户合规校验 → KYT/TR 双门 → 自动审批 → Deposit SUCCESS + TB Step 2（CLIENT_AUDIT→CLIENT_CREDIT）→ Payin CLEARED ✅ 2026-05-22
+- [x] Happy Path：链上广播 → Payin DETECTED → Deposit PAYIN_PENDING → Payin CONFIRMING → Payin CONFIRMED → Deposit COMPLIANCE_PENDING + TB Step 1（CUSTODY→CLIENT_AUDIT）→ L1 Eligibility 客户合规校验 → L2 Transaction Screen（KYT + Travel Rule）→ 自动审批 → Deposit SUCCESS + TB Step 2（CLIENT_AUDIT→CLIENT_CREDIT）→ Payin CLEARED ✅ 2026-05-22
 - [ ] 异常分支 — ACTION_PENDING：Sumsub 返回 applicantActionPending → Deposit ACTION_PENDING（客户补材料）→ Sumsub 复审 webhook → approved 回 SUCCESS / rejected 回 REJECTED
-- [ ] 异常分支 — FROZEN：制裁命中 → Deposit FROZEN → MLRO 审批门 → 放行回 SUCCESS / 确认没收 CONFISCATED（Gate 0 入口检查已实现 ✅；MLRO 审批门 + 放行/没收路径待实现）
+- [ ] 异常分支 — FROZEN：制裁命中 → Deposit FROZEN → MLRO 审批门 → 放行回 SUCCESS / 确认没收 CONFISCATED（L1 Eligibility 入口检查已实现 ✅；MLRO 审批门 + 放行/没收路径待实现）
 - [ ] 异常分支 — REJECTED：Sumsub rejected → Deposit REJECTED → TB 回退 CLIENT_AUDIT→CUSTODY
 - [ ] 异常分支 — Payin FAILED：链重组 / 交易 drop → Payin FAILED → Deposit FAILED → TB 回退
 - [ ] 异常分支 — EXPIRED：ACTION_PENDING 超时 → Deposit EXPIRED → TB 回退 CLIENT_AUDIT→CUSTODY
 
-> KYT/Travel Rule 合规审查拆分为独立双门：`kytStatus`（PENDING→PASSED/FAILED）+ `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），两门全部 PASSED 方可自动审批。合规结果通过 Sumsub Webhook 翻译层统一分发。
+> L2 Transaction Screen 合规审查拆分为两个子项：`kytStatus`（PENDING→PASSED/FAILED）+ `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），两项全部 PASSED 方可自动审批。合规结果通过 Sumsub Webhook 翻译层统一分发。
 
 **法币充值工作流** — **VARA + 业务**：同上
 
-- [x] Happy Path：银行 VIBAN 到账 → Payin DETECTED → Deposit PAYIN_PENDING → Payin CONFIRMED（无 CONFIRMING 阶段）→ Deposit COMPLIANCE_PENDING + TB Step 1（BANK→CLIENT_AUDIT）→ Gate 0 → KYT 门（travelRule 自动 NOT_REQUIRED）→ 自动审批 → Deposit SUCCESS + TB Step 2（CLIENT_AUDIT→CLIENT_CREDIT）→ Payin CLEARED ✅ 2026-05-27
+- [x] Happy Path：银行 VIBAN 到账 → Payin DETECTED → Deposit PAYIN_PENDING → Payin CONFIRMED（无 CONFIRMING 阶段）→ Deposit COMPLIANCE_PENDING + TB Step 1（BANK→CLIENT_AUDIT）→ L1 Eligibility → L2 Transaction Screen（KYT；TR 自动 NOT_REQUIRED）→ 自动审批 → Deposit SUCCESS + TB Step 2（CLIENT_AUDIT→CLIENT_CREDIT）→ Payin CLEARED ✅ 2026-05-27
 - [ ] 异常分支 — 名义不符（Sender Name Mismatch）：银行到账人名 ≠ 客户注册姓名 → Deposit ACTION_PENDING → 运营人工核实 → 确认同人放行 / 确认第三方拒绝退回
 - [ ] 异常分支 — 银行退汇（Bank Return/Bounce）：Payin DETECTED 阶段银行通知资金退回 → Payin FAILED → Deposit FAILED（Step 1 尚未执行，无需 TB 回退）
 - [ ] 异常分支 — KYT 失败（AML Flag）：大额现金 / 高风险来源地 / 结构化分拆 → 与虚拟币共享 FROZEN → MLRO 审批路径
@@ -173,7 +173,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 ### Supporting Features（非 workflow，无独立状态机）
 
 **已完成：**
-- **Deposit 事件驱动编排** — Payin 事件 → DepositWorkflowService 自动创建 Deposit 并推进状态机；Deposit 事件 → Gate 0 校验 ✅ 2026-05-22
+- **Deposit 事件驱动编排** — Payin 事件 → DepositWorkflowService 自动创建 Deposit 并推进状态机；Deposit 事件 → L1 Eligibility 校验 ✅ 2026-05-22
 - **TB 双步记账** — Step 1：BANK/CUSTODY→CLIENT_AUDIT（按 asset.type 自动选择）；Step 2：CLIENT_AUDIT→CLIENT_CREDIT ✅ 2026-05-27
 - **KYT/TR 模拟端点** — `POST /admin/sumsub/simulate/kyt-check` + `POST /admin/sumsub/simulate/tr-check`，模拟事件走 Sumsub ingest 管道 ✅ 2026-05-23
 - **Admin 充值页面** — Deposit 列表/详情 + Payin 列表/详情（含模拟控件），深色主题 ✅ 2026-05-23
@@ -197,25 +197,33 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 ## V5 — 提现流程
 
 > 定义完整提现工作流：提现申请 → 合规筛查 → Travel Rule（VASP 对手方）→ 大额审批门 → Payout 执行 → 链上/银行确认 → 记账。热钱包预充值假设成立；Cold→Hot 自动归集由 V7 补充。
+>
+> 合规架构采用三层框架：L1 Eligibility Guard（客户资格，pre-creation 同步校验）→ L2 Transaction Screen（Pre-KYT + Travel Rule，唯一阻塞闸门）→ L3 Post-Tx Archive（txHash 归档，fire-and-forget）。充值流程概念对齐但不改代码。
 
 **前置：** V2 + V3 + V4（余额依赖充值）
 
-### MVP（2 workflows + 6 sub-flows）
+### MVP（2 workflows + 6 sub-flows + 3 配置治理 workflows）
 
 **虚拟币提现工作流** — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1
 
-- [x] Happy Path：客户提交提现 → Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_CREDIT→TRADE_CLEARING net + fee）→ Gate 0 客户合规校验 → KYT Phase 1 + Travel Rule 双门并行 → 全门 PASSED 自动审批 APPROVED → 创建 Payout → Payout 确认（txHash）→ TB post pending transfer 结算 → Withdraw SUCCESS ✅ 2026-05-30
+- [x] Happy Path：客户提交提现 → L1 Eligibility（assertTradingEligibility pre-creation）→ Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_CREDIT→CUSTODY net + fee）→ L2 Transaction Screen（Pre-KYT + Travel Rule 并行）→ 全部 PASSED → 自动审批 APPROVED → 创建 Payout → Payout 确认（txHash）→ TB post pending transfer 结算 → L3 Post-Tx Archive（fire-and-forget txHash 归档）→ Withdraw SUCCESS ✅ 2026-05-30
 - [ ] 异常分支 — KYT 高风险地址：目标地址高风险 → 提现挂起 FROZEN → MLRO 审批门 → 放行恢复广播 / 拒绝解锁余额（TB void pending）
 - [ ] 异常分支 — 制裁地址拦截：目标地址命中 OFAC/SDN → 强制取消 → 余额解锁（TB void pending）→ MLRO 审计确认 → SAR
 - [ ] 异常分支 — 链上失败：stuck/failed tx → 超时后重试加速 / 取消 → 余额解锁退回（TB void pending）
 - [ ] 异常分支 — REJECTED：管理员拒绝 → TB void pending 解锁余额 → 通知客户
 
-> KYT/Travel Rule 合规审查拆分为独立双门：`preKytStatus`（PENDING→PASSED/FAILED）+ `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），两门全部 PASSED 方可自动审批。合规结果通过 Sumsub Webhook 翻译层统一分发；DEV 阶段通过模拟端点触发。
+> L2 Transaction Screen 合规审查拆分为两个子项：`preKytStatus`（PENDING→PASSED/FAILED）+ `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），两项全部 PASSED 方可自动审批。合规结果通过 Sumsub Webhook 翻译层统一分发；DEV 阶段通过模拟端点触发。
 
 **法币提现工作流** — **VARA + 业务**：同上
 
-- [ ] Happy Path：客户提交法币提现 → 余额锁定 → Gate 0 → KYT 门（travelRule 自动 NOT_REQUIRED）→ 审批 → 银行转账 → 到账确认 → 记账
+- [x] Happy Path：客户提交法币提现 → L1 Eligibility → Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_CREDIT→BANK net + fee）→ L2 Transaction Screen（Pre-KYT PENDING + TR NOT_REQUIRED）→ Pre-KYT PASSED → 自动审批 → 创建 Payout（FIAT）→ 银行到账确认 → TB post → Withdraw SUCCESS ✅ 2026-05-31
 - [ ] 异常分支 — 银行退回（bounced）：银行退汇 → 余额恢复记账（TB void pending）→ 通知客户 → 审计记录
+
+**提现费率配置治理** — **业务必须**：费率结构变更的受控审批路径
+
+- [x] Withdrawal Fee Level Creation（费率等级创建审批：3-Layer 架构——薄审批处理器 + 工作流编排器 + 领域服务；MLRO + SMO 两步审批，48h 超时；创建含 tier 列表 JSON，每 tier 定义 fixedFee + feeRate + minFee + maxFee；Admin 列表页含 Create Modal + TierEditor 组件） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach ✅ 2026-05-30
+- [x] Withdrawal Fee Level Change（费率等级变更审批：request-record 模式——创建 WithdrawalFeeLevelChangeRequest 行记录变更生命周期，主 level 保持 ACTIVE 不变；MLRO + SMO 两步审批，48h 超时；执行时 hash 冲突检测（snapshot vs actual，防静默覆盖）；Admin 详情页 Change Modal + proposed vs current 对比） — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach ✅ 2026-05-30
+- [x] Withdrawal Fee Level Binding（客户费率等级绑定/解绑：无审批门，直接生效 + 审计记录；一个客户同资产同时只能有一个绑定；Admin 详情页 Bind Modal + Bindings 列表） ✅ 2026-05-30
 
 运营治理工作流：
 - [ ] 提现渠道暂停 / 恢复工作流（指定链/token/法币渠道：Maker 提案 + Checker 审批 → 暂停，在途提现处理策略明确；恢复同样需审批门；全程审计）
@@ -225,25 +233,22 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 ### Supporting Features（非 workflow，无独立状态机）
 
 **已完成：**
-- **Withdraw 事件驱动编排** — WithdrawWorkflowService：CREATED → Gate 0 → KYT/TR 双门并行 → convergence → APPROVED → Payout → SUCCESS；事件：WITHDRAWAL_CREATED / KYT_UPDATED / TRAVELRULE_UPDATED / PAYOUT_STATUS_CONFIRMED ✅ 2026-05-30
-- **TB pending transfer 记账** — 创建时锁定余额（create pending net + fee），成功时结算（post pending），失败/拒绝时解锁（void pending）；decimalToBigint 精度转换 ✅ 2026-05-30
-- **模拟端点** — `POST /withdraw-transactions/:id/simulate/kyt-phase1` + `kyt-phase2` + `travel-rule` + `payout-confirmed`，DEV 阶段模拟合规结果与链上确认 ✅ 2026-05-30
-- **Admin 提现页面** — Withdraw 列表/详情（含合规门卡片、Payout 关联、状态历史时间线）+ Payout 列表/详情，深色主题 ✅ 2026-05-30
+- **Withdraw 事件驱动编排** — WithdrawWorkflowService 三层合规架构：CREATED → L2 initializeTransactionScreen（Pre-KYT + TR）→ checkScreenPass convergence → APPROVED → Payout → handlePayoutConfirmed → finalizeWithdrawal → L3 archivePostKyt（crypto only）→ SUCCESS；事件：WITHDRAWAL_CREATED / KYT_UPDATED / TRAVELRULE_UPDATED / PAYOUT_STATUS_CONFIRMED ✅ 2026-05-31
+- **TB pending transfer 记账** — 创建时锁定余额（create pending net + fee），成功时结算（post pending），失败/拒绝时解锁（void pending）；法币用 BANK 账户码（code 1），虚拟币用 CUSTODY（code 10）；decimalToBigint 精度转换 ✅ 2026-05-31
+- **模拟端点** — `POST /withdraw-transactions/:id/simulate/kyt-phase1` + `kyt-phase2` + `travel-rule` + `payout-confirmed`，DEV 阶段模拟合规结果与链上确认；法币和虚拟币共用同一组端点 ✅ 2026-05-30
+- **Admin 提现页面** — Withdraw 列表/详情（含 L1/L2/L3 合规层卡片、Payout 关联、状态历史时间线）+ Payout 列表/详情 + Withdrawal Fee Level 列表/详情（含 TierEditor、Create/Change/Bind Modal），深色主题 ✅ 2026-05-31
 - **Client 提现页面** — 三 Tab（Crypto/Fiat/History）：资产选择 → 地址选择/手动输入 → 金额输入含费用预览 → 确认弹窗 → 提交；History 列表含状态筛选 ✅ 2026-05-30
 - **Client Tipping-Off Safe 映射** — 客户端状态隐藏合规细节（FROZEN→Processing 等），复用 V4 映射模式 ✅ 2026-05-30
 - **CustomerWithdrawController** — 客户端专用 API：创建提现 + 查询列表/详情 + 预览费用报价；Admin controller 锁定仅管理员访问 ✅ 2026-05-30
+- **WithdrawQuoteService** — 从 PricingCenterService 拆分独立的 Withdrawal quote 逻辑，支持多 level 取最优费率 ✅ 2026-05-30
+- **费率数据迁移** — PricingPolicy WITHDRAWAL_PRICING → WithdrawalFeeLevel seed 脚本 ✅ 2026-05-30
 
 **待实现：**
-- **Sumsub KYT/TR 真实集成** — 替换模拟端点，走 Sumsub webhook 翻译层
+- **Sumsub KYT/TR 真实集成** — 替换模拟端点，走 Sumsub webhook 翻译层；L3 archivePostKyt stub 替换为真实 PATCH /kyt/txns/{id}/data/info 调用
 - **大额审批门** — 超过阈值的提现走 MLRO 审批
 - **热钱包余额校验** — Payout 前检查 Outbound Wallet 余额，不足时显式失败
 - **提现成功通知** — 完成推送客户通知，复用 V1 Notification send
 - **TB 记账失败 repair surface** — 合规通过但 TB 记账失败时的修复路径
-- **Withdrawal Fee Level Creation** — 费率等级创建审批（MLRO + SMO 两步审批，48h 超时）
-- **Withdrawal Fee Level Change** — 费率等级变更审批（request-record 模式 + hash 冲突检测）
-- **Withdrawal Fee Level Binding** — 客户费率等级绑定/解绑（无审批门，审计记录）
-- **WithdrawQuoteService 拆分重构** — 从 PricingCenterService 迁出 Withdrawal quote 逻辑，多 level 取最优费率
-- **数据迁移** — PricingPolicy WITHDRAWAL_PRICING → WithdrawalFeeLevel 行
 
 ---
 
