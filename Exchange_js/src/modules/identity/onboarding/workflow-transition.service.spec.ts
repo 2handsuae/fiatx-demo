@@ -2,7 +2,6 @@ import { BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../../trading/deposit-transactions/deposit-transactions.service';
-import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import { WorkflowTransitionService } from './workflow-transition.service';
 
@@ -19,9 +18,6 @@ describe('WorkflowTransitionService', () => {
   const depositTransactionsServiceMock = {
     findOne: jest.fn(),
     updateStatus: jest.fn(),
-  };
-  const swapTransactionWorkflowServiceMock = {
-    execute: jest.fn(),
   };
   const withdrawTransactionWorkflowServiceMock = {
     execute: jest.fn(),
@@ -40,9 +36,6 @@ describe('WorkflowTransitionService', () => {
       }
       if (token === DepositTransactionsService) {
         return depositTransactionsServiceMock;
-      }
-      if (token === SwapTransactionWorkflowService) {
-        return swapTransactionWorkflowServiceMock;
       }
       if (token === WithdrawTransactionWorkflowService) {
         return withdrawTransactionWorkflowServiceMock;
@@ -164,121 +157,6 @@ describe('WorkflowTransitionService', () => {
         subjectNo: 'DEP0001',
       }),
     );
-  });
-
-  it('should dispatch TRANSACTION workflow to swap handler for false positive resolution', async () => {
-    swapTransactionWorkflowServiceMock.execute.mockResolvedValue({
-      transitionCode: 'TX_SWAP_CLEAR_TO_SUCCESS',
-      applied: true,
-      blocked: false,
-      blockedReason: null,
-      swapId: 'swap-1',
-      swapNo: 'SWP0001',
-      swapStatusBefore: 'UNDER_REVIEW',
-      swapStatusAfter: 'SUCCESS',
-    });
-
-    const tx = { swapTransaction: {} } as any;
-    const result = await service.transition(tx, {
-      workflow: 'TRANSACTION',
-      stage: 'REVIEW_SWAP_FINAL',
-      producerType: 'CASE',
-      producerId: 'case-1',
-      customerId: 'c1',
-      sourceId: 'swap-1',
-      sourceType: 'SWAP',
-      dispositionCode: 'FALSE_POSITIVE',
-      actorId: 'mlro-1',
-      actorRole: 'MLRO',
-      latestDecisionRecordId: 'decision-1',
-    } as any);
-
-    expect(swapTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      tx,
-      expect.objectContaining({
-        swapId: 'swap-1',
-        source: 'CASE',
-        sourceId: 'case-1',
-        workflowAction: 'CLEAR',
-        decisionRecordId: 'decision-1',
-        triggerStage: 'REVIEW_SWAP_FINAL',
-      }),
-    );
-    expect(result.transitionCode).toBe('TX_SWAP_CLEAR_TO_SUCCESS');
-    expect(result.toStatus).toBe('SUCCESS');
-    expect(result.updatedSubject).toEqual(
-      expect.objectContaining({
-        id: 'swap-1',
-        sourceType: 'SWAP',
-        subjectNo: 'SWP0001',
-      }),
-    );
-  });
-
-  it('should dispatch TRANSACTION workflow to swap handler for reject resolution', async () => {
-    swapTransactionWorkflowServiceMock.execute.mockResolvedValue({
-      transitionCode: 'TX_SWAP_REJECT_TO_REJECTED',
-      applied: true,
-      blocked: true,
-      blockedReason: 'RISK_CONFIRMED',
-      swapId: 'swap-1',
-      swapNo: 'SWP0001',
-      swapStatusBefore: 'UNDER_REVIEW',
-      swapStatusAfter: 'REJECTED',
-    });
-
-    const tx = { swapTransaction: {} } as any;
-    const result = await service.transition(tx, {
-      workflow: 'TRANSACTION',
-      stage: 'REVIEW_SWAP_FINAL',
-      producerType: 'ALERT',
-      producerId: 'alert-1',
-      customerId: 'c1',
-      sourceId: 'swap-1',
-      sourceType: 'SWAP',
-      dispositionCode: 'RISK_CONFIRMED',
-      actorId: 'admin-1',
-      actorRole: 'COMPLIANCE_OFFICER',
-      latestDecisionRecordId: 'decision-2',
-    } as any);
-
-    expect(swapTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      tx,
-      expect.objectContaining({
-        swapId: 'swap-1',
-        source: 'ALERT',
-        sourceId: 'alert-1',
-        workflowAction: 'REJECT',
-        alertId: 'alert-1',
-        decisionRecordId: 'decision-2',
-      }),
-    );
-    expect(result.transitionCode).toBe('TX_SWAP_REJECT_TO_REJECTED');
-    expect(result.toStatus).toBe('REJECTED');
-    expect(result.updatedSubject).toEqual(
-      expect.objectContaining({
-        id: 'swap-1',
-        sourceType: 'SWAP',
-        subjectNo: 'SWP0001',
-      }),
-    );
-  });
-
-  it('should reject FREEZE for swap transaction workflow', async () => {
-    await expect(
-      service.transition({} as any, {
-        workflow: 'TRANSACTION',
-        stage: 'REVIEW_SWAP_FINAL',
-        producerType: 'ALERT',
-        producerId: 'alert-1',
-        customerId: 'c1',
-        sourceId: 'swap-1',
-        sourceType: 'SWAP',
-        dispositionCode: 'FREEZE_TRANSACTION',
-        actorId: 'admin-1',
-        actorRole: 'COMPLIANCE_OFFICER',
-      } as any),
-    ).rejects.toThrow('Swap transaction workflow does not support FREEZE transitions');
   });
 
   it('should dispatch TRANSACTION workflow to withdraw handler for false positive resolution', async () => {

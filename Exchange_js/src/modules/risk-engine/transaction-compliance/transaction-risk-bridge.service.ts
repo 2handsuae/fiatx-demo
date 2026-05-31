@@ -141,13 +141,6 @@ interface WithdrawSimulationRiskProfile {
   signalId: string | null;
 }
 
-interface SwapFinalReviewInput {
-  swapId: string;
-  sourceType: TxSourceType;
-  sourceId: string;
-  reportDeduped?: boolean;
-}
-
 interface SwapSimulationRiskProfile {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   riskReason: string | null;

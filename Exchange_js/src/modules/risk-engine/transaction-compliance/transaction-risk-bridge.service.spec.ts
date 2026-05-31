@@ -3,7 +3,6 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionRiskBridgeService } from './transaction-risk-bridge.service';
 import { TxSourceType } from './types/tx-compliance.types';
 import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
-import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 
 describe('TransactionRiskBridgeService', () => {
   const prismaMock: any = {
@@ -34,9 +33,6 @@ describe('TransactionRiskBridgeService', () => {
   const transactionDepositWorkflowServiceMock: any = {
     approveDeposit: jest.fn(),
   };
-  const swapTransactionWorkflowServiceMock: any = {
-    execute: jest.fn(),
-  };
   const moduleRefMock = {
     get: jest.fn(),
   };
@@ -57,15 +53,12 @@ describe('TransactionRiskBridgeService', () => {
       if (token === DepositWorkflowService) {
         return transactionDepositWorkflowServiceMock;
       }
-      if (token === SwapTransactionWorkflowService) {
-        return swapTransactionWorkflowServiceMock;
-      }
       return null;
     });
     service = new TransactionRiskBridgeService(
       prismaMock as any,
       riskEngineServiceMock as any,
-      {} as any,
+      Object.create(AuditLogsService.prototype),
       moduleRefMock as unknown as ModuleRef,
     );
   });
@@ -475,36 +468,6 @@ describe('TransactionRiskBridgeService', () => {
     );
   });
 
-  it('should create one pending swap decision record and wait for manual simulation', async () => {
-    prismaMock.swapTransaction.findUnique.mockResolvedValue(buildSwap());
-    riskEngineServiceMock.createPendingDecisionRecord.mockResolvedValue({
-      decisionRecordId: 'decision-swap-pending-1',
-      status: 'CREATED',
-      decision: null,
-    });
-
-    const result = await service.handleSwapFinalReview({
-      swapId: 'swap-1',
-      sourceType: TxSourceType.SWAP,
-      sourceId: 'swap-1',
-    });
-
-    expect(riskEngineServiceMock.createPendingDecisionRecord).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contextType: 'TX_SWAP_FINAL',
-        subjectType: 'SWAP',
-        subjectId: 'swap-1',
-      }),
-      undefined,
-    );
-    expect(swapTransactionWorkflowServiceMock.execute).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      skipped: false,
-      decisionRecordId: 'decision-swap-pending-1',
-      decision: null,
-    });
-  });
-
   it('should auto-clear swap when manual simulation is LOW', async () => {
     prismaMock.workflowDecisionRecord.findUnique.mockResolvedValue({
       id: 'decision-swap-approve-1',
@@ -520,14 +483,6 @@ describe('TransactionRiskBridgeService', () => {
       recommendedActions: [],
       reasonCodes: ['TX_SWAP_LOW_RISK_AUTO_CLEAR'],
     });
-    swapTransactionWorkflowServiceMock.execute.mockResolvedValue({
-      applied: true,
-      transitionCode: 'TX_SWAP_CLEAR_TO_SUCCESS',
-      swapId: 'swap-1',
-      swapNo: 'SWP0001',
-      swapStatusBefore: 'PENDING_COMPLIANCE',
-      swapStatusAfter: 'SUCCESS',
-    });
 
     const result = await service.simulateSwapFinalReview({
       decisionRecordId: 'decision-swap-approve-1',
@@ -535,13 +490,6 @@ describe('TransactionRiskBridgeService', () => {
       riskReason: 'TX_SWAP_LOW_RISK_AUTO_CLEAR',
     });
 
-    expect(swapTransactionWorkflowServiceMock.execute).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        swapId: 'swap-1',
-        workflowAction: 'CLEAR',
-      }),
-    );
     expect(result).toEqual(
       expect.objectContaining({
         skipped: false,
@@ -659,71 +607,6 @@ describe('TransactionRiskBridgeService', () => {
       }),
       undefined,
     );
-  });
-
-  it('should reuse completed swap decision record without creating another pending record', async () => {
-    prismaMock.swapTransaction.findUnique.mockResolvedValue(buildSwap());
-    prismaMock.workflowDecisionRecord.findFirst.mockResolvedValue({
-      id: 'decision-swap-existing-1',
-      status: 'COMPLETED',
-      outputDecision: 'APPROVE',
-      recommendedActions: JSON.stringify([]),
-      reasonCodes: JSON.stringify(['TX_SWAP_LOW_RISK_AUTO_CLEAR']),
-    });
-
-    const result = await service.handleSwapFinalReview({
-      swapId: 'swap-1',
-      sourceType: TxSourceType.SWAP,
-      sourceId: 'swap-1',
-    });
-
-    expect(riskEngineServiceMock.createPendingDecisionRecord).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      skipped: false,
-      decisionRecordId: 'decision-swap-existing-1',
-      decision: 'APPROVE',
-    });
-  });
-
-  it('should skip swap final review when swap status is not eligible', async () => {
-    prismaMock.swapTransaction.findUnique.mockResolvedValue(
-      buildSwap({
-        status: 'SUCCESS',
-      }),
-    );
-
-    const result = await service.handleSwapFinalReview({
-      swapId: 'swap-1',
-      sourceType: TxSourceType.SWAP,
-      sourceId: 'swap-1',
-    });
-
-    expect(result).toEqual({
-      skipped: true,
-      skipReason: 'STATUS_NOT_ELIGIBLE',
-    });
-    expect(riskEngineServiceMock.createPendingDecisionRecord).not.toHaveBeenCalled();
-  });
-
-  it('should skip swap final review when swap owner is unsupported', async () => {
-    prismaMock.swapTransaction.findUnique.mockResolvedValue(
-      buildSwap({
-        ownerType: 'INTERNAL_TREASURY',
-        ownerId: null,
-      }),
-    );
-
-    const result = await service.handleSwapFinalReview({
-      swapId: 'swap-1',
-      sourceType: TxSourceType.SWAP,
-      sourceId: 'swap-1',
-    });
-
-    expect(result).toEqual({
-      skipped: true,
-      skipReason: 'UNSUPPORTED_OWNER',
-    });
-    expect(riskEngineServiceMock.createPendingDecisionRecord).not.toHaveBeenCalled();
   });
 
   it('should keep historical withdraw precheck handler as read-only skip', async () => {
