@@ -25,7 +25,6 @@ import {
   DepositTransactionAction,
   DepositTransactionStatus,
 } from '../../trading/deposit-transactions/dto/deposit-transaction.dto';
-import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import { normalizeWorkflowDecision } from '../../risk-engine/constants/compliance-disposition.constant';
 
@@ -53,16 +52,6 @@ export class WorkflowTransitionService {
     });
     if (!service) {
       throw new BadRequestException('Deposit transactions service is unavailable');
-    }
-    return service;
-  }
-
-  private getTransactionSwapWorkflowTransitionService() {
-    const service = this.moduleRef?.get(SwapTransactionWorkflowService, {
-      strict: false,
-    });
-    if (!service) {
-      throw new BadRequestException('Swap transaction workflow transition service is unavailable');
     }
     return service;
   }
@@ -153,48 +142,9 @@ export class WorkflowTransitionService {
       );
 
       if (sourceType === TRANSACTION_SWAP_SOURCE_TYPE) {
-        if (workflowAction === 'FREEZE') {
-          throw new BadRequestException(
-            'Swap transaction workflow does not support FREEZE transitions',
-          );
-        }
-        const service = this.getTransactionSwapWorkflowTransitionService();
-        const result = await service.execute(tx, {
-          swapId: sourceId,
-          source: transactionProducerType,
-          sourceId: input.producerId,
-          workflowAction:
-            workflowAction === 'CLEAR' ? 'CLEAR' : workflowAction === 'REJECT' ? 'REJECT' : 'FLAG',
-          reason: input.reason || null,
-          actor: {
-            actorType: 'ADMIN',
-            actorId: input.actorId,
-            actorRole: input.actorRole,
-            sourcePlatform: 'ADMIN_API',
-          },
-          decisionRecordId: input.latestDecisionRecordId || null,
-          caseId: input.producerType === 'CASE' ? input.producerId : null,
-          alertId: input.producerType === 'ALERT' ? input.producerId : null,
-          triggerStage: input.stage,
-        });
-
-        return {
-          workflow: TRANSACTION_WORKFLOW,
-          stage: input.stage,
-          dispositionCode: String(input.dispositionCode || '').trim().toUpperCase(),
-          transitionCode: result.transitionCode as any,
-          fromStatus: result.swapStatusBefore,
-          toStatus: result.swapStatusAfter,
-          executed: result.applied,
-          updatedCustomer: null,
-          updatedSubject: {
-            id: result.swapId,
-            sourceType: TRANSACTION_SWAP_SOURCE_TYPE,
-            subjectNo: result.swapNo,
-            blocked: result.blocked,
-            blockedReason: result.blockedReason,
-          },
-        };
+        throw new BadRequestException(
+          'Swap transactions are synchronous and do not support async compliance transitions',
+        );
       }
 
       if (sourceType === TRANSACTION_WITHDRAW_SOURCE_TYPE) {

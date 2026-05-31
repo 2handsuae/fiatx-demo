@@ -31,7 +31,6 @@ import {
   TxSourceType,
 } from './types/tx-compliance.types';
 import { DepositWorkflowService } from '../../trading/deposit-transactions/deposit-workflow.service';
-import { SwapTransactionWorkflowService } from '../../trading/swap-transactions/swap-transaction-workflow.service';
 import { WithdrawTransactionWorkflowService } from '../../trading/withdraw-transactions/withdraw-transaction-workflow.service';
 import {
   TRANSACTION_SWAP_SOURCE_TYPE,
@@ -378,14 +377,6 @@ export class TransactionRiskBridgeService {
   private getTransactionWorkflowTransitionService() {
     return (
       this.moduleRef?.get(DepositWorkflowService, {
-        strict: false,
-      }) || null
-    );
-  }
-
-  private getSwapWorkflowTransitionService() {
-    return (
-      this.moduleRef?.get(SwapTransactionWorkflowService, {
         strict: false,
       }) || null
     );
@@ -1032,49 +1023,6 @@ export class TransactionRiskBridgeService {
     };
   }
 
-  private async clearSwapIfApproved(
-    input: {
-      swapId: string;
-      swapNo?: string | null;
-      quoteId?: string | null;
-      quoteNo?: string | null;
-      customerId: string;
-      customerNo?: string | null;
-      decisionRecordId: string;
-      reasonCode: string;
-      reason: string;
-    },
-    tx?: Prisma.TransactionClient,
-  ) {
-    const transitionService = this.getSwapWorkflowTransitionService();
-    if (!transitionService) {
-      this.logger.debug(
-        `Swap workflow transition unavailable; skip CLEAR for swap ${input.swapId}`,
-      );
-      return null;
-    }
-
-    return transitionService.execute(tx, {
-      swapId: input.swapId,
-      source: 'SYSTEM',
-      sourceId: input.decisionRecordId,
-      workflowAction: 'CLEAR',
-      reason: input.reason,
-      reasonCode: input.reasonCode,
-      actor: {
-        actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        actorNo: 'SYSTEM',
-        actorRole: 'SYSTEM',
-        sourcePlatform: tx ? 'SYSTEM_TX' : 'SYSTEM',
-      },
-      decisionRecordId: input.decisionRecordId,
-      riskDecisionRef: input.decisionRecordId,
-      triggerStage: TRANSACTION_REVIEW_STAGES.REVIEW_SWAP_FINAL,
-      triggerStatus: 'APPROVE',
-    });
-  }
-
   private async clearWithdrawIfApproved(
     input: {
       withdrawId: string;
@@ -1560,26 +1508,8 @@ export class TransactionRiskBridgeService {
     const actionNames = this.normalizeActionNames(
       input.decisionResult.recommendedActions,
     );
-    let workflowTransition: Record<string, unknown> | null = null;
-
-    if (!input.decisionResult.reused && input.decisionResult.decision === 'APPROVE') {
-      workflowTransition = this.toRecordObject(
-        await this.clearSwapIfApproved(
-        {
-          swapId: input.swap.id,
-          swapNo: input.swap.swapNo,
-          quoteId: input.swap.quoteId || null,
-          quoteNo: input.swap.quoteNo || null,
-          customerId: input.swap.ownerId,
-          customerNo: input.swap.customer?.customerNo || null,
-          decisionRecordId: input.decisionResult.decisionRecordId,
-          reasonCode: TRANSACTION_REVIEW_RULES.TX_SWAP_FINAL_REVIEW_REQUIRED,
-          reason: `Swap ${input.swap.swapNo} auto-approved after final transaction decision`,
-        },
-        tx,
-      ),
-      );
-    }
+    // Swap transactions are synchronous — no async compliance dispatch
+    const workflowTransition: Record<string, unknown> | null = null;
 
     await this.recordSwapRiskAudit(
       {
@@ -1627,49 +1557,6 @@ export class TransactionRiskBridgeService {
       alertNo: null,
       caseId: null,
       caseNo: null,
-    };
-  }
-
-  async handleSwapFinalReview(
-    input: SwapFinalReviewInput,
-    tx?: Prisma.TransactionClient,
-  ): Promise<BridgeExecutionResult> {
-    if (input.sourceType !== TxSourceType.SWAP) {
-      return { skipped: true, skipReason: 'UNSUPPORTED_SOURCE_TYPE' };
-    }
-    if (input.reportDeduped) {
-      return { skipped: true, skipReason: 'REPORT_DEDUPED' };
-    }
-
-    const swap = await this.resolveSwapContext(input.swapId, tx);
-    if (swap.ownerType !== 'CUSTOMER' || !swap.ownerId) {
-      return { skipped: true, skipReason: 'UNSUPPORTED_OWNER' };
-    }
-
-    const currentStatus = String(swap.status || '').trim().toUpperCase();
-    if (
-      currentStatus !== 'PENDING_COMPLIANCE' &&
-      currentStatus !== 'UNDER_REVIEW'
-    ) {
-      return { skipped: true, skipReason: 'STATUS_NOT_ELIGIBLE' };
-    }
-
-    const pending = await this.ensurePendingDecisionRecord(
-      {
-        contextType: 'TX_SWAP_FINAL',
-        subjectType: 'SWAP',
-        subjectId: input.swapId,
-        ownerType: 'CUSTOMER',
-        ownerId: swap.ownerId,
-        signals: this.buildPendingSwapFinalSignals({ swap }),
-      },
-      tx,
-    );
-
-    return {
-      skipped: false,
-      decisionRecordId: pending.decisionRecordId,
-      decision: pending.status === 'COMPLETED' ? pending.decision : null,
     };
   }
 

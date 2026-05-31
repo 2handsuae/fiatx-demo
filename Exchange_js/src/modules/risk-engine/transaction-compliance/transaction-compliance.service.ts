@@ -60,24 +60,6 @@ export class TransactionComplianceService {
     return tx ?? this.prisma;
   }
 
-  async evaluateSwapFinalReview(
-    swapId: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<BridgeExecutionResult> {
-    if (!this.transactionRiskBridgeService) {
-      throw new NotFoundException('TransactionRiskBridgeService is unavailable');
-    }
-
-    return this.transactionRiskBridgeService.handleSwapFinalReview(
-      {
-        swapId,
-        sourceType: TxSourceType.SWAP,
-        sourceId: swapId,
-      },
-      tx,
-    );
-  }
-
   async initializeWithdrawFinalDecisionRecord(
     withdrawId: string,
     tx?: Prisma.TransactionClient,
