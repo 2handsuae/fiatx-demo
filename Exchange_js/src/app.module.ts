@@ -23,6 +23,7 @@ import { SwapTransactionsModule } from './modules/trading/swap-transactions/swap
 import { WithdrawTransactionsModule } from './modules/trading/withdraw-transactions/withdraw-transactions.module';
 import { PricingCenterModule } from './modules/trading/pricing-center/pricing-center.module';
 import { WithdrawalFeeLevelModule } from './modules/trading/withdrawal-fee-level/withdrawal-fee-level.module';
+import { SwapFeeLevelModule } from './modules/trading/swap-fee-level/swap-fee-level.module';
 import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { InternalTransactionsModule } from './modules/asset-treasury/internal-transactions/internal-transactions.module';
 import { InternalFundsModule } from './modules/asset-treasury/internal-funds/internal-funds.module';
@@ -85,6 +86,7 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
     WithdrawTransactionsModule,
     PricingCenterModule,
     WithdrawalFeeLevelModule,
+    SwapFeeLevelModule,
     PayoutsModule,
     InternalTransactionsModule,
     InternalFundsModule,
