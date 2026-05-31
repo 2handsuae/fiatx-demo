@@ -22,18 +22,20 @@ export interface TierState {
   enabled: boolean;
   amountMin: string;
   amountMax: string;
+  rateMarkupBps?: string;
   feeItems: FeeItemState[];
 }
 
 /* ── Defaults ──────────────────────────────────────────────── */
 
-const ITEM_CODES = ['WITHDRAW_SERVICE_FEE', 'NETWORK_FEE_EST'] as const;
+const WITHDRAWAL_ITEM_CODES = ['WITHDRAW_SERVICE_FEE', 'NETWORK_FEE_EST'] as const;
+const SWAP_ITEM_CODES = ['SWAP_SERVICE_FEE', 'COMPLIANCE_FEE'] as const;
 const CALC_TYPES = ['FLAT', 'PERCENT', 'PERCENT_WITH_MIN'] as const;
 const ROUNDING_MODES = ['ROUND', 'CEIL', 'FLOOR'] as const;
 
 const newFeeItem = (tierId: string, index: number): FeeItemState => ({
   id: `${tierId}-FEE-${index + 1}`,
-  itemCode: ITEM_CODES[0],
+  itemCode: WITHDRAWAL_ITEM_CODES[0],
   calcType: 'FLAT',
   value: '0',
   currency: '',
@@ -65,6 +67,7 @@ export function serializeTiers(tiers: TierState[]): string {
       name: t.name,
       priority: t.priority,
       enabled: t.enabled,
+      ...(t.rateMarkupBps != null && t.rateMarkupBps !== '' ? { rateMarkupBps: Number(t.rateMarkupBps) } : {}),
       conditions: {
         amountMin: t.amountMin ? Number(t.amountMin) : 0,
         amountMax: t.amountMax ? Number(t.amountMax) : null,
@@ -107,14 +110,15 @@ export function parseTiersJson(json: string): TierState[] {
         }>;
       }>;
     };
-    return parsed.tiers.map((t) => ({
+    return parsed.tiers.map((t: any) => ({
       id: t.id,
       name: t.name,
       priority: t.priority,
       enabled: t.enabled,
       amountMin: String(t.conditions.amountMin ?? 0),
       amountMax: t.conditions.amountMax != null ? String(t.conditions.amountMax) : '',
-      feeItems: t.feeItems.map((f) => ({
+      rateMarkupBps: t.rateMarkupBps != null ? String(t.rateMarkupBps) : '',
+      feeItems: t.feeItems.map((f: any) => ({
         id: f.id,
         itemCode: f.itemCode,
         calcType: f.calcType,
@@ -143,9 +147,12 @@ interface TierEditorProps {
   onChange: (tiers: TierState[]) => void;
   /** Default currency to pre-fill on new fee items (e.g. from selected asset) */
   defaultCurrency?: string;
+  /** 'withdrawal' (default) or 'swap' — controls item codes dropdown and rateMarkupBps input */
+  mode?: 'withdrawal' | 'swap';
 }
 
-export default function TierEditor({ tiers, onChange, defaultCurrency = '' }: TierEditorProps) {
+export default function TierEditor({ tiers, onChange, defaultCurrency = '', mode = 'withdrawal' }: TierEditorProps) {
+  const ITEM_CODES = mode === 'swap' ? SWAP_ITEM_CODES : WITHDRAWAL_ITEM_CODES;
   const updateTier = (idx: number, patch: Partial<TierState>) => {
     const next = tiers.map((t, i) => (i === idx ? { ...t, ...patch } : t));
     onChange(next);
@@ -168,6 +175,7 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '' }: Ti
   const addFeeItem = (tierIdx: number) => {
     const tier = tiers[tierIdx];
     const item = newFeeItem(tier.id, tier.feeItems.length);
+    item.itemCode = ITEM_CODES[0];
     if (defaultCurrency) item.currency = defaultCurrency;
     updateTier(tierIdx, { feeItems: [...tier.feeItems, item] });
   };
@@ -225,6 +233,25 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '' }: Ti
               Enabled
             </label>
           </div>
+
+          {/* Rate markup (swap mode only) */}
+          {mode === 'swap' && (
+            <div className="mb-2 flex items-center gap-2">
+              <label className="font-mono text-[10px] text-adm-t3">Rate Markup (bps):</label>
+              <input
+                type="number"
+                className={`${fi} w-[80px]`}
+                value={tier.rateMarkupBps ?? ''}
+                onChange={(e) => updateTier(tierIdx, { rateMarkupBps: e.target.value })}
+                placeholder="0"
+              />
+              {tier.rateMarkupBps && Number(tier.rateMarkupBps) > 0 && (
+                <span className="font-mono text-[10px] text-adm-amber">
+                  ({(Number(tier.rateMarkupBps) / 100).toFixed(2)}%)
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Amount range */}
           <div className="mb-2 flex items-center gap-2">
