@@ -26,7 +26,7 @@ import {
 import {
   getDepositActionsForStatus,
   getDepositStatusBadgeClass,
-  getComplianceGateStyle,
+  getComplianceLayerStyle,
 } from '../utils/depositActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -176,10 +176,10 @@ const DepositTransactionDetail = () => {
   if (!data) return null;
 
   const actions = getDepositActionsForStatus(data.status);
-  const customerGate = getComplianceGateStyle(data.customer?.complianceStatus);
-  const kytGate = getComplianceGateStyle(data.kytStatus);
-  const trGate = getComplianceGateStyle(
-    data.travelRuleRequired ? data.travelRuleStatus : null,
+  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
+  const kytStyle = getComplianceLayerStyle(data.kytStatus);
+  const trStyle = getComplianceLayerStyle(
+    data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
   );
 
   return (
@@ -231,40 +231,34 @@ const DepositTransactionDetail = () => {
             </div>
           </div>
 
-          {/* 2. Compliance Gates */}
+          {/* 2. Compliance Layers */}
           <div className="px-6 py-5">
             <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance Gates
+              Compliance
             </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {/* Gate 0: Customer */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${customerGate.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 0 · Customer</div>
-                <div className={`mt-1 text-sm font-bold ${customerGate.textColor}`}>{customerGate.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Sumsub</div>
+            <div className="grid grid-cols-2 gap-3">
+              {/* L1: Eligibility Guard */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
+                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Post-arrival check</div>
               </div>
-              {/* Gate 1: KYT */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${kytGate.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 1 · KYT</div>
-                <div className={`mt-1 text-sm font-bold ${kytGate.textColor}`}>{kytGate.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                  Risk: {data.kytRiskScore ?? '—'}
+              {/* L2: Transaction Screen */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${kytStyle.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">KYT:</span>
+                  <span className={`text-[11px] font-semibold ${kytStyle.textColor}`}>
+                    {data.kytStatus || '—'}
+                  </span>
+                  <span className="font-mono text-[10px] text-adm-t3">Risk: {data.kytRiskScore ?? '—'}</span>
                 </div>
-                <div className="font-mono text-[10px] text-adm-t3">
-                  Checked: {data.kytCheckedAt ? new Date(data.kytCheckedAt).toLocaleString() : '—'}
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
+                  <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
+                    {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
+                  </span>
                 </div>
-              </div>
-              {/* Gate 2: Travel Rule */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${trGate.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 2 · Travel Rule</div>
-                <div className={`mt-1 text-sm font-bold ${trGate.textColor}`}>
-                  {data.travelRuleRequired ? trGate.label : 'NOT REQUIRED'}
-                </div>
-                {data.travelRuleRequired && (
-                  <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                    Checked: {data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : '—'}
-                  </div>
-                )}
               </div>
             </div>
           </div>

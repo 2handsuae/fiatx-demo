@@ -26,7 +26,7 @@ import {
   getWithdrawActionsForStatus,
   getWithdrawStatusBadgeClass,
 } from '../utils/withdrawActionMap';
-import { getComplianceGateStyle } from '../utils/depositActionMap';
+import { getComplianceLayerStyle } from '../utils/depositActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -173,28 +173,13 @@ const WithdrawTransactionDetail = () => {
   if (!data) return null;
 
   const actions = getWithdrawActionsForStatus(data.status);
-  const customerGate = getComplianceGateStyle(data.customer?.complianceStatus);
-
-  /* Compute overall KYT gate status:
-     PASSED only when BOTH pre-broadcast (phase 1) AND post-broadcast (phase 2) pass */
-  const GATE_FAIL_SET = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
-  const worstKytStatus = (() => {
-    if (GATE_FAIL_SET.has(data.preKytStatus) || GATE_FAIL_SET.has(data.kytStatus)) {
-      return GATE_FAIL_SET.has(data.preKytStatus) ? data.preKytStatus : data.kytStatus;
-    }
-    if (data.preKytStatus === 'PASSED' && data.kytStatus === 'PASSED') {
-      return 'PASSED';
-    }
-    if (data.preKytStatus || data.kytStatus) {
-      return 'PENDING';
-    }
-    return '';
-  })();
-  const kytGate = getComplianceGateStyle(worstKytStatus);
-
-  const trGate = getComplianceGateStyle(
-    data.travelRuleRequired ? data.travelRuleStatus : null,
+  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
+  const preKytStyle = getComplianceLayerStyle(data.preKytStatus);
+  const trStyle = getComplianceLayerStyle(
+    data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
   );
+  const postKytStyle = getComplianceLayerStyle(data.kytStatus);
+  const isFiat = data.asset?.type === 'FIAT';
 
   return (
     <div className="flex h-full flex-col">
@@ -245,50 +230,46 @@ const WithdrawTransactionDetail = () => {
             </div>
           </div>
 
-          {/* 2. Compliance Gates */}
+          {/* 2. Compliance Layers */}
           <div className="px-6 py-5">
             <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance Gates
+              Compliance
             </h3>
-            <div className="grid grid-cols-3 gap-3">
-              {/* Gate 0: Customer */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${customerGate.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 0 · Customer</div>
-                <div className={`mt-1 text-sm font-bold ${customerGate.textColor}`}>{customerGate.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Internal</div>
+            <div className="grid grid-cols-2 gap-3">
+              {/* L1: Eligibility Guard */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
+                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
               </div>
-              {/* Gate 1: KYT (two-stage: pre-broadcast + post-broadcast) */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${kytGate.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 1 · KYT</div>
-                <div className={`mt-1 text-sm font-bold ${kytGate.textColor}`}>{kytGate.label}</div>
+              {/* L2: Transaction Screen */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${preKytStyle.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Pre-broadcast:</span>
-                  <span className={`text-[11px] font-semibold ${getComplianceGateStyle(data.preKytStatus).textColor}`}>
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">Pre-KYT:</span>
+                  <span className={`text-[11px] font-semibold ${preKytStyle.textColor}`}>
                     {data.preKytStatus || '—'}
                   </span>
                   <span className="font-mono text-[10px] text-adm-t3">Risk: {data.preKytRiskScore ?? '—'}</span>
                 </div>
                 <div className="mt-1 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Post-broadcast:</span>
-                  <span className={`text-[11px] font-semibold ${getComplianceGateStyle(data.kytStatus).textColor}`}>
-                    {data.kytStatus || '—'}
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
+                  <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
+                    {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
                   </span>
-                  <span className="font-mono text-[10px] text-adm-t3">Risk: {data.kytRiskScore ?? '—'}</span>
                 </div>
-              </div>
-              {/* Gate 2: Travel Rule */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${trGate.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">Gate 2 · Travel Rule</div>
-                <div className={`mt-1 text-sm font-bold ${trGate.textColor}`}>
-                  {data.travelRuleRequired ? trGate.label : 'NOT REQUIRED'}
-                </div>
-                {data.travelRuleRequired && (
-                  <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                    Checked: {data.travelRuleCheckedAt ? new Date(data.travelRuleCheckedAt).toLocaleString() : '—'}
-                  </div>
-                )}
               </div>
             </div>
+            {/* L3: Post-Tx Archive (crypto only) */}
+            {!isFiat && (
+              <div className="mt-2 flex items-center gap-2 px-1">
+                <span className="font-mono text-[9px] text-adm-t3">L3 Archive:</span>
+                <span className={`text-[11px] font-semibold ${postKytStyle.textColor}`}>
+                  {data.kytStatus || '—'}
+                </span>
+                <span className="font-mono text-[9px] text-adm-t3">(post-tx, non-blocking)</span>
+              </div>
+            )}
           </div>
 
           {/* 3. Transaction Details */}

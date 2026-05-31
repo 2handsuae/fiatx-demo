@@ -85,24 +85,24 @@ export function getDepositActionsForStatus(
   }));
 }
 
-/* ── Compliance Gate Styling ───────────────────────────────────── */
+/* ── Compliance Layer Styling ──────────────────────────────────── */
 
-const GATE_PASS = new Set(['PASSED', 'ACTIVE', 'APPROVED', 'CLEAR', 'CLEARED']);
-const GATE_PENDING = new Set(['PENDING', 'CREATED', 'RECEIVED']);
-const GATE_FAIL = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
+const LAYER_PASS = new Set(['PASSED', 'ACTIVE', 'APPROVED', 'CLEAR', 'CLEARED', 'NOT_REQUIRED']);
+const LAYER_PENDING = new Set(['PENDING', 'CREATED', 'RECEIVED']);
+const LAYER_FAIL = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
 
-export interface GateStyle {
+export interface LayerStyle {
   borderColor: string;
   textColor: string;
   label: string;
 }
 
-export function getComplianceGateStyle(value: string | null | undefined): GateStyle {
+export function getComplianceLayerStyle(value: string | null | undefined): LayerStyle {
   const v = String(value || '').trim().toUpperCase();
   if (!v) return { borderColor: 'border-adm-border', textColor: 'text-adm-t3', label: 'N/A' };
-  if (GATE_PASS.has(v)) return { borderColor: 'border-adm-green', textColor: 'text-adm-green', label: v };
-  if (GATE_PENDING.has(v)) return { borderColor: 'border-adm-amber', textColor: 'text-adm-amber', label: v };
-  if (GATE_FAIL.has(v)) return { borderColor: 'border-adm-red', textColor: 'text-adm-red', label: v };
+  if (LAYER_PASS.has(v)) return { borderColor: 'border-adm-green', textColor: 'text-adm-green', label: v };
+  if (LAYER_PENDING.has(v)) return { borderColor: 'border-adm-amber', textColor: 'text-adm-amber', label: v };
+  if (LAYER_FAIL.has(v)) return { borderColor: 'border-adm-red', textColor: 'text-adm-red', label: v };
   return { borderColor: 'border-adm-border', textColor: 'text-adm-t3', label: v };
 }
 
