@@ -12,3 +12,4 @@ dist/
 *.db.*
 *.log
 admin_token.txt
+.superpowers/
