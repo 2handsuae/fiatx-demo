@@ -604,7 +604,7 @@ export default function WithdrawalFeeLevelDetail() {
       {/* ════ Change Modal (Edit Tiers) ════ */}
       {showChangeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+          <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-xl border border-adm-border bg-adm-panel shadow-xl">
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <div>
@@ -644,6 +644,7 @@ export default function WithdrawalFeeLevelDetail() {
                   tiers={changeTiers}
                   onChange={setChangeTiers}
                   defaultCurrency={level.asset.code.split('-')[0]}
+                  currencyOptions={[level.asset.code]}
                 />
               </div>
 

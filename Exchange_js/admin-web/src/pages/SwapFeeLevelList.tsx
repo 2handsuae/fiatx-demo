@@ -571,6 +571,10 @@ const SwapFeeLevelList = () => {
                   defaultCurrency={
                     assets.find((a) => a.id === createForm.toAssetId)?.code?.split('-')[0] || ''
                   }
+                  currencyOptions={[
+                    assets.find((a) => a.id === createForm.fromAssetId)?.code,
+                    assets.find((a) => a.id === createForm.toAssetId)?.code,
+                  ].filter(Boolean) as string[]}
                   mode="swap"
                 />
               </div>

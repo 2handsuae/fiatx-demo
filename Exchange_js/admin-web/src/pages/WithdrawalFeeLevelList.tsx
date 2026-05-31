@@ -526,6 +526,9 @@ const WithdrawalFeeLevelList = () => {
                   defaultCurrency={
                     assets.find((a) => a.id === createForm.assetId)?.code?.split('-')[0] || ''
                   }
+                  currencyOptions={
+                    [assets.find((a) => a.id === createForm.assetId)?.code].filter(Boolean) as string[]
+                  }
                 />
               </div>
 

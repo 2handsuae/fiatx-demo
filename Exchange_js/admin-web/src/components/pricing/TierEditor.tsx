@@ -147,11 +147,13 @@ interface TierEditorProps {
   onChange: (tiers: TierState[]) => void;
   /** Default currency to pre-fill on new fee items (e.g. from selected asset) */
   defaultCurrency?: string;
+  /** Allowed currency codes for fee items. Renders a <select> instead of free-text <input>. */
+  currencyOptions?: string[];
   /** 'withdrawal' (default) or 'swap' — controls item codes dropdown and rateMarkupBps input */
   mode?: 'withdrawal' | 'swap';
 }
 
-export default function TierEditor({ tiers, onChange, defaultCurrency = '', mode = 'withdrawal' }: TierEditorProps) {
+export default function TierEditor({ tiers, onChange, defaultCurrency = '', currencyOptions, mode = 'withdrawal' }: TierEditorProps) {
   const ITEM_CODES = mode === 'swap' ? SWAP_ITEM_CODES : WITHDRAWAL_ITEM_CODES;
   const updateTier = (idx: number, patch: Partial<TierState>) => {
     const next = tiers.map((t, i) => (i === idx ? { ...t, ...patch } : t));
@@ -323,12 +325,25 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', mode
                     />
                   </td>
                   <td className="px-1 py-1">
-                    <input
-                      className={`${fi} w-[60px]`}
-                      value={fee.currency}
-                      onChange={(e) => updateFeeItem(tierIdx, feeIdx, { currency: e.target.value })}
-                      placeholder="USDT"
-                    />
+                    {currencyOptions && currencyOptions.length > 0 ? (
+                      <select
+                        className={`${fi} w-[75px]`}
+                        value={fee.currency}
+                        onChange={(e) => updateFeeItem(tierIdx, feeIdx, { currency: e.target.value })}
+                      >
+                        {!fee.currency && <option value="">—</option>}
+                        {currencyOptions.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className={`${fi} w-[60px]`}
+                        value={fee.currency}
+                        onChange={(e) => updateFeeItem(tierIdx, feeIdx, { currency: e.target.value })}
+                        placeholder="USDT"
+                      />
+                    )}
                   </td>
                   <td className="px-1 py-1">
                     <input

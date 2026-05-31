@@ -660,6 +660,7 @@ export default function SwapFeeLevelDetail() {
                   tiers={changeTiers}
                   onChange={setChangeTiers}
                   defaultCurrency={level.toAsset.code.split('-')[0]}
+                  currencyOptions={[level.fromAsset.code, level.toAsset.code]}
                   mode="swap"
                 />
               </div>
