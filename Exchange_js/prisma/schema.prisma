@@ -288,6 +288,7 @@ model CustomerMain {
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
   withdrawalAddresses       WithdrawalAddress[]
   withdrawalFeeLevelBindings  WithdrawalFeeLevelBinding[]
+  swapFeeLevelBindings        SwapFeeLevelBinding[]
 
   @@index([adminStatus])
   @@index([complianceStatus])
@@ -1155,6 +1156,8 @@ model Asset {
   valuationRates                 AssetValuationRate[]
   withdrawalAddresses            WithdrawalAddress[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
+  swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
+  swapFeeLevelsTo                SwapFeeLevel[]                  @relation("SwapFeeLevelToAsset")
 
   @@unique([type, currency, network])
   @@map("assets")
@@ -1785,6 +1788,8 @@ model SwapQuote {
   feeBreakdown    String?
   totalsJson      String           @default("{}")
   policyRef       String           @default("{}")
+  feeLevelId      String?
+  feeLevelCode    String?
   expiresAt       DateTime
   usedAt          DateTime?
   cancelledAt     DateTime?
@@ -2736,4 +2741,73 @@ model WithdrawalFeeLevelBinding {
   @@index([customerId])
   @@index([levelId])
   @@map("withdrawal_fee_level_bindings")
+}
+
+// ─── Swap Fee Level (2026-05-31) ─────────────────────
+model SwapFeeLevel {
+  id               String    @id @default(uuid())
+  levelCode        String    @unique
+  name             String
+  fromAssetId      String
+  toAssetId        String
+  isDefault        Boolean   @default(false)
+  enabled          Boolean   @default(true)
+  tiersJson        String
+  configHash       String
+  status           String    @default("PENDING_APPROVAL")
+  approvalCaseId   String?
+  approvalCaseNo   String?
+  createdByUserId  String
+  updatedByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  fromAsset        Asset     @relation("SwapFeeLevelFromAsset", fields: [fromAssetId], references: [id])
+  toAsset          Asset     @relation("SwapFeeLevelToAsset", fields: [toAssetId], references: [id])
+  bindings         SwapFeeLevelBinding[]
+  changeRequests   SwapFeeLevelChangeRequest[]
+
+  @@index([fromAssetId, toAssetId, status, enabled])
+  @@map("swap_fee_levels")
+}
+
+model SwapFeeLevelChangeRequest {
+  id                 String    @id @default(uuid())
+  requestNo          String    @unique @default("TEMP")
+  levelId            String
+  levelCode          String
+  currentTiersJson   String
+  currentConfigHash  String
+  proposedTiersJson  String
+  changeReason       String
+  status             String    @default("PENDING_APPROVAL")
+  requestedByUserId  String
+  approvalCaseId     String?
+  approvalCaseNo     String?
+  executedAt         DateTime?
+  failureReason      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  level              SwapFeeLevel @relation(fields: [levelId], references: [id])
+
+  @@index([levelId, status])
+  @@map("swap_fee_level_change_requests")
+}
+
+model SwapFeeLevelBinding {
+  id              String   @id @default(uuid())
+  customerId      String
+  levelId         String
+  boundByUserId   String
+  boundAt         DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  customer        CustomerMain @relation(fields: [customerId], references: [id])
+  level           SwapFeeLevel @relation(fields: [levelId], references: [id])
+
+  @@unique([customerId, levelId])
+  @@index([customerId])
+  @@index([levelId])
+  @@map("swap_fee_level_bindings")
 }
