@@ -5,20 +5,16 @@ import {
   Body,
   Param,
   Query,
-  Patch,
   UseGuards,
-  Request,
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
-import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
 import {
   CreateSwapTransactionDto,
   SwapTransactionQueryDto,
-  UpdateSwapTransactionStatusDto,
 } from './dto/swap-transaction.dto';
 import { AdminSwapQuoteQueryDto } from './dto/swap-quote.dto';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
@@ -30,7 +26,6 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 export class SwapTransactionsController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
-    private readonly orchestrator: SwapWorkflowOrchestrator,
     private readonly swapQuoteService: SwapQuoteService,
   ) {}
 
@@ -62,20 +57,5 @@ export class SwapTransactionsController {
   @ApiOperation({ summary: 'Get swap transaction by ID' })
   findOne(@Param('id') id: string) {
     return this.swapTransactionsService.findOne(id);
-  }
-
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Update swap transaction status' })
-  async updateStatus(
-    @Param('id') id: string,
-    @Body() updateStatusDto: UpdateSwapTransactionStatusDto,
-    @Request() req: any,
-  ) {
-    const operatorId = req.user.userId || 'ADMIN_SYSTEM';
-    return this.orchestrator.handleStatusTransition(
-      id,
-      updateStatusDto,
-      operatorId,
-    );
   }
 }

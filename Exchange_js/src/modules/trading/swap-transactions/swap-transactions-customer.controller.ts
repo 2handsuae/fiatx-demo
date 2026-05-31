@@ -13,7 +13,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
-import { SwapWorkflowOrchestrator } from './swap-workflow.orchestrator';
+import { SwapWorkflowService } from './swap-workflow.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import {
   SwapTransactionQueryDto,
@@ -35,7 +35,7 @@ export class SwapTransactionsCustomerController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly swapQuoteService: SwapQuoteService,
-    private readonly orchestrator: SwapWorkflowOrchestrator,
+    private readonly swapWorkflowService: SwapWorkflowService,
     private readonly onboardingService: OnboardingService,
     private readonly prisma: PrismaService,
   ) {}
@@ -122,9 +122,7 @@ export class SwapTransactionsCustomerController {
     summary: 'Create a new swap transaction from firm quote',
   })
   async create(@Request() req: any, @Body() dto: CreateSwapFromQuoteDto) {
-    const ownerId = req.user.userId;
-    await this.onboardingService.assertTradingEligibility(ownerId, 'SWAP');
-    return this.orchestrator.createSwapFromQuote(ownerId, dto.quoteId);
+    return this.swapWorkflowService.executeSwap(req.user.userId, dto.quoteId);
   }
 
   @Get('my')
