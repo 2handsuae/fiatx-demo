@@ -453,14 +453,14 @@ const Swap = () => {
 
   const renderStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
-      PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-      SUCCESS: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-      REJECTED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-      FAILED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+      PENDING_COMPLIANCE: 'bg-fx-brass/10 text-fx-copper dark:bg-fx-brass/10 dark:text-fx-ember',
+      UNDER_REVIEW: 'bg-fx-brass/10 text-fx-copper dark:bg-fx-brass/10 dark:text-fx-ember',
+      SUCCESS: 'bg-fx-sage/15 text-fx-sage dark:bg-fx-sage/20 dark:text-fx-sage',
+      REJECTED: 'bg-fx-rust/15 text-fx-rust dark:bg-fx-rust/20 dark:text-fx-rust',
+      FAILED: 'bg-fx-rust/15 text-fx-rust dark:bg-fx-rust/20 dark:text-fx-rust',
     };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-slate-100 text-slate-800'}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-fx-sand/40 text-fx-ink dark:text-fx-dune'}`}>
         {status}
       </span>
     );
@@ -470,21 +470,21 @@ const Swap = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Swap</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">Exchange assets instantly with competitive rates</p>
+          <h1 className="text-2xl font-bold text-fx-obsidian dark:text-white">Swap</h1>
+          <p className="text-fx-dust dark:text-fx-dune mt-1">Exchange assets instantly with competitive rates</p>
         </div>
       </div>
 
-      <div className="min-h-[600px] bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="min-h-[600px] bg-white dark:bg-fx-charcoal rounded-3xl shadow-sm border border-fx-rule dark:border-fx-rule overflow-hidden">
         {/* Tabs */}
-        <div className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+        <div className="border-b border-fx-rule dark:border-fx-rule bg-fx-sand/40 dark:bg-fx-charcoal">
           <div className="flex overflow-x-auto px-6">
             <button
               onClick={() => setActiveTab('swap')}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'swap' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                  ? 'border-fx-brass text-fx-brass bg-white dark:bg-fx-charcoal' 
+                  : 'border-transparent text-fx-dust hover:text-fx-copper dark:hover:text-fx-dune'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -496,8 +496,8 @@ const Swap = () => {
               onClick={() => setActiveTab('history')}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none justify-center whitespace-nowrap ${
                 activeTab === 'history' 
-                  ? 'border-blue-600 text-blue-600 bg-white dark:bg-gray-800' 
-                  : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                  ? 'border-fx-brass text-fx-brass bg-white dark:bg-fx-charcoal' 
+                  : 'border-transparent text-fx-dust hover:text-fx-copper dark:hover:text-fx-dune'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -513,14 +513,14 @@ const Swap = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left Side: Swap Interface */}
               <div className="lg:col-span-2">
-                <div className="space-y-4 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <div className="space-y-4 p-6 bg-fx-sand/40 dark:bg-fx-charcoal rounded-2xl border border-fx-rule dark:border-fx-rule">
                   {/* From Asset Widget */}
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-700 hover:border-brand-primary/30 transition-all">
+                  <div className="bg-fx-sand/40 dark:bg-fx-ink rounded-3xl p-6 border border-fx-rule dark:border-fx-rule hover:border-brand-primary/30 transition-all">
                     <div className="flex justify-between items-center mb-4">
                       <div className="flex flex-col gap-1">
-                        <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">You Sell</span>
+                        <span className="text-xs font-bold text-fx-dust dark:text-fx-dust uppercase tracking-wider">You Sell</span>
                         {fromAssetId && (
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400 dark:text-gray-500">
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-fx-dust dark:text-fx-dust">
                             Available: <span className="text-brand-primary">{formatAssetAmount(currentBalance, fromAssetDecimals)}</span>
                             <button 
                               onClick={handleSetMax}
@@ -534,7 +534,7 @@ const Swap = () => {
                       <select
                         value={fromAssetId}
                         onChange={(e) => setFromAssetId(e.target.value)}
-                        className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full px-3 py-1 text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none focus:border-brand-primary shadow-sm"
+                        className="bg-white dark:bg-fx-shadow border border-fx-rule dark:border-fx-rule rounded-full px-3 py-1 text-xs font-bold text-fx-ink dark:text-fx-sand focus:outline-none focus:border-brand-primary shadow-sm"
                       >
                         <option value="">Select Asset</option>
                         {assets.map(a => (
@@ -549,9 +549,9 @@ const Swap = () => {
                         value={fromAmount}
                         onChange={(e) => handleFromAmountChange(e.target.value)}
                         max={currentBalance}
-                        className="flex-1 bg-transparent text-4xl font-bold text-gray-900 dark:text-white focus:outline-none placeholder:text-gray-200 dark:placeholder:text-gray-700"
+                        className="flex-1 bg-transparent text-4xl font-bold text-fx-obsidian dark:text-white focus:outline-none placeholder:text-fx-dust dark:placeholder:text-fx-dust"
                       />
-                      <div className="text-xl font-bold text-gray-400 dark:text-gray-500">
+                      <div className="text-xl font-bold text-fx-dust dark:text-fx-dust">
                         {assets.find(a => a.id === fromAssetId)?.code || ''}
                       </div>
                     </div>
@@ -561,20 +561,20 @@ const Swap = () => {
                   <div className="flex justify-center -my-6 relative z-10">
                     <button 
                       onClick={handleSwapAssets}
-                      className="p-3 bg-white dark:bg-gray-800 border-4 border-white dark:border-gray-800 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-110 text-brand-primary transition-all group"
+                      className="p-3 bg-fx-brass text-fx-obsidian border-4 border-white dark:border-fx-rule rounded-2xl shadow-xl hover:shadow-2xl hover:scale-110 transition-all group"
                     >
                       <ArrowDownUp size={24} className="group-hover:rotate-180 transition-transform duration-500" />
                     </button>
                   </div>
 
                   {/* To Asset Widget */}
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-700 hover:border-brand-primary/30 transition-all">
+                  <div className="bg-fx-sand/40 dark:bg-fx-ink rounded-3xl p-6 border border-fx-rule dark:border-fx-rule hover:border-brand-primary/30 transition-all">
                     <div className="flex justify-between items-center mb-4">
-                      <span className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">You Receive</span>
+                      <span className="text-xs font-bold text-fx-dust dark:text-fx-dust uppercase tracking-wider">You Receive</span>
                       <select
                         value={toAssetId}
                         onChange={(e) => setToAssetId(e.target.value)}
-                        className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full px-3 py-1 text-xs font-bold text-gray-700 dark:text-gray-200 focus:outline-none focus:border-brand-primary shadow-sm"
+                        className="bg-white dark:bg-fx-shadow border border-fx-rule dark:border-fx-rule rounded-full px-3 py-1 text-xs font-bold text-fx-ink dark:text-fx-sand focus:outline-none focus:border-brand-primary shadow-sm"
                       >
                         <option value="">Select Asset</option>
                         {assets.map(a => (
@@ -583,12 +583,12 @@ const Swap = () => {
                       </select>
                     </div>
                       <div className="flex items-center gap-4">
-                      <div className="flex-1 text-4xl font-bold text-gray-900 dark:text-white overflow-hidden truncate">
+                      <div className="flex-1 text-4xl font-bold text-fx-ember overflow-hidden truncate">
                         {rateMeta?.netAmountOut
                           ? formatAssetAmount(rateMeta.netAmountOut, toAssetDecimals)
                           : formatAssetAmount(0, toAssetDecimals)}
                       </div>
-                      <div className="text-xl font-bold text-gray-400 dark:text-gray-500">
+                      <div className="text-xl font-bold text-fx-dust dark:text-fx-dust">
                         {assets.find(a => a.id === toAssetId)?.code || ''}
                       </div>
                     </div>
@@ -597,30 +597,30 @@ const Swap = () => {
                   {/* Live Rate Info */}
                   <div className="px-2 py-1">
                     {rateLoading ? (
-                      <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+                      <div className="flex items-center gap-2 text-xs text-fx-dust dark:text-fx-dust">
                         <RefreshCw size={12} className="animate-spin" /> Fetching real-time executable rate...
                       </div>
                     ) : rateError ? (
-                      <div className="flex items-center gap-2 text-xs text-red-500 dark:text-red-400">
+                      <div className="flex items-center gap-2 text-xs text-fx-rust dark:text-fx-rust">
                         <AlertTriangle size={12} /> {rateError}
                       </div>
                     ) : liveRate ? (
                       <div className="space-y-1 text-xs font-medium">
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-400 dark:text-gray-500">Executable:</span>
-                          <span className="text-gray-900 dark:text-gray-200 font-mono">
+                          <span className="text-fx-dust dark:text-fx-dust">Executable:</span>
+                          <span className="text-fx-obsidian dark:text-fx-sand font-mono">
                             1 {assets.find(a => a.id === fromAssetId)?.code} = {formatRate8(liveRate)} {assets.find(a => a.id === toAssetId)?.code}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
+                        <div className="flex items-center justify-between text-fx-dust dark:text-fx-dust">
                           <span>Market:</span>
                           <span className="font-mono">{formatRate8(rateMeta?.marketRate)} | Spread: {rateMeta?.spreadPercent ?? 0}%</span>
                         </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                        <span className="text-[10px] text-fx-dust dark:text-fx-dust">
                           Source: {rateMeta?.rateSource || 'BINANCE'}
                         </span>
                         {rateMeta?.matched && (
-                          <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
+                          <div className="flex items-center justify-between text-fx-dust dark:text-fx-dust">
                             <span>Matched:</span>
                             <span className="font-mono">
                               {rateMeta.matched.pairId} / {rateMeta.matched.tierId}
@@ -629,34 +629,34 @@ const Swap = () => {
                         )}
                         {rateMeta?.pricingSource && (
                           <>
-                            <div className="flex items-center justify-between text-gray-400 dark:text-gray-500">
+                            <div className="flex items-center justify-between text-fx-dust dark:text-fx-dust">
                               <span>Order Book:</span>
                               <span className="font-mono">
                                 {rateMeta.pricingSource.symbol} ({rateMeta.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'})
                               </span>
                             </div>
-                            <div className="text-[10px] text-gray-400 dark:text-gray-500 break-all">
+                            <div className="text-[10px] text-fx-dust dark:text-fx-dust break-all">
                               Formula: {rateMeta.pricingSource.formula}
                             </div>
                           </>
                         )}
                         {rateMeta && (
-                          <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3 space-y-1">
-                            <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                          <div className="mt-2 rounded-xl border border-fx-rule dark:border-fx-rule bg-white/60 dark:bg-fx-ink p-3 space-y-1">
+                            <div className="flex items-center justify-between text-fx-dust dark:text-fx-dune">
                               <span>Gross Receive</span>
-                              <span className="font-mono text-gray-900 dark:text-gray-200">
+                              <span className="font-mono text-fx-obsidian dark:text-fx-sand">
                                 {formatAssetAmount(rateMeta.grossAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.currency}
                               </span>
                             </div>
-                            <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                            <div className="flex items-center justify-between text-fx-dust dark:text-fx-dune">
                               <span>Fee</span>
-                              <span className="font-mono text-gray-900 dark:text-gray-200">
+                              <span className="font-mono text-fx-obsidian dark:text-fx-sand">
                                 {formatAssetAmount(rateMeta.feeTotal, getAssetDecimalsByCode(rateMeta.feeCurrency))} {rateMeta.feeCurrency || '-'}
                               </span>
                             </div>
-                            <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
+                            <div className="flex items-center justify-between text-fx-dust dark:text-fx-dune">
                               <span>Net Receive</span>
-                              <span className="font-mono text-emerald-600 dark:text-emerald-300">
+                              <span className="font-mono text-fx-sage dark:text-fx-sage">
                                 {formatAssetAmount(rateMeta.netAmountOut, toAssetDecimals)} {assets.find(a => a.id === toAssetId)?.currency}
                               </span>
                             </div>
@@ -669,7 +669,7 @@ const Swap = () => {
                   <button
                     onClick={handlePreview}
                     disabled={loading || !fromAssetId || !toAssetId || !fromAmount || !!rateError || rateLoading}
-                    className="w-full py-5 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-2xl font-bold text-lg hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all shadow-xl shadow-brand-primary/20 disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
+                    className="w-full py-5 bg-fx-brass hover:bg-fx-copper text-fx-obsidian rounded-2xl font-bold text-lg transition-all shadow-xl shadow-brand-primary/20 disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
                   >
                     {loading ? <RefreshCw className="animate-spin" size={20} /> : <Zap size={20} />}
                     {rateError && rateError.includes('Fiat') ? 'Unsupported Pair' : 'Swap Now'}
@@ -679,9 +679,9 @@ const Swap = () => {
 
               {/* Right Side: Educational Info */}
               <div className="lg:col-span-1">
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-2xl p-6 border border-blue-100 dark:border-blue-900/30 space-y-6 sticky top-6">
-                  <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300">
-                    <div className="p-2 bg-blue-100 dark:bg-blue-800/30 rounded-lg">
+                <div className="bg-fx-brass/10 dark:bg-fx-brass/10 rounded-2xl p-6 border border-fx-brass/20 dark:border-fx-brass/25 space-y-6 sticky top-6">
+                  <div className="flex items-center gap-2 text-fx-copper dark:text-fx-ember">
+                    <div className="p-2 bg-fx-brass/10 dark:bg-fx-brass/10 rounded-lg">
                       <Info size={24} />
                     </div>
                     <h3 className="font-bold text-lg">Instructions</h3>
@@ -689,34 +689,34 @@ const Swap = () => {
                   
                   <div className="space-y-4">
                     <div className="flex gap-3">
-                      <Zap size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                      <Zap size={20} className="text-fx-brass dark:text-fx-ember shrink-0 mt-1" />
                       <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Instant Execution</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">Exchange assets instantly without waiting for market orders.</p>
+                        <h4 className="text-sm font-bold text-fx-copper dark:text-fx-ember">Instant Execution</h4>
+                        <p className="text-xs text-fx-copper dark:text-fx-ember mt-1">Exchange assets instantly without waiting for market orders.</p>
                       </div>
                     </div>
                     
                     <div className="flex gap-3">
-                      <TrendingUp size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                      <TrendingUp size={20} className="text-fx-brass dark:text-fx-ember shrink-0 mt-1" />
                       <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Competitive Rates</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">Quotes are executed under the active pricing policy and current market-source snapshot.</p>
+                        <h4 className="text-sm font-bold text-fx-copper dark:text-fx-ember">Competitive Rates</h4>
+                        <p className="text-xs text-fx-copper dark:text-fx-ember mt-1">Quotes are executed under the active pricing policy and current market-source snapshot.</p>
                       </div>
                     </div>
 
                     <div className="flex gap-3">
-                      <ShieldCheck size={20} className="text-blue-600 dark:text-blue-400 shrink-0 mt-1" />
+                      <ShieldCheck size={20} className="text-fx-brass dark:text-fx-ember shrink-0 mt-1" />
                       <div>
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">Secure & Compliant</h4>
-                        <p className="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1">All transactions are monitored for safety and compliance.</p>
+                        <h4 className="text-sm font-bold text-fx-copper dark:text-fx-ember">Secure & Compliant</h4>
+                        <p className="text-xs text-fx-copper dark:text-fx-ember mt-1">All transactions are monitored for safety and compliance.</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="p-4 bg-white/60 dark:bg-gray-800/60 rounded-xl border border-blue-100 dark:border-blue-900/30">
+                  <div className="p-4 bg-white/60 dark:bg-fx-charcoal rounded-xl border border-fx-brass/20 dark:border-fx-brass/25">
                     <div className="flex gap-2 items-start">
-                      <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                      <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                      <AlertTriangle size={18} className="text-fx-ember shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-fx-copper dark:text-fx-ember leading-relaxed">
                         Rates are subject to market volatility. The final amount may vary slightly from the preview if market conditions change rapidly.
                       </p>
                     </div>
@@ -728,12 +728,12 @@ const Swap = () => {
             /* Transaction History Tab */
             <div className="space-y-4">
               <div className="flex flex-wrap gap-3 mb-4">
-                  <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/50 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                      <Filter size={16} className="text-slate-500 dark:text-slate-400" />
+                  <div className="flex items-center gap-2 bg-fx-sand/40 dark:bg-fx-ink px-3 py-2 rounded-lg border border-fx-rule dark:border-fx-rule">
+                      <Filter size={16} className="text-fx-dust dark:text-fx-dune" />
                       <select 
                         value={historyStatus}
                         onChange={(e) => setHistoryStatus(e.target.value)}
-                        className="bg-transparent text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                        className="bg-transparent text-sm text-fx-ink dark:text-fx-sand focus:outline-none"
                       >
                           <option value="">All Status</option>
                           <option value="SUCCESS">Success</option>
@@ -743,35 +743,35 @@ const Swap = () => {
                   </div>
                   <button 
                     onClick={fetchHistory}
-                    className="p-2 text-slate-500 dark:text-slate-400 hover:text-brand-primary hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors ml-auto"
+                    className="p-2 text-fx-dust dark:text-fx-dune hover:text-brand-primary hover:bg-fx-sand/60 dark:hover:bg-fx-shadow rounded-lg transition-colors ml-auto"
                     title="Refresh"
                   >
                       <RefreshCw size={18} className={historyLoading ? 'animate-spin' : ''} />
                   </button>
               </div>
 
-              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="overflow-x-auto rounded-lg border border-fx-rule dark:border-fx-rule">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                  <thead className="bg-fx-sand/40 dark:bg-fx-charcoal border-b border-fx-rule dark:border-fx-rule">
                     <tr>
-                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Transaction No</th>
-                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Time</th>
-                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Swap Pair</th>
-                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Amount</th>
-                      <th className="px-6 py-4 font-medium text-slate-500 dark:text-slate-400">Status</th>
+                      <th className="px-6 py-4 font-medium text-fx-dust dark:text-fx-dune">Transaction No</th>
+                      <th className="px-6 py-4 font-medium text-fx-dust dark:text-fx-dune">Time</th>
+                      <th className="px-6 py-4 font-medium text-fx-dust dark:text-fx-dune">Swap Pair</th>
+                      <th className="px-6 py-4 font-medium text-fx-dust dark:text-fx-dune">Amount</th>
+                      <th className="px-6 py-4 font-medium text-fx-dust dark:text-fx-dune">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                  <tbody className="divide-y divide-fx-rule dark:divide-fx-rule">
                     {historyLoading ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
+                        <td colSpan={5} className="px-6 py-12 text-center text-fx-dust dark:text-fx-dust">
                           <RefreshCw className="animate-spin mx-auto mb-2" size={24} />
                           Loading history...
                         </td>
                       </tr>
                     ) : history.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 dark:text-slate-500">
+                        <td colSpan={5} className="px-6 py-12 text-center text-fx-dust dark:text-fx-dust">
                           <div className="flex flex-col items-center">
                             <History size={32} className="opacity-20 dark:opacity-10 mb-2" />
                             <p>No swap transactions found</p>
@@ -780,26 +780,26 @@ const Swap = () => {
                       </tr>
                     ) : (
                       history.map(tx => (
-                        <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                          <td className="px-6 py-4 font-mono text-gray-900 dark:text-white">{tx.swapNo}</td>
-                          <td className="px-6 py-4 text-slate-500 dark:text-slate-400 text-xs">
+                        <tr key={tx.id} className="hover:bg-fx-sand/60 dark:hover:bg-fx-shadow transition-colors">
+                          <td className="px-6 py-4 font-mono text-fx-obsidian dark:text-white">{tx.swapNo}</td>
+                          <td className="px-6 py-4 text-fx-dust dark:text-fx-dune text-xs">
                             <div>{new Date(tx.createdAt).toLocaleDateString('en-US')}</div>
                             <div>{new Date(tx.createdAt).toLocaleTimeString('en-US')}</div>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white">
-                              {tx.fromAsset.code} <ArrowRight size={14} className="text-slate-400 dark:text-slate-500" /> {tx.toAsset.code}
+                            <div className="flex items-center gap-2 font-medium text-fx-obsidian dark:text-white">
+                              {tx.fromAsset.code} <ArrowRight size={14} className="text-fx-dust dark:text-fx-dust" /> {tx.toAsset.code}
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="font-bold text-gray-900 dark:text-white">
+                            <div className="font-bold text-fx-obsidian dark:text-white">
                               {formatAssetAmount(tx.netToAmount || tx.toAmount, tx.toAsset.decimals)} {tx.toAsset.currency}
                             </div>
-                            <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                            <div className="text-[10px] text-fx-dust dark:text-fx-dust">
                               From: {formatAssetAmount(tx.fromAmount, tx.fromAsset.decimals)} {tx.fromAsset.currency}
                             </div>
                             {tx.feeAmount && Number(tx.feeAmount) > 0 && (
-                              <div className="text-[10px] text-slate-400 dark:text-slate-500">
+                              <div className="text-[10px] text-fx-dust dark:text-fx-dust">
                                 Fee: {formatAssetAmount(tx.feeAmount, getAssetDecimalsByCode(tx.feeCurrency))} {tx.feeCurrency || ''}
                               </div>
                             )}
@@ -821,28 +821,28 @@ const Swap = () => {
       {/* Confirmation Modal */}
       {showConfirm && firmQuote && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 dark:border-slate-700">
+          <div className="bg-white dark:bg-fx-charcoal rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-fx-rule dark:border-fx-rule">
             <div className="p-8 space-y-8">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Confirm Swap</h3>
-                <button onClick={handleCloseConfirm} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
-                  <X size={20} className="text-slate-400 dark:text-slate-500" />
+                <h3 className="text-xl font-bold text-fx-obsidian dark:text-white">Confirm Swap</h3>
+                <button onClick={handleCloseConfirm} className="p-2 hover:bg-fx-sand/60 dark:hover:bg-fx-shadow rounded-full transition-colors">
+                  <X size={20} className="text-fx-dust dark:text-fx-dust" />
                 </button>
               </div>
 
               <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between p-4 bg-fx-sand/40 dark:bg-fx-charcoal rounded-2xl border border-fx-rule dark:border-fx-rule">
                   <div className="space-y-1">
-                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Sell</p>
-                    <p className="text-lg font-bold text-gray-900 dark:text-white">
+                    <p className="text-xs text-fx-dust dark:text-fx-dune uppercase font-bold tracking-wider">Sell</p>
+                    <p className="text-lg font-bold text-fx-obsidian dark:text-white">
                       {formatAssetAmount(firmQuote.amountIn, getAssetDecimalsByCode(firmQuote.currencyIn))} {firmQuote.currencyIn}
                     </p>
                   </div>
-                  <div className="w-10 h-10 bg-white dark:bg-slate-700 rounded-full flex items-center justify-center shadow-sm border border-slate-200 dark:border-slate-600">
+                  <div className="w-10 h-10 bg-white dark:bg-fx-charcoal rounded-full flex items-center justify-center shadow-sm border border-fx-rule dark:border-fx-rule">
                     <ArrowRight size={20} className="text-brand-primary" />
                   </div>
                   <div className="space-y-1 text-right">
-                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Net Receive</p>
+                    <p className="text-xs text-fx-dust dark:text-fx-dune uppercase font-bold tracking-wider">Net Receive</p>
                     <p className="text-lg font-bold text-brand-primary">
                       {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
                     </p>
@@ -851,39 +851,39 @@ const Swap = () => {
 
                 <div className="space-y-3 px-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Gross Receive</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Gross Receive</span>
+                    <span className="font-mono text-fx-obsidian dark:text-fx-sand">
                       {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Fee</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Fee</span>
+                    <span className="font-mono text-fx-obsidian dark:text-fx-sand">
                       {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Net Receive</span>
-                    <span className="font-mono text-emerald-600 dark:text-emerald-300">
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Net Receive</span>
+                    <span className="font-mono text-fx-sage dark:text-fx-sage">
                       {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Exchange Rate</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Exchange Rate</span>
+                    <span className="font-mono text-fx-obsidian dark:text-fx-sand">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Market / Spread</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Market / Spread</span>
+                    <span className="font-mono text-fx-obsidian dark:text-fx-sand">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Quote ID</span>
-                    <span className="font-mono text-gray-900 dark:text-gray-200">{firmQuote.quoteId}</span>
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Quote ID</span>
+                    <span className="font-mono text-fx-obsidian dark:text-fx-sand">{firmQuote.quoteId}</span>
                   </div>
                   {firmQuote.matched && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-500 dark:text-slate-400 font-medium">Matched Pair / Tier</span>
-                      <span className="font-mono text-gray-900 dark:text-gray-200">
+                      <span className="text-fx-dust dark:text-fx-dune font-medium">Matched Pair / Tier</span>
+                      <span className="font-mono text-fx-obsidian dark:text-fx-sand">
                         {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
                       </span>
                     </div>
@@ -891,22 +891,22 @@ const Swap = () => {
                   {firmQuote.pricingSource && (
                     <>
                       <div className="flex justify-between text-sm">
-                        <span className="text-slate-500 dark:text-slate-400 font-medium">Source Symbol / Side</span>
-                        <span className="font-mono text-gray-900 dark:text-gray-200">
+                        <span className="text-fx-dust dark:text-fx-dune font-medium">Source Symbol / Side</span>
+                        <span className="font-mono text-fx-obsidian dark:text-fx-sand">
                           {firmQuote.pricingSource.symbol} / {firmQuote.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'}
                         </span>
                       </div>
                       <div className="space-y-1">
-                        <span className="text-slate-500 dark:text-slate-400 font-medium text-sm">Pricing Formula</span>
-                        <div className="font-mono text-[11px] text-gray-900 dark:text-gray-200 break-all">
+                        <span className="text-fx-dust dark:text-fx-dune font-medium text-sm">Pricing Formula</span>
+                        <div className="font-mono text-[11px] text-fx-obsidian dark:text-fx-sand break-all">
                           {firmQuote.pricingSource.formula}
                         </div>
                       </div>
                     </>
                   )}
                   <div className="flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400 font-medium">Expires In</span>
-                    <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}`}>
+                    <span className="text-fx-dust dark:text-fx-dune font-medium">Expires In</span>
+                    <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-fx-brass dark:text-fx-ember' : 'text-fx-rust dark:text-fx-rust'}`}>
                       {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
                     </span>
                   </div>
@@ -916,7 +916,7 @@ const Swap = () => {
               <button
                 onClick={handleExecuteSwap}
                 disabled={swapping || quoteExpiresIn <= 0}
-                className="w-full py-4 bg-gradient-to-r from-brand-primary to-brand-primary/80 text-white rounded-2xl font-bold hover:from-brand-primary/90 hover:to-brand-primary/70 transition-all shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-fx-brass hover:bg-fx-copper text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-brand-primary/20 flex items-center justify-center gap-2"
               >
                 {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
                 {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
