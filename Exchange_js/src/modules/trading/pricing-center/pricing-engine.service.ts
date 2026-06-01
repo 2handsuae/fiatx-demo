@@ -195,7 +195,9 @@ export class PricingEngineService {
   buildSwapQuote(input: SwapQuoteBuildInput): SwapPricingResult {
     const quoteLockSeconds = Math.max(1, Math.floor(input.quoteLockSeconds || 30));
     const expiresAt = new Date(input.createdAt.getTime() + quoteLockSeconds * 1000);
-    const markupMultiplier = new Prisma.Decimal(1).add(
+    // Spread is the platform margin: the customer receives a worse-than-market
+    // rate, so the markup REDUCES the effective rate (less toCurrency out).
+    const markupMultiplier = new Prisma.Decimal(1).sub(
       new Prisma.Decimal(input.markupBps).div(10000),
     );
     const quotedRate = this.roundDecimal(

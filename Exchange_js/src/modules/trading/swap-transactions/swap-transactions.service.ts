@@ -138,7 +138,8 @@ export class SwapTransactionsService {
     );
 
     const marketRate = rateResult.rate;
-    const markupMultiplier = new Prisma.Decimal(1).add(
+    // Spread is the platform margin: customer receives a worse-than-market rate.
+    const markupMultiplier = new Prisma.Decimal(1).sub(
       new Prisma.Decimal(resolved.rateMarkupBps).div(10000),
     );
     const executableRate = marketRate.mul(markupMultiplier);
