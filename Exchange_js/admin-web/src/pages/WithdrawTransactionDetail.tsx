@@ -38,6 +38,11 @@ interface WithdrawDetail {
   ownerNo: string | null;
   type?: string | null;
   status: string;
+  grossAedValue?: string | null;
+  aedRate?: string | null;
+  rateFetchedAt?: string | null;
+  rateFetchFailed?: boolean | null;
+  approvalNo?: string | null;
   assetId: string;
   amount: string;
   netAmount: string;
@@ -272,7 +277,20 @@ const WithdrawTransactionDetail = () => {
             )}
           </div>
 
-          {/* 3. Transaction Details */}
+          {/* 3. Approval Gate (conditional) */}
+          {(data.approvalNo || data.grossAedValue || data.rateFetchFailed) && (
+            <DetailCard title="Approval Gate" columns={2}>
+              <InfoField label="Approval No" value={data.approvalNo || '—'} mono />
+              <InfoField label="Gross Value (AED)" value={data.grossAedValue ? Number(data.grossAedValue).toLocaleString() : '—'} accent />
+              <InfoField label="AED Rate" value={data.aedRate || '—'} mono />
+              <InfoField label="Rate Fetched At" value={data.rateFetchedAt ? new Date(data.rateFetchedAt).toLocaleString() : '—'} />
+              {data.rateFetchFailed ? (
+                <InfoField label="Valuation" value="Rate fetch failed — routed to approval (fail-closed)" />
+              ) : null}
+            </DetailCard>
+          )}
+
+          {/* 4. Transaction Details */}
           <DetailCard title="Transaction Details" columns={2}>
             <InfoField label="Asset" value={`${data.asset.code} · ${data.asset.type} · ${data.asset.network || 'N/A'}`} />
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />

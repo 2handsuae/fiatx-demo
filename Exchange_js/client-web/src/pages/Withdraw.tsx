@@ -477,7 +477,7 @@ const Withdraw = () => {
                             className="bg-transparent text-sm text-fx-sand focus:outline-none"
                           >
                               <option value="">All Status</option>
-                              <option value="CREATED,PENDING_COMPLIANCE,UNDER_REVIEW,APPROVED,PAYOUT_PENDING,FROZEN">Processing</option>
+                              <option value="CREATED,PENDING_APPROVAL,PENDING_COMPLIANCE,UNDER_REVIEW,APPROVED,PAYOUT_PENDING,FROZEN">Processing</option>
                               <option value="SUCCESS">Completed</option>
                               <option value="REJECTED,CANCELLED">Declined</option>
                               <option value="FAILED,RETURNED">Failed</option>
