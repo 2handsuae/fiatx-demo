@@ -584,7 +584,7 @@ describe('WithdrawTransactionsService', () => {
       completedAt: null,
     };
 
-    function arrangeItem(status: string) {
+    function arrangeItem(status: WithdrawTransactionStatus) {
       mockTx.withdrawTransaction.findUnique.mockResolvedValue({ ...baseItem, status });
       mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
         Promise.resolve({ ...baseItem, status: data.status }),
