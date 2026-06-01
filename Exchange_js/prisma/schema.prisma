@@ -2083,6 +2083,12 @@ model WithdrawTransaction {
   complianceStatus     String                @default("PENDING")
   complianceReviewedAt DateTime?
   traceId              String?
+  grossAedValue        Decimal?
+  aedRate              Decimal?
+  rateFetchedAt        DateTime?
+  rateFetchFailed      Boolean               @default(false)
+  approvalCaseId       String?
+  approvalNo           String?
   tbPendingNetId       String?
   tbPendingFeeId       String?
   parentType           String?
