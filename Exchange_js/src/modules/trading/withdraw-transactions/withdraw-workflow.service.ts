@@ -232,16 +232,22 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }) {
     const decimals = w.asset?.decimals ?? 8;
     if (w.tbPendingNetId) {
-      await this.accountingService.voidPendingTransferBestEffort(
+      const voided = await this.accountingService.voidPendingTransferBestEffort(
         hexToBigint(w.tbPendingNetId),
         this.decimalToBigint(w.netAmount, decimals),
       );
+      if (!voided) {
+        this.logger.error(`CRITICAL: failed to void net pending transfer for withdrawal ${w.id} on rejection — funds may stay locked`);
+      }
     }
     if (w.tbPendingFeeId) {
-      await this.accountingService.voidPendingTransferBestEffort(
+      const voided = await this.accountingService.voidPendingTransferBestEffort(
         hexToBigint(w.tbPendingFeeId),
         this.decimalToBigint(w.feeAmount, decimals),
       );
+      if (!voided) {
+        this.logger.error(`CRITICAL: failed to void fee pending transfer for withdrawal ${w.id} on rejection — funds may stay locked`);
+      }
     }
   }
 
