@@ -1,66 +1,116 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import Pagination from '../components/common/Pagination';
+import {
+  adminButtonClass,
+  adminIconButtonClass,
+} from '../components/common/adminButtonStyles';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../utils/adminFetch';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
-import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 
-interface SwapTransaction {
+/* ── Types ──────────────────────────────────────────────────── */
+
+interface SwapAsset {
+  currency: string;
+  code: string;
+  type: string;
+  decimals?: number | null;
+}
+
+interface SwapTransactionListItem {
   id: string;
   swapNo: string;
   ownerType: string;
   ownerId: string;
+  ownerNo: string | null;
   status: string;
-  fromAsset: { currency: string; code: string; type: string; decimals?: number | null };
+  fromAsset: SwapAsset;
   fromAmount: string;
-  toAsset: { currency: string; code: string; type: string; decimals?: number | null };
+  toAsset: SwapAsset;
   toAmount: string;
+  netToAmount: string | null;
+  spreadAmount: string | null;
   exchangeRate: string;
   createdAt: string;
-  completedAt: string | null;
   customer?: {
     firstName: string | null;
     lastName: string | null;
     customerNo: string;
-  };
+  } | null;
 }
+
+interface FilterState {
+  swapNo: string;
+  ownerId: string;
+  startDate: string;
+  endDate: string;
+}
+
+const PAGE_SIZE = 20;
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/* ── Component ──────────────────────────────────────────────── */
 
 const SwapTransactionList = () => {
   const navigate = useNavigate();
-  const [items, setItems] = useState<SwapTransaction[]>([]);
+  const [items, setItems] = useState<SwapTransactionListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  // Filters
-  const [swapNo, setSwapNo] = useState('');
-  const [ownerId, setOwnerId] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [filters, setFilters] = useState<FilterState>({
+    swapNo: '',
+    ownerId: '',
+    startDate: '',
+    endDate: '',
+  });
 
   const hasFilters = useMemo(
-    () => Boolean(swapNo.trim() || ownerId.trim() || statusFilter),
-    [swapNo, ownerId, statusFilter],
+    () =>
+      !!filters.swapNo.trim() ||
+      !!filters.ownerId.trim() ||
+      !!filters.startDate ||
+      !!filters.endDate,
+    [filters],
   );
 
-  const fetchItems = async () => {
+  const fetchData = async (pageNum = page, overrides?: Partial<FilterState>) => {
     setLoading(true);
     setError('');
     try {
+      const f = { ...filters, ...overrides };
       const params = new URLSearchParams();
-      if (swapNo) params.append('swapNo', swapNo);
-      if (ownerId) params.append('ownerId', ownerId);
-      if (statusFilter) params.append('status', statusFilter);
+      params.set('skip', String((pageNum - 1) * PAGE_SIZE));
+      params.set('take', String(PAGE_SIZE));
+      if (f.swapNo.trim()) params.set('swapNo', f.swapNo.trim());
+      if (f.ownerId.trim()) params.set('ownerId', f.ownerId.trim());
+      if (f.startDate) params.set('startDate', f.startDate);
+      if (f.endDate) params.set('endDate', f.endDate);
 
-      const response = await adminFetch(
+      const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/swap-transactions?${params.toString()}`,
       );
-      if (response.ok) {
-        const result = await response.json();
-        setItems(result.items || []);
-        return;
+      if (!res.ok) {
+        throw new Error(await getApiErrorMessage(res, 'Failed to fetch swap transactions'));
       }
-      setError(await getApiErrorMessage(response, 'Failed to load swap transactions.'));
-    } catch (error) {
-      console.error('Failed to fetch swap transactions', error);
+      const body = await res.json();
+      setItems(body.items ?? []);
+      setTotal(body.total ?? 0);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      console.error('Failed to fetch swap transactions', err);
       setError('Failed to load swap transactions.');
     } finally {
       setLoading(false);
@@ -68,218 +118,193 @@ const SwapTransactionList = () => {
   };
 
   useEffect(() => {
-    fetchItems();
+    void fetchData(1);
   }, []);
 
   const handleSearch = () => {
-    fetchItems();
+    setPage(1);
+    void fetchData(1);
   };
 
   const handleReset = () => {
-    setSwapNo('');
-    setOwnerId('');
-    setStatusFilter('');
-    setItems([]);
-    setError('');
-    setLoading(true);
-    void (async () => {
-      try {
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/swap-transactions`,
-        );
-        if (response.ok) {
-          const result = await response.json();
-          setItems(result.items || []);
-          return;
-        }
-        setError(await getApiErrorMessage(response, 'Failed to load swap transactions.'));
-      } catch (resetError) {
-        console.error('Failed to reset swap transactions', resetError);
-        setError('Failed to load swap transactions.');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    const empty: FilterState = { swapNo: '', ownerId: '', startDate: '', endDate: '' };
+    setFilters(empty);
+    setPage(1);
+    void fetchData(1, empty);
   };
 
-  const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING_COMPLIANCE: 'bg-blue-100 text-blue-800',
-      UNDER_REVIEW: 'bg-yellow-100 text-yellow-800',
-      SUCCESS: 'bg-green-100 text-green-800',
-      REJECTED: 'bg-red-100 text-red-800',
-    };
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-        {status}
-      </span>
-    );
+  const handlePageChange = (p: number) => {
+    setPage(p);
+    void fetchData(p);
   };
+
+  const inputCls =
+    'rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none';
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Swap Transactions</h1>
-          <p className="text-sm text-gray-500 mt-1">Review swap lifecycle and monitor Risk Execution / Alert / Case progress</p>
+    <div className="flex h-full flex-col">
+      <PageTitleBar title="Swap Transactions" meta="Monitor completed swap conversions">
+        <button
+          onClick={() => void fetchData()}
+          className={adminIconButtonClass()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </PageTitleBar>
+
+      {/* Filters */}
+      <div className="border-b border-adm-border bg-adm-panel px-5 py-3">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <input
+            value={filters.swapNo}
+            onChange={(e) => setFilters((f) => ({ ...f, swapNo: e.target.value }))}
+            placeholder="Swap No"
+            className={inputCls}
+          />
+          <input
+            value={filters.ownerId}
+            onChange={(e) => setFilters((f) => ({ ...f, ownerId: e.target.value }))}
+            placeholder="Owner No / Id"
+            className={inputCls}
+          />
+          <input
+            type="date"
+            value={filters.startDate}
+            onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))}
+            className={inputCls}
+            title="Start Date"
+          />
+          <input
+            type="date"
+            value={filters.endDate}
+            onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))}
+            className={inputCls}
+            title="End Date"
+          />
         </div>
-        <div className="flex gap-3">
-          <button onClick={fetchItems} className={adminIconButtonClass()}>
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        <div className="mt-2 flex items-center gap-2">
+          <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
+            Search
+          </button>
+          <button
+            onClick={handleReset}
+            className={adminButtonClass('listSecondary')}
+            disabled={!hasFilters || loading}
+          >
+            Reset
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-admin-border overflow-hidden">
-        <div className="p-4 border-b border-admin-border flex flex-col md:flex-row gap-4 justify-between">
-            <div className="flex flex-1 gap-2 flex-wrap">
-                <div className="relative">
-                    <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
-                    <input 
-                    type="text" 
-                    value={swapNo}
-                    onChange={(e) => setSwapNo(e.target.value)}
-                    placeholder="Search Swap No..." 
-                    className="pl-9 pr-3 py-2 bg-admin-content-bg border border-admin-border rounded-lg text-sm focus:outline-none focus:border-brand-primary w-48"
-                    />
-                </div>
-                <input 
-                    type="text" 
-                    value={ownerId}
-                    onChange={(e) => setOwnerId(e.target.value)}
-                    placeholder="Search Owner No / Id..." 
-                    className="px-3 py-2 bg-admin-content-bg border border-admin-border rounded-lg text-sm focus:outline-none focus:border-brand-primary w-48"
-                />
-                <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
-                    Search
-                </button>
-                <button
-                  onClick={handleReset}
-                  className={adminButtonClass('listSecondary')}
-                  disabled={!hasFilters && !error}
-                >
-                  Reset
-                </button>
-            </div>
-          <div className="flex gap-2">
-            <select 
-              value={statusFilter} 
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-admin-border rounded-lg bg-white text-sm text-gray-600 focus:outline-none focus:border-brand-primary"
-            >
-              <option value="">All Status</option>
-              <option value="PENDING_COMPLIANCE">PENDING_COMPLIANCE</option>
-              <option value="UNDER_REVIEW">UNDER_REVIEW</option>
-              <option value="SUCCESS">SUCCESS</option>
-              <option value="REJECTED">REJECTED</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-admin-content-bg border-b border-admin-border">
-              <tr>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Swap No</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Owner</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Sell (From)</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Buy (To)</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Rate</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                <th className="px-6 py-3 font-medium text-gray-500 uppercase tracking-wider text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-admin-border">
-              {error ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-rose-600">
-                    {error}
-                  </td>
-                </tr>
-              ) : null}
-              {!error && loading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <RefreshCw className="animate-spin mb-2 text-brand-primary" size={24} />
-                      Loading...
-                    </div>
-                  </td>
-                </tr>
-              ) : !error && items.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                    No transactions found
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
-                        className={adminButtonClass('rowKeyLink')}
-                      >
-                        {item.swapNo}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4">
-                      {item.customer ? (
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-gray-900">
-                            {item.customer.firstName} {item.customer.lastName}
-                          </span>
-                          <span className="text-xs text-gray-500 font-mono">{item.customer.customerNo}</span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col">
-                           <span className="text-sm font-medium text-gray-900">{item.ownerType}</span>
-                           <span className="text-xs text-gray-500 font-mono" title={item.ownerId}>
-                             {item.ownerId.substring(0, 8)}...
-                           </span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-red-600">
-                        {formatAssetAmount(item.fromAmount, item.fromAsset.decimals)} {item.fromAsset.currency}
-                      </div>
-                      <div className="text-xs text-gray-400">{item.fromAsset.type}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-green-600">
-                        {formatAssetAmount(item.toAmount, item.toAsset.decimals)} {item.toAsset.currency}
-                      </div>
-                      <div className="text-xs text-gray-400">{item.toAsset.type}</div>
-                    </td>
-                    <td className="px-6 py-4 font-mono text-gray-600">
-                      {formatRate8(item.exchangeRate)}
-                    </td>
-                    <td className="px-6 py-4">
-                      {renderStatusBadge(item.status)}
-                    </td>
-                    <td className="px-6 py-4 text-xs text-gray-500">
-                        <div>Created: {new Date(item.createdAt).toLocaleString('en-US')}</div>
-                        {item.completedAt && <div className="text-gray-400">Completed: {new Date(item.completedAt).toLocaleString('en-US')}</div>}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
-                        className={adminButtonClass('rowLink')}
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="sticky top-0 z-10 border-b border-adm-border bg-adm-card">
+            <tr>
+              {['Swap No', 'Owner', 'Sell (From)', 'Buy (Net)', 'Rate', 'Spread', 'Status', 'Created', ''].map(
+                (h, i) => (
+                  <th
+                    key={h || `col-${i}`}
+                    className="px-5 py-2.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
+                  >
+                    {h}
+                  </th>
+                ),
               )}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-adm-border">
+            {error ? (
+              <tr>
+                <td colSpan={9} className="px-5 py-12 text-center text-adm-red">
+                  {error}
+                </td>
+              </tr>
+            ) : loading && items.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-5 py-12 text-center text-adm-t3">
+                  <RefreshCw className="mx-auto mb-2 animate-spin text-adm-amber" size={20} />
+                  Loading...
+                </td>
+              </tr>
+            ) : items.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-5 py-12 text-center font-mono text-xs text-adm-t3">
+                  No swap transactions found
+                </td>
+              </tr>
+            ) : (
+              items.map((item) => (
+                <tr key={item.id} className="transition-colors hover:bg-adm-hover">
+                  <td className="px-5 py-3">
+                    <button
+                      type="button"
+                      className={adminButtonClass('rowKeyLink')}
+                      onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
+                    >
+                      {item.swapNo}
+                    </button>
+                  </td>
+                  <td className="px-5 py-3">
+                    {item.customer ? (
+                      <div className="flex flex-col">
+                        <span className="text-adm-t1">
+                          {[item.customer.firstName, item.customer.lastName]
+                            .filter(Boolean)
+                            .join(' ') || '—'}
+                        </span>
+                        <span className="font-mono text-[10px] text-adm-t3">
+                          {item.customer.customerNo}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="font-mono text-adm-t2">{item.ownerNo || item.ownerType}</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-adm-red">
+                    {formatAssetAmount(item.fromAmount, item.fromAsset.decimals)}{' '}
+                    {item.fromAsset.currency}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-adm-green">
+                    {formatAssetAmount(item.netToAmount ?? item.toAmount, item.toAsset.decimals)}{' '}
+                    {item.toAsset.currency}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-adm-t2">
+                    {formatRate8(item.exchangeRate)}
+                  </td>
+                  <td className="px-5 py-3 font-mono text-adm-t2">
+                    {item.spreadAmount
+                      ? `${formatAssetAmount(item.spreadAmount, item.toAsset.decimals)} ${item.toAsset.currency}`
+                      : '—'}
+                  </td>
+                  <td className="px-5 py-3">
+                    <AdminBadge value={item.status} />
+                  </td>
+                  <td className="px-5 py-3 font-mono text-[10px] text-adm-t3">{fmt(item.createdAt)}</td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      className={adminButtonClass('rowLink')}
+                      onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
+
+      {/* Pagination */}
+      <Pagination
+        currentPage={page}
+        totalItems={total}
+        pageSize={PAGE_SIZE}
+        onPageChange={handlePageChange}
+      />
     </div>
   );
 };
