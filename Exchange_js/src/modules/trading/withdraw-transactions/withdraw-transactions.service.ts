@@ -564,7 +564,7 @@ export class WithdrawTransactionsService {
               ownerType,
               ownerId: userId,
               ownerNo,
-              status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+              status: WithdrawTransactionStatus.CREATED,
               assetId,
               amount: amountDecimal,
               netAmount,
@@ -582,10 +582,10 @@ export class WithdrawTransactionsService {
               parentId,
               pricingQuoteId: consumedQuoteId,
               statusHistory: JSON.stringify([{
-                status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+                status: WithdrawTransactionStatus.CREATED,
                 timestamp: new Date().toISOString(),
                 operator: 'SYSTEM',
-                note: 'Withdrawal created and moved to compliance pending'
+                note: 'Withdrawal created — awaiting approval-gate valuation'
               }]),
             },
           });
@@ -1071,6 +1071,33 @@ export class WithdrawTransactionsService {
     await (this.prisma as any).withdrawTransaction.update({
       where: { id: withdrawId },
       data: { payoutId, payoutNo },
+    });
+  }
+
+  async saveValuationSnapshot(
+    id: string,
+    snapshot: {
+      grossAedValue: Prisma.Decimal | null;
+      aedRate: Prisma.Decimal | null;
+      rateFetchedAt: Date | null;
+      rateFetchFailed: boolean;
+    },
+  ) {
+    await (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: {
+        grossAedValue: snapshot.grossAedValue,
+        aedRate: snapshot.aedRate,
+        rateFetchedAt: snapshot.rateFetchedAt,
+        rateFetchFailed: snapshot.rateFetchFailed,
+      },
+    });
+  }
+
+  async linkApprovalCase(id: string, approvalCaseId: string, approvalNo: string) {
+    await (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { approvalCaseId, approvalNo },
     });
   }
 
