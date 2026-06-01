@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Copy, Check } from 'lucide-react';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import {
@@ -91,6 +91,34 @@ const SOURCE_ROUTES: Record<string, string> = {
 function buildSourceLink(sourceType: string, sourceNo: string): string | null {
   const base = SOURCE_ROUTES[sourceType];
   return base ? `${base}/${sourceNo}` : null;
+}
+
+/** TB account code → human-readable COA label */
+const CODE_TO_COA: Record<string, string> = {
+  '1': 'A.BANK',
+  '10': 'A.CUSTODY',
+  '100': 'L.CLIENT_CREDIT',
+  '101': 'L.CLIENT_AUDIT',
+  '110': 'L.TRADE_CLEARING',
+  '120': 'L.FEE_RECEIVABLE',
+};
+
+function coaLabel(code: string): string {
+  return CODE_TO_COA[code] ?? code;
+}
+
+/** Asset decimals for formatting raw TB integer amounts */
+const ASSET_DECIMALS: Record<string, number> = { USDT: 6, AED: 2 };
+
+function formatTbAmount(rawAmount: string, assetCode: string): string {
+  const decimals = ASSET_DECIMALS[assetCode] ?? 6;
+  const num = Number(rawAmount) / Math.pow(10, decimals);
+  return num.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function truncateHex(hex: string | null): string {
+  if (!hex) return '—';
+  return hex.length > 16 ? `${hex.slice(0, 8)}…${hex.slice(-8)}` : hex;
 }
 
 /* ── Main Component ──────────────────────────────────────────── */
@@ -202,7 +230,7 @@ export default function TransferEvidenceDetail() {
           {/* ① Hero — Amount + Type */}
           <section className="bg-adm-card px-6 py-5">
             <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
-              {detail.amount} <span className="text-[14px] text-adm-t2">{detail.assetCode}</span>
+              {formatTbAmount(detail.amount, detail.assetCode)} <span className="text-[14px] text-adm-t2">{detail.assetCode}</span>
             </p>
             <div className="mt-3 flex items-center gap-4">
               <div>
@@ -217,19 +245,7 @@ export default function TransferEvidenceDetail() {
             <Cap>Source Info</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
               <InfoField label="Source Type" value={detail.sourceType} />
-              <InfoField
-                label="Source No"
-                value={
-                  sourceLink ? (
-                    <Link to={sourceLink} className="font-mono text-[11px] text-adm-amber hover:underline">
-                      {detail.sourceNo}
-                    </Link>
-                  ) : (
-                    detail.sourceNo
-                  )
-                }
-                mono
-              />
+              <InfoField label="Source No" value={detail.sourceNo} mono accent link={sourceLink ?? undefined} />
               <InfoField label="Event Code" value={detail.eventCode} mono />
             </div>
           </section>
@@ -238,29 +254,21 @@ export default function TransferEvidenceDetail() {
           <section className="px-6 py-5">
             <Cap>Accounting Entry</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Debit" value={detail.debitCode} mono />
-              <InfoField label="Credit" value={detail.creditCode} mono />
+              <InfoField label="Debit" value={coaLabel(detail.debitCode)} mono />
+              <InfoField label="Credit" value={coaLabel(detail.creditCode)} mono />
               <InfoField
                 label="Debit Account"
-                value={
-                  detail.debitTbAccountId ? (
-                    <Link to={`/ledger/accounts/${detail.debitTbAccountId}`} className="font-mono text-[11px] text-adm-amber hover:underline">
-                      {detail.debitTbAccountId}
-                    </Link>
-                  ) : '—'
-                }
+                value={truncateHex(detail.debitTbAccountId)}
+                mono
+                link={detail.debitTbAccountId ? `/ledger/accounts/${detail.debitTbAccountId}` : undefined}
               />
               <InfoField
                 label="Credit Account"
-                value={
-                  detail.creditTbAccountId ? (
-                    <Link to={`/ledger/accounts/${detail.creditTbAccountId}`} className="font-mono text-[11px] text-adm-amber hover:underline">
-                      {detail.creditTbAccountId}
-                    </Link>
-                  ) : '—'
-                }
+                value={truncateHex(detail.creditTbAccountId)}
+                mono
+                link={detail.creditTbAccountId ? `/ledger/accounts/${detail.creditTbAccountId}` : undefined}
               />
-              <InfoField label="Amount" value={detail.amount} mono />
+              <InfoField label="Amount" value={formatTbAmount(detail.amount, detail.assetCode)} mono />
               <InfoField label="Asset" value={detail.assetCode} />
             </div>
           </section>
@@ -273,14 +281,13 @@ export default function TransferEvidenceDetail() {
               <InfoField label="Actor ID" value={detail.actorId} mono />
               <InfoField
                 label="Trace ID"
-                value={
-                  <span className="inline-flex items-center gap-1">
-                    <span className="font-mono text-[11px]">{detail.traceId}</span>
-                    <CopyBtn text={detail.traceId} field="traceId" />
-                  </span>
-                }
+                value={detail.traceId}
+                mono
+                copyable
+                onCopy={(v) => handleCopy(v, 'traceId')}
+                isCopied={copiedField === 'traceId'}
               />
-              <InfoField label="Memo" value={detail.memo ?? '—'} />
+              <InfoField label="Memo" value={detail.memo} />
             </div>
           </section>
 
