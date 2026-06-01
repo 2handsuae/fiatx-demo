@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import {
   WithdrawTransactionAction,
@@ -17,10 +18,23 @@ import { DomainEventNames } from '../../../common/events/domain-events.constants
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
 import { PayoutAction } from '../../asset-treasury/payouts/dto/payout.dto';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
+import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
+import {
+  shouldRequireApproval,
+  SYSTEM_APPROVAL_ACTOR,
+} from './constants/withdraw-approval.constant';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(WithdrawWorkflowService.name);
+  private readonly systemCtx = {
+    source: 'WORKFLOW' as const,
+    actorType: 'SYSTEM',
+    actorId: 'WITHDRAW_WORKFLOW',
+    sourcePlatform: 'SYSTEM',
+  };
 
   constructor(
     private readonly withdrawService: WithdrawTransactionsService,
@@ -28,6 +42,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly accountingService: AccountingService,
     @Inject(forwardRef(() => PayoutsService))
     private readonly payoutsService: PayoutsService,
+    private readonly approvalsService: ApprovalsService,
+    private readonly binanceRateProvider: BinanceRateProvider,
   ) {}
 
   onModuleInit() {
@@ -47,8 +63,96 @@ export class WithdrawWorkflowService implements OnModuleInit {
     amount: string;
     traceId: string;
   }) {
-    this.logger.log(`Orchestrating new withdrawal ${event.withdrawId}`);
-    await this.initializeTransactionScreen(event.withdrawId);
+    const w = await this.withdrawService.findOneInternal(event.withdrawId);
+    if (w.status !== WithdrawTransactionStatus.CREATED) {
+      this.logger.debug(`Skip branch: withdrawal ${event.withdrawId} already ${w.status}`);
+      return;
+    }
+
+    const valuation = await this.valuateAed(w);
+    await this.withdrawService.saveValuationSnapshot(w.id, valuation);
+
+    if (shouldRequireApproval(valuation)) {
+      await this.openApprovalGate(w, valuation);
+    } else {
+      this.logger.log(`Withdrawal ${event.withdrawId} below approval threshold — proceeding to compliance`);
+      await this.withdrawService.updateStatus(
+        w.id,
+        { action: WithdrawTransactionAction.CHECK },
+        this.systemCtx,
+      );
+      await this.initializeTransactionScreen(w.id);
+    }
+  }
+
+  private async valuateAed(w: {
+    amount: Prisma.Decimal | string;
+    asset?: { currency?: string | null } | null;
+  }): Promise<{
+    grossAedValue: Prisma.Decimal | null;
+    aedRate: Prisma.Decimal | null;
+    rateFetchedAt: Date | null;
+    rateFetchFailed: boolean;
+  }> {
+    const amount = new Prisma.Decimal(w.amount);
+    const currency = w.asset?.currency || '';
+    try {
+      const r = await this.binanceRateProvider.fetchRate(currency, 'AED');
+      return {
+        grossAedValue: amount.mul(r.rate),
+        aedRate: r.rate,
+        rateFetchedAt: r.fetchedAt,
+        rateFetchFailed: false,
+      };
+    } catch (err) {
+      this.logger.warn(`AED valuation failed for ${currency}: ${(err as Error).message} — fail-closed to approval`);
+      return { grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: true };
+    }
+  }
+
+  private async openApprovalGate(
+    w: { id: string; withdrawNo: string; ownerType: string; ownerId: string; traceId: string | null },
+    valuation: { grossAedValue: Prisma.Decimal | null; rateFetchFailed: boolean },
+  ) {
+    await this.withdrawService.updateStatus(
+      w.id,
+      { action: WithdrawTransactionAction.REQUIRE_APPROVAL },
+      this.systemCtx,
+    );
+
+    const approval = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.WITHDRAW_LARGE_VALUE_APPROVAL,
+        entityRef: w.id,
+        traceId: w.traceId || undefined,
+        objectSnapshot: {
+          withdrawNo: w.withdrawNo,
+          ownerType: w.ownerType,
+          ownerId: w.ownerId,
+          grossAedValue: valuation.grossAedValue?.toString() || null,
+          rateFetchFailed: valuation.rateFetchFailed,
+        },
+      },
+      { reason: `Withdrawal ${w.withdrawNo} ≥ 200000 AED — senior management approval required`, traceId: w.traceId || undefined },
+      SYSTEM_APPROVAL_ACTOR,
+    );
+
+    await this.withdrawService.linkApprovalCase(w.id, approval.id, approval.approvalNo);
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_APPROVAL_REQUESTED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `Large-value approval requested (case ${approval.approvalNo})`,
+      sourcePlatform: 'SYSTEM',
+    });
+
+    this.logger.log(`Withdrawal ${w.id} now PENDING_APPROVAL — approval ${approval.approvalNo} opened`);
   }
 
   @OnEvent(DomainEventNames.WITHDRAWAL_KYT_UPDATED)
