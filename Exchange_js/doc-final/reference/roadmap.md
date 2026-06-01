@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-05-31
+Last Updated: 2026-06-01
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -266,28 +266,56 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ## V6 — 兑换流程
 
-> 定价中心（基础设施）、Quote 创建与消费、兑换成交、未达成项创建，以及定价与货币对的治理工作流。
+> 报价中心、Quote 创建与消费、兑换成交、未达成项创建，以及费率与货币对的治理工作流。兑换为平台内余额交换，资金不出境、无外部对手方，合规仅 L1 Eligibility 同步闸门；成交为同步原子操作，未达成项交 V7 EOD 结算。
 
 **前置：** V2 + V3
 
-**Workflow 清单：**
+### MVP
 
-主流程：
-- [ ] 报价工作流（客户请求 from/to CCY + 金额 → PricingService 计算汇率+手续费 → Quote 创建含 TTL → 客户确认触发成交 / TTL 过期或取消 → EXPIRED/CANCELLED）
-- [ ] 兑换成交工作流（Quote ACCEPTED → 前置校验 → 锁定源币余额 → [大额审批门] → TB 记账：source debit / target credit / fee capture / Exchange_Pool 轧差 → 完整执行 COMPLETED / 部分执行创建未达成项 → V7 接手）
+**主流程：**
 
-配置治理工作流：
-- [ ] 定价策略变更工作流（Maker 提案变更点差/手续费率/限额等参数，含新旧值对比 → Checker 审批 → 生效；审计记录完整）
-- [ ] 货币对上下线工作流（新增货币对：关联 TB Account + 定价配置 + 审批上线；下线货币对：处理在途 Quote + 配置归档 + 审批）
+- [x] 报价工作流（客户请求 from/to CCY + 金额 → SwapQuoteService 解析 SwapFeeLevel 最优费率 + BinanceRateProvider 实时汇率 → PricingEngine 计算 amountOut/spread/fee → Quote 创建含 30s TTL → 客户确认触发成交 / 取消 → CANCELLED） — **业务必须** ✅ 2026-06-01
+- [x] 兑换成交工作流 Happy Path（L1 Eligibility 闸门（assertTradingEligibility，pre-creation 同步）→ 消费 Quote → TB 三腿 pending+post 记账：CLIENT_CREDIT→TRADE_CLEARING（from 锁定）/ TRADE_CLEARING→CLIENT_CREDIT（to net 入账）/ TRADE_CLEARING→FEE_RECEIVABLE（fee）→ L1 create SUCCESS + TB transfer refs → Outstanding 两腿创建 → 业务审计；SwapWorkflowService 同步原子三层架构：L1 SwapTransactionsService + L3 SwapWorkflowService） — **VARA + 业务**：CRM Rulebook II.A CDD ✅ 2026-06-01
+  - [ ] 异常分支 — 执行失败回滚（TB best-effort void 补偿已内置于 executeSwap；独立 FAILED 状态机待定）
+  - [ ] 异常分支 — 大额/可疑兑换 COMPLIANCE_HOLD → MLRO（**设计偏离：swap 资金不出境，现为同步 eligibility-only，无异步合规闸门；此项待确认是否适用**）
 
-合规 / 风控工作流：
-- [ ] 大额兑换合规审查工作流（Sumsub TM 命中异常模式 → 兑换进入 COMPLIANCE_HOLD → MLRO 审查 → 放行继续记账 / 拒绝解锁余额）
-- [ ] 交易暂停 / 恢复工作流（指定货币对或全局暂停：已在途 Quote 强制 EXPIRED → Maker 提案 + Checker 审批；恢复时同样需审批门；全程审计）
+**兑换费率配置治理：** — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach
 
-异常工作流：
-- [ ] 兑换执行失败回滚工作流（TB 记账失败或审批被拒 → 解锁源币余额 → FAILED → 通知客户）
+- [x] Swap Fee Level Creation（费率等级创建审批：3-Layer 架构——薄审批处理器 + 工作流编排器 + 领域服务；OPS_OFFICER 单步审批，48h 超时；创建含 tier 列表 JSON，每 tier 定义 rateMarkupBps（点差）+ feeItems（可选，支持 spread-only tier）；Admin 列表页含 Create Modal + TierEditor swap 模式（currency 下拉 + SWAP_SERVICE_FEE/COMPLIANCE_FEE codes）） ✅ 2026-06-01
+- [x] Swap Fee Level Change（费率等级变更审批：request-record 模式——创建 SwapFeeLevelChangeRequest 记录变更生命周期，主 level 保持 ACTIVE；OPS_OFFICER 单步审批；执行时 hash 冲突检测；Admin 详情页 Change Modal + proposed vs current 对比） ✅ 2026-06-01
+- [x] Swap Fee Level Binding（客户费率等级绑定/解绑：无审批门，直接生效 + 审计；Admin 详情页 Bind Modal + Bindings 列表） ✅ 2026-06-01
 
-不单做工作流（技术处理 / 主流程内嵌）：余额不足 / 客户暂停 / Tier 限额 → 前置校验失败；Quote TTL 过期 → Cron sweep 标 EXPIRED；大额审批 → 成交工作流内审批门；未达成项创建 → 成交工作流内嵌步骤。
+**运营治理：**
+
+- [ ] 交易暂停 / 恢复工作流（指定货币对或全局暂停：已在途 Quote 强制 EXPIRED → Maker 提案 + Checker 审批；恢复时同样需审批门；全程审计） — **业务必须**
+
+> 不单做工作流（技术处理 / 主流程内嵌）：余额不足 / 客户暂停 / Tier 限额 → 前置校验失败不创建订单；Quote TTL 过期 → Cron sweep 标 EXPIRED；未达成项创建 → 成交工作流内嵌步骤（交 V7 EOD 结算）。
+
+### ADVANCED
+
+- [ ] 货币对上下线工作流（新增货币对：关联 TB Account + SwapFeeLevel 默认配置 + 审批上线；下线货币对：处理在途 Quote + 配置归档 + 审批） — **业务必须**：货币对的标准化上下线路径
+- [ ] 大额兑换增强审查（超阈值强制 EDD：要求 SOF/SOW 证明 → Sumsub 增强验证 → MLRO 审批门 → 通过后恢复正常兑换；阈值按 tradingTier 配置） — **VARA**：CRM Rulebook III.B Enhanced Due Diligence
+- [ ] 批量兑换（机构客户批量提交兑换请求 → 逐笔校验余额/限额 → 批量合规审查 → 统一审批门 → 逐笔成交） — **业务必须**：机构客户高频兑换路径
+
+### Supporting Features（非 workflow，无独立状态机）
+
+**已完成：**
+- **SwapQuoteService 拆分** — 从 PricingCenterService 独立，BinanceRateProvider 实时费率 + 多 level 取最优 + Quote 全生命周期（create/consume/cancel/admin 查询）✅ 2026-06-01
+- **PricingCenterService 删除** — God Service（2926 行）彻底移除，swap/withdraw quote 各自归属领域模块，PricingCenterModule 仅保留 PricingEngineService + BinanceRateProvider 工具导出，净减 ~3500 行 ✅ 2026-06-01
+- **SwapFeeLevel 三层治理 + Admin 页面** — SwapFeeLevelService（L1）+ 创建/变更/绑定审批处理器与工作流；Admin List/Detail + Create/Change/Bind Modal + TierEditor swap 模式 ✅ 2026-06-01
+- **Swap Quotes admin 只读页** — 报价快照列表/详情（含 from/to pair、amounts、rate、spread、fee、生命周期），dark 主题 ✅ 2026-06-01
+- **TB 三腿记账** — 全走 TRADE_CLEARING 不分资产类型；pending→post 可补偿；法币/虚拟币差异下推到 Outstanding 结算层（虚拟币合并结算、法币按 VIBAN 逐笔）✅ 2026-06-01
+- **Client 兑换页面** — 报价 → 确认弹窗（pay/net receive/fee/rate）→ 执行 → 历史；余额读 TB portfolio；dark-native 品牌样式对齐 Deposit/Withdraw ✅ 2026-06-01
+- **Customer 报价契约 + 余额接口** — createQuote 全字段返回（netAmountOut/currencyIn/currencyOut 等）；余额改用 `/client/portfolio/balances`（TB ledger，JWT 取客户）✅ 2026-06-01
+- **审批策略简化** — TRANSACTION_LIMIT_CREATION/CHANGE + WITHDRAWAL_FEE_LEVEL_CREATION/CHANGE + SWAP_FEE_LEVEL_CREATION/CHANGE 共 6 类从 MLRO→SMO 两步改为 OPS_OFFICER 单步（含 OPS_OFFICER 权限补充与 backfill）✅ 2026-06-01
+
+**待实现：**
+- **Sumsub TM 真实集成** — 若启用大额兑换合规，替换为 Sumsub webhook 翻译层
+- **大额审批门** — 超阈值兑换走 MLRO 审批
+- **Quote TTL Cron sweep** — 过期 Quote 自动标 EXPIRED
+- **兑换成功通知** — 完成推送客户通知，复用 V1 Notification send
+- **TB 记账失败 repair surface** — 合规/校验通过但 TB 记账失败时的修复路径
+- **legacy swap config 清理** — 旧 PricingSwapConfigPage / swap pair config 残留移除
 
 ---
 
