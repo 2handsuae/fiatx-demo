@@ -168,6 +168,83 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
   }
 
+  @OnEvent('workflow.withdraw-large-value-approval.decided', { async: true })
+  async onLargeValueApprovalDecided(payload: {
+    decision: 'APPROVED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
+    entityRef: string;
+    approvalNo: string;
+    decisionReason?: string | null;
+  }) {
+    const w = await this.withdrawService.findOneInternal(payload.entityRef);
+    if (w.status !== WithdrawTransactionStatus.PENDING_APPROVAL) {
+      this.logger.debug(`Skip decided: withdrawal ${payload.entityRef} is ${w.status}, not PENDING_APPROVAL`);
+      return;
+    }
+
+    if (payload.decision === 'APPROVED') {
+      await this.withdrawService.updateStatus(
+        w.id,
+        { action: WithdrawTransactionAction.GATE_APPROVE },
+        this.systemCtx,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_APPROVAL_GRANTED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Large-value approval granted (case ${payload.approvalNo}) — proceeding to compliance`,
+        sourcePlatform: 'SYSTEM',
+      });
+      await this.initializeTransactionScreen(w.id);
+    } else {
+      await this.withdrawService.updateStatus(
+        w.id,
+        { action: WithdrawTransactionAction.REJECT, reason: `Approval ${payload.decision}: ${payload.decisionReason || 'no reason'}` },
+        this.systemCtx,
+      );
+      await this.voidWithdrawPending(w);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_APPROVAL_DECLINED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Large-value approval ${payload.decision} (case ${payload.approvalNo}) — pending lock voided`,
+        sourcePlatform: 'SYSTEM',
+      });
+    }
+  }
+
+  private async voidWithdrawPending(w: {
+    id: string;
+    netAmount: Prisma.Decimal | string;
+    feeAmount: Prisma.Decimal | string;
+    tbPendingNetId: string | null;
+    tbPendingFeeId: string | null;
+    asset?: { decimals?: number | null } | null;
+  }) {
+    const decimals = w.asset?.decimals ?? 8;
+    if (w.tbPendingNetId) {
+      await this.accountingService.voidPendingTransferBestEffort(
+        hexToBigint(w.tbPendingNetId),
+        this.decimalToBigint(w.netAmount, decimals),
+      );
+    }
+    if (w.tbPendingFeeId) {
+      await this.accountingService.voidPendingTransferBestEffort(
+        hexToBigint(w.tbPendingFeeId),
+        this.decimalToBigint(w.feeAmount, decimals),
+      );
+    }
+  }
+
   @OnEvent(DomainEventNames.WITHDRAWAL_KYT_UPDATED)
   async handleKytUpdated(event: {
     withdrawId: string;
