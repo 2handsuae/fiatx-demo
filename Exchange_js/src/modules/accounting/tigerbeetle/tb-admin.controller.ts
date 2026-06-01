@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Request, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Request, NotFoundException, BadRequestException, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
@@ -8,6 +8,9 @@ import { TbEvidenceService } from './tb-evidence.service';
 import { TbManualAccountService } from './tb-manual-account.service';
 import { CreateTbAccountDto } from './dto/create-tb-account.dto';
 import { hexToBigint } from './utils/tb-id.util';
+import { TB_ACCOUNT_CODES } from './constants/tb-account-codes.constant';
+import { TB_LEDGERS } from './constants/tb-ledgers.constant';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 
 @ApiTags('TB Ledger Admin')
 @Controller('admin/tb')
@@ -18,6 +21,7 @@ export class TbAdminController {
     private readonly tbEvidenceService: TbEvidenceService,
     private readonly accountingService: AccountingService,
     private readonly tbManualAccountService: TbManualAccountService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post('accounts')
@@ -126,5 +130,42 @@ export class TbAdminController {
       });
     }
     return evidence;
+  }
+
+  @Get('account-statement')
+  @ApiOperation({ summary: 'Get account statement for a customer + asset' })
+  async getAccountStatement(
+    @Query('customerNo') customerNo: string,
+    @Query('assetCurrency') assetCurrency: string,
+  ) {
+    if (!customerNo || !assetCurrency) {
+      throw new BadRequestException({ code: 'MISSING_PARAMS', message: 'customerNo and assetCurrency are required' });
+    }
+
+    const ledger = TB_LEDGERS[assetCurrency as keyof typeof TB_LEDGERS];
+    if (!ledger) {
+      throw new BadRequestException({ code: 'UNSUPPORTED_CURRENCY', message: `Unsupported currency: ${assetCurrency}` });
+    }
+
+    const customer = await this.prisma.customerMain.findFirst({ where: { customerNo } });
+    if (!customer) {
+      throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: `Customer ${customerNo} not found` });
+    }
+
+    const asset = await this.prisma.asset.findFirst({ where: { currency: assetCurrency, status: 'ACTIVE' } });
+    const decimals = asset?.decimals ?? 6;
+
+    const registry = await this.tbAccountRegistryService.resolve({
+      code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+      ledger,
+      ownerType: 'CUSTOMER',
+      ownerUuid: customer.id,
+    });
+    if (!registry) {
+      return { items: [], currentBalance: 0, customerNo, assetCurrency, decimals };
+    }
+
+    const statement = await this.tbEvidenceService.getAccountStatement(registry.tbAccountId);
+    return { ...statement, customerNo, assetCurrency, decimals };
   }
 }

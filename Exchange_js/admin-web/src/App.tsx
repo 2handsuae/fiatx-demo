@@ -120,6 +120,7 @@ const LedgerAccountList = lazy(() => import('./pages/LedgerAccountList'));
 const LedgerAccountDetail = lazy(() => import('./pages/LedgerAccountDetail'));
 const TransferEvidenceList = lazy(() => import('./pages/TransferEvidenceList'));
 const TransferEvidenceDetail = lazy(() => import('./pages/TransferEvidenceDetail'));
+const AccountStatementPage = lazy(() => import('./pages/AccountStatementPage'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
@@ -921,6 +922,10 @@ function App() {
             <Route
               path="transfers/:tbTransferId"
               element={withPermission(<TransferEvidenceDetail />, [PERMISSIONS.TB_TRANSFER_DETAIL_READ])}
+            />
+            <Route
+              path="account-statement"
+              element={withPermission(<AccountStatementPage />, [PERMISSIONS.TB_ACCOUNTS_READ])}
             />
           </Route>
 

@@ -341,6 +341,12 @@ const DashboardLayout = () => {
           icon: <Database size={13} />,
           requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
+        {
+          path: '/ledger/account-statement',
+          label: 'Account Statement',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+        },
       ],
     },
     // ─── Pricing ──────────────────────────────────────────────────

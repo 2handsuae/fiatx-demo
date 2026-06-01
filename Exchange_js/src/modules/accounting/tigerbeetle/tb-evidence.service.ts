@@ -144,6 +144,54 @@ export class TbEvidenceService {
     return { items, total };
   }
 
+  async getAccountStatement(tbAccountId: string): Promise<{
+    items: Array<{
+      tbTransferId: string;
+      sourceType: string;
+      sourceNo: string;
+      eventCode: string;
+      direction: 'IN' | 'OUT';
+      amount: number;
+      runningBalance: number;
+      assetCode: string;
+      memo: string | null;
+      createdAt: string;
+    }>;
+    currentBalance: number;
+  }> {
+    const rows = await (this.prisma as any).tbTransferEvidence.findMany({
+      where: {
+        transferType: 'POSTED',
+        OR: [
+          { creditTbAccountId: tbAccountId },
+          { debitTbAccountId: tbAccountId },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let balance = 0;
+    const items = rows.map((row: any) => {
+      const direction: 'IN' | 'OUT' = row.creditTbAccountId === tbAccountId ? 'IN' : 'OUT';
+      const amount = Number(row.amount);
+      balance += direction === 'IN' ? amount : -amount;
+      return {
+        tbTransferId: row.tbTransferId,
+        sourceType: row.sourceType,
+        sourceNo: row.sourceNo,
+        eventCode: row.eventCode,
+        direction,
+        amount,
+        runningBalance: balance,
+        assetCode: row.assetCode,
+        memo: row.memo,
+        createdAt: row.createdAt,
+      };
+    });
+
+    return { items, currentBalance: balance };
+  }
+
   async findBacklog(filters: {
     status?: string;
     skip?: number;
