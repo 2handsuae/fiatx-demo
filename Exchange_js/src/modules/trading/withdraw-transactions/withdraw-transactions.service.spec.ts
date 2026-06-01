@@ -11,6 +11,8 @@ import {
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -85,6 +87,21 @@ describe('WithdrawTransactionsService', () => {
             getActiveQuoteOrThrow: jest.fn(),
             consumeQuote: jest.fn(),
             cancelQuote: jest.fn(),
+          },
+        },
+        {
+          provide: AuditLogsService,
+          useValue: {
+            recordByActor: jest.fn().mockResolvedValue({}),
+            recordSystem: jest.fn().mockResolvedValue({}),
+          },
+        },
+        {
+          provide: AccountingService,
+          useValue: {
+            resolveTbAccountId: jest.fn().mockResolvedValue(BigInt(1)),
+            executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
+            voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
           },
         },
       ],
@@ -552,6 +569,52 @@ describe('WithdrawTransactionsService', () => {
     expect(result.preKytStatus).toBe('FINAL');
     expect(result.kytStatus).toBe('RECEIVED');
     expect(result.travelRuleStatus).toBe('FINAL');
+  });
+
+  describe('approval-gate transitions', () => {
+    const baseItem = {
+      id: 'w1',
+      withdrawNo: 'WD-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c1',
+      asset: { type: 'CRYPTO' },
+      statusHistory: '[]',
+      approvedAt: null,
+      payoutRequestedAt: null,
+      completedAt: null,
+    };
+
+    function arrangeItem(status: string) {
+      mockTx.withdrawTransaction.findUnique.mockResolvedValue({ ...baseItem, status });
+      mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...baseItem, status: data.status }),
+      );
+    }
+
+    it('CREATED → REQUIRE_APPROVAL → PENDING_APPROVAL', async () => {
+      arrangeItem(WithdrawTransactionStatus.CREATED);
+      const res = await service.updateStatus('w1', { action: WithdrawTransactionAction.REQUIRE_APPROVAL }, { source: 'WORKFLOW' });
+      expect(res.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
+    });
+
+    it('PENDING_APPROVAL → GATE_APPROVE → PENDING_COMPLIANCE', async () => {
+      arrangeItem(WithdrawTransactionStatus.PENDING_APPROVAL);
+      const res = await service.updateStatus('w1', { action: WithdrawTransactionAction.GATE_APPROVE }, { source: 'WORKFLOW' });
+      expect(res.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
+    });
+
+    it('PENDING_APPROVAL → REJECT → REJECTED', async () => {
+      arrangeItem(WithdrawTransactionStatus.PENDING_APPROVAL);
+      const res = await service.updateStatus('w1', { action: WithdrawTransactionAction.REJECT }, { source: 'WORKFLOW' });
+      expect(res.status).toBe(WithdrawTransactionStatus.REJECTED);
+    });
+
+    it('rejects GATE_APPROVE from CREATED', async () => {
+      arrangeItem(WithdrawTransactionStatus.CREATED);
+      await expect(
+        service.updateStatus('w1', { action: WithdrawTransactionAction.GATE_APPROVE }, { source: 'WORKFLOW' }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   it('should emit unified failed event when payout fails', async () => {

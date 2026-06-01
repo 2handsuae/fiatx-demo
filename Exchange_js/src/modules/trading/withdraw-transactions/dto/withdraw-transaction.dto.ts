@@ -4,6 +4,7 @@ import { Type } from 'class-transformer';
 export enum WithdrawTransactionStatus {
   // Legacy compatibility values remain readable for historical records only.
   CREATED = 'CREATED',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
   PENDING_COMPLIANCE = 'PENDING_COMPLIANCE',
   UNDER_REVIEW = 'UNDER_REVIEW',
   APPROVED = 'APPROVED',
@@ -19,6 +20,8 @@ export enum WithdrawTransactionStatus {
 export enum WithdrawTransactionAction {
   // Legacy action names are retained for historical audit/query compatibility.
   CHECK = 'check',
+  REQUIRE_APPROVAL = 'require_approval',
+  GATE_APPROVE = 'gate_approve',
   FLAG = 'flag',
   REJECT = 'reject',
   APPROVE = 'approve',

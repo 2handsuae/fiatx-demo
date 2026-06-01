@@ -67,7 +67,13 @@ export class WithdrawTransactionsService {
   private readonly transitions: Record<WithdrawTransactionStatus, Partial<Record<WithdrawTransactionAction, WithdrawTransactionStatus>>> = {
     // Legacy compatibility branch: retained for historical replay/query readability only.
     [WithdrawTransactionStatus.CREATED]: {
+      [WithdrawTransactionAction.REQUIRE_APPROVAL]: WithdrawTransactionStatus.PENDING_APPROVAL,
       [WithdrawTransactionAction.CHECK]: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
+    },
+    [WithdrawTransactionStatus.PENDING_APPROVAL]: {
+      [WithdrawTransactionAction.GATE_APPROVE]: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
       [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
     },
     [WithdrawTransactionStatus.PENDING_COMPLIANCE]: {
