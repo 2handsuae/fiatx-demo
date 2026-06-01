@@ -332,10 +332,12 @@ export class SwapTransactionsService {
       feeAmount: Prisma.Decimal;
       feeCurrency: string | null;
       feeBreakdown: string | null;
+      spreadAmount: Prisma.Decimal;
       exchangeRate: Prisma.Decimal;
       tbFromTransferId: string | null;
       tbToTransferId: string | null;
       tbFeeTransferId: string | null;
+      tbSpreadTransferId: string | null;
       traceId: string;
     },
     tx: Prisma.TransactionClient,
@@ -360,10 +362,12 @@ export class SwapTransactionsService {
         feeAmount: input.feeAmount,
         feeCurrency: input.feeCurrency,
         feeBreakdown: input.feeBreakdown,
+        spreadAmount: input.spreadAmount,
         exchangeRate: input.exchangeRate,
         tbFromTransferId: input.tbFromTransferId,
         tbToTransferId: input.tbToTransferId,
         tbFeeTransferId: input.tbFeeTransferId,
+        tbSpreadTransferId: input.tbSpreadTransferId,
         traceId: input.traceId,
         completedAt: new Date(),
         statusHistory: JSON.stringify([

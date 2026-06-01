@@ -92,6 +92,20 @@ export class SwapWorkflowService {
         const netToAmountBigint = this.decimalToBigint(netToAmount, toDecimals);
         const feeAmountBigint = this.decimalToBigint(feeAmount, toDecimals);
 
+        // Spread margin = market value of the in-leg minus the quoted gross out.
+        // This is platform revenue (rate markup) and must be booked to
+        // FEE_RECEIVABLE, otherwise it is silently stranded as an FX imbalance
+        // in TRADE_CLEARING — and on spread-only fee levels (feeTotal = 0) the
+        // platform's entire margin would never be recognized.
+        const marketRate = new Prisma.Decimal(quote.marketRate);
+        const marketValueOut = fromAmount
+          .mul(marketRate)
+          .toDecimalPlaces(toDecimals, Prisma.Decimal.ROUND_HALF_UP);
+        const spreadAmount = marketValueOut.sub(toAmount);
+        const spreadAmountBigint = spreadAmount.gt(0)
+          ? this.decimalToBigint(spreadAmount, toDecimals)
+          : 0n;
+
         const clientCreditFrom = await this.accountingService.resolveTbAccountId({
           code: TB_ACCOUNT_CODES.CLIENT_CREDIT, ledger: fromLedger, ownerType: 'CUSTOMER', ownerUuid: ownerId,
         });
@@ -138,16 +152,34 @@ export class SwapWorkflowService {
           feePendingId = feePending.tbTransferId;
         }
 
+        let spreadTransferIdHex: string | null = null;
+        let spreadPendingId: bigint | null = null;
+        if (spreadAmountBigint > 0n) {
+          const feeReceivable = await this.accountingService.resolveTbAccountId({
+            code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, ledger: toLedger, ownerType: 'SYSTEM',
+          });
+          const spreadPending = await this.accountingService.executePendingTransfer({
+            debitAccountId: clearingTo, creditAccountId: feeReceivable, amount: spreadAmountBigint,
+            ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CLEARING_TO_SPREAD, timeout: 0,
+            evidence: this.evidence(swapNo, 'SWAP_SPREAD', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap pending: spread margin'),
+            tx,
+          });
+          created.push({ id: spreadPending.tbTransferId, amount: spreadAmountBigint });
+          spreadTransferIdHex = bigintToHex(spreadPending.tbTransferId);
+          spreadPendingId = spreadPending.tbTransferId;
+        }
+
         const swap = await this.swapTransactionsService.create({
           swapNo, quoteId: quote.id, quoteNo: quote.quoteNo,
           ownerType: 'CUSTOMER', ownerId, ownerNo: quote.ownerNo,
           fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode, fromAmount,
           toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode, toAmount,
           netToAmount, feeAmount, feeCurrency: quote.feeCurrency || quote.toAssetCode,
-          feeBreakdown: quote.feeBreakdown, exchangeRate: rate,
+          feeBreakdown: quote.feeBreakdown, spreadAmount, exchangeRate: rate,
           tbFromTransferId: bigintToHex(fromPending.tbTransferId),
           tbToTransferId: bigintToHex(toPending.tbTransferId),
           tbFeeTransferId: feeTransferIdHex,
+          tbSpreadTransferId: spreadTransferIdHex,
           traceId,
         }, tx);
 
@@ -171,6 +203,13 @@ export class SwapWorkflowService {
           await this.accountingService.postPendingTransfer({
             pendingTransferId: feePendingId, amount: feeAmountBigint,
             evidence: this.evidence(swapNo, 'SWAP_POST_FEE', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap post: fee'),
+            tx,
+          });
+        }
+        if (spreadPendingId) {
+          await this.accountingService.postPendingTransfer({
+            pendingTransferId: spreadPendingId, amount: spreadAmountBigint,
+            evidence: this.evidence(swapNo, 'SWAP_POST_SPREAD', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap post: spread margin'),
             tx,
           });
         }
