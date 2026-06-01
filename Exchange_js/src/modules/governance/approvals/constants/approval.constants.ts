@@ -69,6 +69,8 @@ export const ApprovalActionTypes = {
   // Swap Fee Level (2026-05-31)
   SWAP_FEE_LEVEL_CREATION: 'SWAP_FEE_LEVEL_CREATION',
   SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
+  // Withdraw Large-Value Approval Gate (2026-06-01)
+  WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -352,6 +354,12 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE]: {
     steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  // ─── Withdraw Large-Value Approval Gate (2026-06-01) ────
+  [ApprovalActionTypes.WITHDRAW_LARGE_VALUE_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },
