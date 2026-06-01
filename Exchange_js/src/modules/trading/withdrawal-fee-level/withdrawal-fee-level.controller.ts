@@ -70,6 +70,46 @@ export class WithdrawalFeeLevelController {
     return { items: result.items, total: result.total };
   }
 
+  // Static `quotes` routes MUST be declared before the dynamic `:levelCode`
+  // route, otherwise NestJS matches `/quotes` against `:levelCode` and the
+  // quote list is shadowed (returns empty).
+  @Get('quotes')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes'))
+  async findAllQuotes(
+    @Query('status') status?: string,
+    @Query('quoteNo') quoteNo?: string,
+    @Query('ownerNo') ownerNo?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
+    const where: any = {};
+    if (status) where.status = status;
+    if (quoteNo) where.quoteNo = { contains: quoteNo };
+    if (ownerNo) where.ownerNo = { contains: ownerNo };
+    const [items, total] = await Promise.all([
+      (this.prisma as any).withdrawPricingQuote.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: skip ? parseInt(skip, 10) : 0,
+        take: take ? parseInt(take, 10) : 20,
+        include: { asset: true },
+      }),
+      (this.prisma as any).withdrawPricingQuote.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  @Get('quotes/:id')
+  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes/:id'))
+  async findOneQuote(@Param('id') id: string) {
+    const quote = await (this.prisma as any).withdrawPricingQuote.findUnique({
+      where: { id },
+      include: { asset: true },
+    });
+    if (!quote) throw new NotFoundException(`Quote ${id} not found`);
+    return quote;
+  }
+
   @Get(':levelCode')
   @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/:levelCode'))
   async findOne(@Param('levelCode') levelCode: string) {
@@ -129,40 +169,4 @@ export class WithdrawalFeeLevelController {
     return this.bindingWorkflowService.unbindLevel(dto, this.buildAdminActor(req));
   }
 
-  @Get('quotes')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes'))
-  async findAllQuotes(
-    @Query('status') status?: string,
-    @Query('quoteNo') quoteNo?: string,
-    @Query('ownerNo') ownerNo?: string,
-    @Query('skip') skip?: string,
-    @Query('take') take?: string,
-  ) {
-    const where: any = {};
-    if (status) where.status = status;
-    if (quoteNo) where.quoteNo = { contains: quoteNo };
-    if (ownerNo) where.ownerNo = { contains: ownerNo };
-    const [items, total] = await Promise.all([
-      (this.prisma as any).withdrawPricingQuote.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: skip ? parseInt(skip, 10) : 0,
-        take: take ? parseInt(take, 10) : 20,
-        include: { asset: true },
-      }),
-      (this.prisma as any).withdrawPricingQuote.count({ where }),
-    ]);
-    return { items, total };
-  }
-
-  @Get('quotes/:id')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/quotes/:id'))
-  async findOneQuote(@Param('id') id: string) {
-    const quote = await (this.prisma as any).withdrawPricingQuote.findUnique({
-      where: { id },
-      include: { asset: true },
-    });
-    if (!quote) throw new NotFoundException(`Quote ${id} not found`);
-    return quote;
-  }
 }
