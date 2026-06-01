@@ -255,9 +255,11 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **WithdrawQuoteService** — 从 PricingCenterService 拆分独立的 Withdrawal quote 逻辑，支持多 level 取最优费率 ✅ 2026-05-30
 - **费率数据迁移** — PricingPolicy WITHDRAWAL_PRICING → WithdrawalFeeLevel seed 脚本 ✅ 2026-05-30
 
+**已完成（追加）：**
+- **大额审批门** — 提现毛额 ≥ 200,000 AED（Binance 市场汇率估值，fail-closed）触发 SENIOR_MANAGEMENT_OFFICER 单步审批（48h），门置于 L2 合规之前；新增 `PENDING_APPROVAL` 态 + `WITHDRAW_LARGE_VALUE_APPROVAL` 审批类型；批准→进合规 / 拒绝→void TB pending 解锁；估值快照（grossAedValue/aedRate/...）落库 + Admin Approval Gate 卡片。设计/计划见 `doc-final/superpowers/specs/2026-06-01-withdraw-large-value-approval-gate-design.md`。兑换流程经评估**不设**审批门（资金不出境）。✅ 2026-06-01
+
 **待实现：**
 - **Sumsub KYT/TR 真实集成** — 替换模拟端点，走 Sumsub webhook 翻译层；L3 archivePostKyt stub 替换为真实 PATCH /kyt/txns/{id}/data/info 调用
-- **大额审批门** — 超过阈值的提现走 MLRO 审批
 - **热钱包余额校验** — Payout 前检查 Outbound Wallet 余额，不足时显式失败
 - **提现成功通知** — 完成推送客户通知，复用 V1 Notification send
 - **TB 记账失败 repair surface** — 合规通过但 TB 记账失败时的修复路径
