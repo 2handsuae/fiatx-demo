@@ -13,3 +13,6 @@ dist/
 *.log
 admin_token.txt
 .superpowers/
+
+# release packages
+Exchange_js-release-*.zip

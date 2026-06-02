@@ -74,7 +74,10 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "db:setup": "bash scripts/db-setup.sh",
+    "package:release": "bash scripts/package-release.sh",
+    "db:seed:demo": "ts-node scripts/governance-demo-seed.ts"
   },
   "keywords": [],
   "author": "",
