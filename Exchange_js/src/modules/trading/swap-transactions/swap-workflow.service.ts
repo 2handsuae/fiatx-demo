@@ -89,7 +89,6 @@ export class SwapWorkflowService {
         const toLedger = this.resolveLedger(toCurrency);
 
         const fromAmountBigint = this.decimalToBigint(fromAmount, fromDecimals);
-        const netToAmountBigint = this.decimalToBigint(netToAmount, toDecimals);
         const feeAmountBigint = this.decimalToBigint(feeAmount, toDecimals);
 
         // Spread margin = market value of the in-leg minus the quoted gross out.
@@ -105,6 +104,12 @@ export class SwapWorkflowService {
         const spreadAmountBigint = spreadAmount.gt(0)
           ? this.decimalToBigint(spreadAmount, toDecimals)
           : 0n;
+        // Customer is credited the GROSS out (net + fee); the fee is then debited
+        // from CLIENT_CREDIT so the ledger shows the deduction on the customer's
+        // own account. (Fee leg is created AFTER the gross credit is posted —
+        // CLIENT_CREDIT enforces debits_must_not_exceed_credits, and a pending
+        // credit does not count toward available balance.)
+        const grossToAmountBigint = this.decimalToBigint(toAmount, toDecimals);
 
         const clientCreditFrom = await this.accountingService.resolveTbAccountId({
           code: TB_ACCOUNT_CODES.CLIENT_CREDIT, ledger: fromLedger, ownerType: 'CUSTOMER', ownerUuid: ownerId,
@@ -128,29 +133,12 @@ export class SwapWorkflowService {
         created.push({ id: fromPending.tbTransferId, amount: fromAmountBigint });
 
         const toPending = await this.accountingService.executePendingTransfer({
-          debitAccountId: clearingTo, creditAccountId: clientCreditTo, amount: netToAmountBigint,
+          debitAccountId: clearingTo, creditAccountId: clientCreditTo, amount: grossToAmountBigint,
           ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CLEARING_TO_CREDIT, timeout: 0,
-          evidence: this.evidence(swapNo, 'SWAP_CREDIT_TO', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.CLIENT_CREDIT, toCurrency, traceId, ownerId, 'Swap pending: to-leg credit'),
+          evidence: this.evidence(swapNo, 'SWAP_CREDIT_TO', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.CLIENT_CREDIT, toCurrency, traceId, ownerId, 'Swap pending: to-leg credit (gross)'),
           tx,
         });
-        created.push({ id: toPending.tbTransferId, amount: netToAmountBigint });
-
-        let feeTransferIdHex: string | null = null;
-        let feePendingId: bigint | null = null;
-        if (feeAmountBigint > 0n) {
-          const feeReceivable = await this.accountingService.resolveTbAccountId({
-            code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, ledger: toLedger, ownerType: 'SYSTEM',
-          });
-          const feePending = await this.accountingService.executePendingTransfer({
-            debitAccountId: clearingTo, creditAccountId: feeReceivable, amount: feeAmountBigint,
-            ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CLEARING_TO_FEE, timeout: 0,
-            evidence: this.evidence(swapNo, 'SWAP_FEE', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap pending: fee'),
-            tx,
-          });
-          created.push({ id: feePending.tbTransferId, amount: feeAmountBigint });
-          feeTransferIdHex = bigintToHex(feePending.tbTransferId);
-          feePendingId = feePending.tbTransferId;
-        }
+        created.push({ id: toPending.tbTransferId, amount: grossToAmountBigint });
 
         let spreadTransferIdHex: string | null = null;
         let spreadPendingId: bigint | null = null;
@@ -178,7 +166,7 @@ export class SwapWorkflowService {
           feeBreakdown: quote.feeBreakdown, spreadAmount, exchangeRate: rate,
           tbFromTransferId: bigintToHex(fromPending.tbTransferId),
           tbToTransferId: bigintToHex(toPending.tbTransferId),
-          tbFeeTransferId: feeTransferIdHex,
+          tbFeeTransferId: null, // set after the gross credit is posted (see below)
           tbSpreadTransferId: spreadTransferIdHex,
           traceId,
         }, tx);
@@ -195,22 +183,34 @@ export class SwapWorkflowService {
           tx,
         });
         await this.accountingService.postPendingTransfer({
-          pendingTransferId: toPending.tbTransferId, amount: netToAmountBigint,
-          evidence: this.evidence(swapNo, 'SWAP_POST_TO', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.CLIENT_CREDIT, toCurrency, traceId, ownerId, 'Swap post: to-leg'),
+          pendingTransferId: toPending.tbTransferId, amount: grossToAmountBigint,
+          evidence: this.evidence(swapNo, 'SWAP_POST_TO', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.CLIENT_CREDIT, toCurrency, traceId, ownerId, 'Swap post: to-leg (gross)'),
           tx,
         });
-        if (feePendingId) {
-          await this.accountingService.postPendingTransfer({
-            pendingTransferId: feePendingId, amount: feeAmountBigint,
-            evidence: this.evidence(swapNo, 'SWAP_POST_FEE', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap post: fee'),
-            tx,
-          });
-        }
         if (spreadPendingId) {
           await this.accountingService.postPendingTransfer({
             pendingTransferId: spreadPendingId, amount: spreadAmountBigint,
             evidence: this.evidence(swapNo, 'SWAP_POST_SPREAD', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap post: spread margin'),
             tx,
+          });
+        }
+
+        // Fee: debit the customer's CLIENT_CREDIT (now holding the posted gross)
+        // into FEE_RECEIVABLE. Posted directly because the debit is only valid
+        // once the gross credit above is posted.
+        if (feeAmountBigint > 0n) {
+          const feeReceivable = await this.accountingService.resolveTbAccountId({
+            code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, ledger: toLedger, ownerType: 'SYSTEM',
+          });
+          const feeTransfer = await this.accountingService.executeTransfer({
+            debitAccountId: clientCreditTo, creditAccountId: feeReceivable, amount: feeAmountBigint,
+            ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CREDIT_TO_FEE,
+            evidence: this.evidence(swapNo, 'SWAP_FEE', TB_ACCOUNT_CODES.CLIENT_CREDIT, TB_ACCOUNT_CODES.FEE_RECEIVABLE, toCurrency, traceId, ownerId, 'Swap: fee debited from client credit'),
+            tx,
+          });
+          await tx.swapTransaction.update({
+            where: { id: swap.id },
+            data: { tbFeeTransferId: bigintToHex(feeTransfer.tbTransferId) },
           });
         }
 
