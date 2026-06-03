@@ -400,6 +400,10 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
   }
 
   async findOneByNoForAdmin(internalTxNo: string) {
+    // V7 funds-layer writes audits via the central AuditLogsService
+    // (audit_log_events store), keyed by traceId — NOT the legacy
+    // InternalTransactionAuditLog relation. Operators look up the journey
+    // in the Audit Center by traceId, so we no longer embed that relation.
     const item = await (this.prisma as any).internalTransaction.findUnique({
       where: { internalTxNo },
       include: {
@@ -413,9 +417,6 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
             toWallet: true,
           },
           orderBy: { createdAt: 'asc' },
-        },
-        auditLogs: {
-          orderBy: { createdAt: 'desc' },
         },
       },
     });

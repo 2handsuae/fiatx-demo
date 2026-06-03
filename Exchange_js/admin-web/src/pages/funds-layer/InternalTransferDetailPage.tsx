@@ -45,15 +45,6 @@ interface FundLeg {
   completedAt?: string | null;
 }
 
-interface TransferAuditLog {
-  id: string;
-  operatorId: string;
-  oldStatus: string;
-  newStatus: string;
-  reason?: string | null;
-  createdAt: string;
-}
-
 interface TransferDetail {
   internalTxNo: string;
   status: string;
@@ -66,7 +57,6 @@ interface TransferDetail {
   toWallet: TransferWallet | null;
   asset: TransferAsset | null;
   funds: FundLeg[];
-  auditLogs: TransferAuditLog[];
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -292,7 +282,6 @@ const InternalTransferDetailPage = () => {
               Technical Detail
             </h3>
             <div className="mt-1 space-y-3">
-              <JsonBlock title="Audit Logs (raw)" value={data.auditLogs} compact />
               <JsonBlock
                 title="Execution Legs (raw)"
                 value={data.funds.map((leg) => ({
