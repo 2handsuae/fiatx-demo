@@ -201,9 +201,18 @@ sourceNo         String?
 
 - **触发源**：Cron sweep（充值归集）/ V5 提现工作流（FUND_OUT/RETURN）。
 - **后端**：`deposit-aggregation-sweep`（@Cron 扫充值地址余额≥阈值→直调 workflow；dust 跳过；单笔超阈值实时入口）；`deposit-aggregation-workflow`（pathLabel=AGGREGATE）；**V5 接入**：提现 Payout 广播前触发 FUND_OUT、提现取消/失败触发 FUND_RETURN（在 V5 withdraw workflow 加 hook 调通用工作流，不在 V5 内写 funds 表）；幂等复用 `@@unique([sourceType,sourceId,type])`。
-- **前端**：Admin 归集监控页（按路径筛选 transfer 列表）+ 复用 Phase 1 详情页。
+- **前端**：复用 Phase 1 列表/详情页（按 pathLabel 筛选 AGGREGATE / FUND_OUT / FUND_RETURN）；本轮不单做归集监控页。
 - **验收**：cron 自动归集超阈值地址、dust 跳过、重跑幂等；V5 提现触发 FUND_OUT 且 parentEntity 指回提现单。
 - **依赖**：Phase 1。
+
+#### Phase 2 实现决策（2026-06-03 评审定稿）
+
+- **可归集余额来源**：按 C_DEP 钱包汇总**未归集的已完成充值**（`DepositTransaction.status=SUCCESS` 且未标记 aggregated 的 gross `amount` 之和）。**不依赖 `Wallet.mockBalance`**（V3 死字段，全代码只读不写，永远反映不了真实余额），**不依赖 `SafeguardingPolicy`**（Wave-8 配置，与待删 orchestrator 同源）。
+- **幂等**：`DepositTransaction` 加 `aggregatedAt` / `aggregatedTransferId` 字段；归集后标记，下次只扫未归集的；AGGREGATE transfer 的 `sourceType='DEPOSIT_AGGREGATION'`、`sourceId=walletId:anchorDepositId`（批次锚点）保证 `@@unique` 不冲突且可重跑。
+- **阈值**：funds-layer 硬编码常量 `AGGREGATION_THRESHOLD` / `DUST_THRESHOLD`（配置化是 ADVANCED）。
+- **旧 orchestrator 处置**：用 V7 工作流重做后，**删除** `src/orchestrators/internal-collection-workflow.orchestrator.ts` + `workflows.module.ts` 中的 provider + `asset-treasury/internal-transaction-workflow` 下调用它的 controller（internal-collection-wallets / internal-transaction-workflow）。`SafeguardingPolicy` / `safeguarding-reconciliation`（另一独立模块）不在删除范围。
+- **FUND_OUT**：在 withdraw workflow `initiatePayoutPhase()` 创建 payout 后触发 `INTERNAL_OUT`→ 修正：`FUND_OUT`（C_MAIN→C_OUT，amount=`netAmount`），`sourceType='WITHDRAW'`、`sourceId=withdrawId`。非阻塞 mock 跟踪转账（真实"先归集后广播"的硬序由真实 custodian 轮次补）。
+- **FUND_RETURN**：现状无 `PAYOUT_FAILED` 事件、V5 失败分支未建，**无自动触发路径**。本轮以**命名 repair / admin 触发面**交付（对已 FUND_OUT 但不再推进的提现，管理员触发 C_OUT→C_MAIN 退回，全程审计）。自动触发待 V5 失败分支建成后接入。
 
 ### Phase 3 — B 类记账 + EOD 兑换结算 ⭐
 
