@@ -37,6 +37,8 @@ const InternalTransactionList = lazy(() => import('./pages/InternalTransactionLi
 const InternalTransactionDetail = lazy(() => import('./pages/InternalTransactionDetail'));
 const InternalFundList = lazy(() => import('./pages/InternalFundList'));
 const InternalFundDetail = lazy(() => import('./pages/InternalFundDetail'));
+const InternalTransferListPage = lazy(() => import('./pages/funds-layer/InternalTransferListPage'));
+const InternalTransferDetailPage = lazy(() => import('./pages/funds-layer/InternalTransferDetailPage'));
 const AssetList = lazy(() => import('./pages/AssetList'));
 const AssetCreate = lazy(() => import('./pages/AssetCreate'));
 const AssetEdit = lazy(() => import('./pages/AssetEdit'));
@@ -903,6 +905,17 @@ function App() {
             <Route
               path="internal-transactions/:id"
               element={withPermission(<InternalTransactionDetail />, [PERMISSIONS.INTERNAL_TRANSACTION_DETAIL_READ])}
+            />
+          </Route>
+
+          <Route path="/funds-layer">
+            <Route
+              path="transfers"
+              element={withPermission(<InternalTransferListPage />, [PERMISSIONS.FUNDS_LAYER_TRANSFERS_READ])}
+            />
+            <Route
+              path="transfers/:internalTxNo"
+              element={withPermission(<InternalTransferDetailPage />, [PERMISSIONS.FUNDS_LAYER_TRANSFER_DETAIL_READ])}
             />
           </Route>
 

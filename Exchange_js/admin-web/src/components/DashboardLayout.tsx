@@ -249,6 +249,12 @@ const DashboardLayout = () => {
           icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_TRANSACTIONS_READ],
         },
+        {
+          path: '/funds-layer/transfers',
+          label: 'Internal Transfers',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_TRANSFERS_READ],
+        },
       ],
     },
     // ─── Treasury ─────────────────────────────────────────────────

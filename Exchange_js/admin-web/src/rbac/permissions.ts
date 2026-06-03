@@ -196,6 +196,11 @@ export const PERMISSIONS = {
   WITHDRAW_TRANSACTION_DETAIL_READ: 'api.get.withdraw_transactions_id',
   INTERNAL_TRANSACTIONS_READ: 'api.get.admin_internal_transactions',
   INTERNAL_TRANSACTION_DETAIL_READ: 'api.get.admin_internal_transactions_id',
+  FUNDS_LAYER_TRANSFERS_READ: 'api.get.admin_funds_layer_transfers',
+  FUNDS_LAYER_TRANSFER_DETAIL_READ:
+    'api.get.admin_funds_layer_transfers_internaltxno',
+  FUNDS_LAYER_TRANSFER_SIMULATE:
+    'api.post.admin_funds_layer_transfers_internaltxno_simulate',
 
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',

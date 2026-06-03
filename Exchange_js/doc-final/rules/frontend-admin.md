@@ -160,6 +160,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **DepositTransaction** | `depositNo`, `status` badge, `ownerNo`, `ownerType`, `asset.code` | `createdAt`, `completedAt` |
 | **Payin** | `payinNo`, `status` badge, `type`, `asset.code`, linked `depositNo` | `createdAt`, `completedAt` |
 | **SwapTransaction** | `swapNo`, `status` badge, `ownerNo`, pair (`fromCode/toCode`), `netToAmount` | `createdAt`, `completedAt` |
+| **InternalTransfer** | `internalTxNo`, `pathLabel`, `status` badge, `asset.code` | `createdAt`, `completedAt`, `updatedAt` |
 
 ---
 
