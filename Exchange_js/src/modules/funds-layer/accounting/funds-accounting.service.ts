@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -31,12 +32,17 @@ export class FundsAccountingService {
   async applyAccounting(input: {
     accountingClass: AccountingClass;
     internalTransferId: string;
+    tx?: Prisma.TransactionClient;
   }): Promise<ApplyResult> {
     if (input.accountingClass === AccountingClass.A) {
       return { tbApplied: false };
     }
 
-    const transfer = await this.prisma.internalTransaction.findUnique({
+    // When called inside an interactive $transaction (SQLite holds a separate
+    // connection), the just-created transfer row is only visible via the same
+    // tx client — read through it so the drain is atomic with creation.
+    const db = input.tx ?? this.prisma;
+    const transfer = await db.internalTransaction.findUnique({
       where: { id: input.internalTransferId },
       include: { asset: true },
     });
@@ -141,6 +147,7 @@ export class FundsAccountingService {
       amount,
       ledger,
       code: drainCode,
+      tx: input.tx,
       evidence: {
         sourceType: drainSourceType,
         sourceNo: transfer.internalTxNo,

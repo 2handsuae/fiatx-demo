@@ -179,6 +179,33 @@ describe('FundsAccountingService', () => {
     expect(result).toEqual({ tbApplied: false });
   });
 
+  it('reads the transfer via the passed tx client (not outer prisma) and threads tx into executeTransfer', async () => {
+    const tx = {
+      internalTransaction: {
+        findUnique: jest.fn().mockResolvedValue(transfer({ pathLabel: 'INTERNAL_OUT' })),
+      },
+    } as any;
+    accounting.lookupBalance.mockResolvedValue({
+      debitsPosted: 0n,
+      creditsPosted: 300n,
+      debitsPending: 0n,
+      creditsPending: 0n,
+    });
+
+    const result = await service.applyAccounting({
+      accountingClass: AccountingClass.B,
+      internalTransferId: 'it-1',
+      tx,
+    });
+
+    // the just-created (uncommitted) row is read through tx, not outer prisma
+    expect(tx.internalTransaction.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
+    // executeTransfer must run inside the same atomic tx
+    expect(accounting.executeTransfer.mock.calls[0][0].tx).toBe(tx);
+    expect(result).toEqual({ tbApplied: true, tbTransferId: 1n });
+  });
+
   it('passes EOD evidence (sourceNo=internalTxNo, traceId, SYSTEM actor)', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(transfer({ pathLabel: 'INTERNAL_OUT' }));
     accounting.lookupBalance.mockResolvedValue({

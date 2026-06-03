@@ -107,6 +107,7 @@ describe('InternalTransferWorkflowService', () => {
     expect(accounting.applyAccounting).toHaveBeenCalledWith({
       accountingClass: 'A',
       internalTransferId: 't1',
+      tx: txMock,
     });
 
     // journey REQUESTED audit written by the workflow

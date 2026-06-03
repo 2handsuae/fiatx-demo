@@ -133,6 +133,7 @@ export class InternalTransferWorkflowService {
       await this.accounting.applyAccounting({
         accountingClass: policy.class,
         internalTransferId: transfer.id,
+        tx,
       });
 
       return transfer;
