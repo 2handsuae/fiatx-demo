@@ -64,6 +64,20 @@ export const DOMAIN_EVENTS = {
     subscribers: ['WithdrawWorkflowService'],
     payload: '{ payoutId: string, withdrawId: string, txHash: string }',
   },
+
+  // ── Funds Layer (V7) ──
+  FUNDSFLOW_STATUS_CHANGED: {
+    name: 'fundsflow.status.changed',
+    emitter: 'FundsFlowService',
+    subscribers: ['InternalTransferWorkflowService', 'EodSettlementWorkflowService'],
+    payload: '{ fundsFlowId: string, internalTransferId: string, oldStatus: string, newStatus: string, operatorId?: string }',
+  },
+  INTERNALTRANSFER_COMPLETED: {
+    name: 'internaltransfer.completed',
+    emitter: 'InternalTransferService',
+    subscribers: [],
+    payload: '{ internalTransferId: string, pathLabel: string }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -79,4 +93,7 @@ export const DomainEventNames = {
   WITHDRAWAL_TRAVELRULE_UPDATED: DOMAIN_EVENTS.WITHDRAWAL_TRAVELRULE_UPDATED.name,
   PAYOUT_CREATED: DOMAIN_EVENTS.PAYOUT_CREATED.name,
   PAYOUT_STATUS_CONFIRMED: DOMAIN_EVENTS.PAYOUT_STATUS_CONFIRMED.name,
+  // Funds Layer (V7)
+  FUNDSFLOW_STATUS_CHANGED: DOMAIN_EVENTS.FUNDSFLOW_STATUS_CHANGED.name,
+  INTERNALTRANSFER_COMPLETED: DOMAIN_EVENTS.INTERNALTRANSFER_COMPLETED.name,
 } as const;

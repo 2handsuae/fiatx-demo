@@ -85,7 +85,9 @@ export type PermissionGroup =
   | 'WITHDRAWAL_FEE_LEVEL_READ'
   | 'WITHDRAWAL_FEE_LEVEL_WRITE'
   | 'SWAP_FEE_LEVEL_READ'
-  | 'SWAP_FEE_LEVEL_WRITE';
+  | 'SWAP_FEE_LEVEL_WRITE'
+  | 'INTERNAL_TRANSFER_READ'
+  | 'INTERNAL_TRANSFER_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -823,6 +825,11 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/withdrawal-fee-levels/quotes/:id', 'Get withdrawal quote detail', [
     'WITHDRAWAL_FEE_LEVEL_READ',
   ]),
+
+  // Funds Layer (V7)
+  route('GET', '/admin/funds-layer/transfers', 'List internal transfers', ['INTERNAL_TRANSFER_READ']),
+  route('GET', '/admin/funds-layer/transfers/:internalTxNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
+  route('POST', '/admin/funds-layer/transfers/:internalTxNo/simulate', 'Simulate funds flow step (DEV)', ['INTERNAL_TRANSFER_WRITE']),
 
 ];
 
