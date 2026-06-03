@@ -112,6 +112,17 @@ describe('SettlementBatchService', () => {
     });
   });
 
+  it('closeItem sets status=CLOSED, settledOutstandingCount, closedAt', async () => {
+    const updated = await service.closeItem('item-1', 3);
+
+    const call = prisma.settlementBatchItem.update.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 'item-1' });
+    expect(call.data.status).toBe('CLOSED');
+    expect(call.data.settledOutstandingCount).toBe(3);
+    expect(call.data.closedAt).toBeInstanceOf(Date);
+    expect(updated.status).toBe('CLOSED');
+  });
+
   it('recomputeBatch → SUCCESS when all items are terminal (CLOSED/NETTED)', async () => {
     prisma.settlementBatchItem.findMany.mockResolvedValue([
       {

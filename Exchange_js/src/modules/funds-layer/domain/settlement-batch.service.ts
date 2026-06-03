@@ -135,6 +135,23 @@ export class SettlementBatchService {
     });
   }
 
+  /**
+   * Marks an item terminal after its transfer cleared and its outstandings were
+   * settled: status=CLOSED (terminal — see TERMINAL_ITEM_STATUSES) +
+   * settledOutstandingCount + closedAt.
+   */
+  async closeItem(itemId: string, settledCount: number, tx?: TxClient) {
+    const client = (tx ?? this.prisma) as any;
+    return client.settlementBatchItem.update({
+      where: { id: itemId },
+      data: {
+        status: 'CLOSED',
+        settledOutstandingCount: settledCount,
+        closedAt: new Date(),
+      },
+    });
+  }
+
   async recomputeBatch(settlementBatchId: string, tx?: TxClient) {
     const execute = async (client: TxClient) => {
       const items = await (client as any).settlementBatchItem.findMany({
