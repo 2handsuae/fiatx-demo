@@ -359,7 +359,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [ ] **充值归集** — Cron sweep + 单笔超阈值实时：扫客户充值地址 / VA → 集中账户 / Main；含 dust 阈值跳过；调用通用内部转账（A 类，直接 funds flow，无 Outstanding / fee）
 - [ ] **EOD 兑换结算编排工作流** — Cron 日终：按资产轧差 `TRADE_CLEARING` 净额 → 创建结算 Transaction（Pool Settlement Batch）→ 级联触发 INTERNAL-OUT / INTERNAL-IN funds flow → 消费当日 Outstanding 标 SETTLED（`closedByInternalFundId`）→ 支持幂等重跑（已 SETTLED 跳过）
 - [ ] **手续费归集工作流** — Cron 定期：drain `FEE_RECEIVABLE`（swap 费 + 点差 + 提现费，合并）→ 触发 pool→Ops funds flow
-- [ ] **偿付义务工作流（最小版）** — 仅覆盖：① 提现终态失败退回；② 法币银行 bounce 追偿。带审批门 + 完整审计；与 Outstanding 分离的独立状态机
+
+> **偿付义务（Reimbursement）已移出 V7，并入 V8 对账（决策 2026-06-03）**：偿付义务是「纠正动作」，其主要发现源是对账（detective control）；event-driven 失败（提现退回、银行 bounce）只是已知子集。故 `ReimbursementObligation` 实体 + 状态机 + 审批门由 V8 差异处理工作流统一拥有，两类触发源（对账差异 / event-driven 失败）共用同一出口。`ReimbursementObligation` 表已在 V7 Phase 0 解耦预备（owedTo/sourceType/approvalCaseId 字段就位），V8 直接复用。FUND_RETURN（提现退回的资金侧 Outbound→Main）已由 V7 funds-layer 交付，不受影响。
 
 > FUND-OUT（出金预归集）/ 出金退回由 V5 提现工作流触发，调用通用内部转账，不单列工作流。
 
@@ -367,7 +368,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 - [ ] LP 调拨治理工作流（LP-IN / LP-OUT 路径独立审批门：Maker 提案 + CFO / MLRO 签批 → 触发对应通用转账实例）
 - [ ] 内部转账阈值配置变更工作流（Maker 提案修改归集阈值 / 审批金额线 / dust 阈值 → Checker 审批 → 生效；全程审计）
-- [ ] 偿付义务工作流（完整版）—— 费用多收退还 / 运营错误补偿 / 充值反转退回 / 促销补贴
+- [ ] ~~偿付义务工作流（完整版）~~ → **移入 V8 对账**（费用多收退还 / 运营错误补偿 / 充值反转退回 / 促销补贴 等，主要由对账差异处理触发）
 - [ ] 异常处置工作流 —— 孤儿充值归位 / 冻结·制裁资产隔离 / 错账冲正
 - [ ] 储备金注资 / 穿底补救工作流（公司外部 → 客户池，补足储备）
 - [ ] 公司自有流动性调拨（Main ↔ Liquidity 库存再平衡）
@@ -406,6 +407,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [ ] 每日法币对账工作流（Cron EOD 后触发 → 对比 Client Money Account TB 余额与银行对账单余额，按法币币种独立核对 → 自动识别已知时序差异：已记入 TB 但银行尚未到账的出金指令、银行已到账但 Payin 匹配尚未完成的入金 → 净差异 > 0 触发差异处理工作流）
 - [ ] 每日虚拟币对账工作流（Cron EOD 后触发 → 按币种核对：Sum(customer_[CCY] TB 账户) + KYT_pending余额 + outbound_in_transit余额 = HexTrust 客户托管钱包余额 → 自动从系统状态查出已知时序差异：KYT / Travel Rule 审查中尚未记入客户 TB 的链上到账、客户 TB 已扣除但仍在 Client Outbound Wallet 的出金 → 净差异 > 0 触发差异处理工作流）
 - [ ] 差异处理工作流（触发：任一对账工作流净差异 > 0 → 创建 ReconciliationCaseNo → 自动拉取当日流水逐笔比对定位根因 → 分配 Finance 人工核实 → 补录 / 联系 HexTrust / 联系银行 → RESOLVED + 完整审计记录；24h 内升级 MLRO + CFO，符合 VARA 差异上报要求）
+- [ ] **偿付义务工作流（从 V7 移入，决策 2026-06-03）** — 统一拥有 `ReimbursementObligation` 实体 + 独立状态机（OPEN→PENDING_APPROVAL→APPROVED→REIMBURSED/REJECTED）+ 审批门（CFO/MLRO）。**两类触发源共用同一出口**：① 对账差异处理判定公司确实欠/被欠（主要来源，detective）；② event-driven 失败（提现终态失败退回、法币银行 bounce 追偿，known 子集）。结清走 funds-layer 通用内部转账（资金侧）+ TB 记账（客户债权侧 CLIENT_CREDIT 补回）。表已在 V7 Phase 0 解耦预备。
 
 推后交付：
 - [ ] 季度 Proof of Reserves 工作流（从 HexTrust 获取所有客户托管钱包地址 → 链上快照验证余额 → 生成 Sum(client liabilities) ≤ Reserve Assets 证明，按币种出具 → 提交 VARA 季度报告；早期可手动执行，进阶后自动化）

@@ -230,13 +230,15 @@ sourceNo         String?
 - **验收**：累积 FEE_RECEIVABLE 被归集到 Ops；TB drain 正确；归集量 = FEE_RECEIVABLE 余额。
 - **依赖**：Phase 3。
 
-### Phase 5 — 偿付义务（仅 WITHDRAW_RETURN + 审批门）
+### Phase 5 — 偿付义务 → **已移出 V7，并入 V8 对账（决策 2026-06-03）**
 
-- **触发源**：V5 提现终态失败（链上已广播但 stuck/failed，过 void 时点）。
-- **后端**：`reimbursement.service`（解耦后状态机）；`reimbursement-approval.service`（extends ApprovalHandlerBase）；`reimbursement-workflow`（创建义务→审批门→批准后 spawn 退回 transfer，公司→客户）；本轮仅 WITHDRAW_RETURN（BANK_BOUNCE 随法币推后）。
-- **前端**：Admin 偿付义务页（列表/详情 + 审批门卡片）。
-- **验收**：提现失败触发偿付义务→审批通过→退回客户；审批 SoD 完整。
-- **依赖**：Phase 1 + V1 审批引擎。
+~~原计划：仅 WITHDRAW_RETURN + 审批门。~~ **不再作为 V7 phase 交付。**
+
+**理由**：偿付义务是「纠正动作」，其主要发现源是对账（detective control）；crypto MVP 真正能 event-driven 触发的偿付场景很窄（仅延迟提现失败的客户债权侧，且 V5 失败分支尚未建）。`ReimbursementObligation` 实体 + 状态机 + 审批门由 **V8 差异处理工作流**统一拥有，两类触发源（对账差异 / event-driven 失败）共用同一出口。
+
+**对 V7 已交付的影响**：无返工。Phase 0 对 `ReimbursementObligation` 的解耦（owedTo/sourceType/approvalCaseId 字段）是为 V8 预备，复用；Phase 2 的 FUND_RETURN（提现退回资金侧 Outbound→Main）留在 V7 funds-layer，不动。详见 `doc-final/reference/roadmap.md` V7/V8 节。
+
+> **V7 crypto MVP 最终范围 = Phase 0–4**（地基 / 通用转账 / 充值归集+FUND_OUT/RETURN / EOD 结算 / 手续费归集）。Phase 5 撤销。
 
 ### 阶段依赖图
 
@@ -244,9 +246,10 @@ sourceNo         String?
 Phase 0 (地基)
   └→ Phase 1 (通用底座) ⭐
        ├→ Phase 2 (A类路径)
-       ├→ Phase 3 (B类+EOD) ⭐
-       │    └→ Phase 4 (费用归集)
-       └→ Phase 5 (偿付义务)
+       └→ Phase 3 (B类+EOD) ⭐
+            └→ Phase 4 (费用归集)
+
+Phase 5 (偿付义务) → 撤销，并入 V8 对账
 ```
 
 ---
