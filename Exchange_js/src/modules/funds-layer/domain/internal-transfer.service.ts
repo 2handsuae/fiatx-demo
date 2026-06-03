@@ -9,7 +9,6 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
-  AuditActions,
   AuditEntityTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
@@ -153,26 +152,9 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
             },
           });
 
-          await this.auditLogsService.recordByActor(
-            {
-              action: AuditActions.INTERNAL_TRANSFER_REQUESTED,
-              entityType: AuditEntityTypes.INTERNAL_TRANSFER,
-              entityId: created.id,
-              entityNo: created.internalTxNo,
-              entityOwnerType: created.ownerType,
-              entityOwnerId: created.ownerId,
-              workflowType: 'INTERNAL_TRANSFER',
-              traceId,
-              reason: 'Internal transfer requested',
-              sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-            },
-            {
-              actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-              actorId: operatorId,
-              actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-            },
-            client,
-          );
+          // NOTE: the INTERNAL_TRANSFER_REQUESTED journey audit is written by
+          // InternalTransferWorkflowService (L3), not here. Per backend-platform.md
+          // the L1 domain service must NOT write business/journey audit logs.
 
           return created;
         } catch (error) {

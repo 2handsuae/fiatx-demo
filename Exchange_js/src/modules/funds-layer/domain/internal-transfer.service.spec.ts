@@ -70,12 +70,9 @@ describe('InternalTransferService', () => {
     expect(created.type).toBe('AGGREGATE');
 
     expect(prisma.internalTransaction.create).toHaveBeenCalledTimes(1);
-    expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(1);
-    const auditArgs = auditLogsService.recordByActor.mock.calls[0][0];
-    expect(auditArgs.action).toBe('INTERNAL_TRANSFER_REQUESTED');
-    expect(auditArgs.entityType).toBe('INTERNAL_TRANSFER');
-    expect(auditArgs.workflowType).toBe('INTERNAL_TRANSFER');
-    expect(auditArgs.traceId).toBe(created.traceId);
+    // The INTERNAL_TRANSFER_REQUESTED journey audit is written by the L3
+    // workflow (InternalTransferWorkflowService), not by this domain service.
+    expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
   });
 
   it('syncStatusFromFunds rolls a pending transfer to SUCCESS when all funds are CONFIRMED/CLEAR', async () => {
