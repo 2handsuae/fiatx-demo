@@ -1573,6 +1573,11 @@ model InternalTransaction {
   toAddress                  String?
   toIban                     String?
   referenceNo                String?
+  pathLabel                  String?
+  accountingClass            String?
+  medium                     String?
+  triggerSource              String?
+  traceId                    String?
   statusHistory              String?
   createdAt                  DateTime                      @default(now())
   completedAt                DateTime?
@@ -1593,6 +1598,8 @@ model InternalTransaction {
   @@index([approvalCaseId])
   @@index([createdAt])
   @@index([assetId])
+  @@index([pathLabel])
+  @@index([traceId])
   @@map("internal_transactions")
 }
 
@@ -1624,7 +1631,6 @@ model FeeOccurrence {
   cancelledAt             DateTime?
   asset                   Asset                    @relation(fields: [assetId], references: [id])
   sourceWallet            Wallet?                  @relation("FeeOccurrenceSourceWallet", fields: [sourceWalletId], references: [id])
-  reimbursementObligation ReimbursementObligation?
 
   @@index([status])
   @@index([assetId, createdAt])
@@ -1638,8 +1644,15 @@ model FeeOccurrence {
 model ReimbursementObligation {
   id                              String               @id @default(uuid())
   obligationNo                    String               @unique
-  feeOccurrenceId                 String               @unique
   status                          String               @default("OPEN")
+  approvalCaseId                  String?              @unique
+  reasonCategory                  String?
+  owedToType                      String?
+  owedToId                        String?
+  owedToNo                        String?
+  sourceType                      String?
+  sourceId                        String?
+  sourceNo                        String?
   assetId                         String
   amount                          Decimal
   poolRole                        String?
@@ -1655,7 +1668,6 @@ model ReimbursementObligation {
   updatedAt                       DateTime             @updatedAt
   reimbursedAt                    DateTime?
   cancelledAt                     DateTime?
-  feeOccurrence                   FeeOccurrence        @relation(fields: [feeOccurrenceId], references: [id], onDelete: Cascade)
   asset                           Asset                @relation(fields: [assetId], references: [id])
   sourceWallet                    Wallet?              @relation("ReimbursementObligationSourceWallet", fields: [sourceWalletId], references: [id])
   settlementInternalTransaction   InternalTransaction? @relation("ReimbursementObligationSettlementTx", fields: [settlementInternalTransactionId], references: [id])
@@ -1667,6 +1679,7 @@ model ReimbursementObligation {
   @@index([lockedByPoolSettlementBatchId])
   @@index([traceId])
   @@index([settlementInternalTransactionId])
+  @@index([reasonCategory, status])
   @@map("reimbursement_obligations")
 }
 
@@ -1911,6 +1924,7 @@ model OutstandingSettlement {
   requestId              String?                     @unique
   makerUserId            String?
   note                   String?
+  settlementType         String                      @default("EOD")
   totalOutstandingCount  Int                         @default(0)
   closedOutstandingCount Int                         @default(0)
   totalAssetCount        Int                         @default(0)
