@@ -25,6 +25,7 @@ import {
   shouldRequireApproval,
   SYSTEM_APPROVAL_ACTOR,
 } from './constants/withdraw-approval.constant';
+import { FundTransferWorkflowService } from '../../funds-layer/workflow/fund-transfer-workflow.service';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
@@ -44,6 +45,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly payoutsService: PayoutsService,
     private readonly approvalsService: ApprovalsService,
     private readonly binanceRateProvider: BinanceRateProvider,
+    private readonly fundTransferWorkflow: FundTransferWorkflowService,
   ) {}
 
   onModuleInit() {
@@ -407,6 +409,21 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }, 'SYSTEM');
 
     await this.withdrawService.linkPayout(w.id, payout.id, payout.payoutNo);
+
+    // V7 Phase 2: 付款前 Main→Outbound 预归集（FUND_OUT，跟踪转账，crypto only，非阻塞）
+    if (w.asset?.type === 'CRYPTO') {
+      try {
+        await this.fundTransferWorkflow.fundOut(
+          { withdrawId: w.id, withdrawNo: w.withdrawNo, assetId: w.assetId, netAmount: String(w.netAmount) },
+          'WITHDRAW_WORKFLOW',
+        );
+      } catch (err) {
+        this.logger.error(
+          `FUND_OUT failed for withdrawal ${w.id} (non-blocking)`,
+          err instanceof Error ? err.stack : undefined,
+        );
+      }
+    }
 
     this.logger.log(`Withdrawal ${withdrawId} now PAYOUT_PENDING — payout ${payout.payoutNo} created`);
   }

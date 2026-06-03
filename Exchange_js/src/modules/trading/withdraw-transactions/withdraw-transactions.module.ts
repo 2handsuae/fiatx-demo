@@ -13,6 +13,7 @@ import { WithdrawalFeeLevelModule } from '../withdrawal-fee-level/withdrawal-fee
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approval.service';
+import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approv
     WithdrawalFeeLevelModule,
     ApprovalsModule,
     PricingCenterModule,
+    FundsLayerModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

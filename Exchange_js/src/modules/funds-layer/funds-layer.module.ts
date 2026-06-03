@@ -7,6 +7,7 @@ import { WhitelistGuard } from './guards/whitelist.guard';
 import { FundsAccountingService } from './accounting/funds-accounting.service';
 import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-execution.adapter';
 import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
+import { FundTransferWorkflowService } from './workflow/fund-transfer-workflow.service';
 import { DepositAggregationWorkflowService } from './workflow/deposit-aggregation-workflow.service';
 import { DepositAggregationSweepService } from './sweep/deposit-aggregation-sweep.service';
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
@@ -35,11 +36,12 @@ import { DepositTransactionsModule } from '../trading/deposit-transactions/depos
     FundsAccountingService,
     MockCustodianExecutionAdapter,
     InternalTransferWorkflowService,
+    FundTransferWorkflowService,
     SystemWalletResolver,
     DepositAggregationWorkflowService,
     DepositAggregationSweepService,
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
-  exports: [InternalTransferWorkflowService],
+  exports: [InternalTransferWorkflowService, FundTransferWorkflowService],
 })
 export class FundsLayerModule {}
