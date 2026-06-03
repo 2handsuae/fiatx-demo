@@ -18,6 +18,7 @@ import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
+import { SettlementAdminController } from './controllers/settlement-admin.controller';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
 
@@ -38,6 +39,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     InternalTransferAdminController,
     FundsSimulateController,
     FundReturnRepairController,
+    SettlementAdminController,
   ],
   providers: [
     FundsFlowService,

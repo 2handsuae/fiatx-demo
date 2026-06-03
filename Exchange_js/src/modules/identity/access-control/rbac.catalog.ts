@@ -87,7 +87,9 @@ export type PermissionGroup =
   | 'SWAP_FEE_LEVEL_READ'
   | 'SWAP_FEE_LEVEL_WRITE'
   | 'INTERNAL_TRANSFER_READ'
-  | 'INTERNAL_TRANSFER_WRITE';
+  | 'INTERNAL_TRANSFER_WRITE'
+  | 'SETTLEMENT_READ'
+  | 'SETTLEMENT_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -804,6 +806,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/funds-layer/transfers/:internalTxNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
   route('POST', '/admin/funds-layer/transfers/:internalTxNo/simulate', 'Simulate funds flow step (DEV)', ['INTERNAL_TRANSFER_WRITE']),
   route('POST', '/admin/funds-layer/fund-return', 'Trigger FUND_RETURN repair', ['INTERNAL_TRANSFER_WRITE']),
+  route('GET', '/admin/funds-layer/settlements', 'List settlement batches', ['SETTLEMENT_READ']),
+  route('GET', '/admin/funds-layer/settlements/:batchNo', 'Get settlement batch detail', ['SETTLEMENT_READ']),
+  route('POST', '/admin/funds-layer/settlements/run', 'Trigger EOD settlement run (DEV)', ['SETTLEMENT_WRITE']),
 
 ];
 

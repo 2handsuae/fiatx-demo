@@ -201,6 +201,11 @@ export const PERMISSIONS = {
     'api.get.admin_funds_layer_transfers_internaltxno',
   FUNDS_LAYER_TRANSFER_SIMULATE:
     'api.post.admin_funds_layer_transfers_internaltxno_simulate',
+  FUNDS_LAYER_SETTLEMENTS_READ: 'api.get.admin_funds_layer_settlements',
+  FUNDS_LAYER_SETTLEMENT_DETAIL_READ:
+    'api.get.admin_funds_layer_settlements_batchno',
+  FUNDS_LAYER_SETTLEMENT_RUN:
+    'api.post.admin_funds_layer_settlements_run',
 
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',

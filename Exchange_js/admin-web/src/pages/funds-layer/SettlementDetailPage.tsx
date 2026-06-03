@@ -1,0 +1,332 @@
+// admin-web/src/pages/funds-layer/SettlementDetailPage.tsx
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
+import {
+  DetailPageHeader,
+  InfoField,
+  JsonBlock,
+} from '../../components/compliance/DetailPageComponents';
+import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../../components/ui/AdminBadge';
+import { adminButtonClass } from '../../components/common/adminButtonStyles';
+import {
+  AdminSessionError,
+  adminFetch,
+  getApiErrorMessage,
+} from '../../utils/adminFetch';
+
+/* ── Types ──────────────────────────────────────────────────── */
+
+interface SettlementItemAsset {
+  code?: string | null;
+  currency?: string | null;
+}
+
+interface SettlementItemTransaction {
+  internalTxNo?: string | null;
+}
+
+interface SettlementBatchItem {
+  id: string;
+  assetCode: string | null;
+  inAmount: string;
+  outAmount: string;
+  netAmount: string;
+  direction: string | null;
+  status: string;
+  outstandingCount: number | null;
+  settledOutstandingCount: number | null;
+  asset?: SettlementItemAsset | null;
+  internalTransaction?: SettlementItemTransaction | null;
+}
+
+interface SettlementDetail {
+  batchNo: string;
+  settlementType: string | null;
+  cutoffAt: string | null;
+  status: string;
+  totalAssetCount: number | null;
+  settledAssetCount: number | null;
+  totalOutstandingCount: number | null;
+  settledOutstandingCount: number | null;
+  items: SettlementBatchItem[];
+  createdAt: string;
+  completedAt: string | null;
+}
+
+/* ── Helpers ────────────────────────────────────────────────── */
+
+const fmt = (v?: string | null): string => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
+};
+
+/* ── Page Component ─────────────────────────────────────────── */
+
+const SettlementDetailPage = () => {
+  const { batchNo } = useParams<{ batchNo: string }>();
+  const navigate = useNavigate();
+  const [data, setData] = useState<SettlementDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Manual Run state
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState('');
+
+  const fetchData = async () => {
+    if (!batchNo) return;
+    setLoading(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/funds-layer/settlements/${batchNo}`,
+      );
+      if (response.ok) {
+        const result: SettlementDetail = await response.json();
+        setData(result);
+      } else {
+        alert(await getApiErrorMessage(response, 'Failed to load settlement detail'));
+        navigate('/funds-layer/settlements');
+      }
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to fetch settlement detail', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (batchNo) void fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchNo]);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setRunError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/funds-layer/settlements/run`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setRunError(await getApiErrorMessage(response, 'EOD settlement run failed.'));
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setRunError(error instanceof Error ? error.message : 'EOD settlement run failed.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center">
+        <RefreshCw className="mb-4 animate-spin text-adm-amber" size={32} />
+        <p className="text-adm-t3">Loading settlement detail...</p>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const items = data.items ?? [];
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* ── Nav Header (back + refresh only) ── */}
+      <DetailPageHeader
+        onBack={() => navigate('/funds-layer/settlements')}
+        onRefresh={fetchData}
+        refreshing={loading}
+        backLabel="Settlement Batches"
+      />
+
+      {/* ── Body: Main + Sidebar ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* ── Main Body ── */}
+        <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
+          {/* 1. Hero */}
+          <div className="bg-adm-card px-6 py-5">
+            <div className="font-mono text-[19px] font-bold text-adm-amber">
+              {data.batchNo}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Status
+                </span>
+                <span className="mt-1 inline-block">
+                  <AdminBadge value={data.status} />
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Type
+                </span>
+                <span className="font-mono text-adm-t1">{data.settlementType || '—'}</span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Cutoff
+                </span>
+                <span className="font-mono text-adm-t1">{fmt(data.cutoffAt)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Core Context */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Settlement Context
+            </h3>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <InfoField
+                label="Assets Settled"
+                value={`${data.settledAssetCount ?? 0} / ${data.totalAssetCount ?? 0}`}
+                mono
+              />
+              <InfoField
+                label="Outstanding Settled"
+                value={`${data.settledOutstandingCount ?? 0} / ${data.totalOutstandingCount ?? 0}`}
+                mono
+              />
+            </div>
+          </div>
+
+          {/* 3. Process / Per-asset Items */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Settlement Items
+            </h3>
+            {items.length === 0 ? (
+              <div className="p-4 text-center text-sm italic text-adm-t3">No settlement items</div>
+            ) : (
+              <div className="space-y-4">
+                {items.map((item) => {
+                  const assetCode = item.assetCode || item.asset?.code || item.asset?.currency || '—';
+                  const linkedTxNo = item.internalTransaction?.internalTxNo || null;
+                  return (
+                    <div
+                      key={item.id}
+                      className="rounded-lg border border-adm-border bg-adm-bg p-4"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                          {assetCode}
+                        </span>
+                        <AdminBadge value={item.status} />
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px] text-adm-t3">
+                        <span>
+                          In: <span className="text-adm-t2">{item.inAmount}</span>
+                        </span>
+                        <span>
+                          Out: <span className="text-adm-t2">{item.outAmount}</span>
+                        </span>
+                        <span>
+                          Net: <span className="text-adm-t2">{item.netAmount}</span>
+                        </span>
+                        <span>
+                          Direction:{' '}
+                          <span className="text-adm-t2">{item.direction || '—'}</span>
+                        </span>
+                        <span>
+                          Outstanding:{' '}
+                          <span className="text-adm-t2">
+                            {item.settledOutstandingCount ?? 0} / {item.outstandingCount ?? 0}
+                          </span>
+                        </span>
+                        {linkedTxNo ? (
+                          <span
+                            className="cursor-pointer break-all text-adm-blue hover:underline"
+                            onClick={() => navigate(`/funds-layer/transfers/${linkedTxNo}`)}
+                          >
+                            Transfer: {linkedTxNo}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 4. Technical Detail (last) */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Technical Detail
+            </h3>
+            <div className="mt-1 space-y-3">
+              <JsonBlock
+                title="Settlement Items (raw)"
+                value={items.map((item) => ({
+                  assetCode: item.assetCode,
+                  inAmount: item.inAmount,
+                  outAmount: item.outAmount,
+                  netAmount: item.netAmount,
+                  direction: item.direction,
+                  status: item.status,
+                  internalTxNo: item.internalTransaction?.internalTxNo ?? null,
+                }))}
+                compact
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Sidebar ── */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* ACTIONS → Manual Run */}
+          <SidebarGroup title="Actions">
+            <div className="rounded-lg border border-adm-blue/25 bg-adm-blue/6 p-3">
+              <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-blue">
+                Manual Run
+              </p>
+              <p className="mt-1 font-mono text-[9px] leading-relaxed text-adm-t3">
+                DEV-only. Triggers an EOD settlement run, then refreshes this batch.
+              </p>
+
+              {runError && (
+                <p className="mt-2 font-mono text-[10px] text-adm-red">{runError}</p>
+              )}
+
+              <button
+                onClick={handleRun}
+                disabled={running}
+                className={adminButtonClass('simulationAction', 'mt-3 w-full')}
+              >
+                {running ? 'Running…' : 'Run EOD Settlement'}
+              </button>
+            </div>
+          </SidebarGroup>
+
+          {/* IDENTITY SUMMARY */}
+          <SidebarGroup title="Identity">
+            <SidebarKV label="Batch No" value={data.batchNo} mono />
+            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
+            <SidebarKV label="Settlement Type" value={data.settlementType} mono />
+          </SidebarGroup>
+
+          {/* LIFECYCLE */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Created" value={fmt(data.createdAt)} mono />
+            <SidebarKV label="Cutoff" value={fmt(data.cutoffAt)} mono />
+            <SidebarKV
+              label="Completed"
+              value={data.completedAt ? fmt(data.completedAt) : null}
+              mono
+            />
+          </SidebarGroup>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default SettlementDetailPage;
