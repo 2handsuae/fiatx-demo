@@ -12,6 +12,7 @@ type TxClient = Prisma.TransactionClient;
 export interface CreateBatchInput {
   cutoffAt: Date;
   requestId?: string;
+  settlementType?: string;
 }
 
 export interface CreateItemInput {
@@ -81,7 +82,7 @@ export class SettlementBatchService {
           return await (client as any).settlementBatch.create({
             data: {
               batchNo,
-              settlementType: 'EOD',
+              settlementType: input.settlementType ?? 'EOD',
               status: 'CREATED',
               cutoffAt: input.cutoffAt,
               requestId: input.requestId ?? null,

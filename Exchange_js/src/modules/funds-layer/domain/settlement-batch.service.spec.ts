@@ -47,6 +47,16 @@ describe('SettlementBatchService', () => {
     expect(prisma.settlementBatch.create).toHaveBeenCalledTimes(1);
   });
 
+  it('createBatch honors an explicit settlementType (FEE_COLLECT)', async () => {
+    const cutoffAt = new Date('2026-06-03T00:00:00.000Z');
+    const created = await service.createBatch({
+      cutoffAt,
+      settlementType: 'FEE_COLLECT',
+    });
+
+    expect(created.settlementType).toBe('FEE_COLLECT');
+  });
+
   describe('resolveCryptoDirection', () => {
     it('net > 0 → INTERNAL_IN / F_LIQ → C_MAIN / amount = net', () => {
       const net = new Prisma.Decimal(60);

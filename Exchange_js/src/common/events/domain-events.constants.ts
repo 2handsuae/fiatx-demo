@@ -69,7 +69,7 @@ export const DOMAIN_EVENTS = {
   FUNDSFLOW_STATUS_CHANGED: {
     name: 'fundsflow.status.changed',
     emitter: 'FundsFlowService',
-    subscribers: ['InternalTransferWorkflowService', 'EodSettlementWorkflowService'],
+    subscribers: ['InternalTransferWorkflowService', 'EodSettlementWorkflowService', 'FeeCollectionWorkflowService'],
     payload: '{ fundsFlowId: string, internalTransferId: string, oldStatus: string, newStatus: string, operatorId?: string }',
   },
   INTERNALTRANSFER_COMPLETED: {

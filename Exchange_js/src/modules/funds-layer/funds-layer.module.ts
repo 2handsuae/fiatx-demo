@@ -11,10 +11,12 @@ import { FundTransferWorkflowService } from './workflow/fund-transfer-workflow.s
 import { DepositAggregationWorkflowService } from './workflow/deposit-aggregation-workflow.service';
 import { DepositAggregationSweepService } from './sweep/deposit-aggregation-sweep.service';
 import { EodSettlementSweepService } from './sweep/eod-settlement-sweep.service';
+import { FeeCollectionSweepService } from './sweep/fee-collection-sweep.service';
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { SettlementBatchService } from './domain/settlement-batch.service';
 import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
+import { FeeCollectionWorkflowService } from './workflow/fee-collection-workflow.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
@@ -56,6 +58,8 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     OutstandingConsumerService,
     EodSettlementWorkflowService,
     EodSettlementSweepService,
+    FeeCollectionWorkflowService,
+    FeeCollectionSweepService,
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
   exports: [
