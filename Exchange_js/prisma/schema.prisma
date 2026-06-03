@@ -274,7 +274,6 @@ model CustomerMain {
   eddResponses              EddResponse[]
   corporateProfile          CorporateProfile?
   uboProfiles               UboProfile[]
-  onboardingAuditLogs       OnboardingAuditLog[]
   workflowDecisionRecords   WorkflowDecisionRecord[]
   complianceSessions        ComplianceSession[]
   cddResponseReports        CddResponseReport[]
@@ -602,31 +601,6 @@ model TravelRuleCaseReport {
   @@index([provider, providerTransferId])
   @@index([receivedAt])
   @@map("travel_rule_case_reports")
-}
-
-model OnboardingAuditLog {
-  id           String   @id @default(uuid())
-  customerId   String
-  caseType     String?
-  caseId       String?
-  action       String
-  actorId      String
-  actorRole    String
-  traceId      String?
-  workflowType String?
-  workflowId   String?
-  workflowNo   String?
-  fromStage    String?
-  toStage      String?
-  detail       String?
-  createdAt    DateTime @default(now())
-
-  customer CustomerMain @relation(fields: [customerId], references: [id])
-
-  @@index([customerId, createdAt])
-  @@index([traceId, createdAt])
-  @@index([workflowType, workflowNo, createdAt])
-  @@map("onboarding_audit_logs")
 }
 
 model WorkflowDecisionRecord {
@@ -1031,58 +1005,6 @@ model RegulatoryGateItem {
   @@map("regulatory_gate_items")
 }
 
-model SlaTimer {
-  id            String            @id @default(uuid())
-  timerNo       String            @unique @default("TEMP")
-  workflowType  String
-  workflowId    String
-  workflowNo    String
-  subjectType   String
-  subjectId     String
-  subjectNo     String
-  timerType     String
-  ownerUserId   String
-  status        String            @default("ACTIVE")
-  dueAt         DateTime
-  graceSeconds  Int               @default(120)
-  traceId       String
-  contextJson   String            @default("{}")
-  closedAt      DateTime?
-  expiredAt     DateTime?
-  activeKey     String?           @unique
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  notifications SlaNotification[]
-
-  @@index([timerNo, createdAt])
-  @@index([timerType, status, dueAt])
-  @@index([workflowType, workflowNo, createdAt])
-  @@index([subjectType, subjectNo, createdAt])
-  @@index([ownerUserId, status, createdAt])
-  @@index([traceId, createdAt])
-  @@map("sla_timers")
-}
-
-model SlaNotification {
-  id               String    @id @default(uuid())
-  timerId          String
-  notificationType String
-  status           String    @default("SCHEDULED")
-  scheduledAt      DateTime
-  triggeredAt      DateTime?
-  reasonCode       String?
-  message          String?
-  metadataJson     String    @default("{}")
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  timer            SlaTimer  @relation(fields: [timerId], references: [id], onDelete: Cascade)
-
-  @@index([timerId, createdAt])
-  @@index([notificationType, status, scheduledAt])
-  @@index([status, scheduledAt])
-  @@map("sla_notifications")
-}
-
 
 
 model LiquidityProvider {
@@ -1152,7 +1074,6 @@ model Asset {
   safeguardingPoolSnapshots      SafeguardingPoolSnapshot[]
   reconciliationWarnings         ReconciliationWarning[]
   fiatStatementImports           FiatStatementImport[]
-  valuationRates                 AssetValuationRate[]
   withdrawalAddresses            WithdrawalAddress[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
@@ -1187,7 +1108,6 @@ model Payin {
   updatedAt              DateTime                @updatedAt
   ownerId                String? // Added to support relation to CustomerMain
   deposit                DepositTransaction?     @relation("PayinToDeposit")
-  auditLogs              PayinAuditLog[]
   toWallet               Wallet?                 @relation("PayinToWallet", fields: [toWalletId], references: [id])
   fromWallet             Wallet?                 @relation("PayinFromWallet", fields: [fromWalletId], references: [id])
   asset                  Asset                   @relation(fields: [assetId], references: [id])
@@ -1497,10 +1417,11 @@ model DepositTransaction {
   travelRuleCheckedAt  DateTime?
   traceId              String?
   statusHistory        String?
+  aggregatedAt         DateTime?
+  aggregatedTransferId String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   completedAt          DateTime?
-  auditLogs            DepositAuditLog[]
   payin                Payin?            @relation("PayinToDeposit", fields: [payinId], references: [id])
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
@@ -1511,33 +1432,8 @@ model DepositTransaction {
   @@index([ownerType, ownerId])
   @@index([status])
   @@index([createdAt])
+  @@index([toWalletId, status, aggregatedAt])
   @@map("deposit_transactions")
-}
-
-model PayinAuditLog {
-  id         String   @id @default(uuid())
-  payinId    String
-  operatorId String
-  oldStatus  String
-  newStatus  String
-  reason     String?
-  createdAt  DateTime @default(now())
-  payin      Payin    @relation(fields: [payinId], references: [id])
-
-  @@map("payin_audit_logs")
-}
-
-model DepositAuditLog {
-  id                   String             @id @default(uuid())
-  depositTransactionId String
-  operatorId           String
-  oldStatus            String
-  newStatus            String
-  reason               String?
-  createdAt            DateTime           @default(now())
-  depositTransaction   DepositTransaction @relation(fields: [depositTransactionId], references: [id])
-
-  @@map("deposit_audit_logs")
 }
 
 model InternalTransaction {
@@ -1712,22 +1608,6 @@ model InternalFundAuditLog {
 
   @@index([internalFundId])
   @@map("internal_fund_audit_logs")
-}
-
-
-model AssetValuationRate {
-  id             String   @id @default(uuid())
-  assetId        String
-  quoteAssetCode String
-  price          Decimal
-  status         String   @default("ACTIVE")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  asset          Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
-
-  @@unique([assetId, quoteAssetCode])
-  @@index([status])
-  @@map("asset_valuation_rates")
 }
 
 
@@ -2077,7 +1957,6 @@ model WithdrawTransaction {
   statusHistory        String?
   updatedAt            DateTime              @updatedAt
   payout               Payout?               @relation("WithdrawToPayout")
-  auditLogs            WithdrawAuditLog[]
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain          @relation(fields: [ownerId], references: [id])
@@ -2119,7 +1998,6 @@ model Payout {
   updatedAt     DateTime            @updatedAt
   completedAt   DateTime?
   statusHistory String?
-  auditLogs     PayoutAuditLog[]
   withdraw      WithdrawTransaction @relation("WithdrawToPayout", fields: [withdrawId], references: [id])
   asset         Asset               @relation(fields: [assetId], references: [id])
   customer      CustomerMain?       @relation(fields: [ownerId], references: [id])
@@ -2129,32 +2007,6 @@ model Payout {
   @@index([assetId])
   @@index([createdAt])
   @@map("payouts")
-}
-
-model PayoutAuditLog {
-  id         String   @id @default(uuid())
-  payoutId   String
-  operatorId String
-  oldStatus  String
-  newStatus  String
-  reason     String?
-  createdAt  DateTime @default(now())
-  payout     Payout   @relation(fields: [payoutId], references: [id])
-
-  @@map("payout_audit_logs")
-}
-
-model WithdrawAuditLog {
-  id                    String              @id @default(uuid())
-  withdrawTransactionId String
-  operatorId            String
-  oldStatus             String
-  newStatus             String
-  reason                String?
-  createdAt             DateTime            @default(now())
-  withdrawTransaction   WithdrawTransaction @relation(fields: [withdrawTransactionId], references: [id])
-
-  @@map("withdraw_audit_logs")
 }
 
 model ReconciliationBreak {

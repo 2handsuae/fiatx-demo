@@ -90,3 +90,7 @@ export function resolvePathPolicy(fromRole: string, toRole: string): TransferPat
   }
   return null;
 }
+
+// 充值归集阈值（MVP 硬编码；配置化为 ADVANCED）
+export const AGGREGATION_THRESHOLD = '100'; // 归集触发额：地址累计未归集 ≥ 100 才扫
+export const DUST_THRESHOLD = '1';          // dust：< 1 记 DUST_SKIPPED，不动
