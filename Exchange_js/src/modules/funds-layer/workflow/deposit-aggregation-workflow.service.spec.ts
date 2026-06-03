@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { DepositTransactionsService } from '../../trading/deposit-transactions/deposit-transactions.service';
+import { DepositAggregationSourceService } from '../domain/deposit-aggregation-source.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { DepositAggregationWorkflowService } from './deposit-aggregation-workflow.service';
@@ -41,7 +41,7 @@ describe('DepositAggregationWorkflowService', () => {
       providers: [
         DepositAggregationWorkflowService,
         { provide: PrismaService, useValue: prisma },
-        { provide: DepositTransactionsService, useValue: deposits },
+        { provide: DepositAggregationSourceService, useValue: deposits },
         { provide: InternalTransferWorkflowService, useValue: transferWorkflow },
         { provide: SystemWalletResolver, useValue: systemWallets },
       ],

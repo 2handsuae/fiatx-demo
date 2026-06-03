@@ -15,13 +15,13 @@ import { FeeCollectionSweepService } from './sweep/fee-collection-sweep.service'
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { SettlementBatchService } from './domain/settlement-batch.service';
 import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
+import { DepositAggregationSourceService } from './domain/deposit-aggregation-source.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
 import { FeeCollectionWorkflowService } from './workflow/fee-collection-workflow.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
 import { SettlementAdminController } from './controllers/settlement-admin.controller';
-import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
 
 /**
@@ -36,7 +36,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
  * implements the port and does NOT inject FundsFlowService) — no circular DI.
  */
 @Module({
-  imports: [PrismaModule, DepositTransactionsModule, TigerBeetleModule],
+  imports: [PrismaModule, TigerBeetleModule],
   controllers: [
     InternalTransferAdminController,
     FundsSimulateController,
@@ -56,6 +56,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     DepositAggregationSweepService,
     SettlementBatchService,
     OutstandingConsumerService,
+    DepositAggregationSourceService,
     EodSettlementWorkflowService,
     EodSettlementSweepService,
     FeeCollectionWorkflowService,

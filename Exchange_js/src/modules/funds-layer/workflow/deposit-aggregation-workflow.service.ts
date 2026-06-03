@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { DepositTransactionsService } from '../../trading/deposit-transactions/deposit-transactions.service';
+import { DepositAggregationSourceService } from '../domain/deposit-aggregation-source.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import {
@@ -34,7 +34,7 @@ export class DepositAggregationWorkflowService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly deposits: DepositTransactionsService,
+    private readonly deposits: DepositAggregationSourceService,
     private readonly transferWorkflow: InternalTransferWorkflowService,
     private readonly systemWallets: SystemWalletResolver,
   ) {}
