@@ -112,7 +112,7 @@ launch_detached_service \
   "${APP_DIR}" \
   "${BACKEND_LOG}" \
   "[\"node\",\"dist/main\"]" \
-  "{\"API_PORT\":\"${BACKEND_PORT}\",\"ADMIN_URL\":\"${ADMIN_URL}\",\"CLIENT_URL\":\"${CLIENT_URL}\",\"DATABASE_URL\":\"${DB_URL}\",\"GOVERNANCE_DEMO_ENABLED\":\"${GOVERNANCE_DEMO_ENABLED:-true}\",\"TB_ADDRESS\":\"${TB_ADDRESS}\"}" \
+  "{\"API_PORT\":\"${BACKEND_PORT}\",\"ADMIN_URL\":\"${ADMIN_URL}\",\"CLIENT_URL\":\"${CLIENT_URL}\",\"DATABASE_URL\":\"${DB_URL}\",\"TB_ADDRESS\":\"${TB_ADDRESS}\"}" \
   >/dev/null
 
 echo "[${STACK}] starting admin on ${ADMIN_PORT}"

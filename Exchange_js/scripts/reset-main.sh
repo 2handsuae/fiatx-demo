@@ -33,10 +33,16 @@ echo "[main] syncing base IAM config"
   DATABASE_URL="${db_url}" npm run db:base:sync
 )
 
-echo "[main] resetting business data"
+echo "[main] clearing business data"
 (
   cd "${APP_DIR}"
   DATABASE_URL="${db_url}" npm run db:biz:reset
+)
+
+echo "[main] re-seeding business demo"
+(
+  cd "${APP_DIR}"
+  DATABASE_URL="${db_url}" npm run db:seed:business
 )
 
 echo ""
