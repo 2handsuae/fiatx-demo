@@ -30,8 +30,6 @@ import { InternalFundsModule } from './modules/asset-treasury/internal-funds/int
 import { InternalTransactionWorkflowModule } from './modules/asset-treasury/internal-transaction-workflow/internal-transaction-workflow.module';
 import { ReimbursementObligationsModule } from './modules/asset-treasury/reimbursement-obligations/reimbursement-obligations.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
-import { OutstandingSettlementsModule } from './modules/clearing-settle/outstanding-settlements/outstanding-settlements.module';
-import { PoolSettlementBatchesModule } from './modules/clearing-settle/pool-settlement-batches/pool-settlement-batches.module';
 import { SafeguardingReconciliationModule } from './modules/clearing-settle/safeguarding-reconciliation/safeguarding-reconciliation.module';
 import { RiskEngineModule } from './modules/risk-engine/risk-engine.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
@@ -93,8 +91,6 @@ import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
     InternalTransactionWorkflowModule,
     ReimbursementObligationsModule,
     OutstandingsModule,
-    OutstandingSettlementsModule,
-    PoolSettlementBatchesModule,
     SafeguardingReconciliationModule,
     RiskEngineModule,
     TransactionComplianceModule,

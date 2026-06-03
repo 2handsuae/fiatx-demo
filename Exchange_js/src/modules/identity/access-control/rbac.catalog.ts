@@ -547,15 +547,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     ['RECON_BREAK_READ'],
   ),
 
-  route('POST', '/admin/reconciliation/outstanding-settlements', 'Create outstanding settlement', ['SETTLEMENT_WRITE']),
-  route('GET', '/admin/reconciliation/outstanding-settlements', 'List outstanding settlements', ['SETTLEMENT_READ']),
-  route('GET', '/admin/reconciliation/outstanding-settlements/:id', 'Get outstanding settlement detail', ['SETTLEMENT_READ']),
-  route('POST', '/admin/reconciliation/outstanding-settlements/:id/sync', 'Sync outstanding settlement', ['SETTLEMENT_WRITE']),
-  route('GET', '/admin/pool-settlement-batches', 'List pool settlement batches', ['SETTLEMENT_READ']),
-  route('GET', '/admin/pool-settlement-batches/:id', 'Get pool settlement batch detail', ['SETTLEMENT_READ']),
-  route('POST', '/admin/pool-settlement-batches', 'Create pool settlement batch', ['SETTLEMENT_WRITE']),
-  route('POST', '/admin/pool-settlement-batches/:id/submit', 'Submit pool settlement batch', ['SETTLEMENT_WRITE']),
-
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
   route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['ACCOUNTING_CONFIG_READ']),
