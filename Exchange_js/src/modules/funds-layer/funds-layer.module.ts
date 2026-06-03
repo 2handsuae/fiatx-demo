@@ -7,8 +7,11 @@ import { WhitelistGuard } from './guards/whitelist.guard';
 import { FundsAccountingService } from './accounting/funds-accounting.service';
 import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-execution.adapter';
 import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
+import { DepositAggregationWorkflowService } from './workflow/deposit-aggregation-workflow.service';
+import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
+import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 
 /**
  * V7 funds-layer module.
@@ -22,7 +25,7 @@ import { FundsSimulateController } from './controllers/funds-simulate.controller
  * implements the port and does NOT inject FundsFlowService) — no circular DI.
  */
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, DepositTransactionsModule],
   controllers: [InternalTransferAdminController, FundsSimulateController],
   providers: [
     FundsFlowService,
@@ -31,6 +34,8 @@ import { FundsSimulateController } from './controllers/funds-simulate.controller
     FundsAccountingService,
     MockCustodianExecutionAdapter,
     InternalTransferWorkflowService,
+    SystemWalletResolver,
+    DepositAggregationWorkflowService,
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
   exports: [InternalTransferWorkflowService],
