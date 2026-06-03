@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-06-01
+Last Updated: 2026-06-03
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -323,46 +323,74 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ## V7 — 内部转账流程
 
-> 平台内部资产物理移动的通用治理工作流。**所有内部转账均为真实的链上交易（虚拟币）或银行指令（法币），不存在纯 TB 内划拨路径。** 所有路径共享同一通用内部转账工作流，差异仅在触发条件、审批门级别和 TB 记账标签。Gas 记账独立于业务记账，链上确认后单独落账。
+> 平台内部资产物理移动的通用治理。**所有内部转账都是真实的链上交易（虚拟币）或银行指令（法币），不存在纯 TB 内划拨路径。** 所有路径共享同一通用内部转账工作流，差异仅在触发条件、审批门级别和记账类别（A 类零 TB / B 类 drain）。
 
-**前置：** V3 + V6（EOD 结算依赖兑换产生的 PENDING_SETTLEMENT 订单）
+**前置：** V3（账户模型）+ V6（swap 产生 Outstanding / FEE_RECEIVABLE）
+
+**本轮关键决策**（详见 `reference/v7-funds-layer-baseline.md`）：
+- 链上 gas → HexTrust gas station 打包自担，**不进客户托管 TB**；钱包热/冷分层 → HexTrust 管，平台不编排。
+- 银行费 → **年付固定服务费、不按笔**（❓待商务确认 FTS 是否另有笔费）→ 成本均为固定 OpEx，**不进 V7 交易记账**。
+- **集中账户** = CMA 或指定 treasury VA（❓待 Zand 确认 CMA 能否出金/归集）；法币侧或被迫 **per-VA 多笔**。
+- **Outstanding 仅 swap 产生**；**偿付义务（Reimbursement）与 Outstanding 分离的独立状态机**。
 
 ---
 
-### 内部转账白名单（全量路径）
+### 内部转账白名单（MVP 范围，7 条路径）
 
-所有内部转账必须属于以下预定义白名单对，白名单以外的 from-to 组合立即拒绝，不创建 InternalTransferNo。
+所有内部转账必须属于以下预定义白名单对，白名单以外的 from-to 组合立即拒绝，不创建 funds flow。
 
-| 路径标签 | From | To | 介质 | 触发来源 |
+| 标签 | From → To | 介质 | 记账类 | 触发来源 |
 |---|---|---|---|---|
-| AGGREGATE | Client Deposit Wallet[n] | Client Main Wallet | 链上 | Cron sweep / 单笔充值超阈值立即触发 |
-| FUND-OUT | Client Main Wallet | Client Outbound Wallet | 链上 | 提现工作流（V5）：Payout 广播前预归集至出金钱包 |
-| INTERNAL-OUT-VA | Client Main Wallet | Company Liquidity Wallet | 链上 | EOD 结算：客户兑换卖出方向交割 |
-| INTERNAL-IN-VA | Company Liquidity Wallet | Client Main Wallet | 链上 | EOD 结算：客户兑换买入方向交割 |
-| FEE-COLLECT-VA | Company Liquidity Wallet | Company Ops Wallet | 链上 | Cron 定期归集（虚拟币手续费） |
-| LP-OUT-VA | Company Liquidity Wallet | LP Crypto Pool | 链上 | 手动 / 仓位过剩归还 LP |
-| LP-IN-VA | LP Crypto Pool | Company Liquidity Wallet | 链上 | EOD 缺口补充 / 手动注入 |
-| INTERNAL-OUT-FIAT | Client Money Account | Company Liquidity Account | 银行转账 | EOD 结算：法币兑换交割 |
-| INTERNAL-IN-FIAT | Company Liquidity Account | Client Money Account | 银行转账 | EOD 结算：法币兑换交割 |
-| FEE-COLLECT-FIAT | Company Liquidity Account | Company Ops Account | 银行转账 | Cron 定期归集（法币手续费） |
-| LP-OUT-FIAT | Company Liquidity Account | LP Fiat Pool | 银行转账 | 手动 / 仓位过剩归还 LP |
-| LP-IN-FIAT | LP Fiat Pool | Company Liquidity Account | 银行转账 | EOD 缺口补充 / 手动注入 |
+| 充值归集 (AGGREGATE) | 客户充值地址 → Main | 链上 | A（零 TB） | Cron sweep / 单笔超阈值 |
+| 法币归集 | 客户 VA → 集中账户 | 银行 | A（零 TB） | 入金 / Cron |
+| 出金预归集 (FUND-OUT) | Main → Outbound | 链上 | A（零 TB） | V5 提现：Payout 广播前 |
+| 出金退回 | Outbound → Main | 链上 | A（零 TB） | 提现取消 / 失败 |
+| 兑换卖出交割 (INTERNAL-OUT) | Main / 集中账户 → Liquidity | 链上/银行 | B（drain TRADE_CLEARING） | EOD 轧差 |
+| 兑换买入交割 (INTERNAL-IN) | Liquidity → Main / 集中账户 | 链上/银行 | B（drain TRADE_CLEARING） | EOD 轧差 |
+| 手续费归集 (FEE-COLLECT) | pool(Main/集中) → Ops | 链上/银行 | B（drain FEE_RECEIVABLE） | Cron 定期 |
+
+> LP-IN/OUT、热/冷分层、Gas Reserve 等路径移出 MVP（见 ADVANCED / 不单做）。
 
 ---
 
-**Workflow 清单：**
+### MVP（核心工作流）
 
-核心工作流（MVP）：
-- [ ] 通用内部转账工作流（适用所有白名单路径：创建 InternalTransferNo → 白名单校验 → 按金额 + 路径类型判断审批门 → 发起链上广播 / 银行转账指令 → CONFIRMING / BANK_PROCESSING → 确认到账后：① 业务 TB 记账：source → destination 实际到账金额；② Gas TB 记账（链上路径专属）：实际 Gas 消耗 → Gas_Fee_[CCY]_Pool，独立一笔，与业务记账严格分离；③ 校验：发出量 = 到账量 + Gas，差异超阈值进人工审核 → COMPLETED；链上失败 / 银行退回 → FAILED + repair surface）
-- [ ] EOD 兑换结算编排工作流（Cron 日终触发 → ① 汇总当日全部 PENDING_SETTLEMENT 兑换单，按币种对计算净仓位轧差，级联触发 INTERNAL-IN-VA / INTERNAL-OUT-VA / INTERNAL-IN-FIAT / INTERNAL-OUT-FIAT 通用转账实例，各实例 COMPLETED 后标记兑换单 SETTLED；若 Company Liquidity Wallet 余额不足，先触发 LP-IN-VA / LP-IN-FIAT 补充，LP 到账后继续结算剩余缺口；② 充值地址残余清零：扫描所有余额高于 dust 阈值、且无活跃合规冻结的充值地址，对每个地址触发 AGGREGATE 通用转账实例；③ 全部子任务完成后日结完毕；支持幂等重跑：已 SETTLED 的兑换单、已归集的地址跳过）
-- [ ] 手续费归集工作流（Cron 定期触发 → 级联触发 FEE-COLLECT-VA / FEE-COLLECT-FIAT 通用转账实例；同一通用工作流执行，审批门按归集金额阈值判断）
+- [ ] **通用内部转账工作流** — 适用所有白名单路径：创建 funds flow（资金单）→ 白名单校验 → 按金额/路径判审批门 → 发起链上广播 / 银行指令 → 确认到账后记账（A 类零 TB；B 类 drain `TRADE_CLEARING` / `FEE_RECEIVABLE ↔ CUSTODY/BANK`）→ COMPLETED；链上失败 / 银行退回 → FAILED + repair surface
+- [ ] **充值归集** — Cron sweep + 单笔超阈值实时：扫客户充值地址 / VA → 集中账户 / Main；含 dust 阈值跳过；调用通用内部转账（A 类，直接 funds flow，无 Outstanding / fee）
+- [ ] **EOD 兑换结算编排工作流** — Cron 日终：按资产轧差 `TRADE_CLEARING` 净额 → 创建结算 Transaction（Pool Settlement Batch）→ 级联触发 INTERNAL-OUT / INTERNAL-IN funds flow → 消费当日 Outstanding 标 SETTLED（`closedByInternalFundId`）→ 支持幂等重跑（已 SETTLED 跳过）
+- [ ] **手续费归集工作流** — Cron 定期：drain `FEE_RECEIVABLE`（swap 费 + 点差 + 提现费，合并）→ 触发 pool→Ops funds flow
+- [ ] **偿付义务工作流（最小版）** — 仅覆盖：① 提现终态失败退回；② 法币银行 bounce 追偿。带审批门 + 完整审计；与 Outstanding 分离的独立状态机
 
-推后交付：
-- [ ] LP 调拨治理工作流（LP-IN / LP-OUT 路径须独立审批门：Maker 提案 + CFO / MLRO 签批 → 审批通过后触发对应通用转账实例；白名单中其余路径不走此工作流）
-- [ ] 内部转账阈值配置变更工作流（Maker 提案修改归集阈值 / 审批金额线 / LP 调拨规则 / dust 阈值 → Checker 审批 → 生效；全程审计）
-- [ ] Gas Reserve 补充工作流（Gas Reserve Wallet 余额低于阈值时触发：Maker 提案 + Checker 审批 → 从 Company Ops Wallet 划转对应原生币至 Gas Reserve Wallet → 通用内部转账工作流执行；补充路径加入白名单：`Company Ops Wallet → Gas_Reserve_[CCY]_Wallet`）
+> FUND-OUT（出金预归集）/ 出金退回由 V5 提现工作流触发，调用通用内部转账，不单列工作流。
 
-不单做工作流（主流程内嵌 / 运维操作）：TRX 质押 / 委托 → HexTrust 运维操作，不进业务工作流；Gas 记账缺失补录 → 专用 repair surface（窄于正常路径，需审计记录）；银行转账退回 → bounced 处理内嵌于通用工作流 FAILED 分支；链上重组 / 超时 → FAILED + repair surface，不自动重广播。
+### ADVANCED（推后交付）
+
+- [ ] LP 调拨治理工作流（LP-IN / LP-OUT 路径独立审批门：Maker 提案 + CFO / MLRO 签批 → 触发对应通用转账实例）
+- [ ] 内部转账阈值配置变更工作流（Maker 提案修改归集阈值 / 审批金额线 / dust 阈值 → Checker 审批 → 生效；全程审计）
+- [ ] 偿付义务工作流（完整版）—— 费用多收退还 / 运营错误补偿 / 充值反转退回 / 促销补贴
+- [ ] 异常处置工作流 —— 孤儿充值归位 / 冻结·制裁资产隔离 / 错账冲正
+- [ ] 储备金注资 / 穿底补救工作流（公司外部 → 客户池，补足储备）
+- [ ] 公司自有流动性调拨（Main ↔ Liquidity 库存再平衡）
+- [ ] 跨网络库存再平衡（同资产跨链，可能需 OTC）
+
+### Supporting Features（非 workflow，无独立状态机）
+
+- **funds flow（资金单）执行引擎** — HexTrust / Zand 适配，链上/银行状态机（签名→广播→确认/失败/退回），费/确认数留痕
+- **Transaction（结算单）轧差引擎** — 按资产净额计算，N:1 关联被结算来源
+- **Outstanding 结算关闭** — V6 建、V7 消费：OPEN → SETTLED，挂 funds flow（多对一）
+- **FEE_RECEIVABLE drain 记账** — 收入型费用唯一归集出口
+- **白名单校验 guard** — 非白名单 from-to 立即拒绝，不创建 funds flow
+- **Cron sweep 适配器** — 充值归集 / EOD 结算 / 手续费归集的 `@Cron` 入口，各自找候选并直接调用目标工作流
+- **幂等键** — EOD / 归集重跑：已 SETTLED / 已归集跳过
+- **repair surface** — 链上失败 / 银行退回 / 记账失败的窄修复入口
+
+### 不单做工作流（主流程内嵌 / 运维 / 已外包）
+
+- **链上 gas** → HexTrust gas station 自担，不进 TB，固定 P&L
+- **钱包热 / 冷分层** → HexTrust 管，平台不编排
+- **银行转账费** → 年付固定 OpEx，不进交易记账
+- **链上重组 / 超时** → FAILED + repair surface，不自动重广播
+- **银行退回（bounced）** → 通用内部转账 FAILED 分支 / 偿付义务
 
 ---
 

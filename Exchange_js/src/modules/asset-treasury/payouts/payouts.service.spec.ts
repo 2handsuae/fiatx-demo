@@ -16,7 +16,6 @@ describe('PayoutsService', () => {
   let prisma: any;
   let eventEmitter: { emit: jest.Mock };
   let transactionComplianceService: any;
-  let feeOccurrencesService: any;
 
   beforeEach(() => {
     prisma = {
@@ -29,9 +28,6 @@ describe('PayoutsService', () => {
         count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
-      },
-      feeOccurrence: {
-        findMany: jest.fn().mockResolvedValue([]),
       },
       payoutAuditLog: {
         create: jest.fn(),
@@ -47,14 +43,10 @@ describe('PayoutsService', () => {
     transactionComplianceService = {
       ensureWithdrawMainCasesBeforePayoutDispatch: jest.fn(),
     };
-    feeOccurrencesService = {
-      captureFromPayout: jest.fn().mockResolvedValue([]),
-    };
     service = new PayoutsService(
       prisma,
       eventEmitter as unknown as EventEmitter2,
       transactionComplianceService,
-      feeOccurrencesService,
       {} as any,
     );
     (service as any).auditLogsService = {
@@ -329,13 +321,6 @@ describe('PayoutsService', () => {
     );
 
     expect(updated.status).toBe(PayoutStatus.CONFIRMED);
-    expect(feeOccurrencesService.captureFromPayout).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'PO_crypto_confirm_1',
-      }),
-      'SYSTEM',
-      prisma,
-    );
   });
 
   it('should return canonical audit logs in payout detail payload', async () => {
@@ -349,14 +334,6 @@ describe('PayoutsService', () => {
       withdraw: { withdrawNo: 'WDDET1', ownerId: 'CUST_1', status: 'SUCCESS' },
       customer: null,
       clearings: [],
-      feeOccurrences: [
-        {
-          id: 'fee-1',
-          feeNo: 'FEE-1',
-          feeType: 'BANK_TRANSFER_FEE',
-          amount: '12.50',
-        },
-      ],
     });
     prisma.auditLogEvent.findMany.mockResolvedValue([
       {
@@ -392,12 +369,6 @@ describe('PayoutsService', () => {
         type: 'FIAT',
         status: 'CLEARED',
         displayStatus: 'CLEARED',
-        feeOccurrences: [
-          expect.objectContaining({
-            id: 'fee-1',
-            feeType: 'BANK_TRANSFER_FEE',
-          }),
-        ],
       }),
     );
   });

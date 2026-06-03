@@ -462,10 +462,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/internal-funds/:id', 'Get internal fund detail', ['INTERNAL_FUND_READ']),
   route('PATCH', '/admin/internal-funds/:id/status', 'Update internal fund status', ['INTERNAL_FUND_WRITE']),
   route('POST', '/admin/internal-funds/mock', 'Mock internal fund transition', ['INTERNAL_FUND_WRITE']),
-  route('GET', '/admin/fee-occurrences', 'List fee occurrences', ['INTERNAL_FUND_READ']),
-  route('GET', '/admin/fee-occurrences/:id', 'Get fee occurrence detail', ['INTERNAL_FUND_READ']),
-  route('POST', '/admin/fee-occurrences', 'Record fee occurrence', ['INTERNAL_FUND_WRITE']),
-  route('PATCH', '/admin/fee-occurrences/:id/cancel', 'Cancel fee occurrence', ['INTERNAL_FUND_WRITE']),
   route(
     'GET',
     '/admin/reimbursement-obligations',

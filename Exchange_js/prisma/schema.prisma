@@ -1144,7 +1144,6 @@ model Asset {
   withdrawTransactions           WithdrawTransaction[]
   internalTransactions           InternalTransaction[]
   internalFunds                  InternalFund[]
-  feeOccurrences                 FeeOccurrence[]
   reimbursementObligations       ReimbursementObligation[]
   poolSettlementBatchItems       PoolSettlementBatchItem[]
   poolSettlementBatchItemSources PoolSettlementBatchItemSource[]
@@ -1369,7 +1368,6 @@ model Wallet {
   internalTransactionsTo                   InternalTransaction[]           @relation("InternalTxToWallet")
   internalFundsFrom                        InternalFund[]                  @relation("InternalFundFromWallet")
   internalFundsTo                          InternalFund[]                  @relation("InternalFundToWallet")
-  feeOccurrences                           FeeOccurrence[]                 @relation("FeeOccurrenceSourceWallet")
   reimbursementObligations                 ReimbursementObligation[]       @relation("ReimbursementObligationSourceWallet")
   poolSettlementBatchItemsAsWalletA        PoolSettlementBatchItem[]       @relation("PoolSettlementBatchItemWalletA")
   poolSettlementBatchItemsAsWalletB        PoolSettlementBatchItem[]       @relation("PoolSettlementBatchItemWalletB")
@@ -1601,44 +1599,6 @@ model InternalTransaction {
   @@index([pathLabel])
   @@index([traceId])
   @@map("internal_transactions")
-}
-
-model FeeOccurrence {
-  id                      String                   @id @default(uuid())
-  feeNo                   String                   @unique
-  feeType                 String
-  status                  String                   @default("RECORDED")
-  assetId                 String
-  amount                  Decimal
-  payer                   String                   @default("PLATFORM")
-  chargedToCustomer       Boolean                  @default(false)
-  sourceEntityType        String?
-  sourceEntityId          String?
-  sourceEntityNo          String?
-  sourceWalletId          String?
-  sourceAccountRef        String?
-  relatedEntityType       String?
-  relatedEntityId         String?
-  relatedEntityNo         String?
-  reimbursementImpact     String                   @default("NONE")
-  poolRole                String?
-  evidenceRef             String?
-  traceId                 String?
-  idempotencyKey          String?                  @unique
-  metadata                String?
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
-  cancelledAt             DateTime?
-  asset                   Asset                    @relation(fields: [assetId], references: [id])
-  sourceWallet            Wallet?                  @relation("FeeOccurrenceSourceWallet", fields: [sourceWalletId], references: [id])
-
-  @@index([status])
-  @@index([assetId, createdAt])
-  @@index([sourceEntityType, sourceEntityId])
-  @@index([relatedEntityType, relatedEntityId])
-  @@index([reimbursementImpact, poolRole])
-  @@index([traceId])
-  @@map("fee_occurrences")
 }
 
 model ReimbursementObligation {

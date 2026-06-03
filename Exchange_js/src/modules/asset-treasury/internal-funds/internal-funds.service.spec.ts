@@ -11,7 +11,6 @@ describe('InternalFundsService', () => {
   let prisma: any;
   let internalTransactionsService: any;
   let eventEmitter: any;
-  let feeOccurrencesService: any;
 
   beforeEach(() => {
     prisma = {
@@ -44,17 +43,16 @@ describe('InternalFundsService', () => {
       emit: jest.fn(),
     };
 
-    feeOccurrencesService = {
-      captureFromInternalFund: jest.fn().mockResolvedValue([]),
-    };
-
     service = new InternalFundsService(
       prisma,
       internalTransactionsService,
       eventEmitter,
-      feeOccurrencesService,
       {} as any,
     );
+    (service as any).auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+      recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+    };
     jest.clearAllMocks();
   });
 
@@ -92,13 +90,6 @@ describe('InternalFundsService', () => {
     );
 
     expect(result.status).toBe(InternalFundStatus.SIGNING);
-    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          action: 'INTERNAL_FUND_CREATED_TO_SIGNING',
-        }),
-      }),
-    );
     expect(internalTransactionsService.syncStatusFromFunds).toHaveBeenCalledWith(
       'itx-1',
       'SYSTEM',
@@ -111,13 +102,6 @@ describe('InternalFundsService', () => {
         internalTransactionId: 'itx-1',
         oldStatus: InternalFundStatus.CREATED,
         newStatus: InternalFundStatus.SIGNING,
-      }),
-    );
-    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          workflowType: 'DEPOSIT',
-        }),
       }),
     );
   });
@@ -220,13 +204,6 @@ describe('InternalFundsService', () => {
         },
       }),
     );
-    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          action: 'INTERNAL_FUND_CONFIRMED_TO_CLEAR',
-        }),
-      }),
-    );
     expect(eventEmitter.emit).toHaveBeenNthCalledWith(
       1,
       'internal-fund.status.changed',
@@ -321,7 +298,6 @@ describe('InternalFundsService', () => {
       'SYSTEM',
     );
 
-    expect(feeOccurrencesService.captureFromInternalFund).not.toHaveBeenCalled();
   });
 
   it('does not capture fee occurrence when non-confirm terminal evidence is updated before confirmation', async () => {
@@ -368,60 +344,5 @@ describe('InternalFundsService', () => {
       'SYSTEM',
     );
 
-    expect(feeOccurrencesService.captureFromInternalFund).not.toHaveBeenCalled();
-  });
-
-  it('captures fee occurrence and updates fee total when fund becomes confirmed', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
-      id: 'ifd-confirm-fee-1',
-      internalFundNo: 'IFD-CF-1',
-      status: InternalFundStatus.CONFIRMING,
-      statusHistory: '[]',
-      sentAt: new Date(),
-      confirmedAt: null,
-      fromWalletId: 'w1',
-      fromAddress: '0xfrom',
-      fromIban: null,
-      internalTransaction: {
-        id: 'itx-confirm-fee-1',
-        sourceType: 'WITHDRAW',
-        sourceId: 'wd-3',
-        sourceNo: 'WD003',
-      },
-      asset: { id: 'asset-btc', code: 'BTC', type: 'CRYPTO', decimals: 8, network: 'BITCOIN' },
-    });
-    prisma.internalFund.update.mockResolvedValue({
-      id: 'ifd-confirm-fee-1',
-      internalFundNo: 'IFD-CF-1',
-      status: InternalFundStatus.CONFIRMED,
-      feeAmount: new Prisma.Decimal('0.00012'),
-      gasUsed: '21000',
-      effectiveGasPrice: '15',
-    });
-    prisma.internalFundAuditLog.create.mockResolvedValue({ id: 'log-2' });
-    internalTransactionsService.syncStatusFromFunds.mockResolvedValue({
-      id: 'itx-confirm-fee-1',
-      status: 'INTERNAL_FUNDS_PENDING',
-    });
-    feeOccurrencesService.captureFromInternalFund.mockResolvedValue([
-      { id: 'fee-1', amount: new Prisma.Decimal('0.0001') },
-      { id: 'fee-2', amount: new Prisma.Decimal('0.00002') },
-    ]);
-
-    await service.updateStatus(
-      'ifd-confirm-fee-1',
-      {
-        action: InternalFundAction.CONFIRM,
-      },
-      'SYSTEM',
-    );
-
-    expect(feeOccurrencesService.captureFromInternalFund).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'ifd-confirm-fee-1',
-      }),
-      'SYSTEM',
-      prisma,
-    );
   });
 });

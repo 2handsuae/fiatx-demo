@@ -303,7 +303,6 @@ export class AuditLogsService {
       PAYIN: { model: 'payin', field: 'payinNo' },
       INTERNAL_TRANSACTION: { model: 'internalTransaction', field: 'internalTxNo' },
       INTERNAL_FUND: { model: 'internalFund', field: 'internalFundNo' },
-      FEE_OCCURRENCE: { model: 'feeOccurrence', field: 'feeNo' },
       REIMBURSEMENT_OBLIGATION: {
         model: 'reimbursementObligation',
         field: 'obligationNo',

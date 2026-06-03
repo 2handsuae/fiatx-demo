@@ -6,11 +6,9 @@ export const WAVE8_TREASURY_DEMO_WALLET_NO_PREFIX = 'W8-TREASURY-DEMO-WALLET-';
 
 type DeleteManyCapableDelegate = {
   deleteMany?: (args?: Record<string, unknown>) => Promise<{ count: number }>;
-  findMany?: (args?: Record<string, unknown>) => Promise<Array<{ id: string }>>;
 };
 
 type TreasuryDemoCleanupCapablePrisma = {
-  feeOccurrence?: DeleteManyCapableDelegate;
   reimbursementObligation?: DeleteManyCapableDelegate;
   depositTransaction?: DeleteManyCapableDelegate;
   wallet?: DeleteManyCapableDelegate;
@@ -45,18 +43,6 @@ function buildDemoRecordWhere() {
   };
 }
 
-async function findIds(
-  delegate: DeleteManyCapableDelegate | undefined,
-  where: Record<string, unknown>,
-) {
-  if (!delegate?.findMany) return [] as string[];
-  const rows = await delegate.findMany({
-    where,
-    select: { id: true },
-  });
-  return rows.map((item) => item.id);
-}
-
 async function deleteMany(
   delegate: DeleteManyCapableDelegate | undefined,
   where?: Record<string, unknown>,
@@ -70,32 +56,17 @@ export async function cleanupWave8TreasuryDemoData(
   prisma: TreasuryDemoCleanupCapablePrisma,
 ) {
   const demoRecordWhere = buildDemoRecordWhere();
-  const [feeOccurrenceIds] = await Promise.all([
-    findIds(prisma.feeOccurrence, demoRecordWhere),
-  ]);
 
   const deleted = {
     reimbursement_obligations: 0,
-    fee_occurrences: 0,
     deposit_transactions: 0,
     wallets: 0,
   };
 
-  if (feeOccurrenceIds.length) {
-    deleted.reimbursement_obligations = await deleteMany(
-      prisma.reimbursementObligation,
-      {
-        feeOccurrenceId: {
-          in: feeOccurrenceIds,
-        },
-      },
-    );
-    deleted.fee_occurrences = await deleteMany(prisma.feeOccurrence, {
-      id: {
-        in: feeOccurrenceIds,
-      },
-    });
-  }
+  deleted.reimbursement_obligations = await deleteMany(
+    prisma.reimbursementObligation,
+    demoRecordWhere,
+  );
 
   deleted.deposit_transactions = await deleteMany(prisma.depositTransaction, {
     depositNo: {

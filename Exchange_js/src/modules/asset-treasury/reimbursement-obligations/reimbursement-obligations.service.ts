@@ -3,13 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
-  AuditActions,
   AuditEntityTypes,
-  AuditModules,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
@@ -101,111 +98,6 @@ export class ReimbursementObligationsService {
     });
   }
 
-  async syncForOccurrence(item: any, operatorId = 'SYSTEM', tx?: any) {
-    if (String(item?.reimbursementImpact || '').toUpperCase() !== 'SAFEGUARDED_POOL') {
-      return null;
-    }
-
-    const db = tx || this.prisma;
-    const actorType = operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN';
-    const obligation = await (db as any).reimbursementObligation.upsert({
-      where: { feeOccurrenceId: item.id },
-      update: {
-        assetId: item.assetId,
-        amount: item.amount,
-        poolRole: item.poolRole || null,
-        sourceWalletId: item.sourceWalletId || null,
-        sourceAccountRef: item.sourceAccountRef || null,
-        reason: item.reason || null,
-        traceId: item.traceId || null,
-        metadata: item.metadata || null,
-      },
-      create: {
-        obligationNo: generateReferenceNo('ROB'),
-        feeOccurrenceId: item.id,
-        status: ReimbursementObligationStatus.OPEN,
-        assetId: item.assetId,
-        amount: item.amount,
-        poolRole: item.poolRole || null,
-        sourceWalletId: item.sourceWalletId || null,
-        sourceAccountRef: item.sourceAccountRef || null,
-        reason: item.reason || `Platform reimbursement required for ${item.feeNo || item.id}`,
-        traceId: item.traceId || null,
-        metadata: item.metadata || null,
-      },
-    });
-
-    await this.auditLogsService.recordByActor(
-      {
-
-        action: AuditActions.REIMBURSEMENT_OBLIGATION_OPENED,
-        entityType: AuditEntityTypes.REIMBURSEMENT_OBLIGATION,
-        entityId: obligation.id,
-        entityNo: obligation.obligationNo,
-        reason: obligation.reason || 'Reimbursement obligation opened',
-        traceId: obligation.traceId || null,
-        sourcePlatform: actorType === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-      },
-      {
-        actorType,
-        actorId: operatorId,
-        actorRole: actorType,
-      },
-      db,
-    );
-
-    return obligation;
-  }
-
-  async cancelOpenForOccurrence(
-    feeOccurrenceId: string,
-    reason: string,
-    operatorId = 'SYSTEM',
-    tx?: any,
-  ) {
-    const db = tx || this.prisma;
-    const current = await (db as any).reimbursementObligation.findUnique({
-      where: { feeOccurrenceId },
-    });
-    if (!current || current.status !== ReimbursementObligationStatus.OPEN) {
-      return null;
-    }
-
-    const updated = await (db as any).reimbursementObligation.update({
-      where: { feeOccurrenceId },
-      data: {
-        status: ReimbursementObligationStatus.CANCELLED,
-        reason,
-        cancelledAt: new Date(),
-      },
-    });
-
-    await this.auditLogsService.recordByActor(
-      {
-
-        action: buildStateTransitionAction(
-          'REIMBURSEMENT_OBLIGATION',
-          current.status,
-          updated.status,
-        ),
-        entityType: AuditEntityTypes.REIMBURSEMENT_OBLIGATION,
-        entityId: updated.id,
-        entityNo: updated.obligationNo,
-        reason,
-        traceId: updated.traceId || null,
-        sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-      },
-      {
-        actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-        actorId: operatorId,
-        actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-      },
-      db,
-    );
-
-    return updated;
-  }
-
   async findAllForAdmin(query: ReimbursementObligationQueryDto) {
     const { skip = '0', take = '20', status, assetId, poolRole } = query;
     const where: any = {};
@@ -222,7 +114,6 @@ export class ReimbursementObligationsService {
         include: {
           asset: true,
           sourceWallet: true,
-          feeOccurrence: true,
           settlementInternalTransaction: true,
         },
       }),
@@ -238,7 +129,6 @@ export class ReimbursementObligationsService {
       include: {
         asset: true,
         sourceWallet: true,
-        feeOccurrence: true,
         settlementInternalTransaction: true,
       },
     });

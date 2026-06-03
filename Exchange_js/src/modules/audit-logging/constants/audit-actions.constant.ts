@@ -22,7 +22,6 @@ export const AuditModules = {
   SAFEGUARDING_RECONCILIATION: 'clearing-settle/safeguarding-reconciliation',
   INTERNAL_TRANSACTIONS: 'asset-treasury/internal-transactions',
   INTERNAL_FUNDS: 'asset-treasury/internal-funds',
-  FEE_OCCURRENCES: 'asset-treasury/fee-occurrences',
   REIMBURSEMENT_OBLIGATIONS: 'asset-treasury/reimbursement-obligations',
   TRANSACTION_COMPLIANCE: 'risk-engine/transaction-compliance',
   ASSETS: 'asset-treasury/assets',

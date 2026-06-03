@@ -26,10 +26,6 @@ describe('wave8 treasury demo util', () => {
 
   it('cleans only demo-tagged treasury data in dependency-safe order', async () => {
     const prisma: any = {
-      feeOccurrence: {
-        findMany: jest.fn().mockResolvedValue([{ id: 'fee-1' }]),
-        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
-      },
       reimbursementObligation: {
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
@@ -43,29 +39,21 @@ describe('wave8 treasury demo util', () => {
 
     const deleted = await cleanupWave8TreasuryDemoData(prisma);
 
-    expect(prisma.feeOccurrence.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.arrayContaining([
-            expect.objectContaining({
-              traceId: expect.objectContaining({
-                startsWith: WAVE8_TREASURY_DEMO_TRACE_PREFIX,
-              }),
-            }),
-            expect.objectContaining({
-              metadata: expect.objectContaining({
-                contains: WAVE8_TREASURY_DEMO_METADATA_MARKER,
-              }),
-            }),
-          ]),
-        }),
-      }),
-    );
     expect(prisma.reimbursementObligation.deleteMany).toHaveBeenCalledWith({
-      where: { feeOccurrenceId: { in: ['fee-1'] } },
-    });
-    expect(prisma.feeOccurrence.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['fee-1'] } },
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          expect.objectContaining({
+            traceId: expect.objectContaining({
+              startsWith: WAVE8_TREASURY_DEMO_TRACE_PREFIX,
+            }),
+          }),
+          expect.objectContaining({
+            metadata: expect.objectContaining({
+              contains: WAVE8_TREASURY_DEMO_METADATA_MARKER,
+            }),
+          }),
+        ]),
+      }),
     });
     expect(prisma.depositTransaction.deleteMany).toHaveBeenCalledWith({
       where: {
@@ -83,7 +71,6 @@ describe('wave8 treasury demo util', () => {
     });
     expect(deleted).toEqual({
       reimbursement_obligations: 1,
-      fee_occurrences: 1,
       deposit_transactions: 1,
       wallets: 1,
     });

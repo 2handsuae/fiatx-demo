@@ -62,8 +62,6 @@ import {
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
-
 @Injectable()
 export class PayoutsService {
   private static readonly UPDATE_STATUS_TX_TIMEOUT_MS = 15_000;
@@ -73,7 +71,6 @@ export class PayoutsService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly transactionComplianceService: TransactionComplianceService,
-    private readonly feeOccurrencesService: FeeOccurrencesService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -250,18 +247,6 @@ export class PayoutsService {
       },
     });
     if (!item) throw new NotFoundException('Payout not found');
-    const linkedFeeOccurrences =
-      (await (this.prisma as any).feeOccurrence?.findMany?.({
-        where: {
-          sourceEntityType: 'PAYOUT',
-          sourceEntityId: item.id,
-        },
-        orderBy: { createdAt: 'asc' },
-      })) || [];
-    const feeOccurrences =
-      linkedFeeOccurrences.length > 0
-        ? linkedFeeOccurrences
-        : item.feeOccurrences || [];
     const auditLogs = await this.getCanonicalPayoutAuditLogs(
       item.id,
       item.payoutNo,
@@ -279,7 +264,6 @@ export class PayoutsService {
       type: this.normalizeAdminPayoutType(item.type),
       status: this.normalizeStoredPayoutStatus(item.status),
       displayStatus: this.normalizeRailDisplayStatus(item.status),
-      feeOccurrences,
       auditLogs,
     };
   }
@@ -481,20 +465,6 @@ export class PayoutsService {
         },
         client,
       );
-
-      if (nextStatus === PayoutStatus.CONFIRMED) {
-        await this.feeOccurrencesService.captureFromPayout(
-          {
-            ...item,
-            ...updated,
-            asset: item.asset,
-            sourceWallet: item.withdraw?.fromWallet || null,
-            withdraw: item.withdraw,
-          },
-          operatorId,
-          client,
-        );
-      }
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
       if (nextStatus === PayoutStatus.CONFIRMED) {

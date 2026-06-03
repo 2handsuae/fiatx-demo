@@ -15,7 +15,6 @@ import {
   UpdateInternalFundStatusDto,
 } from './dto/internal-fund.dto';
 import { InternalTransactionsService } from '../internal-transactions/internal-transactions.service';
-import { FeeOccurrencesService } from '../fee-occurrences/fee-occurrences.service';
 import {
   InternalTransactionStatus,
   InternalTransactionType,
@@ -126,7 +125,6 @@ export class InternalFundsService {
     private readonly prisma: PrismaService,
     private readonly internalTransactionsService: InternalTransactionsService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly feeOccurrencesService: FeeOccurrencesService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -160,33 +158,6 @@ export class InternalFundsService {
     });
 
     return JSON.stringify(history);
-  }
-
-  private stableHash(seed: string) {
-    let hash = 2166136261;
-    for (let index = 0; index < seed.length; index += 1) {
-      hash ^= seed.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
-  }
-
-  private sumFeeOccurrenceAmounts(occurrences: Array<{ amount: any }>) {
-    return occurrences.reduce(
-      (total, occurrence) =>
-        total.plus(new Prisma.Decimal(occurrence?.amount || 0)),
-      new Prisma.Decimal(0),
-    );
-  }
-
-  private buildCryptoFeePlaceholders(fundId: string) {
-    const gasUsed = 21_000 + (this.stableHash(`${fundId}:gas-used`) % 40_000);
-    const effectiveGasPrice =
-      10 + (this.stableHash(`${fundId}:gas-price`) % 190);
-    return {
-      gasUsed: String(gasUsed),
-      effectiveGasPrice: String(effectiveGasPrice),
-    };
   }
 
   private isInternalFundNoUniqueConflict(error: unknown): boolean {
@@ -541,35 +512,6 @@ export class InternalFundsService {
         client,
       );
 
-      let settledFund = {
-        ...item,
-        ...updated,
-      };
-
-      if (nextStatus === InternalFundStatus.CONFIRMED) {
-        const feeOccurrences =
-          await this.feeOccurrencesService.captureFromInternalFund(
-            settledFund,
-            operatorId,
-            client,
-          ) || [];
-        if (feeOccurrences.length > 0) {
-          const aggregateUpdate: Record<string, unknown> = {
-            feeAmount: this.sumFeeOccurrenceAmounts(feeOccurrences),
-          };
-          if (String(item.asset?.type || '').toUpperCase() !== 'FIAT') {
-            Object.assign(
-              aggregateUpdate,
-              this.buildCryptoFeePlaceholders(item.id),
-            );
-          }
-          settledFund = await (client as any).internalFund.update({
-            where: { id },
-            data: aggregateUpdate,
-          });
-        }
-      }
-
       const txStatus =
         await this.internalTransactionsService.syncStatusFromFunds(
           item.internalTransaction.id,
@@ -583,6 +525,8 @@ export class InternalFundsService {
         newStatus: nextStatus,
         operatorId,
       });
+
+      let settledFund: any = updated;
 
       if (
         nextStatus === InternalFundStatus.CONFIRMED &&
@@ -709,18 +653,7 @@ export class InternalFundsService {
       throw new NotFoundException('Internal fund not found');
     }
 
-    const feeOccurrences = await (this.prisma as any).feeOccurrence.findMany({
-      where: {
-        sourceEntityType: 'INTERNAL_FUND',
-        sourceEntityId: item.id,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-
-    return {
-      ...item,
-      feeOccurrences,
-    };
+    return item;
   }
 
   async createMock(operatorId = 'SYSTEM') {
