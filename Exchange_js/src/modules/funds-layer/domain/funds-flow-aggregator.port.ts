@@ -13,5 +13,5 @@ export abstract class FundsFlowAggregatorPort {
     internalTransactionId: string,
     operatorId?: string,
     tx?: Prisma.TransactionClient,
-  ): Promise<{ status: string } | null>;
+  ): Promise<{ status: string }>;
 }
