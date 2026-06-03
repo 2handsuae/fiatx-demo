@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotImplementedException } from '@nestjs/common';
 import { FundsAccountingService } from './funds-accounting.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -10,6 +9,13 @@ import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.co
 
 const TRADE_CLEARING_ID = 1111n;
 const CUSTODY_ID = 2222n;
+const FEE_RECEIVABLE_ID = 3333n;
+
+const resolveById = ({ code }: { code: number }) => {
+  if (code === TB_ACCOUNT_CODES.TRADE_CLEARING) return Promise.resolve(TRADE_CLEARING_ID);
+  if (code === TB_ACCOUNT_CODES.FEE_RECEIVABLE) return Promise.resolve(FEE_RECEIVABLE_ID);
+  return Promise.resolve(CUSTODY_ID);
+};
 
 describe('FundsAccountingService', () => {
   let service: FundsAccountingService;
@@ -34,9 +40,7 @@ describe('FundsAccountingService', () => {
       },
     };
     accounting = {
-      resolveTbAccountId: jest.fn(({ code }: { code: number }) =>
-        Promise.resolve(code === TB_ACCOUNT_CODES.TRADE_CLEARING ? TRADE_CLEARING_ID : CUSTODY_ID),
-      ),
+      resolveTbAccountId: jest.fn(resolveById),
       lookupBalance: jest.fn(),
       executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
     };
@@ -51,9 +55,7 @@ describe('FundsAccountingService', () => {
 
     service = moduleRef.get(FundsAccountingService);
     jest.clearAllMocks();
-    accounting.resolveTbAccountId.mockImplementation(({ code }: { code: number }) =>
-      Promise.resolve(code === TB_ACCOUNT_CODES.TRADE_CLEARING ? TRADE_CLEARING_ID : CUSTODY_ID),
-    );
+    accounting.resolveTbAccountId.mockImplementation(resolveById);
     accounting.executeTransfer.mockResolvedValue({ tbTransferId: 1n });
   });
 
@@ -133,16 +135,48 @@ describe('FundsAccountingService', () => {
     expect(result).toEqual({ tbApplied: false });
   });
 
-  it('B-class FEE_COLLECT (FEE_RECEIVABLE drain) throws NotImplemented (Phase 4)', async () => {
+  it('B-class FEE_COLLECT (FEE_RECEIVABLE net CREDIT) drains OUT (debit FEE_RECEIVABLE → credit CUSTODY) with FEE_DRAIN code', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(transfer({ pathLabel: 'FEE_COLLECT' }));
+    accounting.lookupBalance.mockResolvedValue({
+      debitsPosted: 0n,
+      creditsPosted: 500n,
+      debitsPending: 0n,
+      creditsPending: 0n,
+    });
 
-    await expect(
-      service.applyAccounting({
-        accountingClass: AccountingClass.B,
-        internalTransferId: 'it-1',
-      }),
-    ).rejects.toBeInstanceOf(NotImplementedException);
+    const result = await service.applyAccounting({
+      accountingClass: AccountingClass.B,
+      internalTransferId: 'it-1',
+    });
+
+    expect(accounting.lookupBalance).toHaveBeenCalledWith(FEE_RECEIVABLE_ID);
+    expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
+    const call = accounting.executeTransfer.mock.calls[0][0];
+    expect(call.debitAccountId).toBe(FEE_RECEIVABLE_ID);
+    expect(call.creditAccountId).toBe(CUSTODY_ID);
+    expect(call.amount).toBe(500n);
+    expect(call.ledger).toBe(TB_LEDGERS.AED);
+    expect(call.code).toBe(TB_TRANSFER_CODES.FEE_DRAIN);
+    expect(call.evidence.sourceType).toBe('FEE_COLLECTION');
+    expect(result).toEqual({ tbApplied: true, tbTransferId: 1n });
+  });
+
+  it('B-class FEE_COLLECT with net-zero FEE_RECEIVABLE balance does NOT drain', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue(transfer({ pathLabel: 'FEE_COLLECT' }));
+    accounting.lookupBalance.mockResolvedValue({
+      debitsPosted: 0n,
+      creditsPosted: 0n,
+      debitsPending: 0n,
+      creditsPending: 0n,
+    });
+
+    const result = await service.applyAccounting({
+      accountingClass: AccountingClass.B,
+      internalTransferId: 'it-1',
+    });
+
     expect(accounting.executeTransfer).not.toHaveBeenCalled();
+    expect(result).toEqual({ tbApplied: false });
   });
 
   it('passes EOD evidence (sourceNo=internalTxNo, traceId, SYSTEM actor)', async () => {

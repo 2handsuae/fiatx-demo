@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, NotImplementedException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -24,9 +24,9 @@ export class FundsAccountingService {
 
   /**
    * A 类：客户资产在公司钱包间搬位置，TB 托管余额不变 → 不产生 TB transfer。
-   * B 类：drain TRADE_CLEARING ↔ CUSTODY。direction 由 TRADE_CLEARING 的实际
-   * 余额符号决定（net CREDIT → drain out；net DEBIT → drain in），pathLabel
-   * 仅用于选择 drain 账户。FEE_RECEIVABLE drain 留待 Phase 4。
+   * B 类：drain <drainAcct> ↔ CUSTODY。direction 由 drain 账户的实际余额符号决定
+   * （net CREDIT → drain out；net DEBIT → drain in），policy.drain 选择 drain 账户。
+   * TRADE_CLEARING (EOD settlement) 和 FEE_RECEIVABLE (fee collection) 共用此逻辑。
    */
   async applyAccounting(input: {
     accountingClass: AccountingClass;
@@ -47,14 +47,38 @@ export class FundsAccountingService {
       });
     }
 
-    // pathLabel selects which SYSTEM account TRADE_CLEARING balance gets drained.
+    // policy.drain selects which SYSTEM account's residual balance gets drained.
     const policy = TRANSFER_PATH_WHITELIST[transfer.pathLabel as TransferPath];
     const drain = policy?.drain;
-    if (drain !== 'TRADE_CLEARING') {
-      // FEE_RECEIVABLE drain (FEE_COLLECT) lands in Phase 4.
-      throw new NotImplementedException({
-        code: 'B_CLASS_FEE_RECEIVABLE_PENDING',
-        message: `B-class drain=${drain ?? 'UNKNOWN'} accounting is implemented in Phase 4`,
+    let drainTbCode: number;
+    let drainOutCode: number;
+    let drainInCode: number;
+    let drainSourceType: string;
+    let drainMemo: string;
+    let eventOut: string;
+    let eventIn: string;
+    if (drain === 'TRADE_CLEARING') {
+      drainTbCode = TB_ACCOUNT_CODES.TRADE_CLEARING;
+      drainOutCode = TB_TRANSFER_CODES.EOD_DRAIN_OUT;
+      drainInCode = TB_TRANSFER_CODES.EOD_DRAIN_IN;
+      drainSourceType = 'EOD_SETTLEMENT';
+      drainMemo = 'EOD TRADE_CLEARING drain';
+      eventOut = 'EOD_DRAIN_OUT';
+      eventIn = 'EOD_DRAIN_IN';
+    } else if (drain === 'FEE_RECEIVABLE') {
+      drainTbCode = TB_ACCOUNT_CODES.FEE_RECEIVABLE;
+      // FEE_RECEIVABLE only accrues CREDITS → only the drain-out direction occurs,
+      // but keep the generic sign logic so a single code covers both directions.
+      drainOutCode = TB_TRANSFER_CODES.FEE_DRAIN;
+      drainInCode = TB_TRANSFER_CODES.FEE_DRAIN;
+      drainSourceType = 'FEE_COLLECTION';
+      drainMemo = 'FEE_RECEIVABLE drain';
+      eventOut = 'FEE_DRAIN';
+      eventIn = 'FEE_DRAIN';
+    } else {
+      throw new BadRequestException({
+        code: 'B_CLASS_DRAIN_UNSUPPORTED',
+        message: `B-class drain=${drain ?? 'UNKNOWN'} is not supported`,
       });
     }
 
@@ -67,8 +91,8 @@ export class FundsAccountingService {
       });
     }
 
-    const tradeClearingId = await this.accounting.resolveTbAccountId({
-      code: TB_ACCOUNT_CODES.TRADE_CLEARING,
+    const drainAcctId = await this.accounting.resolveTbAccountId({
+      code: drainTbCode,
       ledger,
       ownerType: 'SYSTEM',
     });
@@ -80,7 +104,7 @@ export class FundsAccountingService {
 
     // lookupBalance returns bigint posted amounts → net is already in TB units;
     // the drain amount needs no decimal conversion.
-    const balance = await this.accounting.lookupBalance(tradeClearingId);
+    const balance = await this.accounting.lookupBalance(drainAcctId);
     const net = balance.creditsPosted - balance.debitsPosted;
     if (net === 0n) {
       return { tbApplied: false };
@@ -95,22 +119,22 @@ export class FundsAccountingService {
     let debitTbCode: number;
     let creditTbCode: number;
     if (net > 0n) {
-      // TRADE_CLEARING net CREDIT → debit it to zero, credit CUSTODY.
-      debitAccountId = tradeClearingId;
+      // drain account net CREDIT → debit it to zero, credit CUSTODY.
+      debitAccountId = drainAcctId;
       creditAccountId = custodyId;
-      drainCode = TB_TRANSFER_CODES.EOD_DRAIN_OUT;
-      debitTbCode = TB_ACCOUNT_CODES.TRADE_CLEARING;
+      drainCode = drainOutCode;
+      debitTbCode = drainTbCode;
       creditTbCode = TB_ACCOUNT_CODES.CUSTODY;
     } else {
-      // TRADE_CLEARING net DEBIT → credit it to zero, debit CUSTODY.
+      // drain account net DEBIT → credit it to zero, debit CUSTODY.
       debitAccountId = custodyId;
-      creditAccountId = tradeClearingId;
-      drainCode = TB_TRANSFER_CODES.EOD_DRAIN_IN;
+      creditAccountId = drainAcctId;
+      drainCode = drainInCode;
       debitTbCode = TB_ACCOUNT_CODES.CUSTODY;
-      creditTbCode = TB_ACCOUNT_CODES.TRADE_CLEARING;
+      creditTbCode = drainTbCode;
     }
 
-    const eventCode = net > 0n ? 'EOD_DRAIN_OUT' : 'EOD_DRAIN_IN';
+    const eventCode = net > 0n ? eventOut : eventIn;
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
       creditAccountId,
@@ -118,7 +142,7 @@ export class FundsAccountingService {
       ledger,
       code: drainCode,
       evidence: {
-        sourceType: 'EOD_SETTLEMENT',
+        sourceType: drainSourceType,
         sourceNo: transfer.internalTxNo,
         eventCode,
         debitCode: TB_CODE_TO_COA[debitTbCode],
@@ -127,7 +151,7 @@ export class FundsAccountingService {
         traceId: transfer.traceId ?? `EOD:${transfer.internalTxNo}`,
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
-        memo: 'EOD TRADE_CLEARING drain',
+        memo: drainMemo,
       },
     });
 

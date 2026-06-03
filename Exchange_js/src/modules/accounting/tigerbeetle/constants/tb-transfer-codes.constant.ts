@@ -35,6 +35,9 @@ export const TB_TRANSFER_CODES = {
   // EOD settlement: drain residual TRADE_CLEARING balance ↔ CUSTODY (40–41)
   EOD_DRAIN_OUT: 40, // TRADE_CLEARING net CREDIT → debit TRADE_CLEARING, credit CUSTODY
   EOD_DRAIN_IN: 41,  // TRADE_CLEARING net DEBIT  → debit CUSTODY, credit TRADE_CLEARING
+
+  // Fee collection: drain FEE_RECEIVABLE (always net CREDIT) ↔ CUSTODY (42)
+  FEE_DRAIN: 42, // FEE_RECEIVABLE net CREDIT → debit FEE_RECEIVABLE, credit CUSTODY
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
