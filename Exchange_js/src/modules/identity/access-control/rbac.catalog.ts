@@ -440,24 +440,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/internal-transactions', 'List internal transactions', ['INTERNAL_TX_READ']),
   route('GET', '/admin/internal-transactions/:id', 'Get internal transaction detail', ['INTERNAL_TX_READ']),
   route('POST', '/admin/internal-transactions', 'Create manual internal transaction', ['INTERNAL_TX_SUBMIT']),
-  route(
-    'GET',
-    '/admin/internal-transactions/collection-wallets',
-    'List deposit wallets eligible for collection',
-    ['INTERNAL_TX_SUBMIT'],
-  ),
-  route(
-    'POST',
-    '/admin/internal-transactions/collection-wallets/:walletId/reconcile',
-    'Run wallet-driven collection for a deposit wallet',
-    ['INTERNAL_TX_SUBMIT'],
-  ),
-  route(
-    'POST',
-    '/admin/internal-transactions/reconcile-collections',
-    'Replay internal collection transactions (legacy)',
-    ['INTERNAL_TX_SUBMIT'],
-  ),
   route('PATCH', '/admin/internal-transactions/:id/review', 'Review manual internal transaction', ['INTERNAL_TX_REVIEW']),
 
   route('GET', '/admin/internal-funds', 'List internal funds', ['INTERNAL_FUND_READ']),

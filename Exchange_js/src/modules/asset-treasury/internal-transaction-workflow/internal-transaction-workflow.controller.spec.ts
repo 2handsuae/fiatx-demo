@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { InternalCollectionWorkflowOrchestrator } from '../../../orchestrators/internal-collection-workflow.orchestrator';
 import { InternalTransactionWorkflowController } from './internal-transaction-workflow.controller';
 import { InternalTransactionWorkflowService } from './internal-transaction-workflow.service';
 
@@ -9,12 +8,6 @@ describe('InternalTransactionWorkflowController', () => {
   const internalTransactionWorkflowService = {
     createManualTransaction: jest.fn(),
     reviewManualTransaction: jest.fn(),
-  };
-
-  const internalCollectionWorkflowOrchestrator = {
-    listCollectionWallets: jest.fn(),
-    reconcileCollectionWallet: jest.fn(),
-    reconcileMissingCollections: jest.fn(),
   };
 
   const adminReq = {
@@ -34,10 +27,6 @@ describe('InternalTransactionWorkflowController', () => {
         {
           provide: InternalTransactionWorkflowService,
           useValue: internalTransactionWorkflowService,
-        },
-        {
-          provide: InternalCollectionWorkflowOrchestrator,
-          useValue: internalCollectionWorkflowOrchestrator,
         },
       ],
     }).compile();
@@ -75,35 +64,5 @@ describe('InternalTransactionWorkflowController', () => {
         roleCodes: ['SUPER_ADMIN'],
       }),
     );
-  });
-
-  it('delegates legacy deposit-driven reconciliation with admin operator context', async () => {
-    internalCollectionWorkflowOrchestrator.reconcileMissingCollections.mockResolvedValue({
-      scanned: 1,
-      created: 0,
-      idempotent: 1,
-      skipped: 0,
-      failed: 0,
-      items: [],
-    });
-
-    await controller.reconcileCollections(
-      adminReq,
-      {
-        depositNo: 'DEP-001',
-        onlyMissing: true,
-        dryRun: true,
-      } as any,
-    );
-
-    expect(
-      internalCollectionWorkflowOrchestrator.reconcileMissingCollections,
-    ).toHaveBeenCalledWith({
-      depositId: undefined,
-      depositNo: 'DEP-001',
-      onlyMissing: true,
-      dryRun: true,
-      operatorId: 'admin-1',
-    });
   });
 });

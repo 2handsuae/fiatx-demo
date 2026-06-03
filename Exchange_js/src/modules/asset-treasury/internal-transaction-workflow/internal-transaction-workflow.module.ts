@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
-import { WorkflowsModule } from '../../../orchestrators/workflows.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { InternalFundsModule } from '../internal-funds/internal-funds.module';
 import { InternalTransactionsModule } from '../internal-transactions/internal-transactions.module';
@@ -13,7 +12,6 @@ import { InternalTransactionWorkflowService } from './internal-transaction-workf
     PrismaModule,
     InternalTransactionsModule,
     InternalFundsModule,
-    WorkflowsModule,
     ApprovalsModule,
   ],
   controllers: [InternalTransactionWorkflowController],
