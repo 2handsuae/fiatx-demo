@@ -81,6 +81,7 @@ describe('FundTransferWorkflowService', () => {
       withdrawNo: 'WD0001',
       assetId: 'asset-1',
       amount: '40',
+      reason: 'payout aborted, returning funds',
     });
 
     expect(systemWallets.resolve).toHaveBeenCalledWith('asset-1', 'C_MAIN');
@@ -99,6 +100,7 @@ describe('FundTransferWorkflowService', () => {
         fromWalletId: 'wallet-out',
         toWalletId: 'wallet-main',
         triggerSource: 'WITHDRAW',
+        note: 'payout aborted, returning funds',
       }),
     );
   });

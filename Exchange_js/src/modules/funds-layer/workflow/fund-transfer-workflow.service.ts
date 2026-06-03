@@ -50,7 +50,13 @@ export class FundTransferWorkflowService {
 
   /** FUND_RETURN：Outbound→Main 退回（Task 2B.2 的 repair 面调用）。 */
   async fundReturn(
-    input: { withdrawId: string; withdrawNo: string; assetId: string; amount: string },
+    input: {
+      withdrawId: string;
+      withdrawNo: string;
+      assetId: string;
+      amount: string;
+      reason?: string;
+    },
     operatorId = 'SYSTEM',
   ) {
     const [main, out] = await Promise.all([
@@ -71,6 +77,7 @@ export class FundTransferWorkflowService {
         fromWalletId: out.id,
         toWalletId: main.id,
         triggerSource: 'WITHDRAW',
+        note: input.reason,
       },
       operatorId,
     );

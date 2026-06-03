@@ -28,6 +28,7 @@ export interface InitiateTransferInput {
   fromWalletId: string;
   toWalletId: string;
   triggerSource: string;
+  note?: string;
 }
 
 interface FundsFlowStatusChangedEvent {
@@ -112,7 +113,7 @@ export class InternalTransferWorkflowService {
           entityOwnerNo: input.ownerNo || undefined,
           workflowType: AuditBusinessWorkflowTypes.INTERNAL_TRANSFER,
           traceId: transfer.traceId || undefined,
-          reason: `Internal transfer requested on path ${policy.path}`,
+          reason: input.note ?? `Internal transfer requested on path ${policy.path}`,
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
         {

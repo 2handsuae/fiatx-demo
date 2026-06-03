@@ -124,6 +124,52 @@ describe('InternalTransferWorkflowService', () => {
     expect(result.internalTxNo).toBe('ITX-1');
   });
 
+  it('persists input.note as the REQUESTED audit reason when supplied', async () => {
+    transfers.createTransfer.mockResolvedValue({
+      id: 't1',
+      internalTxNo: 'ITX-1',
+      traceId: 'tr',
+      accountingClass: 'A',
+    });
+
+    await service.initiate(
+      { ...baseInput, fromRole: 'C_DEP', toRole: 'C_MAIN', note: 'payout aborted' },
+      'ADMIN',
+    );
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'INTERNAL_TRANSFER_REQUESTED',
+        reason: 'payout aborted',
+      }),
+      expect.any(Object),
+      txMock,
+    );
+  });
+
+  it('falls back to the default REQUESTED audit reason when no note is supplied', async () => {
+    transfers.createTransfer.mockResolvedValue({
+      id: 't1',
+      internalTxNo: 'ITX-1',
+      traceId: 'tr',
+      accountingClass: 'A',
+    });
+
+    await service.initiate(
+      { ...baseInput, fromRole: 'C_DEP', toRole: 'C_MAIN' },
+      'SYSTEM',
+    );
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'INTERNAL_TRANSFER_REQUESTED',
+        reason: 'Internal transfer requested on path AGGREGATE',
+      }),
+      expect.any(Object),
+      txMock,
+    );
+  });
+
   it('onFundsFlowStatusChanged writes TRANSFER_COMPLETED on CLEAR', async () => {
     await service.onFundsFlowStatusChanged({
       fundsFlowId: 'f1',

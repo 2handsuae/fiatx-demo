@@ -42,6 +42,7 @@ export class FundReturnRepairController {
         withdrawNo: dto.withdrawNo,
         assetId: dto.assetId,
         amount: dto.amount,
+        reason: dto.reason,
       },
       'ADMIN',
     );
