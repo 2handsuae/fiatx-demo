@@ -13,6 +13,7 @@ import { DepositAggregationSweepService } from './sweep/deposit-aggregation-swee
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
+import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 
 /**
@@ -28,7 +29,11 @@ import { DepositTransactionsModule } from '../trading/deposit-transactions/depos
  */
 @Module({
   imports: [PrismaModule, DepositTransactionsModule],
-  controllers: [InternalTransferAdminController, FundsSimulateController],
+  controllers: [
+    InternalTransferAdminController,
+    FundsSimulateController,
+    FundReturnRepairController,
+  ],
   providers: [
     FundsFlowService,
     InternalTransferService,
