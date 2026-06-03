@@ -92,10 +92,6 @@ const FIAT_POOL_WALLET_KIND_CONFIG: Record<
   },
 };
 
-const DEFAULT_CRYPTO_AED_VALUATION_BY_CODE: Record<string, string> = {
-  USDT: '3.6725',
-};
-
 export async function seedBase(prisma: PrismaClient): Promise<void> {
   console.log('--- Seeding Base Configuration ---');
   await seedAdmin(prisma);
@@ -105,7 +101,6 @@ export async function seedBase(prisma: PrismaClient): Promise<void> {
   await seedAssets(prisma);
   await seedSystemWallets(prisma);
   await seedWalletBalanceSnapshotBaseline(prisma);
-  await seedAssetValuationRates(prisma);
   await seedTbAccountRegistry(prisma);
   console.log('✅ Base configuration seeded.');
 }
@@ -716,38 +711,6 @@ async function seedSystemWallets(prisma: PrismaClient): Promise<void> {
         },
       });
     }
-  }
-}
-
-async function seedAssetValuationRates(prisma: PrismaClient): Promise<void> {
-  const cryptoAssets = await prisma.asset.findMany({
-    where: { type: 'CRYPTO', status: 'ACTIVE' },
-    select: { id: true, code: true },
-  });
-
-  for (const asset of cryptoAssets) {
-    const price =
-      DEFAULT_CRYPTO_AED_VALUATION_BY_CODE[asset.code] ??
-      DEFAULT_CRYPTO_AED_VALUATION_BY_CODE.USDT;
-
-    await (prisma as any).assetValuationRate.upsert({
-      where: {
-        assetId_quoteAssetCode: {
-          assetId: asset.id,
-          quoteAssetCode: 'AED',
-        },
-      },
-      update: {
-        price,
-        status: 'ACTIVE',
-      },
-      create: {
-        assetId: asset.id,
-        quoteAssetCode: 'AED',
-        price,
-        status: 'ACTIVE',
-      },
-    });
   }
 }
 

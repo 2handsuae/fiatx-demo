@@ -71,13 +71,9 @@ async function resetBusinessData(): Promise<void> {
   deleted.wallet_balance_entries = (await (prisma as any).walletBalanceEntry.deleteMany()).count;
   deleted.wallet_balance_snapshots = (await (prisma as any).walletBalanceSnapshot.deleteMany()).count;
 
-  deleted.payin_audit_logs = (await prisma.payinAuditLog.deleteMany()).count;
-  deleted.deposit_audit_logs = (await prisma.depositAuditLog.deleteMany()).count;
   deleted.swap_transaction_audit_logs = await deleteManyIfDelegateExists(
     'swapTransactionAuditLog',
   );
-  deleted.payout_audit_logs = (await prisma.payoutAuditLog.deleteMany()).count;
-  deleted.withdraw_audit_logs = (await prisma.withdrawAuditLog.deleteMany()).count;
   deleted.internal_fund_audit_logs = (await (prisma as any).internalFundAuditLog.deleteMany()).count;
   deleted.internal_transaction_audit_logs = (await (prisma as any).internalTransactionAuditLog.deleteMany()).count;
 
@@ -85,7 +81,6 @@ async function resetBusinessData(): Promise<void> {
   deleted.edd_case_reports = (await prisma.eddResponseReport.deleteMany()).count;
   deleted.kyt_case_reports = (await prisma.kytCaseReport.deleteMany()).count;
   deleted.travel_rule_case_reports = (await prisma.travelRuleCaseReport.deleteMany()).count;
-  deleted.onboarding_audit_logs = (await prisma.onboardingAuditLog.deleteMany()).count;
   deleted.onboarding_decision_records = (await (prisma as any).workflowDecisionRecord.deleteMany()).count;
   deleted.compliance_incident_events = (await prisma.complianceIncidentEvent.deleteMany()).count;
   deleted.compliance_incident_alerts = (await prisma.complianceIncidentAlert.deleteMany()).count;
