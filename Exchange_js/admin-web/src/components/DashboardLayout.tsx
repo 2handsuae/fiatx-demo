@@ -28,7 +28,6 @@ import {
   Sun,
   Moon,
   AlertTriangle,
-  Tag,
   Database,
   Gauge,
 } from 'lucide-react';

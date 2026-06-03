@@ -176,7 +176,7 @@ const AccountStatementPage = () => {
               </tr>
             </thead>
             <tbody>
-              {items.map((row, i) => (
+              {items.map((row) => (
                 <tr
                   key={row.tbTransferId}
                   className="border-b border-adm-border transition-colors hover:bg-adm-hover"

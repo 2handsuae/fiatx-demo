@@ -260,7 +260,6 @@ const CustomerDetail = () => {
 
   /* ── Material holdings state ── */
   const [holdings, setHoldings] = useState<MaterialHoldingSummary[]>([]);
-  const [tierSaving, setTierSaving] = useState(false);
   const [tierMessage, setTierMessage] = useState<string | null>(null);
 
   /* ── Risk Assessment trigger state ── */
@@ -362,69 +361,6 @@ const CustomerDetail = () => {
       !!detail?.sumsubApplicantId,
     [detail],
   );
-
-  /* ── Tier simulation handlers ── */
-
-  const simulateTier = async (tier: 'LOW' | 'MEDIUM' | 'HIGH') => {
-    if (!detail) return;
-    setTierSaving(true);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/material-management/customers/${detail.id}/simulate-tier-change`,
-        { method: 'POST', body: JSON.stringify({ targetTier: tier }) },
-      );
-      const data = await res.json() as { ok?: boolean; previousTier?: string; newTier?: string; newLevel?: string };
-      if (data.ok) {
-        setTierMessage(`Tier changed: ${data.previousTier ?? '?'} → ${data.newTier ?? tier} (level: ${data.newLevel ?? '?'})`);
-        await fetchDetail();
-        if (detail?.id) fetchHoldings(detail.id);
-      } else {
-        setTierMessage('Simulate-tier-change returned ok=false');
-      }
-    } catch (err) {
-      setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setTierSaving(false);
-    }
-  };
-
-  const simulatePepOrSanctions = async (type: 'PEP' | 'SANCTIONS') => {
-    if (!detail) return;
-    setTierSaving(true);
-    try {
-      // Step 1: Trigger assessment
-      await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/compliance/customers/${detail.id}/risk-assessment/trigger`,
-        { method: 'POST', body: JSON.stringify({ reason: `Demo ${type} simulation` }) },
-      );
-
-      // Step 2: Simulate AML result
-      const labels = type === 'PEP' ? ['PEP_CLASS_1_DOMESTIC'] : ['SANCTIONS_UN'];
-      await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/aml-check-result`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            customerId: detail.id,
-            reviewAnswer: 'RED',
-            rejectLabels: labels,
-          }),
-        },
-      );
-
-      setTierMessage(
-        type === 'PEP'
-          ? 'PEP detected — customer RESTRICTED, dual-sign approval created'
-          : 'Sanctions hit — customer FROZEN',
-      );
-      await fetchDetail();
-      if (detail?.id) fetchHoldings(detail.id);
-    } catch (err) {
-      setTierMessage('Failed: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setTierSaving(false);
-    }
-  };
 
   /* ── Risk Assessment trigger handler ── */
 
