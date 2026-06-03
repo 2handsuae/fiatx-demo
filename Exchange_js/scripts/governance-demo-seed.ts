@@ -21,14 +21,6 @@ type ChangeTicketResponse = {
 };
 
 
-type SlaTimerResponse = {
-  id: string;
-  timerNo: string;
-  workflowNo: string;
-  subjectNo: string;
-  status: string;
-};
-
 const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
 const defaultPassword = process.env.ADMIN_PASSWORD || '123456';
 
@@ -165,53 +157,9 @@ async function seedChangeTicketChain() {
 }
 
 
-async function seedSlaDemoChains() {
-  const adminToken = await login(process.env.GOV_DEMO_ADMIN_EMAIL || 'admin@fiatx.com');
-
-  const approvalTimeout = await authed<SlaTimerResponse>(
-    adminToken,
-    'post',
-    '/admin/demo/control-gates/sla-timers/approval-timeout',
-    {
-      dueInSeconds: 15,
-      graceSeconds: 0,
-      reason: 'Wave1 demo approval timeout',
-    },
-  );
-
-  const expired = await authed<SlaTimerResponse>(
-    adminToken,
-    'post',
-    `/admin/demo/control-gates/sla-timers/${approvalTimeout.id}/expire`,
-  );
-
-  const changeFollowUp = await authed<SlaTimerResponse>(
-    adminToken,
-    'post',
-    '/admin/demo/control-gates/sla-timers/change-follow-up',
-    {
-      dueInSeconds: 30,
-      graceSeconds: 5,
-      reason: 'Wave1 demo change follow-up',
-    },
-  );
-
-  const closed = await authed<SlaTimerResponse>(
-    adminToken,
-    'post',
-    `/admin/control-gates/sla-timers/${changeFollowUp.id}/close`,
-    {
-      reason: 'Wave1 demo follow-up closed',
-    },
-  );
-
-  return { approvalTimeout: expired, changeFollowUp: closed };
-}
-
 async function main() {
   const approval = await seedApprovalChain();
   const changeTicket = await seedChangeTicketChain();
-  const sla = await seedSlaDemoChains();
 
   console.log(
     JSON.stringify(
@@ -227,7 +175,6 @@ async function main() {
           latestApprovalNo: changeTicket.latestApprovalNo,
           traceId: changeTicket.traceId,
         },
-        sla,
       },
       null,
       2,

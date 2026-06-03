@@ -11,7 +11,6 @@ import { PERMISSIONS } from './rbac/permissions';
 const PlatformMembers = lazy(() => import('./pages/PlatformMembers'));
 const PlatformMemberDetailPage = lazy(() => import('./pages/PlatformMemberDetailPage'));
 const CustomerManagement = lazy(() => import('./pages/CustomerManagement'));
-const PricingSwapConfigPage = lazy(() => import('./pages/PricingSwapConfigPage'));
 const PricingWithdrawalConfigPage = lazy(() => import('./pages/PricingWithdrawalConfigPage'));
 const SwapQuoteList = lazy(() => import('./pages/SwapQuoteList'));
 const SwapQuoteDetail = lazy(() => import('./pages/SwapQuoteDetail'));
@@ -287,10 +286,6 @@ function App() {
             <Route
               path="pricing/policies/history"
               element={withPermission(<PricingPolicyHistory />, [PERMISSIONS.PRICING_POLICIES_READ])}
-            />
-            <Route
-              path="pricing/swap-config"
-              element={withPermission(<PricingSwapConfigPage />, [PERMISSIONS.PRICING_POLICIES_READ])}
             />
             <Route
               path="pricing/withdraw-config"

@@ -54,12 +54,6 @@ export const GovernanceRegistryPrefixes = {
   WIND_DOWN: 'WDM',
 } as const;
 
-export const GovernanceRegistrySlaTimerTypes = {
-  TRAINING_DUE: 'GOVERNANCE_TRAINING_DUE',
-  CONFLICT_REVIEW: 'GOVERNANCE_CONFLICT_REVIEW',
-  WIND_DOWN_REVIEW: 'GOVERNANCE_WIND_DOWN_REVIEW',
-} as const;
-
 export const SHAREHOLDING_REGISTRY_STATUS_VALUES = Object.values(
   ShareholdingRegistryStatuses,
 );

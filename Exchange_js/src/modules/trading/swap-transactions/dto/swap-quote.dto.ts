@@ -2,11 +2,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
-export enum SwapQuoteType {
-  FIRM = 'FIRM',
-  INDICATIVE = 'INDICATIVE',
-}
-
 export enum SwapQuoteStatus {
   ACTIVE = 'ACTIVE',
   USED = 'USED',
@@ -17,11 +12,6 @@ export enum SwapQuoteStatus {
 export enum SwapSide {
   SELL_BASE = 'SELL_BASE',
   BUY_BASE = 'BUY_BASE',
-}
-
-export enum SwapAmountType {
-  EXACT_IN = 'EXACT_IN',
-  EXACT_OUT = 'EXACT_OUT',
 }
 
 export class CreateSwapQuoteDto {

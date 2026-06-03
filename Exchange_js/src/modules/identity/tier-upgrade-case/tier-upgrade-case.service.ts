@@ -95,8 +95,6 @@ export class TierUpgradeCaseService {
         entityRef: `tier_upgrade_case:${upgradeCase.id}`,
         traceId: upgradeCase.traceId,
         workflowType: 'TIER_UPGRADE',
-        workflowId: upgradeCase.id,
-        workflowNo: upgradeCase.caseNo,
         metadata: {
           caseId: upgradeCase.id,
           caseNo: upgradeCase.caseNo,

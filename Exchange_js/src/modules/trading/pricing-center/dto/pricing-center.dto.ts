@@ -3,28 +3,11 @@ import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsNumber,
-  IsObject,
   IsOptional,
   IsString,
   IsUUID,
   Min,
 } from 'class-validator';
-import {
-  SwapPricingPolicyConfig,
-  WithdrawalPricingPolicyConfig,
-} from '../types/pricing.types';
-
-export class SaveSwapPolicyDto {
-  @ApiProperty({ description: 'Swap pricing policy payload' })
-  @IsObject()
-  config!: SwapPricingPolicyConfig;
-}
-
-export class SaveWithdrawalPolicyDto {
-  @ApiProperty({ description: 'Withdrawal pricing policy payload' })
-  @IsObject()
-  config!: WithdrawalPricingPolicyConfig;
-}
 
 export class SwapSimulatorDto {
   @ApiProperty({ description: 'From asset id' })
