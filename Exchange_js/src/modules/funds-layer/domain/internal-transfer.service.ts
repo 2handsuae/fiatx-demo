@@ -14,10 +14,10 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
   InternalTransactionApprovalStatus,
-  InternalTransactionQueryDto,
   InternalTransactionStatus,
 } from '../../asset-treasury/internal-transactions/dto/internal-transaction.dto';
 import { AccountingClass, TransferPath } from '../constants/internal-transfer-paths.constant';
+import { InternalTransferQueryDto } from '../dto/internal-transfer-query.dto';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
 
 type TxClient = Prisma.TransactionClient;
@@ -321,30 +321,24 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
     );
   }
 
-  async findAllForAdmin(query: InternalTransactionQueryDto) {
+  async findAllForAdmin(query: InternalTransferQueryDto) {
     const {
       skip = 0,
       take = 20,
       status,
-      sourceType,
-      sourceId,
+      pathLabel,
       sourceNo,
-      ownerId,
       ownerNo,
       assetId,
       internalTxNo,
       startDate,
       endDate,
-    } = query as InternalTransactionQueryDto & { pathLabel?: string };
-    const pathLabel = (query as { pathLabel?: string }).pathLabel;
+    } = query;
 
     const where: any = {};
     if (status) where.status = status;
     if (pathLabel) where.pathLabel = pathLabel;
-    if (sourceType) where.sourceType = sourceType;
-    if (sourceId) where.sourceId = { contains: sourceId };
     if (sourceNo) where.sourceNo = { contains: sourceNo };
-    if (ownerId) where.ownerId = ownerId;
     if (ownerNo) where.ownerNo = { contains: ownerNo };
     if (assetId) where.assetId = assetId;
     if (internalTxNo) where.internalTxNo = { contains: internalTxNo };

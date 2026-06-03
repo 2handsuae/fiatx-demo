@@ -1,0 +1,70 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PrismaService } from '../../core/prisma/prisma.service';
+import { AuditLogsService } from '../audit-logging/audit-logs.service';
+import { AccessControlService } from '../identity/access-control/access-control.service';
+import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
+import { FundsFlowAggregatorPort } from './domain/funds-flow-aggregator.port';
+import { FundsFlowService } from './domain/funds-flow.service';
+import { InternalTransferService } from './domain/internal-transfer.service';
+import { WhitelistGuard } from './guards/whitelist.guard';
+import { FundsAccountingService } from './accounting/funds-accounting.service';
+import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-execution.adapter';
+import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
+import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
+import { FundsSimulateController } from './controllers/funds-simulate.controller';
+
+/**
+ * DI boot smoke test for the funds-layer module wiring.
+ *
+ * Booting the real FundsLayerModule would pull in PrismaService's DB connection
+ * plus the app-global AuditLogsModule / AccessControlModule / EventEmitterModule
+ * which are out of scope in an isolated TestingModule. Instead we replicate the
+ * module's EXACT provider + controller arrays here, overriding only the leaf
+ * externals with light mocks. The real `{ provide: FundsFlowAggregatorPort,
+ * useExisting: InternalTransferService }` binding and the real service classes
+ * are kept — so this still catches the port-binding / circular-DI mistakes the
+ * wiring could introduce.
+ */
+describe('FundsLayerModule wiring', () => {
+  let moduleRef: TestingModule;
+
+  beforeAll(async () => {
+    moduleRef = await Test.createTestingModule({
+      controllers: [InternalTransferAdminController, FundsSimulateController],
+      providers: [
+        FundsFlowService,
+        InternalTransferService,
+        WhitelistGuard,
+        FundsAccountingService,
+        MockCustodianExecutionAdapter,
+        InternalTransferWorkflowService,
+        { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
+        // Leaf externals (app-global in production) mocked here:
+        { provide: PrismaService, useValue: {} },
+        { provide: AuditLogsService, useValue: {} },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        { provide: AccessControlService, useValue: {} },
+        AdminPermissionGuard,
+      ],
+    }).compile();
+  });
+
+  afterAll(async () => {
+    await moduleRef?.close();
+  });
+
+  it('resolves InternalTransferWorkflowService (so @OnEvent listener registers)', () => {
+    expect(moduleRef.get(InternalTransferWorkflowService)).toBeDefined();
+  });
+
+  it('resolves FundsFlowService with the aggregator port bound', () => {
+    expect(moduleRef.get(FundsFlowService)).toBeDefined();
+  });
+
+  it('binds FundsFlowAggregatorPort to the concrete InternalTransferService (useExisting, no circular DI)', () => {
+    expect(moduleRef.get(FundsFlowAggregatorPort)).toBe(
+      moduleRef.get(InternalTransferService),
+    );
+  });
+});
