@@ -15,6 +15,7 @@ import { InternalTransferAdminController } from './controllers/internal-transfer
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
+import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
 
 /**
  * V7 funds-layer module.
@@ -28,7 +29,7 @@ import { DepositTransactionsModule } from '../trading/deposit-transactions/depos
  * implements the port and does NOT inject FundsFlowService) — no circular DI.
  */
 @Module({
-  imports: [PrismaModule, DepositTransactionsModule],
+  imports: [PrismaModule, DepositTransactionsModule, TigerBeetleModule],
   controllers: [
     InternalTransferAdminController,
     FundsSimulateController,

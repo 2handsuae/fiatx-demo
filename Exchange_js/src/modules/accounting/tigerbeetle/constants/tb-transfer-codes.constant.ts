@@ -31,6 +31,10 @@ export const TB_TRANSFER_CODES = {
   SWAP_CLEARING_TO_FEE: 34, // deprecated: fee now debits CLIENT_CREDIT (see SWAP_CREDIT_TO_FEE)
   SWAP_CLEARING_TO_SPREAD: 35,
   SWAP_CREDIT_TO_FEE: 36,
+
+  // EOD settlement: drain residual TRADE_CLEARING balance ↔ CUSTODY (40–41)
+  EOD_DRAIN_OUT: 40, // TRADE_CLEARING net CREDIT → debit TRADE_CLEARING, credit CUSTODY
+  EOD_DRAIN_IN: 41,  // TRADE_CLEARING net DEBIT  → debit CUSTODY, credit TRADE_CLEARING
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

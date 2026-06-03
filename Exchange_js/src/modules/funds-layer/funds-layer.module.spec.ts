@@ -4,6 +4,7 @@ import { PrismaService } from '../../core/prisma/prisma.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AccessControlService } from '../identity/access-control/access-control.service';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
+import { AccountingService } from '../accounting/tigerbeetle/accounting.service';
 import { FundsFlowAggregatorPort } from './domain/funds-flow-aggregator.port';
 import { FundsFlowService } from './domain/funds-flow.service';
 import { InternalTransferService } from './domain/internal-transfer.service';
@@ -45,6 +46,7 @@ describe('FundsLayerModule wiring', () => {
         { provide: AuditLogsService, useValue: {} },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: AccessControlService, useValue: {} },
+        { provide: AccountingService, useValue: {} },
         AdminPermissionGuard,
       ],
     }).compile();
