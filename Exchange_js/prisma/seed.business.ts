@@ -2,11 +2,10 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { ensureBaseSeeded } from './seed.base';
-import {
-  buildDefaultPricingPolicyManifest,
-  PricingPolicyManifestAsset,
-} from '../src/config/manifests/pricing-policies.manifest';
-import { WITHDRAWAL_POLICY_CODE } from '../src/modules/trading/pricing-center/types/pricing.types';
+import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
+import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
+import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -16,227 +15,359 @@ export async function seedBusiness(
   prisma: PrismaClient,
   options: SeedBusinessOptions = {},
 ): Promise<void> {
-  console.log('--- Seeding Business Data (Minimal Profile) ---');
+  console.log('--- Seeding Business Data (Transaction-Ready Demo) ---');
 
   if (!options.skipEnsureBase) {
     await ensureBaseSeeded(prisma);
   }
 
-  await seedCustomersMinimal(prisma);
-  await seedPricingPolicies(prisma);
+  // ① Assets layer
+  await seedAssets(prisma);
+  // ② Config layer
+  await seedSwapFeeLevels(prisma);
   await seedWithdrawalFeeLevels(prisma);
   await seedTransactionLimitPolicies(prisma);
+  // ③ Customers layer
+  await seedCustomers(prisma);
+  // Final: push all registry rows (system + customer) into TigerBeetle.
+  await provisionTbAccounts(prisma);
+
   console.log('✅ Business data seeded.');
 }
 
-async function seedCustomersMinimal(prisma: PrismaClient): Promise<void> {
-  const basePassword = await bcrypt.hash('123456', 10);
-  const now = new Date();
-  const expiredAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+// ─────────────────────────────────────────────────────────────
+// ① Assets layer — assets + system TB accounts + system wallets
+// ─────────────────────────────────────────────────────────────
 
-  const items: Array<{
-    customerNo: string;
-    email: string;
-    phone: string;
-    firstName: string;
-    onboardingStatus:
-      | 'NONE'
-      | 'PENDING_CDD_INPUT'
-      | 'APPROVED'
-      | 'FINAL_APPROVAL'
-      | 'REJECTED';
-    eddRequired: boolean;
-    cddDocumentExpiresAt: Date | null;
+function normalizeNetwork(network: string | null | undefined): string {
+  return network ?? '';
+}
+
+function normalizeSegment(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
+// System wallet roles required by V7 settlement/fee workflows, per asset.
+const SYSTEM_WALLET_ROLES = ['C_MAIN', 'C_OUT', 'F_LIQ', 'F_OPS'] as const;
+type SystemWalletRole = (typeof SYSTEM_WALLET_ROLES)[number];
+
+const SYSTEM_WALLET_OWNER: Record<
+  SystemWalletRole,
+  { ownerType: 'PLATFORM'; ownerNo: string }
+> = {
+  C_MAIN: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
+  C_OUT: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
+  F_LIQ: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
+  F_OPS: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
+};
+
+function buildSystemWalletAddress(
+  role: SystemWalletRole,
+  assetCode: string,
+  network: string | null | undefined,
+): string {
+  const normalizedNetwork = normalizeSegment(network || 'NA');
+  const normalizedCode = normalizeSegment(assetCode);
+  const hash = createHash('sha256')
+    .update(`${role}|${normalizedCode}|${normalizedNetwork}`)
+    .digest('hex');
+
+  if (normalizedNetwork === 'TRON') {
+    return `T${hash.slice(0, 33)}`;
+  }
+  if (normalizedNetwork === 'ETHEREUM') {
+    return `0x${hash.slice(0, 40)}`;
+  }
+  return `sys_${role.toLowerCase()}_${normalizedCode.toLowerCase()}_${normalizedNetwork.toLowerCase()}_${hash.slice(0, 12)}`;
+}
+
+function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string {
+  const hash = createHash('sha256')
+    .update(`${role}|${normalizeSegment(assetCode)}`)
+    .digest('hex')
+    .toUpperCase();
+  return `AE00FIATX${hash.slice(0, 16)}`;
+}
+
+async function seedAssets(prisma: PrismaClient): Promise<void> {
+  for (const asset of DEFAULT_ASSETS) {
+    const normalizedNetwork = normalizeNetwork(asset.network);
+    const currency = asset.currency as keyof typeof TB_LEDGERS;
+    const ledger = TB_LEDGERS[currency];
+
+    const record = await prisma.asset.upsert({
+      where: {
+        type_currency_network: {
+          type: asset.type,
+          currency: asset.currency,
+          network: normalizedNetwork,
+        },
+      },
+      update: {
+        assetNo: asset.assetNo,
+        code: asset.code,
+        decimals: asset.decimals,
+        description: asset.description,
+        status: 'ACTIVE',
+        tbLedgerId: ledger,
+      },
+      create: {
+        assetNo: asset.assetNo,
+        type: asset.type,
+        currency: asset.currency,
+        code: asset.code,
+        network: normalizedNetwork,
+        decimals: asset.decimals,
+        description: asset.description,
+        status: 'ACTIVE',
+        tbLedgerId: ledger,
+      },
+    });
+
+    // System TB accounts (ownerType SYSTEM, no ownerUuid).
+    const isFiat = asset.type === 'FIAT';
+    const custodyCode = isFiat
+      ? TB_ACCOUNT_CODES.BANK
+      : TB_ACCOUNT_CODES.CUSTODY;
+    const systemAccounts = [
+      { code: custodyCode, desc: isFiat ? 'BANK' : 'CUSTODY' },
+      { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
+      { code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, desc: 'FEE_RECEIVABLE' },
+    ];
+    for (const acct of systemAccounts) {
+      await ensureTbAccountRegistry(prisma, {
+        code: acct.code,
+        ledger,
+        ownerType: 'SYSTEM',
+        ownerUuid: null,
+        ownerNo: null,
+        assetCode: asset.code,
+        description: `${acct.desc} for ${asset.code}`,
+      });
+    }
+
+    // System wallets (ownerType PLATFORM), one per role.
+    for (const role of SYSTEM_WALLET_ROLES) {
+      const owner = SYSTEM_WALLET_OWNER[role];
+      // Fully-qualified, collision-free walletNo (buildDeterministicNo collapses
+      // to a 4-digit suffix and can collide across role/asset combos).
+      const walletNo = `WA-${role}-${normalizeSegment(asset.code)}${normalizedNetwork ? `-${normalizeSegment(normalizedNetwork)}` : ''}`;
+
+      if (isFiat) {
+        await prisma.wallet.upsert({
+          where: { walletNo },
+          update: {
+            ownerType: owner.ownerType,
+            ownerId: null,
+            ownerNo: owner.ownerNo,
+            type: 'FIAT_BANK',
+            walletRole: role,
+            assetId: record.id,
+            iban: buildSystemPoolIban(role, asset.code),
+            bankName: 'FiatX Internal Bank',
+            accountName: `Platform ${role} (${asset.code})`,
+            status: 'ACTIVE',
+          },
+          create: {
+            walletNo,
+            ownerType: owner.ownerType,
+            ownerId: null,
+            ownerNo: owner.ownerNo,
+            type: 'FIAT_BANK',
+            walletRole: role,
+            assetId: record.id,
+            iban: buildSystemPoolIban(role, asset.code),
+            bankName: 'FiatX Internal Bank',
+            accountName: `Platform ${role} (${asset.code})`,
+            status: 'ACTIVE',
+          },
+        });
+      } else {
+        const address = buildSystemWalletAddress(role, asset.code, asset.network);
+        await prisma.wallet.upsert({
+          where: { walletNo },
+          update: {
+            ownerType: owner.ownerType,
+            ownerId: null,
+            ownerNo: owner.ownerNo,
+            type: 'CRYPTO_ADDRESS',
+            walletRole: role,
+            assetId: record.id,
+            address,
+            status: 'ACTIVE',
+          },
+          create: {
+            walletNo,
+            ownerType: owner.ownerType,
+            ownerId: null,
+            ownerNo: owner.ownerNo,
+            type: 'CRYPTO_ADDRESS',
+            walletRole: role,
+            assetId: record.id,
+            address,
+            status: 'ACTIVE',
+          },
+        });
+      }
+    }
+  }
+
+  console.log(
+    `Seeded ${DEFAULT_ASSETS.length} assets + system TB accounts + system wallets.`,
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ② Config layer — swap fee levels, withdrawal fee levels, limits
+// ─────────────────────────────────────────────────────────────
+
+async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
+  const usdt = await prisma.asset.findFirst({
+    where: { type: 'CRYPTO', currency: 'USDT', status: 'ACTIVE' },
+    select: { id: true, currency: true },
+  });
+  const aed = await prisma.asset.findFirst({
+    where: { type: 'FIAT', currency: 'AED', status: 'ACTIVE' },
+    select: { id: true, currency: true },
+  });
+
+  if (!usdt || !aed) {
+    console.log('Skip swap fee level seed: USDT/AED assets not found.');
+    return;
+  }
+
+  // Both directions of the USDT/AED pair.
+  const pairs: Array<{
+    levelCode: string;
+    name: string;
+    fromAssetId: string;
+    toAssetId: string;
+    feeCurrency: string;
   }> = [
     {
-      customerNo: 'CUST-MIN-0001',
-      email: 'minimal_none@example.com',
-      phone: '+15551000001',
-      firstName: 'MinimalNone',
-      onboardingStatus: 'NONE',
-      eddRequired: false,
-      cddDocumentExpiresAt: null,
+      levelCode: 'STD-USDT-AED',
+      name: 'Standard USDT → AED',
+      fromAssetId: usdt.id,
+      toAssetId: aed.id,
+      feeCurrency: aed.currency,
     },
     {
-      customerNo: 'CUST-MIN-0002',
-      email: 'minimal_progress@example.com',
-      phone: '+15551000002',
-      firstName: 'MinimalProgress',
-      onboardingStatus: 'PENDING_CDD_INPUT',
-      eddRequired: false,
-      cddDocumentExpiresAt: null,
-    },
-    {
-      customerNo: 'CUST-MIN-0003',
-      email: 'minimal_active@example.com',
-      phone: '+15551000003',
-      firstName: 'MinimalActive',
-      onboardingStatus: 'APPROVED',
-      eddRequired: false,
-      cddDocumentExpiresAt: null,
-    },
-    {
-      customerNo: 'CUST-MIN-0004',
-      email: 'minimal_restricted@example.com',
-      phone: '+15551000004',
-      firstName: 'MinimalRestricted',
-      onboardingStatus: 'FINAL_APPROVAL',
-      eddRequired: true,
-      cddDocumentExpiresAt: null,
-    },
-    {
-      customerNo: 'CUST-MIN-0005',
-      email: 'minimal_blocked@example.com',
-      phone: '+15551000005',
-      firstName: 'MinimalBlocked',
-      onboardingStatus: 'REJECTED',
-      eddRequired: false,
-      cddDocumentExpiresAt: null,
-    },
-    {
-      customerNo: 'CUST-MIN-0006',
-      email: 'minimal_expired@example.com',
-      phone: '+15551000006',
-      firstName: 'MinimalExpired',
-      onboardingStatus: 'PENDING_CDD_INPUT',
-      eddRequired: false,
-      cddDocumentExpiresAt: expiredAt,
+      levelCode: 'STD-AED-USDT',
+      name: 'Standard AED → USDT',
+      fromAssetId: aed.id,
+      toAssetId: usdt.id,
+      feeCurrency: usdt.currency,
     },
   ];
 
-  for (const item of items) {
-    const canonical = {
-      onboardingStatus: item.onboardingStatus,
-      adminStatus: item.onboardingStatus === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
-    };
+  for (const pair of pairs) {
+    const tiersJson = JSON.stringify({
+      tiers: [
+        {
+          id: `${pair.levelCode}-TIER-001`,
+          name: 'Default Tier',
+          priority: 1,
+          enabled: true,
+          rateMarkupBps: 50,
+          conditions: { amountMin: '0', amountMax: null },
+          feeItems: [
+            {
+              id: `${pair.levelCode}-TIER-001-FEE-001`,
+              itemCode: 'SWAP_SERVICE_FEE',
+              calcType: 'FLAT',
+              value: '0',
+              currency: pair.feeCurrency,
+              min: null,
+              cap: null,
+              roundingDp: 2,
+              roundingMode: 'ROUND',
+              adjustable: false,
+            },
+          ],
+        },
+      ],
+    });
+    const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
-    await prisma.customerMain.upsert({
-      where: { email: item.email },
-      update: {
-        customerNo: item.customerNo,
-        phone: item.phone,
-        firstName: item.firstName,
-        lastName: 'Demo',
-        passwordHash: basePassword,
-        passwordUpdatedAt: now,
-        customerType: 'INDIVIDUAL',
-        onboardingStatus: canonical.onboardingStatus,
-        adminStatus: canonical.adminStatus,
-        riskRating: 'LOW',
-        eddRequired: item.eddRequired,
-        cddDocumentExpiresAt: item.cddDocumentExpiresAt,
-      },
+    await prisma.swapFeeLevel.upsert({
+      where: { levelCode: pair.levelCode },
+      update: { tiersJson, configHash, status: 'ACTIVE' },
       create: {
-        customerNo: item.customerNo,
-        email: item.email,
-        phone: item.phone,
-        firstName: item.firstName,
-        lastName: 'Demo',
-        passwordHash: basePassword,
-        passwordUpdatedAt: now,
-        customerType: 'INDIVIDUAL',
-        onboardingStatus: canonical.onboardingStatus,
-        adminStatus: canonical.adminStatus,
-        riskRating: 'LOW',
-        eddRequired: item.eddRequired,
-        cddDocumentExpiresAt: item.cddDocumentExpiresAt,
+        levelCode: pair.levelCode,
+        name: pair.name,
+        fromAssetId: pair.fromAssetId,
+        toAssetId: pair.toAssetId,
+        isDefault: true,
+        enabled: true,
+        tiersJson,
+        configHash,
+        status: 'ACTIVE',
+        createdByUserId: 'SYSTEM',
       },
     });
   }
 
-  console.log(`Seeded ${items.length} minimal customers.`);
-}
-
-async function seedPricingPolicies(prisma: PrismaClient): Promise<void> {
-  const activeAssets = await prisma.asset.findMany({
-    where: { status: 'ACTIVE' },
-    orderBy: [{ type: 'asc' }, { code: 'asc' }, { network: 'asc' }],
-    select: {
-      id: true,
-      code: true,
-      currency: true,
-      type: true,
-      network: true,
-      decimals: true,
-    },
-  }) as PricingPolicyManifestAsset[];
-
-  if (activeAssets.length === 0) {
-    console.log('Skip pricing policy seed: no active assets found.');
-    return;
-  }
-
-  const manifestItems = buildDefaultPricingPolicyManifest(activeAssets);
-
-  for (const item of manifestItems) {
-    await prisma.pricingPolicy.upsert({
-      where: { policyCode: item.policyCode },
-      update: {
-        policyName: item.policyName,
-        business: item.business,
-        channelOnline: item.channelOnline,
-        channelStoreSoon: item.channelStoreSoon,
-        configJson: JSON.stringify(item.config),
-        updatedByUserId: 'SYSTEM',
-        updatedByUserNo: 'SYSTEM',
-      },
-      create: {
-        policyCode: item.policyCode,
-        policyName: item.policyName,
-        business: item.business,
-        channelOnline: item.channelOnline,
-        channelStoreSoon: item.channelStoreSoon,
-        configJson: JSON.stringify(item.config),
-        updatedByUserId: 'SYSTEM',
-        updatedByUserNo: 'SYSTEM',
-      },
-    });
-  }
-
-  const swapManifest = manifestItems.find((item) => item.policyCode === 'SWAP_PRICING');
-  const withdrawalManifest = manifestItems.find(
-    (item) => item.policyCode === 'WITHDRAWAL_PRICING',
-  );
-
-  console.log(
-    `Seeded pricing policies (swap pairs: ${swapManifest?.config.pairs.length || 0}, withdrawal assets: ${withdrawalManifest?.config.assets.length || 0}).`,
-  );
+  console.log(`Seeded ${pairs.length} swap fee levels.`);
 }
 
 async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
-  const withdrawalPolicy = await prisma.pricingPolicy.findFirst({
-    where: { policyCode: WITHDRAWAL_POLICY_CODE },
-  });
-
-  if (!withdrawalPolicy) {
-    console.log('Skip withdrawal fee level seed: no WITHDRAWAL_PRICING policy found.');
-    return;
-  }
-
-  // Build assetId → currency lookup so we don't rely on configJson having assetCurrency
   const assets = await prisma.asset.findMany({
     where: { status: 'ACTIVE' },
-    select: { id: true, currency: true },
+    select: { id: true, currency: true, network: true, decimals: true },
+    orderBy: [{ currency: 'asc' }, { network: 'asc' }],
   });
-  const currencyById = new Map(assets.map((a) => [a.id, a.currency]));
 
-  const config = JSON.parse(withdrawalPolicy.configJson);
   let count = 0;
-
-  for (const assetEntry of config.assets) {
-    const currency = assetEntry.assetCurrency || currencyById.get(assetEntry.assetId) || 'UNKNOWN';
-    const networkLabel = assetEntry.network || 'FIAT';
-    const levelCode = `STD-${currency}-${networkLabel}`;
-    const tiersJson = JSON.stringify({ tiers: assetEntry.tiers });
+  for (const asset of assets) {
+    const networkLabel = asset.network || 'FIAT';
+    const levelCode = `STD-${asset.currency}-${networkLabel}`;
+    const tierId = `${levelCode}-TIER-001`;
+    const tiersJson = JSON.stringify({
+      tiers: [
+        {
+          id: tierId,
+          name: 'Default Tier',
+          priority: 1,
+          enabled: true,
+          conditions: { amountMin: '0', amountMax: null },
+          feeItems: [
+            {
+              id: `${tierId}-FEE-001`,
+              itemCode: 'WITHDRAW_SERVICE_FEE',
+              calcType: 'FLAT',
+              value: '0',
+              currency: asset.currency,
+              min: null,
+              cap: null,
+              roundingDp: asset.decimals,
+              roundingMode: 'ROUND',
+              adjustable: false,
+            },
+            {
+              id: `${tierId}-FEE-002`,
+              itemCode: 'NETWORK_FEE_EST',
+              calcType: 'FLAT',
+              value: '0',
+              currency: asset.currency,
+              min: null,
+              cap: null,
+              roundingDp: asset.decimals,
+              roundingMode: 'ROUND',
+              adjustable: false,
+            },
+          ],
+        },
+      ],
+    });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
     await prisma.withdrawalFeeLevel.upsert({
       where: { levelCode },
-      update: { tiersJson, configHash },
+      update: { tiersJson, configHash, status: 'ACTIVE' },
       create: {
         levelCode,
-        name: `Standard ${currency}`,
-        assetId: assetEntry.assetId,
+        name: `Standard ${asset.currency}`,
+        assetId: asset.id,
         isDefault: true,
         enabled: true,
         tiersJson,
@@ -284,4 +415,141 @@ export async function seedTransactionLimitPolicies(prisma: PrismaClient): Promis
   }
 
   console.log(`  ✔ Seeded ${policies.length} transaction limit policies`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③ Customers layer — 8 varied demo customers + customer TB accounts
+// ─────────────────────────────────────────────────────────────
+
+type DemoCustomer = {
+  customerNo: string;
+  email: string;
+  phone: string;
+  firstName: string;
+  lastName: string;
+  customerType: 'INDIVIDUAL' | 'CORPORATE';
+  onboardingStatus: string;
+  adminStatus: string;
+  complianceStatus: string;
+  riskRating: string;
+  tradingTier: string;
+  eddRequired: boolean;
+  companyName?: string;
+  complianceFreezeReason?: string;
+};
+
+const DEMO_CUSTOMERS: DemoCustomer[] = [
+  // 2× happy (APPROVED + CLEAR)
+  {
+    customerNo: 'CUST-DEMO-0001', email: 'demo_alice@example.com', phone: '+15552000001',
+    firstName: 'Alice', lastName: 'Happy', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+  },
+  {
+    customerNo: 'CUST-DEMO-0002', email: 'demo_bob@example.com', phone: '+15552000002',
+    firstName: 'Bob', lastName: 'Happy', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+  },
+  // 1× compliance FROZEN
+  {
+    customerNo: 'CUST-DEMO-0003', email: 'demo_carol@example.com', phone: '+15552000003',
+    firstName: 'Carol', lastName: 'Frozen', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'FROZEN',
+    riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: true,
+    complianceFreezeReason: 'Adverse media alert triggered',
+  },
+  // 1× PENDING_VERIFICATION
+  {
+    customerNo: 'CUST-DEMO-0004', email: 'demo_dave@example.com', phone: '+15552000004',
+    firstName: 'Dave', lastName: 'Pending', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'PENDING_VERIFICATION', adminStatus: 'INACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+  },
+  // 1× onboarding NONE
+  {
+    customerNo: 'CUST-DEMO-0005', email: 'demo_eve@example.com', phone: '+15552000005',
+    firstName: 'Eve', lastName: 'New', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'NONE', adminStatus: 'INACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+  },
+  // 1× HIGH risk (APPROVED + CLEAR)
+  {
+    customerNo: 'CUST-DEMO-0006', email: 'demo_frank@example.com', phone: '+15552000006',
+    firstName: 'Frank', lastName: 'HighRisk', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'HIGH', tradingTier: 'BASIC', eddRequired: true,
+  },
+  // 1× PREMIUM trading tier (APPROVED + CLEAR)
+  {
+    customerNo: 'CUST-DEMO-0007', email: 'demo_grace@example.com', phone: '+15552000007',
+    firstName: 'Grace', lastName: 'Premium', customerType: 'INDIVIDUAL',
+    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
+  },
+  // 1× CORPORATE (APPROVED + CLEAR)
+  {
+    customerNo: 'CUST-DEMO-0008', email: 'demo_acme@example.com', phone: '+15552000008',
+    firstName: 'Henry', lastName: 'Acme', customerType: 'CORPORATE',
+    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
+    companyName: 'Acme Trading LLC',
+  },
+];
+
+async function seedCustomers(prisma: PrismaClient): Promise<void> {
+  const passwordHash = await bcrypt.hash('123456', 10);
+  const now = new Date();
+
+  const assets = await prisma.asset.findMany({
+    where: { status: 'ACTIVE' },
+    select: { code: true, currency: true },
+  });
+
+  for (const c of DEMO_CUSTOMERS) {
+    const data = {
+      customerNo: c.customerNo,
+      phone: c.phone,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      passwordHash,
+      passwordUpdatedAt: now,
+      customerType: c.customerType,
+      onboardingStatus: c.onboardingStatus,
+      adminStatus: c.adminStatus,
+      complianceStatus: c.complianceStatus,
+      complianceFreezeReason: c.complianceFreezeReason ?? null,
+      complianceFreezeAt: c.complianceStatus === 'FROZEN' ? now : null,
+      riskRating: c.riskRating,
+      tradingTier: c.tradingTier,
+      eddRequired: c.eddRequired,
+      companyName: c.companyName ?? null,
+    };
+
+    const customer = await prisma.customerMain.upsert({
+      where: { email: c.email },
+      update: data,
+      create: { email: c.email, ...data },
+      select: { id: true, customerNo: true },
+    });
+
+    // Customer-level TB accounts: CLIENT_CREDIT + CLIENT_AUDIT per asset.
+    for (const asset of assets) {
+      const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
+      for (const code of [TB_ACCOUNT_CODES.CLIENT_CREDIT, TB_ACCOUNT_CODES.CLIENT_AUDIT]) {
+        await ensureTbAccountRegistry(prisma, {
+          code,
+          ledger,
+          ownerType: 'CUSTOMER',
+          ownerUuid: customer.id,
+          ownerNo: customer.customerNo,
+          assetCode: asset.code,
+          description: `${code === TB_ACCOUNT_CODES.CLIENT_CREDIT ? 'CLIENT_CREDIT' : 'CLIENT_AUDIT'} for ${customer.customerNo}/${asset.code}`,
+        });
+      }
+    }
+  }
+
+  console.log(`Seeded ${DEMO_CUSTOMERS.length} demo customers + customer TB accounts.`);
 }

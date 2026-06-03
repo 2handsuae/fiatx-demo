@@ -40,8 +40,14 @@ export async function ensureTbAccountRegistry(
     return existing.tbAccountId;
   }
 
+  // Incorporate ownerUuid so owner-scoped accounts (e.g. CUSTOMER) get a
+  // distinct id per owner. System accounts (ownerUuid=null) keep the historic
+  // `SEED|code|ledger|ownerType` derivation for stable ids across re-runs.
+  const idSeed = ownerUuid
+    ? `SEED|${input.code}|${input.ledger}|${input.ownerType}|${ownerUuid}`
+    : `SEED|${input.code}|${input.ledger}|${input.ownerType}`;
   const tbAccountId = createHash('sha256')
-    .update(`SEED|${input.code}|${input.ledger}|${input.ownerType}`)
+    .update(idSeed)
     .digest('hex')
     .slice(0, 32);
 
