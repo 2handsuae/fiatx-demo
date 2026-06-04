@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { ensureBaseSeeded } from './seed.base';
 import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
+import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 
@@ -149,9 +150,12 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     // System wallets (ownerType PLATFORM), one per role.
     for (const role of SYSTEM_WALLET_ROLES) {
       const owner = SYSTEM_WALLET_OWNER[role];
-      // Fully-qualified, collision-free walletNo (buildDeterministicNo collapses
-      // to a 4-digit suffix and can collide across role/asset combos).
-      const walletNo = `WA-${role}-${normalizeSegment(asset.code)}${normalizedNetwork ? `-${normalizeSegment(normalizedNetwork)}` : ''}`;
+      const walletNo = buildDeterministicNo(
+        'WA',
+        role,
+        normalizeSegment(asset.code),
+        normalizedNetwork ? normalizeSegment(normalizedNetwork) : '',
+      );
 
       if (isFiat) {
         await prisma.wallet.upsert({
@@ -422,7 +426,6 @@ export async function seedTransactionLimitPolicies(prisma: PrismaClient): Promis
 // ─────────────────────────────────────────────────────────────
 
 type DemoCustomer = {
-  customerNo: string;
   email: string;
   phone: string;
   firstName: string;
@@ -441,20 +444,20 @@ type DemoCustomer = {
 const DEMO_CUSTOMERS: DemoCustomer[] = [
   // 2× happy (APPROVED + CLEAR)
   {
-    customerNo: 'CUST-DEMO-0001', email: 'demo_alice@example.com', phone: '+15552000001',
+    email: 'demo_alice@example.com', phone: '+15552000001',
     firstName: 'Alice', lastName: 'Happy', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
   {
-    customerNo: 'CUST-DEMO-0002', email: 'demo_bob@example.com', phone: '+15552000002',
+    email: 'demo_bob@example.com', phone: '+15552000002',
     firstName: 'Bob', lastName: 'Happy', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
   // 1× compliance FROZEN
   {
-    customerNo: 'CUST-DEMO-0003', email: 'demo_carol@example.com', phone: '+15552000003',
+    email: 'demo_carol@example.com', phone: '+15552000003',
     firstName: 'Carol', lastName: 'Frozen', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'FROZEN',
     riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: true,
@@ -462,35 +465,35 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
   },
   // 1× PENDING_VERIFICATION
   {
-    customerNo: 'CUST-DEMO-0004', email: 'demo_dave@example.com', phone: '+15552000004',
+    email: 'demo_dave@example.com', phone: '+15552000004',
     firstName: 'Dave', lastName: 'Pending', customerType: 'INDIVIDUAL',
     onboardingStatus: 'PENDING_VERIFICATION', adminStatus: 'INACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
   // 1× onboarding NONE
   {
-    customerNo: 'CUST-DEMO-0005', email: 'demo_eve@example.com', phone: '+15552000005',
+    email: 'demo_eve@example.com', phone: '+15552000005',
     firstName: 'Eve', lastName: 'New', customerType: 'INDIVIDUAL',
     onboardingStatus: 'NONE', adminStatus: 'INACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
   // 1× HIGH risk (APPROVED + CLEAR)
   {
-    customerNo: 'CUST-DEMO-0006', email: 'demo_frank@example.com', phone: '+15552000006',
+    email: 'demo_frank@example.com', phone: '+15552000006',
     firstName: 'Frank', lastName: 'HighRisk', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'HIGH', tradingTier: 'BASIC', eddRequired: true,
   },
   // 1× PREMIUM trading tier (APPROVED + CLEAR)
   {
-    customerNo: 'CUST-DEMO-0007', email: 'demo_grace@example.com', phone: '+15552000007',
+    email: 'demo_grace@example.com', phone: '+15552000007',
     firstName: 'Grace', lastName: 'Premium', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
   },
   // 1× CORPORATE (APPROVED + CLEAR)
   {
-    customerNo: 'CUST-DEMO-0008', email: 'demo_acme@example.com', phone: '+15552000008',
+    email: 'demo_acme@example.com', phone: '+15552000008',
     firstName: 'Henry', lastName: 'Acme', customerType: 'CORPORATE',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
@@ -509,7 +512,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
 
   for (const c of DEMO_CUSTOMERS) {
     const data = {
-      customerNo: c.customerNo,
+      customerNo: buildDeterministicNo('CU', c.email),
       phone: c.phone,
       firstName: c.firstName,
       lastName: c.lastName,
