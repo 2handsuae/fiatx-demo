@@ -1,0 +1,126 @@
+-- DropIndex
+DROP INDEX "settlement_batch_items_internalTransactionId_idx";
+
+-- DropIndex
+DROP INDEX "settlement_batch_items_status_idx";
+
+-- DropIndex
+DROP INDEX "settlement_batch_items_assetId_idx";
+
+-- DropIndex
+DROP INDEX "settlement_batch_items_settlementBatchId_idx";
+
+-- DropTable
+PRAGMA foreign_keys=off;
+DROP TABLE "settlement_batch_items";
+PRAGMA foreign_keys=on;
+
+-- RedefineTables
+PRAGMA defer_foreign_keys=ON;
+PRAGMA foreign_keys=OFF;
+CREATE TABLE "new_internal_transactions" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "internalTxNo" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "purpose" TEXT,
+    "initiationMode" TEXT,
+    "status" TEXT NOT NULL,
+    "approvalStatus" TEXT NOT NULL DEFAULT 'APPROVED',
+    "approvalCaseId" TEXT,
+    "makerUserId" TEXT,
+    "checkerUserId" TEXT,
+    "checkedAt" DATETIME,
+    "reviewReason" TEXT,
+    "sourceType" TEXT NOT NULL,
+    "sourceId" TEXT NOT NULL,
+    "sourceNo" TEXT,
+    "ownerType" TEXT NOT NULL,
+    "ownerId" TEXT NOT NULL,
+    "ownerNo" TEXT,
+    "assetId" TEXT NOT NULL,
+    "amount" DECIMAL NOT NULL,
+    "feeAmount" DECIMAL NOT NULL DEFAULT 0,
+    "netAmount" DECIMAL NOT NULL,
+    "fromWalletId" TEXT,
+    "fromAddress" TEXT,
+    "fromIban" TEXT,
+    "toWalletId" TEXT,
+    "toAddress" TEXT,
+    "toIban" TEXT,
+    "referenceNo" TEXT,
+    "pathLabel" TEXT,
+    "accountingClass" TEXT,
+    "medium" TEXT,
+    "triggerSource" TEXT,
+    "traceId" TEXT,
+    "statusHistory" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completedAt" DATETIME,
+    "updatedAt" DATETIME NOT NULL,
+    "settlementBatchId" TEXT,
+    "grossInAmount" DECIMAL,
+    "grossOutAmount" DECIMAL,
+    CONSTRAINT "internal_transactions_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "internal_transactions_approvalCaseId_fkey" FOREIGN KEY ("approvalCaseId") REFERENCES "approval_cases" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "internal_transactions_fromWalletId_fkey" FOREIGN KEY ("fromWalletId") REFERENCES "wallets" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "internal_transactions_toWalletId_fkey" FOREIGN KEY ("toWalletId") REFERENCES "wallets" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "internal_transactions_settlementBatchId_fkey" FOREIGN KEY ("settlementBatchId") REFERENCES "settlement_batches" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+INSERT INTO "new_internal_transactions" ("accountingClass", "amount", "approvalCaseId", "approvalStatus", "assetId", "checkedAt", "checkerUserId", "completedAt", "createdAt", "feeAmount", "fromAddress", "fromIban", "fromWalletId", "id", "initiationMode", "internalTxNo", "makerUserId", "medium", "netAmount", "ownerId", "ownerNo", "ownerType", "pathLabel", "purpose", "referenceNo", "reviewReason", "sourceId", "sourceNo", "sourceType", "status", "statusHistory", "toAddress", "toIban", "toWalletId", "traceId", "triggerSource", "type", "updatedAt") SELECT "accountingClass", "amount", "approvalCaseId", "approvalStatus", "assetId", "checkedAt", "checkerUserId", "completedAt", "createdAt", "feeAmount", "fromAddress", "fromIban", "fromWalletId", "id", "initiationMode", "internalTxNo", "makerUserId", "medium", "netAmount", "ownerId", "ownerNo", "ownerType", "pathLabel", "purpose", "referenceNo", "reviewReason", "sourceId", "sourceNo", "sourceType", "status", "statusHistory", "toAddress", "toIban", "toWalletId", "traceId", "triggerSource", "type", "updatedAt" FROM "internal_transactions";
+DROP TABLE "internal_transactions";
+ALTER TABLE "new_internal_transactions" RENAME TO "internal_transactions";
+CREATE UNIQUE INDEX "internal_transactions_internalTxNo_key" ON "internal_transactions"("internalTxNo");
+CREATE UNIQUE INDEX "internal_transactions_approvalCaseId_key" ON "internal_transactions"("approvalCaseId");
+CREATE INDEX "internal_transactions_status_idx" ON "internal_transactions"("status");
+CREATE INDEX "internal_transactions_approvalStatus_idx" ON "internal_transactions"("approvalStatus");
+CREATE INDEX "internal_transactions_approvalCaseId_idx" ON "internal_transactions"("approvalCaseId");
+CREATE INDEX "internal_transactions_createdAt_idx" ON "internal_transactions"("createdAt");
+CREATE INDEX "internal_transactions_assetId_idx" ON "internal_transactions"("assetId");
+CREATE INDEX "internal_transactions_pathLabel_idx" ON "internal_transactions"("pathLabel");
+CREATE INDEX "internal_transactions_traceId_idx" ON "internal_transactions"("traceId");
+CREATE INDEX "internal_transactions_settlementBatchId_idx" ON "internal_transactions"("settlementBatchId");
+CREATE UNIQUE INDEX "internal_transactions_sourceType_sourceId_type_key" ON "internal_transactions"("sourceType", "sourceId", "type");
+CREATE TABLE "new_outstandings" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "outstandingNo" TEXT,
+    "sourceType" TEXT NOT NULL,
+    "sourceId" TEXT NOT NULL,
+    "sourceNo" TEXT,
+    "ownerType" TEXT NOT NULL,
+    "ownerId" TEXT NOT NULL,
+    "ownerNo" TEXT,
+    "direction" TEXT NOT NULL,
+    "assetId" TEXT NOT NULL,
+    "assetCode" TEXT,
+    "amount" DECIMAL NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'OPEN',
+    "swapTransactionId" TEXT,
+    "settlementBatchId" TEXT,
+    "settledByTransferId" TEXT,
+    "lockedAt" DATETIME,
+    "closedAt" DATETIME,
+    "closedByInternalFundId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "outstandings_assetId_fkey" FOREIGN KEY ("assetId") REFERENCES "assets" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "outstandings_swapTransactionId_fkey" FOREIGN KEY ("swapTransactionId") REFERENCES "swap_transactions" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "outstandings_settlementBatchId_fkey" FOREIGN KEY ("settlementBatchId") REFERENCES "settlement_batches" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "outstandings_settledByTransferId_fkey" FOREIGN KEY ("settledByTransferId") REFERENCES "internal_transactions" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "outstandings_closedByInternalFundId_fkey" FOREIGN KEY ("closedByInternalFundId") REFERENCES "internal_funds" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+INSERT INTO "new_outstandings" ("amount", "assetCode", "assetId", "closedAt", "closedByInternalFundId", "createdAt", "direction", "id", "lockedAt", "outstandingNo", "ownerId", "ownerNo", "ownerType", "settlementBatchId", "sourceId", "sourceNo", "sourceType", "status", "swapTransactionId", "updatedAt") SELECT "amount", "assetCode", "assetId", "closedAt", "closedByInternalFundId", "createdAt", "direction", "id", "lockedAt", "outstandingNo", "ownerId", "ownerNo", "ownerType", "settlementBatchId", "sourceId", "sourceNo", "sourceType", "status", "swapTransactionId", "updatedAt" FROM "outstandings";
+DROP TABLE "outstandings";
+ALTER TABLE "new_outstandings" RENAME TO "outstandings";
+CREATE UNIQUE INDEX "outstandings_outstandingNo_key" ON "outstandings"("outstandingNo");
+CREATE INDEX "outstandings_status_idx" ON "outstandings"("status");
+CREATE INDEX "outstandings_ownerType_ownerId_idx" ON "outstandings"("ownerType", "ownerId");
+CREATE INDEX "outstandings_sourceType_sourceId_idx" ON "outstandings"("sourceType", "sourceId");
+CREATE INDEX "outstandings_createdAt_idx" ON "outstandings"("createdAt");
+CREATE INDEX "outstandings_assetId_idx" ON "outstandings"("assetId");
+CREATE INDEX "outstandings_swapTransactionId_idx" ON "outstandings"("swapTransactionId");
+CREATE INDEX "outstandings_settlementBatchId_idx" ON "outstandings"("settlementBatchId");
+CREATE INDEX "outstandings_settledByTransferId_idx" ON "outstandings"("settledByTransferId");
+CREATE INDEX "outstandings_closedByInternalFundId_idx" ON "outstandings"("closedByInternalFundId");
+CREATE UNIQUE INDEX "outstandings_sourceType_sourceId_direction_key" ON "outstandings"("sourceType", "sourceId", "direction");
+PRAGMA foreign_keys=ON;
+PRAGMA defer_foreign_keys=OFF;

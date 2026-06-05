@@ -1061,7 +1061,6 @@ model Asset {
   swapQuoteTos                   SwapQuote[]                     @relation("SwapQuoteToAsset")
   withdrawPricingQuotes          WithdrawPricingQuote[]
   outstandings                   Outstanding[]
-  settlementBatchItems           SettlementBatchItem[]
   wallets                        Wallet[]
   withdrawTransactions           WithdrawTransaction[]
   internalTransactions           InternalTransaction[]
@@ -1469,13 +1468,17 @@ model InternalTransaction {
   createdAt                  DateTime                      @default(now())
   completedAt                DateTime?
   updatedAt                  DateTime                      @updatedAt
+  settlementBatchId          String?
+  grossInAmount              Decimal?
+  grossOutAmount             Decimal?
   asset                      Asset                         @relation(fields: [assetId], references: [id])
   approvalCase               ApprovalCase?                 @relation("InternalTransactionApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
   fromWallet                 Wallet?                       @relation("InternalTxFromWallet", fields: [fromWalletId], references: [id])
   toWallet                   Wallet?                       @relation("InternalTxToWallet", fields: [toWalletId], references: [id])
   funds                      InternalFund[]
   auditLogs                  InternalTransactionAuditLog[]
-  settlementBatchItems       SettlementBatchItem[]
+  settlementBatch            SettlementBatch?              @relation("SettlementBatchTransfers", fields: [settlementBatchId], references: [id], onDelete: SetNull)
+  settledOutstandings        Outstanding[]                 @relation("OutstandingSettledByTransfer")
   reimbursementSettlements   ReimbursementObligation[]     @relation("ReimbursementObligationSettlementTx")
 
   @@unique([sourceType, sourceId, type])
@@ -1486,6 +1489,7 @@ model InternalTransaction {
   @@index([assetId])
   @@index([pathLabel])
   @@index([traceId])
+  @@index([settlementBatchId])
   @@map("internal_transactions")
 }
 
@@ -1716,7 +1720,7 @@ model Outstanding {
   status                        String                     @default("OPEN")
   swapTransactionId             String?
   settlementBatchId             String?
-  settlementBatchItemId         String?
+  settledByTransferId           String?
   lockedAt                      DateTime?
   closedAt                      DateTime?
   closedByInternalFundId        String?
@@ -1725,7 +1729,7 @@ model Outstanding {
   asset                         Asset                      @relation(fields: [assetId], references: [id])
   swapTransaction               SwapTransaction?           @relation(fields: [swapTransactionId], references: [id])
   settlementBatch               SettlementBatch?           @relation(fields: [settlementBatchId], references: [id], onDelete: SetNull)
-  settlementBatchItem           SettlementBatchItem?       @relation(fields: [settlementBatchItemId], references: [id], onDelete: SetNull)
+  settledByTransfer             InternalTransaction?       @relation("OutstandingSettledByTransfer", fields: [settledByTransferId], references: [id], onDelete: SetNull)
   closedByInternalFund          InternalFund?              @relation(fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId, direction])
@@ -1736,7 +1740,7 @@ model Outstanding {
   @@index([assetId])
   @@index([swapTransactionId])
   @@index([settlementBatchId])
-  @@index([settlementBatchItemId])
+  @@index([settledByTransferId])
   @@index([closedByInternalFundId])
   @@map("outstandings")
 }
@@ -1755,7 +1759,7 @@ model SettlementBatch {
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
   completedAt              DateTime?
-  items                    SettlementBatchItem[]
+  transfers                InternalTransaction[]        @relation("SettlementBatchTransfers")
   outstandings             Outstanding[]
 
   @@index([status])
@@ -1763,32 +1767,6 @@ model SettlementBatch {
   @@map("settlement_batches")
 }
 
-model SettlementBatchItem {
-  id                      String               @id @default(uuid())
-  settlementBatchId       String
-  assetId                 String
-  assetCode               String?
-  inAmount                Decimal              @default(0)
-  outAmount               Decimal              @default(0)
-  netAmount               Decimal              @default(0)
-  direction               String?
-  status                  String               @default("PROCESSING")
-  internalTransactionId   String?
-  outstandingCount        Int                  @default(0)
-  settledOutstandingCount Int                  @default(0)
-  createdAt               DateTime             @default(now())
-  closedAt                DateTime?
-  settlementBatch         SettlementBatch      @relation(fields: [settlementBatchId], references: [id], onDelete: Cascade)
-  asset                   Asset                @relation(fields: [assetId], references: [id])
-  internalTransaction     InternalTransaction? @relation(fields: [internalTransactionId], references: [id], onDelete: SetNull)
-  outstandings            Outstanding[]
-
-  @@index([settlementBatchId])
-  @@index([assetId])
-  @@index([status])
-  @@index([internalTransactionId])
-  @@map("settlement_batch_items")
-}
 
 model WithdrawTransaction {
   id                   String                @id @default(uuid())
