@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -39,16 +38,15 @@ interface FeeCandidate {
  *
  * Drains each active crypto asset's accrued FEE_RECEIVABLE liability into Ops:
  * read the per-currency FEE_RECEIVABLE balance from TigerBeetle → for any
- * positive net, create a FEE_COLLECT settlement batch + per-asset item → spawn
- * the whitelisted FEE_COLLECT transfer (C_MAIN→F_OPS, class B; initiate triggers
- * the B-class FEE_RECEIVABLE→CUSTODY drain) via the universal transfer workflow
- * → recompute the batch rollup. When a spawned transfer's funds-flow clears
- * (fundsflow.status.changed → CLEAR), it closes the item and recomputes the
- * batch. Unlike EOD this touches no Outstanding rows.
+ * positive net, create a FEE_COLLECT settlement batch → spawn the whitelisted
+ * FEE_COLLECT transfer (C_MAIN→F_OPS, class B; initiate triggers the B-class
+ * FEE_RECEIVABLE→CUSTODY drain) via the universal transfer workflow → recompute
+ * the batch rollup. When a spawned transfer's funds-flow clears
+ * (fundsflow.status.changed → CLEAR), it recomputes the batch.
+ * Unlike EOD this touches no Outstanding rows and no SettlementBatchItem rows.
  *
  * Layering: orchestrates domain services only; the sole direct Prisma use is the
- * asset query, the read-only idempotency `findFirst`, and the reads in the event
- * handler. All settlement writes go through domain services.
+ * asset query and the read-only idempotency `findFirst`.
  */
 @Injectable()
 export class FeeCollectionWorkflowService {
@@ -110,18 +108,6 @@ export class FeeCollectionWorkflowService {
 
     for (const candidate of candidates) {
       const amount = bigintToDecimal(candidate.netBigint, candidate.decimals);
-
-      const item = await this.batchService.createItem({
-        settlementBatchId: batch.id,
-        assetId: candidate.assetId,
-        assetCode: candidate.currency,
-        inAmount: new Prisma.Decimal(0),
-        outAmount: amount,
-        netAmount: amount,
-        direction: 'FEE_COLLECT',
-        outstandingCount: 0,
-      });
-
       const from = await this.systemWallets.resolve(candidate.assetId, 'C_MAIN');
       const ops = await this.systemWallets.resolve(candidate.assetId, 'F_OPS');
 
@@ -130,27 +116,28 @@ export class FeeCollectionWorkflowService {
         where: { sourceType: FEE_SOURCE_TYPE, sourceId },
       });
 
-      const transfer = existing
-        ? existing
-        : await this.transferWorkflow.initiate(
-            {
-              fromRole: 'C_MAIN',
-              toRole: 'F_OPS',
-              sourceType: FEE_SOURCE_TYPE,
-              sourceId,
-              sourceNo: batch.batchNo,
-              ownerType: 'PLATFORM',
-              ownerId: 'PLATFORM',
-              assetId: candidate.assetId,
-              amount: amount.toString(),
-              fromWalletId: from.id,
-              toWalletId: ops.id,
-              triggerSource: 'CRON',
-            },
-            operatorId,
-          );
-
-      await this.batchService.linkItemTransfer(item.id, transfer.id);
+      if (!existing) {
+        await this.transferWorkflow.initiate(
+          {
+            fromRole: 'C_MAIN',
+            toRole: 'F_OPS',
+            sourceType: FEE_SOURCE_TYPE,
+            sourceId,
+            sourceNo: batch.batchNo,
+            ownerType: 'PLATFORM',
+            ownerId: 'PLATFORM',
+            assetId: candidate.assetId,
+            amount: amount.toString(),
+            fromWalletId: from.id,
+            toWalletId: ops.id,
+            triggerSource: 'CRON',
+            settlementBatchId: batch.id,
+            grossInAmount: '0',
+            grossOutAmount: amount.toString(),
+          },
+          operatorId,
+        );
+      }
       collected += 1;
     }
 
@@ -171,22 +158,10 @@ export class FeeCollectionWorkflowService {
       // Not one of ours — EOD / aggregation / fund-out are handled elsewhere.
       if (!transfer || transfer.sourceType !== FEE_SOURCE_TYPE) return;
 
-      const item = await (this.prisma as any).settlementBatchItem.findFirst({
-        where: { internalTransactionId: event.internalTransferId },
-      });
-      if (!item) {
-        this.logger.warn(
-          `Fee CLEAR: no settlement item for internalTransfer=${event.internalTransferId}`,
-        );
-        return;
-      }
-
-      // Fee collection touches no outstandings → settledCount 0.
-      await this.batchService.closeItem(item.id, 0);
-      await this.batchService.recomputeBatch(item.settlementBatchId);
+      await this.batchService.recomputeBatch(transfer.settlementBatchId);
     } catch (err) {
       this.logger.error(
-        `Failed to close fee-collection item for internalTransfer=${event.internalTransferId}`,
+        `Failed to recompute fee-collection batch for internalTransfer=${event.internalTransferId}`,
         err instanceof Error ? err.stack : undefined,
       );
     }

@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { SettlementBatchService } from '../domain/settlement-batch.service';
@@ -11,10 +10,7 @@ describe('FeeCollectionWorkflowService', () => {
   let service: FeeCollectionWorkflowService;
   let batchService: {
     createBatch: jest.Mock;
-    createItem: jest.Mock;
-    linkItemTransfer: jest.Mock;
     recomputeBatch: jest.Mock;
-    closeItem: jest.Mock;
   };
   let accounting: {
     resolveTbAccountId: jest.Mock;
@@ -25,7 +21,6 @@ describe('FeeCollectionWorkflowService', () => {
   let prisma: {
     asset: { findMany: jest.Mock };
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
-    settlementBatchItem: { findFirst: jest.Mock };
   };
 
   const batch = { id: 'b-1', batchNo: 'OSB-001' };
@@ -34,10 +29,7 @@ describe('FeeCollectionWorkflowService', () => {
   beforeEach(async () => {
     batchService = {
       createBatch: jest.fn().mockResolvedValue(batch),
-      createItem: jest.fn().mockResolvedValue({ id: 'item-1' }),
-      linkItemTransfer: jest.fn().mockResolvedValue({}),
       recomputeBatch: jest.fn().mockResolvedValue({}),
-      closeItem: jest.fn().mockResolvedValue({}),
     };
     accounting = {
       resolveTbAccountId: jest.fn().mockResolvedValue(999n),
@@ -62,7 +54,6 @@ describe('FeeCollectionWorkflowService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
       },
-      settlementBatchItem: { findFirst: jest.fn() },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -80,7 +71,7 @@ describe('FeeCollectionWorkflowService', () => {
   });
 
   describe('runFeeCollection', () => {
-    it('asset with FEE_RECEIVABLE > 0: creates FEE_COLLECT batch + item, initiates C_MAIN→F_OPS transfer', async () => {
+    it('asset with FEE_RECEIVABLE > 0: creates FEE_COLLECT batch, initiates C_MAIN→F_OPS transfer with settlementBatchId and grossAmounts', async () => {
       // USDT 6dp: 5000000n credits − 0n debits = 5.0
       accounting.lookupBalance.mockResolvedValue({
         creditsPosted: 5000000n,
@@ -94,19 +85,10 @@ describe('FeeCollectionWorkflowService', () => {
       expect(batchService.createBatch).toHaveBeenCalledWith(
         expect.objectContaining({ settlementType: 'FEE_COLLECT' }),
       );
-      expect(batchService.createItem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          settlementBatchId: 'b-1',
-          assetId: 'a1',
-          assetCode: 'USDT',
-          direction: 'FEE_COLLECT',
-          outstandingCount: 0,
-        }),
-      );
-      const itemArg = batchService.createItem.mock.calls[0][0];
-      expect(itemArg.netAmount.toString()).toBe('5');
-      expect(itemArg.outAmount.toString()).toBe('5');
-      expect(itemArg.inAmount.toString()).toBe('0');
+
+      // NO item layer
+      expect((batchService as any).createItem).toBeUndefined();
+      expect((batchService as any).linkItemTransfer).toBeUndefined();
 
       expect(systemWallets.resolve).toHaveBeenCalledWith('a1', 'C_MAIN');
       expect(systemWallets.resolve).toHaveBeenCalledWith('a1', 'F_OPS');
@@ -123,10 +105,12 @@ describe('FeeCollectionWorkflowService', () => {
         fromWalletId: 'w-C_MAIN',
         toWalletId: 'w-F_OPS',
         triggerSource: 'CRON',
+        settlementBatchId: 'b-1',
+        grossInAmount: '0',
+        grossOutAmount: '5',
       });
       expect(operatorId).toBe('SYSTEM');
 
-      expect(batchService.linkItemTransfer).toHaveBeenCalledWith('item-1', 't-new');
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
       expect(result).toEqual({ batchNo: 'OSB-001', assetCount: 1, collected: 1 });
     });
@@ -158,7 +142,7 @@ describe('FeeCollectionWorkflowService', () => {
       expect(result).toEqual({ batchNo: null, assetCount: 0, collected: 0 });
     });
 
-    it('idempotent: reuses an existing FEE_COLLECTION transfer, still links it', async () => {
+    it('idempotent: existing FEE_COLLECTION transfer skips initiate', async () => {
       accounting.lookupBalance.mockResolvedValue({
         creditsPosted: 5000000n,
         debitsPosted: 0n,
@@ -170,22 +154,15 @@ describe('FeeCollectionWorkflowService', () => {
       const result = await service.runFeeCollection();
 
       expect(transferWorkflow.initiate).not.toHaveBeenCalled();
-      expect(batchService.linkItemTransfer).toHaveBeenCalledWith(
-        'item-1',
-        't-existing',
-      );
       expect(result.collected).toBe(1);
     });
   });
 
   describe('onFundsFlowStatusChanged', () => {
-    it('CLEAR for a FEE_COLLECTION transfer: closes the item + recomputes', async () => {
+    it('CLEAR for a FEE_COLLECTION transfer: recomputes batch (no item lookup, no closeItem)', async () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({
         id: 't-fee',
         sourceType: 'FEE_COLLECTION',
-      });
-      prisma.settlementBatchItem.findFirst.mockResolvedValue({
-        id: 'item-1',
         settlementBatchId: 'b-1',
       });
 
@@ -196,7 +173,10 @@ describe('FeeCollectionWorkflowService', () => {
         newStatus: 'CLEAR',
       });
 
-      expect(batchService.closeItem).toHaveBeenCalledWith('item-1', 0);
+      // NO settlementBatchItem lookup
+      expect((prisma as any).settlementBatchItem).toBeUndefined();
+      // NO closeItem
+      expect((batchService as any).closeItem).toBeUndefined();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
     });
 
@@ -204,6 +184,7 @@ describe('FeeCollectionWorkflowService', () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({
         id: 't-eod',
         sourceType: 'EOD_SETTLEMENT',
+        settlementBatchId: 'b-2',
       });
 
       await service.onFundsFlowStatusChanged({
@@ -213,7 +194,6 @@ describe('FeeCollectionWorkflowService', () => {
         newStatus: 'CLEAR',
       });
 
-      expect(batchService.closeItem).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).not.toHaveBeenCalled();
     });
 
@@ -226,13 +206,14 @@ describe('FeeCollectionWorkflowService', () => {
       });
 
       expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
-      expect(batchService.closeItem).not.toHaveBeenCalled();
+      expect(batchService.recomputeBatch).not.toHaveBeenCalled();
     });
 
     it('ignores non-CLEAR status transitions', async () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({
         id: 't-fee',
         sourceType: 'FEE_COLLECTION',
+        settlementBatchId: 'b-1',
       });
 
       await service.onFundsFlowStatusChanged({
@@ -242,7 +223,7 @@ describe('FeeCollectionWorkflowService', () => {
         newStatus: 'FAILED',
       });
 
-      expect(batchService.closeItem).not.toHaveBeenCalled();
+      expect(batchService.recomputeBatch).not.toHaveBeenCalled();
     });
   });
 });
