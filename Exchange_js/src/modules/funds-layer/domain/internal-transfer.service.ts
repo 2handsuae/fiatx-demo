@@ -39,6 +39,9 @@ export interface CreateTransferInput {
   netAmount: Prisma.Decimal;
   fromWalletId: string;
   toWalletId: string;
+  settlementBatchId?: string | null;
+  grossInAmount?: Prisma.Decimal | null;
+  grossOutAmount?: Prisma.Decimal | null;
 }
 
 /**
@@ -148,6 +151,9 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
               netAmount: input.netAmount,
               fromWalletId: input.fromWalletId,
               toWalletId: input.toWalletId,
+              settlementBatchId: input.settlementBatchId ?? null,
+              grossInAmount: input.grossInAmount ?? null,
+              grossOutAmount: input.grossOutAmount ?? null,
               statusHistory,
             },
           });

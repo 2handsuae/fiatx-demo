@@ -29,6 +29,9 @@ export interface InitiateTransferInput {
   toWalletId: string;
   triggerSource: string;
   note?: string;
+  settlementBatchId?: string | null;
+  grossInAmount?: string | null;
+  grossOutAmount?: string | null;
 }
 
 interface FundsFlowStatusChangedEvent {
@@ -97,6 +100,11 @@ export class InternalTransferWorkflowService {
           netAmount: new Prisma.Decimal(input.amount),
           fromWalletId: input.fromWalletId,
           toWalletId: input.toWalletId,
+          settlementBatchId: input.settlementBatchId ?? null,
+          grossInAmount:
+            input.grossInAmount != null ? new Prisma.Decimal(input.grossInAmount) : null,
+          grossOutAmount:
+            input.grossOutAmount != null ? new Prisma.Decimal(input.grossOutAmount) : null,
         },
         operatorId,
         tx,
