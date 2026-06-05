@@ -16,10 +16,11 @@ describe('SettlementBatchService', () => {
         count: jest.fn(),
         update: jest.fn((args: any) => ({ id: args.where.id, ...args.data })),
       },
-      settlementBatchItem: {
-        create: jest.fn((args: any) => ({ id: 'item-new', ...args.data })),
+      internalTransaction: {
         findMany: jest.fn(),
-        update: jest.fn((args: any) => ({ id: args.where.id, ...args.data })),
+      },
+      outstanding: {
+        findMany: jest.fn(),
       },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -83,101 +84,66 @@ describe('SettlementBatchService', () => {
     });
   });
 
-  it('createItem with netAmount=0 → status NETTED', async () => {
-    const item = await service.createItem({
-      settlementBatchId: 'osb-1',
-      assetId: 'asset-1',
-      assetCode: 'BTC',
-      inAmount: new Prisma.Decimal(100),
-      outAmount: new Prisma.Decimal(100),
-      netAmount: new Prisma.Decimal(0),
-      direction: null,
-      outstandingCount: 4,
-    });
-
-    expect(item.status).toBe('NETTED');
-    expect(prisma.settlementBatchItem.create).toHaveBeenCalledTimes(1);
-  });
-
-  it('createItem with non-zero netAmount → status PROCESSING', async () => {
-    const item = await service.createItem({
-      settlementBatchId: 'osb-1',
-      assetId: 'asset-1',
-      assetCode: 'BTC',
-      inAmount: new Prisma.Decimal(100),
-      outAmount: new Prisma.Decimal(40),
-      netAmount: new Prisma.Decimal(60),
-      direction: 'INTERNAL_IN',
-      outstandingCount: 3,
-    });
-
-    expect(item.status).toBe('PROCESSING');
-  });
-
-  it('linkItemTransfer sets internalTransactionId on the item', async () => {
-    await service.linkItemTransfer('item-1', 'itx-1');
-    expect(prisma.settlementBatchItem.update).toHaveBeenCalledWith({
-      where: { id: 'item-1' },
-      data: { internalTransactionId: 'itx-1' },
-    });
-  });
-
-  it('closeItem sets status=CLOSED, settledOutstandingCount, closedAt', async () => {
-    const updated = await service.closeItem('item-1', 3);
-
-    const call = prisma.settlementBatchItem.update.mock.calls[0][0];
-    expect(call.where).toEqual({ id: 'item-1' });
-    expect(call.data.status).toBe('CLOSED');
-    expect(call.data.settledOutstandingCount).toBe(3);
-    expect(call.data.closedAt).toBeInstanceOf(Date);
-    expect(updated.status).toBe('CLOSED');
-  });
-
-  it('recomputeBatch → SUCCESS when all items are terminal (CLOSED/NETTED)', async () => {
-    prisma.settlementBatchItem.findMany.mockResolvedValue([
-      {
-        status: 'NETTED',
-        outstandingCount: 2,
-        settledOutstandingCount: 2,
-      },
-      {
-        status: 'CLOSED',
-        outstandingCount: 3,
-        settledOutstandingCount: 3,
-      },
+  it('recomputeBatch SUCCESS when all transfers SUCCESS and all outstandings SETTLED', async () => {
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'SUCCESS', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([
+      { status: 'SETTLED', assetId: 'a1', settledByTransferId: 't1' },
     ]);
 
-    const updated = await service.recomputeBatch('osb-1');
+    await service.recomputeBatch('batch1');
 
     const data = prisma.settlementBatch.update.mock.calls[0][0].data;
-    expect(data.status).toBe('SUCCESS');
-    expect(data.totalAssetCount).toBe(2);
-    expect(data.settledAssetCount).toBe(2);
-    expect(data.totalOutstandingCount).toBe(5);
-    expect(data.settledOutstandingCount).toBe(5);
-    expect(data.completedAt).toBeInstanceOf(Date);
-    expect(updated.status).toBe('SUCCESS');
-  });
-
-  it('recomputeBatch → PROCESSING (no completedAt) when an item is still open', async () => {
-    prisma.settlementBatchItem.findMany.mockResolvedValue([
-      { status: 'NETTED', outstandingCount: 2, settledOutstandingCount: 2 },
-      { status: 'PROCESSING', outstandingCount: 3, settledOutstandingCount: 0 },
-    ]);
-
-    await service.recomputeBatch('osb-1');
-
-    const data = prisma.settlementBatch.update.mock.calls[0][0].data;
-    expect(data.status).toBe('PROCESSING');
+    expect(data.totalAssetCount).toBe(1);
     expect(data.settledAssetCount).toBe(1);
+    expect(data.totalOutstandingCount).toBe(1);
+    expect(data.settledOutstandingCount).toBe(1);
+    expect(data.status).toBe('SUCCESS');
+    expect(data.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('recomputeBatch PROCESSING when a transfer not yet SUCCESS', async () => {
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'INTERNAL_FUNDS_PENDING', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([
+      { status: 'LOCKED', assetId: 'a1', settledByTransferId: 't1' },
+    ]);
+
+    await service.recomputeBatch('batch1');
+
+    const data = prisma.settlementBatch.update.mock.calls[0][0].data;
+    expect(data.totalAssetCount).toBe(1);
+    expect(data.settledAssetCount).toBe(0);
+    expect(data.totalOutstandingCount).toBe(1);
+    expect(data.settledOutstandingCount).toBe(0);
+    expect(data.status).toBe('PROCESSING');
     expect(data.completedAt).toBeNull();
   });
 
-  it('findOneByNoForAdmin looks up by batchNo (business key) including items', async () => {
+  it('recomputeBatch SUCCESS for net=0 only batch (no transfers, one SETTLED outstanding with no transfer)', async () => {
+    prisma.internalTransaction.findMany.mockResolvedValue([]);
+    prisma.outstanding.findMany.mockResolvedValue([
+      { status: 'SETTLED', assetId: 'a1', settledByTransferId: null },
+    ]);
+
+    await service.recomputeBatch('batch1');
+
+    const data = prisma.settlementBatch.update.mock.calls[0][0].data;
+    expect(data.totalAssetCount).toBe(1);
+    expect(data.settledAssetCount).toBe(1);
+    expect(data.totalOutstandingCount).toBe(1);
+    expect(data.settledOutstandingCount).toBe(1);
+    expect(data.status).toBe('SUCCESS');
+    expect(data.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('findOneByNoForAdmin looks up by batchNo (business key) including transfers', async () => {
     prisma.settlementBatch.findUnique.mockResolvedValue({
       id: 'osb-1',
       batchNo: 'OSB2606030001',
-      items: [],
+      transfers: [],
     });
 
     const found = await service.findOneByNoForAdmin('OSB2606030001');

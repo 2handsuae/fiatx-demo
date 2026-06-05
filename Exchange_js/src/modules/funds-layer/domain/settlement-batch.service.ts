@@ -15,17 +15,6 @@ export interface CreateBatchInput {
   settlementType?: string;
 }
 
-export interface CreateItemInput {
-  settlementBatchId: string;
-  assetId: string;
-  assetCode?: string | null;
-  inAmount: Prisma.Decimal;
-  outAmount: Prisma.Decimal;
-  netAmount: Prisma.Decimal;
-  direction?: string | null;
-  outstandingCount: number;
-}
-
 export interface SettlementBatchAdminQuery {
   skip?: number;
   take?: number;
@@ -52,9 +41,6 @@ export interface CryptoDirection {
 @Injectable()
 export class SettlementBatchService {
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
-  // Items whose work is finished: NETTED (net=0, no transfer) or CLOSED
-  // (transfer succeeded + outstandings settled).
-  private static readonly TERMINAL_ITEM_STATUSES = new Set(['NETTED', 'CLOSED']);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -106,80 +92,45 @@ export class SettlementBatchService {
     );
   }
 
-  async createItem(input: CreateItemInput, tx?: TxClient) {
-    const client = (tx ?? this.prisma) as any;
-    const status = input.netAmount.eq(0) ? 'NETTED' : 'PROCESSING';
-    return client.settlementBatchItem.create({
-      data: {
-        settlementBatchId: input.settlementBatchId,
-        assetId: input.assetId,
-        assetCode: input.assetCode ?? null,
-        inAmount: input.inAmount,
-        outAmount: input.outAmount,
-        netAmount: input.netAmount,
-        direction: input.direction ?? null,
-        status,
-        outstandingCount: input.outstandingCount,
-      },
-    });
-  }
-
-  async linkItemTransfer(
-    itemId: string,
-    internalTransactionId: string,
-    tx?: TxClient,
-  ) {
-    const client = (tx ?? this.prisma) as any;
-    return client.settlementBatchItem.update({
-      where: { id: itemId },
-      data: { internalTransactionId },
-    });
-  }
-
-  /**
-   * Marks an item terminal after its transfer cleared and its outstandings were
-   * settled: status=CLOSED (terminal — see TERMINAL_ITEM_STATUSES) +
-   * settledOutstandingCount + closedAt.
-   */
-  async closeItem(itemId: string, settledCount: number, tx?: TxClient) {
-    const client = (tx ?? this.prisma) as any;
-    return client.settlementBatchItem.update({
-      where: { id: itemId },
-      data: {
-        status: 'CLOSED',
-        settledOutstandingCount: settledCount,
-        closedAt: new Date(),
-      },
-    });
-  }
-
   async recomputeBatch(settlementBatchId: string, tx?: TxClient) {
     const execute = async (client: TxClient) => {
-      const items = await (client as any).settlementBatchItem.findMany({
+      const transfers = await (client as any).internalTransaction.findMany({
         where: { settlementBatchId },
-        select: {
-          status: true,
-          outstandingCount: true,
-          settledOutstandingCount: true,
-        },
+        select: { status: true, assetId: true },
+      });
+      const outstandings = await (client as any).outstanding.findMany({
+        where: { settlementBatchId },
+        select: { status: true, assetId: true, settledByTransferId: true },
       });
 
-      const totalAssetCount = items.length;
-      const settledAssetCount = items.filter((item: any) =>
-        SettlementBatchService.TERMINAL_ITEM_STATUSES.has(item.status),
-      ).length;
-      const totalOutstandingCount = items.reduce(
-        (sum: number, item: any) => sum + (item.outstandingCount ?? 0),
-        0,
+      const nettedZeroAssets = new Set<string>(
+        outstandings
+          .filter((o: any) => !o.settledByTransferId)
+          .map((o: any) => o.assetId),
       );
-      const settledOutstandingCount = items.reduce(
-        (sum: number, item: any) => sum + (item.settledOutstandingCount ?? 0),
-        0,
+      const transferAssets = new Set<string>(
+        transfers.map((t: any) => t.assetId),
       );
 
-      const allTerminal =
-        totalAssetCount > 0 && settledAssetCount === totalAssetCount;
-      const status = allTerminal ? 'SUCCESS' : 'PROCESSING';
+      const totalAssetCount = transferAssets.size + nettedZeroAssets.size;
+      const settledTransferAssets = transfers.filter(
+        (t: any) => t.status === 'SUCCESS',
+      ).length;
+      const settledAssetCount = settledTransferAssets + nettedZeroAssets.size;
+
+      const totalOutstandingCount = outstandings.length;
+      const settledOutstandingCount = outstandings.filter(
+        (o: any) => o.status === 'SETTLED',
+      ).length;
+
+      // Fee-collection batches have no outstandings → the outstanding-count
+      // equality is vacuously true; completion then gates purely on transfers.
+      // An empty batch (no transfers, no outstandings) → totalAssetCount 0 → PROCESSING.
+      const allDone =
+        totalAssetCount > 0 &&
+        settledAssetCount === totalAssetCount &&
+        settledOutstandingCount === totalOutstandingCount;
+      const status = allDone ? 'SUCCESS' : 'PROCESSING';
 
       return (client as any).settlementBatch.update({
         where: { id: settlementBatchId },
@@ -189,7 +140,7 @@ export class SettlementBatchService {
           settledAssetCount,
           totalOutstandingCount,
           settledOutstandingCount,
-          completedAt: allTerminal ? new Date() : null,
+          completedAt: allDone ? new Date() : null,
         },
       });
     };
@@ -256,11 +207,8 @@ export class SettlementBatchService {
     const item = await (this.prisma as any).settlementBatch.findUnique({
       where: { batchNo },
       include: {
-        items: {
-          include: {
-            asset: true,
-            internalTransaction: true,
-          },
+        transfers: {
+          include: { asset: true, funds: { select: { id: true, internalFundNo: true, status: true } } },
           orderBy: { createdAt: 'asc' },
         },
       },
