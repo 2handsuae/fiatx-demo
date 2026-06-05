@@ -137,6 +137,7 @@ export class EodSettlementWorkflowService {
       });
       // Not one of ours — the universal transfer workflow handles its own audits.
       if (!transfer || transfer.sourceType !== EOD_SOURCE_TYPE) return;
+      if (!transfer.settlementBatchId) return;
 
       // 找到该 transfer 锁定的 outstanding，标 SETTLED，再重算 batch。
       await this.consumer.settle(event.internalTransferId, event.fundsFlowId);

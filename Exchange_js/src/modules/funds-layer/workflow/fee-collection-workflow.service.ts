@@ -157,6 +157,7 @@ export class FeeCollectionWorkflowService {
       });
       // Not one of ours — EOD / aggregation / fund-out are handled elsewhere.
       if (!transfer || transfer.sourceType !== FEE_SOURCE_TYPE) return;
+      if (!transfer.settlementBatchId) return;
 
       await this.batchService.recomputeBatch(transfer.settlementBatchId);
     } catch (err) {
