@@ -206,6 +206,9 @@ export const PERMISSIONS = {
     'api.get.admin_funds_layer_settlements_batchno',
   FUNDS_LAYER_SETTLEMENT_RUN:
     'api.post.admin_funds_layer_settlements_run',
+  FUNDS_LAYER_FUNDS_READ: 'api.get.admin_funds_layer_funds',
+  FUNDS_LAYER_FUND_DETAIL_READ:
+    'api.get.admin_funds_layer_funds_internalfundno',
 
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',
