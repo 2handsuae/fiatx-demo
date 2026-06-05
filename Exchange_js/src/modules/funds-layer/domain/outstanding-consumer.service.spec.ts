@@ -77,41 +77,48 @@ describe('OutstandingConsumerService', () => {
     expect(b.outstandingIds).toEqual(['o3']);
   });
 
-  it('lock updateMany guards on status OPEN and sets LOCKED + settlementBatchId', async () => {
-    await service.lock(['o1', 'o2'], 'osb-1');
+  it('lockToTransfer sets LOCKED + batch + transfer', async () => {
+    await service.lockToTransfer(['o1', 'o2'], 'batch1', 'tx1');
 
     const args = prisma.outstanding.updateMany.mock.calls[0][0];
     expect(args.where.id).toEqual({ in: ['o1', 'o2'] });
     expect(args.where.status).toBe('OPEN');
     expect(args.data.status).toBe('LOCKED');
-    expect(args.data.settlementBatchId).toBe('osb-1');
+    expect(args.data.settlementBatchId).toBe('batch1');
+    expect(args.data.settledByTransferId).toBe('tx1');
     expect(args.data.lockedAt).toBeInstanceOf(Date);
   });
 
-  it('linkItem sets settlementBatchItemId on the locked rows', async () => {
-    await service.linkItem(['o1', 'o2'], 'item-1');
+  it('lockToBatch sets LOCKED + batch only', async () => {
+    await service.lockToBatch(['o1'], 'batch1');
 
     const args = prisma.outstanding.updateMany.mock.calls[0][0];
-    expect(args.where.id).toEqual({ in: ['o1', 'o2'] });
-    expect(args.data.settlementBatchItemId).toBe('item-1');
+    expect(args.where.id).toEqual({ in: ['o1'] });
+    expect(args.where.status).toBe('OPEN');
+    expect(args.data.status).toBe('LOCKED');
+    expect(args.data.settlementBatchId).toBe('batch1');
+    expect(args.data.lockedAt).toBeInstanceOf(Date);
+    expect(args.data.settledByTransferId).toBeUndefined();
   });
 
-  it('settle updateMany guards on status LOCKED and sets SETTLED + closedByInternalFundId', async () => {
-    await service.settle('item-1', 'fund-1');
+  it('settle marks SETTLED by transferId', async () => {
+    await service.settle('tx1', 'fund1');
 
     const args = prisma.outstanding.updateMany.mock.calls[0][0];
-    expect(args.where.settlementBatchItemId).toBe('item-1');
+    expect(args.where.settledByTransferId).toBe('tx1');
     expect(args.where.status).toBe('LOCKED');
     expect(args.data.status).toBe('SETTLED');
-    expect(args.data.closedByInternalFundId).toBe('fund-1');
+    expect(args.data.closedByInternalFundId).toBe('fund1');
     expect(args.data.closedAt).toBeInstanceOf(Date);
   });
 
-  it('markNettedZero settles LOCKED rows for the item with no fund', async () => {
-    await service.markNettedZero('item-1');
+  it('markSettledNettedZero settles netted-zero outstandings', async () => {
+    await service.markSettledNettedZero('batch1', 'asset1');
 
     const args = prisma.outstanding.updateMany.mock.calls[0][0];
-    expect(args.where.settlementBatchItemId).toBe('item-1');
+    expect(args.where.settlementBatchId).toBe('batch1');
+    expect(args.where.assetId).toBe('asset1');
+    expect(args.where.settledByTransferId).toBeNull();
     expect(args.where.status).toBe('LOCKED');
     expect(args.data.status).toBe('SETTLED');
     expect(args.data.closedAt).toBeInstanceOf(Date);

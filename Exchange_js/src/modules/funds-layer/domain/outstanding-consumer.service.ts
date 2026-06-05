@@ -77,9 +77,10 @@ export class OutstandingConsumerService {
     return Array.from(groups.values());
   }
 
-  async lock(
+  async lockToTransfer(
     outstandingIds: string[],
     settlementBatchId: string,
+    settledByTransferId: string,
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
@@ -88,31 +89,32 @@ export class OutstandingConsumerService {
       data: {
         status: 'LOCKED',
         settlementBatchId,
+        settledByTransferId,
         lockedAt: new Date(),
       },
     });
   }
 
-  async linkItem(
+  async lockToBatch(
     outstandingIds: string[],
-    settlementBatchItemId: string,
+    settlementBatchId: string,
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
     return client.outstanding.updateMany({
-      where: { id: { in: outstandingIds } },
-      data: { settlementBatchItemId },
+      where: { id: { in: outstandingIds }, status: 'OPEN' },
+      data: { status: 'LOCKED', settlementBatchId, lockedAt: new Date() },
     });
   }
 
   async settle(
-    settlementBatchItemId: string,
+    settledByTransferId: string,
     internalFundId: string,
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
     return client.outstanding.updateMany({
-      where: { settlementBatchItemId, status: 'LOCKED' },
+      where: { settledByTransferId, status: 'LOCKED' },
       data: {
         status: 'SETTLED',
         closedByInternalFundId: internalFundId,
@@ -121,17 +123,20 @@ export class OutstandingConsumerService {
     });
   }
 
-  async markNettedZero(
-    settlementBatchItemId: string,
+  async markSettledNettedZero(
+    settlementBatchId: string,
+    assetId: string,
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
     return client.outstanding.updateMany({
-      where: { settlementBatchItemId, status: 'LOCKED' },
-      data: {
-        status: 'SETTLED',
-        closedAt: new Date(),
+      where: {
+        settlementBatchId,
+        assetId,
+        settledByTransferId: null,
+        status: 'LOCKED',
       },
+      data: { status: 'SETTLED', closedAt: new Date() },
     });
   }
 }
