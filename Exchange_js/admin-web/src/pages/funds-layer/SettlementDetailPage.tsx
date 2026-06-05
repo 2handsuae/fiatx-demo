@@ -18,27 +18,15 @@ import {
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-interface SettlementItemAsset {
-  code?: string | null;
-  currency?: string | null;
-}
-
-interface SettlementItemTransaction {
-  internalTxNo?: string | null;
-}
-
-interface SettlementBatchItem {
-  id: string;
+interface SettlementTransfer {
+  internalTxNo: string;
   assetCode: string | null;
-  inAmount: string;
-  outAmount: string;
+  asset?: { code?: string | null; currency?: string | null } | null;
+  grossInAmount: string | null;
+  grossOutAmount: string | null;
   netAmount: string;
-  direction: string | null;
+  pathLabel: string | null;
   status: string;
-  outstandingCount: number | null;
-  settledOutstandingCount: number | null;
-  asset?: SettlementItemAsset | null;
-  internalTransaction?: SettlementItemTransaction | null;
 }
 
 interface SettlementDetail {
@@ -50,7 +38,7 @@ interface SettlementDetail {
   settledAssetCount: number | null;
   totalOutstandingCount: number | null;
   settledOutstandingCount: number | null;
-  items: SettlementBatchItem[];
+  transfers: SettlementTransfer[];
   createdAt: string;
   completedAt: string | null;
 }
@@ -134,7 +122,7 @@ const SettlementDetailPage = () => {
 
   if (!data) return null;
 
-  const items = data.items ?? [];
+  const transfers = data.transfers ?? [];
 
   return (
     <div className="flex h-full flex-col">
@@ -203,52 +191,43 @@ const SettlementDetailPage = () => {
             <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
               Settlement Items
             </h3>
-            {items.length === 0 ? (
+            {transfers.length === 0 ? (
               <div className="p-4 text-center text-sm italic text-adm-t3">No settlement items</div>
             ) : (
               <div className="space-y-4">
-                {items.map((item) => {
-                  const assetCode = item.assetCode || item.asset?.code || item.asset?.currency || '—';
-                  const linkedTxNo = item.internalTransaction?.internalTxNo || null;
+                {transfers.map((t) => {
+                  const assetCode = t.assetCode || t.asset?.code || t.asset?.currency || '—';
                   return (
                     <div
-                      key={item.id}
+                      key={t.internalTxNo}
                       className="rounded-lg border border-adm-border bg-adm-bg p-4"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-mono text-[11px] font-semibold text-adm-amber">
                           {assetCode}
                         </span>
-                        <AdminBadge value={item.status} />
+                        <AdminBadge value={t.status} />
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px] text-adm-t3">
                         <span>
-                          In: <span className="text-adm-t2">{item.inAmount}</span>
+                          In: <span className="text-adm-t2">{t.grossInAmount ?? '0'}</span>
                         </span>
                         <span>
-                          Out: <span className="text-adm-t2">{item.outAmount}</span>
+                          Out: <span className="text-adm-t2">{t.grossOutAmount ?? '0'}</span>
                         </span>
                         <span>
-                          Net: <span className="text-adm-t2">{item.netAmount}</span>
+                          Net: <span className="text-adm-t2">{t.netAmount}</span>
                         </span>
                         <span>
                           Direction:{' '}
-                          <span className="text-adm-t2">{item.direction || '—'}</span>
+                          <span className="text-adm-t2">{t.pathLabel || '—'}</span>
                         </span>
-                        <span>
-                          Outstanding:{' '}
-                          <span className="text-adm-t2">
-                            {item.settledOutstandingCount ?? 0} / {item.outstandingCount ?? 0}
-                          </span>
+                        <span
+                          className="cursor-pointer break-all text-adm-blue hover:underline"
+                          onClick={() => navigate('/funds-layer/transfers/' + t.internalTxNo)}
+                        >
+                          Transfer: {t.internalTxNo}
                         </span>
-                        {linkedTxNo ? (
-                          <span
-                            className="cursor-pointer break-all text-adm-blue hover:underline"
-                            onClick={() => navigate(`/funds-layer/transfers/${linkedTxNo}`)}
-                          >
-                            Transfer: {linkedTxNo}
-                          </span>
-                        ) : null}
                       </div>
                     </div>
                   );
@@ -264,15 +243,15 @@ const SettlementDetailPage = () => {
             </h3>
             <div className="mt-1 space-y-3">
               <JsonBlock
-                title="Settlement Items (raw)"
-                value={items.map((item) => ({
-                  assetCode: item.assetCode,
-                  inAmount: item.inAmount,
-                  outAmount: item.outAmount,
-                  netAmount: item.netAmount,
-                  direction: item.direction,
-                  status: item.status,
-                  internalTxNo: item.internalTransaction?.internalTxNo ?? null,
+                title="Settlement Transfers (raw)"
+                value={transfers.map((t) => ({
+                  internalTxNo: t.internalTxNo,
+                  assetCode: t.assetCode,
+                  grossInAmount: t.grossInAmount,
+                  grossOutAmount: t.grossOutAmount,
+                  netAmount: t.netAmount,
+                  pathLabel: t.pathLabel,
+                  status: t.status,
                 }))}
                 compact
               />
