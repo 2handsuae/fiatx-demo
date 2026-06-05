@@ -34,8 +34,8 @@ const PayoutList = lazy(() => import('./pages/PayoutList'));
 const PayoutDetail = lazy(() => import('./pages/PayoutDetail'));
 const InternalTransactionList = lazy(() => import('./pages/InternalTransactionList'));
 const InternalTransactionDetail = lazy(() => import('./pages/InternalTransactionDetail'));
-const InternalFundList = lazy(() => import('./pages/InternalFundList'));
-const InternalFundDetail = lazy(() => import('./pages/InternalFundDetail'));
+const InternalFundListPage = lazy(() => import('./pages/funds-layer/InternalFundListPage'));
+const InternalFundDetailPage = lazy(() => import('./pages/funds-layer/InternalFundDetailPage'));
 const InternalTransferListPage = lazy(() => import('./pages/funds-layer/InternalTransferListPage'));
 const InternalTransferDetailPage = lazy(() => import('./pages/funds-layer/InternalTransferDetailPage'));
 const SettlementListPage = lazy(() => import('./pages/funds-layer/SettlementListPage'));
@@ -743,14 +743,6 @@ function App() {
               element={withPermission(<PayoutDetail />, [PERMISSIONS.PAYOUT_DETAIL_READ])}
             />
             <Route
-              path="treasury/internal-funds"
-              element={withPermission(<InternalFundList />, [PERMISSIONS.INTERNAL_FUNDS_READ])}
-            />
-            <Route
-              path="treasury/internal-funds/:id"
-              element={withPermission(<InternalFundDetail />, [PERMISSIONS.INTERNAL_FUND_DETAIL_READ])}
-            />
-            <Route
               path="treasury/pool-settlement-batches"
               element={withPermission(<PoolSettlementBatchListPage />, [
                 PERMISSIONS.POOL_SETTLEMENT_BATCH_READ,
@@ -921,6 +913,14 @@ function App() {
             <Route
               path="settlements/:batchNo"
               element={withPermission(<SettlementDetailPage />, [PERMISSIONS.FUNDS_LAYER_SETTLEMENT_DETAIL_READ])}
+            />
+            <Route
+              path="funds"
+              element={withPermission(<InternalFundListPage />, [PERMISSIONS.FUNDS_LAYER_FUNDS_READ])}
+            />
+            <Route
+              path="funds/:internalFundNo"
+              element={withPermission(<InternalFundDetailPage />, [PERMISSIONS.FUNDS_LAYER_FUND_DETAIL_READ])}
             />
           </Route>
 
