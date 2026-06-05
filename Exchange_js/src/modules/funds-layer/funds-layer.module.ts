@@ -22,6 +22,7 @@ import { InternalTransferAdminController } from './controllers/internal-transfer
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
 import { SettlementAdminController } from './controllers/settlement-admin.controller';
+import { FundsAdminController } from './controllers/funds-admin.controller';
 import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
 
 /**
@@ -42,6 +43,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     FundsSimulateController,
     FundReturnRepairController,
     SettlementAdminController,
+    FundsAdminController,
   ],
   providers: [
     FundsFlowService,
