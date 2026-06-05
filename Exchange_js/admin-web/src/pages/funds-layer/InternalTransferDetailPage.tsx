@@ -1,7 +1,7 @@
 // admin-web/src/pages/funds-layer/InternalTransferDetailPage.tsx
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { RefreshCw, User } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   InfoField,
@@ -9,7 +9,6 @@ import {
 } from '../../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../../components/ui/AdminBadge';
-import { adminButtonClass } from '../../components/common/adminButtonStyles';
 import { formatAssetAmount } from '../../utils/number-format';
 import {
   AdminSessionError,
@@ -39,10 +38,6 @@ interface FundLeg {
   internalFundNo: string;
   status: string;
   amount: string;
-  txHash?: string | null;
-  statusHistory?: string | null;
-  createdAt: string;
-  completedAt?: string | null;
 }
 
 interface TransferDetail {
@@ -62,18 +57,6 @@ interface TransferDetail {
   completedAt: string | null;
 }
 
-const SIMULATE_ACTIONS = [
-  'SIGN',
-  'BROADCAST',
-  'SEEN_IN_MEMPOOL',
-  'CONFIRM',
-  'CLEAR',
-  'FAIL',
-  'DROP',
-  'TIMEOUT',
-  'CANCEL',
-] as const;
-
 /* ── Page Component ─────────────────────────────────────────── */
 
 const InternalTransferDetailPage = () => {
@@ -81,13 +64,6 @@ const InternalTransferDetailPage = () => {
   const navigate = useNavigate();
   const [data, setData] = useState<TransferDetail | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Manual Simulation state
-  const [simFundId, setSimFundId] = useState('');
-  const [simAction, setSimAction] = useState<(typeof SIMULATE_ACTIONS)[number]>('SIGN');
-  const [simReason, setSimReason] = useState('');
-  const [simSubmitting, setSimSubmitting] = useState(false);
-  const [simError, setSimError] = useState('');
 
   const fetchData = async () => {
     if (!internalTxNo) return;
@@ -99,7 +75,6 @@ const InternalTransferDetailPage = () => {
       if (response.ok) {
         const result: TransferDetail = await response.json();
         setData(result);
-        setSimFundId((prev) => prev || result.funds?.[0]?.id || '');
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load transfer detail'));
         navigate('/funds-layer/transfers');
@@ -116,40 +91,6 @@ const InternalTransferDetailPage = () => {
     if (internalTxNo) void fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [internalTxNo]);
-
-  const handleSimulate = async () => {
-    if (!internalTxNo || !simFundId) {
-      setSimError('Select an execution leg first.');
-      return;
-    }
-    setSimSubmitting(true);
-    setSimError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/funds-layer/transfers/${internalTxNo}/simulate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fundsFlowId: simFundId,
-            action: simAction,
-            reason: simReason.trim() || undefined,
-          }),
-        },
-      );
-      if (!response.ok) {
-        setSimError(await getApiErrorMessage(response, 'Simulation step failed.'));
-        return;
-      }
-      setSimReason('');
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Simulation step failed.');
-    } finally {
-      setSimSubmitting(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -168,9 +109,6 @@ const InternalTransferDetailPage = () => {
 
   const walletLine = (w: TransferWallet | null): string =>
     w ? `${w.walletNo || '—'} · ${w.walletRole}` : '—';
-
-  const selectInputCls =
-    'h-[30px] w-full rounded border border-adm-border bg-adm-bg px-2 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber transition-colors';
 
   return (
     <div className="flex h-full flex-col">
@@ -230,46 +168,28 @@ const InternalTransferDetailPage = () => {
             </div>
           </div>
 
-          {/* 3. Process / Execution Legs */}
+          {/* 3. Funds binding rows */}
           <div className="px-6 py-5">
             <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Execution Legs
+              Funds
             </h3>
             {data.funds.length === 0 ? (
-              <div className="p-4 text-center text-sm italic text-adm-t3">No execution legs</div>
+              <div className="p-4 text-center text-sm italic text-adm-t3">No funds bound</div>
             ) : (
-              <div className="space-y-4">
+              <div className="divide-y divide-adm-border rounded-lg border border-adm-border">
                 {data.funds.map((leg) => (
-                  <div
-                    key={leg.id}
-                    className="rounded-lg border border-adm-border bg-adm-bg p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-mono text-[11px] font-semibold text-adm-amber">
-                        {leg.internalFundNo}
-                      </span>
-                      <AdminBadge value={leg.status} />
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px] text-adm-t3">
-                      <span>
-                        Amount:{' '}
-                        <span className="text-adm-t2">
-                          {formatAssetAmount(leg.amount, decimals)} {data.asset?.code || ''}
-                        </span>
-                      </span>
-                      <span>
-                        Created:{' '}
-                        <span className="text-adm-t2">
-                          {new Date(leg.createdAt).toLocaleString()}
-                        </span>
-                      </span>
-                      {leg.txHash ? (
-                        <span className="break-all">
-                          Tx: <span className="text-adm-t2">{leg.txHash}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                    <LegStatusTimeline historyJson={leg.statusHistory ?? null} />
+                  <div key={leg.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <span className="font-mono text-[11px] font-semibold text-adm-amber">{leg.internalFundNo}</span>
+                    <AdminBadge value={leg.status} />
+                    <span className="font-mono text-[10px] text-adm-t2">
+                      {formatAssetAmount(leg.amount, decimals)} {data.asset?.code || ''}
+                    </span>
+                    <span
+                      className="cursor-pointer font-mono text-[10px] text-adm-blue hover:underline"
+                      onClick={() => navigate(`/funds-layer/funds/${leg.internalFundNo}`)}
+                    >
+                      View →
+                    </span>
                   </div>
                 ))}
               </div>
@@ -297,79 +217,6 @@ const InternalTransferDetailPage = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          {/* ACTIONS → Manual Simulation */}
-          <SidebarGroup title="Actions">
-            <div className="rounded-lg border border-adm-blue/25 bg-adm-blue/6 p-3">
-              <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-blue">
-                Manual Simulation
-              </p>
-              <p className="mt-1 font-mono text-[9px] leading-relaxed text-adm-t3">
-                DEV-only. Advances one execution leg through its state machine.
-              </p>
-
-              {simError && (
-                <p className="mt-2 font-mono text-[10px] text-adm-red">{simError}</p>
-              )}
-
-              <label className="mt-3 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                Execution Leg
-              </label>
-              <select
-                value={simFundId}
-                onChange={(e) => setSimFundId(e.target.value)}
-                className={`mt-1 ${selectInputCls}`}
-                disabled={data.funds.length === 0 || simSubmitting}
-              >
-                {data.funds.length === 0 ? (
-                  <option value="">No legs</option>
-                ) : (
-                  data.funds.map((leg) => (
-                    <option key={leg.id} value={leg.id}>
-                      {leg.internalFundNo} ({leg.status})
-                    </option>
-                  ))
-                )}
-              </select>
-
-              <label className="mt-2.5 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                Action
-              </label>
-              <select
-                value={simAction}
-                onChange={(e) =>
-                  setSimAction(e.target.value as (typeof SIMULATE_ACTIONS)[number])
-                }
-                className={`mt-1 ${selectInputCls}`}
-                disabled={simSubmitting}
-              >
-                {SIMULATE_ACTIONS.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-
-              <label className="mt-2.5 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                Reason (optional)
-              </label>
-              <input
-                value={simReason}
-                onChange={(e) => setSimReason(e.target.value)}
-                placeholder="Reason"
-                className={`mt-1 ${selectInputCls}`}
-                disabled={simSubmitting}
-              />
-
-              <button
-                onClick={handleSimulate}
-                disabled={simSubmitting || !simFundId}
-                className={adminButtonClass('simulationAction', 'mt-3 w-full')}
-              >
-                {simSubmitting ? 'Submitting…' : 'Submit Step'}
-              </button>
-            </div>
-          </SidebarGroup>
-
           {/* IDENTITY SUMMARY */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Internal Tx No" value={data.internalTxNo} mono />
@@ -390,55 +237,6 @@ const InternalTransferDetailPage = () => {
           </SidebarGroup>
         </div>
       </div>
-    </div>
-  );
-};
-
-/* ── Leg Status Timeline (adm-* tokens) ── */
-
-const LegStatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson) return null;
-
-  let history: Array<Record<string, string>> = [];
-  try {
-    const parsed = JSON.parse(historyJson);
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    history = [...parsed].sort(
-      (a, b) =>
-        new Date(b.timestamp || b.changedAt || 0).getTime() -
-        new Date(a.timestamp || a.changedAt || 0).getTime(),
-    );
-  } catch {
-    return null;
-  }
-
-  return (
-    <div className="relative my-3 ml-3 space-y-4 border-l-2 border-adm-border">
-      {history.map((item, idx) => (
-        <div key={`${item.timestamp || item.changedAt || idx}`} className="relative ml-6">
-          <span className="absolute -left-[34px] top-0 flex h-5 w-5 items-center justify-center rounded-full bg-adm-bg ring-4 ring-adm-bg">
-            <div className="h-2.5 w-2.5 rounded-full bg-adm-green" />
-          </span>
-          <div className="flex items-center gap-2">
-            <span className="rounded border border-adm-green/30 bg-adm-green/10 px-2 py-0.5 font-mono text-[10px] font-bold text-adm-green">
-              {item.status || 'UNKNOWN'}
-            </span>
-          </div>
-          {item.note || item.reason ? (
-            <p className="mt-1 text-[12px] text-adm-t2">{item.note || item.reason}</p>
-          ) : null}
-          <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
-            <User size={10} />
-            <span className="font-mono">
-              {item.operator || item.operatorId || item.actorType || 'SYSTEM'}
-            </span>
-            <span>·</span>
-            <time className="font-mono">
-              {new Date(item.timestamp || item.changedAt || 0).toLocaleString()}
-            </time>
-          </div>
-        </div>
-      ))}
     </div>
   );
 };
