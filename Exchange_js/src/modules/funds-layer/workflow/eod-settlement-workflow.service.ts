@@ -69,23 +69,10 @@ export class EodSettlementWorkflowService {
     for (const group of groups) {
       const dir = this.batchService.resolveCryptoDirection(group.net);
 
-      const item = await this.batchService.createItem({
-        settlementBatchId: batch.id,
-        assetId: group.assetId,
-        assetCode: group.assetCode,
-        inAmount: group.inAmount,
-        outAmount: group.outAmount,
-        netAmount: group.net,
-        direction: dir?.path ?? null,
-        outstandingCount: group.outstandingIds.length,
-      });
-
-      await this.consumer.lock(group.outstandingIds, batch.id);
-      await this.consumer.linkItem(group.outstandingIds, item.id);
-
       if (dir == null) {
-        // net == 0: nothing to move, the consumed outstandings are settled here.
-        await this.consumer.markNettedZero(item.id);
+        // net == 0：锁到 batch 后直接结清，无 transfer。
+        await this.consumer.lockToBatch(group.outstandingIds, batch.id);
+        await this.consumer.markSettledNettedZero(batch.id, group.assetId);
         settledZero += 1;
         continue;
       }
@@ -114,11 +101,18 @@ export class EodSettlementWorkflowService {
               fromWalletId: from.id,
               toWalletId: to.id,
               triggerSource: 'EOD',
+              settlementBatchId: batch.id,
+              grossInAmount: group.inAmount.toString(),
+              grossOutAmount: group.outAmount.toString(),
             },
             operatorId,
           );
 
-      await this.batchService.linkItemTransfer(item.id, transfer.id);
+      await this.consumer.lockToTransfer(
+        group.outstandingIds,
+        batch.id,
+        transfer.id,
+      );
       spawned += 1;
     }
 
@@ -144,21 +138,9 @@ export class EodSettlementWorkflowService {
       // Not one of ours — the universal transfer workflow handles its own audits.
       if (!transfer || transfer.sourceType !== EOD_SOURCE_TYPE) return;
 
-      const item = await (this.prisma as any).settlementBatchItem.findFirst({
-        where: { internalTransactionId: event.internalTransferId },
-      });
-      if (!item) {
-        this.logger.warn(
-          `EOD CLEAR: no settlement item for internalTransfer=${event.internalTransferId}`,
-        );
-        return;
-      }
-
-      // Mark the item's LOCKED outstandings SETTLED (closed by the funds flow),
-      // close the item (terminal), then recompute the batch rollup.
-      await this.consumer.settle(item.id, event.fundsFlowId);
-      await this.batchService.closeItem(item.id, item.outstandingCount ?? 0);
-      await this.batchService.recomputeBatch(item.settlementBatchId);
+      // 找到该 transfer 锁定的 outstanding，标 SETTLED，再重算 batch。
+      await this.consumer.settle(event.internalTransferId, event.fundsFlowId);
+      await this.batchService.recomputeBatch(transfer.settlementBatchId);
     } catch (err) {
       this.logger.error(
         `Failed to settle EOD item for internalTransfer=${event.internalTransferId}`,

@@ -11,24 +11,20 @@ describe('EodSettlementWorkflowService', () => {
   let service: EodSettlementWorkflowService;
   let batchService: {
     createBatch: jest.Mock;
-    createItem: jest.Mock;
-    linkItemTransfer: jest.Mock;
     recomputeBatch: jest.Mock;
     resolveCryptoDirection: jest.Mock;
-    closeItem: jest.Mock;
   };
   let consumer: {
     findOpenCryptoByAsset: jest.Mock;
-    lock: jest.Mock;
-    linkItem: jest.Mock;
+    lockToTransfer: jest.Mock;
+    lockToBatch: jest.Mock;
     settle: jest.Mock;
-    markNettedZero: jest.Mock;
+    markSettledNettedZero: jest.Mock;
   };
   let transferWorkflow: { initiate: jest.Mock };
   let systemWallets: { resolve: jest.Mock };
   let prisma: {
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
-    settlementBatchItem: { findFirst: jest.Mock };
   };
 
   const batch = { id: 'b-1', batchNo: 'OSB-001' };
@@ -56,18 +52,15 @@ describe('EodSettlementWorkflowService', () => {
   beforeEach(async () => {
     batchService = {
       createBatch: jest.fn().mockResolvedValue(batch),
-      createItem: jest.fn().mockResolvedValue({ id: 'item-1' }),
-      linkItemTransfer: jest.fn().mockResolvedValue({}),
       recomputeBatch: jest.fn().mockResolvedValue({}),
       resolveCryptoDirection: jest.fn(),
-      closeItem: jest.fn().mockResolvedValue({}),
     };
     consumer = {
       findOpenCryptoByAsset: jest.fn().mockResolvedValue([]),
-      lock: jest.fn().mockResolvedValue({ count: 2 }),
-      linkItem: jest.fn().mockResolvedValue({ count: 2 }),
+      lockToTransfer: jest.fn().mockResolvedValue({ count: 2 }),
+      lockToBatch: jest.fn().mockResolvedValue({ count: 2 }),
       settle: jest.fn().mockResolvedValue({ count: 2 }),
-      markNettedZero: jest.fn().mockResolvedValue({ count: 2 }),
+      markSettledNettedZero: jest.fn().mockResolvedValue({ count: 2 }),
     };
     transferWorkflow = {
       initiate: jest.fn().mockResolvedValue({ id: 't-new' }),
@@ -82,7 +75,6 @@ describe('EodSettlementWorkflowService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
       },
-      settlementBatchItem: { findFirst: jest.fn() },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -114,7 +106,7 @@ describe('EodSettlementWorkflowService', () => {
       });
     });
 
-    it('single asset net>0: nets, locks, links, spawns INTERNAL_IN', async () => {
+    it('single asset net>0: spawns transfer under batch, locks outstandings to transfer', async () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetPositive]);
       batchService.resolveCryptoDirection.mockReturnValue({
         path: 'INTERNAL_IN',
@@ -126,18 +118,13 @@ describe('EodSettlementWorkflowService', () => {
       const result = await service.runEodSettlement();
 
       expect(batchService.createBatch).toHaveBeenCalledTimes(1);
-      expect(batchService.createItem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          settlementBatchId: 'b-1',
-          assetId: 'a-btc',
-          assetCode: 'BTC',
-          netAmount: groupNetPositive.net,
-          direction: 'INTERNAL_IN',
-          outstandingCount: 2,
-        }),
-      );
-      expect(consumer.lock).toHaveBeenCalledWith(['o1', 'o2'], 'b-1');
-      expect(consumer.linkItem).toHaveBeenCalledWith(['o1', 'o2'], 'item-1');
+
+      // No createItem / lock / linkItem / linkItemTransfer — those methods no longer exist.
+      expect((batchService as any).createItem).toBeUndefined();
+      expect((consumer as any).lock).toBeUndefined();
+      expect((consumer as any).linkItem).toBeUndefined();
+      expect((batchService as any).linkItemTransfer).toBeUndefined();
+
       expect(systemWallets.resolve).toHaveBeenCalledWith('a-btc', 'F_LIQ');
       expect(systemWallets.resolve).toHaveBeenCalledWith('a-btc', 'C_MAIN');
 
@@ -153,11 +140,20 @@ describe('EodSettlementWorkflowService', () => {
         fromWalletId: 'w-F_LIQ',
         toWalletId: 'w-C_MAIN',
         triggerSource: 'EOD',
+        settlementBatchId: 'b-1',
+        grossInAmount: '100',
+        grossOutAmount: '40',
       });
       expect(operatorId).toBe('SYSTEM');
 
-      expect(batchService.linkItemTransfer).toHaveBeenCalledWith('item-1', 't-new');
-      expect(consumer.markNettedZero).not.toHaveBeenCalled();
+      expect(consumer.lockToTransfer).toHaveBeenCalledWith(
+        ['o1', 'o2'],
+        'b-1',
+        't-new',
+      );
+
+      expect(consumer.markSettledNettedZero).not.toHaveBeenCalled();
+      expect(consumer.lockToBatch).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
       expect(result).toEqual({
         batchNo: 'OSB-001',
@@ -167,18 +163,18 @@ describe('EodSettlementWorkflowService', () => {
       });
     });
 
-    it('single asset net==0: marks netted-zero, does NOT spawn a transfer', async () => {
+    it('single asset net==0: locks to batch + marks netted-zero, does NOT spawn a transfer', async () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetZero]);
       batchService.resolveCryptoDirection.mockReturnValue(null);
 
       const result = await service.runEodSettlement();
 
-      expect(batchService.createItem).toHaveBeenCalledWith(
-        expect.objectContaining({ direction: null, netAmount: groupNetZero.net }),
-      );
-      expect(consumer.markNettedZero).toHaveBeenCalledWith('item-1');
+      expect(consumer.lockToBatch).toHaveBeenCalledWith(['o3', 'o4'], 'b-1');
+      expect(consumer.markSettledNettedZero).toHaveBeenCalledWith('b-1', 'a-eth');
       expect(transferWorkflow.initiate).not.toHaveBeenCalled();
       expect(systemWallets.resolve).not.toHaveBeenCalled();
+      expect(consumer.lockToTransfer).not.toHaveBeenCalled();
+      expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
       expect(result).toEqual({
         batchNo: 'OSB-001',
         assetCount: 1,
@@ -187,7 +183,7 @@ describe('EodSettlementWorkflowService', () => {
       });
     });
 
-    it('idempotent: reuses an existing EOD transfer and still links it', async () => {
+    it('idempotent: reuses an existing EOD transfer and still locks outstandings to it', async () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetPositive]);
       batchService.resolveCryptoDirection.mockReturnValue({
         path: 'INTERNAL_IN',
@@ -195,13 +191,17 @@ describe('EodSettlementWorkflowService', () => {
         toRole: 'C_MAIN',
         amount: new Prisma.Decimal(60),
       });
-      prisma.internalTransaction.findFirst.mockResolvedValue({ id: 't-existing' });
+      prisma.internalTransaction.findFirst.mockResolvedValue({
+        id: 't-existing',
+        settlementBatchId: 'b-1',
+      });
 
       const result = await service.runEodSettlement();
 
       expect(transferWorkflow.initiate).not.toHaveBeenCalled();
-      expect(batchService.linkItemTransfer).toHaveBeenCalledWith(
-        'item-1',
+      expect(consumer.lockToTransfer).toHaveBeenCalledWith(
+        ['o1', 'o2'],
+        'b-1',
         't-existing',
       );
       expect(result.spawned).toBe(1);
@@ -209,15 +209,11 @@ describe('EodSettlementWorkflowService', () => {
   });
 
   describe('onFundsFlowStatusChanged', () => {
-    it('CLEAR for an EOD transfer: settles outstandings + closes the item', async () => {
+    it('CLEAR for an EOD transfer: settles outstandings + recomputes batch', async () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({
         id: 't-eod',
         sourceType: 'EOD_SETTLEMENT',
-      });
-      prisma.settlementBatchItem.findFirst.mockResolvedValue({
-        id: 'item-1',
         settlementBatchId: 'b-1',
-        outstandingCount: 2,
       });
 
       await service.onFundsFlowStatusChanged({
@@ -227,9 +223,10 @@ describe('EodSettlementWorkflowService', () => {
         newStatus: 'CLEAR',
       });
 
-      expect(consumer.settle).toHaveBeenCalledWith('item-1', 'ff-1');
-      expect(batchService.closeItem).toHaveBeenCalledWith('item-1', 2);
+      expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
+      // No settlementBatchItem lookup.
+      expect((prisma as any).settlementBatchItem).toBeUndefined();
     });
 
     it('CLEAR for a non-EOD transfer: does nothing', async () => {
@@ -246,7 +243,6 @@ describe('EodSettlementWorkflowService', () => {
       });
 
       expect(consumer.settle).not.toHaveBeenCalled();
-      expect(batchService.closeItem).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).not.toHaveBeenCalled();
     });
 
@@ -266,6 +262,7 @@ describe('EodSettlementWorkflowService', () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({
         id: 't-eod',
         sourceType: 'EOD_SETTLEMENT',
+        settlementBatchId: 'b-1',
       });
 
       await service.onFundsFlowStatusChanged({
@@ -276,7 +273,7 @@ describe('EodSettlementWorkflowService', () => {
       });
 
       expect(consumer.settle).not.toHaveBeenCalled();
-      expect(batchService.closeItem).not.toHaveBeenCalled();
+      expect(batchService.recomputeBatch).not.toHaveBeenCalled();
     });
   });
 });
