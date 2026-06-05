@@ -249,6 +249,26 @@ describe('FundsFlowService', () => {
     expect(prisma.internalFund.update).not.toHaveBeenCalled();
   });
 
+  it('findOneByNoForAdmin returns fund by internalFundNo', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'f1',
+      internalFundNo: 'IFD123',
+    });
+
+    const r = await service.findOneByNoForAdmin('IFD123');
+
+    expect(r).toBeDefined();
+    expect(prisma.internalFund.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { internalFundNo: 'IFD123' } }),
+    );
+  });
+
+  it('findOneByNoForAdmin throws NotFound when missing', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue(null);
+
+    await expect(service.findOneByNoForAdmin('NOPE')).rejects.toThrow();
+  });
+
   it('returns existing fund when createFromInternalTransaction is idempotent', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue({
       id: 'itx-3',

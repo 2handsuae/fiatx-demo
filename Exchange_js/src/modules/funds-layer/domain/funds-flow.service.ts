@@ -605,6 +605,25 @@ export class FundsFlowService {
     return { items, total };
   }
 
+  async findOneByNoForAdmin(internalFundNo: string) {
+    const item = await (this.prisma as any).internalFund.findUnique({
+      where: { internalFundNo },
+      include: {
+        asset: true,
+        fromWallet: true,
+        toWallet: true,
+        internalTransaction: {
+          select: { id: true, internalTxNo: true, pathLabel: true, status: true },
+        },
+        auditLogs: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+    if (!item) {
+      throw new NotFoundException('Internal fund not found');
+    }
+    return item;
+  }
+
   async findOneForAdmin(id: string) {
     const item = await (this.prisma as any).internalFund.findUnique({
       where: { id },
