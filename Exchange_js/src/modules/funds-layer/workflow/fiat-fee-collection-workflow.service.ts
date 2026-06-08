@@ -1,12 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { InternalTransferService } from '../domain/internal-transfer.service';
 import { FundsFlowService } from '../domain/funds-flow.service';
 import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
 import { InternalFundStatus } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+
+interface FundsFlowStatusChangedEvent {
+  fundsFlowId: string;
+  internalTransferId: string | undefined;
+  oldStatus: string;
+  newStatus: string;
+}
 
 const FEE_SOURCE_TYPE = 'FIAT_FEE_COLLECTION';
 
@@ -131,6 +140,28 @@ export class FiatFeeCollectionWorkflowService {
         sourceNo: swap.swapNo,
         triggerSource: 'SWAP',
       });
+    }
+  }
+
+  @OnEvent(DomainEventNames.FUNDSFLOW_STATUS_CHANGED)
+  async onFundsFlowStatusChanged(event: FundsFlowStatusChangedEvent): Promise<void> {
+    if (!event?.internalTransferId) return;
+    if (event.newStatus !== 'CLEAR') return;
+    try {
+      const transfer = await (this.prisma as any).internalTransaction.findUnique({
+        where: { id: event.internalTransferId },
+      });
+      if (!transfer || transfer.sourceType !== FEE_SOURCE_TYPE) return;
+      // single-hop fee transfer → single CLEAR → drain the exact fee amount FEE_RECEIVABLE→BANK.
+      await this.accounting.drainFeeReceivableAmount({
+        internalTransferId: transfer.id,
+        amount: new Prisma.Decimal(transfer.amount),
+      });
+    } catch (err) {
+      this.logger.error(
+        `Fiat fee drain failed for transfer=${event.internalTransferId}`,
+        err instanceof Error ? err.stack : undefined,
+      );
     }
   }
 }

@@ -17,7 +17,7 @@ describe('FiatFeeCollectionWorkflowService', () => {
     accounting = { drainFeeReceivableAmount: jest.fn() };
     prisma = {
       swapTransaction: { findUnique: jest.fn() },
-      internalTransaction: { findFirst: jest.fn() },
+      internalTransaction: { findFirst: jest.fn(), findUnique: jest.fn() },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -81,5 +81,34 @@ describe('FiatFeeCollectionWorkflowService', () => {
     prisma.internalTransaction.findFirst.mockResolvedValue({ id: 't-existing' });
     await service.collectSwapFees('s3');
     expect(transfers.createTransfer).not.toHaveBeenCalled();
+  });
+
+  describe('onFundsFlowStatusChanged', () => {
+    it('CLEAR for a FIAT_FEE_COLLECTION transfer drains the exact amount', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValue({
+        id: 't-fee', sourceType: 'FIAT_FEE_COLLECTION', amount: '0.10',
+      });
+      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f1', internalTransferId: 't-fee', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
+      expect(accounting.drainFeeReceivableAmount).toHaveBeenCalledWith(
+        expect.objectContaining({ internalTransferId: 't-fee' }),
+      );
+      expect(accounting.drainFeeReceivableAmount.mock.calls[0][0].amount.toString()).toBe('0.1');
+    });
+
+    it('ignores non-fee transfers', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValue({ id: 't-x', sourceType: 'FIAT_SETTLEMENT' });
+      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: 't-x', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
+      expect(accounting.drainFeeReceivableAmount).not.toHaveBeenCalled();
+    });
+
+    it('ignores non-CLEAR statuses', async () => {
+      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: 't-fee', oldStatus: 'CREATED', newStatus: 'CONFIRMED' });
+      expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('ignores events without internalTransferId', async () => {
+      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: undefined, oldStatus: 'X', newStatus: 'CLEAR' });
+      expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
+    });
   });
 });
