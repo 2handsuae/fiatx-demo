@@ -6,15 +6,17 @@ import {
 } from './internal-transfer-paths.constant';
 
 describe('TRANSFER_PATH_WHITELIST', () => {
-  it('defines exactly the 6 crypto paths', () => {
+  it('defines the 6 crypto paths and 2 fiat paths', () => {
     expect(Object.keys(TRANSFER_PATH_WHITELIST).sort()).toEqual(
-      ['AGGREGATE', 'FEE_COLLECT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'].sort(),
+      ['AGGREGATE', 'FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'].sort(),
     );
   });
 
-  it('every path uses CHAIN medium and a real WalletRole', () => {
+  it('crypto paths use CHAIN medium and a real WalletRole', () => {
+    const cryptoPaths = ['AGGREGATE', 'FEE_COLLECT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'];
     const validRoles = ['C_DEP', 'C_OUT', 'C_MAIN', 'F_LIQ', 'F_OPS'];
     for (const policy of Object.values(TRANSFER_PATH_WHITELIST)) {
+      if (!cryptoPaths.includes(policy.path)) continue;
       expect(policy.medium).toBe('CHAIN');
       expect(validRoles).toContain(policy.from);
       expect(validRoles).toContain(policy.to);

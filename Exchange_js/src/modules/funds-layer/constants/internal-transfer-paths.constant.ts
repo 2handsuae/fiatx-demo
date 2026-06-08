@@ -1,10 +1,12 @@
 export enum TransferPath {
-  AGGREGATE    = 'AGGREGATE',
-  FUND_OUT     = 'FUND_OUT',
-  FUND_RETURN  = 'FUND_RETURN',
-  INTERNAL_OUT = 'INTERNAL_OUT',
-  INTERNAL_IN  = 'INTERNAL_IN',
-  FEE_COLLECT  = 'FEE_COLLECT',
+  AGGREGATE      = 'AGGREGATE',
+  FUND_OUT       = 'FUND_OUT',
+  FUND_RETURN    = 'FUND_RETURN',
+  INTERNAL_OUT   = 'INTERNAL_OUT',
+  INTERNAL_IN    = 'INTERNAL_IN',
+  FEE_COLLECT    = 'FEE_COLLECT',
+  FIAT_SETTLE_OUT = 'FIAT_SETTLE_OUT',
+  FIAT_SETTLE_IN  = 'FIAT_SETTLE_IN',
 }
 
 export enum AccountingClass {
@@ -14,6 +16,7 @@ export enum AccountingClass {
 
 export enum TransferMedium {
   CHAIN = 'CHAIN',
+  BANK = 'BANK',
 }
 
 export type DrainAccount = 'TRADE_CLEARING' | 'FEE_RECEIVABLE';
@@ -26,6 +29,7 @@ export interface TransferPathPolicy {
   medium: TransferMedium;
   trigger: string[];
   drain?: DrainAccount;
+  route?: string[];          // multi-hop ordered roles (fiat 2-hop)
 }
 
 export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> = {
@@ -80,11 +84,44 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     trigger: ['CRON'],
     drain: 'FEE_RECEIVABLE',
   },
+  [TransferPath.FIAT_SETTLE_OUT]: {
+    path: TransferPath.FIAT_SETTLE_OUT,
+    from: 'C_VIBAN',
+    to: 'F_LIQ',
+    route: ['C_VIBAN', 'F_SET', 'F_LIQ'],
+    class: AccountingClass.B,
+    medium: TransferMedium.BANK,
+    trigger: ['SWAP'],
+    drain: 'TRADE_CLEARING',
+  },
+  [TransferPath.FIAT_SETTLE_IN]: {
+    path: TransferPath.FIAT_SETTLE_IN,
+    from: 'F_LIQ',
+    to: 'C_VIBAN',
+    route: ['F_LIQ', 'F_SET', 'C_VIBAN'],
+    class: AccountingClass.B,
+    medium: TransferMedium.BANK,
+    trigger: ['SWAP'],
+    drain: 'TRADE_CLEARING',
+  },
 };
 
 export function resolvePathPolicy(fromRole: string, toRole: string): TransferPathPolicy | null {
   for (const policy of Object.values(TRANSFER_PATH_WHITELIST)) {
     if (policy.from === fromRole && policy.to === toRole) {
+      return policy;
+    }
+  }
+  return null;
+}
+
+export function resolveRoutePolicy(route: string[]): TransferPathPolicy | null {
+  for (const policy of Object.values(TRANSFER_PATH_WHITELIST)) {
+    if (
+      policy.route &&
+      policy.route.length === route.length &&
+      policy.route.every((r, i) => r === route[i])
+    ) {
       return policy;
     }
   }
