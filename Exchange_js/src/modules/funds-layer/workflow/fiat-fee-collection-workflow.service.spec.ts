@@ -113,14 +113,14 @@ describe('FiatFeeCollectionWorkflowService', () => {
     });
   });
 
-  describe('onWithdrawalStatusChanged', () => {
-    it('SUCCESS + FIAT withdrawal spawns VIBAN->F_FEE for the withdraw fee', async () => {
+  describe('onFiatWithdrawalSucceeded', () => {
+    it('spawns VIBAN->F_FEE for the withdraw fee', async () => {
       prisma.withdrawTransaction.findUnique.mockResolvedValue({
         id: 'w-1', withdrawNo: 'WD-1', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'CUST-1',
         assetId: 'a-aed', feeAmount: '5', asset: { type: 'FIAT' },
       });
       prisma.internalTransaction.findFirst.mockResolvedValue(null);
-      await service.onWithdrawalStatusChanged({ withdrawId: 'w-1', oldStatus: 'APPROVED', newStatus: 'SUCCESS', ownerType: 'CUSTOMER', ownerId: 'c1', assetId: 'a-aed' });
+      await service.onFiatWithdrawalSucceeded({ withdrawId: 'w-1' });
       const call = transfers.createTransfer.mock.calls[0][0];
       expect(call.path).toBe('FIAT_FEE_COLLECT');
       expect(call.amount.toString()).toBe('5');
@@ -128,15 +128,17 @@ describe('FiatFeeCollectionWorkflowService', () => {
       expect(call.sourceId).toBe('w-1:FEE');
     });
 
-    it('ignores non-SUCCESS', async () => {
-      await service.onWithdrawalStatusChanged({ withdrawId: 'w-1', oldStatus: 'CREATED', newStatus: 'APPROVED', ownerType: 'CUSTOMER', ownerId: 'c1', assetId: 'a-aed' });
-      expect(prisma.withdrawTransaction.findUnique).not.toHaveBeenCalled();
+    it('skips when fee is zero', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'w-2', assetId: 'a-aed', feeAmount: '0', ownerId: 'c1', asset: { type: 'FIAT' } });
+      prisma.internalTransaction.findFirst.mockResolvedValue(null);
+      await service.onFiatWithdrawalSucceeded({ withdrawId: 'w-2' });
+      expect(transfers.createTransfer).not.toHaveBeenCalled();
     });
 
-    it('ignores crypto withdrawals', async () => {
-      prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'w-2', assetId: 'a-usdt', feeAmount: '1', asset: { type: 'CRYPTO' } });
-      prisma.internalTransaction.findFirst.mockResolvedValue(null);
-      await service.onWithdrawalStatusChanged({ withdrawId: 'w-2', oldStatus: 'APPROVED', newStatus: 'SUCCESS', ownerType: 'CUSTOMER', ownerId: 'c1', assetId: 'a-usdt' });
+    it('idempotent: existing fee transfer is reused', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({ id: 'w-3', withdrawNo:'WD-3', ownerType:'CUSTOMER', ownerId:'c1', ownerNo:'C1', assetId:'a-aed', feeAmount:'5', asset:{type:'FIAT'} });
+      prisma.internalTransaction.findFirst.mockResolvedValue({ id: 't-existing' });
+      await service.onFiatWithdrawalSucceeded({ withdrawId: 'w-3' });
       expect(transfers.createTransfer).not.toHaveBeenCalled();
     });
   });

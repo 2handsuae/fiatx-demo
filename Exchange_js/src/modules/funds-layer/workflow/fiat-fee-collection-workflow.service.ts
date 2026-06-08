@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { WithdrawEvents } from '../../trading/withdraw-transactions/constants/withdraw-events.constant';
 import { InternalTransferService } from '../domain/internal-transfer.service';
 import { FundsFlowService } from '../domain/funds-flow.service';
 import { FundsAccountingService } from '../accounting/funds-accounting.service';
@@ -143,16 +144,8 @@ export class FiatFeeCollectionWorkflowService {
     }
   }
 
-  @OnEvent(DomainEventNames.WITHDRAWAL_STATUS_CHANGED)
-  async onWithdrawalStatusChanged(event: {
-    withdrawId: string;
-    oldStatus: string;
-    newStatus: string;
-    ownerType: string;
-    ownerId: string;
-    assetId: string;
-  }): Promise<void> {
-    if (event.newStatus !== 'SUCCESS') return;
+  @OnEvent(WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT)
+  async onFiatWithdrawalSucceeded(event: { withdrawId: string }): Promise<void> {
     try {
       const w = await (this.prisma as any).withdrawTransaction.findUnique({
         where: { id: event.withdrawId },
