@@ -392,6 +392,77 @@ export class FundsFlowService {
     );
   }
 
+  async createLeg(
+    input: {
+      internalTransactionId: string;
+      fromWalletId: string;
+      toWalletId: string;
+      amount: Prisma.Decimal;
+      status?: InternalFundStatus;
+    },
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const execute = async (client: TxClient) => {
+      const internalTx = await (client as any).internalTransaction.findUnique({
+        where: { id: input.internalTransactionId },
+        include: { asset: true },
+      });
+      if (!internalTx) throw new NotFoundException('Internal transaction not found');
+
+      const status = input.status ?? InternalFundStatus.CREATED;
+      for (
+        let attempt = 1;
+        attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
+        attempt += 1
+      ) {
+        const internalFundNo = generateReferenceNo('IFD');
+        try {
+          const created = await (client as any).internalFund.create({
+            data: {
+              internalFundNo,
+              internalTransactionId: input.internalTransactionId,
+              status,
+              assetId: internalTx.assetId,
+              amount: input.amount,
+              feeAmount: new Prisma.Decimal(0),
+              netAmount: input.amount,
+              fromWalletId: input.fromWalletId,
+              toWalletId: input.toWalletId,
+              statusHistory: this.appendStatusHistory(null, status, operatorId, 'Fund leg created'),
+              completedAt: null,
+            },
+          });
+          await this.auditLogsService.recordByActor(
+            {
+              action: AuditActions.INTERNAL_FUND_CREATED,
+              entityType: AuditEntityTypes.INTERNAL_FUND,
+              entityId: created.id,
+              entityNo: created.internalFundNo,
+              reason: 'Fund leg created',
+              sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
+            },
+            {
+              actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+              actorId: operatorId,
+              actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            },
+            client,
+          );
+          return created;
+        } catch (error) {
+          if (this.isInternalFundNoUniqueConflict(error)) continue;
+          throw error;
+        }
+      }
+      throw new InternalServerErrorException(
+        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+      );
+    };
+    if (tx) return execute(tx);
+    return (this.prisma as any).$transaction((client: TxClient) => execute(client));
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateInternalFundStatusDto,

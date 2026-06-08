@@ -302,6 +302,82 @@ describe('FundsFlowService', () => {
   });
 });
 
+describe('createLeg', () => {
+  let service: FundsFlowService;
+  let prisma: any;
+  let auditLogsService: any;
+
+  beforeEach(async () => {
+    prisma = {
+      internalFund: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        count: jest.fn(),
+      },
+      internalTransaction: {
+        findUnique: jest.fn(),
+      },
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+    };
+
+    auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+      recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+    };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        FundsFlowService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: FundsFlowAggregatorPort, useValue: { syncStatusFromFunds: jest.fn() } },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        { provide: AuditLogsService, useValue: auditLogsService },
+      ],
+    }).compile();
+
+    service = moduleRef.get<FundsFlowService>(FundsFlowService);
+    jest.clearAllMocks();
+  });
+
+  it('inserts a new fund with explicit wallets and CREATED status, no findFirst short-circuit', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 't-1',
+      assetId: 'a-1',
+    });
+    prisma.internalFund.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'new-fund-1', internalFundNo: data.internalFundNo, ...data }),
+    );
+
+    const result = await service.createLeg(
+      {
+        internalTransactionId: 't-1',
+        fromWalletId: 'w-from',
+        toWalletId: 'w-to',
+        amount: new Prisma.Decimal(5),
+      },
+      'SYSTEM',
+    );
+
+    expect(prisma.internalFund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          fromWalletId: 'w-from',
+          toWalletId: 'w-to',
+          status: InternalFundStatus.CREATED,
+          amount: new Prisma.Decimal(5),
+          internalTransactionId: 't-1',
+        }),
+      }),
+    );
+    expect(result).toBeDefined();
+    // No findFirst short-circuit
+    expect(prisma.internalFund.findFirst).not.toHaveBeenCalled();
+  });
+});
+
 describe('FIAT_TRANSITIONS', () => {
   it('CREATED --SUBMIT--> CONFIRMING', () => {
     expect(FIAT_TRANSITIONS[InternalFundStatus.CREATED][InternalFundAction.SUBMIT])
