@@ -68,6 +68,8 @@ export class SwapWorkflowService {
 
     const created: PendingRef[] = [];
 
+    let swapId: string;
+    let swapNoForEvent: string | null;
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const quote = await this.swapQuoteService.getActiveQuoteOrThrow(quoteId, 'CUSTOMER', ownerId, now, tx);
@@ -239,19 +241,26 @@ export class SwapWorkflowService {
         return swap;
       });
 
-      this.eventEmitter.emit(DomainEventNames.SWAP_SUCCEEDED, {
-        swapId: result.id,
-        swapNo: result.swapNo,
-        ownerId,
-      });
-
-      return this.swapTransactionsService.findOne(result.id);
+      swapId = result.id;
+      swapNoForEvent = result.swapNo;
     } catch (error) {
       for (const ref of created) {
         await this.accountingService.voidPendingTransferBestEffort(ref.id, ref.amount);
       }
       throw error;
     }
+
+    // Post-commit: the swap row + its TB transfers are durably committed. Emit
+    // the settlement trigger and load the response OUTSIDE the try/catch so a
+    // listener error or a read failure can never run the void-pending rollback
+    // on already-posted transfers.
+    this.eventEmitter.emit(DomainEventNames.SWAP_SUCCEEDED, {
+      swapId,
+      swapNo: swapNoForEvent,
+      ownerId,
+    });
+
+    return this.swapTransactionsService.findOne(swapId);
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {
