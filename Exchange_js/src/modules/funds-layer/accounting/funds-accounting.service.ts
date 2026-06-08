@@ -68,8 +68,11 @@ export class FundsAccountingService {
       drainTbCode = TB_ACCOUNT_CODES.TRADE_CLEARING;
       drainOutCode = TB_TRANSFER_CODES.EOD_DRAIN_OUT;
       drainInCode = TB_TRANSFER_CODES.EOD_DRAIN_IN;
-      drainSourceType = 'EOD_SETTLEMENT';
-      drainMemo = 'EOD TRADE_CLEARING drain';
+      // TRADE_CLEARING is drained by both crypto EOD and fiat per-swap settlement.
+      // Attribute the TB evidence to the actual transfer (EOD_SETTLEMENT vs
+      // FIAT_SETTLEMENT) so V8 reconciliation can look it up by sourceType.
+      drainSourceType = transfer.sourceType ?? 'EOD_SETTLEMENT';
+      drainMemo = `${drainSourceType} TRADE_CLEARING drain`;
       eventOut = 'EOD_DRAIN_OUT';
       eventIn = 'EOD_DRAIN_IN';
     } else if (drain === 'FEE_RECEIVABLE') {

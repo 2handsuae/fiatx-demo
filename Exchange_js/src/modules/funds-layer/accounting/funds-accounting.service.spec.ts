@@ -210,7 +210,11 @@ describe('FundsAccountingService', () => {
 
   it('FIAT B-class drain resolves the counterparty as BANK, not CUSTODY', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
-      transfer({ pathLabel: 'FIAT_SETTLE_OUT', asset: { currency: 'AED', decimals: 2, type: 'FIAT' } }),
+      transfer({
+        pathLabel: 'FIAT_SETTLE_OUT',
+        sourceType: 'FIAT_SETTLEMENT',
+        asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
+      }),
     );
     accounting.lookupBalance.mockResolvedValue({
       debitsPosted: 0n,
@@ -229,6 +233,8 @@ describe('FundsAccountingService', () => {
     expect(call.creditAccountId).toBe(BANK_ID);
     expect(call.debitAccountId).toBe(TRADE_CLEARING_ID);
     expect(call.amount).toBe(600n);
+    // TB evidence attributes the drain to fiat settlement, not EOD
+    expect(call.evidence.sourceType).toBe('FIAT_SETTLEMENT');
   });
 
   it('passes EOD evidence (sourceNo=internalTxNo, traceId, SYSTEM actor)', async () => {
