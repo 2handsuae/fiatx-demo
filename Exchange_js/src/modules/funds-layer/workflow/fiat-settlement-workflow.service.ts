@@ -10,7 +10,11 @@ import { FundsFlowService } from '../domain/funds-flow.service';
 import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
-import { InternalFundAction, InternalFundStatus } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+import {
+  InternalFundAction,
+  InternalFundStatus,
+  UpdateInternalFundStatusDto,
+} from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
 import { AccountingClass } from '../constants/internal-transfer-paths.constant';
 
 const FIAT_SOURCE_TYPE = 'FIAT_SETTLEMENT';
@@ -146,7 +150,7 @@ export class FiatSettlementWorkflowService {
         if (confirmed && hop2) {
           await this.fundsFlow.updateStatus(
             hop2.id,
-            { action: InternalFundAction.SUBMIT } as any,
+            { action: InternalFundAction.SUBMIT } as UpdateInternalFundStatusDto,
             'SYSTEM',
           );
         }

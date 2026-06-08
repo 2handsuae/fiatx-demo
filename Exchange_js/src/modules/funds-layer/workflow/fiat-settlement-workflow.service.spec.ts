@@ -140,6 +140,16 @@ describe('onFundsFlowStatusChanged', () => {
     expect(fundsFlow.updateStatus).toHaveBeenCalledWith('f-hop2', { action: InternalFundAction.SUBMIT }, 'SYSTEM');
   });
 
+  it('hop2 CONFIRMED does not spuriously re-submit (no CREATED sibling downstream of F_LIQ)', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue(fiatTransfer);
+    prisma.internalFund.findMany.mockResolvedValue([
+      { id: 'f-hop1', toWalletId: 'w-F_SET', fromWalletId: 'w-C_VIBAN-c1', status: 'CONFIRMED' },
+      { id: 'f-hop2', fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ', status: 'CONFIRMED' },
+    ]);
+    await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop2', internalTransferId: 't-1', oldStatus: 'CONFIRMING', newStatus: 'CONFIRMED' });
+    expect(fundsFlow.updateStatus).not.toHaveBeenCalled();
+  });
+
   it('CLEAR finalizes once: settle + drain + recompute', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(fiatTransfer);
     consumer.settle.mockResolvedValue({ count: 1 });
