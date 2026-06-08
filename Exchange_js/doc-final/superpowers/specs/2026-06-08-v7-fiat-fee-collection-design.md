@@ -60,9 +60,9 @@
 
 各自独立 transfer + 1 fund；幂等键 `sourceType=FIAT_FEE_COLLECTION` + `sourceId=<swapId>:FEE` / `:SPREAD`。
 
-### 4.2 Withdrawal（新 handler，监听提现终态成功）
-监听提现到达终态 **SUCCESS**（`WITHDRAWAL_STATUS_CHANGED` → `SUCCESS`，此时 net 已出外部、fee 已 post 进 `FEE_RECEIVABLE`、fee 留 VIBAN）→ 仅 FIAT 资产 → spawn `FIAT_FEE_COLLECT`（`C_VIBAN→F_FEE`，amount = withdraw.feeAmount，owner = 客户）。幂等键 `sourceId=<withdrawId>:FEE`。
-> 事件已存在（`domain-events.constants` 的 `WITHDRAWAL_STATUS_CHANGED`）；订阅者按 V7 规则放在 funds-layer 的 L3 workflow。
+### 4.2 Withdrawal（新 handler，监听提现成功事件）
+监听 **`WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT`**（payload `{ withdrawId }`，提现成功时 post-commit 发出；此时 net 已出外部、fee 已 post 进 `FEE_RECEIVABLE`、fee 留 VIBAN）→ 按 withdrawId 查 withdraw 行 → fee > 0 → spawn `FIAT_FEE_COLLECT`（`C_VIBAN→F_FEE`，amount = withdraw.feeAmount，owner = 客户）。幂等键 `sourceId=<withdrawId>:FEE`。
+> ⚠️ 实现修正：`domain-events.constants` 的 `WITHDRAWAL_STATUS_CHANGED` **从未被 emit**（死事件，原 spec 误用）；提现成功真实 emit 的是 `WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT`（fiat 专属，已隐含 SUCCESS+FIAT）。订阅者按 V7 规则放在 funds-layer 的 L3 workflow。
 
 > **只在终态成功触发**：提现 bounce/反转时不收费。
 
@@ -114,7 +114,7 @@
 | `funds-layer/guards/whitelist.guard.ts` | 支持新单跳路径校验（复用 `assertWhitelisted` 或 `assertRoute`） |
 | `funds-layer/accounting/funds-accounting.service.ts` | 新增按指定金额 drain `FEE_RECEIVABLE→BANK` 的方法；结算全额 drain 不变 |
 | `funds-layer/workflow/fiat-settlement-workflow.service.ts` | ① 结算交付改 gross（fiat IN）；② SUCCESS 后 spawn 服务费 + 点差 fee-collect transfer |
-| 新 `funds-layer/workflow/fiat-fee-collection-workflow.service.ts`（或并入 fiat-settlement workflow） | 监听 `WITHDRAWAL_STATUS_CHANGED`→SUCCESS（仅 FIAT）→ spawn 提现费 fee-collect |
+| 新 `funds-layer/workflow/fiat-fee-collection-workflow.service.ts` | 监听 `WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT` → spawn 提现费 fee-collect（+ swap fee/spread + 完成时按额 drain）|
 | `funds-layer/domain/funds-flow.service.ts` | 复用 `createLeg`（单 fund）；无新状态机 |
 | `funds-layer/domain/system-wallet-resolver.service.ts` | 复用 `resolve`(F_FEE/F_LIQ) + `resolveCustomer`(C_VIBAN) |
 | 测试 | 各 service 单测；fee-collect 路径 + 指定金额 drain + gross 结算 + 提现费触发 |
