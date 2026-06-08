@@ -7,6 +7,11 @@ import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import {
+  CRYPTO_SYSTEM_WALLET_ROLES,
+  FIAT_SYSTEM_WALLET_ROLES,
+} from '../src/modules/asset-treasury/wallets/system-wallet.util';
+import { WalletRole } from '../src/modules/asset-treasury/wallets/dto/wallet.dto';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -48,19 +53,10 @@ function normalizeSegment(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 }
 
-// System wallet roles required by V7 settlement/fee workflows, per asset.
-const SYSTEM_WALLET_ROLES = ['C_MAIN', 'C_OUT', 'F_LIQ', 'F_OPS'] as const;
-type SystemWalletRole = (typeof SYSTEM_WALLET_ROLES)[number];
-
-const SYSTEM_WALLET_OWNER: Record<
-  SystemWalletRole,
-  { ownerType: 'PLATFORM'; ownerNo: string }
-> = {
-  C_MAIN: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
-  C_OUT: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
-  F_LIQ: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
-  F_OPS: { ownerType: 'PLATFORM', ownerNo: 'PLATFORM' },
-};
+// System wallet roles required by V7 settlement/fee workflows, selected per
+// asset type: crypto pools (C_MAIN/C_OUT/F_LIQ/F_OPS) vs fiat pools
+// (C_CMA/F_SET/F_FEE/F_OPS/F_LIQ). See system-wallet.util.ts.
+type SystemWalletRole = WalletRole;
 
 function buildSystemWalletAddress(
   role: SystemWalletRole,
@@ -147,9 +143,10 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
       });
     }
 
-    // System wallets (ownerType PLATFORM), one per role.
-    for (const role of SYSTEM_WALLET_ROLES) {
-      const owner = SYSTEM_WALLET_OWNER[role];
+    // System wallets (ownerType PLATFORM), one per role — fiat vs crypto pool sets.
+    const systemRoles = isFiat ? FIAT_SYSTEM_WALLET_ROLES : CRYPTO_SYSTEM_WALLET_ROLES;
+    for (const role of systemRoles) {
+      const owner = { ownerType: 'PLATFORM' as const, ownerNo: 'PLATFORM' };
       const walletNo = buildDeterministicNo(
         'WA',
         role,
