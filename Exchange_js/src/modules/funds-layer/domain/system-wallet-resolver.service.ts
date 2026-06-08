@@ -18,4 +18,18 @@ export class SystemWalletResolver {
       });
     return wallet;
   }
+
+  /** ACTIVE CUSTOMER-owned wallet (e.g. C_VIBAN) for a given owner + asset */
+  async resolveCustomer(assetId: string, walletRole: string, ownerId: string) {
+    const wallet = await (this.prisma as any).wallet.findFirst({
+      where: { walletRole, assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!wallet)
+      throw new BadRequestException({
+        code: 'CUSTOMER_WALLET_NOT_FOUND',
+        message: `No ACTIVE ${walletRole} wallet for customer ${ownerId} asset ${assetId}`,
+      });
+    return wallet;
+  }
 }
