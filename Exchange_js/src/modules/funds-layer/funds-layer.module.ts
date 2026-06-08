@@ -19,6 +19,7 @@ import { DepositAggregationSourceService } from './domain/deposit-aggregation-so
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
 import { FeeCollectionWorkflowService } from './workflow/fee-collection-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
+import { FiatFeeCollectionWorkflowService } from './workflow/fiat-fee-collection-workflow.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
@@ -65,6 +66,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     FeeCollectionWorkflowService,
     FeeCollectionSweepService,
     FiatSettlementWorkflowService,
+    FiatFeeCollectionWorkflowService,
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
   exports: [

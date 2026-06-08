@@ -13,6 +13,7 @@ import { FundsAccountingService } from './accounting/funds-accounting.service';
 import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-execution.adapter';
 import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
+import { FiatFeeCollectionWorkflowService } from './workflow/fiat-fee-collection-workflow.service';
 import { SettlementBatchService } from './domain/settlement-batch.service';
 import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
@@ -45,6 +46,7 @@ describe('FundsLayerModule wiring', () => {
         MockCustodianExecutionAdapter,
         InternalTransferWorkflowService,
         FiatSettlementWorkflowService,
+        FiatFeeCollectionWorkflowService,
         SettlementBatchService,
         OutstandingConsumerService,
         SystemWalletResolver,
@@ -80,5 +82,9 @@ describe('FundsLayerModule wiring', () => {
 
   it('provides FiatSettlementWorkflowService', () => {
     expect(moduleRef.get(FiatSettlementWorkflowService)).toBeDefined();
+  });
+
+  it('provides FiatFeeCollectionWorkflowService', () => {
+    expect(moduleRef.get(FiatFeeCollectionWorkflowService)).toBeDefined();
   });
 });
