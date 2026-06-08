@@ -28,7 +28,9 @@ import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-l
 const LEDGER = TB_LEDGERS.AED; // 1
 const CURRENCY = 'AED';
 const RUN_TAG = Date.now().toString();
-const TARGET_CLEARING = 5_000_000n; // 5 AED (6 decimals — matches AED asset decimals in seed)
+// TARGET_CLEARING is derived from the asset's real decimals at runtime (AED = 2),
+// not hardcoded — see below. 5 AED.
+const TARGET_UNITS = 5;
 
 function net(b: { creditsPosted: bigint; debitsPosted: bigint }) {
   return b.creditsPosted - b.debitsPosted;
@@ -46,6 +48,10 @@ async function main() {
     where: { status: 'ACTIVE', type: 'FIAT', currency: CURRENCY },
   });
   if (!asset) throw new Error('Active AED fiat asset not found — run business seed first.');
+
+  // Seed amount in TB base units, derived from the asset's REAL decimals (AED = 2),
+  // not a hardcoded assumption.
+  const TARGET_CLEARING = BigInt(TARGET_UNITS) * 10n ** BigInt(asset.decimals);
 
   const customer = await (prisma as any).customerMain.findFirst({ where: {} });
   if (!customer) throw new Error('No customer found — run business seed first.');
