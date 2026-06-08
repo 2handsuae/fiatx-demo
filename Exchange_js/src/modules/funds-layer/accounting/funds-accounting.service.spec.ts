@@ -10,10 +10,12 @@ import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.co
 const TRADE_CLEARING_ID = 1111n;
 const CUSTODY_ID = 2222n;
 const FEE_RECEIVABLE_ID = 3333n;
+const BANK_ID = 4444n;
 
 const resolveById = ({ code }: { code: number }) => {
   if (code === TB_ACCOUNT_CODES.TRADE_CLEARING) return Promise.resolve(TRADE_CLEARING_ID);
   if (code === TB_ACCOUNT_CODES.FEE_RECEIVABLE) return Promise.resolve(FEE_RECEIVABLE_ID);
+  if (code === TB_ACCOUNT_CODES.BANK) return Promise.resolve(BANK_ID);
   return Promise.resolve(CUSTODY_ID);
 };
 
@@ -29,7 +31,7 @@ describe('FundsAccountingService', () => {
     accountingClass: 'B',
     assetId: 'asset-1',
     traceId: 'SETTLE:BATCH1',
-    asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
+    asset: { currency: 'AED', decimals: 2, type: 'CRYPTO' },
     ...overrides,
   });
 
@@ -204,6 +206,29 @@ describe('FundsAccountingService', () => {
     // executeTransfer must run inside the same atomic tx
     expect(accounting.executeTransfer.mock.calls[0][0].tx).toBe(tx);
     expect(result).toEqual({ tbApplied: true, tbTransferId: 1n });
+  });
+
+  it('FIAT B-class drain resolves the counterparty as BANK, not CUSTODY', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue(
+      transfer({ pathLabel: 'FIAT_SETTLE_OUT', asset: { currency: 'AED', decimals: 2, type: 'FIAT' } }),
+    );
+    accounting.lookupBalance.mockResolvedValue({
+      debitsPosted: 0n,
+      creditsPosted: 600n,
+      debitsPending: 0n,
+      creditsPending: 0n,
+    });
+
+    await service.applyAccounting({ accountingClass: AccountingClass.B, internalTransferId: 't-fiat' });
+
+    const resolvedCodes = accounting.resolveTbAccountId.mock.calls.map((c: any) => c[0].code);
+    expect(resolvedCodes).toContain(TB_ACCOUNT_CODES.BANK);
+    expect(resolvedCodes).not.toContain(TB_ACCOUNT_CODES.CUSTODY);
+
+    const call = accounting.executeTransfer.mock.calls[0][0];
+    expect(call.creditAccountId).toBe(BANK_ID);
+    expect(call.debitAccountId).toBe(TRADE_CLEARING_ID);
+    expect(call.amount).toBe(600n);
   });
 
   it('passes EOD evidence (sourceNo=internalTxNo, traceId, SYSTEM actor)', async () => {

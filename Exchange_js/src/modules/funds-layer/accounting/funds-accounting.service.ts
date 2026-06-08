@@ -102,8 +102,12 @@ export class FundsAccountingService {
       ledger,
       ownerType: 'SYSTEM',
     });
-    const custodyId = await this.accounting.resolveTbAccountId({
-      code: TB_ACCOUNT_CODES.CUSTODY,
+    const counterpartyCode =
+      transfer.asset.type === 'FIAT'
+        ? TB_ACCOUNT_CODES.BANK
+        : TB_ACCOUNT_CODES.CUSTODY;
+    const counterpartyId = await this.accounting.resolveTbAccountId({
+      code: counterpartyCode,
       ledger,
       ownerType: 'SYSTEM',
     });
@@ -125,18 +129,18 @@ export class FundsAccountingService {
     let debitTbCode: number;
     let creditTbCode: number;
     if (net > 0n) {
-      // drain account net CREDIT → debit it to zero, credit CUSTODY.
+      // drain account net CREDIT → debit it to zero, credit counterparty (CUSTODY or BANK).
       debitAccountId = drainAcctId;
-      creditAccountId = custodyId;
+      creditAccountId = counterpartyId;
       drainCode = drainOutCode;
       debitTbCode = drainTbCode;
-      creditTbCode = TB_ACCOUNT_CODES.CUSTODY;
+      creditTbCode = counterpartyCode;
     } else {
-      // drain account net DEBIT → credit it to zero, debit CUSTODY.
-      debitAccountId = custodyId;
+      // drain account net DEBIT → credit it to zero, debit counterparty (CUSTODY or BANK).
+      debitAccountId = counterpartyId;
       creditAccountId = drainAcctId;
       drainCode = drainInCode;
-      debitTbCode = TB_ACCOUNT_CODES.CUSTODY;
+      debitTbCode = counterpartyCode;
       creditTbCode = drainTbCode;
     }
 
