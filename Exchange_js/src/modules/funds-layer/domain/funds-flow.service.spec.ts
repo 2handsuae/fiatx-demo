@@ -375,6 +375,12 @@ describe('createLeg', () => {
     expect(result).toBeDefined();
     // No findFirst short-circuit
     expect(prisma.internalFund.findFirst).not.toHaveBeenCalled();
+    // Default CREATED status → completedAt must be null (not a terminal status)
+    expect(prisma.internalFund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ completedAt: null }),
+      }),
+    );
   });
 });
 

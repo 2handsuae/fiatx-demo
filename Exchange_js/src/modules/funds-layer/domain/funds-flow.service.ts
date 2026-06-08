@@ -406,7 +406,6 @@ export class FundsFlowService {
     const execute = async (client: TxClient) => {
       const internalTx = await (client as any).internalTransaction.findUnique({
         where: { id: input.internalTransactionId },
-        include: { asset: true },
       });
       if (!internalTx) throw new NotFoundException('Internal transaction not found');
 
@@ -430,7 +429,7 @@ export class FundsFlowService {
               fromWalletId: input.fromWalletId,
               toWalletId: input.toWalletId,
               statusHistory: this.appendStatusHistory(null, status, operatorId, 'Fund leg created'),
-              completedAt: null,
+              completedAt: TERMINAL_STATUSES.has(status) ? new Date() : null,
             },
           });
           await this.auditLogsService.recordByActor(
