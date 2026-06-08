@@ -59,6 +59,34 @@ const CRYPTO_TRANSITIONS: Record<
   [InternalFundStatus.CANCELLED]: {},
 };
 
+export const FIAT_TRANSITIONS: Record<
+  InternalFundStatus,
+  Partial<Record<InternalFundAction, InternalFundStatus>>
+> = {
+  [InternalFundStatus.CREATED]: {
+    [InternalFundAction.SUBMIT]: InternalFundStatus.CONFIRMING,
+    [InternalFundAction.CANCEL]: InternalFundStatus.CANCELLED,
+  },
+  [InternalFundStatus.CONFIRMING]: {
+    [InternalFundAction.CONFIRM]: InternalFundStatus.CONFIRMED,
+    [InternalFundAction.FAIL]: InternalFundStatus.FAILED,
+    [InternalFundAction.TIMEOUT]: InternalFundStatus.TIMEOUT,
+  },
+  [InternalFundStatus.CONFIRMED]: {
+    [InternalFundAction.CLEAR]: InternalFundStatus.CLEAR,
+    [InternalFundAction.RETURN]: InternalFundStatus.RETURNED,
+  },
+  [InternalFundStatus.CLEAR]: {
+    [InternalFundAction.RETURN]: InternalFundStatus.RETURNED,
+  },
+  [InternalFundStatus.SIGNING]: {},
+  [InternalFundStatus.BROADCASTED]: {},
+  [InternalFundStatus.FAILED]: {},
+  [InternalFundStatus.TIMEOUT]: {},
+  [InternalFundStatus.RETURNED]: {},
+  [InternalFundStatus.CANCELLED]: {},
+};
+
 const TERMINAL_STATUSES = new Set<InternalFundStatus>([
   InternalFundStatus.CLEAR,
   InternalFundStatus.FAILED,
@@ -103,8 +131,8 @@ export class FundsFlowService {
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
-  private getTransitionMap(_assetType?: string) {
-    return CRYPTO_TRANSITIONS;
+  private getTransitionMap(assetType?: string) {
+    return assetType === 'FIAT' ? FIAT_TRANSITIONS : CRYPTO_TRANSITIONS;
   }
 
   private appendStatusHistory(

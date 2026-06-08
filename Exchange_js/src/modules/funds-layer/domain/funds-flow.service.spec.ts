@@ -9,7 +9,7 @@ import {
   InternalFundAction,
   InternalFundStatus,
 } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
-import { FundsFlowService } from './funds-flow.service';
+import { FundsFlowService, FIAT_TRANSITIONS } from './funds-flow.service';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
 
 describe('FundsFlowService', () => {
@@ -299,5 +299,26 @@ describe('FundsFlowService', () => {
 
     expect(result.id).toBe('ifd-existing');
     expect(prisma.internalFund.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('FIAT_TRANSITIONS', () => {
+  it('CREATED --SUBMIT--> CONFIRMING', () => {
+    expect(FIAT_TRANSITIONS[InternalFundStatus.CREATED][InternalFundAction.SUBMIT])
+      .toBe(InternalFundStatus.CONFIRMING);
+  });
+  it('CONFIRMING --CONFIRM--> CONFIRMED', () => {
+    expect(FIAT_TRANSITIONS[InternalFundStatus.CONFIRMING][InternalFundAction.CONFIRM])
+      .toBe(InternalFundStatus.CONFIRMED);
+  });
+  it('CONFIRMED --CLEAR--> CLEAR and --RETURN--> RETURNED', () => {
+    expect(FIAT_TRANSITIONS[InternalFundStatus.CONFIRMED][InternalFundAction.CLEAR])
+      .toBe(InternalFundStatus.CLEAR);
+    expect(FIAT_TRANSITIONS[InternalFundStatus.CONFIRMED][InternalFundAction.RETURN])
+      .toBe(InternalFundStatus.RETURNED);
+  });
+  it('does NOT allow crypto SIGN/BROADCAST from CREATED', () => {
+    expect(FIAT_TRANSITIONS[InternalFundStatus.CREATED][InternalFundAction.SIGN])
+      .toBeUndefined();
   });
 });
