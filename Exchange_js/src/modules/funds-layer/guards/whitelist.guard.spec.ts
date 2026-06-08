@@ -32,6 +32,6 @@ describe('WhitelistGuard.assertRoute (fiat)', () => {
   });
 
   it('rejects an unknown route', () => {
-    expect(() => guard.assertRoute(['C_VIBAN', 'F_LIQ'])).toThrow();
+    expect(() => guard.assertRoute(['C_VIBAN', 'F_LIQ'])).toThrow(BadRequestException);
   });
 });

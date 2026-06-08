@@ -3,6 +3,7 @@ import {
   AccountingClass,
   TRANSFER_PATH_WHITELIST,
   resolvePathPolicy,
+  resolveRoutePolicy,
 } from './internal-transfer-paths.constant';
 
 describe('TRANSFER_PATH_WHITELIST', () => {
@@ -23,6 +24,17 @@ describe('TRANSFER_PATH_WHITELIST', () => {
     }
   });
 
+  it('fiat settlement paths use BANK medium, a 3-hop route, and drain TRADE_CLEARING', () => {
+    for (const path of [TransferPath.FIAT_SETTLE_OUT, TransferPath.FIAT_SETTLE_IN]) {
+      const policy = TRANSFER_PATH_WHITELIST[path];
+      expect(policy.medium).toBe('BANK');
+      expect(policy.class).toBe(AccountingClass.B);
+      expect(policy.drain).toBe('TRADE_CLEARING');
+      expect(policy.route).toHaveLength(3);
+      expect(policy.route?.[1]).toBe('F_SET');
+    }
+  });
+
   it('B-class paths declare a drain account, A-class do not', () => {
     expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].class).toBe(AccountingClass.B);
     expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].drain).toBe('TRADE_CLEARING');
@@ -38,5 +50,16 @@ describe('TRANSFER_PATH_WHITELIST', () => {
 
   it('resolvePathPolicy returns null for non-whitelisted pair', () => {
     expect(resolvePathPolicy('C_DEP', 'F_LIQ')).toBeNull();
+  });
+
+  it('resolveRoutePolicy returns the policy for an exact route match', () => {
+    expect(resolveRoutePolicy(['C_VIBAN', 'F_SET', 'F_LIQ'])?.path).toBe(TransferPath.FIAT_SETTLE_OUT);
+    expect(resolveRoutePolicy(['F_LIQ', 'F_SET', 'C_VIBAN'])?.path).toBe(TransferPath.FIAT_SETTLE_IN);
+  });
+
+  it('resolveRoutePolicy returns null for an unknown or partial route', () => {
+    expect(resolveRoutePolicy(['C_VIBAN', 'F_LIQ'])).toBeNull();
+    expect(resolveRoutePolicy(['C_VIBAN', 'F_SET'])).toBeNull();
+    expect(resolveRoutePolicy([])).toBeNull();
   });
 });
