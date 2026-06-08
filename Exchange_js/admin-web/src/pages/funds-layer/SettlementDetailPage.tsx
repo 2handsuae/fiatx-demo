@@ -186,13 +186,13 @@ const SettlementDetailPage = () => {
             </div>
           </div>
 
-          {/* 3. Process / Per-asset Items */}
+          {/* 3. Per-asset settlement transfers */}
           <div className="px-6 py-5">
             <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Settlement Items
+              Settlement Transfers
             </h3>
             {transfers.length === 0 ? (
-              <div className="p-4 text-center text-sm italic text-adm-t3">No settlement items</div>
+              <div className="p-4 text-center text-sm italic text-adm-t3">No settlement transfers</div>
             ) : (
               <div className="space-y-4">
                 {transfers.map((t) => {

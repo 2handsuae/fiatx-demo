@@ -33,8 +33,8 @@ export interface CryptoDirection {
 }
 
 /**
- * V7 Phase-3 L1 domain service over the `settlement_batches` /
- * `settlement_batch_items` tables. Owns the data ops for EOD settlement
+ * V7 Phase-3 L1 domain service over the `settlement_batches` table.
+ * Owns the data ops for EOD settlement
  * batches; write methods accept an optional `tx`. No business/journey audit
  * and no event subscription (that belongs to the L3 workflow in Task 3.3).
  */

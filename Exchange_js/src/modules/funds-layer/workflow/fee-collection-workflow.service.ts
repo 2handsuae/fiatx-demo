@@ -43,7 +43,7 @@ interface FeeCandidate {
  * FEE_RECEIVABLE→CUSTODY drain) via the universal transfer workflow → recompute
  * the batch rollup. When a spawned transfer's funds-flow clears
  * (fundsflow.status.changed → CLEAR), it recomputes the batch.
- * Unlike EOD this touches no Outstanding rows and no SettlementBatchItem rows.
+ * Unlike EOD this touches no Outstanding rows.
  *
  * Layering: orchestrates domain services only; the sole direct Prisma use is the
  * asset query and the read-only idempotency `findFirst`.
