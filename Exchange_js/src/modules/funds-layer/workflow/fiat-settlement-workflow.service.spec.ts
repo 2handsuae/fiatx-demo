@@ -30,7 +30,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
       resolve: jest.fn((assetId: string, role: string) => Promise.resolve({ id: `w-${role}` })),
       resolveCustomer: jest.fn((assetId: string, role: string, owner: string) => Promise.resolve({ id: `w-${role}-${owner}` })),
     };
-    prisma = { internalTransaction: { findUnique: jest.fn() }, internalFund: { findMany: jest.fn() } };
+    prisma = { internalTransaction: { findUnique: jest.fn() }, internalFund: { findMany: jest.fn() }, swapTransaction: { findUnique: jest.fn() } };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -83,6 +83,20 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     const hop2 = fundsFlow.createLeg.mock.calls[1][0];
     expect(hop1).toMatchObject({ fromWalletId: 'w-F_LIQ', toWalletId: 'w-F_SET' });
     expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-C_VIBAN-c2' });
+  });
+
+  it('IN fiat outstanding settles GROSS = net + swap fee', async () => {
+    consumer.findOpenFiatBySwap.mockResolvedValue([
+      { id: 'o-aed', direction: 'IN', amount: '36.541375', assetId: 'a-aed', assetCode: 'AED', ownerId: 'c1', ownerType: 'CUSTOMER', ownerNo: 'CUST-1', sourceNo: 'SWP-1' },
+    ]);
+    prisma.swapTransaction.findUnique.mockResolvedValue({ feeAmount: '0.10', spreadAmount: '0.18' });
+
+    await service.onSwapSucceeded({ swapId: 'swap-1', swapNo: 'SWP-1', ownerId: 'c1' });
+
+    const tArgs = transfers.createTransfer.mock.calls[0][0];
+    expect(tArgs.amount.toString()).toBe('36.641375'); // 36.541375 + 0.10
+    expect(fundsFlow.createLeg.mock.calls[0][0].amount.toString()).toBe('36.641375');
+    expect(fundsFlow.createLeg.mock.calls[1][0].amount.toString()).toBe('36.641375');
   });
 
   it('no fiat outstanding: no-op (no batch)', async () => {

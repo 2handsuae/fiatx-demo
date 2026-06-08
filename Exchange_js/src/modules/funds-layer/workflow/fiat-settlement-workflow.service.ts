@@ -57,6 +57,12 @@ export class FiatSettlementWorkflowService {
         settlementType: 'FIAT_SWAP',
       });
 
+      const swap = await (this.prisma as any).swapTransaction.findUnique({
+        where: { id: event.swapId },
+        select: { feeAmount: true, spreadAmount: true },
+      });
+      const swapFee = new Prisma.Decimal(swap?.feeAmount ?? 0);
+
       for (const o of outstandings) {
         // direction OUT → client sold fiat (VIBAN → F_SET → F_LIQ);
         // direction IN  → client bought fiat (F_LIQ → F_SET → VIBAN).
@@ -73,7 +79,10 @@ export class FiatSettlementWorkflowService {
 
         const hop1From = isOut ? viban : fliq;
         const hop2To = isOut ? fliq : viban;
-        const amount = new Prisma.Decimal(o.amount);
+        // IN (buying fiat) delivers GROSS = net + service fee so the fee lands in
+        // the VIBAN to be collected (VIBAN→F_FEE). OUT stays net (no fee on from-leg).
+        const net = new Prisma.Decimal(o.amount);
+        const amount = isOut ? net : net.plus(swapFee);
 
         const transfer = await this.transfers.createTransfer({
           path: policy.path,
