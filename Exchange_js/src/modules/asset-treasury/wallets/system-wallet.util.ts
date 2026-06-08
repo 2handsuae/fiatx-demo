@@ -5,7 +5,7 @@ export const CRYPTO_SYSTEM_WALLET_ROLES: WalletRole[] = [
 ];
 
 export const FIAT_SYSTEM_WALLET_ROLES: WalletRole[] = [
-  WalletRole.C_CMA, WalletRole.F_LIQ, WalletRole.F_OPS,
+  WalletRole.C_CMA, WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
 ];
 
 export const PROTECTED_SYSTEM_WALLET_ROLES: ReadonlySet<string> = new Set([
@@ -17,7 +17,7 @@ export const CUSTOMER_POOL_ROLES: ReadonlySet<string> = new Set([
 ]);
 
 export const PLATFORM_POOL_ROLES: ReadonlySet<string> = new Set([
-  WalletRole.F_LIQ, WalletRole.F_OPS,
+  WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_SET, WalletRole.F_FEE,
 ]);
 
 export enum WalletSurfaceCategory {

@@ -50,6 +50,18 @@ export const WALLET_ROLE_POLICIES: Record<string, WalletRolePolicy> = {
     allowedAssetTypes: ['CRYPTO', 'FIAT'],
     requiresCustodian: true,
   },
+  [WalletRole.F_SET]: {
+    maxPerOwnerPerAsset: Infinity,
+    allowedOwnerTypes: ['PLATFORM'],
+    allowedAssetTypes: ['FIAT'],
+    requiresCustodian: true,
+  },
+  [WalletRole.F_FEE]: {
+    maxPerOwnerPerAsset: Infinity,
+    allowedOwnerTypes: ['PLATFORM'],
+    allowedAssetTypes: ['FIAT'],
+    requiresCustodian: true,
+  },
 };
 
 export function getWalletRolePolicy(role: string): WalletRolePolicy | undefined {

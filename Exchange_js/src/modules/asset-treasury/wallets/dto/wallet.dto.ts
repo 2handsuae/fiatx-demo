@@ -20,6 +20,8 @@ export enum WalletRole {
   C_CMA = 'C_CMA',
   F_LIQ = 'F_LIQ',
   F_OPS = 'F_OPS',
+  F_SET = 'F_SET',
+  F_FEE = 'F_FEE',
 }
 
 export enum WalletStatus {
