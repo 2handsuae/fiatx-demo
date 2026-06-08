@@ -123,4 +123,25 @@ describe('OutstandingConsumerService', () => {
     expect(args.data.status).toBe('SETTLED');
     expect(args.data.closedAt).toBeInstanceOf(Date);
   });
+
+  describe('findOpenFiatBySwap', () => {
+    it('returns OPEN, FIAT, unbatched outstandings for a swap', async () => {
+      const rows = [{ id: 'o1', direction: 'IN', amount: '5', assetId: 'a-aed', ownerId: 'c1' }];
+      const prisma = { outstanding: { findMany: jest.fn().mockResolvedValue(rows) } };
+      const svc = new OutstandingConsumerService(prisma as any);
+
+      const result = await svc.findOpenFiatBySwap('swap-1');
+
+      expect(prisma.outstanding.findMany).toHaveBeenCalledWith({
+        where: {
+          swapTransactionId: 'swap-1',
+          status: 'OPEN',
+          settlementBatchId: null,
+          asset: { type: 'FIAT' },
+        },
+        select: expect.any(Object),
+      });
+      expect(result).toBe(rows);
+    });
+  });
 });

@@ -139,4 +139,27 @@ export class OutstandingConsumerService {
       data: { status: 'SETTLED', closedAt: new Date() },
     });
   }
+
+  /** OPEN, FIAT, not-yet-batched outstandings produced by a single swap. */
+  async findOpenFiatBySwap(swapTransactionId: string) {
+    return (this.prisma as any).outstanding.findMany({
+      where: {
+        swapTransactionId,
+        status: 'OPEN',
+        settlementBatchId: null,
+        asset: { type: 'FIAT' },
+      },
+      select: {
+        id: true,
+        direction: true,
+        amount: true,
+        assetId: true,
+        assetCode: true,
+        ownerId: true,
+        ownerType: true,
+        ownerNo: true,
+        sourceNo: true,
+      },
+    });
+  }
 }
