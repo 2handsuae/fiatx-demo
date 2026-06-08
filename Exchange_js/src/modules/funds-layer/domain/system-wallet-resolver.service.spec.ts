@@ -19,8 +19,10 @@ describe('SystemWalletResolver.resolveCustomer', () => {
     });
   });
 
-  it('throws when no customer wallet exists', async () => {
+  it('throws CUSTOMER_WALLET_NOT_FOUND when no customer wallet exists', async () => {
     prisma.wallet.findFirst.mockResolvedValue(null);
-    await expect(resolver.resolveCustomer('a-aed', 'C_VIBAN', 'cust-1')).rejects.toThrow();
+    await expect(
+      resolver.resolveCustomer('a-aed', 'C_VIBAN', 'cust-1'),
+    ).rejects.toMatchObject({ response: { code: 'CUSTOMER_WALLET_NOT_FOUND' } });
   });
 });
