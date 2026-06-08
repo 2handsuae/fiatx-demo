@@ -8,6 +8,7 @@ import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
 import { FiatSettlementWorkflowService } from './fiat-settlement-workflow.service';
+import { FiatFeeCollectionWorkflowService } from './fiat-fee-collection-workflow.service';
 import { InternalFundAction } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
 
 describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
@@ -43,6 +44,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
         { provide: FundsAccountingService, useValue: accounting },
         { provide: SystemWalletResolver, useValue: wallets },
         { provide: WhitelistGuard, useValue: new WhitelistGuard() },
+        { provide: FiatFeeCollectionWorkflowService, useValue: { collectSwapFees: jest.fn() } },
       ],
     }).compile();
     service = module.get(FiatSettlementWorkflowService);
@@ -108,7 +110,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
 
 describe('onFundsFlowStatusChanged', () => {
   let service: FiatSettlementWorkflowService;
-  let batch: any, consumer: any, transfers: any, fundsFlow: any, accounting: any, wallets: any, prisma: any;
+  let batch: any, consumer: any, transfers: any, fundsFlow: any, accounting: any, wallets: any, prisma: any, feeCollection: any;
 
   const fiatTransfer = { id: 't-1', sourceType: 'FIAT_SETTLEMENT', settlementBatchId: 'b-1', assetId: 'a-aed' };
 
@@ -127,6 +129,7 @@ describe('onFundsFlowStatusChanged', () => {
       resolveCustomer: jest.fn((assetId: string, role: string, owner: string) => Promise.resolve({ id: `w-${role}-${owner}` })),
     };
     prisma = { internalTransaction: { findUnique: jest.fn() }, internalFund: { findMany: jest.fn() } };
+    feeCollection = { collectSwapFees: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -139,6 +142,7 @@ describe('onFundsFlowStatusChanged', () => {
         { provide: FundsAccountingService, useValue: accounting },
         { provide: SystemWalletResolver, useValue: wallets },
         { provide: WhitelistGuard, useValue: new WhitelistGuard() },
+        { provide: FiatFeeCollectionWorkflowService, useValue: feeCollection },
       ],
     }).compile();
     service = module.get(FiatSettlementWorkflowService);
@@ -191,5 +195,25 @@ describe('onFundsFlowStatusChanged', () => {
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: undefined, oldStatus: 'X', newStatus: 'CLEAR' });
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: 't-1', oldStatus: 'X', newStatus: 'BROADCASTED' });
     expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('on IN settlement CLEAR, triggers swap fee collection with the swapId', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 't-1', sourceType: 'FIAT_SETTLEMENT', settlementBatchId: 'b-1',
+      pathLabel: 'FIAT_SETTLE_IN', sourceId: 'swap-1:o-aed',
+    });
+    consumer.settle.mockResolvedValue({ count: 1 });
+    await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop2', internalTransferId: 't-1', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
+    expect(feeCollection.collectSwapFees).toHaveBeenCalledWith('swap-1');
+  });
+
+  it('does NOT trigger fee collection for FIAT_SETTLE_OUT', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 't-2', sourceType: 'FIAT_SETTLEMENT', settlementBatchId: 'b-1',
+      pathLabel: 'FIAT_SETTLE_OUT', sourceId: 'swap-2:o-x',
+    });
+    consumer.settle.mockResolvedValue({ count: 1 });
+    await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: 't-2', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
+    expect(feeCollection.collectSwapFees).not.toHaveBeenCalled();
   });
 });

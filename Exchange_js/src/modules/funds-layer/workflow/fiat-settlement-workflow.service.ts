@@ -15,7 +15,8 @@ import {
   InternalFundStatus,
   UpdateInternalFundStatusDto,
 } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
-import { AccountingClass } from '../constants/internal-transfer-paths.constant';
+import { AccountingClass, TransferPath } from '../constants/internal-transfer-paths.constant';
+import { FiatFeeCollectionWorkflowService } from './fiat-fee-collection-workflow.service';
 
 const FIAT_SOURCE_TYPE = 'FIAT_SETTLEMENT';
 
@@ -41,6 +42,7 @@ export class FiatSettlementWorkflowService {
     private readonly accounting: FundsAccountingService,
     private readonly systemWallets: SystemWalletResolver,
     private readonly whitelist: WhitelistGuard,
+    private readonly feeCollection: FiatFeeCollectionWorkflowService,
   ) {}
 
   @OnEvent(DomainEventNames.SWAP_SUCCEEDED)
@@ -177,6 +179,13 @@ export class FiatSettlementWorkflowService {
       });
       if (transfer.settlementBatchId) {
         await this.batchService.recomputeBatch(transfer.settlementBatchId);
+      }
+
+      // Swap fee/spread collection rides along once the IN (buy-fiat) settlement
+      // completes — the gross is now in the VIBAN, so the fee can be pulled.
+      if (transfer.pathLabel === TransferPath.FIAT_SETTLE_IN) {
+        const swapId = String(transfer.sourceId || '').split(':')[0];
+        if (swapId) await this.feeCollection.collectSwapFees(swapId);
       }
     } catch (err) {
       this.logger.error(
