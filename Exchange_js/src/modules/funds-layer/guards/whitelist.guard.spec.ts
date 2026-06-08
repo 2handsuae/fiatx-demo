@@ -35,3 +35,21 @@ describe('WhitelistGuard.assertRoute (fiat)', () => {
     expect(() => guard.assertRoute(['C_VIBAN', 'F_LIQ'])).toThrow(BadRequestException);
   });
 });
+
+describe('WhitelistGuard.assertWhitelisted (fiat fee collection)', () => {
+  const guard = new WhitelistGuard();
+
+  it('accepts C_VIBAN->F_FEE (FIAT_FEE_COLLECT), class B, BANK, drain FEE_RECEIVABLE', () => {
+    const p = guard.assertWhitelisted('C_VIBAN', 'F_FEE');
+    expect(p.path).toBe('FIAT_FEE_COLLECT');
+    expect(p.class).toBe('B');
+    expect(p.medium).toBe('BANK');
+    expect(p.drain).toBe('FEE_RECEIVABLE');
+  });
+
+  it('accepts F_LIQ->F_FEE (FIAT_SPREAD_COLLECT)', () => {
+    const p = guard.assertWhitelisted('F_LIQ', 'F_FEE');
+    expect(p.path).toBe('FIAT_SPREAD_COLLECT');
+    expect(p.drain).toBe('FEE_RECEIVABLE');
+  });
+});

@@ -7,9 +7,9 @@ import {
 } from './internal-transfer-paths.constant';
 
 describe('TRANSFER_PATH_WHITELIST', () => {
-  it('defines the 6 crypto paths and 2 fiat paths', () => {
+  it('defines the 6 crypto paths and 4 fiat paths', () => {
     expect(Object.keys(TRANSFER_PATH_WHITELIST).sort()).toEqual(
-      ['AGGREGATE', 'FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'].sort(),
+      ['AGGREGATE', 'FEE_COLLECT', 'FIAT_FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FIAT_SPREAD_COLLECT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'].sort(),
     );
   });
 

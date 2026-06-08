@@ -5,8 +5,10 @@ export enum TransferPath {
   INTERNAL_OUT   = 'INTERNAL_OUT',
   INTERNAL_IN    = 'INTERNAL_IN',
   FEE_COLLECT    = 'FEE_COLLECT',
-  FIAT_SETTLE_OUT = 'FIAT_SETTLE_OUT',
-  FIAT_SETTLE_IN  = 'FIAT_SETTLE_IN',
+  FIAT_SETTLE_OUT     = 'FIAT_SETTLE_OUT',
+  FIAT_SETTLE_IN      = 'FIAT_SETTLE_IN',
+  FIAT_FEE_COLLECT    = 'FIAT_FEE_COLLECT',
+  FIAT_SPREAD_COLLECT = 'FIAT_SPREAD_COLLECT',
 }
 
 export enum AccountingClass {
@@ -103,6 +105,24 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
     drain: 'TRADE_CLEARING',
+  },
+  [TransferPath.FIAT_FEE_COLLECT]: {
+    path: TransferPath.FIAT_FEE_COLLECT,
+    from: 'C_VIBAN',
+    to: 'F_FEE',
+    class: AccountingClass.B,
+    medium: TransferMedium.BANK,
+    trigger: ['SWAP', 'WITHDRAW'],
+    drain: 'FEE_RECEIVABLE',
+  },
+  [TransferPath.FIAT_SPREAD_COLLECT]: {
+    path: TransferPath.FIAT_SPREAD_COLLECT,
+    from: 'F_LIQ',
+    to: 'F_FEE',
+    class: AccountingClass.B,
+    medium: TransferMedium.BANK,
+    trigger: ['SWAP'],
+    drain: 'FEE_RECEIVABLE',
   },
 };
 
