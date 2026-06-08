@@ -113,11 +113,12 @@ type CreateFromInternalTransactionInput = {
 };
 
 /**
- * V7 crypto-only funds-flow execution state machine.
+ * V7 funds-flow execution state machine (CRYPTO + FIAT).
  *
  * Ported from InternalFundsService (asset-treasury). It operates on the SAME
- * Prisma tables (internalFund / internalTransaction). Differences vs source:
- * crypto-only transitions, no demo/mock helper, and the domain event is renamed
+ * Prisma tables (internalFund / internalTransaction). The transition map is
+ * selected per asset type (CRYPTO_TRANSITIONS vs FIAT_TRANSITIONS); other
+ * differences vs source: no demo/mock helper, and the domain event is renamed
  * to fundsflow.status.changed with V7 payload keys.
  */
 @Injectable()
