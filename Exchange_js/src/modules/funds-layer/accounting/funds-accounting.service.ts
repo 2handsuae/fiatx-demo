@@ -200,6 +200,7 @@ export class FundsAccountingService {
     const amountUnits = this.decimalToTbUnits(input.amount, transfer.asset.decimals);
     if (amountUnits <= 0n) return { tbApplied: false };
 
+    const drainSourceType = transfer.sourceType ?? 'FIAT_FEE_COLLECTION';
     const counterpartyCode =
       transfer.asset.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY;
     const feeReceivableId = await this.accounting.resolveTbAccountId({
@@ -220,7 +221,7 @@ export class FundsAccountingService {
       code: TB_TRANSFER_CODES.FEE_DRAIN,
       tx: input.tx,
       evidence: {
-        sourceType: 'FIAT_FEE_COLLECTION',
+        sourceType: drainSourceType,
         sourceNo: transfer.internalTxNo,
         eventCode: 'FEE_DRAIN',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_RECEIVABLE],
@@ -229,7 +230,7 @@ export class FundsAccountingService {
         traceId: transfer.traceId ?? `FEE:${transfer.internalTxNo}`,
         actorType: 'SYSTEM',
         actorId: 'SYSTEM',
-        memo: 'FIAT fee collection drain',
+        memo: `${drainSourceType} FEE_RECEIVABLE drain`,
       },
     });
     return { tbApplied: true, tbTransferId };

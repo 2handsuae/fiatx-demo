@@ -273,6 +273,7 @@ describe('FundsAccountingService', () => {
         id: 't-fee',
         internalTxNo: 'IT0099',
         traceId: 'FEE:IT0099',
+        sourceType: 'FIAT_FEE_COLLECTION',
         asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
       }),
     );
@@ -284,5 +285,8 @@ describe('FundsAccountingService', () => {
     expect(codes).toContain(TB_ACCOUNT_CODES.BANK);
     const xfer = accounting.executeTransfer.mock.calls[0][0];
     expect(xfer.amount).toBe(18n); // 0.18 AED at 2 decimals
+    // evidence sourceType must come from the transfer, not be hardcoded
+    expect(xfer.evidence.sourceType).toBe('FIAT_FEE_COLLECTION');
+    expect(xfer.evidence.memo).toBe('FIAT_FEE_COLLECTION FEE_RECEIVABLE drain');
   });
 });
