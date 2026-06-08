@@ -59,6 +59,8 @@ describe('FiatFeeCollectionWorkflowService', () => {
     expect(feeCall.toWalletId).toBe('w-F_FEE');
     expect(feeCall.sourceType).toBe('FIAT_FEE_COLLECTION');
     expect(feeCall.sourceId).toBe('swap-1:FEE');
+    expect(feeCall.accountingClass).toBe('B');
+    expect(feeCall.medium).toBe('BANK');
     const spreadCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].path === 'FIAT_SPREAD_COLLECT')[0];
     expect(spreadCall.fromWalletId).toBe('w-F_LIQ');
     expect(spreadCall.toWalletId).toBe('w-F_FEE');

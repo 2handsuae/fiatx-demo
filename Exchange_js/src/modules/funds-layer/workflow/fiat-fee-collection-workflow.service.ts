@@ -6,7 +6,6 @@ import { FundsFlowService } from '../domain/funds-flow.service';
 import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
-import { AccountingClass, TransferMedium } from '../constants/internal-transfer-paths.constant';
 import { InternalFundStatus } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
 
 const FEE_SOURCE_TYPE = 'FIAT_FEE_COLLECTION';
@@ -47,8 +46,8 @@ export class FiatFeeCollectionWorkflowService {
 
     const transfer = await this.transfers.createTransfer({
       path: policy.path,
-      accountingClass: AccountingClass.B,
-      medium: TransferMedium.BANK,
+      accountingClass: policy.class,
+      medium: policy.medium,
       triggerSource: input.triggerSource,
       sourceType: FEE_SOURCE_TYPE,
       sourceId: input.sourceId,
