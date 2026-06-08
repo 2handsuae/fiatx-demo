@@ -18,6 +18,7 @@ import { OutstandingConsumerService } from './domain/outstanding-consumer.servic
 import { DepositAggregationSourceService } from './domain/deposit-aggregation-source.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
 import { FeeCollectionWorkflowService } from './workflow/fee-collection-workflow.service';
+import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
@@ -63,6 +64,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     EodSettlementSweepService,
     FeeCollectionWorkflowService,
     FeeCollectionSweepService,
+    FiatSettlementWorkflowService,
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
   exports: [

@@ -12,6 +12,10 @@ import { WhitelistGuard } from './guards/whitelist.guard';
 import { FundsAccountingService } from './accounting/funds-accounting.service';
 import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-execution.adapter';
 import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
+import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
+import { SettlementBatchService } from './domain/settlement-batch.service';
+import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
+import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 
@@ -40,6 +44,10 @@ describe('FundsLayerModule wiring', () => {
         FundsAccountingService,
         MockCustodianExecutionAdapter,
         InternalTransferWorkflowService,
+        FiatSettlementWorkflowService,
+        SettlementBatchService,
+        OutstandingConsumerService,
+        SystemWalletResolver,
         { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
         // Leaf externals (app-global in production) mocked here:
         { provide: PrismaService, useValue: {} },
@@ -68,5 +76,9 @@ describe('FundsLayerModule wiring', () => {
     expect(moduleRef.get(FundsFlowAggregatorPort)).toBe(
       moduleRef.get(InternalTransferService),
     );
+  });
+
+  it('provides FiatSettlementWorkflowService', () => {
+    expect(moduleRef.get(FiatSettlementWorkflowService)).toBeDefined();
   });
 });
