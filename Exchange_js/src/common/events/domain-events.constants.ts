@@ -78,6 +78,14 @@ export const DOMAIN_EVENTS = {
     subscribers: [],
     payload: '{ internalTransferId: string, pathLabel: string }',
   },
+
+  // ── Swap ──
+  SWAP_SUCCEEDED: {
+    name: 'swap.succeeded',
+    emitter: 'SwapWorkflowService',
+    subscribers: ['FiatSettlementWorkflowService'],
+    payload: '{ swapId: string, swapNo: string, ownerId: string }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -96,4 +104,6 @@ export const DomainEventNames = {
   // Funds Layer (V7)
   FUNDSFLOW_STATUS_CHANGED: DOMAIN_EVENTS.FUNDSFLOW_STATUS_CHANGED.name,
   INTERNALTRANSFER_COMPLETED: DOMAIN_EVENTS.INTERNALTRANSFER_COMPLETED.name,
+  // Swap
+  SWAP_SUCCEEDED: DOMAIN_EVENTS.SWAP_SUCCEEDED.name,
 } as const;

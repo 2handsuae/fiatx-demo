@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -36,6 +38,7 @@ export class SwapWorkflowService {
     private readonly outstandingsService: OutstandingsService,
     private readonly accountingService: AccountingService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private decimalToBigint(decimalValue: Prisma.Decimal | string | number, decimals: number): bigint {
@@ -234,6 +237,12 @@ export class SwapWorkflowService {
         );
 
         return swap;
+      });
+
+      this.eventEmitter.emit(DomainEventNames.SWAP_SUCCEEDED, {
+        swapId: result.id,
+        swapNo: result.swapNo,
+        ownerId,
       });
 
       return this.swapTransactionsService.findOne(result.id);
