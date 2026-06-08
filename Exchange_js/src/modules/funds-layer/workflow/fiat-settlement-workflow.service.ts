@@ -3,11 +3,6 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
-import {
-  AccountingClass,
-  TransferMedium,
-  TransferPath,
-} from '../constants/internal-transfer-paths.constant';
 import { SettlementBatchService } from '../domain/settlement-batch.service';
 import { OutstandingConsumerService } from '../domain/outstanding-consumer.service';
 import { InternalTransferService } from '../domain/internal-transfer.service';
@@ -38,70 +33,82 @@ export class FiatSettlementWorkflowService {
 
   @OnEvent(DomainEventNames.SWAP_SUCCEEDED)
   async onSwapSucceeded(event: SwapSucceededEvent): Promise<void> {
-    const outstandings = await this.consumer.findOpenFiatBySwap(event.swapId);
-    if (!outstandings.length) return;
+    // The SWAP_SUCCEEDED emit is post-commit (swap already durable); an error
+    // here must not propagate to the emitter. The OPEN fiat outstandings remain
+    // as durable work items for the backstop, and we log against the swap.
+    try {
+      const outstandings = await this.consumer.findOpenFiatBySwap(event.swapId);
+      if (!outstandings.length) return;
 
-    const batch = await this.batchService.createBatch({
-      cutoffAt: new Date(),
-      settlementType: 'FIAT_SWAP',
-    });
-
-    for (const o of outstandings) {
-      const isOut = o.direction === 'OUT';
-      const path = isOut ? TransferPath.FIAT_SETTLE_OUT : TransferPath.FIAT_SETTLE_IN;
-      const route = isOut
-        ? ['C_VIBAN', 'F_SET', 'F_LIQ']
-        : ['F_LIQ', 'F_SET', 'C_VIBAN'];
-      this.whitelist.assertRoute(route);
-
-      const viban = await this.systemWallets.resolveCustomer(o.assetId, 'C_VIBAN', o.ownerId);
-      const fset = await this.systemWallets.resolve(o.assetId, 'F_SET');
-      const fliq = await this.systemWallets.resolve(o.assetId, 'F_LIQ');
-
-      const hop1From = isOut ? viban : fliq;
-      const hop2To = isOut ? fliq : viban;
-      const amount = new Prisma.Decimal(o.amount);
-
-      const transfer = await this.transfers.createTransfer({
-        path,
-        accountingClass: AccountingClass.B,
-        medium: TransferMedium.BANK,
-        triggerSource: 'SWAP',
-        sourceType: FIAT_SOURCE_TYPE,
-        sourceId: `${event.swapId}:${o.id}`,
-        sourceNo: o.sourceNo ?? event.swapNo,
-        ownerType: o.ownerType,
-        ownerId: o.ownerId,
-        ownerNo: o.ownerNo ?? null,
-        assetId: o.assetId,
-        amount,
-        feeAmount: new Prisma.Decimal(0),
-        netAmount: amount,
-        fromWalletId: hop1From.id,
-        toWalletId: hop2To.id,
-        settlementBatchId: batch.id,
+      const batch = await this.batchService.createBatch({
+        cutoffAt: new Date(),
+        settlementType: 'FIAT_SWAP',
       });
 
-      // hop1: hop1From → F_SET (executable, CREATED)
-      await this.fundsFlow.createLeg({
-        internalTransactionId: transfer.id,
-        fromWalletId: hop1From.id,
-        toWalletId: fset.id,
-        amount,
-        status: InternalFundStatus.CREATED,
-      });
-      // hop2: F_SET → hop2To (held in CREATED until hop1 confirms — sequenced in a later task)
-      await this.fundsFlow.createLeg({
-        internalTransactionId: transfer.id,
-        fromWalletId: fset.id,
-        toWalletId: hop2To.id,
-        amount,
-        status: InternalFundStatus.CREATED,
-      });
+      for (const o of outstandings) {
+        // direction OUT → client sold fiat (VIBAN → F_SET → F_LIQ);
+        // direction IN  → client bought fiat (F_LIQ → F_SET → VIBAN).
+        const isOut = o.direction === 'OUT';
+        const route = isOut
+          ? ['C_VIBAN', 'F_SET', 'F_LIQ']
+          : ['F_LIQ', 'F_SET', 'C_VIBAN'];
+        // The route whitelist is the single source of truth for path/class/medium.
+        const policy = this.whitelist.assertRoute(route);
 
-      await this.consumer.lockToTransfer([o.id], batch.id, transfer.id);
+        const viban = await this.systemWallets.resolveCustomer(o.assetId, 'C_VIBAN', o.ownerId);
+        const fset = await this.systemWallets.resolve(o.assetId, 'F_SET');
+        const fliq = await this.systemWallets.resolve(o.assetId, 'F_LIQ');
+
+        const hop1From = isOut ? viban : fliq;
+        const hop2To = isOut ? fliq : viban;
+        const amount = new Prisma.Decimal(o.amount);
+
+        const transfer = await this.transfers.createTransfer({
+          path: policy.path,
+          accountingClass: policy.class,
+          medium: policy.medium,
+          triggerSource: 'SWAP',
+          sourceType: FIAT_SOURCE_TYPE,
+          sourceId: `${event.swapId}:${o.id}`,
+          sourceNo: o.sourceNo ?? event.swapNo,
+          ownerType: o.ownerType,
+          ownerId: o.ownerId,
+          ownerNo: o.ownerNo ?? null,
+          assetId: o.assetId,
+          amount,
+          feeAmount: new Prisma.Decimal(0),
+          netAmount: amount,
+          fromWalletId: hop1From.id,
+          toWalletId: hop2To.id,
+          settlementBatchId: batch.id,
+        });
+
+        // hop1: hop1From → F_SET (executable, CREATED)
+        await this.fundsFlow.createLeg({
+          internalTransactionId: transfer.id,
+          fromWalletId: hop1From.id,
+          toWalletId: fset.id,
+          amount,
+          status: InternalFundStatus.CREATED,
+        });
+        // hop2: F_SET → hop2To (held in CREATED until hop1 confirms — sequenced in a later task)
+        await this.fundsFlow.createLeg({
+          internalTransactionId: transfer.id,
+          fromWalletId: fset.id,
+          toWalletId: hop2To.id,
+          amount,
+          status: InternalFundStatus.CREATED,
+        });
+
+        await this.consumer.lockToTransfer([o.id], batch.id, transfer.id);
+      }
+
+      await this.batchService.recomputeBatch(batch.id);
+    } catch (err) {
+      this.logger.error(
+        `Fiat settlement failed for swap=${event.swapId}`,
+        err instanceof Error ? err.stack : undefined,
+      );
     }
-
-    await this.batchService.recomputeBatch(batch.id);
   }
 }
