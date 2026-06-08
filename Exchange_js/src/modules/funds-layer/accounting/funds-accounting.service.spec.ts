@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import { FundsAccountingService } from './funds-accounting.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -263,5 +264,25 @@ describe('FundsAccountingService', () => {
         actorId: 'SYSTEM',
       }),
     );
+  });
+
+  it('drainFeeReceivableAmount posts FEE_RECEIVABLE->BANK for the given amount (FIAT)', async () => {
+    // Arrange: a transfer 't-fee' with asset { type:'FIAT', currency:'AED', decimals:2 }, amount irrelevant.
+    prisma.internalTransaction.findUnique.mockResolvedValue(
+      transfer({
+        id: 't-fee',
+        internalTxNo: 'IT0099',
+        traceId: 'FEE:IT0099',
+        asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
+      }),
+    );
+
+    await service.drainFeeReceivableAmount({ internalTransferId: 't-fee', amount: new Prisma.Decimal('0.18') });
+
+    const codes = accounting.resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
+    expect(codes).toContain(TB_ACCOUNT_CODES.FEE_RECEIVABLE);
+    expect(codes).toContain(TB_ACCOUNT_CODES.BANK);
+    const xfer = accounting.executeTransfer.mock.calls[0][0];
+    expect(xfer.amount).toBe(18n); // 0.18 AED at 2 decimals
   });
 });
