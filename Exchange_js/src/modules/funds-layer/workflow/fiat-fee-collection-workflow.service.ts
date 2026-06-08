@@ -143,6 +143,56 @@ export class FiatFeeCollectionWorkflowService {
     }
   }
 
+  @OnEvent(DomainEventNames.WITHDRAWAL_STATUS_CHANGED)
+  async onWithdrawalStatusChanged(event: {
+    withdrawId: string;
+    oldStatus: string;
+    newStatus: string;
+    ownerType: string;
+    ownerId: string;
+    assetId: string;
+  }): Promise<void> {
+    if (event.newStatus !== 'SUCCESS') return;
+    try {
+      const w = await (this.prisma as any).withdrawTransaction.findUnique({
+        where: { id: event.withdrawId },
+        select: {
+          id: true,
+          withdrawNo: true,
+          ownerType: true,
+          ownerId: true,
+          ownerNo: true,
+          assetId: true,
+          feeAmount: true,
+          asset: { select: { type: true } },
+        },
+      });
+      if (!w || w.asset?.type !== 'FIAT') return;
+      const fee = new Prisma.Decimal(w.feeAmount ?? 0);
+      if (!fee.gt(0)) return;
+      const viban = await this.systemWallets.resolveCustomer(w.assetId, 'C_VIBAN', w.ownerId);
+      const fFee = await this.systemWallets.resolve(w.assetId, 'F_FEE');
+      await this.spawnCollect({
+        fromRole: 'C_VIBAN',
+        fromWalletId: viban.id,
+        toWalletId: fFee.id,
+        assetId: w.assetId,
+        amount: fee,
+        ownerType: w.ownerType,
+        ownerId: w.ownerId,
+        ownerNo: w.ownerNo,
+        sourceId: `${w.id}:FEE`,
+        sourceNo: w.withdrawNo,
+        triggerSource: 'WITHDRAW',
+      });
+    } catch (err) {
+      this.logger.error(
+        `Withdrawal fee collection failed for withdraw=${event.withdrawId}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+    }
+  }
+
   @OnEvent(DomainEventNames.FUNDSFLOW_STATUS_CHANGED)
   async onFundsFlowStatusChanged(event: FundsFlowStatusChangedEvent): Promise<void> {
     if (!event?.internalTransferId) return;
