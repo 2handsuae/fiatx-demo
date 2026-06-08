@@ -25,7 +25,8 @@ export class FundsAccountingService {
 
   /**
    * A 类：客户资产在公司钱包间搬位置，TB 托管余额不变 → 不产生 TB transfer。
-   * B 类：drain <drainAcct> ↔ CUSTODY。direction 由 drain 账户的实际余额符号决定
+   * B 类：drain <drainAcct> ↔ 对手账户（crypto=CUSTODY，fiat=BANK，由 asset.type 选择）。
+   * direction 由 drain 账户的实际余额符号决定
    * （net CREDIT → drain out；net DEBIT → drain in），policy.drain 选择 drain 账户。
    * TRADE_CLEARING (EOD settlement) 和 FEE_RECEIVABLE (fee collection) 共用此逻辑。
    */
