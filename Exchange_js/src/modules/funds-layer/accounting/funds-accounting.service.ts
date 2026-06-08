@@ -237,9 +237,10 @@ export class FundsAccountingService {
   }
 
   private decimalToTbUnits(value: Prisma.Decimal, decimals: number): bigint {
-    const str = value.toFixed(decimals);
-    const [whole, frac = ''] = str.split('.');
-    const padded = frac.padEnd(decimals, '0').slice(0, decimals);
-    return BigInt(whole + padded);
+    // Truncate (ROUND_DOWN) to match how fees are accrued (swap uses string-slice
+    // truncation); rounding here would drain more than was accrued (over-drain).
+    const truncated = value.toDecimalPlaces(decimals, Prisma.Decimal.ROUND_DOWN).toFixed(decimals);
+    const [whole, frac = ''] = truncated.split('.');
+    return BigInt(whole + frac.padEnd(decimals, '0').slice(0, decimals));
   }
 }

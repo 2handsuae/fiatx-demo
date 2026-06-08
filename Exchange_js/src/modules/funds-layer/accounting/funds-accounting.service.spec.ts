@@ -289,4 +289,26 @@ describe('FundsAccountingService', () => {
     expect(xfer.evidence.sourceType).toBe('FIAT_FEE_COLLECTION');
     expect(xfer.evidence.memo).toBe('FIAT_FEE_COLLECTION FEE_RECEIVABLE drain');
   });
+
+  it('drainFeeReceivableAmount TRUNCATES sub-cent precision (0.36725 AED @ 2dp → 36n, not 37n)', async () => {
+    // Reproduces the over-drain bug: 0.36725 rounds to 0.37 (37 units) but was
+    // accrued as 0.36 (36 units, truncated). The fix must give 36n.
+    prisma.internalTransaction.findUnique.mockResolvedValue(
+      transfer({
+        id: 't-fee-trunc',
+        internalTxNo: 'IT0100',
+        traceId: 'FEE:IT0100',
+        sourceType: 'FIAT_FEE_COLLECTION',
+        asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
+      }),
+    );
+
+    await service.drainFeeReceivableAmount({
+      internalTransferId: 't-fee-trunc',
+      amount: new Prisma.Decimal('0.36725'),
+    });
+
+    const xfer = accounting.executeTransfer.mock.calls[0][0];
+    expect(xfer.amount).toBe(36n); // truncated, NOT rounded to 37n
+  });
 });
