@@ -57,12 +57,15 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
 
     const tArgs = transfers.createTransfer.mock.calls[0][0];
     expect(tArgs).toMatchObject({ path: 'FIAT_SETTLE_OUT', accountingClass: 'B', medium: 'BANK', settlementBatchId: 'b-1' });
+    // idempotency key = swapId:outstandingId
+    expect(tArgs.sourceId).toBe('swap-1:o-aed');
 
     expect(fundsFlow.createLeg).toHaveBeenCalledTimes(2);
     const hop1 = fundsFlow.createLeg.mock.calls[0][0];
     const hop2 = fundsFlow.createLeg.mock.calls[1][0];
-    expect(hop1).toMatchObject({ fromWalletId: 'w-C_VIBAN-c1', toWalletId: 'w-F_SET' });
-    expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ' });
+    // both legs created in CREATED (hop2 held until hop1 confirms)
+    expect(hop1).toMatchObject({ fromWalletId: 'w-C_VIBAN-c1', toWalletId: 'w-F_SET', status: 'CREATED' });
+    expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ', status: 'CREATED' });
 
     expect(consumer.lockToTransfer).toHaveBeenCalledWith(['o-aed'], 'b-1', 't-1');
     expect(accounting.applyAccounting).not.toHaveBeenCalled();
