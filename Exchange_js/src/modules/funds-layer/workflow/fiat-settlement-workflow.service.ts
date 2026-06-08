@@ -10,11 +10,19 @@ import { FundsFlowService } from '../domain/funds-flow.service';
 import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
-import { InternalFundStatus } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+import { InternalFundAction, InternalFundStatus } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+import { AccountingClass } from '../constants/internal-transfer-paths.constant';
 
 const FIAT_SOURCE_TYPE = 'FIAT_SETTLEMENT';
 
 interface SwapSucceededEvent { swapId: string; swapNo: string; ownerId: string }
+
+interface FundsFlowStatusChangedEvent {
+  fundsFlowId: string;
+  internalTransferId: string | undefined;
+  oldStatus: string;
+  newStatus: string;
+}
 
 @Injectable()
 export class FiatSettlementWorkflowService {
@@ -107,6 +115,59 @@ export class FiatSettlementWorkflowService {
     } catch (err) {
       this.logger.error(
         `Fiat settlement failed for swap=${event.swapId}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+    }
+  }
+
+  @OnEvent(DomainEventNames.FUNDSFLOW_STATUS_CHANGED)
+  async onFundsFlowStatusChanged(event: FundsFlowStatusChangedEvent): Promise<void> {
+    if (!event?.internalTransferId) return;
+    if (event.newStatus !== 'CONFIRMED' && event.newStatus !== 'CLEAR') return;
+
+    try {
+      const transfer = await (this.prisma as any).internalTransaction.findUnique({
+        where: { id: event.internalTransferId },
+      });
+      if (!transfer || transfer.sourceType !== FIAT_SOURCE_TYPE) return;
+
+      if (event.newStatus === 'CONFIRMED') {
+        // hop1 (the leg landing in F_SET) confirmed → release the held hop2.
+        const funds = await (this.prisma as any).internalFund.findMany({
+          where: { internalTransactionId: transfer.id },
+          select: { id: true, fromWalletId: true, toWalletId: true, status: true },
+        });
+        const confirmed = funds.find((f: any) => f.id === event.fundsFlowId);
+        const hop2 = funds.find(
+          (f: any) =>
+            f.fromWalletId === confirmed?.toWalletId &&
+            f.status === InternalFundStatus.CREATED,
+        );
+        if (confirmed && hop2) {
+          await this.fundsFlow.updateStatus(
+            hop2.id,
+            { action: InternalFundAction.SUBMIT } as any,
+            'SYSTEM',
+          );
+        }
+        return;
+      }
+
+      // newStatus === 'CLEAR' — finalize once. settle() is the idempotency latch:
+      // LOCKED→SETTLED; the second CLEAR sees count 0 and bails (no double drain).
+      const settled = await this.consumer.settle(transfer.id, event.fundsFlowId);
+      if (!settled || settled.count === 0) return;
+
+      await this.accounting.applyAccounting({
+        accountingClass: AccountingClass.B,
+        internalTransferId: transfer.id,
+      });
+      if (transfer.settlementBatchId) {
+        await this.batchService.recomputeBatch(transfer.settlementBatchId);
+      }
+    } catch (err) {
+      this.logger.error(
+        `Fiat settlement completion failed for transfer=${event.internalTransferId} status=${event.newStatus}`,
         err instanceof Error ? err.stack : undefined,
       );
     }
