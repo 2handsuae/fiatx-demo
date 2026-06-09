@@ -8,13 +8,14 @@ import {
 } from '../../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../../components/ui/AdminBadge';
-import { adminButtonClass } from '../../components/common/adminButtonStyles';
 import { formatAssetAmount } from '../../utils/number-format';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../../utils/adminFetch';
+import { useSimulationMode } from '../../utils/simulationMode';
+import { getFundSimActionsForStatus } from '../../utils/fundActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -22,6 +23,7 @@ interface FundAsset {
   code?: string | null;
   currency?: string | null;
   decimals?: number;
+  type?: string | null;
 }
 
 interface FundWallet {
@@ -58,18 +60,6 @@ interface FundDetail {
   internalTransaction: FundInternalTransaction;
 }
 
-const SIMULATE_ACTIONS = [
-  'SIGN',
-  'BROADCAST',
-  'SEEN_IN_MEMPOOL',
-  'CONFIRM',
-  'CLEAR',
-  'FAIL',
-  'DROP',
-  'TIMEOUT',
-  'CANCEL',
-] as const;
-
 /* ── Page Component ─────────────────────────────────────────── */
 
 const InternalFundDetailPage = () => {
@@ -78,9 +68,8 @@ const InternalFundDetailPage = () => {
   const [data, setData] = useState<FundDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Manual Simulation state
-  const [simAction, setSimAction] = useState<(typeof SIMULATE_ACTIONS)[number]>('SIGN');
-  const [simReason, setSimReason] = useState('');
+  // Simulation state (Payout-style one-click panel)
+  const { enabled: simulationModeEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState(false);
   const [simError, setSimError] = useState('');
 
@@ -111,7 +100,7 @@ const InternalFundDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [internalFundNo]);
 
-  const handleSimulate = async () => {
+  const handleSimAction = async (action: string) => {
     if (!data) return;
     setSimSubmitting(true);
     setSimError('');
@@ -121,18 +110,13 @@ const InternalFundDetailPage = () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fundsFlowId: data.id,
-            action: simAction,
-            reason: simReason.trim() || undefined,
-          }),
+          body: JSON.stringify({ fundsFlowId: data.id, action }),
         },
       );
       if (!response.ok) {
         setSimError(await getApiErrorMessage(response, 'Simulation step failed.'));
         return;
       }
-      setSimReason('');
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -153,13 +137,14 @@ const InternalFundDetailPage = () => {
 
   if (!data) return null;
 
+  const simActions = simulationModeEnabled
+    ? getFundSimActionsForStatus(data.status, data.asset?.type)
+    : [];
+
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
   const amountDisplay =
     `${formatAssetAmount(data.amount, decimals)} ${data.asset?.code || ''}`.trim();
-
-  const selectInputCls =
-    'h-[30px] w-full rounded border border-adm-border bg-adm-bg px-2 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber transition-colors';
 
   return (
     <div className="flex h-full flex-col">
@@ -237,58 +222,31 @@ const InternalFundDetailPage = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          {/* ACTIONS → Manual Simulation */}
-          <SidebarGroup title="Actions">
-            <div className="rounded-lg border border-adm-blue/25 bg-adm-blue/6 p-3">
-              <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-blue">
-                Manual Simulation
-              </p>
-              <p className="mt-1 font-mono text-[9px] leading-relaxed text-adm-t3">
-                DEV-only. Advances this execution leg through its state machine.
-              </p>
-
-              {simError && (
-                <p className="mt-2 font-mono text-[10px] text-adm-red">{simError}</p>
-              )}
-
-              <label className="mt-3 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                Action
-              </label>
-              <select
-                value={simAction}
-                onChange={(e) =>
-                  setSimAction(e.target.value as (typeof SIMULATE_ACTIONS)[number])
-                }
-                className={`mt-1 ${selectInputCls}`}
-                disabled={simSubmitting}
-              >
-                {SIMULATE_ACTIONS.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-
-              <label className="mt-2.5 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                Reason (optional)
-              </label>
-              <input
-                value={simReason}
-                onChange={(e) => setSimReason(e.target.value)}
-                placeholder="Reason"
-                className={`mt-1 ${selectInputCls}`}
-                disabled={simSubmitting}
-              />
-
-              <button
-                onClick={handleSimulate}
-                disabled={simSubmitting}
-                className={adminButtonClass('simulationAction', 'mt-3 w-full')}
-              >
-                {simSubmitting ? 'Submitting…' : 'Submit Step'}
-              </button>
-            </div>
-          </SidebarGroup>
+          {/* ACTIONS → Simulation Controls (sim mode only, Payout-style) */}
+          {simulationModeEnabled && simActions.length > 0 && (
+            <SidebarGroup title="Simulation Controls">
+              <div className="rounded border border-dashed border-amber-400 bg-amber-900/20 p-2">
+                <div className="mb-2 flex items-center gap-1 font-mono text-[9px] text-amber-400">
+                  ⚡ SIM MODE
+                </div>
+                {simError && (
+                  <p className="mb-2 font-mono text-[10px] text-adm-red">{simError}</p>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  {simActions.map((a) => (
+                    <button
+                      key={a.action}
+                      onClick={() => handleSimAction(a.action)}
+                      disabled={!a.enabled || simSubmitting}
+                      className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {simSubmitting ? '...' : a.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </SidebarGroup>
+          )}
 
           {/* IDENTITY SUMMARY */}
           <SidebarGroup title="Identity">
