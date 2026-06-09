@@ -278,6 +278,9 @@ export class OutstandingsService {
             quote: true,
           },
         },
+        settlementBatch: { select: { batchNo: true, settlementType: true, status: true } },
+        settledByTransfer: { select: { internalTxNo: true, pathLabel: true, status: true } },
+        closedByInternalFund: { select: { internalFundNo: true, status: true } },
       },
     });
 

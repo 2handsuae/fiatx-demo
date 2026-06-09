@@ -258,4 +258,23 @@ describe('OutstandingsService', () => {
       NotFoundException,
     );
   });
+
+  it('includes settlement batch/transfer/fund with business-No selects, preserves existing includes', async () => {
+    mockPrismaService.outstanding.findUnique.mockResolvedValue({ id: 'o1' });
+
+    await service.findOneForAdmin('o1');
+
+    const arg = mockPrismaService.outstanding.findUnique.mock.calls[0][0];
+    expect(arg.include.settlementBatch).toEqual({
+      select: { batchNo: true, settlementType: true, status: true },
+    });
+    expect(arg.include.settledByTransfer).toEqual({
+      select: { internalTxNo: true, pathLabel: true, status: true },
+    });
+    expect(arg.include.closedByInternalFund).toEqual({
+      select: { internalFundNo: true, status: true },
+    });
+    expect(arg.include.asset).toBe(true);
+    expect(arg.include.swapTransaction).toBeDefined();
+  });
 });
