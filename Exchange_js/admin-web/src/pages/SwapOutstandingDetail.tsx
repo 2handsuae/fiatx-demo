@@ -77,7 +77,7 @@ const SwapOutstandingDetail = () => {
 
   const back = () => navigate('/dashboard/reconciliation/outstandings');
 
-  if (loading) return <div className="flex min-h-[400px] items-center justify-center font-mono text-[11px] text-adm-t3">Loading…</div>;
+  if (loading && !data) return <div className="flex min-h-[400px] items-center justify-center font-mono text-[11px] text-adm-t3">Loading…</div>;
   if (error && !data) return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2.5">
@@ -96,6 +96,7 @@ const SwapOutstandingDetail = () => {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-3 border-b border-adm-border bg-adm-panel px-5 py-2.5">
         <button onClick={back} className={adminButtonClass('listSecondary')}><ArrowLeft size={13} />Back</button>
+        <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-adm-t3">Swap Outstanding</span>
         <span className="font-mono text-[12px] font-semibold text-adm-amber">{data.outstandingNo || '—'}</span>
         <AdminBadge value={data.status} />
         <span className="ml-auto" />
