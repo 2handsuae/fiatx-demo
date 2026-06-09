@@ -331,7 +331,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - 链上 gas → HexTrust gas station 打包自担，**不进客户托管 TB**；钱包热/冷分层 → HexTrust 管，平台不编排。
 - 银行费 → 年付固定 OpEx、不按笔，**不进 V7 交易记账**。
 - **法币侧落地客户资产隔离模型**：客户级 `C_VIBAN`（入/出金）+ 平台 `F_SET`(结算中转) / `F_LIQ`(流动性) / `F_FEE`(手续费) / `F_OPS`(运营) / `C_CMA`(法币主账号，查询用)。`C_VIBAN→F_FEE` 可直连单跳；`VIBAN↔F_LIQ` 经 `F_SET` 中转两跳。
-- **法币结算 = per-swap 即时**（隔离禁止跨客户池级轧差），**crypto 结算 = EOD 轧差**；两套引擎共享 SettlementBatch / Outstanding / funds-flow 原语。法币 IN 交割交 **gross(net+服务费)** 到 VIBAN，再抽回费 → 落 net。
+- **法币结算 = per-swap 即时**（隔离禁止跨客户池级轧差），**crypto 结算 = EOD 轧差**；两套引擎共享 SettlementBatch / Outstanding / funds-flow 原语。**法币结算 Model A（2026-06-09）**：IN 交割只把 **net** 经 `F_LIQ→F_SET→VIBAN` 交到 VIBAN；服务费在**公司侧** `F_LIQ→F_FEE` 确认，永不进客户 VIBAN。**记账仍 gross**（swap 成交时记入 TRADE_CLEARING+FEE_RECEIVABLE，结算 drain 按余额驱动，与转账金额解耦）。见 `superpowers/specs/2026-06-09-fiat-net-settlement-model-a-design.md`。
 - **法币归集（VA→集中账户）删除** —— 由银行自理，平台不编排。
 - **Outstanding 仅 swap 产生**；**偿付义务（Reimbursement）移出 → V8 对账**。
 
@@ -350,7 +350,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 | 兑换买入交割 (INTERNAL_IN) | F_LIQ → C_MAIN | 链上 | B（drain TRADE_CLEARING↔CUSTODY） | EOD 轧差 | ✅ crypto |
 | 手续费归集 (FEE_COLLECT) | C_MAIN → F_OPS | 链上 | B（drain FEE_RECEIVABLE↔CUSTODY） | 每日 Cron | ✅ crypto |
 | 法币卖出交割 (FIAT_SETTLE_OUT) | C_VIBAN → F_SET → F_LIQ | 银行 | B（drain TRADE_CLEARING↔BANK） | swap 成交即时 | ✅ fiat |
-| 法币买入交割 (FIAT_SETTLE_IN) | F_LIQ → F_SET → C_VIBAN(gross) | 银行 | B（drain TRADE_CLEARING↔BANK） | swap 成交即时 | ✅ fiat |
+| 法币买入交割 (FIAT_SETTLE_IN) | F_LIQ → F_SET → C_VIBAN(net) | 银行 | B（drain TRADE_CLEARING↔BANK） | swap 成交即时 | ✅ fiat |
 | 法币手续费 (FIAT_FEE_COLLECT) | C_VIBAN → F_FEE | 银行 | B（按额 drain FEE_RECEIVABLE↔BANK） | swap 结算后 / 提现成功 | ✅ fiat |
 | 法币点差 (FIAT_SPREAD_COLLECT) | F_LIQ → F_FEE | 银行 | B（按额 drain FEE_RECEIVABLE↔BANK） | swap 结算后 | ✅ fiat |
 | ~~法币归集~~ | ~~客户 VA → 集中账户~~ | 银行 | — | — | ❌ 删除（银行自理） |
@@ -364,9 +364,9 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [x] **通用内部转账工作流** — 白名单校验 → 创建 funds flow → 发起链上/银行指令 → 确认后记账（A 零 TB；B drain `TRADE_CLEARING`/`FEE_RECEIVABLE ↔ CUSTODY/BANK`）→ COMPLETED。crypto `InternalTransferWorkflowService`；fiat `FiatSettlementWorkflowService` + `FiatFeeCollectionWorkflowService`。✅ 2026-06-08
 - [x] **充值归集（crypto）** — 每小时 `@Cron` sweep 扫客户充值地址 → C_MAIN；阈值（`AGGREGATION_THRESHOLD=100`）+ dust（`<1`）跳过；A 类直接 funds flow，无 Outstanding/fee。✅ 2026-06-04 ｜ 法币归集 ❌ 删除（银行自理）
 - [x] **EOD 兑换结算编排（crypto）** — 23:59 `@Cron` 按资产轧差 `TRADE_CLEARING` → SettlementBatch → INTERNAL_OUT/IN funds flow → Outstanding `SETTLED`（`closedByInternalFundId`），幂等重跑。✅ 2026-06-04
-- [x] **法币 swap 交割（fiat）** — per-swap 即时：swap 提交后 emit `SWAP_SUCCEEDED` → 两跳 `C_VIBAN↔F_SET↔F_LIQ`（1 transfer + 2 顺序 fund，IN 交 gross）→ transfer SUCCESS 时 drain `TRADE_CLEARING↔BANK`。`FIAT_TRANSITIONS` 状态机。✅ 2026-06-08（live 验收 PASS）
+- [x] **法币 swap 交割（fiat）** — per-swap 即时：swap 提交后 emit `SWAP_SUCCEEDED` → 两跳 `C_VIBAN↔F_SET↔F_LIQ`（1 transfer + 2 顺序 fund，**IN 交 net — Model A 2026-06-09**）→ transfer SUCCESS 时 drain `TRADE_CLEARING↔BANK`。`FIAT_TRANSITIONS` 状态机。✅ 2026-06-08（live 验收 PASS）
 - [x] **手续费归集（crypto）** — 每日 `@Cron` drain `FEE_RECEIVABLE`（swap 费+点差+提现费）→ C_MAIN→F_OPS（全额 drain）。✅ 2026-06-04
-- [x] **法币手续费归集（fiat）** — per-event：客户付的费 `C_VIBAN→F_FEE` 直连逐客户；点差 `F_LIQ→F_FEE` 池级；**按指定金额** drain `FEE_RECEIVABLE→BANK`。swap 费随结算 ride-along，提现费监听 `WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT`。✅ 2026-06-08（live 验收 PASS）
+- [x] **法币手续费归集（fiat）** — per-event：**Model A（2026-06-09）**—swap 服务费 + 点差均**公司侧** `F_LIQ→F_FEE`（服务费不再走 `C_VIBAN→F_FEE`，避免穿过隔离 VIBAN）；提现费仍 `C_VIBAN→F_FEE`（确从客户 VIBAN 扣）；**按指定金额** drain `FEE_RECEIVABLE→BANK`。swap 费随结算 ride-along，提现费监听 `WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT`。✅ 2026-06-08（live 验收 PASS）
 
 **遗留缺口（happy path 已交付，欠韧性/治理）：**
 - [ ] **fiat 兜底 cron** — 法币结算/费用纯事件驱动，OPEN 法币 outstanding 为持久工作项但无低频 cron 漏单兜底（设计留接口未接）

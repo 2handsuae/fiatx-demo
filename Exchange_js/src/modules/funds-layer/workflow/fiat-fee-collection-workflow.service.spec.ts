@@ -42,7 +42,7 @@ describe('FiatFeeCollectionWorkflowService', () => {
     service = module.get(FiatFeeCollectionWorkflowService);
   });
 
-  it('collectSwapFees spawns VIBAN->F_FEE (fee) and F_LIQ->F_FEE (spread)', async () => {
+  it('collectSwapFees spawns F_LIQ->F_FEE for both service fee (:FEE) and spread (:SPREAD) — Model A', async () => {
     prisma.swapTransaction.findUnique.mockResolvedValue({
       id: 'swap-1', swapNo: 'SWP-1', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'CUST-1',
       toAssetId: 'a-aed', feeAmount: '0.10', spreadAmount: '0.18', toAsset: { type: 'FIAT' },
@@ -51,22 +51,21 @@ describe('FiatFeeCollectionWorkflowService', () => {
 
     await service.collectSwapFees('swap-1');
 
-    const paths = transfers.createTransfer.mock.calls.map((c: any) => c[0].path);
-    expect(paths).toContain('FIAT_FEE_COLLECT');
-    expect(paths).toContain('FIAT_SPREAD_COLLECT');
-    const feeCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].path === 'FIAT_FEE_COLLECT')[0];
+    // Model A: service fee no longer round-trips the client VIBAN — both fee and
+    // spread are company-side F_LIQ->F_FEE (path FIAT_SPREAD_COLLECT), disambiguated by sourceId.
+    const feeCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].sourceId === 'swap-1:FEE')[0];
+    expect(feeCall.path).toBe('FIAT_SPREAD_COLLECT');
     expect(feeCall.amount.toString()).toBe('0.1');
-    expect(feeCall.fromWalletId).toBe('w-C_VIBAN-c1');
+    expect(feeCall.fromWalletId).toBe('w-F_LIQ');
     expect(feeCall.toWalletId).toBe('w-F_FEE');
     expect(feeCall.sourceType).toBe('FIAT_FEE_COLLECTION');
-    expect(feeCall.sourceId).toBe('swap-1:FEE');
     expect(feeCall.accountingClass).toBe('B');
     expect(feeCall.medium).toBe('BANK');
-    const spreadCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].path === 'FIAT_SPREAD_COLLECT')[0];
+    const spreadCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].sourceId === 'swap-1:SPREAD')[0];
+    expect(spreadCall.path).toBe('FIAT_SPREAD_COLLECT');
     expect(spreadCall.fromWalletId).toBe('w-F_LIQ');
     expect(spreadCall.toWalletId).toBe('w-F_FEE');
     expect(spreadCall.ownerType).toBe('PLATFORM');
-    expect(spreadCall.sourceId).toBe('swap-1:SPREAD');
     expect(fundsFlow.createLeg).toHaveBeenCalledTimes(2);
     expect(accounting.drainFeeReceivableAmount).not.toHaveBeenCalled();
   });

@@ -1,5 +1,6 @@
 # V7 法币手续费归集（Fiat Fee Collection）— Design
 
+> ⚠️ **部分被取代（2026-06-09，Model A）**：本文档"swap 服务费 `C_VIBAN→F_FEE` + IN 交 gross"的部分已被 `2026-06-09-fiat-net-settlement-model-a-design.md` 取代 —— swap 服务费改为**公司侧** `F_LIQ→F_FEE`、IN 交割只交 net。**提现费 `C_VIBAN→F_FEE` 仍按本文档有效。**
 > 状态：设计收口（pre-implementation）
 > 关联：[[2026-06-08-v7-fiat-swap-settlement-design]]（法币 swap 交割）、`reference/v7-funds-layer-baseline.md`
 > 适用：swap 兑换费/点差 + 提现费的法币（FIAT）归集。crypto 归集（C_MAIN→F_OPS 池级 drain）不在范围。

@@ -85,7 +85,7 @@ export class FiatFeeCollectionWorkflowService {
     return transfer;
   }
 
-  /** Collect a swap's fiat fees: customer service fee (VIBAN→F_FEE) + spread (F_LIQ→F_FEE). */
+  /** Collect a swap's fiat fees company-side (Model A): service fee + spread, both F_LIQ→F_FEE. */
   async collectSwapFees(swapId: string): Promise<void> {
     const swap = await (this.prisma as any).swapTransaction.findUnique({
       where: { id: swapId },
@@ -108,11 +108,13 @@ export class FiatFeeCollectionWorkflowService {
     const spread = new Prisma.Decimal(swap.spreadAmount ?? 0);
 
     if (fee.gt(0)) {
-      const viban = await this.systemWallets.resolveCustomer(swap.toAssetId, 'C_VIBAN', swap.ownerId);
+      // Model A: service fee comes from company liquidity (F_LIQ→F_FEE), NOT the
+      // client VIBAN — settlement delivers net, so no fee is parked in the VIBAN.
+      const fLiq = await this.systemWallets.resolve(swap.toAssetId, 'F_LIQ');
       const fFee = await this.systemWallets.resolve(swap.toAssetId, 'F_FEE');
       await this.spawnCollect({
-        fromRole: 'C_VIBAN',
-        fromWalletId: viban.id,
+        fromRole: 'F_LIQ',
+        fromWalletId: fLiq.id,
         toWalletId: fFee.id,
         assetId: swap.toAssetId,
         amount: fee,

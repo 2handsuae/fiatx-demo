@@ -87,18 +87,19 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-C_VIBAN-c2' });
   });
 
-  it('IN fiat outstanding settles GROSS = net + swap fee', async () => {
+  it('IN fiat outstanding settles NET (Model A: service fee not delivered to VIBAN)', async () => {
     consumer.findOpenFiatBySwap.mockResolvedValue([
       { id: 'o-aed', direction: 'IN', amount: '36.541375', assetId: 'a-aed', assetCode: 'AED', ownerId: 'c1', ownerType: 'CUSTOMER', ownerNo: 'CUST-1', sourceNo: 'SWP-1' },
     ]);
+    // Fee present but MUST be ignored by settlement — net only is delivered to the VIBAN.
     prisma.swapTransaction.findUnique.mockResolvedValue({ feeAmount: '0.10', spreadAmount: '0.18' });
 
     await service.onSwapSucceeded({ swapId: 'swap-1', swapNo: 'SWP-1', ownerId: 'c1' });
 
     const tArgs = transfers.createTransfer.mock.calls[0][0];
-    expect(tArgs.amount.toString()).toBe('36.641375'); // 36.541375 + 0.10
-    expect(fundsFlow.createLeg.mock.calls[0][0].amount.toString()).toBe('36.641375');
-    expect(fundsFlow.createLeg.mock.calls[1][0].amount.toString()).toBe('36.641375');
+    expect(tArgs.amount.toString()).toBe('36.541375'); // net only — fee recognized company-side (F_LIQ→F_FEE)
+    expect(fundsFlow.createLeg.mock.calls[0][0].amount.toString()).toBe('36.541375');
+    expect(fundsFlow.createLeg.mock.calls[1][0].amount.toString()).toBe('36.541375');
   });
 
   it('no fiat outstanding: no-op (no batch)', async () => {

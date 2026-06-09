@@ -112,7 +112,9 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     to: 'F_FEE',
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
-    trigger: ['SWAP', 'WITHDRAW'],
+    // WITHDRAW only — withdrawal fee genuinely leaves the client VIBAN. Swap service
+    // fees are company-side (F_LIQ→F_FEE) under Model A, not C_VIBAN→F_FEE.
+    trigger: ['WITHDRAW'],
     drain: 'FEE_RECEIVABLE',
   },
   [TransferPath.FIAT_SPREAD_COLLECT]: {

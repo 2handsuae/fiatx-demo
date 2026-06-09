@@ -59,12 +59,6 @@ export class FiatSettlementWorkflowService {
         settlementType: 'FIAT_SWAP',
       });
 
-      const swap = await (this.prisma as any).swapTransaction.findUnique({
-        where: { id: event.swapId },
-        select: { feeAmount: true, spreadAmount: true },
-      });
-      const swapFee = new Prisma.Decimal(swap?.feeAmount ?? 0);
-
       for (const o of outstandings) {
         // direction OUT → client sold fiat (VIBAN → F_SET → F_LIQ);
         // direction IN  → client bought fiat (F_LIQ → F_SET → VIBAN).
@@ -81,10 +75,10 @@ export class FiatSettlementWorkflowService {
 
         const hop1From = isOut ? viban : fliq;
         const hop2To = isOut ? fliq : viban;
-        // IN (buying fiat) delivers GROSS = net + service fee so the fee lands in
-        // the VIBAN to be collected (VIBAN→F_FEE). OUT stays net (no fee on from-leg).
-        const net = new Prisma.Decimal(o.amount);
-        const amount = isOut ? net : net.plus(swapFee);
+        // Model A: only NET moves through F_LIQ→F_SET→VIBAN (both directions). The
+        // service fee is recognized company-side (F_LIQ→F_FEE) and never round-trips
+        // the client VIBAN; accounting stays gross (posted at swap time, drain is balance-driven).
+        const amount = new Prisma.Decimal(o.amount);
 
         const transfer = await this.transfers.createTransfer({
           path: policy.path,
@@ -182,7 +176,7 @@ export class FiatSettlementWorkflowService {
       }
 
       // Swap fee/spread collection rides along once the IN (buy-fiat) settlement
-      // completes — the gross is now in the VIBAN, so the fee can be pulled.
+      // completes. Model A: both fee and spread are pulled from F_LIQ (company side).
       if (transfer.pathLabel === TransferPath.FIAT_SETTLE_IN) {
         const swapId = String(transfer.sourceId || '').split(':')[0];
         if (swapId) await this.feeCollection.collectSwapFees(swapId);
