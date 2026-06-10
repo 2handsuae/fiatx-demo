@@ -50,12 +50,12 @@ describe('TbEvidenceService', () => {
       });
     });
 
-    it('should write to backlog on Prisma failure instead of throwing', async () => {
+    it('should write to backlog on Prisma failure and rethrow the error', async () => {
       mockPrisma.tbTransferEvidence.create.mockRejectedValue(new Error('DB error'));
       mockPrisma.tbEvidenceBacklog.create.mockResolvedValue({});
 
-      // Should not throw
-      await service.writeEvidence(params);
+      // Service rethrows after writing to backlog
+      await expect(service.writeEvidence(params)).rejects.toThrow('DB error');
 
       expect(mockPrisma.tbEvidenceBacklog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({

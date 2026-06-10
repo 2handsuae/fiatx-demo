@@ -60,6 +60,15 @@ describe('buildAllowedWebOrigins', () => {
       'http://localhost:3202',
       'http://127.0.0.1:3202',
       'http://[::1]:3202',
+      'http://localhost:3500',
+      'http://127.0.0.1:3500',
+      'http://[::1]:3500',
+      'http://localhost:3501',
+      'http://127.0.0.1:3501',
+      'http://[::1]:3501',
+      'http://localhost:3502',
+      'http://127.0.0.1:3502',
+      'http://[::1]:3502',
     ]);
   });
 
@@ -88,6 +97,9 @@ describe('buildAllowedWebOrigins', () => {
       'http://localhost:3202',
       'http://127.0.0.1:3202',
       'http://[::1]:3202',
+      'http://localhost:3500',
+      'http://127.0.0.1:3500',
+      'http://[::1]:3500',
     ]);
   });
 });

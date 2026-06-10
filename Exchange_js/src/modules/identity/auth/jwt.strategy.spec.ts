@@ -6,6 +6,9 @@ describe('JwtStrategy', () => {
     customerMain: {
       findUnique: jest.fn(),
     },
+    user: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'admin-1', status: 'ACTIVE' }),
+    },
   };
 
   let strategy: JwtStrategy;
@@ -38,6 +41,7 @@ describe('JwtStrategy', () => {
       role: 'SUPER_ADMIN',
       roleCodes: ['SUPER_ADMIN', 'MLRO'],
       type: 'ADMIN',
+      scope: null,
     });
     expect(prismaMock.customerMain.findUnique).not.toHaveBeenCalled();
   });
@@ -58,6 +62,7 @@ describe('JwtStrategy', () => {
       role: 'MLRO',
       roleCodes: ['MLRO'],
       type: 'ADMIN',
+      scope: null,
     });
   });
 
@@ -99,6 +104,7 @@ describe('JwtStrategy', () => {
       role: 'CUSTOMER',
       roleCodes: ['CUSTOMER'],
       type: 'CUSTOMER',
+      scope: null,
     });
   });
 
@@ -123,6 +129,7 @@ describe('JwtStrategy', () => {
       role: 'CUSTOMER',
       roleCodes: ['CUSTOMER'],
       type: 'CUSTOMER',
+      scope: null,
     });
   });
 });

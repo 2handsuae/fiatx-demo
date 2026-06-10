@@ -18,7 +18,7 @@ describe('system-wallet.util', () => {
 
     it('FIAT_SYSTEM_WALLET_ROLES contains correct roles', () => {
       expect(FIAT_SYSTEM_WALLET_ROLES).toEqual([
-        WalletRole.C_CMA, WalletRole.F_LIQ, WalletRole.F_OPS,
+        WalletRole.C_CMA, WalletRole.F_SET, WalletRole.F_FEE, WalletRole.F_OPS, WalletRole.F_LIQ,
       ]);
     });
 

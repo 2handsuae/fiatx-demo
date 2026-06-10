@@ -52,7 +52,7 @@ function buildServiceMocks() {
     [TB_ACCOUNT_CODES.CLIENT_CREDIT]: 10n,
     [TB_ACCOUNT_CODES.CLIENT_CUSTODY]: 20n,
     [TB_ACCOUNT_CODES.CLIENT_BANK]: 25n,
-    [TB_ACCOUNT_CODES.FEE_RECEIVABLE]: 30n, // must NOT be touched
+    [120]: 30n, // FEE_RECEIVABLE (removed in Task 9) — must NOT be touched
     [TB_ACCOUNT_CODES.FEE_INCOME]: 40n,
   };
 
@@ -180,8 +180,8 @@ describe('WithdrawTransactionsService — T5 fee account', () => {
     // Must resolve FEE_INCOME for fee leg
     expect(resolveCalls).toContain(TB_ACCOUNT_CODES.FEE_INCOME);
 
-    // Must NOT resolve FEE_RECEIVABLE
-    expect(resolveCalls).not.toContain(TB_ACCOUNT_CODES.FEE_RECEIVABLE);
+    // Must NOT resolve FEE_RECEIVABLE (code 120, removed in Task 9)
+    expect(resolveCalls).not.toContain(120);
   });
 });
 
@@ -265,7 +265,7 @@ describe('WithdrawWorkflowService — T5 post fee evidence', () => {
     // At least one should be FEE_INCOME
     expect(feeCreditCodes).toContain(String(TB_ACCOUNT_CODES.FEE_INCOME));
 
-    // None should be FEE_RECEIVABLE
-    expect(feeCreditCodes).not.toContain(String(TB_ACCOUNT_CODES.FEE_RECEIVABLE));
+    // None should be FEE_RECEIVABLE (code 120, removed in Task 9)
+    expect(feeCreditCodes).not.toContain('120');
   });
 });

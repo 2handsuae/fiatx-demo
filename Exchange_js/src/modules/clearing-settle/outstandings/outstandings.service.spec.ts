@@ -168,8 +168,8 @@ describe('OutstandingsService', () => {
       asset: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ code: 'BTC' })
-          .mockResolvedValueOnce({ code: 'USDT' }),
+          .mockResolvedValueOnce({ currency: 'BTC' })
+          .mockResolvedValueOnce({ currency: 'USDT' }),
       },
       outstanding: {
         findUnique: jest.fn().mockResolvedValue(null),

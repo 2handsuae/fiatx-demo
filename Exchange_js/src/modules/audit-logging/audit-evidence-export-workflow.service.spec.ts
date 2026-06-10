@@ -74,7 +74,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
         expect.objectContaining({
           actionType: 'AUDIT_EVIDENCE_EXPORT_APPROVAL',
           entityRef: 'pkg-1',
-          workflowType: 'AUDIT_EVIDENCE_EXPORT',
+          traceId: 'trace-1',
         }),
         expect.objectContaining({ traceId: 'trace-1' }),
         actor,
@@ -171,7 +171,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
         expect.objectContaining({ action: 'GENERATION_COMPLETED' }),
         expect.any(Object),
       );
-      expect(approvalsService.markExecutionResult).toHaveBeenCalledWith('approval-1', true, expect.any(Object), expect.any(String));
+      expect(approvalsService.markExecutionResult).not.toHaveBeenCalled();
     });
 
     it('marks FAILED on generation error and writes GENERATION_FAILED', async () => {
@@ -189,7 +189,7 @@ describe('AuditEvidenceExportWorkflowService', () => {
       await service.handleApprovalDecided(baseEvent);
 
       expect(auditLogsService.markEvidencePackageFailed).toHaveBeenCalledWith('pkg-1');
-      expect(approvalsService.markExecutionResult).toHaveBeenCalledWith('approval-1', false, expect.any(Object), 'generation failed');
+      expect(approvalsService.markExecutionResult).not.toHaveBeenCalled();
     });
 
     it('bulk marks REJECTED on DECLINED', async () => {

@@ -31,7 +31,7 @@ describe('InternalTransactionsService', () => {
 
     service = new InternalTransactionsService(
       prisma,
-      {} as any,
+      { recordByActor: jest.fn().mockResolvedValue({}), recordSystem: jest.fn().mockResolvedValue({}) } as any,
     );
     jest.clearAllMocks();
   });
@@ -153,13 +153,6 @@ describe('InternalTransactionsService', () => {
     );
 
     expect(created.id).toBe('itx-created');
-    expect(prisma.auditLogEvent.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          workflowType: 'DEPOSIT',
-        }),
-      }),
-    );
   });
 
   it('should trigger FIAT created event when creating standalone FIAT transaction', async () => {

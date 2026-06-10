@@ -2,6 +2,8 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AccessControlController } from './access-control.controller';
 import { AccessControlService } from './access-control.service';
+import { RoleDefinitionCreateWorkflowService } from './role-definition-create-workflow.service';
+import { RoleDefinitionModifyWorkflowService } from './role-definition-modify-workflow.service';
 
 describe('AccessControlController', () => {
   let controller: AccessControlController;
@@ -18,6 +20,8 @@ describe('AccessControlController', () => {
       controllers: [AccessControlController],
       providers: [
         { provide: AccessControlService, useValue: accessControlService },
+        { provide: RoleDefinitionCreateWorkflowService, useValue: {} },
+        { provide: RoleDefinitionModifyWorkflowService, useValue: {} },
       ],
     }).compile();
 

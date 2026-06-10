@@ -48,13 +48,11 @@ describe('PeriodicReviewService', () => {
   const workflowTransitionServiceMock: any = {};
 
   let service: PeriodicReviewService;
-  let recordByActorSpy: jest.SpyInstance;
+  let recordByActorSpy: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    recordByActorSpy = jest
-      .spyOn(AuditLogsService.prototype, 'recordByActor')
-      .mockResolvedValue({} as any);
+    recordByActorSpy = jest.fn().mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (callback: (tx: any) => unknown) =>
       callback(prismaMock),
     );
@@ -62,7 +60,7 @@ describe('PeriodicReviewService', () => {
       prismaMock,
       riskEngineServiceMock,
       workflowTransitionServiceMock,
-      {} as any,
+      { recordByActor: recordByActorSpy, recordSystem: jest.fn().mockResolvedValue({}) } as any,
     );
   });
 

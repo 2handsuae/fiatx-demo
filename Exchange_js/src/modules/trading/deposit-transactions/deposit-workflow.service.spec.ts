@@ -47,6 +47,7 @@ describe('DepositWorkflowService', () => {
     it('initializes compliance gates when entering COMPLIANCE_PENDING with normal customer', async () => {
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
       depositService.initializeComplianceGates.mockResolvedValue({});
+      depositService.findOne.mockResolvedValue({ id: 'dep-1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'cust-1', traceId: null });
 
       const event = new DepositStatusChangedEvent(
         'dep-1',

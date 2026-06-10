@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomersService } from './customers.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 const mockPrismaService = {
   customerMain: {
@@ -22,11 +23,11 @@ describe('CustomersService', () => {
       providers: [
         CustomersService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: AuditLogsService, useValue: auditLogsServiceMock },
       ],
     }).compile();
 
     service = module.get<CustomersService>(CustomersService);
-    (service as any).auditLogsService = auditLogsServiceMock;
   });
 
   afterEach(() => {

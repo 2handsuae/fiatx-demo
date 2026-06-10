@@ -36,7 +36,7 @@ describe('WithdrawTransactionWorkflowService', () => {
     service = new WithdrawTransactionWorkflowService(
       prismaMock as any,
       withdrawTransactionsServiceMock as any,
-      {} as any,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
     );
   });
 

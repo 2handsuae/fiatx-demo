@@ -328,7 +328,7 @@ describe('BusinessConfigService', () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     prisma.businessConfigRelease.findUnique.mockResolvedValue({
       id: 'release-coa-1',
-      subjectType: 'COA',
+      subjectType: 'ASSET_CONFIG',
       releaseNo: 'COA-REL-001',
       status: 'VALIDATED',
       basedOnReleaseNo: null,
@@ -384,7 +384,7 @@ describe('BusinessConfigService', () => {
     const now = new Date('2026-03-23T10:00:00.000Z');
     prisma.businessConfigRelease.findUnique.mockResolvedValue({
       id: 'release-coa-1',
-      subjectType: 'COA',
+      subjectType: 'ASSET_CONFIG',
       releaseNo: 'COA-REL-001',
       status: 'VALIDATED',
       basedOnReleaseNo: null,
@@ -420,7 +420,7 @@ describe('BusinessConfigService', () => {
       revisions: [
         {
           id: 'revision-asset-r1',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           businessKey: 'A.CLIENT_CUSTODY',
           revisionNo: 1,
           payloadJson: JSON.stringify({ code: 'A.CLIENT_CUSTODY', name: 'Custody v1' }),
@@ -430,7 +430,7 @@ describe('BusinessConfigService', () => {
         },
         {
           id: 'revision-asset-r2',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           businessKey: 'A.CLIENT_CUSTODY',
           revisionNo: 2,
           payloadJson: JSON.stringify({ code: 'A.CLIENT_CUSTODY', name: 'Custody v2' }),
@@ -440,7 +440,7 @@ describe('BusinessConfigService', () => {
         },
         {
           id: 'revision-liab-r1',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           businessKey: 'L.CLIENT',
           revisionNo: 1,
           payloadJson: JSON.stringify({ code: 'L.CLIENT', name: 'Client Liability' }),
@@ -452,7 +452,7 @@ describe('BusinessConfigService', () => {
       releases: [
         {
           id: 'release-coa-1',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           releaseNo: 'COA-REL-001',
           status: 'SUPERSEDED',
           basedOnReleaseNo: null,
@@ -460,7 +460,7 @@ describe('BusinessConfigService', () => {
         },
         {
           id: 'release-coa-2',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           releaseNo: 'COA-REL-002',
           status: 'ACTIVE',
           basedOnReleaseNo: 'COA-REL-001',
@@ -472,7 +472,7 @@ describe('BusinessConfigService', () => {
           id: 'release-item-1',
           releaseId: 'release-coa-1',
           revisionId: 'revision-asset-r1',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           businessKey: 'A.CLIENT_CUSTODY',
           sortOrder: 1,
         },
@@ -480,7 +480,7 @@ describe('BusinessConfigService', () => {
           id: 'release-item-2',
           releaseId: 'release-coa-2',
           revisionId: 'revision-asset-r2',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           businessKey: 'A.CLIENT_CUSTODY',
           sortOrder: 1,
         },
@@ -488,7 +488,7 @@ describe('BusinessConfigService', () => {
           id: 'release-item-3',
           releaseId: 'release-coa-2',
           revisionId: 'revision-liab-r1',
-          subjectType: 'COA',
+          subjectType: 'ASSET_CONFIG',
           businessKey: 'L.CLIENT',
           sortOrder: 2,
         },
@@ -497,7 +497,7 @@ describe('BusinessConfigService', () => {
 
     const diff = await service.getReleaseDiff('COA-REL-002');
     const revisions = await service.listRevisions({
-      subjectType: 'COA',
+      subjectType: 'ASSET_CONFIG',
       businessKey: 'A.CLIENT_CUSTODY',
     });
 

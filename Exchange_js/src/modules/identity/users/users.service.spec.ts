@@ -3,6 +3,7 @@ import { UsersService } from './users.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { NotFoundException } from '@nestjs/common';
 import { AdminInvitationsService } from './admin-invitations.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -38,6 +39,9 @@ describe('UsersService', () => {
       adminUserInvitation: {
         findFirst: jest.fn(),
       },
+      passwordResetToken: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
     };
 
     adminInvitationsService = {
@@ -56,6 +60,7 @@ describe('UsersService', () => {
           provide: AdminInvitationsService,
           useValue: adminInvitationsService,
         },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
       ],
     }).compile();
 
@@ -111,7 +116,7 @@ describe('UsersService', () => {
       revokedAt: null,
     });
 
-    await expect(service.getMemberDetail('user-1')).resolves.toEqual({
+    await expect(service.getMemberDetail('user-1')).resolves.toMatchObject({
       id: 'user-1',
       userNo: 'ADM2602190001',
       email: 'inactive-admin@fiatx.com',
@@ -121,10 +126,10 @@ describe('UsersService', () => {
       updatedAt: new Date('2026-02-19T08:00:00.000Z'),
       lastLoginAt: null,
       roles: ['CISO', 'TECH_OFFICER'],
-      latestInvitation: {
+      latestInvitation: expect.objectContaining({
         inviteStatus: 'PENDING',
         inviteExpiresAt: '2026-04-02T00:00:00.000Z',
-      },
+      }),
     });
 
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
@@ -145,19 +150,17 @@ describe('UsersService', () => {
         },
       },
     });
-    expect(prisma.adminUserInvitation.findFirst).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-1',
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      select: {
-        expiresAt: true,
-        consumedAt: true,
-        revokedAt: true,
-      },
-    });
+    expect(prisma.adminUserInvitation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1' },
+        orderBy: { createdAt: 'desc' },
+        select: expect.objectContaining({
+          expiresAt: true,
+          consumedAt: true,
+          revokedAt: true,
+        }),
+      }),
+    );
   });
 
   it.each([

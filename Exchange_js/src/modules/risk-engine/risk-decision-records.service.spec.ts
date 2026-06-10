@@ -36,13 +36,11 @@ describe('RiskDecisionRecordsService', () => {
   };
 
   let service: RiskDecisionRecordsService;
-  let recordByActorSpy: jest.SpiedFunction<typeof AuditLogsService.prototype.recordByActor>;
+  let recordByActorSpy: jest.Mock;
 
   beforeEach(() => {
     jest.resetAllMocks();
-    recordByActorSpy = jest
-      .spyOn(AuditLogsService.prototype, 'recordByActor')
-      .mockResolvedValue({} as any);
+    recordByActorSpy = jest.fn().mockResolvedValue({});
     moduleRefMock.get.mockImplementation((token: unknown) => {
       if (token === OnboardingService) return onboardingServiceMock;
       if (token === PeriodicReviewService) return periodicReviewServiceMock;
@@ -51,7 +49,7 @@ describe('RiskDecisionRecordsService', () => {
     });
     service = new RiskDecisionRecordsService(
       prismaMock,
-      {} as any,
+      { recordByActor: recordByActorSpy, recordSystem: jest.fn().mockResolvedValue({}) } as any,
       moduleRefMock as unknown as ModuleRef,
     );
   });

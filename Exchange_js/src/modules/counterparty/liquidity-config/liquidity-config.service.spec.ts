@@ -6,6 +6,7 @@ import {
   RateSourceType,
 } from './dto/liquidity-config.dto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 const mockPrismaService = {
   liquidityConfiguration: {
@@ -37,6 +38,7 @@ describe('LiquidityConfigService', () => {
       providers: [
         LiquidityConfigService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: AuditLogsService, useValue: { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } },
       ],
     }).compile();
 

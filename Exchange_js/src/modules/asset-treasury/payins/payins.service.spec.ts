@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PayinsService } from './payins.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   PayinAction,
   PayinMockEvent,
@@ -49,6 +50,13 @@ describe('PayinsService', () => {
           useValue: {
             emit: jest.fn(),
             emitAsync: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: AuditLogsService,
+          useValue: {
+            recordByActor: jest.fn().mockResolvedValue({}),
+            recordSystem: jest.fn().mockResolvedValue({}),
           },
         },
       ],

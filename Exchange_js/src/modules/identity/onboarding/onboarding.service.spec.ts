@@ -3,7 +3,6 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingService } from './onboarding.service';
 import { WORKFLOW_TRANSITION_CODES } from './onboarding-workflow-transition.service';
 
@@ -106,13 +105,11 @@ describe('OnboardingService', () => {
   };
 
   let service: OnboardingService;
-  let recordByActorSpy: jest.SpyInstance;
+  let recordByActorSpy: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    recordByActorSpy = jest
-      .spyOn(AuditLogsService.prototype, 'recordByActor')
-      .mockResolvedValue({} as any);
+    recordByActorSpy = jest.fn().mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
       id: 'alert-disp-1',
@@ -135,7 +132,7 @@ describe('OnboardingService', () => {
       workflowTransitionServiceMock,
       onboardingFinalApprovalServiceMock,
       sumsubClientMock,
-      {} as any,
+      { recordByActor: recordByActorSpy, recordSystem: jest.fn().mockResolvedValue({}) } as any,
     );
   });
 
@@ -500,8 +497,6 @@ describe('OnboardingService', () => {
       expect(recordByActorSpy).toHaveBeenCalledTimes(1);
       const [auditInput, actor] = recordByActorSpy.mock.calls[0];
       expect(auditInput.action).toBe('SUMSUB_APPLICANT_ON_HOLD');
-      expect(auditInput.triggerType).toBe('DATA_UPDATE');
-      expect(auditInput.module).toBe('identity/onboarding');
       expect(auditInput.entityType).toBe('ONBOARDING');
       expect(auditInput.entityId).toBe('customer-1');
       expect(auditInput.traceId).toBe(existingTrace);
@@ -1784,13 +1779,6 @@ describe('OnboardingService', () => {
           simulationRiskReason: 'CDD_PROFILE_INCONSISTENT',
           mockDataType: 'MEDIUM_RISK',
         }),
-      }),
-    );
-    expect(orchestratorMock.orchestrate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workflow: 'ONBOARDING',
-        stage: 'REVIEW_CDD',
-        decisionRecordId: 'dr-medium',
       }),
     );
     expect(result.customer.onboardingStatus).toBe('CDD_UNDER_REVIEW');

@@ -5,6 +5,7 @@ import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ClientRiskAssessmentPolicyLoader } from './policy/policy-loader';
 import { TierUpgradeCaseService } from '../tier-upgrade-case/tier-upgrade-case.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 // Mock applyPolicy so we can control the scenario type in tests
 jest.mock('./policy/client-risk-assessment-policy', () => ({
@@ -86,6 +87,7 @@ describe('ClientRiskAssessmentService', () => {
         { provide: ApprovalsService, useValue: mockApprovalsService },
         { provide: ClientRiskAssessmentPolicyLoader, useValue: mockPolicyLoader },
         { provide: TierUpgradeCaseService, useValue: mockTierUpgradeCaseService },
+        { provide: AuditLogsService, useValue: { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } },
       ],
     }).compile();
 

@@ -146,9 +146,9 @@ describe('WithdrawTransactionsService', () => {
   // V2 balance check removed — migrated to TigerBeetle
   // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
-  it('should create withdraw in PENDING_COMPLIANCE and initialize final review on create', async () => {
+  it('should create withdraw in PENDING_COMPLIANCE with CRYPTO compliance statuses', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
-    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
     mockTx.withdrawTransaction.create.mockResolvedValue({
       id: 'wd-create-1',
       ownerType: 'CUSTOMER',
@@ -164,9 +164,6 @@ describe('WithdrawTransactionsService', () => {
       toWalletNo: null,
     });
     mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-1' });
-    transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
-      {},
-    );
 
     await service.create(
       {
@@ -177,19 +174,13 @@ describe('WithdrawTransactionsService', () => {
       'user-1',
     );
 
-    expect(
-      transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
-    ).toHaveBeenCalledWith('wd-create-1');
-    expect(
-      transactionComplianceService.initializeWithdrawFinalDecisionRecord,
-    ).toHaveBeenCalledWith('wd-create-1');
     expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-          preKytStatus: 'FINAL',
+          status: WithdrawTransactionStatus.CREATED,
+          preKytStatus: 'PENDING',
           kytStatus: '',
-          travelRuleStatus: 'FINAL',
+          travelRuleStatus: 'PENDING',
           complianceStatus: 'PENDING',
         }),
       }),
@@ -203,9 +194,9 @@ describe('WithdrawTransactionsService', () => {
     );
   });
 
-  it('should initialize only final review semantics on fiat create without response snapshots', async () => {
+  it('should create FIAT withdraw with empty compliance statuses', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT' });
-    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
     mockTx.withdrawTransaction.create.mockResolvedValue({
       id: 'wd-create-2',
       ownerType: 'CUSTOMER',
@@ -221,9 +212,6 @@ describe('WithdrawTransactionsService', () => {
       toWalletNo: null,
     });
     mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-2' });
-    transactionComplianceService.ensureWithdrawPreKytCaseOnCreate.mockResolvedValue(
-      null,
-    );
 
     withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
       id: 'wq-2',
@@ -245,12 +233,6 @@ describe('WithdrawTransactionsService', () => {
       'user-1',
     );
 
-    expect(
-      transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
-    ).toHaveBeenCalledWith('wd-create-2');
-    expect(
-      transactionComplianceService.initializeWithdrawFinalDecisionRecord,
-    ).toHaveBeenCalledWith('wd-create-2');
     expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -265,6 +247,7 @@ describe('WithdrawTransactionsService', () => {
 
   it('should reject create when quoteId is missing', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
 
     await expect(
       service.create(
@@ -566,9 +549,14 @@ describe('WithdrawTransactionsService', () => {
       }),
     ]);
     expect(result.derivedComplianceStatus).toBe('CLEAR');
-    expect(result.preKytStatus).toBe('FINAL');
-    expect(result.kytStatus).toBe('RECEIVED');
-    expect(result.travelRuleStatus).toBe('FINAL');
+    // raw statuses preserved from DB
+    expect(result.preKytStatus).toBe('PASS');
+    expect(result.kytStatus).toBe('PENDING');
+    expect(result.travelRuleStatus).toBe('ACCEPTED');
+    // lifecycle-normalized statuses
+    expect(result.lifecyclePreKytStatus).toBe('FINAL');
+    expect(result.lifecycleKytStatus).toBe('RECEIVED');
+    expect(result.lifecycleTravelRuleStatus).toBe('FINAL');
   });
 
   describe('approval-gate transitions', () => {

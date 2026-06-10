@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   OnboardingWorkflowTransitionService,
   WORKFLOW_TRANSITION_CODES,
@@ -35,14 +34,18 @@ describe('OnboardingWorkflowTransitionService', () => {
   };
 
   let service: OnboardingWorkflowTransitionService;
+  let mockAuditLogsService: { recordByActor: jest.Mock; recordSystem: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
+    mockAuditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({}),
+      recordSystem: jest.fn().mockResolvedValue({}),
+    };
     service = new OnboardingWorkflowTransitionService(
       txMock as any,
       onboardingFinalApprovalServiceMock as any,
-      {} as any,
+      mockAuditLogsService as any,
     );
     txMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',

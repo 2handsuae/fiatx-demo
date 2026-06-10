@@ -64,7 +64,7 @@ describe('TransactionComplianceService', () => {
     jest.spyOn(AuditLogsService.prototype, 'recordByActor').mockResolvedValue({} as any);
     prismaMock.payin.findUnique.mockResolvedValue(null);
     prismaMock.inboundTransferSignal.findUnique.mockResolvedValue(null);
-    service = new TransactionComplianceService(prismaMock, buildBridgeMock() as any);
+    service = new TransactionComplianceService(prismaMock, { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any, buildBridgeMock() as any);
   });
 
   it('should upsert KYT case idempotently and append reports', async () => {
@@ -206,6 +206,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const complianceService = new TransactionComplianceService(
       prismaMock,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
       bridgeMock as any,
     );
 
@@ -221,6 +222,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const complianceService = new TransactionComplianceService(
       prismaMock,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
       bridgeMock as any,
     );
 
@@ -261,6 +263,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const complianceService = new TransactionComplianceService(
       prismaMock,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
       bridgeMock as any,
     );
 
@@ -411,7 +414,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const serviceWithBridge = new TransactionComplianceService(
       prismaMock,
-      {} as any,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
       bridgeMock,
     );
     prismaMock.depositTransaction.findUnique.mockResolvedValue({
@@ -795,7 +798,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const serviceWithBridge = new TransactionComplianceService(
       prismaMock,
-      {} as any,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
       bridgeMock,
     );
     prismaMock.kytCase.findUnique.mockResolvedValueOnce(null);
@@ -860,7 +863,7 @@ describe('TransactionComplianceService', () => {
     const bridgeMock = buildBridgeMock();
     const serviceWithBridge = new TransactionComplianceService(
       prismaMock,
-      {} as any,
+      { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } as any,
       bridgeMock,
     );
     prismaMock.travelRuleCase.findUnique.mockResolvedValue({

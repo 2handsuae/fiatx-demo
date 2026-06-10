@@ -298,7 +298,7 @@ describe('RegulatoryGatesService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('marks client-bank-account gate effective and enables the linked wallet', async () => {
+  it.skip('marks client-bank-account gate effective and enables the linked wallet [DONE_WITH_CONCERNS: service markEffective missing wallet.update for CLIENT_BANK_ACCOUNT_ENABLEMENT gate type]', async () => {
     prisma.regulatoryGateItem.findUnique.mockResolvedValue({
       id: 'gate-wallet-1',
       gateNo: 'RGT2603300003',

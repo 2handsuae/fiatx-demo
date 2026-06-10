@@ -2,7 +2,7 @@ import { AssetProvisioningService } from './asset-provisioning.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 describe('AssetProvisioningService (two-book)', () => {
-  it('provision 为每个资产开 10 个 SYSTEM 账户(无 FEE_RECEIVABLE)', async () => {
+  it('provision 为每个资产开 10 个 SYSTEM 账户', async () => {
     const createAccounts = jest.fn().mockResolvedValue(undefined);
     const prisma: any = {
       asset: {
@@ -26,6 +26,6 @@ describe('AssetProvisioningService (two-book)', () => {
       TB_ACCOUNT_CODES.FX_UNREALIZED_PNL,  // 320
       TB_ACCOUNT_CODES.FX_REALIZED_PNL,    // 330
     ]);
-    expect(codes).not.toContain(TB_ACCOUNT_CODES.FEE_RECEIVABLE);
+    expect(codes).not.toContain(120); // FEE_RECEIVABLE (removed in Task 9) must not appear
   });
 });

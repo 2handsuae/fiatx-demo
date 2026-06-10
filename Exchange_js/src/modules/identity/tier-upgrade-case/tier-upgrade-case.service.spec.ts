@@ -3,6 +3,7 @@ import { TierUpgradeCaseService } from './tier-upgrade-case.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 const mockPrisma = {
   tierUpgradeCase: {
@@ -38,6 +39,7 @@ describe('TierUpgradeCaseService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ApprovalsService, useValue: mockApprovals },
         { provide: SumsubClient, useValue: mockSumsub },
+        { provide: AuditLogsService, useValue: { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } },
       ],
     }).compile();
     service = module.get(TierUpgradeCaseService);
@@ -67,7 +69,7 @@ describe('TierUpgradeCaseService', () => {
       expect(mockPrisma.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            complianceStatus: 'RESTRICTED',
+            complianceStatus: 'FROZEN',
             complianceFreezeReason: 'tier_upgrade_pending_level2',
           }),
         }),

@@ -98,7 +98,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-master',
-        walletRole: 'C_MAIN',
+        walletRole: 'MASTER',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -109,7 +109,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-payout',
-        walletRole: 'C_OUT',
+        walletRole: 'PAYOUT',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -187,7 +187,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-cust-bank',
-        walletRole: 'C_CMA',
+        walletRole: 'CUST_BANK',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -199,7 +199,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-liq-bank',
-        walletRole: 'F_LIQ',
+        walletRole: 'LIQ_BANK',
         ownerType: 'PLATFORM',
         ownerId: null,
         ownerNo: 'PLATFORM',
@@ -254,10 +254,10 @@ describe('InternalTransactionWorkflowService', () => {
       expect.objectContaining({
         actionType: ApprovalActionTypes.TREASURY_CROSS_POOL_TRANSFER_APPROVAL,
         entityRef: 'itx-fiat-1',
-        workflowNo: 'ITX-FIAT-001',
+        traceId: 'INTERNAL_TX:ITX-FIAT-001',
       }),
       expect.objectContaining({
-        workflowNo: 'ITX-FIAT-001',
+        traceId: 'INTERNAL_TX:ITX-FIAT-001',
         reason: 'Cross-pool fiat rebalance',
       }),
       adminActor,
@@ -301,7 +301,7 @@ describe('InternalTransactionWorkflowService', () => {
     txClient.wallet.findUnique
       .mockResolvedValueOnce({
         id: 'wallet-master',
-        walletRole: 'C_MAIN',
+        walletRole: 'MASTER',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',
@@ -310,7 +310,7 @@ describe('InternalTransactionWorkflowService', () => {
       })
       .mockResolvedValueOnce({
         id: 'wallet-payout',
-        walletRole: 'C_OUT',
+        walletRole: 'PAYOUT',
         ownerType: 'CUSTOMER',
         ownerId: null,
         ownerNo: 'CUSTOMER_POOL',

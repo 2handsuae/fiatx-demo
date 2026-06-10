@@ -44,7 +44,7 @@ function buildMocks() {
   const resolveMap: Record<number, bigint> = {
     [TB_ACCOUNT_CODES.CLIENT_CREDIT]: 10n,
     [TB_ACCOUNT_CODES.TRADE_CLEARING]: 20n,
-    [TB_ACCOUNT_CODES.FEE_RECEIVABLE]: 30n, // should NOT be touched
+    [120]: 30n, // FEE_RECEIVABLE (removed in Task 9) — should NOT be touched
     [TB_ACCOUNT_CODES.FEE_INCOME]: 40n,
     [TB_ACCOUNT_CODES.SPREAD_INCOME]: 50n,
   };
@@ -138,7 +138,7 @@ describe('SwapWorkflowService — T4 revenue accounts', () => {
     expect(resolveCalls).toContain(TB_ACCOUNT_CODES.SPREAD_INCOME);
     expect(resolveCalls).toContain(TB_ACCOUNT_CODES.FEE_INCOME);
 
-    // Must NOT see FEE_RECEIVABLE
-    expect(resolveCalls).not.toContain(TB_ACCOUNT_CODES.FEE_RECEIVABLE);
+    // Must NOT see FEE_RECEIVABLE (code 120, removed in Task 9)
+    expect(resolveCalls).not.toContain(120);
   });
 });

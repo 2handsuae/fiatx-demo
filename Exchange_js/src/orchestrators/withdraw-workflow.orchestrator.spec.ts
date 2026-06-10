@@ -10,6 +10,7 @@ import {
   PayoutStatus,
   PayoutType,
 } from '../modules/asset-treasury/payouts/dto/payout.dto';
+import { AuditLogsService } from '../modules/audit-logging/audit-logs.service';
 
 jest.mock('uuid', () => ({
   v4: () => 'mock-uuid',
@@ -60,6 +61,12 @@ describe('WithdrawWorkflowOrchestrator', () => {
     ensureWithdrawMainCasesOnPayoutConfirmed: jest.fn(),
   };
 
+  const mockAuditLogsService = {
+    recordSystem: jest.fn().mockResolvedValue({}),
+    recordByActor: jest.fn().mockResolvedValue({}),
+    hasIdempotencyKey: jest.fn().mockResolvedValue(false),
+  };
+
   const baseWithdrawal = {
     id: 'WD_1',
     status: WithdrawTransactionStatus.PAYOUT_PENDING,
@@ -93,6 +100,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
           useValue: mockTransactionComplianceService,
         },
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: AuditLogsService, useValue: mockAuditLogsService },
       ],
     }).compile();
 
@@ -177,6 +185,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'LOG_EXIST',
     });
+    mockAuditLogsService.hasIdempotencyKey.mockResolvedValueOnce(true);
 
     const result = await orchestrator.onPayoutConfirmed({
       withdrawId: 'WD_1',
@@ -230,14 +239,14 @@ describe('WithdrawWorkflowOrchestrator', () => {
       ...baseWithdrawal,
       fromWalletId: null,
       fromWalletNo: null,
-      asset: { type: 'FIAT', code: 'AED', network: null },
+      asset: { type: 'FIAT', code: 'AED', network: null, currency: 'AED' },
     });
     mockPrisma.withdrawTransaction.findUnique
       .mockResolvedValueOnce({
         ...baseWithdrawal,
         fromWalletId: null,
         fromWalletNo: null,
-        asset: { type: 'FIAT', code: 'AED', network: null },
+        asset: { type: 'FIAT', code: 'AED', network: null, currency: 'AED' },
       })
       .mockResolvedValueOnce({
         ...baseWithdrawal,
@@ -276,8 +285,8 @@ describe('WithdrawWorkflowOrchestrator', () => {
     expect(mockPrisma.wallet.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          walletNo: 'WA2600000001',
-          ownerType: 'CUSTOMER',
+          walletRole: 'C_CMA',
+          ownerType: 'PLATFORM',
           assetId: 'AST_1',
         }),
       }),
@@ -360,6 +369,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
       status: PayoutStatus.FAILED,
     });
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue({ id: 'LOG_EXIST' });
+    mockAuditLogsService.hasIdempotencyKey.mockResolvedValueOnce(true);
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.FAILED,
@@ -534,6 +544,7 @@ describe('WithdrawWorkflowOrchestrator', () => {
     mockPrisma.auditLogEvent.findUnique.mockResolvedValue({
       id: 'LOG_EXIST',
     });
+    mockAuditLogsService.hasIdempotencyKey.mockResolvedValueOnce(true);
     mockWithdrawalService.findOne.mockResolvedValue({
       ...baseWithdrawal,
       status: WithdrawTransactionStatus.RETURNED,

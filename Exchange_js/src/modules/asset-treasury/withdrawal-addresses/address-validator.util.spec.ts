@@ -35,8 +35,11 @@ describe('validateCryptoAddress', () => {
   });
 
   describe('unknown network', () => {
-    it('passes through unknown network', () => {
-      expect(validateCryptoAddress('UNKNOWN_NET', 'anyaddress')).toEqual({ valid: true });
+    it('rejects unknown network', () => {
+      expect(validateCryptoAddress('UNKNOWN_NET', 'anyaddress')).toEqual({
+        valid: false,
+        reason: 'Unsupported network: UNKNOWN_NET',
+      });
     });
   });
 });
