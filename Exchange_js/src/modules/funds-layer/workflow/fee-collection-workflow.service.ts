@@ -1,14 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
-import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
-import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SettlementBatchService } from '../domain/settlement-batch.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
-import { bigintToDecimal } from '../accounting/tb-amount.util';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
+import { WithdrawTransactionStatus } from '../../trading/withdraw-transactions/dto/withdraw-transaction.dto';
 
 const FEE_SOURCE_TYPE = 'FEE_COLLECTION';
 
@@ -30,23 +28,21 @@ interface FeeCandidate {
   assetId: string;
   currency: string;
   decimals: number;
-  netBigint: bigint;
+  netDecimal: Prisma.Decimal;
 }
 
 /**
  * V7 Phase-4 L3 fee-collection workflow.
  *
- * Drains each active crypto asset's accrued FEE_RECEIVABLE liability into Ops:
- * read the per-currency FEE_RECEIVABLE balance from TigerBeetle → for any
- * positive net, create a FEE_COLLECT settlement batch → spawn the whitelisted
- * FEE_COLLECT transfer (C_MAIN→F_OPS, class B; initiate triggers the B-class
- * FEE_RECEIVABLE→CUSTODY drain) via the universal transfer workflow → recompute
- * the batch rollup. When a spawned transfer's funds-flow clears
- * (fundsflow.status.changed → CLEAR), it recomputes the batch.
- * Unlike EOD this touches no Outstanding rows.
+ * Per-asset: 应归集 = Σ成功提现 feeAmount − Σ已归集(FEE_COLLECTION internalTransaction amount)。
+ * 推导自不变量「客户池 − Σclaim = 未归集 fee」,无需任何挂账科目。
+ * SUCCESS 是终态(RETURNED 在成功前分叉),差额口径自校正、中断重跑安全。
+ *
+ * 物理转账: C_MAIN→F_OPS (class B); TB 镜像由 funds-flow CLEAR 的
+ * FEE_DECOMMINGLE 完成(Task 6); 不再读任何 TB 挂账余额。
  *
  * Layering: orchestrates domain services only; the sole direct Prisma use is the
- * asset query and the read-only idempotency `findFirst`.
+ * asset query, the Prisma-derived fee net, and the read-only idempotency `findFirst`.
  */
 @Injectable()
 export class FeeCollectionWorkflowService {
@@ -54,7 +50,6 @@ export class FeeCollectionWorkflowService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly accounting: AccountingService,
     private readonly batchService: SettlementBatchService,
     private readonly transferWorkflow: InternalTransferWorkflowService,
     private readonly systemWallets: SystemWalletResolver,
@@ -68,34 +63,34 @@ export class FeeCollectionWorkflowService {
 
     const candidates: FeeCandidate[] = [];
     for (const asset of assets) {
-      const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
-      if (!ledger) {
-        this.logger.debug(
-          `Fee collection: no TB ledger for currency ${asset.currency} (asset=${asset.id}) — skip`,
-        );
-        continue;
-      }
-
-      const tbAccountId = await this.accounting.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
-        ledger,
-        ownerType: 'SYSTEM',
+      // 应归集 = 成功提现累计 fee − 历史已归集(FEE_COLLECTION transfer 累计)。
+      // 推导自不变量「客户池 − Σclaim = 未归集 fee」,无需任何挂账科目。
+      // SUCCESS 是终态,不会回退(RETURNED 在成功前分叉),差额口径自校正、中断重跑安全。
+      const accrued = await (this.prisma as any).withdrawTransaction.aggregate({
+        where: { assetId: asset.id, status: WithdrawTransactionStatus.SUCCESS },
+        _sum: { feeAmount: true },
       });
-      const balance = await this.accounting.lookupBalance(tbAccountId);
-      const net = balance.creditsPosted - balance.debitsPosted;
-      if (net <= 0n) continue;
-
-      candidates.push({
-        assetId: asset.id,
-        currency: asset.currency,
-        decimals: asset.decimals,
-        netBigint: net,
+      const collected = await (this.prisma as any).internalTransaction.aggregate({
+        // Terminally failed collect transfers never moved funds — excluding them
+        // lets the next run re-collect the same fees instead of losing them.
+        where: {
+          assetId: asset.id,
+          sourceType: FEE_SOURCE_TYPE,
+          status: { notIn: ['FAILED', 'CANCELLED'] },
+        },
+        _sum: { amount: true },
       });
+      const net = new Prisma.Decimal(accrued._sum.feeAmount ?? 0).sub(
+        new Prisma.Decimal(collected._sum.amount ?? 0),
+      );
+      if (net.lte(0)) continue;
+
+      candidates.push({ assetId: asset.id, currency: asset.currency, decimals: asset.decimals, netDecimal: net });
     }
 
     // No accrued fees → return without creating an empty batch.
     if (candidates.length === 0) {
-      this.logger.log('Fee collection: no accrued FEE_RECEIVABLE — no-op');
+      this.logger.log('Fee collection: no accrued fees (Prisma-derived) — no-op');
       return { batchNo: null, assetCount: 0, collected: 0 };
     }
 
@@ -107,7 +102,6 @@ export class FeeCollectionWorkflowService {
     let collected = 0;
 
     for (const candidate of candidates) {
-      const amount = bigintToDecimal(candidate.netBigint, candidate.decimals);
       const from = await this.systemWallets.resolve(candidate.assetId, 'C_MAIN');
       const ops = await this.systemWallets.resolve(candidate.assetId, 'F_OPS');
 
@@ -127,13 +121,13 @@ export class FeeCollectionWorkflowService {
             ownerType: 'PLATFORM',
             ownerId: 'PLATFORM',
             assetId: candidate.assetId,
-            amount: amount.toString(),
+            amount: candidate.netDecimal.toString(),
             fromWalletId: from.id,
             toWalletId: ops.id,
             triggerSource: 'CRON',
             settlementBatchId: batch.id,
             grossInAmount: '0',
-            grossOutAmount: amount.toString(),
+            grossOutAmount: candidate.netDecimal.toString(),
           },
           operatorId,
         );
