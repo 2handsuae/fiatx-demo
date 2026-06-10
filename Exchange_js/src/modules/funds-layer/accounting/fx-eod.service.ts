@@ -44,8 +44,25 @@ export class FxEodService {
     private readonly rateProvider: BinanceRateProvider,
   ) {}
 
+  /**
+   * Process-level serialization latch. CLEAR events are emitted without awaiting
+   * async handlers, so two runs can interleave between the bridge-balance read and
+   * the evidence-count id allocation — both would book the same sweep under
+   * different seq ids (double booking). All entry points funnel through here.
+   */
+  private runChain: Promise<unknown> = Promise.resolve();
+
   /** EOD 物理结算完成后调用。batchNo 进 evidence sourceNo → 同批次幂等。 */
   async runEodAccounting(batchNo: string): Promise<EodAccountingReport> {
+    const run = this.runChain.then(
+      () => this.doRunEodAccounting(batchNo),
+      () => this.doRunEodAccounting(batchNo),
+    );
+    this.runChain = run.catch(() => {});
+    return run;
+  }
+
+  private async doRunEodAccounting(batchNo: string): Promise<EodAccountingReport> {
     const report: EodAccountingReport = { sweeps: [], revals: [], violations: [] };
     await this.sweepBridges(batchNo, report);
     await this.revalueFxPositions(batchNo, report);

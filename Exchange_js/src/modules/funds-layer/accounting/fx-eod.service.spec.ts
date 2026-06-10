@@ -345,5 +345,24 @@ describe('FxEodService', () => {
       expect(report).toEqual({ sweeps: [], revals: [], violations: [] });
       expect(accounting.executeTransfer).not.toHaveBeenCalled();
     });
+
+    it('serializes concurrent runs — second run sees the swept bridge and books nothing', async () => {
+      // Unserialized, both runs read the same +1000 bridge balance before either
+      // sweep posts (CLEAR events are emitted without awaiting handlers) and the
+      // same amount gets booked twice under different seq ids.
+      const bridgeId = acct(TB_ACCOUNT_CODES.TRADE_CLEARING, USDT);
+      setBalance(bridgeId, { credits: 1000_000000n });
+      accounting.executeTransfer.mockImplementation(async () => {
+        setBalance(bridgeId, { credits: 0n }); // the sweep empties the bridge
+        return { tbTransferId: 1n };
+      });
+
+      await Promise.all([
+        service.runEodAccounting('OSB-10'),
+        service.runEodAccounting('OSB-10'),
+      ]);
+
+      expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
+    });
   });
 });
