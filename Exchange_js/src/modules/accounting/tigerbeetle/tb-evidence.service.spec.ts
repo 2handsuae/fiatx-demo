@@ -26,7 +26,7 @@ describe('TbEvidenceService', () => {
       sourceType: 'DEPOSIT',
       sourceNo: 'DEP-001',
       eventCode: 'EVT_DEPOSIT_SUCCESS',
-      debitCode: 'A.CUSTODY',
+      debitCode: 'A.CLIENT_CUSTODY',
       creditCode: 'L.CLIENT_CREDIT',
       amount: 100.00,
       assetCurrency: 'AED',

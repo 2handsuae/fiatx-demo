@@ -52,7 +52,7 @@ async function main() {
     ownerType: 'SYSTEM',
   });
   const custodyId = await accounting.resolveTbAccountId({
-    code: TB_ACCOUNT_CODES.CUSTODY,
+    code: TB_ACCOUNT_CODES.CLIENT_CUSTODY,
     ledger: LEDGER,
     ownerType: 'SYSTEM',
   });
@@ -71,7 +71,7 @@ async function main() {
         sourceType: 'EOD_DEMO_SEED',
         sourceNo: `SEED-CLEARING-${RUN_TAG}`,
         eventCode: 'EOD_DEMO_SEED_CLEARING',
-        debitCode: 'A.CUSTODY',
+        debitCode: 'A.CLIENT_CUSTODY',
         creditCode: 'L.TRADE_CLEARING',
         assetCurrency: CURRENCY,
         traceId: `EODDEMO:${RUN_TAG}`,

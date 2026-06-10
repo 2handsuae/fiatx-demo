@@ -107,7 +107,7 @@ async function main() {
   await ensureWallet(prisma, asset.id, 'F_LIQ');
   await ensureWallet(prisma, asset.id, 'F_OPS');
 
-  const custodyId = await ensureTbAccount(accounting, TB_ACCOUNT_CODES.CUSTODY);
+  const custodyId = await ensureTbAccount(accounting, TB_ACCOUNT_CODES.CLIENT_CUSTODY);
   const clearingId = await ensureTbAccount(accounting, TB_ACCOUNT_CODES.TRADE_CLEARING);
   const feeId = await ensureTbAccount(accounting, TB_ACCOUNT_CODES.FEE_RECEIVABLE);
 
@@ -137,7 +137,7 @@ async function main() {
         sourceType: 'VERIFY_SEED',
         sourceNo: `SEED-CLEARING-${RUN_TAG}`,
         eventCode: 'VERIFY_SEED_CLEARING',
-        debitCode: 'A.CUSTODY',
+        debitCode: 'A.CLIENT_CUSTODY',
         creditCode: 'L.TRADE_CLEARING',
         assetCurrency: CURRENCY,
         traceId: `VERIFY:${RUN_TAG}`,
@@ -159,7 +159,7 @@ async function main() {
         sourceType: 'VERIFY_SEED',
         sourceNo: `SEED-FEE-${RUN_TAG}`,
         eventCode: 'VERIFY_SEED_FEE',
-        debitCode: 'A.CUSTODY',
+        debitCode: 'A.CLIENT_CUSTODY',
         creditCode: 'L.FEE_RECEIVABLE',
         assetCurrency: CURRENCY,
         traceId: `VERIFY:${RUN_TAG}`,

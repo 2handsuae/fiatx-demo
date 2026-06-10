@@ -354,7 +354,7 @@ async function ensureCustomerCreditFixture(customerId: string, assetId: string) 
               {
                 id: randomUUID(),
                 lineNo: 1,
-                accountCode: 'A.CUSTODY',
+                accountCode: 'A.CLIENT_CUSTODY',
                 drCr: 'DR',
                 amount: delta,
                 assetId,
@@ -400,7 +400,7 @@ async function ensureCustomerCreditFixture(customerId: string, assetId: string) 
         id: randomUUID(),
         journalId: existing.id,
         lineNo: nextLineNo,
-        accountCode: 'A.CUSTODY',
+        accountCode: 'A.CLIENT_CUSTODY',
         drCr: 'DR',
         amount: delta,
         assetId,

@@ -33,7 +33,7 @@ describe('BusinessConfigController', () => {
     await controller.listReleases({ subjectType: 'COA', take: 20 } as any);
     await controller.getRelease('COA-REL-001');
     await controller.getReleaseDiff('COA-REL-001');
-    await controller.listRevisions({ subjectType: 'COA', businessKey: 'A.CUSTODY' } as any);
+    await controller.listRevisions({ subjectType: 'COA', businessKey: 'A.CLIENT_CUSTODY' } as any);
     await controller.getRevision('revision-1');
 
     expect(businessConfigService.listReleases).toHaveBeenCalledWith({
@@ -44,7 +44,7 @@ describe('BusinessConfigController', () => {
     expect(businessConfigService.getReleaseDiff).toHaveBeenCalledWith('COA-REL-001');
     expect(businessConfigService.listRevisions).toHaveBeenCalledWith({
       subjectType: 'COA',
-      businessKey: 'A.CUSTODY',
+      businessKey: 'A.CLIENT_CUSTODY',
     });
     expect(businessConfigService.getRevisionById).toHaveBeenCalledWith('revision-1');
   });

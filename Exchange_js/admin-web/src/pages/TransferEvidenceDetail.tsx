@@ -95,12 +95,20 @@ function buildSourceLink(sourceType: string, sourceNo: string): string | null {
 
 /** TB account code → human-readable COA label */
 const CODE_TO_COA: Record<string, string> = {
-  '1': 'A.BANK',
-  '10': 'A.CUSTODY',
+  '1': 'A.CLIENT_BANK',
+  '10': 'A.CLIENT_CUSTODY',
+  '50': 'A.FIRM_OPS',
+  '60': 'A.FX_POSITION',
   '100': 'L.CLIENT_CREDIT',
   '101': 'L.CLIENT_AUDIT',
   '110': 'L.TRADE_CLEARING',
   '120': 'L.FEE_RECEIVABLE',
+  '200': 'E.PAID_IN_CAPITAL',
+  '210': 'E.RETAINED_EARNINGS',
+  '300': 'R.FEE_INCOME',
+  '310': 'R.SPREAD_INCOME',
+  '320': 'R.FX_UNREALIZED_PNL',
+  '330': 'R.FX_REALIZED_PNL',
 };
 
 function coaLabel(code: string): string {

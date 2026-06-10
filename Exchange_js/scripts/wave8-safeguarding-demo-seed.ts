@@ -427,7 +427,7 @@ async function adjustLiability(
   customerId: string,
   assetId: string,
   targetLiability: string,
-  assetAccountCode: 'A.CUSTODY' | 'A.BANK',
+  assetAccountCode: 'A.CLIENT_CUSTODY' | 'A.CLIENT_BANK',
   sourceId: string,
   description: string,
 ) {
@@ -637,7 +637,7 @@ async function main() {
       customer.id,
       assets.btc.id,
       DEMO_SCENARIOS.BTC.targetLiability,
-      'A.CUSTODY',
+      'A.CLIENT_CUSTODY',
       'WF16-DEMO-BTC-LIABILITY',
       'Wave 8 safeguarding demo BTC liability fixture',
     );
@@ -645,7 +645,7 @@ async function main() {
       customer.id,
       assets.usdt.id,
       DEMO_SCENARIOS.USDT.targetLiability,
-      'A.CUSTODY',
+      'A.CLIENT_CUSTODY',
       'WF16-DEMO-USDT-LIABILITY',
       'Wave 8 safeguarding demo USDT liability fixture',
     );
@@ -653,7 +653,7 @@ async function main() {
       customer.id,
       assets.aed.id,
       DEMO_SCENARIOS.AED.targetLiability,
-      'A.BANK',
+      'A.CLIENT_BANK',
       'WF16-DEMO-AED-LIABILITY',
       'Wave 8 safeguarding demo AED liability fixture',
     );

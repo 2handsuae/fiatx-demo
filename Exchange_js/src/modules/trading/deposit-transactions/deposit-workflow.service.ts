@@ -409,8 +409,8 @@ export class DepositWorkflowService implements OnModuleInit {
     if (step === 'STEP_1') {
       // Fiat assets use BANK (code 1), crypto uses CUSTODY (code 10)
       const holdingCode = asset.type === 'FIAT'
-        ? TB_ACCOUNT_CODES.BANK
-        : TB_ACCOUNT_CODES.CUSTODY;
+        ? TB_ACCOUNT_CODES.CLIENT_BANK
+        : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
 
       const debitAccountId = await this.accountingService.resolveTbAccountId({
         code: holdingCode,

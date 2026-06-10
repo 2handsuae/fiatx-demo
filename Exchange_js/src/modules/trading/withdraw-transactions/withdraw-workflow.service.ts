@@ -473,7 +473,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
           sourceNo: w.withdrawNo,
           eventCode: 'WITHDRAW_POST_NET',
           debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-          creditCode: String(w.asset?.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY),
+          creditCode: String(w.asset?.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY),
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',

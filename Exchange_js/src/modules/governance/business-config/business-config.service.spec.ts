@@ -421,9 +421,9 @@ describe('BusinessConfigService', () => {
         {
           id: 'revision-asset-r1',
           subjectType: 'COA',
-          businessKey: 'A.CUSTODY',
+          businessKey: 'A.CLIENT_CUSTODY',
           revisionNo: 1,
-          payloadJson: JSON.stringify({ code: 'A.CUSTODY', name: 'Custody v1' }),
+          payloadJson: JSON.stringify({ code: 'A.CLIENT_CUSTODY', name: 'Custody v1' }),
           contentHash: 'hash-r1',
           changeSummary: 'v1',
           status: 'PUBLISHED',
@@ -431,9 +431,9 @@ describe('BusinessConfigService', () => {
         {
           id: 'revision-asset-r2',
           subjectType: 'COA',
-          businessKey: 'A.CUSTODY',
+          businessKey: 'A.CLIENT_CUSTODY',
           revisionNo: 2,
-          payloadJson: JSON.stringify({ code: 'A.CUSTODY', name: 'Custody v2' }),
+          payloadJson: JSON.stringify({ code: 'A.CLIENT_CUSTODY', name: 'Custody v2' }),
           contentHash: 'hash-r2',
           changeSummary: 'v2',
           status: 'PUBLISHED',
@@ -473,7 +473,7 @@ describe('BusinessConfigService', () => {
           releaseId: 'release-coa-1',
           revisionId: 'revision-asset-r1',
           subjectType: 'COA',
-          businessKey: 'A.CUSTODY',
+          businessKey: 'A.CLIENT_CUSTODY',
           sortOrder: 1,
         },
         {
@@ -481,7 +481,7 @@ describe('BusinessConfigService', () => {
           releaseId: 'release-coa-2',
           revisionId: 'revision-asset-r2',
           subjectType: 'COA',
-          businessKey: 'A.CUSTODY',
+          businessKey: 'A.CLIENT_CUSTODY',
           sortOrder: 1,
         },
         {
@@ -498,12 +498,12 @@ describe('BusinessConfigService', () => {
     const diff = await service.getReleaseDiff('COA-REL-002');
     const revisions = await service.listRevisions({
       subjectType: 'COA',
-      businessKey: 'A.CUSTODY',
+      businessKey: 'A.CLIENT_CUSTODY',
     });
 
     expect(diff.items).toEqual([
       {
-        businessKey: 'A.CUSTODY',
+        businessKey: 'A.CLIENT_CUSTODY',
         action: 'CHANGED',
         fromRevisionNo: 1,
         toRevisionNo: 2,
@@ -519,7 +519,7 @@ describe('BusinessConfigService', () => {
     expect(revisions.items.map((item: any) => item.revisionNo)).toEqual([2, 1]);
     expect(revisions.items[0].payload).toEqual(
       expect.objectContaining({
-        code: 'A.CUSTODY',
+        code: 'A.CLIENT_CUSTODY',
         name: 'Custody v2',
       }),
     );

@@ -599,7 +599,7 @@ export class WithdrawTransactionsService {
               ownerType: 'CUSTOMER',
               ownerUuid: userId,
             });
-            const netTargetCode = isCryptoWithdraw ? TB_ACCOUNT_CODES.CUSTODY : TB_ACCOUNT_CODES.BANK;
+            const netTargetCode = isCryptoWithdraw ? TB_ACCOUNT_CODES.CLIENT_CUSTODY : TB_ACCOUNT_CODES.CLIENT_BANK;
             const netTargetId = await this.accountingService.resolveTbAccountId({
               code: netTargetCode,
               ledger,

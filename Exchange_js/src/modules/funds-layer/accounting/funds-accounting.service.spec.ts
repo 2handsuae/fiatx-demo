@@ -16,7 +16,7 @@ const BANK_ID = 4444n;
 const resolveById = ({ code }: { code: number }) => {
   if (code === TB_ACCOUNT_CODES.TRADE_CLEARING) return Promise.resolve(TRADE_CLEARING_ID);
   if (code === TB_ACCOUNT_CODES.FEE_RECEIVABLE) return Promise.resolve(FEE_RECEIVABLE_ID);
-  if (code === TB_ACCOUNT_CODES.BANK) return Promise.resolve(BANK_ID);
+  if (code === TB_ACCOUNT_CODES.CLIENT_BANK) return Promise.resolve(BANK_ID);
   return Promise.resolve(CUSTODY_ID);
 };
 
@@ -227,8 +227,8 @@ describe('FundsAccountingService', () => {
     await service.applyAccounting({ accountingClass: AccountingClass.B, internalTransferId: 't-fiat' });
 
     const resolvedCodes = accounting.resolveTbAccountId.mock.calls.map((c: any) => c[0].code);
-    expect(resolvedCodes).toContain(TB_ACCOUNT_CODES.BANK);
-    expect(resolvedCodes).not.toContain(TB_ACCOUNT_CODES.CUSTODY);
+    expect(resolvedCodes).toContain(TB_ACCOUNT_CODES.CLIENT_BANK);
+    expect(resolvedCodes).not.toContain(TB_ACCOUNT_CODES.CLIENT_CUSTODY);
 
     const call = accounting.executeTransfer.mock.calls[0][0];
     expect(call.creditAccountId).toBe(BANK_ID);
@@ -282,7 +282,7 @@ describe('FundsAccountingService', () => {
 
     const codes = accounting.resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
     expect(codes).toContain(TB_ACCOUNT_CODES.FEE_RECEIVABLE);
-    expect(codes).toContain(TB_ACCOUNT_CODES.BANK);
+    expect(codes).toContain(TB_ACCOUNT_CODES.CLIENT_BANK);
     const xfer = accounting.executeTransfer.mock.calls[0][0];
     expect(xfer.amount).toBe(18n); // 0.18 AED at 2 decimals
     // evidence sourceType must come from the transfer, not be hardcoded

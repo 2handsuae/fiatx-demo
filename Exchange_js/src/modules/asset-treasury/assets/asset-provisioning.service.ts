@@ -28,7 +28,7 @@ export class AssetProvisioningService {
       data: { tbLedgerId },
     });
 
-    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY;
+    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
 
     const accountParams: CreateTbAccountParams[] = [
       {

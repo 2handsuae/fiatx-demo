@@ -108,8 +108,8 @@ export class FundsAccountingService {
     });
     const counterpartyCode =
       transfer.asset.type === 'FIAT'
-        ? TB_ACCOUNT_CODES.BANK
-        : TB_ACCOUNT_CODES.CUSTODY;
+        ? TB_ACCOUNT_CODES.CLIENT_BANK
+        : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
     const counterpartyId = await this.accounting.resolveTbAccountId({
       code: counterpartyCode,
       ledger,
@@ -202,7 +202,7 @@ export class FundsAccountingService {
 
     const drainSourceType = transfer.sourceType ?? 'FIAT_FEE_COLLECTION';
     const counterpartyCode =
-      transfer.asset.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY;
+      transfer.asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
     const feeReceivableId = await this.accounting.resolveTbAccountId({
       code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
       ledger,

@@ -134,7 +134,7 @@ export class AssetActivationWorkflowService {
       throw new BadRequestException('Asset has not been provisioned for TigerBeetle');
     }
 
-    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.BANK : TB_ACCOUNT_CODES.CUSTODY;
+    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
     const requiredCodes = [custodyCode, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE];
 
     for (const code of requiredCodes) {

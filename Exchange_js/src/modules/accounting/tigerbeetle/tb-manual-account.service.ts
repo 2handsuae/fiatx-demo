@@ -22,8 +22,8 @@ import { isCustomerApprovedAndActive } from '../../identity/customer-status.util
 import { AccountFlags } from 'tigerbeetle-node';
 
 const SYSTEM_CODES = new Set<number>([
-  TB_ACCOUNT_CODES.BANK,
-  TB_ACCOUNT_CODES.CUSTODY,
+  TB_ACCOUNT_CODES.CLIENT_BANK,
+  TB_ACCOUNT_CODES.CLIENT_CUSTODY,
   TB_ACCOUNT_CODES.TRADE_CLEARING,
   TB_ACCOUNT_CODES.FEE_RECEIVABLE,
 ]);

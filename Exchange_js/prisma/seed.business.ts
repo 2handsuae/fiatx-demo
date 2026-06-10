@@ -124,10 +124,10 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     // System TB accounts (ownerType SYSTEM, no ownerUuid).
     const isFiat = asset.type === 'FIAT';
     const custodyCode = isFiat
-      ? TB_ACCOUNT_CODES.BANK
-      : TB_ACCOUNT_CODES.CUSTODY;
+      ? TB_ACCOUNT_CODES.CLIENT_BANK
+      : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
     const systemAccounts = [
-      { code: custodyCode, desc: isFiat ? 'BANK' : 'CUSTODY' },
+      { code: custodyCode, desc: isFiat ? 'CLIENT_BANK' : 'CLIENT_CUSTODY' },
       { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
       { code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, desc: 'FEE_RECEIVABLE' },
     ];

@@ -85,7 +85,7 @@ async function main() {
     ownerType: 'SYSTEM',
   });
   const bankId = await accounting.resolveTbAccountId({
-    code: TB_ACCOUNT_CODES.BANK,
+    code: TB_ACCOUNT_CODES.CLIENT_BANK,
     ledger: LEDGER,
     ownerType: 'SYSTEM',
   });
@@ -103,7 +103,7 @@ async function main() {
         sourceType: 'FIAT_DEMO_SEED',
         sourceNo: `SEED-CLEARING-${RUN_TAG}`,
         eventCode: 'FIAT_DEMO_SEED_CLEARING',
-        debitCode: 'A.BANK',
+        debitCode: 'A.CLIENT_BANK',
         creditCode: 'L.TRADE_CLEARING',
         assetCurrency: CURRENCY,
         traceId: `FIATDEMO:${RUN_TAG}`,
