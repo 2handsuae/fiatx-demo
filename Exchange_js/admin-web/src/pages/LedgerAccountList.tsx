@@ -56,7 +56,14 @@ const SYSTEM_CODE_OPTIONS = [
   { value: 1, label: '1 · BANK' },
   { value: 10, label: '10 · CUSTODY' },
   { value: 110, label: '110 · TRADE_CLEARING' },
-  { value: 120, label: '120 · FEE_RECEIVABLE' },
+  { value: 50, label: '50 · FIRM_OPS' },
+  { value: 60, label: '60 · FX_POSITION' },
+  { value: 200, label: '200 · PAID_IN_CAPITAL' },
+  { value: 210, label: '210 · RETAINED_EARNINGS' },
+  { value: 300, label: '300 · FEE_INCOME' },
+  { value: 310, label: '310 · SPREAD_INCOME' },
+  { value: 320, label: '320 · FX_UNREALIZED_PNL' },
+  { value: 330, label: '330 · FX_REALIZED_PNL' },
 ];
 
 const CUSTOMER_CODE_OPTIONS = [

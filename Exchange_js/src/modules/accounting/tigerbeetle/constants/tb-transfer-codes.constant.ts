@@ -32,13 +32,6 @@ export const TB_TRANSFER_CODES = {
   SWAP_CLEARING_TO_SPREAD: 35,
   SWAP_CREDIT_TO_FEE: 36,
 
-  // EOD settlement: drain residual TRADE_CLEARING balance ↔ CUSTODY (40–41)
-  EOD_DRAIN_OUT: 40, // TRADE_CLEARING net CREDIT → debit TRADE_CLEARING, credit CUSTODY
-  EOD_DRAIN_IN: 41,  // TRADE_CLEARING net DEBIT  → debit CUSTODY, credit TRADE_CLEARING
-
-  // Fee collection: drain FEE_RECEIVABLE (always net CREDIT) ↔ CUSTODY (42)
-  FEE_DRAIN: 42, // FEE_RECEIVABLE net CREDIT → debit FEE_RECEIVABLE, credit CUSTODY
-
   // ── Two-book accounting (50–70) ──
   // Settlement-leg physical mirrors: client pool ↔ FIRM_OPS
   SETTLE_POOL_TO_FIRM: 50, // debit FIRM_OPS, credit CLIENT_BANK|CLIENT_CUSTODY
