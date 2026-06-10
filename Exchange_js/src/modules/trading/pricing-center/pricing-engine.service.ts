@@ -28,6 +28,8 @@ interface SwapQuoteBuildInput {
   roundingMode: RoundingMode;
   quoteLockSeconds: number;
   fees: FeeItem[];
+  feeCurrency: string;
+  feeDecimals: number;
   createdAt: Date;
   pairId: string;
   pairName: string;
@@ -41,6 +43,8 @@ interface SwapQuoteBuildInput {
 interface WithdrawalQuoteBuildInput {
   amount: Prisma.Decimal;
   fees: FeeItem[];
+  feeCurrency: string;
+  feeDecimals: number;
   createdAt: Date;
   quoteLockSeconds: number;
   policyCode: string;
@@ -138,7 +142,12 @@ export class PricingEngineService {
     return null;
   }
 
-  calculateFeeLines(amount: Prisma.Decimal, items: FeeItem[]): {
+  calculateFeeLines(
+    amount: Prisma.Decimal,
+    items: FeeItem[],
+    feeCurrency: string,
+    feeDecimals: number,
+  ): {
     lines: CalculatedFeeLine[];
     totals: Record<string, string>;
   } {
@@ -159,22 +168,21 @@ export class PricingEngineService {
         }
       }
 
-      if (item.cap !== null) {
-        const cap = this.toDecimal(item.cap);
-        if (fee.gt(cap)) {
-          fee = cap;
+      if (item.max !== null) {
+        const max = this.toDecimal(item.max);
+        if (fee.gt(max)) {
+          fee = max;
         }
       }
 
-      fee = this.roundDecimal(fee, item.roundingDp, item.roundingMode);
+      fee = this.roundDecimal(fee, feeDecimals, item.roundingMode);
 
-      const currency = String(item.currency || '').toUpperCase();
+      const currency = String(feeCurrency || '').toUpperCase();
       lines.push({
         itemCode: item.itemCode,
         calcType: item.calcType,
         currency,
         amount: fee.toString(),
-        adjustable: Boolean(item.adjustable),
       });
 
       const previous = totals.get(currency) || new Prisma.Decimal(0);
@@ -210,7 +218,12 @@ export class PricingEngineService {
       input.roundingDp,
       input.roundingMode,
     );
-    const { lines, totals } = this.calculateFeeLines(grossAmountOut, input.fees || []);
+    const { lines, totals } = this.calculateFeeLines(
+      grossAmountOut,
+      input.fees || [],
+      input.feeCurrency,
+      input.feeDecimals,
+    );
     const feeCurrencies = Object.keys(totals);
     const feeCurrency = feeCurrencies.length > 0 ? feeCurrencies[0] : null;
     const feeTotal = feeCurrency ? this.toDecimal(totals[feeCurrency]) : new Prisma.Decimal(0);
@@ -256,7 +269,12 @@ export class PricingEngineService {
   buildWithdrawalQuote(input: WithdrawalQuoteBuildInput): WithdrawalPricingResult {
     const quoteLockSeconds = Math.max(1, Math.floor(input.quoteLockSeconds || 30));
     const expiresAt = new Date(input.createdAt.getTime() + quoteLockSeconds * 1000);
-    const { lines, totals } = this.calculateFeeLines(input.amount, input.fees || []);
+    const { lines, totals } = this.calculateFeeLines(
+      input.amount,
+      input.fees || [],
+      input.feeCurrency,
+      input.feeDecimals,
+    );
 
     return {
       createdAt: input.createdAt.toISOString(),

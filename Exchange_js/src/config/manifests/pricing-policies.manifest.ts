@@ -80,7 +80,6 @@ export function buildDefaultSwapPricingPolicyConfig(
           {
             id: tierId,
             name: 'Default Tier',
-            priority: 1,
             enabled: true,
             rateMarkupBps: 0,
             conditions: {
@@ -122,7 +121,6 @@ export function buildDefaultWithdrawalPricingPolicyConfig(
         {
           id: tierId,
           name: 'Default Tier',
-          priority: 1,
           enabled: true,
           conditions: {
             amountMin: '0',
@@ -134,24 +132,18 @@ export function buildDefaultWithdrawalPricingPolicyConfig(
               itemCode: 'WITHDRAW_SERVICE_FEE',
               calcType: 'FLAT' as const,
               value: '0',
-              currency: asset.currency,
               min: null,
-              cap: null,
-              roundingDp: asset.decimals,
+              max: null,
               roundingMode: 'ROUND' as const,
-              adjustable: false,
             },
             {
               id: `${tierId}-FEE-002`,
               itemCode: 'NETWORK_FEE_EST',
               calcType: 'FLAT' as const,
               value: '0',
-              currency: asset.currency,
               min: null,
-              cap: null,
-              roundingDp: asset.decimals,
+              max: null,
               roundingMode: 'ROUND' as const,
-              adjustable: false,
             },
           ],
         },

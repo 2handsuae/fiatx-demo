@@ -1,7 +1,7 @@
 // admin-web/src/pages/funds-layer/SettlementListPage.tsx
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { Play, RefreshCw, Search } from 'lucide-react';
 import Pagination from '../../components/common/Pagination';
 import {
   adminButtonClass,
@@ -61,6 +61,7 @@ const SettlementListPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
 
   const requestSeqRef = useRef(0);
 
@@ -117,6 +118,28 @@ const SettlementListPage = () => {
     void fetchItems(1, DEFAULT_FILTERS);
   };
 
+  // Manual EOD run — nets ALL open crypto outstandings (grouped by currency)
+  // into one batch, mirroring the 23:59 cron. No-op if nothing is open.
+  const handleRunEod = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/funds-layer/settlements/run`,
+        { method: 'POST' },
+      );
+      if (!res.ok)
+        throw new Error(await getApiErrorMessage(res, 'EOD settlement run failed.'));
+      await fetchItems(1, DEFAULT_FILTERS);
+      setFilters(DEFAULT_FILTERS);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'EOD settlement run failed.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Title bar ── */}
@@ -124,6 +147,15 @@ const SettlementListPage = () => {
         title="Settlement Batches"
         meta={`${total} batch${total === 1 ? '' : 'es'}`}
       >
+        <button
+          onClick={() => void handleRunEod()}
+          disabled={running}
+          className={adminButtonClass('listPrimary')}
+          title="Net all open crypto outstandings into a settlement batch (mirrors EOD cron)"
+        >
+          <Play size={13} />
+          {running ? 'Running…' : 'Run EOD Settlement'}
+        </button>
         <button
           onClick={() => void fetchItems(currentPage)}
           className={adminIconButtonClass()}

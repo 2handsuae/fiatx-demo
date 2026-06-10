@@ -9,17 +9,14 @@ export interface FeeItemState {
   itemCode: string;
   calcType: string;
   value: string;
-  currency: string;
   min: string;
-  cap: string;
-  roundingDp: number;
+  max: string;
   roundingMode: string;
 }
 
 export interface TierState {
   id: string;
   name: string;
-  priority: number;
   enabled: boolean;
   amountMin: string;
   amountMax: string;
@@ -31,7 +28,7 @@ export interface TierState {
 
 const WITHDRAWAL_ITEM_CODES = ['WITHDRAW_SERVICE_FEE', 'NETWORK_FEE_EST'] as const;
 const SWAP_ITEM_CODES = ['SWAP_SERVICE_FEE', 'COMPLIANCE_FEE'] as const;
-const CALC_TYPES = ['FLAT', 'PERCENT', 'PERCENT_WITH_MIN'] as const;
+const CALC_TYPES = ['FLAT', 'PERCENT'] as const;
 const ROUNDING_MODES = ['ROUND', 'CEIL', 'FLOOR'] as const;
 
 const newFeeItem = (tierId: string, index: number): FeeItemState => ({
@@ -39,10 +36,8 @@ const newFeeItem = (tierId: string, index: number): FeeItemState => ({
   itemCode: WITHDRAWAL_ITEM_CODES[0],
   calcType: 'FLAT',
   value: '0',
-  currency: '',
   min: '',
-  cap: '',
-  roundingDp: 6,
+  max: '',
   roundingMode: 'ROUND',
 });
 
@@ -51,7 +46,6 @@ export const newTier = (index: number): TierState => {
   return {
     id: tierId,
     name: index === 0 ? 'Default Tier' : `Tier ${index + 1}`,
-    priority: index + 1,
     enabled: true,
     amountMin: '0',
     amountMax: '',
@@ -60,13 +54,14 @@ export const newTier = (index: number): TierState => {
 };
 
 /* ── Serialization ─────────────────────────────────────────── */
+// currency + decimals (DP) are derived from the asset by the pricing engine,
+// so they are not part of the editable config. roundingMode stays configurable.
 
 export function serializeTiers(tiers: TierState[]): string {
   return JSON.stringify({
     tiers: tiers.map((t, ti) => ({
       id: t.id || `TIER-${ti + 1}`,
       name: t.name,
-      priority: t.priority,
       enabled: t.enabled,
       ...(t.rateMarkupBps != null && t.rateMarkupBps !== '' ? { rateMarkupBps: Number(t.rateMarkupBps) } : {}),
       conditions: {
@@ -78,12 +73,9 @@ export function serializeTiers(tiers: TierState[]): string {
         itemCode: f.itemCode,
         calcType: f.calcType,
         value: String(f.value),
-        currency: f.currency,
         min: f.min ? String(f.min) : null,
-        cap: f.cap ? String(f.cap) : null,
-        roundingDp: f.roundingDp,
+        max: f.max ? String(f.max) : null,
         roundingMode: f.roundingMode,
-        adjustable: false,
       })),
     })),
   });
@@ -91,30 +83,10 @@ export function serializeTiers(tiers: TierState[]): string {
 
 export function parseTiersJson(json: string): TierState[] {
   try {
-    const parsed = JSON.parse(json) as {
-      tiers: Array<{
-        id: string;
-        name: string;
-        priority: number;
-        enabled: boolean;
-        conditions: { amountMin: number; amountMax: number | null };
-        feeItems: Array<{
-          id: string;
-          itemCode: string;
-          calcType: string;
-          value: string;
-          currency: string;
-          min: string | null;
-          cap: string | null;
-          roundingDp: number;
-          roundingMode: string;
-        }>;
-      }>;
-    };
+    const parsed = JSON.parse(json) as { tiers: any[] };
     return parsed.tiers.map((t: any) => ({
       id: t.id,
       name: t.name,
-      priority: t.priority,
       enabled: t.enabled,
       amountMin: String(t.conditions.amountMin ?? 0),
       amountMax: t.conditions.amountMax != null ? String(t.conditions.amountMax) : '',
@@ -124,10 +96,9 @@ export function parseTiersJson(json: string): TierState[] {
         itemCode: f.itemCode,
         calcType: f.calcType,
         value: String(f.value),
-        currency: f.currency,
         min: f.min ? String(f.min) : '',
-        cap: f.cap ? String(f.cap) : '',
-        roundingDp: f.roundingDp ?? 6,
+        // tolerate legacy `cap` when loading older configs
+        max: f.max ?? f.cap ? String(f.max ?? f.cap) : '',
         roundingMode: f.roundingMode ?? 'ROUND',
       })),
     }));
@@ -146,15 +117,11 @@ const fi =
 interface TierEditorProps {
   tiers: TierState[];
   onChange: (tiers: TierState[]) => void;
-  /** Default currency to pre-fill on new fee items (e.g. from selected asset) */
-  defaultCurrency?: string;
-  /** Allowed currency codes for fee items. Renders a <select> instead of free-text <input>. */
-  currencyOptions?: string[];
   /** 'withdrawal' (default) or 'swap' — controls item codes dropdown and rateMarkupBps input */
   mode?: 'withdrawal' | 'swap';
 }
 
-export default function TierEditor({ tiers, onChange, defaultCurrency = '', currencyOptions, mode = 'withdrawal' }: TierEditorProps) {
+export default function TierEditor({ tiers, onChange, mode = 'withdrawal' }: TierEditorProps) {
   const ITEM_CODES = mode === 'swap' ? SWAP_ITEM_CODES : WITHDRAWAL_ITEM_CODES;
 
   // Normalize any fee-item code that isn't valid for the current mode (e.g. a
@@ -198,7 +165,6 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
     const tier = tiers[tierIdx];
     const item = newFeeItem(tier.id, tier.feeItems.length);
     item.itemCode = ITEM_CODES[0];
-    if (defaultCurrency) item.currency = defaultCurrency;
     updateTier(tierIdx, { feeItems: [...tier.feeItems, item] });
   };
 
@@ -211,11 +177,7 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
   };
 
   const addTier = () => {
-    const t = newTier(tiers.length);
-    if (defaultCurrency) {
-      t.feeItems = t.feeItems.map((f) => ({ ...f, currency: defaultCurrency }));
-    }
-    onChange([...tiers, t]);
+    onChange([...tiers, newTier(tiers.length)]);
   };
 
   const removeTier = (idx: number) => {
@@ -235,17 +197,6 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
               onChange={(e) => updateTier(tierIdx, { name: e.target.value })}
               placeholder="Tier name"
             />
-            <label className="flex items-center gap-1 font-mono text-[10px] text-adm-t3">
-              Pri:
-              <input
-                type="number"
-                className={`${fi} w-[50px]`}
-                value={tier.priority}
-                onChange={(e) =>
-                  updateTier(tierIdx, { priority: parseInt(e.target.value) || 1 })
-                }
-              />
-            </label>
             <label className="flex items-center gap-1 font-mono text-[10px] text-adm-t3">
               <input
                 type="checkbox"
@@ -302,10 +253,8 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
                 <th className="px-1.5 py-1 text-left">Item Code</th>
                 <th className="px-1.5 py-1 text-left">Calc Type</th>
                 <th className="px-1.5 py-1 text-left">Value</th>
-                <th className="px-1.5 py-1 text-left">Currency</th>
                 <th className="px-1.5 py-1 text-left">Min</th>
-                <th className="px-1.5 py-1 text-left">Cap</th>
-                <th className="px-1.5 py-1 text-left">DP</th>
+                <th className="px-1.5 py-1 text-left">Max</th>
                 <th className="px-1.5 py-1 text-left">Round</th>
                 <th className="px-1.5 py-1 w-[28px]" />
               </tr>
@@ -345,27 +294,6 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
                     />
                   </td>
                   <td className="px-1 py-1">
-                    {currencyOptions && currencyOptions.length > 0 ? (
-                      <select
-                        className={`${fi} w-[75px]`}
-                        value={fee.currency}
-                        onChange={(e) => updateFeeItem(tierIdx, feeIdx, { currency: e.target.value })}
-                      >
-                        {!fee.currency && <option value="">—</option>}
-                        {currencyOptions.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        className={`${fi} w-[60px]`}
-                        value={fee.currency}
-                        onChange={(e) => updateFeeItem(tierIdx, feeIdx, { currency: e.target.value })}
-                        placeholder="USDT"
-                      />
-                    )}
-                  </td>
-                  <td className="px-1 py-1">
                     <input
                       type="number"
                       step="any"
@@ -380,17 +308,9 @@ export default function TierEditor({ tiers, onChange, defaultCurrency = '', curr
                       type="number"
                       step="any"
                       className={`${fi} w-[60px]`}
-                      value={fee.cap}
-                      onChange={(e) => updateFeeItem(tierIdx, feeIdx, { cap: e.target.value })}
+                      value={fee.max}
+                      onChange={(e) => updateFeeItem(tierIdx, feeIdx, { max: e.target.value })}
                       placeholder="—"
-                    />
-                  </td>
-                  <td className="px-1 py-1">
-                    <input
-                      type="number"
-                      className={`${fi} w-[40px]`}
-                      value={fee.roundingDp}
-                      onChange={(e) => updateFeeItem(tierIdx, feeIdx, { roundingDp: parseInt(e.target.value) || 0 })}
                     />
                   </td>
                   <td className="px-1 py-1">

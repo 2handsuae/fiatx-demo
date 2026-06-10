@@ -15,7 +15,6 @@ describe('PricingEngineService', () => {
         {
           id: 'tier-1',
           name: 'Tier1',
-          priority: 20,
           enabled: true,
           rateMarkupBps: 50,
           conditions: {
@@ -27,7 +26,6 @@ describe('PricingEngineService', () => {
         {
           id: 'tier-2',
           name: 'Tier2',
-          priority: 10,
           enabled: true,
           rateMarkupBps: 10,
           conditions: {
@@ -42,33 +40,32 @@ describe('PricingEngineService', () => {
     expect(matched?.id).toBe('tier-2');
   });
 
-  it('should calculate fee with min/cap and rounding', () => {
-    const result = service.calculateFeeLines(new Prisma.Decimal('123.456'), [
-      {
-        id: 'fee-1',
-        itemCode: 'SWAP_SERVICE_FEE',
-        calcType: 'PERCENT',
-        value: '1.25',
-        currency: 'AED',
-        min: '0.50',
-        cap: '2.00',
-        roundingDp: 2,
-        roundingMode: 'ROUND',
-        adjustable: true,
-      },
-      {
-        id: 'fee-2',
-        itemCode: 'COMPLIANCE_FEE',
-        calcType: 'FLAT',
-        value: '0.3333',
-        currency: 'AED',
-        min: null,
-        cap: null,
-        roundingDp: 2,
-        roundingMode: 'CEIL',
-        adjustable: false,
-      },
-    ]);
+  it('should calculate fee with min/max and rounding', () => {
+    const result = service.calculateFeeLines(
+      new Prisma.Decimal('123.456'),
+      [
+        {
+          id: 'fee-1',
+          itemCode: 'SWAP_SERVICE_FEE',
+          calcType: 'PERCENT',
+          value: '1.25',
+          min: '0.50',
+          max: '2.00',
+          roundingMode: 'ROUND',
+        },
+        {
+          id: 'fee-2',
+          itemCode: 'COMPLIANCE_FEE',
+          calcType: 'FLAT',
+          value: '0.3333',
+          min: null,
+          max: null,
+          roundingMode: 'CEIL',
+        },
+      ],
+      'AED',
+      2,
+    );
 
     expect(result.lines).toHaveLength(2);
     expect(result.lines[0].amount).toBe('1.54');
@@ -85,6 +82,8 @@ describe('PricingEngineService', () => {
       roundingMode: 'ROUND',
       quoteLockSeconds: 45,
       fees: [],
+      feeCurrency: 'AED',
+      feeDecimals: 8,
       createdAt: new Date('2026-02-23T00:00:00.000Z'),
       pairId: 'pair-1',
       pairName: 'BTC ↔ AED',
@@ -95,7 +94,8 @@ describe('PricingEngineService', () => {
       policyId: 'POL-SWAP-ONLINE',
     });
 
-    expect(quote.fx.quotedRate).toBe('3.15469135');
+    // markup REDUCES the rate (platform spread): 3.12345678 × (1 − 100/10000)
+    expect(quote.fx.quotedRate).toBe('3.09222221');
     expect(quote.expiresAt).toBe('2026-02-23T00:00:45.000Z');
   });
 
@@ -106,7 +106,6 @@ describe('PricingEngineService', () => {
         {
           id: 'tier-default',
           name: 'Default',
-          priority: 100,
           enabled: true,
           conditions: {
             amountMin: '0',
@@ -117,7 +116,6 @@ describe('PricingEngineService', () => {
         {
           id: 'tier-amount',
           name: 'AmountTier',
-          priority: 10,
           enabled: true,
           conditions: {
             amountMin: '41',
@@ -132,32 +130,31 @@ describe('PricingEngineService', () => {
   });
 
   it('should calculate withdrawal service/gas fees with percent minimum and flat', () => {
-    const result = service.calculateFeeLines(new Prisma.Decimal('100'), [
-      {
-        id: 'service-fee',
-        itemCode: 'WITHDRAW_SERVICE_FEE',
-        calcType: 'PERCENT',
-        value: '2',
-        currency: 'AED',
-        min: '5',
-        cap: null,
-        roundingDp: 2,
-        roundingMode: 'ROUND',
-        adjustable: false,
-      },
-      {
-        id: 'gas-fee',
-        itemCode: 'NETWORK_FEE_EST',
-        calcType: 'FLAT',
-        value: '1.25',
-        currency: 'AED',
-        min: null,
-        cap: null,
-        roundingDp: 2,
-        roundingMode: 'ROUND',
-        adjustable: false,
-      },
-    ]);
+    const result = service.calculateFeeLines(
+      new Prisma.Decimal('100'),
+      [
+        {
+          id: 'service-fee',
+          itemCode: 'WITHDRAW_SERVICE_FEE',
+          calcType: 'PERCENT',
+          value: '2',
+          min: '5',
+          max: null,
+          roundingMode: 'ROUND',
+        },
+        {
+          id: 'gas-fee',
+          itemCode: 'NETWORK_FEE_EST',
+          calcType: 'FLAT',
+          value: '1.25',
+          min: null,
+          max: null,
+          roundingMode: 'ROUND',
+        },
+      ],
+      'AED',
+      2,
+    );
 
     expect(result.lines[0].amount).toBe('5');
     expect(result.lines[1].amount).toBe('1.25');

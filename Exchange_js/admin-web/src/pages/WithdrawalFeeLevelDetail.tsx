@@ -290,7 +290,6 @@ export default function WithdrawalFeeLevelDetail() {
               tiers: Array<{
                 id: string;
                 name: string;
-                priority: number;
                 enabled: boolean;
                 conditions: { amountMin: number; amountMax: number | null };
                 feeItems: Array<{
@@ -298,9 +297,8 @@ export default function WithdrawalFeeLevelDetail() {
                   itemCode: string;
                   calcType: string;
                   value: string;
-                  currency: string;
                   min: string | null;
-                  cap: string | null;
+                  max: string | null;
                 }>;
               }>;
             }
@@ -415,7 +413,6 @@ export default function WithdrawalFeeLevelDetail() {
                       </span>
                     </div>
                     <div className="font-mono text-[10px] text-adm-t3">
-                      Priority: {tier.priority} ·{' '}
                       <span className={tier.enabled ? 'text-adm-green' : 'text-adm-red'}>
                         {tier.enabled ? 'Enabled' : 'Disabled'}
                       </span>
@@ -439,9 +436,8 @@ export default function WithdrawalFeeLevelDetail() {
                           <th className="px-2 py-1.5 text-left font-medium">Fee Item</th>
                           <th className="px-2 py-1.5 text-left font-medium">Calc Type</th>
                           <th className="px-2 py-1.5 text-right font-medium">Value</th>
-                          <th className="px-2 py-1.5 text-left font-medium">Currency</th>
                           <th className="px-2 py-1.5 text-right font-medium">Min</th>
-                          <th className="px-2 py-1.5 text-right font-medium">Cap</th>
+                          <th className="px-2 py-1.5 text-right font-medium">Max</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -461,12 +457,11 @@ export default function WithdrawalFeeLevelDetail() {
                             <td className="px-2 py-1.5 text-right font-mono text-adm-t1">
                               {fee.value}
                             </td>
-                            <td className="px-2 py-1.5 text-adm-t2">{fee.currency}</td>
                             <td className="px-2 py-1.5 text-right text-adm-t3">
                               {fee.min ?? '—'}
                             </td>
                             <td className="px-2 py-1.5 text-right text-adm-t3">
-                              {fee.cap ?? '—'}
+                              {fee.max ?? '—'}
                             </td>
                           </tr>
                         ))}
@@ -643,8 +638,6 @@ export default function WithdrawalFeeLevelDetail() {
                 <TierEditor
                   tiers={changeTiers}
                   onChange={setChangeTiers}
-                  defaultCurrency={level.asset.code.split('-')[0]}
-                  currencyOptions={[level.asset.code]}
                 />
               </div>
 

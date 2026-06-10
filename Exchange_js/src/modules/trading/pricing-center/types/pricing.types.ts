@@ -20,12 +20,9 @@ export interface FeeItem {
   itemCode: string;
   calcType: FeeCalcType;
   value: string;
-  currency: string;
   min: string | null;
-  cap: string | null;
-  roundingDp: number;
+  max: string | null;
   roundingMode: RoundingMode;
-  adjustable: boolean;
 }
 
 export interface SwapTierConditions {
@@ -45,7 +42,6 @@ export interface WithdrawalTierConditions {
 export interface SwapTier {
   id: string;
   name: string;
-  priority: number;
   enabled: boolean;
   rateMarkupBps: number;
   conditions: SwapTierConditions;
@@ -55,7 +51,6 @@ export interface SwapTier {
 export interface WithdrawalTier {
   id: string;
   name: string;
-  priority: number;
   enabled: boolean;
   conditions: WithdrawalTierConditions;
   feeItems: FeeItem[];
@@ -150,7 +145,6 @@ export interface CalculatedFeeLine {
   calcType: FeeCalcType;
   currency: string;
   amount: string;
-  adjustable: boolean;
 }
 
 export interface SwapPricingResult {

@@ -74,6 +74,13 @@ export class SwapQuoteService {
     );
     if (applicableLevels.length === 0) return null;
 
+    // Swap fees are denominated in the to-asset; rounding follows its decimals.
+    const toAsset = await this.prisma.asset.findUnique({
+      where: { id: input.toAssetId },
+      select: { currency: true, decimals: true },
+    });
+    if (!toAsset) return null;
+
     const candidates: ResolvedSwapLevel[] = [];
 
     for (const level of applicableLevels) {
@@ -87,6 +94,8 @@ export class SwapQuoteService {
       const { lines, totals } = this.engineService.calculateFeeLines(
         input.amount,
         matchedTier.feeItems,
+        toAsset.currency,
+        toAsset.decimals,
       );
 
       const totalFee = lines.reduce(
@@ -143,6 +152,11 @@ export class SwapQuoteService {
 
     const now = new Date();
 
+    const toAsset = await this.prisma.asset.findUnique({
+      where: { id: input.toAssetId },
+      select: { decimals: true },
+    });
+
     const pricingResult = this.engineService.buildSwapQuote({
       amount: input.amount,
       baseRate: externalRate.rate,
@@ -151,6 +165,8 @@ export class SwapQuoteService {
       roundingMode: 'ROUND',
       quoteLockSeconds: SWAP_QUOTE_TTL_SECONDS,
       fees: resolved.feeItems,
+      feeCurrency: input.toAssetCode,
+      feeDecimals: toAsset?.decimals ?? 8,
       createdAt: now,
       pairId: `${input.fromAssetId}_${input.toAssetId}`,
       pairName: `${input.fromAssetCode}/${input.toAssetCode}`,

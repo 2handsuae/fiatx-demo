@@ -194,16 +194,6 @@ const WithdrawalFeeLevelList = () => {
     }
 
     // Set currency from selected asset if empty
-    const selectedAsset = assets.find((a) => a.id === createForm.assetId);
-    const currency = selectedAsset?.code?.split('-')[0] || '';
-    const tiersWithCurrency = createTiers.map((t) => ({
-      ...t,
-      feeItems: t.feeItems.map((f) => ({
-        ...f,
-        currency: f.currency || currency,
-      })),
-    }));
-
     setCreateLoading(true);
     setCreateError(null);
     try {
@@ -217,7 +207,7 @@ const WithdrawalFeeLevelList = () => {
             name: createForm.name.trim(),
             assetId: createForm.assetId,
             isDefault: createForm.isDefault,
-            tiersJson: serializeTiers(tiersWithCurrency),
+            tiersJson: serializeTiers(createTiers),
             reason: createForm.reason.trim(),
           }),
         },
@@ -523,12 +513,6 @@ const WithdrawalFeeLevelList = () => {
                 <TierEditor
                   tiers={createTiers}
                   onChange={setCreateTiers}
-                  defaultCurrency={
-                    assets.find((a) => a.id === createForm.assetId)?.code?.split('-')[0] || ''
-                  }
-                  currencyOptions={
-                    [assets.find((a) => a.id === createForm.assetId)?.code].filter(Boolean) as string[]
-                  }
                 />
               </div>
 

@@ -48,6 +48,13 @@ export class WithdrawQuoteService {
     );
     if (applicableLevels.length === 0) return null;
 
+    // Withdrawal fees are denominated in the asset; rounding follows its decimals.
+    const asset = await this.prisma.asset.findUnique({
+      where: { id: input.assetId },
+      select: { currency: true, decimals: true },
+    });
+    if (!asset) return null;
+
     const candidates: ResolvedQuote[] = [];
 
     for (const level of applicableLevels) {
@@ -61,6 +68,8 @@ export class WithdrawQuoteService {
       const { lines, totals } = this.engineService.calculateFeeLines(
         input.amount,
         matchedTier.feeItems,
+        asset.currency,
+        asset.decimals,
       );
 
       const totalFee = lines.reduce(

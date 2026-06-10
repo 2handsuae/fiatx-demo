@@ -212,16 +212,6 @@ const SwapFeeLevelList = () => {
       return;
     }
 
-    const selectedToAsset = assets.find((a) => a.id === createForm.toAssetId);
-    const currency = selectedToAsset?.code?.split('-')[0] || '';
-    const tiersWithCurrency = createTiers.map((t) => ({
-      ...t,
-      feeItems: t.feeItems.map((f) => ({
-        ...f,
-        currency: f.currency || currency,
-      })),
-    }));
-
     setCreateLoading(true);
     setCreateError(null);
     try {
@@ -236,7 +226,7 @@ const SwapFeeLevelList = () => {
             fromAssetId: createForm.fromAssetId,
             toAssetId: createForm.toAssetId,
             isDefault: createForm.isDefault,
-            tiersJson: serializeTiers(tiersWithCurrency),
+            tiersJson: serializeTiers(createTiers),
             reason: createForm.reason.trim(),
           }),
         },
@@ -568,13 +558,6 @@ const SwapFeeLevelList = () => {
                 <TierEditor
                   tiers={createTiers}
                   onChange={setCreateTiers}
-                  defaultCurrency={
-                    assets.find((a) => a.id === createForm.toAssetId)?.code?.split('-')[0] || ''
-                  }
-                  currencyOptions={[
-                    assets.find((a) => a.id === createForm.fromAssetId)?.code,
-                    assets.find((a) => a.id === createForm.toAssetId)?.code,
-                  ].filter(Boolean) as string[]}
                   mode="swap"
                 />
               </div>
