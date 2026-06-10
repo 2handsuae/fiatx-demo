@@ -6,6 +6,7 @@ import { SettlementBatchService } from '../domain/settlement-batch.service';
 import { OutstandingConsumerService } from '../domain/outstanding-consumer.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
+import { FxEodService } from '../accounting/fx-eod.service';
 
 const EOD_SOURCE_TYPE = 'EOD_SETTLEMENT';
 
@@ -49,6 +50,7 @@ export class EodSettlementWorkflowService {
     private readonly consumer: OutstandingConsumerService,
     private readonly transferWorkflow: InternalTransferWorkflowService,
     private readonly systemWallets: SystemWalletResolver,
+    private readonly fxEod: FxEodService,
   ) {}
 
   async runEodSettlement(operatorId = 'SYSTEM'): Promise<RunEodSettlementResult> {
@@ -118,6 +120,9 @@ export class EodSettlementWorkflowService {
 
     await this.batchService.recomputeBatch(batch.id);
 
+    // Two-book: bridge sweep + FX reval + invariant checks ride the same EOD run.
+    await this.fxEod.runEodAccounting(batch.batchNo);
+
     return {
       batchNo: batch.batchNo,
       assetCount: groups.length,
@@ -142,6 +147,25 @@ export class EodSettlementWorkflowService {
       // 找到该 transfer 锁定的 outstanding，标 SETTLED，再重算 batch。
       await this.consumer.settle(event.internalTransferId, event.fundsFlowId);
       await this.batchService.recomputeBatch(transfer.settlementBatchId);
+
+      // Two-book: the bridge only becomes sweepable once async CLEARs mark
+      // swaps fully settled — re-run EOD accounting under the same batchNo
+      // (idempotent). Never let an accounting failure break the settlement
+      // closeout that just completed above.
+      try {
+        const batch = await (this.prisma as any).settlementBatch.findUnique({
+          where: { id: transfer.settlementBatchId },
+          select: { batchNo: true },
+        });
+        if (batch?.batchNo) {
+          await this.fxEod.runEodAccounting(batch.batchNo);
+        }
+      } catch (accountingErr) {
+        this.logger.error(
+          `EOD accounting failed after CLEAR for batch=${transfer.settlementBatchId}`,
+          accountingErr instanceof Error ? accountingErr.stack : undefined,
+        );
+      }
     } catch (err) {
       this.logger.error(
         `Failed to settle EOD item for internalTransfer=${event.internalTransferId}`,

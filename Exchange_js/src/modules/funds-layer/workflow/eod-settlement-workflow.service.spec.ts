@@ -5,6 +5,7 @@ import { SettlementBatchService } from '../domain/settlement-batch.service';
 import { OutstandingConsumerService } from '../domain/outstanding-consumer.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
+import { FxEodService } from '../accounting/fx-eod.service';
 import { EodSettlementWorkflowService } from './eod-settlement-workflow.service';
 
 describe('EodSettlementWorkflowService', () => {
@@ -23,8 +24,10 @@ describe('EodSettlementWorkflowService', () => {
   };
   let transferWorkflow: { initiate: jest.Mock };
   let systemWallets: { resolve: jest.Mock };
+  let fxEod: { runEodAccounting: jest.Mock };
   let prisma: {
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
+    settlementBatch: { findUnique: jest.Mock };
   };
 
   const batch = { id: 'b-1', batchNo: 'OSB-001' };
@@ -70,10 +73,18 @@ describe('EodSettlementWorkflowService', () => {
         Promise.resolve({ id: `w-${role}` }),
       ),
     };
+    fxEod = {
+      runEodAccounting: jest
+        .fn()
+        .mockResolvedValue({ sweeps: [], revals: [], violations: [] }),
+    };
     prisma = {
       internalTransaction: {
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
+      },
+      settlementBatch: {
+        findUnique: jest.fn().mockResolvedValue({ batchNo: 'OSB-001' }),
       },
     };
 
@@ -85,6 +96,7 @@ describe('EodSettlementWorkflowService', () => {
         { provide: OutstandingConsumerService, useValue: consumer },
         { provide: InternalTransferWorkflowService, useValue: transferWorkflow },
         { provide: SystemWalletResolver, useValue: systemWallets },
+        { provide: FxEodService, useValue: fxEod },
       ],
     }).compile();
 
@@ -98,6 +110,8 @@ describe('EodSettlementWorkflowService', () => {
       const result = await service.runEodSettlement();
 
       expect(batchService.createBatch).not.toHaveBeenCalled();
+      // No batch → no EOD accounting run either.
+      expect(fxEod.runEodAccounting).not.toHaveBeenCalled();
       expect(result).toEqual({
         batchNo: null,
         assetCount: 0,
@@ -155,6 +169,8 @@ describe('EodSettlementWorkflowService', () => {
       expect(consumer.markSettledNettedZero).not.toHaveBeenCalled();
       expect(consumer.lockToBatch).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
+      // Two-book EOD accounting rides the same run under the batchNo.
+      expect(fxEod.runEodAccounting).toHaveBeenCalledWith('OSB-001');
       expect(result).toEqual({
         batchNo: 'OSB-001',
         assetCount: 1,
@@ -225,8 +241,35 @@ describe('EodSettlementWorkflowService', () => {
 
       expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
+      // Two-book: re-run EOD accounting after the closeout (same batchNo, idempotent).
+      expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith({
+        where: { id: 'b-1' },
+        select: { batchNo: true },
+      });
+      expect(fxEod.runEodAccounting).toHaveBeenCalledWith('OSB-001');
       // No settlementBatchItem lookup.
       expect((prisma as any).settlementBatchItem).toBeUndefined();
+    });
+
+    it('CLEAR closeout survives an EOD accounting failure (logged, not thrown)', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValue({
+        id: 't-eod',
+        sourceType: 'EOD_SETTLEMENT',
+        settlementBatchId: 'b-1',
+      });
+      fxEod.runEodAccounting.mockRejectedValue(new Error('TB unavailable'));
+
+      await expect(
+        service.onFundsFlowStatusChanged({
+          fundsFlowId: 'ff-1',
+          internalTransferId: 't-eod',
+          oldStatus: 'PENDING',
+          newStatus: 'CLEAR',
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
+      expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
     });
 
     it('CLEAR for a non-EOD transfer: does nothing', async () => {

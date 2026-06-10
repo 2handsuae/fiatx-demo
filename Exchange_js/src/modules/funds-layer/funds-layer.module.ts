@@ -26,6 +26,8 @@ import { FundReturnRepairController } from './controllers/fund-return-repair.con
 import { SettlementAdminController } from './controllers/settlement-admin.controller';
 import { FundsAdminController } from './controllers/funds-admin.controller';
 import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
+import { PricingCenterModule } from '../trading/pricing-center/pricing-center.module';
+import { FxEodService } from './accounting/fx-eod.service';
 
 /**
  * V7 funds-layer module.
@@ -39,7 +41,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
  * implements the port and does NOT inject FundsFlowService) — no circular DI.
  */
 @Module({
-  imports: [PrismaModule, TigerBeetleModule],
+  imports: [PrismaModule, TigerBeetleModule, PricingCenterModule],
   controllers: [
     InternalTransferAdminController,
     FundsSimulateController,
@@ -52,6 +54,7 @@ import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module'
     InternalTransferService,
     WhitelistGuard,
     FundsAccountingService,
+    FxEodService,
     MockCustodianExecutionAdapter,
     InternalTransferWorkflowService,
     FundTransferWorkflowService,
