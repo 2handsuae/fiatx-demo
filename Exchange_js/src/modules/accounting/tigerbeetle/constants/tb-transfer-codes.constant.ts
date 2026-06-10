@@ -38,6 +38,25 @@ export const TB_TRANSFER_CODES = {
 
   // Fee collection: drain FEE_RECEIVABLE (always net CREDIT) ↔ CUSTODY (42)
   FEE_DRAIN: 42, // FEE_RECEIVABLE net CREDIT → debit FEE_RECEIVABLE, credit CUSTODY
+
+  // ── Two-book accounting (50–70) ──
+  // Settlement-leg physical mirrors: client pool ↔ FIRM_OPS
+  SETTLE_POOL_TO_FIRM: 50, // debit FIRM_OPS, credit CLIENT_BANK|CLIENT_CUSTODY
+  SETTLE_FIRM_TO_POOL: 51, // debit CLIENT_BANK|CLIENT_CUSTODY, credit FIRM_OPS
+  // Withdrawal-fee de-commingle: fee leaves the client pool into firm ops
+  FEE_DECOMMINGLE: 52,     // debit FIRM_OPS, credit CLIENT_BANK|CLIENT_CUSTODY
+
+  // EOD bridge sweep: TRADE_CLEARING ↔ FX_POSITION (the only cross-currency point)
+  BRIDGE_SWEEP_OUT: 60, // bridge net CREDIT → debit TRADE_CLEARING, credit FX_POSITION
+  BRIDGE_SWEEP_IN: 61,  // bridge net DEBIT  → debit FX_POSITION, credit TRADE_CLEARING
+
+  // FX revaluation / realization
+  FX_REVAL_LOSS: 62, // debit FX_UNREALIZED_PNL, credit FX_POSITION
+  FX_REVAL_GAIN: 63, // debit FX_POSITION, credit FX_UNREALIZED_PNL
+  FX_REALIZE: 64,    // LP fill: close position legs against FIRM_OPS + FX_REALIZED_PNL
+
+  // Bootstrap
+  CAPITAL_INJECTION: 70, // debit FIRM_OPS, credit PAID_IN_CAPITAL
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
