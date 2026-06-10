@@ -28,6 +28,7 @@ describe('TbAdminController', () => {
       evidenceService,
       accountingService,
       tbManualAccountService,
+      {} as any,
     );
   });
 
