@@ -497,12 +497,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
           sourceNo: w.withdrawNo,
           eventCode: 'WITHDRAW_POST_FEE',
           debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-          creditCode: String(TB_ACCOUNT_CODES.FEE_RECEIVABLE),
+          creditCode: String(TB_ACCOUNT_CODES.FEE_INCOME),
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
-          memo: 'Chain confirmed: POST fee pending transfer',
+          memo: 'Chain confirmed: POST fee pending transfer → FEE_INCOME',
         },
       });
     }

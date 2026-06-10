@@ -640,18 +640,20 @@ export class WithdrawTransactionsService {
             tbPendingNetBigint = pendingNetId;
             netBigintForVoid = netBigint;
 
-            // Pending #2: fee amount CLIENT_CREDIT → FEE_RECEIVABLE
+            // Pending #2: fee amount CLIENT_CREDIT → FEE_INCOME (two-phase:
+            // posted on payout success = revenue recognized; voided on fail/return
+            // = revenue never existed, zero reversal entries)
             let pendingFeeId: bigint | undefined;
             if (feeBigint > 0n) {
-              const feeReceivableId = await this.accountingService.resolveTbAccountId({
-                code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
+              const feeIncomeId = await this.accountingService.resolveTbAccountId({
+                code: TB_ACCOUNT_CODES.FEE_INCOME,
                 ledger,
                 ownerType: 'SYSTEM',
               });
 
               const result = await this.accountingService.executePendingTransfer({
                 debitAccountId: clientCreditId,
-                creditAccountId: feeReceivableId,
+                creditAccountId: feeIncomeId,
                 amount: feeBigint,
                 ledger,
                 code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_FEE_PENDING,
@@ -659,8 +661,8 @@ export class WithdrawTransactionsService {
                 evidence: {
                   ...evidenceBase,
                   eventCode: 'WITHDRAW_LOCK_FEE',
-                  creditCode: String(TB_ACCOUNT_CODES.FEE_RECEIVABLE),
-                  memo: 'Withdrawal pending lock: fee amount',
+                  creditCode: String(TB_ACCOUNT_CODES.FEE_INCOME),
+                  memo: 'Withdrawal pending lock: fee → FEE_INCOME',
                 },
                 tx,
               });
