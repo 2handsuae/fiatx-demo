@@ -7,7 +7,6 @@ import { SettlementBatchService } from '../domain/settlement-batch.service';
 import { OutstandingConsumerService } from '../domain/outstanding-consumer.service';
 import { InternalTransferService } from '../domain/internal-transfer.service';
 import { FundsFlowService } from '../domain/funds-flow.service';
-import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
 import {
@@ -15,7 +14,7 @@ import {
   InternalFundStatus,
   UpdateInternalFundStatusDto,
 } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
-import { AccountingClass, TransferPath } from '../constants/internal-transfer-paths.constant';
+import { TransferPath } from '../constants/internal-transfer-paths.constant';
 import { FiatFeeCollectionWorkflowService } from './fiat-fee-collection-workflow.service';
 
 const FIAT_SOURCE_TYPE = 'FIAT_SETTLEMENT';
@@ -39,7 +38,6 @@ export class FiatSettlementWorkflowService {
     private readonly consumer: OutstandingConsumerService,
     private readonly transfers: InternalTransferService,
     private readonly fundsFlow: FundsFlowService,
-    private readonly accounting: FundsAccountingService,
     private readonly systemWallets: SystemWalletResolver,
     private readonly whitelist: WhitelistGuard,
     private readonly feeCollection: FiatFeeCollectionWorkflowService,
@@ -164,13 +162,10 @@ export class FiatSettlementWorkflowService {
 
       // newStatus === 'CLEAR' — finalize once. settle() is the idempotency latch:
       // LOCKED→SETTLED; the second CLEAR sees count 0 and bails (no double drain).
+      // TB mirror is handled by InternalTransferWorkflowService.onFundsFlowStatusChanged.
       const settled = await this.consumer.settle(transfer.id, event.fundsFlowId);
       if (!settled || settled.count === 0) return;
 
-      await this.accounting.applyAccounting({
-        accountingClass: AccountingClass.B,
-        internalTransferId: transfer.id,
-      });
       if (transfer.settlementBatchId) {
         await this.batchService.recomputeBatch(transfer.settlementBatchId);
       }

@@ -4,7 +4,6 @@ import { SettlementBatchService } from '../domain/settlement-batch.service';
 import { OutstandingConsumerService } from '../domain/outstanding-consumer.service';
 import { InternalTransferService } from '../domain/internal-transfer.service';
 import { FundsFlowService } from '../domain/funds-flow.service';
-import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
 import { FiatSettlementWorkflowService } from './fiat-settlement-workflow.service';
@@ -13,7 +12,7 @@ import { InternalFundAction } from '../../asset-treasury/internal-funds/dto/inte
 
 describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
   let service: FiatSettlementWorkflowService;
-  let batch: any, consumer: any, transfers: any, fundsFlow: any, accounting: any, wallets: any, prisma: any;
+  let batch: any, consumer: any, transfers: any, fundsFlow: any, wallets: any, prisma: any;
 
   beforeEach(async () => {
     batch = { createBatch: jest.fn().mockResolvedValue({ id: 'b-1', batchNo: 'OSB-1' }), recomputeBatch: jest.fn() };
@@ -26,7 +25,6 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     };
     transfers = { createTransfer: jest.fn().mockResolvedValue({ id: 't-1', internalTxNo: 'ITX-1' }) };
     fundsFlow = { createLeg: jest.fn().mockResolvedValue({ id: 'f-hop' }), updateStatus: jest.fn() };
-    accounting = { applyAccounting: jest.fn() };
     wallets = {
       resolve: jest.fn((assetId: string, role: string) => Promise.resolve({ id: `w-${role}` })),
       resolveCustomer: jest.fn((assetId: string, role: string, owner: string) => Promise.resolve({ id: `w-${role}-${owner}` })),
@@ -41,7 +39,6 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
         { provide: OutstandingConsumerService, useValue: consumer },
         { provide: InternalTransferService, useValue: transfers },
         { provide: FundsFlowService, useValue: fundsFlow },
-        { provide: FundsAccountingService, useValue: accounting },
         { provide: SystemWalletResolver, useValue: wallets },
         { provide: WhitelistGuard, useValue: new WhitelistGuard() },
         { provide: FiatFeeCollectionWorkflowService, useValue: { collectSwapFees: jest.fn() } },
@@ -71,7 +68,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ', status: 'CREATED' });
 
     expect(consumer.lockToTransfer).toHaveBeenCalledWith(['o-aed'], 'b-1', 't-1');
-    expect(accounting.applyAccounting).not.toHaveBeenCalled();
+    // TB mirror fires on CLEAR (InternalTransferWorkflow), not at initiation
   });
 
   it('IN outstanding: route is F_LIQ -> F_SET -> C_VIBAN (FIAT_SETTLE_IN)', async () => {
@@ -111,7 +108,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
 
 describe('onFundsFlowStatusChanged', () => {
   let service: FiatSettlementWorkflowService;
-  let batch: any, consumer: any, transfers: any, fundsFlow: any, accounting: any, wallets: any, prisma: any, feeCollection: any;
+  let batch: any, consumer: any, transfers: any, fundsFlow: any, wallets: any, prisma: any, feeCollection: any;
 
   const fiatTransfer = { id: 't-1', sourceType: 'FIAT_SETTLEMENT', settlementBatchId: 'b-1', assetId: 'a-aed' };
 
@@ -124,7 +121,6 @@ describe('onFundsFlowStatusChanged', () => {
     };
     transfers = { createTransfer: jest.fn().mockResolvedValue({ id: 't-1', internalTxNo: 'ITX-1' }) };
     fundsFlow = { createLeg: jest.fn().mockResolvedValue({ id: 'f-hop' }), updateStatus: jest.fn() };
-    accounting = { applyAccounting: jest.fn() };
     wallets = {
       resolve: jest.fn((assetId: string, role: string) => Promise.resolve({ id: `w-${role}` })),
       resolveCustomer: jest.fn((assetId: string, role: string, owner: string) => Promise.resolve({ id: `w-${role}-${owner}` })),
@@ -140,7 +136,6 @@ describe('onFundsFlowStatusChanged', () => {
         { provide: OutstandingConsumerService, useValue: consumer },
         { provide: InternalTransferService, useValue: transfers },
         { provide: FundsFlowService, useValue: fundsFlow },
-        { provide: FundsAccountingService, useValue: accounting },
         { provide: SystemWalletResolver, useValue: wallets },
         { provide: WhitelistGuard, useValue: new WhitelistGuard() },
         { provide: FiatFeeCollectionWorkflowService, useValue: feeCollection },
@@ -169,12 +164,11 @@ describe('onFundsFlowStatusChanged', () => {
     expect(fundsFlow.updateStatus).not.toHaveBeenCalled();
   });
 
-  it('CLEAR finalizes once: settle + drain + recompute', async () => {
+  it('CLEAR finalizes once: settle + recompute (TB mirror handled by InternalTransferWorkflow)', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(fiatTransfer);
     consumer.settle.mockResolvedValue({ count: 1 });
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop2', internalTransferId: 't-1', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
     expect(consumer.settle).toHaveBeenCalledWith('t-1', 'f-hop2');
-    expect(accounting.applyAccounting).toHaveBeenCalledWith({ accountingClass: 'B', internalTransferId: 't-1' });
     expect(batch.recomputeBatch).toHaveBeenCalledWith('b-1');
   });
 
@@ -182,7 +176,6 @@ describe('onFundsFlowStatusChanged', () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(fiatTransfer);
     consumer.settle.mockResolvedValue({ count: 0 });
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop1', internalTransferId: 't-1', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
-    expect(accounting.applyAccounting).not.toHaveBeenCalled();
     expect(batch.recomputeBatch).not.toHaveBeenCalled();
   });
 

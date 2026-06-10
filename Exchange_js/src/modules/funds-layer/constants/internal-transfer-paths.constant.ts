@@ -21,7 +21,8 @@ export enum TransferMedium {
   BANK = 'BANK',
 }
 
-export type DrainAccount = 'TRADE_CLEARING' | 'FEE_RECEIVABLE';
+/** TB 镜像方向:物理资金流完成(funds-flow CLEAR)时在 TB 上记"客户池↔FIRM_OPS" */
+export type TbMirror = 'POOL_TO_FIRM' | 'FIRM_TO_POOL';
 
 export interface TransferPathPolicy {
   path: TransferPath;
@@ -30,7 +31,7 @@ export interface TransferPathPolicy {
   class: AccountingClass;
   medium: TransferMedium;
   trigger: string[];
-  drain?: DrainAccount;
+  mirror?: TbMirror;
   route?: string[];          // multi-hop ordered roles (fiat 2-hop)
 }
 
@@ -66,7 +67,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.CHAIN,
     trigger: ['EOD'],
-    drain: 'TRADE_CLEARING',
+    mirror: 'POOL_TO_FIRM',
   },
   [TransferPath.INTERNAL_IN]: {
     path: TransferPath.INTERNAL_IN,
@@ -75,7 +76,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.CHAIN,
     trigger: ['EOD'],
-    drain: 'TRADE_CLEARING',
+    mirror: 'FIRM_TO_POOL',
   },
   [TransferPath.FEE_COLLECT]: {
     path: TransferPath.FEE_COLLECT,
@@ -84,7 +85,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.CHAIN,
     trigger: ['CRON'],
-    drain: 'FEE_RECEIVABLE',
+    mirror: 'POOL_TO_FIRM',
   },
   [TransferPath.FIAT_SETTLE_OUT]: {
     path: TransferPath.FIAT_SETTLE_OUT,
@@ -94,7 +95,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
-    drain: 'TRADE_CLEARING',
+    mirror: 'POOL_TO_FIRM',
   },
   [TransferPath.FIAT_SETTLE_IN]: {
     path: TransferPath.FIAT_SETTLE_IN,
@@ -104,7 +105,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
-    drain: 'TRADE_CLEARING',
+    mirror: 'FIRM_TO_POOL',
   },
   [TransferPath.FIAT_FEE_COLLECT]: {
     path: TransferPath.FIAT_FEE_COLLECT,
@@ -115,7 +116,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     // WITHDRAW only — withdrawal fee genuinely leaves the client VIBAN. Swap service
     // fees are company-side (F_LIQ→F_FEE) under Model A, not C_VIBAN→F_FEE.
     trigger: ['WITHDRAW'],
-    drain: 'FEE_RECEIVABLE',
+    mirror: 'POOL_TO_FIRM',
   },
   [TransferPath.FIAT_SPREAD_COLLECT]: {
     path: TransferPath.FIAT_SPREAD_COLLECT,
@@ -124,7 +125,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
-    drain: 'FEE_RECEIVABLE',
+    // No mirror: company-internal movement (F_LIQ→F_FEE), TB no-op.
   },
 };
 

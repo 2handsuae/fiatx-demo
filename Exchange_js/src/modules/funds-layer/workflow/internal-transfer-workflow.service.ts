@@ -138,12 +138,6 @@ export class InternalTransferWorkflowService {
         tx,
       );
 
-      await this.accounting.applyAccounting({
-        accountingClass: policy.class,
-        internalTransferId: transfer.id,
-        tx,
-      });
-
       return transfer;
     });
   }
@@ -158,6 +152,9 @@ export class InternalTransferWorkflowService {
     // pipeline (which would silently lose the terminal journey audit).
     try {
       if (event.newStatus === 'CLEAR') {
+        await this.accounting.mirrorPhysicalTransfer({
+          internalTransferId: event.internalTransferId,
+        });
         await this.auditLogsService.recordSystem({
           action: AuditActions.TRANSFER_COMPLETED,
           entityType: AuditEntityTypes.INTERNAL_TRANSFER,

@@ -24,23 +24,46 @@ describe('TRANSFER_PATH_WHITELIST', () => {
     }
   });
 
-  it('fiat settlement paths use BANK medium, a 3-hop route, and drain TRADE_CLEARING', () => {
-    for (const path of [TransferPath.FIAT_SETTLE_OUT, TransferPath.FIAT_SETTLE_IN]) {
-      const policy = TRANSFER_PATH_WHITELIST[path];
-      expect(policy.medium).toBe('BANK');
-      expect(policy.class).toBe(AccountingClass.B);
-      expect(policy.drain).toBe('TRADE_CLEARING');
-      expect(policy.route).toHaveLength(3);
-      expect(policy.route?.[1]).toBe('F_SET');
-    }
+  it('fiat settlement paths use BANK medium, a 3-hop route, and have POOL_TO_FIRM / FIRM_TO_POOL mirror', () => {
+    const outPolicy = TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SETTLE_OUT];
+    expect(outPolicy.medium).toBe('BANK');
+    expect(outPolicy.class).toBe(AccountingClass.B);
+    expect(outPolicy.mirror).toBe('POOL_TO_FIRM');
+    expect(outPolicy.route).toHaveLength(3);
+    expect(outPolicy.route?.[1]).toBe('F_SET');
+
+    const inPolicy = TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SETTLE_IN];
+    expect(inPolicy.medium).toBe('BANK');
+    expect(inPolicy.class).toBe(AccountingClass.B);
+    expect(inPolicy.mirror).toBe('FIRM_TO_POOL');
+    expect(inPolicy.route).toHaveLength(3);
+    expect(inPolicy.route?.[1]).toBe('F_SET');
   });
 
-  it('B-class paths declare a drain account, A-class do not', () => {
+  it('mirror values: POOL_TO_FIRM for pool→firm paths, FIRM_TO_POOL for reverse, undefined for no-op', () => {
+    // Pool→Firm paths
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].mirror).toBe('POOL_TO_FIRM');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FEE_COLLECT].mirror).toBe('POOL_TO_FIRM');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SETTLE_OUT].mirror).toBe('POOL_TO_FIRM');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_FEE_COLLECT].mirror).toBe('POOL_TO_FIRM');
+    // Firm→Pool paths
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_IN].mirror).toBe('FIRM_TO_POOL');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SETTLE_IN].mirror).toBe('FIRM_TO_POOL');
+    // No mirror: pool-internal or company-internal movements
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FUND_OUT].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FUND_RETURN].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SPREAD_COLLECT].mirror).toBeUndefined();
+  });
+
+  it('B-class paths have mirror or are FIAT_SPREAD_COLLECT; A-class paths have no mirror', () => {
     expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].class).toBe(AccountingClass.B);
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].drain).toBe('TRADE_CLEARING');
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FEE_COLLECT].drain).toBe('FEE_RECEIVABLE');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].mirror).toBeDefined();
     expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].class).toBe(AccountingClass.A);
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].drain).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].mirror).toBeUndefined();
+    // FIAT_SPREAD_COLLECT is B-class but no mirror (company-internal)
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SPREAD_COLLECT].class).toBe(AccountingClass.B);
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SPREAD_COLLECT].mirror).toBeUndefined();
   });
 
   it('resolvePathPolicy returns policy for a known from→to role pair', () => {

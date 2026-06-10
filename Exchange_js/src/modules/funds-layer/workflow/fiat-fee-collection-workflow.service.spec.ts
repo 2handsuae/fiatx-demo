@@ -2,19 +2,17 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { InternalTransferService } from '../domain/internal-transfer.service';
 import { FundsFlowService } from '../domain/funds-flow.service';
-import { FundsAccountingService } from '../accounting/funds-accounting.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
 import { FiatFeeCollectionWorkflowService } from './fiat-fee-collection-workflow.service';
 
 describe('FiatFeeCollectionWorkflowService', () => {
   let service: FiatFeeCollectionWorkflowService;
-  let transfers: any, fundsFlow: any, accounting: any, prisma: any;
+  let transfers: any, fundsFlow: any, prisma: any;
 
   beforeEach(async () => {
     transfers = { createTransfer: jest.fn().mockResolvedValue({ id: 't' }) };
     fundsFlow = { createLeg: jest.fn().mockResolvedValue({ id: 'f' }) };
-    accounting = { drainFeeReceivableAmount: jest.fn() };
     prisma = {
       swapTransaction: { findUnique: jest.fn() },
       withdrawTransaction: { findUnique: jest.fn() },
@@ -27,7 +25,6 @@ describe('FiatFeeCollectionWorkflowService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: InternalTransferService, useValue: transfers },
         { provide: FundsFlowService, useValue: fundsFlow },
-        { provide: FundsAccountingService, useValue: accounting },
         {
           provide: SystemWalletResolver,
           useValue: {
@@ -67,7 +64,6 @@ describe('FiatFeeCollectionWorkflowService', () => {
     expect(spreadCall.toWalletId).toBe('w-F_FEE');
     expect(spreadCall.ownerType).toBe('PLATFORM');
     expect(fundsFlow.createLeg).toHaveBeenCalledTimes(2);
-    expect(accounting.drainFeeReceivableAmount).not.toHaveBeenCalled();
   });
 
   it('no-op when TO asset is not fiat', async () => {
@@ -83,34 +79,8 @@ describe('FiatFeeCollectionWorkflowService', () => {
     expect(transfers.createTransfer).not.toHaveBeenCalled();
   });
 
-  describe('onFundsFlowStatusChanged', () => {
-    it('CLEAR for a FIAT_FEE_COLLECTION transfer drains the exact amount', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-fee', sourceType: 'FIAT_FEE_COLLECTION', amount: '0.10',
-      });
-      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f1', internalTransferId: 't-fee', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
-      expect(accounting.drainFeeReceivableAmount).toHaveBeenCalledWith(
-        expect.objectContaining({ internalTransferId: 't-fee' }),
-      );
-      expect(accounting.drainFeeReceivableAmount.mock.calls[0][0].amount.toString()).toBe('0.1');
-    });
-
-    it('ignores non-fee transfers', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({ id: 't-x', sourceType: 'FIAT_SETTLEMENT' });
-      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: 't-x', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
-      expect(accounting.drainFeeReceivableAmount).not.toHaveBeenCalled();
-    });
-
-    it('ignores non-CLEAR statuses', async () => {
-      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: 't-fee', oldStatus: 'CREATED', newStatus: 'CONFIRMED' });
-      expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
-    });
-
-    it('ignores events without internalTransferId', async () => {
-      await service.onFundsFlowStatusChanged({ fundsFlowId: 'f', internalTransferId: undefined, oldStatus: 'X', newStatus: 'CLEAR' });
-      expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
-    });
-  });
+  // onFundsFlowStatusChanged removed in Task 6 — fee CLEAR TB mirror now handled
+  // by InternalTransferWorkflowService.mirrorPhysicalTransfer (FEE_DECOMMINGLE code).
 
   describe('onFiatWithdrawalSucceeded', () => {
     it('spawns VIBAN->F_FEE for the withdraw fee', async () => {

@@ -26,6 +26,7 @@ describe('InternalTransferWorkflowService', () => {
     };
     accounting = {
       applyAccounting: jest.fn().mockResolvedValue({ tbApplied: false }),
+      mirrorPhysicalTransfer: jest.fn().mockResolvedValue({ tbApplied: false }),
     };
     auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue({ id: 'audit-1' }),
@@ -104,11 +105,8 @@ describe('InternalTransferWorkflowService', () => {
       'SYSTEM',
       txMock,
     );
-    expect(accounting.applyAccounting).toHaveBeenCalledWith({
-      accountingClass: 'A',
-      internalTransferId: 't1',
-      tx: txMock,
-    });
+    // initiate no longer calls applyAccounting (mirror fires on CLEAR event instead)
+    expect(accounting.applyAccounting).not.toHaveBeenCalled();
 
     // journey REQUESTED audit written by the workflow
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
@@ -171,7 +169,7 @@ describe('InternalTransferWorkflowService', () => {
     );
   });
 
-  it('onFundsFlowStatusChanged writes TRANSFER_COMPLETED on CLEAR', async () => {
+  it('onFundsFlowStatusChanged writes TRANSFER_COMPLETED on CLEAR and calls mirrorPhysicalTransfer', async () => {
     await service.onFundsFlowStatusChanged({
       fundsFlowId: 'f1',
       internalTransferId: 't1',
@@ -179,6 +177,8 @@ describe('InternalTransferWorkflowService', () => {
       newStatus: 'CLEAR',
     });
 
+    // mirror fires first on CLEAR
+    expect(accounting.mirrorPhysicalTransfer).toHaveBeenCalledWith({ internalTransferId: 't1' });
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'TRANSFER_COMPLETED',
