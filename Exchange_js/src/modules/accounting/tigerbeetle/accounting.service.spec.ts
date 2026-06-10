@@ -1,9 +1,19 @@
 // src/modules/accounting/tigerbeetle/accounting.service.spec.ts
 jest.mock('tigerbeetle-node', () => ({
   id: jest.fn().mockReturnValue(12345n),
+  CreateTransferStatus: {
+    exists: 'exists',
+    created: 'created',
+  },
+  TransferFlags: {
+    pending: 1,
+    post_pending_transfer: 2,
+    void_pending_transfer: 4,
+  },
 }));
 
 import { AccountingService } from './accounting.service';
+import { CreateTransferStatus } from 'tigerbeetle-node';
 
 describe('AccountingService', () => {
   let service: AccountingService;
@@ -96,6 +106,67 @@ describe('AccountingService', () => {
           },
         }),
       ).rejects.toThrow();
+    });
+
+    it('idempotent replay: TB exists → skip writeEvidence, return transferId normally', async () => {
+      mockTbService.createTransfers.mockResolvedValue([
+        { status: CreateTransferStatus.exists },
+      ]);
+
+      const result = await service.executeTransfer({
+        debitAccountId: 1n,
+        creditAccountId: 2n,
+        amount: 10000n,
+        ledger: 1,
+        code: 10,
+        evidence: {
+          sourceType: 'FIAT_SETTLEMENT',
+          sourceNo: 'IT0001',
+          eventCode: 'SETTLE_POOL_TO_FIRM',
+          traceId: 'trace-2',
+          debitCode: 'A.FIRM_OPS',
+          creditCode: 'L.CLIENT_BANK',
+          assetCurrency: 'AED',
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+        },
+      });
+
+      // Evidence must NOT be written on idempotent replay
+      expect(mockEvidenceService.writeEvidence).not.toHaveBeenCalled();
+      // But a valid tbTransferId must still be returned
+      expect(result).toHaveProperty('tbTransferId');
+    });
+  });
+
+  describe('executePendingTransfer', () => {
+    it('idempotent replay: TB exists → skip writeEvidence, return transferId normally', async () => {
+      mockTbService.createTransfers.mockResolvedValue([
+        { status: CreateTransferStatus.exists },
+      ]);
+
+      const result = await service.executePendingTransfer({
+        debitAccountId: 1n,
+        creditAccountId: 2n,
+        amount: 5000n,
+        ledger: 1,
+        code: 20,
+        timeout: 60,
+        evidence: {
+          sourceType: 'FIAT_SETTLEMENT',
+          sourceNo: 'IT0002',
+          eventCode: 'SETTLE_PENDING',
+          traceId: 'trace-3',
+          debitCode: 'A.FIRM_OPS',
+          creditCode: 'L.CLIENT_BANK',
+          assetCurrency: 'AED',
+          actorType: 'SYSTEM',
+          actorId: 'SYSTEM',
+        },
+      });
+
+      expect(mockEvidenceService.writeEvidence).not.toHaveBeenCalled();
+      expect(result).toHaveProperty('tbTransferId');
     });
   });
 

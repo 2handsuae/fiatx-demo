@@ -117,6 +117,13 @@ export class AccountingService {
       });
     }
 
+    const alreadyExists = errors.some((e: any) => e.status === CreateTransferStatus.exists);
+    if (alreadyExists) {
+      // Idempotent replay: this logical transfer (and its evidence row) was fully
+      // recorded by the first execution — skip the duplicate evidence write.
+      return { tbTransferId: transferId };
+    }
+
     await this.evidenceService.writeEvidence({
       tbTransferId: bigintToHex(transferId),
       sourceType: params.evidence.sourceType,
@@ -170,6 +177,13 @@ export class AccountingService {
         code: 'TB_PENDING_TRANSFER_FAILED',
         message: `TigerBeetle pending transfer rejected: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
       });
+    }
+
+    const alreadyExists = errors.some((e: any) => e.status === CreateTransferStatus.exists);
+    if (alreadyExists) {
+      // Idempotent replay: this logical transfer (and its evidence row) was fully
+      // recorded by the first execution — skip the duplicate evidence write.
+      return { tbTransferId: transferId };
     }
 
     await this.evidenceService.writeEvidence({

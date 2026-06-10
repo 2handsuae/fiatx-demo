@@ -338,6 +338,10 @@ describe('mirrorPhysicalTransfer', () => {
       internalTransaction: {
         findUnique: jest.fn(),
       },
+      // Default: no funds (non-route paths won't query this; route-path tests override)
+      internalFund: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     accounting = {
       resolveTbAccountId: jest.fn(resolveById),
@@ -356,6 +360,8 @@ describe('mirrorPhysicalTransfer', () => {
     jest.clearAllMocks();
     accounting.resolveTbAccountId.mockImplementation(resolveById);
     accounting.executeTransfer.mockResolvedValue({ tbTransferId: 9n });
+    // Reset internalFund mock after clearAllMocks
+    prisma.internalFund.findMany.mockResolvedValue([]);
   });
 
   it('INTERNAL_OUT (CRYPTO, decimals=6, amount=1000) → SETTLE_POOL_TO_FIRM: debit FIRM_OPS, credit CLIENT_CUSTODY', async () => {
@@ -385,6 +391,11 @@ describe('mirrorPhysicalTransfer', () => {
         asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
       }),
     );
+    // FIAT_SETTLE_IN has a route → all hops must be CLEAR to proceed
+    prisma.internalFund.findMany.mockResolvedValue([
+      { status: 'CLEAR' },
+      { status: 'CLEAR' },
+    ]);
 
     const result = await service.mirrorPhysicalTransfer({ internalTransferId: 'it-1' });
 
@@ -443,5 +454,54 @@ describe('mirrorPhysicalTransfer', () => {
 
     expect(result).toEqual({ tbApplied: false });
     expect(accounting.executeTransfer).not.toHaveBeenCalled();
+  });
+
+  it('FIAT_SETTLE_IN (2-hop route) with mixed statuses [CLEAR, CREATED] → tbApplied:false, executeTransfer not called', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue(
+      transfer({
+        pathLabel: 'FIAT_SETTLE_IN',
+        sourceType: 'FIAT_SETTLEMENT',
+        amount: '50.25',
+        asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
+      }),
+    );
+    // The prisma mock must support internalFund.findMany on the same object
+    prisma.internalFund = {
+      findMany: jest.fn().mockResolvedValue([
+        { status: 'CLEAR' },
+        { status: 'CREATED' },
+      ]),
+    };
+
+    const result = await service.mirrorPhysicalTransfer({ internalTransferId: 'it-1' });
+
+    expect(result).toEqual({ tbApplied: false });
+    expect(accounting.executeTransfer).not.toHaveBeenCalled();
+  });
+
+  it('FIAT_SETTLE_IN (2-hop route) with all hops CLEAR [CLEAR, CLEAR] → mirrors normally', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue(
+      transfer({
+        pathLabel: 'FIAT_SETTLE_IN',
+        sourceType: 'FIAT_SETTLEMENT',
+        amount: '50.25',
+        asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
+      }),
+    );
+    prisma.internalFund = {
+      findMany: jest.fn().mockResolvedValue([
+        { status: 'CLEAR' },
+        { status: 'CLEAR' },
+      ]),
+    };
+
+    const result = await service.mirrorPhysicalTransfer({ internalTransferId: 'it-1' });
+
+    expect(result).toEqual({ tbApplied: true, tbTransferId: 9n });
+    expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
+    const call = accounting.executeTransfer.mock.calls[0][0];
+    expect(call.debitAccountId).toBe(BANK_ID);
+    expect(call.creditAccountId).toBe(FIRM_OPS_ID);
+    expect(call.amount).toBe(5025n);
   });
 });

@@ -271,6 +271,18 @@ export class FundsAccountingService {
     const mirror = policy?.mirror;
     if (!mirror) return { tbApplied: false };
 
+    // Multi-hop routes (fiat 2-hop via F_SET): mirror only when every hop has
+    // physically CLEARed — a manually cleared first hop must not book the full
+    // movement while funds still sit in the transit wallet.
+    if (policy.route && policy.route.length > 0) {
+      const funds = await (db as any).internalFund.findMany({
+        where: { internalTransactionId: transfer.id },
+        select: { status: true },
+      });
+      const allClear = funds.length > 0 && funds.every((f: any) => f.status === 'CLEAR');
+      if (!allClear) return { tbApplied: false };
+    }
+
     const currency = transfer.asset.currency;
     const ledger = (TB_LEDGERS as Record<string, number>)[currency];
     if (!ledger) {
