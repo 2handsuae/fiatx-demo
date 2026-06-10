@@ -135,7 +135,7 @@ export class AssetActivationWorkflowService {
     }
 
     const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
-    const requiredCodes = [custodyCode, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FEE_RECEIVABLE];
+    const requiredCodes = [custodyCode, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FEE_INCOME];
 
     for (const code of requiredCodes) {
       const account = await this.registryService.resolve({

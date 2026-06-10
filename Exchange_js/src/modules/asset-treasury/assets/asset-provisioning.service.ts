@@ -28,15 +28,26 @@ export class AssetProvisioningService {
       data: { tbLedgerId },
     });
 
-    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
+    const poolCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
+
+    const firmBookCodes: Array<{ code: number; desc: string }> = [
+      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+      { code: TB_ACCOUNT_CODES.FX_POSITION, desc: 'FX_POSITION' },
+      { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, desc: 'PAID_IN_CAPITAL' },
+      { code: TB_ACCOUNT_CODES.RETAINED_EARNINGS, desc: 'RETAINED_EARNINGS' },
+      { code: TB_ACCOUNT_CODES.FEE_INCOME, desc: 'FEE_INCOME' },
+      { code: TB_ACCOUNT_CODES.SPREAD_INCOME, desc: 'SPREAD_INCOME' },
+      { code: TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, desc: 'FX_UNREALIZED_PNL' },
+      { code: TB_ACCOUNT_CODES.FX_REALIZED_PNL, desc: 'FX_REALIZED_PNL' },
+    ];
 
     const accountParams: CreateTbAccountParams[] = [
       {
-        code: custodyCode,
+        code: poolCode,
         ledger: tbLedgerId,
         ownerType: 'SYSTEM',
         assetCurrency: asset.currency,
-        description: `${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'} for ${asset.currency}`,
+        description: `${asset.type === 'FIAT' ? 'CLIENT_BANK' : 'CLIENT_CUSTODY'} for ${asset.currency}`,
       },
       {
         code: TB_ACCOUNT_CODES.TRADE_CLEARING,
@@ -45,18 +56,18 @@ export class AssetProvisioningService {
         assetCurrency: asset.currency,
         description: `TRADE_CLEARING for ${asset.currency}`,
       },
-      {
-        code: TB_ACCOUNT_CODES.FEE_RECEIVABLE,
+      ...firmBookCodes.map(({ code, desc }) => ({
+        code,
         ledger: tbLedgerId,
-        ownerType: 'SYSTEM',
+        ownerType: 'SYSTEM' as const,
         assetCurrency: asset.currency,
-        description: `FEE_RECEIVABLE for ${asset.currency}`,
-      },
+        description: `${desc} for ${asset.currency}`,
+      })),
     ];
 
     await this.accountingService.createAccounts(accountParams, tx);
 
-    this.logger.log(`Asset ${asset.assetNo} provisioned with tbLedgerId=${tbLedgerId}, 3 TB accounts created`);
+    this.logger.log(`Asset ${asset.assetNo} provisioned with tbLedgerId=${tbLedgerId}, ${accountParams.length} TB accounts created`);
     return { tbLedgerId };
   }
 }

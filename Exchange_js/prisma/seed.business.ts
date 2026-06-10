@@ -1,12 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
+import { createClient as tbCreateClient } from 'tigerbeetle-node';
 import { ensureBaseSeeded } from './seed.base';
 import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { deterministicTransferId } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import {
   CRYPTO_SYSTEM_WALLET_ROLES,
   FIAT_SYSTEM_WALLET_ROLES,
@@ -37,6 +40,8 @@ export async function seedBusiness(
   await seedCustomers(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
+  // Firm capital bootstrap: FIRM_OPS ← PAID_IN_CAPITAL per currency.
+  await seedCapitalInjection(prisma);
 
   console.log('✅ Business data seeded.');
 }
@@ -129,7 +134,14 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     const systemAccounts = [
       { code: custodyCode, desc: isFiat ? 'CLIENT_BANK' : 'CLIENT_CUSTODY' },
       { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
-      { code: TB_ACCOUNT_CODES.FEE_RECEIVABLE, desc: 'FEE_RECEIVABLE' },
+      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+      { code: TB_ACCOUNT_CODES.FX_POSITION, desc: 'FX_POSITION' },
+      { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, desc: 'PAID_IN_CAPITAL' },
+      { code: TB_ACCOUNT_CODES.RETAINED_EARNINGS, desc: 'RETAINED_EARNINGS' },
+      { code: TB_ACCOUNT_CODES.FEE_INCOME, desc: 'FEE_INCOME' },
+      { code: TB_ACCOUNT_CODES.SPREAD_INCOME, desc: 'SPREAD_INCOME' },
+      { code: TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, desc: 'FX_UNREALIZED_PNL' },
+      { code: TB_ACCOUNT_CODES.FX_REALIZED_PNL, desc: 'FX_REALIZED_PNL' },
     ];
     for (const acct of systemAccounts) {
       await ensureTbAccountRegistry(prisma, {
@@ -541,4 +553,99 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
   }
 
   console.log(`Seeded ${DEMO_CUSTOMERS.length} demo customers + customer TB accounts.`);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Capital injection — FIRM_OPS ← PAID_IN_CAPITAL per currency
+// ─────────────────────────────────────────────────────────────
+
+const SEED_FIRM_CAPITAL: Record<string, string> = {
+  AED: '1000000',
+  USDT: '100000',
+};
+
+async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
+  const tbAddress = process.env.TB_ADDRESS;
+  if (!tbAddress) {
+    console.log('  ⚠ TB_ADDRESS not set, skipping capital injection');
+    return;
+  }
+
+  let client: ReturnType<typeof tbCreateClient>;
+  try {
+    client = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
+  } catch (err: any) {
+    console.log(`  ⚠ Cannot connect to TigerBeetle for capital injection: ${err.message}`);
+    return;
+  }
+
+  try {
+    const assets = await prisma.asset.findMany({
+      where: { status: 'ACTIVE' },
+      select: { currency: true, decimals: true, code: true },
+    });
+
+    const transfers: any[] = [];
+    for (const asset of assets) {
+      const rawAmount = SEED_FIRM_CAPITAL[asset.currency];
+      if (!rawAmount) continue;
+
+      const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
+      const scale = BigInt(10 ** asset.decimals);
+      const amount = BigInt(rawAmount) * scale;
+
+      // Resolve FIRM_OPS and PAID_IN_CAPITAL account ids from registry
+      const firmOpsReg = await (prisma as any).tbAccountRegistry.findFirst({
+        where: { code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' },
+        select: { tbAccountId: true },
+      });
+      const paidInCapReg = await (prisma as any).tbAccountRegistry.findFirst({
+        where: { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, ledger, ownerType: 'SYSTEM' },
+        select: { tbAccountId: true },
+      });
+
+      if (!firmOpsReg || !paidInCapReg) {
+        console.log(`  ⚠ Missing registry entries for capital injection (${asset.currency}), skipping`);
+        continue;
+      }
+
+      const transferId = deterministicTransferId('SEED_CAPITAL', asset.currency, 'CAPITAL_INJECTION', 0);
+
+      transfers.push({
+        id: transferId,
+        debit_account_id: BigInt('0x' + firmOpsReg.tbAccountId),
+        credit_account_id: BigInt('0x' + paidInCapReg.tbAccountId),
+        amount,
+        pending_id: 0n,
+        user_data_128: 0n,
+        user_data_64: 0n,
+        user_data_32: 0,
+        timeout: 0,
+        ledger,
+        code: TB_TRANSFER_CODES.CAPITAL_INJECTION,
+        flags: 0,
+        timestamp: 0n,
+      });
+    }
+
+    if (transfers.length === 0) {
+      console.log('  ⚠ No capital injection transfers to create');
+      return;
+    }
+
+    const TB_TRANSFER_EXISTS = 46; // CreateTransferStatus.exists
+    const TB_DEV_OK = 4294967295;  // CreateTransferStatus.created (dev-mode echo)
+    const errors = await client.createTransfers(transfers);
+    const realErrors = errors.filter(
+      (e: any) => e.status !== TB_TRANSFER_EXISTS && e.status !== TB_DEV_OK,
+    );
+    if (realErrors.length > 0) {
+      console.log(`  ⚠ Capital injection had ${realErrors.length} errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+    }
+
+    const existed = errors.filter((e: any) => e.status === TB_TRANSFER_EXISTS).length;
+    console.log(`  ✔ Capital injection: ${transfers.length - existed} transfer(s) created, ${existed} already existed`);
+  } finally {
+    client.destroy();
+  }
 }
