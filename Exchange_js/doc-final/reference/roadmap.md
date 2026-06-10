@@ -334,6 +334,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **法币结算 = per-swap 即时**（隔离禁止跨客户池级轧差），**crypto 结算 = EOD 轧差**；两套引擎共享 SettlementBatch / Outstanding / funds-flow 原语。**法币结算 Model A（2026-06-09）**：IN 交割只把 **net** 经 `F_LIQ→F_SET→VIBAN` 交到 VIBAN；服务费在**公司侧** `F_LIQ→F_FEE` 确认，永不进客户 VIBAN。**记账仍 gross**（swap 成交时记入 TRADE_CLEARING+FEE_RECEIVABLE，结算 drain 按余额驱动，与转账金额解耦）。见 `superpowers/specs/2026-06-09-fiat-net-settlement-model-a-design.md`。
 - **法币归集（VA→集中账户）删除** —— 由银行自理，平台不编排。
 - **Outstanding 仅 swap 产生**；**偿付义务（Reimbursement）移出 → V8 对账**。
+- **两本账记账体系（2026-06-10）已落地** —— 取代上文 drain/FEE_RECEIVABLE 口径（`FEE_RECEIVABLE` 已删）。内容：① COA 重定为客户账本（safeguarding：`CLIENT_BANK`/`CLIENT_CUSTODY`/`CLIENT_CREDIT`/`CLIENT_AUDIT`/`TRADE_CLEARING`）+ 公司账本（`FIRM_OPS`/`FX_POSITION` + E 段 `PAID_IN_CAPITAL`/`RETAINED_EARNINGS` + R 段四收入科目），seed 注入资本（AED 1,000,000 / USDT 100,000）；② T1 收入确认 —— swap 费/点差成交即记 `FEE_INCOME`/`SPREAD_INCOME`，提现费两阶段 pending→post；③ 物理资金流 CLEAR 时 TB **mirror 镜像**（客户池↔`FIRM_OPS`，`SETTLE_*`/`FEE_DECOMMINGLE`）取代 drain，公司内部倒手（`F_LIQ→F_FEE`）TB no-op；④ EOD `FxEodService` 清桥（`TRADE_CLEARING`→`FX_POSITION`，扣除 open swap 贡献）+ 每日重估（`FX_UNREALIZED_PNL`）+ LP 平盘（`FX_REALIZED_PNL`，浮动回转）+ I1/I2 对账不变量；⑤ 三桶损益：费收入 / 点差收入 / FX 盈亏（浮动+已实现）；⑥ `scripts/verify-two-book.ts` 全链验收（充值→兑换→法币结算→EOD→提现→平盘→终局守恒，41/41 PASS）。见 `superpowers/specs/2026-06-10-two-book-accounting-design.md`。
 
 ---
 

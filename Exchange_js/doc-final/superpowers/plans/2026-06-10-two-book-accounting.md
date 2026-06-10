@@ -25,7 +25,7 @@
 - Modify(机械改名): 所有引用 `TB_ACCOUNT_CODES.BANK` / `TB_ACCOUNT_CODES.CUSTODY` / `'A.BANK'` / `'A.CUSTODY'` 的文件(见 Step 3 grep 清单)
 - Test: `src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.spec.ts`(新建)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 // src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.spec.ts
@@ -59,12 +59,12 @@ describe('TB_ACCOUNT_CODES (two-book COA)', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `npx jest src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.spec.ts`
 Expected: FAIL(`CLIENT_BANK` undefined)
 
-- [ ] **Step 3: 重写常量文件**
+- [x] **Step 3: 重写常量文件**
 
 ```typescript
 // src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.ts
@@ -118,7 +118,7 @@ export const TB_CODE_TO_COA: Record<number, string> = Object.fromEntries(
 );
 ```
 
-- [ ] **Step 4: 机械改名所有引用点**
+- [x] **Step 4: 机械改名所有引用点**
 
 Run: `grep -rln "TB_ACCOUNT_CODES.BANK\b\|TB_ACCOUNT_CODES.CUSTODY\b" --include="*.ts" src prisma scripts`
 
@@ -126,12 +126,12 @@ Run: `grep -rln "TB_ACCOUNT_CODES.BANK\b\|TB_ACCOUNT_CODES.CUSTODY\b" --include=
 `tb-manual-account.service.ts`、`asset-provisioning.service.ts`、`asset-activation-workflow.service.ts`、`funds-accounting.service.ts`、`deposit-workflow.service.ts`、`withdraw-workflow.service.ts`、`withdraw-transactions.service.ts`、`prisma/seed.business.ts`、`scripts/verify-tb-drain.ts`、`scripts/seed-fiat-settle-demo.ts`、`scripts/seed-eod-demo.ts` 及对应 `.spec.ts`。
 同时替换字符串字面量 `'A.BANK'`→`'A.CLIENT_BANK'`、`'A.CUSTODY'`→`'A.CLIENT_CUSTODY'`(`grep -rln "'A.BANK'\|'A.CUSTODY'" --include="*.ts" src scripts`)。
 
-- [ ] **Step 5: 测试 + 构建通过**
+- [x] **Step 5: 测试 + 构建通过**
 
 Run: `npx jest src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.spec.ts && npm run build`
 Expected: PASS + 编译零错误
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(accounting): two-book COA — rename client pool accounts, add E/R code ranges"
@@ -144,7 +144,7 @@ git add -A && git commit -m "feat(accounting): two-book COA — rename client po
 **Files:**
 - Modify: `src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant.ts`
 
-- [ ] **Step 1: 在文件尾部(`} as const;` 之前)追加新 code 段**
+- [x] **Step 1: 在文件尾部(`} as const;` 之前)追加新 code 段**
 
 ```typescript
   // ── Two-book accounting (50–70) ──
@@ -169,7 +169,7 @@ git add -A && git commit -m "feat(accounting): two-book COA — rename client po
 
 注:`EOD_DRAIN_OUT:40 / EOD_DRAIN_IN:41 / FEE_DRAIN:42` 本任务**不动**(消费者 Task 6 重接,常量 Task 9 删)。`WITHDRAW_CREDIT_TO_FEE_*:11/13/15` 与 `SWAP_CREDIT_TO_FEE:36 / SWAP_CLEARING_TO_SPREAD:35` 语义不变(目的科目在 Task 4/5 换),编号保留。
 
-- [ ] **Step 2: 构建 + Commit**
+- [x] **Step 2: 构建 + Commit**
 
 Run: `npm run build`
 Expected: 编译零错误
@@ -189,7 +189,7 @@ git commit -m "feat(accounting): transfer codes for settlement mirrors, bridge s
 - Modify: `prisma/seed.business.ts`(systemAccounts 列表 ~line 125-144;文件尾部加资本注入)
 - Test: `src/modules/asset-treasury/assets/asset-provisioning.service.spec.ts`(如无则新建)
 
-- [ ] **Step 1: 写失败测试(provisioning 开满公司账本科目)**
+- [x] **Step 1: 写失败测试(provisioning 开满公司账本科目)**
 
 ```typescript
 // src/modules/asset-treasury/assets/asset-provisioning.service.spec.ts
@@ -226,12 +226,12 @@ describe('AssetProvisioningService (two-book)', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `npx jest src/modules/asset-treasury/assets/asset-provisioning.service.spec.ts`
 Expected: FAIL(当前只开 3 个账户,含 FEE_RECEIVABLE)
 
-- [ ] **Step 3: 改 provisioning 的 accountParams**
+- [x] **Step 3: 改 provisioning 的 accountParams**
 
 替换 `asset-provisioning.service.ts` 中 `accountParams` 数组(31–55 行):
 
@@ -281,12 +281,12 @@ Expected: FAIL(当前只开 3 个账户,含 FEE_RECEIVABLE)
     const requiredCodes = [poolCode, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FEE_INCOME];
 ```
 
-- [ ] **Step 4: 跑测试通过**
+- [x] **Step 4: 跑测试通过**
 
 Run: `npx jest src/modules/asset-treasury/assets/asset-provisioning.service.spec.ts`
 Expected: PASS
 
-- [ ] **Step 5: seed 同步 — systemAccounts 列表 + 资本注入**
+- [x] **Step 5: seed 同步 — systemAccounts 列表 + 资本注入**
 
 `prisma/seed.business.ts` 中 `systemAccounts`(~129 行)改为与 provisioning 一致的 10 个科目:
 
@@ -316,7 +316,7 @@ const SEED_FIRM_CAPITAL: Record<string, string> = { AED: '1000000', USDT: '10000
 用 seed 既有的 TB client 帮助函数(`prisma/seed-tb.helper.ts` 的 createTransfers 封装;若只有 createAccounts 封装,则参照其模式新增 `seedTransfer` 帮助函数)创建 posted transfer:
 debit = FIRM_OPS(ledger),credit = PAID_IN_CAPITAL(ledger),amount = 按 asset.decimals 缩放的 bigint,code = `TB_TRANSFER_CODES.CAPITAL_INJECTION`,transfer id 用 `deterministicTransferId('SEED_CAPITAL', currency, 'CAPITAL_INJECTION', 0)` 保证 reseed 幂等。
 
-- [ ] **Step 6: 构建 + Commit**
+- [x] **Step 6: 构建 + Commit**
 
 Run: `npm run build`
 Expected: 编译零错误
@@ -333,7 +333,7 @@ git add -A && git commit -m "feat(accounting): provision/seed full two-book acco
 - Modify: `src/modules/trading/swap-transactions/swap-workflow.service.ts`(148–220 行区域)
 - Test: `src/modules/trading/swap-transactions/swap-workflow.service.spec.ts`(如无则新建,mock AccountingService)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建/追加 spec,直接断言科目去向(mock 全部依赖,只验 resolve+transfer 调用):
 
@@ -348,12 +348,12 @@ expect(resolveCalls).toContain(TB_ACCOUNT_CODES.FEE_INCOME);
 expect(resolveCalls).not.toContain(TB_ACCOUNT_CODES.FEE_RECEIVABLE);
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `npx jest src/modules/trading/swap-transactions/swap-workflow.service.spec.ts`
 Expected: FAIL
 
-- [ ] **Step 3: 改 swap-workflow.service.ts(三处)**
+- [x] **Step 3: 改 swap-workflow.service.ts(三处)**
 
 (a) spread 腿(151–163 行):`FEE_RECEIVABLE` → `SPREAD_INCOME`,变量改名 `feeReceivable`→`spreadIncome`,evidence 的 creditCode 同步:
 
@@ -388,7 +388,7 @@ Expected: FAIL
 
 同时更新 99–103 行注释(FEE_RECEIVABLE → SPREAD_INCOME 语境)。
 
-- [ ] **Step 4: 测试 + 构建通过,Commit**
+- [x] **Step 4: 测试 + 构建通过,Commit**
 
 Run: `npx jest src/modules/trading/swap-transactions && npm run build`
 Expected: PASS
@@ -406,7 +406,7 @@ git add -A && git commit -m "feat(swap): T1 books fee/spread into FEE_INCOME/SPR
 - Modify: `src/modules/trading/withdraw-transactions/withdraw-workflow.service.ts:499-500`(post 时 evidence)
 - Test: 模块内既有 withdraw spec(如有)+ 同 Task 4 风格断言
 
-- [ ] **Step 1: 改 Pending #2(withdraw-transactions.service.ts)**
+- [x] **Step 1: 改 Pending #2(withdraw-transactions.service.ts)**
 
 ```typescript
             // Pending #2: fee amount CLIENT_CREDIT → FEE_INCOME (two-phase:
@@ -437,11 +437,11 @@ git add -A && git commit -m "feat(swap): T1 books fee/spread into FEE_INCOME/SPR
               });
 ```
 
-- [ ] **Step 2: 改 withdraw-workflow.service.ts post evidence(~500 行)**
+- [x] **Step 2: 改 withdraw-workflow.service.ts post evidence(~500 行)**
 
 `creditCode: String(TB_ACCOUNT_CODES.FEE_RECEIVABLE)` → `creditCode: String(TB_ACCOUNT_CODES.FEE_INCOME)`。post/void 机制本身不动(pending id 已存 `tbPendingFeeId`)。
 
-- [ ] **Step 3: 测试 + 构建,Commit**
+- [x] **Step 3: 测试 + 构建,Commit**
 
 Run: `npx jest src/modules/trading/withdraw-transactions && npm run build`
 Expected: PASS(若既有 spec 断言 FEE_RECEIVABLE,改为 FEE_INCOME)
@@ -463,7 +463,7 @@ git add -A && git commit -m "feat(withdraw): fee pending leg targets FEE_INCOME 
 - Modify: `src/modules/funds-layer/accounting/tb-amount.util.ts`(导出 `decimalToTbUnits`)
 - Test: `src/modules/funds-layer/accounting/funds-accounting.service.spec.ts`、`src/modules/funds-layer/constants/internal-transfer-paths.constant.spec.ts`
 
-- [ ] **Step 1: 白名单 — mirror 字段**
+- [x] **Step 1: 白名单 — mirror 字段**
 
 `internal-transfer-paths.constant.ts`:
 
@@ -494,7 +494,7 @@ export interface TransferPathPolicy {
 - `AGGREGATE`/`FUND_OUT`/`FUND_RETURN`(池内倒手): 无 mirror
 删除 `DrainAccount` 类型导出。`internal-transfer-paths.constant.spec.ts` 同步:断言上表每条路径的 mirror 值。
 
-- [ ] **Step 2: 写失败测试(mirrorPhysicalTransfer)**
+- [x] **Step 2: 写失败测试(mirrorPhysicalTransfer)**
 
 `funds-accounting.service.spec.ts` 重写为:
 
@@ -509,7 +509,7 @@ export interface TransferPathPolicy {
 Run: `npx jest src/modules/funds-layer/accounting/funds-accounting.service.spec.ts`
 Expected: FAIL
 
-- [ ] **Step 3: 实现 mirrorPhysicalTransfer**
+- [x] **Step 3: 实现 mirrorPhysicalTransfer**
 
 `funds-accounting.service.ts` 新增(旧 `applyAccounting`/`drainFeeReceivableAmount` 此任务先不删,仅不再被调用):
 
@@ -605,7 +605,7 @@ export function decimalToTbUnits(value: Prisma.Decimal, decimals: number): bigin
 }
 ```
 
-- [ ] **Step 4: 重接三个调用点**
+- [x] **Step 4: 重接三个调用点**
 
 (a) `internal-transfer-workflow.service.ts` initiate 事务内(~141 行)**删除** `applyAccounting` 调用块;在 `onFundsFlowStatusChanged`(CLEAR 分支,审计写之后)追加:
 
@@ -620,7 +620,7 @@ export function decimalToTbUnits(value: Prisma.Decimal, decimals: number): bigin
 (b) `fiat-settlement-workflow.service.ts` 168–173 行:`applyAccounting({ accountingClass: B, ... })` → `mirrorPhysicalTransfer({ internalTransferId: transfer.id })`(若 (a) 的统一 CLEAR 钩子已覆盖该路径,则此处直接删除调用,二选一:**优先统一钩子,删除此处**)。
 (c) `fiat-fee-collection-workflow.service.ts` `onFundsFlowStatusChanged`(191–211 行):删除 `drainFeeReceivableAmount` 调用——FIAT_FEE_COLLECT 的镜像同样由统一 CLEAR 钩子覆盖;该事件 handler 若再无其他职责则整个删除。
 
-- [ ] **Step 5: 测试 + 构建,Commit**
+- [x] **Step 5: 测试 + 构建,Commit**
 
 Run: `npx jest src/modules/funds-layer && npm run build`
 Expected: PASS(funds-layer 既有 spec 中对 applyAccounting/drain 的断言改为 mirror 行为)
@@ -637,7 +637,7 @@ git add -A && git commit -m "feat(funds-layer): settlement-leg TB mirrors (pool<
 - Modify: `src/modules/funds-layer/workflow/fee-collection-workflow.service.ts:63-100`
 - Test: `src/modules/funds-layer/workflow/fee-collection-workflow.service.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
 // 断言:候选金额 = Σ(SUCCESS 状态 crypto 提现的 feeAmount) − Σ(已 spawn 的 FEE_COLLECTION transfer amount)
@@ -649,7 +649,7 @@ git add -A && git commit -m "feat(funds-layer): settlement-leg TB mirrors (pool<
 Run: `npx jest src/modules/funds-layer/workflow/fee-collection-workflow.service.spec.ts`
 Expected: FAIL
 
-- [ ] **Step 2: 改 runFeeCollection 候选计算**
+- [x] **Step 2: 改 runFeeCollection 候选计算**
 
 替换 63–100 行的 TB 余额读取(`resolveTbAccountId`+`lookupBalance`)为 Prisma 推导:
 
@@ -678,7 +678,7 @@ Expected: FAIL
 `FeeCandidate` 接口 `netBigint: bigint` → `netDecimal: Prisma.Decimal`;下方 spawn 处 `bigintToDecimal(candidate.netBigint, ...)` → 直接 `candidate.netDecimal`。删除该文件对 `AccountingService`/`TB_ACCOUNT_CODES`/`TB_LEDGERS`/`bigintToDecimal` 的 import(若不再使用)。`Prisma` 需从 `@prisma/client` import。
 注:终态(SUCCESS)不会回退(RETURNED 在 SUCCESS 前分叉),且 FEE_COLLECT spawn 即记账额 → 差额口径自校正,中断重跑安全。
 
-- [ ] **Step 3: 测试 + 构建,Commit**
+- [x] **Step 3: 测试 + 构建,Commit**
 
 Run: `npx jest src/modules/funds-layer/workflow/fee-collection-workflow.service.spec.ts && npm run build`
 Expected: PASS
@@ -697,7 +697,7 @@ git add -A && git commit -m "feat(funds-layer): crypto fee-collect amount derive
 - Modify: `src/modules/funds-layer/workflow/eod-settlement-workflow.service.ts`(runEodSettlement 尾部接清桥/重估/校验)
 - Modify: `src/modules/funds-layer/funds-layer.module.ts`(注册 provider)
 
-- [ ] **Step 1: 写失败测试(三块核心算法)**
+- [x] **Step 1: 写失败测试(三块核心算法)**
 
 ```typescript
 // fx-eod.service.spec.ts — mock accounting.lookupBalance / resolveTbAccountId / executeTransfer、prisma、rateProvider
@@ -723,7 +723,7 @@ describe('FxEodService', () => {
 Run: `npx jest src/modules/funds-layer/accounting/fx-eod.service.spec.ts`
 Expected: FAIL(服务不存在)
 
-- [ ] **Step 2: 实现 FxEodService**
+- [x] **Step 2: 实现 FxEodService**
 
 ```typescript
 // src/modules/funds-layer/accounting/fx-eod.service.ts
@@ -1057,7 +1057,7 @@ export class FxEodService {
 - `realizeFxPosition` 的 `Date.now()` 在 sourceNo 里(平盘非幂等操作,允许;demo 单次调用)。
 - 重估 evidence sourceNo=batchNo → 同批次重跑幂等(deterministic id)。
 
-- [ ] **Step 3: 接入 EOD workflow**
+- [x] **Step 3: 接入 EOD workflow**
 
 `eod-settlement-workflow.service.ts`:constructor 注入 `private readonly fxEod: FxEodService`;`runEodSettlement` 在 `recomputeBatch` 之后追加:
 
@@ -1069,7 +1069,7 @@ export class FxEodService {
 
 并在该 workflow 的 CLEAR 事件 handler 完成最后一个 item 结算后(批次关闭分支,如有)也调一次 `runEodAccounting(batch.batchNo)`(同 batchNo 幂等,保证"结算异步 CLEAR 之后桥才可清"的时序)。`funds-layer.module.ts` providers 数组加入 `FxEodService`;`BinanceRateProvider` 若不在本模块可注入范围,imports 对应模块(查 `pricing-center` 的 module 导出,没有则在该 module exports 中补)。
 
-- [ ] **Step 4: 测试 + 构建,Commit**
+- [x] **Step 4: 测试 + 构建,Commit**
 
 Run: `npx jest src/modules/funds-layer/accounting/fx-eod.service.spec.ts && npm run build`
 Expected: PASS
@@ -1091,19 +1091,19 @@ git add -A && git commit -m "feat(funds-layer): FxEodService — bridge sweep, d
 - Delete/Rewrite: `scripts/verify-tb-drain.ts`(drain 体系已死 → 删除;替代验证在 Task 10 的 verify-two-book.ts)
 - Modify: `scripts/seed-eod-demo.ts`、`scripts/seed-fiat-settle-demo.ts`(科目引用改名已在 Task 1;此处确认无 FEE_RECEIVABLE/drain 依赖)
 
-- [ ] **Step 1: 全局搜索确认无运行时引用**
+- [x] **Step 1: 全局搜索确认无运行时引用**
 
 Run: `grep -rn "FEE_RECEIVABLE\|EOD_DRAIN\|FEE_DRAIN\|applyAccounting\|drainFeeReceivableAmount" --include="*.ts" src prisma scripts | grep -v spec`
 Expected: 仅常量定义本身(将在本任务删除)
 
-- [ ] **Step 2: 删除上述符号与函数;受影响 spec 同步删除/改写**
+- [x] **Step 2: 删除上述符号与函数;受影响 spec 同步删除/改写**
 
-- [ ] **Step 3: 全量测试 + 构建**
+- [x] **Step 3: 全量测试 + 构建**
 
 Run: `npx jest && npm run build`
 Expected: 全绿(期间任何 FEE_RECEIVABLE 断言残留 → 一并清)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add -A && git commit -m "refactor(accounting): delete FEE_RECEIVABLE and drain accounting (two-book cutover complete)"
@@ -1117,7 +1117,7 @@ git add -A && git commit -m "refactor(accounting): delete FEE_RECEIVABLE and dra
 - Create: `scripts/verify-two-book.ts`
 - Modify: `package.json`(可选:`"verify:two-book": "ts-node scripts/verify-two-book.ts"`)
 
-- [ ] **Step 1: 写全链验证脚本**
+- [x] **Step 1: 写全链验证脚本**
 
 参照 `scripts/verify-tb-drain.ts`(删除前的副本)与 `scripts/seed-eod-demo.ts` 的 Nest 上下文引导模式,脚本步骤:
 
@@ -1139,7 +1139,7 @@ git add -A && git commit -m "refactor(accounting): delete FEE_RECEIVABLE and dra
 
 金额断言全部以 TB units(bigint)精确比对,数字锚点取 spec 第 8 节。
 
-- [ ] **Step 2: 重建 + 跑通**
+- [x] **Step 2: 重建 + 跑通**
 
 Run:
 ```bash
@@ -1147,12 +1147,12 @@ lsof -ti:3500,3501,3502 | xargs kill -9 2>/dev/null; npm run dev:rebuild && npx 
 ```
 Expected: 脚本输出每步断言 PASS,exit 0。失败 → 修复后重跑(禁止跳过断言)。
 
-- [ ] **Step 3: 全量回归**
+- [x] **Step 3: 全量回归**
 
 Run: `npx jest && npm run build`
 Expected: 全绿
 
-- [ ] **Step 4: Commit + 文档**
+- [x] **Step 4: Commit + 文档**
 
 ```bash
 git add -A && git commit -m "test(accounting): verify-two-book full-chain acceptance (deposit→swap→settle→EOD→withdraw→realize)"
