@@ -17,7 +17,6 @@ interface WalletDetailData {
   id: string;
   walletNo: string;
   walletRole: string;
-  surfaceCategory?: string;
   ownerType: string;
   ownerId: string | null;
   ownerNo: string | null;
@@ -111,17 +110,6 @@ const SidebarKV = ({
   );
 };
 
-/* ── Surface label mapping ── */
-
-const SURFACE_LABELS: Record<string, string> = {
-  CUSTOMER_POOL: 'Customer Pool',
-  PLATFORM_POOL: 'Platform Pool',
-  CUSTOMER_DEPOSIT: 'Customer Deposit Surface',
-  CUSTOMER_PAYOUT_TARGET: 'Customer Payout Target',
-  LIQUIDITY_PROVIDER_ACCOUNT: 'Liquidity Provider Account',
-  OTHER: 'Other Wallet',
-};
-
 /* ── Main Component ──────────────────────────────────────────── */
 
 export default function CustodianWalletDetail() {
@@ -193,8 +181,6 @@ export default function CustodianWalletDetail() {
   const isDepositWallet = wallet.walletRole === 'C_DEP';
   const canCreateCollection = hasAnyPermission([PERMISSIONS.INTERNAL_COLLECTIONS_RECONCILE]);
   const canRetry = hasAnyPermission([PERMISSIONS.CUSTODIAN_WALLET_RETRY]);
-  const ownerLabel = wallet.ownerName || wallet.ownerNo || wallet.ownerId || '—';
-  const surfaceLabel = SURFACE_LABELS[wallet.surfaceCategory || 'OTHER'] || 'Other Wallet';
 
   /* ── Status toggle ── */
 
@@ -326,21 +312,32 @@ export default function CustodianWalletDetail() {
                 <div className="mt-1"><WalletRoleBadge role={wallet.walletRole} /></div>
               </div>
             </div>
-            <div className="mt-3">
-              <InfoField label="Surface" value={surfaceLabel} />
-            </div>
           </section>
 
           {/* ② Details */}
           <section className="px-6 py-5">
             <Cap>Details</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Owner" value={ownerLabel} mono />
               <InfoField label="Owner Type" value={wallet.ownerType} />
-              <InfoField label="Owner No" value={wallet.ownerNo} mono accent />
+              <div className="min-w-0">
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Owner No</div>
+                <div className="mt-1 text-[13px]">
+                  {wallet.ownerType === 'CUSTOMER' && wallet.ownerNo && wallet.ownerId ? (
+                    <button
+                      onClick={() => navigate(`/dashboard/customer/${wallet.ownerId}`)}
+                      className="text-adm-amber hover:underline font-mono text-[11px]"
+                      title="Open customer"
+                    >
+                      {wallet.ownerNo}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-[11px] text-adm-t2">{wallet.ownerNo ?? '—'}</span>
+                  )}
+                </div>
+              </div>
+              <InfoField label="Owner Name" value={wallet.ownerName ?? '—'} />
               <InfoField label="Asset" value={wallet.asset.code} />
               <InfoField label="Network" value={wallet.asset.network || '—'} />
-              <InfoField label="Vault ID" value={wallet.vaultId} mono />
               <InfoField
                 label="Custodian"
                 value={wallet.type === 'FIAT_BANK' ? 'ZandBank' : 'HexTrust'}
@@ -350,10 +347,10 @@ export default function CustodianWalletDetail() {
 
           {/* ③ Balance */}
           <section className="px-6 py-5">
-            <Cap>Balance</Cap>
+            <Cap>Balance (mock)</Cap>
             <div className="mt-3">
               <InfoField
-                label="Balance"
+                label="Balance (mock)"
                 value={`${formatAssetAmount(wallet.balance ?? '0', wallet.asset.decimals)} ${wallet.asset.currency}`}
                 highlight
               />
@@ -375,6 +372,7 @@ export default function CustodianWalletDetail() {
                       copied={copiedField === 'address'}
                       onCopy={(v) => handleCopy(v, 'address')}
                     />
+                    <InfoField label="Vault ID" value={wallet.vaultId} mono />
                   </>
                 ) : (
                   <>
@@ -486,6 +484,8 @@ export default function CustodianWalletDetail() {
             <SidebarKV label="Role" value={wallet.walletRole} mono />
             <SidebarKV label="Role Name" value={WALLET_ROLE_LABEL[wallet.walletRole] || wallet.walletRole} />
             <SidebarKV label="Asset" value={wallet.asset.code} />
+            <SidebarKV label="Owner No" value={wallet.ownerNo} mono />
+            <SidebarKV label="Owner Name" value={wallet.ownerName} />
           </SidebarGroup>
 
           {/* Lifecycle */}
