@@ -36,6 +36,7 @@ import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-tra
 import { PayoutsService } from '../src/modules/asset-treasury/payouts/payouts.service';
 import { PayoutAction } from '../src/modules/asset-treasury/payouts/dto/payout.dto';
 import { decimalToTbUnits, bigintToDecimal } from '../src/modules/funds-layer/accounting/tb-amount.util';
+import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 
 const AED = TB_LEDGERS.AED;   // ledger 1, 2 decimals
 const USDT = TB_LEDGERS.USDT; // ledger 2, 6 decimals
@@ -142,24 +143,28 @@ async function main() {
   const tag = Date.now().toString();
   const depWallet = await prisma.wallet.create({
     data: {
-      walletNo: `WA-VERIFY-DEP-${tag}`, ownerType: 'CUSTOMER', ownerId: alice.id, ownerNo: alice.customerNo,
+      walletNo: buildDeterministicNo('WA', 'VERIFY', 'C_DEP', alice.customerNo), ownerType: 'CUSTOMER', ownerId: alice.id, ownerNo: alice.customerNo,
       type: 'CRYPTO_ADDRESS', walletRole: 'C_DEP', assetId: usdtAsset.id,
       address: `TVERIFY${tag}`, status: 'ACTIVE',
     },
   });
-  let viban = await prisma.wallet.findFirst({
-    where: { walletRole: 'C_VIBAN', assetId: aedAsset.id, ownerType: 'CUSTOMER', ownerId: alice.id },
+  const cma = await prisma.wallet.findFirst({
+    where: { walletRole: 'C_CMA', assetId: aedAsset.id, status: 'ACTIVE' },
+    select: { bankName: true, accountName: true },
   });
-  if (!viban) {
-    viban = await prisma.wallet.create({
-      data: {
-        walletNo: `WA-VERIFY-VIBAN-${tag}`, ownerType: 'CUSTOMER', ownerId: alice.id, ownerNo: alice.customerNo,
-        type: 'FIAT_BANK', walletRole: 'C_VIBAN', assetId: aedAsset.id,
-        iban: `AE00VERIFY${tag.slice(-10)}`, bankName: 'FiatX Internal Bank',
-        accountName: 'Customer VIBAN (AED)', status: 'ACTIVE',
-      },
-    });
-  }
+  const vibanNo = buildDeterministicNo('WA', 'VERIFY', 'C_VIBAN', alice.customerNo);
+  const viban = await prisma.wallet.upsert({
+    where: { walletNo: vibanNo },
+    update: {},
+    create: {
+      walletNo: vibanNo, ownerType: 'CUSTOMER', ownerId: alice.id, ownerNo: alice.customerNo,
+      type: 'FIAT_BANK', walletRole: 'C_VIBAN', assetId: aedAsset.id,
+      iban: `AE00VERIFY${tag.slice(-10)}`,
+      bankName: cma?.bankName ?? null,
+      accountName: cma?.accountName ?? null,
+      status: 'ACTIVE',
+    },
+  });
 
   // 资金腿驱动 helpers(对齐 funds-simulate.controller:fundsFlow.updateStatus)
   async function driveFiatLeg(fundId: string) {
