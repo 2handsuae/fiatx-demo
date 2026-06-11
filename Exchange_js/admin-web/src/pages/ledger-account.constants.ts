@@ -36,3 +36,16 @@ export const CUSTOMER_TB_CODES = [100, 101];
 
 export const SYSTEM_CODE_OPTIONS = SYSTEM_TB_CODES.map((c) => ({ value: c, label: labelOf(c) }));
 export const CUSTOMER_CODE_OPTIONS = CUSTOMER_TB_CODES.map((c) => ({ value: c, label: labelOf(c) }));
+
+const CLASS_PREFIX: Record<number, string> = {
+  1: 'A', 10: 'A', 50: 'A', 60: 'A',
+  100: 'L', 101: 'L', 110: 'L',
+  200: 'E', 210: 'E',
+  300: 'R', 310: 'R', 320: 'R', 330: 'R',
+};
+
+/** COA 全名(如 'L.CLIENT_PAYABLE'),证据页筛选用。 */
+export const COA_OPTIONS = Object.entries(TB_CODE_LABELS).map(([code, name]) => ({
+  value: `${CLASS_PREFIX[Number(code)]}.${name}`,
+  label: `${CLASS_PREFIX[Number(code)]}.${name}`,
+}));

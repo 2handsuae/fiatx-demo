@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { Copy, RefreshCw } from 'lucide-react';
 import { adminIconButtonClass, adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
@@ -10,6 +10,8 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { COA_OPTIONS } from './ledger-account.constants';
+import { copyToClipboard } from '../utils/clipboard';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -32,6 +34,8 @@ interface TransferEvidenceRow {
 }
 
 interface FilterState {
+  q: string;
+  coa: string;
   sourceType: string;
   assetCode: string;
   eventCode: string;
@@ -41,6 +45,8 @@ interface FilterState {
 /* ── Constants ───────────────────────────────────────────────── */
 
 const DEFAULT_FILTERS: FilterState = {
+  q: '',
+  coa: '',
   sourceType: '',
   assetCode: '',
   eventCode: '',
@@ -72,6 +78,8 @@ const TransferEvidenceList = () => {
       const params = new URLSearchParams();
       params.set('skip', String((p - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
+      if (nextFilters.q.trim()) params.set('q', nextFilters.q.trim());
+      if (nextFilters.coa) params.set('coa', nextFilters.coa);
       if (nextFilters.sourceType) params.set('sourceType', nextFilters.sourceType);
       if (nextFilters.assetCode) params.set('assetCode', nextFilters.assetCode);
       if (nextFilters.eventCode) params.set('eventCode', nextFilters.eventCode);
@@ -105,6 +113,8 @@ const TransferEvidenceList = () => {
   /* ── Filter logic ── */
 
   const hasFilter =
+    !!filters.q.trim() ||
+    !!filters.coa ||
     !!filters.sourceType ||
     !!filters.assetCode ||
     !!filters.eventCode ||
@@ -169,6 +179,13 @@ const TransferEvidenceList = () => {
 
       {/* ─── Zone 2: Filter bar ─── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <input
+          className={`${fi} w-[240px]`}
+          placeholder="Transfer ID / source no / trace"
+          value={filters.q}
+          onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+        />
         <select
           value={filters.sourceType}
           onChange={(e) => updateFilter('sourceType', e.target.value)}
@@ -207,6 +224,16 @@ const TransferEvidenceList = () => {
           <option value="VOID_PENDING">VOID_PENDING</option>
           <option value="CORRECTING">CORRECTING</option>
         </select>
+        <select
+          className={`${fi} w-[200px]`}
+          value={filters.coa}
+          onChange={(e) => setFilters((p) => ({ ...p, coa: e.target.value }))}
+        >
+          <option value="">All accounts</option>
+          {COA_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
 
         <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
           Search
@@ -234,6 +261,7 @@ const TransferEvidenceList = () => {
         <table className="w-full border-collapse text-[11px]">
           <thead className="sticky top-0 z-10 bg-adm-panel">
             <tr className="border-b border-adm-border">
+              <th className={th} style={{ width: 130 }}>ID</th>
               <th className={th} style={{ width: 100 }}>Source</th>
               <th className={th} style={{ width: 140 }}>Source No</th>
               <th className={th} style={{ width: 120 }}>Event</th>
@@ -248,14 +276,14 @@ const TransferEvidenceList = () => {
           <tbody>
             {loading && items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No transfers found.
                 </td>
               </tr>
@@ -266,6 +294,20 @@ const TransferEvidenceList = () => {
                 onClick={() => navigate(`/ledger/transfers/${row.tbTransferId}`)}
                 className="border-b border-adm-border transition-colors hover:bg-adm-hover cursor-pointer"
               >
+                <td className="px-3 py-2 font-mono text-[10px] text-adm-t2">
+                  <span className="inline-flex items-center gap-1">
+                    <span title={row.tbTransferId}>
+                      {row.tbTransferId.slice(0, 8)}…{row.tbTransferId.slice(-6)}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); copyToClipboard(row.tbTransferId); }}
+                      className="text-adm-t3 hover:text-adm-t1"
+                      title="Copy full ID"
+                    >
+                      <Copy size={10} />
+                    </button>
+                  </span>
+                </td>
                 <td className="px-3 py-2">
                   <AdminBadge value={row.sourceType} />
                 </td>
