@@ -6,8 +6,19 @@ import {
   DetailPageHeader,
   DetailCard,
   InfoField,
-  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
+
+/** Block-explorer tx link by network — TRON/ETHEREUM supported, others get no link. */
+const explorerTxUrl = (network: string | null | undefined, hash: string): string | undefined => {
+  switch ((network || '').toUpperCase()) {
+    case 'TRON':
+      return `https://tronscan.org/#/transaction/${hash}`;
+    case 'ETHEREUM':
+      return `https://etherscan.io/tx/${hash}`;
+    default:
+      return undefined;
+  }
+};
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
@@ -222,53 +233,59 @@ const PayinDetail = () => {
             </div>
           </div>
 
-          {/* 2. Chain Details */}
-          <DetailCard title="Chain Details" columns={2}>
-            <InfoField
-              label="Tx Hash"
-              value={data.txHash}
-              copyable
-              onCopy={(v) => handleCopy(v, 'txHash')}
-              isCopied={copiedField === 'txHash'}
-              mono
-              link={
-                data.txHash && data.asset.type !== 'FIAT'
-                  ? `https://etherscan.io/tx/${data.txHash}`
-                  : undefined
-              }
-            />
-            <InfoField
-              label="Confirmations"
-              value={data.confirmations?.toString()}
-            />
-            <InfoField
-              label="From Address"
-              value={data.fromAddress}
-              copyable
-              onCopy={(v) => handleCopy(v, 'from')}
-              isCopied={copiedField === 'from'}
-              mono
-            />
-            <InfoField
-              label="To Address"
-              value={data.toAddress}
-              copyable
-              onCopy={(v) => handleCopy(v, 'to')}
-              isCopied={copiedField === 'to'}
-              mono
-            />
-            <InfoField label="From IBAN" value={data.fromIban} mono />
-            <InfoField label="To IBAN" value={data.toIban} mono />
-            <InfoField label="Reference No" value={data.referenceNo} mono />
-            <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
-          </DetailCard>
+          {/* 2a. Chain Details (crypto only) */}
+          {data.asset.type !== 'FIAT' && (
+            <DetailCard title="Chain Details" columns={2}>
+              <InfoField
+                label="Tx Hash"
+                value={data.txHash}
+                copyable
+                onCopy={(v) => handleCopy(v, 'txHash')}
+                isCopied={copiedField === 'txHash'}
+                mono
+                link={
+                  data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined
+                }
+              />
+              <InfoField
+                label="Confirmations"
+                value={data.confirmations?.toString()}
+              />
+              <InfoField
+                label="From Address"
+                value={data.fromAddress}
+                copyable
+                onCopy={(v) => handleCopy(v, 'from')}
+                isCopied={copiedField === 'from'}
+                mono
+              />
+              <InfoField
+                label="To Address"
+                value={data.toAddress}
+                copyable
+                onCopy={(v) => handleCopy(v, 'to')}
+                isCopied={copiedField === 'to'}
+                mono
+              />
+              {data.providerTxnId ? (
+                <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
+              ) : null}
+            </DetailCard>
+          )}
+
+          {/* 2b. Bank Transfer (fiat only) */}
+          {data.asset.type === 'FIAT' && (
+            <DetailCard title="Bank Transfer" columns={2}>
+              <InfoField label="From IBAN" value={data.fromIban} mono />
+              <InfoField label="To IBAN" value={data.toIban} mono />
+              <InfoField label="Reference No" value={data.referenceNo} mono />
+              <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
+            </DetailCard>
+          )}
 
           {/* 3. Linked Deposit (conditional) */}
           {linkedDepositNo && (
-            <div className="px-6 py-5">
-              <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-                Linked Deposit
-              </h3>
+            <DetailCard title="Linked Deposit" columns={1}>
               <LinkedRelationCard
                 cap="Deposit"
                 identifier={linkedDepositNo}
@@ -281,27 +298,13 @@ const PayinDetail = () => {
                     : undefined
                 }
               />
-            </div>
+            </DetailCard>
           )}
 
           {/* 4. Status History */}
           <DetailCard title="Status History" columns={1}>
             <PayinTimeline historyJson={data.statusHistory} />
           </DetailCard>
-
-          {/* 5. Technical */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Technical Detail
-            </h3>
-            <div className="mt-3">
-              <JsonBlock
-                title="Status History (raw)"
-                value={data.statusHistory}
-                compact
-              />
-            </div>
-          </div>
         </div>
 
         {/* Sidebar */}
