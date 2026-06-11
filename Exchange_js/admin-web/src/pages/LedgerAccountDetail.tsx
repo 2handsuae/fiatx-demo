@@ -21,6 +21,7 @@ interface LedgerAccountDetailData {
   ownerType: string;
   ownerUuid: string | null;
   ownerNo: string | null;
+  ownerName: string | null;
   assetCode: string;
   status: string;
   description: string | null;
@@ -244,6 +245,23 @@ export default function LedgerAccountDetail() {
                 value={detail.ownerNo ?? '—'}
                 mono
               />
+              {detail.ownerType === 'CUSTOMER' && (
+                <div className="min-w-0">
+                  <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer</div>
+                  <div className="mt-1 text-[13px]">
+                    {detail.ownerNo && detail.ownerUuid ? (
+                      <button
+                        onClick={() => navigate(`/dashboard/customer/management/${detail.ownerUuid}`)}
+                        className="text-adm-amber hover:underline font-mono text-[11px]"
+                      >
+                        {detail.ownerNo}{detail.ownerName ? ` · ${detail.ownerName}` : ''}
+                      </button>
+                    ) : (
+                      <span className="text-adm-t3">—</span>
+                    )}
+                  </div>
+                </div>
+              )}
               <InfoField
                 label="Flags"
                 value={`0x${detail.flags.toString(16).padStart(2, '0')}`}
@@ -277,6 +295,13 @@ export default function LedgerAccountDetail() {
             <SidebarKV label="Account" value={`${codeLabel} · ${detail.assetCode}`} />
             <SidebarKV label="Status" value={<AdminBadge value={detail.status} />} />
             <SidebarKV label="Owner Type" value={detail.ownerType} />
+            {detail.ownerNo ? (
+              <SidebarKV
+                label="Owner No"
+                value={detail.ownerNo + (detail.ownerName ? ` · ${detail.ownerName}` : '')}
+                mono
+              />
+            ) : null}
             <SidebarKV label="Asset" value={detail.assetCode} mono />
             <SidebarKV
               label="TB ID"
