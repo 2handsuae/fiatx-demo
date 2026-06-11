@@ -29,6 +29,7 @@ interface LedgerAccountRow {
   ownerType: string;
   ownerUuid: string | null;
   ownerNo: string | null;
+  ownerName: string | null;
   assetCode: string;
   status: string;
   description: string | null;
@@ -37,6 +38,7 @@ interface LedgerAccountRow {
 }
 
 interface FilterState {
+  q: string;
   assetCode: string;
   ownerType: string;
   code: string;
@@ -65,7 +67,7 @@ const EMPTY_FORM: CreateForm = {
   description: '',
 };
 
-const DEFAULT_FILTERS: FilterState = { assetCode: '', ownerType: '', code: '' };
+const DEFAULT_FILTERS: FilterState = { q: '', assetCode: '', ownerType: '', code: '' };
 const PAGE_SIZE = 50;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -111,6 +113,7 @@ const LedgerAccountList = () => {
       const params = new URLSearchParams();
       params.set('skip', String((p - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
+      if (f.q.trim()) params.set('q', f.q.trim());
       if (f.assetCode) params.set('assetCurrency', f.assetCode);
       if (f.ownerType) params.set('ownerType', f.ownerType);
       if (f.code) params.set('code', f.code);
@@ -264,6 +267,13 @@ const LedgerAccountList = () => {
       {/* ─── Zone 2: Filter bar ─── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border px-4 py-2">
         <input
+          className={`${fi} w-[240px]`}
+          placeholder="Customer no / name / description"
+          value={filters.q}
+          onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+        />
+        <input
           className={`${fi} w-[180px]`}
           placeholder="Asset code"
           value={filters.assetCode}
@@ -318,7 +328,7 @@ const LedgerAccountList = () => {
               <th className={th}>Code</th>
               <th className={th}>Ledger</th>
               <th className={th}>Owner</th>
-              <th className={th}>Owner No</th>
+              <th className={th}>Customer</th>
               <th className={th}>Asset</th>
               <th className={th}>Status</th>
               <th className={th}>Created</th>
@@ -371,9 +381,19 @@ const LedgerAccountList = () => {
                 <td className="px-3 py-2">
                   <AdminBadge value={row.ownerType} />
                 </td>
-                {/* Owner No */}
-                <td className="px-3 py-2 font-mono text-adm-t2">
-                  {row.ownerNo ?? '—'}
+                {/* Customer */}
+                <td className="px-3 py-2 font-mono text-[11px]">
+                  {row.ownerType === 'CUSTOMER' && row.ownerNo ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/management/${row.ownerUuid}`); }}
+                      className="text-adm-amber hover:underline"
+                      title="Open customer"
+                    >
+                      {row.ownerNo}{row.ownerName ? ` · ${row.ownerName}` : ''}
+                    </button>
+                  ) : (
+                    <span className="text-adm-t3">—</span>
+                  )}
                 </td>
                 {/* Asset */}
                 <td className="px-3 py-2 font-mono font-bold text-adm-t1">
