@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { COA_TO_TB_CODE } from './constants/tb-account-codes.constant';
 
 interface WriteEvidenceParams {
   tbTransferId: string;
@@ -120,6 +121,8 @@ export class TbEvidenceService {
     transferType?: string;
     actorType?: string;
     actorId?: string;
+    q?: string;
+    coa?: string;
     skip?: number;
     take?: number;
   }) {
@@ -130,6 +133,25 @@ export class TbEvidenceService {
     if (filters.transferType) where.transferType = filters.transferType;
     if (filters.actorType) where.actorType = filters.actorType;
     if (filters.actorId) where.actorId = filters.actorId;
+
+    const and: any[] = [];
+    const q = filters.q?.trim();
+    if (q) {
+      const hex = q.toLowerCase().replace(/^0x/, '');
+      and.push({ OR: [
+        { tbTransferId: hex },
+        { sourceNo: { contains: q } },
+        { traceId: { contains: q } },
+      ] });
+    }
+    if (filters.coa) {
+      const numeric = COA_TO_TB_CODE[filters.coa];
+      and.push({ OR: [
+        { debitCode: filters.coa }, { creditCode: filters.coa },
+        ...(numeric !== undefined ? [{ debitCode: String(numeric) }, { creditCode: String(numeric) }] : []),
+      ] });
+    }
+    if (and.length > 0) where.AND = and;
 
     const [items, total] = await Promise.all([
       (this.prisma as any).tbTransferEvidence.findMany({

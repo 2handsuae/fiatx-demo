@@ -110,12 +110,16 @@ export class TbAdminController {
     @Query('assetCurrency') assetCurrency?: string,
     @Query('eventCode') eventCode?: string,
     @Query('transferType') transferType?: string,
+    @Query('q') q?: string,
+    @Query('coa') coa?: string,
   ) {
     return this.tbEvidenceService.findAll({
       sourceType: sourceType || undefined,
       assetCurrency: assetCurrency || undefined,
       eventCode: eventCode || undefined,
       transferType: transferType || undefined,
+      q: q || undefined,
+      coa: coa || undefined,
       skip: skip ? Number(skip) : 0,
       take: take ? Number(take) : 50,
     });

@@ -92,4 +92,29 @@ describe('TbEvidenceService', () => {
       });
     });
   });
+
+  describe('findAll q + coa', () => {
+    it('q → OR[tbTransferId 等值(去0x小写), sourceNo contains, traceId contains]', async () => {
+      mockPrisma.tbTransferEvidence.findMany.mockResolvedValue([]);
+      mockPrisma.tbTransferEvidence.count.mockResolvedValue(0);
+      await service.findAll({ q: '0xAB12' });
+      const where = mockPrisma.tbTransferEvidence.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual([
+        { OR: [{ tbTransferId: 'ab12' }, { sourceNo: { contains: '0xAB12' } }, { traceId: { contains: '0xAB12' } }] },
+      ]);
+    });
+
+    it('coa → 借/贷任一侧命中,且兼容历史数字串', async () => {
+      mockPrisma.tbTransferEvidence.findMany.mockResolvedValue([]);
+      mockPrisma.tbTransferEvidence.count.mockResolvedValue(0);
+      await service.findAll({ coa: 'L.CLIENT_PAYABLE' });
+      const where = mockPrisma.tbTransferEvidence.findMany.mock.calls[0][0].where;
+      expect(where.AND).toEqual([
+        { OR: [
+          { debitCode: 'L.CLIENT_PAYABLE' }, { creditCode: 'L.CLIENT_PAYABLE' },
+          { debitCode: '100' }, { creditCode: '100' },
+        ] },
+      ]);
+    });
+  });
 });
