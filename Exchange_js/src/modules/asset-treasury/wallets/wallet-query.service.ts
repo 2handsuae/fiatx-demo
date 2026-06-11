@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { classifyWalletSurface } from './system-wallet.util';
 
 @Injectable()
 export class WalletQueryService {
@@ -11,20 +10,11 @@ export class WalletQueryService {
       this.prisma.wallet.findMany({ skip, take, where, orderBy, include: { asset: true } }),
       this.prisma.wallet.count({ where }),
     ]);
-
-    const enriched = await Promise.all(
-      items.map(async (wallet: any) => {
-        const ownerInfo = await this.resolveOwnerInfo(wallet);
-        return {
-          ...wallet,
-          ...ownerInfo,
-          surfaceCategory: classifyWalletSurface(wallet),
-          balance: wallet.mockBalance,
-        };
-      }),
-    );
-
-    return { items: enriched, total };
+    const enriched = await this.attachOwnerInfo(items);
+    return {
+      items: enriched.map((w: any) => ({ ...w, balance: w.mockBalance })),
+      total,
+    };
   }
 
   async findOne(id: string) {
@@ -33,14 +23,8 @@ export class WalletQueryService {
       include: { asset: true },
     });
     if (!wallet) throw new NotFoundException({ code: 'WALLET_NOT_FOUND', message: `Wallet ${id} not found` });
-
-    const ownerInfo = await this.resolveOwnerInfo(wallet);
-    return {
-      ...wallet,
-      ...ownerInfo,
-      surfaceCategory: classifyWalletSurface(wallet),
-      balance: wallet.mockBalance,
-    };
+    const [enriched] = await this.attachOwnerInfo([wallet]);
+    return { ...enriched, balance: (wallet as any).mockBalance };
   }
 
   async findBalance(id: string) {
@@ -60,20 +44,44 @@ export class WalletQueryService {
     };
   }
 
-  private async resolveOwnerInfo(wallet: any) {
-    if (wallet.ownerType === 'PLATFORM') return { ownerName: 'Platform', ownerNo: null };
-    if (wallet.ownerType === 'CUSTOMER' && wallet.ownerId) {
-      const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: wallet.ownerId } });
-      if (!customer) return { ownerName: null, ownerNo: null };
-      return {
-        ownerName: customer.companyName || customer.fullName || customer.email,
-        ownerNo: customer.customerNo,
-      };
-    }
-    if (wallet.ownerType === 'LIQUIDITY_PROVIDER' && wallet.ownerId) {
-      const lp = await (this.prisma as any).liquidityProvider.findUnique({ where: { id: wallet.ownerId } });
-      return { ownerName: lp?.name ?? null, ownerNo: lp?.providerNo ?? null };
-    }
-    return { ownerName: null, ownerNo: null };
+  /** 批量 owner enrich:CUSTOMER/LP 各一次 IN 查询(无 N+1);姓名 firstName+lastName 优先。 */
+  private async attachOwnerInfo(wallets: any[]): Promise<any[]> {
+    const idsOf = (type: string) => [
+      ...new Set(wallets.filter((w) => w.ownerType === type && w.ownerId).map((w) => w.ownerId)),
+    ];
+    const customerIds = idsOf('CUSTOMER');
+    const lpIds = idsOf('LIQUIDITY_PROVIDER');
+    const [customers, lps] = await Promise.all([
+      customerIds.length
+        ? (this.prisma as any).customerMain.findMany({
+            where: { id: { in: customerIds } },
+            select: { id: true, customerNo: true, firstName: true, lastName: true, companyName: true, email: true },
+          })
+        : Promise.resolve([]),
+      lpIds.length
+        ? (this.prisma as any).liquidityProvider.findMany({
+            where: { id: { in: lpIds } },
+            select: { id: true, providerNo: true, name: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const cMap = new Map(customers.map((c: any) => [c.id, c]));
+    const lpMap = new Map(lps.map((l: any) => [l.id, l]));
+
+    return wallets.map((w: any) => {
+      if (w.ownerType === 'PLATFORM') return { ...w, ownerName: 'Platform', ownerNo: w.ownerNo ?? 'PLATFORM' };
+      if (w.ownerType === 'CUSTOMER') {
+        const c: any = cMap.get(w.ownerId);
+        const name = c
+          ? [c.firstName, c.lastName].filter(Boolean).join(' ') || c.companyName || c.email || null
+          : null;
+        return { ...w, ownerName: name, ownerNo: c?.customerNo ?? w.ownerNo ?? null };
+      }
+      if (w.ownerType === 'LIQUIDITY_PROVIDER') {
+        const l: any = lpMap.get(w.ownerId);
+        return { ...w, ownerName: l?.name ?? null, ownerNo: l?.providerNo ?? null };
+      }
+      return { ...w, ownerName: null, ownerNo: w.ownerNo ?? null };
+    });
   }
 }

@@ -60,6 +60,8 @@ export class WalletsController {
   @ApiQuery({ name: 'assetId', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, enum: WalletStatus })
   @ApiQuery({ name: 'walletRole', required: false, enum: WalletRole })
+  @ApiQuery({ name: 'walletNo', required: false, type: String })
+  @ApiQuery({ name: 'ownerNo', required: false, type: String })
   findAll(
     @Request() req: any,
     @Query('skip') skip?: string,
@@ -70,6 +72,8 @@ export class WalletsController {
     @Query('assetId') assetId?: string,
     @Query('status') status?: string,
     @Query('walletRole') walletRole?: string,
+    @Query('walletNo') walletNo?: string,
+    @Query('ownerNo') ownerNo?: string,
   ) {
     this.ensureSupportedToken(req);
 
@@ -94,6 +98,8 @@ export class WalletsController {
     if (assetId) where.assetId = assetId;
     if (status) where.status = status;
     if (walletRole) where.walletRole = walletRole;
+    if (walletNo?.trim()) where.walletNo = { contains: walletNo.trim() };
+    if (ownerNo?.trim()) where.ownerNo = { contains: ownerNo.trim() };
 
     return this.queryService.findAll({
       skip: skip ? Number(skip) : 0,

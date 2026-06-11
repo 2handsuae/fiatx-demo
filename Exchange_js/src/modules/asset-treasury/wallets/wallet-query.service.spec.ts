@@ -2,7 +2,6 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { WalletQueryService } from './wallet-query.service';
-import { WalletSurfaceCategory } from './system-wallet.util';
 
 describe('WalletQueryService', () => {
   let service: WalletQueryService;
@@ -14,8 +13,14 @@ describe('WalletQueryService', () => {
       count: jest.fn(),
       findUnique: jest.fn(),
     },
-    customerMain: { findUnique: jest.fn() },
-    liquidityProvider: { findUnique: jest.fn() },
+    customerMain: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
+    liquidityProvider: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
   };
 
   const mockAsset = { id: 'asset-1', code: 'USDT', type: 'CRYPTO', decimals: 6 };
@@ -67,73 +72,92 @@ describe('WalletQueryService', () => {
   // ── findAll() ────────────────────────────────────────────────────────
 
   describe('findAll()', () => {
-    it('should return enriched items with mockBalance as balance and surfaceCategory', async () => {
+    it('should return enriched items with mockBalance as balance, no surfaceCategory', async () => {
       prismaMock.wallet.findMany.mockResolvedValue([platformWallet]);
       prismaMock.wallet.count.mockResolvedValue(1);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
 
       const result = await service.findAll({ skip: 0, take: 20, where: {}, orderBy: { createdAt: 'desc' } });
 
       expect(result.total).toBe(1);
       expect(result.items).toHaveLength(1);
       expect(result.items[0].balance).toBe(platformWallet.mockBalance);
-      expect(result.items[0].surfaceCategory).toBeDefined();
+      expect(result.items[0].surfaceCategory).toBeUndefined();
     });
 
-    it('should classify PLATFORM F_LIQ wallet as PLATFORM_POOL', async () => {
+    it('should NOT include surfaceCategory (formerly PLATFORM_POOL)', async () => {
       prismaMock.wallet.findMany.mockResolvedValue([platformWallet]);
       prismaMock.wallet.count.mockResolvedValue(1);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
 
       const result = await service.findAll({ skip: 0, take: 20, where: {}, orderBy: {} });
 
-      expect(result.items[0].surfaceCategory).toBe(WalletSurfaceCategory.PLATFORM_POOL);
+      expect(result.items[0].surfaceCategory).toBeUndefined();
     });
 
     it('should return total count from prisma.wallet.count', async () => {
       prismaMock.wallet.findMany.mockResolvedValue([customerWallet, platformWallet]);
       prismaMock.wallet.count.mockResolvedValue(42);
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'cust-1',
-        companyName: 'Acme Corp',
-        customerNo: 'CUST-0001',
-      });
+      prismaMock.customerMain.findMany.mockResolvedValue([
+        { id: 'cust-1', customerNo: 'CUST-0001', firstName: null, lastName: null, companyName: 'Acme Corp', email: 'x@x.com' },
+      ]);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
 
       const result = await service.findAll({ skip: 0, take: 20, where: {}, orderBy: {} });
 
       expect(result.total).toBe(42);
+    });
+
+    it('CUSTOMER rows batch enrich ownerName(firstName+lastName, single IN), no surfaceCategory', async () => {
+      prisma.wallet.findMany.mockResolvedValue([
+        { id: 'w1', ownerType: 'CUSTOMER', ownerId: 'u1', mockBalance: 5, asset: {} },
+        { id: 'w2', ownerType: 'CUSTOMER', ownerId: 'u2', mockBalance: 0, asset: {} },
+        { id: 'w3', ownerType: 'PLATFORM', ownerId: null, ownerNo: 'PLATFORM', mockBalance: 0, asset: {} },
+      ]);
+      prisma.wallet.count.mockResolvedValue(3);
+      prisma.customerMain.findMany.mockResolvedValue([
+        { id: 'u1', customerNo: 'CU1', firstName: 'Alice', lastName: 'Happy', companyName: null, email: 'a@x.com' },
+        { id: 'u2', customerNo: 'CU2', firstName: null, lastName: null, companyName: 'Acme Ltd', email: 'b@x.com' },
+      ]);
+
+      const result = await service.findAll({ skip: 0, take: 50, where: {}, orderBy: { createdAt: 'desc' } });
+      expect(result.items[0].ownerName).toBe('Alice Happy');     // firstName+lastName 优先,不再 email
+      expect(result.items[0].ownerNo).toBe('CU1');
+      expect(result.items[1].ownerName).toBe('Acme Ltd');        // 公司名兜底
+      expect(result.items[2].ownerName).toBe('Platform');
+      expect(result.items[0].surfaceCategory).toBeUndefined();
+      expect(prisma.customerMain.findMany).toHaveBeenCalledTimes(1); // 批量 IN,无 N+1
     });
   });
 
   // ── findOne() ────────────────────────────────────────────────────────
 
   describe('findOne()', () => {
-    it('should return wallet with mockBalance as balance and surfaceCategory', async () => {
+    it('should return wallet with mockBalance as balance, no surfaceCategory', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'cust-1',
-        companyName: 'Acme Corp',
-        customerNo: 'CUST-0001',
-      });
+      prismaMock.customerMain.findMany.mockResolvedValue([
+        { id: 'cust-1', customerNo: 'CUST-0001', firstName: null, lastName: null, companyName: 'Acme Corp', email: 'x@x.com' },
+      ]);
 
       const result = await service.findOne('wallet-cust-1');
 
       expect(result.balance).toBe(customerWallet.mockBalance);
-      expect(result.surfaceCategory).toBeDefined();
+      expect(result.surfaceCategory).toBeUndefined();
       expect(result.ownerName).toBe('Acme Corp');
       expect(result.ownerNo).toBe('CUST-0001');
     });
 
-    it('should classify CUSTOMER C_DEP wallet correctly', async () => {
+    it('should NOT include surfaceCategory (formerly CUSTOMER_DEPOSIT)', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'cust-1',
-        companyName: null,
-        fullName: 'John Doe',
-        customerNo: 'CUST-0002',
-      });
+      prismaMock.customerMain.findMany.mockResolvedValue([
+        { id: 'cust-1', customerNo: 'CUST-0002', firstName: null, lastName: null, companyName: null, email: 'x@x.com' },
+      ]);
 
       const result = await service.findOne('wallet-cust-1');
 
-      expect(result.surfaceCategory).toBe(WalletSurfaceCategory.CUSTOMER_DEPOSIT);
+      expect(result.surfaceCategory).toBeUndefined();
     });
 
     it('should throw NotFoundException when wallet does not exist', async () => {
@@ -178,27 +202,24 @@ describe('WalletQueryService', () => {
     });
   });
 
-  // ── resolveOwnerInfo() — owner enrichment ────────────────────────────
+  // ── owner enrichment ────────────────────────────────────────────────
 
   describe('owner enrichment', () => {
-    it('PLATFORM wallet → ownerName is "Platform", ownerNo is null', async () => {
+    it('PLATFORM wallet → ownerName is "Platform"', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(platformWallet);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
 
       const result = await service.findOne('wallet-plat-1');
 
       expect(result.ownerName).toBe('Platform');
-      expect(result.ownerNo).toBeNull();
     });
 
-    it('CUSTOMER wallet → resolves customer companyName', async () => {
+    it('CUSTOMER wallet → resolves customer companyName when no firstName/lastName', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'cust-1',
-        companyName: 'TechCo Ltd',
-        fullName: null,
-        email: 'test@example.com',
-        customerNo: 'CUST-0010',
-      });
+      prismaMock.customerMain.findMany.mockResolvedValue([
+        { id: 'cust-1', customerNo: 'CUST-0010', firstName: null, lastName: null, companyName: 'TechCo Ltd', email: 'test@example.com' },
+      ]);
 
       const result = await service.findOne('wallet-cust-1');
 
@@ -206,30 +227,22 @@ describe('WalletQueryService', () => {
       expect(result.ownerNo).toBe('CUST-0010');
     });
 
-    it('CUSTOMER wallet with no companyName → falls back to fullName', async () => {
+    it('CUSTOMER wallet with firstName+lastName → uses firstName+lastName (not email)', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'cust-1',
-        companyName: null,
-        fullName: 'Jane Smith',
-        email: 'jane@example.com',
-        customerNo: 'CUST-0011',
-      });
+      prismaMock.customerMain.findMany.mockResolvedValue([
+        { id: 'cust-1', customerNo: 'CUST-0011', firstName: 'Jane', lastName: 'Smith', companyName: null, email: 'jane@example.com' },
+      ]);
 
       const result = await service.findOne('wallet-cust-1');
 
       expect(result.ownerName).toBe('Jane Smith');
     });
 
-    it('CUSTOMER wallet with no companyName/fullName → falls back to email', async () => {
+    it('CUSTOMER wallet with no name fields → falls back to email', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'cust-1',
-        companyName: null,
-        fullName: null,
-        email: 'fallback@example.com',
-        customerNo: 'CUST-0012',
-      });
+      prismaMock.customerMain.findMany.mockResolvedValue([
+        { id: 'cust-1', customerNo: 'CUST-0012', firstName: null, lastName: null, companyName: null, email: 'fallback@example.com' },
+      ]);
 
       const result = await service.findOne('wallet-cust-1');
 
@@ -238,7 +251,7 @@ describe('WalletQueryService', () => {
 
     it('CUSTOMER wallet with missing profile → ownerName and ownerNo are null', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
-      prismaMock.customerMain.findUnique.mockResolvedValue(null);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
 
       const result = await service.findOne('wallet-cust-1');
 
@@ -248,11 +261,9 @@ describe('WalletQueryService', () => {
 
     it('LIQUIDITY_PROVIDER wallet → resolves LP name and providerNo', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(lpWallet);
-      prismaMock.liquidityProvider.findUnique.mockResolvedValue({
-        id: 'lp-1',
-        name: 'LiquidCorp',
-        providerNo: 'LP-001',
-      });
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([
+        { id: 'lp-1', name: 'LiquidCorp', providerNo: 'LP-001' },
+      ]);
 
       const result = await service.findOne('wallet-lp-1');
 
@@ -262,7 +273,7 @@ describe('WalletQueryService', () => {
 
     it('LIQUIDITY_PROVIDER wallet with missing LP record → ownerName and ownerNo are null', async () => {
       prismaMock.wallet.findUnique.mockResolvedValue(lpWallet);
-      prismaMock.liquidityProvider.findUnique.mockResolvedValue(null);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
 
       const result = await service.findOne('wallet-lp-1');
 
