@@ -19,7 +19,7 @@
 - Modify: `src/modules/asset-treasury/payins/payins.service.ts`
 - Test: `src/modules/asset-treasury/payins/payins.service.spec.ts`(先 Read 现 mock 结构)
 
-- [ ] **Step 1: 失败测试**(按现 spec 风格,断言语义)
+- [x] **Step 1: 失败测试**(按现 spec 风格,断言语义)
 
 ```typescript
     it('crypto DETECTED + fail → FAILED(mempool 丢弃/RBF)', async () => {
@@ -36,8 +36,8 @@
 
 (以现 spec 的 service 构造/mock prisma 模式落地;mock 事件入口方法名以实际为准——:548 行附近 `updateStatus(id, action, { simulationMode })` 的外层方法。)
 
-- [ ] **Step 2: 跑红** `npx jest src/modules/asset-treasury/payins/payins.service.spec.ts` → FAIL
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 跑红** `npx jest src/modules/asset-treasury/payins/payins.service.spec.ts` → FAIL
+- [x] **Step 3: 实现**
 
 dto:`PayinAction` 加 `REORG = 'reorg',`;`PayinMockEvent` 加 `REORG = 'REORG',`。
 
@@ -68,8 +68,8 @@ mock 事件 crypto switch 加:
 ```
 (fiat switch 不加 → REORG 落入既有 not-supported 异常。)
 
-- [ ] **Step 4: 跑绿** 同文件 + `npx jest src/modules/asset-treasury` + `npm run build` 零错
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(payins): mempool-stage failure + shallow-reorg transitions (sim completeness, middle tier)"`
+- [x] **Step 4: 跑绿** 同文件 + `npx jest src/modules/asset-treasury` + `npm run build` 零错
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(payins): mempool-stage failure + shallow-reorg transitions (sim completeness, middle tier)"`
 
 ---
 
@@ -79,7 +79,7 @@ mock 事件 crypto switch 加:
 - Modify: `admin-web/src/utils/depositActionMap.ts:117-121`
 - Modify: `admin-web/src/pages/PayinDetail.tsx:309-330`(先 Read 现段)
 
-- [ ] **Step 1: 动作表**
+- [x] **Step 1: 动作表**
 
 ```typescript
 const CRYPTO_SIM_ACTIONS: PayinSimAction[] = [
@@ -90,7 +90,7 @@ const CRYPTO_SIM_ACTIONS: PayinSimAction[] = [
 ];
 ```
 
-- [ ] **Step 2: 面板文案**(PayinDetail Simulation Controls 区,保持外框样式)
+- [x] **Step 2: 面板文案**(PayinDetail Simulation Controls 区,保持外框样式)
 
 `simulationModeEnabled` 时恒渲染该 group;内部:
 ```tsx
@@ -113,16 +113,16 @@ const CRYPTO_SIM_ACTIONS: PayinSimAction[] = [
 ```
 (外层条件 `simActions.length > 0` 改为 `simulationModeEnabled`;按钮 map 体不动。)
 
-- [ ] **Step 3: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl …/PayinDetail.tsx` 200
-- [ ] **Step 4: Commit** `git add -A && git commit -m "feat(admin): payin sim panel — dropped/reorg actions + transient/terminal copy"`
+- [x] **Step 3: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl …/PayinDetail.tsx` 200
+- [x] **Step 4: Commit** `git add -A && git commit -m "feat(admin): payin sim panel — dropped/reorg actions + transient/terminal copy"`
 
 ---
 
 ### Task 3: 终验
 
-- [ ] `npx jest`(0 failed)+ `npm run build` + admin tsc 全绿
-- [ ] 重启栈;手验:DETECTED 直接 Drop→FAILED;CONFIRMING 点 Reorg→回 DETECTED 重走;CLEARED 显终态文案;CONFIRMED 瞬间文案(可遇不可求,逻辑核对即可)
-- [ ] plan checkbox 全勾 + commit
+- [x] `npx jest`(0 failed)+ `npm run build` + admin tsc 全绿
+- [x] 重启栈;手验:DETECTED 直接 Drop→FAILED;CONFIRMING 点 Reorg→回 DETECTED 重走;CLEARED 显终态文案;CONFIRMED 瞬间文案(可遇不可求,逻辑核对即可)
+- [x] plan checkbox 全勾 + commit
 
 ## Self-Review 记录
 
