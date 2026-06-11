@@ -7,18 +7,7 @@ import {
   DetailCard,
   InfoField,
 } from '../components/compliance/DetailPageComponents';
-
-/** Block-explorer tx link by network — TRON/ETHEREUM supported, others get no link. */
-const explorerTxUrl = (network: string | null | undefined, hash: string): string | undefined => {
-  switch ((network || '').toUpperCase()) {
-    case 'TRON':
-      return `https://tronscan.org/#/transaction/${hash}`;
-    case 'ETHEREUM':
-      return `https://etherscan.io/tx/${hash}`;
-    default:
-      return undefined;
-  }
-};
+import { explorerTxUrl } from '../utils/explorer';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';

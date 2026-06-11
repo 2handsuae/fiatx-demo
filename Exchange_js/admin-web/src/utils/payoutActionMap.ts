@@ -26,34 +26,42 @@ export interface PayoutSimAction {
   enabledStatuses: Set<string>;
 }
 
+// CLEAR 无按钮 —— withdraw 工作流在 CONFIRM 后自动调,手动点会与自动流程赛跑。
 const CRYPTO_SIM_ACTIONS: PayoutSimAction[] = [
-  { action: 'SIGN',             label: '⚡ Sign',              enabledStatuses: new Set(['CREATED']) },
-  { action: 'BROADCAST',        label: '⚡ Broadcast',         enabledStatuses: new Set(['SIGNING']) },
-  { action: 'SIGN_FAIL',        label: '⚡ Sign Fail',         enabledStatuses: new Set(['SIGNING']) },
-  { action: 'SEEN_IN_MEMPOOL',  label: '⚡ Seen in Mempool',   enabledStatuses: new Set(['BROADCASTED']) },
-  { action: 'DROP',             label: '⚡ Drop',              enabledStatuses: new Set(['BROADCASTED']) },
-  { action: 'TIMEOUT',          label: '⚡ Timeout',           enabledStatuses: new Set(['BROADCASTED', 'CONFIRMING']) },
-  { action: 'CONFIRM',          label: '⚡ Confirm',           enabledStatuses: new Set(['CONFIRMING']) },
-  { action: 'FAIL',             label: '⚡ Fail',              enabledStatuses: new Set(['CONFIRMING']) },
-  { action: 'CLEAR',            label: '⚡ Clear (system)',     enabledStatuses: new Set(['CONFIRMED']) },
+  { action: 'SIGN',             label: '⚡ Sign',                        enabledStatuses: new Set(['CREATED']) },
+  { action: 'BROADCAST',        label: '⚡ Broadcast',                   enabledStatuses: new Set(['SIGNING']) },
+  { action: 'SIGN_FAIL',        label: '⚡ Sign Fail',                   enabledStatuses: new Set(['SIGNING']) },
+  { action: 'SEEN_IN_MEMPOOL',  label: '⚡ Seen in Mempool',             enabledStatuses: new Set(['BROADCASTED']) },
+  { action: 'DROP',             label: '⚡ Drop',                        enabledStatuses: new Set(['BROADCASTED']) },
+  { action: 'TIMEOUT',          label: '⚡ Timeout',                     enabledStatuses: new Set(['BROADCASTED', 'CONFIRMING']) },
+  { action: 'CONFIRM',          label: '⚡ Confirm',                     enabledStatuses: new Set(['CONFIRMING']) },
+  { action: 'FAIL',             label: '⚡ Fail',                        enabledStatuses: new Set(['CONFIRMING']) },
+  { action: 'REORG',            label: '⚡ Reorg — back to broadcasted', enabledStatuses: new Set(['CONFIRMING']) },
 ];
 
 const FIAT_SIM_ACTIONS: PayoutSimAction[] = [
-  { action: 'SUBMIT',           label: '⚡ Submit',            enabledStatuses: new Set(['CREATED']) },
-  { action: 'CONFIRM',          label: '⚡ Confirm',           enabledStatuses: new Set(['CONFIRMING']) },
-  { action: 'FAIL',             label: '⚡ Fail',              enabledStatuses: new Set(['CONFIRMING']) },
-  { action: 'TIMEOUT',          label: '⚡ Timeout',           enabledStatuses: new Set(['CONFIRMING']) },
-  { action: 'CLEAR',            label: '⚡ Clear (system)',     enabledStatuses: new Set(['CONFIRMED']) },
-  { action: 'RETURN',           label: '⚡ Return',            enabledStatuses: new Set(['CONFIRMED', 'CLEARED']) },
+  { action: 'SUBMIT',           label: '⚡ Submit',               enabledStatuses: new Set(['CREATED']) },
+  { action: 'CONFIRM',          label: '⚡ Confirm',              enabledStatuses: new Set(['CONFIRMING']) },
+  { action: 'FAIL',             label: '⚡ Fail',                 enabledStatuses: new Set(['CONFIRMING']) },
+  { action: 'TIMEOUT',          label: '⚡ Timeout',              enabledStatuses: new Set(['CONFIRMING']) },
+  { action: 'RETURN',           label: '⚡ Return (bank recall)', enabledStatuses: new Set(['CONFIRMED', 'CLEARED']) },
 ];
 
-const PAYOUT_TERMINAL = new Set(['CLEARED', 'FAILED', 'TIMEOUT', 'RETURNED']);
+const CRYPTO_TERMINAL = new Set(['CLEARED', 'FAILED', 'TIMEOUT', 'RETURNED']);
+// fiat CLEARED 留有 Return(退票)出口,不算 sim 终态 —— 一刀切终态会把后端允许的
+// CLEARED→RETURNED 在 UI 上禁死。
+const FIAT_TERMINAL = new Set(['FAILED', 'TIMEOUT', 'RETURNED']);
+
+export function isPayoutSimTerminal(status: string, type: string): boolean {
+  const terminal = type.toUpperCase() === 'FIAT' ? FIAT_TERMINAL : CRYPTO_TERMINAL;
+  return terminal.has(status.toUpperCase());
+}
 
 export function getPayoutSimActionsForStatus(
   currentStatus: string,
   type: string,
 ): Array<PayoutSimAction & { enabled: boolean }> {
-  const isTerminal = PAYOUT_TERMINAL.has(currentStatus.toUpperCase());
+  const isTerminal = isPayoutSimTerminal(currentStatus, type);
   const actions = type.toUpperCase() === 'FIAT' ? FIAT_SIM_ACTIONS : CRYPTO_SIM_ACTIONS;
   return actions.map((a) => ({
     ...a,

@@ -6,8 +6,8 @@ import {
   DetailPageHeader,
   DetailCard,
   InfoField,
-  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
+import { explorerTxUrl } from '../utils/explorer';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
@@ -27,6 +27,7 @@ import { useSimulationMode } from '../utils/simulationMode';
 import {
   getPayoutStatusBadgeClass,
   getPayoutSimActionsForStatus,
+  isPayoutSimTerminal,
 } from '../utils/payoutActionMap';
 
 /* ── Types ── */
@@ -37,7 +38,7 @@ interface PayoutDetailData {
   ownerType: string;
   ownerId: string | null;
   ownerNo: string | null;
-  customer?: { customerNo: string; firstName: string | null; lastName: string | null };
+  customerName?: string | null;
   withdrawId: string | null;
   transactionNo: string | null;
   withdraw?: { withdrawNo: string } | null;
@@ -201,53 +202,59 @@ const PayoutDetail = () => {
             </div>
           </div>
 
-          {/* 2. Chain Details */}
-          <DetailCard title="Chain Details" columns={2}>
-            <InfoField
-              label="Tx Hash"
-              value={data.txHash}
-              copyable
-              onCopy={(v) => handleCopy(v, 'txHash')}
-              isCopied={copiedField === 'txHash'}
-              mono
-              link={
-                data.txHash && data.asset.type !== 'FIAT'
-                  ? `https://etherscan.io/tx/${data.txHash}`
-                  : undefined
-              }
-            />
-            <InfoField
-              label="Confirmations"
-              value={data.confirmations?.toString()}
-            />
-            <InfoField
-              label="From Address"
-              value={data.fromAddress}
-              copyable
-              onCopy={(v) => handleCopy(v, 'from')}
-              isCopied={copiedField === 'from'}
-              mono
-            />
-            <InfoField
-              label="To Address"
-              value={data.toAddress}
-              copyable
-              onCopy={(v) => handleCopy(v, 'to')}
-              isCopied={copiedField === 'to'}
-              mono
-            />
-            <InfoField label="From IBAN" value={data.fromIban} mono />
-            <InfoField label="To IBAN" value={data.toIban} mono />
-            <InfoField label="Reference No" value={data.referenceNo} mono />
-            <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
-          </DetailCard>
+          {/* 2a. Chain Details (crypto only) */}
+          {data.asset.type !== 'FIAT' && (
+            <DetailCard title="Chain Details" columns={2}>
+              <InfoField
+                label="Tx Hash"
+                value={data.txHash}
+                copyable
+                onCopy={(v) => handleCopy(v, 'txHash')}
+                isCopied={copiedField === 'txHash'}
+                mono
+                link={
+                  data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined
+                }
+              />
+              <InfoField
+                label="Confirmations"
+                value={data.confirmations?.toString()}
+              />
+              <InfoField
+                label="From Address"
+                value={data.fromAddress}
+                copyable
+                onCopy={(v) => handleCopy(v, 'from')}
+                isCopied={copiedField === 'from'}
+                mono
+              />
+              <InfoField
+                label="To Address"
+                value={data.toAddress}
+                copyable
+                onCopy={(v) => handleCopy(v, 'to')}
+                isCopied={copiedField === 'to'}
+                mono
+              />
+              {data.providerTxnId ? (
+                <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
+              ) : null}
+            </DetailCard>
+          )}
+
+          {/* 2b. Bank Transfer (fiat only) */}
+          {data.asset.type === 'FIAT' && (
+            <DetailCard title="Bank Transfer" columns={2}>
+              <InfoField label="From IBAN" value={data.fromIban} mono />
+              <InfoField label="To IBAN" value={data.toIban} mono />
+              <InfoField label="Reference No" value={data.referenceNo} mono />
+              <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
+            </DetailCard>
+          )}
 
           {/* 3. Linked Withdraw (conditional) */}
           {linkedWithdrawNo && (
-            <div className="px-6 py-5">
-              <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-                Linked Withdraw
-              </h3>
+            <DetailCard title="Linked Withdraw" columns={1}>
               <LinkedRelationCard
                 cap="Withdraw"
                 identifier={linkedWithdrawNo}
@@ -260,50 +267,50 @@ const PayoutDetail = () => {
                     : undefined
                 }
               />
-            </div>
+            </DetailCard>
           )}
 
           {/* 4. Status History */}
           <DetailCard title="Status History" columns={1}>
             <PayoutTimeline historyJson={data.statusHistory} />
           </DetailCard>
-
-          {/* 5. Technical */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Technical Detail
-            </h3>
-            <div className="mt-3">
-              <JsonBlock
-                title="Status History (raw)"
-                value={data.statusHistory}
-                compact
-              />
-            </div>
-          </div>
         </div>
 
         {/* Sidebar */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
           {/* Simulation Actions (only in sim mode) */}
-          {simulationModeEnabled && simActions.length > 0 && (
+          {simulationModeEnabled && (
             <SidebarGroup title="Simulation Controls">
               <div className="rounded border border-dashed border-amber-400 bg-amber-900/20 p-2">
                 <div className="mb-2 flex items-center gap-1 font-mono text-[9px] text-amber-400">
                   ⚡ SIM MODE
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  {simActions.map((a) => (
-                    <button
-                      key={a.action}
-                      onClick={() => handleSimAction(a.action)}
-                      disabled={!a.enabled || simSubmitting}
-                      className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {simSubmitting ? '...' : a.label}
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const hasEnabled = simActions.some((a) => a.enabled);
+                  if (!hasEnabled) {
+                    return (
+                      <div className="px-2 py-1.5 font-mono text-[10px] text-amber-400/80">
+                        {isPayoutSimTerminal(normalizedStatus, data.type)
+                          ? 'Terminal state — no simulatable events'
+                          : 'Auto-clearing via withdraw workflow…'}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-col gap-1.5">
+                      {simActions.map((a) => (
+                        <button
+                          key={a.action}
+                          onClick={() => handleSimAction(a.action)}
+                          disabled={!a.enabled || simSubmitting}
+                          className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {simSubmitting ? '...' : a.label}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </SidebarGroup>
           )}
@@ -320,7 +327,24 @@ const PayoutDetail = () => {
               value={formatTransactionTypeLabel(data.type)}
             />
             <SidebarKV label="Asset" value={data.asset.code} />
-            <SidebarKV label="Owner" value={data.ownerNo} mono />
+            <SidebarKV
+              label="Customer No"
+              mono
+              value={
+                data.ownerNo && data.ownerId ? (
+                  <button
+                    onClick={() => navigate(`/dashboard/customer/${data.ownerId}`)}
+                    className="text-adm-amber hover:underline"
+                    title="Open customer"
+                  >
+                    {data.ownerNo}
+                  </button>
+                ) : (
+                  data.ownerNo
+                )
+              }
+            />
+            <SidebarKV label="Customer Name" value={data.customerName ?? null} />
             <SidebarKV
               label="Withdraw"
               value={
