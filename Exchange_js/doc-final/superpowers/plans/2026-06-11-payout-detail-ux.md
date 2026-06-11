@@ -19,7 +19,7 @@
 - Modify: `src/modules/asset-treasury/payouts/payouts.service.ts`
 - Test: `src/modules/asset-treasury/payouts/payouts.service.spec.ts`(先 Read 现 mock 结构)
 
-- [ ] **Step 1: 失败测试**(断言语义,按现 spec 风格落地)
+- [x] **Step 1: 失败测试**(断言语义,按现 spec 风格落地)
 
 ```typescript
     it('crypto CONFIRMING + REORG → BROADCASTED(浅重组)', async () => {
@@ -39,9 +39,9 @@
     });
 ```
 
-- [ ] **Step 2: 跑红** `npx jest src/modules/asset-treasury/payouts/payouts.service.spec.ts` → FAIL
+- [x] **Step 2: 跑红** `npx jest src/modules/asset-treasury/payouts/payouts.service.spec.ts` → FAIL
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 (a) 转换表:`CRYPTO_TRANSITIONS[PayoutStatus.CONFIRMING]` 加 `[PayoutAction.REORG]: PayoutStatus.BROADCASTED,`。
 (b) 私有解析器(service 内,创建与 detail 共用):
@@ -73,8 +73,8 @@
 (d) detail 读取方法(admin 详情用的 findOne/getByNo,Read 找实名):返回前若 `fromAddress`/`fromIban` 均空,调解析器**只填响应**,不 update。
 (e) detail 响应 enrich `customerName`:include/查询 customer(firstName/lastName join,模式同本周各页);响应带 `ownerId`(跳转用,若已有则确认)。
 
-- [ ] **Step 4: 跑绿** 同文件 + `npx jest src/modules/asset-treasury` + `npm run build` 零错
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(payouts): shallow-reorg transition, source-wallet snapshot (C_OUT / customer vIBAN), detail enrich"`
+- [x] **Step 4: 跑绿** 同文件 + `npx jest src/modules/asset-treasury` + `npm run build` 零错
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(payouts): shallow-reorg transition, source-wallet snapshot (C_OUT / customer vIBAN), detail enrich"`
 
 ---
 
@@ -86,7 +86,7 @@
 - Modify: `admin-web/src/pages/PayoutDetail.tsx`(先 Read 全文)
 - Modify: `admin-web/src/pages/PayinDetail.tsx`(删本地 explorerTxUrl,改 import)
 
-- [ ] **Step 1: explorer util**
+- [x] **Step 1: explorer util**
 
 ```typescript
 /** Block-explorer tx link by network — TRON/ETHEREUM supported, others get no link. */
@@ -103,7 +103,7 @@ export const explorerTxUrl = (network: string | null | undefined, hash: string):
 ```
 PayinDetail.tsx:删本地定义,`import { explorerTxUrl } from '../utils/explorer';`。
 
-- [ ] **Step 2: payoutActionMap**
+- [x] **Step 2: payoutActionMap**
 
 ```typescript
 const CRYPTO_SIM_ACTIONS: PayoutSimAction[] = [
@@ -145,7 +145,7 @@ export function getPayoutSimActionsForStatus(
 ```
 (CLEAR 按钮删除——自动流转。)
 
-- [ ] **Step 3: PayoutDetail 重排**(对照 payin 这轮的成品 PayinDetail.tsx 同构改)
+- [x] **Step 3: PayoutDetail 重排**(对照 payin 这轮的成品 PayinDetail.tsx 同构改)
 1. Chain Details → 仅 `data.asset.type !== 'FIAT'` 渲染:Tx Hash(`explorerTxUrl(data.asset.network, hash)`)、Confirmations、From/To Address、Provider Txn ID(有值才显);
 2. 新增 Bank Transfer → 仅 fiat:From IBAN / To IBAN / Reference No / Provider Txn ID;
 3. Linked Withdraw 收进 `<DetailCard title="Linked Withdraw" columns={1}>`;
@@ -155,17 +155,17 @@ export function getPayoutSimActionsForStatus(
 7. Lifecycle:确认含 Created/Sent/Completed(completedAt),缺则补 SidebarKV。
 (数据接口类型补 `customerName?: string | null;` 等新字段。)
 
-- [ ] **Step 4: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl …/PayoutDetail.tsx` 与 `…/PayinDetail.tsx` 均 200
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(admin): payout detail — rail-split sections, reorg/return sim fixes, source wallet fields, customer sidebar"`
+- [x] **Step 4: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl …/PayoutDetail.tsx` 与 `…/PayinDetail.tsx` 均 200
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(admin): payout detail — rail-split sections, reorg/return sim fixes, source wallet fields, customer sidebar"`
 
 ---
 
 ### Task 3: 终验
 
-- [ ] `npx jest`(0 failed)+ `npm run build` + admin tsc 全绿
-- [ ] 重启栈(后端有变更):`npm run dev:stop && npm run dev:start`,3500/3503 LISTEN
-- [ ] 手验:新建 fiat 提现→payout 详情 fromIban=客户 vIBAN;crypto 单 fromAddress=C_OUT;CONFIRMING 点 Reorg 回 BROADCASTED;fiat CLEARED 点 Return 成功(原 bug 修复);CONFIRMED 显自动文案;TRON 链接 tronscan
-- [ ] plan checkbox 全勾 + commit
+- [x] `npx jest`(0 failed)+ `npm run build` + admin tsc 全绿
+- [x] 重启栈(后端有变更):`npm run dev:stop && npm run dev:start`,3500/3503 LISTEN
+- [x] 手验:新建 fiat 提现→payout 详情 fromIban=客户 vIBAN;crypto 单 fromAddress=C_OUT;CONFIRMING 点 Reorg 回 BROADCASTED;fiat CLEARED 点 Return 成功(原 bug 修复);CONFIRMED 显自动文案;TRON 链接 tronscan
+- [x] plan checkbox 全勾 + commit
 
 ## Self-Review 记录
 
