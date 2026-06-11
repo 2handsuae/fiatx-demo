@@ -151,6 +151,54 @@ describe('PayinsService', () => {
         service.updateStatus('1', PayinAction.CLEAR),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should transition CRYPTO DETECTED -> FAILED via fail (mempool dropped / RBF replaced)', async () => {
+      const mockPayin = {
+        id: '3',
+        type: 'crypto',
+        status: PayinStatus.DETECTED,
+        amount: { toString: () => '300' },
+        depositId: 'd3',
+        assetId: 'a3',
+        statusHistory: null,
+      };
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue(mockPayin);
+      ((prisma as any).payin.update as jest.Mock).mockResolvedValue({
+        ...mockPayin,
+        status: PayinStatus.FAILED,
+      });
+
+      const result = await service.updateStatus('3', PayinAction.FAIL);
+      expect((prisma as any).payin.update).toHaveBeenCalledWith({
+        where: { id: '3' },
+        data: expect.objectContaining({ status: PayinStatus.FAILED }),
+      });
+      expect(result.status).toBe(PayinStatus.FAILED);
+    });
+
+    it('should transition CRYPTO CONFIRMING -> DETECTED via reorg (shallow reorg back to mempool)', async () => {
+      const mockPayin = {
+        id: '4',
+        type: 'crypto',
+        status: PayinStatus.CONFIRMING,
+        amount: { toString: () => '400' },
+        depositId: 'd4',
+        assetId: 'a4',
+        statusHistory: null,
+      };
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue(mockPayin);
+      ((prisma as any).payin.update as jest.Mock).mockResolvedValue({
+        ...mockPayin,
+        status: PayinStatus.DETECTED,
+      });
+
+      const result = await service.updateStatus('4', PayinAction.REORG);
+      expect((prisma as any).payin.update).toHaveBeenCalledWith({
+        where: { id: '4' },
+        data: expect.objectContaining({ status: PayinStatus.DETECTED }),
+      });
+      expect(result.status).toBe(PayinStatus.DETECTED);
+    });
   });
 
   describe('applyMockEvent', () => {
@@ -207,6 +255,25 @@ describe('PayinsService', () => {
       await expect(
         service.applyMockEvent('payin-fiat-1', {
           event: PayinMockEvent.MEMPOOL_SEEN,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject REORG mock event for fiat payins (not supported)', async () => {
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue({
+        id: 'payin-fiat-2',
+        payinNo: 'PI-FIAT-2',
+        type: 'fiat',
+        status: PayinStatus.DETECTED,
+        amount: { toString: () => '100' },
+        depositId: 'd1',
+        assetId: 'a1',
+        statusHistory: null,
+      });
+
+      await expect(
+        service.applyMockEvent('payin-fiat-2', {
+          event: PayinMockEvent.REORG,
         }),
       ).rejects.toThrow(BadRequestException);
     });

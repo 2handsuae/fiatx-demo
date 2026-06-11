@@ -413,17 +413,21 @@ export class PayinsService {
       // Crypto State Machine
       // [*] --> DETECTED
       // DETECTED --> CONFIRMING: block
+      // DETECTED --> FAILED: fail (mempool dropped / RBF replaced)
       // CONFIRMING --> CONFIRMED: confirm
       // CONFIRMING --> FAILED: fail
+      // CONFIRMING --> DETECTED: reorg (shallow reorg → back to mempool)
       // CONFIRMED --> CLEARED: clear
 
       switch (currentStatus) {
         case PayinStatus.DETECTED:
           if (action === PayinAction.BLOCK) nextStatus = PayinStatus.CONFIRMING;
+          if (action === PayinAction.FAIL) nextStatus = PayinStatus.FAILED; // mempool dropped / RBF replaced
           break;
         case PayinStatus.CONFIRMING:
           if (action === PayinAction.CONFIRM) nextStatus = PayinStatus.CONFIRMED;
           if (action === PayinAction.FAIL) nextStatus = PayinStatus.FAILED;
+          if (action === PayinAction.REORG) nextStatus = PayinStatus.DETECTED; // shallow reorg → back to mempool
           break;
         case PayinStatus.CONFIRMED:
           if (action === PayinAction.CLEAR) nextStatus = PayinStatus.CLEARED;
@@ -525,6 +529,9 @@ export class PayinsService {
           break;
         case PayinMockEvent.DROPPED:
           action = PayinAction.FAIL;
+          break;
+        case PayinMockEvent.REORG:
+          action = PayinAction.REORG;
           break;
       }
     } else if (type === PayinType.FIAT) {

@@ -20,12 +20,14 @@ export enum PayinAction {
   FAIL = 'fail',
   CLEAR = 'clear',
   BLOCK = 'block',
+  REORG = 'reorg',
 }
 
 export enum PayinMockEvent {
   MEMPOOL_SEEN = 'MEMPOOL_SEEN',
   CHAIN_CONFIRMED = 'CHAIN_CONFIRMED',
   DROPPED = 'DROPPED',
+  REORG = 'REORG',
   FIAT_CONFIRMED = 'FIAT_CONFIRMED',
   FIAT_FAILED = 'FIAT_FAILED',
 }
