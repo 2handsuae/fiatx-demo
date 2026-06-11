@@ -25,6 +25,7 @@ export enum PayoutAction {
   CLEAR = 'CLEAR',
   SUBMIT = 'SUBMIT',
   RETURN = 'RETURN',
+  REORG = 'REORG',
 }
 
 export enum AdminPayoutAction {
@@ -38,6 +39,7 @@ export enum AdminPayoutAction {
   FAIL = 'FAIL',
   SUBMIT = 'SUBMIT',
   RETURN = 'RETURN',
+  REORG = 'REORG',
 }
 
 export enum PayoutType {

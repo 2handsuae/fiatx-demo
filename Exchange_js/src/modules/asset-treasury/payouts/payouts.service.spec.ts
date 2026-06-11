@@ -518,4 +518,154 @@ describe('PayoutsService', () => {
     expect(created).toBe(existing);
     expect(prisma.payout.create).not.toHaveBeenCalled();
   });
+
+  // ── REORG transition ──────────────────────────────────────────────────────
+
+  it('REORG: CONFIRMING + PayoutAction.REORG → payout.update receives status BROADCASTED', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_REORG_1',
+      payoutNo: 'POREORG1',
+      ownerId: 'CUST_1',
+      withdrawId: 'WD_REORG_1',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_REORG_1',
+      status: PayoutStatus.BROADCASTED,
+    });
+
+    const updated = await service.updateStatus(
+      'PO_REORG_1',
+      { action: PayoutAction.REORG },
+      'SYSTEM',
+    );
+
+    expect(updated.status).toBe(PayoutStatus.BROADCASTED);
+    expect(prisma.payout.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: PayoutStatus.BROADCASTED }),
+      }),
+    );
+  });
+
+  // ── source-wallet snapshot on create ────────────────────────────────────
+
+  it('create snapshot crypto: wallet.findFirst(C_OUT, PLATFORM) → payout.create data.fromAddress = Txyz', async () => {
+    prisma.payout.findUnique.mockResolvedValue(null);
+    prisma.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'WD_SNAP_C',
+      ownerId: 'CUST_SNAP',
+    });
+    prisma.wallet = {
+      findFirst: jest.fn().mockResolvedValue({ address: 'Txyz' }),
+    };
+    prisma.payout.create.mockResolvedValue({
+      id: 'PO_SNAP_C',
+      payoutNo: 'POSNAPC',
+      ownerId: 'CUST_SNAP',
+      withdrawId: 'WD_SNAP_C',
+      fromAddress: 'Txyz',
+      fromIban: null,
+    });
+
+    await service.create(
+      {
+        withdrawId: 'WD_SNAP_C',
+        type: PayoutType.CRYPTO,
+        amount: 50,
+        assetId: 'asset-btc',
+      },
+      'SYSTEM',
+    );
+
+    expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          walletRole: 'C_OUT',
+          ownerType: 'PLATFORM',
+          status: 'ACTIVE',
+        }),
+      }),
+    );
+    expect(prisma.payout.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ fromAddress: 'Txyz' }),
+      }),
+    );
+  });
+
+  it('create snapshot fiat: wallet.findFirst(C_VIBAN, CUSTOMER) → payout.create data.fromIban = AE07X', async () => {
+    prisma.payout.findUnique.mockResolvedValue(null);
+    prisma.withdrawTransaction.findUnique.mockResolvedValue({
+      id: 'WD_SNAP_F',
+      ownerId: 'CUST_FIAT',
+    });
+    prisma.wallet = {
+      findFirst: jest.fn().mockResolvedValue({ iban: 'AE07X' }),
+    };
+    prisma.payout.create.mockResolvedValue({
+      id: 'PO_SNAP_F',
+      payoutNo: 'POSNAPF',
+      ownerId: 'CUST_FIAT',
+      withdrawId: 'WD_SNAP_F',
+      fromAddress: null,
+      fromIban: 'AE07X',
+    });
+
+    await service.create(
+      {
+        withdrawId: 'WD_SNAP_F',
+        type: PayoutType.FIAT,
+        amount: 100,
+        assetId: 'asset-aed',
+      },
+      'SYSTEM',
+    );
+
+    expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          walletRole: 'C_VIBAN',
+          ownerType: 'CUSTOMER',
+          ownerId: 'CUST_FIAT',
+          status: 'ACTIVE',
+        }),
+      }),
+    );
+    expect(prisma.payout.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ fromIban: 'AE07X' }),
+      }),
+    );
+  });
+
+  // ── detail fallback: resolve fromIban without update ────────────────────
+
+  it('detail fallback: fromIban null fiat row → resolved from wallet, payout.update NOT called', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_FALL_1',
+      payoutNo: 'POFALL1',
+      ownerId: 'CUST_FALL',
+      withdrawId: 'WD_FALL_1',
+      type: PayoutType.FIAT,
+      status: PayoutStatus.CONFIRMED,
+      assetId: 'asset-aed',
+      fromAddress: null,
+      fromIban: null,
+      asset: { code: 'AED', type: 'FIAT', network: null },
+      withdraw: { withdrawNo: 'WDFALL1', ownerId: 'CUST_FALL' },
+      customer: null,
+    });
+    prisma.wallet = {
+      findFirst: jest.fn().mockResolvedValue({ iban: 'AE_FALLBACK' }),
+    };
+
+    const result = await service.findOne('PO_FALL_1');
+
+    expect(result.fromIban).toBe('AE_FALLBACK');
+    expect(prisma.payout.update).not.toHaveBeenCalled();
+  });
 });

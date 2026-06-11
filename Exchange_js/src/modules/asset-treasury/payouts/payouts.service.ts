@@ -20,10 +20,11 @@ const CRYPTO_TRANSITIONS: Record<string, Partial<Record<PayoutAction, PayoutStat
     [PayoutAction.DROP]: PayoutStatus.FAILED,
     [PayoutAction.TIMEOUT]: PayoutStatus.TIMEOUT
   },
-  [PayoutStatus.CONFIRMING]: { 
+  [PayoutStatus.CONFIRMING]: {
     [PayoutAction.CONFIRM]: PayoutStatus.CONFIRMED,
     [PayoutAction.TIMEOUT]: PayoutStatus.TIMEOUT,
-    [PayoutAction.FAIL]: PayoutStatus.FAILED
+    [PayoutAction.FAIL]: PayoutStatus.FAILED,
+    [PayoutAction.REORG]: PayoutStatus.BROADCASTED,
   },
   [PayoutStatus.CONFIRMED]: { [PayoutAction.CLEAR]: PayoutStatus.CLEARED },
   [PayoutStatus.FAILED]: {},
@@ -73,6 +74,27 @@ export class PayoutsService {
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  /** 出资钱包解析：crypto=C_OUT(平台出站热钱包)；fiat=客户 C_VIBAN(CMA 不对外转账)。 */
+  private async resolveSourceWallet(
+    type: string,
+    assetId: string,
+    ownerId: string | null,
+  ): Promise<{ fromAddress: string | null; fromIban: string | null }> {
+    if (String(type).toUpperCase() === 'FIAT') {
+      if (!ownerId) return { fromAddress: null, fromIban: null };
+      const viban = await (this.prisma as any).wallet.findFirst({
+        where: { walletRole: 'C_VIBAN', assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
+        select: { iban: true },
+      });
+      return { fromAddress: null, fromIban: viban?.iban ?? null };
+    }
+    const out = await (this.prisma as any).wallet.findFirst({
+      where: { walletRole: 'C_OUT', assetId, ownerType: 'PLATFORM', status: 'ACTIVE' },
+      select: { address: true },
+    });
+    return { fromAddress: out?.address ?? null, fromIban: null };
+  }
 
   private normalizeOptionalString(value?: string | null): string | null {
     const normalized = String(value || '').trim();
@@ -252,12 +274,30 @@ export class PayoutsService {
       item.payoutNo,
       item.withdrawId,
     );
+
+    // 存量单的出资字段兜底:现场解析(只填响应,不回写)。
+    let sourceFallback: { fromAddress: string | null; fromIban: string | null } | null = null;
+    if (!item.fromAddress && !item.fromIban) {
+      sourceFallback = await this.resolveSourceWallet(
+        item.type,
+        item.assetId,
+        item.ownerId ?? null,
+      );
+    }
+
+    const customerName = item.customer
+      ? [item.customer.firstName, item.customer.lastName].filter(Boolean).join(' ') || null
+      : null;
+
     return {
       ...item,
+      ...(sourceFallback ?? {}),
       ownerNo:
         item.customer?.customerNo ||
         this.normalizeOptionalString(item.withdraw?.ownerNo) ||
         null,
+      customerName,
+      customer: undefined,
       transactionType: 'WITHDRAW',
       transactionId: item.withdrawId,
       transactionNo: item.withdraw?.withdrawNo || null,
@@ -290,6 +330,13 @@ export class PayoutsService {
         throw new NotFoundException('Withdraw transaction not found');
       }
 
+      let sourceWallet: { fromAddress: string | null; fromIban: string | null } = { fromAddress: null, fromIban: null };
+      try {
+        sourceWallet = await this.resolveSourceWallet(type, assetId, withdraw.ownerId ?? null);
+      } catch (err) {
+        this.logger.warn(`resolveSourceWallet failed for withdrawId=${withdrawId}: ${(err as Error).message}`);
+      }
+
       const payoutId = this.generatePayoutId();
       const record = await (client as any).payout.create({
         data: {
@@ -304,6 +351,8 @@ export class PayoutsService {
           toWalletId,
           toAddress,
           toIban,
+          fromAddress: sourceWallet.fromAddress,
+          fromIban: sourceWallet.fromIban,
           statusHistory: JSON.stringify([{
             status: PayoutStatus.CREATED,
             timestamp: new Date().toISOString(),
