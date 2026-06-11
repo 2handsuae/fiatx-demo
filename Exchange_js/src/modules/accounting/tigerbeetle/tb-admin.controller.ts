@@ -51,11 +51,13 @@ export class TbAdminController {
     @Query('assetCurrency') assetCurrency?: string,
     @Query('ownerType') ownerType?: string,
     @Query('code') code?: string,
+    @Query('q') q?: string,
   ) {
     return this.tbAccountRegistryService.findAll({
       assetCurrency: assetCurrency || undefined,
       ownerType: ownerType || undefined,
       code: code ? Number(code) : undefined,
+      q: q || undefined,
       skip: skip ? Number(skip) : 0,
       take: take ? Number(take) : 50,
     });
