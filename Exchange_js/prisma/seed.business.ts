@@ -86,9 +86,11 @@ function buildSystemWalletAddress(
 function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string {
   const hash = createHash('sha256')
     .update(`${role}|${normalizeSegment(assetCode)}`)
-    .digest('hex')
-    .toUpperCase();
-  return `AE00FIATX${hash.slice(0, 16)}`;
+    .digest('hex');
+  // AE IBAN 形制:AE + 2 check digits + 3-digit bank code + 16-digit account (23 chars)。
+  // 演示库:数字从 hash 确定性导出,不做真实 mod-97 校验(spec §7 范围外)。
+  const digits = BigInt('0x' + hash.slice(0, 24)).toString().padStart(18, '0').slice(0, 18);
+  return `AE${digits.slice(0, 2)}086${digits.slice(2, 18)}`;
 }
 
 async function seedAssets(prisma: PrismaClient): Promise<void> {
@@ -177,8 +179,8 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
             walletRole: role,
             assetId: record.id,
             iban: buildSystemPoolIban(role, asset.code),
-            bankName: 'FiatX Internal Bank',
-            accountName: `Platform ${role} (${asset.code})`,
+            bankName: 'Zand Bank PJSC',
+            accountName: 'FiatX Ltd',
             status: 'ACTIVE',
           },
           create: {
@@ -190,8 +192,8 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
             walletRole: role,
             assetId: record.id,
             iban: buildSystemPoolIban(role, asset.code),
-            bankName: 'FiatX Internal Bank',
-            accountName: `Platform ${role} (${asset.code})`,
+            bankName: 'Zand Bank PJSC',
+            accountName: 'FiatX Ltd',
             status: 'ACTIVE',
           },
         });
