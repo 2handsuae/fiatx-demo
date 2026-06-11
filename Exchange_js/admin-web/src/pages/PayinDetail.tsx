@@ -307,24 +307,39 @@ const PayinDetail = () => {
         {/* Sidebar */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
           {/* Simulation Actions (only in sim mode) */}
-          {simulationModeEnabled && simActions.length > 0 && (
+          {simulationModeEnabled && (
             <SidebarGroup title="Simulation Controls">
               <div className="rounded border border-dashed border-amber-400 bg-amber-900/20 p-2">
                 <div className="mb-2 flex items-center gap-1 font-mono text-[9px] text-amber-400">
                   ⚡ SIM MODE
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  {simActions.map((a) => (
-                    <button
-                      key={a.event}
-                      onClick={() => handleSimEvent(a.event)}
-                      disabled={!a.enabled || simSubmitting}
-                      className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {simSubmitting ? '...' : a.label}
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const hasEnabled = simActions.some((a) => a.enabled);
+                  if (!hasEnabled) {
+                    const isTerminal = ['CLEARED', 'FAILED'].includes(normalizedStatus.toUpperCase());
+                    return (
+                      <div className="px-2 py-1.5 font-mono text-[10px] text-amber-400/80">
+                        {isTerminal
+                          ? 'Terminal state — no simulatable events'
+                          : 'Auto-progressing — ledger credit in flight…'}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-col gap-1.5">
+                      {simActions.map((a) => (
+                        <button
+                          key={a.event}
+                          onClick={() => handleSimEvent(a.event)}
+                          disabled={!a.enabled || simSubmitting}
+                          className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {simSubmitting ? '...' : a.label}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </SidebarGroup>
           )}

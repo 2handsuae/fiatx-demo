@@ -115,9 +115,10 @@ export interface PayinSimAction {
 }
 
 const CRYPTO_SIM_ACTIONS: PayinSimAction[] = [
-  { event: 'MEMPOOL_SEEN',     label: '⚡ Mempool Seen',     enabledStatuses: new Set(['DETECTED']) },
-  { event: 'CHAIN_CONFIRMED',  label: '⚡ Chain Confirmed',  enabledStatuses: new Set(['CONFIRMING']) },
-  { event: 'DROPPED',          label: '⚡ Drop / Fail',      enabledStatuses: new Set(['CONFIRMING']) },
+  { event: 'MEMPOOL_SEEN',    label: '⚡ Mempool Seen',            enabledStatuses: new Set(['DETECTED']) },
+  { event: 'CHAIN_CONFIRMED', label: '⚡ Chain Confirmed',         enabledStatuses: new Set(['CONFIRMING']) },
+  { event: 'DROPPED',         label: '⚡ Dropped / RBF Replaced',  enabledStatuses: new Set(['DETECTED', 'CONFIRMING']) },
+  { event: 'REORG',           label: '⚡ Reorg — back to mempool', enabledStatuses: new Set(['CONFIRMING']) },
 ];
 
 const FIAT_SIM_ACTIONS: PayinSimAction[] = [
