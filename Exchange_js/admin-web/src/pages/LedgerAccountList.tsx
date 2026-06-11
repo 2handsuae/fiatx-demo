@@ -142,6 +142,11 @@ const LedgerAccountList = () => {
     void fetchData();
   }, [page]);
 
+  // Asset options feed both the filter dropdown and the create modal.
+  useEffect(() => {
+    void fetchAssets();
+  }, []);
+
   /* ── Asset list for create modal ── */
 
   const fetchAssets = async () => {
@@ -273,13 +278,16 @@ const LedgerAccountList = () => {
           onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
         />
-        <input
+        <select
           className={`${fi} w-[180px]`}
-          placeholder="Asset code"
           value={filters.assetCode}
           onChange={(e) => setFilters((p) => ({ ...p, assetCode: e.target.value }))}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-        />
+        >
+          <option value="">All assets</option>
+          {assets.map((a) => (
+            <option key={a.code} value={a.code}>{a.code}</option>
+          ))}
+        </select>
         <select
           className={`${fi} w-[180px]`}
           value={filters.code}

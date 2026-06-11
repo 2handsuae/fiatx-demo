@@ -64,8 +64,29 @@ const TransferEvidenceList = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [currencyOptions, setCurrencyOptions] = useState<string[]>([]);
   const requestSeqRef = useRef(0);
   const navigate = useNavigate();
+
+  /* Evidence rows store the currency (e.g. USDT), not the network-qualified
+     asset code — offer the deduped currency list as filter options. */
+  const fetchCurrencyOptions = async () => {
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const currencies = [
+        ...new Set(
+          (data.items ?? data ?? [])
+            .filter((a: any) => a.tbLedgerId != null)
+            .map((a: any) => String(a.currency)),
+        ),
+      ] as string[];
+      setCurrencyOptions(currencies);
+    } catch {
+      /* ignore — dropdown simply stays empty */
+    }
+  };
 
   /* ── Data fetching ── */
 
@@ -81,7 +102,7 @@ const TransferEvidenceList = () => {
       if (nextFilters.q.trim()) params.set('q', nextFilters.q.trim());
       if (nextFilters.coa) params.set('coa', nextFilters.coa);
       if (nextFilters.sourceType) params.set('sourceType', nextFilters.sourceType);
-      if (nextFilters.assetCode) params.set('assetCode', nextFilters.assetCode);
+      if (nextFilters.assetCode) params.set('assetCurrency', nextFilters.assetCode);
       if (nextFilters.eventCode) params.set('eventCode', nextFilters.eventCode);
       if (nextFilters.transferType) params.set('transferType', nextFilters.transferType);
 
@@ -108,6 +129,7 @@ const TransferEvidenceList = () => {
 
   useEffect(() => {
     void fetchData(1, filters);
+    void fetchCurrencyOptions();
   }, []);
 
   /* ── Filter logic ── */
@@ -198,13 +220,16 @@ const TransferEvidenceList = () => {
           <option value="INTERNAL">INTERNAL</option>
           <option value="FEE">FEE</option>
         </select>
-        <input
-          placeholder="Asset code…"
+        <select
+          className={`${fi} w-28`}
           value={filters.assetCode}
           onChange={(e) => updateFilter('assetCode', e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          className={`${fi} w-28`}
-        />
+        >
+          <option value="">All assets</option>
+          {currencyOptions.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
         <input
           placeholder="Event code…"
           value={filters.eventCode}
