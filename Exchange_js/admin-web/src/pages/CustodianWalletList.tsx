@@ -45,7 +45,8 @@ interface WalletListResponse {
 }
 
 interface FilterState {
-  ownerIdSearch: string;
+  walletNoSearch: string;
+  customerNoSearch: string;
   ownerType: string;
   walletRole: string;
   type: string;
@@ -65,7 +66,8 @@ const fmt = (v?: string | null): string => {
 const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS: FilterState = {
-  ownerIdSearch: '',
+  walletNoSearch: '',
+  customerNoSearch: '',
   ownerType: '',
   walletRole: '',
   type: '',
@@ -95,7 +97,8 @@ const CustodianWalletList = () => {
     const params = new URLSearchParams();
     params.set('skip', String((page - 1) * PAGE_SIZE));
     params.set('take', String(PAGE_SIZE));
-    if (next.ownerIdSearch.trim()) params.set('ownerId', next.ownerIdSearch.trim());
+    if (next.walletNoSearch.trim()) params.set('walletNo', next.walletNoSearch.trim());
+    if (next.customerNoSearch.trim()) params.set('ownerNo', next.customerNoSearch.trim());
     if (next.ownerType) params.set('ownerType', next.ownerType);
     if (next.walletRole) params.set('walletRole', next.walletRole);
     if (next.type) params.set('type', next.type);
@@ -134,8 +137,8 @@ const CustodianWalletList = () => {
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
   const hasFilter =
-    !!filters.ownerIdSearch || !!filters.ownerType || !!filters.walletRole
-    || !!filters.type || !!filters.status;
+    !!filters.walletNoSearch || !!filters.customerNoSearch || !!filters.ownerType
+    || !!filters.walletRole || !!filters.type || !!filters.status;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -178,11 +181,18 @@ const CustodianWalletList = () => {
       {/* ── Filter bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
         <input
-          value={filters.ownerIdSearch}
-          onChange={(e) => updateFilter('ownerIdSearch', e.target.value)}
+          className={`${fi} w-[170px]`}
+          placeholder="Wallet No"
+          value={filters.walletNoSearch}
+          onChange={(e) => updateFilter('walletNoSearch', e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="Owner ID / No"
-          className={`${fi} w-40`}
+        />
+        <input
+          className={`${fi} w-[170px]`}
+          placeholder="Customer No"
+          value={filters.customerNoSearch}
+          onChange={(e) => updateFilter('customerNoSearch', e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
         />
         <select
           value={filters.ownerType}
@@ -252,15 +262,16 @@ const CustodianWalletList = () => {
             <tr>
               {(
                 [
-                  ['Wallet No',  '150px'],
-                  ['Role',       '100px'],
-                  ['Owner',      '140px'],
-                  ['Asset',      '80px'],
-                  ['Network',    '90px'],
-                  ['Balance',    '130px'],
-                  ['Status',     '90px'],
-                  ['Vault',      '110px'],
-                  ['Updated',    '150px'],
+                  ['Wallet No',       '150px'],
+                  ['Role',            '100px'],
+                  ['Owner No',        '130px'],
+                  ['Owner Name',      '140px'],
+                  ['Asset',           '80px'],
+                  ['Network',         '90px'],
+                  ['Balance (mock)',  '130px'],
+                  ['Status',          '90px'],
+                  ['Vault',           '110px'],
+                  ['Updated',         '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
@@ -276,20 +287,19 @@ const CustodianWalletList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No wallets found.
                 </td>
               </tr>
             )}
             {!loading && items.map((w) => {
-              const ownerLabel = w.ownerName || w.ownerNo || w.ownerId || '—';
               return (
                 <tr
                   key={w.id}
@@ -308,9 +318,23 @@ const CustodianWalletList = () => {
                     <WalletRoleBadge role={w.walletRole} />
                   </td>
 
-                  {/* Owner */}
-                  <td className="px-4 py-2.5">
-                    <span className="font-mono text-[11px] text-adm-t1">{ownerLabel}</span>
+                  {/* Owner No */}
+                  <td className="px-3 py-2 font-mono text-[11px]">
+                    {w.ownerType === 'CUSTOMER' && w.ownerNo && w.ownerId ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/${w.ownerId}`); }}
+                        className="text-adm-amber hover:underline"
+                        title="Open customer"
+                      >
+                        {w.ownerNo}
+                      </button>
+                    ) : (
+                      <span className="text-adm-t2">{w.ownerNo ?? '—'}</span>
+                    )}
+                  </td>
+                  {/* Owner Name */}
+                  <td className="px-3 py-2 text-[11px] text-adm-t2">
+                    {w.ownerName ?? <span className="text-adm-t3">—</span>}
                   </td>
 
                   {/* Asset */}
