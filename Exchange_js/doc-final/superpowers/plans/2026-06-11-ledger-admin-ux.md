@@ -19,7 +19,7 @@
 - Modify: `src/modules/accounting/tigerbeetle/tb-admin.controller.ts`(findAccounts 加 @Query('q'))
 - Test: `src/modules/accounting/tigerbeetle/tb-account-registry.service.spec.ts`(先 Read 现有 mock 风格)
 
-- [ ] **Step 1: 写失败测试**(追加到现有 describe;prisma mock 需补 `customerMain: { findMany: jest.fn() }`)
+- [x] **Step 1: 写失败测试**(追加到现有 describe;prisma mock 需补 `customerMain: { findMany: jest.fn() }`)
 
 ```typescript
   describe('findAll q + ownerName enrich', () => {
@@ -55,9 +55,9 @@
   });
 ```
 
-- [ ] **Step 2: 跑红** `npx jest src/modules/accounting/tigerbeetle/tb-account-registry.service.spec.ts` → FAIL(ownerName undefined / OR 缺失)
+- [x] **Step 2: 跑红** `npx jest src/modules/accounting/tigerbeetle/tb-account-registry.service.spec.ts` → FAIL(ownerName undefined / OR 缺失)
 
-- [ ] **Step 3: 实现**(替换 findAll;新增私有方法;findByTbAccountId 同步 enrich)
+- [x] **Step 3: 实现**(替换 findAll;新增私有方法;findByTbAccountId 同步 enrich)
 
 ```typescript
   async findAll(filters: {
@@ -125,8 +125,8 @@
 `findByTbAccountId`(先 Read 现实现):返回前包一层 `const [enriched] = await this.attachOwnerNames([row]); return enriched;`(null 仍返 null)。
 controller `findAccounts` 加 `@Query('q') q?: string` 并透传 `q: q || undefined`。
 
-- [ ] **Step 4: 跑绿** 同 Step 2 → PASS;`npx jest src/modules/accounting` 全绿
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(admin-api): tb accounts q search + ownerName enrichment"`
+- [x] **Step 4: 跑绿** 同 Step 2 → PASS;`npx jest src/modules/accounting` 全绿
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(admin-api): tb accounts q search + ownerName enrichment"`
 
 ---
 
@@ -137,7 +137,7 @@ controller `findAccounts` 加 `@Query('q') q?: string` 并透传 `q: q || undefi
 - Modify: `src/modules/accounting/tigerbeetle/tb-admin.controller.ts`(findTransfers 加 @Query('q')/@Query('coa'))
 - Test: `src/modules/accounting/tigerbeetle/tb-evidence.service.spec.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```typescript
   describe('findAll q + coa', () => {
@@ -166,9 +166,9 @@ controller `findAccounts` 加 `@Query('q') q?: string` 并透传 `q: q || undefi
   });
 ```
 
-- [ ] **Step 2: 跑红** `npx jest src/modules/accounting/tigerbeetle/tb-evidence.service.spec.ts` → FAIL
+- [x] **Step 2: 跑红** `npx jest src/modules/accounting/tigerbeetle/tb-evidence.service.spec.ts` → FAIL
 
-- [ ] **Step 3: 实现**(findAll 签名加 `q?: string; coa?: string;`;where 构造尾部追加;import COA_TO_TB_CODE)
+- [x] **Step 3: 实现**(findAll 签名加 `q?: string; coa?: string;`;where 构造尾部追加;import COA_TO_TB_CODE)
 
 ```typescript
     const and: any[] = [];
@@ -193,8 +193,8 @@ controller `findAccounts` 加 `@Query('q') q?: string` 并透传 `q: q || undefi
 
 controller `findTransfers` 加 `@Query('q') q?` / `@Query('coa') coa?` 透传。
 
-- [ ] **Step 4: 跑绿** + `npx jest src/modules/accounting` 全绿
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(admin-api): tb transfers q (id/sourceNo/trace) + coa account filter"`
+- [x] **Step 4: 跑绿** + `npx jest src/modules/accounting` 全绿
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(admin-api): tb transfers q (id/sourceNo/trace) + coa account filter"`
 
 ---
 
@@ -203,7 +203,7 @@ controller `findTransfers` 加 `@Query('q') q?` / `@Query('coa') coa?` 透传。
 **Files:**
 - Modify: `admin-web/src/pages/LedgerAccountList.tsx`
 
-- [ ] **Step 1: 改造**(逐点,保持 Zone 布局与既有 class)
+- [x] **Step 1: 改造**(逐点,保持 Zone 布局与既有 class)
 1. `LedgerAccountRow` 接口加 `ownerName: string | null;`;`FilterState` 加 `q: string;`,`DEFAULT_FILTERS` 加 `q: ''`。
 2. fetch 参数:`if (f.q.trim()) params.set('q', f.q.trim());`
 3. 筛选区(Asset 下拉之前)加搜索框(样式复用其它列表页的 input class,Enter 触发 handleSearch):
@@ -235,8 +235,8 @@ controller `findTransfers` 加 `@Query('q') q?` / `@Query('coa') coa?` 透传。
 (`ownerUuid` 已在行数据;若接口未回传该字段先确认 registry findAll select——现状全字段返回,有。)
 5. `hasFilter` 判断加 `|| !!filters.q.trim()`;Reset 清 q。
 
-- [ ] **Step 2: 验证** `cd admin-web && npx tsc --noEmit` → 0 错;浏览器手验(搜 CU 号/姓名、点击跳客户页)
-- [ ] **Step 3: Commit** `git add -A && git commit -m "feat(admin): ledger account list — customer column with name + q search + profile link"`
+- [x] **Step 2: 验证** `cd admin-web && npx tsc --noEmit` → 0 错;浏览器手验(搜 CU 号/姓名、点击跳客户页)
+- [x] **Step 3: Commit** `git add -A && git commit -m "feat(admin): ledger account list — customer column with name + q search + profile link"`
 
 ---
 
@@ -245,7 +245,7 @@ controller `findTransfers` 加 `@Query('q') q?` / `@Query('coa') coa?` 透传。
 **Files:**
 - Modify: `admin-web/src/pages/LedgerAccountDetail.tsx`
 
-- [ ] **Step 1: 改造**
+- [x] **Step 1: 改造**
 1. detail 接口类型加 `ownerName: string | null;`(及 `ownerUuid` 若类型缺)。
 2. Owner 组(InfoField "Owner Type"/"Owner No" 附近,~218-245 行,先 Read):CUSTOMER 账户时把 Owner No 字段值替换为可点击 `customerNo · ownerName`:
 ```tsx
@@ -267,8 +267,8 @@ controller `findTransfers` 加 `@Query('q') q?` / `@Query('coa') coa?` 透传。
 ```
 (InfoField 若只收 string,先 Read 其签名;不支持 ReactNode 就直接在该处用与页面一致的 div 结构渲染。两处 Owner 展示——主体区与 sidebar——主体区放链接,sidebar 保持文本。)
 
-- [ ] **Step 2: 验证** admin tsc 0 错 + 手验(SYSTEM 账户不显 Customer 行)
-- [ ] **Step 3: Commit** `git add -A && git commit -m "feat(admin): ledger account detail — customer name + profile link"`
+- [x] **Step 2: 验证** admin tsc 0 错 + 手验(SYSTEM 账户不显 Customer 行)
+- [x] **Step 3: Commit** `git add -A && git commit -m "feat(admin): ledger account detail — customer name + profile link"`
 
 ---
 
@@ -278,7 +278,7 @@ controller `findTransfers` 加 `@Query('q') q?` / `@Query('coa') coa?` 透传。
 - Modify: `admin-web/src/pages/TransferEvidenceList.tsx`
 - Modify(导出复用): `admin-web/src/pages/ledger-account.constants.ts`(若需新增 COA 选项导出)
 
-- [ ] **Step 1: constants 加 COA 选项导出**(基于既有 TB_CODE_LABELS 派生;class 前缀与后端 COA_TO_TB_CODE 一致)
+- [x] **Step 1: constants 加 COA 选项导出**(基于既有 TB_CODE_LABELS 派生;class 前缀与后端 COA_TO_TB_CODE 一致)
 
 ```typescript
 const CLASS_PREFIX: Record<number, string> = {
@@ -295,7 +295,7 @@ export const COA_OPTIONS = Object.entries(TB_CODE_LABELS).map(([code, name]) => 
 }));
 ```
 
-- [ ] **Step 2: 列表页改造**
+- [x] **Step 2: 列表页改造**
 1. `FilterState` 加 `q: string; coa: string;`,DEFAULT_FILTERS 同步;fetch 参数 `q`/`coa` 透传(trim 非空才 set);hasFilter/Reset 同步。
 2. 筛选区最前加搜索框(placeholder `Transfer ID / source no / trace`,Enter 触发);Source 下拉后加 COA 下拉:
 ```tsx
@@ -330,16 +330,16 @@ export const COA_OPTIONS = Object.entries(TB_CODE_LABELS).map(([code, name]) => 
 (`Copy` 图标 from 'lucide-react',import 行补;若页面已有 copy util 用既有的。)
 4. 空态/loading 行 `colSpan={9}` → `colSpan={10}`(两处)。
 
-- [ ] **Step 3: 验证** admin tsc 0 错;手验:搜 `SWP2606119254` 命中 4 笔、搜完整 tbTransferId 命中 1 笔、COA 选 `R.FEE_INCOME` 出全部费分录(含历史数字串行)
-- [ ] **Step 4: Commit** `git add -A && git commit -m "feat(admin): transfer evidence list — ID column, unified q search, COA account filter"`
+- [x] **Step 3: 验证** admin tsc 0 错;手验:搜 `SWP2606119254` 命中 4 笔、搜完整 tbTransferId 命中 1 笔、COA 选 `R.FEE_INCOME` 出全部费分录(含历史数字串行)
+- [x] **Step 4: Commit** `git add -A && git commit -m "feat(admin): transfer evidence list — ID column, unified q search, COA account filter"`
 
 ---
 
 ### Task 6: 终验
 
-- [ ] **Step 1:** `npx jest`(全量 0 failed)+ `npm run build`(0 错)+ `cd admin-web && npx tsc --noEmit`(0 错)
-- [ ] **Step 2:** 证据详情页核验:Transfer ID + copy 已在(spec 2.3,只核不改);截图级手验四个页面
-- [ ] **Step 3:** 后端重启(`npm run dev:stop && npm run dev:start`)使接口生效;plan checkbox 全勾;`git add -A && git commit -m "docs(admin): ledger UX plan checkboxes"`(如有勾选变更)
+- [x] **Step 1:** `npx jest`(全量 0 failed)+ `npm run build`(0 错)+ `cd admin-web && npx tsc --noEmit`(0 错)
+- [x] **Step 2:** 证据详情页核验:Transfer ID + copy 已在(spec 2.3,只核不改);截图级手验四个页面
+- [x] **Step 3:** 后端重启(`npm run dev:stop && npm run dev:start`)使接口生效;plan checkbox 全勾;`git add -A && git commit -m "docs(admin): ledger UX plan checkboxes"`(如有勾选变更)
 
 ---
 
