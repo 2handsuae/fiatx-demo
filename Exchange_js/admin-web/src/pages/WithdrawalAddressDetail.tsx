@@ -24,6 +24,7 @@ interface WithdrawalAddr {
   iban: string | null;
   swiftBic: string | null;
   bankName: string | null;
+  customerName: string | null;
   status: string;
   activatesAt: string;
   activatedAt: string | null;
@@ -294,7 +295,23 @@ export default function WithdrawalAddressDetail() {
           <section className="px-6 py-5">
             <Cap>Details</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Customer" value={data.customerNo} mono accent />
+              <div className="min-w-0">
+                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</div>
+                <div className="mt-1 text-[13px]">
+                  {data.customerNo && data.customerId ? (
+                    <button
+                      onClick={() => navigate(`/dashboard/customer/${data.customerId}`)}
+                      className="text-adm-amber hover:underline font-mono text-[11px]"
+                      title="Open customer"
+                    >
+                      {data.customerNo}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-[11px] text-adm-t2">{data.customerNo ?? '—'}</span>
+                  )}
+                </div>
+              </div>
+              <InfoField label="Customer Name" value={data.customerName ?? '—'} />
               <InfoField label="Asset" value={data.asset.code} />
               <InfoField label="Network" value={data.network} />
               <InfoField label="Registered" value={fmt(data.createdAt)} mono />
@@ -426,7 +443,8 @@ export default function WithdrawalAddressDetail() {
             <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
             <SidebarKV label="Type" value={data.addressType} mono />
             <SidebarKV label="Asset" value={data.asset.code} />
-            <SidebarKV label="Customer" value={data.customerNo} mono />
+            <SidebarKV label="Customer No" value={data.customerNo} mono />
+            <SidebarKV label="Customer Name" value={data.customerName} />
           </SidebarGroup>
 
           {/* Lifecycle */}
