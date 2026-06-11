@@ -18,6 +18,11 @@ export class ListWithdrawalAddressQueryDto {
   @IsOptional()
   addressType?: string;
 
+  @ApiProperty({ required: false, description: 'addressNo / address / IBAN 模糊搜索' })
+  @IsString()
+  @IsOptional()
+  q?: string;
+
   @ApiProperty({ required: false })
   @IsString()
   @IsOptional()

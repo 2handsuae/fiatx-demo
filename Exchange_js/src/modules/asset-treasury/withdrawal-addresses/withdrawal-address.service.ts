@@ -225,10 +225,12 @@ export class WithdrawalAddressService {
   }
 
   async findByNo(addressNo: string) {
-    return this.prisma.withdrawalAddress.findUnique({
+    const raw = await this.prisma.withdrawalAddress.findUnique({
       where: { addressNo },
-      include: { asset: true, customer: true },
+      include: { asset: true, customer: { select: { firstName: true, lastName: true } } },
     });
+    if (!raw) return null;
+    return this.flattenCustomerName(raw);
   }
 
   async listByCustomer(customerId: string, filters: { assetId?: string; status?: string; addressType?: string; take?: number; skip?: number }) {
@@ -248,7 +250,7 @@ export class WithdrawalAddressService {
     return { items, total };
   }
 
-  async listAll(filters: { customerId?: string; customerNo?: string; assetId?: string; status?: string; addressType?: string; take?: number; skip?: number }) {
+  async listAll(filters: { customerId?: string; customerNo?: string; assetId?: string; status?: string; addressType?: string; q?: string; take?: number; skip?: number }) {
     const where: any = {};
     if (filters.customerId) where.customerId = filters.customerId;
     if (filters.customerNo) where.customerNo = filters.customerNo;
@@ -256,14 +258,24 @@ export class WithdrawalAddressService {
     if (filters.status) where.status = filters.status;
     if (filters.addressType) where.addressType = filters.addressType;
 
-    const [items, total] = await Promise.all([
+    const q = filters.q?.trim();
+    if (q) {
+      where.OR = [
+        { addressNo: { contains: q } },
+        { address: { contains: q } },
+        { iban: { contains: q } },
+      ];
+    }
+
+    const [rawItems, total] = await Promise.all([
       this.prisma.withdrawalAddress.findMany({
-        where, include: { asset: true, customer: true },
+        where, include: { asset: true, customer: { select: { firstName: true, lastName: true } } },
         take: filters.take ?? 50, skip: filters.skip ?? 0,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.withdrawalAddress.count({ where }),
     ]);
+    const items = rawItems.map(this.flattenCustomerName);
     return { items, total };
   }
 
@@ -290,6 +302,14 @@ export class WithdrawalAddressService {
     for (const addr of expired) {
       try { await this.activate(addr.addressNo); } catch { /* individual failures logged in activate */ }
     }
+  }
+
+  private flattenCustomerName(r: any) {
+    const { customer, ...rest } = r;
+    const customerName = customer
+      ? [customer.firstName, customer.lastName].filter(Boolean).join(' ') || null
+      : null;
+    return { ...rest, customerName };
   }
 
   private async findByNoOrThrow(addressNo: string, db: any) {

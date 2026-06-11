@@ -147,4 +147,27 @@ describe('WithdrawalAddressService', () => {
       await expect(service.suspend('WAD001', 'ADM001', 'reason')).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('listAll', () => {
+    it('q → OR[addressNo/address/iban contains],customerName 由 customer 关联铺平', async () => {
+      prisma.withdrawalAddress.findMany.mockResolvedValue([
+        { id: 'a1', addressNo: 'ADDR1', customerNo: 'CU1', label: 'My Binance',
+          customer: { firstName: 'Alice', lastName: 'Happy' }, asset: { code: 'USDT-TRON' } },
+        { id: 'a2', addressNo: 'ADDR2', customerNo: 'CU2', label: null,
+          customer: { firstName: null, lastName: null }, asset: { code: 'AED' } },
+      ]);
+      prisma.withdrawalAddress.count.mockResolvedValue(2);
+
+      const result = await service.listAll({ q: 'TVx9', take: 50, skip: 0 } as any);
+      const where = prisma.withdrawalAddress.findMany.mock.calls[0][0].where;
+      expect(where.OR).toEqual([
+        { addressNo: { contains: 'TVx9' } },
+        { address: { contains: 'TVx9' } },
+        { iban: { contains: 'TVx9' } },
+      ]);
+      expect(result.items[0].customerName).toBe('Alice Happy');
+      expect(result.items[1].customerName).toBeNull();
+      expect(result.items[0].customer).toBeUndefined(); // 关联对象不泄给前端
+    });
+  });
 });
