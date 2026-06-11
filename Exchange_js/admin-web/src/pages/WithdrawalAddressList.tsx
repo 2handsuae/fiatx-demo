@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { Copy, RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -13,6 +13,7 @@ import {
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { copyToClipboard } from '../utils/clipboard';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -21,6 +22,7 @@ interface WithdrawalAddr {
   addressNo: string;
   customerId: string;
   customerNo: string;
+  customerName: string | null;
   address: string;
   addressType: string;
   network: string;
@@ -35,7 +37,9 @@ interface WithdrawalAddr {
 }
 
 interface FilterState {
+  q: string;
   customerNo: string;
+  assetId: string;
   status: string;
   addressType: string;
 }
@@ -47,9 +51,6 @@ const fmt = (v?: string | null): string => {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
-
-const truncateAddr = (a: string) =>
-  a.length > 14 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a;
 
 /* ── Address Type badge ── */
 
@@ -82,7 +83,9 @@ const AddressTypeBadge = ({ type }: { type: string }) => {
 const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS: FilterState = {
+  q: '',
   customerNo: '',
+  assetId: '',
   status: '',
   addressType: '',
 };
@@ -98,8 +101,25 @@ const WithdrawalAddressList = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [assetOptions, setAssetOptions] = useState<{ id: string; code: string }[]>([]);
 
   const requestSeqRef = useRef(0);
+
+  /* ── Asset options ── */
+
+  const fetchAssetOptions = async () => {
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const options = (data.items ?? data ?? [])
+        .filter((a: any) => a.tbLedgerId != null)
+        .map((a: any) => ({ id: String(a.id), code: String(a.code) }));
+      setAssetOptions(options);
+    } catch {
+      /* ignore — dropdown simply stays empty */
+    }
+  };
 
   /* ── Data fetching ── */
 
@@ -107,7 +127,9 @@ const WithdrawalAddressList = () => {
     const params = new URLSearchParams();
     params.set('skip', String((page - 1) * PAGE_SIZE));
     params.set('take', String(PAGE_SIZE));
+    if (next.q.trim()) params.set('q', next.q.trim());
     if (next.customerNo.trim()) params.set('customerNo', next.customerNo.trim());
+    if (next.assetId) params.set('assetId', next.assetId);
     if (next.status) params.set('status', next.status);
     if (next.addressType) params.set('addressType', next.addressType);
     return params;
@@ -137,14 +159,17 @@ const WithdrawalAddressList = () => {
     }
   };
 
-  useEffect(() => { void fetchItems(1, DEFAULT_FILTERS); }, []);
+  useEffect(() => {
+    void fetchAssetOptions();
+    void fetchItems(1, DEFAULT_FILTERS);
+  }, []);
 
   /* ── Input style ── */
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
   const hasFilter =
-    !!filters.customerNo || !!filters.status || !!filters.addressType;
+    !!filters.q || !!filters.customerNo || !!filters.assetId || !!filters.status || !!filters.addressType;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -178,12 +203,29 @@ const WithdrawalAddressList = () => {
       {/* ── Filter bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
         <input
+          className={`${fi} w-[220px]`}
+          placeholder="Address No / address / IBAN"
+          value={filters.q}
+          onChange={(e) => updateFilter('q', e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+        />
+        <input
           value={filters.customerNo}
           onChange={(e) => updateFilter('customerNo', e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="Customer No"
           className={`${fi} w-40`}
         />
+        <select
+          className={`${fi} w-[150px]`}
+          value={filters.assetId}
+          onChange={(e) => updateFilter('assetId', e.target.value)}
+        >
+          <option value="">All assets</option>
+          {assetOptions.map((a) => (
+            <option key={a.id} value={a.id}>{a.code}</option>
+          ))}
+        </select>
         <select
           value={filters.status}
           onChange={(e) => updateFilter('status', e.target.value)}
@@ -232,14 +274,16 @@ const WithdrawalAddressList = () => {
             <tr>
               {(
                 [
-                  ['Address No',  '160px'],
-                  ['Customer',    '130px'],
-                  ['Asset',       '90px'],
-                  ['Network',     '90px'],
-                  ['Address',     '160px'],
-                  ['Type',        '110px'],
-                  ['Status',      '130px'],
-                  ['Registered',  '150px'],
+                  ['Address No',    '160px'],
+                  ['Customer No',   '110px'],
+                  ['Customer Name', '130px'],
+                  ['Label',         '120px'],
+                  ['Asset',         '80px'],
+                  ['Network',       '90px'],
+                  ['Address',       '160px'],
+                  ['Type',          '110px'],
+                  ['Status',        '130px'],
+                  ['Registered',    '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
@@ -255,14 +299,14 @@ const WithdrawalAddressList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No withdrawal addresses found.
                 </td>
               </tr>
@@ -278,14 +322,31 @@ const WithdrawalAddressList = () => {
                   <span className="font-mono text-[11px] font-semibold text-adm-amber">
                     {item.addressNo}
                   </span>
-                  <div className="mt-0.5 font-mono text-[9px] text-adm-t3">
-                    {item.label || (item.addressType === 'BANK' ? (item.bankName || '—') : '—')}
-                  </div>
                 </td>
 
-                {/* Customer */}
-                <td className="px-4 py-2.5">
-                  <span className="font-mono text-[11px] text-adm-blue">{item.customerNo}</span>
+                {/* Customer No */}
+                <td className="px-3 py-2 font-mono text-[11px]">
+                  {item.customerNo && item.customerId ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/${item.customerId}`); }}
+                      className="text-adm-amber hover:underline"
+                      title="Open customer"
+                    >
+                      {item.customerNo}
+                    </button>
+                  ) : (
+                    <span className="text-adm-t3">—</span>
+                  )}
+                </td>
+
+                {/* Customer Name */}
+                <td className="px-3 py-2 text-[11px] text-adm-t2">
+                  {item.customerName ?? <span className="text-adm-t3">—</span>}
+                </td>
+
+                {/* Label */}
+                <td className="px-3 py-2 text-[11px] text-adm-t2 truncate max-w-[140px]" title={item.label ?? ''}>
+                  {item.label ?? <span className="text-adm-t3">—</span>}
                 </td>
 
                 {/* Asset */}
@@ -299,11 +360,18 @@ const WithdrawalAddressList = () => {
                 </td>
 
                 {/* Address */}
-                <td className="px-4 py-2.5">
-                  <span className="font-mono text-[10px] text-adm-t2">
-                    {item.addressType === 'BANK' && item.iban
-                      ? truncateAddr(item.iban)
-                      : truncateAddr(item.address)}
+                <td className="px-3 py-2 font-mono text-[10px] text-adm-t2">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="truncate max-w-[130px]" title={item.addressType === 'BANK' && item.iban ? item.iban : item.address}>
+                      {item.addressType === 'BANK' && item.iban ? item.iban : item.address}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); copyToClipboard(item.addressType === 'BANK' && item.iban ? item.iban : item.address); }}
+                      className="text-adm-t3 hover:text-adm-t1"
+                      title="Copy address"
+                    >
+                      <Copy size={10} />
+                    </button>
                   </span>
                 </td>
 
