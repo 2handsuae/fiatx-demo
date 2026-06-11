@@ -24,7 +24,7 @@ export class FundsAccountingService {
   ) {}
 
   /**
-   * 物理资金流完成时的 TB 镜像:客户池 ↔ FIRM_OPS,金额 = transfer.amount。
+   * 物理资金流完成时的 TB 镜像:客户池 ↔ FIRM_TREASURY,金额 = transfer.amount。
    * 结算腿(SETTLE_*)与提现费去混同(FEE_DECOMMINGLE)共用;无 mirror 的路径 no-op。
    * 幂等:evidence (sourceType, internalTxNo, eventCode) → deterministic transfer id。
    */
@@ -74,7 +74,7 @@ export class FundsAccountingService {
 
     const poolCode = transfer.asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
     const poolId = await this.accounting.resolveTbAccountId({ code: poolCode, ledger, ownerType: 'SYSTEM' });
-    const firmId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' });
+    const firmId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_TREASURY, ledger, ownerType: 'SYSTEM' });
 
     const isFeePath =
       transfer.pathLabel === TransferPath.FEE_COLLECT ||
@@ -82,8 +82,8 @@ export class FundsAccountingService {
 
     const debitAccountId = mirror === 'POOL_TO_FIRM' ? firmId : poolId;
     const creditAccountId = mirror === 'POOL_TO_FIRM' ? poolId : firmId;
-    const debitTbCode = mirror === 'POOL_TO_FIRM' ? TB_ACCOUNT_CODES.FIRM_OPS : poolCode;
-    const creditTbCode = mirror === 'POOL_TO_FIRM' ? poolCode : TB_ACCOUNT_CODES.FIRM_OPS;
+    const debitTbCode = mirror === 'POOL_TO_FIRM' ? TB_ACCOUNT_CODES.FIRM_TREASURY : poolCode;
+    const creditTbCode = mirror === 'POOL_TO_FIRM' ? poolCode : TB_ACCOUNT_CODES.FIRM_TREASURY;
 
     let code: number;
     let eventCode: string;

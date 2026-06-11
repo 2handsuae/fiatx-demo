@@ -40,7 +40,7 @@ export async function seedBusiness(
   await seedCustomers(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
-  // Firm capital bootstrap: FIRM_OPS ← PAID_IN_CAPITAL per currency.
+  // Firm capital bootstrap: FIRM_TREASURY ← PAID_IN_CAPITAL per currency.
   await seedCapitalInjection(prisma);
 
   console.log('✅ Business data seeded.');
@@ -134,7 +134,7 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     const systemAccounts = [
       { code: custodyCode, desc: isFiat ? 'CLIENT_BANK' : 'CLIENT_CUSTODY' },
       { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
-      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+      { code: TB_ACCOUNT_CODES.FIRM_TREASURY, desc: 'FIRM_TREASURY' },
       { code: TB_ACCOUNT_CODES.FX_POSITION, desc: 'FX_POSITION' },
       { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, desc: 'PAID_IN_CAPITAL' },
       { code: TB_ACCOUNT_CODES.RETAINED_EARNINGS, desc: 'RETAINED_EARNINGS' },
@@ -535,10 +535,10 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       select: { id: true, customerNo: true },
     });
 
-    // Customer-level TB accounts: CLIENT_CREDIT + CLIENT_AUDIT per asset.
+    // Customer-level TB accounts: CLIENT_PAYABLE + DEPOSIT_SUSPENSE per asset.
     for (const asset of assets) {
       const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
-      for (const code of [TB_ACCOUNT_CODES.CLIENT_CREDIT, TB_ACCOUNT_CODES.CLIENT_AUDIT]) {
+      for (const code of [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]) {
         await ensureTbAccountRegistry(prisma, {
           code,
           ledger,
@@ -546,7 +546,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
           ownerUuid: customer.id,
           ownerNo: customer.customerNo,
           assetCode: asset.code,
-          description: `${code === TB_ACCOUNT_CODES.CLIENT_CREDIT ? 'CLIENT_CREDIT' : 'CLIENT_AUDIT'} for ${customer.customerNo}/${asset.code}`,
+          description: `${code === TB_ACCOUNT_CODES.CLIENT_PAYABLE ? 'CLIENT_PAYABLE' : 'DEPOSIT_SUSPENSE'} for ${customer.customerNo}/${asset.code}`,
         });
       }
     }
@@ -556,7 +556,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Capital injection — FIRM_OPS ← PAID_IN_CAPITAL per currency
+// Capital injection — FIRM_TREASURY ← PAID_IN_CAPITAL per currency
 // ─────────────────────────────────────────────────────────────
 
 const SEED_FIRM_CAPITAL: Record<string, string> = {
@@ -594,9 +594,9 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
       const scale = BigInt(10 ** asset.decimals);
       const amount = BigInt(rawAmount) * scale;
 
-      // Resolve FIRM_OPS and PAID_IN_CAPITAL account ids from registry
+      // Resolve FIRM_TREASURY and PAID_IN_CAPITAL account ids from registry
       const firmOpsReg = await (prisma as any).tbAccountRegistry.findFirst({
-        where: { code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' },
+        where: { code: TB_ACCOUNT_CODES.FIRM_TREASURY, ledger, ownerType: 'SYSTEM' },
         select: { tbAccountId: true },
       });
       const paidInCapReg = await (prisma as any).tbAccountRegistry.findFirst({

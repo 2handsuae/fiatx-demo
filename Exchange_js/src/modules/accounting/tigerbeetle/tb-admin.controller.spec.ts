@@ -93,7 +93,7 @@ describe('TbAdminController', () => {
       sourceType: 'DEPOSIT',
       sourceNo: 'DEP2605120001',
       eventCode: 'EVT_DEPOSIT_SUCCESS',
-      debitCode: 'L.CLIENT_CREDIT',
+      debitCode: 'L.CLIENT_PAYABLE',
       creditCode: 'A.CLIENT_CUSTODY',
       amount: '1000.00',
       assetCode: 'USDT',

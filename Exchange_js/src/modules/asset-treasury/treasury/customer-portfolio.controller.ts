@@ -52,7 +52,7 @@ export class CustomerPortfolioController {
     }
 
     const registry = await this.registryService.resolve({
-      code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+      code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
       ledger,
       ownerType: 'CUSTOMER',
       ownerUuid: req.user.userId,

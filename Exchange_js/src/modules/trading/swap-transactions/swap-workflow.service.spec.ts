@@ -42,7 +42,7 @@ function baseQuote() {
 function buildMocks() {
   // resolveTbAccountId returns a unique bigint per code so we can track calls
   const resolveMap: Record<number, bigint> = {
-    [TB_ACCOUNT_CODES.CLIENT_CREDIT]: 10n,
+    [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 10n,
     [TB_ACCOUNT_CODES.TRADE_CLEARING]: 20n,
     [120]: 30n, // FEE_RECEIVABLE (removed in Task 9) — should NOT be touched
     [TB_ACCOUNT_CODES.FEE_INCOME]: 40n,

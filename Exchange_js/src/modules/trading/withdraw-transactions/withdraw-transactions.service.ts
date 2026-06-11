@@ -27,7 +27,7 @@ import {
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { randomUUID } from 'node:crypto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
@@ -594,7 +594,7 @@ export class WithdrawTransactionsService {
           const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
           if (ledger && ownerType === 'CUSTOMER') {
             const clientCreditId = await this.accountingService.resolveTbAccountId({
-              code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+              code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
               ledger,
               ownerType: 'CUSTOMER',
               ownerUuid: userId,
@@ -612,14 +612,14 @@ export class WithdrawTransactionsService {
             const evidenceBase = {
               sourceType: 'WITHDRAWAL',
               sourceNo: withdrawNo,
-              debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
+              debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
               assetCurrency: asset.currency,
               traceId,
               actorType: ownerType,
               actorId: userId,
             };
 
-            // Pending #1: net amount CLIENT_CREDIT → CUSTODY (crypto) or BANK (fiat)
+            // Pending #1: net amount CLIENT_PAYABLE → CUSTODY (crypto) or BANK (fiat)
             const { tbTransferId: pendingNetId } = await this.accountingService.executePendingTransfer({
               debitAccountId: clientCreditId,
               creditAccountId: netTargetId,
@@ -632,7 +632,7 @@ export class WithdrawTransactionsService {
               evidence: {
                 ...evidenceBase,
                 eventCode: 'WITHDRAW_LOCK_NET',
-                creditCode: String(netTargetCode),
+                creditCode: TB_CODE_TO_COA[netTargetCode],
                 memo: 'Withdrawal pending lock: net amount',
               },
               tx,
@@ -640,7 +640,7 @@ export class WithdrawTransactionsService {
             tbPendingNetBigint = pendingNetId;
             netBigintForVoid = netBigint;
 
-            // Pending #2: fee amount CLIENT_CREDIT → FEE_INCOME (two-phase:
+            // Pending #2: fee amount CLIENT_PAYABLE → FEE_INCOME (two-phase:
             // posted on payout success = revenue recognized; voided on fail/return
             // = revenue never existed, zero reversal entries)
             let pendingFeeId: bigint | undefined;
@@ -661,7 +661,7 @@ export class WithdrawTransactionsService {
                 evidence: {
                   ...evidenceBase,
                   eventCode: 'WITHDRAW_LOCK_FEE',
-                  creditCode: String(TB_ACCOUNT_CODES.FEE_INCOME),
+                  creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_INCOME],
                   memo: 'Withdrawal pending lock: fee → FEE_INCOME',
                 },
                 tx,

@@ -21,7 +21,7 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 
 @Injectable()
@@ -418,7 +418,7 @@ export class DepositWorkflowService implements OnModuleInit {
         ownerType: 'SYSTEM',
       });
       const creditAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.CLIENT_AUDIT,
+        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
         ledger,
         ownerType: 'CUSTOMER',
         ownerUuid: deposit.ownerId,
@@ -434,8 +434,8 @@ export class DepositWorkflowService implements OnModuleInit {
           sourceType: 'DEPOSIT',
           sourceNo: deposit.depositNo,
           eventCode: 'DEPOSIT_HOLDING_TO_AUDIT',
-          debitCode: String(holdingCode),
-          creditCode: String(TB_ACCOUNT_CODES.CLIENT_AUDIT),
+          debitCode: TB_CODE_TO_COA[holdingCode],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
           assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
@@ -444,16 +444,16 @@ export class DepositWorkflowService implements OnModuleInit {
         },
       });
 
-      this.logger.log(`TB Step 1 complete: ${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'}→CLIENT_AUDIT for deposit ${deposit.depositNo}`);
+      this.logger.log(`TB Step 1 complete: ${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'}→DEPOSIT_SUSPENSE for deposit ${deposit.depositNo}`);
     } else {
       const debitAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.CLIENT_AUDIT,
+        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
         ledger,
         ownerType: 'CUSTOMER',
         ownerUuid: deposit.ownerId,
       });
       const creditAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+        code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
         ledger,
         ownerType: 'CUSTOMER',
         ownerUuid: deposit.ownerId,
@@ -469,8 +469,8 @@ export class DepositWorkflowService implements OnModuleInit {
           sourceType: 'DEPOSIT',
           sourceNo: deposit.depositNo,
           eventCode: 'DEPOSIT_AUDIT_TO_CREDIT',
-          debitCode: String(TB_ACCOUNT_CODES.CLIENT_AUDIT),
-          creditCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
           assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
@@ -479,7 +479,7 @@ export class DepositWorkflowService implements OnModuleInit {
         },
       });
 
-      this.logger.log(`TB Step 2 complete: CLIENT_AUDIT→CLIENT_CREDIT for deposit ${deposit.depositNo}`);
+      this.logger.log(`TB Step 2 complete: DEPOSIT_SUSPENSE→CLIENT_PAYABLE for deposit ${deposit.depositNo}`);
     }
   }
 

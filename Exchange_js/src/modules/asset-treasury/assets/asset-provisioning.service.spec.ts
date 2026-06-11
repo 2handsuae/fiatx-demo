@@ -16,7 +16,7 @@ describe('AssetProvisioningService (two-book)', () => {
     const codes = createAccounts.mock.calls[0][0].map((p: any) => p.code).sort((a: number, b: number) => a - b);
     expect(codes).toEqual([
       TB_ACCOUNT_CODES.CLIENT_CUSTODY,     // 10
-      TB_ACCOUNT_CODES.FIRM_OPS,           // 50
+      TB_ACCOUNT_CODES.FIRM_TREASURY,           // 50
       TB_ACCOUNT_CODES.FX_POSITION,        // 60
       TB_ACCOUNT_CODES.TRADE_CLEARING,     // 110
       TB_ACCOUNT_CODES.PAID_IN_CAPITAL,    // 200

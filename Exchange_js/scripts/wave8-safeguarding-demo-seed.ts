@@ -265,7 +265,7 @@ async function assertNoUnexpectedAssetLiabilities(
       ownerType: 'CUSTOMER',
       ownerId: { not: customerId },
       assetId: { in: assetIds },
-      accountCode: { in: ['L.CLIENT_CREDIT', 'L.CLIENT_HELD'] },
+      accountCode: { in: ['L.CLIENT_PAYABLE', 'L.CLIENT_HELD'] },
     },
     select: {
       assetId: true,
@@ -436,7 +436,7 @@ async function adjustLiability(
       ownerType: 'CUSTOMER',
       ownerId: customerId,
       assetId,
-      accountCode: { in: ['L.CLIENT_CREDIT', 'L.CLIENT_HELD'] },
+      accountCode: { in: ['L.CLIENT_PAYABLE', 'L.CLIENT_HELD'] },
     },
     select: {
       drCr: true,
@@ -478,7 +478,7 @@ async function adjustLiability(
           {
             id: randomUUID(),
             lineNo: 1,
-            accountCode: increaseLiability ? assetAccountCode : 'L.CLIENT_CREDIT',
+            accountCode: increaseLiability ? assetAccountCode : 'L.CLIENT_PAYABLE',
             drCr: increaseLiability ? 'DR' : 'DR',
             amount: absoluteDelta,
             assetId,
@@ -490,7 +490,7 @@ async function adjustLiability(
           {
             id: randomUUID(),
             lineNo: 2,
-            accountCode: increaseLiability ? 'L.CLIENT_CREDIT' : assetAccountCode,
+            accountCode: increaseLiability ? 'L.CLIENT_PAYABLE' : assetAccountCode,
             drCr: increaseLiability ? 'CR' : 'CR',
             amount: absoluteDelta,
             assetId,

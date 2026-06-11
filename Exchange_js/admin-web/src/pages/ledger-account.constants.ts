@@ -7,11 +7,11 @@ export const TB_CODE_LABELS: Record<number, string> = {
   // ── 客户账本(safeguarding)──
   1: 'CLIENT_BANK',
   10: 'CLIENT_CUSTODY',
-  100: 'CLIENT_CREDIT',
-  101: 'CLIENT_AUDIT',
+  100: 'CLIENT_PAYABLE',
+  101: 'DEPOSIT_SUSPENSE',
   110: 'TRADE_CLEARING',
   // ── 公司账本 ──
-  50: 'FIRM_OPS',
+  50: 'FIRM_TREASURY',
   60: 'FX_POSITION',
   200: 'PAID_IN_CAPITAL',
   210: 'RETAINED_EARNINGS',

@@ -25,7 +25,7 @@ const SYSTEM_CODES = new Set<number>([
   TB_ACCOUNT_CODES.CLIENT_BANK,
   TB_ACCOUNT_CODES.CLIENT_CUSTODY,
   TB_ACCOUNT_CODES.TRADE_CLEARING,
-  TB_ACCOUNT_CODES.FIRM_OPS,
+  TB_ACCOUNT_CODES.FIRM_TREASURY,
   TB_ACCOUNT_CODES.FX_POSITION,
   TB_ACCOUNT_CODES.PAID_IN_CAPITAL,
   TB_ACCOUNT_CODES.RETAINED_EARNINGS,
@@ -36,8 +36,8 @@ const SYSTEM_CODES = new Set<number>([
 ]);
 
 const CUSTOMER_CODES = new Set<number>([
-  TB_ACCOUNT_CODES.CLIENT_CREDIT,
-  TB_ACCOUNT_CODES.CLIENT_AUDIT,
+  TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+  TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
 ]);
 
 interface ManualCreateInput {
@@ -129,7 +129,7 @@ export class TbManualAccountService {
 
     // 5. Derive flags
     let flags = 0;
-    if (input.code === TB_ACCOUNT_CODES.CLIENT_CREDIT) {
+    if (input.code === TB_ACCOUNT_CODES.CLIENT_PAYABLE) {
       flags = AccountFlags.debits_must_not_exceed_credits;
     }
 

@@ -13,7 +13,7 @@ const FIRM_OPS_ID = 5555n;
 const resolveById = ({ code }: { code: number }) => {
   if (code === TB_ACCOUNT_CODES.TRADE_CLEARING) return Promise.resolve(TRADE_CLEARING_ID);
   if (code === TB_ACCOUNT_CODES.CLIENT_BANK) return Promise.resolve(BANK_ID);
-  if (code === TB_ACCOUNT_CODES.FIRM_OPS) return Promise.resolve(FIRM_OPS_ID);
+  if (code === TB_ACCOUNT_CODES.FIRM_TREASURY) return Promise.resolve(FIRM_OPS_ID);
   return Promise.resolve(CUSTODY_ID);
 };
 
@@ -66,7 +66,7 @@ describe('mirrorPhysicalTransfer', () => {
     prisma.internalFund.findMany.mockResolvedValue([]);
   });
 
-  it('INTERNAL_OUT (CRYPTO, decimals=6, amount=1000) → SETTLE_POOL_TO_FIRM: debit FIRM_OPS, credit CLIENT_CUSTODY', async () => {
+  it('INTERNAL_OUT (CRYPTO, decimals=6, amount=1000) → SETTLE_POOL_TO_FIRM: debit FIRM_TREASURY, credit CLIENT_CUSTODY', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
       transfer({ pathLabel: 'INTERNAL_OUT', amount: '1000', asset: { currency: 'AED', decimals: 6, type: 'CRYPTO' } }),
     );
@@ -76,7 +76,7 @@ describe('mirrorPhysicalTransfer', () => {
     expect(result).toEqual({ tbApplied: true, tbTransferId: 9n });
     expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
     const call = accounting.executeTransfer.mock.calls[0][0];
-    // POOL_TO_FIRM: debit FIRM_OPS, credit pool (CLIENT_CUSTODY for CRYPTO)
+    // POOL_TO_FIRM: debit FIRM_TREASURY, credit pool (CLIENT_CUSTODY for CRYPTO)
     expect(call.debitAccountId).toBe(FIRM_OPS_ID);
     expect(call.creditAccountId).toBe(CUSTODY_ID);
     expect(call.amount).toBe(1000_000000n); // 1000 * 10^6
@@ -84,7 +84,7 @@ describe('mirrorPhysicalTransfer', () => {
     expect(call.evidence.eventCode).toBe('SETTLE_POOL_TO_FIRM');
   });
 
-  it('FIAT_SETTLE_IN (FIAT, decimals=2) → SETTLE_FIRM_TO_POOL: debit CLIENT_BANK, credit FIRM_OPS', async () => {
+  it('FIAT_SETTLE_IN (FIAT, decimals=2) → SETTLE_FIRM_TO_POOL: debit CLIENT_BANK, credit FIRM_TREASURY', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
       transfer({
         pathLabel: 'FIAT_SETTLE_IN',
@@ -103,7 +103,7 @@ describe('mirrorPhysicalTransfer', () => {
 
     expect(result).toEqual({ tbApplied: true, tbTransferId: 9n });
     const call = accounting.executeTransfer.mock.calls[0][0];
-    // FIRM_TO_POOL: debit pool (CLIENT_BANK for FIAT), credit FIRM_OPS
+    // FIRM_TO_POOL: debit pool (CLIENT_BANK for FIAT), credit FIRM_TREASURY
     expect(call.debitAccountId).toBe(BANK_ID);
     expect(call.creditAccountId).toBe(FIRM_OPS_ID);
     expect(call.amount).toBe(5025n); // 50.25 * 10^2

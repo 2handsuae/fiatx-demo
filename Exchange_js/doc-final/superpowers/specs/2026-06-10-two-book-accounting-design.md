@@ -1,6 +1,6 @@
 # 两本账记账体系 — 设计 spec
 
-日期:2026-06-10
+日期:2026-06-10(2026-06-11 科目改名:CLIENT_CREDIT→CLIENT_PAYABLE、CLIENT_AUDIT→DEPOSIT_SUSPENSE、FIRM_OPS→FIRM_TREASURY,编码不变)
 状态:已与产品对齐(脑暴五节逐节确认),待实施
 前置:Model A 法币净额结算(spec 2026-06-09,已落地 commit 2144d84)
 
@@ -37,16 +37,16 @@
 
 编码段按 class 划死:**A 资产 1–99 / L 负债 100–199 / E 权益 200–299 / R 损益 300–399**。
 A 段内子段:1–49 客户资金形态、50–99 公司自有。
-COA 字符串沿用 `<CLASS>.<KEY>`(如 `A.FIRM_OPS`、`R.FEE_INCOME`),`COA_TO_TB_CODE` 同步重写。
+COA 字符串沿用 `<CLASS>.<KEY>`(如 `A.FIRM_TREASURY`、`R.FEE_INCOME`),`COA_TO_TB_CODE` 同步重写。
 
 | Code | 科目 | Class | 账本 | Owner | Ledger | 说明 |
 |--:|---|:-:|---|---|---|---|
 | 1 | `CLIENT_BANK`(原 BANK 改名) | A | 客户 | SYSTEM | 法币 | 客户资金池·银行侧 |
 | 10 | `CLIENT_CUSTODY`(原 CUSTODY 改名) | A | 客户 | SYSTEM | 虚拟币 | 客户资金池·托管侧 |
-| 50 | `FIRM_OPS` 新增 | A | 公司 | SYSTEM | 全部 | 公司自有资金(物理 F_OPS/F_LIQ/F_SET/F_FEE 的合并视角) |
+| 50 | `FIRM_TREASURY` 新增 | A | 公司 | SYSTEM | 全部 | 公司自有资金(物理 F_OPS/F_LIQ/F_SET/F_FEE 的合并视角) |
 | 60 | `FX_POSITION` 新增 | A·双向 | 公司 | SYSTEM | 全部 | 换汇户:FX 头寸,每币种一条腿,native 挂账,LP 平盘时清 |
-| 100 | `CLIENT_CREDIT` | L | 客户 | CUSTOMER | 全部 | 客户 claim(不动) |
-| 101 | `CLIENT_AUDIT` | L | 客户 | CUSTOMER | 全部 | 充值两步审计户(不动) |
+| 100 | `CLIENT_PAYABLE` | L | 客户 | CUSTOMER | 全部 | 客户 claim(不动) |
+| 101 | `DEPOSIT_SUSPENSE` | L | 客户 | CUSTOMER | 全部 | 充值两步审计户(不动) |
 | 110 | `TRADE_CLEARING` | L·双向 | 桥 | SYSTEM | 全部 | swap 桥,EOD 清(科目不动,清算规则重做) |
 | ~~120~~ | ~~`FEE_RECEIVABLE`~~ | — | — | — | — | **删除** |
 | 200 | `PAID_IN_CAPITAL` 新增 | E | 公司 | SYSTEM | 全部 | 实收资本,seed 注资时贷 |
@@ -66,7 +66,7 @@ COA 字符串沿用 `<CLASS>.<KEY>`(如 `A.FIRM_OPS`、`R.FEE_INCOME`),`COA_TO_T
 
 - 两本账隔离:safeguarding 报表 = {1,10,100,101,110};公司报表 = {50,60,200段,300段}。同一 TB cluster,按 code 段过滤。
 - TB flags:`FX_POSITION`、`TRADE_CLEARING`、`FX_UNREALIZED_PNL` 不设借贷方向约束;其余沿用现有约束。
-- 期初 bootstrap:seed 时每币种 `借 FIRM_OPS / 贷 PAID_IN_CAPITAL`,金额与 funds-layer 系统钱包(F_OPS/F_LIQ)的 seed 余额对齐——物理钱包与 TB 第一天就账实相符。
+- 期初 bootstrap:seed 时每币种 `借 FIRM_TREASURY / 贷 PAID_IN_CAPITAL`,金额与 funds-layer 系统钱包(F_OPS/F_LIQ)的 seed 余额对齐——物理钱包与 TB 第一天就账实相符。
 
 ---
 
@@ -76,9 +76,9 @@ COA 字符串沿用 `<CLASS>.<KEY>`(如 `A.FIRM_OPS`、`R.FEE_INCOME`),`COA_TO_T
 
 ```
 T0 入账侦测(链上确认/银行到账,放行前):
-   借 CLIENT_CUSTODY|CLIENT_BANK / 贷 CLIENT_AUDIT(CUSTOMER)
+   借 CLIENT_CUSTODY|CLIENT_BANK / 贷 DEPOSIT_SUSPENSE(CUSTOMER)
 T1 合规放行:
-   借 CLIENT_AUDIT / 贷 CLIENT_CREDIT
+   借 DEPOSIT_SUSPENSE / 贷 CLIENT_PAYABLE
 ```
 
 - 每步客户账本 A=L 严格成立。
@@ -94,14 +94,14 @@ T1 合规放行:
 
 ```
 T0 申请(锁定,两笔 PENDING):
-   Pending① net:借 CLIENT_CREDIT / 贷 CLIENT_BANK|CLIENT_CUSTODY
-   Pending② fee:借 CLIENT_CREDIT / 贷 FEE_INCOME
+   Pending① net:借 CLIENT_PAYABLE / 贷 CLIENT_BANK|CLIENT_CUSTODY
+   Pending② fee:借 CLIENT_PAYABLE / 贷 FEE_INCOME
 
 T1a 打款成功:POST ①② —— net 实物出池;fee 收入此刻正式确认
 T1b 失败/退回:VOID ①② —— 客户余额原样恢复,收入从未存在,零冲销代码
 
 T2 去混同(fee 实物从客户池搬公司池):
-   借 FIRM_OPS / 贷 CLIENT_BANK|CLIENT_CUSTODY(金额 = fee)
+   借 FIRM_TREASURY / 贷 CLIENT_BANK|CLIENT_CUSTODY(金额 = fee)
    · 法币:提现成功即时,FIAT_FEE_COLLECT C_VIBAN→F_FEE,funds-flow CLEAR 时记
    · 虚拟币:EOD/CRON 批量,FEE_COLLECT C_MAIN→F_OPS,Σ未归集 fee 轧差一笔,CLEAR 时记
 ```
@@ -110,7 +110,7 @@ T2 去混同(fee 实物从客户池搬公司池):
 
 - 混同窗口不变量:T1a→T2 之间,每币种 `客户池实物 − Σ客户claim = 未归集 fee`;归集后回落 0。
 - 归集金额口径:**Σ已成功、未归集的提现 fee(Prisma 查询 + sourceId 幂等标记)**,不再读 TB 挂账余额。drain-FEE_RECEIVABLE 逻辑整体删除。
-- 公司内部物理倒手(`F_LIQ→F_FEE`、`F_SET` 中转)两端都是 FIRM_OPS,**TB no-op**,对应 drain 钩子删除;InternalTransaction 保留物理审计轨迹。
+- 公司内部物理倒手(`F_LIQ→F_FEE`、`F_SET` 中转)两端都是 FIRM_TREASURY,**TB no-op**,对应 drain 钩子删除;InternalTransaction 保留物理审计轨迹。
 - 提现物理路径(FUND_OUT/FUND_RETURN/fiat 两跳 route)全部不动,只动 TB 记账层。
 
 ---
@@ -136,21 +136,21 @@ swap 无退路(from 币已锁死),无需 pending。
 
 | # | 分录 | 金额 | 对比现状 |
 |--|---|---|---|
-| ① | 借 `CLIENT_CREDIT(from)` / 贷 `TRADE_CLEARING(from)` | fromAmount | SWAP_LOCK_FROM 不变 |
-| ② | 借 `TRADE_CLEARING(to)` / 贷 `CLIENT_CREDIT(to)` | gross | SWAP_CREDIT_TO 不变 |
-| ③ | 借 `CLIENT_CREDIT(to)` / 贷 `FEE_INCOME(to)` | fee | 原去 FEE_RECEIVABLE |
+| ① | 借 `CLIENT_PAYABLE(from)` / 贷 `TRADE_CLEARING(from)` | fromAmount | SWAP_LOCK_FROM 不变 |
+| ② | 借 `TRADE_CLEARING(to)` / 贷 `CLIENT_PAYABLE(to)` | gross | SWAP_CREDIT_TO 不变 |
+| ③ | 借 `CLIENT_PAYABLE(to)` / 贷 `FEE_INCOME(to)` | fee | 原去 FEE_RECEIVABLE |
 | ④ | 借 `TRADE_CLEARING(to)` / 贷 `SPREAD_INCOME(to)` | spread | 原去 FEE_RECEIVABLE |
 
 T1 后:`TRADE_CLEARING(from) = +fromAmount`、`TRADE_CLEARING(to) = −mid值`(②+④ 自动累加,EOD 不需再算汇率)。利润 T1 锁定。
 
 ### 5.3 T2/T3 结算腿(物理资金流 TB 镜像,不碰桥)
 
-科目只涉及 `CLIENT_BANK/CLIENT_CUSTODY ↔ FIRM_OPS`,挂 funds-flow CLEAR 钩子:
+科目只涉及 `CLIENT_BANK/CLIENT_CUSTODY ↔ FIRM_TREASURY`,挂 funds-flow CLEAR 钩子:
 
 | 方向 | 法币腿(实时,FIAT_SETTLE_*) | 链上腿(EOD 轧差,INTERNAL_OUT/IN) |
 |---|---|---|
-| 卖币买法币 | 借 CLIENT_BANK / 贷 FIRM_OPS = **net** | 借 FIRM_OPS / 贷 CLIENT_CUSTODY = **fromAmount** |
-| 卖法币买币 | 借 FIRM_OPS / 贷 CLIENT_BANK = **fromAmount** | 借 CLIENT_CUSTODY / 贷 FIRM_OPS = **net** |
+| 卖币买法币 | 借 CLIENT_BANK / 贷 FIRM_TREASURY = **net** | 借 FIRM_TREASURY / 贷 CLIENT_CUSTODY = **fromAmount** |
+| 卖法币买币 | 借 FIRM_TREASURY / 贷 CLIENT_BANK = **fromAmount** | 借 CLIENT_CUSTODY / 贷 FIRM_TREASURY = **net** |
 
 - 方向规律:**from 侧全额、to 侧净额**(fee+spread 是公司少付的,从不进客户池 → swap 无去混同,对齐 Model A)。
 - 链上腿沿用 EOD 轧差:每币种一笔净物理转账,TB 镜像按轧差净额记。
@@ -194,8 +194,8 @@ fixing:EOD 运行时刻从 pricing-center 取 mid(与报价同源、固定切点
 示例:卖 1000 USDT @3.62 收 3620,成本 3672.50、已浮亏 22.50(账面 3650):
 
 ```
-① 币出库:借 FX_POSITION(USDT) 1000 / 贷 FIRM_OPS(USDT) 1000
-② 钱入库:借 FIRM_OPS(AED) 3620 / 借 FX_REALIZED_PNL 30 / 贷 FX_POSITION(AED) 3650
+① 币出库:借 FX_POSITION(USDT) 1000 / 贷 FIRM_TREASURY(USDT) 1000
+② 钱入库:借 FIRM_TREASURY(AED) 3620 / 借 FX_REALIZED_PNL 30 / 贷 FX_POSITION(AED) 3650
 ③ 浮动转已实现:借 FX_REALIZED_PNL 22.50 / 贷 FX_UNREALIZED_PNL 22.50
 → 已实现合计 −52.50 = 3620 − 3672.50;浮动归零;头寸两腿清光
 ```
@@ -206,8 +206,8 @@ fixing:EOD 运行时刻从 pricing-center 取 mid(与报价同源、固定切点
 ### 6.3 EOD 运行顺序(在现有 EOD 工作流上扩)
 
 ```
-1. 链上净额结算(现有 INTERNAL_OUT/IN)      → TB 镜像:池 ↔ FIRM_OPS
-2. 虚拟币提现 fee 去混同归集(FEE_COLLECT)   → TB 镜像:池 → FIRM_OPS
+1. 链上净额结算(现有 INTERNAL_OUT/IN)      → TB 镜像:池 ↔ FIRM_TREASURY
+2. 虚拟币提现 fee 去混同归集(FEE_COLLECT)   → TB 镜像:池 → FIRM_TREASURY
 3. 清桥(当日已结算 swap 聚合)               → TRADE_CLEARING → FX_POSITION
 4. FX 重估(fixing 快照 + 重标分录)          → FX_UNREALIZED_PNL
 5. 对账校验(第 7 节全部不变量)+ 三桶日报
@@ -219,7 +219,7 @@ fixing:EOD 运行时刻从 pricing-center 取 mid(与报价同源、固定切点
 
 | # | 不变量 | 含义 |
 |--|---|---|
-| I1 | 每币种 `CLIENT_BANK/CUSTODY = ΣCLIENT_CREDIT + ΣCLIENT_AUDIT` | 客户账本 A=L(归集后混同额=0) |
+| I1 | 每币种 `CLIENT_BANK/CUSTODY = ΣCLIENT_PAYABLE + ΣDEPOSIT_SUSPENSE` | 客户账本 A=L(归集后混同额=0) |
 | I2 | `TRADE_CLEARING 残余 = 未完全结算 swap 的桥贡献聚合` | 桥上挂的就是未结算义务 |
 | I3 | `FX_POSITION − FX_UNREALIZED = 成本基础`,且可由 swap 聚合推演 | 头寸账可回溯到每笔成交 |
 | I4 | 公司净值(折AED)= 资本 + 留存 + 三桶损益 | 公司账本 A=L+E |
@@ -233,11 +233,11 @@ fixing:EOD 运行时刻从 pricing-center 取 mid(与报价同源、固定切点
 
 **方向一:卖 1000 USDT 买 AED**(mid 3.6725,markup ×0.98,fee 2%):
 gross 3599.05、fee 71.98、net 3527.07、spread 73.45、mid 值 3672.50。
-终态:客户 `CLIENT_CREDIT(AED)=CLIENT_BANK(AED)=3527.07`;公司 `FIRM_OPS(AED)=期初−3527.07`、`FIRM_OPS(USDT)=期初+1000`、`FX_POSITION:USDT 腿 1000(贷方)、AED 腿 3672.50(借方)`(清桥后)、`FEE 71.98 + SPREAD 73.45 = 145.43`。EOD fixing 3.65 → AED 腿重估为 3650,`FX_UNREALIZED = −22.50`。
+终态:客户 `CLIENT_PAYABLE(AED)=CLIENT_BANK(AED)=3527.07`;公司 `FIRM_TREASURY(AED)=期初−3527.07`、`FIRM_TREASURY(USDT)=期初+1000`、`FX_POSITION:USDT 腿 1000(贷方)、AED 腿 3672.50(借方)`(清桥后)、`FEE 71.98 + SPREAD 73.45 = 145.43`。EOD fixing 3.65 → AED 腿重估为 3650,`FX_UNREALIZED = −22.50`。
 
 **方向二:卖 10,000 AED 买 USDT**(同参数,基准率 1/3.6725 × 0.98):
 gross 2668.48、fee 53.37、net 2615.11、spread 54.46、mid 值 2722.94。
-终态:客户 `CLIENT_CREDIT(USDT)=CLIENT_CUSTODY(USDT)=2615.11`;公司 `FIRM_OPS(AED)=期初+10,000`、`FIRM_OPS(USDT)=期初−2615.11`、利润 `107.83 USDT`(native)。
+终态:客户 `CLIENT_PAYABLE(USDT)=CLIENT_CUSTODY(USDT)=2615.11`;公司 `FIRM_TREASURY(AED)=期初+10,000`、`FIRM_TREASURY(USDT)=期初−2615.11`、利润 `107.83 USDT`(native)。
 
 两方向每个 T 时刻的逐笔分录与余额表已在脑暴记录中逐步验证(每步 A=L+E、每币种守恒、无凭空)。
 
@@ -260,7 +260,7 @@ COA → 兑换 → 提现 → 充值 → EOD/FX → seed/demo → 全链验收
 | `trading/deposit-transactions/deposit-workflow.service.ts` | 科目映射改名 |
 | `trading/withdraw-transactions/withdraw-transactions.service.ts` | Pending② fee 改贷 `FEE_INCOME` |
 | `trading/swap-transactions/swap-workflow.service.ts` | ③④ 腿改贷 `FEE_INCOME`/`SPREAD_INCOME` |
-| `funds-layer/accounting/funds-accounting.service.ts` | drain 体系重做:删 FEE_RECEIVABLE/TRADE_CLEARING drain;新增池↔FIRM_OPS 镜像、去混同镜像 |
+| `funds-layer/accounting/funds-accounting.service.ts` | drain 体系重做:删 FEE_RECEIVABLE/TRADE_CLEARING drain;新增池↔FIRM_TREASURY 镜像、去混同镜像 |
 | `funds-layer/workflow/fee-collection-workflow.service.ts` | 归集额改 Prisma 口径(Σ未归集 fee),不读 TB 余额 |
 | `funds-layer/workflow/fiat-fee-collection-workflow.service.ts` | 提现 fee 去混同镜像;swap fee 物理路径保留但 TB no-op |
 | EOD workflow | 扩 3 步:清桥、重估、对账校验+三桶日报 |

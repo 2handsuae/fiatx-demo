@@ -349,7 +349,7 @@ export class AccountingService {
     }
 
     const tbAccountId = await this.resolveTbAccountId({
-      code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+      code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
       ledger,
       ownerType: 'CUSTOMER',
       ownerUuid: customerUuid,

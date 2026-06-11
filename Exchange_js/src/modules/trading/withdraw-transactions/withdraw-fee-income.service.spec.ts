@@ -9,7 +9,7 @@
  */
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
-import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { Prisma } from '@prisma/client';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ function makeWithdrawRecord(overrides: Record<string, any> = {}) {
 
 function buildServiceMocks() {
   const resolveMap: Record<number, bigint> = {
-    [TB_ACCOUNT_CODES.CLIENT_CREDIT]: 10n,
+    [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 10n,
     [TB_ACCOUNT_CODES.CLIENT_CUSTODY]: 20n,
     [TB_ACCOUNT_CODES.CLIENT_BANK]: 25n,
     [120]: 30n, // FEE_RECEIVABLE (removed in Task 9) — must NOT be touched
@@ -263,7 +263,7 @@ describe('WithdrawWorkflowService — T5 post fee evidence', () => {
       .filter(Boolean);
 
     // At least one should be FEE_INCOME
-    expect(feeCreditCodes).toContain(String(TB_ACCOUNT_CODES.FEE_INCOME));
+    expect(feeCreditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_INCOME]);
 
     // None should be FEE_RECEIVABLE (code 120, removed in Task 9)
     expect(feeCreditCodes).not.toContain('120');

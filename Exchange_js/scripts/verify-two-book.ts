@@ -179,13 +179,13 @@ async function main() {
   console.log('\n═══ Step 1: 充值 1000 USDT(deposit STEP_1/STEP_2)═══');
   const depRow = await depositService.createFromPayin('1000', usdtAsset.id, depWallet.id, `0xverify${tag}`);
   const dep = await prisma.depositTransaction.findUnique({ where: { id: depRow.id }, include: { asset: true } });
-  await depositWorkflow.executeDepositAccounting(dep, 'STEP_1'); // CUSTODY → CLIENT_AUDIT
-  await depositWorkflow.executeDepositAccounting(dep, 'STEP_2'); // CLIENT_AUDIT → CLIENT_CREDIT
+  await depositWorkflow.executeDepositAccounting(dep, 'STEP_1'); // CUSTODY → DEPOSIT_SUSPENSE
+  await depositWorkflow.executeDepositAccounting(dep, 'STEP_2'); // DEPOSIT_SUSPENSE → CLIENT_PAYABLE
 
   const DEPOSIT_U = 1_000_000_000n; // 1000 USDT @6dp
   assertEq('CLIENT_CUSTODY(USDT) debit-net', await debitNet(TB_ACCOUNT_CODES.CLIENT_CUSTODY, USDT), DEPOSIT_U);
-  assertEq('CLIENT_CREDIT(USDT, alice) credit-net', await creditNet(TB_ACCOUNT_CODES.CLIENT_CREDIT, USDT, alice.id), DEPOSIT_U);
-  assertEq('CLIENT_AUDIT(USDT, alice)', await creditNet(TB_ACCOUNT_CODES.CLIENT_AUDIT, USDT, alice.id), 0n);
+  assertEq('CLIENT_PAYABLE(USDT, alice) credit-net', await creditNet(TB_ACCOUNT_CODES.CLIENT_PAYABLE, USDT, alice.id), DEPOSIT_U);
+  assertEq('DEPOSIT_SUSPENSE(USDT, alice)', await creditNet(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, USDT, alice.id), 0n);
 
   // ═══ Step 2: 兑换 1000 USDT → AED ═════════════════════════
   console.log('\n═══ Step 2: 兑换 1000 USDT → AED(T1 收入确认)═══');
@@ -217,8 +217,8 @@ async function main() {
   const netU = grossU - feeU;
   const costU = grossU + spreadU; // AED 桥实际借方 = FX 头寸成本
 
-  assertEq('CLIENT_CREDIT(AED, alice) = net', await creditNet(TB_ACCOUNT_CODES.CLIENT_CREDIT, AED, alice.id), netU);
-  assertEq('CLIENT_CREDIT(USDT, alice) 清零', await creditNet(TB_ACCOUNT_CODES.CLIENT_CREDIT, USDT, alice.id), 0n);
+  assertEq('CLIENT_PAYABLE(AED, alice) = net', await creditNet(TB_ACCOUNT_CODES.CLIENT_PAYABLE, AED, alice.id), netU);
+  assertEq('CLIENT_PAYABLE(USDT, alice) 清零', await creditNet(TB_ACCOUNT_CODES.CLIENT_PAYABLE, USDT, alice.id), 0n);
   assertEq('FEE_INCOME(AED) = fee', await creditNet(TB_ACCOUNT_CODES.FEE_INCOME, AED), feeU);
   assertEq('SPREAD_INCOME(AED) = spread', await creditNet(TB_ACCOUNT_CODES.SPREAD_INCOME, AED), spreadU);
   assertEq('TRADE_CLEARING(USDT) = +fromAmount', await creditNet(TB_ACCOUNT_CODES.TRADE_CLEARING, USDT), FROM_U);
@@ -246,7 +246,7 @@ async function main() {
     (await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED)) === netU ? true : null);
 
   assertEq('CLIENT_BANK(AED) = +net', await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED), netU);
-  assertEq('FIRM_OPS(AED) = 资本 − net', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, AED), CAPITAL_AED - netU);
+  assertEq('FIRM_TREASURY(AED) = 资本 − net', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), CAPITAL_AED - netU);
 
   // swap fee/spread 物理归集(Model A:F_LIQ→F_FEE 公司内部倒手,TB no-op)
   const collects = await waitFor('swap fee/spread collections spawned', async () => {
@@ -260,7 +260,7 @@ async function main() {
     await driveFiatLeg(leg.id);
   }
   await sleep(300);
-  assertEq('FIRM_OPS(AED) 不因 F_LIQ→F_FEE 归集而变(TB no-op)', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, AED), CAPITAL_AED - netU);
+  assertEq('FIRM_TREASURY(AED) 不因 F_LIQ→F_FEE 归集而变(TB no-op)', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), CAPITAL_AED - netU);
 
   // ═══ Step 4: EOD(链上腿结算 + 清桥 + 重估)═══════════════
   console.log('\n═══ Step 4: EOD 结算 + 两本账收口(清桥/重估/对账)═══');
@@ -294,7 +294,7 @@ async function main() {
   // 重估差关系式:marked − cost = 浮动盈亏净额(贷方为赚)
   const unrealNet = await creditNet(TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, AED);
   assertEq('FX_UNREALIZED = FX_POSITION(AED) − 成本(gross+spread)', unrealNet, fxAedDebit - costU);
-  assertEq('FIRM_OPS(USDT) = 资本 + fromAmount', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, USDT), CAPITAL_USDT + FROM_U);
+  assertEq('FIRM_TREASURY(USDT) = 资本 + fromAmount', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, USDT), CAPITAL_USDT + FROM_U);
 
   const eodReport: EodAccountingReport = { sweeps: [], revals: [], violations: [] };
   await fxEod.checkInvariants(eodReport);
@@ -334,10 +334,10 @@ async function main() {
   });
 
   assertEq('FEE_INCOME(AED) 增量 = withdraw fee', (await creditNet(TB_ACCOUNT_CODES.FEE_INCOME, AED)) - feeIncomeBefore, wFeeU);
-  assertEq('CLIENT_CREDIT(AED) 减 100', await creditNet(TB_ACCOUNT_CODES.CLIENT_CREDIT, AED, alice.id), netU - wAmountU);
+  assertEq('CLIENT_PAYABLE(AED) 减 100', await creditNet(TB_ACCOUNT_CODES.CLIENT_PAYABLE, AED, alice.id), netU - wAmountU);
   assertEq('CLIENT_BANK(AED) 减 net(fee 去混同前)', await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED), netU - wNetU);
 
-  // 提现费物理归集 C_VIBAN→F_FEE → CLEAR → FEE_DECOMMINGLE 镜像 CLIENT_BANK→FIRM_OPS
+  // 提现费物理归集 C_VIBAN→F_FEE → CLEAR → FEE_DECOMMINGLE 镜像 CLIENT_BANK→FIRM_TREASURY
   const wFeeCollect: any = await waitFor('withdraw fee collection spawned', () =>
     prisma.internalTransaction.findFirst({ where: { sourceType: 'FIAT_FEE_COLLECTION', sourceId: `${wd.id}:FEE` } }));
   const wFeeLeg = await prisma.internalFund.findFirst({ where: { internalTransactionId: wFeeCollect.id } });
@@ -346,16 +346,16 @@ async function main() {
     (await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED)) === netU - wNetU - wFeeU ? true : null);
 
   assertEq('CLIENT_BANK(AED) = net − 100(去混同后)', await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED), netU - wAmountU);
-  assertEq('FIRM_OPS(AED) = 资本 − net + withdrawFee', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, AED), CAPITAL_AED - netU + wFeeU);
+  assertEq('FIRM_TREASURY(AED) = 资本 − net + withdrawFee', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), CAPITAL_AED - netU + wFeeU);
 
   const i1Report: EodAccountingReport = { sweeps: [], revals: [], violations: [] };
   await fxEod.checkInvariants(i1Report);
-  assertTrue('去混同后 I1: CLIENT_BANK = ΣCLIENT_CREDIT+ΣCLIENT_AUDIT(violations 空)', i1Report.violations.length === 0, JSON.stringify(i1Report.violations));
+  assertTrue('去混同后 I1: CLIENT_BANK = ΣCLIENT_PAYABLE+ΣDEPOSIT_SUSPENSE(violations 空)', i1Report.violations.length === 0, JSON.stringify(i1Report.violations));
 
   // ═══ Step 6: LP 平盘(realize USDT 头寸)═══════════════════
   console.log('\n═══ Step 6: LP 平盘 realize USDT @ fixing±少许 ═══');
   const fillRate = fixing.add(new Prisma.Decimal('0.0075')); // 活价 fixing + 0.0075
-  const firmAedBefore = await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, AED);
+  const firmAedBefore = await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED);
   await fxEod.realizeFxPosition({ currency: 'USDT', fillRate, operatorId: 'VERIFY' });
   const proceedsU = decimalToTbUnits(bigintToDecimal(FROM_U, usdtAsset.decimals).mul(fillRate), aedAsset.decimals);
   console.log(`  fillRate=${fillRate} proceeds=${proceedsU}`);
@@ -364,15 +364,15 @@ async function main() {
   assertEq('FX_POSITION(AED) = 0', await creditNet(TB_ACCOUNT_CODES.FX_POSITION, AED), 0n);
   assertEq('FX_UNREALIZED = 0(回转完毕)', await creditNet(TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, AED), 0n);
   assertEq('FX_REALIZED = proceeds − 成本', await creditNet(TB_ACCOUNT_CODES.FX_REALIZED_PNL, AED), proceedsU - costU);
-  assertEq('FIRM_OPS(USDT) 减 fromAmount(回到资本)', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, USDT), CAPITAL_USDT);
-  assertEq('FIRM_OPS(AED) 加 proceeds', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, AED), firmAedBefore + proceedsU);
+  assertEq('FIRM_TREASURY(USDT) 减 fromAmount(回到资本)', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, USDT), CAPITAL_USDT);
+  assertEq('FIRM_TREASURY(AED) 加 proceeds', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), firmAedBefore + proceedsU);
 
   // ═══ Step 7: 终态余额表 + 终局守恒 ═══════════════════════
   console.log('\n═══ Step 7: 终态余额表(两本账 × 两币种)═══');
   const SYSTEM_CODES: Array<[string, number]> = [
     ['A.CLIENT_BANK', TB_ACCOUNT_CODES.CLIENT_BANK],
     ['A.CLIENT_CUSTODY', TB_ACCOUNT_CODES.CLIENT_CUSTODY],
-    ['A.FIRM_OPS', TB_ACCOUNT_CODES.FIRM_OPS],
+    ['A.FIRM_TREASURY', TB_ACCOUNT_CODES.FIRM_TREASURY],
     ['A.FX_POSITION', TB_ACCOUNT_CODES.FX_POSITION],
     ['L.TRADE_CLEARING', TB_ACCOUNT_CODES.TRADE_CLEARING],
     ['E.PAID_IN_CAPITAL', TB_ACCOUNT_CODES.PAID_IN_CAPITAL],
@@ -409,7 +409,7 @@ async function main() {
     }
     table[`${name} (借方正)`] = row;
   }
-  for (const [name, code] of [['L.CLIENT_CREDIT Σ', TB_ACCOUNT_CODES.CLIENT_CREDIT], ['L.CLIENT_AUDIT Σ', TB_ACCOUNT_CODES.CLIENT_AUDIT]] as const) {
+  for (const [name, code] of [['L.CLIENT_PAYABLE Σ', TB_ACCOUNT_CODES.CLIENT_PAYABLE], ['L.DEPOSIT_SUSPENSE Σ', TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]] as const) {
     table[`${name} (贷方正)`] = {
       AED: (await sumCustomerCode(code, AED)).toString(),
       USDT: (await sumCustomerCode(code, USDT)).toString(),
@@ -418,13 +418,13 @@ async function main() {
   console.table(table);
 
   console.log('── 终局守恒断言 ──');
-  const sumCreditAed = await sumCustomerCode(TB_ACCOUNT_CODES.CLIENT_CREDIT, AED);
-  const sumAuditAed = await sumCustomerCode(TB_ACCOUNT_CODES.CLIENT_AUDIT, AED);
-  const sumCreditUsdt = await sumCustomerCode(TB_ACCOUNT_CODES.CLIENT_CREDIT, USDT);
+  const sumCreditAed = await sumCustomerCode(TB_ACCOUNT_CODES.CLIENT_PAYABLE, AED);
+  const sumAuditAed = await sumCustomerCode(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, AED);
+  const sumCreditUsdt = await sumCustomerCode(TB_ACCOUNT_CODES.CLIENT_PAYABLE, USDT);
   assertEq('AED I1: CLIENT_BANK = ΣCREDIT+ΣAUDIT', await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED), sumCreditAed + sumAuditAed);
   assertEq('USDT: 客户持有清零(ΣCREDIT)', sumCreditUsdt, 0n);
   assertEq('USDT: CLIENT_CUSTODY 清零', await debitNet(TB_ACCOUNT_CODES.CLIENT_CUSTODY, USDT), 0n);
-  assertEq('USDT: 公司净值不变(FIRM_OPS = 资本)', await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, USDT), CAPITAL_USDT);
+  assertEq('USDT: 公司净值不变(FIRM_TREASURY = 资本)', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, USDT), CAPITAL_USDT);
 
   // 公司 AED 净值变动 = 三桶损益合计(费 + 点差 + 平盘盈亏;浮动已清零)
   const incomeTotal =
@@ -432,7 +432,7 @@ async function main() {
     (await creditNet(TB_ACCOUNT_CODES.SPREAD_INCOME, AED)) +
     (await creditNet(TB_ACCOUNT_CODES.FX_REALIZED_PNL, AED)) +
     (await creditNet(TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, AED));
-  assertEq('AED: ΔFIRM_OPS(资本之上) = 三桶损益合计', (await debitNet(TB_ACCOUNT_CODES.FIRM_OPS, AED)) - CAPITAL_AED, incomeTotal);
+  assertEq('AED: ΔFIRM_TREASURY(资本之上) = 三桶损益合计', (await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED)) - CAPITAL_AED, incomeTotal);
 
   const finalReport: EodAccountingReport = { sweeps: [], revals: [], violations: [] };
   await fxEod.checkInvariants(finalReport);

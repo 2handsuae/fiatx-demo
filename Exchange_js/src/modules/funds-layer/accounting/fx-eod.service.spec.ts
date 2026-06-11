@@ -232,17 +232,17 @@ describe('FxEodService', () => {
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(4);
       const calls = accounting.executeTransfer.mock.calls.map((c) => c[0]);
 
-      // ① currency leg: deliver 1000 USDT to LP → debit FX_POSITION(USDT) / credit FIRM_OPS(USDT)
+      // ① currency leg: deliver 1000 USDT to LP → debit FX_POSITION(USDT) / credit FIRM_TREASURY(USDT)
       expect(calls[0]).toMatchObject({
         debitAccountId: acct(TB_ACCOUNT_CODES.FX_POSITION, USDT),
-        creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, USDT),
+        creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_TREASURY, USDT),
         amount: 1000_000000n,
         ledger: USDT,
         code: TB_TRANSFER_CODES.FX_REALIZE,
       });
-      // ② proceeds 1000 × 3.62 = 3620.00 → debit FIRM_OPS(AED) / credit FX_POSITION(AED)
+      // ② proceeds 1000 × 3.62 = 3620.00 → debit FIRM_TREASURY(AED) / credit FX_POSITION(AED)
       expect(calls[1]).toMatchObject({
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, AED),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_TREASURY, AED),
         creditAccountId: acct(TB_ACCOUNT_CODES.FX_POSITION, AED),
         amount: 362000n,
         ledger: AED,
@@ -281,17 +281,17 @@ describe('FxEodService', () => {
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(3);
       const calls = accounting.executeTransfer.mock.calls.map((c) => c[0]);
 
-      // ① receive 1000 USDT from LP → debit FIRM_OPS(USDT) / credit FX_POSITION(USDT)
+      // ① receive 1000 USDT from LP → debit FIRM_TREASURY(USDT) / credit FX_POSITION(USDT)
       expect(calls[0]).toMatchObject({
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, USDT),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_TREASURY, USDT),
         creditAccountId: acct(TB_ACCOUNT_CODES.FX_POSITION, USDT),
         amount: 1000_000000n,
         ledger: USDT,
       });
-      // ② pay 3620.00 AED to LP → debit FX_POSITION(AED) / credit FIRM_OPS(AED)
+      // ② pay 3620.00 AED to LP → debit FX_POSITION(AED) / credit FIRM_TREASURY(AED)
       expect(calls[1]).toMatchObject({
         debitAccountId: acct(TB_ACCOUNT_CODES.FX_POSITION, AED),
-        creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, AED),
+        creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_TREASURY, AED),
         amount: 362000n,
         ledger: AED,
       });

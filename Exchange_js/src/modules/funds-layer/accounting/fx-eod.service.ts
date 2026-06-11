@@ -238,7 +238,7 @@ export class FxEodService {
 
   /**
    * 平盘(demo/手动):全量平掉一个非 AED 头寸,fillRate=LP 成交价。
-   * ① 币腿对 FIRM_OPS(currency ledger)清零;② AED 腿按 proceeds 对 FIRM_OPS(AED) 清,
+   * ① 币腿对 FIRM_TREASURY(currency ledger)清零;② AED 腿按 proceeds 对 FIRM_TREASURY(AED) 清,
    * 残值进 FX_REALIZED_PNL;③ FX_UNREALIZED 余额回转进 FX_REALIZED。
    * evidence sourceNo 含时间戳(平盘非幂等,允许)。
    */
@@ -272,9 +272,9 @@ export class FxEodService {
     }
 
     const fxCurId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FX_POSITION, ledger, ownerType: 'SYSTEM' });
-    const firmCurId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' });
+    const firmCurId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_TREASURY, ledger, ownerType: 'SYSTEM' });
     const fxAedId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FX_POSITION, ledger: aedLedger, ownerType: 'SYSTEM' });
-    const firmAedId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger: aedLedger, ownerType: 'SYSTEM' });
+    const firmAedId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_TREASURY, ledger: aedLedger, ownerType: 'SYSTEM' });
     const realizedId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FX_REALIZED_PNL, ledger: aedLedger, ownerType: 'SYSTEM' });
     const unrealizedId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, ledger: aedLedger, ownerType: 'SYSTEM' });
 
@@ -302,7 +302,7 @@ export class FxEodService {
       memo,
     });
 
-    // ① 币腿清零:多头把币付给 LP(借 FX_POSITION / 贷 FIRM_OPS),空头反向。
+    // ① 币腿清零:多头把币付给 LP(借 FX_POSITION / 贷 FIRM_TREASURY),空头反向。
     if (qtyAbs > 0n) {
       await this.accounting.executeTransfer({
         debitAccountId: isLong ? fxCurId : firmCurId,
@@ -312,15 +312,15 @@ export class FxEodService {
         code: TB_TRANSFER_CODES.FX_REALIZE,
         evidence: evidence(
           'FX_REALIZE_CCY_LEG',
-          isLong ? TB_ACCOUNT_CODES.FX_POSITION : TB_ACCOUNT_CODES.FIRM_OPS,
-          isLong ? TB_ACCOUNT_CODES.FIRM_OPS : TB_ACCOUNT_CODES.FX_POSITION,
+          isLong ? TB_ACCOUNT_CODES.FX_POSITION : TB_ACCOUNT_CODES.FIRM_TREASURY,
+          isLong ? TB_ACCOUNT_CODES.FIRM_TREASURY : TB_ACCOUNT_CODES.FX_POSITION,
           currency,
           `Realize ${currency} position vs LP @ ${fillRate.toString()} (${isLong ? 'LONG' : 'SHORT'})`,
         ),
       });
     }
 
-    // ② AED 腿按 LP 成交价清:多头收 LP 的钱(借 FIRM_OPS(AED) / 贷 FX_POSITION(AED)),空头反向。
+    // ② AED 腿按 LP 成交价清:多头收 LP 的钱(借 FIRM_TREASURY(AED) / 贷 FX_POSITION(AED)),空头反向。
     const proceeds = decimalToTbUnits(bigintToDecimal(qtyAbs, curAsset.decimals).mul(fillRate), aedAsset.decimals);
     if (proceeds > 0n) {
       await this.accounting.executeTransfer({
@@ -331,8 +331,8 @@ export class FxEodService {
         code: TB_TRANSFER_CODES.FX_REALIZE,
         evidence: evidence(
           'FX_REALIZE_AED_LEG',
-          isLong ? TB_ACCOUNT_CODES.FIRM_OPS : TB_ACCOUNT_CODES.FX_POSITION,
-          isLong ? TB_ACCOUNT_CODES.FX_POSITION : TB_ACCOUNT_CODES.FIRM_OPS,
+          isLong ? TB_ACCOUNT_CODES.FIRM_TREASURY : TB_ACCOUNT_CODES.FX_POSITION,
+          isLong ? TB_ACCOUNT_CODES.FX_POSITION : TB_ACCOUNT_CODES.FIRM_TREASURY,
           BASE_CURRENCY,
           `LP proceeds for ${currency} realize`,
         ),
@@ -385,7 +385,7 @@ export class FxEodService {
     );
   }
 
-  /** 对账:I1 客户池=Σ(CLIENT_CREDIT+CLIENT_AUDIT);I2 桥残余=open swap 桥贡献。 */
+  /** 对账:I1 客户池=Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE);I2 桥残余=open swap 桥贡献。 */
   async checkInvariants(report: EodAccountingReport): Promise<void> {
     const assets = await (this.prisma as any).asset.findMany({
       where: { status: 'ACTIVE' },
@@ -398,7 +398,7 @@ export class FxEodService {
       if (!ledger) continue;
 
       // I1: client pool (asset side, debits−credits) must equal Σ client claims
-      // (liability side, credits−debits) across CLIENT_CREDIT + CLIENT_AUDIT.
+      // (liability side, credits−debits) across CLIENT_PAYABLE + DEPOSIT_SUSPENSE.
       const poolCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
       const poolId = await this.accounting.resolveTbAccountId({ code: poolCode, ledger, ownerType: 'SYSTEM' });
       const poolBal = await this.accounting.lookupBalance(poolId);
@@ -407,7 +407,7 @@ export class FxEodService {
       const claimRows = await (this.prisma as any).tbAccountRegistry.findMany({
         where: {
           ledger,
-          code: { in: [TB_ACCOUNT_CODES.CLIENT_CREDIT, TB_ACCOUNT_CODES.CLIENT_AUDIT] },
+          code: { in: [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE] },
           status: 'ACTIVE',
         },
         select: { tbAccountId: true },

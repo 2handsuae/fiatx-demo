@@ -13,7 +13,7 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
@@ -472,8 +472,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
           sourceType: 'WITHDRAWAL',
           sourceNo: w.withdrawNo,
           eventCode: 'WITHDRAW_POST_NET',
-          debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-          creditCode: String(w.asset?.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY),
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+          creditCode: TB_CODE_TO_COA[w.asset?.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY],
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
@@ -496,8 +496,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
           sourceType: 'WITHDRAWAL',
           sourceNo: w.withdrawNo,
           eventCode: 'WITHDRAW_POST_FEE',
-          debitCode: String(TB_ACCOUNT_CODES.CLIENT_CREDIT),
-          creditCode: String(TB_ACCOUNT_CODES.FEE_INCOME),
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_INCOME],
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',

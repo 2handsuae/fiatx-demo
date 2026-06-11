@@ -214,7 +214,7 @@ describe('SafeguardingReconciliationService', () => {
       {
         assetId: 'asset-btc',
         ownerId: 'customer-1',
-        accountCode: 'L.CLIENT_CREDIT',
+        accountCode: 'L.CLIENT_PAYABLE',
         drCr: 'CR',
         amount: new Prisma.Decimal('7'),
       },
@@ -297,7 +297,7 @@ describe('SafeguardingReconciliationService', () => {
       {
         assetId: 'asset-btc',
         ownerId: 'customer-1',
-        accountCode: 'L.CLIENT_CREDIT',
+        accountCode: 'L.CLIENT_PAYABLE',
         drCr: 'CR',
         amount: new Prisma.Decimal('7'),
       },
@@ -352,7 +352,7 @@ describe('SafeguardingReconciliationService', () => {
       {
         assetId: 'asset-aed',
         ownerId: 'customer-1',
-        accountCode: 'L.CLIENT_CREDIT',
+        accountCode: 'L.CLIENT_PAYABLE',
         drCr: 'CR',
         amount: new Prisma.Decimal('100'),
       },

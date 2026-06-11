@@ -156,7 +156,7 @@ export class TbAdminController {
     const decimals = asset?.decimals ?? 6;
 
     const registry = await this.tbAccountRegistryService.resolve({
-      code: TB_ACCOUNT_CODES.CLIENT_CREDIT,
+      code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
       ledger,
       ownerType: 'CUSTOMER',
       ownerUuid: customer.id,

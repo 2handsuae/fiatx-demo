@@ -28,16 +28,16 @@ export const TB_TRANSFER_CODES = {
   SWAP_CREDIT_TO_CLEARING_POST: 31,
   SWAP_CREDIT_TO_CLEARING_VOID: 32,
   SWAP_CLEARING_TO_CREDIT: 33,
-  SWAP_CLEARING_TO_FEE: 34, // deprecated: fee now debits CLIENT_CREDIT (see SWAP_CREDIT_TO_FEE)
+  SWAP_CLEARING_TO_FEE: 34, // deprecated: fee now debits CLIENT_PAYABLE (see SWAP_CREDIT_TO_FEE)
   SWAP_CLEARING_TO_SPREAD: 35,
   SWAP_CREDIT_TO_FEE: 36,
 
   // ── Two-book accounting (50–70) ──
-  // Settlement-leg physical mirrors: client pool ↔ FIRM_OPS
-  SETTLE_POOL_TO_FIRM: 50, // debit FIRM_OPS, credit CLIENT_BANK|CLIENT_CUSTODY
-  SETTLE_FIRM_TO_POOL: 51, // debit CLIENT_BANK|CLIENT_CUSTODY, credit FIRM_OPS
+  // Settlement-leg physical mirrors: client pool ↔ FIRM_TREASURY
+  SETTLE_POOL_TO_FIRM: 50, // debit FIRM_TREASURY, credit CLIENT_BANK|CLIENT_CUSTODY
+  SETTLE_FIRM_TO_POOL: 51, // debit CLIENT_BANK|CLIENT_CUSTODY, credit FIRM_TREASURY
   // Withdrawal-fee de-commingle: fee leaves the client pool into firm ops
-  FEE_DECOMMINGLE: 52,     // debit FIRM_OPS, credit CLIENT_BANK|CLIENT_CUSTODY
+  FEE_DECOMMINGLE: 52,     // debit FIRM_TREASURY, credit CLIENT_BANK|CLIENT_CUSTODY
 
   // EOD bridge sweep: TRADE_CLEARING ↔ FX_POSITION (the only cross-currency point)
   BRIDGE_SWEEP_OUT: 60, // bridge net CREDIT → debit TRADE_CLEARING, credit FX_POSITION
@@ -46,10 +46,10 @@ export const TB_TRANSFER_CODES = {
   // FX revaluation / realization
   FX_REVAL_LOSS: 62, // debit FX_UNREALIZED_PNL, credit FX_POSITION
   FX_REVAL_GAIN: 63, // debit FX_POSITION, credit FX_UNREALIZED_PNL
-  FX_REALIZE: 64,    // LP fill: close position legs against FIRM_OPS + FX_REALIZED_PNL
+  FX_REALIZE: 64,    // LP fill: close position legs against FIRM_TREASURY + FX_REALIZED_PNL
 
   // Bootstrap
-  CAPITAL_INJECTION: 70, // debit FIRM_OPS, credit PAID_IN_CAPITAL
+  CAPITAL_INJECTION: 70, // debit FIRM_TREASURY, credit PAID_IN_CAPITAL
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

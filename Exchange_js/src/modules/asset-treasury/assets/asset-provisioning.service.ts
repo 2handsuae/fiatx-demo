@@ -31,7 +31,7 @@ export class AssetProvisioningService {
     const poolCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
 
     const firmBookCodes: Array<{ code: number; desc: string }> = [
-      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+      { code: TB_ACCOUNT_CODES.FIRM_TREASURY, desc: 'FIRM_TREASURY' },
       { code: TB_ACCOUNT_CODES.FX_POSITION, desc: 'FX_POSITION' },
       { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, desc: 'PAID_IN_CAPITAL' },
       { code: TB_ACCOUNT_CODES.RETAINED_EARNINGS, desc: 'RETAINED_EARNINGS' },

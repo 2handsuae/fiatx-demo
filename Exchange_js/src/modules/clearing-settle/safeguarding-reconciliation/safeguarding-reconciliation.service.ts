@@ -90,7 +90,7 @@ type BreakComputation = {
 export class SafeguardingReconciliationService {
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
   private static readonly LIABILITY_ACCOUNT_CODES = [
-    'L.CLIENT_CREDIT',
+    'L.CLIENT_PAYABLE',
     'L.CLIENT_HELD',
   ] as const;
   private static readonly FIAT_IN_TRANSIT_STATUSES = new Set([

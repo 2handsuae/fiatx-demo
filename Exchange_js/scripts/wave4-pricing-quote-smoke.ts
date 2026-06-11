@@ -286,7 +286,7 @@ async function getCurrentCustomerCreditBalance(
     prisma.journalLine.aggregate({
       _sum: { amount: true },
       where: {
-        accountCode: 'L.CLIENT_CREDIT',
+        accountCode: 'L.CLIENT_PAYABLE',
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         assetId,
@@ -296,7 +296,7 @@ async function getCurrentCustomerCreditBalance(
     prisma.journalLine.aggregate({
       _sum: { amount: true },
       where: {
-        accountCode: 'L.CLIENT_CREDIT',
+        accountCode: 'L.CLIENT_PAYABLE',
         ownerType: 'CUSTOMER',
         ownerId: customerId,
         assetId,
@@ -366,7 +366,7 @@ async function ensureCustomerCreditFixture(customerId: string, assetId: string) 
               {
                 id: randomUUID(),
                 lineNo: 2,
-                accountCode: 'L.CLIENT_CREDIT',
+                accountCode: 'L.CLIENT_PAYABLE',
                 drCr: 'CR',
                 amount: delta,
                 assetId,
@@ -415,7 +415,7 @@ async function ensureCustomerCreditFixture(customerId: string, assetId: string) 
         id: randomUUID(),
         journalId: existing.id,
         lineNo: nextLineNo + 1,
-        accountCode: 'L.CLIENT_CREDIT',
+        accountCode: 'L.CLIENT_PAYABLE',
         drCr: 'CR',
         amount: delta,
         assetId,

@@ -21,7 +21,7 @@ export enum TransferMedium {
   BANK = 'BANK',
 }
 
-/** TB 镜像方向:物理资金流完成(funds-flow CLEAR)时在 TB 上记"客户池↔FIRM_OPS" */
+/** TB 镜像方向:物理资金流完成(funds-flow CLEAR)时在 TB 上记"客户池↔FIRM_TREASURY" */
 export type TbMirror = 'POOL_TO_FIRM' | 'FIRM_TO_POOL';
 
 export interface TransferPathPolicy {

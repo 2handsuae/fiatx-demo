@@ -11,7 +11,7 @@ export class CreateTbAccountDto {
   @IsString()
   assetCurrency!: string;
 
-  @ApiProperty({ description: 'TB account type code (e.g. 1=BANK, 100=CLIENT_CREDIT)' })
+  @ApiProperty({ description: 'TB account type code (e.g. 1=BANK, 100=CLIENT_PAYABLE)' })
   @IsInt()
   code!: number;
 

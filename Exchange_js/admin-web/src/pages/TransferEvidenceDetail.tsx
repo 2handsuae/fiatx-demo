@@ -97,10 +97,10 @@ function buildSourceLink(sourceType: string, sourceNo: string): string | null {
 const CODE_TO_COA: Record<string, string> = {
   '1': 'A.CLIENT_BANK',
   '10': 'A.CLIENT_CUSTODY',
-  '50': 'A.FIRM_OPS',
+  '50': 'A.FIRM_TREASURY',
   '60': 'A.FX_POSITION',
-  '100': 'L.CLIENT_CREDIT',
-  '101': 'L.CLIENT_AUDIT',
+  '100': 'L.CLIENT_PAYABLE',
+  '101': 'L.DEPOSIT_SUSPENSE',
   '110': 'L.TRADE_CLEARING',
   '200': 'E.PAID_IN_CAPITAL',
   '210': 'E.RETAINED_EARNINGS',
