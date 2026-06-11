@@ -328,7 +328,8 @@ const LedgerAccountList = () => {
               <th className={th}>Code</th>
               <th className={th}>Ledger</th>
               <th className={th}>Owner</th>
-              <th className={th}>Customer</th>
+              <th className={th}>Customer No</th>
+              <th className={th}>Customer Name</th>
               <th className={th}>Asset</th>
               <th className={th}>Status</th>
               <th className={th}>Created</th>
@@ -338,7 +339,7 @@ const LedgerAccountList = () => {
             {loading && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-3 py-12 text-center font-mono text-[11px] text-adm-t3"
                 >
                   Loading…
@@ -348,7 +349,7 @@ const LedgerAccountList = () => {
             {!loading && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-3 py-12 text-center font-mono text-[11px] text-adm-t3"
                 >
                   No accounts found.
@@ -381,16 +382,24 @@ const LedgerAccountList = () => {
                 <td className="px-3 py-2">
                   <AdminBadge value={row.ownerType} />
                 </td>
-                {/* Customer */}
+                {/* Customer No */}
                 <td className="px-3 py-2 font-mono text-[11px]">
-                  {row.ownerType === 'CUSTOMER' && row.ownerNo ? (
+                  {row.ownerType === 'CUSTOMER' && row.ownerNo && row.ownerUuid ? (
                     <button
-                      onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/management/${row.ownerUuid}`); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/${row.ownerUuid}`); }}
                       className="text-adm-amber hover:underline"
                       title="Open customer"
                     >
-                      {row.ownerNo}{row.ownerName ? ` · ${row.ownerName}` : ''}
+                      {row.ownerNo}
                     </button>
+                  ) : (
+                    <span className="text-adm-t3">—</span>
+                  )}
+                </td>
+                {/* Customer Name */}
+                <td className="px-3 py-2 text-[11px] text-adm-t2">
+                  {row.ownerType === 'CUSTOMER' && row.ownerName ? (
+                    row.ownerName
                   ) : (
                     <span className="text-adm-t3">—</span>
                   )}

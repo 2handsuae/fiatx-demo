@@ -240,27 +240,35 @@ export default function LedgerAccountDetail() {
                 label="Owner Type"
                 value={detail.ownerType}
               />
-              <InfoField
-                label="Owner No"
-                value={detail.ownerNo ?? '—'}
-                mono
-              />
-              {detail.ownerType === 'CUSTOMER' && (
-                <div className="min-w-0">
-                  <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer</div>
-                  <div className="mt-1 text-[13px]">
-                    {detail.ownerNo && detail.ownerUuid ? (
-                      <button
-                        onClick={() => navigate(`/dashboard/customer/management/${detail.ownerUuid}`)}
-                        className="text-adm-amber hover:underline font-mono text-[11px]"
-                      >
-                        {detail.ownerNo}{detail.ownerName ? ` · ${detail.ownerName}` : ''}
-                      </button>
-                    ) : (
-                      <span className="text-adm-t3">—</span>
-                    )}
+              {detail.ownerType === 'CUSTOMER' ? (
+                <>
+                  <div className="min-w-0">
+                    <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Customer No</div>
+                    <div className="mt-1 text-[13px]">
+                      {detail.ownerNo && detail.ownerUuid ? (
+                        <button
+                          onClick={() => navigate(`/dashboard/customer/${detail.ownerUuid}`)}
+                          className="text-adm-amber hover:underline font-mono text-[11px]"
+                          title="Open customer"
+                        >
+                          {detail.ownerNo}
+                        </button>
+                      ) : (
+                        <span className="text-adm-t3">—</span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                  <InfoField
+                    label="Customer Name"
+                    value={detail.ownerName ?? '—'}
+                  />
+                </>
+              ) : (
+                <InfoField
+                  label="Owner No"
+                  value={detail.ownerNo ?? '—'}
+                  mono
+                />
               )}
               <InfoField
                 label="Flags"
@@ -297,10 +305,13 @@ export default function LedgerAccountDetail() {
             <SidebarKV label="Owner Type" value={detail.ownerType} />
             {detail.ownerNo ? (
               <SidebarKV
-                label="Owner No"
-                value={detail.ownerNo + (detail.ownerName ? ` · ${detail.ownerName}` : '')}
+                label={detail.ownerType === 'CUSTOMER' ? 'Customer No' : 'Owner No'}
+                value={detail.ownerNo}
                 mono
               />
+            ) : null}
+            {detail.ownerType === 'CUSTOMER' && detail.ownerName ? (
+              <SidebarKV label="Customer Name" value={detail.ownerName} />
             ) : null}
             <SidebarKV label="Asset" value={detail.assetCode} mono />
             <SidebarKV
