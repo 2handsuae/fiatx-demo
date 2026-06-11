@@ -99,6 +99,37 @@ describe('PricingEngineService', () => {
     expect(quote.expiresAt).toBe('2026-02-23T00:00:45.000Z');
   });
 
+  it('rounds gross/net amounts to feeDecimals (asset minor units) while the rate keeps roundingDp precision', () => {
+    // Acceptance regression: AED (2dp) quote produced 18,270.6875 — a value the
+    // TB ledger (integer fils) cannot represent, stranding 0.01 truncation dust
+    // across separately-truncated T1 legs (bridge sweep #0 / reval #0 artifacts).
+    const quote = service.buildSwapQuote({
+      amount: new Prisma.Decimal('5000'),
+      baseRate: new Prisma.Decimal('3.6725'),
+      markupBps: 50,
+      roundingDp: 8,
+      roundingMode: 'ROUND',
+      quoteLockSeconds: 30,
+      fees: [],
+      feeCurrency: 'AED',
+      feeDecimals: 2,
+      createdAt: new Date('2026-06-11T00:00:00.000Z'),
+      pairId: 'pair-1',
+      pairName: 'USDT ↔ AED',
+      tierId: 'tier-1',
+      tierName: 'Default',
+      baseProvider: 'BINANCE',
+      policyCode: 'SWAP_PRICING',
+      policyId: 'POL-SWAP-ONLINE',
+    });
+
+    // rate keeps full precision: 3.6725 × 0.995 = 3.6541375
+    expect(quote.fx.quotedRate).toBe('3.6541375');
+    // amounts land on representable fils: 5000 × 3.6541375 = 18270.6875 → 18270.69
+    expect(quote.grossAmountOut).toBe('18270.69');
+    expect(quote.netAmountOut).toBe('18270.69');
+  });
+
   it('should match withdrawal tier by amount range', () => {
     const tier = service.findMatchedWithdrawalTier({
       amount: new Prisma.Decimal('50'),

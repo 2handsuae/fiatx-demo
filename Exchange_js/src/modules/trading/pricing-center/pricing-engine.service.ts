@@ -213,9 +213,13 @@ export class PricingEngineService {
       input.roundingDp,
       input.roundingMode,
     );
+    // Amounts must land on the to-asset's minor units (feeDecimals = to-asset
+    // decimals): the TB ledger stores integer minor units, so a sub-minor-unit
+    // gross (e.g. 18,270.6875 AED) strands truncation dust between the order
+    // amounts and the ledger. Only the RATE keeps full roundingDp precision.
     const grossAmountOut = this.roundDecimal(
       input.amount.mul(quotedRate),
-      input.roundingDp,
+      input.feeDecimals,
       input.roundingMode,
     );
     const { lines, totals } = this.calculateFeeLines(
