@@ -23,7 +23,7 @@
 **Files:**
 - Modify: `prisma/seed.business.ts`(`buildSystemPoolIban` ~86-92 行;法币钱包 upsert ~169-197 行)
 
-- [ ] **Step 1: 改 IBAN 生成器**(替换现函数;AE+2 位校验+3 位银行码+16 位账号=23 字符,全数字,确定性)
+- [x] **Step 1: 改 IBAN 生成器**(替换现函数;AE+2 位校验+3 位银行码+16 位账号=23 字符,全数字,确定性)
 
 ```typescript
 function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string {
@@ -37,7 +37,7 @@ function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string 
 }
 ```
 
-- [ ] **Step 2: 改法币钱包 upsert 的银行字段**(update 与 create 两分支同改)
+- [x] **Step 2: 改法币钱包 upsert 的银行字段**(update 与 create 两分支同改)
 
 ```typescript
             bankName: 'Zand Bank PJSC',
@@ -46,7 +46,7 @@ function buildSystemPoolIban(role: SystemWalletRole, assetCode: string): string 
 
 (替换原 `bankName: 'FiatX Internal Bank'` 与 `accountName: \`Platform ${role} (${asset.code})\``,两处分支各两行。)
 
-- [ ] **Step 3: 重跑 seed 刷新存量平台行**
+- [x] **Step 3: 重跑 seed 刷新存量平台行**
 
 Run:
 ```bash
@@ -55,14 +55,14 @@ DATABASE_URL="file:/tmp/exchange_js_branch/dev.db" TB_ADDRESS=127.0.0.1:3503 npm
 (先 `grep '"db:biz:init"' package.json` 确认脚本名;若叫别名以实际为准。)
 Expected: seed 输出正常结束。
 
-- [ ] **Step 4: 验证**
+- [x] **Step 4: 验证**
 
 ```bash
 sqlite3 /tmp/exchange_js_branch/dev.db "SELECT walletNo, walletRole, bankName, accountName, iban FROM wallets WHERE type='FIAT_BANK' AND ownerType='PLATFORM';"
 ```
 Expected: 5 行(C_CMA/F_SET/F_FEE/F_OPS/F_LIQ)全部 `Zand Bank PJSC|FiatX Ltd|AE\d{2}086\d{16}`。
 
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(seed): platform fiat wallets carry Zand Bank PJSC / FiatX Ltd + well-formed AE IBAN"`
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(seed): platform fiat wallets carry Zand Bank PJSC / FiatX Ltd + well-formed AE IBAN"`
 
 ---
 
@@ -70,14 +70,14 @@ Expected: 5 行(C_CMA/F_SET/F_FEE/F_OPS/F_LIQ)全部 `Zand Bank PJSC|FiatX Ltd|A
 
 **Files:** 无代码文件(一次性 SQL,操作 branch DB)
 
-- [ ] **Step 1: 选定两个不冲突的标准号**
+- [x] **Step 1: 选定两个不冲突的标准号**
 
 ```bash
 sqlite3 /tmp/exchange_js_branch/dev.db "SELECT walletNo FROM wallets WHERE walletNo IN ('WA2601019901','WA2601019902');"
 ```
 Expected: 空输出(可用);若被占用换 9903/9904 顺延。
 
-- [ ] **Step 2: 修正(前后对比都要贴)**
+- [x] **Step 2: 修正(前后对比都要贴)**
 
 ```bash
 sqlite3 /tmp/exchange_js_branch/dev.db "
@@ -89,7 +89,7 @@ SELECT walletNo, walletRole, bankName, accountName FROM wallets WHERE walletNo I
 ```
 Expected: 修正后两行标准号;VIBAN 行带 Zand/FiatX Ltd;再跑一次 UPDATE 零行命中(幂等)。
 
-- [ ] **Step 3:** 无 commit(纯数据操作);在 Task 7 终验里复查列表页不再出现 `WA-VERIFY`。
+- [x] **Step 3:** 无 commit(纯数据操作);在 Task 7 终验里复查列表页不再出现 `WA-VERIFY`。
 
 ---
 
@@ -98,7 +98,7 @@ Expected: 修正后两行标准号;VIBAN 行带 Zand/FiatX Ltd;再跑一次 UPDA
 **Files:**
 - Modify: `scripts/verify-two-book.ts:140-160`(先 Read 该段)
 
-- [ ] **Step 1: 钱包创建改标准编号 + VIBAN 继承 CMA**
+- [x] **Step 1: 钱包创建改标准编号 + VIBAN 继承 CMA**
 
 文件头 import 区加:
 ```typescript
@@ -124,12 +124,12 @@ C_VIBAN 钱包:创建前查 CMA 并继承(原手写 bankName/accountName 删除)
 ```
 (变量名 `alice`/`aedAsset`/`tag` 以脚本实际为准;upsert 按 walletNo 唯一键 → 确定性编号天然幂等。)
 
-- [ ] **Step 2: 编译校验**
+- [x] **Step 2: 编译校验**
 
 Run: `npx tsc --noEmit scripts/verify-two-book.ts --esModuleInterop --skipLibCheck --module commonjs --target es2020 2>&1 | head -5`
 Expected: 无该文件自身错误(第三方类型噪音可忽略;或直接 `npx ts-node --transpileOnly -e "console.log('ok')"` 级别确认 ts-node 可用,脚本完整执行留给将来重建场景)。
 
-- [ ] **Step 3: Commit** `git add -A && git commit -m "fix(scripts): verify-two-book wallets use standard numbering + VIBAN inherits CMA bank fields"`
+- [x] **Step 3: Commit** `git add -A && git commit -m "fix(scripts): verify-two-book wallets use standard numbering + VIBAN inherits CMA bank fields"`
 
 ---
 
@@ -140,7 +140,7 @@ Expected: 无该文件自身错误(第三方类型噪音可忽略;或直接 `npx
 - Modify: `src/modules/asset-treasury/wallets/wallets.controller.ts`(findAll)
 - Test: `src/modules/asset-treasury/wallets/wallet-query.service.spec.ts`(先 Read 现 mock 结构)
 
-- [ ] **Step 1: 写失败测试**(改造现 spec:删 surfaceCategory 正断言,加以下用例;mock prisma 需有 customerMain.findMany / liquidityProvider.findMany)
+- [x] **Step 1: 写失败测试**(改造现 spec:删 surfaceCategory 正断言,加以下用例;mock prisma 需有 customerMain.findMany / liquidityProvider.findMany)
 
 ```typescript
     it('CUSTOMER 行批量 enrich ownerName(firstName+lastName,单次 IN),响应不含 surfaceCategory', async () => {
@@ -164,9 +164,9 @@ Expected: 无该文件自身错误(第三方类型噪音可忽略;或直接 `npx
     });
 ```
 
-- [ ] **Step 2: 跑红** `npx jest src/modules/asset-treasury/wallets/wallet-query.service.spec.ts` → FAIL(现实现 ownerName 走 email / surfaceCategory 存在 / findMany 多次)
+- [x] **Step 2: 跑红** `npx jest src/modules/asset-treasury/wallets/wallet-query.service.spec.ts` → FAIL(现实现 ownerName 走 email / surfaceCategory 存在 / findMany 多次)
 
-- [ ] **Step 3: 实现**(整体替换 findAll/findOne 的 enrich 路径;删 resolveOwnerInfo、classifyWalletSurface import 与 surfaceCategory 字段)
+- [x] **Step 3: 实现**(整体替换 findAll/findOne 的 enrich 路径;删 resolveOwnerInfo、classifyWalletSurface import 与 surfaceCategory 字段)
 
 ```typescript
   async findAll({ skip, take, where, orderBy }: any) {
@@ -247,8 +247,8 @@ admin 分支 where 构造尾部加:
 ```
 (CUSTOMER token 分支不动;@ApiQuery 装饰器照既有风格补两条。)
 
-- [ ] **Step 4: 跑绿** 同文件 PASS + `npx jest src/modules/asset-treasury` 全绿 + `npm run build` 零错
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(wallets-api): walletNo/ownerNo search, batched owner enrichment (kills N+1 + email-as-name), drop surfaceCategory"`
+- [x] **Step 4: 跑绿** 同文件 PASS + `npx jest src/modules/asset-treasury` 全绿 + `npm run build` 零错
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(wallets-api): walletNo/ownerNo search, batched owner enrichment (kills N+1 + email-as-name), drop surfaceCategory"`
 
 ---
 
@@ -257,7 +257,7 @@ admin 分支 where 构造尾部加:
 **Files:**
 - Modify: `admin-web/src/pages/CustodianWalletList.tsx`(先 Read 全文)
 
-- [ ] **Step 1: 改造**
+- [x] **Step 1: 改造**
 1. `FilterState`:删 `ownerIdSearch`,加 `walletNoSearch: string; customerNoSearch: string;`,DEFAULT_FILTERS 同步。
 2. `buildParams`:删 `ownerId` 行,加:
 ```typescript
@@ -306,8 +306,8 @@ admin 分支 where 构造尾部加:
 5. Balance 表头改 `Balance (mock)`。
 6. 空态/loading 的 colSpan 按新列数 +1(原列数先数清再改,两处)。
 
-- [ ] **Step 2: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl -s -o /dev/null -w "%{http_code}" http://localhost:3501/src/pages/CustodianWalletList.tsx` → 200
-- [ ] **Step 3: Commit** `git add -A && git commit -m "feat(admin): custodian wallet list — walletNo/customerNo search, owner split columns, mock balance label"`
+- [x] **Step 2: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl -s -o /dev/null -w "%{http_code}" http://localhost:3501/src/pages/CustodianWalletList.tsx` → 200
+- [x] **Step 3: Commit** `git add -A && git commit -m "feat(admin): custodian wallet list — walletNo/customerNo search, owner split columns, mock balance label"`
 
 ---
 
@@ -316,7 +316,7 @@ admin 分支 where 构造尾部加:
 **Files:**
 - Modify: `admin-web/src/pages/CustodianWalletDetail.tsx`(先 Read 全文,310-420 行是分区主体)
 
-- [ ] **Step 1: 改造**
+- [x] **Step 1: 改造**
 1. 删 `SURFACE_LABELS` 常量、`surfaceLabel` 计算、hero/任意处的 `<InfoField label="Surface" …>` 与 `surfaceCategory` 接口字段。
 2. Details 区重排为(原 Owner/Owner Type/Owner No 三件套替换):
 ```tsx
@@ -346,21 +346,21 @@ admin 分支 where 构造尾部加:
 3. 分区顺序核对为:Details → Balance(label 标 `Balance (mock)`)→ Bank Account(fiat:Bank Name/Account Holder/IBAN)或 Crypto Address(crypto:Address/Vault ID)→ Deposit Collection(仅 C_DEP,现有保留)→ Audit(Created/Updated;Updated 字段若接口缺,用 wallet.updatedAt——schema 有)。
 4. sidebar:删 Surface 相关行;Owner 行拆 `Owner No`(文本)+ `Owner Name`(文本)。
 
-- [ ] **Step 2: 验证** admin tsc 0 错;`curl …/CustodianWalletDetail.tsx` → 200
-- [ ] **Step 3: Commit** `git add -A && git commit -m "feat(admin): custodian wallet detail — regrouped sections, owner split + link, drop Surface"`
+- [x] **Step 2: 验证** admin tsc 0 错;`curl …/CustodianWalletDetail.tsx` → 200
+- [x] **Step 3: Commit** `git add -A && git commit -m "feat(admin): custodian wallet detail — regrouped sections, owner split + link, drop Surface"`
 
 ---
 
 ### Task 7: 终验
 
-- [ ] **Step 1:** `npx jest`(0 failed)+ `npm run build`(0 错)+ `cd admin-web && npx tsc --noEmit`(0 错)
-- [ ] **Step 2:** 重启栈:`npm run dev:stop && npm run dev:start`,确认 3500/3503 LISTEN
-- [ ] **Step 3:** 手验清单(贴 sqlite/接口证据):
+- [x] **Step 1:** `npx jest`(0 failed)+ `npm run build`(0 错)+ `cd admin-web && npx tsc --noEmit`(0 错)
+- [x] **Step 2:** 重启栈:`npm run dev:stop && npm run dev:start`,确认 3500/3503 LISTEN
+- [x] **Step 3:** 手验清单(贴 sqlite/接口证据):
   - 列表无 `WA-VERIFY` 残留;搜 `WA26` 命中、搜 `CU2601019430` 命中其钱包
   - CMA/F_* 行显示 `Zand Bank PJSC` / `FiatX Ltd`、IBAN 形如 `AE\d{2}086\d{16}`
   - 修正后的 VIBAN 行(WA2601019902)同显 Zand 信息
   - 详情页:无 Surface;分区顺序 Details/Balance/Bank|Address/(Deposit Collection)/Audit;Owner No 可跳客户详情
-- [ ] **Step 4:** plan checkbox 全勾 + `git add -A && git commit -m "docs(admin): custodian wallets UX plan checkboxes"`
+- [x] **Step 4:** plan checkbox 全勾 + `git add -A && git commit -m "docs(admin): custodian wallets UX plan checkboxes"`
 
 ---
 
