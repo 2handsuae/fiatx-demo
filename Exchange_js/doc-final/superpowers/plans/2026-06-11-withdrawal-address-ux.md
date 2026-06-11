@@ -19,7 +19,7 @@
 - Modify: `src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service.ts`(list 查询与 detail 查询;先 Read 全文找 list/findOne 方法实名)
 - Test: `src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service.spec.ts`(先 Read 现 mock 结构)
 
-- [ ] **Step 1: 失败测试**(按现 spec mock 风格落地,断言语义如下)
+- [x] **Step 1: 失败测试**(按现 spec mock 风格落地,断言语义如下)
 
 ```typescript
     it('q → OR[addressNo/address/iban contains],customerName 由 customer 关联铺平', async () => {
@@ -45,8 +45,8 @@
 
 (service 方法名/返回结构以实际为准;若 list 返回 `{ items, total }` 以外结构,断言对位调整,语义不变。)
 
-- [ ] **Step 2: 跑红** `npx jest src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service.spec.ts` → FAIL
-- [ ] **Step 3: 实现**
+- [x] **Step 2: 跑红** `npx jest src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service.spec.ts` → FAIL
+- [x] **Step 3: 实现**
 
 DTO 追加:
 ```typescript
@@ -79,8 +79,8 @@ include 改 `include: { asset: true, customer: { select: { firstName: true, last
 ```
 (items.map(flat);detail 方法同样 include + flat;`customer: undefined` 防止把整个关联对象泄给前端。)
 
-- [ ] **Step 4: 跑绿** 同文件 + `npx jest src/modules/asset-treasury` 全绿 + `npm run build` 零错
-- [ ] **Step 5: Commit** `git add -A && git commit -m "feat(withdrawal-address-api): unified q search (addressNo/address/iban) + customerName"`
+- [x] **Step 4: 跑绿** 同文件 + `npx jest src/modules/asset-treasury` 全绿 + `npm run build` 零错
+- [x] **Step 5: Commit** `git add -A && git commit -m "feat(withdrawal-address-api): unified q search (addressNo/address/iban) + customerName"`
 
 ---
 
@@ -88,7 +88,7 @@ include 改 `include: { asset: true, customer: { select: { firstName: true, last
 
 **Files:** Modify `admin-web/src/pages/WithdrawalAddressList.tsx`(先 Read 全文)
 
-- [ ] **Step 1: 改造**
+- [x] **Step 1: 改造**
 1. 行接口加 `customerName: string | null; customerId: string; label: string | null;`(已有的不重复)。
 2. `FilterState` 加 `q: string; assetId: string;`;DEFAULT_FILTERS 同步;buildParams 加:
 ```typescript
@@ -140,8 +140,8 @@ Address 单元格改:
 (`Copy` 入 lucide import;`copyToClipboard` from '../utils/clipboard';原 Customer 列删除,被 No/Name 两列取代。)
 6. 空态/loading colSpan 8→10(全部)。
 
-- [ ] **Step 2: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl -s -o /dev/null -w "%{http_code}" http://localhost:3501/src/pages/WithdrawalAddressList.tsx` → 200
-- [ ] **Step 3: Commit** `git add -A && git commit -m "feat(admin): withdrawal address list — label/customer-name columns, customer link, unified search + asset filter"`
+- [x] **Step 2: 验证** `cd admin-web && npx tsc --noEmit` 0 错;`curl -s -o /dev/null -w "%{http_code}" http://localhost:3501/src/pages/WithdrawalAddressList.tsx` → 200
+- [x] **Step 3: Commit** `git add -A && git commit -m "feat(admin): withdrawal address list — label/customer-name columns, customer link, unified search + asset filter"`
 
 ---
 
@@ -149,7 +149,7 @@ Address 单元格改:
 
 **Files:** Modify `admin-web/src/pages/WithdrawalAddressDetail.tsx`(先 Read 295-305 区与接口定义)
 
-- [ ] **Step 1: 改造**
+- [x] **Step 1: 改造**
 1. 数据接口加 `customerName: string | null; customerId: string;`(缺则补)。
 2. Details 区(297 行 `<InfoField label="Customer" value={data.customerNo} mono accent />`)替换为:
 ```tsx
@@ -173,17 +173,17 @@ Address 单元格改:
 ```
 (`navigate` 用页内既有 useNavigate,缺则补 import。)
 
-- [ ] **Step 2: 验证** admin tsc 0 错 + curl 200
-- [ ] **Step 3: Commit** `git add -A && git commit -m "feat(admin): withdrawal address detail — customer no link + customer name"`
+- [x] **Step 2: 验证** admin tsc 0 错 + curl 200
+- [x] **Step 3: Commit** `git add -A && git commit -m "feat(admin): withdrawal address detail — customer no link + customer name"`
 
 ---
 
 ### Task 4: 终验
 
-- [ ] `npx jest`(0 failed)+ `npm run build` + `cd admin-web && npx tsc --noEmit` 全绿
-- [ ] 重启栈 `npm run dev:stop && npm run dev:start`,3500/3503 LISTEN
-- [ ] 手验:搜地址片段/编号命中、Asset 下拉过滤、Label 列、Customer No 双页跳转、Customer Name 展示
-- [ ] plan checkbox 全勾 + commit
+- [x] `npx jest`(0 failed)+ `npm run build` + `cd admin-web && npx tsc --noEmit` 全绿
+- [x] 重启栈 `npm run dev:stop && npm run dev:start`,3500/3503 LISTEN
+- [x] 手验:搜地址片段/编号命中、Asset 下拉过滤、Label 列、Customer No 双页跳转、Customer Name 展示
+- [x] plan checkbox 全勾 + commit
 
 ## Self-Review 记录
 
