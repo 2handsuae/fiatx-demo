@@ -3,19 +3,26 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RefreshCw, User } from 'lucide-react';
 import {
+  DetailCard,
   DetailPageHeader,
   InfoField,
 } from '../../components/compliance/DetailPageComponents';
+import { LinkedRelationCard } from '../../components/ui/LinkedRelationCard';
 import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../../components/ui/AdminBadge';
 import { formatAssetAmount } from '../../utils/number-format';
+import { copyToClipboard } from '../../utils/clipboard';
+import { explorerTxUrl } from '../../utils/explorer';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../../utils/adminFetch';
 import { useSimulationMode } from '../../utils/simulationMode';
-import { getFundSimActionsForStatus } from '../../utils/fundActionMap';
+import {
+  getFundSimActionsForStatus,
+  isFundSimTerminal,
+} from '../../utils/fundActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -24,19 +31,24 @@ interface FundAsset {
   currency?: string | null;
   decimals?: number;
   type?: string | null;
+  network?: string | null;
 }
 
 interface FundWallet {
+  id: string;
   walletNo: string | null;
   walletRole: string;
   ownerType: string;
   ownerNo?: string | null;
+  address?: string | null;
+  iban?: string | null;
 }
 
 interface FundInternalTransaction {
   id: string;
   internalTxNo: string;
   pathLabel: string | null;
+  type?: string | null;
   status: string;
 }
 
@@ -45,13 +57,23 @@ interface FundDetail {
   internalFundNo: string;
   status: string;
   amount: string;
+  feeAmount?: string | null;
+  netAmount?: string | null;
+  fromAddress?: string | null;
+  fromIban?: string | null;
+  toAddress?: string | null;
+  toIban?: string | null;
   txHash?: string | null;
   confirmations?: number | null;
-  blockNo?: number | null;
-  nonce?: number | null;
+  blockNo?: string | number | null;
+  nonce?: string | number | null;
   gasUsed?: string | null;
   effectiveGasPrice?: string | null;
+  referenceNo?: string | null;
+  providerTxnId?: string | null;
   statusHistory?: string | null;
+  sentAt?: string | null;
+  confirmedAt?: string | null;
   completedAt?: string | null;
   createdAt: string;
   asset: FundAsset | null;
@@ -60,6 +82,46 @@ interface FundDetail {
   internalTransaction: FundInternalTransaction;
 }
 
+/* ── Wallet field (main-area, internal navigation) ──────────── */
+
+const WalletField = ({
+  label,
+  wallet,
+}: {
+  label: string;
+  wallet: FundWallet | null;
+}) => {
+  const navigate = useNavigate();
+  return (
+    <div className="min-w-0">
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+        {label}
+      </div>
+      <div className="mt-1 flex items-center gap-2 break-all font-mono text-[11px]">
+        {wallet?.walletNo ? (
+          <button
+            onClick={() =>
+              navigate(`/dashboard/treasury/custodian-wallets/${wallet.id}`)
+            }
+            className="text-adm-amber hover:underline"
+            title="Open wallet"
+          >
+            {wallet.walletNo}
+          </button>
+        ) : (
+          <span className="text-adm-t3">—</span>
+        )}
+        {wallet && (
+          <span className="text-[10px] text-adm-t3">
+            {wallet.walletRole}
+            {wallet.ownerNo ? ` · ${wallet.ownerNo}` : ` · ${wallet.ownerType}`}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 /* ── Page Component ─────────────────────────────────────────── */
 
 const InternalFundDetailPage = () => {
@@ -67,6 +129,7 @@ const InternalFundDetailPage = () => {
   const navigate = useNavigate();
   const [data, setData] = useState<FundDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Simulation state (Payout-style one-click panel)
   const { enabled: simulationModeEnabled } = useSimulationMode();
@@ -99,6 +162,12 @@ const InternalFundDetailPage = () => {
     if (internalFundNo) void fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [internalFundNo]);
+
+  const handleCopy = (text: string, field: string) => {
+    copyToClipboard(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   const handleSimAction = async (action: string) => {
     if (!data) return;
@@ -137,14 +206,21 @@ const InternalFundDetailPage = () => {
 
   if (!data) return null;
 
+  const assetType = data.asset?.type?.toUpperCase() ?? null;
+  const isFiat = assetType === 'FIAT';
   const simActions = simulationModeEnabled
     ? getFundSimActionsForStatus(data.status, data.asset?.type)
     : [];
 
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
-  const amountDisplay =
-    `${formatAssetAmount(data.amount, decimals)} ${data.asset?.code || ''}`.trim();
+  const fmtAmount = (v?: string | null) =>
+    v != null ? `${formatAssetAmount(v, decimals)} ${assetCode}`.trim() : null;
+
+  const fromAddress = data.fromAddress ?? data.fromWallet?.address ?? null;
+  const toAddress = data.toAddress ?? data.toWallet?.address ?? null;
+  const fromIban = data.fromIban ?? data.fromWallet?.iban ?? null;
+  const toIban = data.toIban ?? data.toWallet?.iban ?? null;
 
   return (
     <div className="flex h-full flex-col">
@@ -176,21 +252,79 @@ const InternalFundDetailPage = () => {
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Amount
+                </span>
+                <span className="font-semibold text-adm-t1">
+                  {fmtAmount(data.amount)}
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Type
+                </span>
+                <span className="text-adm-t1">{isFiat ? 'Fiat' : 'Crypto'}</span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
                   Asset
                 </span>
-                <span className="font-mono text-adm-t1">{assetCode}</span>
+                <span className="text-adm-t1">
+                  {assetCode}
+                  {data.asset?.network ? ` · ${data.asset.network}` : ''}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* 2. Execution Detail */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Execution Detail
-            </h3>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <InfoField label="Amount" value={amountDisplay} accent />
-              <InfoField label="Tx Hash" value={data.txHash ?? null} mono />
+          {/* 2. Transfer Route */}
+          <DetailCard title="Transfer Route" columns={2}>
+            <WalletField label="From Wallet" wallet={data.fromWallet} />
+            <WalletField label="To Wallet" wallet={data.toWallet} />
+            {isFiat ? (
+              <>
+                <InfoField label="From IBAN" value={fromIban} mono />
+                <InfoField label="To IBAN" value={toIban} mono />
+              </>
+            ) : (
+              <>
+                <InfoField
+                  label="From Address"
+                  value={fromAddress}
+                  copyable
+                  onCopy={(v) => handleCopy(v, 'fromAddr')}
+                  isCopied={copiedField === 'fromAddr'}
+                  mono
+                />
+                <InfoField
+                  label="To Address"
+                  value={toAddress}
+                  copyable
+                  onCopy={(v) => handleCopy(v, 'toAddr')}
+                  isCopied={copiedField === 'toAddr'}
+                  mono
+                />
+              </>
+            )}
+            <InfoField label="Fee Amount" value={fmtAmount(data.feeAmount)} mono />
+            <InfoField label="Net Amount" value={fmtAmount(data.netAmount)} mono />
+          </DetailCard>
+
+          {/* 3a. Chain Execution (crypto only) */}
+          {!isFiat && (
+            <DetailCard title="Chain Execution" columns={2}>
+              <InfoField
+                label="Tx Hash"
+                value={data.txHash}
+                copyable
+                onCopy={(v) => handleCopy(v, 'txHash')}
+                isCopied={copiedField === 'txHash'}
+                mono
+                link={
+                  data.txHash
+                    ? explorerTxUrl(data.asset?.network ?? null, data.txHash)
+                    : undefined
+                }
+              />
               <InfoField
                 label="Confirmations"
                 value={data.confirmations != null ? String(data.confirmations) : null}
@@ -207,23 +341,54 @@ const InternalFundDetailPage = () => {
                 mono
               />
               <InfoField label="Gas Used" value={data.gasUsed ?? null} mono />
-              <InfoField label="Effective Gas Price" value={data.effectiveGasPrice ?? null} mono />
-            </div>
-          </div>
+              <InfoField
+                label="Effective Gas Price"
+                value={data.effectiveGasPrice ?? null}
+                mono
+              />
+            </DetailCard>
+          )}
 
-          {/* 3. Status Timeline */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Status Timeline
-            </h3>
+          {/* 3b. Bank Transfer (fiat only) */}
+          {isFiat && (
+            <DetailCard title="Bank Transfer" columns={2}>
+              <InfoField label="Reference No" value={data.referenceNo} mono />
+              <InfoField label="Provider Txn ID" value={data.providerTxnId} mono />
+            </DetailCard>
+          )}
+
+          {/* 4. Linked Transfer */}
+          {data.internalTransaction && (
+            <DetailCard title="Linked Transfer" columns={1}>
+              <LinkedRelationCard
+                cap="Internal Transfer"
+                identifier={data.internalTransaction.internalTxNo}
+                statusValue={data.internalTransaction.status}
+                meta={[
+                  data.internalTransaction.type,
+                  data.internalTransaction.pathLabel,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || undefined}
+                onClick={() =>
+                  navigate(
+                    '/funds-layer/transfers/' + data.internalTransaction.internalTxNo,
+                  )
+                }
+              />
+            </DetailCard>
+          )}
+
+          {/* 5. Status History */}
+          <DetailCard title="Status History" columns={1}>
             <LegStatusTimeline historyJson={data.statusHistory ?? null} />
-          </div>
+          </DetailCard>
         </div>
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          {/* ACTIONS → Simulation Controls (sim mode only, Payout-style) */}
-          {simulationModeEnabled && simActions.length > 0 && (
+          {/* Simulation Controls (sim mode only, Payout-style) */}
+          {simulationModeEnabled && (
             <SidebarGroup title="Simulation Controls">
               <div className="rounded border border-dashed border-amber-400 bg-amber-900/20 p-2">
                 <div className="mb-2 flex items-center gap-1 font-mono text-[9px] text-amber-400">
@@ -232,18 +397,32 @@ const InternalFundDetailPage = () => {
                 {simError && (
                   <p className="mb-2 font-mono text-[10px] text-adm-red">{simError}</p>
                 )}
-                <div className="flex flex-col gap-1.5">
-                  {simActions.map((a) => (
-                    <button
-                      key={a.action}
-                      onClick={() => handleSimAction(a.action)}
-                      disabled={!a.enabled || simSubmitting}
-                      className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {simSubmitting ? '...' : a.label}
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const hasEnabled = simActions.some((a) => a.enabled);
+                  if (!hasEnabled) {
+                    return (
+                      <div className="px-2 py-1.5 font-mono text-[10px] text-amber-400/80">
+                        {isFundSimTerminal(data.status, data.asset?.type)
+                          ? 'Terminal state — no simulatable events'
+                          : 'Auto-clears when all legs of the transfer confirm…'}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-col gap-1.5">
+                      {simActions.map((a) => (
+                        <button
+                          key={a.action}
+                          onClick={() => handleSimAction(a.action)}
+                          disabled={!a.enabled || simSubmitting}
+                          className="w-full rounded border border-dashed border-amber-500/50 bg-amber-900/30 px-2 py-1.5 text-left font-mono text-[11px] text-amber-300 transition-colors hover:bg-amber-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {simSubmitting ? '...' : a.label}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             </SidebarGroup>
           )}
@@ -275,6 +454,16 @@ const InternalFundDetailPage = () => {
           {/* LIFECYCLE */}
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Created" value={new Date(data.createdAt).toLocaleString()} mono />
+            <SidebarKV
+              label="Sent"
+              value={data.sentAt ? new Date(data.sentAt).toLocaleString() : null}
+              mono
+            />
+            <SidebarKV
+              label="Confirmed"
+              value={data.confirmedAt ? new Date(data.confirmedAt).toLocaleString() : null}
+              mono
+            />
             <SidebarKV
               label="Completed"
               value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}

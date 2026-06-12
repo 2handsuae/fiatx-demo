@@ -57,6 +57,8 @@ interface PayoutDetailData {
   confirmations: number;
   referenceNo: string | null;
   providerTxnId: string | null;
+  gasUsed?: string | null;
+  effectiveGasPrice?: string | null;
   sentAt: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -219,6 +221,12 @@ const PayoutDetail = () => {
               <InfoField
                 label="Confirmations"
                 value={data.confirmations?.toString()}
+              />
+              <InfoField label="Gas Used" value={data.gasUsed ?? null} mono />
+              <InfoField
+                label="Effective Gas Price"
+                value={data.effectiveGasPrice ?? null}
+                mono
               />
               <InfoField
                 label="From Address"

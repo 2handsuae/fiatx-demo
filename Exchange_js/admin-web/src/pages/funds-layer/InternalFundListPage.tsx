@@ -15,6 +15,7 @@ import {
   getApiErrorMessage,
 } from '../../utils/adminFetch';
 import { formatAssetAmount } from '../../utils/number-format';
+import { formatRailStatusLabel } from '../../utils/transactionRootDisplay';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -22,25 +23,53 @@ interface InternalFundItem {
   internalFundNo: string;
   status: string;
   amount: string;
+  txHash?: string | null;
   createdAt: string;
-  asset?: { code?: string; currency?: string; decimals?: number };
+  asset?: { code?: string; currency?: string; decimals?: number; type?: string };
   internalTransaction?: { internalTxNo?: string };
 }
 
 interface FilterState {
   internalFundNo: string;
   status: string;
+  type: string;
   txHash: string;
+  startDate: string;
+  endDate: string;
 }
 
 /* ── Constants ──────────────────────────────────────────────── */
 
 const PAGE_SIZE = 20;
 
+// 与 funds-flow.service.ts 的 InternalFundStatus 同步
+const FUND_STATUSES = [
+  'CREATED',
+  'SIGNING',
+  'BROADCASTED',
+  'CONFIRMING',
+  'CONFIRMED',
+  'CLEAR',
+  'FAILED',
+  'TIMEOUT',
+  'RETURNED',
+  'CANCELLED',
+];
+
 const DEFAULT_FILTERS: FilterState = {
   internalFundNo: '',
   status: '',
+  type: '',
   txHash: '',
+  startDate: '',
+  endDate: '',
+};
+
+/* ── Helpers ────────────────────────────────────────────────── */
+
+const truncateHash = (hash?: string | null) => {
+  if (!hash || hash.length < 14) return hash || '—';
+  return `${hash.slice(0, 6)}...${hash.slice(-4)}`;
 };
 
 /* ── Component ──────────────────────────────────────────────── */
@@ -68,7 +97,10 @@ const InternalFundListPage = () => {
       if (next.internalFundNo.trim())
         params.set('internalFundNo', next.internalFundNo.trim());
       if (next.status.trim()) params.set('status', next.status.trim());
+      if (next.type.trim()) params.set('type', next.type.trim());
       if (next.txHash.trim()) params.set('txHash', next.txHash.trim());
+      if (next.startDate) params.set('startDate', next.startDate);
+      if (next.endDate) params.set('endDate', next.endDate);
 
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/funds-layer/funds?${params.toString()}`,
@@ -99,7 +131,8 @@ const InternalFundListPage = () => {
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
   const hasFilter =
-    !!filters.internalFundNo || !!filters.status || !!filters.txHash;
+    !!filters.internalFundNo || !!filters.status || !!filters.type ||
+    !!filters.txHash || !!filters.startDate || !!filters.endDate;
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -137,18 +170,42 @@ const InternalFundListPage = () => {
           className={`${fi} w-44`}
         />
         <input
-          value={filters.status}
-          onChange={(e) => updateFilter('status', e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="Status"
-          className={`${fi} w-40`}
-        />
-        <input
           value={filters.txHash}
           onChange={(e) => updateFilter('txHash', e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="Tx Hash"
-          className={`${fi} w-56`}
+          className={`${fi} w-40`}
+        />
+        <select
+          value={filters.status}
+          onChange={(e) => updateFilter('status', e.target.value)}
+          className={`${fi} w-36`}
+        >
+          <option value="">All status</option>
+          {FUND_STATUSES.map((s) => (
+            <option key={s} value={s}>{formatRailStatusLabel(s)}</option>
+          ))}
+        </select>
+        <select
+          value={filters.type}
+          onChange={(e) => updateFilter('type', e.target.value)}
+          className={`${fi} w-32`}
+        >
+          <option value="">All types</option>
+          <option value="CRYPTO">Crypto</option>
+          <option value="FIAT">Fiat</option>
+        </select>
+        <input
+          type="date"
+          value={filters.startDate}
+          onChange={(e) => updateFilter('startDate', e.target.value)}
+          className={`${fi} w-36`}
+        />
+        <input
+          type="date"
+          value={filters.endDate}
+          onChange={(e) => updateFilter('endDate', e.target.value)}
+          className={`${fi} w-36`}
         />
         <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
           <Search size={13} />
@@ -177,11 +234,13 @@ const InternalFundListPage = () => {
             <tr>
               {(
                 [
-                  ['Fund No',   '200px'],
-                  ['Status',    '130px'],
-                  ['Asset',     '100px'],
-                  ['Amount',    '160px'],
-                  ['Transfer',  '200px'],
+                  ['Fund No',   '180px'],
+                  ['Status',    '110px'],
+                  ['Type',      '80px'],
+                  ['Asset',     '90px'],
+                  ['Amount',    '150px'],
+                  ['Tx Hash',   '140px'],
+                  ['Transfer',  '180px'],
                   ['Created',   '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -198,14 +257,14 @@ const InternalFundListPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No funds found.
                 </td>
               </tr>
@@ -229,6 +288,15 @@ const InternalFundListPage = () => {
                     <AdminBadge value={item.status} />
                   </td>
 
+                  {/* Type */}
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                    {item.asset?.type
+                      ? item.asset.type.toUpperCase() === 'FIAT'
+                        ? 'Fiat'
+                        : 'Crypto'
+                      : '—'}
+                  </td>
+
                   {/* Asset */}
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t1">
                     {item.asset?.code || item.asset?.currency || '—'}
@@ -240,6 +308,11 @@ const InternalFundListPage = () => {
                       {formatAssetAmount(item.amount, item.asset?.decimals)}{' '}
                       {item.asset?.code || item.asset?.currency || ''}
                     </span>
+                  </td>
+
+                  {/* Tx Hash */}
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                    {truncateHash(item.txHash)}
                   </td>
 
                   {/* Transfer */}
