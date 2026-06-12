@@ -68,7 +68,8 @@ FAILED / TIMEOUT / RETURNED / CANCELLED。
 ```
 Hero             fundNo · Status / Amount / Type(Crypto·Fiat) / Asset(code · network)
 Transfer Route   (DetailCard 2列) From Wallet(walletNo 链接→/dashboard/treasury/custodian-wallets/:id,
-                 role · ownerNo) · From Address(crypto)/From IBAN(fiat) · To 同理 · Fee · Net Amount
+                 role · ownerNo) · From Address(crypto)/From IBAN(fiat) · To 同理
+                 （注：InternalFund 是资金单，不存在 fee —— 不展示 Fee/Net，用户裁定）
 Chain Execution  (crypto only) Tx Hash(explorerTxUrl 链接+copy) · Confirmations · Block No ·
                  Nonce · Gas Used · Effective Gas Price
 Bank Transfer    (fiat only) Reference No · Provider Txn ID
@@ -96,6 +97,12 @@ Sidebar          Simulation Controls(新逻辑) / Identity(不变) / Lifecycle(+
   生成 mock 值（镜像 fiat CONFIRM 自动 `BANK-` referenceNo 的先例），如 gasUsed='21000'、
   effectiveGasPrice='3500000000'
 - `PayoutDetail` Chain Details 加 `Gas Used`、`Effective Gas Price` 两个 InfoField
+
+## 五、InternalFund mock 链上回执（用户追加）
+
+`funds-flow.service.updateStatus`（crypto 腿、无传入且无存量时兜底，真实 adapter 传入值优先）：
+- BROADCAST → 生成 mock txHash（`0x` + 64 hex）
+- CONFIRM → 生成 mock gasUsed / effectiveGasPrice（同 payout 模式）
 
 ## 验收
 

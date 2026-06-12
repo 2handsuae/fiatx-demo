@@ -522,6 +522,36 @@ export class FundsFlowService {
         );
       }
 
+      // Chain receipt fallback: real adapters pass txHash/gas in; sim/dev
+      // CONFIRM/BROADCAST fabricate them so the detail page has data
+      // (same pattern as payout mock gas).
+      let effectiveTxHash = txHash;
+      let effectiveGasUsed = gasUsed;
+      let effectiveGasPriceValue = effectiveGasPrice;
+      if ((item.asset?.type || 'CRYPTO') !== 'FIAT') {
+        if (
+          action === InternalFundAction.BROADCAST &&
+          !effectiveTxHash &&
+          !item.txHash
+        ) {
+          effectiveTxHash =
+            '0x' +
+            Array.from({ length: 64 }, () =>
+              Math.floor(Math.random() * 16).toString(16),
+            ).join('');
+        }
+        if (action === InternalFundAction.CONFIRM) {
+          if (!effectiveGasUsed && !item.gasUsed) {
+            effectiveGasUsed = String(21000 + Math.floor(Math.random() * 60000));
+          }
+          if (!effectiveGasPriceValue && !item.effectiveGasPrice) {
+            effectiveGasPriceValue = String(
+              Math.floor((1 + Math.random() * 9) * 1_000_000_000),
+            );
+          }
+        }
+      }
+
       const updateData: any = {
         status: nextStatus,
       };
@@ -540,15 +570,16 @@ export class FundsFlowService {
         updateData.completedAt = new Date();
       }
 
-      if (txHash) updateData.txHash = txHash;
+      if (effectiveTxHash) updateData.txHash = effectiveTxHash;
       if (referenceNo) updateData.referenceNo = referenceNo;
       if (feeAmount !== undefined)
         updateData.feeAmount = new Prisma.Decimal(feeAmount);
       if (providerTxnId) updateData.providerTxnId = providerTxnId;
       if (nonce) updateData.nonce = nonce;
       if (blockNo) updateData.blockNo = blockNo;
-      if (gasUsed) updateData.gasUsed = gasUsed;
-      if (effectiveGasPrice) updateData.effectiveGasPrice = effectiveGasPrice;
+      if (effectiveGasUsed) updateData.gasUsed = effectiveGasUsed;
+      if (effectiveGasPriceValue)
+        updateData.effectiveGasPrice = effectiveGasPriceValue;
       if (typeof confirmations === 'number')
         updateData.confirmations = confirmations;
 

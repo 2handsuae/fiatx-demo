@@ -371,6 +371,78 @@ describe('FundsFlowService', () => {
     );
   });
 
+  // ── mock chain receipt fallback (sim/dev, crypto only) ───────────────────
+
+  it('crypto BROADCAST without txHash → mock txHash 兜底写入', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-tx',
+      status: InternalFundStatus.SIGNING,
+      statusHistory: '[]',
+      txHash: null,
+      sentAt: null,
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-tx',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-tx',
+        sourceNo: 'ITRTX',
+      },
+      asset: { type: 'CRYPTO' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-tx',
+      status: InternalFundStatus.BROADCASTED,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-tx',
+      { action: InternalFundAction.BROADCAST },
+      'ADMIN',
+    );
+
+    const arg = prisma.internalFund.update.mock.calls[0][0];
+    expect(arg.data.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('crypto CONFIRM without gas → mock gasUsed/effectiveGasPrice 兜底写入', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-gas',
+      status: InternalFundStatus.CONFIRMING,
+      statusHistory: '[]',
+      gasUsed: null,
+      effectiveGasPrice: null,
+      sentAt: null,
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-gas',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-gas',
+        sourceNo: 'ITRGAS',
+      },
+      asset: { type: 'CRYPTO' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-gas',
+      status: InternalFundStatus.CONFIRMED,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-gas',
+      { action: InternalFundAction.CONFIRM },
+      'ADMIN',
+    );
+
+    const arg = prisma.internalFund.update.mock.calls[0][0];
+    expect(arg.data.gasUsed).toEqual(expect.any(String));
+    expect(arg.data.effectiveGasPrice).toEqual(expect.any(String));
+  });
+
   it('REORG: fiat CONFIRMING 仍非法（银行轨无重组）', async () => {
     prisma.internalFund.findUnique.mockResolvedValue({
       id: 'ifd-reorg-f',

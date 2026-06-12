@@ -44,6 +44,12 @@ Spec：`doc-final/superpowers/specs/2026-06-12-internal-fund-ux-design.md`
 - [x] 筛选：Status 下拉(10) · Type 下拉 · 日期范围 · 保留 Fund No / Tx Hash 输入
 - [x] 列：Fund No · Status · Type · Asset · Amount · Tx Hash(截断) · Transfer · Created
 
+## Task B4 — fund mock 链上回执 + 去 fee（用户追加，TDD）
+
+- [x] 红测：crypto BROADCAST 无 txHash → mock `0x`+64hex；crypto CONFIRM 无 gas → mock gas
+- [x] updateStatus 兜底实现（真实传入值优先）；绿测
+- [x] 详情页 Transfer Route 删 Fee/Net（资金单无 fee）
+
 ## Task F4 — 终验 + 重启
 
 - [x] 全量 `npx jest` 0 failed（贴输出）

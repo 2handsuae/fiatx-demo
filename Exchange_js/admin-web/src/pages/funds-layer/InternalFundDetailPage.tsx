@@ -57,8 +57,6 @@ interface FundDetail {
   internalFundNo: string;
   status: string;
   amount: string;
-  feeAmount?: string | null;
-  netAmount?: string | null;
   fromAddress?: string | null;
   fromIban?: string | null;
   toAddress?: string | null;
@@ -305,8 +303,6 @@ const InternalFundDetailPage = () => {
                 />
               </>
             )}
-            <InfoField label="Fee Amount" value={fmtAmount(data.feeAmount)} mono />
-            <InfoField label="Net Amount" value={fmtAmount(data.netAmount)} mono />
           </DetailCard>
 
           {/* 3a. Chain Execution (crypto only) */}
