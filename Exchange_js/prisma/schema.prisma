@@ -1863,6 +1863,8 @@ model Payout {
   confirmations Int                 @default(0)
   referenceNo   String?
   providerTxnId String?
+  gasUsed           String?
+  effectiveGasPrice String?
   createdAt     DateTime            @default(now())
   sentAt        DateTime?
   updatedAt     DateTime            @updatedAt

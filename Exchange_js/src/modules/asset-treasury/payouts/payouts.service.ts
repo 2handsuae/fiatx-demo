@@ -453,6 +453,19 @@ export class PayoutsService {
         dto.referenceNo = effectiveReferenceNo;
       }
 
+      // Chain receipt gas: real adapters pass it in; sim CONFIRM falls back to
+      // mock values so the detail page has data (same pattern as fiat referenceNo).
+      if (type === PayoutType.CRYPTO && action === PayoutAction.CONFIRM) {
+        if (!dto.gasUsed && !item.gasUsed) {
+          dto.gasUsed = String(21000 + Math.floor(Math.random() * 60000));
+        }
+        if (!dto.effectiveGasPrice && !item.effectiveGasPrice) {
+          dto.effectiveGasPrice = String(
+            Math.floor((1 + Math.random() * 9) * 1_000_000_000),
+          );
+        }
+      }
+
       const updateData: any = { status: nextStatus };
 
       // Update timestamps based on status
@@ -467,6 +480,9 @@ export class PayoutsService {
       }
 
       if (txHash) updateData.txHash = txHash;
+      if (dto.gasUsed) updateData.gasUsed = dto.gasUsed;
+      if (dto.effectiveGasPrice)
+        updateData.effectiveGasPrice = dto.effectiveGasPrice;
       const normalizedReferenceNo = this.normalizeOptionalString(dto.referenceNo);
       if (normalizedReferenceNo) {
         updateData.referenceNo = normalizedReferenceNo;

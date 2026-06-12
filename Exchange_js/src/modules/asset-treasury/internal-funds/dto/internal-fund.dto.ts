@@ -28,6 +28,7 @@ export enum InternalFundAction {
   SUBMIT = 'SUBMIT',
   RETURN = 'RETURN',
   CANCEL = 'CANCEL',
+  REORG = 'REORG',
 }
 
 export class InternalFundQueryDto {

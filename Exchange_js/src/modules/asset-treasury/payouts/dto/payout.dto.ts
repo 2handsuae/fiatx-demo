@@ -117,6 +117,14 @@ export class UpdatePayoutStatusDto {
 
   @IsOptional()
   @IsString()
+  gasUsed?: string;
+
+  @IsOptional()
+  @IsString()
+  effectiveGasPrice?: string;
+
+  @IsOptional()
+  @IsString()
   reason?: string;
 }
 
@@ -131,6 +139,14 @@ export class AdminUpdatePayoutStatusDto {
   @IsOptional()
   @IsString()
   referenceNo?: string;
+
+  @IsOptional()
+  @IsString()
+  gasUsed?: string;
+
+  @IsOptional()
+  @IsString()
+  effectiveGasPrice?: string;
 
   @IsOptional()
   @IsString()

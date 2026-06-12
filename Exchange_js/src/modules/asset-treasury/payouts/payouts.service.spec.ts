@@ -668,4 +668,74 @@ describe('PayoutsService', () => {
     expect(result.fromIban).toBe('AE_FALLBACK');
     expect(prisma.payout.update).not.toHaveBeenCalled();
   });
+
+  // ── gas fields on crypto confirm ─────────────────────────────────────────
+
+  it('crypto confirm persists provided gasUsed/effectiveGasPrice', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_GAS_1',
+      withdrawId: 'WD_GAS_1',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      gasUsed: null,
+      effectiveGasPrice: null,
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_GAS_1',
+      status: PayoutStatus.CONFIRMED,
+    });
+
+    await service.updateStatus(
+      'PO_GAS_1',
+      {
+        action: PayoutAction.CONFIRM,
+        gasUsed: '52341',
+        effectiveGasPrice: '4200000000',
+      },
+      'SYSTEM',
+    );
+
+    expect(prisma.payout.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          gasUsed: '52341',
+          effectiveGasPrice: '4200000000',
+        }),
+      }),
+    );
+  });
+
+  it('crypto confirm without gas input → mock gas auto-generated (同 fiat referenceNo 兜底)', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_GAS_2',
+      withdrawId: 'WD_GAS_2',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      gasUsed: null,
+      effectiveGasPrice: null,
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_GAS_2',
+      status: PayoutStatus.CONFIRMED,
+    });
+
+    await service.updateStatus(
+      'PO_GAS_2',
+      { action: PayoutAction.CONFIRM },
+      'SYSTEM',
+    );
+
+    expect(prisma.payout.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          gasUsed: expect.any(String),
+          effectiveGasPrice: expect.any(String),
+        }),
+      }),
+    );
+  });
 });

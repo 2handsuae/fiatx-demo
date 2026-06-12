@@ -45,6 +45,7 @@ const CRYPTO_TRANSITIONS: Record<
   },
   [InternalFundStatus.CONFIRMING]: {
     [InternalFundAction.CONFIRM]: InternalFundStatus.CONFIRMED,
+    [InternalFundAction.REORG]: InternalFundStatus.BROADCASTED,
     [InternalFundAction.FAIL]: InternalFundStatus.FAILED,
     [InternalFundAction.TIMEOUT]: InternalFundStatus.TIMEOUT,
     [InternalFundAction.CANCEL]: InternalFundStatus.CANCELLED,
@@ -661,9 +662,10 @@ export class FundsFlowService {
       txHash,
       internalFundNo,
       assetId,
+      type,
       startDate,
       endDate,
-    } = query;
+    } = query as InternalFundQueryDto & { type?: string };
 
     const where: any = {};
     if (internalTransactionId)
@@ -672,6 +674,7 @@ export class FundsFlowService {
     if (txHash) where.txHash = { contains: txHash };
     if (internalFundNo) where.internalFundNo = { contains: internalFundNo };
     if (assetId) where.assetId = assetId;
+    if (type) where.asset = { type };
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate);
@@ -686,8 +689,6 @@ export class FundsFlowService {
         orderBy: { createdAt: 'desc' },
         include: {
           asset: true,
-          fromWallet: true,
-          toWallet: true,
           internalTransaction: {
             select: {
               id: true,
@@ -712,7 +713,13 @@ export class FundsFlowService {
         fromWallet: true,
         toWallet: true,
         internalTransaction: {
-          select: { id: true, internalTxNo: true, pathLabel: true, status: true },
+          select: {
+            id: true,
+            internalTxNo: true,
+            pathLabel: true,
+            type: true,
+            status: true,
+          },
         },
         auditLogs: { orderBy: { createdAt: 'desc' } },
       },

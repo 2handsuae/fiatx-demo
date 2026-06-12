@@ -9,6 +9,7 @@ export class FundsQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() txHash?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() internalFundNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() assetId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() type?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() startDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() endDate?: string;
 }

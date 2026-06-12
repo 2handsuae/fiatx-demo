@@ -300,6 +300,101 @@ describe('FundsFlowService', () => {
     expect(result.id).toBe('ifd-existing');
     expect(prisma.internalFund.create).not.toHaveBeenCalled();
   });
+
+  // ── admin list/detail query contract (FundUX) ────────────────────────────
+
+  it('findAllForAdmin type=CRYPTO → where.asset.type 关联筛选, list include 不带 from/toWallet', async () => {
+    prisma.internalFund.findMany.mockResolvedValue([]);
+    prisma.internalFund.count.mockResolvedValue(0);
+
+    await service.findAllForAdmin({ type: 'CRYPTO' } as any);
+
+    const arg = prisma.internalFund.findMany.mock.calls[0][0];
+    expect(arg.where).toEqual(
+      expect.objectContaining({ asset: { type: 'CRYPTO' } }),
+    );
+    expect(arg.include.fromWallet).toBeUndefined();
+    expect(arg.include.toWallet).toBeUndefined();
+  });
+
+  it('findOneByNoForAdmin internalTransaction select 含 type（Linked Transfer 卡片）', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-sel',
+      internalFundNo: 'IFDSEL',
+    });
+
+    await service.findOneByNoForAdmin('IFDSEL');
+
+    const arg = prisma.internalFund.findUnique.mock.calls[0][0];
+    expect(arg.include.internalTransaction.select).toEqual(
+      expect.objectContaining({ type: true }),
+    );
+  });
+
+  // ── REORG (shallow reorg, crypto only) ───────────────────────────────────
+
+  it('REORG: crypto CONFIRMING → update receives status BROADCASTED', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-reorg',
+      status: InternalFundStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: null,
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-r',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-r',
+        sourceNo: 'ITRR',
+      },
+      asset: { type: 'CRYPTO' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-reorg',
+      status: InternalFundStatus.BROADCASTED,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-reorg',
+      { action: InternalFundAction.REORG },
+      'ADMIN',
+    );
+
+    expect(prisma.internalFund.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: InternalFundStatus.BROADCASTED,
+        }),
+      }),
+    );
+  });
+
+  it('REORG: fiat CONFIRMING 仍非法（银行轨无重组）', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-reorg-f',
+      status: InternalFundStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: null,
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-rf',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-rf',
+        sourceNo: 'ITRRF',
+      },
+      asset: { type: 'FIAT' },
+    });
+
+    await expect(
+      service.updateStatus(
+        'ifd-reorg-f',
+        { action: InternalFundAction.REORG },
+        'ADMIN',
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
 });
 
 describe('createLeg', () => {
