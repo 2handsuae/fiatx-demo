@@ -59,6 +59,37 @@ describe('WalletsController', () => {
     );
   });
 
+  it('q → OR[walletNo/iban/address contains](三合一搜索)', async () => {
+    queryServiceMock.findAll.mockResolvedValue({ items: [], total: 0 });
+
+    await controller.findAll(
+      adminReq,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'AE07',
+    );
+
+    expect(queryServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { walletNo: { contains: 'AE07' } },
+            { iban: { contains: 'AE07' } },
+            { address: { contains: 'AE07' } },
+          ],
+        }),
+      }),
+    );
+  });
+
   it('should reject CUSTOMER querying other ownerId', () => {
     expect(() =>
       controller.findAll(

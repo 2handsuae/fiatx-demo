@@ -97,7 +97,7 @@ const CustodianWalletList = () => {
     const params = new URLSearchParams();
     params.set('skip', String((page - 1) * PAGE_SIZE));
     params.set('take', String(PAGE_SIZE));
-    if (next.walletNoSearch.trim()) params.set('walletNo', next.walletNoSearch.trim());
+    if (next.walletNoSearch.trim()) params.set('q', next.walletNoSearch.trim());
     if (next.customerNoSearch.trim()) params.set('ownerNo', next.customerNoSearch.trim());
     if (next.ownerType) params.set('ownerType', next.ownerType);
     if (next.walletRole) params.set('walletRole', next.walletRole);
@@ -181,8 +181,8 @@ const CustodianWalletList = () => {
       {/* ── Filter bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
         <input
-          className={`${fi} w-[170px]`}
-          placeholder="Wallet No"
+          className={`${fi} w-[210px]`}
+          placeholder="Wallet No / IBAN / address"
           value={filters.walletNoSearch}
           onChange={(e) => updateFilter('walletNoSearch', e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}

@@ -74,6 +74,7 @@ export class WalletsController {
     @Query('walletRole') walletRole?: string,
     @Query('walletNo') walletNo?: string,
     @Query('ownerNo') ownerNo?: string,
+    @Query('q') q?: string,
   ) {
     this.ensureSupportedToken(req);
 
@@ -100,6 +101,15 @@ export class WalletsController {
     if (walletRole) where.walletRole = walletRole;
     if (walletNo?.trim()) where.walletNo = { contains: walletNo.trim() };
     if (ownerNo?.trim()) where.ownerNo = { contains: ownerNo.trim() };
+    // 三合一搜索:编号 / IBAN / 链上地址
+    const qt = q?.trim();
+    if (qt) {
+      where.OR = [
+        { walletNo: { contains: qt } },
+        { iban: { contains: qt } },
+        { address: { contains: qt } },
+      ];
+    }
 
     return this.queryService.findAll({
       skip: skip ? Number(skip) : 0,
