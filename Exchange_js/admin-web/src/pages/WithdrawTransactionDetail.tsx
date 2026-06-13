@@ -10,7 +10,11 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
+import {
+  LinkedRelationCard,
+  LinkedRelationEmpty,
+} from '../components/ui/LinkedRelationCard';
+import { explorerTxUrl } from '../utils/explorer';
 import { copyToClipboard } from '../utils/clipboard';
 import {
   AdminSessionError,
@@ -29,6 +33,27 @@ import {
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
+
+interface FundsOrderLeg {
+  internalFundNo: string;
+  status: string;
+  txHash: string | null;
+  confirmations: number | null;
+  blockNo: string | null;
+  nonce: string | null;
+  gasUsed: string | null;
+  effectiveGasPrice: string | null;
+  sentAt: string | null;
+  confirmedAt: string | null;
+}
+
+interface FundsOrderSummary {
+  id: string;
+  internalTxNo: string;
+  type: string;
+  status: string;
+  legs: FundsOrderLeg[];
+}
 
 interface WithdrawDetail {
   id: string;
@@ -78,6 +103,7 @@ interface WithdrawDetail {
   asset: { code: string; type: string; network: string | null; decimals: number };
   customer?: { complianceStatus?: string | null; customerNo?: string } | null;
   payout?: { payoutNo: string; status: string } | null;
+  fundsOrders?: FundsOrderSummary[];
 }
 
 /* ── Page Component ─────────────────────────────────────────── */
@@ -185,6 +211,8 @@ const WithdrawTransactionDetail = () => {
   );
   const postKytStyle = getComplianceLayerStyle(data.kytStatus);
   const isFiat = data.asset?.type === 'FIAT';
+  const fundsOrder = data.fundsOrders?.[0];
+  const leg = fundsOrder?.legs?.[0];
 
   return (
     <div className="flex h-full flex-col">
@@ -236,46 +264,45 @@ const WithdrawTransactionDetail = () => {
           </div>
 
           {/* 2. Compliance Layers */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance
-            </h3>
-            <div className="grid grid-cols-2 gap-3">
-              {/* L1: Eligibility Guard */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
-              </div>
-              {/* L2: Transaction Screen */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${preKytStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Pre-KYT:</span>
-                  <span className={`text-[11px] font-semibold ${preKytStyle.textColor}`}>
-                    {data.preKytStatus || '—'}
-                  </span>
-                  <span className="font-mono text-[10px] text-adm-t3">Risk: {data.preKytRiskScore ?? '—'}</span>
+          <DetailCard title="Compliance" columns={1}>
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                {/* L1: Eligibility Guard */}
+                <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
+                  <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
+                  <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
                 </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
-                  <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
-                    {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
-                  </span>
+                {/* L2: Transaction Screen */}
+                <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${preKytStyle.borderColor}`}>
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="font-mono text-[9px] text-adm-t3 w-24">Pre-KYT:</span>
+                    <span className={`text-[11px] font-semibold ${preKytStyle.textColor}`}>
+                      {data.preKytStatus || '—'}
+                    </span>
+                    <span className="font-mono text-[10px] text-adm-t3">Risk: {data.preKytRiskScore ?? '—'}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
+                    <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
+                      {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
+                    </span>
+                  </div>
                 </div>
               </div>
+              {/* L3: Post-Tx Archive (crypto only) */}
+              {!isFiat && (
+                <div className="mt-2 flex items-center gap-2 px-1">
+                  <span className="font-mono text-[9px] text-adm-t3">L3 Archive:</span>
+                  <span className={`text-[11px] font-semibold ${postKytStyle.textColor}`}>
+                    {data.kytStatus || '—'}
+                  </span>
+                  <span className="font-mono text-[9px] text-adm-t3">(post-tx, non-blocking)</span>
+                </div>
+              )}
             </div>
-            {/* L3: Post-Tx Archive (crypto only) */}
-            {!isFiat && (
-              <div className="mt-2 flex items-center gap-2 px-1">
-                <span className="font-mono text-[9px] text-adm-t3">L3 Archive:</span>
-                <span className={`text-[11px] font-semibold ${postKytStyle.textColor}`}>
-                  {data.kytStatus || '—'}
-                </span>
-                <span className="font-mono text-[9px] text-adm-t3">(post-tx, non-blocking)</span>
-              </div>
-            )}
-          </div>
+          </DetailCard>
 
           {/* 3. Approval Gate (conditional) */}
           {(data.approvalNo || data.grossAedValue || data.rateFetchFailed) && (
@@ -296,42 +323,59 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
             <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
-            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono />
+            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
+            <InfoField label="Confirmations" value={data.confirmations ?? null} />
+            <InfoField label="Block No" value={leg?.blockNo ?? null} mono />
+            <InfoField label="Nonce" value={leg?.nonce ?? null} mono />
+            <InfoField label="Gas Used" value={leg?.gasUsed ?? null} mono />
+            <InfoField label="Effective Gas Price" value={leg?.effectiveGasPrice ?? null} mono />
             <InfoField label="Destination Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="From Wallet" value={data.fromWalletNo} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
           </DetailCard>
 
-          {/* 4. Linked Payout (conditional) */}
+          {/* 5. Linked Funds Order */}
+          <DetailCard title="Linked Funds Order" columns={1}>
+            {fundsOrder ? (
+              <LinkedRelationCard
+                cap="Funds Order"
+                identifier={fundsOrder.internalTxNo}
+                statusValue={fundsOrder.status}
+                meta={fundsOrder.type}
+                onClick={() =>
+                  navigate(`/exchange/internal-transactions/${fundsOrder.id}`)
+                }
+              />
+            ) : (
+              <LinkedRelationEmpty
+                cap="Funds Order"
+                message="Not settled to funds layer yet"
+              />
+            )}
+          </DetailCard>
+
+          {/* 6. Linked Payout (conditional) */}
           {data.payoutNo && (
-            <div className="px-6 py-5">
-              <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-                Linked Payout
-              </h3>
+            <DetailCard title="Linked Payout" columns={1}>
               <LinkedRelationCard
                 cap="Payout"
                 identifier={data.payoutNo}
                 statusValue={data.payout?.status}
                 onClick={() => navigate(`/dashboard/treasury/payouts/${data.payoutId}`)}
               />
-            </div>
+            </DetailCard>
           )}
 
-          {/* 5. Status History */}
+          {/* 7. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
           </DetailCard>
 
-          {/* 6. Technical Detail */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Technical Detail
-            </h3>
+          {/* 8. Technical */}
+          <DetailCard title="Technical" columns={1}>
             <InfoField label="Trace ID" value={data.traceId} mono />
-            <div className="mt-3">
-              <JsonBlock title="Status History (raw)" value={data.statusHistory} compact />
-            </div>
-          </div>
+            <JsonBlock title="Status History (raw)" value={data.statusHistory} compact />
+          </DetailCard>
         </div>
 
         {/* ── Sidebar ── */}

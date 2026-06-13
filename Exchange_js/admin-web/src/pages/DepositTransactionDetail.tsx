@@ -10,7 +10,11 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../components/ui/AdminBadge';
-import { LinkedRelationCard } from '../components/ui/LinkedRelationCard';
+import {
+  LinkedRelationCard,
+  LinkedRelationEmpty,
+} from '../components/ui/LinkedRelationCard';
+import { explorerTxUrl } from '../utils/explorer';
 import { copyToClipboard } from '../utils/clipboard';
 import {
   AdminSessionError,
@@ -30,6 +34,27 @@ import {
 } from '../utils/depositActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
+
+interface FundsOrderLeg {
+  internalFundNo: string;
+  status: string;
+  txHash: string | null;
+  confirmations: number | null;
+  blockNo: string | null;
+  nonce: string | null;
+  gasUsed: string | null;
+  effectiveGasPrice: string | null;
+  sentAt: string | null;
+  confirmedAt: string | null;
+}
+
+interface FundsOrderSummary {
+  id: string;
+  internalTxNo: string;
+  type: string;
+  status: string;
+  legs: FundsOrderLeg[];
+}
 
 interface DepositDetail {
   id: string;
@@ -76,6 +101,7 @@ interface DepositDetail {
   };
   statusHistory: string | null;
   customer?: { complianceStatus?: string | null } | null;
+  fundsOrders?: FundsOrderSummary[];
 }
 
 /* ── Page Component ─────────────────────────────────────────── */
@@ -181,6 +207,8 @@ const DepositTransactionDetail = () => {
   const trStyle = getComplianceLayerStyle(
     data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
   );
+  const fundsOrder = data.fundsOrders?.[0];
+  const leg = fundsOrder?.legs?.[0];
 
   return (
     <div className="flex h-full flex-col">
@@ -232,10 +260,7 @@ const DepositTransactionDetail = () => {
           </div>
 
           {/* 2. Compliance Layers */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance
-            </h3>
+          <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
               {/* L1: Eligibility Guard */}
               <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
@@ -261,7 +286,7 @@ const DepositTransactionDetail = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </DetailCard>
 
           {/* 3. Transaction Details */}
           <DetailCard title="Transaction Details" columns={2}>
@@ -269,19 +294,40 @@ const DepositTransactionDetail = () => {
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
             <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
-            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono />
+            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
+            <InfoField label="Confirmations" value={leg?.confirmations ?? null} />
+            <InfoField label="Block No" value={leg?.blockNo ?? null} mono />
+            <InfoField label="Gas Used" value={leg?.gasUsed ?? null} mono />
+            <InfoField label="Effective Gas Price" value={leg?.effectiveGasPrice ?? null} mono />
             <InfoField label="From Address" value={data.fromAddress} copyable onCopy={(v) => handleCopy(v, 'fromAddr')} isCopied={copiedField === 'fromAddr'} mono />
             <InfoField label="To Wallet" value={data.toWalletNo} mono />
             <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
           </DetailCard>
 
-          {/* 4. Linked Payin (conditional) */}
+          {/* 4. Linked Funds Order */}
+          <DetailCard title="Linked Funds Order" columns={1}>
+            {fundsOrder ? (
+              <LinkedRelationCard
+                cap="Funds Order"
+                identifier={fundsOrder.internalTxNo}
+                statusValue={fundsOrder.status}
+                meta={fundsOrder.type}
+                onClick={() =>
+                  navigate(`/exchange/internal-transactions/${fundsOrder.id}`)
+                }
+              />
+            ) : (
+              <LinkedRelationEmpty
+                cap="Funds Order"
+                message="Not settled to funds layer yet"
+              />
+            )}
+          </DetailCard>
+
+          {/* 5. Linked Payin (conditional) */}
           {data.payinNo && (
-            <div className="px-6 py-5">
-              <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-                Linked Payin
-              </h3>
+            <DetailCard title="Linked Payin" columns={1}>
               <LinkedRelationCard
                 cap="Payin"
                 identifier={data.payinNo}
@@ -289,24 +335,19 @@ const DepositTransactionDetail = () => {
                 meta={data.payinType ? formatTransactionTypeLabel(data.payinType) : undefined}
                 onClick={() => navigate(`/dashboard/treasury/payins/${data.payinId}`)}
               />
-            </div>
+            </DetailCard>
           )}
 
-          {/* 5. Status History */}
+          {/* 6. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
           </DetailCard>
 
-          {/* 6. Technical Detail */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Technical Detail
-            </h3>
+          {/* 7. Technical */}
+          <DetailCard title="Technical" columns={1}>
             <InfoField label="Trace ID" value={data.traceId} mono />
-            <div className="mt-3">
-              <JsonBlock title="Status History (raw)" value={data.statusHistory} compact />
-            </div>
-          </div>
+            <JsonBlock title="Status History (raw)" value={data.statusHistory} compact />
+          </DetailCard>
         </div>
 
         {/* ── Sidebar ── */}
