@@ -7,6 +7,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InternalTransactionsService } from '../../asset-treasury/internal-transactions/internal-transactions.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
@@ -41,6 +42,12 @@ describe('DepositTransactionsService', () => {
           provide: EventEmitter2,
           useValue: {
             emit: jest.fn(),
+          },
+        },
+        {
+          provide: InternalTransactionsService,
+          useValue: {
+            findFundsOrderBySource: jest.fn().mockResolvedValue([]),
           },
         },
       ],

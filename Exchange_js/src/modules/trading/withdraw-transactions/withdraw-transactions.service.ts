@@ -27,6 +27,7 @@ import {
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { randomUUID } from 'node:crypto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
+import { InternalTransactionsService } from '../../asset-treasury/internal-transactions/internal-transactions.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -120,6 +121,7 @@ export class WithdrawTransactionsService {
     private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
+    private readonly internalTransactionsService: InternalTransactionsService,
   ) {}
 
   private decimalToBigint(decimalValue: any, decimals: number): bigint {
@@ -464,6 +466,10 @@ export class WithdrawTransactionsService {
       travelRuleCase: caseAggregate.travelRuleCase,
       derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
       auditLogs,
+      fundsOrders: await this.internalTransactionsService.findFundsOrderBySource(
+        'WITHDRAW',
+        item.id,
+      ),
     };
   }
 

@@ -6,9 +6,10 @@ import { PayinsModule } from '../../asset-treasury/payins/payins.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
+import { InternalTransactionsModule } from '../../asset-treasury/internal-transactions/internal-transactions.module';
 
 @Module({
-  imports: [forwardRef(() => PayinsModule), forwardRef(() => OnboardingModule), TigerBeetleModule],
+  imports: [forwardRef(() => PayinsModule), forwardRef(() => OnboardingModule), TigerBeetleModule, InternalTransactionsModule],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,

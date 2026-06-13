@@ -4,6 +4,7 @@ import { SwapTransactionsService } from './swap-transactions.service';
 describe('SwapTransactionsService', () => {
   let service: SwapTransactionsService;
   let prisma: any;
+  let internalTransactionsService: any;
 
   beforeEach(() => {
     prisma = {
@@ -11,8 +12,16 @@ describe('SwapTransactionsService', () => {
         findUnique: jest.fn(),
       },
     };
+    internalTransactionsService = {
+      findFundsOrderBySource: jest.fn().mockResolvedValue([]),
+    };
 
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any);
+    service = new SwapTransactionsService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      internalTransactionsService as any,
+    );
   });
 
   it('should return swap detail without including legacy auditLogs relation', async () => {
@@ -47,5 +56,24 @@ describe('SwapTransactionsService', () => {
     await expect(service.findOne('missing')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('findOne attaches fundsOrders from the 资金单 lookup (sourceType SWAP)', async () => {
+    prisma.swapTransaction.findUnique.mockResolvedValue({
+      id: 'swap-2',
+      swapNo: 'SWP0002',
+    });
+    internalTransactionsService.findFundsOrderBySource.mockResolvedValue([
+      { internalTxNo: 'ITX-SWAP-FROM', type: 'SWAP', status: 'SUCCESS', legs: [] },
+      { internalTxNo: 'ITX-SWAP-TO', type: 'SWAP', status: 'SUCCESS', legs: [] },
+    ]);
+
+    const result = await service.findOne('swap-2');
+
+    expect(
+      internalTransactionsService.findFundsOrderBySource,
+    ).toHaveBeenCalledWith('SWAP', 'swap-2');
+    expect(result.fundsOrders).toHaveLength(2);
+    expect(result.fundsOrders[0].internalTxNo).toBe('ITX-SWAP-FROM');
   });
 });

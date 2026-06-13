@@ -13,6 +13,7 @@ import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
+import { InternalTransactionsService } from '../../asset-treasury/internal-transactions/internal-transactions.service';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -102,6 +103,12 @@ describe('WithdrawTransactionsService', () => {
             resolveTbAccountId: jest.fn().mockResolvedValue(BigInt(1)),
             executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
             voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
+          },
+        },
+        {
+          provide: InternalTransactionsService,
+          useValue: {
+            findFundsOrderBySource: jest.fn().mockResolvedValue([]),
           },
         },
       ],

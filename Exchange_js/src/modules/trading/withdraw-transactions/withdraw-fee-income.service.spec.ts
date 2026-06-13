@@ -159,6 +159,7 @@ describe('WithdrawTransactionsService — T5 fee account', () => {
       mocks.withdrawQuoteService as any,
       mocks.auditLogsService as any,
       mocks.accountingService as any,
+      { findFundsOrderBySource: jest.fn().mockResolvedValue([]) } as any,
     );
 
     await service.create(

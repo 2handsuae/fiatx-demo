@@ -822,6 +822,50 @@ export class InternalTransactionsService {
     return { items, total };
   }
 
+  /**
+   * Read-only enrichment lookup for trading detail pages.
+   *
+   * The funds-layer link is one-directional: InternalTransaction reaches back to
+   * its source (deposit/withdraw/swap) via (sourceType, sourceId). Given that
+   * source identity, return the funds order(s) with their execution legs so the
+   * trading detail page can surface the on-chain detail that lives on the leg.
+   *
+   * Deposit/Withdraw → 1 order; Swap → multiple (from/to/fee/spread). [] if unsettled.
+   */
+  async findFundsOrderBySource(
+    sourceType: 'DEPOSIT' | 'WITHDRAW' | 'SWAP',
+    sourceId: string,
+  ) {
+    const orders = await (this.prisma as any).internalTransaction.findMany({
+      where: { sourceType, sourceId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        funds: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            internalFundNo: true,
+            status: true,
+            txHash: true,
+            confirmations: true,
+            blockNo: true,
+            nonce: true,
+            gasUsed: true,
+            effectiveGasPrice: true,
+            sentAt: true,
+            confirmedAt: true,
+          },
+        },
+      },
+    });
+
+    return (orders ?? []).map((order: any) => ({
+      internalTxNo: order.internalTxNo,
+      type: order.type,
+      status: order.status,
+      legs: order.funds ?? [],
+    }));
+  }
+
   async findOneForAdmin(id: string) {
     const item = await (this.prisma as any).internalTransaction.findUnique({
       where: { id },

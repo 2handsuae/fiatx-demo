@@ -16,6 +16,7 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import { randomUUID } from 'crypto';
+import { InternalTransactionsService } from '../../asset-treasury/internal-transactions/internal-transactions.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -45,6 +46,7 @@ export class DepositTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly internalTransactionsService: InternalTransactionsService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -155,6 +157,12 @@ export class DepositTransactionsService {
       ownerNo = deposit.customer.customerNo;
     }
 
+    const fundsOrders =
+      await this.internalTransactionsService.findFundsOrderBySource(
+        'DEPOSIT',
+        deposit.id,
+      );
+
     return {
       ...item,
       ownerNo,
@@ -164,6 +172,7 @@ export class DepositTransactionsService {
       payinType: deposit.payin?.type || null,
       toWalletNo: deposit.wallet?.walletNo,
       fromWalletNo: deposit.fromWallet?.walletNo,
+      fundsOrders,
     };
   }
 

@@ -20,6 +20,7 @@ describe('InternalTransactionsService', () => {
       },
       internalTransaction: {
         findUnique: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -67,6 +68,67 @@ describe('InternalTransactionsService', () => {
     const result = await service.syncStatusFromFunds('itx-1', 'SYSTEM');
 
     expect(result.status).toBe(InternalTransactionStatus.SUCCESS);
+  });
+
+  // ── findFundsOrderBySource: enrich trading detail from 资金单 ──────────────
+
+  it('findFundsOrderBySource maps internalTransaction(s) → summary[] with leg exec fields', async () => {
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      {
+        internalTxNo: 'ITX-DEP-1',
+        type: 'DEPOSIT',
+        status: InternalTransactionStatus.SUCCESS,
+        funds: [
+          {
+            internalFundNo: 'IFD-1',
+            status: 'CLEAR',
+            txHash: '0xabc',
+            confirmations: 12,
+            blockNo: '500',
+            nonce: '3',
+            gasUsed: '21000',
+            effectiveGasPrice: '4000000000',
+            sentAt: new Date('2026-06-13T00:00:00Z'),
+            confirmedAt: new Date('2026-06-13T00:05:00Z'),
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.findFundsOrderBySource('DEPOSIT', 'dep-id-1');
+
+    expect(prisma.internalTransaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sourceType: 'DEPOSIT', sourceId: 'dep-id-1' },
+      }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        internalTxNo: 'ITX-DEP-1',
+        type: 'DEPOSIT',
+        status: InternalTransactionStatus.SUCCESS,
+      }),
+    );
+    expect(result[0].legs[0]).toEqual(
+      expect.objectContaining({
+        internalFundNo: 'IFD-1',
+        txHash: '0xabc',
+        confirmations: 12,
+        blockNo: '500',
+        nonce: '3',
+        gasUsed: '21000',
+        effectiveGasPrice: '4000000000',
+      }),
+    );
+  });
+
+  it('findFundsOrderBySource returns [] when no funds order exists', async () => {
+    prisma.internalTransaction.findMany.mockResolvedValue([]);
+
+    const result = await service.findFundsOrderBySource('SWAP', 'swap-x');
+
+    expect(result).toEqual([]);
   });
 
   it('should trigger fiat success clearing event when internal tx settles to SUCCESS', async () => {

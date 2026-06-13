@@ -10,6 +10,7 @@ import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { SwapFeeLevelModule } from '../swap-fee-level/swap-fee-level.module';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
+import { InternalTransactionsModule } from '../../asset-treasury/internal-transactions/internal-transactions.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
     OutstandingsModule,
     TigerBeetleModule,
     AuditLogsModule,
+    InternalTransactionsModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService],
