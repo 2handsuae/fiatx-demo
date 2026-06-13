@@ -5,10 +5,12 @@ import { formatAssetAmount } from '../utils/number-format';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import {
-  ActionSection,
   DetailCard,
   DetailPageHeader,
+  InfoField,
 } from '../components/compliance/DetailPageComponents';
+import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { AdminBadge } from '../components/ui/AdminBadge';
 
 type InternalFundBrief = {
   id: string;
@@ -68,20 +70,6 @@ type InternalTransactionDetailData = {
   };
   funds: InternalFundBrief[];
   auditLogs: AuditLog[];
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  INTERNAL_FUNDS_PENDING: 'bg-blue-100 text-blue-800',
-  SUCCESS: 'bg-emerald-100 text-emerald-800',
-  FAILED: 'bg-red-100 text-red-800',
-  CANCELLED: 'bg-orange-100 text-orange-800',
-  REJECTED: 'bg-rose-100 text-rose-800',
-};
-
-const APPROVAL_COLORS: Record<string, string> = {
-  PENDING: 'bg-amber-100 text-amber-800',
-  APPROVED: 'bg-emerald-100 text-emerald-800',
-  REJECTED: 'bg-rose-100 text-rose-800',
 };
 
 const InternalTransactionDetail = () => {
@@ -181,9 +169,9 @@ const InternalTransactionDetail = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[300px]">
-        <RefreshCw className="animate-spin text-brand-primary mb-3" size={26} />
-        <p className="text-gray-500">Loading internal transaction...</p>
+      <div className="flex flex-col items-center justify-center min-h-[400px]">
+        <RefreshCw className="animate-spin mb-4 text-adm-amber" size={32} />
+        <p className="text-adm-t3">Loading internal transaction...</p>
       </div>
     );
   }
@@ -212,166 +200,272 @@ const InternalTransactionDetail = () => {
 
   if (!data) return null;
 
+  const approvalStatus = data.approvalStatus || 'APPROVED';
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="flex h-full flex-col">
+      {/* Nav Header */}
       <DetailPageHeader
         title="Internal Transaction"
         subtitle={`${data.internalTxNo} · ${data.type}`}
         onBack={() => navigate('/exchange/internal-transactions')}
         onRefresh={() => void fetchDetail()}
+        refreshing={loading}
         backLabel="Back to Internal Transactions"
-      >
-        <span
-          className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
-            STATUS_COLORS[data.status] || 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {data.status}
-        </span>
-        <span
-          className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
-            APPROVAL_COLORS[data.approvalStatus || 'APPROVED'] || 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {data.approvalStatus || 'APPROVED'}
-        </span>
-      </DetailPageHeader>
+      />
 
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <ActionSection
-        title="Workflow Actions"
-        description="Manual approval remains separate from the transaction snapshot."
-        emptyText="No workflow actions are available for the current transaction state."
-      >
-        {canReview ? (
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => handleReview('APPROVE')}
-              disabled={reviewing}
-              className={adminButtonClass('workflowPrimary')}
-            >
-              Approve
-            </button>
-            <button
-              onClick={() => handleReview('REJECT')}
-              disabled={reviewing}
-              className={adminButtonClass('workflowNegative')}
-            >
-              Reject
-            </button>
+      {/* Body */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Main */}
+        <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
+          {/* 1. Hero */}
+          <div className="bg-adm-card px-6 py-5">
+            <div className="font-mono text-[19px] font-bold text-adm-amber">
+              {data.internalTxNo}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Status
+                </span>
+                <span className="mt-1 inline-block">
+                  <AdminBadge value={data.status} />
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Approval
+                </span>
+                <span className="mt-1 inline-block">
+                  <AdminBadge value={approvalStatus} />
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Type
+                </span>
+                <span className="text-adm-t1">{data.type}</span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Amount
+                </span>
+                <span className="font-semibold text-adm-t1">
+                  {formatAssetAmount(data.amount, data.asset?.decimals)}{' '}
+                  {data.asset?.code || ''}
+                </span>
+              </div>
+            </div>
           </div>
-        ) : null}
-      </ActionSection>
 
-      <DetailCard title="Transaction Snapshot" columns={1}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <InfoCard label="Source" value={`${data.sourceType} / ${data.sourceNo || data.sourceId}`} />
-          <InfoCard label="Owner" value={`${data.ownerType} / ${data.ownerNo || data.ownerId}`} />
-          <InfoCard
-            label="Asset"
-            value={data.asset?.code || '—'}
-          />
-          <InfoCard
-            label="Amount"
-            value={formatAssetAmount(data.amount, data.asset?.decimals)}
-          />
-          <InfoCard label="Fee" value={formatAssetAmount(data.feeAmount, data.asset?.decimals)} />
-          <InfoCard label="Net" value={formatAssetAmount(data.netAmount, data.asset?.decimals)} />
-          <InfoCard label="From" value={data.fromAddress || data.fromIban || '-'} />
-          <InfoCard label="To" value={data.toAddress || data.toIban || '-'} />
-          <InfoCard label="Maker" value={data.makerUserId || '-'} />
-          <InfoCard label="Checker" value={data.checkerUserId || '-'} />
-          <InfoCard label="Approval Case" value={data.approvalCase?.approvalNo || '-'} />
-          <InfoCard
-            label="Checked At"
-            value={data.checkedAt ? new Date(data.checkedAt).toLocaleString() : '-'}
-          />
-          <InfoCard label="Review Reason" value={data.reviewReason || '-'} />
-        </div>
-      </DetailCard>
+          {/* Error notice */}
+          {error ? (
+            <div className="bg-adm-red/6 px-6 py-3 font-mono text-[11px] text-adm-red">
+              {error}
+            </div>
+          ) : null}
 
-      <DetailCard title="Internal Funds" columns={1}>
-        <div className="divide-y divide-admin-border">
-          {data.funds.length === 0 ? (
-            <div className="px-5 py-6 text-sm text-gray-500">No internal funds</div>
-          ) : (
-            data.funds.map((fund) => (
-              <button
-                key={fund.id}
-                className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors"
-                onClick={() => navigate(`/dashboard/treasury/internal-funds/${fund.id}`)}
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-mono text-xs text-brand-primary font-semibold">{fund.internalFundNo}</div>
-                    <div className="text-xs text-gray-500 mt-1">{new Date(fund.createdAt).toLocaleString()}</div>
+          {/* 2. Transaction Snapshot */}
+          <div className="p-6">
+            <DetailCard title="Transaction Snapshot" columns={2}>
+              <InfoField
+                label="Source"
+                value={`${data.sourceType} / ${data.sourceNo || data.sourceId}`}
+                mono
+              />
+              <InfoField
+                label="Owner"
+                value={`${data.ownerType} / ${data.ownerNo || data.ownerId}`}
+                mono
+              />
+              <InfoField label="Asset" value={data.asset?.code ?? null} />
+              <InfoField
+                label="Amount"
+                value={formatAssetAmount(data.amount, data.asset?.decimals)}
+                mono
+              />
+              <InfoField
+                label="Fee"
+                value={formatAssetAmount(data.feeAmount, data.asset?.decimals)}
+                mono
+              />
+              <InfoField
+                label="Net"
+                value={formatAssetAmount(data.netAmount, data.asset?.decimals)}
+                mono
+              />
+              <InfoField label="From" value={data.fromAddress || data.fromIban} mono />
+              <InfoField label="To" value={data.toAddress || data.toIban} mono />
+              <InfoField label="Maker" value={data.makerUserId ?? null} mono />
+              <InfoField label="Checker" value={data.checkerUserId ?? null} mono />
+              <InfoField
+                label="Approval Case"
+                value={data.approvalCase?.approvalNo ?? null}
+                mono
+              />
+              <InfoField
+                label="Checked At"
+                value={data.checkedAt ? new Date(data.checkedAt).toLocaleString() : null}
+                mono
+              />
+              <InfoField label="Review Reason" value={data.reviewReason ?? null} />
+            </DetailCard>
+          </div>
+
+          {/* 3. Internal Funds */}
+          <div className="p-6">
+            <DetailCard title="Internal Funds" columns={1}>
+              <div className="divide-y divide-adm-border">
+                {data.funds.length === 0 ? (
+                  <div className="py-4 font-mono text-[11px] text-adm-t3">
+                    No internal funds
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-gray-900">
-                      {formatAssetAmount(fund.amount, data.asset?.decimals)}
+                ) : (
+                  data.funds.map((fund) => (
+                    <button
+                      key={fund.id}
+                      className="w-full px-1 py-3 text-left transition-colors hover:bg-adm-hover"
+                      onClick={() =>
+                        navigate(`/dashboard/treasury/internal-funds/${fund.id}`)
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="font-mono text-[11px] font-semibold text-adm-amber">
+                            {fund.internalFundNo}
+                          </div>
+                          <div className="mt-1 font-mono text-[10px] text-adm-t3">
+                            {new Date(fund.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 text-right">
+                          <span className="font-mono text-[11px] text-adm-t1">
+                            {formatAssetAmount(fund.amount, data.asset?.decimals)}
+                          </span>
+                          <AdminBadge value={fund.status} />
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </DetailCard>
+          </div>
+
+          {/* 4. Status History */}
+          <div className="p-6">
+            <DetailCard title="Status History" columns={1}>
+              <div className="divide-y divide-adm-border">
+                {parsedHistory.length === 0 ? (
+                  <div className="py-4 font-mono text-[11px] text-adm-t3">
+                    No status history
+                  </div>
+                ) : (
+                  parsedHistory.map((entry, idx) => (
+                    <div key={`${entry.timestamp}-${idx}`} className="py-3">
+                      <AdminBadge value={entry.status} />
+                      <div className="mt-1 font-mono text-[10px] text-adm-t3">
+                        {entry.timestamp
+                          ? new Date(entry.timestamp).toLocaleString()
+                          : '-'}
+                      </div>
+                      {entry.note ? (
+                        <div className="mt-1 text-[11px] text-adm-t2">{entry.note}</div>
+                      ) : null}
                     </div>
-                    <div className="text-xs text-gray-500">{fund.status}</div>
+                  ))
+                )}
+              </div>
+            </DetailCard>
+          </div>
+
+          {/* 5. Audit Logs */}
+          <div className="p-6">
+            <DetailCard title="Audit Logs" columns={1}>
+              <div className="divide-y divide-adm-border">
+                {data.auditLogs.length === 0 ? (
+                  <div className="py-4 font-mono text-[11px] text-adm-t3">
+                    No audit logs
                   </div>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </DetailCard>
-
-      <DetailCard title="Status History" columns={1}>
-        <div className="divide-y divide-admin-border">
-          {parsedHistory.length === 0 ? (
-            <div className="px-5 py-6 text-sm text-gray-500">No status history</div>
-          ) : (
-            parsedHistory.map((entry, idx) => (
-              <div key={`${entry.timestamp}-${idx}`} className="px-5 py-4 text-sm">
-                <div className="font-medium text-gray-900">{entry.status}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-'}
-                </div>
-                {entry.note ? <div className="text-xs text-gray-500 mt-1">{entry.note}</div> : null}
+                ) : (
+                  data.auditLogs.map((log) => (
+                    <div key={log.id} className="py-3">
+                      <div className="flex items-center gap-2">
+                        <AdminBadge value={log.oldStatus} />
+                        <span className="text-adm-t3">→</span>
+                        <AdminBadge value={log.newStatus} />
+                      </div>
+                      <div className="mt-1 font-mono text-[10px] text-adm-t3">
+                        {new Date(log.createdAt).toLocaleString()} · {log.operatorId}
+                      </div>
+                      {log.reason ? (
+                        <div className="mt-1 text-[11px] text-adm-t2">{log.reason}</div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
               </div>
-            ))
-          )}
+            </DetailCard>
+          </div>
         </div>
-      </DetailCard>
 
-      <DetailCard title="Audit Logs" columns={1}>
-        <div className="divide-y divide-admin-border">
-          {data.auditLogs.length === 0 ? (
-            <div className="px-5 py-6 text-sm text-gray-500">No audit logs</div>
-          ) : (
-            data.auditLogs.map((log) => (
-              <div key={log.id} className="px-5 py-4 text-sm">
-                <div className="font-medium text-gray-900">
-                  {log.oldStatus} → {log.newStatus}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {new Date(log.createdAt).toLocaleString()} · {log.operatorId}
-                </div>
-                {log.reason ? <div className="text-xs text-gray-500 mt-1">{log.reason}</div> : null}
+        {/* Sidebar */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* Actions */}
+          {canReview && (
+            <SidebarGroup title="Actions">
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => handleReview('APPROVE')}
+                  disabled={reviewing}
+                  className={adminButtonClass('workflowPrimary')}
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => handleReview('REJECT')}
+                  disabled={reviewing}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Reject
+                </button>
               </div>
-            ))
+            </SidebarGroup>
           )}
+
+          {/* Identity */}
+          <SidebarGroup title="Identity">
+            <SidebarKV label="Internal Tx No" value={data.internalTxNo} mono />
+            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
+            <SidebarKV label="Approval" value={<AdminBadge value={approvalStatus} />} />
+            <SidebarKV label="Type" value={data.type} />
+            <SidebarKV label="Asset" value={data.asset?.code ?? null} />
+            <SidebarKV
+              label="Owner"
+              mono
+              value={`${data.ownerType} / ${data.ownerNo || data.ownerId}`}
+            />
+          </SidebarGroup>
+
+          {/* Lifecycle */}
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV
+              label="Created"
+              value={new Date(data.createdAt).toLocaleString()}
+              mono
+            />
+            {data.completedAt && (
+              <SidebarKV
+                label="Completed"
+                value={new Date(data.completedAt).toLocaleString()}
+                mono
+              />
+            )}
+          </SidebarGroup>
         </div>
-      </DetailCard>
+      </div>
     </div>
   );
 };
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-admin-border p-4">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</div>
-      <div className="text-sm text-gray-900 mt-2 break-all">{value || '-'}</div>
-    </div>
-  );
-}
 
 export default InternalTransactionDetail;
