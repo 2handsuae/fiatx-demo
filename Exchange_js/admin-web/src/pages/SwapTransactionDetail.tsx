@@ -9,6 +9,10 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import {
+  LinkedRelationCard,
+  LinkedRelationEmpty,
+} from '../components/ui/LinkedRelationCard';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
@@ -20,6 +24,27 @@ interface SwapAsset {
   type: string;
   network: string | null;
   decimals: number;
+}
+
+interface FundsOrderLeg {
+  internalFundNo: string;
+  status: string;
+  txHash: string | null;
+  confirmations: number | null;
+  blockNo: string | null;
+  nonce: string | null;
+  gasUsed: string | null;
+  effectiveGasPrice: string | null;
+  sentAt: string | null;
+  confirmedAt: string | null;
+}
+
+interface FundsOrderSummary {
+  id: string;
+  internalTxNo: string;
+  type: string;
+  status: string;
+  legs: FundsOrderLeg[];
 }
 
 interface SwapTransactionDetailData {
@@ -55,6 +80,7 @@ interface SwapTransactionDetailData {
     customerNo: string;
   } | null;
   statusHistory: string | null;
+  fundsOrders?: FundsOrderSummary[];
 }
 
 interface SwapFx {
@@ -248,27 +274,45 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
-          {/* 5. Status History */}
+          {/* 5. Linked Funds Orders */}
+          <DetailCard title="Linked Funds Orders" columns={1}>
+            {data.fundsOrders && data.fundsOrders.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.fundsOrders.map((o) => (
+                  <LinkedRelationCard
+                    key={o.id}
+                    cap="Funds Order"
+                    identifier={o.internalTxNo}
+                    statusValue={o.status}
+                    meta={o.type}
+                    onClick={() => navigate(`/exchange/internal-transactions/${o.id}`)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <LinkedRelationEmpty
+                cap="Funds Orders"
+                message="Not settled to funds layer yet"
+              />
+            )}
+          </DetailCard>
+
+          {/* 6. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
           </DetailCard>
 
-          {/* 6. Technical Detail */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Technical Detail
-            </h3>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <InfoField label="Quote No" value={data.quoteNo} mono />
-              <InfoField label="Quote ID" value={data.quoteId} mono />
-              <InfoField label="Trace ID" value={data.traceId} mono />
-              <InfoField label="From Asset ID" value={data.fromAssetId} mono />
-              <InfoField label="To Asset ID" value={data.toAssetId} mono />
-            </div>
-            <div className="mt-3">
+          {/* 7. Technical */}
+          <DetailCard title="Technical" columns={2}>
+            <InfoField label="Quote No" value={data.quoteNo} mono />
+            <InfoField label="Quote ID" value={data.quoteId} mono />
+            <InfoField label="Trace ID" value={data.traceId} mono />
+            <InfoField label="From Asset ID" value={data.fromAssetId} mono />
+            <InfoField label="To Asset ID" value={data.toAssetId} mono />
+            <div className="md:col-span-2">
               <JsonBlock title="Fee Breakdown (raw)" value={data.feeBreakdown} compact />
             </div>
-          </div>
+          </DetailCard>
         </div>
 
         {/* ── Sidebar (no Actions block — read-only) ── */}

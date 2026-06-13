@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -48,7 +48,7 @@ interface SwapTransactionListItem {
 
 interface FilterState {
   swapNo: string;
-  ownerId: string;
+  ownerNo: string;
   startDate: string;
   endDate: string;
 }
@@ -72,7 +72,7 @@ const SwapTransactionList = () => {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState<FilterState>({
     swapNo: '',
-    ownerId: '',
+    ownerNo: '',
     startDate: '',
     endDate: '',
   });
@@ -80,7 +80,7 @@ const SwapTransactionList = () => {
   const hasFilters = useMemo(
     () =>
       !!filters.swapNo.trim() ||
-      !!filters.ownerId.trim() ||
+      !!filters.ownerNo.trim() ||
       !!filters.startDate ||
       !!filters.endDate,
     [filters],
@@ -95,7 +95,7 @@ const SwapTransactionList = () => {
       params.set('skip', String((pageNum - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
       if (f.swapNo.trim()) params.set('swapNo', f.swapNo.trim());
-      if (f.ownerId.trim()) params.set('ownerId', f.ownerId.trim());
+      if (f.ownerNo.trim()) params.set('ownerId', f.ownerNo.trim());
       if (f.startDate) params.set('startDate', f.startDate);
       if (f.endDate) params.set('endDate', f.endDate);
 
@@ -127,7 +127,7 @@ const SwapTransactionList = () => {
   };
 
   const handleReset = () => {
-    const empty: FilterState = { swapNo: '', ownerId: '', startDate: '', endDate: '' };
+    const empty: FilterState = { swapNo: '', ownerNo: '', startDate: '', endDate: '' };
     setFilters(empty);
     setPage(1);
     void fetchData(1, empty);
@@ -138,8 +138,8 @@ const SwapTransactionList = () => {
     void fetchData(p);
   };
 
-  const inputCls =
-    'rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-xs text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none';
+  const fi =
+    'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
   return (
     <div className="flex h-full flex-col">
@@ -153,48 +153,47 @@ const SwapTransactionList = () => {
         </button>
       </PageTitleBar>
 
-      {/* Filters */}
-      <div className="border-b border-adm-border bg-adm-panel px-5 py-3">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <input
-            value={filters.swapNo}
-            onChange={(e) => setFilters((f) => ({ ...f, swapNo: e.target.value }))}
-            placeholder="Swap No"
-            className={inputCls}
-          />
-          <input
-            value={filters.ownerId}
-            onChange={(e) => setFilters((f) => ({ ...f, ownerId: e.target.value }))}
-            placeholder="Owner No / Id"
-            className={inputCls}
-          />
-          <input
-            type="date"
-            value={filters.startDate}
-            onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))}
-            className={inputCls}
-            title="Start Date"
-          />
-          <input
-            type="date"
-            value={filters.endDate}
-            onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))}
-            className={inputCls}
-            title="End Date"
-          />
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
-            Search
-          </button>
-          <button
-            onClick={handleReset}
-            className={adminButtonClass('listSecondary')}
-            disabled={!hasFilters || loading}
-          >
-            Reset
-          </button>
-        </div>
+      {/* Filter bar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <input
+          value={filters.swapNo}
+          onChange={(e) => setFilters((f) => ({ ...f, swapNo: e.target.value }))}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          placeholder="Swap No"
+          className={`${fi} w-40`}
+        />
+        <input
+          value={filters.ownerNo}
+          onChange={(e) => setFilters((f) => ({ ...f, ownerNo: e.target.value }))}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          placeholder="Owner No"
+          className={`${fi} w-36`}
+        />
+        <input
+          type="date"
+          value={filters.startDate}
+          onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))}
+          className={`${fi} w-36`}
+          title="Start Date"
+        />
+        <input
+          type="date"
+          value={filters.endDate}
+          onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))}
+          className={`${fi} w-36`}
+          title="End Date"
+        />
+        <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
+          <Search size={13} />
+          Search
+        </button>
+        <button
+          onClick={handleReset}
+          className={adminButtonClass('listSecondary')}
+          disabled={!hasFilters || loading}
+        >
+          Reset
+        </button>
       </div>
 
       {/* Table */}
