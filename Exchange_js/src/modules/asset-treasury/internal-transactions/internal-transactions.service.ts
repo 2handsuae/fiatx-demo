@@ -859,6 +859,7 @@ export class InternalTransactionsService {
     });
 
     return (orders ?? []).map((order: any) => ({
+      id: order.id,
       internalTxNo: order.internalTxNo,
       type: order.type,
       status: order.status,
