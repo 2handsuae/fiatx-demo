@@ -8,7 +8,7 @@ import {
   JsonBlock,
 } from '../../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
-import { AdminBadge } from '../../components/ui/AdminBadge';
+import { StatusPill } from '../../components/ui/StatusPill';
 import { adminButtonClass } from '../../components/common/adminButtonStyles';
 import {
   AdminSessionError,
@@ -149,7 +149,7 @@ const SettlementDetailPage = () => {
                   Status
                 </span>
                 <span className="mt-1 inline-block">
-                  <AdminBadge value={data.status} />
+                  <StatusPill value={data.status} />
                 </span>
               </div>
               <div>
@@ -206,7 +206,7 @@ const SettlementDetailPage = () => {
                         <span className="font-mono text-[11px] font-semibold text-adm-amber">
                           {assetCode}
                         </span>
-                        <AdminBadge value={t.status} />
+                        <StatusPill value={t.status} />
                       </div>
                       <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px] text-adm-t3">
                         <span>
@@ -288,7 +288,7 @@ const SettlementDetailPage = () => {
           {/* IDENTITY SUMMARY */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Batch No" value={data.batchNo} mono />
-            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
+            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
             <SidebarKV label="Settlement Type" value={data.settlementType} mono />
           </SidebarGroup>
 

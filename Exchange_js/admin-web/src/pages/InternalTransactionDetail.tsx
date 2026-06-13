@@ -10,7 +10,7 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { AdminBadge } from '../components/ui/AdminBadge';
+import { StatusPill } from '../components/ui/StatusPill';
 
 type InternalFundBrief = {
   id: string;
@@ -229,7 +229,7 @@ const InternalTransactionDetail = () => {
                   Status
                 </span>
                 <span className="mt-1 inline-block">
-                  <AdminBadge value={data.status} />
+                  <StatusPill value={data.status} />
                 </span>
               </div>
               <div>
@@ -237,7 +237,7 @@ const InternalTransactionDetail = () => {
                   Approval
                 </span>
                 <span className="mt-1 inline-block">
-                  <AdminBadge value={approvalStatus} />
+                  <StatusPill value={approvalStatus} />
                 </span>
               </div>
               <div>
@@ -342,7 +342,7 @@ const InternalTransactionDetail = () => {
                           <span className="font-mono text-[11px] text-adm-t1">
                             {formatAssetAmount(fund.amount, data.asset?.decimals)}
                           </span>
-                          <AdminBadge value={fund.status} />
+                          <StatusPill value={fund.status} />
                         </div>
                       </div>
                     </button>
@@ -363,7 +363,7 @@ const InternalTransactionDetail = () => {
                 ) : (
                   parsedHistory.map((entry, idx) => (
                     <div key={`${entry.timestamp}-${idx}`} className="py-3">
-                      <AdminBadge value={entry.status} />
+                      <StatusPill value={entry.status} />
                       <div className="mt-1 font-mono text-[10px] text-adm-t3">
                         {entry.timestamp
                           ? new Date(entry.timestamp).toLocaleString()
@@ -391,9 +391,9 @@ const InternalTransactionDetail = () => {
                   data.auditLogs.map((log) => (
                     <div key={log.id} className="py-3">
                       <div className="flex items-center gap-2">
-                        <AdminBadge value={log.oldStatus} />
+                        <StatusPill value={log.oldStatus} />
                         <span className="text-adm-t3">→</span>
-                        <AdminBadge value={log.newStatus} />
+                        <StatusPill value={log.newStatus} />
                       </div>
                       <div className="mt-1 font-mono text-[10px] text-adm-t3">
                         {new Date(log.createdAt).toLocaleString()} · {log.operatorId}
@@ -436,8 +436,8 @@ const InternalTransactionDetail = () => {
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Internal Tx No" value={data.internalTxNo} mono />
-            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
-            <SidebarKV label="Approval" value={<AdminBadge value={approvalStatus} />} />
+            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
+            <SidebarKV label="Approval" value={<StatusPill value={approvalStatus} />} />
             <SidebarKV label="Type" value={data.type} />
             <SidebarKV label="Asset" value={data.asset?.code ?? null} />
             <SidebarKV

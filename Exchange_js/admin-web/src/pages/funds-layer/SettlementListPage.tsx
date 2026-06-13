@@ -8,7 +8,7 @@ import {
   adminIconButtonClass,
 } from '../../components/common/adminButtonStyles';
 import { PageTitleBar } from '../../components/ui/PageTitleBar';
-import { AdminBadge } from '../../components/ui/AdminBadge';
+import { StatusPill } from '../../components/ui/StatusPill';
 import {
   AdminSessionError,
   adminFetch,
@@ -270,7 +270,7 @@ const SettlementListPage = () => {
 
                   {/* Status */}
                   <td className="px-4 py-2.5">
-                    <AdminBadge value={item.status} />
+                    <StatusPill value={item.status} />
                   </td>
 
                   {/* Assets */}

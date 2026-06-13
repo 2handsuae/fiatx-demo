@@ -6,7 +6,7 @@ import { adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 import Pagination from '../components/common/Pagination';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-import { AdminBadge } from '../components/ui/AdminBadge';
+import { StatusPill } from '../components/ui/StatusPill';
 
 type InternalTransactionItem = {
   id: string;
@@ -500,7 +500,7 @@ const InternalTransactionList = () => {
                     ['Asset / Amount',  'left'],
                     ['From / To',       'left'],
                     ['Status',          'left'],
-                    ['Action',          'right'],
+                    ['Created',         'left'],
                   ] as [string, 'left' | 'right'][]
                 ).map(([label, align]) => (
                   <th
@@ -515,14 +515,14 @@ const InternalTransactionList = () => {
             <tbody>
               {loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  <td colSpan={5} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                     Loading…
                   </td>
                 </tr>
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  <td colSpan={5} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                     No internal transactions found.
                   </td>
                 </tr>
@@ -538,9 +538,6 @@ const InternalTransactionList = () => {
                     <span className="font-mono text-[11px] font-semibold text-adm-amber">
                       {item.internalTxNo}
                     </span>
-                    <div className="mt-1 font-mono text-[10px] text-adm-t3">
-                      {new Date(item.createdAt).toLocaleString()}
-                    </div>
                   </td>
 
                   {/* Type / Source */}
@@ -581,23 +578,14 @@ const InternalTransactionList = () => {
                   {/* Status */}
                   <td className="px-4 py-2.5">
                     <div className="flex flex-col items-start gap-1.5">
-                      <AdminBadge value={item.status} />
-                      <AdminBadge value={item.approvalStatus || 'APPROVED'} />
+                      <StatusPill value={item.status} />
+                      <StatusPill value={item.approvalStatus || 'APPROVED'} />
                     </div>
                   </td>
 
-                  {/* Action */}
-                  <td className="px-4 py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/exchange/internal-transactions/${item.id}`);
-                      }}
-                      className={adminButtonClass('rowLink')}
-                    >
-                      View
-                    </button>
+                  {/* Created */}
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                    {new Date(item.createdAt).toLocaleString()}
                   </td>
                 </tr>
               ))}

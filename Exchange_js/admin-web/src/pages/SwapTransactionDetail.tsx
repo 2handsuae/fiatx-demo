@@ -8,7 +8,7 @@ import {
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { AdminBadge } from '../components/ui/AdminBadge';
+import { StatusPill } from '../components/ui/StatusPill';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -185,7 +185,7 @@ const SwapTransactionDetail = () => {
                   Status
                 </span>
                 <span className="mt-1 inline-block">
-                  <AdminBadge value={data.status} />
+                  <StatusPill value={data.status} />
                 </span>
               </div>
               <div>
@@ -319,7 +319,7 @@ const SwapTransactionDetail = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
           <SidebarGroup title="Identity">
             <SidebarKV label="Swap No" value={data.swapNo} mono />
-            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
+            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
             <SidebarKV label="Owner" value={ownerLink} />
             <SidebarKV label="Pair" value={`${data.fromAsset.code}/${data.toAsset.code}`} mono />
             <SidebarKV label="Net Received" value={netDisplay} mono />

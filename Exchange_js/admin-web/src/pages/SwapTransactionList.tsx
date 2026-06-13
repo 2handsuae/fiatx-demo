@@ -11,7 +11,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { AdminBadge } from '../components/ui/AdminBadge';
+import { StatusPill } from '../components/ui/StatusPill';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
@@ -143,7 +143,7 @@ const SwapTransactionList = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <PageTitleBar title="Swap Transactions" meta="Monitor completed swap conversions">
+      <PageTitleBar title="Swap Transactions" meta={`${total} swap${total === 1 ? '' : 's'}`}>
         <button
           onClick={() => void fetchData()}
           className={adminIconButtonClass()}
@@ -198,97 +198,89 @@ const SwapTransactionList = () => {
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="sticky top-0 z-10 border-b border-adm-border bg-adm-card">
+        <table className="w-full border-collapse text-sm">
+          <thead>
             <tr>
-              {['Swap No', 'Owner', 'Sell (From)', 'Buy (Net)', 'Rate', 'Spread', 'Status', 'Created', ''].map(
-                (h, i) => (
-                  <th
-                    key={h || `col-${i}`}
-                    className="px-5 py-2.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
+              {(
+                [
+                  ['Swap No',     '160px'],
+                  ['Owner',       '150px'],
+                  ['Sell (From)', '150px'],
+                  ['Buy (Net)',   '150px'],
+                  ['Rate',        '120px'],
+                  ['Spread',      '120px'],
+                  ['Status',      '120px'],
+                  ['Created',     '150px'],
+                ] as [string, string][]
+              ).map(([label, w]) => (
+                <th
+                  key={label}
+                  style={{ width: w }}
+                  className="border-b border-adm-border bg-adm-panel px-4 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap text-left"
+                >
+                  {label}
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-adm-border">
+          <tbody>
             {error ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-adm-red">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-red">
                   {error}
                 </td>
               </tr>
             ) : loading && items.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   <RefreshCw className="mx-auto mb-2 animate-spin text-adm-amber" size={20} />
-                  Loading...
+                  Loading…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center font-mono text-xs text-adm-t3">
-                  No swap transactions found
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No swap transactions found.
                 </td>
               </tr>
             ) : (
               items.map((item) => (
-                <tr key={item.id} className="transition-colors hover:bg-adm-hover">
-                  <td className="px-5 py-3">
-                    <button
-                      type="button"
-                      className={adminButtonClass('rowKeyLink')}
-                      onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
-                    >
+                <tr
+                  key={item.id}
+                  className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
+                  onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
+                >
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono text-[11px] font-semibold text-adm-amber">
                       {item.swapNo}
-                    </button>
+                    </span>
                   </td>
-                  <td className="px-5 py-3">
-                    {item.customer ? (
-                      <div className="flex flex-col">
-                        <span className="text-adm-t1">
-                          {[item.customer.firstName, item.customer.lastName]
-                            .filter(Boolean)
-                            .join(' ') || '—'}
-                        </span>
-                        <span className="font-mono text-[10px] text-adm-t3">
-                          {item.customer.customerNo}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="font-mono text-adm-t2">{item.ownerNo || item.ownerType}</span>
-                    )}
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono text-[11px] text-adm-blue">
+                      {item.customer?.customerNo || item.ownerNo || '—'}
+                    </span>
                   </td>
-                  <td className="px-5 py-3 font-mono text-adm-red">
+                  <td className="px-4 py-2.5 font-mono text-[11px] text-adm-red">
                     {formatAssetAmount(item.fromAmount, item.fromAsset.decimals)}{' '}
                     {item.fromAsset.currency}
                   </td>
-                  <td className="px-5 py-3 font-mono text-adm-green">
+                  <td className="px-4 py-2.5 font-mono text-[11px] text-adm-green">
                     {formatAssetAmount(item.netToAmount ?? item.toAmount, item.toAsset.decimals)}{' '}
                     {item.toAsset.currency}
                   </td>
-                  <td className="px-5 py-3 font-mono text-adm-t2">
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
                     {formatRate8(item.exchangeRate)}
                   </td>
-                  <td className="px-5 py-3 font-mono text-adm-t2">
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
                     {item.spreadAmount
                       ? `${formatAssetAmount(item.spreadAmount, item.toAsset.decimals)} ${item.toAsset.currency}`
                       : '—'}
                   </td>
-                  <td className="px-5 py-3">
-                    <AdminBadge value={item.status} />
+                  <td className="px-4 py-2.5">
+                    <StatusPill value={item.status} />
                   </td>
-                  <td className="px-5 py-3 font-mono text-[10px] text-adm-t3">{fmt(item.createdAt)}</td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      type="button"
-                      className={adminButtonClass('rowLink')}
-                      onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
-                    >
-                      View
-                    </button>
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                    {fmt(item.createdAt)}
                   </td>
                 </tr>
               ))
