@@ -667,6 +667,7 @@ export class PayoutsService {
         const payout = await tx.payout.create({
           data: {
             id: payoutId,
+            payoutNo: generateReferenceNo('PO'),
             withdrawId: withdraw.id,
             type,
             status: PayoutStatus.CREATED,
