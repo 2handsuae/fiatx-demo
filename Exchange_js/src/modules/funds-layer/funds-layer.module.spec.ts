@@ -19,6 +19,7 @@ import { OutstandingConsumerService } from './domain/outstanding-consumer.servic
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
+import { WalletBalanceService } from '../asset-treasury/wallets/wallet-balance.service';
 
 /**
  * DI boot smoke test for the funds-layer module wiring.
@@ -57,6 +58,7 @@ describe('FundsLayerModule wiring', () => {
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: AccessControlService, useValue: {} },
         { provide: AccountingService, useValue: {} },
+        { provide: WalletBalanceService, useValue: { adjust: jest.fn() } },
         AdminPermissionGuard,
       ],
     }).compile();

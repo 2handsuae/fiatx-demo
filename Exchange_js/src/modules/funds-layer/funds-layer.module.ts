@@ -28,6 +28,7 @@ import { FundsAdminController } from './controllers/funds-admin.controller';
 import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
 import { PricingCenterModule } from '../trading/pricing-center/pricing-center.module';
 import { FxEodService } from './accounting/fx-eod.service';
+import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
 
 /**
  * V7 funds-layer module.
@@ -41,7 +42,7 @@ import { FxEodService } from './accounting/fx-eod.service';
  * implements the port and does NOT inject FundsFlowService) — no circular DI.
  */
 @Module({
-  imports: [PrismaModule, TigerBeetleModule, PricingCenterModule],
+  imports: [PrismaModule, TigerBeetleModule, PricingCenterModule, WalletsModule],
   controllers: [
     InternalTransferAdminController,
     FundsSimulateController,

@@ -11,6 +11,7 @@ import {
 } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
 import { FundsFlowService, FIAT_TRANSITIONS } from './funds-flow.service';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
+import { WalletBalanceService } from '../../asset-treasury/wallets/wallet-balance.service';
 
 describe('FundsFlowService', () => {
   let service: FundsFlowService;
@@ -18,6 +19,7 @@ describe('FundsFlowService', () => {
   let aggregator: any;
   let eventEmitter: any;
   let auditLogsService: any;
+  let walletBalance: any;
 
   beforeEach(async () => {
     prisma = {
@@ -48,6 +50,8 @@ describe('FundsFlowService', () => {
       recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
     };
 
+    walletBalance = { adjust: jest.fn().mockResolvedValue(undefined) };
+
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         FundsFlowService,
@@ -55,11 +59,103 @@ describe('FundsFlowService', () => {
         { provide: FundsFlowAggregatorPort, useValue: aggregator },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: AuditLogsService, useValue: auditLogsService },
+        { provide: WalletBalanceService, useValue: walletBalance },
       ],
     }).compile();
 
     service = moduleRef.get<FundsFlowService>(FundsFlowService);
     jest.clearAllMocks();
+  });
+
+  it('manual CLEAR debits fromWallet and credits toWallet by amount', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-clr',
+      status: InternalFundStatus.CONFIRMED,
+      statusHistory: '[]',
+      fromWalletId: 'w-from',
+      toWalletId: 'w-to',
+      amount: new Prisma.Decimal(250),
+      sentAt: new Date(),
+      confirmedAt: new Date(),
+      internalTransaction: {
+        id: 'itx-clr',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-clr',
+        sourceNo: 'ITRCLR',
+      },
+      asset: { type: 'FIAT' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-clr',
+      status: InternalFundStatus.CLEAR,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-clr',
+      { action: InternalFundAction.CLEAR },
+      'ADMIN',
+    );
+
+    const fromCall = walletBalance.adjust.mock.calls.find(
+      (c: any[]) => c[0] === 'w-from',
+    );
+    const toCall = walletBalance.adjust.mock.calls.find(
+      (c: any[]) => c[0] === 'w-to',
+    );
+    expect(fromCall[1].toString()).toBe('-250');
+    expect(toCall[1].toString()).toBe('250');
+  });
+
+  it('auto-clear (CONFIRMED + tx SUCCESS) moves each cleared leg balance from→to', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-auto',
+      status: InternalFundStatus.CONFIRMING,
+      statusHistory: '[]',
+      fromWalletId: 'w-f',
+      toWalletId: 'w-t',
+      amount: new Prisma.Decimal(100),
+      sentAt: new Date(),
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-auto',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-auto',
+        sourceNo: 'ITRAUTO',
+      },
+      asset: { type: 'CRYPTO' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-auto',
+      status: InternalFundStatus.CONFIRMED,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({ status: 'SUCCESS' });
+    prisma.internalFund.findMany.mockResolvedValue([
+      {
+        id: 'ifd-auto',
+        statusHistory: '[]',
+        fromWalletId: 'w-f',
+        toWalletId: 'w-t',
+        amount: new Prisma.Decimal(100),
+      },
+    ]);
+
+    await service.updateStatus(
+      'ifd-auto',
+      { action: InternalFundAction.CONFIRM },
+      'SYSTEM',
+    );
+
+    const fromCall = walletBalance.adjust.mock.calls.find(
+      (c: any[]) => c[0] === 'w-f' && c[1].toString() === '-100',
+    );
+    const toCall = walletBalance.adjust.mock.calls.find(
+      (c: any[]) => c[0] === 'w-t' && c[1].toString() === '100',
+    );
+    expect(fromCall).toBeDefined();
+    expect(toCall).toBeDefined();
   });
 
   it('advances to SIGNING on SIGN from CREATED and emits fundsflow.status.changed', async () => {
@@ -502,6 +598,7 @@ describe('createLeg', () => {
         { provide: FundsFlowAggregatorPort, useValue: { syncStatusFromFunds: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: AuditLogsService, useValue: auditLogsService },
+        { provide: WalletBalanceService, useValue: { adjust: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

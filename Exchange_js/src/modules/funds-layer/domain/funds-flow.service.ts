@@ -23,6 +23,7 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
+import { WalletBalanceService } from '../../asset-treasury/wallets/wallet-balance.service';
 
 const CRYPTO_TRANSITIONS: Record<
   InternalFundStatus,
@@ -131,7 +132,25 @@ export class FundsFlowService {
     private readonly aggregator: FundsFlowAggregatorPort,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
+    private readonly walletBalance: WalletBalanceService,
   ) {}
+
+  /**
+   * Mock-balance side effect of a leg reaching CLEAR: debit the from-wallet and
+   * credit the to-wallet by the leg amount. No validation, allows negative.
+   */
+  private async applyLegClearedBalance(
+    fund: {
+      fromWalletId?: string | null;
+      toWalletId?: string | null;
+      amount: Prisma.Decimal | string | number;
+    },
+    client: TxClient,
+  ): Promise<void> {
+    const amount = new Prisma.Decimal(fund.amount ?? 0);
+    await this.walletBalance.adjust(fund.fromWalletId, amount.negated(), client);
+    await this.walletBalance.adjust(fund.toWalletId, amount, client);
+  }
 
   private getTransitionMap(assetType?: string) {
     return assetType === 'FIAT' ? FIAT_TRANSITIONS : CRYPTO_TRANSITIONS;
@@ -224,6 +243,9 @@ export class FundsFlowService {
       select: {
         id: true,
         statusHistory: true,
+        fromWalletId: true,
+        toWalletId: true,
+        amount: true,
       },
     });
 
@@ -244,6 +266,9 @@ export class FundsFlowService {
           ),
         },
       });
+
+      // Mock-balance: leg auto-cleared → move balance from→to.
+      await this.applyLegClearedBalance(fund, client);
 
       await this.auditLogsService.recordByActor(
         {
@@ -594,6 +619,18 @@ export class FundsFlowService {
         where: { id },
         data: updateData,
       });
+
+      // Mock-balance: leg cleared (manual CLEAR path) → move balance from→to.
+      if (nextStatus === InternalFundStatus.CLEAR) {
+        await this.applyLegClearedBalance(
+          {
+            fromWalletId: item.fromWalletId,
+            toWalletId: item.toWalletId,
+            amount: item.amount,
+          },
+          client,
+        );
+      }
 
       await this.auditLogsService.recordByActor(
         {
