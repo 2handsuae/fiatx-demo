@@ -1,7 +1,10 @@
 # F_OPS 接管流动性池 + EOD 合并虚拟币手续费 — 设计
 
 日期：2026-06-14
-状态：待用户审（设计已对齐，B2 合并方案）
+状态：**部分降级落地**。用户最终拍板「只做 F_LIQ→F_OPS re-point，保留 FEE_COLLECT，其他不动」。
+EOD 合并费 / feeComponent / 退役 CRON / isFeePath 改动 **全部撤销不做**（gas 节省不值，且费用追溯属另一轮）。
+实际落地见 commit `9295f0a`：仅白名单 + fiat/settlement workflow 的 F_LIQ→F_OPS。
+下方第二节(EOD 合并)与第三节(退役 CRON)仅留作历史记录，未实施。
 
 ## 背景与目标
 

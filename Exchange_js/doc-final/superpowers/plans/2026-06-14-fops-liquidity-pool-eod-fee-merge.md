@@ -2,6 +2,8 @@
 
 Spec：`doc-final/superpowers/specs/2026-06-14-fops-liquidity-pool-eod-fee-merge-design.md`
 
+状态：**降级——仅执行 F_LIQ→F_OPS re-point(commit 9295f0a),T2-T5(feeComponent/EOD合并/退役CRON/verify改写)全部不做**。
+
 判定：**大**（改钱不变量 + Prisma 迁移 + 净额方向边界）→ spec+plan 先停，审过再执行。
 执行时建议**串行**（不并行 subagents）：T1→T2 是 T3 的前置，T3 是核心改钱逻辑，
 必须独占上下文 TDD，不能并发改同一批 funds-layer 文件。
