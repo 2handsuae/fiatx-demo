@@ -45,12 +45,26 @@ export function statusPillClass(status: string): string {
   return STATUS_PILL_MAP[status.toUpperCase()] || 'bg-gray-100 text-gray-800';
 }
 
-/** Trading-domain status badge — identical look to deposit/withdraw/payout pills. */
-export const StatusPill = ({ value }: { value: string | null | undefined }) => {
+/**
+ * Trading-domain status badge — the single status badge for all 5 trading
+ * list + detail pages. `sm` (default) for list cells / sidebar KVs / sub-tables,
+ * `md` for hero chips. One component, two sizes — no per-page badge variants.
+ */
+export const StatusPill = ({
+  value,
+  size = 'sm',
+}: {
+  value: string | null | undefined;
+  size?: 'sm' | 'md';
+}) => {
   if (!value) return <span className="text-adm-t3">—</span>;
+  const sizeCls =
+    size === 'md'
+      ? 'px-3 py-0.5 text-xs font-medium'
+      : 'px-2.5 py-0.5 text-[10px] font-semibold';
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusPillClass(value)}`}
+      className={`inline-flex items-center rounded-full ${sizeCls} ${statusPillClass(value)}`}
     >
       {formatStatusLabel(value)}
     </span>

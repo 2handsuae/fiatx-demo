@@ -229,7 +229,7 @@ const InternalTransactionDetail = () => {
                   Status
                 </span>
                 <span className="mt-1 inline-block">
-                  <StatusPill value={data.status} />
+                  <StatusPill value={data.status} size="md" />
                 </span>
               </div>
               <div>
@@ -237,7 +237,7 @@ const InternalTransactionDetail = () => {
                   Approval
                 </span>
                 <span className="mt-1 inline-block">
-                  <StatusPill value={approvalStatus} />
+                  <StatusPill value={approvalStatus} size="md" />
                 </span>
               </div>
               <div>

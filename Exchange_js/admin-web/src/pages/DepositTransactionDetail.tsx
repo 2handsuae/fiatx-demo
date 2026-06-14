@@ -9,7 +9,7 @@ import {
   JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { AdminBadge } from '../components/ui/AdminBadge';
+import { StatusPill } from '../components/ui/StatusPill';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -380,7 +380,7 @@ const DepositTransactionDetail = () => {
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Deposit No" value={data.depositNo} mono />
-            <SidebarKV label="Status" value={<AdminBadge value={data.status} />} />
+            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
             <SidebarKV
               label="Owner"
               value={

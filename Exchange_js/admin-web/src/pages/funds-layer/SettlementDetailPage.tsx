@@ -149,7 +149,7 @@ const SettlementDetailPage = () => {
                   Status
                 </span>
                 <span className="mt-1 inline-block">
-                  <StatusPill value={data.status} />
+                  <StatusPill value={data.status} size="md" />
                 </span>
               </div>
               <div>
