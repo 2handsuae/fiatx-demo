@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { WalletsService } from './wallets.service';
 import { WalletQueryService } from './wallet-query.service';
+import { WalletBalanceService } from './wallet-balance.service';
 import { WalletsController } from './wallets.controller';
 import { CustodianWalletCreateController } from './custodian-wallet-create.controller';
 import { CustodianWalletCreateWorkflowService } from './custodian-wallet-create-workflow.service';
@@ -19,11 +20,12 @@ import { GovernanceModule } from '../../governance/governance.module';
   providers: [
     WalletsService,
     WalletQueryService,
+    WalletBalanceService,
     CustodianWalletCreateWorkflowService,
     CustodianWalletCreateApprovalService,
     CustomerDepositWalletService,
     { provide: CUSTODIAN_ADAPTER, useClass: MockCustodianAdapter },
   ],
-  exports: [WalletsService, WalletQueryService],
+  exports: [WalletsService, WalletQueryService, WalletBalanceService],
 })
 export class WalletsModule {}
