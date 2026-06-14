@@ -53,7 +53,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     expect(batch.createBatch).toHaveBeenCalledTimes(1);
     expect(wallets.resolveCustomer).toHaveBeenCalledWith('a-aed', 'C_VIBAN', 'c1');
     expect(wallets.resolve).toHaveBeenCalledWith('a-aed', 'F_SET');
-    expect(wallets.resolve).toHaveBeenCalledWith('a-aed', 'F_LIQ');
+    expect(wallets.resolve).toHaveBeenCalledWith('a-aed', 'F_OPS');
 
     const tArgs = transfers.createTransfer.mock.calls[0][0];
     expect(tArgs).toMatchObject({ path: 'FIAT_SETTLE_OUT', accountingClass: 'B', medium: 'BANK', settlementBatchId: 'b-1' });
@@ -65,13 +65,13 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     const hop2 = fundsFlow.createLeg.mock.calls[1][0];
     // both legs created in CREATED (hop2 held until hop1 confirms)
     expect(hop1).toMatchObject({ fromWalletId: 'w-C_VIBAN-c1', toWalletId: 'w-F_SET', status: 'CREATED' });
-    expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ', status: 'CREATED' });
+    expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-F_OPS', status: 'CREATED' });
 
     expect(consumer.lockToTransfer).toHaveBeenCalledWith(['o-aed'], 'b-1', 't-1');
     // TB mirror fires on CLEAR (InternalTransferWorkflow), not at initiation
   });
 
-  it('IN outstanding: route is F_LIQ -> F_SET -> C_VIBAN (FIAT_SETTLE_IN)', async () => {
+  it('IN outstanding: route is F_OPS -> F_SET -> C_VIBAN (FIAT_SETTLE_IN)', async () => {
     consumer.findOpenFiatBySwap.mockResolvedValue([
       { id: 'o-in', direction: 'IN', amount: '7', assetId: 'a-aed', assetCode: 'AED', ownerId: 'c2', ownerType: 'CUSTOMER', ownerNo: 'CUST-2', sourceNo: 'SWP-2' },
     ]);
@@ -80,7 +80,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     expect(tArgs).toMatchObject({ path: 'FIAT_SETTLE_IN' });
     const hop1 = fundsFlow.createLeg.mock.calls[0][0];
     const hop2 = fundsFlow.createLeg.mock.calls[1][0];
-    expect(hop1).toMatchObject({ fromWalletId: 'w-F_LIQ', toWalletId: 'w-F_SET' });
+    expect(hop1).toMatchObject({ fromWalletId: 'w-F_OPS', toWalletId: 'w-F_SET' });
     expect(hop2).toMatchObject({ fromWalletId: 'w-F_SET', toWalletId: 'w-C_VIBAN-c2' });
   });
 
@@ -94,7 +94,7 @@ describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
     await service.onSwapSucceeded({ swapId: 'swap-1', swapNo: 'SWP-1', ownerId: 'c1' });
 
     const tArgs = transfers.createTransfer.mock.calls[0][0];
-    expect(tArgs.amount.toString()).toBe('36.541375'); // net only — fee recognized company-side (F_LIQ→F_FEE)
+    expect(tArgs.amount.toString()).toBe('36.541375'); // net only — fee recognized company-side (F_OPS→F_FEE)
     expect(fundsFlow.createLeg.mock.calls[0][0].amount.toString()).toBe('36.541375');
     expect(fundsFlow.createLeg.mock.calls[1][0].amount.toString()).toBe('36.541375');
   });
@@ -148,17 +148,17 @@ describe('onFundsFlowStatusChanged', () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(fiatTransfer);
     prisma.internalFund.findMany.mockResolvedValue([
       { id: 'f-hop1', toWalletId: 'w-F_SET', fromWalletId: 'w-C_VIBAN-c1', status: 'CONFIRMED' },
-      { id: 'f-hop2', fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ', status: 'CREATED' },
+      { id: 'f-hop2', fromWalletId: 'w-F_SET', toWalletId: 'w-F_OPS', status: 'CREATED' },
     ]);
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop1', internalTransferId: 't-1', oldStatus: 'CONFIRMING', newStatus: 'CONFIRMED' });
     expect(fundsFlow.updateStatus).toHaveBeenCalledWith('f-hop2', { action: InternalFundAction.SUBMIT }, 'SYSTEM');
   });
 
-  it('hop2 CONFIRMED does not spuriously re-submit (no CREATED sibling downstream of F_LIQ)', async () => {
+  it('hop2 CONFIRMED does not spuriously re-submit (no CREATED sibling downstream of F_OPS)', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(fiatTransfer);
     prisma.internalFund.findMany.mockResolvedValue([
       { id: 'f-hop1', toWalletId: 'w-F_SET', fromWalletId: 'w-C_VIBAN-c1', status: 'CONFIRMED' },
-      { id: 'f-hop2', fromWalletId: 'w-F_SET', toWalletId: 'w-F_LIQ', status: 'CONFIRMED' },
+      { id: 'f-hop2', fromWalletId: 'w-F_SET', toWalletId: 'w-F_OPS', status: 'CONFIRMED' },
     ]);
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop2', internalTransferId: 't-1', oldStatus: 'CONFIRMING', newStatus: 'CONFIRMED' });
     expect(fundsFlow.updateStatus).not.toHaveBeenCalled();

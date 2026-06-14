@@ -76,8 +76,8 @@ describe('TRANSFER_PATH_WHITELIST', () => {
   });
 
   it('resolveRoutePolicy returns the policy for an exact route match', () => {
-    expect(resolveRoutePolicy(['C_VIBAN', 'F_SET', 'F_LIQ'])?.path).toBe(TransferPath.FIAT_SETTLE_OUT);
-    expect(resolveRoutePolicy(['F_LIQ', 'F_SET', 'C_VIBAN'])?.path).toBe(TransferPath.FIAT_SETTLE_IN);
+    expect(resolveRoutePolicy(['C_VIBAN', 'F_SET', 'F_OPS'])?.path).toBe(TransferPath.FIAT_SETTLE_OUT);
+    expect(resolveRoutePolicy(['F_OPS', 'F_SET', 'C_VIBAN'])?.path).toBe(TransferPath.FIAT_SETTLE_IN);
   });
 
   it('resolveRoutePolicy returns null for an unknown or partial route', () => {

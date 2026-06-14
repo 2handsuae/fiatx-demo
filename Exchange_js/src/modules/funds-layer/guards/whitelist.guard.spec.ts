@@ -19,7 +19,7 @@ describe('WhitelistGuard.assertRoute (fiat)', () => {
   const guard = new WhitelistGuard();
 
   it('accepts the FIAT_SETTLE_OUT route and returns its policy', () => {
-    const policy = guard.assertRoute(['C_VIBAN', 'F_SET', 'F_LIQ']);
+    const policy = guard.assertRoute(['C_VIBAN', 'F_SET', 'F_OPS']);
     expect(policy.path).toBe('FIAT_SETTLE_OUT');
     expect(policy.class).toBe('B');
     expect(policy.medium).toBe('BANK');
@@ -27,7 +27,7 @@ describe('WhitelistGuard.assertRoute (fiat)', () => {
   });
 
   it('accepts the FIAT_SETTLE_IN route', () => {
-    const policy = guard.assertRoute(['F_LIQ', 'F_SET', 'C_VIBAN']);
+    const policy = guard.assertRoute(['F_OPS', 'F_SET', 'C_VIBAN']);
     expect(policy.path).toBe('FIAT_SETTLE_IN');
   });
 
@@ -47,8 +47,8 @@ describe('WhitelistGuard.assertWhitelisted (fiat fee collection)', () => {
     expect(p.mirror).toBe('POOL_TO_FIRM');
   });
 
-  it('accepts F_LIQ->F_FEE (FIAT_SPREAD_COLLECT) with no mirror (company-internal)', () => {
-    const p = guard.assertWhitelisted('F_LIQ', 'F_FEE');
+  it('accepts F_OPS->F_FEE (FIAT_SPREAD_COLLECT) with no mirror (company-internal)', () => {
+    const p = guard.assertWhitelisted('F_OPS', 'F_FEE');
     expect(p.path).toBe('FIAT_SPREAD_COLLECT');
     expect(p.mirror).toBeUndefined();
   });

@@ -230,7 +230,7 @@ async function main() {
   assertEq('TRADE_CLEARING(AED) = −(gross+spread)', await creditNet(TB_ACCOUNT_CODES.TRADE_CLEARING, AED), -costU);
 
   // ═══ Step 3: 法币腿结算 FIAT_SETTLE_IN(两跳 → CLEAR → 镜像)═══
-  console.log('\n═══ Step 3: 法币腿结算(F_LIQ→F_SET→C_VIBAN,net 交付)═══');
+  console.log('\n═══ Step 3: 法币腿结算(F_OPS→F_SET→C_VIBAN,net 交付)═══');
   const settleTx: any = await waitFor('FIAT_SETTLEMENT transfer spawned', () =>
     prisma.internalTransaction.findFirst({ where: { sourceType: 'FIAT_SETTLEMENT', sourceId: { startsWith: swap.id } } }));
   const fset = await prisma.wallet.findFirst({ where: { walletRole: 'F_SET', assetId: aedAsset.id, ownerType: 'PLATFORM' } });
@@ -253,7 +253,7 @@ async function main() {
   assertEq('CLIENT_BANK(AED) = +net', await debitNet(TB_ACCOUNT_CODES.CLIENT_BANK, AED), netU);
   assertEq('FIRM_TREASURY(AED) = 资本 − net', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), CAPITAL_AED - netU);
 
-  // swap fee/spread 物理归集(Model A:F_LIQ→F_FEE 公司内部倒手,TB no-op)
+  // swap fee/spread 物理归集(Model A:F_OPS→F_FEE 公司内部倒手,TB no-op)
   const collects = await waitFor('swap fee/spread collections spawned', async () => {
     const rows = await prisma.internalTransaction.findMany({
       where: { sourceType: 'FIAT_FEE_COLLECTION', sourceId: { in: [`${swap.id}:FEE`, `${swap.id}:SPREAD`] } },
@@ -265,7 +265,7 @@ async function main() {
     await driveFiatLeg(leg.id);
   }
   await sleep(300);
-  assertEq('FIRM_TREASURY(AED) 不因 F_LIQ→F_FEE 归集而变(TB no-op)', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), CAPITAL_AED - netU);
+  assertEq('FIRM_TREASURY(AED) 不因 F_OPS→F_FEE 归集而变(TB no-op)', await debitNet(TB_ACCOUNT_CODES.FIRM_TREASURY, AED), CAPITAL_AED - netU);
 
   // ═══ Step 4: EOD(链上腿结算 + 清桥 + 重估)═══════════════
   console.log('\n═══ Step 4: EOD 结算 + 两本账收口(清桥/重估/对账)═══');

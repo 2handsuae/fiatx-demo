@@ -59,23 +59,23 @@ describe('SettlementBatchService', () => {
   });
 
   describe('resolveCryptoDirection', () => {
-    it('net > 0 → INTERNAL_IN / F_LIQ → C_MAIN / amount = net', () => {
+    it('net > 0 → INTERNAL_IN / F_OPS → C_MAIN / amount = net', () => {
       const net = new Prisma.Decimal(60);
       const result = service.resolveCryptoDirection(net);
       expect(result).toEqual({
         path: 'INTERNAL_IN',
-        fromRole: 'F_LIQ',
+        fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: net,
       });
     });
 
-    it('net < 0 → INTERNAL_OUT / C_MAIN → F_LIQ / amount = |net|', () => {
+    it('net < 0 → INTERNAL_OUT / C_MAIN → F_OPS / amount = |net|', () => {
       const net = new Prisma.Decimal(-40);
       const result = service.resolveCryptoDirection(net);
       expect(result!.path).toBe('INTERNAL_OUT');
       expect(result!.fromRole).toBe('C_MAIN');
-      expect(result!.toRole).toBe('F_LIQ');
+      expect(result!.toRole).toBe('F_OPS');
       expect(result!.amount.toString()).toBe('40');
     });
 

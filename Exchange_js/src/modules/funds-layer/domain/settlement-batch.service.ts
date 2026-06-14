@@ -156,7 +156,7 @@ export class SettlementBatchService {
     if (net.gt(0)) {
       return {
         path: 'INTERNAL_IN',
-        fromRole: 'F_LIQ',
+        fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: net,
       };
@@ -164,7 +164,7 @@ export class SettlementBatchService {
     return {
       path: 'INTERNAL_OUT',
       fromRole: 'C_MAIN',
-      toRole: 'F_LIQ',
+      toRole: 'F_OPS',
       amount: net.abs(),
     };
   }

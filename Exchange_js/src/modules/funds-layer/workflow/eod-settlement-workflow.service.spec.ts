@@ -124,7 +124,7 @@ describe('EodSettlementWorkflowService', () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetPositive]);
       batchService.resolveCryptoDirection.mockReturnValue({
         path: 'INTERNAL_IN',
-        fromRole: 'F_LIQ',
+        fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: new Prisma.Decimal(60),
       });
@@ -139,19 +139,19 @@ describe('EodSettlementWorkflowService', () => {
       expect((consumer as any).linkItem).toBeUndefined();
       expect((batchService as any).linkItemTransfer).toBeUndefined();
 
-      expect(systemWallets.resolve).toHaveBeenCalledWith('a-btc', 'F_LIQ');
+      expect(systemWallets.resolve).toHaveBeenCalledWith('a-btc', 'F_OPS');
       expect(systemWallets.resolve).toHaveBeenCalledWith('a-btc', 'C_MAIN');
 
       expect(transferWorkflow.initiate).toHaveBeenCalledTimes(1);
       const [input, operatorId] = transferWorkflow.initiate.mock.calls[0];
       expect(input).toMatchObject({
-        fromRole: 'F_LIQ',
+        fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         sourceType: 'EOD_SETTLEMENT',
         sourceId: 'b-1:a-btc',
         assetId: 'a-btc',
         amount: '60',
-        fromWalletId: 'w-F_LIQ',
+        fromWalletId: 'w-F_OPS',
         toWalletId: 'w-C_MAIN',
         triggerSource: 'EOD',
         settlementBatchId: 'b-1',
@@ -203,7 +203,7 @@ describe('EodSettlementWorkflowService', () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetPositive]);
       batchService.resolveCryptoDirection.mockReturnValue({
         path: 'INTERNAL_IN',
-        fromRole: 'F_LIQ',
+        fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: new Prisma.Decimal(60),
       });

@@ -63,7 +63,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
   [TransferPath.INTERNAL_OUT]: {
     path: TransferPath.INTERNAL_OUT,
     from: 'C_MAIN',
-    to: 'F_LIQ',
+    to: 'F_OPS',
     class: AccountingClass.B,
     medium: TransferMedium.CHAIN,
     trigger: ['EOD'],
@@ -71,7 +71,7 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
   },
   [TransferPath.INTERNAL_IN]: {
     path: TransferPath.INTERNAL_IN,
-    from: 'F_LIQ',
+    from: 'F_OPS',
     to: 'C_MAIN',
     class: AccountingClass.B,
     medium: TransferMedium.CHAIN,
@@ -90,8 +90,8 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
   [TransferPath.FIAT_SETTLE_OUT]: {
     path: TransferPath.FIAT_SETTLE_OUT,
     from: 'C_VIBAN',
-    to: 'F_LIQ',
-    route: ['C_VIBAN', 'F_SET', 'F_LIQ'],
+    to: 'F_OPS',
+    route: ['C_VIBAN', 'F_SET', 'F_OPS'],
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
@@ -99,9 +99,9 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
   },
   [TransferPath.FIAT_SETTLE_IN]: {
     path: TransferPath.FIAT_SETTLE_IN,
-    from: 'F_LIQ',
+    from: 'F_OPS',
     to: 'C_VIBAN',
-    route: ['F_LIQ', 'F_SET', 'C_VIBAN'],
+    route: ['F_OPS', 'F_SET', 'C_VIBAN'],
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
@@ -114,18 +114,18 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     // WITHDRAW only — withdrawal fee genuinely leaves the client VIBAN. Swap service
-    // fees are company-side (F_LIQ→F_FEE) under Model A, not C_VIBAN→F_FEE.
+    // fees are company-side (F_OPS→F_FEE) under Model A, not C_VIBAN→F_FEE.
     trigger: ['WITHDRAW'],
     mirror: 'POOL_TO_FIRM',
   },
   [TransferPath.FIAT_SPREAD_COLLECT]: {
     path: TransferPath.FIAT_SPREAD_COLLECT,
-    from: 'F_LIQ',
+    from: 'F_OPS',
     to: 'F_FEE',
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
-    // No mirror: company-internal movement (F_LIQ→F_FEE), TB no-op.
+    // No mirror: company-internal movement (F_OPS→F_FEE), TB no-op.
   },
 };
 

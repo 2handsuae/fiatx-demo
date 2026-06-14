@@ -58,23 +58,23 @@ export class FiatSettlementWorkflowService {
       });
 
       for (const o of outstandings) {
-        // direction OUT → client sold fiat (VIBAN → F_SET → F_LIQ);
-        // direction IN  → client bought fiat (F_LIQ → F_SET → VIBAN).
+        // direction OUT → client sold fiat (VIBAN → F_SET → F_OPS);
+        // direction IN  → client bought fiat (F_OPS → F_SET → VIBAN).
         const isOut = o.direction === 'OUT';
         const route = isOut
-          ? ['C_VIBAN', 'F_SET', 'F_LIQ']
-          : ['F_LIQ', 'F_SET', 'C_VIBAN'];
+          ? ['C_VIBAN', 'F_SET', 'F_OPS']
+          : ['F_OPS', 'F_SET', 'C_VIBAN'];
         // The route whitelist is the single source of truth for path/class/medium.
         const policy = this.whitelist.assertRoute(route);
 
         const viban = await this.systemWallets.resolveCustomer(o.assetId, 'C_VIBAN', o.ownerId);
         const fset = await this.systemWallets.resolve(o.assetId, 'F_SET');
-        const fliq = await this.systemWallets.resolve(o.assetId, 'F_LIQ');
+        const fliq = await this.systemWallets.resolve(o.assetId, 'F_OPS');
 
         const hop1From = isOut ? viban : fliq;
         const hop2To = isOut ? fliq : viban;
-        // Model A: only NET moves through F_LIQ→F_SET→VIBAN (both directions). The
-        // service fee is recognized company-side (F_LIQ→F_FEE) and never round-trips
+        // Model A: only NET moves through F_OPS→F_SET→VIBAN (both directions). The
+        // service fee is recognized company-side (F_OPS→F_FEE) and never round-trips
         // the client VIBAN; accounting stays gross (posted at swap time, drain is balance-driven).
         const amount = new Prisma.Decimal(o.amount);
 
@@ -171,7 +171,7 @@ export class FiatSettlementWorkflowService {
       }
 
       // Swap fee/spread collection rides along once the IN (buy-fiat) settlement
-      // completes. Model A: both fee and spread are pulled from F_LIQ (company side).
+      // completes. Model A: both fee and spread are pulled from F_OPS (company side).
       if (transfer.pathLabel === TransferPath.FIAT_SETTLE_IN) {
         const swapId = String(transfer.sourceId || '').split(':')[0];
         if (swapId) await this.feeCollection.collectSwapFees(swapId);
