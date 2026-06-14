@@ -206,12 +206,10 @@ const InternalTransactionDetail = () => {
     <div className="flex h-full flex-col">
       {/* Nav Header */}
       <DetailPageHeader
-        title="Internal Transaction"
-        subtitle={`${data.internalTxNo} · ${data.type}`}
         onBack={() => navigate('/exchange/internal-transactions')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
-        backLabel="Back to Internal Transactions"
+        backLabel="Internal Transactions"
       />
 
       {/* Body */}

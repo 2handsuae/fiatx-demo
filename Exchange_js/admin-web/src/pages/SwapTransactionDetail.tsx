@@ -5,7 +5,6 @@ import {
   DetailPageHeader,
   DetailCard,
   InfoField,
-  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -309,9 +308,6 @@ const SwapTransactionDetail = () => {
             <InfoField label="Trace ID" value={data.traceId} mono />
             <InfoField label="From Asset ID" value={data.fromAssetId} mono />
             <InfoField label="To Asset ID" value={data.toAssetId} mono />
-            <div className="md:col-span-2">
-              <JsonBlock title="Fee Breakdown (raw)" value={data.feeBreakdown} compact />
-            </div>
           </DetailCard>
         </div>
 

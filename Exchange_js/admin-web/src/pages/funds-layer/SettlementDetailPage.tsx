@@ -5,7 +5,6 @@ import { RefreshCw } from 'lucide-react';
 import {
   DetailPageHeader,
   InfoField,
-  JsonBlock,
 } from '../../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
 import { StatusPill } from '../../components/ui/StatusPill';
@@ -236,27 +235,6 @@ const SettlementDetailPage = () => {
             )}
           </div>
 
-          {/* 4. Technical Detail (last) */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Technical Detail
-            </h3>
-            <div className="mt-1 space-y-3">
-              <JsonBlock
-                title="Settlement Transfers (raw)"
-                value={transfers.map((t) => ({
-                  internalTxNo: t.internalTxNo,
-                  assetCode: t.assetCode,
-                  grossInAmount: t.grossInAmount,
-                  grossOutAmount: t.grossOutAmount,
-                  netAmount: t.netAmount,
-                  pathLabel: t.pathLabel,
-                  status: t.status,
-                }))}
-                compact
-              />
-            </div>
-          </div>
         </div>
 
         {/* ── Sidebar ── */}

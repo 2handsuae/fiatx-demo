@@ -6,7 +6,6 @@ import {
   DetailPageHeader,
   DetailCard,
   InfoField,
-  JsonBlock,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -346,7 +345,6 @@ const DepositTransactionDetail = () => {
           {/* 7. Technical */}
           <DetailCard title="Technical" columns={1}>
             <InfoField label="Trace ID" value={data.traceId} mono />
-            <JsonBlock title="Status History (raw)" value={data.statusHistory} compact />
           </DetailCard>
         </div>
 
