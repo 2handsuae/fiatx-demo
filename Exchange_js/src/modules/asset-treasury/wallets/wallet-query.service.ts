@@ -11,10 +11,10 @@ export class WalletQueryService {
       this.prisma.wallet.count({ where }),
     ]);
     const enriched = await this.attachOwnerInfo(items);
-    return {
-      items: enriched.map((w: any) => ({ ...w, balance: w.mockBalance })),
-      total,
-    };
+    const withBalance = await Promise.all(
+      enriched.map(async (w: any) => ({ ...w, balance: await this.resolveDisplayBalance(w) })),
+    );
+    return { items: withBalance, total };
   }
 
   async findOne(id: string) {
@@ -24,7 +24,21 @@ export class WalletQueryService {
     });
     if (!wallet) throw new NotFoundException({ code: 'WALLET_NOT_FOUND', message: `Wallet ${id} not found` });
     const [enriched] = await this.attachOwnerInfo([wallet]);
-    return { ...enriched, balance: (wallet as any).mockBalance };
+    return { ...enriched, balance: await this.resolveDisplayBalance(wallet as any) };
+  }
+
+  /**
+   * Display balance. C_CMA has no balance of its own — it is the read-time
+   * aggregate of every customer C_VIBAN for the same asset (Σ VIBAN). All other
+   * roles read their own mockBalance.
+   */
+  private async resolveDisplayBalance(wallet: any): Promise<any> {
+    if (wallet?.walletRole !== 'C_CMA') return wallet?.mockBalance;
+    const agg = await (this.prisma as any).wallet.aggregate({
+      where: { walletRole: 'C_VIBAN', assetId: wallet.assetId },
+      _sum: { mockBalance: true },
+    });
+    return agg?._sum?.mockBalance ?? '0';
   }
 
   async findBalance(id: string) {
@@ -40,7 +54,7 @@ export class WalletQueryService {
       ownerType: wallet.ownerType,
       ownerId: wallet.ownerId,
       asset: wallet.asset,
-      balance: wallet.mockBalance,
+      balance: await this.resolveDisplayBalance(wallet as any),
     };
   }
 

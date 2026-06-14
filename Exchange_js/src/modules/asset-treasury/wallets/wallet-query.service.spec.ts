@@ -12,6 +12,7 @@ describe('WalletQueryService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
       findUnique: jest.fn(),
+      aggregate: jest.fn(),
     },
     customerMain: {
       findUnique: jest.fn(),
@@ -174,6 +175,63 @@ describe('WalletQueryService', () => {
           response: expect.objectContaining({ code: 'WALLET_NOT_FOUND' }),
         }),
       );
+    });
+  });
+
+  // ── C_CMA derived balance (Σ VIBAN) ──────────────────────────────────
+
+  describe('C_CMA derived balance', () => {
+    const cmaWallet = {
+      id: 'wallet-cma-1',
+      walletNo: 'WA-CMA',
+      ownerType: 'PLATFORM',
+      ownerId: null,
+      walletRole: 'C_CMA',
+      mockBalance: '0',
+      assetId: 'asset-aed',
+      asset: { id: 'asset-aed', code: 'AED', type: 'FIAT', decimals: 6 },
+    };
+
+    it('findOne C_CMA → balance = Σ C_VIBAN mockBalance for the asset', async () => {
+      prismaMock.wallet.findUnique.mockResolvedValue(cmaWallet);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
+      prismaMock.wallet.aggregate.mockResolvedValue({
+        _sum: { mockBalance: '4150.75' },
+      });
+
+      const result = await service.findOne('wallet-cma-1');
+
+      expect(prismaMock.wallet.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { walletRole: 'C_VIBAN', assetId: 'asset-aed' },
+          _sum: { mockBalance: true },
+        }),
+      );
+      expect(result.balance).toBe('4150.75');
+    });
+
+    it('findOne C_CMA with no VIBANs → balance 0', async () => {
+      prismaMock.wallet.findUnique.mockResolvedValue(cmaWallet);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
+      prismaMock.liquidityProvider.findMany.mockResolvedValue([]);
+      prismaMock.wallet.aggregate.mockResolvedValue({
+        _sum: { mockBalance: null },
+      });
+
+      const result = await service.findOne('wallet-cma-1');
+
+      expect(result.balance).toBe('0');
+    });
+
+    it('non-C_CMA wallet → reads own mockBalance, no aggregate call', async () => {
+      prismaMock.wallet.findUnique.mockResolvedValue(customerWallet);
+      prismaMock.customerMain.findMany.mockResolvedValue([]);
+
+      const result = await service.findOne('wallet-cust-1');
+
+      expect(result.balance).toBe(customerWallet.mockBalance);
+      expect(prismaMock.wallet.aggregate).not.toHaveBeenCalled();
     });
   });
 
