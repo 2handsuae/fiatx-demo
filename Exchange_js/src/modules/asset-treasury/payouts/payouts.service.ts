@@ -50,6 +50,7 @@ const FIAT_TRANSITIONS: Record<string, Partial<Record<PayoutAction, PayoutStatus
   [PayoutStatus.RETURNED]: {},
 };
 import { Prisma } from '@prisma/client';
+import { WalletBalanceService } from '../wallets/wallet-balance.service';
 import { randomUUID as uuidv4 } from 'crypto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayoutEvents } from './constants/payout-events.constant';
@@ -73,7 +74,30 @@ export class PayoutsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly transactionComplianceService: TransactionComplianceService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly walletBalance: WalletBalanceService,
   ) {}
+
+  /** 出资钱包 id 解析(用于 CLEARED 扣 mock 余额)：crypto=C_OUT；fiat=客户 C_VIBAN。 */
+  private async resolveSourceWalletId(
+    type: string,
+    assetId: string,
+    ownerId: string | null,
+    client: Prisma.TransactionClient,
+  ): Promise<string | null> {
+    if (String(type).toUpperCase() === 'FIAT') {
+      if (!ownerId) return null;
+      const viban = await (client as any).wallet.findFirst({
+        where: { walletRole: 'C_VIBAN', assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      return viban?.id ?? null;
+    }
+    const out = await (client as any).wallet.findFirst({
+      where: { walletRole: 'C_OUT', assetId, ownerType: 'PLATFORM', status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return out?.id ?? null;
+  }
 
   /** 出资钱包解析：crypto=C_OUT(平台出站热钱包)；fiat=客户 C_VIBAN(CMA 不对外转账)。 */
   private async resolveSourceWallet(
@@ -509,6 +533,22 @@ export class PayoutsService {
         where: { id },
         data: updateData,
       });
+
+      // Mock-balance: payout cleared → debit the source wallet (funds leave to
+      // external; no internal to-wallet). No validation, allows negative.
+      if (nextStatus === PayoutStatus.CLEARED) {
+        const srcWalletId = await this.resolveSourceWalletId(
+          item.type,
+          item.assetId,
+          item.ownerId ?? null,
+          client,
+        );
+        await this.walletBalance.adjust(
+          srcWalletId,
+          new Prisma.Decimal(item.amount ?? 0).negated(),
+          client,
+        );
+      }
 
       await this.auditLogsService.recordByActor(
         {

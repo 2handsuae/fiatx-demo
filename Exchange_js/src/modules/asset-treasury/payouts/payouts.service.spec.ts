@@ -16,6 +16,7 @@ describe('PayoutsService', () => {
   let prisma: any;
   let eventEmitter: { emit: jest.Mock };
   let transactionComplianceService: any;
+  let walletBalance: any;
 
   beforeEach(() => {
     prisma = {
@@ -35,6 +36,9 @@ describe('PayoutsService', () => {
       withdrawTransaction: {
         findUnique: jest.fn(),
       },
+      wallet: {
+        findFirst: jest.fn(),
+      },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     eventEmitter = {
@@ -43,11 +47,13 @@ describe('PayoutsService', () => {
     transactionComplianceService = {
       ensureWithdrawMainCasesBeforePayoutDispatch: jest.fn(),
     };
+    walletBalance = { adjust: jest.fn().mockResolvedValue(undefined) };
     service = new PayoutsService(
       prisma,
       eventEmitter as unknown as EventEmitter2,
       transactionComplianceService,
       {} as any,
+      walletBalance as any,
     );
     (service as any).auditLogsService = {
       recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
@@ -705,6 +711,37 @@ describe('PayoutsService', () => {
         }),
       }),
     );
+  });
+
+  it('mock-balance: payout CLEARED debits the resolved source wallet by amount', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_BAL_1',
+      withdrawId: 'WD_BAL_1',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMED,
+      assetId: 'asset-usdt',
+      ownerId: 'CUST_BAL',
+      amount: '300',
+      statusHistory: '[]',
+      sentAt: new Date(),
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_BAL_1',
+      status: PayoutStatus.CLEARED,
+    });
+    // resolveSourceWalletId → C_OUT wallet
+    prisma.wallet.findFirst.mockResolvedValue({ id: 'w-cout' });
+
+    await service.updateStatus(
+      'PO_BAL_1',
+      { action: PayoutAction.CLEAR },
+      'SYSTEM',
+    );
+
+    expect(walletBalance.adjust).toHaveBeenCalledTimes(1);
+    const [walletId, delta] = walletBalance.adjust.mock.calls[0];
+    expect(walletId).toBe('w-cout');
+    expect(delta.toString()).toBe('-300');
   });
 
   it('crypto confirm without gas input → mock gas auto-generated (同 fiat referenceNo 兜底)', async () => {

@@ -22,6 +22,7 @@ import {
 } from './events/payin.events';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { WalletBalanceService } from '../wallets/wallet-balance.service';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -56,6 +57,7 @@ export class PayinsService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
+    private readonly walletBalance: WalletBalanceService,
   ) {}
 
   private normalizeOptionalString(value?: string | null): string | null {
@@ -473,6 +475,16 @@ export class PayinsService {
         statusHistory: newHistoryString,
       },
     });
+
+    // Mock-balance: deposit cleared → credit the receiving wallet (fiat C_VIBAN /
+    // crypto C_DEP). No validation. Not wrapped in a tx here (mock ledger).
+    if (nextStatus === PayinStatus.CLEARED) {
+      await this.walletBalance.adjust(
+        updatedPayin.toWalletId,
+        new Prisma.Decimal(updatedPayin.amount ?? 0),
+        this.prisma as any,
+      );
+    }
 
     await this.auditLogsService.recordSystem({
 

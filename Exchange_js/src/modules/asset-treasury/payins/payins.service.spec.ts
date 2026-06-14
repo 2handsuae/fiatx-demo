@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PayinsService } from './payins.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { WalletBalanceService } from '../wallets/wallet-balance.service';
 import {
   PayinAction,
   PayinMockEvent,
@@ -14,6 +15,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 describe('PayinsService', () => {
   let service: PayinsService;
   let prisma: PrismaService;
+  let walletBalance: WalletBalanceService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -59,14 +61,49 @@ describe('PayinsService', () => {
             recordSystem: jest.fn().mockResolvedValue({}),
           },
         },
+        {
+          provide: WalletBalanceService,
+          useValue: { adjust: jest.fn().mockResolvedValue(undefined) },
+        },
       ],
     }).compile();
 
     service = module.get<PayinsService>(PayinsService);
     prisma = module.get<PrismaService>(PrismaService);
+    walletBalance = module.get<WalletBalanceService>(WalletBalanceService);
   });
 
   describe('updateStatus', () => {
+    it('mock-balance: CONFIRMED -> CLEARED credits toWallet by amount', async () => {
+      const mockPayin = {
+        id: 'p-clr',
+        type: 'crypto',
+        status: PayinStatus.CONFIRMED,
+        toWalletId: 'w-dep',
+        amount: { toString: () => '1000' },
+        statusHistory: '[]',
+        depositId: 'd1',
+        assetId: 'a1',
+      };
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue(
+        mockPayin,
+      );
+      ((prisma as any).payin.update as jest.Mock).mockResolvedValue({
+        ...mockPayin,
+        status: PayinStatus.CLEARED,
+        toWalletId: 'w-dep',
+        amount: '1000',
+      });
+
+      await service.updateStatus('p-clr', PayinAction.CLEAR);
+
+      expect(walletBalance.adjust).toHaveBeenCalledTimes(1);
+      const [walletId, delta] = (walletBalance.adjust as jest.Mock).mock
+        .calls[0];
+      expect(walletId).toBe('w-dep');
+      expect(delta.toString()).toBe('1000');
+    });
+
     it('should transition FIAT DETECTED -> CONFIRMED via confirm', async () => {
       const mockPayin = {
         id: '1',
