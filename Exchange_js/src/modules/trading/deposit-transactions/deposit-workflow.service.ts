@@ -291,6 +291,7 @@ export class DepositWorkflowService implements OnModuleInit {
         payin.txHash || undefined,
         payin.fromAddress || undefined,
         payin.id,
+        payin.traceId || undefined,
       );
       await this.payinsService.linkDeposit(payinId, deposit.id);
 

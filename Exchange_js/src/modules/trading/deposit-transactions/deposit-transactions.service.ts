@@ -370,6 +370,7 @@ export class DepositTransactionsService {
     txHash?: string,
     fromAddress?: string,
     payinId?: string,
+    traceId?: string,
   ) {
     const wallet = await (this.prisma as any).wallet.findUnique({
       where: { id: toWalletId },
@@ -377,11 +378,11 @@ export class DepositTransactionsService {
     if (!wallet) throw new NotFoundException('Wallet not found');
 
     const depositNo = generateReferenceNo('DEP');
-    const traceId = randomUUID();
+    const resolvedTraceId = traceId ?? randomUUID();
     const created = await (this.prisma as any).depositTransaction.create({
       data: {
         depositNo,
-        traceId,
+        traceId: resolvedTraceId,
         ownerType: wallet.ownerType,
         ownerId: wallet.ownerId || 'UNKNOWN',
         status: DepositTransactionStatus.PAYIN_PENDING,

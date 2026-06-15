@@ -14,6 +14,7 @@ describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
   let depositService: Record<string, jest.Mock>;
   let auditLogsService: Record<string, jest.Mock>;
+  let payinsService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     depositService = {
@@ -29,12 +30,17 @@ describe('DepositWorkflowService', () => {
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
     };
+    payinsService = {
+      findOne: jest.fn(),
+      updateStatus: jest.fn(),
+      linkDeposit: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DepositWorkflowService,
         { provide: DepositTransactionsService, useValue: depositService },
-        { provide: PayinsService, useValue: { findOne: jest.fn(), updateStatus: jest.fn(), linkDeposit: jest.fn() } },
+        { provide: PayinsService, useValue: payinsService },
         { provide: AuditLogsService, useValue: auditLogsService },
         { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
       ],
@@ -220,6 +226,41 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.findOne).toHaveBeenCalledWith('dep-fiat-1');
       expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-fiat-1');
+    });
+  });
+
+  describe('orchestratePayinDetected — traceId inheritance', () => {
+    it('passes payin.traceId to createFromPayin so deposit inherits it', async () => {
+      const captured: any[] = [];
+      payinsService.findOne.mockResolvedValue({
+        id: 'p3',
+        amount: { toString: () => '100' },
+        assetId: 'a1',
+        toWalletId: 'w1',
+        txHash: null,
+        fromAddress: null,
+        traceId: 'TRACE-FROM-PAYIN',
+      });
+      depositService.findByPayinId.mockResolvedValue(null);
+      depositService.createFromPayin.mockImplementation((...args: any[]) => {
+        captured.push(args);
+        return Promise.resolve({
+          id: 'd3',
+          depositNo: 'DEP3',
+          payinId: 'p3',
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: args[6],
+        });
+      });
+      payinsService.linkDeposit.mockResolvedValue({});
+
+      await (service as any).orchestratePayinDetected('p3');
+
+      expect(captured).toHaveLength(1);
+      // Signature after this task: createFromPayin(amount, assetId, toWalletId, txHash?, fromAddress?, payinId?, traceId?)
+      // 7th positional arg is the inherited traceId.
+      expect(captured[0][6]).toBe('TRACE-FROM-PAYIN');
     });
   });
 });
