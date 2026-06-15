@@ -1916,4 +1916,42 @@ describe('AuditLogsService', () => {
       } as any),
     ).rejects.toThrow('linked swap');
   });
+
+  describe('buildDepositTraceId fallback ordering', () => {
+    it('prefers deposit.traceId, then payin.traceId, then legacy DEPOSIT:<id>, else null', () => {
+      const svc: any = service;
+
+      // 1) deposit.traceId wins
+      expect(
+        svc.buildDepositTraceId(
+          { id: 'p1', traceId: 'PAYIN_T' },
+          { id: 'd1', payinId: 'p1', traceId: 'DEPOSIT_T' },
+        ),
+      ).toBe('DEPOSIT_T');
+
+      // 2) no deposit.traceId — fall to payin.traceId
+      expect(
+        svc.buildDepositTraceId(
+          { id: 'p1', traceId: 'PAYIN_T' },
+          { id: 'd1', payinId: 'p1', traceId: null },
+        ),
+      ).toBe('PAYIN_T');
+
+      // 3) neither traceId — legacy DEPOSIT:<payinId> (payin.id wins over deposit.payinId)
+      expect(
+        svc.buildDepositTraceId(
+          { id: 'p1', traceId: null },
+          { id: 'd1', payinId: 'p1', traceId: null },
+        ),
+      ).toBe('DEPOSIT:p1');
+
+      // 4) only deposit.payinId
+      expect(
+        svc.buildDepositTraceId(null, { id: 'd1', payinId: 'p9', traceId: null }),
+      ).toBe('DEPOSIT:p9');
+
+      // 5) totally empty — null
+      expect(svc.buildDepositTraceId(null, null)).toBeNull();
+    });
+  });
 });

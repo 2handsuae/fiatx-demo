@@ -346,9 +346,17 @@ export class AuditLogsService {
     }
   }
 
-  private buildDepositTraceId(payinId?: string | null, depositId?: string | null) {
+  private buildDepositTraceId(
+    payin?: { id?: string | null; traceId?: string | null } | null,
+    deposit?: { id?: string | null; traceId?: string | null; payinId?: string | null } | null,
+  ): string | null {
+    const depositTrace = this.normalizeOptionalString(deposit?.traceId);
+    if (depositTrace) return depositTrace;
+    const payinTrace = this.normalizeOptionalString(payin?.traceId);
+    if (payinTrace) return payinTrace;
     const rootId =
-      this.normalizeOptionalString(payinId) || this.normalizeOptionalString(depositId);
+      this.normalizeOptionalString(payin?.id) ||
+      this.normalizeOptionalString(deposit?.payinId);
     return rootId ? `${AuditWorkflowTypes.DEPOSIT}:${rootId}` : null;
   }
 
@@ -694,7 +702,7 @@ export class AuditLogsService {
     return {
       traceId:
         this.normalizeOptionalString(input.traceId) ||
-        this.buildDepositTraceId(payin?.id || deposit?.payinId, deposit?.id),
+        this.buildDepositTraceId(payin, deposit),
       workflowType: AuditWorkflowTypes.DEPOSIT,
       entityOwnerNo: resolvedEntityOwnerNo,
     };
