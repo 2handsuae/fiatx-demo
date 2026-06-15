@@ -9,12 +9,12 @@ import {
 describe('TRANSFER_PATH_WHITELIST', () => {
   it('defines the 6 crypto paths and 4 fiat paths', () => {
     expect(Object.keys(TRANSFER_PATH_WHITELIST).sort()).toEqual(
-      ['AGGREGATE', 'FEE_COLLECT', 'FIAT_FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FIAT_SPREAD_COLLECT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'].sort(),
+      ['CRYPTO_DEPOSIT_SWEEP', 'CRYPTO_WITHDRAW_FEE_COLLECT', 'FIAT_WITHDRAW_FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FIAT_SWAP_FEE_COLLECT', 'CRYPTO_HOTWALLET_FUND', 'CRYPTO_HOTWALLET_RETURN', 'CRYPTO_SETTLE_IN', 'CRYPTO_SETTLE_OUT'].sort(),
     );
   });
 
   it('crypto paths use CHAIN medium and a real WalletRole', () => {
-    const cryptoPaths = ['AGGREGATE', 'FEE_COLLECT', 'FUND_OUT', 'FUND_RETURN', 'INTERNAL_IN', 'INTERNAL_OUT'];
+    const cryptoPaths = ['CRYPTO_DEPOSIT_SWEEP', 'CRYPTO_WITHDRAW_FEE_COLLECT', 'CRYPTO_HOTWALLET_FUND', 'CRYPTO_HOTWALLET_RETURN', 'CRYPTO_SETTLE_IN', 'CRYPTO_SETTLE_OUT'];
     const validRoles = ['C_DEP', 'C_OUT', 'C_MAIN', 'F_LIQ', 'F_OPS'];
     for (const policy of Object.values(TRANSFER_PATH_WHITELIST)) {
       if (!cryptoPaths.includes(policy.path)) continue;
@@ -42,33 +42,33 @@ describe('TRANSFER_PATH_WHITELIST', () => {
 
   it('mirror values: POOL_TO_FIRM for pool→firm paths, FIRM_TO_POOL for reverse, undefined for no-op', () => {
     // Pool→Firm paths
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].mirror).toBe('POOL_TO_FIRM');
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FEE_COLLECT].mirror).toBe('POOL_TO_FIRM');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_SETTLE_OUT].mirror).toBe('POOL_TO_FIRM');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT].mirror).toBe('POOL_TO_FIRM');
     expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SETTLE_OUT].mirror).toBe('POOL_TO_FIRM');
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_FEE_COLLECT].mirror).toBe('POOL_TO_FIRM');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_WITHDRAW_FEE_COLLECT].mirror).toBe('POOL_TO_FIRM');
     // Firm→Pool paths
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_IN].mirror).toBe('FIRM_TO_POOL');
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_SETTLE_IN].mirror).toBe('FIRM_TO_POOL');
     expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SETTLE_IN].mirror).toBe('FIRM_TO_POOL');
     // No mirror: pool-internal or company-internal movements
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].mirror).toBeUndefined();
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FUND_OUT].mirror).toBeUndefined();
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FUND_RETURN].mirror).toBeUndefined();
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SPREAD_COLLECT].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_DEPOSIT_SWEEP].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_HOTWALLET_FUND].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_HOTWALLET_RETURN].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SWAP_FEE_COLLECT].mirror).toBeUndefined();
   });
 
   it('B-class paths have mirror or are FIAT_SPREAD_COLLECT; A-class paths have no mirror', () => {
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].class).toBe(AccountingClass.B);
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.INTERNAL_OUT].mirror).toBeDefined();
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].class).toBe(AccountingClass.A);
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.AGGREGATE].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_SETTLE_OUT].class).toBe(AccountingClass.B);
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_SETTLE_OUT].mirror).toBeDefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_DEPOSIT_SWEEP].class).toBe(AccountingClass.A);
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.CRYPTO_DEPOSIT_SWEEP].mirror).toBeUndefined();
     // FIAT_SPREAD_COLLECT is B-class but no mirror (company-internal)
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SPREAD_COLLECT].class).toBe(AccountingClass.B);
-    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SPREAD_COLLECT].mirror).toBeUndefined();
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SWAP_FEE_COLLECT].class).toBe(AccountingClass.B);
+    expect(TRANSFER_PATH_WHITELIST[TransferPath.FIAT_SWAP_FEE_COLLECT].mirror).toBeUndefined();
   });
 
   it('resolvePathPolicy returns policy for a known from→to role pair', () => {
-    expect(resolvePathPolicy('C_DEP', 'C_MAIN')?.path).toBe(TransferPath.AGGREGATE);
-    expect(resolvePathPolicy('C_MAIN', 'C_OUT')?.path).toBe(TransferPath.FUND_OUT);
+    expect(resolvePathPolicy('C_DEP', 'C_MAIN')?.path).toBe(TransferPath.CRYPTO_DEPOSIT_SWEEP);
+    expect(resolvePathPolicy('C_MAIN', 'C_OUT')?.path).toBe(TransferPath.CRYPTO_HOTWALLET_FUND);
   });
 
   it('resolvePathPolicy returns null for non-whitelisted pair', () => {

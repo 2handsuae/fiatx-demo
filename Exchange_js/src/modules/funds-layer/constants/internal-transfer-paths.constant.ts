@@ -1,14 +1,14 @@
 export enum TransferPath {
-  AGGREGATE      = 'AGGREGATE',
-  FUND_OUT       = 'FUND_OUT',
-  FUND_RETURN    = 'FUND_RETURN',
-  INTERNAL_OUT   = 'INTERNAL_OUT',
-  INTERNAL_IN    = 'INTERNAL_IN',
-  FEE_COLLECT    = 'FEE_COLLECT',
+  CRYPTO_DEPOSIT_SWEEP       = 'CRYPTO_DEPOSIT_SWEEP',
+  CRYPTO_HOTWALLET_FUND      = 'CRYPTO_HOTWALLET_FUND',
+  CRYPTO_HOTWALLET_RETURN    = 'CRYPTO_HOTWALLET_RETURN',
+  CRYPTO_SETTLE_OUT          = 'CRYPTO_SETTLE_OUT',
+  CRYPTO_SETTLE_IN           = 'CRYPTO_SETTLE_IN',
+  CRYPTO_WITHDRAW_FEE_COLLECT = 'CRYPTO_WITHDRAW_FEE_COLLECT',
   FIAT_SETTLE_OUT     = 'FIAT_SETTLE_OUT',
   FIAT_SETTLE_IN      = 'FIAT_SETTLE_IN',
-  FIAT_FEE_COLLECT    = 'FIAT_FEE_COLLECT',
-  FIAT_SPREAD_COLLECT = 'FIAT_SPREAD_COLLECT',
+  FIAT_WITHDRAW_FEE_COLLECT = 'FIAT_WITHDRAW_FEE_COLLECT',
+  FIAT_SWAP_FEE_COLLECT     = 'FIAT_SWAP_FEE_COLLECT',
 }
 
 export enum AccountingClass {
@@ -36,32 +36,32 @@ export interface TransferPathPolicy {
 }
 
 export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> = {
-  [TransferPath.AGGREGATE]: {
-    path: TransferPath.AGGREGATE,
+  [TransferPath.CRYPTO_DEPOSIT_SWEEP]: {
+    path: TransferPath.CRYPTO_DEPOSIT_SWEEP,
     from: 'C_DEP',
     to: 'C_MAIN',
     class: AccountingClass.A,
     medium: TransferMedium.CHAIN,
     trigger: ['CRON', 'THRESHOLD'],
   },
-  [TransferPath.FUND_OUT]: {
-    path: TransferPath.FUND_OUT,
+  [TransferPath.CRYPTO_HOTWALLET_FUND]: {
+    path: TransferPath.CRYPTO_HOTWALLET_FUND,
     from: 'C_MAIN',
     to: 'C_OUT',
     class: AccountingClass.A,
     medium: TransferMedium.CHAIN,
     trigger: ['WITHDRAW'],
   },
-  [TransferPath.FUND_RETURN]: {
-    path: TransferPath.FUND_RETURN,
+  [TransferPath.CRYPTO_HOTWALLET_RETURN]: {
+    path: TransferPath.CRYPTO_HOTWALLET_RETURN,
     from: 'C_OUT',
     to: 'C_MAIN',
     class: AccountingClass.A,
     medium: TransferMedium.CHAIN,
     trigger: ['WITHDRAW'],
   },
-  [TransferPath.INTERNAL_OUT]: {
-    path: TransferPath.INTERNAL_OUT,
+  [TransferPath.CRYPTO_SETTLE_OUT]: {
+    path: TransferPath.CRYPTO_SETTLE_OUT,
     from: 'C_MAIN',
     to: 'F_OPS',
     class: AccountingClass.B,
@@ -69,8 +69,8 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     trigger: ['EOD'],
     mirror: 'POOL_TO_FIRM',
   },
-  [TransferPath.INTERNAL_IN]: {
-    path: TransferPath.INTERNAL_IN,
+  [TransferPath.CRYPTO_SETTLE_IN]: {
+    path: TransferPath.CRYPTO_SETTLE_IN,
     from: 'F_OPS',
     to: 'C_MAIN',
     class: AccountingClass.B,
@@ -78,8 +78,8 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     trigger: ['EOD'],
     mirror: 'FIRM_TO_POOL',
   },
-  [TransferPath.FEE_COLLECT]: {
-    path: TransferPath.FEE_COLLECT,
+  [TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT]: {
+    path: TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT,
     from: 'C_MAIN',
     to: 'F_OPS',
     class: AccountingClass.B,
@@ -107,8 +107,8 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     trigger: ['SWAP'],
     mirror: 'FIRM_TO_POOL',
   },
-  [TransferPath.FIAT_FEE_COLLECT]: {
-    path: TransferPath.FIAT_FEE_COLLECT,
+  [TransferPath.FIAT_WITHDRAW_FEE_COLLECT]: {
+    path: TransferPath.FIAT_WITHDRAW_FEE_COLLECT,
     from: 'C_VIBAN',
     to: 'F_FEE',
     class: AccountingClass.B,
@@ -118,8 +118,8 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     trigger: ['WITHDRAW'],
     mirror: 'POOL_TO_FIRM',
   },
-  [TransferPath.FIAT_SPREAD_COLLECT]: {
-    path: TransferPath.FIAT_SPREAD_COLLECT,
+  [TransferPath.FIAT_SWAP_FEE_COLLECT]: {
+    path: TransferPath.FIAT_SWAP_FEE_COLLECT,
     from: 'F_OPS',
     to: 'F_FEE',
     class: AccountingClass.B,
