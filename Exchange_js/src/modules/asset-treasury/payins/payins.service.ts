@@ -4,6 +4,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   MockPayinEventDto,
@@ -196,6 +197,8 @@ export class PayinsService {
       },
     ];
 
+    const traceId = randomUUID();
+
     const payin = await (this.prisma as any).payin.create({
       data: {
         payinNo: generateReferenceNo('PI'),
@@ -214,6 +217,7 @@ export class PayinsService {
         providerTxnId,
         receivedAt: receivedAt || new Date(),
         statusHistory: JSON.stringify(initialHistory),
+        traceId,
       },
     });
 
@@ -240,6 +244,7 @@ export class PayinsService {
       workflowType: 'DEPOSIT',
       reason: initialReason,
       sourcePlatform: 'SYSTEM',
+      traceId,
     });
 
     return payin;

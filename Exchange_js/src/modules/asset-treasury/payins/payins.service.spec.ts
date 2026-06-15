@@ -16,6 +16,7 @@ describe('PayinsService', () => {
   let service: PayinsService;
   let prisma: PrismaService;
   let walletBalance: WalletBalanceService;
+  let auditLogsService: AuditLogsService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -71,6 +72,7 @@ describe('PayinsService', () => {
     service = module.get<PayinsService>(PayinsService);
     prisma = module.get<PrismaService>(PrismaService);
     walletBalance = module.get<WalletBalanceService>(WalletBalanceService);
+    auditLogsService = module.get<AuditLogsService>(AuditLogsService);
   });
 
   describe('updateStatus', () => {
@@ -357,6 +359,33 @@ describe('PayinsService', () => {
         }),
       );
       expect(result.id).toBe('payin-1');
+    });
+
+    it('generates a UUID traceId, persists it on the payin row, and passes it to audit', async () => {
+      const capturedCreate: any[] = [];
+      const capturedAudit: any[] = [];
+
+      (prisma as any).wallet.findUnique = jest.fn().mockResolvedValue({
+        id: 'w1', assetId: 'a1', ownerType: 'CUSTOMER', ownerId: 'c1', address: 'addr', iban: null,
+      });
+      (prisma as any).payin.create = jest.fn((args: any) => {
+        capturedCreate.push(args.data);
+        return Promise.resolve({ id: 'p1', payinNo: 'PI1', ...args.data });
+      });
+      (auditLogsService as any).recordSystem = jest.fn((args: any) => {
+        capturedAudit.push(args);
+        return Promise.resolve();
+      });
+
+      await service.createDetected({
+        assetId: 'a1', toWalletId: 'w1', type: PayinType.CRYPTO, amount: '100',
+      } as any);
+
+      expect(capturedCreate).toHaveLength(1);
+      expect(capturedCreate[0].traceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+      expect(capturedAudit).toHaveLength(1);
+      expect(capturedAudit[0].traceId).toBe(capturedCreate[0].traceId);
     });
   });
 
