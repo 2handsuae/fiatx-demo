@@ -14,6 +14,10 @@ import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-executi
 import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
 import { FiatFeeCollectionWorkflowService } from './workflow/fiat-fee-collection-workflow.service';
+import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
+import { FeeAccrualService } from './domain/fee-accrual.service';
+import { FxEodService } from './accounting/fx-eod.service';
+import { BinanceRateProvider } from '../trading/pricing-center/providers/binance-rate.provider';
 import { SettlementBatchService } from './domain/settlement-batch.service';
 import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
@@ -48,6 +52,12 @@ describe('FundsLayerModule wiring', () => {
         InternalTransferWorkflowService,
         FiatSettlementWorkflowService,
         FiatFeeCollectionWorkflowService,
+        // Real EOD workflow + FeeAccrualService prove the settle-on-CLEAR wiring
+        // edge (EodSettlementWorkflowService → FeeAccrualService) resolves with
+        // no circular DI.
+        EodSettlementWorkflowService,
+        FeeAccrualService,
+        FxEodService,
         SettlementBatchService,
         OutstandingConsumerService,
         SystemWalletResolver,
@@ -59,6 +69,7 @@ describe('FundsLayerModule wiring', () => {
         { provide: AccessControlService, useValue: {} },
         { provide: AccountingService, useValue: {} },
         { provide: WalletBalanceService, useValue: { adjust: jest.fn() } },
+        { provide: BinanceRateProvider, useValue: {} },
         AdminPermissionGuard,
       ],
     }).compile();
@@ -88,5 +99,10 @@ describe('FundsLayerModule wiring', () => {
 
   it('provides FiatFeeCollectionWorkflowService', () => {
     expect(moduleRef.get(FiatFeeCollectionWorkflowService)).toBeDefined();
+  });
+
+  it('resolves EodSettlementWorkflowService with FeeAccrualService injected (no circular DI)', () => {
+    expect(moduleRef.get(EodSettlementWorkflowService)).toBeDefined();
+    expect(moduleRef.get(FeeAccrualService)).toBeDefined();
   });
 });

@@ -7,6 +7,7 @@ import { OutstandingConsumerService } from '../domain/outstanding-consumer.servi
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { FxEodService } from '../accounting/fx-eod.service';
+import { FeeAccrualService } from '../domain/fee-accrual.service';
 
 const EOD_SOURCE_TYPE = 'EOD_SETTLEMENT';
 
@@ -51,6 +52,7 @@ export class EodSettlementWorkflowService {
     private readonly transferWorkflow: InternalTransferWorkflowService,
     private readonly systemWallets: SystemWalletResolver,
     private readonly fxEod: FxEodService,
+    private readonly feeAccrual: FeeAccrualService,
   ) {}
 
   async runEodSettlement(operatorId = 'SYSTEM'): Promise<RunEodSettlementResult> {
@@ -146,6 +148,12 @@ export class EodSettlementWorkflowService {
 
       // 找到该 transfer 锁定的 outstanding，标 SETTLED，再重算 batch。
       await this.consumer.settle(event.internalTransferId, event.fundsFlowId);
+      // Fee accruals LOCKED to this transfer settle-on-CLEAR the same way (LOCKED→SETTLED).
+      await this.feeAccrual.settleByTransfer(
+        event.internalTransferId,
+        event.fundsFlowId,
+        this.prisma,
+      );
       await this.batchService.recomputeBatch(transfer.settlementBatchId);
 
       // Two-book: the bridge only becomes sweepable once async CLEARs mark

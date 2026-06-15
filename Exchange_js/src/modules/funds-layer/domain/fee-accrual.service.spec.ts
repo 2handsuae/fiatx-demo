@@ -100,3 +100,16 @@ describe('FeeAccrualService.settle', () => {
     expect(t.toWalletId).toBe('ffee');
   });
 });
+
+describe('FeeAccrualService.settleByTransfer', () => {
+  it('settleByTransfer: flips LOCKED→SETTLED for a transfer', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 2 });
+    const prisma: any = { feeAccrual: { updateMany } };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    await svc.settleByTransfer('t1', 'fund1', prisma);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { settledByTransferId: 't1', status: 'LOCKED' },
+      data: expect.objectContaining({ status: 'SETTLED', closedByInternalFundId: 'fund1' }),
+    });
+  });
+});

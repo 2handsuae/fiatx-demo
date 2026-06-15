@@ -239,4 +239,24 @@ export class FeeAccrualService {
       });
     }
   }
+
+  /**
+   * Flip a transfer's LOCKED accruals to SETTLED when its fund leg reaches CLEAR.
+   * Mirrors OutstandingConsumerService.settle: the second CLEAR sees count 0 and
+   * is a no-op, so it is safe as an idempotency latch.
+   */
+  async settleByTransfer(
+    settledByTransferId: string,
+    internalFundId: string,
+    tx: Tx,
+  ): Promise<{ count: number }> {
+    return (tx as any).feeAccrual.updateMany({
+      where: { settledByTransferId, status: 'LOCKED' },
+      data: {
+        status: 'SETTLED',
+        closedByInternalFundId: internalFundId,
+        closedAt: new Date(),
+      },
+    });
+  }
 }

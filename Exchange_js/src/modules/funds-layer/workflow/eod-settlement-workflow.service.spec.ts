@@ -6,6 +6,7 @@ import { OutstandingConsumerService } from '../domain/outstanding-consumer.servi
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { FxEodService } from '../accounting/fx-eod.service';
+import { FeeAccrualService } from '../domain/fee-accrual.service';
 import { EodSettlementWorkflowService } from './eod-settlement-workflow.service';
 
 describe('EodSettlementWorkflowService', () => {
@@ -25,6 +26,7 @@ describe('EodSettlementWorkflowService', () => {
   let transferWorkflow: { initiate: jest.Mock };
   let systemWallets: { resolve: jest.Mock };
   let fxEod: { runEodAccounting: jest.Mock };
+  let feeAccrual: { settleByTransfer: jest.Mock };
   let prisma: {
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
     settlementBatch: { findUnique: jest.Mock };
@@ -78,6 +80,9 @@ describe('EodSettlementWorkflowService', () => {
         .fn()
         .mockResolvedValue({ sweeps: [], revals: [], violations: [] }),
     };
+    feeAccrual = {
+      settleByTransfer: jest.fn().mockResolvedValue({ count: 0 }),
+    };
     prisma = {
       internalTransaction: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -97,6 +102,7 @@ describe('EodSettlementWorkflowService', () => {
         { provide: InternalTransferWorkflowService, useValue: transferWorkflow },
         { provide: SystemWalletResolver, useValue: systemWallets },
         { provide: FxEodService, useValue: fxEod },
+        { provide: FeeAccrualService, useValue: feeAccrual },
       ],
     }).compile();
 
@@ -240,6 +246,8 @@ describe('EodSettlementWorkflowService', () => {
       });
 
       expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
+      // Fee accruals LOCKED to this transfer flip LOCKED→SETTLED alongside outstandings.
+      expect(feeAccrual.settleByTransfer).toHaveBeenCalledWith('t-eod', 'ff-1', prisma);
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
       // Two-book: re-run EOD accounting after the closeout (same batchNo, idempotent).
       expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith({
