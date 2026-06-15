@@ -1061,6 +1061,7 @@ model Asset {
   swapQuoteTos                   SwapQuote[]                     @relation("SwapQuoteToAsset")
   withdrawPricingQuotes          WithdrawPricingQuote[]
   outstandings                   Outstanding[]
+  feeAccruals                    FeeAccrual[]
   wallets                        Wallet[]
   withdrawTransactions           WithdrawTransaction[]
   internalTransactions           InternalTransaction[]
@@ -1479,6 +1480,7 @@ model InternalTransaction {
   auditLogs                  InternalTransactionAuditLog[]
   settlementBatch            SettlementBatch?              @relation("SettlementBatchTransfers", fields: [settlementBatchId], references: [id], onDelete: SetNull)
   settledOutstandings        Outstanding[]                 @relation("OutstandingSettledByTransfer")
+  feeAccrualsSettled         FeeAccrual[]                  @relation("FeeAccrualSettledByTransfer")
   reimbursementSettlements   ReimbursementObligation[]     @relation("ReimbursementObligationSettlementTx")
 
   @@unique([sourceType, sourceId, type])
@@ -1567,6 +1569,7 @@ model InternalFund {
   toWallet              Wallet?                @relation("InternalFundToWallet", fields: [toWalletId], references: [id])
   auditLogs             InternalFundAuditLog[]
   closedOutstandings    Outstanding[]
+  closedFeeAccruals     FeeAccrual[]           @relation("FeeAccrualClosedByFund")
 
   @@index([internalTransactionId])
   @@index([status])
@@ -1759,12 +1762,52 @@ model SettlementBatch {
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
   completedAt              DateTime?
+  category                 String                @default("PRINCIPAL")
+  totalFeeAccrualCount     Int                   @default(0)
+  settledFeeAccrualCount   Int                   @default(0)
   transfers                InternalTransaction[]        @relation("SettlementBatchTransfers")
   outstandings             Outstanding[]
+  feeAccruals              FeeAccrual[]
 
   @@index([status])
   @@index([settlementType])
   @@map("settlement_batches")
+}
+
+model FeeAccrual {
+  id                     String               @id @default(uuid())
+  feeAccrualNo           String?              @unique
+  sourceType             String
+  sourceId               String
+  sourceNo               String?
+  ownerType              String
+  ownerId                String
+  ownerNo                String?
+  feeKind                String
+  category               String
+  assetId                String
+  assetCode              String?
+  amount                 Decimal
+  status                 String               @default("ACCRUED")
+  settlementBatchId      String?
+  settledByTransferId    String?
+  lockedAt               DateTime?
+  closedAt               DateTime?
+  closedByInternalFundId String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  asset                  Asset                @relation(fields: [assetId], references: [id])
+  settlementBatch        SettlementBatch?     @relation(fields: [settlementBatchId], references: [id], onDelete: SetNull)
+  settledByTransfer      InternalTransaction? @relation("FeeAccrualSettledByTransfer", fields: [settledByTransferId], references: [id], onDelete: SetNull)
+  closedByInternalFund   InternalFund?        @relation("FeeAccrualClosedByFund", fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceType, sourceId, feeKind])
+  @@index([status])
+  @@index([sourceType, sourceId])
+  @@index([assetId])
+  @@index([settlementBatchId])
+  @@index([settledByTransferId])
+  @@map("fee_accruals")
 }
 
 
