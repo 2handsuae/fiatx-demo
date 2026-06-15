@@ -44,7 +44,7 @@ describe('InternalTransferService', () => {
 
   it('createTransfer writes pathLabel/accountingClass/medium/traceId and type=path', async () => {
     const created = await service.createTransfer({
-      path: TransferPath.AGGREGATE,
+      path: TransferPath.CRYPTO_DEPOSIT_SWEEP,
       accountingClass: AccountingClass.A,
       medium: TransferMedium.CHAIN,
       triggerSource: 'CRON',
@@ -62,12 +62,12 @@ describe('InternalTransferService', () => {
       toWalletId: 'w-to',
     });
 
-    expect(created.pathLabel).toBe('AGGREGATE');
+    expect(created.pathLabel).toBe('CRYPTO_DEPOSIT_SWEEP');
     expect(created.accountingClass).toBe('A');
     expect(created.medium).toBe('CHAIN');
     expect(typeof created.traceId).toBe('string');
     expect(created.traceId.length).toBeGreaterThan(0);
-    expect(created.type).toBe('AGGREGATE');
+    expect(created.type).toBe('CRYPTO_DEPOSIT_SWEEP');
 
     expect(prisma.internalTransaction.create).toHaveBeenCalledTimes(1);
     // The INTERNAL_TRANSFER_REQUESTED journey audit is written by the L3

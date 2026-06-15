@@ -123,7 +123,7 @@ describe('EodSettlementWorkflowService', () => {
     it('single asset net>0: spawns transfer under batch, locks outstandings to transfer', async () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetPositive]);
       batchService.resolveCryptoDirection.mockReturnValue({
-        path: 'INTERNAL_IN',
+        path: 'CRYPTO_SETTLE_IN',
         fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: new Prisma.Decimal(60),
@@ -202,7 +202,7 @@ describe('EodSettlementWorkflowService', () => {
     it('idempotent: reuses an existing EOD transfer and still locks outstandings to it', async () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetPositive]);
       batchService.resolveCryptoDirection.mockReturnValue({
-        path: 'INTERNAL_IN',
+        path: 'CRYPTO_SETTLE_IN',
         fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: new Prisma.Decimal(60),

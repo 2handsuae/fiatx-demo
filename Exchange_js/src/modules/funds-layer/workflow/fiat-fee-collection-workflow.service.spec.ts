@@ -51,7 +51,7 @@ describe('FiatFeeCollectionWorkflowService', () => {
     // Model A: service fee no longer round-trips the client VIBAN — both fee and
     // spread are company-side F_OPS->F_FEE (path FIAT_SPREAD_COLLECT), disambiguated by sourceId.
     const feeCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].sourceId === 'swap-1:FEE')[0];
-    expect(feeCall.path).toBe('FIAT_SPREAD_COLLECT');
+    expect(feeCall.path).toBe('FIAT_SWAP_FEE_COLLECT');
     expect(feeCall.amount.toString()).toBe('0.1');
     expect(feeCall.fromWalletId).toBe('w-F_OPS');
     expect(feeCall.toWalletId).toBe('w-F_FEE');
@@ -59,7 +59,7 @@ describe('FiatFeeCollectionWorkflowService', () => {
     expect(feeCall.accountingClass).toBe('B');
     expect(feeCall.medium).toBe('BANK');
     const spreadCall = transfers.createTransfer.mock.calls.find((c: any) => c[0].sourceId === 'swap-1:SPREAD')[0];
-    expect(spreadCall.path).toBe('FIAT_SPREAD_COLLECT');
+    expect(spreadCall.path).toBe('FIAT_SWAP_FEE_COLLECT');
     expect(spreadCall.fromWalletId).toBe('w-F_OPS');
     expect(spreadCall.toWalletId).toBe('w-F_FEE');
     expect(spreadCall.ownerType).toBe('PLATFORM');
@@ -91,7 +91,7 @@ describe('FiatFeeCollectionWorkflowService', () => {
       prisma.internalTransaction.findFirst.mockResolvedValue(null);
       await service.onFiatWithdrawalSucceeded({ withdrawId: 'w-1' });
       const call = transfers.createTransfer.mock.calls[0][0];
-      expect(call.path).toBe('FIAT_FEE_COLLECT');
+      expect(call.path).toBe('FIAT_WITHDRAW_FEE_COLLECT');
       expect(call.amount.toString()).toBe('5');
       expect(call.fromWalletId).toBe('w-C_VIBAN-c1');
       expect(call.sourceId).toBe('w-1:FEE');

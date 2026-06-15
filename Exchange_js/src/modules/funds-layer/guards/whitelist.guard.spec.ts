@@ -7,7 +7,7 @@ describe('WhitelistGuard', () => {
 
   it('returns the policy for a whitelisted from→to pair', () => {
     const policy = guard.assertWhitelisted('C_DEP', 'C_MAIN');
-    expect(policy.path).toBe(TransferPath.AGGREGATE);
+    expect(policy.path).toBe(TransferPath.CRYPTO_DEPOSIT_SWEEP);
   });
 
   it('throws for a non-whitelisted pair', () => {
@@ -41,7 +41,7 @@ describe('WhitelistGuard.assertWhitelisted (fiat fee collection)', () => {
 
   it('accepts C_VIBAN->F_FEE (FIAT_FEE_COLLECT), class B, BANK, mirror POOL_TO_FIRM', () => {
     const p = guard.assertWhitelisted('C_VIBAN', 'F_FEE');
-    expect(p.path).toBe('FIAT_FEE_COLLECT');
+    expect(p.path).toBe('FIAT_WITHDRAW_FEE_COLLECT');
     expect(p.class).toBe('B');
     expect(p.medium).toBe('BANK');
     expect(p.mirror).toBe('POOL_TO_FIRM');
@@ -49,7 +49,7 @@ describe('WhitelistGuard.assertWhitelisted (fiat fee collection)', () => {
 
   it('accepts F_OPS->F_FEE (FIAT_SPREAD_COLLECT) with no mirror (company-internal)', () => {
     const p = guard.assertWhitelisted('F_OPS', 'F_FEE');
-    expect(p.path).toBe('FIAT_SPREAD_COLLECT');
+    expect(p.path).toBe('FIAT_SWAP_FEE_COLLECT');
     expect(p.mirror).toBeUndefined();
   });
 });

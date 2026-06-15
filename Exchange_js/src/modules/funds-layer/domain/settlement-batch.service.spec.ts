@@ -63,7 +63,7 @@ describe('SettlementBatchService', () => {
       const net = new Prisma.Decimal(60);
       const result = service.resolveCryptoDirection(net);
       expect(result).toEqual({
-        path: 'INTERNAL_IN',
+        path: 'CRYPTO_SETTLE_IN',
         fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: net,
@@ -73,7 +73,7 @@ describe('SettlementBatchService', () => {
     it('net < 0 → INTERNAL_OUT / C_MAIN → F_OPS / amount = |net|', () => {
       const net = new Prisma.Decimal(-40);
       const result = service.resolveCryptoDirection(net);
-      expect(result!.path).toBe('INTERNAL_OUT');
+      expect(result!.path).toBe('CRYPTO_SETTLE_OUT');
       expect(result!.fromRole).toBe('C_MAIN');
       expect(result!.toRole).toBe('F_OPS');
       expect(result!.amount.toString()).toBe('40');

@@ -25,7 +25,7 @@ describe('mirrorPhysicalTransfer', () => {
   const transfer = (overrides: Record<string, any> = {}) => ({
     id: 'it-1',
     internalTxNo: 'IT0001',
-    pathLabel: 'INTERNAL_OUT',
+    pathLabel: 'CRYPTO_SETTLE_OUT',
     accountingClass: 'B',
     assetId: 'asset-1',
     traceId: 'SETTLE:BATCH1',
@@ -68,7 +68,7 @@ describe('mirrorPhysicalTransfer', () => {
 
   it('INTERNAL_OUT (CRYPTO, decimals=6, amount=1000) → SETTLE_POOL_TO_FIRM: debit FIRM_TREASURY, credit CLIENT_CUSTODY', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
-      transfer({ pathLabel: 'INTERNAL_OUT', amount: '1000', asset: { currency: 'AED', decimals: 6, type: 'CRYPTO' } }),
+      transfer({ pathLabel: 'CRYPTO_SETTLE_OUT', amount: '1000', asset: { currency: 'AED', decimals: 6, type: 'CRYPTO' } }),
     );
 
     const result = await service.mirrorPhysicalTransfer({ internalTransferId: 'it-1' });
@@ -114,7 +114,7 @@ describe('mirrorPhysicalTransfer', () => {
   it('FEE_COLLECT → FEE_DECOMMINGLE code, direction POOL_TO_FIRM', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
       transfer({
-        pathLabel: 'FEE_COLLECT',
+        pathLabel: 'CRYPTO_WITHDRAW_FEE_COLLECT',
         sourceType: 'FEE_COLLECTION',
         amount: '5',
         asset: { currency: 'AED', decimals: 6, type: 'CRYPTO' },
@@ -134,7 +134,7 @@ describe('mirrorPhysicalTransfer', () => {
   it('FIAT_SPREAD_COLLECT (no mirror) → tbApplied:false, executeTransfer never called', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
       transfer({
-        pathLabel: 'FIAT_SPREAD_COLLECT',
+        pathLabel: 'FIAT_SWAP_FEE_COLLECT',
         sourceType: 'FIAT_FEE_COLLECTION',
         amount: '2',
         asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
@@ -149,7 +149,7 @@ describe('mirrorPhysicalTransfer', () => {
 
   it('amount=0 → tbApplied:false, executeTransfer never called', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue(
-      transfer({ pathLabel: 'INTERNAL_OUT', amount: '0', asset: { currency: 'AED', decimals: 6, type: 'CRYPTO' } }),
+      transfer({ pathLabel: 'CRYPTO_SETTLE_OUT', amount: '0', asset: { currency: 'AED', decimals: 6, type: 'CRYPTO' } }),
     );
 
     const result = await service.mirrorPhysicalTransfer({ internalTransferId: 'it-1' });

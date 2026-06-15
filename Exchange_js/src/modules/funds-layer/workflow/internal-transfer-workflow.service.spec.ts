@@ -95,7 +95,7 @@ describe('InternalTransferWorkflowService', () => {
 
     expect(transfers.createTransfer).toHaveBeenCalledTimes(1);
     const [createArgs, operatorId, txArg] = transfers.createTransfer.mock.calls[0];
-    expect(createArgs.path).toBe('AGGREGATE');
+    expect(createArgs.path).toBe('CRYPTO_DEPOSIT_SWEEP');
     expect(createArgs.accountingClass).toBe('A');
     expect(operatorId).toBe('SYSTEM');
     expect(txArg).toBe(txMock);
@@ -162,7 +162,7 @@ describe('InternalTransferWorkflowService', () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'INTERNAL_TRANSFER_REQUESTED',
-        reason: 'Internal transfer requested on path AGGREGATE',
+        reason: 'Internal transfer requested on path CRYPTO_DEPOSIT_SWEEP',
       }),
       expect.any(Object),
       txMock,
