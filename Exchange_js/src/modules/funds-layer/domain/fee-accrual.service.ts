@@ -259,4 +259,29 @@ export class FeeAccrualService {
       },
     });
   }
+
+  /**
+   * Unified fee-collection traceability for an order (keyed on sourceNo).
+   * Works for both rails: returns whether every accrual on the order is SETTLED,
+   * plus the settling transfer/batch number for each fee component.
+   */
+  async getFeeCollectionStatus(orderNo: string) {
+    const rows = await (this.prisma as any).feeAccrual.findMany({
+      where: { sourceNo: orderNo },
+      include: {
+        settledByTransfer: { select: { internalTxNo: true } },
+        settlementBatch: { select: { batchNo: true } },
+      },
+    });
+    return {
+      collected: rows.length > 0 && rows.every((r: any) => r.status === 'SETTLED'),
+      items: rows.map((r: any) => ({
+        feeKind: r.feeKind,
+        category: r.category,
+        status: r.status,
+        settledByTransferNo: r.settledByTransfer?.internalTxNo ?? null,
+        settlementBatchNo: r.settlementBatch?.batchNo ?? null,
+      })),
+    };
+  }
 }

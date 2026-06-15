@@ -113,3 +113,35 @@ describe('FeeAccrualService.settleByTransfer', () => {
     });
   });
 });
+
+describe('FeeAccrualService.getFeeCollectionStatus', () => {
+  it('SETTLED swap → collected true with transfer/batch nos for both components', async () => {
+    const prisma: any = { feeAccrual: { findMany: jest.fn().mockResolvedValue([
+      { feeKind: 'SERVICE_FEE', category: 'SWAP_FEE', status: 'SETTLED', settledByTransfer: { internalTxNo: 'ITX9' }, settlementBatch: { batchNo: 'OSB9' } },
+      { feeKind: 'SPREAD', category: 'SWAP_FEE', status: 'SETTLED', settledByTransfer: { internalTxNo: 'ITX9' }, settlementBatch: { batchNo: 'OSB9' } },
+    ]) } };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const r = await svc.getFeeCollectionStatus('SWP9');
+    expect(prisma.feeAccrual.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { sourceNo: 'SWP9' } }));
+    expect(r.collected).toBe(true);
+    expect(r.items).toHaveLength(2);
+    expect(r.items[0]).toMatchObject({ feeKind: 'SERVICE_FEE', settledByTransferNo: 'ITX9', settlementBatchNo: 'OSB9' });
+  });
+
+  it('ACCRUED (not yet settled) → collected false', async () => {
+    const prisma: any = { feeAccrual: { findMany: jest.fn().mockResolvedValue([
+      { feeKind: 'WITHDRAW_FEE', category: 'WITHDRAW_FEE', status: 'ACCRUED', settledByTransfer: null, settlementBatch: null },
+    ]) } };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const r = await svc.getFeeCollectionStatus('WD9');
+    expect(r.collected).toBe(false);
+    expect(r.items[0]).toMatchObject({ status: 'ACCRUED', settledByTransferNo: null, settlementBatchNo: null });
+  });
+
+  it('no accruals → collected false, empty items', async () => {
+    const prisma: any = { feeAccrual: { findMany: jest.fn().mockResolvedValue([]) } };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const r = await svc.getFeeCollectionStatus('NONE');
+    expect(r).toEqual({ collected: false, items: [] });
+  });
+});
