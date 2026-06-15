@@ -499,6 +499,7 @@ export class PayinsService {
       entityNo: updatedPayin.payinNo,
       entityOwnerType: updatedPayin.ownerId ? 'CUSTOMER' : undefined,
       entityOwnerId: updatedPayin.ownerId || undefined,
+      traceId: updatedPayin.traceId,
       workflowType: 'DEPOSIT',
       reason: `Action: ${action}`,
       sourcePlatform: 'SYSTEM',

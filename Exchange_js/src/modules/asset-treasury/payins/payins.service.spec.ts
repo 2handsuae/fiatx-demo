@@ -238,6 +238,32 @@ describe('PayinsService', () => {
       });
       expect(result.status).toBe(PayinStatus.DETECTED);
     });
+
+    it('audit carries the payin.traceId from the table', async () => {
+      // Drive a transition the existing tests already use: CRYPTO DETECTED → CONFIRMING via BLOCK.
+      // Mock prisma.payin.findUnique (used by findOne) AND prisma.payin.update — both must
+      // include traceId so the service reads it through to the audit call.
+      (prisma as any).payin.findUnique = jest.fn().mockResolvedValue({
+        id: 'p2', payinNo: 'PI2', status: 'DETECTED', type: 'CRYPTO',
+        statusHistory: JSON.stringify([]), amount: '50', ownerId: 'c1',
+        toWalletId: 'w1', assetId: 'a1', traceId: 'TRACE-FROM-TABLE',
+      });
+      (prisma as any).payin.update = jest.fn(() => Promise.resolve({
+        id: 'p2', payinNo: 'PI2', status: 'CONFIRMING', type: 'CRYPTO',
+        ownerId: 'c1', toWalletId: 'w1', assetId: 'a1', traceId: 'TRACE-FROM-TABLE',
+        amount: '50',
+      }));
+      const capturedAudit: any[] = [];
+      (auditLogsService as any).recordSystem = jest.fn((args: any) => {
+        capturedAudit.push(args);
+        return Promise.resolve();
+      });
+
+      await service.updateStatus('p2', PayinAction.BLOCK);
+
+      expect(capturedAudit).toHaveLength(1);
+      expect(capturedAudit[0].traceId).toBe('TRACE-FROM-TABLE');
+    });
   });
 
   describe('applyMockEvent', () => {
