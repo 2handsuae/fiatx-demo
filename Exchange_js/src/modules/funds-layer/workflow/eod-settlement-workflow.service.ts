@@ -10,6 +10,8 @@ import { FxEodService } from '../accounting/fx-eod.service';
 import { FeeAccrualService } from '../domain/fee-accrual.service';
 
 const EOD_SOURCE_TYPE = 'EOD_SETTLEMENT';
+const SWAP_FEE_SOURCE_TYPE = 'SWAP_FEE_SETTLEMENT';
+const WITHDRAW_FEE_SOURCE_TYPE = 'WITHDRAW_FEE_SETTLEMENT';
 
 interface FundsFlowStatusChangedEvent {
   fundsFlowId: string;
@@ -142,38 +144,50 @@ export class EodSettlementWorkflowService {
       const transfer = await (this.prisma as any).internalTransaction.findUnique({
         where: { id: event.internalTransferId },
       });
-      // Not one of ours — the universal transfer workflow handles its own audits.
-      if (!transfer || transfer.sourceType !== EOD_SOURCE_TYPE) return;
-      if (!transfer.settlementBatchId) return;
+      if (!transfer) return;
 
-      // 找到该 transfer 锁定的 outstanding，标 SETTLED，再重算 batch。
-      await this.consumer.settle(event.internalTransferId, event.fundsFlowId);
-      // Fee accruals LOCKED to this transfer settle-on-CLEAR the same way (LOCKED→SETTLED).
-      await this.feeAccrual.settleByTransfer(
-        event.internalTransferId,
-        event.fundsFlowId,
-        this.prisma,
-      );
-      await this.batchService.recomputeBatch(transfer.settlementBatchId);
+      // Generic settlement-completion router for fund-leg CLEAR events. Route by
+      // sourceType: EOD principal transfers settle crypto outstandings; fee
+      // settlement transfers (swap/withdraw) flip their LOCKED fee accruals to
+      // SETTLED. Anything else is not settlement-bearing — the universal transfer
+      // workflow handles its own audits.
+      if (transfer.sourceType === EOD_SOURCE_TYPE) {
+        if (!transfer.settlementBatchId) return;
 
-      // Two-book: the bridge only becomes sweepable once async CLEARs mark
-      // swaps fully settled — re-run EOD accounting under the same batchNo
-      // (idempotent). Never let an accounting failure break the settlement
-      // closeout that just completed above.
-      try {
-        const batch = await (this.prisma as any).settlementBatch.findUnique({
-          where: { id: transfer.settlementBatchId },
-          select: { batchNo: true },
-        });
-        if (batch?.batchNo) {
-          await this.fxEod.runEodAccounting(batch.batchNo);
+        // 找到该 transfer 锁定的 outstanding，标 SETTLED，再重算 batch。
+        await this.consumer.settle(event.internalTransferId, event.fundsFlowId);
+        await this.batchService.recomputeBatch(transfer.settlementBatchId);
+
+        // Two-book: the bridge only becomes sweepable once async CLEARs mark
+        // swaps fully settled — re-run EOD accounting under the same batchNo
+        // (idempotent). Never let an accounting failure break the settlement
+        // closeout that just completed above.
+        try {
+          const batch = await (this.prisma as any).settlementBatch.findUnique({
+            where: { id: transfer.settlementBatchId },
+            select: { batchNo: true },
+          });
+          if (batch?.batchNo) {
+            await this.fxEod.runEodAccounting(batch.batchNo);
+          }
+        } catch (accountingErr) {
+          this.logger.error(
+            `EOD accounting failed after CLEAR for batch=${transfer.settlementBatchId}`,
+            accountingErr instanceof Error ? accountingErr.stack : undefined,
+          );
         }
-      } catch (accountingErr) {
-        this.logger.error(
-          `EOD accounting failed after CLEAR for batch=${transfer.settlementBatchId}`,
-          accountingErr instanceof Error ? accountingErr.stack : undefined,
+      } else if (
+        transfer.sourceType === SWAP_FEE_SOURCE_TYPE ||
+        transfer.sourceType === WITHDRAW_FEE_SOURCE_TYPE
+      ) {
+        // Fee accruals LOCKED to this transfer settle-on-CLEAR (LOCKED→SETTLED).
+        await this.feeAccrual.settleByTransfer(
+          event.internalTransferId,
+          event.fundsFlowId,
+          this.prisma,
         );
       }
+      // else: not a settlement-bearing transfer → ignore.
     } catch (err) {
       this.logger.error(
         `Failed to settle EOD item for internalTransfer=${event.internalTransferId}`,

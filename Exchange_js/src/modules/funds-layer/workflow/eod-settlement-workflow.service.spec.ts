@@ -246,8 +246,8 @@ describe('EodSettlementWorkflowService', () => {
       });
 
       expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
-      // Fee accruals LOCKED to this transfer flip LOCKED→SETTLED alongside outstandings.
-      expect(feeAccrual.settleByTransfer).toHaveBeenCalledWith('t-eod', 'ff-1', prisma);
+      // EOD principal transfers carry no fee accruals — fee settlement is a fee-transfer concern.
+      expect(feeAccrual.settleByTransfer).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
       // Two-book: re-run EOD accounting after the closeout (same batchNo, idempotent).
       expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith({
@@ -280,7 +280,51 @@ describe('EodSettlementWorkflowService', () => {
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
     });
 
-    it('CLEAR for a non-EOD transfer: does nothing', async () => {
+    it('CLEAR for a SWAP_FEE_SETTLEMENT transfer: settles fee accruals, NOT outstandings', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValue({
+        id: 't-fee',
+        sourceType: 'SWAP_FEE_SETTLEMENT',
+      });
+
+      await service.onFundsFlowStatusChanged({
+        fundsFlowId: 'ff-fee',
+        internalTransferId: 't-fee',
+        oldStatus: 'PENDING',
+        newStatus: 'CLEAR',
+      });
+
+      // Fee transfer → flip LOCKED→SETTLED fee accruals for this transfer.
+      expect(feeAccrual.settleByTransfer).toHaveBeenCalledWith(
+        't-fee',
+        'ff-fee',
+        prisma,
+      );
+      // Fee transfers carry no crypto outstandings — the consumer path must not run.
+      expect(consumer.settle).not.toHaveBeenCalled();
+    });
+
+    it('CLEAR for a WITHDRAW_FEE_SETTLEMENT transfer: settles fee accruals, NOT outstandings', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValue({
+        id: 't-wfee',
+        sourceType: 'WITHDRAW_FEE_SETTLEMENT',
+      });
+
+      await service.onFundsFlowStatusChanged({
+        fundsFlowId: 'ff-wfee',
+        internalTransferId: 't-wfee',
+        oldStatus: 'PENDING',
+        newStatus: 'CLEAR',
+      });
+
+      expect(feeAccrual.settleByTransfer).toHaveBeenCalledWith(
+        't-wfee',
+        'ff-wfee',
+        prisma,
+      );
+      expect(consumer.settle).not.toHaveBeenCalled();
+    });
+
+    it('CLEAR for a non-settlement transfer: does nothing', async () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({
         id: 't-other',
         sourceType: 'DEPOSIT_AGGREGATION',
@@ -294,6 +338,7 @@ describe('EodSettlementWorkflowService', () => {
       });
 
       expect(consumer.settle).not.toHaveBeenCalled();
+      expect(feeAccrual.settleByTransfer).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).not.toHaveBeenCalled();
     });
 
