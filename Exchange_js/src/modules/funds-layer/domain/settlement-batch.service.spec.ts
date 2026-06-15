@@ -58,6 +58,21 @@ describe('SettlementBatchService', () => {
     expect(created.settlementType).toBe('FEE_COLLECT');
   });
 
+  it('createBatch persists an explicit category (SWAP_FEE)', async () => {
+    const created = await service.createBatch({
+      cutoffAt: new Date(),
+      category: 'SWAP_FEE',
+    });
+
+    expect(created.category).toBe('SWAP_FEE');
+  });
+
+  it('createBatch defaults category to PRINCIPAL when omitted', async () => {
+    const created = await service.createBatch({ cutoffAt: new Date() });
+
+    expect(created.category).toBe('PRINCIPAL');
+  });
+
   describe('resolveCryptoDirection', () => {
     it('net > 0 → INTERNAL_IN / F_OPS → C_MAIN / amount = net', () => {
       const net = new Prisma.Decimal(60);

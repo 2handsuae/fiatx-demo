@@ -13,6 +13,7 @@ export interface CreateBatchInput {
   cutoffAt: Date;
   requestId?: string;
   settlementType?: string;
+  category?: string;
 }
 
 export interface SettlementBatchAdminQuery {
@@ -69,6 +70,7 @@ export class SettlementBatchService {
             data: {
               batchNo,
               settlementType: input.settlementType ?? 'EOD',
+              category: input.category ?? 'PRINCIPAL',
               status: 'CREATED',
               cutoffAt: input.cutoffAt,
               requestId: input.requestId ?? null,
