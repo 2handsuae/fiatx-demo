@@ -54,7 +54,7 @@ model FeeAccrual {
   assetId             String
   assetCode           String?
   amount              Decimal
-  status              String    @default("ACCRUED")   // ACCRUED → SETTLED
+  status              String    @default("ACCRUED")   // ACCRUED → LOCKED → SETTLED（与 Outstanding 三态一致：accrue→锁批起转账→leg CLEAR 时结清）
   settledByTransferId String?                    // FK internal_transactions（结算它的那笔转账）
   settlementBatchId   String?                    // FK settlement_batches（FEE 类别批）
   closedAt            DateTime?
