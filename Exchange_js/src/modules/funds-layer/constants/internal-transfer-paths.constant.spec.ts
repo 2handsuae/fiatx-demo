@@ -14,8 +14,8 @@ describe('TRANSFER_PATH_WHITELIST', () => {
   });
 
   it('crypto paths use CHAIN medium and a real WalletRole', () => {
-    const cryptoPaths = ['CRYPTO_DEPOSIT_SWEEP', 'CRYPTO_WITHDRAW_FEE_COLLECT', 'CRYPTO_HOTWALLET_FUND', 'CRYPTO_HOTWALLET_RETURN', 'CRYPTO_SETTLE_IN', 'CRYPTO_SETTLE_OUT'];
-    const validRoles = ['C_DEP', 'C_OUT', 'C_MAIN', 'F_LIQ', 'F_OPS'];
+    const cryptoPaths = ['CRYPTO_DEPOSIT_SWEEP', 'CRYPTO_WITHDRAW_FEE_COLLECT', 'CRYPTO_SWAP_FEE_COLLECT', 'CRYPTO_HOTWALLET_FUND', 'CRYPTO_HOTWALLET_RETURN', 'CRYPTO_SETTLE_IN', 'CRYPTO_SETTLE_OUT'];
+    const validRoles = ['C_DEP', 'C_OUT', 'C_MAIN', 'F_LIQ', 'F_OPS', 'F_FEE'];
     for (const policy of Object.values(TRANSFER_PATH_WHITELIST)) {
       if (!cryptoPaths.includes(policy.path)) continue;
       expect(policy.medium).toBe('CHAIN');

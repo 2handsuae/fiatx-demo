@@ -82,10 +82,10 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
   [TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT]: {
     path: TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT,
     from: 'C_MAIN',
-    to: 'F_OPS',
+    to: 'F_FEE',
     class: AccountingClass.B,
     medium: TransferMedium.CHAIN,
-    trigger: ['CRON'],
+    trigger: ['EOD'],
     mirror: 'POOL_TO_FIRM',
   },
   [TransferPath.FIAT_SETTLE_OUT]: {
