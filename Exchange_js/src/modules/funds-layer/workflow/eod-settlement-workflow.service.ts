@@ -60,10 +60,13 @@ export class EodSettlementWorkflowService {
   async runEodSettlement(operatorId = 'SYSTEM'): Promise<RunEodSettlementResult> {
     const groups = await this.consumer.findOpenCryptoByAsset();
 
-    // No open crypto outstandings → return early without creating an empty
-    // batch (avoids littering the batch list with empty EOD runs).
+    // No open crypto outstandings → skip the principal batch (avoids littering
+    // the batch list with empty EOD runs), but STILL run the fee pass: a day can
+    // accrue swap/withdraw fees with no net principal movement, and those open
+    // accruals must still settle.
     if (groups.length === 0) {
-      this.logger.log('EOD settlement: no open crypto outstandings — no-op');
+      this.logger.log('EOD settlement: no open crypto outstandings — fee pass only');
+      await this.runFeePass();
       return { batchNo: null, assetCount: 0, settledZero: 0, spawned: 0 };
     }
 
@@ -124,6 +127,10 @@ export class EodSettlementWorkflowService {
 
     await this.batchService.recomputeBatch(batch.id);
 
+    // Fee pass: net & settle the day's open crypto fee accruals (independent of
+    // the principal pass — see runFeePass).
+    await this.runFeePass();
+
     // Two-book: bridge sweep + FX reval + invariant checks ride the same EOD run.
     await this.fxEod.runEodAccounting(batch.batchNo);
 
@@ -133,6 +140,44 @@ export class EodSettlementWorkflowService {
       settledZero,
       spawned,
     };
+  }
+
+  /**
+   * EOD fee pass: settle every open (ACCRUED) crypto fee accrual.
+   *
+   * The asset set is gathered INDEPENDENTLY of the principal pass: the principal
+   * pass only iterates assets with open outstandings, but an asset can have open
+   * fee accruals with zero net principal movement this EOD (e.g. swap fees on the
+   * toAsset, or a day with no withdrawals). So we query the distinct crypto
+   * assetIds that have ACCRUED accruals and settle each category's net for them —
+   * guaranteeing ALL open crypto fee accruals close, regardless of principal flow.
+   *
+   * FeeAccrualService.settle() creates its own batch + net F_*→F_FEE transfer per
+   * category/asset and LOCKs the consumed accruals; the LOCKED→SETTLED flip rides
+   * the transfer's funds-flow CLEAR (onFundsFlowStatusChanged → settleByTransfer).
+   */
+  private async runFeePass(): Promise<void> {
+    const assetRows = await (this.prisma as any).feeAccrual.findMany({
+      where: { status: 'ACCRUED', asset: { type: 'CRYPTO' } },
+      distinct: ['assetId'],
+      select: { assetId: true },
+    });
+
+    for (const { assetId } of assetRows) {
+      const swapFees = await (this.prisma as any).feeAccrual.findMany({
+        where: { assetId, category: 'SWAP_FEE', status: 'ACCRUED' },
+      });
+      if (swapFees.length) {
+        await this.feeAccrual.settle(swapFees, 'SWAP_FEE', 'EOD', this.prisma);
+      }
+
+      const wdFees = await (this.prisma as any).feeAccrual.findMany({
+        where: { assetId, category: 'WITHDRAW_FEE', status: 'ACCRUED' },
+      });
+      if (wdFees.length) {
+        await this.feeAccrual.settle(wdFees, 'WITHDRAW_FEE', 'EOD', this.prisma);
+      }
+    }
   }
 
   @OnEvent(DomainEventNames.FUNDSFLOW_STATUS_CHANGED)

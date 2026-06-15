@@ -26,10 +26,11 @@ describe('EodSettlementWorkflowService', () => {
   let transferWorkflow: { initiate: jest.Mock };
   let systemWallets: { resolve: jest.Mock };
   let fxEod: { runEodAccounting: jest.Mock };
-  let feeAccrual: { settleByTransfer: jest.Mock };
+  let feeAccrual: { settleByTransfer: jest.Mock; settle: jest.Mock };
   let prisma: {
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
     settlementBatch: { findUnique: jest.Mock };
+    feeAccrual: { findMany: jest.Mock };
   };
 
   const batch = { id: 'b-1', batchNo: 'OSB-001' };
@@ -82,6 +83,7 @@ describe('EodSettlementWorkflowService', () => {
     };
     feeAccrual = {
       settleByTransfer: jest.fn().mockResolvedValue({ count: 0 }),
+      settle: jest.fn().mockResolvedValue(undefined),
     };
     prisma = {
       internalTransaction: {
@@ -90,6 +92,10 @@ describe('EodSettlementWorkflowService', () => {
       },
       settlementBatch: {
         findUnique: jest.fn().mockResolvedValue({ batchNo: 'OSB-001' }),
+      },
+      feeAccrual: {
+        // Default: no open fee accruals → fee pass is a no-op.
+        findMany: jest.fn().mockResolvedValue([]),
       },
     };
 
@@ -202,6 +208,72 @@ describe('EodSettlementWorkflowService', () => {
         assetCount: 1,
         settledZero: 1,
         spawned: 0,
+      });
+    });
+
+    describe('fee pass (after principal settlement)', () => {
+      it('settles open crypto SWAP_FEE + WITHDRAW_FEE accruals once per category as EOD', async () => {
+        // No principal outstandings this EOD — the fee pass must still settle all
+        // open crypto fee accruals (it gathers its asset set independently).
+        consumer.findOpenCryptoByAsset.mockResolvedValue([]);
+
+        const swapFees = [{ id: 'fac-s1', assetId: 'a-btc', amount: '0.001' }];
+        const wdFees = [{ id: 'fac-w1', assetId: 'a-btc', amount: '0.0005' }];
+
+        prisma.feeAccrual.findMany
+          // 1) distinct crypto assetIds with open accruals
+          .mockResolvedValueOnce([{ assetId: 'a-btc' }])
+          // 2) a-btc SWAP_FEE ACCRUED
+          .mockResolvedValueOnce(swapFees)
+          // 3) a-btc WITHDRAW_FEE ACCRUED
+          .mockResolvedValueOnce(wdFees);
+
+        await service.runEodSettlement();
+
+        // SWAP_FEE net settled as EOD
+        expect(feeAccrual.settle).toHaveBeenCalledWith(
+          swapFees,
+          'SWAP_FEE',
+          'EOD',
+          prisma,
+        );
+        // WITHDRAW_FEE net settled as EOD
+        expect(feeAccrual.settle).toHaveBeenCalledWith(
+          wdFees,
+          'WITHDRAW_FEE',
+          'EOD',
+          prisma,
+        );
+        expect(feeAccrual.settle).toHaveBeenCalledTimes(2);
+      });
+
+      it('skips a category with no open accruals (no empty settle)', async () => {
+        consumer.findOpenCryptoByAsset.mockResolvedValue([]);
+
+        const swapFees = [{ id: 'fac-s1', assetId: 'a-btc', amount: '0.001' }];
+        prisma.feeAccrual.findMany
+          .mockResolvedValueOnce([{ assetId: 'a-btc' }]) // distinct
+          .mockResolvedValueOnce(swapFees) // SWAP_FEE present
+          .mockResolvedValueOnce([]); // WITHDRAW_FEE empty
+
+        await service.runEodSettlement();
+
+        expect(feeAccrual.settle).toHaveBeenCalledWith(
+          swapFees,
+          'SWAP_FEE',
+          'EOD',
+          prisma,
+        );
+        expect(feeAccrual.settle).toHaveBeenCalledTimes(1);
+      });
+
+      it('no open accruals → fee pass is a no-op', async () => {
+        consumer.findOpenCryptoByAsset.mockResolvedValue([]);
+        prisma.feeAccrual.findMany.mockResolvedValue([]); // no distinct assets
+
+        await service.runEodSettlement();
+
+        expect(feeAccrual.settle).not.toHaveBeenCalled();
       });
     });
 
