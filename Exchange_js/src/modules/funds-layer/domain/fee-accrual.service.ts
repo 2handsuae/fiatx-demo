@@ -38,23 +38,40 @@ export class FeeAccrualService {
   ) {}
 
   private async createAccrual(tx: Tx, d: AccrualInput) {
-    const existing = await (tx as any).feeAccrual.findUnique({
-      where: {
-        sourceType_sourceId_feeKind: {
-          sourceType: d.sourceType,
-          sourceId: d.sourceId,
-          feeKind: d.feeKind,
+    const findExisting = () =>
+      (tx as any).feeAccrual.findUnique({
+        where: {
+          sourceType_sourceId_feeKind: {
+            sourceType: d.sourceType,
+            sourceId: d.sourceId,
+            feeKind: d.feeKind,
+          },
         },
-      },
-    });
+      });
+
+    const existing = await findExisting();
     if (existing) return existing;
-    return (tx as any).feeAccrual.create({
-      data: {
-        feeAccrualNo: generateReferenceNo('FAC'),
-        ...d,
-        status: 'ACCRUED',
-      },
-    });
+
+    // feeAccrualNo comes from a low-entropy generator (4-digit random/day), so
+    // rapid batches can collide on its @unique. On P2002: if the (sourceType,
+    // sourceId, feeKind) row now exists it's an idempotent race → return it;
+    // otherwise the clash was on feeAccrualNo → regenerate a fresh number + retry.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await (tx as any).feeAccrual.create({
+          data: {
+            feeAccrualNo: generateReferenceNo('FAC'),
+            ...d,
+            status: 'ACCRUED',
+          },
+        });
+      } catch (e: any) {
+        if (e?.code !== 'P2002') throw e;
+        const raced = await findExisting();
+        if (raced) return raced;
+        if (attempt >= 8) throw e;
+      }
+    }
   }
 
   async accrueForSwap(swapId: string, tx: Tx = this.prisma) {

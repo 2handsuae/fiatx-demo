@@ -55,6 +55,51 @@ describe('FeeAccrualService.accrue', () => {
     await svc.accrueForSwap('s3', prisma);
     expect(created).toHaveLength(0);
   });
+
+  it('retries with a fresh feeAccrualNo on P2002 collision (no existing compound row)', async () => {
+    let createCalls = 0;
+    const p: any = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue({
+        id: 's4', swapNo: 'SWP4', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'C1',
+        toAssetId: 'a', feeAmount: '3', spreadAmount: '0', toAsset: { code: 'X' },
+      }) },
+      feeAccrual: {
+        findUnique: jest.fn().mockResolvedValue(null), // compound never pre-exists
+        create: jest.fn(() => {
+          createCalls += 1;
+          if (createCalls === 1) {
+            const e: any = new Error('Unique constraint failed');
+            e.code = 'P2002';
+            e.meta = { target: ['feeAccrualNo'] };
+            throw e;
+          }
+          return Promise.resolve({ id: 'fa4' });
+        }),
+      },
+    };
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any);
+    await s.accrueForSwap('s4', p);
+    expect(createCalls).toBe(2); // first throws on feeAccrualNo, retry succeeds
+  });
+
+  it('treats P2002 as idempotent when the compound row now exists (race)', async () => {
+    const findUnique = jest.fn()
+      .mockResolvedValueOnce(null)            // pre-check: not there
+      .mockResolvedValueOnce({ id: 'raced' }); // after P2002: a racing tx created it
+    const p: any = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue({
+        id: 's5', swapNo: 'SWP5', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'C1',
+        toAssetId: 'a', feeAmount: '3', spreadAmount: '0', toAsset: { code: 'X' },
+      }) },
+      feeAccrual: {
+        findUnique,
+        create: jest.fn(() => { const e: any = new Error('dup'); e.code = 'P2002'; throw e; }),
+      },
+    };
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any);
+    await s.accrueForSwap('s5', p); // should not throw; returns the raced row
+    expect(p.feeAccrual.create).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('FeeAccrualService.settle', () => {
