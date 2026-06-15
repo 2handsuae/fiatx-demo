@@ -22,6 +22,9 @@ describe('SettlementBatchService', () => {
       outstanding: {
         findMany: jest.fn(),
       },
+      feeAccrual: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
@@ -150,6 +153,45 @@ describe('SettlementBatchService', () => {
     expect(data.settledAssetCount).toBe(1);
     expect(data.totalOutstandingCount).toBe(1);
     expect(data.settledOutstandingCount).toBe(1);
+    expect(data.status).toBe('SUCCESS');
+    expect(data.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('recomputeBatch FEE batch: counts LOCKED accruals + status PROCESSING until all SETTLED', async () => {
+    // FEE batch shape: a fee-settle transfer + 0 outstandings + N fee accruals.
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'INTERNAL_FUNDS_PENDING', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([]);
+    prisma.feeAccrual.findMany.mockResolvedValue([
+      { status: 'LOCKED' },
+      { status: 'LOCKED' },
+    ]);
+
+    await service.recomputeBatch('batch-fee-1');
+
+    const data = prisma.settlementBatch.update.mock.calls[0][0].data;
+    expect(data.totalFeeAccrualCount).toBe(2);
+    expect(data.settledFeeAccrualCount).toBe(0);
+    expect(data.status).toBe('PROCESSING');
+    expect(data.completedAt).toBeNull();
+  });
+
+  it('recomputeBatch FEE batch: status SUCCESS only when transfer SUCCESS AND all fee accruals SETTLED', async () => {
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'SUCCESS', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([]);
+    prisma.feeAccrual.findMany.mockResolvedValue([
+      { status: 'SETTLED' },
+      { status: 'SETTLED' },
+    ]);
+
+    await service.recomputeBatch('batch-fee-2');
+
+    const data = prisma.settlementBatch.update.mock.calls[0][0].data;
+    expect(data.totalFeeAccrualCount).toBe(2);
+    expect(data.settledFeeAccrualCount).toBe(2);
     expect(data.status).toBe('SUCCESS');
     expect(data.completedAt).toBeInstanceOf(Date);
   });

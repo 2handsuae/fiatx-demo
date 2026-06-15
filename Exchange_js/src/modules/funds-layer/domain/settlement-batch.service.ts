@@ -104,6 +104,10 @@ export class SettlementBatchService {
         where: { settlementBatchId },
         select: { status: true, assetId: true, settledByTransferId: true },
       });
+      const feeAccruals = await (client as any).feeAccrual.findMany({
+        where: { settlementBatchId },
+        select: { status: true },
+      });
 
       const nettedZeroAssets = new Set<string>(
         outstandings
@@ -125,13 +129,19 @@ export class SettlementBatchService {
         (o: any) => o.status === 'SETTLED',
       ).length;
 
-      // Fee-collection batches have no outstandings → the outstanding-count
-      // equality is vacuously true; completion then gates purely on transfers.
-      // An empty batch (no transfers, no outstandings) → totalAssetCount 0 → PROCESSING.
+      // FEE batches carry fee accruals (no outstandings); PRINCIPAL batches
+      // carry outstandings (no accruals). Both must close their own ledger
+      // for the batch to be SUCCESS — symmetric with body/fee two-rail design.
+      const totalFeeAccrualCount = feeAccruals.length;
+      const settledFeeAccrualCount = feeAccruals.filter(
+        (f: any) => f.status === 'SETTLED',
+      ).length;
+
       const allDone =
         totalAssetCount > 0 &&
         settledAssetCount === totalAssetCount &&
-        settledOutstandingCount === totalOutstandingCount;
+        settledOutstandingCount === totalOutstandingCount &&
+        settledFeeAccrualCount === totalFeeAccrualCount;
       const status = allDone ? 'SUCCESS' : 'PROCESSING';
 
       return (client as any).settlementBatch.update({
@@ -142,6 +152,8 @@ export class SettlementBatchService {
           settledAssetCount,
           totalOutstandingCount,
           settledOutstandingCount,
+          totalFeeAccrualCount,
+          settledFeeAccrualCount,
           completedAt: allDone ? new Date() : null,
         },
       });
