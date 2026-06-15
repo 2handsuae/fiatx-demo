@@ -1,7 +1,7 @@
 import { WalletRole } from './dto/wallet.dto';
 
 export const CRYPTO_SYSTEM_WALLET_ROLES: WalletRole[] = [
-  WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.F_LIQ, WalletRole.F_OPS,
+  WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
 ];
 
 export const FIAT_SYSTEM_WALLET_ROLES: WalletRole[] = [

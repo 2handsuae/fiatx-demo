@@ -12,7 +12,7 @@ describe('system-wallet.util', () => {
   describe('role constants', () => {
     it('CRYPTO_SYSTEM_WALLET_ROLES contains correct roles', () => {
       expect(CRYPTO_SYSTEM_WALLET_ROLES).toEqual([
-        WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.F_LIQ, WalletRole.F_OPS,
+        WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
       ]);
     });
 
