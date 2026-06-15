@@ -7,9 +7,9 @@ import {
 } from './internal-transfer-paths.constant';
 
 describe('TRANSFER_PATH_WHITELIST', () => {
-  it('defines the 6 crypto paths and 4 fiat paths', () => {
+  it('defines the 7 crypto paths and 4 fiat paths', () => {
     expect(Object.keys(TRANSFER_PATH_WHITELIST).sort()).toEqual(
-      ['CRYPTO_DEPOSIT_SWEEP', 'CRYPTO_WITHDRAW_FEE_COLLECT', 'FIAT_WITHDRAW_FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FIAT_SWAP_FEE_COLLECT', 'CRYPTO_HOTWALLET_FUND', 'CRYPTO_HOTWALLET_RETURN', 'CRYPTO_SETTLE_IN', 'CRYPTO_SETTLE_OUT'].sort(),
+      ['CRYPTO_DEPOSIT_SWEEP', 'CRYPTO_WITHDRAW_FEE_COLLECT', 'CRYPTO_SWAP_FEE_COLLECT', 'FIAT_WITHDRAW_FEE_COLLECT', 'FIAT_SETTLE_IN', 'FIAT_SETTLE_OUT', 'FIAT_SWAP_FEE_COLLECT', 'CRYPTO_HOTWALLET_FUND', 'CRYPTO_HOTWALLET_RETURN', 'CRYPTO_SETTLE_IN', 'CRYPTO_SETTLE_OUT'].sort(),
     );
   });
 

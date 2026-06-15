@@ -5,6 +5,7 @@ export enum TransferPath {
   CRYPTO_SETTLE_OUT          = 'CRYPTO_SETTLE_OUT',
   CRYPTO_SETTLE_IN           = 'CRYPTO_SETTLE_IN',
   CRYPTO_WITHDRAW_FEE_COLLECT = 'CRYPTO_WITHDRAW_FEE_COLLECT',
+  CRYPTO_SWAP_FEE_COLLECT     = 'CRYPTO_SWAP_FEE_COLLECT',
   FIAT_SETTLE_OUT     = 'FIAT_SETTLE_OUT',
   FIAT_SETTLE_IN      = 'FIAT_SETTLE_IN',
   FIAT_WITHDRAW_FEE_COLLECT = 'FIAT_WITHDRAW_FEE_COLLECT',
@@ -125,6 +126,18 @@ export const TRANSFER_PATH_WHITELIST: Record<TransferPath, TransferPathPolicy> =
     class: AccountingClass.B,
     medium: TransferMedium.BANK,
     trigger: ['SWAP'],
+    // No mirror: company-internal movement (F_OPS→F_FEE), TB no-op.
+  },
+  // Shares the F_OPS→F_FEE role pair with FIAT_SWAP_FEE_COLLECT; declared AFTER it so
+  // resolvePathPolicy('F_OPS','F_FEE') keeps returning the fiat path. Crypto swap-fee
+  // settlement reaches this entry by explicit enum key, not by role-pair resolution.
+  [TransferPath.CRYPTO_SWAP_FEE_COLLECT]: {
+    path: TransferPath.CRYPTO_SWAP_FEE_COLLECT,
+    from: 'F_OPS',
+    to: 'F_FEE',
+    class: AccountingClass.B,
+    medium: TransferMedium.CHAIN,
+    trigger: ['SWAP', 'EOD'],
     // No mirror: company-internal movement (F_OPS→F_FEE), TB no-op.
   },
 };

@@ -6,6 +6,10 @@ import { InternalTransferService } from './internal-transfer.service';
 import { FundsFlowService } from './funds-flow.service';
 import { SystemWalletResolver } from './system-wallet-resolver.service';
 import { SettlementBatchService } from './settlement-batch.service';
+import {
+  TransferPath,
+  TRANSFER_PATH_WHITELIST,
+} from '../constants/internal-transfer-paths.constant';
 
 type Tx = Prisma.TransactionClient | PrismaService;
 
@@ -123,6 +127,115 @@ export class FeeAccrualService {
         assetId: withdraw.assetId,
         assetCode: withdraw.asset?.code,
         amount: fee,
+      });
+    }
+  }
+
+  /**
+   * Settle a set of same-category accruals: group by asset, net each group into a
+   * single policy-driven F_*→F_FEE transfer, then LOCK the group's accruals.
+   *
+   * INVARIANT: fiat WITHDRAW_FEE sources the per-customer C_VIBAN, so a fiat-withdraw
+   * settle MUST be called per-order (single owner) — the immediate-settle path
+   * guarantees this. Crypto sources (F_OPS for SWAP_FEE, C_MAIN for WITHDRAW_FEE) and
+   * SWAP_FEE are platform-level, so netting many owners into one transfer is correct.
+   */
+  async settle(
+    accruals: any[],
+    category: string,
+    settlementType: string,
+    tx: Tx,
+  ): Promise<void> {
+    const groups = new Map<string, any[]>();
+    for (const a of accruals) {
+      const list = groups.get(a.assetId) ?? [];
+      list.push(a);
+      groups.set(a.assetId, list);
+    }
+
+    for (const [assetId, group] of groups) {
+      const amount = group.reduce(
+        (sum, a) => sum.add(new Prisma.Decimal(a.amount)),
+        new Prisma.Decimal(0),
+      );
+      if (amount.lte(0)) continue;
+
+      const asset = await (tx as any).asset.findUnique({
+        where: { id: assetId },
+        select: { type: true },
+      });
+      const isCrypto = asset?.type === 'CRYPTO';
+
+      let pathEnum: TransferPath;
+      let fromRole: string;
+      if (category === 'SWAP_FEE') {
+        pathEnum = isCrypto
+          ? TransferPath.CRYPTO_SWAP_FEE_COLLECT
+          : TransferPath.FIAT_SWAP_FEE_COLLECT;
+        fromRole = 'F_OPS';
+      } else {
+        pathEnum = isCrypto
+          ? TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT
+          : TransferPath.FIAT_WITHDRAW_FEE_COLLECT;
+        fromRole = isCrypto ? 'C_MAIN' : 'C_VIBAN';
+      }
+
+      const policy = TRANSFER_PATH_WHITELIST[pathEnum];
+
+      const to = await this.systemWallets.resolve(assetId, 'F_FEE');
+      const from =
+        fromRole === 'C_VIBAN'
+          ? await this.systemWallets.resolveCustomer(
+              assetId,
+              'C_VIBAN',
+              group[0].ownerId,
+            )
+          : await this.systemWallets.resolve(assetId, fromRole);
+
+      const batch = await this.batchService.createBatch({
+        cutoffAt: new Date(),
+        settlementType,
+        category,
+      });
+
+      const transfer = await this.transfers.createTransfer({
+        path: policy.path,
+        accountingClass: policy.class,
+        medium: policy.medium,
+        triggerSource: settlementType,
+        sourceType:
+          category === 'SWAP_FEE'
+            ? 'SWAP_FEE_SETTLEMENT'
+            : 'WITHDRAW_FEE_SETTLEMENT',
+        sourceId: `${batch.id}:${assetId}`,
+        sourceNo: batch.batchNo,
+        ownerType: group[0].ownerType,
+        ownerId: group[0].ownerId,
+        ownerNo: group[0].ownerNo,
+        assetId,
+        amount,
+        feeAmount: new Prisma.Decimal(0),
+        netAmount: amount,
+        fromWalletId: from.id,
+        toWalletId: to.id,
+        settlementBatchId: batch.id,
+      });
+
+      await this.fundsFlow.createLeg({
+        internalTransactionId: transfer.id,
+        fromWalletId: from.id,
+        toWalletId: to.id,
+        amount,
+      });
+
+      await (tx as any).feeAccrual.updateMany({
+        where: { id: { in: group.map((a) => a.id) } },
+        data: {
+          status: 'LOCKED',
+          settledByTransferId: transfer.id,
+          settlementBatchId: batch.id,
+          lockedAt: new Date(),
+        },
       });
     }
   }
