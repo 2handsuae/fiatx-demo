@@ -1,5 +1,7 @@
 # FeeAccrual 结算重设计 实施计划
 
+> **状态：✅ 全部完成（2026-06-15）。** W1 改名 / W2 crypto F_FEE / W3 FeeAccrual 双结算+3类批+可追溯 全部 TDD 落地，全量 jest 905 passed/0 failed，build+admin tsc 绿。live e2e 验证：F_FEE(USDT) 0→24.86（== Σ SETTLED USDT accrual 精确吻合），fee_accruals 全 SETTLED，3 类 batch 齐（PRINCIPAL⊥SWAP_FEE⊥WITHDRAW_FEE），可追溯链通。额外修复：feeAccrualNo P2002 撞号（重试）、sim harness 驱动新费用 leg。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: 用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 按任务逐条执行。步骤用 `- [ ]` 复选框跟踪。
 
 **Goal:** 把费用纳入"计提（FeeAccrual）→ 结算（settlement）"统一模型，与本金 Outstanding 同构；法币即时结、虚拟币 EOD 净额结；结算分 PRINCIPAL⊥SWAP_FEE⊥WITHDRAW_FEE 三类独立批；Path 枚举一致化改名；crypto 建 F_FEE 钱包；两轨统一可追溯。
