@@ -77,8 +77,8 @@ export class FundsAccountingService {
     const firmId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_TREASURY, ledger, ownerType: 'SYSTEM' });
 
     const isFeePath =
-      transfer.pathLabel === TransferPath.FEE_COLLECT ||
-      transfer.pathLabel === TransferPath.FIAT_FEE_COLLECT;
+      transfer.pathLabel === TransferPath.CRYPTO_WITHDRAW_FEE_COLLECT ||
+      transfer.pathLabel === TransferPath.FIAT_WITHDRAW_FEE_COLLECT;
 
     const debitAccountId = mirror === 'POOL_TO_FIRM' ? firmId : poolId;
     const creditAccountId = mirror === 'POOL_TO_FIRM' ? poolId : firmId;

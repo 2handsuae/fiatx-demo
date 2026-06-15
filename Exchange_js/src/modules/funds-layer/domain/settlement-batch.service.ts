@@ -26,7 +26,7 @@ export interface SettlementBatchAdminQuery {
 }
 
 export interface CryptoDirection {
-  path: 'INTERNAL_IN' | 'INTERNAL_OUT';
+  path: 'CRYPTO_SETTLE_IN' | 'CRYPTO_SETTLE_OUT';
   fromRole: string;
   toRole: string;
   amount: Prisma.Decimal;
@@ -155,14 +155,14 @@ export class SettlementBatchService {
     if (net.eq(0)) return null;
     if (net.gt(0)) {
       return {
-        path: 'INTERNAL_IN',
+        path: 'CRYPTO_SETTLE_IN',
         fromRole: 'F_OPS',
         toRole: 'C_MAIN',
         amount: net,
       };
     }
     return {
-      path: 'INTERNAL_OUT',
+      path: 'CRYPTO_SETTLE_OUT',
       fromRole: 'C_MAIN',
       toRole: 'F_OPS',
       amount: net.abs(),
