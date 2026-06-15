@@ -15,6 +15,7 @@
     "dev:start": "bash scripts/dev-start-all.sh",
     "dev:stop": "bash scripts/dev-stop-all.sh",
     "dev:reset": "bash scripts/dev-reset-biz.sh",
+    "dev:reset:branch": "bash scripts/reset-branch.sh",
     "dev:rebuild": "bash scripts/rebuild-local-dev-db.sh",
     "dev:tb:start": "bash scripts/dev-tigerbeetle.sh start",
     "dev:tb:stop": "bash scripts/dev-tigerbeetle.sh stop",
