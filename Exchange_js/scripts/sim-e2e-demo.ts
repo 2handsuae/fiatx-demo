@@ -378,36 +378,17 @@ async function main() {
     process.stdout.write(`  ${c.customerNo}: ${r1.wd.withdrawNo} fiat ${r1.finalStatus}\n`);
   }
 
-  // Drive withdraw-fee collection legs (C_VIBAN→F_FEE, fiat) spawned per fiat withdraw
-  console.log('\n  driving withdraw fee-collection legs...');
-  let wfDriven = 0;
-  for (const w of withdraws) {
-    const wid = (await prisma.withdrawTransaction.findFirst({ where: { withdrawNo: w.withdrawNo } }))?.id;
-    if (!wid) continue;
-    const feeTx: any = await prisma.internalTransaction.findFirst({ where: { sourceType: 'FIAT_FEE_COLLECTION', sourceId: `${wid}:FEE` } });
-    if (!feeTx) continue;
-    const leg = await prisma.internalFund.findFirst({ where: { internalTransactionId: feeTx.id } });
-    if (leg && leg.status !== 'CLEAR') { await driveFiatLeg(leg.id); wfDriven++; }
-  }
-  console.log(`  withdraw fee legs driven: ${wfDriven}`);
+  // NOTE: fee-settlement legs (FeeAccrual model: SWAP_FEE_SETTLEMENT /
+  // WITHDRAW_FEE_SETTLEMENT transfers, both fiat-immediate and crypto-EOD) are
+  // driven generically after the EOD pass below — see "driving fee-settlement legs".
 
   // ════════════════════════════════════════════════════════════════
   // TASK 5: EOD settlement (crypto outstandings) + fee collection → drive legs CLEAR
   // ════════════════════════════════════════════════════════════════
   console.log('\n═══ TASK 5: EOD settlement + fee collection ═══');
 
-  // First, any remaining swap fee/spread collection legs (F_OPS→F_FEE) from IN settlements
-  const pendingFeeCollects = await prisma.internalTransaction.findMany({
-    where: { sourceType: 'FIAT_FEE_COLLECTION', sourceId: { in: swaps.flatMap((s) => [`${s.swapId}:FEE`, `${s.swapId}:SPREAD`]) } },
-  });
-  let swapFeeLegsDriven = 0;
-  for (const c of pendingFeeCollects) {
-    const leg = await prisma.internalFund.findFirst({ where: { internalTransactionId: c.id } });
-    if (leg && leg.status !== 'CLEAR') { await driveFiatLeg(leg.id); swapFeeLegsDriven++; }
-  }
-  console.log(`  swap fee/spread collection legs driven: ${swapFeeLegsDriven}`);
-
   // Run EOD: nets open crypto outstandings per asset, spawns INTERNAL_OUT (C_MAIN→F_OPS)
+  // and (new) the crypto SWAP_FEE/WITHDRAW_FEE nets via the EOD fee pass.
   const eodRes = await eodWorkflow.runEodSettlement(SIM);
   console.log(`  EOD batch=${eodRes.batchNo} assetCount=${eodRes.assetCount} spawned=${eodRes.spawned} settledZero=${eodRes.settledZero}`);
 
@@ -423,7 +404,45 @@ async function main() {
     }, 15000).catch((e) => console.log(`  ! ${e.message}`));
   }
 
+  // Drive ALL fee-settlement legs to CLEAR (FeeAccrual model): fiat-immediate
+  // SWAP_FEE/WITHDRAW_FEE spawned during swap/withdraw + crypto-EOD nets just
+  // spawned by the EOD fee pass. On CLEAR, settleByTransfer flips accruals
+  // LOCKED→SETTLED and the leg credits F_FEE (both currencies).
+  console.log('\n  driving fee-settlement legs (SWAP_FEE + WITHDRAW_FEE, both rails)...');
+  const feeTxs = await prisma.internalTransaction.findMany({
+    where: { sourceType: { in: ['SWAP_FEE_SETTLEMENT', 'WITHDRAW_FEE_SETTLEMENT'] } },
+  });
+  let feeLegsDriven = 0;
+  for (const tx of feeTxs) {
+    const leg = await prisma.internalFund.findFirst({
+      where: { internalTransactionId: tx.id, status: { not: 'CLEAR' } },
+    });
+    if (!leg) continue;
+    if (tx.medium === 'CHAIN') await driveCryptoLeg(leg.id);
+    else await driveFiatLeg(leg.id);
+    feeLegsDriven++;
+  }
+  console.log(`  fee-settlement legs driven: ${feeLegsDriven}`);
+
   await sleep(500);
+
+  // ── Recon: after a complete run every fee accrual must be SETTLED, and each
+  // F_FEE wallet balance must equal Σ SETTLED accrual for its asset (USDT side
+  // starts at 0 so it ties out exactly; AED may carry a pre-existing baseline). ──
+  const unsettled = await prisma.feeAccrual.count({ where: { status: { not: 'SETTLED' } } });
+  console.log('\n═══ RECON ═══');
+  console.log(`  unsettled fee accruals (must be 0): ${unsettled}`);
+  const ffeeWallets = await prisma.wallet.findMany({
+    where: { walletRole: 'F_FEE' }, include: { asset: { select: { code: true } } },
+  });
+  for (const w of ffeeWallets) {
+    const sum = await prisma.feeAccrual.aggregate({
+      where: { assetCode: w.asset.code, status: 'SETTLED' }, _sum: { amount: true },
+    });
+    console.log(`  F_FEE ${w.asset.code}: balance=${w.mockBalance} ΣsettledAccrual=${sum._sum.amount ?? 0}`);
+  }
+  if (unsettled !== 0) console.error(`  ✗ RECON FAILED: ${unsettled} unsettled fee accruals`);
+
   console.log('\n═══ SIMULATION COMPLETE — see DB report ═══');
   console.log(`  customers: ${custs.map((c) => c.customerNo).join(', ')}`);
   await ctx.close();
