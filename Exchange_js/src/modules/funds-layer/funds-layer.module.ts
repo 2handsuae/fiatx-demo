@@ -16,6 +16,7 @@ import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { SettlementBatchService } from './domain/settlement-batch.service';
 import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
 import { DepositAggregationSourceService } from './domain/deposit-aggregation-source.service';
+import { FeeAccrualService } from './domain/fee-accrual.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
 import { FeeCollectionWorkflowService } from './workflow/fee-collection-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
@@ -65,6 +66,7 @@ import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
     SettlementBatchService,
     OutstandingConsumerService,
     DepositAggregationSourceService,
+    FeeAccrualService,
     EodSettlementWorkflowService,
     EodSettlementSweepService,
     FeeCollectionWorkflowService,
