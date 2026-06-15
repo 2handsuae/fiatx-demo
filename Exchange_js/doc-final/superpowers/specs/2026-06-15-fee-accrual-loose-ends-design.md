@@ -112,12 +112,15 @@ return (client as any).settlementBatch.update({
 [branch] guard 3-gate (git/cwd/.env 都必须 branch)
 [branch] stop services (3500/3501/3502)
 [branch] TB format (rm /tmp/exchange_js_branch/0_0.tigerbeetle + 重 format)
+[branch] TB start (seed.business.ts 需要 TB 在线否则 ConnectionRefused 阻塞)
 [branch] prisma apply migrations
 [branch] db:base:sync
 [branch] db:biz:reset
 [branch] db:seed:business
-[branch] complete; next: npm run runtime:diagnose && npm run dev:start
+[branch] dev-start-all.sh (nohup, 自动起 backend/admin/client；TB 已在跑、idempotent)
+[branch] complete; URLs live: 3500/3501/3502
 ```
+> main 栈不自动起服务（保持向后兼容），仍打印 "Run next" 提示。
 
 ### 验证
 - 在 branch worktree 执行 `npm run dev:reset:branch` → 应一路绿，最终 sqlite3 数 fee_accruals=0、settlement_batches=0、F_FEE 钱包=2（含 USDT 0 起）、wallets 含 seed。

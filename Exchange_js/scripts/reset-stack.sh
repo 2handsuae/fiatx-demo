@@ -42,6 +42,10 @@ bash "${SCRIPT_DIR}/stack-stop.sh" "${STACK}" >/dev/null 2>&1 || true
 if [[ "${STACK}" == "branch" ]]; then
   echo "[${STACK}] reformatting TigerBeetle (paired with SQLite reset)"
   bash "${SCRIPT_DIR}/dev-tigerbeetle.sh" format
+  # seed.business.ts will provision TB accounts via AccountingService — TB must
+  # be running before that step or the seed will block on ConnectionRefused.
+  echo "[${STACK}] starting TigerBeetle"
+  bash "${SCRIPT_DIR}/dev-tigerbeetle.sh" start
 fi
 
 mkdir -p "$(dirname "${db_file}")"
@@ -73,6 +77,30 @@ echo "[${STACK}] re-seeding business demo"
 echo ""
 echo "[${STACK}] business reset complete"
 echo "Database: ${db_file}"
-echo "Run next:"
-echo "  npm run runtime:diagnose"
-echo "  npm run dev:start"
+
+# Auto-start the stack so the operator lands on a usable URL.
+# branch stack ships its own dev-start-all.sh that brings up backend / admin /
+# client / TigerBeetle (TB is already up from the format+start step above and
+# `dev-tigerbeetle.sh start` is idempotent — re-running it just prints
+# "already running"). Run via nohup so the spawned services survive this
+# script's exit. main stack is left manual (backwards-compatible).
+if [[ "${STACK}" == "branch" ]]; then
+  echo "[${STACK}] starting services (nohup, log → /tmp/exchange_js_runtime_branch/dev-start.log)"
+  (
+    cd "${APP_DIR}"
+    nohup bash scripts/dev-start-all.sh \
+      > /tmp/exchange_js_runtime_branch/dev-start.log 2>&1 < /dev/null &
+    disown || true
+  )
+  # brief pause to let listeners bind so the operator's next click works.
+  sleep 12
+  echo "[${STACK}] services launching:"
+  echo "  API    http://localhost:3500"
+  echo "  Admin  http://localhost:3501"
+  echo "  Client http://localhost:3502"
+  echo "  Tail logs at /tmp/exchange_js_runtime_branch/"
+else
+  echo "Run next:"
+  echo "  npm run runtime:diagnose"
+  echo "  npm run dev:start"
+fi
