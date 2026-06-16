@@ -275,29 +275,50 @@ async function seedSwapFeeLevels(prisma: PrismaClient): Promise<void> {
     },
   ];
 
+  // 4-tier amount-based gradient: larger trades get better rate markup AND lower flat fee.
+  // Tier boundaries differ per direction to reflect natural transaction-size distribution
+  // (USDT side has finer granularity; AED side scales up faster).
+  const tiersByDirection: Record<
+    string,
+    Array<{ amountMin: string; amountMax: string | null; rateMarkupBps: number; flatFee: string }>
+  > = {
+    'STD-USDT-AED': [
+      { amountMin: '0',     amountMax: '500',   rateMarkupBps: 100, flatFee: '30' },
+      { amountMin: '500',   amountMax: '2000',  rateMarkupBps: 60,  flatFee: '20' },
+      { amountMin: '2000',  amountMax: '10000', rateMarkupBps: 40,  flatFee: '15' },
+      { amountMin: '10000', amountMax: null,    rateMarkupBps: 20,  flatFee: '10' },
+    ],
+    'STD-AED-USDT': [
+      { amountMin: '0',     amountMax: '1000',  rateMarkupBps: 100, flatFee: '8' },
+      { amountMin: '1000',  amountMax: '5000',  rateMarkupBps: 60,  flatFee: '5' },
+      { amountMin: '5000',  amountMax: '30000', rateMarkupBps: 40,  flatFee: '3' },
+      { amountMin: '30000', amountMax: null,    rateMarkupBps: 20,  flatFee: '2' },
+    ],
+  };
+
   for (const pair of pairs) {
-    const tiersJson = JSON.stringify({
-      tiers: [
-        {
-          id: `${pair.levelCode}-TIER-001`,
-          name: 'Default Tier',
-          enabled: true,
-          rateMarkupBps: 50,
-          conditions: { amountMin: '0', amountMax: null },
-          feeItems: [
-            {
-              id: `${pair.levelCode}-TIER-001-FEE-001`,
-              itemCode: 'SWAP_SERVICE_FEE',
-              calcType: 'FLAT',
-              value: '0',
-              min: null,
-              max: null,
-              roundingMode: 'ROUND',
-            },
-          ],
-        },
-      ],
+    const tiers = tiersByDirection[pair.levelCode].map((t, i) => {
+      const tierIdx = String(i + 1).padStart(3, '0');
+      return {
+        id: `${pair.levelCode}-TIER-${tierIdx}`,
+        name: `Tier ${i + 1} (${t.amountMin}${t.amountMax ? '-' + t.amountMax : '+'})`,
+        enabled: true,
+        rateMarkupBps: t.rateMarkupBps,
+        conditions: { amountMin: t.amountMin, amountMax: t.amountMax },
+        feeItems: [
+          {
+            id: `${pair.levelCode}-TIER-${tierIdx}-FEE-001`,
+            itemCode: 'SWAP_SERVICE_FEE',
+            calcType: 'FLAT',
+            value: t.flatFee,
+            min: null,
+            max: null,
+            roundingMode: 'ROUND',
+          },
+        ],
+      };
     });
+    const tiersJson = JSON.stringify({ tiers });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
     await prisma.swapFeeLevel.upsert({
@@ -328,41 +349,67 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
     orderBy: [{ currency: 'asc' }, { network: 'asc' }],
   });
 
+  // 4-tier amount-based gradient per asset. Larger withdrawals get higher absolute fee
+  // but lower effective percentage. NETWORK_FEE_EST applies only to crypto (on-chain gas).
+  const tiersByCurrency: Record<
+    string,
+    Array<{ amountMin: string; amountMax: string | null; serviceFee: string; networkFee: string }>
+  > = {
+    AED: [
+      { amountMin: '0',      amountMax: '1000',    serviceFee: '30',  networkFee: '0' },
+      { amountMin: '1000',   amountMax: '10000',   serviceFee: '50',  networkFee: '0' },
+      { amountMin: '10000',  amountMax: '100000',  serviceFee: '100', networkFee: '0' },
+      { amountMin: '100000', amountMax: null,      serviceFee: '200', networkFee: '0' },
+    ],
+    USDT: [
+      { amountMin: '0',     amountMax: '100',   serviceFee: '3',  networkFee: '1' },
+      { amountMin: '100',   amountMax: '1000',  serviceFee: '5',  networkFee: '1' },
+      { amountMin: '1000',  amountMax: '10000', serviceFee: '10', networkFee: '1' },
+      { amountMin: '10000', amountMax: null,    serviceFee: '20', networkFee: '1' },
+    ],
+  };
+
+  // Fallback for any asset not explicitly listed above (single default tier).
+  const fallbackTiers = [
+    { amountMin: '0', amountMax: null, serviceFee: '5', networkFee: '0' },
+  ];
+
   let count = 0;
   for (const asset of assets) {
     const networkLabel = asset.network || 'FIAT';
     const levelCode = `STD-${asset.currency}-${networkLabel}`;
-    const tierId = `${levelCode}-TIER-001`;
-    const tiersJson = JSON.stringify({
-      tiers: [
-        {
-          id: tierId,
-          name: 'Default Tier',
-          enabled: true,
-          conditions: { amountMin: '0', amountMax: null },
-          feeItems: [
-            {
-              id: `${tierId}-FEE-001`,
-              itemCode: 'WITHDRAW_SERVICE_FEE',
-              calcType: 'FLAT',
-              value: '0',
-              min: null,
-              max: null,
-              roundingMode: 'ROUND',
-            },
-            {
-              id: `${tierId}-FEE-002`,
-              itemCode: 'NETWORK_FEE_EST',
-              calcType: 'FLAT',
-              value: '0',
-              min: null,
-              max: null,
-              roundingMode: 'ROUND',
-            },
-          ],
-        },
-      ],
+    const tierData = tiersByCurrency[asset.currency] ?? fallbackTiers;
+    const tiers = tierData.map((t, i) => {
+      const tierIdx = String(i + 1).padStart(3, '0');
+      const tierId = `${levelCode}-TIER-${tierIdx}`;
+      return {
+        id: tierId,
+        name: `Tier ${i + 1} (${t.amountMin}${t.amountMax ? '-' + t.amountMax : '+'})`,
+        enabled: true,
+        conditions: { amountMin: t.amountMin, amountMax: t.amountMax },
+        feeItems: [
+          {
+            id: `${tierId}-FEE-001`,
+            itemCode: 'WITHDRAW_SERVICE_FEE',
+            calcType: 'FLAT',
+            value: t.serviceFee,
+            min: null,
+            max: null,
+            roundingMode: 'ROUND',
+          },
+          {
+            id: `${tierId}-FEE-002`,
+            itemCode: 'NETWORK_FEE_EST',
+            calcType: 'FLAT',
+            value: t.networkFee,
+            min: null,
+            max: null,
+            roundingMode: 'ROUND',
+          },
+        ],
+      };
     });
+    const tiersJson = JSON.stringify({ tiers });
     const configHash = createHash('sha256').update(tiersJson).digest('hex');
 
     await prisma.withdrawalFeeLevel.upsert({
