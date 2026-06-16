@@ -7,11 +7,11 @@ describe('FeeAccrualService.accrue', () => {
     withdrawTransaction: { findUnique: jest.fn() },
     feeAccrual: {
       findUnique: jest.fn().mockResolvedValue(null),
-      create: jest.fn((args: any) => { created.push(args.data); return Promise.resolve({ id: 'fa', ...args.data }); }),
+      create: jest.fn((args: any) => { created.push(args.data); return Promise.resolve({ id: 'fa', feeAccrualNo: 'FAC0', ...args.data }); }),
     },
   };
-  // constructor: (prisma, transfers, fundsFlow, systemWallets, batchService) — pass {} for unused deps in accrue
-  const svc = new FeeAccrualService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+  // constructor: (prisma, transfers, fundsFlow, systemWallets, batchService, auditLogsService)
+  const svc = new FeeAccrualService(prisma as any, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
   beforeEach(() => { created.length = 0; jest.clearAllMocks(); prisma.feeAccrual.findUnique.mockResolvedValue(null); });
 
   it('swap → 2 accruals (SERVICE_FEE + SPREAD), category SWAP_FEE', async () => {
@@ -77,7 +77,7 @@ describe('FeeAccrualService.accrue', () => {
         }),
       },
     };
-    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any);
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
     await s.accrueForSwap('s4', p);
     expect(createCalls).toBe(2); // first throws on feeAccrualNo, retry succeeds
   });
@@ -96,9 +96,101 @@ describe('FeeAccrualService.accrue', () => {
         create: jest.fn(() => { const e: any = new Error('dup'); e.code = 'P2002'; throw e; }),
       },
     };
-    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any);
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
     await s.accrueForSwap('s5', p); // should not throw; returns the raced row
     expect(p.feeAccrual.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('accrueForSwap: createAccrual writes originTraceId from swap.traceId + emits FEE_ACCRUAL.CREATED audit on create', async () => {
+    const localCreated: any[] = [];
+    const auditCalls: any[] = [];
+    const p: any = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 's1', swapNo: 'SWP1', traceId: 'SWAP-TRACE',
+          ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'C1',
+          toAssetId: 'a-aed', feeAmount: '10', spreadAmount: '2.42',
+          toAsset: { code: 'AED' },
+        }),
+      },
+      feeAccrual: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn((args: any) => {
+          localCreated.push(args.data);
+          return Promise.resolve({ id: `fa-${localCreated.length}`, feeAccrualNo: `FAC${localCreated.length}`, ...args.data });
+        }),
+      },
+    };
+    const mockAudit: any = { recordSystem: jest.fn((args: any) => { auditCalls.push(args); return Promise.resolve(); }) };
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any, mockAudit);
+
+    await s.accrueForSwap('s1', p);
+
+    expect(localCreated).toHaveLength(2); // SERVICE_FEE + SPREAD
+    expect(localCreated.every((c: any) => c.originTraceId === 'SWAP-TRACE')).toBe(true);
+
+    expect(auditCalls).toHaveLength(2);
+    expect(auditCalls.every((a: any) =>
+      a.action === 'CREATED' && a.entityType === 'FEE_ACCRUAL' && a.traceId === 'SWAP-TRACE'
+    )).toBe(true);
+  });
+
+  it('createAccrual: existing accrual (idempotent pre-check) — no audit, no create', async () => {
+    const p: any = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 's2', swapNo: 'SWP2', traceId: 'SWAP-T2',
+          ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'C1',
+          toAssetId: 'a', feeAmount: '3', spreadAmount: '0',
+          toAsset: { code: 'X' },
+        }),
+      },
+      feeAccrual: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'existing' }),
+        create: jest.fn(),
+      },
+    };
+    const auditCalls: any[] = [];
+    const mockAudit: any = { recordSystem: jest.fn((args: any) => { auditCalls.push(args); return Promise.resolve(); }) };
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any, mockAudit);
+
+    await s.accrueForSwap('s2', p);
+
+    expect(auditCalls).toHaveLength(0);
+    expect(p.feeAccrual.create).not.toHaveBeenCalled();
+  });
+
+  it('accrueForWithdraw: createAccrual passes withdraw.traceId + emits CREATED audit', async () => {
+    const localCreated: any[] = [];
+    const auditCalls: any[] = [];
+    const p: any = {
+      withdrawTransaction: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'w1', withdrawNo: 'WD1', traceId: 'WD-TRACE',
+          ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'C1',
+          assetId: 'a', feeAmount: '1',
+          asset: { code: 'AED' },
+        }),
+      },
+      feeAccrual: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn((args: any) => {
+          localCreated.push(args.data);
+          return Promise.resolve({ id: 'fa-w', feeAccrualNo: 'FACW', ...args.data });
+        }),
+      },
+    };
+    const mockAudit: any = { recordSystem: jest.fn((args: any) => { auditCalls.push(args); return Promise.resolve(); }) };
+    const s = new FeeAccrualService(p, {} as any, {} as any, {} as any, {} as any, mockAudit);
+
+    await s.accrueForWithdraw('w1', p);
+
+    expect(localCreated).toHaveLength(1);
+    expect(localCreated[0].originTraceId).toBe('WD-TRACE');
+    expect(auditCalls).toHaveLength(1);
+    expect(auditCalls[0].action).toBe('CREATED');
+    expect(auditCalls[0].entityType).toBe('FEE_ACCRUAL');
+    expect(auditCalls[0].traceId).toBe('WD-TRACE');
   });
 });
 
@@ -114,7 +206,7 @@ describe('FeeAccrualService.settle', () => {
     const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't1', internalTxNo: 'ITX1' }) };
     const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({ id: 'leg1' }) };
     const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'w' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'wv' }) };
-    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService);
+    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
     await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
     expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ category: 'SWAP_FEE', settlementType: 'EOD' }));
     expect(transfers.createTransfer).toHaveBeenCalledTimes(1);
@@ -136,7 +228,7 @@ describe('FeeAccrualService.settle', () => {
     const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't2', internalTxNo: 'ITX2' }) };
     const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({}) };
     const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'ffee' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'viban-c1' }) };
-    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService);
+    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
     await svc.settle(accruals, 'WITHDRAW_FEE', 'FIAT_WITHDRAW', prisma);
     expect(systemWallets.resolveCustomer).toHaveBeenCalledWith('aed', 'C_VIBAN', 'c1');
     const t = transfers.createTransfer.mock.calls[0][0];
@@ -156,7 +248,7 @@ describe('FeeAccrualService.settleByTransfer', () => {
       feeAccrual: { updateMany },
       internalTransaction: { findUnique },
     };
-    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
     await svc.settleByTransfer('t1', 'fund1', prisma);
     expect(updateMany).toHaveBeenCalledWith({
       where: { settledByTransferId: 't1', status: 'LOCKED' },
@@ -173,7 +265,7 @@ describe('FeeAccrualService.settleByTransfer', () => {
       internalTransaction: { findUnique },
     };
     const batchService: any = { recomputeBatch };
-    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService);
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService, { recordSystem: jest.fn() } as any);
 
     await svc.settleByTransfer('t1', 'fund1', prisma);
 
@@ -193,7 +285,7 @@ describe('FeeAccrualService.settleByTransfer', () => {
       internalTransaction: { findUnique },
     };
     const batchService: any = { recomputeBatch };
-    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService);
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService, { recordSystem: jest.fn() } as any);
 
     await svc.settleByTransfer('t2', 'fund1', prisma);
 
@@ -207,7 +299,7 @@ describe('FeeAccrualService.getFeeCollectionStatus', () => {
       { feeKind: 'SERVICE_FEE', category: 'SWAP_FEE', status: 'SETTLED', settledByTransfer: { internalTxNo: 'ITX9' }, settlementBatch: { batchNo: 'OSB9' } },
       { feeKind: 'SPREAD', category: 'SWAP_FEE', status: 'SETTLED', settledByTransfer: { internalTxNo: 'ITX9' }, settlementBatch: { batchNo: 'OSB9' } },
     ]) } };
-    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
     const r = await svc.getFeeCollectionStatus('SWP9');
     expect(prisma.feeAccrual.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { sourceNo: 'SWP9' } }));
     expect(r.collected).toBe(true);
@@ -219,7 +311,7 @@ describe('FeeAccrualService.getFeeCollectionStatus', () => {
     const prisma: any = { feeAccrual: { findMany: jest.fn().mockResolvedValue([
       { feeKind: 'WITHDRAW_FEE', category: 'WITHDRAW_FEE', status: 'ACCRUED', settledByTransfer: null, settlementBatch: null },
     ]) } };
-    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
     const r = await svc.getFeeCollectionStatus('WD9');
     expect(r.collected).toBe(false);
     expect(r.items[0]).toMatchObject({ status: 'ACCRUED', settledByTransferNo: null, settlementBatchNo: null });
@@ -227,7 +319,7 @@ describe('FeeAccrualService.getFeeCollectionStatus', () => {
 
   it('no accruals → collected false, empty items', async () => {
     const prisma: any = { feeAccrual: { findMany: jest.fn().mockResolvedValue([]) } };
-    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
     const r = await svc.getFeeCollectionStatus('NONE');
     expect(r).toEqual({ collected: false, items: [] });
   });

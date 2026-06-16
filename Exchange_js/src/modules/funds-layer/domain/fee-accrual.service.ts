@@ -10,6 +10,11 @@ import {
   TransferPath,
   TRANSFER_PATH_WHITELIST,
 } from '../constants/internal-transfer-paths.constant';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 
 type Tx = Prisma.TransactionClient | PrismaService;
 
@@ -25,6 +30,7 @@ interface AccrualInput {
   assetId: string;
   assetCode?: string | null;
   amount: Prisma.Decimal;
+  originTraceId?: string | null;
 }
 
 @Injectable()
@@ -35,6 +41,7 @@ export class FeeAccrualService {
     private readonly fundsFlow: FundsFlowService,
     private readonly systemWallets: SystemWalletResolver,
     private readonly batchService: SettlementBatchService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private async createAccrual(tx: Tx, d: AccrualInput) {
@@ -50,7 +57,7 @@ export class FeeAccrualService {
       });
 
     const existing = await findExisting();
-    if (existing) return existing;
+    if (existing) return existing; // idempotent: no audit on pre-existing row
 
     // feeAccrualNo comes from a low-entropy generator (4-digit random/day), so
     // rapid batches can collide on its @unique. On P2002: if the (sourceType,
@@ -58,17 +65,31 @@ export class FeeAccrualService {
     // otherwise the clash was on feeAccrualNo → regenerate a fresh number + retry.
     for (let attempt = 0; ; attempt++) {
       try {
-        return await (tx as any).feeAccrual.create({
+        const created = await (tx as any).feeAccrual.create({
           data: {
             feeAccrualNo: generateReferenceNo('FAC'),
             ...d,
             status: 'ACCRUED',
           },
         });
+
+        // Audit only on actual create (NOT for raced-existing returned below).
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.CREATED,
+          entityType: AuditEntityTypes.FEE_ACCRUAL,
+          entityId: created.id,
+          entityNo: created.feeAccrualNo,
+          workflowType: 'SWAP',
+          reason: `${d.feeKind} accrual for ${d.sourceType}/${d.sourceNo ?? d.sourceId}`,
+          sourcePlatform: 'SYSTEM',
+          traceId: d.originTraceId ?? undefined,
+        });
+
+        return created;
       } catch (e: any) {
         if (e?.code !== 'P2002') throw e;
         const raced = await findExisting();
-        if (raced) return raced;
+        if (raced) return raced; // lost the race, no audit
         if (attempt >= 8) throw e;
       }
     }
@@ -80,6 +101,7 @@ export class FeeAccrualService {
       select: {
         id: true,
         swapNo: true,
+        traceId: true,
         ownerType: true,
         ownerId: true,
         ownerNo: true,
@@ -101,6 +123,7 @@ export class FeeAccrualService {
       category: 'SWAP_FEE',
       assetId: swap.toAssetId,
       assetCode: swap.toAsset?.code,
+      originTraceId: swap.traceId ?? null,
     };
 
     const fee = new Prisma.Decimal(swap.feeAmount ?? 0);
@@ -120,6 +143,7 @@ export class FeeAccrualService {
       select: {
         id: true,
         withdrawNo: true,
+        traceId: true,
         ownerType: true,
         ownerId: true,
         ownerNo: true,
@@ -144,6 +168,7 @@ export class FeeAccrualService {
         assetId: withdraw.assetId,
         assetCode: withdraw.asset?.code,
         amount: fee,
+        originTraceId: withdraw.traceId ?? null,
       });
     }
   }
