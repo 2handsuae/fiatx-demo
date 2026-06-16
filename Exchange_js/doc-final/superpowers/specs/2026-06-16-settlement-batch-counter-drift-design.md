@@ -192,10 +192,12 @@ WHERE s.createdAt > datetime('now','-1 hour')
 
 **发现时机**：Spec #7 闭环后做 5-customer demo seed、4 笔 swap 在 200ms 内连发、Grace SWP2606160102 的 fiat-settlement-workflow.onSwapSucceeded 被 SQLite 写锁 race 吃掉。
 
-**铁证**：
-- Bob/Frank/Alice 3 笔 fiat listener 成、Grace 第 4 笔失败
-- catch 静默吞错、backend.log 未记录、状态留 OPEN
-- 手动调 fee-accrual-listener + fiat-settlement-workflow 重跑、idempotency latch 拉通、状态推到 LOCKED
+**铁证**（同一根因、多个 listener 都中招）：
+- `fiat-settlement-workflow.onSwapSucceeded`：4 swap 中 Grace 失败（fiat OUT 没 LOCK + 孤儿 batch）
+- `fee-accrual-listener.onSwapSucceeded`：Grace 的 SPREAD fee_accrual 缺失
+- `withdraw-workflow.handleWithdrawalCreated`：8 withdrawal 中 3 笔卡 CREATED 没推到 PENDING_COMPLIANCE
+- 共同模式：高并发 emit、listener async 处理、SQLite 单写锁/外部 API 抢资源、catch 吞错没重试
+- 手动重调 listener 方法 + idempotency latch 都能补救
 
 **代码瑕疵**（`src/modules/funds-layer/workflow/fiat-settlement-workflow.service.ts:46-130`）：
 1. listener 不在 `prisma.$transaction` 里 — 4 listener 各自竞争 SQLite 单写锁
