@@ -27,6 +27,7 @@ import { FundsSimulateController } from './controllers/funds-simulate.controller
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
 import { SettlementAdminController } from './controllers/settlement-admin.controller';
 import { FundsAdminController } from './controllers/funds-admin.controller';
+import { FeeAccrualsController } from './domain/fee-accruals.controller';
 import { TigerBeetleModule } from '../accounting/tigerbeetle/tigerbeetle.module';
 import { PricingCenterModule } from '../trading/pricing-center/pricing-center.module';
 import { FxEodService } from './accounting/fx-eod.service';
@@ -51,6 +52,7 @@ import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
     FundReturnRepairController,
     SettlementAdminController,
     FundsAdminController,
+    FeeAccrualsController,
   ],
   providers: [
     FundsFlowService,

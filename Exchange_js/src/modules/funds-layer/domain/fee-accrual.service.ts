@@ -400,4 +400,67 @@ export class FeeAccrualService {
       })),
     };
   }
+
+  async findAllForAdmin(query: any) {
+    const where: any = {};
+    if (query.feeAccrualNo) where.feeAccrualNo = { contains: query.feeAccrualNo };
+    if (query.sourceNo) where.sourceNo = { contains: query.sourceNo };
+    if (query.ownerNo) where.ownerNo = { contains: query.ownerNo };
+    if (query.status) where.status = query.status;
+    if (query.category) where.category = query.category;
+    if (query.feeKind) where.feeKind = query.feeKind;
+    if (query.assetCode) where.assetCode = query.assetCode;
+    if (query.q) where.feeAccrualNo = { startsWith: query.q };
+    if (query.startDate || query.endDate) {
+      where.createdAt = {};
+      if (query.startDate) where.createdAt.gte = new Date(query.startDate);
+      if (query.endDate) where.createdAt.lte = new Date(query.endDate);
+    }
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const [items, total] = await Promise.all([
+      (this.prisma as any).feeAccrual.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          settlementBatch: { select: { id: true, batchNo: true } },
+          settledByTransfer: { select: { id: true, internalTxNo: true } },
+        },
+      }),
+      (this.prisma as any).feeAccrual.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  async findOneForAdmin(id: string) {
+    const row = await (this.prisma as any).feeAccrual.findUnique({
+      where: { id },
+      include: {
+        settlementBatch: { select: { id: true, batchNo: true } },
+        settledByTransfer: { select: { id: true, internalTxNo: true } },
+        closedByInternalFund: { select: { id: true, internalFundNo: true } },
+      },
+    });
+    if (!row) return null;
+    const siblings = await (this.prisma as any).feeAccrual.findMany({
+      where: {
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        NOT: { id: row.id },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        feeAccrualNo: true,
+        feeKind: true,
+        amount: true,
+        assetCode: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    return { ...row, siblings };
+  }
 }
