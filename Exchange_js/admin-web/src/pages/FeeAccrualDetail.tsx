@@ -186,7 +186,38 @@ const FeeAccrualDetail = () => {
         </Section>
 
         <Section title={`Sibling Accruals (${data.siblings.length})`}>
-          <div className="font-mono text-[11px] italic text-adm-t3">(populated by T5)</div>
+          {data.siblings.length === 0 ? (
+            <div className="font-mono text-[11px] text-adm-t3">No other accruals from this source.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse font-mono text-[11px]">
+                <thead>
+                  <tr className="border-b border-adm-border">
+                    <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">Accrual No</th>
+                    <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">Fee Kind</th>
+                    <th className="px-3 py-2 text-right text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">Amount</th>
+                    <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">Status</th>
+                    <th className="px-3 py-2 text-left text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.siblings.map((s) => (
+                    <tr
+                      key={s.id}
+                      onClick={() => navigate(`/dashboard/reconciliation/fee-accruals/${s.id}`)}
+                      className="cursor-pointer border-b border-adm-border hover:bg-adm-panel"
+                    >
+                      <td className="px-3 py-2 text-adm-t1">{s.feeAccrualNo || '—'}</td>
+                      <td className="px-3 py-2"><AdminBadge value={s.feeKind} /></td>
+                      <td className="px-3 py-2 text-right text-adm-t1">{`${formatAssetAmount(s.amount, undefined)} ${s.assetCode || ''}`.trim() || '—'}</td>
+                      <td className="px-3 py-2"><AdminBadge value={s.status} /></td>
+                      <td className="px-3 py-2 text-adm-t2">{fmtDate(s.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
       </div>
     </div>
