@@ -8,7 +8,6 @@ import {
 } from '../../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../../components/ui/SidebarPrimitives';
 import { StatusPill } from '../../components/ui/StatusPill';
-import { adminButtonClass } from '../../components/common/adminButtonStyles';
 import {
   AdminSessionError,
   adminFetch,
@@ -58,10 +57,6 @@ const SettlementDetailPage = () => {
   const [data, setData] = useState<SettlementDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Manual Run state
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState('');
-
   const fetchData = async () => {
     if (!batchNo) return;
     setLoading(true);
@@ -88,27 +83,6 @@ const SettlementDetailPage = () => {
     if (batchNo) void fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchNo]);
-
-  const handleRun = async () => {
-    setRunning(true);
-    setRunError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/funds-layer/settlements/run`,
-        { method: 'POST' },
-      );
-      if (!response.ok) {
-        setRunError(await getApiErrorMessage(response, 'EOD settlement run failed.'));
-        return;
-      }
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setRunError(error instanceof Error ? error.message : 'EOD settlement run failed.');
-    } finally {
-      setRunning(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -239,30 +213,6 @@ const SettlementDetailPage = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          {/* ACTIONS → Manual Run */}
-          <SidebarGroup title="Actions">
-            <div className="rounded-lg border border-adm-blue/25 bg-adm-blue/6 p-3">
-              <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-blue">
-                Manual Run
-              </p>
-              <p className="mt-1 font-mono text-[9px] leading-relaxed text-adm-t3">
-                DEV-only. Triggers an EOD settlement run, then refreshes this batch.
-              </p>
-
-              {runError && (
-                <p className="mt-2 font-mono text-[10px] text-adm-red">{runError}</p>
-              )}
-
-              <button
-                onClick={handleRun}
-                disabled={running}
-                className={adminButtonClass('simulationAction', 'mt-3 w-full')}
-              >
-                {running ? 'Running…' : 'Run EOD Settlement'}
-              </button>
-            </div>
-          </SidebarGroup>
-
           {/* IDENTITY SUMMARY */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Batch No" value={data.batchNo} mono />
