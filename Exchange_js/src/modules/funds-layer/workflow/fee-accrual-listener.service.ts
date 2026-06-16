@@ -33,12 +33,25 @@ export class FeeAccrualListenerService {
         where: { id: event.swapId },
         select: { toAsset: { select: { type: true } } },
       });
-      if (!swap || swap.toAsset?.type !== 'CRYPTO') return;
+      if (!swap) return;
 
+      // (1) Always accrue (was: crypto-only). Crypto-side stays ACCRUED and is
+      //     settled by the EOD batch pass (eod-settlement-workflow). Fiat-side
+      //     additionally settles immediately below — fee batch must spawn in
+      //     parallel with the principal FIAT_SETTLE_IN batch (Spec #6).
       await this.feeAccrual.accrueForSwap(event.swapId, this.prisma);
+
+      if (swap.toAsset?.type === 'FIAT') {
+        const accruals = await (this.prisma as any).feeAccrual.findMany({
+          where: { sourceType: 'SWAP', sourceId: event.swapId, status: 'ACCRUED' },
+        });
+        if (accruals.length) {
+          await this.feeAccrual.settle(accruals, 'SWAP_FEE', 'FIAT_SWAP', this.prisma);
+        }
+      }
     } catch (err) {
       this.logger.error(
-        `Crypto swap fee accrual failed for swap=${event.swapId}`,
+        `Swap fee handle failed for swap=${event.swapId}`,
         err instanceof Error ? err.stack : undefined,
       );
     }

@@ -11,10 +11,12 @@ describe('FeeAccrualListenerService', () => {
     feeAccrual = {
       accrueForSwap: jest.fn().mockResolvedValue(undefined),
       accrueForWithdraw: jest.fn().mockResolvedValue(undefined),
+      settle: jest.fn().mockResolvedValue(undefined),
     };
     prisma = {
       swapTransaction: { findUnique: jest.fn() },
       withdrawTransaction: { findUnique: jest.fn() },
+      feeAccrual: { findMany: jest.fn() },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -29,28 +31,53 @@ describe('FeeAccrualListenerService', () => {
   });
 
   describe('onSwapSucceeded', () => {
-    it('CRYPTO swap → accrueForSwap(swapId, prisma) (deferred settle)', async () => {
+    it('FIAT swap → accrue + immediate settle (SWAP_FEE / FIAT_SWAP)', async () => {
+      prisma.swapTransaction.findUnique.mockResolvedValue({
+        toAsset: { type: 'FIAT' },
+      });
+      prisma.feeAccrual.findMany.mockResolvedValue([
+        { id: 'fa-1', assetId: 'aed-uuid' },
+        { id: 'fa-2', assetId: 'aed-uuid' },
+      ]);
+
+      await service.onSwapSucceeded({ swapId: 'swap-2' });
+
+      expect(feeAccrual.accrueForSwap).toHaveBeenCalledWith('swap-2', prisma);
+      expect(prisma.feeAccrual.findMany).toHaveBeenCalledWith({
+        where: { sourceType: 'SWAP', sourceId: 'swap-2', status: 'ACCRUED' },
+      });
+      expect(feeAccrual.settle).toHaveBeenCalledWith(
+        [
+          { id: 'fa-1', assetId: 'aed-uuid' },
+          { id: 'fa-2', assetId: 'aed-uuid' },
+        ],
+        'SWAP_FEE',
+        'FIAT_SWAP',
+        prisma,
+      );
+    });
+
+    it('FIAT swap with zero ACCRUED rows → no settle call', async () => {
+      prisma.swapTransaction.findUnique.mockResolvedValue({
+        toAsset: { type: 'FIAT' },
+      });
+      prisma.feeAccrual.findMany.mockResolvedValue([]);
+
+      await service.onSwapSucceeded({ swapId: 'swap-3' });
+
+      expect(feeAccrual.accrueForSwap).toHaveBeenCalledWith('swap-3', prisma);
+      expect(feeAccrual.settle).not.toHaveBeenCalled();
+    });
+
+    it('CRYPTO swap → accrueForSwap only, no settle (EOD pass owns settle)', async () => {
       prisma.swapTransaction.findUnique.mockResolvedValue({
         toAsset: { type: 'CRYPTO' },
       });
 
       await service.onSwapSucceeded({ swapId: 'swap-1' });
 
-      expect(prisma.swapTransaction.findUnique).toHaveBeenCalledWith({
-        where: { id: 'swap-1' },
-        select: { toAsset: { select: { type: true } } },
-      });
       expect(feeAccrual.accrueForSwap).toHaveBeenCalledWith('swap-1', prisma);
-    });
-
-    it('FIAT swap → NOT accrued here (FiatFeeCollectionWorkflowService owns it)', async () => {
-      prisma.swapTransaction.findUnique.mockResolvedValue({
-        toAsset: { type: 'FIAT' },
-      });
-
-      await service.onSwapSucceeded({ swapId: 'swap-2' });
-
-      expect(feeAccrual.accrueForSwap).not.toHaveBeenCalled();
+      expect(feeAccrual.settle).not.toHaveBeenCalled();
     });
 
     it('missing swap → no-op (no throw)', async () => {
