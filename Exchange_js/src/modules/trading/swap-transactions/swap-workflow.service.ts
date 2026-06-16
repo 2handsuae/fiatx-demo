@@ -77,6 +77,9 @@ export class SwapWorkflowService {
     let swapId: string;
     let swapNoForEvent: string | null;
     try {
+      // DT-T7 fallout: the tx body now writes swap+TB+outstanding+accrual and
+      // each step emits an audit row. Prisma's 5s default ceiling is no longer
+      // enough; bump to 15s. Cross-cutting infra issue, not Spec #3 logic.
       const result = await this.prisma.$transaction(async (tx) => {
         const quote = await this.swapQuoteService.getActiveQuoteOrThrow(quoteId, 'CUSTOMER', ownerId, now, tx);
         // Inherit the quote's UUID so every audit event for one business unit
@@ -274,7 +277,7 @@ export class SwapWorkflowService {
         );
 
         return swap;
-      });
+      }, { timeout: 15000 });
 
       swapId = result.id;
       swapNoForEvent = result.swapNo;
