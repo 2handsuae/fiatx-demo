@@ -25,7 +25,7 @@ import {
   AuditActions,
   AuditEntityTypes,
   AuditModules,
-  buildStateTransitionAction,
+  buildInternalFundStateAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 
 const CRYPTO_TRANSITIONS: Record<
@@ -242,12 +242,8 @@ export class InternalFundsService {
 
       await this.auditLogsService.recordByActor(
         {
-
-          action: buildStateTransitionAction(
-            'INTERNAL_FUND',
-            InternalFundStatus.CONFIRMED,
-            InternalFundStatus.CLEAR,
-          ),
+          action: buildInternalFundStateAction(InternalFundStatus.CLEAR),
+          metadata: JSON.stringify({ from: InternalFundStatus.CONFIRMED }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: fund.id,
           reason,
@@ -351,8 +347,7 @@ export class InternalFundsService {
 
           await this.auditLogsService.recordByActor(
             {
-
-              action: AuditActions.INTERNAL_FUND_CREATED,
+              action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
               entityNo: created.internalFundNo,
@@ -495,8 +490,8 @@ export class InternalFundsService {
 
       await this.auditLogsService.recordByActor(
         {
-
-          action: buildStateTransitionAction('INTERNAL_FUND', currentStatus, nextStatus),
+          action: buildInternalFundStateAction(nextStatus),
+          metadata: JSON.stringify({ from: currentStatus }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: updated.id,
           entityNo: updated.internalFundNo,
