@@ -142,3 +142,46 @@ describe('SwapWorkflowService — T4 revenue accounts', () => {
     expect(resolveCalls).not.toContain(120);
   });
 });
+
+describe('SwapWorkflowService — SW-T3 traceId inheritance', () => {
+  it('inherits quote.traceId into swap.traceId and SWAP_CREATED audit shares that UUID', async () => {
+    const TRACE = 'QUOTE-TRACE-UUID-FROM-TABLE';
+    const mocks = buildMocks();
+    // Override the quote returned by getActiveQuoteOrThrow to bake the trace in.
+    const quoteWithTrace = makeQuote({ traceId: TRACE } as any);
+    (mocks.swapQuoteService.getActiveQuoteOrThrow as jest.Mock).mockResolvedValue(quoteWithTrace);
+
+    const service = new SwapWorkflowService(
+      mocks.prisma,
+      mocks.onboardingService as any,
+      mocks.swapQuoteService as any,
+      mocks.swapTransactionsService as any,
+      mocks.outstandingsService as any,
+      mocks.accountingService as any,
+      mocks.auditLogsService as any,
+      mocks.eventEmitter as any,
+    );
+
+    await service.executeSwap('cust-1', 'q-1');
+
+    // 1. swap.create received traceId === quote.traceId
+    const createCalls = (mocks.swapTransactionsService.create as jest.Mock).mock.calls;
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0][0].traceId).toBe(TRACE);
+
+    // 2. SWAP_CREATED audit fired with the same traceId (no legacy SWAP:<swapNo>).
+    const auditCalls = (mocks.auditLogsService.recordByActor as jest.Mock).mock.calls;
+    const swapEvents = auditCalls
+      .map((c: any[]) => c[0])
+      .filter((args: any) => args.action === 'SWAP_CREATED' || args.action === 'SWAP_QUOTE_USED');
+    expect(swapEvents.length).toBeGreaterThanOrEqual(1);
+    swapEvents.forEach((e: any) => expect(e.traceId).toBe(TRACE));
+
+    // 3. TB pending-transfer evidence carries the inherited UUID, not the legacy SWAP:<swapNo>.
+    const tbEvidences = (mocks.accountingService.executePendingTransfer as jest.Mock).mock.calls
+      .map((c: any[]) => c[0].evidence)
+      .filter((e: any) => e && e.traceId);
+    expect(tbEvidences.length).toBeGreaterThanOrEqual(1);
+    tbEvidences.forEach((e: any) => expect(e.traceId).toBe(TRACE));
+  });
+});

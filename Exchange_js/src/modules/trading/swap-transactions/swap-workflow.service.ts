@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
@@ -64,7 +65,6 @@ export class SwapWorkflowService {
 
     const now = new Date();
     const swapNo = generateReferenceNo('SWP');
-    const traceId = `SWAP:${swapNo}`;
 
     const created: PendingRef[] = [];
 
@@ -73,6 +73,14 @@ export class SwapWorkflowService {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const quote = await this.swapQuoteService.getActiveQuoteOrThrow(quoteId, 'CUSTOMER', ownerId, now, tx);
+        // Inherit the quote's UUID so every audit event for one business unit
+        // (quote.created + quote.used + swap.created + swap.succeeded) and
+        // every TB evidence record share a single traceId. Same direction as
+        // deposit←payin (TR-T4). Replaces the legacy SWAP:<swapNo> literal.
+        // Legacy quotes from before SW-T1 have a null traceId — fall back to a
+        // freshly minted UUID so downstream invariants (non-null traceId on
+        // swap row + audit + TB evidence) still hold.
+        const traceId = quote.traceId ?? randomUUID();
         const fromAmount = new Prisma.Decimal(quote.amountIn);
         const toAmount = new Prisma.Decimal(quote.amountOut);
         const totals = this.parseTotals(quote.totalsJson);
