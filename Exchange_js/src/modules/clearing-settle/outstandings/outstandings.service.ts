@@ -7,6 +7,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 import {
   OutstandingDirection,
   OutstandingQueryDto,
@@ -19,6 +24,7 @@ interface SwapSuccessPayload {
   ownerId: string;
   ownerNo?: string | null;
   status: string;
+  traceId?: string | null;
   fromAssetId: string;
   fromAssetCurrency: string | null;
   fromAmount: Prisma.Decimal;
@@ -32,7 +38,10 @@ interface SwapSuccessPayload {
 export class OutstandingsService {
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private async resolveOwnerNo(
     tx: Prisma.TransactionClient,
@@ -178,7 +187,7 @@ export class OutstandingsService {
         continue;
       }
 
-      await this.createOutstandingWithUniqueNo(tx, {
+      const created = await this.createOutstandingWithUniqueNo(tx, {
         sourceType: 'SWAP',
         sourceId: swap.id,
         sourceNo: swap.swapNo,
@@ -194,6 +203,18 @@ export class OutstandingsService {
         lockedAt: null,
         closedAt: null,
         closedByInternalFundId: null,
+        originTraceId: swap.traceId ?? null,
+      });
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.CREATED,
+        entityType: AuditEntityTypes.OUTSTANDING,
+        entityId: created.id,
+        entityNo: created.outstandingNo,
+        workflowType: 'SWAP',
+        reason: `Outstanding ${row.direction} ${row.assetCurrency} ${row.amount} created from ${swap.swapNo}`,
+        sourcePlatform: 'SYSTEM',
+        traceId: swap.traceId ?? undefined,
       });
     }
 

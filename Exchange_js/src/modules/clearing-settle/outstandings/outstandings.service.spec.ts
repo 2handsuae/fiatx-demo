@@ -17,11 +17,15 @@ describe('OutstandingsService', () => {
     },
   };
 
+  const mockAuditLogsService: any = {
+    recordSystem: jest.fn().mockResolvedValue(undefined),
+  };
+
   let service: OutstandingsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new OutstandingsService(mockPrismaService);
+    service = new OutstandingsService(mockPrismaService, mockAuditLogsService);
   });
 
   it('creates two outstanding rows for swap success', async () => {
@@ -276,5 +280,100 @@ describe('OutstandingsService', () => {
     });
     expect(arg.include.asset).toBe(true);
     expect(arg.include.swapTransaction).toBeDefined();
+  });
+
+  it('createForSwapSuccess: writes originTraceId from swap.traceId + emits OUTSTANDING.CREATED audit on create path', async () => {
+    const captured: any[] = [];
+    const auditCalls: any[] = [];
+
+    const tx: any = {
+      outstanding: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn((args: any) => {
+          captured.push(args.data);
+          return Promise.resolve({
+            id: `o-${captured.length}`,
+            outstandingNo: `OTS${captured.length}`,
+            ...args.data,
+          });
+        }),
+        update: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+
+    mockAuditLogsService.recordSystem = jest.fn((args: any) => {
+      auditCalls.push(args);
+      return Promise.resolve();
+    });
+
+    await service.createForSwapSuccess(tx, {
+      id: 'swp1',
+      swapNo: 'SWP1',
+      status: 'SUCCESS',
+      traceId: 'SWAP-TRACE',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c1',
+      ownerNo: 'CU_0001',
+      fromAssetId: 'a-aed',
+      fromAssetCurrency: 'AED',
+      fromAmount: new Prisma.Decimal('100'),
+      toAssetId: 'a-usdt',
+      toAssetCurrency: 'USDT',
+      toAmount: new Prisma.Decimal('27'),
+      netToAmount: new Prisma.Decimal('27'),
+    } as any);
+
+    expect(captured).toHaveLength(2); // IN + OUT
+    expect(captured.every((c: any) => c.originTraceId === 'SWAP-TRACE')).toBe(
+      true,
+    );
+
+    expect(auditCalls).toHaveLength(2);
+    expect(
+      auditCalls.every(
+        (a: any) =>
+          a.action === 'CREATED' &&
+          a.entityType === 'OUTSTANDING' &&
+          a.traceId === 'SWAP-TRACE',
+      ),
+    ).toBe(true);
+  });
+
+  it('createForSwapSuccess: when outstanding already exists (idempotent upsert), does NOT emit CREATED audit', async () => {
+    const auditCalls: any[] = [];
+
+    const tx: any = {
+      outstanding: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'existing-1' }),
+        create: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({ id: 'existing-1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    };
+
+    mockAuditLogsService.recordSystem = jest.fn((args: any) => {
+      auditCalls.push(args);
+      return Promise.resolve();
+    });
+
+    await service.createForSwapSuccess(tx, {
+      id: 'swp2',
+      swapNo: 'SWP2',
+      status: 'SUCCESS',
+      traceId: 'SWAP-TRACE-2',
+      ownerType: 'CUSTOMER',
+      ownerId: 'c1',
+      ownerNo: 'CU_0001',
+      fromAssetId: 'a-aed',
+      fromAssetCurrency: 'AED',
+      fromAmount: new Prisma.Decimal('50'),
+      toAssetId: 'a-usdt',
+      toAssetCurrency: 'USDT',
+      toAmount: new Prisma.Decimal('14'),
+      netToAmount: new Prisma.Decimal('14'),
+    } as any);
+
+    expect(auditCalls).toHaveLength(0);
   });
 });
