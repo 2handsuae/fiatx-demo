@@ -360,6 +360,18 @@ export class AuditLogsService {
     return rootId ? `${AuditWorkflowTypes.DEPOSIT}:${rootId}` : null;
   }
 
+  private buildSwapTraceId(
+    swap?: { id?: string | null; traceId?: string | null } | null,
+    quote?: { id?: string | null; traceId?: string | null } | null,
+  ): string | null {
+    const swapTrace = this.normalizeOptionalString(swap?.traceId);
+    if (swapTrace) return swapTrace;
+    const quoteTrace = this.normalizeOptionalString(quote?.traceId);
+    if (quoteTrace) return quoteTrace;
+    const rootId = this.normalizeOptionalString(swap?.id);
+    return rootId ? `${AuditWorkflowTypes.SWAP}:${rootId}` : null;
+  }
+
   private async resolveDepositWorkflowContext(
     input: CreateAuditLogEventDto,
     entityOwnerNo: string | null,
@@ -538,6 +550,7 @@ export class AuditLogsService {
             ownerNo: true,
             quoteId: true,
             quoteNo: true,
+            traceId: true,
             customer: {
               select: {
                 customerNo: true,
@@ -548,6 +561,7 @@ export class AuditLogsService {
                 id: true,
                 quoteNo: true,
                 ownerNo: true,
+                traceId: true,
               },
             },
           },
@@ -562,6 +576,7 @@ export class AuditLogsService {
               ownerNo: true,
               quoteId: true,
               quoteNo: true,
+              traceId: true,
               customer: {
                 select: {
                   customerNo: true,
@@ -572,6 +587,7 @@ export class AuditLogsService {
                   id: true,
                   quoteNo: true,
                   ownerNo: true,
+                  traceId: true,
                 },
               },
             },
@@ -593,12 +609,14 @@ export class AuditLogsService {
             quoteNo: true,
             ownerId: true,
             ownerNo: true,
+            traceId: true,
             swapTransaction: {
               select: {
                 id: true,
                 swapNo: true,
                 ownerId: true,
                 ownerNo: true,
+                traceId: true,
               },
             },
           },
@@ -608,11 +626,6 @@ export class AuditLogsService {
         }
       }
 
-      const swapId =
-        this.normalizeOptionalString(swap?.id) ||
-        this.normalizeOptionalString(quote?.id) ||
-        this.normalizeOptionalString(swap?.quoteId) ||
-        null;
       const resolvedEntityOwnerNo =
         entityOwnerNo ||
         swap?.ownerNo ||
@@ -623,7 +636,7 @@ export class AuditLogsService {
       return {
         traceId:
           this.normalizeOptionalString(input.traceId) ||
-          (swapId ? `${AuditWorkflowTypes.SWAP}:${swapId}` : null),
+          this.buildSwapTraceId(swap, quote),
         workflowType: AuditWorkflowTypes.SWAP,
         entityOwnerNo: resolvedEntityOwnerNo,
       };

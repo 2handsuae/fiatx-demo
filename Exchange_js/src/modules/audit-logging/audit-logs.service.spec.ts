@@ -1954,4 +1954,37 @@ describe('AuditLogsService', () => {
       expect(svc.buildDepositTraceId(null, null)).toBeNull();
     });
   });
+
+  describe('buildSwapTraceId fallback ordering', () => {
+    it('prefers swap.traceId, then quote.traceId, then legacy SWAP:<id>, else null', () => {
+      const svc: any = service;
+
+      // 1) swap.traceId wins
+      expect(
+        svc.buildSwapTraceId(
+          { id: 's1', traceId: 'SWAP_T' },
+          { id: 'q1', traceId: 'QUOTE_T' },
+        ),
+      ).toBe('SWAP_T');
+
+      // 2) no swap.traceId — use quote.traceId
+      expect(
+        svc.buildSwapTraceId(
+          { id: 's1', traceId: null },
+          { id: 'q1', traceId: 'QUOTE_T' },
+        ),
+      ).toBe('QUOTE_T');
+
+      // 3) neither — legacy SWAP:<swap.id>
+      expect(
+        svc.buildSwapTraceId(
+          { id: 's1', traceId: null },
+          { id: 'q1', traceId: null },
+        ),
+      ).toBe('SWAP:s1');
+
+      // 4) totally empty — null
+      expect(svc.buildSwapTraceId(null, null)).toBeNull();
+    });
+  });
 });
