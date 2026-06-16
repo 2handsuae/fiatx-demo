@@ -205,7 +205,7 @@ In `src/modules/funds-layer/domain/fee-accrual.service.ts`, append two methods a
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
-          settlementBatch: { select: { id: true, settlementNo: true } },
+          settlementBatch: { select: { id: true, batchNo: true } },
           settledByTransfer: { select: { id: true, internalTxNo: true } },
         },
       }),
@@ -218,7 +218,7 @@ In `src/modules/funds-layer/domain/fee-accrual.service.ts`, append two methods a
     const row = await (this.prisma as any).feeAccrual.findUnique({
       where: { id },
       include: {
-        settlementBatch: { select: { id: true, settlementNo: true } },
+        settlementBatch: { select: { id: true, batchNo: true } },
         settledByTransfer: { select: { id: true, internalTxNo: true } },
         closedByInternalFund: { select: { id: true, internalFundNo: true } },
       },
@@ -483,7 +483,7 @@ interface FeeAccrualListItem {
   assetCode: string | null;
   amount: string;
   status: 'ACCRUED' | 'LOCKED' | 'SETTLED';
-  settlementBatch: { id: string; settlementNo: string | null } | null;
+  settlementBatch: { id: string; batchNo: string | null } | null;
   settledByTransfer: { id: string; internalTxNo: string | null } | null;
   createdAt: string;
 }
@@ -644,7 +644,7 @@ const FeeAccrualList = () => {
                 <td className="px-3 py-2">
                   <AdminBadge color={STATUS_BADGE[r.status] ?? 'gray'}>{r.status}</AdminBadge>
                 </td>
-                <td className="px-3 py-2">{r.settlementBatch?.settlementNo ?? '—'}</td>
+                <td className="px-3 py-2">{r.settlementBatch?.batchNo ?? '—'}</td>
                 <td className="px-3 py-2">{r.settledByTransfer?.internalTxNo ?? '—'}</td>
                 <td className="px-3 py-2">{fmtDate(r.createdAt)}</td>
               </tr>
@@ -723,7 +723,7 @@ interface FeeAccrualDetail {
   createdAt: string;
   updatedAt: string;
   originTraceId: string | null;
-  settlementBatch: { id: string; settlementNo: string | null } | null;
+  settlementBatch: { id: string; batchNo: string | null } | null;
   settledByTransfer: { id: string; internalTxNo: string | null } | null;
   closedByInternalFund: { id: string; internalFundNo: string | null } | null;
   siblings: Array<{
@@ -829,7 +829,7 @@ const FeeAccrualDetail = () => {
           <Field label="Settlement Batch" value={
             data.settlementBatch
               ? <Link to={`/dashboard/reconciliation/outstanding-settlements/${data.settlementBatch.id}`}>
-                  {data.settlementBatch.settlementNo ?? '—'}
+                  {data.settlementBatch.batchNo ?? '—'}
                 </Link>
               : '—'
           } />

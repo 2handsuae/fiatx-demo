@@ -76,7 +76,7 @@
     assetCode: string | null,
     amount: string,
     status: 'ACCRUED' | 'LOCKED' | 'SETTLED',
-    settlementBatch: { id: string, settlementNo: string | null } | null,
+    settlementBatch: { id: string, batchNo: string | null } | null,
     settledByTransfer: { id: string, internalTxNo: string | null } | null,
     createdAt: string,
   }>,
@@ -94,7 +94,7 @@
   lockedAt, closedAt, closedByInternalFundId, createdAt, updatedAt, originTraceId,
 
   // 关联实体的业务键（用于跳转 + 显示）
-  settlementBatch: { id, settlementNo } | null,
+  settlementBatch: { id, batchNo } | null,
   settledByTransfer: { id, internalTxNo } | null,
   closedByInternalFund: { id, internalFundNo } | null,
 
@@ -131,7 +131,7 @@
 | 5 | Owner | `ownerNo` | 文本、点击跳客户详情 |
 | 6 | Amount | `amount` + `assetCode` | `formatAssetAmount` 右对齐 |
 | 7 | Status | `status` | colored badge（ACCRUED 灰 / LOCKED 蓝 / SETTLED 绿） |
-| 8 | Batch | `settlementBatch.settlementNo` | 可跳 batch 详情、null 显 "—" |
+| 8 | Batch | `settlementBatch.batchNo` | 可跳 batch 详情、null 显 "—" |
 | 9 | Transfer | `settledByTransfer.internalTxNo` | 可跳 transfer 详情、null 显 "—" |
 | 10 | Created | `createdAt` | `toLocaleString()` |
 
@@ -176,7 +176,7 @@
 |---|---|
 | **Status** `status`（badge） | **Locked At** `lockedAt`（"—" 若 null） |
 | **Closed At** `closedAt`（"—" 若 null） | — |
-| **Settlement Batch** `settlementBatch.settlementNo`（跳 batch 详情，可空） | **Settled By Transfer** `settledByTransfer.internalTxNo`（跳，可空） |
+| **Settlement Batch** `settlementBatch.batchNo`（跳 batch 详情，可空） | **Settled By Transfer** `settledByTransfer.internalTxNo`（跳，可空） |
 | **Closed By Fund** `closedByInternalFund.internalFundNo`（跳，可空） | — |
 
 #### § 3. Traceability
@@ -195,7 +195,7 @@
 | `sourceNo` (SWAP) | swap 详情 | `/dashboard/trading/swap-transactions/:swapId` |
 | `sourceNo` (WITHDRAW) | withdraw 详情 | `/dashboard/trading/withdraw-transactions/:withdrawId` |
 | `ownerNo` | 客户详情 | `/dashboard/customers/:customerId` |
-| `settlementBatch.settlementNo` | settlement batch 详情 | `/dashboard/reconciliation/outstanding-settlements/:batchId` |
+| `settlementBatch.batchNo` | settlement batch 详情 | `/dashboard/reconciliation/outstanding-settlements/:batchId` |
 | `settledByTransfer.internalTxNo` | internal transfer 详情 | `/dashboard/treasury/internal-transactions/:txId` |
 | `closedByInternalFund.internalFundNo` | internal fund 详情 | `/dashboard/treasury/internal-funds/:fundId` |
 | sibling 行 | 该 sibling 详情 | `/dashboard/reconciliation/fee-accruals/:siblingId` |
@@ -249,7 +249,7 @@ FEE_ACCRUAL_DETAIL_READ: 'fee_accrual_detail:read',
 
 ## 7. 关键约束（红线）
 
-1. ✅ **业务键展示**：列表/详情**只显示业务编号**（feeAccrualNo / swapNo / customerNo / settlementNo），**绝不显示 UUID**（CLAUDE.md 不可违反规则 #4）
+1. ✅ **业务键展示**：列表/详情**只显示业务编号**（feeAccrualNo / swapNo / customerNo / batchNo），**绝不显示 UUID**（CLAUDE.md 不可违反规则 #4）
 2. ✅ **跳转用 navigate**：不用 `<a href>`，避免页面刷新
 3. ✅ **复用现有原子**：`adminButtonClass` / `AdminBadge` / `Pagination` / `formatAssetAmount` / `PageTitleBar` —— 不引入新样式
 4. ✅ **后端只读**：controller 只有 GET endpoints、不暴露 PATCH/POST/DELETE（accrual 是被动写入实体）
