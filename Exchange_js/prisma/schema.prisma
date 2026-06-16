@@ -1643,6 +1643,7 @@ model SwapQuote {
   expiresAt       DateTime
   usedAt          DateTime?
   cancelledAt     DateTime?
+  traceId         String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   fromAsset       Asset            @relation("SwapQuoteFromAsset", fields: [fromAssetId], references: [id])
