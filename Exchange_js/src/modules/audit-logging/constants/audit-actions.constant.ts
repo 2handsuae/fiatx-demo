@@ -93,6 +93,7 @@ export const AuditEntityTypes = {
   SWAP_FEE_LEVEL_CHANGE_REQUEST: 'SWAP_FEE_LEVEL_CHANGE_REQUEST',
   SWAP_FEE_LEVEL_BINDING: 'SWAP_FEE_LEVEL_BINDING',
   INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
+  SETTLEMENT_BATCH: 'SETTLEMENT_BATCH',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -108,6 +109,8 @@ export const AuditWorkflowTypes = {
   APPROVAL: 'APPROVAL',
   GOVERNANCE_REGISTRY: 'GOVERNANCE_REGISTRY',
   REGULATORY_GATE: 'REGULATORY_GATE',
+  // Clearing & settlement
+  SETTLEMENT: 'SETTLEMENT',
 } as const;
 
 export const AuditBusinessWorkflowTypes = {
@@ -399,6 +402,9 @@ export const AuditActions = {
   TRANSFER_COMPLETED: 'TRANSFER_COMPLETED',
   TRANSFER_FAILED: 'TRANSFER_FAILED',
   TRANSFER_WHITELIST_REJECTED: 'TRANSFER_WHITELIST_REJECTED',
+  // Settlement Batch
+  BATCH_CREATED: 'BATCH_CREATED',
+  BATCH_SUCCEEDED: 'BATCH_SUCCEEDED',
 } as const;
 
 export const AuditGovernanceActions = {
