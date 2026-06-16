@@ -68,6 +68,12 @@ export class SwapWorkflowService {
 
     const created: PendingRef[] = [];
 
+    // Lifted to outer scope so the catch block can emit SWAP_FAILED with the
+    // inherited traceId. Assigned at the top of the transaction once we read
+    // the quote. If the failure happens before assignment (e.g. quote lookup
+    // itself throws), traceId stays null and the SWAP_FAILED audit will carry
+    // null — still useful for swapNo-based correlation.
+    let traceId: string | null = null;
     let swapId: string;
     let swapNoForEvent: string | null;
     try {
@@ -80,7 +86,7 @@ export class SwapWorkflowService {
         // Legacy quotes from before SW-T1 have a null traceId — fall back to a
         // freshly minted UUID so downstream invariants (non-null traceId on
         // swap row + audit + TB evidence) still hold.
-        const traceId = quote.traceId ?? randomUUID();
+        traceId = quote.traceId ?? randomUUID();
         const fromAmount = new Prisma.Decimal(quote.amountIn);
         const toAmount = new Prisma.Decimal(quote.amountOut);
         const totals = this.parseTotals(quote.totalsJson);
@@ -247,6 +253,26 @@ export class SwapWorkflowService {
           tx,
         );
 
+        // Terminal success audit. Paired with SWAP_FAILED in the catch below so
+        // every executeSwap call ends with exactly one terminal event sharing
+        // the inherited quote.traceId.
+        await this.auditLogsService.recordSystem(
+          {
+            action: AuditActions.SWAP_SUCCEEDED,
+            entityType: AuditEntityTypes.SWAP_TRANSACTION,
+            entityId: swap.id,
+            entityNo: swap.swapNo || undefined,
+            traceId,
+            workflowType: AuditWorkflowTypes.SWAP,
+            entityOwnerType: swap.ownerType,
+            entityOwnerId: swap.ownerId,
+            entityOwnerNo: swap.ownerNo || undefined,
+            reason: 'Swap completed (atomic SUCCESS)',
+            sourcePlatform: 'SYSTEM',
+          },
+          tx,
+        );
+
         return swap;
       });
 
@@ -256,6 +282,24 @@ export class SwapWorkflowService {
       for (const ref of created) {
         await this.accountingService.voidPendingTransferBestEffort(ref.id, ref.amount);
       }
+      // Best-effort terminal audit — swap row may or may not exist depending
+      // on the failure stage. We carry the quote.traceId (captured at the top
+      // of the transaction) and the pre-allocated swapNo so operators can
+      // correlate with TB pending evidence even when the Prisma row is gone.
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.SWAP_FAILED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: undefined,
+          entityNo: swapNo,
+          entityOwnerType: 'CUSTOMER',
+          entityOwnerId: ownerId,
+          workflowType: AuditWorkflowTypes.SWAP,
+          reason: error instanceof Error ? error.message : 'Swap execution failed',
+          sourcePlatform: 'SYSTEM',
+          traceId: traceId ?? undefined,
+        })
+        .catch(() => undefined);
       throw error;
     }
 

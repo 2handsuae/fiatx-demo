@@ -78,6 +78,7 @@ function buildMocks() {
 
   const auditLogsService = {
     recordByActor: jest.fn(() => Promise.resolve()),
+    recordSystem: jest.fn(() => Promise.resolve()),
   };
 
   const eventEmitter = {
@@ -140,6 +141,80 @@ describe('SwapWorkflowService — T4 revenue accounts', () => {
 
     // Must NOT see FEE_RECEIVABLE (code 120, removed in Task 9)
     expect(resolveCalls).not.toContain(120);
+  });
+});
+
+describe('SwapWorkflowService — SW-T4 terminal audit events', () => {
+  it('emits SWAP_SUCCEEDED audit after SWAP_CREATED with same traceId', async () => {
+    const TRACE = 'QUOTE-TRACE-FOR-SUCCEEDED';
+    const mocks = buildMocks();
+    const quoteWithTrace = makeQuote({ traceId: TRACE } as any);
+    (mocks.swapQuoteService.getActiveQuoteOrThrow as jest.Mock).mockResolvedValue(quoteWithTrace);
+
+    const captured: any[] = [];
+    (mocks.auditLogsService as any).recordSystem = jest.fn((args: any) => {
+      captured.push(args);
+      return Promise.resolve();
+    });
+    (mocks.auditLogsService.recordByActor as jest.Mock).mockImplementation((args: any) => {
+      captured.push(args);
+      return Promise.resolve();
+    });
+
+    const service = new SwapWorkflowService(
+      mocks.prisma,
+      mocks.onboardingService as any,
+      mocks.swapQuoteService as any,
+      mocks.swapTransactionsService as any,
+      mocks.outstandingsService as any,
+      mocks.accountingService as any,
+      mocks.auditLogsService as any,
+      mocks.eventEmitter as any,
+    );
+
+    await service.executeSwap('cust-1', 'q-1');
+
+    const succeeded = captured.filter((a: any) => a.action === 'SWAP_SUCCEEDED');
+    expect(succeeded).toHaveLength(1);
+    expect(succeeded[0].traceId).toBe(TRACE);
+  });
+
+  it('emits SWAP_FAILED audit when execution throws', async () => {
+    const TRACE = 'QUOTE-TRACE-FOR-FAILED';
+    const mocks = buildMocks();
+    const quoteWithTrace = makeQuote({ traceId: TRACE } as any);
+    (mocks.swapQuoteService.getActiveQuoteOrThrow as jest.Mock).mockResolvedValue(quoteWithTrace);
+    // Force failure: make swap.create throw
+    (mocks.swapTransactionsService.create as jest.Mock).mockImplementation(() =>
+      Promise.reject(new Error('boom')),
+    );
+
+    const captured: any[] = [];
+    (mocks.auditLogsService as any).recordSystem = jest.fn((args: any) => {
+      captured.push(args);
+      return Promise.resolve();
+    });
+    (mocks.auditLogsService.recordByActor as jest.Mock).mockImplementation((args: any) => {
+      captured.push(args);
+      return Promise.resolve();
+    });
+
+    const service = new SwapWorkflowService(
+      mocks.prisma,
+      mocks.onboardingService as any,
+      mocks.swapQuoteService as any,
+      mocks.swapTransactionsService as any,
+      mocks.outstandingsService as any,
+      mocks.accountingService as any,
+      mocks.auditLogsService as any,
+      mocks.eventEmitter as any,
+    );
+
+    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toThrow();
+
+    const failed = captured.filter((a: any) => a.action === 'SWAP_FAILED');
+    expect(failed).toHaveLength(1);
+    expect(failed[0].traceId).toBe(TRACE);
   });
 });
 
