@@ -7,13 +7,6 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AuditLogsService } from '../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditModules,
-  buildStateTransitionAction,
-} from '../../audit-logging/constants/audit-actions.constant';
 import {
   InternalTransactionQueryDto,
   InternalTransactionApprovalStatus,
@@ -90,10 +83,7 @@ export class InternalTransactionsService {
     InternalTransactionStatus.EXPIRED,
   ]);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly auditLogsService: AuditLogsService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private appendStatusHistory(
     current: string | null | undefined,
@@ -145,20 +135,6 @@ export class InternalTransactionsService {
         toAddress: item.toAddress,
         toIban: item.toIban,
       },
-    };
-  }
-
-  private buildDepositWorkflowAuditContext(source: {
-    sourceType?: string | null;
-    sourceId?: string | null;
-    sourceNo?: string | null;
-  }) {
-    if (String(source.sourceType || '').toUpperCase() !== 'DEPOSIT') {
-      return {};
-    }
-
-    return {
-      workflowType: 'DEPOSIT',
     };
   }
 
@@ -287,27 +263,6 @@ export class InternalTransactionsService {
             },
           },
         });
-
-        await this.auditLogsService.recordByActor(
-          {
-
-            action: AuditActions.INTERNAL_TX_CREATED,
-            entityType: AuditEntityTypes.INTERNAL_TRANSACTION,
-            entityId: created.id,
-            entityNo: created.internalTxNo,
-            entityOwnerType: created.ownerType,
-            entityOwnerId: created.ownerId,
-            reason: 'Initial creation',
-            ...this.buildDepositWorkflowAuditContext(created),
-            sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-          },
-          {
-            actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-            actorId: operatorId,
-            actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-          },
-          client,
-        );
 
         await this.triggerStatusEvent(client, created, null, status);
         return created;
@@ -716,27 +671,6 @@ export class InternalTransactionsService {
           },
         },
       });
-
-      await this.auditLogsService.recordByActor(
-        {
-
-          action: buildStateTransitionAction('INTERNAL_TX', current, next),
-          entityType: AuditEntityTypes.INTERNAL_TRANSACTION,
-          entityId: updated.id,
-          entityNo: updated.internalTxNo,
-          entityOwnerType: updated.ownerType,
-          entityOwnerId: updated.ownerId,
-          reason: 'Aggregated from internal funds',
-          ...this.buildDepositWorkflowAuditContext(updated),
-          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
-        },
-        {
-          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-          actorId: operatorId,
-          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
-        },
-        client,
-      );
 
       // V2 clearing removed — migrated to TigerBeetle
 

@@ -11,6 +11,7 @@ import {
 describe('InternalTransactionsService', () => {
   let service: InternalTransactionsService;
   let prisma: any;
+  let auditLogsService: any;
 
   beforeEach(() => {
     prisma = {
@@ -30,10 +31,12 @@ describe('InternalTransactionsService', () => {
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
-    service = new InternalTransactionsService(
-      prisma,
-      { recordByActor: jest.fn().mockResolvedValue({}), recordSystem: jest.fn().mockResolvedValue({}) } as any,
-    );
+    auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({}),
+      recordSystem: jest.fn().mockResolvedValue({}),
+    };
+
+    service = new InternalTransactionsService(prisma);
     jest.clearAllMocks();
   });
 
@@ -446,5 +449,89 @@ describe('InternalTransactionsService', () => {
       }),
     );
     expect(result.status).toBe(InternalTransactionStatus.REJECTED);
+  });
+
+  describe('Spec #4: legacy audit double-write removed', () => {
+    it('does NOT emit INTERNAL_TX_CREATED audit on createFromDepositSuccess', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValueOnce(null);
+      prisma.internalTransaction.create.mockResolvedValue({
+        id: 'itx-no-audit',
+        internalTxNo: 'ITX_NO_AUDIT',
+        sourceType: 'DEPOSIT',
+        sourceId: 'dep-1',
+        sourceNo: 'DEP001',
+        status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        assetId: 'asset-1',
+        amount: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(10),
+        feeAmount: new Prisma.Decimal(0),
+        asset: { type: 'CRYPTO' },
+        fromWallet: { id: 'wallet-deposit', ownerType: 'CUSTOMER' },
+        toWallet: { id: 'wallet-master', ownerType: 'CUSTOMER' },
+      });
+
+      await service.createFromDepositSuccess(
+        {
+          deposit: {
+            id: 'dep-1',
+            depositNo: 'DEP001',
+            ownerType: 'CUSTOMER',
+            ownerId: 'cust-1',
+            ownerNo: 'C001',
+            assetId: 'asset-1',
+            amount: new Prisma.Decimal(10),
+            netAmount: new Prisma.Decimal(10),
+            feeAmount: new Prisma.Decimal(0),
+            toWalletId: 'wallet-deposit',
+            toAddress: 'addr-deposit',
+            toIban: null,
+          },
+          masterWallet: { id: 'wallet-master', address: 'addr-master', iban: null },
+        },
+        'SYSTEM',
+      );
+
+      const createCalls = (auditLogsService.recordByActor as jest.Mock).mock.calls.filter(
+        (call) => call[0]?.action === 'INTERNAL_TX_CREATED',
+      );
+      expect(createCalls).toHaveLength(0);
+    });
+
+    it('does NOT emit INTERNAL_TX_* state-transition audit on syncStatusFromFunds', async () => {
+      prisma.internalTransaction.findUnique.mockResolvedValue({
+        id: 'itx-no-state-audit',
+        internalTxNo: 'ITX_NO_STATE',
+        status: InternalTransactionStatus.INTERNAL_FUNDS_PENDING,
+        statusHistory: '[]',
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        assetId: 'asset-1',
+        amount: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(10),
+        feeAmount: new Prisma.Decimal(0),
+        funds: [{ status: 'CONFIRMED' }, { status: 'CLEAR' }],
+      });
+      prisma.internalTransaction.update.mockResolvedValue({
+        id: 'itx-no-state-audit',
+        internalTxNo: 'ITX_NO_STATE',
+        status: InternalTransactionStatus.SUCCESS,
+        asset: { type: 'CRYPTO' },
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        assetId: 'asset-1',
+        amount: new Prisma.Decimal(10),
+        netAmount: new Prisma.Decimal(10),
+        feeAmount: new Prisma.Decimal(0),
+      });
+
+      await service.syncStatusFromFunds('itx-no-state-audit', 'SYSTEM');
+
+      const stateCalls = (auditLogsService.recordByActor as jest.Mock).mock.calls.filter(
+        (call) => typeof call[0]?.action === 'string' && call[0].action.startsWith('INTERNAL_TX_'),
+      );
+      expect(stateCalls).toHaveLength(0);
+    });
   });
 });
