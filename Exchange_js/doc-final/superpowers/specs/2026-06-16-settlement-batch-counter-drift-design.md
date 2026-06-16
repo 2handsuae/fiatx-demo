@@ -188,6 +188,27 @@ WHERE s.createdAt > datetime('now','-1 hour')
 
 ---
 
+## 6.1 Backlog B2 — Listener 弹性（**Spec #8 候选**）
+
+**发现时机**：Spec #7 闭环后做 5-customer demo seed、4 笔 swap 在 200ms 内连发、Grace SWP2606160102 的 fiat-settlement-workflow.onSwapSucceeded 被 SQLite 写锁 race 吃掉。
+
+**铁证**：
+- Bob/Frank/Alice 3 笔 fiat listener 成、Grace 第 4 笔失败
+- catch 静默吞错、backend.log 未记录、状态留 OPEN
+- 手动调 fee-accrual-listener + fiat-settlement-workflow 重跑、idempotency latch 拉通、状态推到 LOCKED
+
+**代码瑕疵**（`src/modules/funds-layer/workflow/fiat-settlement-workflow.service.ts:46-130`）：
+1. listener 不在 `prisma.$transaction` 里 — 4 listener 各自竞争 SQLite 单写锁
+2. `try-catch` 吞错只 `logger.error` — 没重试机制
+3. 注释承诺"OPEN fiat outstandings remain as durable work items for the backstop" — 但 backstop service 在代码里不存在
+
+**治本路径**（3 选 1、留给 Spec #8）：
+- A：实现 backstop service — cron 定期扫 OPEN+超时未 LOCK 的 fiat outstanding、自动调 listener
+- B：listener 内层包 `prisma.$transaction` + 合理重试
+- C：transactional outbox 模式 — 把 swap 写入 outbox 表、worker 重试
+
+**暂时规避**：sim 脚本每笔 swap 之间 `sleep(2000)`，让 listener 跑完才下一笔。
+
 ## 7. 决策记录
 
 | 决策点 | 选择 | 原因 |
