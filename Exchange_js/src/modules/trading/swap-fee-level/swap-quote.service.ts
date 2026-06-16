@@ -8,6 +8,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { Prisma, SwapQuote } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PricingEngineService } from '../pricing-center/pricing-engine.service';
@@ -205,6 +206,8 @@ export class SwapQuoteService {
       },
     ]);
 
+    const traceId = randomUUID();
+
     const created = await this.createWithUniqueNo({
       quoteType: 'FIRM',
       status: 'ACTIVE',
@@ -236,6 +239,7 @@ export class SwapQuoteService {
       feeLevelId: resolved.feeLevelId,
       feeLevelCode: resolved.feeLevelCode,
       expiresAt: new Date(pricingResult.expiresAt),
+      traceId,
     });
 
     const platform = input.sourcePlatform || (input.ownerType === 'CUSTOMER' ? 'CUSTOMER_API' : 'SYSTEM');
@@ -252,6 +256,7 @@ export class SwapQuoteService {
         result: AuditResult.SUCCESS,
         reason: 'Swap quote created',
         sourcePlatform: platform,
+        traceId,
       },
       {
         actorType: input.ownerType === 'CUSTOMER' ? 'CUSTOMER' : input.ownerType === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
