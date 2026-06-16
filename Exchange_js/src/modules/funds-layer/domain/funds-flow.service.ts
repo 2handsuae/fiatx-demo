@@ -19,7 +19,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
-  buildStateTransitionAction,
+  buildInternalFundStateAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
@@ -272,11 +272,8 @@ export class FundsFlowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: buildStateTransitionAction(
-            'INTERNAL_FUND',
-            InternalFundStatus.CONFIRMED,
-            InternalFundStatus.CLEAR,
-          ),
+          action: buildInternalFundStateAction(InternalFundStatus.CLEAR),
+          metadata: JSON.stringify({ from: InternalFundStatus.CONFIRMED }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: fund.id,
           reason,
@@ -380,7 +377,7 @@ export class FundsFlowService {
 
           await this.auditLogsService.recordByActor(
             {
-              action: AuditActions.INTERNAL_FUND_CREATED,
+              action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
               entityNo: created.internalFundNo,
@@ -460,7 +457,7 @@ export class FundsFlowService {
           });
           await this.auditLogsService.recordByActor(
             {
-              action: AuditActions.INTERNAL_FUND_CREATED,
+              action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
               entityNo: created.internalFundNo,
@@ -634,11 +631,8 @@ export class FundsFlowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: buildStateTransitionAction(
-            'INTERNAL_FUND',
-            currentStatus,
-            nextStatus,
-          ),
+          action: buildInternalFundStateAction(nextStatus),
+          metadata: JSON.stringify({ from: currentStatus }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: updated.id,
           entityNo: updated.internalFundNo,

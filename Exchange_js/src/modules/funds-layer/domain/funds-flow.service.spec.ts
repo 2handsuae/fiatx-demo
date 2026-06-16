@@ -668,3 +668,236 @@ describe('FIAT_TRANSITIONS', () => {
       .toBeUndefined();
   });
 });
+
+describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
+  let service: FundsFlowService;
+  let prisma: any;
+  let aggregator: any;
+  let eventEmitter: any;
+  let auditLogsService: any;
+  let walletBalance: any;
+
+  beforeEach(async () => {
+    prisma = {
+      internalFund: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        count: jest.fn(),
+      },
+      internalTransaction: {
+        findUnique: jest.fn(),
+      },
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+    };
+
+    aggregator = { syncStatusFromFunds: jest.fn() };
+    eventEmitter = { emit: jest.fn() };
+    auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+      recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
+    };
+    walletBalance = { adjust: jest.fn().mockResolvedValue(undefined) };
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      providers: [
+        FundsFlowService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: FundsFlowAggregatorPort, useValue: aggregator },
+        { provide: EventEmitter2, useValue: eventEmitter },
+        { provide: AuditLogsService, useValue: auditLogsService },
+        { provide: WalletBalanceService, useValue: walletBalance },
+      ],
+    }).compile();
+
+    service = moduleRef.get<FundsFlowService>(FundsFlowService);
+    jest.clearAllMocks();
+  });
+
+  it('emits CREATED short name when fund leg is created (createLeg path)', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 't-1',
+      assetId: 'a-1',
+    });
+    prisma.internalFund.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'new-fund-1',
+        internalFundNo: data.internalFundNo,
+        ...data,
+      }),
+    );
+
+    await service.createLeg(
+      {
+        internalTransactionId: 't-1',
+        fromWalletId: 'w-from',
+        toWalletId: 'w-to',
+        amount: new Prisma.Decimal(5),
+      },
+      'SYSTEM',
+    );
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'CREATED' }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('emits CREATED short name when fund is created from internal transaction', async () => {
+    prisma.internalTransaction.findUnique.mockResolvedValue({
+      id: 'itx-create',
+      sourceType: 'INTERNAL_TRANSFER',
+      sourceId: 'itr-create',
+      sourceNo: 'ITRCREATE',
+      assetId: 'asset-1',
+      amount: new Prisma.Decimal(2),
+      netAmount: new Prisma.Decimal(2),
+      fromWalletId: 'w1',
+      toWalletId: 'w2',
+      fromAddress: '0xfrom',
+      toAddress: '0xto',
+      fromIban: null,
+      toIban: null,
+      referenceNo: 'ITR-1',
+      asset: { type: 'CRYPTO' },
+    });
+    prisma.internalFund.findFirst.mockResolvedValue(null);
+    prisma.internalFund.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({
+        id: 'new-fund-2',
+        internalFundNo: data.internalFundNo,
+        internalTransaction: {
+          id: 'itx-create',
+          internalTxNo: 'ITX-CREATE',
+          sourceType: 'INTERNAL_TRANSFER',
+          sourceId: 'itr-create',
+          sourceNo: 'ITRCREATE',
+        },
+        ...data,
+      }),
+    );
+
+    await service.createFromInternalTransaction(
+      { internalTransactionId: 'itx-create' },
+      'SYSTEM',
+    );
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'CREATED' }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('emits CLEARED short name + metadata.from=CONFIRMED on auto-clear', async () => {
+    prisma.internalFund.findUnique
+      .mockResolvedValueOnce({
+        id: 'ifd-ac',
+        status: InternalFundStatus.CONFIRMING,
+        statusHistory: '[]',
+        sentAt: new Date(),
+        confirmedAt: null,
+        internalTransaction: {
+          id: 'itx-ac',
+          sourceType: 'INTERNAL_TRANSFER',
+          sourceId: 'itr-ac',
+          sourceNo: 'ITR-AC',
+        },
+        asset: { type: 'CRYPTO' },
+      })
+      .mockResolvedValue({
+        id: 'ifd-ac',
+        status: InternalFundStatus.CLEAR,
+        statusHistory: '[]',
+        sentAt: new Date(),
+        confirmedAt: new Date(),
+        completedAt: new Date(),
+        internalTransaction: {
+          id: 'itx-ac',
+          sourceType: 'INTERNAL_TRANSFER',
+          sourceId: 'itr-ac',
+          sourceNo: 'ITR-AC',
+        },
+        asset: { type: 'CRYPTO' },
+      });
+    prisma.internalFund.update
+      .mockResolvedValueOnce({
+        id: 'ifd-ac',
+        status: InternalFundStatus.CONFIRMED,
+      })
+      .mockResolvedValue({
+        id: 'ifd-ac-cleared',
+        status: InternalFundStatus.CLEAR,
+      });
+    prisma.internalFund.findMany.mockResolvedValue([
+      {
+        id: 'ifd-ac',
+        statusHistory: '[]',
+        fromWalletId: 'w-f',
+        toWalletId: 'w-t',
+        amount: new Prisma.Decimal(10),
+      },
+    ]);
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      id: 'itx-ac',
+      status: 'SUCCESS',
+    });
+
+    await service.updateStatus(
+      'ifd-ac',
+      { action: InternalFundAction.CONFIRM },
+      'SYSTEM',
+    );
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CLEARED',
+        metadata: expect.stringContaining('"from":"CONFIRMED"'),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('emits short name + metadata.from for state machine transitions (CONFIRMING → CONFIRMED)', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-tr',
+      status: InternalFundStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-tr',
+        sourceType: 'INTERNAL_TRANSFER',
+        sourceId: 'itr-tr',
+        sourceNo: 'ITR-TR',
+      },
+      asset: { type: 'FIAT' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-tr',
+      status: InternalFundStatus.CONFIRMED,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-tr',
+      { action: InternalFundAction.CONFIRM },
+      'ADMIN',
+    );
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CONFIRMED',
+        metadata: expect.stringContaining('"from":"CONFIRMING"'),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+});
