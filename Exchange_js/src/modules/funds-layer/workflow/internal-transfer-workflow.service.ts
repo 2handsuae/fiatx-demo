@@ -112,7 +112,7 @@ export class InternalTransferWorkflowService {
 
       await this.auditLogsService.recordByActor(
         {
-          action: AuditActions.INTERNAL_TRANSFER_REQUESTED,
+          action: AuditActions.REQUESTED,
           entityType: AuditEntityTypes.INTERNAL_TRANSFER,
           entityId: transfer.id,
           entityNo: transfer.internalTxNo || undefined,
@@ -156,7 +156,7 @@ export class InternalTransferWorkflowService {
           internalTransferId: event.internalTransferId,
         });
         await this.auditLogsService.recordSystem({
-          action: AuditActions.TRANSFER_COMPLETED,
+          action: AuditActions.SUCCEEDED,
           entityType: AuditEntityTypes.INTERNAL_TRANSFER,
           entityId: event.internalTransferId,
           workflowType: AuditBusinessWorkflowTypes.INTERNAL_TRANSFER,
@@ -165,7 +165,7 @@ export class InternalTransferWorkflowService {
         });
       } else if (event.newStatus === 'FAILED' || event.newStatus === 'TIMEOUT') {
         await this.auditLogsService.recordSystem({
-          action: AuditActions.TRANSFER_FAILED,
+          action: AuditActions.FAILED,
           entityType: AuditEntityTypes.INTERNAL_TRANSFER,
           entityId: event.internalTransferId,
           workflowType: AuditBusinessWorkflowTypes.INTERNAL_TRANSFER,

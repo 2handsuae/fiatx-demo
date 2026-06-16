@@ -111,7 +111,7 @@ describe('InternalTransferWorkflowService', () => {
     // journey REQUESTED audit written by the workflow
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'INTERNAL_TRANSFER_REQUESTED',
+        action: 'REQUESTED',
         entityId: 't1',
         entityNo: 'ITX-1',
         traceId: 'tr',
@@ -138,7 +138,7 @@ describe('InternalTransferWorkflowService', () => {
 
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'INTERNAL_TRANSFER_REQUESTED',
+        action: 'REQUESTED',
         reason: 'payout aborted',
       }),
       expect.any(Object),
@@ -161,7 +161,7 @@ describe('InternalTransferWorkflowService', () => {
 
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'INTERNAL_TRANSFER_REQUESTED',
+        action: 'REQUESTED',
         reason: 'Internal transfer requested on path CRYPTO_DEPOSIT_SWEEP',
       }),
       expect.any(Object),
@@ -169,7 +169,7 @@ describe('InternalTransferWorkflowService', () => {
     );
   });
 
-  it('onFundsFlowStatusChanged writes TRANSFER_COMPLETED on CLEAR and calls mirrorPhysicalTransfer', async () => {
+  it('onFundsFlowStatusChanged writes SUCCEEDED on CLEAR and calls mirrorPhysicalTransfer', async () => {
     await service.onFundsFlowStatusChanged({
       fundsFlowId: 'f1',
       internalTransferId: 't1',
@@ -181,13 +181,13 @@ describe('InternalTransferWorkflowService', () => {
     expect(accounting.mirrorPhysicalTransfer).toHaveBeenCalledWith({ internalTransferId: 't1' });
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'TRANSFER_COMPLETED',
+        action: 'SUCCEEDED',
         entityId: 't1',
       }),
     );
   });
 
-  it('onFundsFlowStatusChanged writes TRANSFER_FAILED on FAILED', async () => {
+  it('onFundsFlowStatusChanged writes FAILED on FAILED', async () => {
     await service.onFundsFlowStatusChanged({
       fundsFlowId: 'f1',
       internalTransferId: 't1',
@@ -197,10 +197,58 @@ describe('InternalTransferWorkflowService', () => {
 
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'TRANSFER_FAILED',
+        action: 'FAILED',
         entityId: 't1',
         reason: 'Funds flow FAILED',
       }),
     );
+  });
+
+  describe('Spec #4: INTERNAL_TRANSFER short-name audit actions', () => {
+    it('emits REQUESTED short name on requestTransfer', async () => {
+      transfers.createTransfer.mockResolvedValue({
+        id: 't1',
+        internalTxNo: 'ITX-1',
+        traceId: 'tr',
+        accountingClass: 'A',
+      });
+
+      await service.initiate(
+        { ...baseInput, fromRole: 'C_DEP', toRole: 'C_MAIN' },
+        'SYSTEM',
+      );
+
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'REQUESTED' }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('emits SUCCEEDED on funds-flow CLEAR event', async () => {
+      await service.onFundsFlowStatusChanged({
+        fundsFlowId: 'f1',
+        internalTransferId: 't1',
+        oldStatus: 'CONFIRMED',
+        newStatus: 'CLEAR',
+      });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'SUCCEEDED' }),
+      );
+    });
+
+    it('emits FAILED on funds-flow FAILED/TIMEOUT event', async () => {
+      await service.onFundsFlowStatusChanged({
+        fundsFlowId: 'f1',
+        internalTransferId: 't1',
+        oldStatus: 'CONFIRMING',
+        newStatus: 'FAILED',
+      });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'FAILED' }),
+      );
+    });
   });
 });
