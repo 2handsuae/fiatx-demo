@@ -6,6 +6,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { SettlementBatchService } from './settlement-batch.service';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -28,6 +29,7 @@ export interface CryptoOutstandingGroup {
 export class OutstandingConsumerService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly batchService: SettlementBatchService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -209,6 +211,20 @@ export class OutstandingConsumerService {
             originTraceId: row.originTraceId ?? null,
           }) as any,
         });
+      }
+    }
+
+    // Spec #7: settle 末尾紧跟 recomputeBatch、同 tx、按 distinct batchId 调一次。
+    if (rows.length > 0) {
+      const batchIdsForRecompute: string[] = Array.from(
+        new Set<string>(
+          rows
+            .map((r: any) => r.settlementBatchId)
+            .filter((id: string | null): id is string => Boolean(id)),
+        ),
+      );
+      for (const batchId of batchIdsForRecompute) {
+        await this.batchService.recomputeBatch(batchId, client);
       }
     }
 

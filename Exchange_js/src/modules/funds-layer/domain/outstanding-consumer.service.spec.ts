@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OutstandingConsumerService } from './outstanding-consumer.service';
+import { SettlementBatchService } from './settlement-batch.service';
 
 describe('OutstandingConsumerService', () => {
   let service: OutstandingConsumerService;
   let prisma: any;
   let auditLogsService: any;
+  let batchService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -23,11 +25,15 @@ describe('OutstandingConsumerService', () => {
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
     };
+    batchService = {
+      recomputeBatch: jest.fn().mockResolvedValue({} as any),
+    };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         OutstandingConsumerService,
         { provide: PrismaService, useValue: prisma },
+        { provide: SettlementBatchService, useValue: batchService },
         { provide: AuditLogsService, useValue: auditLogsService },
       ],
     }).compile();
@@ -139,7 +145,8 @@ describe('OutstandingConsumerService', () => {
       const rows = [{ id: 'o1', direction: 'IN', amount: '5', assetId: 'a-aed', ownerId: 'c1' }];
       const prisma = { outstanding: { findMany: jest.fn().mockResolvedValue(rows) } };
       const audit = { recordSystem: jest.fn() };
-      const svc = new OutstandingConsumerService(prisma as any, audit as any);
+      const batchService = { recomputeBatch: jest.fn().mockResolvedValue({} as any) };
+      const svc = new OutstandingConsumerService(prisma as any, batchService as any, audit as any);
 
       const result = await svc.findOpenFiatBySwap('swap-1');
 
@@ -177,7 +184,8 @@ describe('OutstandingConsumerService', () => {
           return Promise.resolve();
         }),
       };
-      const svc = new OutstandingConsumerService(mockPrisma, mockAudit);
+      const mockBatchService: any = { recomputeBatch: jest.fn().mockResolvedValue({} as any) };
+      const svc = new OutstandingConsumerService(mockPrisma, mockBatchService, mockAudit);
 
       await svc.lockToTransfer(['o1', 'o2'], 'b1', 't1', mockPrisma);
 
@@ -219,7 +227,8 @@ describe('OutstandingConsumerService', () => {
           return Promise.resolve();
         }),
       };
-      const svc = new OutstandingConsumerService(mockPrisma, mockAudit);
+      const mockBatchService: any = { recomputeBatch: jest.fn().mockResolvedValue({} as any) };
+      const svc = new OutstandingConsumerService(mockPrisma, mockBatchService, mockAudit);
 
       await svc.settle('t1', 'fund1', mockPrisma);
 
@@ -229,6 +238,47 @@ describe('OutstandingConsumerService', () => {
       expect(auditCalls[0].workflowType).toBe('SETTLEMENT');
       expect(auditCalls[0].traceId).toBe('BATCH-T1');
       expect(JSON.parse(auditCalls[0].metadata).originTraceId).toBe('SWAP-T1');
+    });
+
+    it('settle: calls batchService.recomputeBatch once per distinct settlementBatchId on the rows being settled', async () => {
+      const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+      const batchService: any = { recomputeBatch };
+      const rows = [
+        { id: 'o1', outstandingNo: 'OTS1', originTraceId: 'OT1', settlementBatchId: 'b1' },
+        { id: 'o2', outstandingNo: 'OTS2', originTraceId: 'OT2', settlementBatchId: 'b1' },
+        { id: 'o3', outstandingNo: 'OTS3', originTraceId: 'OT3', settlementBatchId: 'b2' },
+      ];
+      const prisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue(rows),
+          updateMany: jest.fn().mockResolvedValue({ count: 3 }),
+        },
+        settlementBatch: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 'b1', traceId: 'BT1' },
+            { id: 'b2', traceId: 'BT2' },
+          ]),
+        },
+      };
+      const svc = new OutstandingConsumerService(prisma, batchService, { recordSystem: jest.fn() } as any);
+      await svc.settle('transfer-1', 'fund-1', prisma);
+      expect(recomputeBatch).toHaveBeenCalledTimes(2);
+      expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);
+      expect(recomputeBatch).toHaveBeenCalledWith('b2', prisma);
+    });
+
+    it('settle: no settled rows → does NOT call recomputeBatch', async () => {
+      const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+      const batchService: any = { recomputeBatch };
+      const prisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue([]),
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
+      };
+      const svc = new OutstandingConsumerService(prisma, batchService, { recordSystem: jest.fn() } as any);
+      await svc.settle('transfer-x', 'fund-x', prisma);
+      expect(recomputeBatch).not.toHaveBeenCalled();
     });
 
     it('markSettledNettedZero: emits SETTLED audit for netted-zero outstandings', async () => {
@@ -252,7 +302,8 @@ describe('OutstandingConsumerService', () => {
           return Promise.resolve();
         }),
       };
-      const svc = new OutstandingConsumerService(mockPrisma, mockAudit);
+      const mockBatchService: any = { recomputeBatch: jest.fn().mockResolvedValue({} as any) };
+      const svc = new OutstandingConsumerService(mockPrisma, mockBatchService, mockAudit);
 
       await svc.markSettledNettedZero('b-nz', 'asset1', mockPrisma);
 
