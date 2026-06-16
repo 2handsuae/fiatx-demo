@@ -94,6 +94,8 @@ export const AuditEntityTypes = {
   SWAP_FEE_LEVEL_BINDING: 'SWAP_FEE_LEVEL_BINDING',
   INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
   SETTLEMENT_BATCH: 'SETTLEMENT_BATCH',
+  OUTSTANDING: 'OUTSTANDING',
+  FEE_ACCRUAL: 'FEE_ACCRUAL',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -405,6 +407,10 @@ export const AuditActions = {
   // Settlement Batch
   BATCH_CREATED: 'BATCH_CREATED',
   BATCH_SUCCEEDED: 'BATCH_SUCCEEDED',
+  // Generic lifecycle verbs for Outstanding & FeeAccrual (entityType differentiates)
+  CREATED: 'CREATED',
+  LOCKED: 'LOCKED',
+  SETTLED: 'SETTLED',
 } as const;
 
 export const AuditGovernanceActions = {
