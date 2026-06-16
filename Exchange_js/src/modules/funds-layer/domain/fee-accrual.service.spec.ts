@@ -149,13 +149,55 @@ describe('FeeAccrualService.settle', () => {
 describe('FeeAccrualService.settleByTransfer', () => {
   it('settleByTransfer: flips LOCKED→SETTLED for a transfer', async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 2 });
-    const prisma: any = { feeAccrual: { updateMany } };
+    // Defensive default: settleByTransfer now also reads the transfer's batch id;
+    // existing test gets a null findUnique so it stays a pure flip-status assertion.
+    const findUnique = jest.fn().mockResolvedValue(null);
+    const prisma: any = {
+      feeAccrual: { updateMany },
+      internalTransaction: { findUnique },
+    };
     const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any);
     await svc.settleByTransfer('t1', 'fund1', prisma);
     expect(updateMany).toHaveBeenCalledWith({
       where: { settledByTransferId: 't1', status: 'LOCKED' },
       data: expect.objectContaining({ status: 'SETTLED', closedByInternalFundId: 'fund1' }),
     });
+  });
+
+  it('settleByTransfer: when transfer has settlementBatchId, triggers recomputeBatch with that id + same tx', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 2 });
+    const findUnique = jest.fn().mockResolvedValue({ settlementBatchId: 'b1' });
+    const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+    const prisma: any = {
+      feeAccrual: { updateMany },
+      internalTransaction: { findUnique },
+    };
+    const batchService: any = { recomputeBatch };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService);
+
+    await svc.settleByTransfer('t1', 'fund1', prisma);
+
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { id: 't1' },
+      select: { settlementBatchId: true },
+    });
+    expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);
+  });
+
+  it('settleByTransfer: when transfer has no settlementBatchId, does NOT call recomputeBatch', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const findUnique = jest.fn().mockResolvedValue({ settlementBatchId: null });
+    const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+    const prisma: any = {
+      feeAccrual: { updateMany },
+      internalTransaction: { findUnique },
+    };
+    const batchService: any = { recomputeBatch };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService);
+
+    await svc.settleByTransfer('t2', 'fund1', prisma);
+
+    expect(recomputeBatch).not.toHaveBeenCalled();
   });
 });
 

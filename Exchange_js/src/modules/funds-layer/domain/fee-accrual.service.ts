@@ -267,7 +267,7 @@ export class FeeAccrualService {
     internalFundId: string,
     tx: Tx,
   ): Promise<{ count: number }> {
-    return (tx as any).feeAccrual.updateMany({
+    const result = await (tx as any).feeAccrual.updateMany({
       where: { settledByTransferId, status: 'LOCKED' },
       data: {
         status: 'SETTLED',
@@ -275,6 +275,21 @@ export class FeeAccrualService {
         closedAt: new Date(),
       },
     });
+
+    // Treatment-of-root-cause: fee-accrual advances accrual state; the batch
+    // tied to this transfer must be re-aggregated so its status/counters
+    // reflect the new SETTLED accruals (otherwise SWAP_FEE batches stay
+    // stuck at CREATED forever — observed live). Matches the convention used
+    // by the other 6 workflow recomputeBatch call sites.
+    const transfer = await (tx as any).internalTransaction.findUnique({
+      where: { id: settledByTransferId },
+      select: { settlementBatchId: true },
+    });
+    if (transfer?.settlementBatchId) {
+      await this.batchService.recomputeBatch(transfer.settlementBatchId, tx as any);
+    }
+
+    return result;
   }
 
   /**
