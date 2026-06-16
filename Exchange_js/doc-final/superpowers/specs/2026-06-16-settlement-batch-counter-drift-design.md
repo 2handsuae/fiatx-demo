@@ -201,10 +201,11 @@ WHERE s.createdAt > datetime('now','-1 hour')
 1. listener 不在 `prisma.$transaction` 里 — 4 listener 各自竞争 SQLite 单写锁
 2. `try-catch` 吞错只 `logger.error` — 没重试机制
 3. 注释承诺"OPEN fiat outstandings remain as durable work items for the backstop" — 但 backstop service 在代码里不存在
+4. **副症状：孤儿 batch** — listener 抛错时 `createBatch` 已落地、整段不回滚（不在 $transaction 内），留下 0 outstanding / 0 fee 的孤儿 batch（如 OSB2606165606）
 
 **治本路径**（3 选 1、留给 Spec #8）：
-- A：实现 backstop service — cron 定期扫 OPEN+超时未 LOCK 的 fiat outstanding、自动调 listener
-- B：listener 内层包 `prisma.$transaction` + 合理重试
+- A：实现 backstop service — cron 定期扫 OPEN+超时未 LOCK 的 fiat outstanding、自动调 listener；同 cron GC 1h+ 未绑任何东西的 CREATED batch（孤儿 batch 清理）
+- B：listener 内层包 `prisma.$transaction` + 合理重试 — 抛错时 batch 创建一并回滚、彻底避免孤儿 batch
 - C：transactional outbox 模式 — 把 swap 写入 outbox 表、worker 重试
 
 **暂时规避**：sim 脚本每笔 swap 之间 `sleep(2000)`，让 listener 跑完才下一笔。
