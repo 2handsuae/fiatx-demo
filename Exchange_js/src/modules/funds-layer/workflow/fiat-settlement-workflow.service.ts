@@ -169,13 +169,6 @@ export class FiatSettlementWorkflowService {
       if (transfer.settlementBatchId) {
         await this.batchService.recomputeBatch(transfer.settlementBatchId);
       }
-
-      // Swap fee/spread collection rides along once the IN (buy-fiat) settlement
-      // completes. Model A: both fee and spread are pulled from F_OPS (company side).
-      if (transfer.pathLabel === TransferPath.FIAT_SETTLE_IN) {
-        const swapId = String(transfer.sourceId || '').split(':')[0];
-        if (swapId) await this.feeCollection.collectSwapFees(swapId);
-      }
     } catch (err) {
       this.logger.error(
         `Fiat settlement completion failed for transfer=${event.internalTransferId} status=${event.newStatus}`,

@@ -191,14 +191,16 @@ describe('onFundsFlowStatusChanged', () => {
     expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
   });
 
-  it('on IN settlement CLEAR, triggers swap fee collection with the swapId', async () => {
+  it('on IN settlement CLEAR, does NOT call collectSwapFees (Spec #6: fee batch spawns in listener)', async () => {
     prisma.internalTransaction.findUnique.mockResolvedValue({
       id: 't-1', sourceType: 'FIAT_SETTLEMENT', settlementBatchId: 'b-1',
       pathLabel: 'FIAT_SETTLE_IN', sourceId: 'swap-1:o-aed',
     });
     consumer.settle.mockResolvedValue({ count: 1 });
     await service.onFundsFlowStatusChanged({ fundsFlowId: 'f-hop2', internalTransferId: 't-1', oldStatus: 'CONFIRMED', newStatus: 'CLEAR' });
-    expect(feeCollection.collectSwapFees).toHaveBeenCalledWith('swap-1');
+    // Spec #6: fee batch spawns in fee-accrual-listener at SWAP_SUCCEEDED,
+    // not here at FIAT_SETTLE_IN CLEAR. No more dependency from principal to fee.
+    expect(feeCollection.collectSwapFees).not.toHaveBeenCalled();
   });
 
   it('does NOT trigger fee collection for FIAT_SETTLE_OUT', async () => {
