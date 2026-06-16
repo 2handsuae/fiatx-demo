@@ -296,6 +296,9 @@ export class FeeAccrualService {
           metadata: JSON.stringify({ originTraceId: accrual.originTraceId ?? null }) as any,
         });
       }
+
+      // Spec #7: settle 类方法内紧跟 recomputeBatch、同 tx 同步执行、不依赖 caller。
+      await this.batchService.recomputeBatch(batch.id, tx);
     }
   }
 

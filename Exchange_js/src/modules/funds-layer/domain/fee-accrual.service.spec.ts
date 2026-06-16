@@ -202,7 +202,7 @@ describe('FeeAccrualService.settle', () => {
     ];
     const updateMany = jest.fn().mockResolvedValue({ count: 2 });
     const prisma: any = { asset: { findUnique: jest.fn().mockResolvedValue({ type: 'CRYPTO' }) }, feeAccrual: { updateMany } };
-    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b1', batchNo: 'OSB1' }) };
+    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b1', batchNo: 'OSB1' }), recomputeBatch: jest.fn().mockResolvedValue({} as any) };
     const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't1', internalTxNo: 'ITX1' }) };
     const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({ id: 'leg1' }) };
     const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'w' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'wv' }) };
@@ -224,7 +224,7 @@ describe('FeeAccrualService.settle', () => {
   it('WITHDRAW_FEE fiat: resolves per-customer C_VIBAN as source, path FIAT_WITHDRAW_FEE_COLLECT', async () => {
     const accruals = [{ id: 'a3', assetId: 'aed', category: 'WITHDRAW_FEE', amount: '2', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'C1' }];
     const prisma: any = { asset: { findUnique: jest.fn().mockResolvedValue({ type: 'FIAT' }) }, feeAccrual: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
-    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b2', batchNo: 'OSB2' }) };
+    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b2', batchNo: 'OSB2' }), recomputeBatch: jest.fn().mockResolvedValue({} as any) };
     const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't2', internalTxNo: 'ITX2' }) };
     const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({}) };
     const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'ffee' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'viban-c1' }) };
@@ -248,7 +248,7 @@ describe('FeeAccrualService.settle', () => {
       feeAccrual: { updateMany },
       settlementBatch: { findUnique: jest.fn().mockResolvedValue({ id: 'b1', traceId: 'BATCH-T1' }) },
     };
-    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b1', batchNo: 'OSB1', traceId: 'BATCH-T1' }) };
+    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b1', batchNo: 'OSB1', traceId: 'BATCH-T1' }), recomputeBatch: jest.fn().mockResolvedValue({} as any) };
     const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't1', internalTxNo: 'ITX1' }) };
     const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({ id: 'leg1' }) };
     const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'w' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'wv' }) };
@@ -266,6 +266,67 @@ describe('FeeAccrualService.settle', () => {
     });
     expect(JSON.parse(lockedCalls[0].metadata).originTraceId).toBe('SWAP-T1');
     expect(JSON.parse(lockedCalls[1].metadata).originTraceId).toBe('SWAP-T2');
+  });
+
+  it('settle: per group calls batchService.recomputeBatch(batch.id, tx) after locking accruals', async () => {
+    const accruals = [
+      { id: 'a1', assetId: 'usdtId', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'CU1', amount: '10', feeAccrualNo: 'FA1', originTraceId: 'OT1' },
+      { id: 'a2', assetId: 'usdtId', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'CU1', amount: '15', feeAccrualNo: 'FA2', originTraceId: 'OT2' },
+    ];
+    const prisma: any = {
+      asset: { findUnique: jest.fn().mockResolvedValue({ type: 'CRYPTO' }) },
+      feeAccrual: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    };
+    const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't1' }) };
+    const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({}) };
+    const systemWallets: any = {
+      resolve: jest.fn().mockResolvedValue({ id: 'w1' }),
+      resolveCustomer: jest.fn().mockResolvedValue({ id: 'w2' }),
+    };
+    const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+    const batchService: any = {
+      createBatch: jest.fn().mockResolvedValue({ id: 'b1', batchNo: 'OSB1', traceId: 'BT1' }),
+      recomputeBatch,
+    };
+    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
+
+    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
+
+    expect(recomputeBatch).toHaveBeenCalledTimes(1);
+    expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);
+  });
+
+  it('settle: 2 distinct assets → 2 batches → recomputeBatch called once per batch', async () => {
+    const accruals = [
+      { id: 'a1', assetId: 'usdtId', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'CU1', amount: '10', feeAccrualNo: 'FA1', originTraceId: 'OT1' },
+      { id: 'a2', assetId: 'btcId', ownerType: 'CUSTOMER', ownerId: 'c1', ownerNo: 'CU1', amount: '5', feeAccrualNo: 'FA2', originTraceId: 'OT2' },
+    ];
+    const prisma: any = {
+      asset: { findUnique: jest.fn().mockResolvedValue({ type: 'CRYPTO' }) },
+      feeAccrual: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't1' }) };
+    const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({}) };
+    const systemWallets: any = {
+      resolve: jest.fn().mockResolvedValue({ id: 'w1' }),
+      resolveCustomer: jest.fn().mockResolvedValue({ id: 'w2' }),
+    };
+    const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+    let batchCounter = 0;
+    const batchService: any = {
+      createBatch: jest.fn().mockImplementation(async () => {
+        batchCounter++;
+        return { id: `b${batchCounter}`, batchNo: `OSB${batchCounter}`, traceId: `BT${batchCounter}` };
+      }),
+      recomputeBatch,
+    };
+    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
+
+    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
+
+    expect(recomputeBatch).toHaveBeenCalledTimes(2);
+    expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);
+    expect(recomputeBatch).toHaveBeenCalledWith('b2', prisma);
   });
 });
 
