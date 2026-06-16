@@ -67,22 +67,22 @@ DB 实测 `audit_log_events` where `entityType='INTERNAL_TRANSFER'`：
 
 | 旧 action | 新 action (值) | metadata 携带 |
 |---|---|---|
-| `INTERNAL_FUND_CREATED` | `created` | — |
-| `INTERNAL_FUND_CREATED_TO_SIGNING` | `signing` | `from: 'CREATED'` |
-| `INTERNAL_FUND_SIGNING_TO_BROADCASTED` | `broadcasted` | `from: 'SIGNING'` |
-| `INTERNAL_FUND_CONFIRMING_TO_BROADCASTED` | `broadcasted` | `from: 'CONFIRMING'` |
-| `INTERNAL_FUND_CREATED_TO_CONFIRMING` | `confirming` | `from: 'CREATED'`（fiat 直进） |
-| `INTERNAL_FUND_BROADCASTED_TO_CONFIRMING` | `confirming` | `from: 'BROADCASTED'`（crypto 链上） |
-| `INTERNAL_FUND_CONFIRMING_TO_CONFIRMED` | `confirmed` | `from: 'CONFIRMING'` |
-| `INTERNAL_FUND_CONFIRMED_TO_CLEAR` | `cleared` | `from: 'CONFIRMED'` |
-| `INTERNAL_FUND_*_TO_FAILED`（共 3 种） | `failed` | `from: <SIGNING/BROADCASTED/CONFIRMING>` |
-| `INTERNAL_FUND_*_TO_TIMEOUT`（共 2 种） | `timed_out` | `from: <BROADCASTED/CONFIRMING>` |
-| `INTERNAL_FUND_CREATED_TO_CANCELLED` | `cancelled` | `from: 'CREATED'` |
-| `INTERNAL_FUND_CLEAR_TO_RETURNED` | `reorged` | `from: 'CLEAR'` |
+| `INTERNAL_FUND_CREATED` | `CREATED` | — |
+| `INTERNAL_FUND_CREATED_TO_SIGNING` | `SIGNING` | `from: 'CREATED'` |
+| `INTERNAL_FUND_SIGNING_TO_BROADCASTED` | `BROADCASTED` | `from: 'SIGNING'` |
+| `INTERNAL_FUND_CONFIRMING_TO_BROADCASTED` | `BROADCASTED` | `from: 'CONFIRMING'` |
+| `INTERNAL_FUND_CREATED_TO_CONFIRMING` | `CONFIRMING` | `from: 'CREATED'`（fiat 直进） |
+| `INTERNAL_FUND_BROADCASTED_TO_CONFIRMING` | `CONFIRMING` | `from: 'BROADCASTED'`（crypto 链上） |
+| `INTERNAL_FUND_CONFIRMING_TO_CONFIRMED` | `CONFIRMED` | `from: 'CONFIRMING'` |
+| `INTERNAL_FUND_CONFIRMED_TO_CLEAR` | `CLEARED` | `from: 'CONFIRMED'` |
+| `INTERNAL_FUND_*_TO_FAILED`（共 3 种） | `FAILED` | `from: <SIGNING/BROADCASTED/CONFIRMING>` |
+| `INTERNAL_FUND_*_TO_TIMEOUT`（共 2 种） | `TIMED_OUT` | `from: <BROADCASTED/CONFIRMING>` |
+| `INTERNAL_FUND_CREATED_TO_CANCELLED` | `CANCELLED` | `from: 'CREATED'` |
+| `INTERNAL_FUND_CLEAR_TO_RETURNED` | `REORGED` | `from: 'CLEAR'` |
 
-**最终 7 个 action 短名**：`created / signing / broadcasted / confirming / confirmed / cleared / failed`
-**+ 3 个 terminal 异常**：`timed_out / cancelled / reorged`
-= 10 个短名（其中 created/failed/cancelled 已与 OUTSTANDING/FEE_ACCRUAL 共享同名常量、复用即可）
+**最终 7 个 action 短名**：`CREATED / SIGNING / BROADCASTED / CONFIRMING / CONFIRMED / CLEARED / FAILED`
+**+ 3 个 terminal 异常**：`TIMED_OUT / CANCELLED / REORGED`
+= 10 个短名（其中 CREATED/FAILED/CANCELLED 已与 OUTSTANDING/FEE_ACCRUAL 共享同名常量、复用即可）
 
 ### 3.2 TS 常量改名策略
 
@@ -94,16 +94,16 @@ DB 实测 `audit_log_events` where `entityType='INTERNAL_TRANSFER'`：
 export const AuditActions = {
   // ...
   // INTERNAL_FUND lifecycle (复用既有短名常量)
-  CREATED: 'created',          // 已存（OUTSTANDING/FEE_ACCRUAL 同用）
-  SIGNING: 'signing',          // 新增
-  BROADCASTED: 'broadcasted',  // 新增
-  CONFIRMING: 'confirming',    // 新增
-  CONFIRMED: 'confirmed',      // 新增
-  CLEARED: 'cleared',          // 新增
-  FAILED: 'failed',            // 新增（也是 INTERNAL_TRANSFER 用）
-  TIMED_OUT: 'timed_out',      // 新增
-  CANCELLED: 'cancelled',      // 新增
-  REORGED: 'reorged',          // 已存
+  CREATED: 'CREATED',          // 已存（OUTSTANDING/FEE_ACCRUAL 同用）
+  SIGNING: 'SIGNING',          // 新增
+  BROADCASTED: 'BROADCASTED',  // 新增
+  CONFIRMING: 'CONFIRMING',    // 新增
+  CONFIRMED: 'CONFIRMED',      // 新增
+  CLEARED: 'CLEARED',          // 新增
+  FAILED: 'FAILED',            // 新增（也是 INTERNAL_TRANSFER 用）
+  TIMED_OUT: 'TIMED_OUT',      // 新增
+  CANCELLED: 'CANCELLED',      // 新增
+  REORGED: 'REORGED',          // 已存
   // ...
 }
 ```
@@ -123,16 +123,16 @@ export const AuditActions = {
 
 ```ts
 const INTERNAL_FUND_STATE_TO_ACTION: Record<string, string> = {
-  CREATED: 'created',
-  SIGNING: 'signing',
-  BROADCASTED: 'broadcasted',
-  CONFIRMING: 'confirming',
-  CONFIRMED: 'confirmed',
-  CLEAR: 'cleared',
-  FAILED: 'failed',
-  TIMEOUT: 'timed_out',
-  CANCELLED: 'cancelled',
-  RETURNED: 'reorged',
+  CREATED: 'CREATED',
+  SIGNING: 'SIGNING',
+  BROADCASTED: 'BROADCASTED',
+  CONFIRMING: 'CONFIRMING',
+  CONFIRMED: 'CONFIRMED',
+  CLEAR: 'CLEARED',
+  FAILED: 'FAILED',
+  TIMEOUT: 'TIMED_OUT',
+  CANCELLED: 'CANCELLED',
+  RETURNED: 'REORGED',
 };
 
 export function buildInternalFundStateAction(nextStatus: string): string {
@@ -167,11 +167,11 @@ metadata: JSON.stringify({ from: currentStatus, ...existing }),
 
 | 文件 | 行 | 旧 action | 新 action（值） |
 |---|---|---|---|
-| `internal-transfer-workflow.service.ts` | 115 | `INTERNAL_TRANSFER_REQUESTED` | `requested` |
-| `internal-transfer-workflow.service.ts` | 159 | `TRANSFER_COMPLETED` | `succeeded` |
-| `internal-transfer-workflow.service.ts` | 168 | `TRANSFER_FAILED` | `failed`（复用 INTERNAL_FUND.failed） |
+| `internal-transfer-workflow.service.ts` | 115 | `INTERNAL_TRANSFER_REQUESTED` | `REQUESTED` |
+| `internal-transfer-workflow.service.ts` | 159 | `TRANSFER_COMPLETED` | `SUCCEEDED` |
+| `internal-transfer-workflow.service.ts` | 168 | `TRANSFER_FAILED` | `FAILED`（复用 INTERNAL_FUND.FAILED） |
 
-INTERNAL_TRANSFER 最终 4 个短名：`requested / succeeded / failed / cancelled`。
+INTERNAL_TRANSFER 最终 4 个短名：`REQUESTED / SUCCEEDED / FAILED / CANCELLED`。
 
 ### 4.3 删除常量
 
@@ -183,8 +183,8 @@ INTERNAL_TRANSFER 最终 4 个短名：`requested / succeeded / failed / cancell
 
 **新增**：
 ```ts
-REQUESTED: 'requested',
-SUCCEEDED: 'succeeded',
+REQUESTED: 'REQUESTED',
+SUCCEEDED: 'SUCCEEDED',
 ```
 
 ---
@@ -209,9 +209,9 @@ SUCCEEDED: 'succeeded',
 | # | 测试 | 验证 |
 |---|---|---|
 | 1 | `funds-flow.service.spec` 状态机推进 → audit 用短名 + metadata.from | 7 个状态短名映射正确 |
-| 2 | `internal-funds.service.spec` createForXxx → audit `created` | INTERNAL_FUND 创建短名 |
-| 3 | `internal-transfer-workflow.service.spec` 三入口 → `requested/succeeded/failed` | workflow 端单写 |
-| 4 | `internal-transfer.service.spec` 同一 transfer 产 1 条 succeeded（不再有重复） | 双写消除 |
+| 2 | `internal-funds.service.spec` createForXxx → audit `CREATED` | INTERNAL_FUND 创建短名 |
+| 3 | `internal-transfer-workflow.service.spec` 三入口 → `REQUESTED/SUCCEEDED/FAILED` | workflow 端单写 |
+| 4 | `internal-transfer.service.spec` 同一 transfer 产 1 条 SUCCEEDED（不再有重复） | 双写消除 |
 | 5 | `internal-transactions.service.spec` 删 INTERNAL_TX_CREATED → 不再发该 action | 老入口闭环 |
 | 6 | `internal-transactions.service.spec` 状态推进 → 不再发 PENDING_TO_SUCCESS | 状态机双写消除 |
 
@@ -226,26 +226,26 @@ SUCCEEDED: 'succeeded',
 SELECT action, COUNT(*) FROM audit_log_events
 WHERE entityType='INTERNAL_FUND' AND occurredAt > datetime('now','-30 minutes')
 GROUP BY action;
--- 期望：只见 created/signing/broadcasted/confirming/confirmed/cleared/failed 等短名
+-- 期望：只见 CREATED/SIGNING/BROADCASTED/CONFIRMING/CONFIRMED/CLEARED/FAILED 等短名
 --      不再见 INTERNAL_FUND_*_TO_* 的新增行
 
 -- ② INTERNAL_TRANSFER 同动作单写
 SELECT action, COUNT(*) FROM audit_log_events
 WHERE entityType='INTERNAL_TRANSFER' AND occurredAt > datetime('now','-30 minutes')
 GROUP BY action;
--- 期望：requested + succeeded 各 N 条（N = transfer 数）
+-- 期望：REQUESTED + SUCCEEDED 各 N 条（N = transfer 数）
 --      INTERNAL_TRANSFER_INTERNAL_FUNDS_PENDING_TO_SUCCESS 0 新增
 --      INTERNAL_TX_CREATED 0 新增
 
 -- ③ metadata.from 保留状态机字面
 SELECT json_extract(metadata, '$.from') AS from_state, action, COUNT(*) n
 FROM audit_log_events
-WHERE entityType='INTERNAL_FUND' AND action IN ('confirming','confirmed','failed')
+WHERE entityType='INTERNAL_FUND' AND action IN ('CONFIRMING','CONFIRMED','FAILED')
   AND occurredAt > datetime('now','-30 minutes')
 GROUP BY from_state, action;
--- 期望：confirming 行 from_state ∈ {CREATED, BROADCASTED}
---      confirmed 行 from_state='CONFIRMING'
---      failed 行 from_state ∈ {SIGNING, BROADCASTED, CONFIRMING}
+-- 期望：CONFIRMING 行 from_state ∈ {CREATED, BROADCASTED}
+--      CONFIRMED 行 from_state='CONFIRMING'
+--      FAILED 行 from_state ∈ {SIGNING, BROADCASTED, CONFIRMING}
 ```
 
 ---

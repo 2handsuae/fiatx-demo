@@ -60,34 +60,34 @@ import {
 
 describe('INTERNAL_FUND short-name actions', () => {
   it('exposes new short-name constants', () => {
-    expect(AuditActions.SIGNING).toBe('signing');
-    expect(AuditActions.BROADCASTED).toBe('broadcasted');
-    expect(AuditActions.CONFIRMING).toBe('confirming');
-    expect(AuditActions.CONFIRMED).toBe('confirmed');
-    expect(AuditActions.CLEARED).toBe('cleared');
-    expect(AuditActions.TIMED_OUT).toBe('timed_out');
-    expect(AuditActions.REQUESTED).toBe('requested');
-    expect(AuditActions.SUCCEEDED).toBe('succeeded');
+    expect(AuditActions.SIGNING).toBe('SIGNING');
+    expect(AuditActions.BROADCASTED).toBe('BROADCASTED');
+    expect(AuditActions.CONFIRMING).toBe('CONFIRMING');
+    expect(AuditActions.CONFIRMED).toBe('CONFIRMED');
+    expect(AuditActions.CLEARED).toBe('CLEARED');
+    expect(AuditActions.TIMED_OUT).toBe('TIMED_OUT');
+    expect(AuditActions.REQUESTED).toBe('REQUESTED');
+    expect(AuditActions.SUCCEEDED).toBe('SUCCEEDED');
     // Reused from OUTSTANDING/FEE_ACCRUAL (Spec #3):
-    expect(AuditActions.CREATED).toBe('created');
-    expect(AuditActions.FAILED).toBe('failed');
-    expect(AuditActions.CANCELLED).toBe('cancelled');
-    expect(AuditActions.REORGED).toBe('reorged');
+    expect(AuditActions.CREATED).toBe('CREATED');
+    expect(AuditActions.FAILED).toBe('FAILED');
+    expect(AuditActions.CANCELLED).toBe('CANCELLED');
+    expect(AuditActions.REORGED).toBe('REORGED');
   });
 });
 
 describe('buildInternalFundStateAction', () => {
   it.each([
-    ['CREATED', 'created'],
-    ['SIGNING', 'signing'],
-    ['BROADCASTED', 'broadcasted'],
-    ['CONFIRMING', 'confirming'],
-    ['CONFIRMED', 'confirmed'],
-    ['CLEAR', 'cleared'],
-    ['FAILED', 'failed'],
-    ['TIMEOUT', 'timed_out'],
-    ['CANCELLED', 'cancelled'],
-    ['RETURNED', 'reorged'],
+    ['CREATED', 'CREATED'],
+    ['SIGNING', 'SIGNING'],
+    ['BROADCASTED', 'BROADCASTED'],
+    ['CONFIRMING', 'CONFIRMING'],
+    ['CONFIRMED', 'CONFIRMED'],
+    ['CLEAR', 'CLEARED'],
+    ['FAILED', 'FAILED'],
+    ['TIMEOUT', 'TIMED_OUT'],
+    ['CANCELLED', 'CANCELLED'],
+    ['RETURNED', 'REORGED'],
   ])('maps %s → %s', (status, expected) => {
     expect(buildInternalFundStateAction(status)).toBe(expected);
   });
@@ -108,14 +108,14 @@ Expected: FAIL — `AuditActions.SIGNING` undefined（或 `buildInternalFundStat
 
 ```ts
   // ───── Spec #4: INTERNAL_FUND/INTERNAL_TRANSFER 短名（CREATED/FAILED/CANCELLED/REORGED 已存于 OUTSTANDING/FEE_ACCRUAL）
-  SIGNING: 'signing',
-  BROADCASTED: 'broadcasted',
-  CONFIRMING: 'confirming',
-  CONFIRMED: 'confirmed',
-  CLEARED: 'cleared',
-  TIMED_OUT: 'timed_out',
-  REQUESTED: 'requested',
-  SUCCEEDED: 'succeeded',
+  SIGNING: 'SIGNING',
+  BROADCASTED: 'BROADCASTED',
+  CONFIRMING: 'CONFIRMING',
+  CONFIRMED: 'CONFIRMED',
+  CLEARED: 'CLEARED',
+  TIMED_OUT: 'TIMED_OUT',
+  REQUESTED: 'REQUESTED',
+  SUCCEEDED: 'SUCCEEDED',
 ```
 
 > 注：CREATED / FAILED / CANCELLED / REORGED 已经在 Spec #3 (Outstanding/FeeAccrual) 引入，复用即可，不要再加。先 grep 验证：
@@ -127,16 +127,16 @@ Expected: FAIL — `AuditActions.SIGNING` undefined（或 `buildInternalFundStat
 ```ts
 // ───── Spec #4: INTERNAL_FUND 状态→短名映射
 const INTERNAL_FUND_STATE_TO_ACTION: Record<string, string> = {
-  CREATED: 'created',
-  SIGNING: 'signing',
-  BROADCASTED: 'broadcasted',
-  CONFIRMING: 'confirming',
-  CONFIRMED: 'confirmed',
-  CLEAR: 'cleared',
-  FAILED: 'failed',
-  TIMEOUT: 'timed_out',
-  CANCELLED: 'cancelled',
-  RETURNED: 'reorged',
+  CREATED: 'CREATED',
+  SIGNING: 'SIGNING',
+  BROADCASTED: 'BROADCASTED',
+  CONFIRMING: 'CONFIRMING',
+  CONFIRMED: 'CONFIRMED',
+  CLEAR: 'CLEARED',
+  FAILED: 'FAILED',
+  TIMEOUT: 'TIMED_OUT',
+  CANCELLED: 'CANCELLED',
+  RETURNED: 'REORGED',
 };
 
 /**
@@ -205,20 +205,20 @@ git commit -m "feat(spec#4): add INTERNAL_FUND short-name constants + buildInter
 describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
   it('emits CREATED short name when fund leg is created', async () => {
     // 借用既有"creates fund leg"测试场景的 setup（reuse pattern from existing tests in this file）。
-    // The key assertion: recordByActor should be called with action: 'created'.
+    // The key assertion: recordByActor should be called with action: 'CREATED'.
     // ... (use existing test scaffolding; only assertion changes)
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'created' }),
+      expect.objectContaining({ action: 'CREATED' }),
       expect.anything(),
       expect.anything(),
     );
   });
 
-  it('emits cleared short name + metadata.from=CONFIRMED on auto-clear', async () => {
+  it('emits CLEARED short name + metadata.from=CONFIRMED on auto-clear', async () => {
     // 借用既有 auto-clear 测试场景。
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'cleared',
+        action: 'CLEARED',
         metadata: expect.stringContaining('"from":"CONFIRMED"'),
       }),
       expect.anything(),
@@ -230,7 +230,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
     // 借用既有"transitions"测试场景，触发 CONFIRMING → CONFIRMED。
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'confirmed',
+        action: 'CONFIRMED',
         metadata: expect.stringContaining('"from":"CONFIRMING"'),
       }),
       expect.anything(),
@@ -246,7 +246,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
 
 Run: `npx jest src/modules/funds-layer/domain/funds-flow.service.spec.ts -t "Spec #4" --no-coverage`
 
-Expected: FAIL（断言 `action: 'created'` 但实际仍是 `'INTERNAL_FUND_CREATED'`，等等）
+Expected: FAIL（断言 `action: 'CREATED'` 但实际仍是 `'INTERNAL_FUND_CREATED'`，等等）
 
 - [ ] **Step 3: Update funds-flow.service.ts line 383**
 
@@ -375,16 +375,16 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
   it('emits CREATED short name on createFund', async () => {
     // reuse existing "creates fund" test pattern
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'created' }),
+      expect.objectContaining({ action: 'CREATED' }),
       expect.anything(),
       expect.anything(),
     );
   });
 
-  it('emits cleared + metadata.from=CONFIRMED on auto-clear', async () => {
+  it('emits CLEARED + metadata.from=CONFIRMED on auto-clear', async () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'cleared',
+        action: 'CLEARED',
         metadata: expect.stringContaining('"from":"CONFIRMED"'),
       }),
       expect.anything(),
@@ -395,7 +395,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
   it('emits short name + metadata.from for state transitions', async () => {
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: expect.stringMatching(/^(signing|broadcasted|confirming|confirmed|cleared|failed|timed_out|cancelled|reorged)$/),
+        action: expect.stringMatching(/^(SIGNING|BROADCASTED|CONFIRMING|CONFIRMED|CLEARED|FAILED|TIMED_OUT|CANCELLED|REORGED)$/),
         metadata: expect.stringContaining('"from":'),
       }),
       expect.anything(),
@@ -513,7 +513,7 @@ describe('Spec #4: INTERNAL_TRANSFER short-name audit actions', () => {
   it('emits REQUESTED short name on requestTransfer', async () => {
     // reuse existing "requestTransfer" test scaffold
     expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'requested' }),
+      expect.objectContaining({ action: 'REQUESTED' }),
       expect.anything(),
       expect.anything(),
     );
@@ -522,14 +522,14 @@ describe('Spec #4: INTERNAL_TRANSFER short-name audit actions', () => {
   it('emits SUCCEEDED short name on funds-flow CLEAR event', async () => {
     // reuse existing "FUNDSFLOW_STATUS_CHANGED CLEAR" test scaffold
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'succeeded' }),
+      expect.objectContaining({ action: 'SUCCEEDED' }),
     );
   });
 
   it('emits FAILED short name on funds-flow FAILED/TIMEOUT event', async () => {
     // reuse existing "FUNDSFLOW_STATUS_CHANGED FAILED" test scaffold
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'failed' }),
+      expect.objectContaining({ action: 'FAILED' }),
     );
   });
 });
@@ -828,7 +828,7 @@ GROUP BY action ORDER BY n DESC;
 ```
 
 Expected:
-- 只见 `created` / `signing` / `broadcasted` / `confirming` / `confirmed` / `cleared` / `failed` / `timed_out` / `cancelled` / `reorged` 等短名
+- 只见 `CREATED` / `SIGNING` / `BROADCASTED` / `CONFIRMING` / `CONFIRMED` / `CLEARED` / `FAILED` / `TIMED_OUT` / `CANCELLED` / `REORGED` 等短名
 - **不见** `INTERNAL_FUND_*_TO_*` 或 `INTERNAL_FUND_CREATED` 长名（如果见到则 T2/T3 漏改）
 
 - [ ] **Step 5: SQL 验证 ② —— INTERNAL_TRANSFER 单写**
@@ -843,7 +843,7 @@ GROUP BY action ORDER BY n DESC;
 ```
 
 Expected:
-- 只见 `requested` / `succeeded` / `failed` / `cancelled` / `TRANSFER_WHITELIST_REJECTED`（保留的）
+- 只见 `REQUESTED` / `SUCCEEDED` / `FAILED` / `CANCELLED` / `TRANSFER_WHITELIST_REJECTED`（保留的）
 - **不见** `INTERNAL_TRANSFER_INTERNAL_FUNDS_PENDING_TO_*`（双写已删）
 - **不见** `INTERNAL_TX_CREATED` 在 INTERNAL_TRANSACTION entityType 下
 
@@ -864,17 +864,17 @@ Run:
 sqlite3 -header $DB "
 SELECT json_extract(metadata, '\$.from') AS from_state, action, COUNT(*) n
 FROM audit_log_events
-WHERE entityType='INTERNAL_FUND' AND action IN ('confirming','confirmed','cleared','failed')
+WHERE entityType='INTERNAL_FUND' AND action IN ('CONFIRMING','CONFIRMED','CLEARED','FAILED')
   AND occurredAt > datetime('now','-30 minutes')
 GROUP BY from_state, action ORDER BY action, n DESC;
 "
 ```
 
 Expected:
-- `confirming` 行 `from_state ∈ {CREATED, BROADCASTED}`
-- `confirmed` 行 `from_state='CONFIRMING'`
-- `cleared` 行 `from_state='CONFIRMED'`
-- `failed` 行 `from_state ∈ {SIGNING, BROADCASTED, CONFIRMING}`
+- `CONFIRMING` 行 `from_state ∈ {CREATED, BROADCASTED}`
+- `CONFIRMED` 行 `from_state='CONFIRMING'`
+- `CLEARED` 行 `from_state='CONFIRMED'`
+- `FAILED` 行 `from_state ∈ {SIGNING, BROADCASTED, CONFIRMING}`
 - 不见 `from_state IS NULL` 的行（如果见到则某些路径漏加 metadata）
 
 - [ ] **Step 7: 全栈 jest + build + admin tsc 最终绿灯**
@@ -920,7 +920,7 @@ Expected: 所有命令 0 failed / 0 errors。
 
 - `buildInternalFundStateAction(nextStatus: string): string` —— 统一签名
 - `metadata: JSON.stringify({ from: <currentStatus> })` —— 字符串类型，与 audit-logs.service 的 metadata 字段一致
-- 短名常量值统一小写下划线（`'timed_out'` 等），与 OUTSTANDING/FEE_ACCRUAL 风格对齐
+- 短名常量值统一大写下划线（`'TIMED_OUT'` 等），与 OUTSTANDING/FEE_ACCRUAL 风格对齐
 
 ### Scope check
 
