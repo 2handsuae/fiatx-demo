@@ -215,7 +215,7 @@ export class OutstandingsService {
         reason: `Outstanding ${row.direction} ${row.assetCurrency} ${row.amount} created from ${swap.swapNo}`,
         sourcePlatform: 'SYSTEM',
         traceId: swap.traceId ?? undefined,
-      });
+      }, tx as any);
     }
 
     return (tx as any).outstanding.findMany({
