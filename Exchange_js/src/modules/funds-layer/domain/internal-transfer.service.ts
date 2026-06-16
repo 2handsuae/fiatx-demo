@@ -111,7 +111,20 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
     tx?: TxClient,
   ) {
     const execute = async (client: TxClient) => {
-      const traceId = randomUUID();
+      // ST-T5: when a settlementBatchId is provided, inherit the batch's
+      // traceId so internal_transactions.traceId == settlement_batches.traceId
+      // and the audit journey stays joined. Fall back to a fresh UUID for
+      // non-batch transfers (e.g. SWAP fee transfers) and for historical
+      // batches that pre-date the traceId column.
+      let traceId: string | null = null;
+      if (input.settlementBatchId) {
+        const batch = await (client as any).settlementBatch.findUnique({
+          where: { id: input.settlementBatchId },
+          select: { traceId: true },
+        });
+        traceId = batch?.traceId ?? null;
+      }
+      traceId = traceId ?? randomUUID();
       const status = InternalTransactionStatus.INTERNAL_FUNDS_PENDING;
       const approvalStatus = InternalTransactionApprovalStatus.APPROVED;
       const statusHistory = this.appendStatusHistory(

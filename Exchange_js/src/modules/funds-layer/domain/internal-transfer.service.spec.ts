@@ -23,6 +23,9 @@ describe('InternalTransferService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
+      settlementBatch: {
+        findUnique: jest.fn(),
+      },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
@@ -147,6 +150,108 @@ describe('InternalTransferService', () => {
     );
     expect(prisma.internalTransaction.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { internalTxNo: 'ITX-MISSING' } }),
+    );
+  });
+
+  it('createTransfer: when settlementBatchId given, inherits batch.traceId', async () => {
+    prisma.settlementBatch.findUnique = jest.fn().mockResolvedValue({
+      id: 'b1',
+      traceId: 'BATCH-TRACE-UUID',
+    });
+    const captured: any[] = [];
+    prisma.internalTransaction.create = jest.fn((args: any) => {
+      captured.push(args.data);
+      return Promise.resolve({ id: 't1', internalTxNo: 'ITX1', ...args.data });
+    });
+
+    await service.createTransfer({
+      path: TransferPath.CRYPTO_SETTLE_OUT,
+      accountingClass: AccountingClass.B,
+      medium: TransferMedium.CHAIN,
+      triggerSource: 'EOD',
+      sourceType: 'EOD_SETTLEMENT',
+      sourceId: 'src1',
+      ownerType: 'PLATFORM',
+      ownerId: 'PLATFORM',
+      assetId: 'asset1',
+      amount: new Prisma.Decimal(100),
+      feeAmount: new Prisma.Decimal(0),
+      netAmount: new Prisma.Decimal(100),
+      fromWalletId: 'w-from',
+      toWalletId: 'w-to',
+      settlementBatchId: 'b1',
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].traceId).toBe('BATCH-TRACE-UUID');
+    expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'b1' } }),
+    );
+  });
+
+  it('createTransfer: when no settlementBatchId, falls back to randomUUID (existing behavior)', async () => {
+    const captured: any[] = [];
+    prisma.internalTransaction.create = jest.fn((args: any) => {
+      captured.push(args.data);
+      return Promise.resolve({ id: 't2', internalTxNo: 'ITX2', ...args.data });
+    });
+
+    await service.createTransfer({
+      path: TransferPath.CRYPTO_HOTWALLET_FUND,
+      accountingClass: AccountingClass.A,
+      medium: TransferMedium.CHAIN,
+      triggerSource: 'WITHDRAW',
+      sourceType: 'WITHDRAW',
+      sourceId: 'src2',
+      ownerType: 'PLATFORM',
+      ownerId: 'PLATFORM',
+      assetId: 'asset1',
+      amount: new Prisma.Decimal(50),
+      feeAmount: new Prisma.Decimal(0),
+      netAmount: new Prisma.Decimal(50),
+      fromWalletId: 'w-from',
+      toWalletId: 'w-to',
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].traceId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(prisma.settlementBatch.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('createTransfer: when settlementBatchId given but batch has no traceId (historical), falls back to randomUUID', async () => {
+    prisma.settlementBatch.findUnique = jest.fn().mockResolvedValue({
+      id: 'b-old',
+      traceId: null,
+    });
+    const captured: any[] = [];
+    prisma.internalTransaction.create = jest.fn((args: any) => {
+      captured.push(args.data);
+      return Promise.resolve({ id: 't3', internalTxNo: 'ITX3', ...args.data });
+    });
+
+    await service.createTransfer({
+      path: TransferPath.CRYPTO_SETTLE_OUT,
+      accountingClass: AccountingClass.B,
+      medium: TransferMedium.CHAIN,
+      triggerSource: 'EOD',
+      sourceType: 'EOD_SETTLEMENT',
+      sourceId: 'src3',
+      ownerType: 'PLATFORM',
+      ownerId: 'PLATFORM',
+      assetId: 'asset1',
+      amount: new Prisma.Decimal(100),
+      feeAmount: new Prisma.Decimal(0),
+      netAmount: new Prisma.Decimal(100),
+      fromWalletId: 'w-from',
+      toWalletId: 'w-to',
+      settlementBatchId: 'b-old',
+    });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].traceId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
   });
 });
