@@ -30,45 +30,6 @@ describe('FiatFeeCollectionWorkflowService', () => {
     service = module.get(FiatFeeCollectionWorkflowService);
   });
 
-  describe('collectSwapFees', () => {
-    it('FIAT swap → accrueForSwap then settle ACCRUED rows as SWAP_FEE/FIAT_SWAP (immediate)', async () => {
-      prisma.swapTransaction.findUnique.mockResolvedValue({ toAsset: { type: 'FIAT' } });
-      const accruals = [
-        { id: 'fac-1', assetId: 'a-aed', amount: '0.10' },
-        { id: 'fac-2', assetId: 'a-aed', amount: '0.18' },
-      ];
-      prisma.feeAccrual.findMany.mockResolvedValue(accruals);
-
-      await service.collectSwapFees('swap-1');
-
-      expect(feeAccrual.accrueForSwap).toHaveBeenCalledWith('swap-1', prisma);
-      expect(prisma.feeAccrual.findMany).toHaveBeenCalledWith({
-        where: { sourceType: 'SWAP', sourceId: 'swap-1', status: 'ACCRUED' },
-      });
-      expect(feeAccrual.settle).toHaveBeenCalledWith(
-        accruals,
-        'SWAP_FEE',
-        'FIAT_SWAP',
-        prisma,
-      );
-    });
-
-    it('no-op when TO asset is not fiat (guard) — neither accrue nor settle', async () => {
-      prisma.swapTransaction.findUnique.mockResolvedValue({ toAsset: { type: 'CRYPTO' } });
-      await service.collectSwapFees('s2');
-      expect(feeAccrual.accrueForSwap).not.toHaveBeenCalled();
-      expect(feeAccrual.settle).not.toHaveBeenCalled();
-    });
-
-    it('no settle when there are no ACCRUED rows', async () => {
-      prisma.swapTransaction.findUnique.mockResolvedValue({ toAsset: { type: 'FIAT' } });
-      prisma.feeAccrual.findMany.mockResolvedValue([]);
-      await service.collectSwapFees('swap-3');
-      expect(feeAccrual.accrueForSwap).toHaveBeenCalledWith('swap-3', prisma);
-      expect(feeAccrual.settle).not.toHaveBeenCalled();
-    });
-  });
-
   describe('onFiatWithdrawalSucceeded', () => {
     it('FIAT withdraw → accrueForWithdraw then settle as WITHDRAW_FEE/FIAT_WITHDRAW (immediate)', async () => {
       prisma.withdrawTransaction.findUnique.mockResolvedValue({ asset: { type: 'FIAT' } });

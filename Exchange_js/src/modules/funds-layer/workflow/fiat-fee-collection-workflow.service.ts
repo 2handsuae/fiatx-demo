@@ -13,23 +13,6 @@ export class FiatFeeCollectionWorkflowService {
     private readonly feeAccrual: FeeAccrualService,
   ) {}
 
-  /** Collect a swap's fiat fees: accrue (SERVICE_FEE + SPREAD) then immediately settle. */
-  async collectSwapFees(swapId: string): Promise<void> {
-    const swap = await (this.prisma as any).swapTransaction.findUnique({
-      where: { id: swapId },
-      select: { toAsset: { select: { type: true } } },
-    });
-    if (!swap || swap.toAsset?.type !== 'FIAT') return;
-
-    await this.feeAccrual.accrueForSwap(swapId, this.prisma);
-    const accruals = await (this.prisma as any).feeAccrual.findMany({
-      where: { sourceType: 'SWAP', sourceId: swapId, status: 'ACCRUED' },
-    });
-    if (accruals.length) {
-      await this.feeAccrual.settle(accruals, 'SWAP_FEE', 'FIAT_SWAP', this.prisma);
-    }
-  }
-
   @OnEvent(WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT)
   async onFiatWithdrawalSucceeded(event: { withdrawId: string }): Promise<void> {
     try {
