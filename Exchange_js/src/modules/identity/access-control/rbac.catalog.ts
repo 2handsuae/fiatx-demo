@@ -470,6 +470,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Reconciliation
   route('GET', '/admin/reconciliation/outstandings', 'List outstandings', ['RECON_OUTSTANDING_READ']),
   route('GET', '/admin/reconciliation/outstandings/:id', 'Get outstanding detail', ['RECON_OUTSTANDING_READ']),
+  route('GET', '/admin/reconciliation/fee-accruals', 'List fee accruals', ['RECON_OUTSTANDING_READ']),
+  route('GET', '/admin/reconciliation/fee-accruals/:id', 'Get fee accrual detail with siblings', ['RECON_OUTSTANDING_READ']),
   route(
     'GET',
     '/admin/reconciliation/safeguarding-breaks',
