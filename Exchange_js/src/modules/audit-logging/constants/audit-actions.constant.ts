@@ -411,6 +411,18 @@ export const AuditActions = {
   CREATED: 'CREATED',
   LOCKED: 'LOCKED',
   SETTLED: 'SETTLED',
+  // ───── Spec #4: INTERNAL_FUND/INTERNAL_TRANSFER short-name actions (CREATED reused from Spec #3)
+  SIGNING: 'SIGNING',
+  BROADCASTED: 'BROADCASTED',
+  CONFIRMING: 'CONFIRMING',
+  CONFIRMED: 'CONFIRMED',
+  CLEARED: 'CLEARED',
+  FAILED: 'FAILED',
+  TIMED_OUT: 'TIMED_OUT',
+  CANCELLED: 'CANCELLED',
+  REORGED: 'REORGED',
+  REQUESTED: 'REQUESTED',
+  SUCCEEDED: 'SUCCEEDED',
 } as const;
 
 export const AuditGovernanceActions = {
@@ -671,4 +683,28 @@ export function mapRawAuditActionToUserAction(
   return AuditRawActionToUserActionMap[
     action as keyof typeof AuditRawActionToUserActionMap
   ];
+}
+
+// ───── Spec #4: INTERNAL_FUND state → short-name action mapping
+const INTERNAL_FUND_STATE_TO_ACTION: Record<string, string> = {
+  CREATED: 'CREATED',
+  SIGNING: 'SIGNING',
+  BROADCASTED: 'BROADCASTED',
+  CONFIRMING: 'CONFIRMING',
+  CONFIRMED: 'CONFIRMED',
+  CLEAR: 'CLEARED',
+  FAILED: 'FAILED',
+  TIMEOUT: 'TIMED_OUT',
+  CANCELLED: 'CANCELLED',
+  RETURNED: 'REORGED',
+};
+
+/**
+ * Map INTERNAL_FUND state-machine target status to a short verb-past audit action.
+ * Falls back to UPPERCASE status string for any unmapped value (forward-compat).
+ */
+export function buildInternalFundStateAction(nextStatus: string): string {
+  return (
+    INTERNAL_FUND_STATE_TO_ACTION[nextStatus] ?? nextStatus.toUpperCase()
+  );
 }
