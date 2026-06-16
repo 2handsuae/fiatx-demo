@@ -1,24 +1,34 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OutstandingConsumerService } from './outstanding-consumer.service';
 
 describe('OutstandingConsumerService', () => {
   let service: OutstandingConsumerService;
   let prisma: any;
+  let auditLogsService: any;
 
   beforeEach(async () => {
     prisma = {
       outstanding: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn((args: any) => ({ count: 1 })),
       },
+      settlementBatch: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn((cb: any) => cb(prisma)),
+    };
+    auditLogsService = {
+      recordSystem: jest.fn().mockResolvedValue(undefined),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         OutstandingConsumerService,
         { provide: PrismaService, useValue: prisma },
+        { provide: AuditLogsService, useValue: auditLogsService },
       ],
     }).compile();
 
@@ -128,7 +138,8 @@ describe('OutstandingConsumerService', () => {
     it('returns OPEN, FIAT, unbatched outstandings for a swap', async () => {
       const rows = [{ id: 'o1', direction: 'IN', amount: '5', assetId: 'a-aed', ownerId: 'c1' }];
       const prisma = { outstanding: { findMany: jest.fn().mockResolvedValue(rows) } };
-      const svc = new OutstandingConsumerService(prisma as any);
+      const audit = { recordSystem: jest.fn() };
+      const svc = new OutstandingConsumerService(prisma as any, audit as any);
 
       const result = await svc.findOpenFiatBySwap('swap-1');
 
@@ -142,6 +153,115 @@ describe('OutstandingConsumerService', () => {
         select: expect.any(Object),
       });
       expect(result).toBe(rows);
+    });
+  });
+
+  describe('OutstandingConsumerService audit (DT-T4)', () => {
+    it('lockToTransfer: emits OUTSTANDING.LOCKED for each outstanding, traceId=batch.traceId + metadata.originTraceId', async () => {
+      const mockPrisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 'o1', outstandingNo: 'OTS1', originTraceId: 'SWAP-T1' },
+            { id: 'o2', outstandingNo: 'OTS2', originTraceId: 'SWAP-T2' },
+          ]),
+          updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+        },
+        settlementBatch: {
+          findUnique: jest.fn().mockResolvedValue({ id: 'b1', traceId: 'BATCH-T1' }),
+        },
+      };
+      const auditCalls: any[] = [];
+      const mockAudit: any = {
+        recordSystem: jest.fn((args: any) => {
+          auditCalls.push(args);
+          return Promise.resolve();
+        }),
+      };
+      const svc = new OutstandingConsumerService(mockPrisma, mockAudit);
+
+      await svc.lockToTransfer(['o1', 'o2'], 'b1', 't1', mockPrisma);
+
+      expect(auditCalls).toHaveLength(2);
+      auditCalls.forEach((a: any) => {
+        expect(a.action).toBe('LOCKED');
+        expect(a.entityType).toBe('OUTSTANDING');
+        expect(a.traceId).toBe('BATCH-T1');
+        expect(a.workflowType).toBe('SETTLEMENT');
+      });
+      expect(JSON.parse(auditCalls[0].metadata).originTraceId).toBe('SWAP-T1');
+      expect(JSON.parse(auditCalls[1].metadata).originTraceId).toBe('SWAP-T2');
+    });
+
+    it('settle: emits OUTSTANDING.SETTLED for each, traceId=batch.traceId + metadata.originTraceId', async () => {
+      const mockPrisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue([
+            {
+              id: 'o1',
+              outstandingNo: 'OTS1',
+              originTraceId: 'SWAP-T1',
+              settlementBatchId: 'b1',
+            },
+          ]),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        settlementBatch: {
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ id: 'b1', traceId: 'BATCH-T1' }]),
+          findUnique: jest.fn().mockResolvedValue({ id: 'b1', traceId: 'BATCH-T1' }),
+        },
+      };
+      const auditCalls: any[] = [];
+      const mockAudit: any = {
+        recordSystem: jest.fn((args: any) => {
+          auditCalls.push(args);
+          return Promise.resolve();
+        }),
+      };
+      const svc = new OutstandingConsumerService(mockPrisma, mockAudit);
+
+      await svc.settle('t1', 'fund1', mockPrisma);
+
+      expect(auditCalls).toHaveLength(1);
+      expect(auditCalls[0].action).toBe('SETTLED');
+      expect(auditCalls[0].entityType).toBe('OUTSTANDING');
+      expect(auditCalls[0].workflowType).toBe('SETTLEMENT');
+      expect(auditCalls[0].traceId).toBe('BATCH-T1');
+      expect(JSON.parse(auditCalls[0].metadata).originTraceId).toBe('SWAP-T1');
+    });
+
+    it('markSettledNettedZero: emits SETTLED audit for netted-zero outstandings', async () => {
+      const mockPrisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 'o-nz', outstandingNo: 'OTS-NZ', originTraceId: 'SWAP-T9' },
+          ]),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        settlementBatch: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ id: 'b-nz', traceId: 'BATCH-T9' }),
+        },
+      };
+      const auditCalls: any[] = [];
+      const mockAudit: any = {
+        recordSystem: jest.fn((args: any) => {
+          auditCalls.push(args);
+          return Promise.resolve();
+        }),
+      };
+      const svc = new OutstandingConsumerService(mockPrisma, mockAudit);
+
+      await svc.markSettledNettedZero('b-nz', 'asset1', mockPrisma);
+
+      expect(auditCalls).toHaveLength(1);
+      expect(auditCalls[0].action).toBe('SETTLED');
+      expect(auditCalls[0].entityType).toBe('OUTSTANDING');
+      expect(auditCalls[0].workflowType).toBe('SETTLEMENT');
+      expect(auditCalls[0].traceId).toBe('BATCH-T9');
+      expect(JSON.parse(auditCalls[0].metadata).originTraceId).toBe('SWAP-T9');
     });
   });
 });

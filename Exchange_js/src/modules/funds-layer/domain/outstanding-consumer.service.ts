@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -21,7 +26,10 @@ export interface CryptoOutstandingGroup {
  */
 @Injectable()
 export class OutstandingConsumerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   /**
    * All OPEN crypto outstandings not yet attached to a batch, grouped by asset.
@@ -84,7 +92,15 @@ export class OutstandingConsumerService {
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
-    return client.outstanding.updateMany({
+
+    // Capture rows that WILL be locked (status='OPEN' before update) so we can
+    // audit one event per affected outstanding with its originTraceId.
+    const rows = await client.outstanding.findMany({
+      where: { id: { in: outstandingIds }, status: 'OPEN' },
+      select: { id: true, outstandingNo: true, originTraceId: true },
+    });
+
+    const result = await client.outstanding.updateMany({
       where: { id: { in: outstandingIds }, status: 'OPEN' },
       data: {
         status: 'LOCKED',
@@ -93,6 +109,30 @@ export class OutstandingConsumerService {
         lockedAt: new Date(),
       },
     });
+
+    if (rows.length > 0) {
+      const batch = await client.settlementBatch.findUnique({
+        where: { id: settlementBatchId },
+        select: { traceId: true },
+      });
+      for (const row of rows) {
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.LOCKED,
+          entityType: AuditEntityTypes.OUTSTANDING,
+          entityId: row.id,
+          entityNo: row.outstandingNo,
+          workflowType: 'SETTLEMENT',
+          reason: `Locked to transfer ${settledByTransferId}`,
+          sourcePlatform: 'SYSTEM',
+          traceId: batch?.traceId ?? undefined,
+          metadata: JSON.stringify({
+            originTraceId: row.originTraceId ?? null,
+          }) as any,
+        });
+      }
+    }
+
+    return result;
   }
 
   async lockToBatch(
@@ -113,7 +153,19 @@ export class OutstandingConsumerService {
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
-    return client.outstanding.updateMany({
+
+    // Capture rows that WILL be settled (currently LOCKED) for per-row audit.
+    const rows = await client.outstanding.findMany({
+      where: { settledByTransferId, status: 'LOCKED' },
+      select: {
+        id: true,
+        outstandingNo: true,
+        originTraceId: true,
+        settlementBatchId: true,
+      },
+    });
+
+    const result = await client.outstanding.updateMany({
       where: { settledByTransferId, status: 'LOCKED' },
       data: {
         status: 'SETTLED',
@@ -121,6 +173,46 @@ export class OutstandingConsumerService {
         closedAt: new Date(),
       },
     });
+
+    if (rows.length > 0) {
+      const batchIds = Array.from(
+        new Set(
+          rows
+            .map((r: any) => r.settlementBatchId)
+            .filter((id: string | null): id is string => Boolean(id)),
+        ),
+      );
+      const batches = batchIds.length
+        ? await client.settlementBatch.findMany({
+            where: { id: { in: batchIds } },
+            select: { id: true, traceId: true },
+          })
+        : [];
+      const batchMap = new Map<string, string | null>(
+        batches.map((b: any) => [b.id, b.traceId]),
+      );
+
+      for (const row of rows) {
+        const batchTraceId = row.settlementBatchId
+          ? batchMap.get(row.settlementBatchId)
+          : null;
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.SETTLED,
+          entityType: AuditEntityTypes.OUTSTANDING,
+          entityId: row.id,
+          entityNo: row.outstandingNo,
+          workflowType: 'SETTLEMENT',
+          reason: `Settled by transfer ${settledByTransferId} / fund ${internalFundId}`,
+          sourcePlatform: 'SYSTEM',
+          traceId: batchTraceId ?? undefined,
+          metadata: JSON.stringify({
+            originTraceId: row.originTraceId ?? null,
+          }) as any,
+        });
+      }
+    }
+
+    return result;
   }
 
   async markSettledNettedZero(
@@ -129,7 +221,19 @@ export class OutstandingConsumerService {
     tx?: TxClient,
   ): Promise<{ count: number }> {
     const client = (tx ?? this.prisma) as any;
-    return client.outstanding.updateMany({
+
+    // Capture rows that WILL be settled (LOCKED, no transfer — netted zero) for per-row audit.
+    const rows = await client.outstanding.findMany({
+      where: {
+        settlementBatchId,
+        assetId,
+        settledByTransferId: null,
+        status: 'LOCKED',
+      },
+      select: { id: true, outstandingNo: true, originTraceId: true },
+    });
+
+    const result = await client.outstanding.updateMany({
       where: {
         settlementBatchId,
         assetId,
@@ -138,6 +242,30 @@ export class OutstandingConsumerService {
       },
       data: { status: 'SETTLED', closedAt: new Date() },
     });
+
+    if (rows.length > 0) {
+      const batch = await client.settlementBatch.findUnique({
+        where: { id: settlementBatchId },
+        select: { traceId: true },
+      });
+      for (const row of rows) {
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.SETTLED,
+          entityType: AuditEntityTypes.OUTSTANDING,
+          entityId: row.id,
+          entityNo: row.outstandingNo,
+          workflowType: 'SETTLEMENT',
+          reason: `Settled (netted-zero) in batch ${settlementBatchId} asset ${assetId}`,
+          sourcePlatform: 'SYSTEM',
+          traceId: batch?.traceId ?? undefined,
+          metadata: JSON.stringify({
+            originTraceId: row.originTraceId ?? null,
+          }) as any,
+        });
+      }
+    }
+
+    return result;
   }
 
   /** OPEN, FIAT, not-yet-batched outstandings produced by a single swap. */
