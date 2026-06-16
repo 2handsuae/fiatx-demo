@@ -1767,6 +1767,7 @@ model SettlementBatch {
   category                 String                @default("PRINCIPAL")
   totalFeeAccrualCount     Int                   @default(0)
   settledFeeAccrualCount   Int                   @default(0)
+  traceId                  String?
   transfers                InternalTransaction[]        @relation("SettlementBatchTransfers")
   outstandings             Outstanding[]
   feeAccruals              FeeAccrual[]
