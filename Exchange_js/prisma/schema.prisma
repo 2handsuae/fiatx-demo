@@ -1729,6 +1729,7 @@ model Outstanding {
   lockedAt                      DateTime?
   closedAt                      DateTime?
   closedByInternalFundId        String?
+  originTraceId                 String?
   createdAt                     DateTime                   @default(now())
   updatedAt                     DateTime                   @updatedAt
   asset                         Asset                      @relation(fields: [assetId], references: [id])
@@ -1797,6 +1798,7 @@ model FeeAccrual {
   lockedAt               DateTime?
   closedAt               DateTime?
   closedByInternalFundId String?
+  originTraceId          String?
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   asset                  Asset                @relation(fields: [assetId], references: [id])
