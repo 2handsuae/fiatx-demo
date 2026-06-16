@@ -16,6 +16,8 @@ const SwapQuoteList = lazy(() => import('./pages/SwapQuoteList'));
 const SwapQuoteDetail = lazy(() => import('./pages/SwapQuoteDetail'));
 const SwapOutstandingList = lazy(() => import('./pages/SwapOutstandingList'));
 const SwapOutstandingDetail = lazy(() => import('./pages/SwapOutstandingDetail'));
+const FeeAccrualList = lazy(() => import('./pages/FeeAccrualList'));
+const FeeAccrualDetail = lazy(() => import('./pages/FeeAccrualDetail'));
 const SafeguardingBreakList = lazy(() => import('./pages/SafeguardingBreakList'));
 const SafeguardingBreakDetail = lazy(() => import('./pages/SafeguardingBreakDetail'));
 const OutstandingSettlementList = lazy(() => import('./pages/OutstandingSettlementList'));
@@ -382,6 +384,14 @@ function App() {
             <Route
               path="reconciliation/outstandings/:id"
               element={withPermission(<SwapOutstandingDetail />, [PERMISSIONS.OUTSTANDING_DETAIL_READ])}
+            />
+            <Route
+              path="reconciliation/fee-accruals"
+              element={withPermission(<FeeAccrualList />, [PERMISSIONS.FEE_ACCRUALS_READ])}
+            />
+            <Route
+              path="reconciliation/fee-accruals/:id"
+              element={withPermission(<FeeAccrualDetail />, [PERMISSIONS.FEE_ACCRUAL_DETAIL_READ])}
             />
             <Route
               path="compliance/sumsub-events"

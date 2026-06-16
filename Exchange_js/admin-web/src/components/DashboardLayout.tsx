@@ -402,6 +402,12 @@ const DashboardLayout = () => {
           icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
         },
+        {
+          path: '/dashboard/reconciliation/fee-accruals',
+          label: 'Fee Accruals',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.FEE_ACCRUALS_READ],
+        },
       ],
     },
     // ─── Governance Registries ────────────────────────────────────
