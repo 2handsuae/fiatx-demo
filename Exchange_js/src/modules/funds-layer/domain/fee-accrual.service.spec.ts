@@ -236,16 +236,49 @@ describe('FeeAccrualService.settle', () => {
     expect(t.fromWalletId).toBe('viban-c1');
     expect(t.toWalletId).toBe('ffee');
   });
+
+  it('settle: emits FEE_ACCRUAL.LOCKED for each accrual, traceId=batch.traceId + metadata.originTraceId', async () => {
+    const accruals = [
+      { id: 'fa1', feeAccrualNo: 'FAC1', originTraceId: 'SWAP-T1', assetId: 'usdt', category: 'SWAP_FEE', amount: '3', ownerType: 'PLATFORM', ownerId: 'P', ownerNo: null },
+      { id: 'fa2', feeAccrualNo: 'FAC2', originTraceId: 'SWAP-T2', assetId: 'usdt', category: 'SWAP_FEE', amount: '1', ownerType: 'PLATFORM', ownerId: 'P', ownerNo: null },
+    ];
+    const updateMany = jest.fn().mockResolvedValue({ count: 2 });
+    const prisma: any = {
+      asset: { findUnique: jest.fn().mockResolvedValue({ type: 'CRYPTO' }) },
+      feeAccrual: { updateMany },
+      settlementBatch: { findUnique: jest.fn().mockResolvedValue({ id: 'b1', traceId: 'BATCH-T1' }) },
+    };
+    const batchService: any = { createBatch: jest.fn().mockResolvedValue({ id: 'b1', batchNo: 'OSB1', traceId: 'BATCH-T1' }) };
+    const transfers: any = { createTransfer: jest.fn().mockResolvedValue({ id: 't1', internalTxNo: 'ITX1' }) };
+    const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({ id: 'leg1' }) };
+    const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'w' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'wv' }) };
+    const auditCalls: any[] = [];
+    const mockAudit: any = { recordSystem: jest.fn((args: any) => { auditCalls.push(args); return Promise.resolve(); }) };
+    const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, mockAudit);
+
+    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
+
+    const lockedCalls = auditCalls.filter((a: any) => a.action === 'LOCKED' && a.entityType === 'FEE_ACCRUAL');
+    expect(lockedCalls).toHaveLength(2);
+    lockedCalls.forEach((a: any) => {
+      expect(a.traceId).toBe('BATCH-T1');
+      expect(a.workflowType).toBe('SETTLEMENT');
+    });
+    expect(JSON.parse(lockedCalls[0].metadata).originTraceId).toBe('SWAP-T1');
+    expect(JSON.parse(lockedCalls[1].metadata).originTraceId).toBe('SWAP-T2');
+  });
 });
 
 describe('FeeAccrualService.settleByTransfer', () => {
   it('settleByTransfer: flips LOCKED→SETTLED for a transfer', async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 2 });
-    // Defensive default: settleByTransfer now also reads the transfer's batch id;
-    // existing test gets a null findUnique so it stays a pure flip-status assertion.
+    // Defensive default: settleByTransfer now also reads the transfer's batch id
+    // + queries pre-flip LOCKED rows for audit; existing test gets a null findUnique
+    // and an empty findMany so it stays a pure flip-status assertion.
     const findUnique = jest.fn().mockResolvedValue(null);
+    const findMany = jest.fn().mockResolvedValue([]);
     const prisma: any = {
-      feeAccrual: { updateMany },
+      feeAccrual: { updateMany, findMany },
       internalTransaction: { findUnique },
     };
     const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, {} as any, { recordSystem: jest.fn() } as any);
@@ -259,9 +292,10 @@ describe('FeeAccrualService.settleByTransfer', () => {
   it('settleByTransfer: when transfer has settlementBatchId, triggers recomputeBatch with that id + same tx', async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 2 });
     const findUnique = jest.fn().mockResolvedValue({ settlementBatchId: 'b1' });
+    const findMany = jest.fn().mockResolvedValue([]);
     const recomputeBatch = jest.fn().mockResolvedValue({} as any);
     const prisma: any = {
-      feeAccrual: { updateMany },
+      feeAccrual: { updateMany, findMany },
       internalTransaction: { findUnique },
     };
     const batchService: any = { recomputeBatch };
@@ -279,9 +313,10 @@ describe('FeeAccrualService.settleByTransfer', () => {
   it('settleByTransfer: when transfer has no settlementBatchId, does NOT call recomputeBatch', async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
     const findUnique = jest.fn().mockResolvedValue({ settlementBatchId: null });
+    const findMany = jest.fn().mockResolvedValue([]);
     const recomputeBatch = jest.fn().mockResolvedValue({} as any);
     const prisma: any = {
-      feeAccrual: { updateMany },
+      feeAccrual: { updateMany, findMany },
       internalTransaction: { findUnique },
     };
     const batchService: any = { recomputeBatch };
@@ -290,6 +325,34 @@ describe('FeeAccrualService.settleByTransfer', () => {
     await svc.settleByTransfer('t2', 'fund1', prisma);
 
     expect(recomputeBatch).not.toHaveBeenCalled();
+  });
+
+  it('settleByTransfer: emits FEE_ACCRUAL.SETTLED for each, traceId=batch.traceId + metadata.originTraceId', async () => {
+    const prisma: any = {
+      feeAccrual: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'fa1', feeAccrualNo: 'FAC1', originTraceId: 'SWAP-T1', settlementBatchId: 'b1' },
+        ]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      internalTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ settlementBatchId: 'b1' }),
+      },
+      settlementBatch: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'b1', traceId: 'BATCH-T1' }]),
+      },
+    };
+    const batchService: any = { recomputeBatch: jest.fn().mockResolvedValue({} as any) };
+    const auditCalls: any[] = [];
+    const mockAudit: any = { recordSystem: jest.fn((args: any) => { auditCalls.push(args); return Promise.resolve(); }) };
+    const svc = new FeeAccrualService(prisma, {} as any, {} as any, {} as any, batchService, mockAudit);
+
+    await svc.settleByTransfer('t1', 'fund1', prisma);
+
+    const settledCalls = auditCalls.filter((a: any) => a.action === 'SETTLED' && a.entityType === 'FEE_ACCRUAL');
+    expect(settledCalls).toHaveLength(1);
+    expect(settledCalls[0].traceId).toBe('BATCH-T1');
+    expect(JSON.parse(settledCalls[0].metadata).originTraceId).toBe('SWAP-T1');
   });
 });
 

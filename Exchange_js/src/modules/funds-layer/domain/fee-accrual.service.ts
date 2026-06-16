@@ -279,6 +279,23 @@ export class FeeAccrualService {
           lockedAt: new Date(),
         },
       });
+
+      // Emit FEE_ACCRUAL.LOCKED per accrual, traceId=batch.traceId (settlement
+      // root), metadata carries originTraceId so downstream recon can stitch
+      // back to the originating swap/withdraw chain.
+      for (const accrual of group) {
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.LOCKED,
+          entityType: AuditEntityTypes.FEE_ACCRUAL,
+          entityId: accrual.id,
+          entityNo: accrual.feeAccrualNo,
+          workflowType: 'SETTLEMENT',
+          reason: `Locked to transfer ${transfer.id} via batch ${batch.batchNo}`,
+          sourcePlatform: 'SYSTEM',
+          traceId: batch.traceId,
+          metadata: JSON.stringify({ originTraceId: accrual.originTraceId ?? null }) as any,
+        });
+      }
     }
   }
 
@@ -292,6 +309,14 @@ export class FeeAccrualService {
     internalFundId: string,
     tx: Tx,
   ): Promise<{ count: number }> {
+    // Capture LOCKED rows BEFORE flipping so per-row audit has originTraceId
+    // + settlementBatchId for traceId lookup. updateMany only returns a count,
+    // so we cannot rely on it for the audit payload.
+    const rows = await (tx as any).feeAccrual.findMany({
+      where: { settledByTransferId, status: 'LOCKED' },
+      select: { id: true, feeAccrualNo: true, originTraceId: true, settlementBatchId: true },
+    });
+
     const result = await (tx as any).feeAccrual.updateMany({
       where: { settledByTransferId, status: 'LOCKED' },
       data: {
@@ -312,6 +337,40 @@ export class FeeAccrualService {
     });
     if (transfer?.settlementBatchId) {
       await this.batchService.recomputeBatch(transfer.settlementBatchId, tx as any);
+    }
+
+    // Emit FEE_ACCRUAL.SETTLED per row, traceId=batch.traceId (settlement root),
+    // metadata carries originTraceId. Resolve batch traceIds in one findMany.
+    if (rows.length > 0) {
+      const batchIds = [
+        ...new Set(rows.map((r: any) => r.settlementBatchId).filter(Boolean)),
+      ] as string[];
+      const batches =
+        batchIds.length > 0
+          ? await (tx as any).settlementBatch.findMany({
+              where: { id: { in: batchIds } },
+              select: { id: true, traceId: true },
+            })
+          : [];
+      const batchMap = new Map<string, string>(
+        batches.map((b: any) => [b.id, b.traceId]),
+      );
+
+      for (const row of rows) {
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.SETTLED,
+          entityType: AuditEntityTypes.FEE_ACCRUAL,
+          entityId: row.id,
+          entityNo: row.feeAccrualNo,
+          workflowType: 'SETTLEMENT',
+          reason: `Settled by transfer ${settledByTransferId} / fund ${internalFundId}`,
+          sourcePlatform: 'SYSTEM',
+          traceId: row.settlementBatchId
+            ? batchMap.get(row.settlementBatchId)
+            : undefined,
+          metadata: JSON.stringify({ originTraceId: row.originTraceId ?? null }) as any,
+        });
+      }
     }
 
     return result;
