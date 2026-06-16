@@ -121,6 +121,13 @@ export class SettlementBatchService {
 
   async recomputeBatch(settlementBatchId: string, tx?: TxClient) {
     const execute = async (client: TxClient) => {
+      // Read prior status to dedup the BATCH_SUCCEEDED audit on re-runs.
+      const existing = await (client as any).settlementBatch.findUnique({
+        where: { id: settlementBatchId },
+        select: { status: true, traceId: true, batchNo: true },
+      });
+      const wasSuccess = existing?.status === 'SUCCESS';
+
       const transfers = await (client as any).internalTransaction.findMany({
         where: { settlementBatchId },
         select: { status: true, assetId: true },
@@ -169,7 +176,7 @@ export class SettlementBatchService {
         settledFeeAccrualCount === totalFeeAccrualCount;
       const status = allDone ? 'SUCCESS' : 'PROCESSING';
 
-      return (client as any).settlementBatch.update({
+      const result = await (client as any).settlementBatch.update({
         where: { id: settlementBatchId },
         data: {
           status,
@@ -182,6 +189,24 @@ export class SettlementBatchService {
           completedAt: allDone ? new Date() : null,
         },
       });
+
+      // Emit audit inside execute (so it shares the caller's tx if any) —
+      // recomputeBatch is often invoked from a parent workflow's $transaction;
+      // keeping it inline keeps tx semantics consistent and dedup is via wasSuccess.
+      if (allDone && !wasSuccess) {
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.BATCH_SUCCEEDED,
+          entityType: AuditEntityTypes.SETTLEMENT_BATCH,
+          entityId: settlementBatchId,
+          entityNo: existing?.batchNo,
+          workflowType: AuditWorkflowTypes.SETTLEMENT,
+          reason: `Batch reached SUCCESS via recompute (${totalOutstandingCount} outstanding + ${totalFeeAccrualCount} fee accruals)`,
+          sourcePlatform: 'SYSTEM',
+          traceId: existing?.traceId,
+        });
+      }
+
+      return result;
     };
 
     if (tx) return execute(tx);

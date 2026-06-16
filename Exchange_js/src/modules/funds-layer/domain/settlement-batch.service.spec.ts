@@ -235,6 +235,68 @@ describe('SettlementBatchService', () => {
     expect(data.completedAt).toBeInstanceOf(Date);
   });
 
+  it('recomputeBatch: emits BATCH_SUCCEEDED on first transition CREATED→SUCCESS', async () => {
+    // Mock current batch status (before update) = CREATED, with a traceId.
+    prisma.settlementBatch.findUnique.mockResolvedValue({
+      id: 'b1', batchNo: 'OSB1', status: 'CREATED', traceId: 'TRACE-1',
+    });
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'SUCCESS', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([]);
+    prisma.feeAccrual.findMany.mockResolvedValue([{ status: 'SETTLED' }]);
+    const captured: any[] = [];
+    auditLogsService.recordSystem.mockImplementation((args: any) => {
+      captured.push(args);
+      return Promise.resolve();
+    });
+
+    await service.recomputeBatch('b1');
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      action: 'BATCH_SUCCEEDED',
+      entityType: 'SETTLEMENT_BATCH',
+      entityId: 'b1',
+      entityNo: 'OSB1',
+      workflowType: 'SETTLEMENT',
+      traceId: 'TRACE-1',
+    });
+  });
+
+  it('recomputeBatch: does NOT re-emit BATCH_SUCCEEDED when previously already SUCCESS', async () => {
+    // Mock current batch status (before update) = SUCCESS already.
+    prisma.settlementBatch.findUnique.mockResolvedValue({
+      id: 'b2', batchNo: 'OSB2', status: 'SUCCESS', traceId: 'TRACE-2',
+    });
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'SUCCESS', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([]);
+    prisma.feeAccrual.findMany.mockResolvedValue([{ status: 'SETTLED' }]);
+    auditLogsService.recordSystem.mockImplementation(() => Promise.resolve());
+
+    await service.recomputeBatch('b2');
+
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
+  it('recomputeBatch: does NOT emit BATCH_SUCCEEDED when result is PROCESSING (not all settled)', async () => {
+    prisma.settlementBatch.findUnique.mockResolvedValue({
+      id: 'b3', batchNo: 'OSB3', status: 'CREATED', traceId: 'TRACE-3',
+    });
+    prisma.internalTransaction.findMany.mockResolvedValue([
+      { status: 'INTERNAL_FUNDS_PENDING', assetId: 'a1' },
+    ]);
+    prisma.outstanding.findMany.mockResolvedValue([]);
+    prisma.feeAccrual.findMany.mockResolvedValue([{ status: 'LOCKED' }]);
+    auditLogsService.recordSystem.mockImplementation(() => Promise.resolve());
+
+    await service.recomputeBatch('b3');
+
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
   it('findOneByNoForAdmin looks up by batchNo (business key) including transfers', async () => {
     prisma.settlementBatch.findUnique.mockResolvedValue({
       id: 'osb-1',
