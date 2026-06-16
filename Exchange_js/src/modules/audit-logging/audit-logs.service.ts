@@ -372,6 +372,15 @@ export class AuditLogsService {
     return rootId ? `${AuditWorkflowTypes.SWAP}:${rootId}` : null;
   }
 
+  private buildSettlementTraceId(
+    batch?: { id?: string | null; traceId?: string | null } | null,
+  ): string | null {
+    const batchTrace = this.normalizeOptionalString(batch?.traceId);
+    if (batchTrace) return batchTrace;
+    const rootId = this.normalizeOptionalString(batch?.id);
+    return rootId ? `BATCH:${rootId}` : null;
+  }
+
   private async resolveDepositWorkflowContext(
     input: CreateAuditLogEventDto,
     entityOwnerNo: string | null,
@@ -392,8 +401,16 @@ export class AuditLogsService {
       explicitWorkflowType === AuditWorkflowTypes.SWAP ||
       entityType === AuditEntityTypes.SWAP_TRANSACTION ||
       entityType === AuditEntityTypes.SWAP_QUOTE;
+    const shouldResolveSettlement =
+      explicitWorkflowType === AuditWorkflowTypes.SETTLEMENT ||
+      entityType === AuditEntityTypes.SETTLEMENT_BATCH;
 
-    if (!shouldResolveWithdraw && !shouldResolveDeposit && !shouldResolveSwap) {
+    if (
+      !shouldResolveWithdraw &&
+      !shouldResolveDeposit &&
+      !shouldResolveSwap &&
+      !shouldResolveSettlement
+    ) {
       return {
         traceId: this.normalizeOptionalString(input.traceId),
         workflowType: this.normalizeOptionalString(input.workflowType),
@@ -639,6 +656,34 @@ export class AuditLogsService {
           this.buildSwapTraceId(swap, quote),
         workflowType: AuditWorkflowTypes.SWAP,
         entityOwnerNo: resolvedEntityOwnerNo,
+      };
+    }
+
+    if (shouldResolveSettlement) {
+      let batch: any = null;
+
+      if (
+        (entityType === AuditEntityTypes.SETTLEMENT_BATCH ||
+          explicitWorkflowType === AuditWorkflowTypes.SETTLEMENT) &&
+        input.entityId &&
+        db?.settlementBatch?.findUnique
+      ) {
+        batch = await db.settlementBatch.findUnique({
+          where: { id: input.entityId },
+          select: {
+            id: true,
+            traceId: true,
+            batchNo: true,
+          },
+        });
+      }
+
+      return {
+        traceId:
+          this.normalizeOptionalString(input.traceId) ||
+          this.buildSettlementTraceId(batch),
+        workflowType: AuditWorkflowTypes.SETTLEMENT,
+        entityOwnerNo: entityOwnerNo || null,
       };
     }
 

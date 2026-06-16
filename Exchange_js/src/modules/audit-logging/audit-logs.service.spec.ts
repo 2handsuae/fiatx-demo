@@ -1987,4 +1987,19 @@ describe('AuditLogsService', () => {
       expect(svc.buildSwapTraceId(null, null)).toBeNull();
     });
   });
+
+  describe('buildSettlementTraceId fallback ordering', () => {
+    it('prefers batch.traceId, then legacy BATCH:<id>, else null', () => {
+      const svc: any = service;
+
+      // 1) batch.traceId wins
+      expect(svc.buildSettlementTraceId({ id: 'b1', traceId: 'BATCH-T' })).toBe('BATCH-T');
+
+      // 2) no batch.traceId — legacy BATCH:<id>
+      expect(svc.buildSettlementTraceId({ id: 'b1', traceId: null })).toBe('BATCH:b1');
+
+      // 3) totally empty — null
+      expect(svc.buildSettlementTraceId(null)).toBeNull();
+    });
+  });
 });
