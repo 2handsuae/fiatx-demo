@@ -4,8 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditWorkflowTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -43,7 +50,10 @@ export interface CryptoDirection {
 export class SettlementBatchService {
   private static readonly MAX_NO_GENERATION_RETRIES = 10;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogsService: AuditLogsService,
+  ) {}
 
   private isBatchNoUniqueConflict(error: unknown): boolean {
     const maybe = error as {
@@ -74,6 +84,7 @@ export class SettlementBatchService {
               status: 'CREATED',
               cutoffAt: input.cutoffAt,
               requestId: input.requestId ?? null,
+              traceId: randomUUID(),
             },
           });
         } catch (error) {
@@ -88,10 +99,24 @@ export class SettlementBatchService {
       );
     };
 
-    if (tx) return execute(tx);
-    return (this.prisma as any).$transaction((client: TxClient) =>
-      execute(client),
-    );
+    const batch = tx
+      ? await execute(tx)
+      : await (this.prisma as any).$transaction((client: TxClient) =>
+          execute(client),
+        );
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.BATCH_CREATED,
+      entityType: AuditEntityTypes.SETTLEMENT_BATCH,
+      entityId: batch.id,
+      entityNo: batch.batchNo,
+      workflowType: AuditWorkflowTypes.SETTLEMENT,
+      reason: `Batch created: ${batch.category}/${batch.settlementType}`,
+      sourcePlatform: 'SYSTEM',
+      traceId: batch.traceId,
+    });
+
+    return batch;
   }
 
   async recomputeBatch(settlementBatchId: string, tx?: TxClient) {

@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { SettlementBatchService } from './settlement-batch.service';
 
 describe('SettlementBatchService', () => {
   let service: SettlementBatchService;
   let prisma: any;
+  let auditLogsService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -27,11 +29,13 @@ describe('SettlementBatchService', () => {
       },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
+    auditLogsService = { recordSystem: jest.fn() };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
         SettlementBatchService,
         { provide: PrismaService, useValue: prisma },
+        { provide: AuditLogsService, useValue: auditLogsService },
       ],
     }).compile();
 
@@ -74,6 +78,41 @@ describe('SettlementBatchService', () => {
     const created = await service.createBatch({ cutoffAt: new Date() });
 
     expect(created.category).toBe('PRINCIPAL');
+  });
+
+  it('generates UUID traceId, persists it, and emits BATCH_CREATED audit', async () => {
+    const capturedCreate: any[] = [];
+    const capturedAudit: any[] = [];
+
+    (prisma as any).settlementBatch.create = jest.fn((args: any) => {
+      capturedCreate.push(args.data);
+      return Promise.resolve({ ...args.data, id: 'b1', batchNo: 'OSB1' });
+    });
+    (auditLogsService as any).recordSystem = jest.fn((args: any) => {
+      capturedAudit.push(args);
+      return Promise.resolve();
+    });
+
+    await service.createBatch({
+      cutoffAt: new Date(),
+      category: 'SWAP_FEE',
+      settlementType: 'FIAT_SWAP',
+    });
+
+    expect(capturedCreate).toHaveLength(1);
+    expect(capturedCreate[0].traceId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    expect(capturedAudit).toHaveLength(1);
+    expect(capturedAudit[0]).toMatchObject({
+      action: 'BATCH_CREATED',
+      entityType: 'SETTLEMENT_BATCH',
+      entityId: 'b1',
+      entityNo: 'OSB1',
+      workflowType: 'SETTLEMENT',
+      traceId: capturedCreate[0].traceId,
+    });
   });
 
   describe('resolveCryptoDirection', () => {
