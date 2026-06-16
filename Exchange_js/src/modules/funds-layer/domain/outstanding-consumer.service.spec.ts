@@ -314,5 +314,40 @@ describe('OutstandingConsumerService', () => {
       expect(auditCalls[0].traceId).toBe('BATCH-T9');
       expect(JSON.parse(auditCalls[0].metadata).originTraceId).toBe('SWAP-T9');
     });
+
+    it('markSettledNettedZero: calls batchService.recomputeBatch(settlementBatchId, tx) when at least 1 row settled', async () => {
+      const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+      const batchService: any = { recomputeBatch };
+      const rows = [
+        { id: 'o1', outstandingNo: 'OTS1', originTraceId: 'OT1' },
+      ];
+      const prisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue(rows),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        settlementBatch: {
+          findUnique: jest.fn().mockResolvedValue({ traceId: 'BT1' }),
+        },
+      };
+      const svc = new OutstandingConsumerService(prisma, batchService, { recordSystem: jest.fn() } as any);
+      await svc.markSettledNettedZero('b1', 'usdt-asset-id', prisma);
+      expect(recomputeBatch).toHaveBeenCalledTimes(1);
+      expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);
+    });
+
+    it('markSettledNettedZero: no rows → does NOT call recomputeBatch', async () => {
+      const recomputeBatch = jest.fn().mockResolvedValue({} as any);
+      const batchService: any = { recomputeBatch };
+      const prisma: any = {
+        outstanding: {
+          findMany: jest.fn().mockResolvedValue([]),
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
+      };
+      const svc = new OutstandingConsumerService(prisma, batchService, { recordSystem: jest.fn() } as any);
+      await svc.markSettledNettedZero('b1', 'usdt-asset-id', prisma);
+      expect(recomputeBatch).not.toHaveBeenCalled();
+    });
   });
 });

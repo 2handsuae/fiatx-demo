@@ -281,6 +281,11 @@ export class OutstandingConsumerService {
       }
     }
 
+    // Spec #7: markSettledNettedZero 末尾紧跟 recomputeBatch、同 tx。
+    if (rows.length > 0) {
+      await this.batchService.recomputeBatch(settlementBatchId, client);
+    }
+
     return result;
   }
 
