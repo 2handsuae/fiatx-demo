@@ -33,6 +33,7 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'settlementBatchItem',
   'settlementBatch',
   'outstanding',
+  'feeAccrual',  // FK to asset (RESTRICT) — must precede asset cleanup downstream.
 
   // ── Funds layer (internal transfers) ───────────────────────────────
   'tbTransferEvidence',
