@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-06-09
+Last Updated: 2026-06-17
 格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
 
 ---
@@ -399,6 +399,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **Cron sweep 适配器** ✅ crypto — 充值归集（每小时）/ EOD 结算（23:59）/ 手续费归集（每日）`@Cron`；**fiat 无 cron，纯事件驱动**（兜底 cron 待接）
 - **幂等键** ✅ — EOD/归集：`sourceType+sourceId` 去重，已 SETTLED 跳过
 - **repair surface** ⚠️ 仅 crypto — `fund-return-repair` 入口；法币失败修复入口待补
+- **fee_accrual 实体 + 状态机** ✅ — ACCRUED → LOCKED → SETTLED；per-batch（EOD 聚合）+ per-transfer（fiat 即时）两种结算路径；Admin 列表/详情页
+- **traceId 全链审计** ✅ — payin / swap_quote / settlement_batch UUID + outstanding / fee_accrual originTraceId 跨实体串联
 
 ### 不单做工作流（主流程内嵌 / 运维 / 已外包）
 
