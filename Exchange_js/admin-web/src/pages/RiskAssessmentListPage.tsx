@@ -254,7 +254,7 @@ const RiskAssessmentListPage = () => {
                 key={item.id}
                 className="cursor-pointer transition-colors hover:bg-adm-hover"
                 onClick={() =>
-                  navigate(`/dashboard/compliance/risk-assessments/${item.id}`)
+                  navigate(`/admin/compliance/risk-assessments/${item.id}`)
                 }
               >
                 <td className="px-6 py-3 font-mono text-[11px] font-semibold text-adm-amber">

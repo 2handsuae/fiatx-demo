@@ -368,7 +368,7 @@ const LedgerAccountList = () => {
               <tr
                 key={row.tbAccountId}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/ledger/accounts/${row.tbAccountId}`)}
+                onClick={() => navigate(`/admin/ledger/accounts/${row.tbAccountId}`)}
               >
                 {/* Account */}
                 <td className="px-3 py-2">
@@ -376,7 +376,7 @@ const LedgerAccountList = () => {
                     className={adminButtonClass('rowKeyLink')}
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`/ledger/accounts/${row.tbAccountId}`);
+                      navigate(`/admin/ledger/accounts/${row.tbAccountId}`);
                     }}
                   >
                     {TB_CODE_LABELS[row.code] ?? 'CODE_' + row.code} · {row.assetCode}
@@ -394,7 +394,7 @@ const LedgerAccountList = () => {
                 <td className="px-3 py-2 font-mono text-[11px]">
                   {row.ownerType === 'CUSTOMER' && row.ownerNo && row.ownerUuid ? (
                     <button
-                      onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/${row.ownerUuid}`); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${row.ownerUuid}`); }}
                       className="text-adm-amber hover:underline"
                       title="Open customer"
                     >

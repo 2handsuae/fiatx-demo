@@ -90,7 +90,7 @@ const LiquidityConfigCreate = () => {
       });
 
       if (response.ok) {
-        navigate('/dashboard/system/liquidity-config');
+        navigate('/admin/counterparty/liquidity-config');
       } else {
         setError(await getApiErrorMessage(response, 'Failed to create configuration'));
       }
@@ -107,7 +107,7 @@ const LiquidityConfigCreate = () => {
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
         <button 
-          onClick={() => navigate('/dashboard/system/liquidity-config')}
+          onClick={() => navigate('/admin/counterparty/liquidity-config')}
           className={adminButtonClass('detailUtility', 'px-2')}
         >
           <ArrowLeft size={20} />
@@ -260,7 +260,7 @@ const LiquidityConfigCreate = () => {
           <div className="pt-4 flex justify-end gap-3 border-t border-admin-border">
             <button
               type="button"
-              onClick={() => navigate('/dashboard/system/liquidity-config')}
+              onClick={() => navigate('/admin/counterparty/liquidity-config')}
               className={adminButtonClass('modalCancel')}
             >
               Cancel

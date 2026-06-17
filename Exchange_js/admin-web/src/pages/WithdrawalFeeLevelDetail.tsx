@@ -328,7 +328,7 @@ export default function WithdrawalFeeLevelDetail() {
         </div>
         <div className="flex items-center justify-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/pricing/withdrawal-fee-levels')}
+            onClick={() => navigate('/admin/pricing/withdrawal-fee-levels')}
             className={adminButtonClass('detailUtility')}
           >
             Back to Levels
@@ -345,7 +345,7 @@ export default function WithdrawalFeeLevelDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/pricing/withdrawal-fee-levels')}
+        onBack={() => navigate('/admin/pricing/withdrawal-fee-levels')}
         onRefresh={() => {
           void fetchDetail();
           void fetchBindings();
@@ -574,7 +574,7 @@ export default function WithdrawalFeeLevelDetail() {
                   <button
                     onClick={() =>
                       navigate(
-                        `/dashboard/control-gates/approvals/${level.approvalCaseNo}`,
+                        `/admin/governance/approvals/${level.approvalCaseNo}`,
                       )
                     }
                     className="font-mono text-[10px] text-adm-amber hover:underline"

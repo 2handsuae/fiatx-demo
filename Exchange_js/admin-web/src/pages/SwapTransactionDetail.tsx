@@ -119,7 +119,7 @@ const SwapTransactionDetail = () => {
         setData(await response.json());
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load swap detail'));
-        navigate('/exchange/swap-transactions');
+        navigate('/admin/trading/swaps');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -165,7 +165,7 @@ const SwapTransactionDetail = () => {
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
       <DetailPageHeader
-        onBack={() => navigate('/exchange/swap-transactions')}
+        onBack={() => navigate('/admin/trading/swaps')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Swaps"

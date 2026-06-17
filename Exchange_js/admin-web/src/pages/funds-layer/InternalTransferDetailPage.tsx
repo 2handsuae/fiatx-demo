@@ -77,7 +77,7 @@ const InternalTransferDetailPage = () => {
         setData(result);
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load transfer detail'));
-        navigate('/funds-layer/transfers');
+        navigate('/admin/funds/transfers');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -114,7 +114,7 @@ const InternalTransferDetailPage = () => {
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
       <DetailPageHeader
-        onBack={() => navigate('/funds-layer/transfers')}
+        onBack={() => navigate('/admin/funds/transfers')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Internal Transfers"
@@ -186,7 +186,7 @@ const InternalTransferDetailPage = () => {
                     </span>
                     <span
                       className="cursor-pointer font-mono text-[10px] text-adm-blue hover:underline"
-                      onClick={() => navigate(`/funds-layer/funds/${leg.internalFundNo}`)}
+                      onClick={() => navigate(`/admin/funds/internal-funds/${leg.internalFundNo}`)}
                     >
                       View →
                     </span>

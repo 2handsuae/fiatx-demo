@@ -222,7 +222,7 @@ const RefreshCyclesPage = () => {
                 className="cursor-pointer transition-colors hover:bg-adm-hover"
                 onClick={() =>
                   navigate(
-                    `/dashboard/compliance/refresh-cycles/${cycle.id}`,
+                    `/admin/customers/refresh-cycles/${cycle.id}`,
                   )
                 }
               >

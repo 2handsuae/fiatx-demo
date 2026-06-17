@@ -30,6 +30,8 @@ interface WalletItem {
   bankName?: string;
   iban?: string;
   accountName?: string;
+  memo?: string;
+  bankCode?: string;
 }
 
 interface Transaction {

@@ -127,7 +127,7 @@ const DepositTransactionDetail = () => {
         setData(await response.json());
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load detail'));
-        navigate('/exchange/deposit-transactions');
+        navigate('/admin/trading/deposits');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -213,7 +213,7 @@ const DepositTransactionDetail = () => {
     <div className="flex h-full flex-col">
       {/* ── Nav Header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/exchange/deposit-transactions')}
+        onBack={() => navigate('/admin/trading/deposits')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Deposits"
@@ -332,7 +332,7 @@ const DepositTransactionDetail = () => {
                 identifier={data.payinNo}
                 statusValue={data.payinStatus ? normalizeRailDisplayStatus(data.payinStatus) : undefined}
                 meta={data.payinType ? formatTransactionTypeLabel(data.payinType) : undefined}
-                onClick={() => navigate(`/dashboard/treasury/payins/${data.payinId}`)}
+                onClick={() => navigate(`/admin/trading/payins/${data.payinId}`)}
               />
             </DetailCard>
           )}

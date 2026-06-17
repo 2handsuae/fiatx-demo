@@ -52,10 +52,10 @@ interface MenuGroup {
 type MenuItem = MenuLink | MenuGroup;
 
 const isPathActive = (pathname: string, targetPath: string) => {
-  if (targetPath === '/dashboard') {
-    return pathname === '/dashboard' || pathname === '/dashboard/';
+  if (targetPath === '/admin') {
+    return pathname === '/admin' || pathname === '/admin/';
   }
-  if (targetPath === '/dashboard/members') {
+  if (targetPath === '/admin/iam/members') {
     return pathname === targetPath;
   }
   return pathname === targetPath || pathname.startsWith(`${targetPath}/`);
@@ -99,7 +99,7 @@ const DashboardLayout = () => {
 
   const menuItems: MenuItem[] = [
     {
-      path: '/dashboard',
+      path: '/admin',
       icon: <LayoutDashboard size={14} />,
       label: 'Overview',
       requiredPermissions: [PERMISSIONS.BASE_ACCESS],
@@ -110,90 +110,38 @@ const DashboardLayout = () => {
       icon: <UserCog size={12} />,
       children: [
         {
-          path: '/dashboard/members',
+          path: '/admin/iam/members',
           label: 'Platform Members',
           icon: <UserCheck size={13} />,
           requiredPermissions: [PERMISSIONS.USERS_READ],
         },
         {
-          path: '/dashboard/members/roles',
+          path: '/admin/iam/roles',
           label: 'Role Management',
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
-        // Hidden: objectSnapshot on approval replaces direct navigation
-        // {
-        //   path: '/dashboard/members/role-change-requests',
-        //   label: 'Role Change Requests',
-        //   icon: <ArrowLeftRight size={13} />,
-        //   requiredPermissions: [PERMISSIONS.IAM_ROLE_CHANGE_REQUESTS_READ],
-        // },
       ],
     },
-    // ─── Control Gates ────────────────────────────────────────────
+    // ─── Customers ────────────────────────────────────────────────
     {
-      label: 'Control Gates',
-      icon: <ShieldCheck size={12} />,
-      children: [
-        {
-          path: '/dashboard/control-gates/approvals',
-          label: 'Approvals',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
-        },
-        {
-          path: '/dashboard/governance/approval-policies',
-          label: 'Approval Policies',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
-        },
-        // Hidden: objectSnapshot on approval replaces direct navigation
-        // {
-        //   path: '/dashboard/governance/policy-change-requests',
-        //   label: 'Policy Change Requests',
-        //   icon: <ArrowLeftRight size={13} />,
-        //   requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUESTS_READ],
-        // },
-      ],
-    },
-    // ─── Audit Center ─────────────────────────────────────────────
-    {
-      label: 'Audit Center',
-      icon: <FileText size={12} />,
-      children: [
-        {
-          path: '/dashboard/audit/audit-logs',
-          label: 'Audit Log',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
-        },
-        {
-          path: '/dashboard/audit/evidence-exports',
-          label: 'Evidence Packages',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
-        },
-      ],
-    },
-    // ─── Customer Management ──────────────────────────────────────
-    {
-      label: 'Customer Management',
+      label: 'Customers',
       icon: <Users size={12} />,
       children: [
         {
-          path: '/dashboard/customer/management',
+          path: '/admin/customers',
           label: 'Customer Management',
           icon: <Users size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
         {
-          path: '/dashboard/compliance/material-management',
+          path: '/admin/customers/material-holdings',
           label: 'Material Holdings',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
         {
-          path: '/dashboard/compliance/refresh-cycles',
+          path: '/admin/customers/refresh-cycles',
           label: 'Refresh Cycles',
           icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
@@ -206,13 +154,13 @@ const DashboardLayout = () => {
       icon: <ClipboardList size={12} />,
       children: [
         {
-          path: '/dashboard/compliance/sumsub-events',
+          path: '/admin/compliance/sumsub-events',
           label: 'Sumsub Events',
           icon: <Zap size={13} />,
           requiredPermissions: [PERMISSIONS.SUMSUB_EVENTS_READ],
         },
         {
-          path: '/dashboard/compliance/risk-assessments',
+          path: '/admin/compliance/risk-assessments',
           label: 'Risk Assessments',
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.RISK_ASSESSMENTS_READ],
@@ -225,108 +173,121 @@ const DashboardLayout = () => {
       icon: <ArrowLeftRight size={12} />,
       children: [
         {
-          path: '/exchange/deposit-transactions',
+          path: '/admin/trading/deposits',
           label: 'Deposit Transactions',
           icon: <Download size={13} />,
           requiredPermissions: [PERMISSIONS.DEPOSIT_TRANSACTIONS_READ],
         },
         {
-          path: '/exchange/withdraw-transactions',
+          path: '/admin/trading/withdrawals',
           label: 'Withdraw Transactions',
           icon: <Upload size={13} />,
           requiredPermissions: [PERMISSIONS.WITHDRAW_TRANSACTIONS_READ],
         },
         {
-          path: '/exchange/swap-transactions',
+          path: '/admin/trading/swaps',
           label: 'Swap Transactions',
           icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_TRANSACTIONS_READ],
         },
         {
-          path: '/funds-layer/transfers',
-          label: 'Internal Transfers',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_TRANSFERS_READ],
-        },
-        {
-          path: '/funds-layer/settlements',
-          label: 'Settlement Batches',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_SETTLEMENTS_READ],
-        },
-      ],
-    },
-    // ─── Treasury ─────────────────────────────────────────────────
-    {
-      label: 'Treasury',
-      icon: <Briefcase size={12} />,
-      children: [
-        {
-          path: '/dashboard/system/assets',
-          label: 'Assets',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
-        },
-        {
-          path: '/dashboard/system/transaction-limits',
-          label: 'Transaction Limits',
-          icon: <Gauge size={13} />,
-          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
-        },
-        {
-          path: '/dashboard/treasury/custodian-wallets',
-          label: 'Custodian Wallets',
-          icon: <Wallet size={13} />,
-          requiredPermissions: [PERMISSIONS.WALLETS_READ],
-        },
-        {
-          path: '/dashboard/treasury/withdrawal-addresses',
-          label: 'Withdrawal Addresses',
-          icon: <Upload size={13} />,
-          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
-        },
-        {
-          path: '/dashboard/treasury/payins',
+          path: '/admin/trading/payins',
           label: 'Payin Records',
           icon: <LogIn size={13} />,
           requiredPermissions: [PERMISSIONS.PAYINS_READ],
         },
         {
-          path: '/dashboard/treasury/payouts',
+          path: '/admin/trading/payouts',
           label: 'Payout Records',
           icon: <LogOut size={13} />,
           requiredPermissions: [PERMISSIONS.PAYOUTS_READ],
         },
         {
-          path: '/funds-layer/funds',
+          path: '/admin/trading/withdraw-quotes',
+          label: 'Withdraw Quotes',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
+        },
+        {
+          path: '/admin/trading/swap-quotes',
+          label: 'Swap Quotes',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
+        },
+      ],
+    },
+    // ─── Funds & Settlement ───────────────────────────────────────
+    {
+      label: 'Funds & Settlement',
+      icon: <Layers size={12} />,
+      children: [
+        {
+          path: '/admin/funds/transfers',
+          label: 'Internal Transfers',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_TRANSFERS_READ],
+        },
+        {
+          path: '/admin/funds/internal-funds',
           label: 'Internal Funds',
           icon: <Activity size={13} />,
           requiredPermissions: [PERMISSIONS.FUNDS_LAYER_FUNDS_READ],
         },
+        {
+          path: '/admin/funds/settlements',
+          label: 'Settlement Batches',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_SETTLEMENTS_READ],
+        },
+        {
+          path: '/admin/funds/outstandings',
+          label: 'Swap Outstandings',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
+        },
+        {
+          path: '/admin/funds/fee-accruals',
+          label: 'Fee Accruals',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.FEE_ACCRUALS_READ],
+        },
       ],
     },
-    // ─── Ledger ───────────────────────────────────────────────────
+    // ─── Custody ──────────────────────────────────────────────────
     {
-      label: 'Ledger',
-      icon: <Library size={12} />,
+      label: 'Custody',
+      icon: <Briefcase size={12} />,
       children: [
         {
-          path: '/ledger/accounts',
-          label: 'Ledger Accounts',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+          path: '/admin/custody/wallets',
+          label: 'Custodian Wallets',
+          icon: <Wallet size={13} />,
+          requiredPermissions: [PERMISSIONS.WALLETS_READ],
         },
         {
-          path: '/ledger/transfers',
-          label: 'Transfer Evidence',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
+          path: '/admin/custody/withdrawal-addresses',
+          label: 'Withdrawal Addresses',
+          icon: <Upload size={13} />,
+          requiredPermissions: [PERMISSIONS.BASE_ACCESS],
+        },
+      ],
+    },
+    // ─── Assets & Limits ──────────────────────────────────────────
+    {
+      label: 'Assets & Limits',
+      icon: <Coins size={12} />,
+      children: [
+        {
+          path: '/admin/assets',
+          label: 'Assets',
+          icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
         {
-          path: '/ledger/account-statement',
-          label: 'Account Statement',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+          path: '/admin/assets/transaction-limits',
+          label: 'Transaction Limits',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
         },
       ],
     },
@@ -336,28 +297,16 @@ const DashboardLayout = () => {
       icon: <Coins size={12} />,
       children: [
         {
-          path: '/dashboard/pricing/withdrawal-fee-levels',
+          path: '/admin/pricing/withdrawal-fee-levels',
           label: 'Withdrawal Fee Levels',
           icon: <Layers size={13} />,
           requiredPermissions: [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ],
         },
         {
-          path: '/dashboard/pricing/swap-fee-levels',
+          path: '/admin/pricing/swap-fee-levels',
           label: 'Swap Fee Levels',
           icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_FEE_LEVELS_READ],
-        },
-        {
-          path: '/dashboard/pricing/withdraw-quotes',
-          label: 'Withdraw Quotes',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
-        },
-        {
-          path: '/dashboard/pricing/quotes',
-          label: 'Swap Quotes',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
       ],
     },
@@ -367,46 +316,91 @@ const DashboardLayout = () => {
       icon: <Activity size={12} />,
       children: [
         {
-          path: '/dashboard/reconciliation/safeguarding-breaks',
+          path: '/admin/reconciliation/safeguarding-breaks',
           label: 'Safeguarding Breaks',
           icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
         },
         {
-          path: '/dashboard/reconciliation/safeguarding-warnings',
+          path: '/admin/reconciliation/safeguarding-warnings',
           label: 'Safeguarding Warnings',
           icon: <AlertTriangle size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
         },
         {
-          path: '/dashboard/reconciliation/safeguarding-runs',
+          path: '/admin/reconciliation/safeguarding-runs',
           label: 'Safeguarding Runs',
           icon: <History size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_RUNS_READ],
         },
         {
-          path: '/dashboard/reconciliation/safeguarding-fiat-statements',
+          path: '/admin/reconciliation/safeguarding-fiat-statements',
           label: 'Fiat Statement Imports',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
         },
+      ],
+    },
+    // ─── Ledger ───────────────────────────────────────────────────
+    {
+      label: 'Ledger',
+      icon: <Library size={12} />,
+      children: [
         {
-          path: '/dashboard/reconciliation/outstanding-settlements',
-          label: 'Outstanding Settlements',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.OUTSTANDING_SETTLEMENTS_READ],
+          path: '/admin/ledger/accounts',
+          label: 'Ledger Accounts',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
         },
         {
-          path: '/dashboard/reconciliation/outstandings',
-          label: 'Swap Outstandings',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
+          path: '/admin/ledger/transfer-evidence',
+          label: 'Transfer Evidence',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
         {
-          path: '/dashboard/reconciliation/fee-accruals',
-          label: 'Fee Accruals',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.FEE_ACCRUALS_READ],
+          path: '/admin/ledger/account-statement',
+          label: 'Account Statement',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+        },
+      ],
+    },
+    // ─── Governance ───────────────────────────────────────────────
+    {
+      label: 'Governance',
+      icon: <ShieldCheck size={12} />,
+      children: [
+        {
+          path: '/admin/governance/approvals',
+          label: 'Approvals',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVALS_READ],
+        },
+        {
+          path: '/admin/governance/approval-policies',
+          label: 'Approval Policies',
+          icon: <Shield size={13} />,
+          requiredPermissions: [PERMISSIONS.GOV_APPROVAL_POLICIES_READ],
+        },
+      ],
+    },
+    // ─── Audit ────────────────────────────────────────────────────
+    {
+      label: 'Audit',
+      icon: <FileText size={12} />,
+      children: [
+        {
+          path: '/admin/audit/logs',
+          label: 'Audit Log',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_LOGS_READ],
+        },
+        {
+          path: '/admin/audit/evidence-packages',
+          label: 'Evidence Packages',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.AUDIT_EVIDENCE_EXPORTS_READ],
         },
       ],
     },
@@ -416,37 +410,37 @@ const DashboardLayout = () => {
       icon: <Library size={12} />,
       children: [
         {
-          path: '/dashboard/governance/registries/shareholding-versions',
+          path: '/admin/registries/shareholding-versions',
           label: 'Shareholding Registry',
           icon: <Building2 size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
         },
         {
-          path: '/dashboard/governance/registries/appointments',
+          path: '/admin/registries/appointments',
           label: 'Appointments',
           icon: <UserCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
         },
         {
-          path: '/dashboard/governance/registries/trainings',
+          path: '/admin/registries/trainings',
           label: 'Trainings',
           icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
         },
         {
-          path: '/dashboard/governance/registries/conflicts',
+          path: '/admin/registries/conflicts',
           label: 'Conflicts',
           icon: <Shield size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
         },
         {
-          path: '/dashboard/governance/registries/wind-down-materials',
+          path: '/admin/registries/wind-down-materials',
           label: 'Wind-down Materials',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
         },
         {
-          path: '/dashboard/governance/regulatory-gates',
+          path: '/admin/registries/regulatory-gates',
           label: 'Regulatory Gates',
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
@@ -459,13 +453,13 @@ const DashboardLayout = () => {
       icon: <Handshake size={12} />,
       children: [
         {
-          path: '/dashboard/system/liquidity-providers',
+          path: '/admin/counterparty/liquidity-providers',
           label: 'Liquidity Providers',
           icon: <Building2 size={13} />,
           requiredPermissions: [PERMISSIONS.LIQUIDITY_PROVIDERS_READ],
         },
         {
-          path: '/dashboard/system/liquidity-config',
+          path: '/admin/counterparty/liquidity-config',
           label: 'LP Liquidity Config',
           icon: <ShieldCheck size={13} />,
           requiredPermissions: [PERMISSIONS.LIQUIDITY_CONFIG_READ],

@@ -156,7 +156,7 @@ export default function CustodianWalletDetail() {
       <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
         <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading wallet…</p>
-        <button onClick={() => navigate('/dashboard/treasury/custodian-wallets')} className={adminButtonClass('detailUtility')}>
+        <button onClick={() => navigate('/admin/custody/wallets')} className={adminButtonClass('detailUtility')}>
           ← Back to Custodian Wallets
         </button>
       </div>
@@ -270,7 +270,7 @@ export default function CustodianWalletDetail() {
       {/* ── Header ── */}
       <DetailPageHeader
         backLabel="Custodian Wallets"
-        onBack={() => navigate('/dashboard/treasury/custodian-wallets')}
+        onBack={() => navigate('/admin/custody/wallets')}
         onRefresh={() => void fetchWallet()}
         refreshing={loading}
       />
@@ -324,7 +324,7 @@ export default function CustodianWalletDetail() {
                 <div className="mt-1 text-[13px]">
                   {wallet.ownerType === 'CUSTOMER' && wallet.ownerNo && wallet.ownerId ? (
                     <button
-                      onClick={() => navigate(`/dashboard/customer/${wallet.ownerId}`)}
+                      onClick={() => navigate(`/admin/customers/${wallet.ownerId}`)}
                       className="text-adm-amber hover:underline font-mono text-[11px]"
                       title="Open customer"
                     >

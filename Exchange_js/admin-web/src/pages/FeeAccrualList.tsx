@@ -157,7 +157,7 @@ const FeeAccrualList = () => {
             {loading && (<tr><td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">Loading…</td></tr>)}
             {!loading && items.length === 0 && (<tr><td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">No accruals found.</td></tr>)}
             {!loading && items.map((item) => (
-              <tr key={item.id} className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover" onClick={() => navigate('/dashboard/reconciliation/fee-accruals/' + item.id)}>
+              <tr key={item.id} className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover" onClick={() => navigate('/admin/funds/fee-accruals/' + item.id)}>
                 <td className="px-4 py-2.5"><span className="font-mono text-[11px] font-semibold text-adm-amber">{item.feeAccrualNo || '—'}</span></td>
                 <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">{item.sourceType} {item.sourceNo || '—'}</td>
                 <td className="px-4 py-2.5"><AdminBadge value={item.category} /></td>

@@ -315,7 +315,7 @@ const WithdrawalAddressList = () => {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/dashboard/treasury/withdrawal-addresses/${item.addressNo}`)}
+                onClick={() => navigate(`/admin/custody/withdrawal-addresses/${item.addressNo}`)}
               >
                 {/* Address No */}
                 <td className="px-4 py-2.5">
@@ -328,7 +328,7 @@ const WithdrawalAddressList = () => {
                 <td className="px-3 py-2 font-mono text-[11px]">
                   {item.customerNo && item.customerId ? (
                     <button
-                      onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/${item.customerId}`); }}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${item.customerId}`); }}
                       className="text-adm-amber hover:underline"
                       title="Open customer"
                     >

@@ -244,7 +244,7 @@ const MaterialHoldingDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <DetailPageHeader
           title="Material Holding"
-          onBack={() => navigate('/dashboard/compliance/material-management')}
+          onBack={() => navigate('/admin/customers/material-holdings')}
           onRefresh={() => void fetchDetail()}
           refreshing={loading}
           backLabel="Material Management"
@@ -291,7 +291,7 @@ const MaterialHoldingDetailPage = () => {
       {/* ── Header ── */}
       <DetailPageHeader
         title="Material Holding"
-        onBack={() => navigate('/dashboard/compliance/material-management')}
+        onBack={() => navigate('/admin/customers/material-holdings')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Material Management"
@@ -347,7 +347,7 @@ const MaterialHoldingDetailPage = () => {
             <button
               className={adminButtonClass('rowLink')}
               onClick={() =>
-                navigate(`/dashboard/customer/management/${detail.customer.id}`)
+                navigate(`/admin/customers/${detail.customer.id}`)
               }
             >
               {detail.customer.customerNo} ({detail.customer.email})
@@ -411,7 +411,7 @@ const MaterialHoldingDetailPage = () => {
                   To simulate customer completing or failing this material refresh, use the{' '}
                   <button
                     className={adminButtonClass('rowLink')}
-                    onClick={() => navigate('/dashboard/compliance/sumsub-events')}
+                    onClick={() => navigate('/admin/compliance/sumsub-events')}
                   >
                     Sumsub Events
                   </button>{' '}

@@ -204,7 +204,7 @@ export default function WithdrawalAddressDetail() {
       <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
         <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading address…</p>
-        <button onClick={() => navigate('/dashboard/treasury/withdrawal-addresses')} className={adminButtonClass('detailUtility')}>
+        <button onClick={() => navigate('/admin/custody/withdrawal-addresses')} className={adminButtonClass('detailUtility')}>
           ← Back to Withdrawal Addresses
         </button>
       </div>
@@ -242,7 +242,7 @@ export default function WithdrawalAddressDetail() {
       {/* ── Header ── */}
       <DetailPageHeader
         backLabel="Withdrawal Addresses"
-        onBack={() => navigate('/dashboard/treasury/withdrawal-addresses')}
+        onBack={() => navigate('/admin/custody/withdrawal-addresses')}
         onRefresh={() => void fetchData()}
         refreshing={loading}
       />
@@ -300,7 +300,7 @@ export default function WithdrawalAddressDetail() {
                 <div className="mt-1 text-[13px]">
                   {data.customerNo && data.customerId ? (
                     <button
-                      onClick={() => navigate(`/dashboard/customer/${data.customerId}`)}
+                      onClick={() => navigate(`/admin/customers/${data.customerId}`)}
                       className="text-adm-amber hover:underline font-mono text-[11px]"
                       title="Open customer"
                     >

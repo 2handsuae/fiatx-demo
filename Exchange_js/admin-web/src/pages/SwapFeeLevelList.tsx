@@ -392,7 +392,7 @@ const SwapFeeLevelList = () => {
                   key={l.id}
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover"
                   onClick={() =>
-                    navigate(`/dashboard/pricing/swap-fee-levels/${l.levelCode}`)
+                    navigate(`/admin/pricing/swap-fee-levels/${l.levelCode}`)
                   }
                 >
                   <td className="px-3 py-2">
@@ -401,7 +401,7 @@ const SwapFeeLevelList = () => {
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(
-                          `/dashboard/pricing/swap-fee-levels/${l.levelCode}`,
+                          `/admin/pricing/swap-fee-levels/${l.levelCode}`,
                         );
                       }}
                       title={l.levelCode}

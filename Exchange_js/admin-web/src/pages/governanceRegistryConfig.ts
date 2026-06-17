@@ -113,7 +113,7 @@ export const REGISTRY_CONFIGS: Record<RegistryType, RegistryConfig> = {
 export const getRegistryConfig = (type: RegistryType): RegistryConfig => REGISTRY_CONFIGS[type];
 
 export const getRegistryListPath = (type: RegistryType) =>
-  `/dashboard/governance/registries/${REGISTRY_CONFIGS[type].endpoint}`;
+  `/admin/registries/${REGISTRY_CONFIGS[type].endpoint}`;
 
 export const getRegistryDetailPath = (type: RegistryType, id: string) =>
   `${getRegistryListPath(type)}/${id}`;

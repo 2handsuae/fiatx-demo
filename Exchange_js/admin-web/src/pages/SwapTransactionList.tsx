@@ -248,7 +248,7 @@ const SwapTransactionList = () => {
                 <tr
                   key={item.id}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/exchange/swap-transactions/${item.id}`)}
+                  onClick={() => navigate(`/admin/trading/swaps/${item.id}`)}
                 >
                   <td className="px-4 py-2.5">
                     <span className="font-mono text-[11px] font-semibold text-adm-amber">

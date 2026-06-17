@@ -965,7 +965,6 @@ model RegulatoryGateItem {
   scopeSummary                  String?
   shareholdingRegistryVersionId String?
   appointmentRecordId           String?
-  businessConfigReleaseId       String?
   walletId                      String?
   linkedApprovalId              String?
   internalApprovalStatus        String                       @default("NOT_REQUIRED")
@@ -992,7 +991,6 @@ model RegulatoryGateItem {
   updatedAt                     DateTime                     @updatedAt
   shareholdingRegistryVersion   ShareholdingRegistryVersion? @relation("RegulatoryGateShareholdingVersion", fields: [shareholdingRegistryVersionId], references: [id], onDelete: SetNull)
   appointmentRecord             AppointmentRecord?           @relation("RegulatoryGateAppointmentRecord", fields: [appointmentRecordId], references: [id], onDelete: SetNull)
-  businessConfigRelease         BusinessConfigRelease?       @relation("RegulatoryGateBusinessConfigRelease", fields: [businessConfigReleaseId], references: [id], onDelete: SetNull)
   wallet                        Wallet?                      @relation("RegulatoryGateWallet", fields: [walletId], references: [id], onDelete: SetNull)
   linkedApproval                ApprovalCase?                @relation("RegulatoryGateLinkedApproval", fields: [linkedApprovalId], references: [id], onDelete: SetNull)
 
@@ -1066,7 +1064,6 @@ model Asset {
   withdrawTransactions           WithdrawTransaction[]
   internalTransactions           InternalTransaction[]
   internalFunds                  InternalFund[]
-  reimbursementObligations       ReimbursementObligation[]
   safeguardingPolicies           SafeguardingPolicy[]
   liabilitySnapshots             LiabilitySnapshot[]
   safeguardingPoolSnapshots      SafeguardingPoolSnapshot[]
@@ -1149,84 +1146,6 @@ model LiquidityConfiguration {
   @@map("liquidity_configurations")
 }
 
-model PricingPolicy {
-  id               String   @id @default(uuid())
-  policyCode       String   @unique
-  policyName       String
-  business         String
-  channelOnline    Boolean  @default(true)
-  channelStoreSoon Boolean  @default(true)
-  configJson       String
-  updatedByUserId  String?
-  updatedByUserNo  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@index([business])
-  @@map("pricing_policies")
-}
-
-model BusinessConfigRevision {
-  id              String                      @id @default(uuid())
-  subjectType     String
-  businessKey     String
-  revisionNo      Int
-  payloadJson     String
-  contentHash     String
-  changeSummary   String?
-  status          String                      @default("STAGED")
-  sourceCommitSha String?
-  createdAt       DateTime                    @default(now())
-  updatedAt       DateTime                    @updatedAt
-  releaseItems    BusinessConfigReleaseItem[]
-
-  @@unique([subjectType, businessKey, revisionNo])
-  @@index([subjectType, businessKey, createdAt])
-  @@index([subjectType, contentHash])
-  @@map("business_config_revisions")
-}
-
-model BusinessConfigRelease {
-  id                    String                      @id @default(uuid())
-  subjectType           String
-  releaseNo             String                      @unique
-  status                String                      @default("DRAFT")
-  basedOnReleaseNo      String?
-  changeTicketId        String?
-  approvalCaseId        String?
-  traceId               String?
-  effectiveFrom         DateTime?
-  publishedAt           DateTime?
-  publishedBy           String?
-  validationSummaryJson String                      @default("{}")
-  createdAt             DateTime                    @default(now())
-  updatedAt             DateTime                    @updatedAt
-  items                 BusinessConfigReleaseItem[]
-  regulatoryGateItems   RegulatoryGateItem[]        @relation("RegulatoryGateBusinessConfigRelease")
-
-  @@index([subjectType, status, createdAt])
-  @@index([subjectType, createdAt])
-  @@map("business_config_releases")
-}
-
-model BusinessConfigReleaseItem {
-  id          String                 @id @default(uuid())
-  releaseId   String
-  revisionId  String
-  subjectType String
-  businessKey String
-  sortOrder   Int                    @default(0)
-  createdAt   DateTime               @default(now())
-  release     BusinessConfigRelease  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
-  revision    BusinessConfigRevision @relation(fields: [revisionId], references: [id])
-
-  @@unique([releaseId, businessKey])
-  @@index([releaseId, sortOrder])
-  @@index([revisionId])
-  @@index([subjectType, businessKey])
-  @@map("business_config_release_items")
-}
-
 model WithdrawPricingQuote {
   id              String                @id @default(uuid())
   quoteNo         String                @unique
@@ -1287,7 +1206,6 @@ model Wallet {
   internalTransactionsTo                   InternalTransaction[]           @relation("InternalTxToWallet")
   internalFundsFrom                        InternalFund[]                  @relation("InternalFundFromWallet")
   internalFundsTo                          InternalFund[]                  @relation("InternalFundToWallet")
-  reimbursementObligations                 ReimbursementObligation[]       @relation("ReimbursementObligationSourceWallet")
   regulatoryGateItems                      RegulatoryGateItem[]            @relation("RegulatoryGateWallet")
   safeguardingPoolSnapshots                SafeguardingPoolSnapshot[]      @relation("SafeguardingPoolSnapshotWallet")
   reconciliationWarnings                   ReconciliationWarning[]         @relation("ReconciliationWarningWallet")
@@ -1482,7 +1400,6 @@ model InternalTransaction {
   settlementBatch            SettlementBatch?              @relation("SettlementBatchTransfers", fields: [settlementBatchId], references: [id], onDelete: SetNull)
   settledOutstandings        Outstanding[]                 @relation("OutstandingSettledByTransfer")
   feeAccrualsSettled         FeeAccrual[]                  @relation("FeeAccrualSettledByTransfer")
-  reimbursementSettlements   ReimbursementObligation[]     @relation("ReimbursementObligationSettlementTx")
 
   @@unique([sourceType, sourceId, type])
   @@index([status])
@@ -1494,45 +1411,6 @@ model InternalTransaction {
   @@index([traceId])
   @@index([settlementBatchId])
   @@map("internal_transactions")
-}
-
-model ReimbursementObligation {
-  id                              String               @id @default(uuid())
-  obligationNo                    String               @unique
-  status                          String               @default("OPEN")
-  approvalCaseId                  String?              @unique
-  reasonCategory                  String?
-  owedToType                      String?
-  owedToId                        String?
-  owedToNo                        String?
-  sourceType                      String?
-  sourceId                        String?
-  sourceNo                        String?
-  assetId                         String
-  amount                          Decimal
-  poolRole                        String?
-  sourceWalletId                  String?
-  sourceAccountRef                String?
-  settlementInternalTransactionId String?
-  settlementReferenceNo           String?
-  reason                          String?
-  traceId                         String?
-  metadata                        String?
-  createdAt                       DateTime             @default(now())
-  updatedAt                       DateTime             @updatedAt
-  reimbursedAt                    DateTime?
-  cancelledAt                     DateTime?
-  asset                           Asset                @relation(fields: [assetId], references: [id])
-  sourceWallet                    Wallet?              @relation("ReimbursementObligationSourceWallet", fields: [sourceWalletId], references: [id])
-  settlementInternalTransaction   InternalTransaction? @relation("ReimbursementObligationSettlementTx", fields: [settlementInternalTransactionId], references: [id])
-
-  @@index([status])
-  @@index([assetId, createdAt])
-  @@index([poolRole, status])
-  @@index([traceId])
-  @@index([settlementInternalTransactionId])
-  @@index([reasonCategory, status])
-  @@map("reimbursement_obligations")
 }
 
 model InternalFund {
@@ -1678,8 +1556,6 @@ model SwapTransaction {
   feeBreakdown     String?
   exchangeRate     Decimal
   riskDecisionRef  String?
-  alertId          String?
-  caseId           String?
   failureCode      String?
   failureReason    String?
   statusHistory    String?

@@ -307,14 +307,14 @@ const TransactionLimitList = () => {
                 <tr
                   key={p.id}
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover"
-                  onClick={() => navigate(`/dashboard/system/transaction-limits/${p.policyNo}`)}
+                  onClick={() => navigate(`/admin/assets/transaction-limits/${p.policyNo}`)}
                 >
                   <td className="px-3 py-2">
                     <button
                       className={adminButtonClass('rowKeyLink')}
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/dashboard/system/transaction-limits/${p.policyNo}`);
+                        navigate(`/admin/assets/transaction-limits/${p.policyNo}`);
                       }}
                       title={p.policyNo}
                     >

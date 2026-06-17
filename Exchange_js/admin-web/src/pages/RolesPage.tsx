@@ -342,7 +342,7 @@ const RolesPage = () => {
                 <tr
                   key={role.id}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/dashboard/members/roles/${encodeURIComponent(role.code)}`)}
+                  onClick={() => navigate(`/admin/iam/roles/${encodeURIComponent(role.code)}`)}
                 >
                   {/* Code — amber mono dominant identifier */}
                   <td className="px-4 py-2.5">

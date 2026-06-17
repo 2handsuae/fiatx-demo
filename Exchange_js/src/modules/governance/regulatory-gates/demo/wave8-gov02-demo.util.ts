@@ -1,14 +1,12 @@
 export const WAVE8_GOV02_DEMO_SEED = 'wave8-gov02-demo';
 export const WAVE8_GOV02_DEMO_TRACE_PREFIX = 'W8-GOV02-DEMO:';
 export const WAVE8_GOV02_DEMO_METADATA_MARKER = `"seed":"${WAVE8_GOV02_DEMO_SEED}"`;
-export const WAVE8_GOV02_DEMO_LICENSE_RELEASE_PREFIX = 'W8-GOV02-DEMO-LICENSE-REL-';
 
 export const WAVE8_GOV02_DEMO_API_PATHS = [
   'GET /admin/governance/regulatory-gates',
   'GET /admin/governance/regulatory-gates/:id',
   'GET /admin/governance/registries/shareholding-versions/:id',
   'GET /admin/governance/registries/appointments/:id',
-  'GET /admin/business-config/releases/:releaseNo',
   'GET /wallets/:id',
 ] as const;
 
@@ -22,7 +20,6 @@ type Gov02DemoCleanupCapablePrisma = {
   shareholdingRegistryVersion?: DeleteManyCapableDelegate;
   shareholdingRegistryParticipant?: DeleteManyCapableDelegate;
   appointmentRecord?: DeleteManyCapableDelegate;
-  businessConfigRelease?: DeleteManyCapableDelegate;
   auditLogEvent?: DeleteManyCapableDelegate;
   auditLogSubjectNo?: DeleteManyCapableDelegate;
 };
@@ -91,17 +88,11 @@ export async function cleanupWave8Gov02DemoData(
     gateIds,
     shareholdingIds,
     appointmentIds,
-    businessConfigReleaseIds,
     auditEventIds,
   ] = await Promise.all([
     findIds(prisma.regulatoryGateItem, demoRecordWhere),
     findIds(prisma.shareholdingRegistryVersion, demoRecordWhere),
     findIds(prisma.appointmentRecord, demoRecordWhere),
-    findIds(prisma.businessConfigRelease, {
-      releaseNo: {
-        startsWith: WAVE8_GOV02_DEMO_LICENSE_RELEASE_PREFIX,
-      },
-    }),
     findIds(prisma.auditLogEvent, auditEventWhere),
   ]);
 
@@ -110,7 +101,6 @@ export async function cleanupWave8Gov02DemoData(
     shareholding_registry_participants: 0,
     shareholding_registry_versions: 0,
     appointment_records: 0,
-    business_config_releases: 0,
     audit_log_subject_nos: 0,
     audit_log_events: 0,
   };
@@ -146,15 +136,6 @@ export async function cleanupWave8Gov02DemoData(
     deleted.appointment_records = await deleteMany(prisma.appointmentRecord, {
       id: { in: appointmentIds },
     });
-  }
-
-  if (businessConfigReleaseIds.length) {
-    deleted.business_config_releases = await deleteMany(
-      prisma.businessConfigRelease,
-      {
-        id: { in: businessConfigReleaseIds },
-      },
-    );
   }
 
   if (auditEventIds.length) {

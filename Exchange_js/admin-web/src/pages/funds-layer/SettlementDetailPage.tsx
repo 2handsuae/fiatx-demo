@@ -69,7 +69,7 @@ const SettlementDetailPage = () => {
         setData(result);
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load settlement detail'));
-        navigate('/funds-layer/settlements');
+        navigate('/admin/funds/settlements');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -101,7 +101,7 @@ const SettlementDetailPage = () => {
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
       <DetailPageHeader
-        onBack={() => navigate('/funds-layer/settlements')}
+        onBack={() => navigate('/admin/funds/settlements')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Settlement Batches"
@@ -197,7 +197,7 @@ const SettlementDetailPage = () => {
                         </span>
                         <span
                           className="cursor-pointer break-all text-adm-blue hover:underline"
-                          onClick={() => navigate('/funds-layer/transfers/' + t.internalTxNo)}
+                          onClick={() => navigate('/admin/funds/transfers/' + t.internalTxNo)}
                         >
                           Transfer: {t.internalTxNo}
                         </span>

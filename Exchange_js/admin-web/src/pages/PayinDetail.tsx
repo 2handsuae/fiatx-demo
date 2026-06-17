@@ -100,7 +100,7 @@ const PayinDetail = () => {
         setData(await response.json());
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load payin'));
-        navigate('/dashboard/treasury/payins');
+        navigate('/admin/trading/payins');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -168,7 +168,7 @@ const PayinDetail = () => {
     <div className="flex h-full flex-col">
       {/* Nav Header */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/treasury/payins')}
+        onBack={() => navigate('/admin/trading/payins')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Payins"
@@ -282,7 +282,7 @@ const PayinDetail = () => {
                   data.depositId
                     ? () =>
                         navigate(
-                          `/exchange/deposit-transactions/${data.depositId}`,
+                          `/admin/trading/deposits/${data.depositId}`,
                         )
                     : undefined
                 }
@@ -356,7 +356,7 @@ const PayinDetail = () => {
                   <button
                     onClick={() =>
                       navigate(
-                        `/exchange/deposit-transactions/${data.depositId}`,
+                        `/admin/trading/deposits/${data.depositId}`,
                       )
                     }
                     className="text-adm-blue hover:underline"

@@ -360,7 +360,7 @@ const WithdrawalFeeLevelList = () => {
                   key={l.id}
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover"
                   onClick={() =>
-                    navigate(`/dashboard/pricing/withdrawal-fee-levels/${l.levelCode}`)
+                    navigate(`/admin/pricing/withdrawal-fee-levels/${l.levelCode}`)
                   }
                 >
                   <td className="px-3 py-2">
@@ -369,7 +369,7 @@ const WithdrawalFeeLevelList = () => {
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(
-                          `/dashboard/pricing/withdrawal-fee-levels/${l.levelCode}`,
+                          `/admin/pricing/withdrawal-fee-levels/${l.levelCode}`,
                         );
                       }}
                       title={l.levelCode}

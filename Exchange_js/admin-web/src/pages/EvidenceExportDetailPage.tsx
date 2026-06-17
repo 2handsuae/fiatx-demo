@@ -286,7 +286,7 @@ const EvidenceExportDetailPage = () => {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
-          <button onClick={() => navigate('/dashboard/audit/evidence-exports')} className={adminButtonClass('detailUtility')}>← Back</button>
+          <button onClick={() => navigate('/admin/audit/evidence-packages')} className={adminButtonClass('detailUtility')}>← Back</button>
         </div>
         <div className="flex flex-1 items-center justify-center gap-3">
           <RefreshCw size={22} className="animate-spin text-adm-amber" />
@@ -301,7 +301,7 @@ const EvidenceExportDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
-            onClick={() => navigate('/dashboard/audit/evidence-exports')}
+            onClick={() => navigate('/admin/audit/evidence-packages')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -327,7 +327,7 @@ const EvidenceExportDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
           <button
-            onClick={() => navigate('/dashboard/audit/evidence-exports')}
+            onClick={() => navigate('/admin/audit/evidence-packages')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -352,7 +352,7 @@ const EvidenceExportDetailPage = () => {
 
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/audit/evidence-exports')}
+        onBack={() => navigate('/admin/audit/evidence-packages')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Evidence Packages"

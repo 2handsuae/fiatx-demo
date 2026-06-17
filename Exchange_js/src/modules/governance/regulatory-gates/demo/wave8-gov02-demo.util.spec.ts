@@ -1,6 +1,5 @@
 import {
   WAVE8_GOV02_DEMO_METADATA_MARKER,
-  WAVE8_GOV02_DEMO_LICENSE_RELEASE_PREFIX,
   WAVE8_GOV02_DEMO_SEED,
   WAVE8_GOV02_DEMO_TRACE_PREFIX,
   buildWave8Gov02DemoMetadata,
@@ -38,10 +37,6 @@ describe('wave8-gov02-demo util', () => {
         findMany: jest.fn().mockResolvedValue([{ id: 'apt-1' }]),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      businessConfigRelease: {
-        findMany: jest.fn().mockResolvedValue([{ id: 'rel-1' }]),
-        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
-      },
       auditLogEvent: {
         findMany: jest.fn().mockResolvedValue([{ id: 'aud-1' }]),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -74,14 +69,6 @@ describe('wave8-gov02-demo util', () => {
     expect(prisma.auditLogSubjectNo.deleteMany).toHaveBeenCalledWith({
       where: { eventId: { in: ['aud-1'] } },
     });
-    expect(prisma.businessConfigRelease.findMany).toHaveBeenCalledWith({
-      where: {
-        releaseNo: {
-          startsWith: WAVE8_GOV02_DEMO_LICENSE_RELEASE_PREFIX,
-        },
-      },
-      select: { id: true },
-    });
     expect(prisma.regulatoryGateItem.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ['gate-1'] } },
     });
@@ -94,9 +81,6 @@ describe('wave8-gov02-demo util', () => {
     expect(prisma.appointmentRecord.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ['apt-1'] } },
     });
-    expect(prisma.businessConfigRelease.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['rel-1'] } },
-    });
     expect(prisma.auditLogEvent.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ['aud-1'] } },
     });
@@ -105,7 +89,6 @@ describe('wave8-gov02-demo util', () => {
       shareholding_registry_participants: 2,
       shareholding_registry_versions: 1,
       appointment_records: 1,
-      business_config_releases: 1,
       audit_log_subject_nos: 3,
       audit_log_events: 1,
     });

@@ -271,7 +271,7 @@ const EvidenceExportsPage = () => {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/dashboard/audit/evidence-exports/${item.id}`)}
+                onClick={() => navigate(`/admin/audit/evidence-packages/${item.id}`)}
               >
                 {/* Package No */}
                 <td className="px-4 py-2.5">

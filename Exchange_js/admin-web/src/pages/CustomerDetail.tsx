@@ -399,7 +399,7 @@ const CustomerDetail = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
-            onClick={() => navigate('/dashboard/customer/management')}
+            onClick={() => navigate('/admin/customers')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -423,7 +423,7 @@ const CustomerDetail = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
-            onClick={() => navigate('/dashboard/customer/management')}
+            onClick={() => navigate('/admin/customers')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -451,7 +451,7 @@ const CustomerDetail = () => {
       {/* ── Sticky header ── */}
       <DetailPageHeader
         title="Customer"
-        onBack={() => navigate('/dashboard/customer/management')}
+        onBack={() => navigate('/admin/customers')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Customer Management"
@@ -620,7 +620,7 @@ const CustomerDetail = () => {
               </p>
               <button
                 onClick={() =>
-                  navigate(`/dashboard/control-gates/approvals/${detail.latestRiskApprovalId}`)
+                  navigate(`/admin/governance/approvals/${detail.latestRiskApprovalId}`)
                 }
                 className="flex w-full items-center justify-between gap-3 rounded border border-adm-border bg-adm-bg px-4 py-2.5 text-left transition-colors hover:border-adm-bhi hover:bg-adm-hover"
               >
@@ -754,7 +754,7 @@ const CustomerDetail = () => {
                       <tr
                         key={h.id}
                         className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                        onClick={() => navigate(`/dashboard/compliance/material-management/${h.id}`)}
+                        onClick={() => navigate(`/admin/customers/material-holdings/${h.id}`)}
                       >
                         <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                           {h.materialType}
@@ -776,7 +776,7 @@ const CustomerDetail = () => {
                               className={adminButtonClass('rowLink')}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigate(`/dashboard/compliance/material-management/${h.id}`);
+                                navigate(`/admin/customers/material-holdings/${h.id}`);
                               }}
                             >
                               {h.activeRefreshCycle.cycleNo} →
@@ -796,7 +796,7 @@ const CustomerDetail = () => {
                 className={adminButtonClass('rowLink')}
                 onClick={() =>
                   navigate(
-                    `/dashboard/compliance/material-management?customerId=${detail.id}`,
+                    `/admin/customers/material-holdings?customerId=${detail.id}`,
                   )
                 }
               >

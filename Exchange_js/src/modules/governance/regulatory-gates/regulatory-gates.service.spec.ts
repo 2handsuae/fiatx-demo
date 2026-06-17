@@ -33,9 +33,6 @@ describe('RegulatoryGatesService', () => {
       appointmentRecord: {
         findUnique: jest.fn(),
       },
-      businessConfigRelease: {
-        findUnique: jest.fn(),
-      },
       wallet: {
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -202,83 +199,6 @@ describe('RegulatoryGatesService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('creates a license-scope gate bound to business config release', async () => {
-    prisma.businessConfigRelease.findUnique.mockResolvedValue({
-      id: 'release-1',
-      releaseNo: 'COA-REL-001',
-      status: 'VALIDATED',
-    });
-    prisma.regulatoryGateItem.findFirst.mockResolvedValue(null);
-    prisma.regulatoryGateItem.create.mockResolvedValue({
-      id: 'gate-release-1',
-      gateNo: 'RGT2603300002',
-      gateType: 'LICENSE_SCOPE_CHANGE',
-      authority: 'VARA',
-      subjectType: 'BUSINESS_CONFIG_RELEASE',
-      subjectId: 'release-1',
-      subjectNo: 'COA-REL-001',
-      shareholdingRegistryVersionId: null,
-      appointmentRecordId: null,
-      businessConfigReleaseId: 'release-1',
-      walletId: null,
-      linkedApprovalId: null,
-      internalApprovalStatus: 'NOT_REQUIRED',
-      filingStatus: 'REQUIRED',
-      receiptStatus: 'PENDING',
-      effectivenessStatus: 'BLOCKED',
-      gateResult: 'BLOCKED',
-      filingRefNo: null,
-      filingSubmittedAt: null,
-      latestFeedback: null,
-      latestFeedbackAt: null,
-      receiptType: null,
-      receiptRefNo: null,
-      receiptBoundAt: null,
-      proposedEffectiveAt: null,
-      effectiveAt: null,
-      revokedAt: null,
-      metadataJson: '{}',
-      traceId: 'trace-gate-release-1',
-      activeKey: 'BUSINESS_CONFIG_RELEASE:release-1',
-      createdByUserId: 'admin-1',
-      updatedByUserId: null,
-      createdAt: baseDate,
-      updatedAt: baseDate,
-      shareholdingRegistryVersion: null,
-      appointmentRecord: null,
-      businessConfigRelease: {
-        id: 'release-1',
-        releaseNo: 'COA-REL-001',
-        status: 'VALIDATED',
-      },
-      wallet: null,
-      linkedApproval: null,
-    });
-
-    const result = await service.create(
-      {
-        gateType: 'LICENSE_SCOPE_CHANGE',
-        businessConfigReleaseId: 'release-1',
-        scopeSummary: 'Enable new scope',
-      } as any,
-      actor,
-    );
-
-    expect(prisma.regulatoryGateItem.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          gateType: 'LICENSE_SCOPE_CHANGE',
-          subjectType: 'BUSINESS_CONFIG_RELEASE',
-          subjectId: 'release-1',
-          subjectNo: 'COA-REL-001',
-          businessConfigReleaseId: 'release-1',
-          activeKey: 'BUSINESS_CONFIG_RELEASE:release-1',
-        }),
-      }),
-    );
-    expect(result.subjectType).toBe('BUSINESS_CONFIG_RELEASE');
-  });
-
   it('rejects client-bank-account gate creation when wallet is not C_CMA', async () => {
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
@@ -309,7 +229,6 @@ describe('RegulatoryGatesService', () => {
       subjectNo: 'WA2600000014',
       shareholdingRegistryVersionId: null,
       appointmentRecordId: null,
-      businessConfigReleaseId: null,
       walletId: 'wallet-1',
       linkedApprovalId: null,
       internalApprovalStatus: 'NOT_REQUIRED',
@@ -324,7 +243,6 @@ describe('RegulatoryGatesService', () => {
       updatedAt: baseDate,
       shareholdingRegistryVersion: null,
       appointmentRecord: null,
-      businessConfigRelease: null,
       wallet: {
         id: 'wallet-1',
         walletNo: 'WA2600000014',
@@ -350,7 +268,6 @@ describe('RegulatoryGatesService', () => {
       subjectNo: 'WA2600000014',
       shareholdingRegistryVersionId: null,
       appointmentRecordId: null,
-      businessConfigReleaseId: null,
       walletId: 'wallet-1',
       linkedApprovalId: null,
       internalApprovalStatus: 'NOT_REQUIRED',
@@ -370,7 +287,6 @@ describe('RegulatoryGatesService', () => {
       updatedAt: baseDate,
       shareholdingRegistryVersion: null,
       appointmentRecord: null,
-      businessConfigRelease: null,
       wallet: {
         id: 'wallet-1',
         walletNo: 'WA2600000014',

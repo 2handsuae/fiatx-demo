@@ -130,7 +130,7 @@ const SafeguardingBreakDetail = () => {
     return (
       <div className="space-y-4">
         <button
-          onClick={() => navigate('/dashboard/reconciliation/safeguarding-breaks')}
+          onClick={() => navigate('/admin/reconciliation/safeguarding-breaks')}
           className={adminButtonClass('detailUtility')}
         >
           Back to Safeguarding Breaks
@@ -147,7 +147,7 @@ const SafeguardingBreakDetail = () => {
       <DetailPageHeader
         title="Safeguarding Break"
         subtitle={`${data.breakNo} · ${data.businessDate} · ${data.reasonCode}`}
-        onBack={() => navigate('/dashboard/reconciliation/safeguarding-breaks')}
+        onBack={() => navigate('/admin/reconciliation/safeguarding-breaks')}
         onRefresh={() => void fetchDetail()}
         backLabel="Back to Safeguarding Breaks"
       >

@@ -200,7 +200,7 @@ export default function AssetDetail() {
       <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
         <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading asset…</p>
-        <button onClick={() => navigate('/dashboard/system/assets')} className={adminButtonClass('detailUtility')}>
+        <button onClick={() => navigate('/admin/assets')} className={adminButtonClass('detailUtility')}>
           ← Back to Assets
         </button>
       </div>
@@ -212,7 +212,7 @@ export default function AssetDetail() {
       <div className="space-y-4 rounded border border-adm-red/30 bg-adm-red/10 p-8 text-center">
         <div className="font-mono text-[11px] text-adm-red">{error || 'Asset not found'}</div>
         <div className="flex items-center justify-center gap-3">
-          <button onClick={() => navigate('/dashboard/system/assets')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/assets')} className={adminButtonClass('detailUtility')}>
             Back to Assets
           </button>
           <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
@@ -227,7 +227,7 @@ export default function AssetDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/system/assets')}
+        onBack={() => navigate('/admin/assets')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
       />
@@ -321,7 +321,7 @@ export default function AssetDetail() {
                 {asset.status === 'PROVISIONING' && (
                   <>
                     <button
-                      onClick={() => navigate(`/dashboard/system/assets/${assetNo}/edit`)}
+                      onClick={() => navigate(`/admin/assets/${assetNo}/edit`)}
                       className={adminButtonClass('detailUtility')}
                     >
                       <Pencil size={13} />

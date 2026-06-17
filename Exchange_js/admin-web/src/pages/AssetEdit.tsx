@@ -152,7 +152,7 @@ const AssetEdit = () => {
       );
 
       if (res.ok) {
-        navigate(`/dashboard/system/assets/${assetNoParam}`);
+        navigate(`/admin/assets/${assetNoParam}`);
       } else {
         setError(await getApiErrorMessage(res, 'Failed to update asset'));
       }
@@ -179,7 +179,7 @@ const AssetEdit = () => {
     return (
       <div className="space-y-4 rounded border border-adm-red/30 bg-adm-red/10 p-8 text-center">
         <div className="font-mono text-[11px] text-adm-red">{error || 'Asset not found'}</div>
-        <button onClick={() => navigate('/dashboard/system/assets')} className={adminButtonClass('detailUtility')}>
+        <button onClick={() => navigate('/admin/assets')} className={adminButtonClass('detailUtility')}>
           Back to Assets
         </button>
       </div>
@@ -191,7 +191,7 @@ const AssetEdit = () => {
       {/* ── Header ── */}
       <div className="flex shrink-0 items-center gap-3 border-b border-adm-border bg-adm-panel px-4 py-3">
         <button
-          onClick={() => navigate(`/dashboard/system/assets/${assetNoParam}`)}
+          onClick={() => navigate(`/admin/assets/${assetNoParam}`)}
           className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
         >
           <ArrowLeft size={16} />
@@ -302,7 +302,7 @@ const AssetEdit = () => {
 
           {/* ⑤ Submit */}
           <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
-            <button type="button" onClick={() => navigate(`/dashboard/system/assets/${assetNoParam}`)} className={adminButtonClass('modalCancel')}>
+            <button type="button" onClick={() => navigate(`/admin/assets/${assetNoParam}`)} className={adminButtonClass('modalCancel')}>
               Cancel
             </button>
             <button type="submit" disabled={saving} className={adminButtonClass('modalConfirm')}>

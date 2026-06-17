@@ -338,7 +338,7 @@ export default function PlatformMemberDetailPage() {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
-          <button onClick={() => navigate('/dashboard/members')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/iam/members')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
           <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
@@ -358,7 +358,7 @@ export default function PlatformMemberDetailPage() {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
-          <button onClick={() => navigate('/dashboard/members')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/iam/members')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
         </div>
@@ -397,7 +397,7 @@ export default function PlatformMemberDetailPage() {
 
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/members')}
+        onBack={() => navigate('/admin/iam/members')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Platform Members"

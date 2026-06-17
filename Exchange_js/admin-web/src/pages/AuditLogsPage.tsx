@@ -248,7 +248,7 @@ const AuditLogsPage = () => {
               : 'Create Evidence Package'}
         </button>
         <button
-          onClick={() => navigate('/dashboard/audit/evidence-exports')}
+          onClick={() => navigate('/admin/audit/evidence-packages')}
           className={adminButtonClass('listSecondary')}
         >
           Evidence Packages
@@ -358,7 +358,7 @@ const AuditLogsPage = () => {
           {message}
           {lastExportId && (
             <button
-              onClick={() => navigate('/dashboard/audit/evidence-exports')}
+              onClick={() => navigate('/admin/audit/evidence-packages')}
               className={adminButtonClass('rowLink', 'ml-3')}
             >
               View package →
@@ -465,7 +465,7 @@ const AuditLogsPage = () => {
                   <tr
                     key={item.id}
                     className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                    onClick={() => navigate(`/dashboard/audit/audit-logs/${item.id}`)}
+                    onClick={() => navigate(`/admin/audit/logs/${item.id}`)}
                   >
                     {/* Checkbox */}
                     <td className="px-3 py-2.5">

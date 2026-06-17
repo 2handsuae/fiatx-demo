@@ -330,7 +330,7 @@ export default function SwapFeeLevelDetail() {
         </div>
         <div className="flex items-center justify-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/pricing/swap-fee-levels')}
+            onClick={() => navigate('/admin/pricing/swap-fee-levels')}
             className={adminButtonClass('detailUtility')}
           >
             Back to Levels
@@ -347,7 +347,7 @@ export default function SwapFeeLevelDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/pricing/swap-fee-levels')}
+        onBack={() => navigate('/admin/pricing/swap-fee-levels')}
         onRefresh={() => {
           void fetchDetail();
           void fetchBindings();
@@ -590,7 +590,7 @@ export default function SwapFeeLevelDetail() {
                   <button
                     onClick={() =>
                       navigate(
-                        `/dashboard/control-gates/approvals/${level.approvalCaseNo}`,
+                        `/admin/governance/approvals/${level.approvalCaseNo}`,
                       )
                     }
                     className="font-mono text-[10px] text-adm-amber hover:underline"

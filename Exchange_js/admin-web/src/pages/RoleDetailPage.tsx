@@ -310,7 +310,7 @@ const RoleDetailPage = () => {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 flex items-center gap-2 border-b border-adm-border bg-adm-panel px-6 py-4">
-          <button onClick={() => navigate('/dashboard/members/roles')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/iam/roles')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
         </div>
@@ -328,7 +328,7 @@ const RoleDetailPage = () => {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 flex items-center gap-2 border-b border-adm-border bg-adm-panel px-6 py-4">
-          <button onClick={() => navigate('/dashboard/members/roles')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/iam/roles')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
           <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
@@ -348,7 +348,7 @@ const RoleDetailPage = () => {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
-          <button onClick={() => navigate('/dashboard/members/roles')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/iam/roles')} className={adminButtonClass('detailUtility')}>
             ← Back
           </button>
         </div>
@@ -364,7 +364,7 @@ const RoleDetailPage = () => {
 
       {/* Sticky nav header */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/members/roles')}
+        onBack={() => navigate('/admin/iam/roles')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Roles"

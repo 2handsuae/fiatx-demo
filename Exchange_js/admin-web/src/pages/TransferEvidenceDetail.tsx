@@ -82,9 +82,9 @@ const formatDate = (d: string) =>
   });
 
 const SOURCE_ROUTES: Record<string, string> = {
-  DEPOSIT: '/exchange/deposit-transactions',
-  WITHDRAWAL: '/exchange/withdraw-transactions',
-  SWAP: '/exchange/swap-transactions',
+  DEPOSIT: '/admin/trading/deposits',
+  WITHDRAWAL: '/admin/trading/withdrawals',
+  SWAP: '/admin/trading/swaps',
   INTERNAL: '/exchange/internal-transactions',
 };
 
@@ -191,7 +191,7 @@ export default function TransferEvidenceDetail() {
       <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
         <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading transfer evidence…</p>
-        <button onClick={() => navigate('/ledger/transfers')} className={adminButtonClass('detailUtility')}>
+        <button onClick={() => navigate('/admin/ledger/transfer-evidence')} className={adminButtonClass('detailUtility')}>
           ← Back to Transfers
         </button>
       </div>
@@ -205,7 +205,7 @@ export default function TransferEvidenceDetail() {
       <div className="space-y-4 rounded border border-adm-red/30 bg-adm-red/10 p-8 text-center">
         <div className="font-mono text-[11px] text-adm-red">{error || 'Transfer evidence not found'}</div>
         <div className="flex items-center justify-center gap-3">
-          <button onClick={() => navigate('/ledger/transfers')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/ledger/transfer-evidence')} className={adminButtonClass('detailUtility')}>
             Back to Transfers
           </button>
           <button onClick={() => void fetchData()} className={adminButtonClass('detailUtility')}>
@@ -223,7 +223,7 @@ export default function TransferEvidenceDetail() {
       {/* ── Header ── */}
       <DetailPageHeader
         backLabel="Transfer Evidence"
-        onBack={() => navigate('/ledger/transfers')}
+        onBack={() => navigate('/admin/ledger/transfer-evidence')}
         onRefresh={() => void fetchData()}
         refreshing={loading}
       />
@@ -267,13 +267,13 @@ export default function TransferEvidenceDetail() {
                 label="Debit Account"
                 value={truncateHex(detail.debitTbAccountId)}
                 mono
-                link={detail.debitTbAccountId ? `/ledger/accounts/${detail.debitTbAccountId}` : undefined}
+                link={detail.debitTbAccountId ? `/admin/ledger/accounts/${detail.debitTbAccountId}` : undefined}
               />
               <InfoField
                 label="Credit Account"
                 value={truncateHex(detail.creditTbAccountId)}
                 mono
-                link={detail.creditTbAccountId ? `/ledger/accounts/${detail.creditTbAccountId}` : undefined}
+                link={detail.creditTbAccountId ? `/admin/ledger/accounts/${detail.creditTbAccountId}` : undefined}
               />
               <InfoField label="Amount" value={formatTbAmount(detail.amount, detail.assetCode)} mono />
               <InfoField label="Asset" value={detail.assetCode} />

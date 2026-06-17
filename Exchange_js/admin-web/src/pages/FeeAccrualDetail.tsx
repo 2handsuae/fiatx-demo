@@ -91,7 +91,7 @@ const FeeAccrualDetail = () => {
 
   useEffect(() => { void fetchDetail(); }, [id]);
 
-  const back = () => navigate('/dashboard/reconciliation/fee-accruals');
+  const back = () => navigate('/admin/funds/fee-accruals');
 
   const handleCopy = async () => {
     if (!data?.originTraceId) return;
@@ -145,19 +145,19 @@ const FeeAccrualDetail = () => {
             <Field
               label="Settlement Batch"
               value={data.settlementBatch?.batchNo ? (
-                <LinkButton label={data.settlementBatch.batchNo} onClick={() => navigate('/funds-layer/settlements/' + data.settlementBatch!.batchNo)} />
+                <LinkButton label={data.settlementBatch.batchNo} onClick={() => navigate('/admin/funds/settlements/' + data.settlementBatch!.batchNo)} />
               ) : '—'}
             />
             <Field
               label="Settled By Transfer"
               value={data.settledByTransfer?.internalTxNo ? (
-                <LinkButton label={data.settledByTransfer.internalTxNo} onClick={() => navigate('/funds-layer/transfers/' + data.settledByTransfer!.internalTxNo)} />
+                <LinkButton label={data.settledByTransfer.internalTxNo} onClick={() => navigate('/admin/funds/transfers/' + data.settledByTransfer!.internalTxNo)} />
               ) : '—'}
             />
             <Field
               label="Closed By Fund"
               value={data.closedByInternalFund?.internalFundNo ? (
-                <LinkButton label={data.closedByInternalFund.internalFundNo} onClick={() => navigate('/funds-layer/funds/' + data.closedByInternalFund!.internalFundNo)} />
+                <LinkButton label={data.closedByInternalFund.internalFundNo} onClick={() => navigate('/admin/funds/internal-funds/' + data.closedByInternalFund!.internalFundNo)} />
               ) : '—'}
             />
           </div>
@@ -204,7 +204,7 @@ const FeeAccrualDetail = () => {
                   {data.siblings.map((s) => (
                     <tr
                       key={s.id}
-                      onClick={() => navigate(`/dashboard/reconciliation/fee-accruals/${s.id}`)}
+                      onClick={() => navigate(`/admin/funds/fee-accruals/${s.id}`)}
                       className="cursor-pointer border-b border-adm-border hover:bg-adm-panel"
                     >
                       <td className="px-3 py-2 text-adm-t1">{s.feeAccrualNo || '—'}</td>

@@ -24,7 +24,6 @@ type RegulatoryGateItem = {
   updatedAt: string;
   shareholdingRegistryVersion?: { id: string; registryNo: string; status: string } | null;
   appointmentRecord?: { id: string; appointmentNo: string; status: string; regulatedFlag: boolean } | null;
-  businessConfigRelease?: { id: string; releaseNo: string; status: string } | null;
   wallet?: { id: string; walletNo: string; walletRole?: string | null } | null;
 };
 
@@ -123,7 +122,7 @@ const RegulatoryGateListPage = () => {
         <div className="flex items-center gap-3">
           {canCreate ? (
             <button
-              onClick={() => navigate('/dashboard/governance/regulatory-gates/create')}
+              onClick={() => navigate('/admin/registries/regulatory-gates/create')}
               className="inline-flex items-center gap-2 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white hover:bg-brand-primary/90"
             >
               <Plus size={16} />
@@ -162,7 +161,6 @@ const RegulatoryGateListPage = () => {
             <option value="">All Gate Types</option>
             <option value="CONTROL_CHANGE">CONTROL_CHANGE</option>
             <option value="REGULATED_APPOINTMENT_CHANGE">REGULATED_APPOINTMENT_CHANGE</option>
-            <option value="LICENSE_SCOPE_CHANGE">LICENSE_SCOPE_CHANGE</option>
             <option value="CLIENT_BANK_ACCOUNT_ENABLEMENT">CLIENT_BANK_ACCOUNT_ENABLEMENT</option>
           </select>
           <select
@@ -173,7 +171,6 @@ const RegulatoryGateListPage = () => {
             <option value="">All Subject Types</option>
             <option value="SHAREHOLDING_REGISTRY_VERSION">SHAREHOLDING_REGISTRY_VERSION</option>
             <option value="APPOINTMENT_RECORD">APPOINTMENT_RECORD</option>
-            <option value="BUSINESS_CONFIG_RELEASE">BUSINESS_CONFIG_RELEASE</option>
             <option value="WALLET">WALLET</option>
           </select>
           <input
@@ -284,7 +281,7 @@ const RegulatoryGateListPage = () => {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/regulatory-gates/${item.id}`)}
+                        onClick={() => navigate(`/admin/registries/regulatory-gates/${item.id}`)}
                         className="font-mono text-xs text-brand-primary hover:underline"
                       >
                         {item.gateNo}
@@ -315,7 +312,7 @@ const RegulatoryGateListPage = () => {
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => navigate(`/dashboard/governance/regulatory-gates/${item.id}`)}
+                        onClick={() => navigate(`/admin/registries/regulatory-gates/${item.id}`)}
                         className="inline-flex items-center gap-1 text-sm font-medium text-brand-primary hover:underline"
                       >
                         <Eye size={14} />

@@ -8,7 +8,6 @@ import {
   Briefcase,
   X,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
 import {
   CustomerSessionError,
@@ -97,7 +96,6 @@ interface StatementRow {
 
 const DashboardOverview = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

@@ -120,7 +120,7 @@ const LiquidityConfigList = () => {
             <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
           </button>
           <button 
-            onClick={() => navigate('/dashboard/system/liquidity-config/create')}
+            onClick={() => navigate('/admin/counterparty/liquidity-config/create')}
             className={adminButtonClass('listPrimary')}
           >
             <Plus size={20} /> New Config
@@ -227,7 +227,7 @@ const LiquidityConfigList = () => {
                         </button>
                         {config.status === 'INACTIVE' && (
                           <button 
-                            onClick={() => navigate(`/dashboard/system/liquidity-config/edit/${config.id}`)}
+                            onClick={() => navigate(`/admin/counterparty/liquidity-config/edit/${config.id}`)}
                             className={adminButtonClass('rowSecondaryUtility')}
                           >
                             Edit

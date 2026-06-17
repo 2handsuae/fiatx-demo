@@ -75,7 +75,7 @@ const SwapOutstandingDetail = () => {
 
   useEffect(() => { void fetchDetail(); }, [id]);
 
-  const back = () => navigate('/dashboard/reconciliation/outstandings');
+  const back = () => navigate('/admin/funds/outstandings');
 
   if (loading && !data) return <div className="flex min-h-[400px] items-center justify-center font-mono text-[11px] text-adm-t3">Loading…</div>;
   if (error && !data) return (
@@ -135,13 +135,13 @@ const SwapOutstandingDetail = () => {
           {hasLinkage ? (
             <div className="grid grid-cols-2 gap-x-8 gap-y-4 md:grid-cols-3">
               <Field label="Settlement Batch" value={data.settlementBatch ? (
-                <Link label={`${data.settlementBatch.batchNo} (${data.settlementBatch.settlementType || '—'} · ${data.settlementBatch.status})`} onClick={() => navigate('/funds-layer/settlements/' + data.settlementBatch!.batchNo)} />
+                <Link label={`${data.settlementBatch.batchNo} (${data.settlementBatch.settlementType || '—'} · ${data.settlementBatch.status})`} onClick={() => navigate('/admin/funds/settlements/' + data.settlementBatch!.batchNo)} />
               ) : '—'} />
               <Field label="Settled By Transfer" value={data.settledByTransfer ? (
-                <Link label={`${data.settledByTransfer.internalTxNo} (${data.settledByTransfer.pathLabel || '—'} · ${data.settledByTransfer.status})`} onClick={() => navigate('/funds-layer/transfers/' + data.settledByTransfer!.internalTxNo)} />
+                <Link label={`${data.settledByTransfer.internalTxNo} (${data.settledByTransfer.pathLabel || '—'} · ${data.settledByTransfer.status})`} onClick={() => navigate('/admin/funds/transfers/' + data.settledByTransfer!.internalTxNo)} />
               ) : '—'} />
               <Field label="Closed By Fund" value={data.closedByInternalFund ? (
-                <Link label={`${data.closedByInternalFund.internalFundNo} (${data.closedByInternalFund.status})`} onClick={() => navigate('/funds-layer/funds/' + data.closedByInternalFund!.internalFundNo)} />
+                <Link label={`${data.closedByInternalFund.internalFundNo} (${data.closedByInternalFund.status})`} onClick={() => navigate('/admin/funds/internal-funds/' + data.closedByInternalFund!.internalFundNo)} />
               ) : '—'} />
             </div>
           ) : (<div className="font-mono text-[11px] italic text-adm-t3">Not yet settled.</div>)}

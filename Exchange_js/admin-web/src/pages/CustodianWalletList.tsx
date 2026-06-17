@@ -304,7 +304,7 @@ const CustodianWalletList = () => {
                 <tr
                   key={w.id}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/dashboard/treasury/custodian-wallets/${w.id}`)}
+                  onClick={() => navigate(`/admin/custody/wallets/${w.id}`)}
                 >
                   {/* Wallet No */}
                   <td className="px-4 py-2.5">
@@ -322,7 +322,7 @@ const CustodianWalletList = () => {
                   <td className="px-3 py-2 font-mono text-[11px]">
                     {w.ownerType === 'CUSTOMER' && w.ownerNo && w.ownerId ? (
                       <button
-                        onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/customer/${w.ownerId}`); }}
+                        onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${w.ownerId}`); }}
                         className="text-adm-amber hover:underline"
                         title="Open customer"
                       >

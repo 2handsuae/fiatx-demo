@@ -177,7 +177,7 @@ export default function PolicyChangeRequestDetailPage() {
               <p className="mb-1 font-mono text-[8.5px] uppercase tracking-[0.14em] text-adm-t3">Approval Case</p>
               {data.approvalCaseNo ? (
                 <button
-                  onClick={() => navigate(`/dashboard/control-gates/approvals/${data.approvalCaseId}`)}
+                  onClick={() => navigate(`/admin/governance/approvals/${data.approvalCaseId}`)}
                   className="font-mono text-[11px] font-semibold text-adm-amber hover:opacity-75"
                 >
                   {data.approvalCaseNo}

@@ -129,7 +129,7 @@ const WithdrawTransactionDetail = () => {
         setData(await response.json());
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load detail'));
-        navigate('/exchange/withdraw-transactions');
+        navigate('/admin/trading/withdrawals');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -217,7 +217,7 @@ const WithdrawTransactionDetail = () => {
     <div className="flex h-full flex-col">
       {/* ── Nav Header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/exchange/withdraw-transactions')}
+        onBack={() => navigate('/admin/trading/withdrawals')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Withdrawals"
@@ -360,7 +360,7 @@ const WithdrawTransactionDetail = () => {
                 cap="Payout"
                 identifier={data.payoutNo}
                 statusValue={data.payout?.status}
-                onClick={() => navigate(`/dashboard/treasury/payouts/${data.payoutId}`)}
+                onClick={() => navigate(`/admin/trading/payouts/${data.payoutId}`)}
               />
             </DetailCard>
           )}

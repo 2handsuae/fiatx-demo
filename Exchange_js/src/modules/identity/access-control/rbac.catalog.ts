@@ -27,12 +27,6 @@ export type PermissionGroup =
   | 'SIMULATE_EXPIRED_WRITE'
   | 'RISK_DECISION_RECORD_READ'
   | 'RISK_DECISION_RECORD_WRITE'
-  | 'ALERT_READ'
-  | 'ALERT_WRITE'
-  | 'CASE_READ'
-  | 'CASE_WRITE'
-  | 'CASE_EXPORT_READ'
-  | 'CASE_EXPORT_WRITE'
   | 'TX_COMPLIANCE_READ'
   | 'TX_COMPLIANCE_WRITE'
   | 'TRADING_DEPOSIT_READ'
@@ -268,98 +262,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/risk/decision-records/:id', 'Get risk decision record detail', ['RISK_DECISION_RECORD_READ']),
   route('POST', '/admin/risk/decision-records/:id/simulate', 'Simulate risk decision record', ['RISK_DECISION_RECORD_WRITE']),
 
-  // Alert triage center
-  route('GET', '/admin/compliance/alerts', 'List compliance alerts', ['ALERT_READ']),
-  route('GET', '/admin/compliance/alerts/:id', 'Get compliance alert detail', ['ALERT_READ']),
-  route('PATCH', '/admin/compliance/alerts/:id/action', 'Apply compliance alert action', ['ALERT_WRITE']),
-  route('POST', '/admin/compliance/alerts/:id/resolve', 'Resolve compliance alert', ['ALERT_WRITE']),
-  route('POST', '/admin/compliance/alerts/simulate', 'Simulate compliance alerts', ['ALERT_WRITE']),
-  route('GET', '/admin/compliance/cases', 'List compliance cases', ['CASE_READ']),
-  route('GET', '/admin/compliance/cases/:id', 'Get compliance case detail', ['CASE_READ']),
-  route(
-    'POST',
-    '/admin/compliance/cases/from-alert/:alertId',
-    'Create compliance case from alert',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'PATCH',
-    '/admin/compliance/cases/:id/action',
-    'Apply compliance case action',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/alerts',
-    'Link alert into compliance case',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/onboarding-decision',
-    'Apply onboarding decision from case',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/periodic-review-decision',
-    'Apply periodic review decision from case',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/report/submit-to-mlro',
-    'Submit case to MLRO review',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/filing/submit',
-    'Submit external filing for case',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/filing/feedback',
-    'Record external filing feedback for case',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/filing/close',
-    'Close case external filing follow-up',
-    ['CASE_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/:id/mlro-review',
-    'Review case final disposition as MLRO',
-    ['MLRO_REVIEW_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/compliance/cases/export/evidence-package',
-    'Create case evidence export request',
-    ['CASE_EXPORT_WRITE'],
-  ),
-  route(
-    'GET',
-    '/admin/compliance/cases/evidence-packages',
-    'List case evidence package exports',
-    ['CASE_EXPORT_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/compliance/cases/evidence-packages/:id',
-    'Get case evidence package detail',
-    ['CASE_EXPORT_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/compliance/cases/evidence-packages/:id/download',
-    'Download case evidence package content',
-    ['CASE_EXPORT_READ'],
-  ),
   // Transaction compliance
   route('POST', '/admin/compliance/tx-kyt-cases/mock-complete', 'Mock complete KYT case', ['TX_COMPLIANCE_WRITE']),
   route('POST', '/admin/compliance/tx-travel-rule-cases/mock-complete', 'Mock complete travel-rule case', ['TX_COMPLIANCE_WRITE']),
@@ -448,24 +350,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/internal-funds/:id', 'Get internal fund detail', ['INTERNAL_FUND_READ']),
   route('PATCH', '/admin/internal-funds/:id/status', 'Update internal fund status', ['INTERNAL_FUND_WRITE']),
   route('POST', '/admin/internal-funds/mock', 'Mock internal fund transition', ['INTERNAL_FUND_WRITE']),
-  route(
-    'GET',
-    '/admin/reimbursement-obligations',
-    'List reimbursement obligations',
-    ['INTERNAL_FUND_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/reimbursement-obligations/:id',
-    'Get reimbursement obligation detail',
-    ['INTERNAL_FUND_READ'],
-  ),
-  route(
-    'PATCH',
-    '/admin/reimbursement-obligations/:id/status',
-    'Update reimbursement obligation status',
-    ['INTERNAL_FUND_WRITE'],
-  ),
 
   // Reconciliation
   route('GET', '/admin/reconciliation/outstandings', 'List outstandings', ['RECON_OUTSTANDING_READ']),
@@ -1058,9 +942,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
-    'ALERT_READ',
-    'CASE_READ',
-    'CASE_EXPORT_READ',
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
@@ -1133,12 +1014,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
     'RISK_DECISION_RECORD_WRITE',
-    'ALERT_READ',
-    'ALERT_WRITE',
-    'CASE_READ',
-    'CASE_WRITE',
-    'CASE_EXPORT_READ',
-    'CASE_EXPORT_WRITE',
     'RECON_BREAK_READ',
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
@@ -1164,12 +1039,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RISK_DECISION_RECORD_READ',
     'RISK_DECISION_RECORD_WRITE',
     'MLRO_REVIEW_WRITE',
-    'ALERT_READ',
-    'ALERT_WRITE',
-    'CASE_READ',
-    'CASE_WRITE',
-    'CASE_EXPORT_READ',
-    'CASE_EXPORT_WRITE',
     'RECON_BREAK_READ',
     'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
@@ -1206,9 +1075,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
-    'ALERT_READ',
-    'CASE_READ',
-    'CASE_EXPORT_READ',
     'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',

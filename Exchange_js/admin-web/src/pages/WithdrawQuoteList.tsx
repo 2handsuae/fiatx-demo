@@ -244,7 +244,7 @@ const WithdrawQuoteList = () => {
                       type="button"
                       className={adminButtonClass('rowKeyLink')}
                       onClick={() =>
-                        navigate(`/dashboard/pricing/withdraw-quotes/${item.quoteId}`)
+                        navigate(`/admin/trading/withdraw-quotes/${item.quoteId}`)
                       }
                     >
                       {item.quoteNo || '—'}

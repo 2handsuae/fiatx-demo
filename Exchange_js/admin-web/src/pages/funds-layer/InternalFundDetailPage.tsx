@@ -99,7 +99,7 @@ const WalletField = ({
         {wallet?.walletNo ? (
           <button
             onClick={() =>
-              navigate(`/dashboard/treasury/custodian-wallets/${wallet.id}`)
+              navigate(`/admin/custody/wallets/${wallet.id}`)
             }
             className="text-adm-amber hover:underline"
             title="Open wallet"
@@ -146,7 +146,7 @@ const InternalFundDetailPage = () => {
         setData(result);
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load fund detail'));
-        navigate('/funds-layer/funds');
+        navigate('/admin/funds/internal-funds');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -224,7 +224,7 @@ const InternalFundDetailPage = () => {
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
       <DetailPageHeader
-        onBack={() => navigate('/funds-layer/funds')}
+        onBack={() => navigate('/admin/funds/internal-funds')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Internal Funds"
@@ -368,7 +368,7 @@ const InternalFundDetailPage = () => {
                   .join(' · ') || undefined}
                 onClick={() =>
                   navigate(
-                    '/funds-layer/transfers/' + data.internalTransaction.internalTxNo,
+                    '/admin/funds/transfers/' + data.internalTransaction.internalTxNo,
                   )
                 }
               />
@@ -435,7 +435,7 @@ const InternalFundDetailPage = () => {
                   <button
                     onClick={() =>
                       navigate(
-                        '/funds-layer/transfers/' + data.internalTransaction.internalTxNo,
+                        '/admin/funds/transfers/' + data.internalTransaction.internalTxNo,
                       )
                     }
                     className="font-mono text-[11px] text-adm-amber underline-offset-2 hover:underline"

@@ -213,7 +213,7 @@ const RiskAssessmentDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <DetailPageHeader
           title="Risk Assessment"
-          onBack={() => navigate('/dashboard/compliance/risk-assessments')}
+          onBack={() => navigate('/admin/compliance/risk-assessments')}
           onRefresh={() => void fetchDetail()}
           refreshing={loading}
           backLabel="Risk Assessments"
@@ -238,7 +238,7 @@ const RiskAssessmentDetailPage = () => {
       {/* ── Header ── */}
       <DetailPageHeader
         title="Risk Assessment"
-        onBack={() => navigate('/dashboard/compliance/risk-assessments')}
+        onBack={() => navigate('/admin/compliance/risk-assessments')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Risk Assessments"
@@ -273,7 +273,7 @@ const RiskAssessmentDetailPage = () => {
             <button
               className={adminButtonClass('rowLink')}
               onClick={() =>
-                navigate(`/dashboard/customer/management/${detail.customer.id}`)
+                navigate(`/admin/customers/${detail.customer.id}`)
               }
             >
               {detail.customer.customerNo}
@@ -335,7 +335,7 @@ const RiskAssessmentDetailPage = () => {
                   <button
                     className={adminButtonClass('rowLink')}
                     onClick={() =>
-                      navigate(`/dashboard/control-gates/approvals/${detail.phase1ApprovalCaseId}`)
+                      navigate(`/admin/governance/approvals/${detail.phase1ApprovalCaseId}`)
                     }
                   >
                     Phase 1 Approval →
@@ -345,7 +345,7 @@ const RiskAssessmentDetailPage = () => {
                   <button
                     className={adminButtonClass('rowLink')}
                     onClick={() =>
-                      navigate(`/dashboard/control-gates/approvals/${detail.phase2ApprovalCaseId}`)
+                      navigate(`/admin/governance/approvals/${detail.phase2ApprovalCaseId}`)
                     }
                   >
                     Phase 2 Approval →
@@ -355,7 +355,7 @@ const RiskAssessmentDetailPage = () => {
                   <button
                     className={adminButtonClass('rowLink')}
                     onClick={() =>
-                      navigate(`/dashboard/control-gates/approvals/${detail.approvalCaseId}`)
+                      navigate(`/admin/governance/approvals/${detail.approvalCaseId}`)
                     }
                   >
                     Approval →

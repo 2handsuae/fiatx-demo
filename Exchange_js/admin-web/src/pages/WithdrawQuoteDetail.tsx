@@ -115,7 +115,7 @@ const WithdrawQuoteDetail = () => {
       <div className="p-6">
         <DetailPageHeader
           title="Withdraw Quote Detail"
-          onBack={() => navigate('/dashboard/pricing/withdraw-quotes')}
+          onBack={() => navigate('/admin/trading/withdraw-quotes')}
           onRefresh={() => void fetchDetail()}
           backLabel="Back to Withdraw Quotes"
         />
@@ -139,7 +139,7 @@ const WithdrawQuoteDetail = () => {
       <DetailPageHeader
         title="Withdraw Quote Detail"
         subtitle={data.quoteNo}
-        onBack={() => navigate('/dashboard/pricing/withdraw-quotes')}
+        onBack={() => navigate('/admin/trading/withdraw-quotes')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Back to Withdraw Quotes"

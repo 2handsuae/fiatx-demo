@@ -165,7 +165,7 @@ export default function TransactionLimitDetail() {
       <div className="space-y-4 rounded border border-adm-red/30 bg-adm-red/10 p-8 text-center">
         <div className="font-mono text-[11px] text-adm-red">{error || 'Policy not found'}</div>
         <div className="flex items-center justify-center gap-3">
-          <button onClick={() => navigate('/dashboard/system/transaction-limits')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/assets/transaction-limits')} className={adminButtonClass('detailUtility')}>
             Back to Limits
           </button>
           <button onClick={() => void fetchDetail()} className={adminButtonClass('detailUtility')}>
@@ -180,7 +180,7 @@ export default function TransactionLimitDetail() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/system/transaction-limits')}
+        onBack={() => navigate('/admin/assets/transaction-limits')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
       />

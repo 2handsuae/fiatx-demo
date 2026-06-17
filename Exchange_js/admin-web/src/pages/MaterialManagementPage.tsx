@@ -268,7 +268,7 @@ const MaterialManagementPage = () => {
               <tr
                 key={item.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                onClick={() => navigate(`/dashboard/compliance/material-management/${item.id}`)}
+                onClick={() => navigate(`/admin/customers/material-holdings/${item.id}`)}
               >
                 {/* Holding No */}
                 <td className="px-4 py-2.5">
@@ -316,7 +316,7 @@ const MaterialManagementPage = () => {
                       className={adminButtonClass('rowLink')}
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/dashboard/compliance/material-management/${item.id}`);
+                        navigate(`/admin/customers/material-holdings/${item.id}`);
                       }}
                     >
                       {item.activeRefreshCycle.cycleNo}

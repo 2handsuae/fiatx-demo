@@ -161,7 +161,7 @@ export default function LedgerAccountDetail() {
       <div className="flex min-h-[320px] flex-col items-center justify-center gap-4">
         <div className="animate-spin rounded-full h-6 w-6 border-2 border-adm-amber border-t-transparent" />
         <p className="mt-1 font-mono text-[11px] text-adm-t3">Loading ledger account…</p>
-        <button onClick={() => navigate('/ledger/accounts')} className={adminButtonClass('detailUtility')}>
+        <button onClick={() => navigate('/admin/ledger/accounts')} className={adminButtonClass('detailUtility')}>
           ← Back to Accounts
         </button>
       </div>
@@ -175,7 +175,7 @@ export default function LedgerAccountDetail() {
       <div className="space-y-4 rounded border border-adm-red/30 bg-adm-red/10 p-8 text-center">
         <div className="font-mono text-[11px] text-adm-red">{error || 'Ledger account not found'}</div>
         <div className="flex items-center justify-center gap-3">
-          <button onClick={() => navigate('/ledger/accounts')} className={adminButtonClass('detailUtility')}>
+          <button onClick={() => navigate('/admin/ledger/accounts')} className={adminButtonClass('detailUtility')}>
             Back to Accounts
           </button>
           <button onClick={() => void fetchData()} className={adminButtonClass('detailUtility')}>
@@ -191,7 +191,7 @@ export default function LedgerAccountDetail() {
       {/* ── Header ── */}
       <DetailPageHeader
         backLabel="Ledger Accounts"
-        onBack={() => navigate('/ledger/accounts')}
+        onBack={() => navigate('/admin/ledger/accounts')}
         onRefresh={() => void fetchData()}
         refreshing={loading}
       />
@@ -247,7 +247,7 @@ export default function LedgerAccountDetail() {
                     <div className="mt-1 text-[13px]">
                       {detail.ownerNo && detail.ownerUuid ? (
                         <button
-                          onClick={() => navigate(`/dashboard/customer/${detail.ownerUuid}`)}
+                          onClick={() => navigate(`/admin/customers/${detail.ownerUuid}`)}
                           className="text-adm-amber hover:underline font-mono text-[11px]"
                           title="Open customer"
                         >

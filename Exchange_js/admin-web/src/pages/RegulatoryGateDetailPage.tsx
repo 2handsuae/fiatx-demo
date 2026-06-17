@@ -68,7 +68,6 @@ type RegulatoryGateDetail = {
     status: string;
     regulatedFlag: boolean;
   } | null;
-  businessConfigRelease?: { id: string; releaseNo: string; status: string } | null;
   wallet?: {
     id: string;
     walletNo: string;
@@ -212,7 +211,7 @@ const RegulatoryGateDetailPage = () => {
         <button
           onClick={() =>
             navigate(
-              `/dashboard/governance/registries/shareholding-versions/${detail.shareholdingRegistryVersion?.id}`,
+              `/admin/registries/shareholding-versions/${detail.shareholdingRegistryVersion?.id}`,
             )
           }
           className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
@@ -226,23 +225,12 @@ const RegulatoryGateDetailPage = () => {
       return (
         <button
           onClick={() =>
-            navigate(`/dashboard/governance/registries/appointments/${detail.appointmentRecord?.id}`)
+            navigate(`/admin/registries/appointments/${detail.appointmentRecord?.id}`)
           }
           className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
         >
           <Link2 size={16} />
           Open Appointment Record
-        </button>
-      );
-    }
-    if (detail.businessConfigRelease) {
-      return (
-        <button
-          onClick={() => navigate('/dashboard/control-gates/business-config-releases')}
-          className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
-        >
-          <Link2 size={16} />
-          Open Config Releases
         </button>
       );
     }
@@ -274,7 +262,7 @@ const RegulatoryGateDetailPage = () => {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/dashboard/governance/regulatory-gates')}
+            onClick={() => navigate('/admin/registries/regulatory-gates')}
             className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={16} />
@@ -299,7 +287,7 @@ const RegulatoryGateDetailPage = () => {
     return (
       <div className="space-y-6">
         <button
-          onClick={() => navigate('/dashboard/governance/regulatory-gates')}
+          onClick={() => navigate('/admin/registries/regulatory-gates')}
           className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
           <ArrowLeft size={16} />
@@ -317,7 +305,7 @@ const RegulatoryGateDetailPage = () => {
       <div className="flex flex-col gap-4 rounded-xl border border-admin-border bg-white p-6 shadow-sm md:flex-row md:items-start md:justify-between">
         <div className="flex items-start gap-4">
           <button
-            onClick={() => navigate('/dashboard/governance/regulatory-gates')}
+            onClick={() => navigate('/admin/registries/regulatory-gates')}
             className="mt-1 inline-flex items-center justify-center rounded-lg border border-admin-border p-2 text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={18} />

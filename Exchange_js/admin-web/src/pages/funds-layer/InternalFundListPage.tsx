@@ -274,7 +274,7 @@ const InternalFundListPage = () => {
                 <tr
                   key={item.internalFundNo}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate('/funds-layer/funds/' + item.internalFundNo)}
+                  onClick={() => navigate('/admin/funds/internal-funds/' + item.internalFundNo)}
                 >
                   {/* Fund No */}
                   <td className="px-4 py-2.5">

@@ -270,7 +270,7 @@ const GovernanceRegistryListPage = ({ registryType }: { registryType: RegistryTy
                       <td className="px-4 py-3">
                         <button
                           onClick={() =>
-                            navigate(`/dashboard/governance/registries/${config.endpoint}/${item.id}`)
+                            navigate(`/admin/registries/${config.endpoint}/${item.id}`)
                           }
                           className="font-mono text-xs text-brand-primary hover:underline"
                         >
@@ -287,7 +287,7 @@ const GovernanceRegistryListPage = ({ registryType }: { registryType: RegistryTy
                       <td className="px-4 py-3">
                         <button
                           onClick={() =>
-                            navigate(`/dashboard/governance/registries/${config.endpoint}/${item.id}`)
+                            navigate(`/admin/registries/${config.endpoint}/${item.id}`)
                           }
                           className="inline-flex items-center gap-1 text-sm font-medium text-brand-primary hover:underline"
                         >

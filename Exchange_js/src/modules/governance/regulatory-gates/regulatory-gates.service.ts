@@ -264,7 +264,6 @@ export class RegulatoryGatesService {
       scopeSummary: row.scopeSummary,
       shareholdingRegistryVersionId: row.shareholdingRegistryVersionId,
       appointmentRecordId: row.appointmentRecordId,
-      businessConfigReleaseId: row.businessConfigReleaseId,
       walletId: row.walletId,
       linkedApprovalId: row.linkedApprovalId,
       internalApprovalStatus: row.internalApprovalStatus,
@@ -303,14 +302,6 @@ export class RegulatoryGatesService {
             regulatedFlag: row.appointmentRecord.regulatedFlag,
           }
         : null,
-      businessConfigRelease: row.businessConfigRelease
-        ? {
-            id: row.businessConfigRelease.id,
-            releaseNo: row.businessConfigRelease.releaseNo,
-            status: row.businessConfigRelease.status,
-            subjectType: row.businessConfigRelease.subjectType,
-          }
-        : null,
       wallet: row.wallet
         ? {
             id: row.wallet.id,
@@ -333,9 +324,7 @@ export class RegulatoryGatesService {
       where: { id },
       include: {
         shareholdingRegistryVersion: true,
-        appointmentRecord: true,
-        businessConfigRelease: true,
-        wallet: true,
+        appointmentRecord: true,        wallet: true,
         linkedApproval: true,
       },
     });
@@ -396,9 +385,7 @@ export class RegulatoryGatesService {
         subjectId: version.id,
         subjectNo: version.registryNo,
         shareholdingRegistryVersionId: version.id,
-        appointmentRecordId: null,
-        businessConfigReleaseId: null,
-        walletId: null,
+        appointmentRecordId: null,        walletId: null,
       };
     }
 
@@ -430,33 +417,7 @@ export class RegulatoryGatesService {
         subjectId: appointment.id,
         subjectNo: appointment.appointmentNo,
         shareholdingRegistryVersionId: null,
-        appointmentRecordId: appointment.id,
-        businessConfigReleaseId: null,
-        walletId: null,
-      };
-    }
-
-    if (dto.gateType === RegulatoryGateTypes.LICENSE_SCOPE_CHANGE) {
-      const businessConfigReleaseId = this.requiredString(
-        dto.businessConfigReleaseId,
-        'businessConfigReleaseId',
-      );
-      const release = await db.businessConfigRelease.findUnique({
-        where: { id: businessConfigReleaseId },
-      });
-      if (!release) {
-        throw new NotFoundException(
-          `Business config release not found: ${businessConfigReleaseId}`,
-        );
-      }
-      return {
-        subjectType: RegulatoryGateSubjectTypes.BUSINESS_CONFIG_RELEASE,
-        subjectId: release.id,
-        subjectNo: release.releaseNo,
-        shareholdingRegistryVersionId: null,
-        appointmentRecordId: null,
-        businessConfigReleaseId: release.id,
-        walletId: null,
+        appointmentRecordId: appointment.id,        walletId: null,
       };
     }
 
@@ -478,9 +439,7 @@ export class RegulatoryGatesService {
         subjectId: wallet.id,
         subjectNo: wallet.walletNo || wallet.id,
         shareholdingRegistryVersionId: null,
-        appointmentRecordId: null,
-        businessConfigReleaseId: null,
-        walletId: wallet.id,
+        appointmentRecordId: null,        walletId: wallet.id,
       };
     }
 
@@ -585,7 +544,6 @@ export class RegulatoryGatesService {
           scopeSummary: this.normalizeOptionalString(dto.scopeSummary),
           shareholdingRegistryVersionId: subject.shareholdingRegistryVersionId,
           appointmentRecordId: subject.appointmentRecordId,
-          businessConfigReleaseId: subject.businessConfigReleaseId,
           walletId: subject.walletId,
           linkedApprovalId,
           internalApprovalStatus,
@@ -601,9 +559,7 @@ export class RegulatoryGatesService {
         },
         include: {
           shareholdingRegistryVersion: true,
-          appointmentRecord: true,
-          businessConfigRelease: true,
-          wallet: true,
+          appointmentRecord: true,          wallet: true,
           linkedApproval: true,
         },
       });
@@ -683,9 +639,7 @@ export class RegulatoryGatesService {
         },
         include: {
           shareholdingRegistryVersion: true,
-          appointmentRecord: true,
-          businessConfigRelease: true,
-          wallet: true,
+          appointmentRecord: true,          wallet: true,
           linkedApproval: true,
         },
       });
@@ -736,9 +690,7 @@ export class RegulatoryGatesService {
         },
         include: {
           shareholdingRegistryVersion: true,
-          appointmentRecord: true,
-          businessConfigRelease: true,
-          wallet: true,
+          appointmentRecord: true,          wallet: true,
           linkedApproval: true,
         },
       });
@@ -803,9 +755,7 @@ export class RegulatoryGatesService {
         },
         include: {
           shareholdingRegistryVersion: true,
-          appointmentRecord: true,
-          businessConfigRelease: true,
-          wallet: true,
+          appointmentRecord: true,          wallet: true,
           linkedApproval: true,
         },
       });
@@ -862,9 +812,7 @@ export class RegulatoryGatesService {
         },
         include: {
           shareholdingRegistryVersion: true,
-          appointmentRecord: true,
-          businessConfigRelease: true,
-          wallet: true,
+          appointmentRecord: true,          wallet: true,
           linkedApproval: true,
         },
       });
@@ -935,9 +883,7 @@ export class RegulatoryGatesService {
       },
       include: {
         shareholdingRegistryVersion: true,
-        appointmentRecord: true,
-        businessConfigRelease: true,
-        wallet: true,
+        appointmentRecord: true,        wallet: true,
         linkedApproval: true,
       },
     });
@@ -1004,9 +950,7 @@ export class RegulatoryGatesService {
         },
         include: {
           shareholdingRegistryVersion: true,
-          appointmentRecord: true,
-          businessConfigRelease: true,
-          wallet: true,
+          appointmentRecord: true,          wallet: true,
           linkedApproval: true,
         },
       });

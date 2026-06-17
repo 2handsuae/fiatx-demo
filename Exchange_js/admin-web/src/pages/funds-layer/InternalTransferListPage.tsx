@@ -228,7 +228,7 @@ const InternalTransferListPage = () => {
                 <tr
                   key={item.internalTxNo}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/funds-layer/transfers/${item.internalTxNo}`)}
+                  onClick={() => navigate(`/admin/funds/transfers/${item.internalTxNo}`)}
                 >
                   {/* Internal Tx No */}
                   <td className="px-4 py-2.5">

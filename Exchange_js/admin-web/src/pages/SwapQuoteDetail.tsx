@@ -125,7 +125,7 @@ const SwapQuoteDetail = () => {
       <div className="p-6">
         <DetailPageHeader
           title="Swap Quote Detail"
-          onBack={() => navigate('/dashboard/pricing/quotes')}
+          onBack={() => navigate('/admin/trading/swap-quotes')}
           onRefresh={() => void fetchDetail()}
           backLabel="Back to Swap Quotes"
         />
@@ -159,7 +159,7 @@ const SwapQuoteDetail = () => {
       <DetailPageHeader
         title="Swap Quote Detail"
         subtitle={data.quoteNo}
-        onBack={() => navigate('/dashboard/pricing/quotes')}
+        onBack={() => navigate('/admin/trading/swap-quotes')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Back to Swap Quotes"

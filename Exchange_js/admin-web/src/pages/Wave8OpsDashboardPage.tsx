@@ -46,14 +46,14 @@ const Wave8OpsDashboardPage = () => {
       {
         title: 'Open Safeguarding Breaks',
         count: null,
-        path: '/dashboard/reconciliation/safeguarding-breaks',
+        path: '/admin/reconciliation/safeguarding-breaks',
         icon: <AlertTriangle size={18} />,
         description: 'Formal breaks waiting for review or resolution.',
       },
       {
         title: 'Open Safeguarding Warnings',
         count: null,
-        path: '/dashboard/reconciliation/safeguarding-warnings',
+        path: '/admin/reconciliation/safeguarding-warnings',
         icon: <AlertTriangle size={18} />,
         description: 'Operational warnings that did not escalate to a formal break.',
       },
@@ -67,7 +67,7 @@ const Wave8OpsDashboardPage = () => {
       {
         title: 'Blocked Regulatory Gates',
         count: null,
-        path: '/dashboard/governance/regulatory-gates',
+        path: '/admin/registries/regulatory-gates',
         icon: <ShieldCheck size={18} />,
         description: 'Governance items blocked on filing, receipt, or effectiveness.',
       },
@@ -171,7 +171,7 @@ const Wave8OpsDashboardPage = () => {
           label: `${String(item.assetCode || '-')}${item.breakType ? ` · ${String(item.breakType)}` : ''}`,
           status: String(item.status || '-'),
           updatedAt: String(item.updatedAt || item.createdAt || ''),
-          path: `/dashboard/reconciliation/safeguarding-breaks/${String(item.id)}`,
+          path: `/admin/reconciliation/safeguarding-breaks/${String(item.id)}`,
         })),
         ...(warningList.items || []).map((item) => ({
           id: String(item.id),
@@ -179,7 +179,7 @@ const Wave8OpsDashboardPage = () => {
           label: `${String(item.assetCode || '-')}${item.warningType ? ` · ${String(item.warningType)}` : ''}`,
           status: String(item.status || '-'),
           updatedAt: String(item.updatedAt || item.createdAt || ''),
-          path: `/dashboard/reconciliation/safeguarding-warnings/${String(item.id)}`,
+          path: `/admin/reconciliation/safeguarding-warnings/${String(item.id)}`,
         })),
       ]
         .sort((left, right) => {
@@ -214,7 +214,7 @@ const Wave8OpsDashboardPage = () => {
             label: `${String(item.gateType || '-')}${item.subjectNo ? ` · ${String(item.subjectNo)}` : ''}`,
             status: String(item.gateResult || '-'),
             updatedAt: String(item.updatedAt || item.createdAt || ''),
-            path: `/dashboard/governance/regulatory-gates/${String(item.id)}`,
+            path: `/admin/registries/regulatory-gates/${String(item.id)}`,
           }))
           .slice(0, 8),
       );

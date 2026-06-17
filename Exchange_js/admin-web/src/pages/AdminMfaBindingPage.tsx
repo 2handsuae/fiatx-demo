@@ -368,7 +368,7 @@ function CompletionStep() {
       </div>
 
       <button
-        onClick={() => navigate('/dashboard')}
+        onClick={() => navigate('/admin')}
         className="w-full flex items-center justify-center gap-2 py-3 bg-adm-amber font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-gray-950 hover:opacity-90 active:opacity-80 transition-opacity"
       >
         Enter Admin Console →

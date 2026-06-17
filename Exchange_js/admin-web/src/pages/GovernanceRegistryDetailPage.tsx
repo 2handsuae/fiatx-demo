@@ -127,7 +127,7 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
       subjectId: String(detail.subjectId || ''),
       subjectNo: String(detail.subjectNo || ''),
     });
-    return `/dashboard/governance/regulatory-gates/create?${params.toString()}`;
+    return `/admin/registries/regulatory-gates/create?${params.toString()}`;
   };
 
   const renderPrimaryFields = () => {
@@ -275,7 +275,7 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
         <div className="md:col-span-2 xl:col-span-3">
           {canReadGate ? (
             <button
-              onClick={() => navigate(`/dashboard/governance/regulatory-gates/${gate.gateId}`)}
+              onClick={() => navigate(`/admin/registries/regulatory-gates/${gate.gateId}`)}
               className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
             >
               <Link2 size={16} />
@@ -301,7 +301,7 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(`/dashboard/governance/registries/${config.endpoint}`)}
+            onClick={() => navigate(`/admin/registries/${config.endpoint}`)}
             className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={16} />
@@ -326,7 +326,7 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
     return (
       <div className="space-y-6">
         <button
-          onClick={() => navigate(`/dashboard/governance/registries/${config.endpoint}`)}
+          onClick={() => navigate(`/admin/registries/${config.endpoint}`)}
           className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
           <ArrowLeft size={16} />
@@ -344,7 +344,7 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
       <div className="flex flex-col gap-4 rounded-xl border border-admin-border bg-white p-6 shadow-sm md:flex-row md:items-start md:justify-between">
         <div className="flex items-start gap-4">
           <button
-            onClick={() => navigate(`/dashboard/governance/registries/${config.endpoint}`)}
+            onClick={() => navigate(`/admin/registries/${config.endpoint}`)}
             className="mt-1 inline-flex items-center justify-center rounded-lg border border-admin-border p-2 text-gray-700 hover:bg-gray-50"
           >
             <ArrowLeft size={18} />
@@ -389,7 +389,7 @@ const GovernanceRegistryDetailPage = ({ registryType }: { registryType: Registry
           {detail.regulatoryGateSummary && canReadGate ? (
             <button
               onClick={() =>
-                navigate(`/dashboard/governance/regulatory-gates/${detail.regulatoryGateSummary?.gateId}`)
+                navigate(`/admin/registries/regulatory-gates/${detail.regulatoryGateSummary?.gateId}`)
               }
               className="inline-flex items-center gap-2 rounded-lg border border-admin-border px-4 py-2 text-sm text-brand-primary hover:bg-gray-50"
             >

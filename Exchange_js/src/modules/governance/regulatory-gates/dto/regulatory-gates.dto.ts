@@ -97,10 +97,6 @@ export class CreateRegulatoryGateDto {
 
   @IsOptional()
   @IsString()
-  businessConfigReleaseId?: string;
-
-  @IsOptional()
-  @IsString()
   walletId?: string;
 
   @IsOptional()

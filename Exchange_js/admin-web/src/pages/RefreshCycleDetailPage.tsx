@@ -206,7 +206,7 @@ const RefreshCycleDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <DetailPageHeader
           title="Refresh Cycle"
-          onBack={() => navigate('/dashboard/compliance/refresh-cycles')}
+          onBack={() => navigate('/admin/customers/refresh-cycles')}
           onRefresh={() => void fetchDetail()}
           refreshing={loading}
           backLabel="Refresh Cycles"
@@ -235,7 +235,7 @@ const RefreshCycleDetailPage = () => {
       {/* ── Header ── */}
       <DetailPageHeader
         title="Refresh Cycle"
-        onBack={() => navigate('/dashboard/compliance/refresh-cycles')}
+        onBack={() => navigate('/admin/customers/refresh-cycles')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Refresh Cycles"
@@ -270,7 +270,7 @@ const RefreshCycleDetailPage = () => {
             <button
               className={adminButtonClass('rowLink')}
               onClick={() =>
-                navigate(`/dashboard/customer/management/${detail.customer.id}`)
+                navigate(`/admin/customers/${detail.customer.id}`)
               }
             >
               {detail.customer.customerNo} ({detail.customer.email})
@@ -328,7 +328,7 @@ const RefreshCycleDetailPage = () => {
               <button
                 className={adminButtonClass('rowLink')}
                 onClick={() =>
-                  navigate(`/dashboard/compliance/material-management/${detail.holdingId}`)
+                  navigate(`/admin/customers/material-holdings/${detail.holdingId}`)
                 }
               >
                 View Holding Detail

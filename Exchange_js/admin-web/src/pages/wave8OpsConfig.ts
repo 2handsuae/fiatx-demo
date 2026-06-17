@@ -35,9 +35,9 @@ export const RECONCILIATION_RESOURCE_CONFIGS = {
   warnings: {
     type: 'warnings',
     endpoint: '/admin/reconciliation/safeguarding-warnings',
-    listPath: '/dashboard/reconciliation/safeguarding-warnings',
+    listPath: '/admin/reconciliation/safeguarding-warnings',
     detailPath: (id: string) =>
-      `/dashboard/reconciliation/safeguarding-warnings/${id}`,
+      `/admin/reconciliation/safeguarding-warnings/${id}`,
     title: 'Reconciliation Center - Safeguarding Warnings',
     detailTitle: 'Safeguarding Warning Detail',
     description:
@@ -46,9 +46,9 @@ export const RECONCILIATION_RESOURCE_CONFIGS = {
   runs: {
     type: 'runs',
     endpoint: '/admin/reconciliation/safeguarding-runs',
-    listPath: '/dashboard/reconciliation/safeguarding-runs',
+    listPath: '/admin/reconciliation/safeguarding-runs',
     detailPath: (id: string) =>
-      `/dashboard/reconciliation/safeguarding-runs/${id}`,
+      `/admin/reconciliation/safeguarding-runs/${id}`,
     title: 'Reconciliation Center - Safeguarding Runs',
     detailTitle: 'Safeguarding Run Detail',
     description:
@@ -57,9 +57,9 @@ export const RECONCILIATION_RESOURCE_CONFIGS = {
   'fiat-statements': {
     type: 'fiat-statements',
     endpoint: '/admin/reconciliation/safeguarding-fiat-statements/imports',
-    listPath: '/dashboard/reconciliation/safeguarding-fiat-statements',
+    listPath: '/admin/reconciliation/safeguarding-fiat-statements',
     detailPath: (id: string) =>
-      `/dashboard/reconciliation/safeguarding-fiat-statements/${id}`,
+      `/admin/reconciliation/safeguarding-fiat-statements/${id}`,
     title: 'Reconciliation Center - Fiat Statement Imports',
     detailTitle: 'Fiat Statement Import Detail',
     description:

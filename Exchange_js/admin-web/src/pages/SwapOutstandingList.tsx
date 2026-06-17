@@ -145,7 +145,7 @@ const SwapOutstandingList = () => {
             {loading && (<tr><td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">Loading…</td></tr>)}
             {!loading && items.length === 0 && (<tr><td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">No outstandings found.</td></tr>)}
             {!loading && items.map((item) => (
-              <tr key={item.id} className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover" onClick={() => navigate('/dashboard/reconciliation/outstandings/' + item.id)}>
+              <tr key={item.id} className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover" onClick={() => navigate('/admin/funds/outstandings/' + item.id)}>
                 <td className="px-4 py-2.5"><span className="font-mono text-[11px] font-semibold text-adm-amber">{item.outstandingNo || '—'}</span></td>
                 <td className="px-4 py-2.5"><AdminBadge value={item.direction} /></td>
                 <td className="px-4 py-2.5"><AdminBadge value={item.status} /></td>

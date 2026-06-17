@@ -87,7 +87,7 @@ const PayoutDetail = () => {
         setData(await response.json());
       } else {
         alert(await getApiErrorMessage(response, 'Failed to load payout'));
-        navigate('/dashboard/treasury/payouts');
+        navigate('/admin/trading/payouts');
       }
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -150,7 +150,7 @@ const PayoutDetail = () => {
     <div className="flex h-full flex-col">
       {/* Nav Header */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/treasury/payouts')}
+        onBack={() => navigate('/admin/trading/payouts')}
         onRefresh={fetchData}
         refreshing={loading}
         backLabel="Payouts"
@@ -270,7 +270,7 @@ const PayoutDetail = () => {
                   data.withdrawId
                     ? () =>
                         navigate(
-                          `/exchange/withdraw-transactions/${data.withdrawId}`,
+                          `/admin/trading/withdrawals/${data.withdrawId}`,
                         )
                     : undefined
                 }
@@ -341,7 +341,7 @@ const PayoutDetail = () => {
               value={
                 data.ownerNo && data.ownerId ? (
                   <button
-                    onClick={() => navigate(`/dashboard/customer/${data.ownerId}`)}
+                    onClick={() => navigate(`/admin/customers/${data.ownerId}`)}
                     className="text-adm-amber hover:underline"
                     title="Open customer"
                   >
@@ -360,7 +360,7 @@ const PayoutDetail = () => {
                   <button
                     onClick={() =>
                       navigate(
-                        `/exchange/withdraw-transactions/${data.withdrawId}`,
+                        `/admin/trading/withdrawals/${data.withdrawId}`,
                       )
                     }
                     className="text-adm-blue hover:underline"

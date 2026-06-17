@@ -252,7 +252,7 @@ const SettlementListPage = () => {
                 <tr
                   key={item.batchNo}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
-                  onClick={() => navigate(`/funds-layer/settlements/${item.batchNo}`)}
+                  onClick={() => navigate(`/admin/funds/settlements/${item.batchNo}`)}
                 >
                   {/* Batch No */}
                   <td className="px-4 py-2.5">

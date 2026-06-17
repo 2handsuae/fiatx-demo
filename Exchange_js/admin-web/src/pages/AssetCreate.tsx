@@ -80,7 +80,7 @@ const AssetCreate = () => {
       });
 
       if (response.ok) {
-        navigate('/dashboard/system/assets');
+        navigate('/admin/assets');
       } else {
         setError(await getApiErrorMessage(response, 'Failed to create asset'));
       }
@@ -97,7 +97,7 @@ const AssetCreate = () => {
       {/* ── Header ── */}
       <div className="flex shrink-0 items-center gap-3 border-b border-adm-border bg-adm-panel px-4 py-3">
         <button
-          onClick={() => navigate('/dashboard/system/assets')}
+          onClick={() => navigate('/admin/assets')}
           className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
         >
           <ArrowLeft size={16} />
@@ -201,7 +201,7 @@ const AssetCreate = () => {
 
           {/* ④ Submit */}
           <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
-            <button type="button" onClick={() => navigate('/dashboard/system/assets')} className={adminButtonClass('modalCancel')}>
+            <button type="button" onClick={() => navigate('/admin/assets')} className={adminButtonClass('modalCancel')}>
               Cancel
             </button>
             <button type="submit" disabled={loading} className={adminButtonClass('modalConfirm')}>

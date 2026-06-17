@@ -63,7 +63,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 @Injectable()
 export class PayoutsService {
   private static readonly UPDATE_STATUS_TX_TIMEOUT_MS = 15_000;
@@ -72,7 +71,6 @@ export class PayoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly transactionComplianceService: TransactionComplianceService,
     private readonly auditLogsService: AuditLogsService,
     private readonly walletBalance: WalletBalanceService,
   ) {}

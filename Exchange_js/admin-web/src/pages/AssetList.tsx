@@ -142,7 +142,7 @@ const AssetList = () => {
         subtitle={`${total} assets · Configuration`}
       >
         <button
-          onClick={() => navigate('/dashboard/system/assets/create')}
+          onClick={() => navigate('/admin/assets/create')}
           className={adminButtonClass('listPrimary')}
         >
           <Plus size={13} /> New Asset
@@ -231,7 +231,7 @@ const AssetList = () => {
                 <tr
                   key={a.id}
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover transition-colors"
-                  onClick={() => navigate(`/dashboard/system/assets/${a.assetNo}`)}
+                  onClick={() => navigate(`/admin/assets/${a.assetNo}`)}
                 >
                   <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-amber">
                     {a.code}

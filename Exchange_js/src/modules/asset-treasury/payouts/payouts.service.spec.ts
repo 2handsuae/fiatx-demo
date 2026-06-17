@@ -15,7 +15,6 @@ describe('PayoutsService', () => {
   let service: PayoutsService;
   let prisma: any;
   let eventEmitter: { emit: jest.Mock };
-  let transactionComplianceService: any;
   let walletBalance: any;
 
   beforeEach(() => {
@@ -44,14 +43,10 @@ describe('PayoutsService', () => {
     eventEmitter = {
       emit: jest.fn(),
     };
-    transactionComplianceService = {
-      ensureWithdrawMainCasesBeforePayoutDispatch: jest.fn(),
-    };
     walletBalance = { adjust: jest.fn().mockResolvedValue(undefined) };
     service = new PayoutsService(
       prisma,
       eventEmitter as unknown as EventEmitter2,
-      transactionComplianceService,
       {} as any,
       walletBalance as any,
     );
@@ -127,9 +122,6 @@ describe('PayoutsService', () => {
     );
 
     expect(updated.status).toBe(PayoutStatus.SIGNING);
-    expect(
-      transactionComplianceService.ensureWithdrawMainCasesBeforePayoutDispatch,
-    ).not.toHaveBeenCalled();
     expect(prisma.payout.update).toHaveBeenCalled();
   });
 

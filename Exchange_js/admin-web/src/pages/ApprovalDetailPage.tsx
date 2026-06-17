@@ -314,7 +314,7 @@ const ApprovalDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4 flex items-center gap-2">
           <button
-            onClick={() => navigate('/dashboard/control-gates/approvals')}
+            onClick={() => navigate('/admin/governance/approvals')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -340,7 +340,7 @@ const ApprovalDetailPage = () => {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="shrink-0 border-b border-adm-border bg-adm-panel px-6 py-4">
           <button
-            onClick={() => navigate('/dashboard/control-gates/approvals')}
+            onClick={() => navigate('/admin/governance/approvals')}
             className={adminButtonClass('detailUtility')}
           >
             ← Back
@@ -393,7 +393,7 @@ const ApprovalDetailPage = () => {
 
       {/* ── Sticky nav header ── */}
       <DetailPageHeader
-        onBack={() => navigate('/dashboard/control-gates/approvals')}
+        onBack={() => navigate('/admin/governance/approvals')}
         onRefresh={() => void fetchDetail()}
         refreshing={loading}
         backLabel="Approvals"

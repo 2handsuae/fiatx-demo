@@ -2,7 +2,6 @@ import axios, { AxiosError } from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { buildFiatPoolWalletNo } from '../src/modules/asset-treasury/wallets/system-wallet.util';
 import {
-  WAVE8_GOV02_DEMO_LICENSE_RELEASE_PREFIX,
   WAVE8_GOV02_DEMO_API_PATHS,
   buildWave8Gov02DemoMetadata,
   buildWave8Gov02DemoTraceId,
@@ -54,21 +53,6 @@ type RegulatoryGateResponse = {
   effectivenessStatus: string;
 };
 
-type BusinessConfigReleaseResponse = {
-  id: string;
-  releaseNo: string;
-  status: string;
-  regulatoryGateSummary?: {
-    gateId: string;
-    gateNo: string;
-    gateType: string;
-    gateResult: string;
-    filingStatus: string;
-    receiptStatus: string;
-    effectivenessStatus: string;
-  } | null;
-};
-
 type WalletResponse = {
   id: string;
   walletNo: string | null;
@@ -96,10 +80,8 @@ const defaultAdminEmail = process.env.GOV02_DEMO_ADMIN_EMAIL || 'admin@fiatx.com
 
 const CONTROL_TRACE_ID = buildWave8Gov02DemoTraceId('CONTROL_CHANGE');
 const APPOINTMENT_TRACE_ID = buildWave8Gov02DemoTraceId('REGULATED_APPOINTMENT_CHANGE');
-const LICENSE_SCOPE_TRACE_ID = buildWave8Gov02DemoTraceId('LICENSE_SCOPE_CHANGE');
 const CLIENT_BANK_TRACE_ID = buildWave8Gov02DemoTraceId('CLIENT_BANK_ACCOUNT_ENABLEMENT');
 const EFFECTIVE_AT = '2026-04-05T09:00:00.000Z';
-const LICENSE_RELEASE_NO = `${WAVE8_GOV02_DEMO_LICENSE_RELEASE_PREFIX}001`;
 const AED_CUST_BANK_WALLET_NO = buildFiatPoolWalletNo('CUST_BANK', 'AED');
 
 async function login(email: string) {
@@ -275,61 +257,6 @@ async function seedRegulatedAppointmentEffective(token: string) {
   };
 }
 
-async function seedLicenseScopeBlocked(token: string) {
-  const release = await prisma.businessConfigRelease.create({
-    data: {
-      subjectType: 'COA',
-      releaseNo: LICENSE_RELEASE_NO,
-      status: 'VALIDATED',
-      validationSummaryJson: JSON.stringify({
-        ok: true,
-        issues: [],
-        warnings: [],
-        seededBy: 'wave8-gov02-demo',
-      }),
-    },
-    select: {
-      id: true,
-      releaseNo: true,
-      status: true,
-    },
-  });
-
-  const gate = await authed<RegulatoryGateResponse>(
-    token,
-    'post',
-    '/admin/governance/regulatory-gates',
-    {
-      gateType: 'LICENSE_SCOPE_CHANGE',
-      businessConfigReleaseId: release.id,
-      scopeSummary: 'Wave 8 GOV-02 demo license scope gate',
-      traceId: LICENSE_SCOPE_TRACE_ID,
-      metadataJson: buildWave8Gov02DemoMetadata('license-scope-blocked'),
-    },
-  );
-
-  const detail = await authed<BusinessConfigReleaseResponse>(
-    token,
-    'get',
-    `/admin/business-config/releases/${release.releaseNo}`,
-  );
-
-  if (detail.status !== 'VALIDATED') {
-    throw new Error(`Expected business config release to remain VALIDATED, got ${detail.status}`);
-  }
-  if (detail.regulatoryGateSummary?.gateId !== gate.id) {
-    throw new Error('Expected business config release detail to expose linked regulatory gate');
-  }
-  if (gate.gateResult !== 'BLOCKED') {
-    throw new Error(`Expected license-scope gate to be BLOCKED, got ${gate.gateResult}`);
-  }
-
-  return {
-    release: detail,
-    gate,
-  };
-}
-
 async function seedClientBankAccountEnablementEffective(token: string) {
   const wallet = await prisma.wallet.findFirst({
     where: {
@@ -427,10 +354,6 @@ function printSummary(input: {
     shareholding: ShareholdingVersionResponse;
     gate: RegulatoryGateResponse;
   };
-  licenseScope: {
-    release: BusinessConfigReleaseResponse;
-    gate: RegulatoryGateResponse;
-  };
   appointment: {
     appointment: AppointmentResponse;
     gate: RegulatoryGateResponse;
@@ -450,8 +373,6 @@ function printSummary(input: {
   console.log('Created demo records:');
   console.log(`  Shareholding registry: ${input.control.shareholding.registryNo}`);
   console.log(`  Control gate:          ${input.control.gate.gateNo}`);
-  console.log(`  Config release:        ${input.licenseScope.release.releaseNo}`);
-  console.log(`  License gate:          ${input.licenseScope.gate.gateNo}`);
   console.log(`  Appointment:           ${input.appointment.appointment.appointmentNo}`);
   console.log(`  Appointment gate:      ${input.appointment.gate.gateNo}`);
   console.log(`  CUST_BANK wallet:      ${input.clientBank.wallet.walletNo}`);
@@ -476,14 +397,12 @@ async function main() {
     const token = await login(defaultAdminEmail);
 
     const control = await seedControlChangeBlocked(token);
-    const licenseScope = await seedLicenseScopeBlocked(token);
     const appointment = await seedRegulatedAppointmentEffective(token);
     const clientBank = await seedClientBankAccountEnablementEffective(token);
 
     printSummary({
       cleanup,
       control,
-      licenseScope,
       appointment,
       clientBank,
     });

@@ -96,7 +96,7 @@ const AdminLogin = () => {
         }
         localStorage.setItem('admin_token', data.access_token);
         notifyAdminAuthChanged();
-        navigate('/dashboard');
+        navigate('/admin');
       } else {
         const err = await response.json();
         setError(err.message || 'Login failed');
@@ -139,7 +139,7 @@ const AdminLogin = () => {
         sessionStorage.removeItem('mfaSessionToken');
         localStorage.setItem('admin_token', data.accessToken);
         notifyAdminAuthChanged();
-        navigate('/dashboard');
+        navigate('/admin');
       } else {
         const err = await response.json();
         setError(err.message || 'MFA verification failed');

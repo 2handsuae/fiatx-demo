@@ -173,7 +173,7 @@ const LiquidityProviderList = () => {
             Export CSV
           </button>
           <button 
-            onClick={() => navigate('/dashboard/system/liquidity-providers/create')}
+            onClick={() => navigate('/admin/counterparty/liquidity-providers/create')}
             className={adminButtonClass('listPrimary')}
           >
             <Plus size={20} /> New Provider

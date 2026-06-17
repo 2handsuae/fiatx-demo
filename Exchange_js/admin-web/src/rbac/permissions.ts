@@ -18,18 +18,13 @@ export const PERMISSIONS = {
 
   CUSTOMERS_READ: 'api.get.customers',
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
-  PRICING_POLICIES_READ: 'api.get.admin_pricing_policies',
   PRICING_SWAP_CONFIG_READ: 'api.get.admin_pricing_policies_swap',
-  PRICING_WITHDRAW_CONFIG_READ: 'api.get.admin_pricing_policies_withdrawal',
 
   SWAP_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
   SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
   SWAP_TRANSACTIONS_READ: 'api.get.admin_swap_transactions',
   SWAP_TRANSACTION_DETAIL_READ: 'api.get.admin_swap_transactions_id',
 
-  OUTSTANDING_SETTLEMENTS_READ: 'api.get.admin_reconciliation_outstanding_settlements',
-  OUTSTANDING_SETTLEMENT_DETAIL_READ:
-    'api.get.admin_reconciliation_outstanding_settlements_id',
   OUTSTANDINGS_READ: 'api.get.admin_reconciliation_outstandings',
   OUTSTANDING_DETAIL_READ: 'api.get.admin_reconciliation_outstandings_id',
   FEE_ACCRUALS_READ: 'api.get.admin_reconciliation_fee_accruals',
@@ -61,20 +56,6 @@ export const PERMISSIONS = {
 
   CDD_RESPONSES_READ: 'api.get.admin_compliance_cdd_responses',
   EDD_RESPONSES_READ: 'api.get.admin_compliance_edd_responses',
-  ALERTS_READ: 'api.get.admin_compliance_alerts',
-  // Canonical work-item permission for assign / reassign on alert detail.
-  ALERTS_WRITE: 'api.patch.admin_compliance_alerts_id_action',
-  // Canonical resolution permission for false positive / direct disposition / escalation.
-  ALERTS_RESOLVE: 'api.post.admin_compliance_alerts_id_resolve',
-  CASES_READ: 'api.get.admin_compliance_cases',
-  CASES_WRITE: 'api.patch.admin_compliance_cases_id_action',
-  CASE_MLRO_REVIEW_WRITE: 'api.post.admin_compliance_cases_id_mlro_review',
-  CASE_EVIDENCE_EXPORTS_READ: 'api.get.admin_compliance_cases_evidence_packages',
-  CASE_EVIDENCE_EXPORT_CREATE: 'api.post.admin_compliance_cases_export_evidence_package',
-  CASE_EVIDENCE_EXPORT_DETAIL_READ:
-    'api.get.admin_compliance_cases_evidence_packages_id',
-  CASE_EVIDENCE_EXPORT_DOWNLOAD:
-    'api.get.admin_compliance_cases_evidence_packages_id_download',
   TX_KYT_RESPONSES_READ: 'api.get.admin_compliance_tx_kyt_cases',
   TX_KYT_RESPONSE_DETAIL_READ: 'api.get.admin_compliance_tx_kyt_cases_id',
   TX_TRAVEL_RULE_RESPONSES_READ:
@@ -167,19 +148,7 @@ export const PERMISSIONS = {
   PAYOUT_DETAIL_READ: 'api.get.payouts_id',
   INTERNAL_FUNDS_READ: 'api.get.admin_internal_funds',
   INTERNAL_FUND_DETAIL_READ: 'api.get.admin_internal_funds_id',
-  POOL_SETTLEMENT_BATCH_READ: 'api.get.admin_pool_settlement_batches',
-  POOL_SETTLEMENT_BATCH_DETAIL: 'api.get.admin_pool_settlement_batches_id',
-  POOL_SETTLEMENT_BATCH_CREATE: 'api.post.admin_pool_settlement_batches',
-  POOL_SETTLEMENT_BATCH_SUBMIT: 'api.post.admin_pool_settlement_batches_id_submit',
-  FEE_OCCURRENCES_READ: 'api.get.admin_fee_occurrences',
-  FEE_OCCURRENCE_DETAIL_READ: 'api.get.admin_fee_occurrences_id',
-  FEE_OCCURRENCES_WRITE: 'api.post.admin_fee_occurrences',
-  FEE_OCCURRENCES_CANCEL: 'api.patch.admin_fee_occurrences_id_cancel',
   REIMBURSEMENT_OBLIGATIONS_READ: 'api.get.admin_reimbursement_obligations',
-  REIMBURSEMENT_OBLIGATION_DETAIL_READ:
-    'api.get.admin_reimbursement_obligations_id',
-  REIMBURSEMENT_OBLIGATIONS_WRITE:
-    'api.patch.admin_reimbursement_obligations_id_status',
   INTERNAL_COLLECTIONS_RECONCILE:
     'api.post.admin_internal_transactions_collection_wallets_walletid_reconcile',
 
