@@ -54,21 +54,8 @@ export const PERMISSIONS = {
   SAFEGUARDING_FIAT_IMPORTS_WRITE:
     'api.post.admin_reconciliation_safeguarding_fiat_statements_imports',
 
-  CDD_RESPONSES_READ: 'api.get.admin_compliance_cdd_responses',
-  EDD_RESPONSES_READ: 'api.get.admin_compliance_edd_responses',
-  TX_KYT_RESPONSES_READ: 'api.get.admin_compliance_tx_kyt_cases',
-  TX_KYT_RESPONSE_DETAIL_READ: 'api.get.admin_compliance_tx_kyt_cases_id',
-  TX_TRAVEL_RULE_RESPONSES_READ:
-    'api.get.admin_compliance_tx_travel_rule_cases',
-  TX_TRAVEL_RULE_RESPONSE_DETAIL_READ:
-    'api.get.admin_compliance_tx_travel_rule_cases_id',
-  TX_COMPLIANCE_BUNDLE_READ:
-    'api.get.admin_compliance_tx_cases_sourcetype_sourceid',
-  TX_COMPLIANCE_READ: 'api.get.admin_compliance_tx_kyt_cases',
-  TX_COMPLIANCE_WRITE: 'api.post.admin_compliance_tx_kyt_cases_mock_complete',
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   RISK_ASSESSMENTS_READ: 'api.get.admin_compliance_risk_assessments',
-  RISK_DECISION_RECORDS_READ: 'api.get.admin_risk_decision_records',
   RISK_DECISION_RECORD_DETAIL_READ: 'api.get.admin_risk_decision_records_id',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

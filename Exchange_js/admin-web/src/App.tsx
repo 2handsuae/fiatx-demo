@@ -49,8 +49,6 @@ const WithdrawTransactionList = lazy(() => import('./pages/WithdrawTransactionLi
 const WithdrawTransactionDetail = lazy(() => import('./pages/WithdrawTransactionDetail'));
 const SwapTransactionList = lazy(() => import('./pages/SwapTransactionList'));
 const SwapTransactionDetail = lazy(() => import('./pages/SwapTransactionDetail'));
-const CddResponsesPage = lazy(() => import('./pages/CddResponsesPage'));
-const EddResponsesPage = lazy(() => import('./pages/EddResponsesPage'));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage'));
 const AuditLogDetailPage = lazy(() => import('./pages/AuditLogDetailPage'));
 const SumsubEventsPage = lazy(() => import('./pages/SumsubEventsPage'));
@@ -70,23 +68,6 @@ const ReconciliationResourcePage = lazy(() => import('./pages/ReconciliationReso
 const ReconciliationResourceDetailPage = lazy(
   () => import('./pages/ReconciliationResourceDetailPage'),
 );
-const TransactionKytCasesPage = lazy(() => import('./pages/TransactionKytCasesPage'));
-const TransactionKytResponseDetailPage = lazy(
-  () => import('./pages/TransactionKytResponseDetailPage'),
-);
-const TransactionTravelRuleCasesPage = lazy(
-  () => import('./pages/TransactionTravelRuleCasesPage'),
-);
-const TransactionTravelRuleResponseDetailPage = lazy(
-  () => import('./pages/TransactionTravelRuleResponseDetailPage'),
-);
-const TransactionComplianceCasesPage = lazy(
-  () => import('./pages/TransactionComplianceCasesPage'),
-);
-const TransactionComplianceCaseDetailPage = lazy(
-  () => import('./pages/TransactionComplianceCaseDetailPage'),
-);
-const RiskPolicyExecutionsPage = lazy(() => import('./pages/RiskPolicyExecutionsPage'));
 const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
 const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
@@ -353,14 +334,6 @@ function App() {
               element={withPermission(<SumsubEventsPage />, [PERMISSIONS.SUMSUB_EVENTS_READ])}
             />
             <Route
-              path="compliance/cdd-responses"
-              element={withPermission(<CddResponsesPage />, [PERMISSIONS.CDD_RESPONSES_READ])}
-            />
-            <Route
-              path="compliance/edd-responses"
-              element={withPermission(<EddResponsesPage />, [PERMISSIONS.EDD_RESPONSES_READ])}
-            />
-            <Route
               path="compliance/material-management"
               element={withPermission(<MaterialManagementPage />, [PERMISSIONS.CUSTOMERS_READ])}
             />
@@ -383,42 +356,6 @@ function App() {
             <Route
               path="compliance/risk-assessments/:assessmentId"
               element={withPermission(<RiskAssessmentDetailPage />, [PERMISSIONS.RISK_ASSESSMENTS_READ])}
-            />
-            <Route
-              path="compliance/tx-kyt-responses"
-              element={withPermission(<TransactionKytCasesPage />, [
-                PERMISSIONS.TX_KYT_RESPONSES_READ,
-              ])}
-            />
-            <Route
-              path="compliance/tx-kyt-responses/:id"
-              element={withPermission(<TransactionKytResponseDetailPage />, [
-                PERMISSIONS.TX_KYT_RESPONSE_DETAIL_READ,
-              ])}
-            />
-            <Route
-              path="compliance/tx-travel-rule-responses"
-              element={withPermission(<TransactionTravelRuleCasesPage />, [
-                PERMISSIONS.TX_TRAVEL_RULE_RESPONSES_READ,
-              ])}
-            />
-            <Route
-              path="compliance/tx-travel-rule-responses/:id"
-              element={withPermission(<TransactionTravelRuleResponseDetailPage />, [
-                PERMISSIONS.TX_TRAVEL_RULE_RESPONSE_DETAIL_READ,
-              ])}
-            />
-            <Route
-              path="compliance/tx-evidence"
-              element={withPermission(<TransactionComplianceCasesPage />, [
-                PERMISSIONS.TX_COMPLIANCE_BUNDLE_READ,
-              ])}
-            />
-            <Route
-              path="compliance/tx-evidence/:sourceType/:sourceId"
-              element={withPermission(<TransactionComplianceCaseDetailPage />, [
-                PERMISSIONS.TX_COMPLIANCE_BUNDLE_READ,
-              ])}
             />
             <Route
               path="audit/audit-logs"
@@ -633,10 +570,6 @@ function App() {
               element={withPermission(<PolicyChangeRequestDetailPage />, [
                 PERMISSIONS.GOV_APPROVAL_POLICY_CHANGE_REQUEST_DETAIL_READ,
               ])}
-            />
-            <Route
-              path="risk/policy-executions"
-              element={withPermission(<RiskPolicyExecutionsPage />, [PERMISSIONS.RISK_DECISION_RECORDS_READ])}
             />
             <Route
               path="customer/:id"
