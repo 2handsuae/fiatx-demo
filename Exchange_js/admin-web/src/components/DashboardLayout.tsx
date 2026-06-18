@@ -27,7 +27,6 @@ import {
   UserCheck,
   Sun,
   Moon,
-  AlertTriangle,
   Database,
   Gauge,
 } from 'lucide-react';
@@ -316,28 +315,16 @@ const DashboardLayout = () => {
       icon: <Activity size={12} />,
       children: [
         {
-          path: '/admin/reconciliation/safeguarding-breaks',
-          label: 'Safeguarding Breaks',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_BREAKS_READ],
-        },
-        {
-          path: '/admin/reconciliation/safeguarding-warnings',
-          label: 'Safeguarding Warnings',
-          icon: <AlertTriangle size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
-        },
-        {
-          path: '/admin/reconciliation/safeguarding-runs',
-          label: 'Safeguarding Runs',
+          path: '/admin/reconciliation/runs',
+          label: 'Reconciliation Runs',
           icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_RUNS_READ],
+          requiredPermissions: [PERMISSIONS.RECON_RUN_READ],
         },
         {
-          path: '/admin/reconciliation/safeguarding-fiat-statements',
-          label: 'Fiat Statement Imports',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
+          path: '/admin/reconciliation/cases',
+          label: 'Reconciliation Cases',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.RECON_CASE_READ],
         },
       ],
     },

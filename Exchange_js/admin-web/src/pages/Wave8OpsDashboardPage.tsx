@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Landmark, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
+import { RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { StatusBadge } from '../components/governance/GovernanceUi';
@@ -30,12 +30,9 @@ const Wave8OpsDashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cards, setCards] = useState<DashboardCard[]>([]);
-  const [recentIssues, setRecentIssues] = useState<RecentItem[]>([]);
   const [recentObligations, setRecentObligations] = useState<RecentItem[]>([]);
   const [recentGates, setRecentGates] = useState<RecentItem[]>([]);
 
-  const canReadBreaks = hasAnyPermission([PERMISSIONS.SAFEGUARDING_BREAKS_READ]);
-  const canReadWarnings = hasAnyPermission([PERMISSIONS.SAFEGUARDING_WARNINGS_READ]);
   const canReadObligations = hasAnyPermission([
     PERMISSIONS.REIMBURSEMENT_OBLIGATIONS_READ,
   ]);
@@ -43,20 +40,6 @@ const Wave8OpsDashboardPage = () => {
 
   const baseCards = useMemo<DashboardCard[]>(
     () => [
-      {
-        title: 'Open Safeguarding Breaks',
-        count: null,
-        path: '/admin/reconciliation/safeguarding-breaks',
-        icon: <AlertTriangle size={18} />,
-        description: 'Formal breaks waiting for review or resolution.',
-      },
-      {
-        title: 'Open Safeguarding Warnings',
-        count: null,
-        path: '/admin/reconciliation/safeguarding-warnings',
-        icon: <AlertTriangle size={18} />,
-        description: 'Operational warnings that did not escalate to a formal break.',
-      },
       {
         title: 'Open Reimbursement Obligations',
         count: null,
@@ -109,87 +92,32 @@ const Wave8OpsDashboardPage = () => {
     setLoading(true);
     setError('');
     try {
-      const [
-        breakCount,
-        warningCount,
-        obligationCount,
-        blockedGateCount,
-        breakList,
-        warningList,
-        obligationList,
-        gateList,
-      ] = await Promise.all([
-        guardedCount(
-          canReadBreaks,
-          '/admin/reconciliation/safeguarding-breaks?status=OPEN&take=1',
-        ),
-        guardedCount(
-          canReadWarnings,
-          '/admin/reconciliation/safeguarding-warnings?status=OPEN&take=1',
-        ),
-        guardedCount(
-          canReadObligations,
-          '/admin/reimbursement-obligations?status=OPEN&take=1',
-        ),
-        guardedCount(
-          canReadGates,
-          '/admin/governance/regulatory-gates?gateResult=BLOCKED&take=1',
-        ),
-        canReadBreaks
-          ? fetchJson<{ items: Array<Record<string, unknown>> }>(
-              '/admin/reconciliation/safeguarding-breaks?status=OPEN&take=5',
-            )
-          : Promise.resolve({ items: [] }),
-        canReadWarnings
-          ? fetchJson<{ items: Array<Record<string, unknown>> }>(
-              '/admin/reconciliation/safeguarding-warnings?status=OPEN&take=5',
-            )
-          : Promise.resolve({ items: [] }),
-        canReadObligations
-          ? fetchJson<{ items: Array<Record<string, unknown>> }>(
-              '/admin/reimbursement-obligations?status=OPEN&take=5',
-            )
-          : Promise.resolve({ items: [] }),
-        canReadGates
-          ? fetchJson<{ items: Array<Record<string, unknown>> }>(
-              '/admin/governance/regulatory-gates?take=10',
-            )
-          : Promise.resolve({ items: [] }),
-      ]);
+      const [obligationCount, blockedGateCount, obligationList, gateList] =
+        await Promise.all([
+          guardedCount(
+            canReadObligations,
+            '/admin/reimbursement-obligations?status=OPEN&take=1',
+          ),
+          guardedCount(
+            canReadGates,
+            '/admin/governance/regulatory-gates?gateResult=BLOCKED&take=1',
+          ),
+          canReadObligations
+            ? fetchJson<{ items: Array<Record<string, unknown>> }>(
+                '/admin/reimbursement-obligations?status=OPEN&take=5',
+              )
+            : Promise.resolve({ items: [] }),
+          canReadGates
+            ? fetchJson<{ items: Array<Record<string, unknown>> }>(
+                '/admin/governance/regulatory-gates?take=10',
+              )
+            : Promise.resolve({ items: [] }),
+        ]);
 
       setCards([
-        { ...baseCards[0], count: breakCount },
-        { ...baseCards[1], count: warningCount },
-        { ...baseCards[2], count: obligationCount },
-        { ...baseCards[3], count: blockedGateCount },
+        { ...baseCards[0], count: obligationCount },
+        { ...baseCards[1], count: blockedGateCount },
       ]);
-
-      const issueRows: RecentItem[] = [
-        ...(breakList.items || []).map((item) => ({
-          id: String(item.id),
-          no: String(item.breakNo || item.id),
-          label: `${String(item.assetCode || '-')}${item.breakType ? ` · ${String(item.breakType)}` : ''}`,
-          status: String(item.status || '-'),
-          updatedAt: String(item.updatedAt || item.createdAt || ''),
-          path: `/admin/reconciliation/safeguarding-breaks/${String(item.id)}`,
-        })),
-        ...(warningList.items || []).map((item) => ({
-          id: String(item.id),
-          no: String(item.warningNo || item.id),
-          label: `${String(item.assetCode || '-')}${item.warningType ? ` · ${String(item.warningType)}` : ''}`,
-          status: String(item.status || '-'),
-          updatedAt: String(item.updatedAt || item.createdAt || ''),
-          path: `/admin/reconciliation/safeguarding-warnings/${String(item.id)}`,
-        })),
-      ]
-        .sort((left, right) => {
-          const leftTime = new Date(left.updatedAt || 0).getTime();
-          const rightTime = new Date(right.updatedAt || 0).getTime();
-          return rightTime - leftTime;
-        })
-        .slice(0, 8);
-
-      setRecentIssues(issueRows);
 
       setRecentObligations(
         (obligationList.items || []).map((item) => ({
@@ -281,7 +209,7 @@ const Wave8OpsDashboardPage = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Wave 8 Ops Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Operational view across safeguarding, treasury reimbursements, and regulatory gates.
+            Operational view across treasury reimbursements and regulatory gates.
           </p>
         </div>
         <button
@@ -299,8 +227,8 @@ const Wave8OpsDashboardPage = () => {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-        {cards.map((card, index) => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {cards.map((card) => (
           <button
             key={card.title}
             onClick={() => navigate(card.path)}
@@ -316,22 +244,11 @@ const Wave8OpsDashboardPage = () => {
             </div>
             <div className="mt-4 text-sm font-semibold text-gray-900">{card.title}</div>
             <div className="mt-1 text-xs text-gray-500">{card.description}</div>
-            {index === 3 ? (
-              <div className="mt-3 inline-flex items-center gap-2 text-xs text-gray-500">
-                <Landmark size={12} />
-                Blocked filing or effectiveness items
-              </div>
-            ) : null}
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        {renderRecentTable(
-          'Recent Open Breaks & Warnings',
-          recentIssues,
-          'No open safeguarding breaks or warnings.',
-        )}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {renderRecentTable(
           'Recent Open Reimbursement Obligations',
           recentObligations,

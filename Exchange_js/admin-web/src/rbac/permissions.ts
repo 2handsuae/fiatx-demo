@@ -29,30 +29,10 @@ export const PERMISSIONS = {
   OUTSTANDING_DETAIL_READ: 'api.get.admin_reconciliation_outstandings_id',
   FEE_ACCRUALS_READ: 'api.get.admin_reconciliation_fee_accruals',
   FEE_ACCRUAL_DETAIL_READ: 'api.get.admin_reconciliation_fee_accruals_id',
-  SAFEGUARDING_BREAKS_READ: 'api.get.admin_reconciliation_safeguarding_breaks',
-  SAFEGUARDING_BREAK_DETAIL_READ:
-    'api.get.admin_reconciliation_safeguarding_breaks_id',
-  SAFEGUARDING_BREAKS_GENERATE:
-    'api.post.admin_reconciliation_safeguarding_breaks_generate_daily_diff',
-  SAFEGUARDING_BREAKS_WRITE:
-    'api.patch.admin_reconciliation_safeguarding_breaks_id_status',
-  SAFEGUARDING_WARNINGS_READ:
-    'api.get.admin_reconciliation_safeguarding_warnings',
-  SAFEGUARDING_WARNING_DETAIL_READ:
-    'api.get.admin_reconciliation_safeguarding_warnings_id',
-  SAFEGUARDING_WARNINGS_WRITE:
-    'api.patch.admin_reconciliation_safeguarding_warnings_id_status',
-  SAFEGUARDING_RUNS_READ: 'api.get.admin_reconciliation_safeguarding_runs',
-  SAFEGUARDING_RUN_DETAIL_READ:
-    'api.get.admin_reconciliation_safeguarding_runs_id',
-  SAFEGUARDING_RUNS_EXPORT:
-    'api.post.admin_reconciliation_safeguarding_runs_id_export_evidence_package',
-  SAFEGUARDING_FIAT_IMPORTS_READ:
-    'api.get.admin_reconciliation_safeguarding_fiat_statements_imports',
-  SAFEGUARDING_FIAT_IMPORT_DETAIL_READ:
-    'api.get.admin_reconciliation_safeguarding_fiat_statements_imports_id',
-  SAFEGUARDING_FIAT_IMPORTS_WRITE:
-    'api.post.admin_reconciliation_safeguarding_fiat_statements_imports',
+  RECON_RUN_READ: 'api.get.admin_reconciliation_runs',
+  RECON_RUN_DETAIL_READ: 'api.get.admin_reconciliation_runs_runno',
+  RECON_CASE_READ: 'api.get.admin_reconciliation_cases',
+  RECON_CASE_DETAIL_READ: 'api.get.admin_reconciliation_cases_caseno',
 
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   RISK_ASSESSMENTS_READ: 'api.get.admin_compliance_risk_assessments',

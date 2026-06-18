@@ -17,8 +17,10 @@ const SwapOutstandingList = lazy(() => import('./pages/SwapOutstandingList'));
 const SwapOutstandingDetail = lazy(() => import('./pages/SwapOutstandingDetail'));
 const FeeAccrualList = lazy(() => import('./pages/FeeAccrualList'));
 const FeeAccrualDetail = lazy(() => import('./pages/FeeAccrualDetail'));
-const SafeguardingBreakList = lazy(() => import('./pages/SafeguardingBreakList'));
-const SafeguardingBreakDetail = lazy(() => import('./pages/SafeguardingBreakDetail'));
+const ReconciliationRunsListPage = lazy(() => import('./pages/ReconciliationRunsListPage'));
+const ReconciliationRunsDetailPage = lazy(() => import('./pages/ReconciliationRunsDetailPage'));
+const ReconciliationCasesListPage = lazy(() => import('./pages/ReconciliationCasesListPage'));
+const ReconciliationCasesDetailPage = lazy(() => import('./pages/ReconciliationCasesDetailPage'));
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
 const LiquidityProviderList = lazy(() => import('./pages/LiquidityProviderList'));
 const LiquidityProviderCreate = lazy(() => import('./pages/LiquidityProviderCreate'));
@@ -62,10 +64,6 @@ const RegulatoryGateListPage = lazy(() => import('./pages/RegulatoryGateListPage
 const RegulatoryGateDetailPage = lazy(() => import('./pages/RegulatoryGateDetailPage'));
 const RegulatoryGateCreatePage = lazy(() => import('./pages/RegulatoryGateCreatePage'));
 const Wave8OpsDashboardPage = lazy(() => import('./pages/Wave8OpsDashboardPage'));
-const ReconciliationResourcePage = lazy(() => import('./pages/ReconciliationResourcePage'));
-const ReconciliationResourceDetailPage = lazy(
-  () => import('./pages/ReconciliationResourceDetailPage'),
-);
 const RoleChangeRequestsPage = lazy(() => import('./pages/RoleChangeRequestsPage'));
 const RoleChangeRequestDetailPage = lazy(() => import('./pages/RoleChangeRequestDetailPage'));
 const RolesPage = lazy(() => import('./pages/RolesPage'));
@@ -258,58 +256,28 @@ function App() {
               element={withPermission(<WithdrawQuoteDetail />, [PERMISSIONS.WITHDRAW_QUOTES_DETAIL_READ])}
             />
             <Route
-              path="reconciliation/safeguarding-breaks"
-              element={withPermission(<SafeguardingBreakList />, [
-                PERMISSIONS.SAFEGUARDING_BREAKS_READ,
+              path="reconciliation/runs"
+              element={withPermission(<ReconciliationRunsListPage />, [
+                PERMISSIONS.RECON_RUN_READ,
               ])}
             />
             <Route
-              path="reconciliation/safeguarding-breaks/:id"
-              element={withPermission(<SafeguardingBreakDetail />, [
-                PERMISSIONS.SAFEGUARDING_BREAK_DETAIL_READ,
+              path="reconciliation/runs/:runNo"
+              element={withPermission(<ReconciliationRunsDetailPage />, [
+                PERMISSIONS.RECON_RUN_DETAIL_READ,
               ])}
             />
             <Route
-              path="reconciliation/safeguarding-warnings"
-              element={withPermission(
-                <ReconciliationResourcePage resourceType="warnings" />,
-                [PERMISSIONS.SAFEGUARDING_WARNINGS_READ],
-              )}
+              path="reconciliation/cases"
+              element={withPermission(<ReconciliationCasesListPage />, [
+                PERMISSIONS.RECON_CASE_READ,
+              ])}
             />
             <Route
-              path="reconciliation/safeguarding-warnings/:id"
-              element={withPermission(
-                <ReconciliationResourceDetailPage resourceType="warnings" />,
-                [PERMISSIONS.SAFEGUARDING_WARNING_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="reconciliation/safeguarding-runs"
-              element={withPermission(
-                <ReconciliationResourcePage resourceType="runs" />,
-                [PERMISSIONS.SAFEGUARDING_RUNS_READ],
-              )}
-            />
-            <Route
-              path="reconciliation/safeguarding-runs/:id"
-              element={withPermission(
-                <ReconciliationResourceDetailPage resourceType="runs" />,
-                [PERMISSIONS.SAFEGUARDING_RUN_DETAIL_READ],
-              )}
-            />
-            <Route
-              path="reconciliation/safeguarding-fiat-statements"
-              element={withPermission(
-                <ReconciliationResourcePage resourceType="fiat-statements" />,
-                [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ],
-              )}
-            />
-            <Route
-              path="reconciliation/safeguarding-fiat-statements/:id"
-              element={withPermission(
-                <ReconciliationResourceDetailPage resourceType="fiat-statements" />,
-                [PERMISSIONS.SAFEGUARDING_FIAT_IMPORT_DETAIL_READ],
-              )}
+              path="reconciliation/cases/:caseNo"
+              element={withPermission(<ReconciliationCasesDetailPage />, [
+                PERMISSIONS.RECON_CASE_DETAIL_READ,
+              ])}
             />
             <Route
               path="reconciliation/outstandings"
@@ -741,15 +709,11 @@ function App() {
             <Route path="pricing/swap-fee-levels" element={withPermission(<SwapFeeLevelList />, [PERMISSIONS.SWAP_FEE_LEVELS_READ])} />
             <Route path="pricing/swap-fee-levels/:levelCode" element={withPermission(<SwapFeeLevelDetail />, [PERMISSIONS.SWAP_FEE_LEVELS_READ])} />
 
-            {/* reconciliation */}
-            <Route path="reconciliation/safeguarding-breaks" element={withPermission(<SafeguardingBreakList />, [PERMISSIONS.SAFEGUARDING_BREAKS_READ])} />
-            <Route path="reconciliation/safeguarding-breaks/:id" element={withPermission(<SafeguardingBreakDetail />, [PERMISSIONS.SAFEGUARDING_BREAK_DETAIL_READ])} />
-            <Route path="reconciliation/safeguarding-warnings" element={withPermission(<ReconciliationResourcePage resourceType="warnings" />, [PERMISSIONS.SAFEGUARDING_WARNINGS_READ])} />
-            <Route path="reconciliation/safeguarding-warnings/:id" element={withPermission(<ReconciliationResourceDetailPage resourceType="warnings" />, [PERMISSIONS.SAFEGUARDING_WARNING_DETAIL_READ])} />
-            <Route path="reconciliation/safeguarding-runs" element={withPermission(<ReconciliationResourcePage resourceType="runs" />, [PERMISSIONS.SAFEGUARDING_RUNS_READ])} />
-            <Route path="reconciliation/safeguarding-runs/:id" element={withPermission(<ReconciliationResourceDetailPage resourceType="runs" />, [PERMISSIONS.SAFEGUARDING_RUN_DETAIL_READ])} />
-            <Route path="reconciliation/safeguarding-fiat-statements" element={withPermission(<ReconciliationResourcePage resourceType="fiat-statements" />, [PERMISSIONS.SAFEGUARDING_FIAT_IMPORTS_READ])} />
-            <Route path="reconciliation/safeguarding-fiat-statements/:id" element={withPermission(<ReconciliationResourceDetailPage resourceType="fiat-statements" />, [PERMISSIONS.SAFEGUARDING_FIAT_IMPORT_DETAIL_READ])} />
+            {/* reconciliation (V8) */}
+            <Route path="reconciliation/runs" element={withPermission(<ReconciliationRunsListPage />, [PERMISSIONS.RECON_RUN_READ])} />
+            <Route path="reconciliation/runs/:runNo" element={withPermission(<ReconciliationRunsDetailPage />, [PERMISSIONS.RECON_RUN_DETAIL_READ])} />
+            <Route path="reconciliation/cases" element={withPermission(<ReconciliationCasesListPage />, [PERMISSIONS.RECON_CASE_READ])} />
+            <Route path="reconciliation/cases/:caseNo" element={withPermission(<ReconciliationCasesDetailPage />, [PERMISSIONS.RECON_CASE_DETAIL_READ])} />
 
             {/* ledger */}
             <Route path="ledger/accounts" element={withPermission(<LedgerAccountList />, [PERMISSIONS.TB_ACCOUNTS_READ])} />
