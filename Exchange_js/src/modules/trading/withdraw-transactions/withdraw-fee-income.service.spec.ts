@@ -155,7 +155,6 @@ describe('WithdrawTransactionsService — T5 fee account', () => {
     const service = new WithdrawTransactionsService(
       mocks.prisma,
       mocks.eventEmitter as any,
-      mocks.transactionComplianceService as any,
       mocks.withdrawQuoteService as any,
       mocks.auditLogsService as any,
       mocks.accountingService as any,

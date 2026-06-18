@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { 
@@ -12,10 +12,6 @@ import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
-import {
-  TxSourceType,
-} from '../../risk-engine/transaction-compliance/types/tx-compliance.types';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -116,8 +112,6 @@ export class WithdrawTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    @Inject(forwardRef(() => TransactionComplianceService))
-    private readonly transactionComplianceService: TransactionComplianceService,
     private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
@@ -404,51 +398,14 @@ export class WithdrawTransactionsService {
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
 
-    const caseAggregate =
-      await this.transactionComplianceService.getTransactionCaseAggregate(
-        TxSourceType.WITHDRAW,
-        id,
-        {
-          includeReports: false,
-          includePayload: false,
-        },
-      );
     const auditLogs = await this.getCanonicalWithdrawAuditLogs(
       item.id,
       item.withdrawNo,
     );
-    const normalizedPreKytStatus = caseAggregate.preKytCase?.status
-      ? caseAggregate.preKytCase.status
-      : this.transactionComplianceService.normalizeKytLifecycleStatus(
-          item.preKytStatus,
-          { allowEmpty: true },
-        );
-    const normalizedKytStatus = caseAggregate.mainKytCase?.status
-      ? caseAggregate.mainKytCase.status
-      : this.transactionComplianceService.normalizeKytLifecycleStatus(
-          item.kytStatus,
-          { allowEmpty: true },
-        );
-    const normalizedTravelRuleStatus = caseAggregate.travelRuleCase?.status
-      ? caseAggregate.travelRuleCase.status
-      : this.transactionComplianceService.normalizeTravelRuleLifecycleStatus(
-          item.travelRuleStatus,
-          item.travelRuleRequired,
-          { allowEmpty: true },
-        );
 
     return {
       ...item,
       type: this.deriveWithdrawType(item.asset?.type),
-      // Keep raw DB statuses for admin UI gate display (PASSED/PENDING/FAILED etc.)
-      // Normalized lifecycle statuses available via case objects for compliance engine
-      lifecyclePreKytStatus: normalizedPreKytStatus,
-      lifecycleKytStatus: normalizedKytStatus,
-      lifecycleTravelRuleStatus: normalizedTravelRuleStatus,
-      preKytCase: caseAggregate.preKytCase,
-      kytCase: caseAggregate.mainKytCase,
-      travelRuleCase: caseAggregate.travelRuleCase,
-      derivedComplianceStatus: caseAggregate.derivedComplianceStatus,
       auditLogs,
       fundsOrders: await this.internalTransactionsService.findFundsOrderBySource(
         'WITHDRAW',

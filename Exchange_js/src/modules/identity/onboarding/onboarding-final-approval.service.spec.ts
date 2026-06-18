@@ -53,7 +53,6 @@ describe('OnboardingFinalApprovalService', () => {
       latestRiskApprovalId: null,
       latestRiskApprovalStatus: null,
     });
-    prisma.eddResponse.findFirst.mockResolvedValue({ id: 'edd-1' });
     prisma.approvalCase.findFirst.mockResolvedValue(null);
     approvalsService.createAndSubmit.mockResolvedValue({
       id: 'approval-1',
@@ -78,7 +77,6 @@ describe('OnboardingFinalApprovalService', () => {
         objectSnapshot: expect.objectContaining({
           customerNo: 'CU0001',
           journeyId: 'c1',
-          currentEddResponseId: 'edd-1',
         }),
       }),
       expect.objectContaining({

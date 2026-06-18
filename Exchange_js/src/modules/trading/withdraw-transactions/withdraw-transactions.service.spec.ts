@@ -555,15 +555,10 @@ describe('WithdrawTransactionsService', () => {
         operatorId: 'SYSTEM',
       }),
     ]);
-    expect(result.derivedComplianceStatus).toBe('CLEAR');
     // raw statuses preserved from DB
     expect(result.preKytStatus).toBe('PASS');
     expect(result.kytStatus).toBe('PENDING');
     expect(result.travelRuleStatus).toBe('ACCEPTED');
-    // lifecycle-normalized statuses
-    expect(result.lifecyclePreKytStatus).toBe('FINAL');
-    expect(result.lifecycleKytStatus).toBe('RECEIVED');
-    expect(result.lifecycleTravelRuleStatus).toBe('FINAL');
   });
 
   describe('approval-gate transitions', () => {

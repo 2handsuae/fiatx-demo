@@ -291,16 +291,6 @@ export class OnboardingFinalApprovalService {
       };
     }
 
-    const latestEddResponse = await client.eddResponse.findFirst({
-      where: {
-        customerId: customer.id,
-        workflow: 'ONBOARDING',
-        journeyId: customer.id,
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-    });
-
     const traceCtx = this.buildTraceContext(customer.id);
     const created = await this.approvalsService.createAndSubmit(
       {
@@ -312,7 +302,6 @@ export class OnboardingFinalApprovalService {
           customerId: customer.id,
           customerNo: customer.customerNo || null,
           journeyId: customer.id,
-          currentEddResponseId: latestEddResponse?.id || null,
         },
       },
       {
@@ -375,17 +364,6 @@ export class OnboardingFinalApprovalService {
         },
       });
 
-      const latestEddResponse = await tx.eddResponse.findFirst({
-        where: {
-          customerId: customer.id,
-          workflow: 'ONBOARDING',
-          journeyId: customer.id,
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-
-
       await this.writeCanonicalAudit({
         customerId: customer.id,
         customerNo: customer.customerNo || null,
@@ -401,7 +379,6 @@ export class OnboardingFinalApprovalService {
           approvalNo: resolved.approval.approvalNo,
           status: resolved.approval.status,
           reason,
-          currentEddResponseId: latestEddResponse?.id || null,
         },
       });
 
