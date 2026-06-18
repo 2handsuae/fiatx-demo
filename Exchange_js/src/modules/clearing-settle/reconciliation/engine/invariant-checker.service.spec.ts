@@ -32,4 +32,17 @@ describe('InvariantCheckerService', () => {
     expect(i1.status).toBe('FAIL');
     expect(i1.delta.toString()).toBe('10');
   });
+
+  it('I4 passes when full ledger balances (Σ debit_net = 0)', () => {
+    const bal = { 'A.CLIENT_CUSTODY': D('100'), 'L.DEPOSIT_SUSPENSE': D('100') };
+    const i4 = svc.check('USDT', 'CRYPTO', bal).find(c => c.invariantCode === 'I4')!;
+    expect(i4.status).toBe('PASS');
+    expect(i4.delta.toString()).toBe('0');
+  });
+
+  it('I4 fails when ledger does not balance', () => {
+    const bal = { 'A.CLIENT_CUSTODY': D('100'), 'L.DEPOSIT_SUSPENSE': D('90') };
+    const i4 = svc.check('USDT', 'CRYPTO', bal).find(c => c.invariantCode === 'I4')!;
+    expect(i4.status).toBe('FAIL');
+  });
 });

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 import {
-  PAYIN_IN_TRANSIT, PAYOUT_IN_TRANSIT, WITHDRAW_IN_TRANSIT_STATUS, FUNDS_FLOW_IN_TRANSIT,
+  PAYIN_IN_TRANSIT, WITHDRAW_IN_TRANSIT_STATUS, FUNDS_FLOW_IN_TRANSIT,
 } from '../constants/reconciliation.constants';
 
 const D0 = () => new Prisma.Decimal(0);

@@ -14,6 +14,8 @@ export interface LineItemDraft {
 /** unmatched → LineItemDraft；signedDelta 用于闭合自检 Σ = I5 delta。 */
 @Injectable()
 export class ClassifierService {
+  // 符号约定：signedDelta 表示对 (TB − 外部) 的贡献，假设 IN 为正、OUT 为负，
+  // 调用方（workflow）须保证传入 amount 已按方向带符号 / 或仅传 IN 流（MVP）。
   classify(m: MatchResult): LineItemDraft[] {
     const out: LineItemDraft[] = [];
     // ORPHAN_INTERNAL：内部有外部无 → TB 比外部多 → +amount（IN）/ 视方向
