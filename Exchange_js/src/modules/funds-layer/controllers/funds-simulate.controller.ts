@@ -14,7 +14,7 @@ import { RequirePermissions } from '../../identity/access-control/require-permis
 import { buildPermissionCode } from '../../identity/access-control/permission-code.util';
 import { FundsFlowService } from '../domain/funds-flow.service';
 import { SimulateFundsFlowDto } from '../dto/simulate-funds-flow.dto';
-import { UpdateInternalFundStatusDto } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+import { UpdateInternalFundStatusDto } from '../dto/internal-fund.dto';
 
 /**
  * DEV-only endpoint to drive a funds-flow leg through its execution state

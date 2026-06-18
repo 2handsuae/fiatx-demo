@@ -8,7 +8,7 @@ import { DomainEventNames } from '../../../common/events/domain-events.constants
 import {
   InternalFundAction,
   InternalFundStatus,
-} from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+} from '../dto/internal-fund.dto';
 import { FundsFlowService, FIAT_TRANSITIONS } from './funds-flow.service';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
 import { WalletBalanceService } from '../../asset-treasury/wallets/wallet-balance.service';

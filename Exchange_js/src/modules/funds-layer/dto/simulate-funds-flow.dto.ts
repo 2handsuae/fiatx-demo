@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { InternalFundAction } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+import { InternalFundAction } from './internal-fund.dto';
 
 export class SimulateFundsFlowDto {
   @IsString() fundsFlowId!: string;

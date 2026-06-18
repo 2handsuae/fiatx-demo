@@ -13,8 +13,8 @@ import {
   InternalFundQueryDto,
   InternalFundStatus,
   UpdateInternalFundStatusDto,
-} from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
-import { InternalTransactionStatus } from '../../asset-treasury/internal-transactions/dto/internal-transaction.dto';
+} from '../dto/internal-fund.dto';
+import { InternalTransactionStatus } from '../dto/internal-transaction.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,

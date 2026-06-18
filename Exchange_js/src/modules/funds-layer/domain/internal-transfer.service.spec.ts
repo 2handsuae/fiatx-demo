@@ -8,7 +8,7 @@ import {
   TransferMedium,
   TransferPath,
 } from '../constants/internal-transfer-paths.constant';
-import { InternalTransactionStatus } from '../../asset-treasury/internal-transactions/dto/internal-transaction.dto';
+import { InternalTransactionStatus } from '../dto/internal-transaction.dto';
 import { InternalTransferService } from './internal-transfer.service';
 
 describe('InternalTransferService', () => {

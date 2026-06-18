@@ -8,7 +8,7 @@ import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { WhitelistGuard } from '../guards/whitelist.guard';
 import { FiatSettlementWorkflowService } from './fiat-settlement-workflow.service';
 import { FiatFeeCollectionWorkflowService } from './fiat-fee-collection-workflow.service';
-import { InternalFundAction } from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+import { InternalFundAction } from '../dto/internal-fund.dto';
 
 describe('FiatSettlementWorkflowService.onSwapSucceeded', () => {
   let service: FiatSettlementWorkflowService;

@@ -15,7 +15,7 @@ import {
 import {
   InternalTransactionApprovalStatus,
   InternalTransactionStatus,
-} from '../../asset-treasury/internal-transactions/dto/internal-transaction.dto';
+} from '../dto/internal-transaction.dto';
 import { AccountingClass, TransferPath } from '../constants/internal-transfer-paths.constant';
 import { InternalTransferQueryDto } from '../dto/internal-transfer-query.dto';
 import { FundsFlowAggregatorPort } from './funds-flow-aggregator.port';
@@ -46,7 +46,7 @@ export interface CreateTransferInput {
 
 /**
  * V7 aggregate-level domain service over the `internalTransaction` table.
- * Ported from InternalTransactionsService (asset-treasury). Implements the
+ * Successor to the now-deleted InternalTransactionsService; consolidates the
  * FundsFlowAggregatorPort so FundsFlowService can roll fund statuses up into
  * the transfer without a circular dependency.
  */

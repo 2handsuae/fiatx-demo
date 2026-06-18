@@ -13,7 +13,7 @@ import {
   InternalFundAction,
   InternalFundStatus,
   UpdateInternalFundStatusDto,
-} from '../../asset-treasury/internal-funds/dto/internal-fund.dto';
+} from '../dto/internal-fund.dto';
 import { TransferPath } from '../constants/internal-transfer-paths.constant';
 import { FiatFeeCollectionWorkflowService } from './fiat-fee-collection-workflow.service';
 
