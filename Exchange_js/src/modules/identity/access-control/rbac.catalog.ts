@@ -41,11 +41,9 @@ export type PermissionGroup =
   | 'PAYOUT_WRITE'
   | 'WALLET_READ'
   | 'WALLET_WRITE'
-  | 'INTERNAL_TX_READ'
   | 'INTERNAL_TX_SUBMIT'
   | 'INTERNAL_TX_REVIEW'
   | 'INTERNAL_FUND_READ'
-  | 'INTERNAL_FUND_WRITE'
   | 'RECON_OUTSTANDING_READ'
   | 'RECON_BREAK_READ'
   | 'RECON_BREAK_WRITE'
@@ -319,15 +317,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Custodian wallet workflow
   route('POST', '/admin/custodian-wallets', 'Create custodian wallet (approval workflow)', ['WALLET_WRITE']),
   route('POST', '/admin/custodian-wallets/:walletNo/retry', 'Retry failed custodian wallet creation', ['WALLET_WRITE']),
-
-  // Internal transaction / fund
-  route('GET', '/admin/internal-transactions', 'List internal transactions', ['INTERNAL_TX_READ']),
-  route('GET', '/admin/internal-transactions/:id', 'Get internal transaction detail', ['INTERNAL_TX_READ']),
-
-  route('GET', '/admin/internal-funds', 'List internal funds', ['INTERNAL_FUND_READ']),
-  route('GET', '/admin/internal-funds/:id', 'Get internal fund detail', ['INTERNAL_FUND_READ']),
-  route('PATCH', '/admin/internal-funds/:id/status', 'Update internal fund status', ['INTERNAL_FUND_WRITE']),
-  route('POST', '/admin/internal-funds/mock', 'Mock internal fund transition', ['INTERNAL_FUND_WRITE']),
 
   // Reconciliation
   route('GET', '/admin/reconciliation/outstandings', 'List outstandings', ['RECON_OUTSTANDING_READ']),
