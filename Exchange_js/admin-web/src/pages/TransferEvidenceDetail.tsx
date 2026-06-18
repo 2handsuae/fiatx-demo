@@ -85,7 +85,7 @@ const SOURCE_ROUTES: Record<string, string> = {
   DEPOSIT: '/admin/trading/deposits',
   WITHDRAWAL: '/admin/trading/withdrawals',
   SWAP: '/admin/trading/swaps',
-  INTERNAL: '/exchange/internal-transactions',
+  INTERNAL: '/admin/funds/transfers',
 };
 
 function buildSourceLink(sourceType: string, sourceNo: string): string | null {

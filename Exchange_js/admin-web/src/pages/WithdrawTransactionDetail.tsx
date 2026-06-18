@@ -342,7 +342,7 @@ const WithdrawTransactionDetail = () => {
                 statusValue={fundsOrder.status}
                 meta={fundsOrder.type}
                 onClick={() =>
-                  navigate(`/exchange/internal-transactions/${fundsOrder.id}`)
+                  navigate(`/admin/funds/transfers/${fundsOrder.internalTxNo}`)
                 }
               />
             ) : (

@@ -284,7 +284,7 @@ const SwapTransactionDetail = () => {
                     identifier={o.internalTxNo}
                     statusValue={o.status}
                     meta={o.type}
-                    onClick={() => navigate(`/exchange/internal-transactions/${o.id}`)}
+                    onClick={() => navigate(`/admin/funds/transfers/${o.internalTxNo}`)}
                   />
                 ))}
               </div>

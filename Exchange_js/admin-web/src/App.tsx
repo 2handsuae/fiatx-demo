@@ -31,8 +31,6 @@ const PayinList = lazy(() => import('./pages/PayinList'));
 const PayinDetail = lazy(() => import('./pages/PayinDetail'));
 const PayoutList = lazy(() => import('./pages/PayoutList'));
 const PayoutDetail = lazy(() => import('./pages/PayoutDetail'));
-const InternalTransactionList = lazy(() => import('./pages/InternalTransactionList'));
-const InternalTransactionDetail = lazy(() => import('./pages/InternalTransactionDetail'));
 const InternalFundListPage = lazy(() => import('./pages/funds-layer/InternalFundListPage'));
 const InternalFundDetailPage = lazy(() => import('./pages/funds-layer/InternalFundDetailPage'));
 const InternalTransferListPage = lazy(() => import('./pages/funds-layer/InternalTransferListPage'));
@@ -666,18 +664,6 @@ function App() {
             <Route
               path="treasury/withdrawal-addresses/:addressNo"
               element={withPermission(<WithdrawalAddressDetail />, [PERMISSIONS.WITHDRAWAL_ADDRESS_DETAIL_READ])}
-            />
-          </Route>
-
-          {/* legacy root — only internal-transactions retained until cleanup round (admin-legacy-pages-to-clean); deposit/withdraw/swap moved to /admin/trading/* */}
-          <Route path="/exchange">
-            <Route
-              path="internal-transactions"
-              element={withPermission(<InternalTransactionList />, [PERMISSIONS.INTERNAL_TRANSACTIONS_READ])}
-            />
-            <Route
-              path="internal-transactions/:id"
-              element={withPermission(<InternalTransactionDetail />, [PERMISSIONS.INTERNAL_TRANSACTION_DETAIL_READ])}
             />
           </Route>
 

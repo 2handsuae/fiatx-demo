@@ -228,7 +228,7 @@ export default function CustodianWalletDetail() {
       const payload = (await res.json()) as CollectionActionResult;
       setCollectionResult(payload);
       if (payload.internalTransactionId && (payload.action === 'CREATED' || payload.action === 'IDEMPOTENT')) {
-        navigate(`/exchange/internal-transactions/${payload.internalTransactionId}`);
+        navigate('/admin/funds/transfers');
         return;
       }
       setNotice(payload.reason || payload.action || 'Collection request completed.');
