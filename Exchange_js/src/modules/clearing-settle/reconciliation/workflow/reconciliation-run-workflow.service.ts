@@ -1,6 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import {
+  EXTERNAL_BALANCE_PROVIDER,
+  EXTERNAL_TX_PROVIDER,
+  ExternalBalanceProvider,
+  ExternalTxProvider,
+} from '../adapters/external-data.provider';
 import { BalanceSnapshotService } from '../engine/balance-snapshot.service';
 import { InvariantCheckerService } from '../engine/invariant-checker.service';
 import { InTransitService } from '../engine/in-transit.service';
@@ -25,8 +31,8 @@ export class ReconciliationRunWorkflowService {
     private readonly snapshot: BalanceSnapshotService,
     private readonly invariants: InvariantCheckerService,
     private readonly inTransit: InTransitService,
-    private readonly balanceProvider: any,   // ExternalBalanceProvider (注入 token，见 module)
-    private readonly txProvider: any,         // ExternalTxProvider
+    @Inject(EXTERNAL_BALANCE_PROVIDER) private readonly balanceProvider: ExternalBalanceProvider,
+    @Inject(EXTERNAL_TX_PROVIDER) private readonly txProvider: ExternalTxProvider,
     private readonly balanceRecon: BalanceReconService,
     private readonly matchEngine: MatchEngineService,
     private readonly classifier: ClassifierService,
