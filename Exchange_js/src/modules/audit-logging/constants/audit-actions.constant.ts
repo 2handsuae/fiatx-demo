@@ -91,6 +91,9 @@ export const AuditEntityTypes = {
   SETTLEMENT_BATCH: 'SETTLEMENT_BATCH',
   OUTSTANDING: 'OUTSTANDING',
   FEE_ACCRUAL: 'FEE_ACCRUAL',
+  RECONCILIATION_RUN_V8: 'RECONCILIATION_RUN_V8',
+  RECONCILIATION_CASE: 'RECONCILIATION_CASE',
+  RECONCILIATION_LINE_ITEM: 'RECONCILIATION_LINE_ITEM',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -154,6 +157,8 @@ export const AuditBusinessWorkflowTypes = {
   WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
   // Internal Transfer (V7, 2026-06-03)
   INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
+  // V8 Reconciliation (2026-06-18)
+  V8_RECONCILIATION: 'clearing-settle/reconciliation',
 } as const;
 
 export const AuditUserActions = {
@@ -401,6 +406,12 @@ export const AuditActions = {
   REORGED: 'REORGED',
   REQUESTED: 'REQUESTED',
   SUCCEEDED: 'SUCCEEDED',
+  // V8 Reconciliation (2026-06-18)
+  RECON_RUN_COMPLETED: 'RECON_RUN_COMPLETED',
+  RECON_RUN_FAILED: 'RECON_RUN_FAILED',
+  RECON_CASE_OPENED: 'RECON_CASE_OPENED',
+  RECON_CASE_RECONFIRMED: 'RECON_CASE_RECONFIRMED',
+  RECON_INVARIANT_BREAK: 'RECON_INVARIANT_BREAK',
 } as const;
 
 export const AuditGovernanceActions = {
