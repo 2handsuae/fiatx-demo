@@ -141,7 +141,7 @@ fiat：
    internal{SourceType,Id,No,Amount,Direction,TxHash}  external{Source,TxId,TxHash,Amount,Direction,Timestamp}
    status(OPEN)  ── resolution/resolutionMemo/reimbursementObligationId 留空，阶段二填
 
-复用 fiat_statement_import（从 stub 抢救，承载 Zand 对账单 CSV）
+~~复用 fiat_statement_import（从 stub 抢救）~~ → **实施变更（G2 2026-06-18）**：随 stub 一并 drop（与 SafeguardingRun FK 纠缠，且 V8 mock 适配器从 internal_fund 派生外部流水、暂不引用此表）。真实 Zand 对账单表待真实 adapter 落地时重建
 不动 reimbursement_obligations（阶段二才接）
 ✂ 不建 observations 表 —— 跨 run 时间线用 Case 指针(openedBy/closedBy/lastObserved) + 审计日志(RECON_CASE_*) 重建
 ```

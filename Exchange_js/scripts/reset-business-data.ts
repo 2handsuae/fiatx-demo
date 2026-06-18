@@ -44,6 +44,12 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'internalTransaction',
   'reimbursementObligation',
 
+  // ── V8 reconciliation (children before parents) ────────────────────
+  'reconciliationLineItem',
+  'reconciliationInvariantCheck',
+  'reconciliationCase',
+  'reconciliationRun',
+
   // ── Payment legs ───────────────────────────────────────────────────
   'payout',
   'payin',

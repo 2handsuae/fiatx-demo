@@ -31,12 +31,12 @@ export class InvariantCheckerService {
     const i1rhs = g(bal, 'L.CLIENT_PAYABLE').plus(g(bal, 'L.DEPOSIT_SUSPENSE')).plus(g(bal, 'L.TRADE_CLEARING'));
     out.push(this.mk('I1', currency, assetCode, i1lhs, 'PAYABLE+SUSPENSE+CLEARING', i1rhs, 'SAFEGUARDING'));
 
-    // TODO(Group E): I2 rhs = open-swap 桥贡献（workflow 从 outstandings 聚合后注入）；当前 stub 恒 PASS
+    // 阶段二接入: I2 rhs = open-swap 桥贡献（待从 outstandings 聚合注入）；当前 MVP 余额留痕、stub 恒 PASS（spec §2.3，刻意推迟）
     // I2 business：TRADE_CLEARING 残余（此处仅校验"应清零或与桥贡献一致"——传入已是切面值，桥贡献由 workflow 注入；MVP 校验非负余额留痕）
     const i2 = g(bal, 'L.TRADE_CLEARING');
     out.push(this.mk('I2', currency, 'TRADE_CLEARING', i2, 'open-swap 桥贡献(注入)', i2, 'BUSINESS'));
 
-    // TODO(Group E): I3 rhs = 成本基础（LP 通道接入后注入）；当前 stub 恒 PASS
+    // 阶段二接入: I3 rhs = 成本基础（待 LP 通道接入注入）；当前 MVP 两者自洽、stub 恒 PASS（spec §2.3，刻意推迟）
     // I3 business：FX_POSITION − FX_UNREALIZED = 成本基础（无 LP 真实通道时两者自洽，delta=0）
     const i3lhs = g(bal, 'A.FX_POSITION').minus(g(bal, 'R.FX_UNREALIZED_PNL'));
     out.push(this.mk('I3', currency, 'FX_POSITION−UNREAL', i3lhs, '成本基础', i3lhs, 'BUSINESS'));
