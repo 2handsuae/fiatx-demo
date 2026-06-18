@@ -45,6 +45,8 @@ export type PermissionGroup =
   | 'RECON_OUTSTANDING_READ'
   | 'RECON_BREAK_READ'
   | 'RECON_BREAK_WRITE'
+  | 'RECON_RUN_READ'
+  | 'RECON_CASE_READ'
   | 'SETTLEMENT_READ'
   | 'SETTLEMENT_WRITE'
   | 'CLEARING_READ'
@@ -321,6 +323,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/reconciliation/outstandings/:id', 'Get outstanding detail', ['RECON_OUTSTANDING_READ']),
   route('GET', '/admin/reconciliation/fee-accruals', 'List fee accruals', ['RECON_OUTSTANDING_READ']),
   route('GET', '/admin/reconciliation/fee-accruals/:id', 'Get fee accrual detail with siblings', ['RECON_OUTSTANDING_READ']),
+  route('GET', '/admin/reconciliation/runs', 'View Recon Runs', ['RECON_RUN_READ']),
+  route('GET', '/admin/reconciliation/runs/:runNo', 'View Recon Run Detail', ['RECON_RUN_READ']),
+  route('GET', '/admin/reconciliation/cases', 'View Recon Cases', ['RECON_CASE_READ']),
+  route('GET', '/admin/reconciliation/cases/:caseNo', 'View Recon Case Detail', ['RECON_CASE_READ']),
   route(
     'GET',
     '/admin/reconciliation/safeguarding-breaks',
