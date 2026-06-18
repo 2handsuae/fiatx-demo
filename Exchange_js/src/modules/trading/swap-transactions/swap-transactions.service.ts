@@ -8,7 +8,7 @@ import { SwapTransactionQueryDto } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
-import { InternalTransactionsService } from '../../asset-treasury/internal-transactions/internal-transactions.service';
+import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -80,7 +80,7 @@ export class SwapTransactionsService {
     private readonly prisma: PrismaService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly binanceRateProvider: BinanceRateProvider,
-    private readonly internalTransactionsService: InternalTransactionsService,
+    private readonly internalTransferService: InternalTransferService,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -317,7 +317,7 @@ export class SwapTransactionsService {
     // Enrich from 资金单: swap fans out to multiple InternalTransaction legs
     // (from/to/fee/spread). Surface them so the detail page can link through.
     const fundsOrders =
-      await this.internalTransactionsService.findFundsOrderBySource(
+      await this.internalTransferService.findFundsOrderBySource(
         'SWAP',
         item.id,
       );

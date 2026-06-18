@@ -7,16 +7,17 @@ import {
 } from './dto/deposit-transaction.dto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { InternalTransactionsService } from '../../asset-treasury/internal-transactions/internal-transactions.service';
+import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
   let prisma: PrismaService;
   let eventEmitter: EventEmitter2;
+  let module: TestingModule;
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         DepositTransactionsService,
         {
@@ -45,7 +46,7 @@ describe('DepositTransactionsService', () => {
           },
         },
         {
-          provide: InternalTransactionsService,
+          provide: InternalTransferService,
           useValue: {
             findFundsOrderBySource: jest.fn().mockResolvedValue([]),
           },
@@ -364,6 +365,35 @@ describe('DepositTransactionsService', () => {
           travelRuleStatus: 'NOT_REQUIRED',
         },
       });
+    });
+  });
+
+  describe('findOne', () => {
+    it('findOne attaches fundsOrders from the 资金单 lookup (sourceType DEPOSIT)', async () => {
+      const internalTransferService = module.get<InternalTransferService>(InternalTransferService);
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-detail-1',
+        depositNo: 'DP999',
+        ownerType: 'CUSTOMER',
+        ownerNo: 'CU001',
+        asset: { type: 'CRYPTO' },
+        wallet: null,
+        fromWallet: null,
+        payin: null,
+        customer: null,
+      });
+      (internalTransferService.findFundsOrderBySource as jest.Mock).mockResolvedValue([
+        { id: 'itx-1', internalTxNo: 'ITX-001', type: 'DEPOSIT', status: 'SUCCESS', legs: [] },
+      ]);
+
+      const result = await service.findOne('dep-detail-1');
+
+      expect(internalTransferService.findFundsOrderBySource).toHaveBeenCalledWith(
+        'DEPOSIT',
+        'dep-detail-1',
+      );
+      expect(result.fundsOrders).toHaveLength(1);
+      expect(result.fundsOrders[0].internalTxNo).toBe('ITX-001');
     });
   });
 

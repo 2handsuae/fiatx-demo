@@ -4,7 +4,7 @@ import { SwapTransactionsService } from './swap-transactions.service';
 describe('SwapTransactionsService', () => {
   let service: SwapTransactionsService;
   let prisma: any;
-  let internalTransactionsService: any;
+  let internalTransferService: any;
 
   beforeEach(() => {
     prisma = {
@@ -12,7 +12,7 @@ describe('SwapTransactionsService', () => {
         findUnique: jest.fn(),
       },
     };
-    internalTransactionsService = {
+    internalTransferService = {
       findFundsOrderBySource: jest.fn().mockResolvedValue([]),
     };
 
@@ -20,7 +20,7 @@ describe('SwapTransactionsService', () => {
       prisma as any,
       {} as any,
       {} as any,
-      internalTransactionsService as any,
+      internalTransferService as any,
     );
   });
 
@@ -63,7 +63,7 @@ describe('SwapTransactionsService', () => {
       id: 'swap-2',
       swapNo: 'SWP0002',
     });
-    internalTransactionsService.findFundsOrderBySource.mockResolvedValue([
+    internalTransferService.findFundsOrderBySource.mockResolvedValue([
       { internalTxNo: 'ITX-SWAP-FROM', type: 'SWAP', status: 'SUCCESS', legs: [] },
       { internalTxNo: 'ITX-SWAP-TO', type: 'SWAP', status: 'SUCCESS', legs: [] },
     ]);
@@ -71,7 +71,7 @@ describe('SwapTransactionsService', () => {
     const result = await service.findOne('swap-2');
 
     expect(
-      internalTransactionsService.findFundsOrderBySource,
+      internalTransferService.findFundsOrderBySource,
     ).toHaveBeenCalledWith('SWAP', 'swap-2');
     expect(result.fundsOrders).toHaveLength(2);
     expect(result.fundsOrders[0].internalTxNo).toBe('ITX-SWAP-FROM');
