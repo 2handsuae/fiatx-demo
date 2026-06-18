@@ -35,5 +35,8 @@ describe('ReconciliationRunWorkflowService', () => {
     expect(res.cases[0].delta.toString()).toBe('0');
     expect(deps.caseSvc.upsertOpen).not.toHaveBeenCalled();
     expect(deps.recordSvc.saveLineItems).not.toHaveBeenCalled();
+    // spec §6.3: DRY_RUN 0 落库 —— 连 run 行都不创建
+    expect(deps.runSvc.createRun).not.toHaveBeenCalled();
+    expect(res.runNo).toBe('(dry-run)');
   });
 });

@@ -54,7 +54,8 @@ export class ReconciliationRunWorkflowService {
       where: { type: input.layer }, select: { id: true, currency: true, type: true },
     });
 
-    const run = await this.runSvc.createRun(input);
+    // DRY_RUN 不落库（spec §6.3）：只在 APPLY 时创建 run 行，dry-run 全程在内存计算。
+    const run = input.mode === 'APPLY' ? await this.runSvc.createRun(input) : null;
     const results: any[] = [];
     let invariantFail = false, openedCount = 0;
 
@@ -90,7 +91,7 @@ export class ReconciliationRunWorkflowService {
     }
 
     // APPLY：落库；DRY_RUN：跳过
-    if (input.mode === 'APPLY') {
+    if (input.mode === 'APPLY' && run) {
       await this.prisma.$transaction(async (tx) => {
         for (const r of results) {
           for (const c of r.checks) await this.recordSvc.saveInvariantCheck(run.id, c, tx);
@@ -122,6 +123,6 @@ export class ReconciliationRunWorkflowService {
       });
     }
 
-    return { runNo: run.runNo, mode: input.mode, cases: results.map(r => ({ ccy: r.ccy, delta: r.i5.delta, lineItems: r.drafts.length, closes: r.closes })) };
+    return { runNo: run?.runNo ?? '(dry-run)', mode: input.mode, cases: results.map(r => ({ ccy: r.ccy, delta: r.i5.delta, lineItems: r.drafts.length, closes: r.closes })) };
   }
 }
