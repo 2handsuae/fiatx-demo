@@ -763,6 +763,7 @@ model Asset {
   liabilitySnapshots             LiabilitySnapshot[]
   safeguardingPoolSnapshots      SafeguardingPoolSnapshot[]
   reconciliationWarnings         ReconciliationWarning[]
+  reconciliationCases            ReconciliationCase[]
   fiatStatementImports           FiatStatementImport[]
   withdrawalAddresses            WithdrawalAddress[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
@@ -2139,4 +2140,103 @@ model SwapFeeLevelBinding {
   @@index([customerId])
   @@index([levelId])
   @@map("swap_fee_level_bindings")
+}
+
+model ReconciliationRun {
+  id              String   @id @default(uuid())
+  runNo           String   @unique @default("TEMP")
+  businessDate    String
+  layer           String   // CRYPTO | FIAT
+  seq             Int      @default(1)
+  triggerType     String   // SCHEDULED | MANUAL | POST_FIX
+  mode            String   @default("APPLY") // DRY_RUN | APPLY
+  status          String   @default("RUNNING") // RUNNING | COMPLETED | FAILED
+  invariantStatus String   @default("PASS")    // PASS | FAIL
+  openedCount     Int      @default(0)
+  reObservedCount Int      @default(0)
+  closedCount     Int      @default(0)
+  traceId         String?
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  invariantChecks ReconciliationInvariantCheck[]
+  cases           ReconciliationCase[] @relation("CaseOpenedByRun")
+  lineItems       ReconciliationLineItem[]
+  @@index([businessDate, layer])
+  @@map("reconciliation_runs")
+}
+
+model ReconciliationInvariantCheck {
+  id            String  @id @default(uuid())
+  runId         String
+  invariantCode String  // I1 | I2 | I3 | I4 | I5
+  currency      String
+  lhsLabel      String
+  lhsValue      Decimal
+  rhsLabel      String
+  rhsValue      Decimal
+  delta         Decimal
+  status        String  // PASS | FAIL
+  severity      String  // ATTESTATION | SAFEGUARDING | BUSINESS | ACCOUNT_ACTUAL
+  createdAt     DateTime @default(now())
+  run           ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@index([runId])
+  @@map("reconciliation_invariant_checks")
+}
+
+model ReconciliationCase {
+  id                        String   @id @default(uuid())
+  caseNo                    String   @unique @default("TEMP")
+  businessDate              String
+  assetId                   String
+  assetCode                 String
+  layer                     String
+  tbAmount                  Decimal  @default(0)
+  inTransitAmount           Decimal  @default(0)
+  expectedExternal          Decimal  @default(0)
+  actualExternal            Decimal  @default(0)
+  deltaAmount               Decimal  @default(0)
+  status                    String   @default("OPEN") // OPEN | PENDING_RECHECK | RESOLVED
+  openedByRunId             String
+  closedByRunId             String?
+  lastObservedRunId         String?
+  slaDeadline               DateTime?
+  traceId                   String?
+  reimbursementObligationId String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
+  asset                     Asset    @relation(fields: [assetId], references: [id])
+  lineItems                 ReconciliationLineItem[]
+  @@unique([businessDate, assetId])
+  @@index([status])
+  @@map("reconciliation_cases")
+}
+
+model ReconciliationLineItem {
+  id               String  @id @default(uuid())
+  caseId           String
+  foundByRunId     String
+  lineNo           Int
+  matchStatus      String  // MATCHED | ORPHAN_INTERNAL | ORPHAN_EXTERNAL | AMOUNT_MISMATCH | INVARIANT
+  internalSourceType String?
+  internalSourceId   String?
+  internalSourceNo   String?
+  internalAmount     Decimal?
+  internalDirection  String?
+  internalTxHash     String?
+  externalSource     String?
+  externalTxId       String?
+  externalTxHash     String?
+  externalAmount     Decimal?
+  externalDirection  String?
+  externalTimestamp  DateTime?
+  status             String  @default("OPEN")
+  resolution         String?
+  resolutionMemo     String?
+  createdAt          DateTime @default(now())
+  case               ReconciliationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  run                ReconciliationRun  @relation(fields: [foundByRunId], references: [id])
+  @@index([caseId])
+  @@map("reconciliation_line_items")
 }
