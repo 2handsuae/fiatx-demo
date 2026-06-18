@@ -161,22 +161,6 @@ export class WithdrawTransactionsService {
     };
   }
 
-  private async triggerComplianceGateBlockedAlert(
-    item: any,
-    reason: string,
-    detail: Record<string, unknown>,
-  ) {
-    this.logger.debug(
-      `Skip legacy tx compliance alert for withdraw ${item.id}: onboarding-only alert runtime active. reason=${reason} detail=${JSON.stringify(detail)}`,
-    );
-  }
-
-  private async assertComplianceGate(item: any, nextStatus: WithdrawTransactionStatus) {
-    void item;
-    void nextStatus;
-    return;
-  }
-
   private normalizeStatusUpdateContext(
     context?: WithdrawStatusUpdateContext,
   ): Required<WithdrawStatusUpdateContext> {
@@ -789,7 +773,6 @@ export class WithdrawTransactionsService {
       }
 
       this.assertStatusUpdateSourceAllowed(nextStatus, statusContext);
-      await this.assertComplianceGate(item, nextStatus);
 
       let history: any[] = [];
       try {

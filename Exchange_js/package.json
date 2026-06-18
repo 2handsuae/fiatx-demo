@@ -42,7 +42,6 @@
     "wave4:pricing:quote:smoke": "ts-node scripts/wave4-pricing-quote-smoke.ts",
     "wave4:cleanup:inventory": "ts-node scripts/wave4-cleanup-inventory.ts",
     "wave8:safeguarding:demo:seed": "ts-node scripts/wave8-safeguarding-demo-seed.ts",
-    "wave8:treasury:demo:seed": "ts-node scripts/wave8-treasury-demo-seed.ts",
     "wave8:gov02:demo:seed": "ts-node scripts/wave8-gov02-demo-seed.ts",
     "wave8:demo:seed": "ts-node scripts/wave8-demo-seed.ts",
     "governance:demo:seed": "ts-node scripts/governance-demo-seed.ts",

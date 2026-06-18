@@ -4,7 +4,6 @@ import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
 import { WithdrawTransactionsService } from '../modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
 import { PrismaService } from '../core/prisma/prisma.service';
-import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawTransactionStatus } from '../modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
 import {
   PayoutStatus,
@@ -20,7 +19,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
   let orchestrator: WithdrawWorkflowOrchestrator;
   let withdrawalService: any;
   let payoutsService: any;
-  let transactionComplianceService: any;
   let prisma: any;
 
   const mockPrisma: any = {
@@ -57,10 +55,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
     updateStatus: jest.fn(),
   };
 
-  const mockTransactionComplianceService = {
-    ensureWithdrawMainCasesOnPayoutConfirmed: jest.fn(),
-  };
-
   const mockAuditLogsService = {
     recordSystem: jest.fn().mockResolvedValue({}),
     recordByActor: jest.fn().mockResolvedValue({}),
@@ -95,10 +89,6 @@ describe('WithdrawWorkflowOrchestrator', () => {
           useValue: mockWithdrawalService,
         },
         { provide: PayoutsService, useValue: mockPayoutsService },
-        {
-          provide: TransactionComplianceService,
-          useValue: mockTransactionComplianceService,
-        },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
       ],
@@ -111,89 +101,9 @@ describe('WithdrawWorkflowOrchestrator', () => {
       WithdrawTransactionsService,
     );
     payoutsService = module.get<PayoutsService>(PayoutsService);
-    transactionComplianceService = module.get<TransactionComplianceService>(
-      TransactionComplianceService,
-    );
     prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
-  });
-
-  it('should execute payout confirmed atomic path', async () => {
-    mockPrisma.auditLogEvent.findUnique.mockResolvedValue(null);
-    mockPrisma.payout.findUnique.mockResolvedValue({
-      id: 'PO_1',
-      withdrawId: 'WD_1',
-      status: PayoutStatus.CONFIRMED,
-    });
-    mockWithdrawalService.findOne.mockResolvedValue({
-      ...baseWithdrawal,
-      type: 'crypto',
-      asset: { type: 'CRYPTO' },
-    });
-    mockWithdrawalService.updateStatus.mockResolvedValue({
-      ...baseWithdrawal,
-      status: WithdrawTransactionStatus.SUCCESS,
-      type: 'crypto',
-      asset: { type: 'CRYPTO' },
-    });
-    mockTransactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed.mockResolvedValue(
-      {},
-    );
-    mockPayoutsService.updateStatus.mockResolvedValue({
-      id: 'PO_1',
-      status: PayoutStatus.CLEARED,
-    });
-    mockPrisma.auditLogEvent.create.mockResolvedValue({ id: 'LOG_1' });
-
-    const result = await orchestrator.onPayoutConfirmed({
-      withdrawId: 'WD_1',
-      payoutId: 'PO_1',
-    });
-
-    expect(prisma.$transaction).toHaveBeenCalled();
-    expect(withdrawalService.updateStatus).toHaveBeenCalledWith(
-      'WD_1',
-      expect.objectContaining({ action: 'success' }),
-      expect.objectContaining({
-        source: 'SYSTEM',
-        actorId: 'SYSTEM',
-      }),
-      mockPrisma,
-    );
-    expect(
-      transactionComplianceService.ensureWithdrawMainCasesOnPayoutConfirmed,
-    ).not.toHaveBeenCalled();
-    expect(payoutsService.updateStatus).toHaveBeenCalledWith(
-      'PO_1',
-      expect.objectContaining({ action: 'CLEAR' }),
-      'SYSTEM',
-      mockPrisma,
-    );
-    expect(result?.updated_withdrawal_status).toBe(
-      WithdrawTransactionStatus.SUCCESS,
-    );
-    expect(result?.updated_payout_status).toBe(PayoutStatus.CLEARED);
-  });
-
-  it('should skip payout confirmed when marker exists', async () => {
-    mockPrisma.payout.findUnique.mockResolvedValue({
-      id: 'PO_1',
-      withdrawId: 'WD_1',
-      status: PayoutStatus.CONFIRMED,
-    });
-    mockPrisma.auditLogEvent.findUnique.mockResolvedValue({
-      id: 'LOG_EXIST',
-    });
-    mockAuditLogsService.hasIdempotencyKey.mockResolvedValueOnce(true);
-
-    const result = await orchestrator.onPayoutConfirmed({
-      withdrawId: 'WD_1',
-      payoutId: 'PO_1',
-    });
-
-    expect(result).toBeNull();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('should process approved event without second approve status transition', async () => {

@@ -6,7 +6,6 @@ import { WithdrawTransactionsService } from '../modules/trading/withdraw-transac
 import { PayoutsService } from '../modules/asset-treasury/payouts/payouts.service';
 import { WithdrawEvents } from '../modules/trading/withdraw-transactions/constants/withdraw-events.constant';
 import { PayoutEvents } from '../modules/asset-treasury/payouts/constants/payout-events.constant';
-import { TransactionComplianceService } from '../modules/risk-engine/transaction-compliance/transaction-compliance.service';
 import {
   WithdrawTransactionStatus,
   WithdrawTransactionAction,
@@ -73,12 +72,6 @@ type SourceWalletProjection = {
   iban: string | null;
 };
 
-type JournalPostingResult =
-  | { id?: string | null }
-  | Array<{ id?: string | null }>
-  | null
-  | undefined;
-
 @Injectable()
 export class WithdrawWorkflowOrchestrator {
   private readonly logger = new Logger(WithdrawWorkflowOrchestrator.name);
@@ -87,7 +80,6 @@ export class WithdrawWorkflowOrchestrator {
     private readonly prisma: PrismaService,
     private readonly withdrawalService: WithdrawTransactionsService,
     private readonly payoutsService: PayoutsService,
-    private readonly transactionComplianceService: TransactionComplianceService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -119,13 +111,6 @@ export class WithdrawWorkflowOrchestrator {
   }
 
   // --- Payout Listeners ---
-
-  // V5: Payout-confirmed is now handled by WithdrawWorkflowService.handlePayoutConfirmed
-  // which posts TB pending transfers before marking SUCCESS. This old handler raced it
-  // and set SUCCESS without TB posting, so the @OnEvent decorator is removed.
-  async onPayoutConfirmed(payload: { withdrawId: string; payoutId: string }) {
-    return this.orchestrateSuccessPath(payload.withdrawId, payload.payoutId);
-  }
 
   @OnEvent(PayoutEvents.EVT_PAYOUT_FAILED)
   async onPayoutFailed(payload: { withdrawId: string; payoutId: string; status: PayoutStatus }) {
@@ -180,7 +165,6 @@ export class WithdrawWorkflowOrchestrator {
     }
 
     const suffix = this.getSuffix(withdrawal);
-    const isCustomer = withdrawal.ownerType === 'CUSTOMER';
     const result: OrchestrationResult = {
       payout_binding_status: 'unchanged',
       emitted_events: [eventType],
@@ -349,7 +333,6 @@ export class WithdrawWorkflowOrchestrator {
       return null;
     }
 
-    const isCustomer = withdrawal.ownerType === 'CUSTOMER';
     const suffix = this.getSuffix(withdrawal);
     const result: OrchestrationResult = {
       payout_binding_status: 'unchanged',
@@ -802,7 +785,6 @@ export class WithdrawWorkflowOrchestrator {
       return null;
     }
 
-    const isCustomer = withdrawal.ownerType === 'CUSTOMER';
     const suffix = this.getSuffix(withdrawal);
     const targetWithdrawStatus = this.mapCompensationWithdrawStatus(payoutStatus);
     const result: OrchestrationResult = {
@@ -907,34 +889,6 @@ export class WithdrawWorkflowOrchestrator {
       created_or_reversed_journal_entry_ids: [],
       audit_log_id: '',
       repairApplied: false,
-    };
-  }
-
-  private collectJournalIds(posting: JournalPostingResult): string[] {
-    if (!posting) return [];
-    if (Array.isArray(posting)) {
-      return posting
-        .filter((item): item is { id?: string | null } => Boolean(item))
-        .flatMap((item) => (item.id ? [item.id] : []));
-    }
-    return posting.id ? [posting.id] : [];
-  }
-
-  private createAccountingContext(withdrawal: WithdrawalForOrchestration) {
-    return {
-      src: {
-        ownerId: withdrawal.ownerId,
-        ownerType: withdrawal.ownerType,
-        assetId: withdrawal.assetId,
-        amount: withdrawal.amount.toString(),
-        netAmount: withdrawal.netAmount.toString(),
-        feeAmount: withdrawal.feeAmount.toString(),
-        withdrawNo: withdrawal.withdrawNo,
-        fromWalletId: withdrawal.fromWalletId ?? null,
-        fromWalletNo: withdrawal.fromWalletNo ?? null,
-        toWalletId: withdrawal.toWalletId ?? null,
-        toWalletNo: withdrawal.toWalletNo ?? null,
-      },
     };
   }
 
