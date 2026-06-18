@@ -126,7 +126,6 @@ export interface WithdrawEvidenceChainItem {
   caseIds: string[];
   journalIds: string[];
   clearingIds: string[];
-  reconciliationBreakIds: string[];
 }
 
 export interface WithdrawEvidenceSnapshots {
@@ -140,7 +139,6 @@ export interface WithdrawEvidenceSnapshots {
   cases: any[];
   journals: any[];
   clearings: any[];
-  reconciliationBreaks: any[];
   withdrawEvidenceChain: WithdrawEvidenceChainItem[];
 }
 
@@ -307,15 +305,6 @@ export class AuditLogsService {
         model: 'reimbursementObligation',
         field: 'obligationNo',
       },
-      SAFEGUARDING_RUN: { model: 'safeguardingRun', field: 'runNo' },
-      RECONCILIATION_WARNING: {
-        model: 'reconciliationWarning',
-        field: 'warningNo',
-      },
-      FIAT_STATEMENT_IMPORT: {
-        model: 'fiatStatementImport',
-        field: 'importNo',
-      },
       SWAP_QUOTE: { model: 'swapQuote', field: 'quoteNo' },
       KYT_CASE: { model: 'kytCase', field: 'caseNo' },
       TRAVEL_RULE_CASE: { model: 'travelRuleCase', field: 'caseNo' },
@@ -324,7 +313,6 @@ export class AuditLogsService {
       ADMIN: { model: 'user', field: 'userNo' },
       APPROVAL_CASE: { model: 'approvalCase', field: 'approvalNo' },
       AUDIT_EVIDENCE_PACKAGE: { model: 'auditEvidencePackage', field: 'packageNo' },
-      RECONCILIATION_BREAK: { model: 'reconciliationBreak', field: 'breakNo' },
     };
 
     const target = lookupConfig[normalizedType];
@@ -391,8 +379,7 @@ export class AuditLogsService {
     const shouldResolveWithdraw =
       explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
       entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
-      entityType === AuditEntityTypes.PAYOUT ||
-      entityType === AuditEntityTypes.RECONCILIATION_BREAK;
+      entityType === AuditEntityTypes.PAYOUT;
     const shouldResolveDeposit =
       explicitWorkflowType === AuditWorkflowTypes.DEPOSIT ||
       entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
@@ -424,8 +411,7 @@ export class AuditLogsService {
 
       if (
         (entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
-          explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
-          entityType === AuditEntityTypes.RECONCILIATION_BREAK) &&
+          explicitWorkflowType === AuditWorkflowTypes.WITHDRAW) &&
         input.entityId &&
         db?.withdrawTransaction?.findUnique
       ) {
@@ -451,50 +437,6 @@ export class AuditLogsService {
             },
           },
         });
-      }
-
-      if (
-        !withdraw &&
-        entityType === AuditEntityTypes.RECONCILIATION_BREAK &&
-        input.entityId &&
-        db?.reconciliationBreak?.findUnique
-      ) {
-        const breakRow = await db.reconciliationBreak.findUnique({
-          where: { id: input.entityId },
-          select: {
-            withdrawId: true,
-            payoutId: true,
-            withdrawNo: true,
-            payoutNo: true,
-          },
-        });
-        if (breakRow?.withdrawId && db?.withdrawTransaction?.findUnique) {
-          withdraw = await db.withdrawTransaction.findUnique({
-            where: { id: breakRow.withdrawId },
-            select: {
-              id: true,
-              withdrawNo: true,
-              ownerId: true,
-              payoutId: true,
-              payoutNo: true,
-              customer: {
-                select: {
-                  customerNo: true,
-                },
-              },
-            },
-          });
-        }
-        if (breakRow?.payoutId && db?.payout?.findUnique) {
-          payout = await db.payout.findUnique({
-            where: { id: breakRow.payoutId },
-            select: {
-              id: true,
-              payoutNo: true,
-              ownerId: true,
-            },
-          });
-        }
       }
 
       if (
@@ -1699,7 +1641,6 @@ export class AuditLogsService {
     cases: any[];
     journals: any[];
     clearings: any[];
-    reconciliationBreaks: any[];
   }): WithdrawEvidenceChainItem[] {
     const {
       withdrawTransactions,
@@ -1712,7 +1653,6 @@ export class AuditLogsService {
       cases,
       journals,
       clearings,
-      reconciliationBreaks,
     } = params;
 
     return withdrawTransactions.map((withdraw) => {
@@ -1733,11 +1673,6 @@ export class AuditLogsService {
       );
       const withdrawClearings = clearings.filter(
         (item) => String(item.sourceId) === withdrawId,
-      );
-      const withdrawBreaks = reconciliationBreaks.filter(
-        (item) =>
-          String(item.withdrawId) === withdrawId ||
-          (payoutId && String(item.payoutId) === payoutId),
       );
 
       return {
@@ -1779,9 +1714,6 @@ export class AuditLogsService {
         ),
         clearingIds: this.toSortedUniqueStrings(
           withdrawClearings.map((item) => item.id),
-        ),
-        reconciliationBreakIds: this.toSortedUniqueStrings(
-          withdrawBreaks.map((item) => item.id),
         ),
       };
     });
@@ -2154,7 +2086,6 @@ export class AuditLogsService {
         cases: [],
         journals: [],
         clearings: [],
-        reconciliationBreaks: [],
         withdrawEvidenceChain: [],
       };
     }
@@ -2214,7 +2145,6 @@ export class AuditLogsService {
       cases,
       journals,
       clearings,
-      reconciliationBreaks,
     ] = await Promise.all([
       payoutIds.length && db?.payout?.findMany
         ? db.payout.findMany({
@@ -2417,17 +2347,6 @@ export class AuditLogsService {
             },
           })
         : Promise.resolve([]),
-      db.reconciliationBreak?.findMany
-        ? db.reconciliationBreak.findMany({
-            where: {
-              OR: [
-                { withdrawId: { in: withdrawIds } },
-                payoutIds.length ? { payoutId: { in: payoutIds } } : undefined,
-              ].filter(Boolean),
-            },
-            orderBy: [{ businessDate: 'desc' }, { detectedAt: 'desc' }],
-          })
-        : Promise.resolve([]),
     ]);
 
     const preKytCases = kytCases.filter(
@@ -2457,13 +2376,6 @@ export class AuditLogsService {
       linkedCaseIds: this.parseStringArray(row.linkedCaseIds),
       metadata: this.parseJson(row.metadata),
     }));
-    const mappedReconciliationBreaks = reconciliationBreaks.map((row: any) => ({
-      ...row,
-      expectedNetDelta: row.expectedNetDelta?.toString?.() ?? '0',
-      observedNetDelta: row.observedNetDelta?.toString?.() ?? '0',
-      deltaAmount: row.deltaAmount?.toString?.() ?? '0',
-      detailsJson: this.parseJson(row.detailsJson),
-    }));
 
     const withdrawEvidenceChain = this.buildWithdrawEvidenceChain({
       withdrawTransactions,
@@ -2476,7 +2388,6 @@ export class AuditLogsService {
       cases: mappedCases,
       journals,
       clearings,
-      reconciliationBreaks: mappedReconciliationBreaks,
     });
 
     return {
@@ -2490,7 +2401,6 @@ export class AuditLogsService {
       cases: mappedCases,
       journals,
       clearings,
-      reconciliationBreaks: mappedReconciliationBreaks,
       withdrawEvidenceChain,
     };
   }

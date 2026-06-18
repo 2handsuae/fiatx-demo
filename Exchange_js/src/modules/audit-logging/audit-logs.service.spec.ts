@@ -75,9 +75,6 @@ describe('AuditLogsService', () => {
       clearing: {
         findMany: jest.fn(),
       },
-      reconciliationBreak: {
-        findMany: jest.fn(),
-      },
       outstanding: {
         findMany: jest.fn(),
       },
@@ -125,6 +122,7 @@ describe('AuditLogsService', () => {
       SWAP_FEE_LEVEL_BINDING: 'SWAP_FEE_LEVEL_BINDING',
       WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
       INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
+      V8_RECONCILIATION: 'clearing-settle/reconciliation',
     });
 
     expect(AuditUserActions).toEqual({
@@ -1479,21 +1477,6 @@ describe('AuditLogsService', () => {
         afterData: null,
         occurredAt: new Date('2026-03-27T10:00:00.000Z'),
       },
-      {
-        id: 'audit-withdraw-2',
-        auditNo: 'AUD2603270002',
-        action: AuditActions.TX_RECONCILIATION_BREAK_DETECTED,
-        entityType: AuditEntityTypes.RECONCILIATION_BREAK,
-        entityId: 'break-1',
-        entityNo: 'RBR2603270001',
-        actorType: 'SYSTEM',
-        actorId: 'SYSTEM',
-        workflowType: 'WITHDRAW',
-        metadata: null,
-        beforeData: null,
-        afterData: null,
-        occurredAt: new Date('2026-03-27T12:00:00.000Z'),
-      },
     ]);
     prisma.withdrawTransaction.findMany.mockResolvedValue([
       {
@@ -1750,40 +1733,11 @@ describe('AuditLogsService', () => {
         updatedAt: new Date('2026-03-27T10:05:05.000Z'),
       },
     ]);
-    prisma.reconciliationBreak.findMany.mockResolvedValue([
-      {
-        id: 'break-1',
-        breakNo: 'RBR2603270001',
-        businessDate: '2026-03-27',
-        sourceType: 'WITHDRAW',
-        sourceId: 'withdraw-1',
-        sourceNo: 'WD2603270001',
-        withdrawId: 'withdraw-1',
-        withdrawNo: 'WD2603270001',
-        payoutId: 'payout-1',
-        payoutNo: 'PO2603270001',
-        assetId: 'asset-btc',
-        assetCode: 'BTC',
-        expectedNetDelta: '100.00',
-        observedNetDelta: '100.00',
-        deltaAmount: '0.00',
-        reasonCode: 'SUCCESS_CLOSEOUT_INCOMPLETE',
-        status: 'RESOLVED',
-        linkedAlertId: 'alert-recon-1',
-        linkedCaseId: null,
-        detailsJson: JSON.stringify({ observedSource: 'PAYOUT' }),
-        detectedAt: new Date('2026-03-27T12:00:00.000Z'),
-        resolvedAt: new Date('2026-03-27T12:10:00.000Z'),
-        reopenedAt: null,
-        createdAt: new Date('2026-03-27T12:00:00.000Z'),
-        updatedAt: new Date('2026-03-27T12:10:00.000Z'),
-      },
-    ]);
 
     try {
       const artifacts = await service.buildEvidencePackageArtifacts(
         {
-          selectedEventIds: ['audit-withdraw-1', 'audit-withdraw-2'],
+          selectedEventIds: ['audit-withdraw-1'],
           workflowType: 'WITHDRAW',
         } as any,
         {
@@ -1810,7 +1764,6 @@ describe('AuditLogsService', () => {
           cases: expect.any(Array),
           journals: expect.any(Array),
           clearings: expect.any(Array),
-          reconciliationBreaks: expect.any(Array),
           withdrawEvidenceChain: expect.any(Array),
         }),
       );
@@ -1826,15 +1779,6 @@ describe('AuditLogsService', () => {
           caseIds: ['case-1'],
           journalIds: ['journal-withdraw-1'],
           clearingIds: ['clearing-1'],
-          reconciliationBreakIds: ['break-1'],
-        }),
-      ]);
-      expect(snapshots.reconciliationBreaks).toEqual([
-        expect.objectContaining({
-          id: 'break-1',
-          breakNo: 'RBR2603270001',
-          withdrawId: 'withdraw-1',
-          payoutId: 'payout-1',
         }),
       ]);
     } finally {

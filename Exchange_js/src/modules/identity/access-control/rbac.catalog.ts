@@ -43,8 +43,6 @@ export type PermissionGroup =
   | 'WALLET_WRITE'
   | 'INTERNAL_FUND_READ'
   | 'RECON_OUTSTANDING_READ'
-  | 'RECON_BREAK_READ'
-  | 'RECON_BREAK_WRITE'
   | 'RECON_RUN_READ'
   | 'RECON_CASE_READ'
   | 'SETTLEMENT_READ'
@@ -327,84 +325,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/reconciliation/runs/:runNo', 'View Recon Run Detail', ['RECON_RUN_READ']),
   route('GET', '/admin/reconciliation/cases', 'View Recon Cases', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/cases/:caseNo', 'View Recon Case Detail', ['RECON_CASE_READ']),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-breaks',
-    'List safeguarding reconciliation breaks',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-breaks/:id',
-    'Get safeguarding reconciliation break detail',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'POST',
-    '/admin/reconciliation/safeguarding-breaks/generate-daily-diff',
-    'Run full safeguarding reconciliation',
-    ['RECON_BREAK_WRITE'],
-  ),
-  route(
-    'PATCH',
-    '/admin/reconciliation/safeguarding-breaks/:id/status',
-    'Update safeguarding reconciliation break status',
-    ['RECON_BREAK_WRITE'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-warnings',
-    'List safeguarding reconciliation warnings',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-warnings/:id',
-    'Get safeguarding reconciliation warning detail',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'PATCH',
-    '/admin/reconciliation/safeguarding-warnings/:id/status',
-    'Update safeguarding reconciliation warning status',
-    ['RECON_BREAK_WRITE'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-runs',
-    'List safeguarding reconciliation runs',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-runs/:id',
-    'Get safeguarding reconciliation run detail',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'POST',
-    '/admin/reconciliation/safeguarding-runs/:id/export-evidence-package',
-    'Export safeguarding reconciliation evidence package',
-    ['RECON_BREAK_WRITE'],
-  ),
-  route(
-    'POST',
-    '/admin/reconciliation/safeguarding-fiat-statements/imports',
-    'Import safeguarding fiat statement',
-    ['RECON_BREAK_WRITE'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-fiat-statements/imports',
-    'List safeguarding fiat statement imports',
-    ['RECON_BREAK_READ'],
-  ),
-  route(
-    'GET',
-    '/admin/reconciliation/safeguarding-fiat-statements/imports/:id',
-    'Get safeguarding fiat statement import detail',
-    ['RECON_BREAK_READ'],
-  ),
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
@@ -913,7 +833,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_READ',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
-    'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_REGISTRY_READ',
@@ -934,8 +853,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
     'RISK_DECISION_RECORD_WRITE',
-    'RECON_BREAK_READ',
-    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_REGISTRY_READ',
@@ -959,8 +876,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'BASE_ACCESS',
     'IAM_READ',
     'AUDIT_READ',
-    'RECON_BREAK_READ',
-    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_REGISTRY_READ',
@@ -985,8 +900,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'AUDIT_EXPORT_READ',
     'RISK_DECISION_RECORD_READ',
     'RISK_DECISION_RECORD_WRITE',
-    'RECON_BREAK_READ',
-    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_REGISTRY_READ',
@@ -1010,8 +923,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'RISK_DECISION_RECORD_READ',
     'RISK_DECISION_RECORD_WRITE',
     'MLRO_REVIEW_WRITE',
-    'RECON_BREAK_READ',
-    'RECON_BREAK_WRITE',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_WRITE',
     'GOV_APPROVAL_DECIDE',
@@ -1046,7 +957,6 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'IAM_ROLE_DEFINE',
     'AUDIT_READ',
     'RISK_DECISION_RECORD_READ',
-    'RECON_BREAK_READ',
     'GOV_APPROVAL_READ',
     'GOV_APPROVAL_DECIDE',
     'GOV_REGISTRY_READ',

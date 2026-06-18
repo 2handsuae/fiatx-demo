@@ -57,16 +57,6 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'withdrawPricingQuote',
   'withdrawalAddress',
 
-  // ── Reconciliation / safeguarding / fiat statements ────────────────
-  'fiatStatementEntry',
-  'fiatStatementImport',
-  'reconciliationWarning',
-  'reconciliationBreak',
-  'safeguardingPoolSnapshot',
-  'liabilitySnapshot',
-  'safeguardingRun',
-  'safeguardingPolicy',
-
   // ── Fee-level config (bindings/change-requests before levels) ──────
   'swapFeeLevelBinding',
   'swapFeeLevelChangeRequest',

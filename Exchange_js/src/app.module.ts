@@ -27,7 +27,6 @@ import { SwapFeeLevelModule } from './modules/trading/swap-fee-level/swap-fee-le
 import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { ReconciliationModule } from './modules/clearing-settle/reconciliation/reconciliation.module';
-import { SafeguardingReconciliationModule } from './modules/clearing-settle/safeguarding-reconciliation/safeguarding-reconciliation.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
 import { GovernanceModule } from './modules/governance/governance.module';
@@ -83,7 +82,6 @@ import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
     PayoutsModule,
     OutstandingsModule,
     ReconciliationModule,
-    SafeguardingReconciliationModule,
     AuditLogsModule,
     GovernanceModule,
     OnboardingModule,
