@@ -444,4 +444,45 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
     }
     return item;
   }
+
+  /**
+   * Find the internal transfer order(s) originated by a given source event,
+   * each with its fund legs. A DEPOSIT/WITHDRAW source maps to a single order;
+   * a SWAP source may map to multiple (e.g. settlement + fee transfers).
+   * Returns [] when the source produced no internal transfer.
+   */
+  async findFundsOrderBySource(
+    sourceType: 'DEPOSIT' | 'WITHDRAW' | 'SWAP',
+    sourceId: string,
+  ) {
+    const orders = await (this.prisma as any).internalTransaction.findMany({
+      where: { sourceType, sourceId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        funds: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            internalFundNo: true,
+            status: true,
+            txHash: true,
+            confirmations: true,
+            blockNo: true,
+            nonce: true,
+            gasUsed: true,
+            effectiveGasPrice: true,
+            sentAt: true,
+            confirmedAt: true,
+          },
+        },
+      },
+    });
+
+    return (orders ?? []).map((order: any) => ({
+      id: order.id,
+      internalTxNo: order.internalTxNo,
+      type: order.type,
+      status: order.status,
+      legs: order.funds ?? [],
+    }));
+  }
 }

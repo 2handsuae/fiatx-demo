@@ -80,6 +80,7 @@ import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
   exports: [
+    InternalTransferService,
     InternalTransferWorkflowService,
     FundTransferWorkflowService,
     EodSettlementWorkflowService,

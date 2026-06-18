@@ -254,4 +254,36 @@ describe('InternalTransferService', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
   });
+
+  describe('findFundsOrderBySource', () => {
+    it('maps internalTransaction rows + funds legs by source', async () => {
+      const prisma = {
+        internalTransaction: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 'itx-1', internalTxNo: 'ITX-1', type: 'DEPOSIT_AGG', status: 'SUCCESS',
+              funds: [{ internalFundNo: 'IF-1', status: 'CONFIRMED' }] },
+          ]),
+        },
+      } as any;
+      const svc = new InternalTransferService(prisma, { recordByActor: jest.fn() } as any);
+
+      const result = await svc.findFundsOrderBySource('DEPOSIT', 'dep-1');
+
+      expect(prisma.internalTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { sourceType: 'DEPOSIT', sourceId: 'dep-1' } }),
+      );
+      expect(result).toEqual([
+        { id: 'itx-1', internalTxNo: 'ITX-1', type: 'DEPOSIT_AGG', status: 'SUCCESS',
+          legs: [{ internalFundNo: 'IF-1', status: 'CONFIRMED' }] },
+      ]);
+    });
+
+    it('returns [] when no rows exist', async () => {
+      const prisma = {
+        internalTransaction: { findMany: jest.fn().mockResolvedValue([]) },
+      } as any;
+      const svc = new InternalTransferService(prisma, { recordByActor: jest.fn() } as any);
+      expect(await svc.findFundsOrderBySource('SWAP', 'swap-x')).toEqual([]);
+    });
+  });
 });
