@@ -15,25 +15,9 @@ const riskApprovalSummarySelect = {
   status: true,
 } satisfies Prisma.ApprovalCaseSelect;
 
-const periodicReviewCycleSummarySelect = {
-  id: true,
-  cycleNo: true,
-  status: true,
-  dueAt: true,
-  triggeredAt: true,
-  clearedAt: true,
-  rejectedAt: true,
-  currentCddResponseId: true,
-  currentEddResponseId: true,
-  resolutionReason: true,
-} satisfies Prisma.PeriodicReviewCycleSelect;
-
 const customerListInclude = {
   latestRiskApproval: {
     select: riskApprovalSummarySelect,
-  },
-  activePeriodicReviewCycle: {
-    select: periodicReviewCycleSummarySelect,
   },
 } satisfies Prisma.CustomerMainInclude;
 
@@ -42,19 +26,8 @@ const customerDetailInclude = {
   uboProfiles: {
     orderBy: { createdAt: 'asc' as const },
   },
-  cddResponses: {
-    orderBy: { createdAt: 'desc' as const },
-    take: 30,
-  },
-  eddResponses: {
-    orderBy: { createdAt: 'desc' as const },
-    take: 30,
-  },
   latestRiskApproval: {
     select: riskApprovalSummarySelect,
-  },
-  activePeriodicReviewCycle: {
-    select: periodicReviewCycleSummarySelect,
   },
 } satisfies Prisma.CustomerMainInclude;
 
@@ -66,21 +39,7 @@ type CustomerDetailPayload = Prisma.CustomerMainGetPayload<{
   include: typeof customerDetailInclude;
 }>;
 
-type ResponseSummary = {
-  id: string;
-  responseNo: string | null;
-  responseType: 'CDD' | 'EDD';
-} & Record<string, unknown>;
-
-type AuditCenterSummary = {
-  latestDecisionRecordId: string | null;
-};
-
-type CustomerDetailView = Omit<CustomerDetailPayload, 'cddResponses' | 'eddResponses'> & {
-  cddResponses: ResponseSummary[];
-  eddResponses: ResponseSummary[];
-  auditCenterSummary: AuditCenterSummary;
-};
+type CustomerDetailView = CustomerDetailPayload;
 
 @Injectable()
 export class CustomersService {
@@ -142,22 +101,7 @@ export class CustomersService {
       return null;
     }
 
-    return {
-      ...customer,
-      cddResponses: (customer.cddResponses || []).map(({ caseNo, ...item }) => ({
-        ...item,
-        responseNo: caseNo,
-        responseType: 'CDD' as const,
-      })),
-      eddResponses: (customer.eddResponses || []).map(({ caseNo, ...item }) => ({
-        ...item,
-        responseNo: caseNo,
-        responseType: 'EDD' as const,
-      })),
-      auditCenterSummary: {
-        latestDecisionRecordId: customer.latestDecisionRecordId ?? null,
-      },
-    };
+    return customer;
   }
 
   async update(params: {

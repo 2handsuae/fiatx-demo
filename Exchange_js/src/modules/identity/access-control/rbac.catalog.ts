@@ -238,12 +238,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/withdraw-transactions/quotes', 'Create withdrawal pricing quote', ['TRADING_WITHDRAW_WRITE']),
 
   // Onboarding compliance
-  route('GET', '/admin/compliance/cdd-responses', 'List CDD responses', ['ONBOARDING_READ']),
-  route('POST', '/admin/compliance/cdd-responses/:id/review', 'Review CDD response', ['CDD_REVIEW_WRITE']),
-  route('GET', '/admin/compliance/cdd-responses/:id', 'Get CDD response detail', ['ONBOARDING_READ']),
-  route('GET', '/admin/compliance/edd-responses', 'List EDD responses', ['ONBOARDING_READ']),
-  route('POST', '/admin/compliance/edd-responses/:id/mlro-review', 'MLRO review EDD response', ['MLRO_REVIEW_WRITE']),
-  route('GET', '/admin/compliance/edd-responses/:id', 'Get EDD response detail', ['ONBOARDING_READ']),
   route('POST', '/admin/compliance/customers/:id/simulate-expired', 'Simulate customer expired', ['SIMULATE_EXPIRED_WRITE']),
   route('PATCH', '/admin/compliance/customers/:id/investor-classification', 'Override investor classification', ['INVESTOR_OVERRIDE_WRITE']),
 
@@ -256,20 +250,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Risk assessments
   route('GET', '/admin/compliance/risk-assessments', 'List risk assessments', ['RISK_DECISION_RECORD_READ']),
   route('GET', '/admin/compliance/risk-assessments/:id', 'Get risk assessment detail', ['RISK_DECISION_RECORD_READ']),
-
-  // Risk decision records
-  route('GET', '/admin/risk/decision-records', 'List risk decision records', ['RISK_DECISION_RECORD_READ']),
-  route('GET', '/admin/risk/decision-records/:id', 'Get risk decision record detail', ['RISK_DECISION_RECORD_READ']),
-  route('POST', '/admin/risk/decision-records/:id/simulate', 'Simulate risk decision record', ['RISK_DECISION_RECORD_WRITE']),
-
-  // Transaction compliance
-  route('POST', '/admin/compliance/tx-kyt-cases/mock-complete', 'Mock complete KYT case', ['TX_COMPLIANCE_WRITE']),
-  route('POST', '/admin/compliance/tx-travel-rule-cases/mock-complete', 'Mock complete travel-rule case', ['TX_COMPLIANCE_WRITE']),
-  route('GET', '/admin/compliance/tx-kyt-cases', 'List KYT cases', ['TX_COMPLIANCE_READ']),
-  route('GET', '/admin/compliance/tx-kyt-cases/:id', 'Get KYT case detail', ['TX_COMPLIANCE_READ']),
-  route('GET', '/admin/compliance/tx-travel-rule-cases', 'List travel-rule cases', ['TX_COMPLIANCE_READ']),
-  route('GET', '/admin/compliance/tx-travel-rule-cases/:id', 'Get travel-rule case detail', ['TX_COMPLIANCE_READ']),
-  route('GET', '/admin/compliance/tx-cases/:sourceType/:sourceId', 'Get tx evidence bundle', ['TX_COMPLIANCE_READ']),
 
   // Deposit
   route('GET', '/deposit-transactions', 'List deposit transactions', ['TRADING_DEPOSIT_READ']),

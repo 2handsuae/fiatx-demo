@@ -4,7 +4,6 @@ import { WithdrawTransactionsController } from './withdraw-transactions.controll
 import { CustomerWithdrawController } from './customer-withdraw.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
-import { TransactionComplianceModule } from '../../risk-engine/transaction-compliance/transaction-compliance.module';
 import { WithdrawTransactionWorkflowService } from './withdraw-transaction-workflow.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
@@ -20,7 +19,6 @@ import { InternalTransactionsModule } from '../../asset-treasury/internal-transa
   imports: [
     PrismaModule,
     forwardRef(() => OnboardingModule),
-    forwardRef(() => TransactionComplianceModule),
     TigerBeetleModule,
     forwardRef(() => PayoutsModule),
     WithdrawalFeeLevelModule,

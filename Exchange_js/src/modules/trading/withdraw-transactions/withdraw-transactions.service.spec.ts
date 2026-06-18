@@ -8,7 +8,6 @@ import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
-import { TransactionComplianceService } from '../../risk-engine/transaction-compliance/transaction-compliance.service';
 import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -18,7 +17,6 @@ import { InternalTransactionsService } from '../../asset-treasury/internal-trans
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
   let prisma: any;
-  let transactionComplianceService: any;
   let eventEmitter: any;
   let withdrawQuoteService: any;
 
@@ -57,32 +55,6 @@ describe('WithdrawTransactionsService', () => {
           useValue: { emit: jest.fn() },
         },
         {
-          provide: TransactionComplianceService,
-          useValue: {
-            ensureWithdrawPreKytCaseOnCreate: jest.fn(),
-            initializeWithdrawFinalDecisionRecord: jest.fn(),
-            getTransactionCaseAggregate: jest.fn(),
-            normalizeKytLifecycleStatus: jest.fn((status?: string | null, options?: { allowEmpty?: boolean }) => {
-              const normalized = String(status || '').trim().toUpperCase();
-              if (!normalized) return options?.allowEmpty ? '' : 'CREATED';
-              if (normalized === 'CREATED') return 'CREATED';
-              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
-              return 'FINAL';
-            }),
-            normalizeTravelRuleLifecycleStatus: jest.fn((
-              status?: string | null,
-              required?: boolean,
-              options?: { allowEmpty?: boolean },
-            ) => {
-              const normalized = String(status || '').trim().toUpperCase();
-              if (!normalized) return options?.allowEmpty ? '' : required ? 'CREATED' : '';
-              if (normalized === 'CREATED') return 'CREATED';
-              if (['RECEIVED', 'SENT', 'PENDING'].includes(normalized)) return 'RECEIVED';
-              return 'FINAL';
-            }),
-          },
-        },
-        {
           provide: WithdrawQuoteService,
           useValue: {
             getActiveQuoteOrThrow: jest.fn(),
@@ -116,9 +88,6 @@ describe('WithdrawTransactionsService', () => {
 
     service = module.get<WithdrawTransactionsService>(WithdrawTransactionsService);
     prisma = module.get<PrismaService>(PrismaService);
-    transactionComplianceService = module.get<TransactionComplianceService>(
-      TransactionComplianceService,
-    );
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
     withdrawQuoteService = module.get<WithdrawQuoteService>(WithdrawQuoteService);
 
@@ -129,15 +98,6 @@ describe('WithdrawTransactionsService', () => {
     mockTx.auditLogEvent.create.mockReset();
     mockTx.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.findMany.mockResolvedValue([]);
-    transactionComplianceService.getTransactionCaseAggregate.mockResolvedValue({
-      preKytCase: null,
-      mainKytCase: null,
-      travelRuleCase: null,
-      derivedComplianceStatus: 'PENDING',
-    });
-    transactionComplianceService.initializeWithdrawFinalDecisionRecord.mockResolvedValue(
-      {},
-    );
     withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
       id: 'wq-1',
       assetId: 'asset-1',
@@ -383,9 +343,6 @@ describe('WithdrawTransactionsService', () => {
       action: WithdrawTransactionAction.CHECK,
     });
 
-    expect(
-      transactionComplianceService.ensureWithdrawPreKytCaseOnCreate,
-    ).not.toHaveBeenCalled();
     expect(result.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
   });
 
@@ -537,12 +494,6 @@ describe('WithdrawTransactionsService', () => {
         result: 'SUCCESS',
       },
     ]);
-    transactionComplianceService.getTransactionCaseAggregate.mockResolvedValue({
-      preKytCase: null,
-      mainKytCase: null,
-      travelRuleCase: null,
-      derivedComplianceStatus: 'CLEAR',
-    });
 
     const result = await service.findOne('wd-detail-1');
 

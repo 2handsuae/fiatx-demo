@@ -5,7 +5,6 @@ import { SwapTransactionsModule } from '../modules/trading/swap-transactions/swa
 import { WithdrawTransactionsModule } from '../modules/trading/withdraw-transactions/withdraw-transactions.module';
 import { PayoutsModule } from '../modules/asset-treasury/payouts/payouts.module';
 import { PrismaModule } from '../core/prisma/prisma.module';
-import { TransactionComplianceModule } from '../modules/risk-engine/transaction-compliance/transaction-compliance.module';
 import { PayoutCloseoutRepairController } from './payout-closeout-repair.controller';
 
 @Module({
@@ -15,7 +14,6 @@ import { PayoutCloseoutRepairController } from './payout-closeout-repair.control
     WithdrawTransactionsModule,
     PayoutsModule,
     PrismaModule,
-    TransactionComplianceModule,
   ],
   controllers: [PayoutCloseoutRepairController],
   providers: [

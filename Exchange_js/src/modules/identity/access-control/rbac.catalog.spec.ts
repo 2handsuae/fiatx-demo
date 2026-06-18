@@ -5,14 +5,6 @@ import {
 import { buildPermissionCode } from './permission-code.util';
 
 describe('rbac.catalog', () => {
-  it('should register canonical onboarding response permissions', () => {
-    const permissionCodes = new Set(
-      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
-    );
-
-    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/cdd-responses'))).toBe(true);
-    expect(permissionCodes.has(buildPermissionCode('GET', '/admin/compliance/edd-responses'))).toBe(true);
-  });
 
   it('should retire deprecated direct-control and compatibility review aliases', () => {
     const permissionCodes = new Set(
@@ -112,25 +104,6 @@ describe('rbac.catalog', () => {
         buildPermissionCode('POST', '/deposit-transactions/my/inbound-signals/scan'),
       ),
     ).toBe(true);
-  });
-
-  it('should register risk decision simulation permission and grant it to operator roles', () => {
-    const permissionCodes = new Set(
-      RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
-    );
-    const permissionMap = buildRolePermissionCodeMap();
-    const simulateCode = buildPermissionCode(
-      'POST',
-      '/admin/risk/decision-records/:id/simulate',
-    );
-
-    expect(permissionCodes.has(simulateCode)).toBe(true);
-    expect(permissionMap.COMPLIANCE_OFFICER).toContain(simulateCode);
-    expect(permissionMap.MLRO).toContain(simulateCode);
-    expect(permissionMap.TECH_OFFICER).toContain(simulateCode);
-    expect(permissionMap.SENIOR_MANAGEMENT_OFFICER).not.toContain(simulateCode);
-    expect(permissionMap.SENIOR_MANAGEMENT_OFFICER).not.toContain(simulateCode);
-    expect(permissionMap.CISO).not.toContain(simulateCode);
   });
 
   it('should register safeguarding break routes in RBAC catalog', () => {
