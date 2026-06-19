@@ -8,7 +8,7 @@ export class EodSettlementSweepService {
 
   constructor(private readonly workflow: EodSettlementWorkflowService) {}
 
-  @Cron('0 59 23 * * *', { timeZone: 'Asia/Dubai' })
+  @Cron('0 30 0 * * *', { timeZone: 'Asia/Dubai' })
   async handle(): Promise<void> {
     try {
       const res = await this.workflow.runEodSettlement('CRON');
