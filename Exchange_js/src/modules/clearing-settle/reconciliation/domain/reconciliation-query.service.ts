@@ -31,4 +31,32 @@ export class ReconciliationQueryService {
     if (!kase) throw new NotFoundException(`Case ${caseNo} not found`);
     return kase;
   }
+
+  listStatements(q: { source?: string }) {
+    return this.prisma.reconciliationExternalStatement.findMany({
+      where: { source: q.source },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, statementNo: true, source: true, businessDate: true,
+        currency: true, accountRef: true, closingBalance: true, fetchedAt: true, createdAt: true,
+      }, // NOT rawJson (big)
+    });
+  }
+
+  async getStatement(statementNo: string) {
+    const row = await this.prisma.reconciliationExternalStatement.findUnique({ where: { statementNo } });
+    if (!row) throw new NotFoundException(`Statement ${statementNo} not found`);
+    let parsed: unknown = null;
+    try {
+      const raw = JSON.parse(row.rawJson);
+      if (row.source === 'ZAND') {
+        parsed = { kind: 'ZAND', info: raw.StatementInfo, records: raw.StatementRecords ?? [] };
+      } else {
+        parsed = { kind: 'HEXTRUST', txs: Array.isArray(raw) ? raw : (raw.transactions ?? raw.data ?? []) };
+      }
+    } catch {
+      parsed = { kind: row.source, parseError: true };
+    }
+    return { ...row, parsed };
+  }
 }

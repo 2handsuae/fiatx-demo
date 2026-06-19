@@ -33,6 +33,8 @@ export const PERMISSIONS = {
   RECON_RUN_DETAIL_READ: 'api.get.admin_reconciliation_runs_runno',
   RECON_CASE_READ: 'api.get.admin_reconciliation_cases',
   RECON_CASE_DETAIL_READ: 'api.get.admin_reconciliation_cases_caseno',
+  RECON_STATEMENT_READ: 'api.get.admin_reconciliation_statements',
+  RECON_STATEMENT_DETAIL_READ: 'api.get.admin_reconciliation_statements_statementno',
 
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   RISK_ASSESSMENTS_READ: 'api.get.admin_compliance_risk_assessments',

@@ -326,6 +326,12 @@ const DashboardLayout = () => {
           icon: <ClipboardList size={13} />,
           requiredPermissions: [PERMISSIONS.RECON_CASE_READ],
         },
+        {
+          path: '/admin/reconciliation/statements',
+          label: 'External Statements',
+          icon: <FileText size={13} />,
+          requiredPermissions: [PERMISSIONS.RECON_STATEMENT_READ],
+        },
       ],
     },
     // ─── Ledger ───────────────────────────────────────────────────

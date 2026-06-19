@@ -157,6 +157,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **SettlementBatch** | `batchNo`, `status` badge, `settlementType` | `createdAt`, `cutoffAt`, `completedAt` |
 | **ReconciliationRun** | `runNo`, `status` badge, `layer`, `triggerType` | `startedAt`, `completedAt`, `createdAt` |
 | **ReconciliationCase** | `caseNo`, `status` badge, `assetCode`, `deltaAmount` | `slaDeadline`, `createdAt`, `updatedAt` |
+| **ReconciliationExternalStatement** | `statementNo`, `source`, `currency`, `closingBalance` | `businessDate`, `fetchedAt`, `createdAt` |
 
 ---
 

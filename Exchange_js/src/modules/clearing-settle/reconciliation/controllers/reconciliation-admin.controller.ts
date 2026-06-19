@@ -5,7 +5,7 @@ import { AdminPermissionGuard } from '../../../identity/access-control/admin-per
 import { RequirePermissions } from '../../../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../../../identity/access-control/permission-code.util';
 import { ReconciliationQueryService } from '../domain/reconciliation-query.service';
-import { ReconRunQueryDto, ReconCaseQueryDto } from '../dto/reconciliation.dto';
+import { ReconRunQueryDto, ReconCaseQueryDto, ReconStatementQueryDto } from '../dto/reconciliation.dto';
 
 @ApiTags('Admin - Reconciliation (V8)')
 @ApiBearerAuth()
@@ -34,4 +34,14 @@ export class ReconciliationAdminController {
   @ApiOperation({ summary: 'Reconciliation case detail (with line items)' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo'))
   getCase(@Param('caseNo') caseNo: string) { return this.query.getCase(caseNo); }
+
+  @Get('statements')
+  @ApiOperation({ summary: 'List external bank/custodian statements' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/statements'))
+  listStatements(@Query() q: ReconStatementQueryDto) { return this.query.listStatements(q); }
+
+  @Get('statements/:statementNo')
+  @ApiOperation({ summary: 'External statement detail (source-aware parsed entries)' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/statements/:statementNo'))
+  getStatement(@Param('statementNo') statementNo: string) { return this.query.getStatement(statementNo); }
 }

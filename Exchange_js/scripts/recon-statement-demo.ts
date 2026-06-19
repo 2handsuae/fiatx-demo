@@ -301,10 +301,11 @@ async function upsertStatement(
   prisma: PrismaService, source: string, businessDate: string, currency: string,
   accountRef: string, closingBalance: Prisma.Decimal, rawJson: string,
 ) {
+  const statementNo = `STMT-${businessDate.replace(/-/g, '')}-${source}-${currency}`;
   await prisma.reconciliationExternalStatement.upsert({
     where: { source_businessDate_currency: { source, businessDate, currency } },
-    update: { accountRef, closingBalance, rawJson, fetchedAt: new Date() },
-    create: { source, businessDate, currency, accountRef, closingBalance, rawJson, fetchedAt: new Date() },
+    update: { statementNo, accountRef, closingBalance, rawJson, fetchedAt: new Date() },
+    create: { statementNo, source, businessDate, currency, accountRef, closingBalance, rawJson, fetchedAt: new Date() },
   });
 }
 

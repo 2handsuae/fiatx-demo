@@ -7,3 +7,6 @@ export class ReconCaseQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
 }
+export class ReconStatementQueryDto {
+  @IsOptional() @IsString() source?: string;
+}

@@ -45,6 +45,7 @@ export type PermissionGroup =
   | 'RECON_OUTSTANDING_READ'
   | 'RECON_RUN_READ'
   | 'RECON_CASE_READ'
+  | 'RECON_STATEMENT_READ'
   | 'SETTLEMENT_READ'
   | 'SETTLEMENT_WRITE'
   | 'CLEARING_READ'
@@ -325,6 +326,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/reconciliation/runs/:runNo', 'View Recon Run Detail', ['RECON_RUN_READ']),
   route('GET', '/admin/reconciliation/cases', 'View Recon Cases', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/cases/:caseNo', 'View Recon Case Detail', ['RECON_CASE_READ']),
+  route('GET', '/admin/reconciliation/statements', 'View External Statements', ['RECON_STATEMENT_READ']),
+  route('GET', '/admin/reconciliation/statements/:statementNo', 'View External Statement Detail', ['RECON_STATEMENT_READ']),
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
