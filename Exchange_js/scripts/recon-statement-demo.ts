@@ -44,8 +44,13 @@ const USDT_ASSET = 'fefb1492-6b23-42a8-b9a9-530bd3f2f08f';
 const OUT_DIR = '/tmp/recon-statements';
 const D = (n: any) => new Prisma.Decimal(n);
 
-type PayinRow = { referenceNo: string | null; txHash: string | null; amount: Prisma.Decimal };
+type PayinRow = { referenceNo: string | null; txHash: string | null; amount: Prisma.Decimal; ownerId: string | null };
 type PayoutRow = { payoutNo: string; referenceNo: string | null; txHash: string | null; amount: Prisma.Decimal };
+// 合成的 pooled / hot-out vault accountRef（DB 中 C_MAIN/C_OUT 钱包 vaultId 为空，demo 内合成；spec §4 范围外不落库）
+const VAULT_MAIN = 'vault-usdt-main';
+const VAULT_OUT = 'vault-usdt-out';
+const CMA_ACCOUNT_REF = 'C_CMA-AED-0001';
+const PLACEHOLDER_VIBAN = 'AE000000000000000001'; // 未映射客户的 fallback vIBAN
 
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
@@ -57,7 +62,7 @@ async function main() {
 
   const aedPayins = await prisma.payin.findMany({
     where: { assetId: AED_ASSET, status: 'CLEARED', createdAt: { gte: dayStart, lt: cutoff } },
-    select: { referenceNo: true, txHash: true, amount: true }, orderBy: { referenceNo: 'asc' },
+    select: { referenceNo: true, txHash: true, amount: true, ownerId: true }, orderBy: { referenceNo: 'asc' },
   });
   const aedPayouts = await prisma.payout.findMany({
     where: { assetId: AED_ASSET, status: 'CLEARED' },
@@ -65,7 +70,7 @@ async function main() {
   });
   const usdtPayins = await prisma.payin.findMany({
     where: { assetId: USDT_ASSET, status: 'CLEARED', createdAt: { gte: dayStart, lt: cutoff } },
-    select: { referenceNo: true, txHash: true, amount: true }, orderBy: { txHash: 'asc' },
+    select: { referenceNo: true, txHash: true, amount: true, ownerId: true }, orderBy: { txHash: 'asc' },
   });
   const usdtPayouts = await prisma.payout.findMany({
     where: { assetId: USDT_ASSET, status: 'CLEARED' },
@@ -83,6 +88,24 @@ async function main() {
     where: { assetId: AED_ASSET, status: 'CLEAR', referenceNo: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
     select: { internalFundNo: true, referenceNo: true, amount: true }, orderBy: { internalFundNo: 'asc' },
   });
+
+  // ─── 0b. payin.ownerId → 客户物理账户映射（对账单按物理账户隔离）───────────────
+  //   USDT: ownerId → C_DEP wallet.vaultId（每客户充值 vault = 一张 HexTrust 单）
+  //   AED : ownerId → C_VIBAN wallet.iban（虚拟子账户 = CMA 单内 VirtualAccount 行标签）
+  const depWallets = await prisma.wallet.findMany({
+    where: { assetId: USDT_ASSET, walletRole: 'C_DEP', status: 'ACTIVE' },
+    select: { ownerId: true, vaultId: true },
+  });
+  const ownerToVault = new Map<string, string>(
+    depWallets.filter(w => w.ownerId && w.vaultId).map(w => [w.ownerId!, w.vaultId!]),
+  );
+  const vibanWallets = await prisma.wallet.findMany({
+    where: { assetId: AED_ASSET, walletRole: 'C_VIBAN', status: 'ACTIVE' },
+    select: { ownerId: true, iban: true },
+  });
+  const ownerToViban = new Map<string, string>(
+    vibanWallets.filter(w => w.ownerId && w.iban).map(w => [w.ownerId!, w.iban!]),
+  );
 
   // ─── 1. 回填 crypto payout txHash（当前为空）：0xWDR<payoutNo>，写回 payouts 行 ───
   for (const po of usdtPayouts) {
@@ -122,21 +145,24 @@ async function main() {
 
   const zandRecords: any[] = [];
   // top record's Balance = closingBalance（spec）。后续 record 的 running Balance 仅展示用，按累加倒推。
-  // Credits = payins（除 omit），加 mismatch 调整 + orphan external
+  // Credits = payins（除 omit），加 mismatch 调整 + orphan external。
+  // VirtualAccount = 付款客户真实 vIBAN（payin.ownerId→C_VIBAN.iban）：一张物理 CMA 单内，
+  //   各客户 vIBAN 是行标签，体现「虚拟子账户=单内标签，物理账户=隔离单位」。
   for (const p of aedPayins) {
     if (p.referenceNo === OMIT_AED) continue; // ① ORPHAN_INTERNAL：跳过
     const amt = p.referenceNo === MISMATCH_AED ? MISMATCH_AED_STMT : Number(p.amount); // ③ AMOUNT_MISMATCH
-    zandRecords.push(zandRec(p.referenceNo!, amt, 'Credit', 'Incoming AED Remittance'));
+    const viban = (p.ownerId && ownerToViban.get(p.ownerId)) || PLACEHOLDER_VIBAN;
+    zandRecords.push(zandRec(p.referenceNo!, amt, 'Credit', 'Incoming AED Remittance', viban));
   }
-  // ② ORPHAN_EXTERNAL：无内部匹配的 Credit
-  zandRecords.push(zandRec(ORPHAN_EXT_AED.ref, ORPHAN_EXT_AED.amount, 'Credit', 'Unmatched incoming credit'));
+  // ② ORPHAN_EXTERNAL：无内部匹配的 Credit（无对应客户，用占位 vIBAN）
+  zandRecords.push(zandRec(ORPHAN_EXT_AED.ref, ORPHAN_EXT_AED.amount, 'Credit', 'Unmatched incoming credit', PLACEHOLDER_VIBAN));
   // internal_fund 银行腿（Credit，IN）→ 与 collect() 的 internal_fund(IN, key=referenceNo) 匹配，0 闭合影响
   for (const f of aedFunds) {
-    zandRecords.push(zandRec(f.referenceNo!, Number(f.amount), 'Credit', 'Internal fund settlement transfer'));
+    zandRecords.push(zandRec(f.referenceNo!, Number(f.amount), 'Credit', 'Internal fund settlement transfer', PLACEHOLDER_VIBAN));
   }
   // Debits = payouts（全部 MATCH，不影响闭合）
   for (const po of aedPayouts) {
-    zandRecords.push(zandRec(po.referenceNo!, Number(po.amount), 'Debit', 'Outgoing AED Payout'));
+    zandRecords.push(zandRec(po.referenceNo!, Number(po.amount), 'Debit', 'Outgoing AED Payout', PLACEHOLDER_VIBAN));
   }
   // running Balance：从 closingBalance 倒推（top = closing）
   applyRunningBalance(zandRecords, Number(closingAED));
@@ -160,36 +186,78 @@ async function main() {
   const sumBreakUSDT = sdOrphanInternalUSDT.plus(sdOrphanExternalUSDT).plus(sdMismatchUSDT);
   const closingUSDT = tbUSDT.minus(inTransitUSDT).minus(sumBreakUSDT);
 
-  const hexTxs: any[] = [];
+  // 按物理 vault 隔离：每客户 C_DEP vault 一张单 + C_OUT 一张 + C_MAIN 归集（pooled plug）。
+  // file adapter 对所有 HEXTRUST 行 Σ closingBalance / concat tx —— 聚合外部数 == 单张时旧值，
+  // 故 I5 delta 与闭合恒等式 (Σunmatched == I5delta) 完全不变，仅分区存储。
+  type HexStatement = { accountRef: string; txs: any[]; closing: Prisma.Decimal };
+  const hexStatements: HexStatement[] = [];
   let seq = 0;
+
+  // (a) 每客户 C_DEP vault 单：该客户 payin 作 DEPOSIT。
+  //   OMIT 客户的 vault → 无 DEPOSIT 记录（其内部腿成 ORPHAN_INTERNAL）；MISMATCH 客户改外部金额。
+  //   每 vault closing = 自身 DEPOSIT 记录运行余额（含该 vault 上 break 的影响）。
+  const usdtByVault = new Map<string, typeof usdtPayins>();
   for (const p of usdtPayins) {
-    if (p.txHash === OMIT_USDT) continue; // ① ORPHAN_INTERNAL：跳过
-    const amt = p.txHash === MISMATCH_USDT ? MISMATCH_USDT_STMT : String(p.amount); // ③ AMOUNT_MISMATCH
-    hexTxs.push(hexTx(p.txHash!, amt, 'DEPOSIT', seq++));
+    const vault = (p.ownerId && ownerToVault.get(p.ownerId)) || 'vault-usdt-unmapped';
+    if (!usdtByVault.has(vault)) usdtByVault.set(vault, []);
+    usdtByVault.get(vault)!.push(p);
   }
-  // ② ORPHAN_EXTERNAL：无内部匹配的 DEPOSIT
-  hexTxs.push(hexTx(ORPHAN_EXT_USDT.txHash, ORPHAN_EXT_USDT.amount, 'DEPOSIT', seq++));
-  // WITHDRAWAL = payouts（全部 MATCH，用回填的 txHash）
-  for (const po of usdtPayouts) {
-    hexTxs.push(hexTx(po.txHash!, String(po.amount), 'WITHDRAWAL', seq++));
+  for (const [vault, payins] of [...usdtByVault.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const txs: any[] = [];
+    let closing = D(0);
+    for (const p of payins) {
+      if (p.txHash === OMIT_USDT) continue; // ① ORPHAN_INTERNAL：此客户 vault 缺这笔 DEPOSIT
+      const amt = p.txHash === MISMATCH_USDT ? MISMATCH_USDT_STMT : String(p.amount); // ③ AMOUNT_MISMATCH
+      txs.push(hexTx(p.txHash!, amt, 'DEPOSIT', seq++, vault));
+      closing = closing.plus(D(amt)); // DEPOSIT 增加该 vault 余额
+    }
+    hexStatements.push({ accountRef: vault, txs, closing });
   }
-  // internal_fund 链上腿（DEPOSIT，IN）→ 与 collect() 的 internal_fund(IN) 匹配，0 闭合影响
+
+  // (b) C_OUT 出金 vault 单：payouts 作 WITHDRAWAL（全部 MATCH）。closing = −Σ payouts。
+  {
+    const txs: any[] = [];
+    let closing = D(0);
+    for (const po of usdtPayouts) {
+      txs.push(hexTx(po.txHash!, String(po.amount), 'WITHDRAWAL', seq++, VAULT_OUT));
+      closing = closing.minus(D(po.amount)); // WITHDRAWAL 减少 vault 余额
+    }
+    hexStatements.push({ accountRef: VAULT_OUT, txs, closing });
+  }
+
+  // (c) C_MAIN 归集 vault 单：internal_fund 链上腿（DEPOSIT，0 闭合影响）+ ② ORPHAN_EXTERNAL DEPOSIT。
+  //   作 pooled plug：closing_main = 聚合 closingUSDT − Σ(其他单 closing)，保证 Σ全部单 == closingUSDT。
+  const mainTxs: any[] = [];
   for (const f of usdtFunds) {
-    hexTxs.push(hexTx(f.txHash!, String(f.amount), 'DEPOSIT', seq++));
+    mainTxs.push(hexTx(f.txHash!, String(f.amount), 'DEPOSIT', seq++, VAULT_MAIN));
   }
+  mainTxs.push(hexTx(ORPHAN_EXT_USDT.txHash, ORPHAN_EXT_USDT.amount, 'DEPOSIT', seq++, VAULT_MAIN));
+  const sumOthers = hexStatements.reduce((s, st) => s.plus(st.closing), D(0));
+  const closingMain = closingUSDT.minus(sumOthers);
+  hexStatements.push({ accountRef: VAULT_MAIN, txs: mainTxs, closing: closingMain });
 
   // ─── 5. 写 JSON artifacts ────────────────────────────────────────────────────
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(`${OUT_DIR}/zand-aed.json`, JSON.stringify(zandDoc, null, 2));
-  fs.writeFileSync(`${OUT_DIR}/hextrust-usdt.json`, JSON.stringify(hexTxs, null, 2));
-  console.log(`\n─── artifacts written ───\n${OUT_DIR}/zand-aed.json\n${OUT_DIR}/hextrust-usdt.json`);
+  for (const st of hexStatements) {
+    fs.writeFileSync(`${OUT_DIR}/hextrust-${st.accountRef}.json`, JSON.stringify(st.txs, null, 2));
+  }
+  console.log(`\n─── artifacts written ───\n${OUT_DIR}/zand-aed.json\n${OUT_DIR}/hextrust-*.json (${hexStatements.length} vault statements)`);
 
-  // ─── 6. 持久化为 reconciliation_external_statements ─────────────────────────────
-  await upsertStatement(prisma, 'ZAND', BUSINESS_DATE, 'AED', 'C_CMA-AED-0001', closingAED, JSON.stringify(zandDoc));
-  await upsertStatement(prisma, 'HEXTRUST', BUSINESS_DATE, 'USDT', 'vault-usdt-0001', closingUSDT, JSON.stringify(hexTxs));
+  // ─── 6. 持久化为 reconciliation_external_statements（按物理账户隔离，多行）──────────
+  // 先清当日旧行：上轮单张拍扁的 vault-usdt-0001 等若残留，会被 adapter Σ 进去破坏闭合。
+  await prisma.reconciliationExternalStatement.deleteMany({ where: { businessDate: BUSINESS_DATE } });
+  await upsertStatement(prisma, 'ZAND', BUSINESS_DATE, 'AED', CMA_ACCOUNT_REF, closingAED, JSON.stringify(zandDoc));
+  for (const st of hexStatements) {
+    await upsertStatement(prisma, 'HEXTRUST', BUSINESS_DATE, 'USDT', st.accountRef, st.closing, JSON.stringify(st.txs));
+  }
+  const sumHex = hexStatements.reduce((s, st) => s.plus(st.closing), D(0));
   console.log(`\n─── statements stored ───`);
-  console.log(`ZAND     AED  closingBalance=${closingAED}  (TB ${tbAED} − in-transit ${inTransitAED} − Σbreak ${sumBreakAED})`);
-  console.log(`HEXTRUST USDT closingBalance=${closingUSDT}  (TB ${tbUSDT} − in-transit ${inTransitUSDT} − Σbreak ${sumBreakUSDT})`);
+  console.log(`ZAND     AED  ${CMA_ACCOUNT_REF}  closingBalance=${closingAED}  (TB ${tbAED} − in-transit ${inTransitAED} − Σbreak ${sumBreakAED})`);
+  console.log(`HEXTRUST USDT  ${hexStatements.length} vault statements:`);
+  for (const st of hexStatements) console.log(`     ${st.accountRef.padEnd(20)} closingBalance=${st.closing}`);
+  console.log(`  Σ HEXTRUST closingBalance=${sumHex}  vs aggregate closingUSDT=${closingUSDT}  → ${sumHex.equals(closingUSDT) ? 'TIE ✓' : 'MISMATCH ✗'}`);
+  console.log(`  (aggregate closingUSDT = TB ${tbUSDT} − in-transit ${inTransitUSDT} − Σbreak ${sumBreakUSDT})`);
 
   // ─── 7. 确保 COMPLETED SettlementBatch 存在（CRYPTO EOD 门）──────────────────────
   const completed = await prisma.settlementBatch.findFirst({ where: { status: 'COMPLETED' } });
@@ -271,13 +339,13 @@ async function main() {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-function zandRec(channelRefId: string, amount: number, type: 'Credit' | 'Debit', desc: string) {
+function zandRec(channelRefId: string, amount: number, type: 'Credit' | 'Debit', desc: string, virtualAccount: string) {
   return {
     ChannelRefId: channelRefId, InstructionIdentification: channelRefId,
     ValueDate: BUSINESS_DATE, PostedDate: `${BUSINESS_DATE}T10:00:00`,
     InstructedAmount: { Amount: amount, Currency: 'AED' }, TransactionAmount: { Amount: amount, Currency: 'AED' },
     TransactionType: type, Remarks: '', BeneficiaryDetails: '', Description: desc,
-    PartType: 'Main', Balance: 0, VirtualAccount: 'AE000000000000000001',
+    PartType: 'Main', Balance: 0, VirtualAccount: virtualAccount,
   };
 }
 function applyRunningBalance(records: any[], closing: number) {
@@ -289,22 +357,27 @@ function applyRunningBalance(records: any[], closing: number) {
     bal = bal - signed;
   }
 }
-function hexTx(txHash: string, amountDecimal: string, type: 'DEPOSIT' | 'WITHDRAWAL', i: number) {
+function hexTx(txHash: string, amountDecimal: string, type: 'DEPOSIT' | 'WITHDRAWAL', i: number, vaultId: string) {
   return {
     id: `htx-${i}-${txHash.slice(0, 10)}`, traceId: `trace-${i}`, txHash,
     amountDecimal, assetKey: 'USDT', transactionType: type, primaryTransactionStatus: 'COMPLETED',
-    vaultId: 'vault-usdt-0001', from: '0xFROM', to: '0xTO', confirmationCount: 12,
+    vaultId, from: '0xFROM', to: '0xTO', confirmationCount: 12,
     blockTimestamp: `${BUSINESS_DATE}T10:00:00Z`, createdAt: `${BUSINESS_DATE}T10:00:05Z`,
   };
+}
+/** accountRef → 可读且唯一的 slug：非字母数字折成单个 '-'，去首尾 '-'。 */
+function slug(accountRef: string): string {
+  return accountRef.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 async function upsertStatement(
   prisma: PrismaService, source: string, businessDate: string, currency: string,
   accountRef: string, closingBalance: Prisma.Decimal, rawJson: string,
 ) {
-  const statementNo = `STMT-${businessDate.replace(/-/g, '')}-${source}-${currency}`;
+  // statementNo 按物理账户：STMT-{date}-{source}-{accountRefSlug}。唯一键现为 (source,businessDate,accountRef)。
+  const statementNo = `STMT-${businessDate.replace(/-/g, '')}-${source}-${slug(accountRef)}`;
   await prisma.reconciliationExternalStatement.upsert({
-    where: { source_businessDate_currency: { source, businessDate, currency } },
-    update: { statementNo, accountRef, closingBalance, rawJson, fetchedAt: new Date() },
+    where: { source_businessDate_accountRef: { source, businessDate, accountRef } },
+    update: { statementNo, currency, closingBalance, rawJson, fetchedAt: new Date() },
     create: { statementNo, source, businessDate, currency, accountRef, closingBalance, rawJson, fetchedAt: new Date() },
   });
 }

@@ -2038,16 +2038,17 @@ model ReconciliationLineItem {
 // 外部对账单证据（"已拉取"的银行/托管对账单原文）。file adapter 按 source+businessDate+currency 读此行。
 model ReconciliationExternalStatement {
   id             String   @id @default(uuid())
-  statementNo    String?  @unique @default("TEMP") // STMT-{businessDate}-{source}-{currency}
+  statementNo    String?  @unique @default("TEMP") // STMT-{businessDate}-{source}-{accountRefSlug}
   source         String   // ZAND | HEXTRUST
   businessDate   String   // YYYY-MM-DD
   currency       String   // AED | USDT
-  accountRef     String   // C_CMA account ref (Zand) / vaultId (HexTrust)
+  accountRef     String   // 物理外部账户：C_CMA account ref (Zand) / vaultId (HexTrust)。隔离单位。
   closingBalance Decimal  // as-of-cutoff 物理托管余额（human-decimal）
   rawJson        String   // 对账单原文（StatementRecords / tx-array）
   fetchedAt      DateTime
   createdAt      DateTime @default(now())
-  @@unique([source, businessDate, currency])
+  // 对账单按物理外部账户隔离：一物理账户一张单（子账户/vIBAN 是单内行标签）。
+  @@unique([source, businessDate, accountRef])
   @@index([businessDate])
   @@map("reconciliation_external_statements")
 }

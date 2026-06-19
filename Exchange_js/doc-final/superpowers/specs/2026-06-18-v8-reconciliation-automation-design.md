@@ -176,6 +176,8 @@ src/modules/reconciliation/（新建，对齐 funds-layer 分层 + 遵 backend-p
 │                  match-engine / classifier.service.ts
 ├── adapters/      external-balance.provider + external-tx.provider（接口）
 │                  mock-external.adapter.ts（读 wallet.mockBalance + bank_statement）
+│                  [2026-06-19] 外部对账单存储已实现 + 按物理外部账户隔离（一账户一张单，子账户/vIBAN 为单内行标签）
+│                  + 客户边界（外部只 sum walletRole C_*，firm F_* 排除）。详见 2026-06-19 client-scoping spec。
 ├── workflow/      reconciliation-run-workflow.service.ts   ← 编排，不直接写表（走 domain）
 ├── sweep/         reconciliation-cron.service.ts           ← @Cron 只能在这层
 ├── controllers/   reconciliation-admin.controller.ts       ← 只读

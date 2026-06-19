@@ -13,8 +13,11 @@ export class MockExternalAdapter implements ExternalBalanceProvider, ExternalTxP
   constructor(private readonly prisma: PrismaService) {}
 
   async balanceAt(currency: string, assetId: string, _cutoff: Date): Promise<Prisma.Decimal> {
+    // 客户/公司边界：客户资产对账只 sum 客户钱包（walletRole C_*）。
+    // firm 自有资金（F_*，COA A.FIRM_TREASURY）走独立 firm recon，绝不混入此处——
+    // 内部侧 TB 取 A.CLIENT_CUSTODY/A.CLIENT_BANK（仅客户），外部必须同边界否则凭空多出假 break。
     const wallets = await this.prisma.wallet.findMany({
-      where: { assetId, status: 'ACTIVE' },
+      where: { assetId, status: 'ACTIVE', walletRole: { startsWith: 'C_' } },
       select: { mockBalance: true },
     });
     return wallets.reduce(
@@ -24,6 +27,8 @@ export class MockExternalAdapter implements ExternalBalanceProvider, ExternalTxP
   }
 
   async txsForDate(currency: string, assetId: string, businessDate: string): Promise<ExternalTx[]> {
+    // client-scoped by construction：internalFund 即客户资金流（链上腿），天然属客户边界，
+    // 不含 firm 自有资金。direction-aware 匹配（区分 IN/OUT）是 documented follow-up，此处不扩范围。
     const start = new Date(`${businessDate}T00:00:00.000Z`);
     const end = new Date(start.getTime() + 86400000);
     const funds = await this.prisma.internalFund.findMany({
