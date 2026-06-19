@@ -18,12 +18,25 @@ describe('InternalActionsService', () => {
 
   it('collects internal_fund as IN keyed by txHash', async () => {
     prisma.internalFund.findMany.mockResolvedValue([
-      { id: 'f1', internalFundNo: 'IF-1', amount: new Prisma.Decimal('60.76'), txHash: '0xFUND1' },
+      { id: 'f1', internalFundNo: 'IF-1', amount: new Prisma.Decimal('60.76'), txHash: '0xFUND1', referenceNo: null },
     ]);
     const out = await svc.collect('asset-usdt', businessDate, cutoff);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ sourceType: 'INTERNAL_FUND', sourceNo: 'IF-1', direction: 'IN', txHash: '0xFUND1' });
     expect(out[0].amount.toString()).toBe('60.76');
+  });
+
+  it('collects fiat internal_fund as IN keyed by referenceNo (no txHash)', async () => {
+    prisma.internalFund.findMany.mockResolvedValue([
+      { id: 'f2', internalFundNo: 'IFD-FIAT-1', amount: new Prisma.Decimal('333.58'), txHash: null, referenceNo: 'BANK-IFD-FIAT-1' },
+    ]);
+    const out = await svc.collect('asset-aed', businessDate, cutoff);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      sourceType: 'INTERNAL_FUND', sourceNo: 'IFD-FIAT-1', direction: 'IN',
+      txHash: null, referenceNo: 'BANK-IFD-FIAT-1',
+    });
+    expect(out[0].amount.toString()).toBe('333.58');
   });
 
   it('collects payin as IN with txHash + referenceNo match keys', async () => {
@@ -50,15 +63,21 @@ describe('InternalActionsService', () => {
     );
   });
 
-  it('payin/internal_fund filtered to [day, cutoff); internal_fund requires txHash', async () => {
+  it('payin/internal_fund filtered to [day, cutoff); internal_fund requires a physical key (txHash OR referenceNo)', async () => {
     await svc.collect('asset-usdt', businessDate, cutoff);
     const start = new Date('2026-06-16T00:00:00.000Z');
     expect(prisma.payin.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ status: 'CLEARED', createdAt: { gte: start, lt: cutoff } }) }),
     );
-    // internal_fund 必须有 txHash（无外部物理腿的纯账内转账不进账实对账）
+    // internal_fund 必须有外部物理键 txHash 或 referenceNo（无任何键的纯账内转账不进账实对账）
     expect(prisma.internalFund.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ status: 'CLEAR', txHash: { not: null }, createdAt: { gte: start, lt: cutoff } }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'CLEAR',
+          createdAt: { gte: start, lt: cutoff },
+          OR: [{ txHash: { not: null } }, { referenceNo: { not: null } }],
+        }),
+      }),
     );
   });
 });

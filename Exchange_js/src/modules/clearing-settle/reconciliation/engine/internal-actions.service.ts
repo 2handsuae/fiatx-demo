@@ -11,15 +11,21 @@ export class InternalActionsService {
     const start = new Date(`${businessDate}T00:00:00.000Z`);
     const out: InternalAction[] = [];
 
-    // ① internal_fund（已 CLEAR 且有链上 txHash）→ 链上有物理对应 → IN（match key 用 txHash）。
-    //    无 txHash 的纯账内转账无外部物理腿，不进账实(I5)对账（与 mock adapter txHash:{not:null} 口径一致）。
+    // ① internal_fund（已 CLEAR 且有外部物理键）→ 有真实链上/银行对应 → IN
+    //    （match key = txHash || referenceNo：crypto 走 txHash，fiat 走银行 referenceNo）。
+    //    无任何键的纯账内转账无外部物理腿，不进账实(I5)对账。
     const funds = await this.prisma.internalFund.findMany({
-      where: { assetId, status: 'CLEAR', txHash: { not: null }, createdAt: { gte: start, lt: cutoff } },
-      select: { id: true, internalFundNo: true, amount: true, txHash: true },
+      where: {
+        assetId,
+        status: 'CLEAR',
+        createdAt: { gte: start, lt: cutoff },
+        OR: [{ txHash: { not: null } }, { referenceNo: { not: null } }],
+      },
+      select: { id: true, internalFundNo: true, amount: true, txHash: true, referenceNo: true },
     });
     for (const f of funds) out.push({
       sourceType: 'INTERNAL_FUND', sourceId: f.id, sourceNo: f.internalFundNo,
-      amount: new Prisma.Decimal(f.amount), direction: 'IN', txHash: f.txHash,
+      amount: new Prisma.Decimal(f.amount), direction: 'IN', txHash: f.txHash, referenceNo: f.referenceNo,
     });
 
     // ② payin（已 CLEARED，当日）→ 入金 → IN（match key 用 txHash || referenceNo）

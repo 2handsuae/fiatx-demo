@@ -539,6 +539,80 @@ describe('FundsFlowService', () => {
     expect(arg.data.effectiveGasPrice).toEqual(expect.any(String));
   });
 
+  it('fiat SUBMIT without referenceNo → mock bank referenceNo 兜底写入 (BANK-<no>)', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-fiat-sub',
+      internalFundNo: 'IFD-FIAT-SUB',
+      status: InternalFundStatus.CREATED,
+      statusHistory: '[]',
+      txHash: null,
+      referenceNo: null,
+      sentAt: null,
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-fsub',
+        sourceType: 'FIAT_SETTLEMENT',
+        sourceId: 'itr-fsub',
+        sourceNo: 'ITRFSUB',
+      },
+      asset: { type: 'FIAT' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-fiat-sub',
+      status: InternalFundStatus.CONFIRMING,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-fiat-sub',
+      { action: InternalFundAction.SUBMIT },
+      'ADMIN',
+    );
+
+    const arg = prisma.internalFund.update.mock.calls[0][0];
+    expect(arg.data.referenceNo).toBe('BANK-IFD-FIAT-SUB');
+    // 不碰 crypto txHash 逻辑：fiat SUBMIT 不应伪造 txHash
+    expect(arg.data.txHash).toBeUndefined();
+  });
+
+  it('fiat SUBMIT with incoming referenceNo → 不覆盖，用传入值', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'ifd-fiat-sub2',
+      internalFundNo: 'IFD-FIAT-SUB2',
+      status: InternalFundStatus.CREATED,
+      statusHistory: '[]',
+      txHash: null,
+      referenceNo: null,
+      sentAt: null,
+      confirmedAt: null,
+      internalTransaction: {
+        id: 'itx-fsub2',
+        sourceType: 'FIAT_SETTLEMENT',
+        sourceId: 'itr-fsub2',
+        sourceNo: 'ITRFSUB2',
+      },
+      asset: { type: 'FIAT' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'ifd-fiat-sub2',
+      status: InternalFundStatus.CONFIRMING,
+    });
+    aggregator.syncStatusFromFunds.mockResolvedValue({
+      status: 'INTERNAL_FUNDS_PENDING',
+    });
+
+    await service.updateStatus(
+      'ifd-fiat-sub2',
+      { action: InternalFundAction.SUBMIT, referenceNo: 'REF-FROM-BANK-API' },
+      'ADMIN',
+    );
+
+    const arg = prisma.internalFund.update.mock.calls[0][0];
+    expect(arg.data.referenceNo).toBe('REF-FROM-BANK-API');
+  });
+
   it('REORG: fiat CONFIRMING 仍非法（银行轨无重组）', async () => {
     prisma.internalFund.findUnique.mockResolvedValue({
       id: 'ifd-reorg-f',

@@ -76,6 +76,13 @@ async function main() {
     where: { assetId: USDT_ASSET, status: 'CLEAR', txHash: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
     select: { internalFundNo: true, txHash: true, amount: true }, orderBy: { internalFundNo: 'asc' },
   });
+  // CLEAR fiat internal_funds keyed by bank referenceNo（AED 内部转账，已结算）→ collect() 现按
+  // (txHash || referenceNo) 收集为 IN，故必须在 Zand 对账单出现匹配的 Credit，否则成 ORPHAN_INTERNAL。
+  // 与 usdtFunds 同理：匹配腿对闭合贡献为 0。
+  const aedFunds = await prisma.internalFund.findMany({
+    where: { assetId: AED_ASSET, status: 'CLEAR', referenceNo: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
+    select: { internalFundNo: true, referenceNo: true, amount: true }, orderBy: { internalFundNo: 'asc' },
+  });
 
   // ─── 1. 回填 crypto payout txHash（当前为空）：0xWDR<payoutNo>，写回 payouts 行 ───
   for (const po of usdtPayouts) {
@@ -123,6 +130,10 @@ async function main() {
   }
   // ② ORPHAN_EXTERNAL：无内部匹配的 Credit
   zandRecords.push(zandRec(ORPHAN_EXT_AED.ref, ORPHAN_EXT_AED.amount, 'Credit', 'Unmatched incoming credit'));
+  // internal_fund 银行腿（Credit，IN）→ 与 collect() 的 internal_fund(IN, key=referenceNo) 匹配，0 闭合影响
+  for (const f of aedFunds) {
+    zandRecords.push(zandRec(f.referenceNo!, Number(f.amount), 'Credit', 'Internal fund settlement transfer'));
+  }
   // Debits = payouts（全部 MATCH，不影响闭合）
   for (const po of aedPayouts) {
     zandRecords.push(zandRec(po.referenceNo!, Number(po.amount), 'Debit', 'Outgoing AED Payout'));

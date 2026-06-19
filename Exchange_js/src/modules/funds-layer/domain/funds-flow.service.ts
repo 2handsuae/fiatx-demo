@@ -544,10 +544,14 @@ export class FundsFlowService {
         );
       }
 
-      // Chain receipt fallback: real adapters pass txHash/gas in; sim/dev
-      // CONFIRM/BROADCAST fabricate them so the detail page has data
-      // (same pattern as payout mock gas).
+      // External-reference fallback: real adapters pass txHash/referenceNo in;
+      // sim/dev fabricate them so every leg that physically left the building
+      // carries a real key. Crypto → txHash on BROADCAST (the "sent on-chain"
+      // step); fiat → bank referenceNo on SUBMIT (the "sent to bank" step, i.e.
+      // CREATED→CONFIRMING in FIAT_TRANSITIONS — fiat never goes through
+      // BROADCAST). Mirrors the payout mock-gas pattern.
       let effectiveTxHash = txHash;
+      let effectiveReferenceNo = referenceNo;
       let effectiveGasUsed = gasUsed;
       let effectiveGasPriceValue = effectiveGasPrice;
       if ((item.asset?.type || 'CRYPTO') !== 'FIAT') {
@@ -572,6 +576,14 @@ export class FundsFlowService {
             );
           }
         }
+      } else {
+        if (
+          action === InternalFundAction.SUBMIT &&
+          !effectiveReferenceNo &&
+          !item.referenceNo
+        ) {
+          effectiveReferenceNo = `BANK-${item.internalFundNo}`;
+        }
       }
 
       const updateData: any = {
@@ -593,7 +605,7 @@ export class FundsFlowService {
       }
 
       if (effectiveTxHash) updateData.txHash = effectiveTxHash;
-      if (referenceNo) updateData.referenceNo = referenceNo;
+      if (effectiveReferenceNo) updateData.referenceNo = effectiveReferenceNo;
       if (feeAmount !== undefined)
         updateData.feeAmount = new Prisma.Decimal(feeAmount);
       if (providerTxnId) updateData.providerTxnId = providerTxnId;
