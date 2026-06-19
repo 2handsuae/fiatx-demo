@@ -1,20 +1,21 @@
 // admin-web/src/pages/ReconciliationRunsDetailPage.tsx
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, ShieldCheck } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import {
+  DetailPageHeader,
+  DetailCard,
+  InfoField,
+} from '../components/compliance/DetailPageComponents';
+import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
+import { StatusPill } from '../components/ui/StatusPill';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import {
-  StatusBadge,
-  DetailCard,
-  InfoField,
-} from '../components/governance/GovernanceUi';
-import { formatDateTime } from '../components/governance/governanceUtils';
 
-/* ── Interfaces ──────────────────────────────────────────────── */
+/* ── Types ──────────────────────────────────────────────────── */
 
 interface InvariantCheck {
   id: string;
@@ -50,176 +51,193 @@ interface ReconRunDetail {
   invariantChecks: InvariantCheck[];
 }
 
-/* ── Constants ───────────────────────────────────────────────── */
-
-const SEVERITY_COLORS: Record<string, string> = {
-  SAFEGUARDING: 'bg-rose-100 text-rose-800',
-  ATTESTATION: 'bg-purple-100 text-purple-800',
-  BUSINESS: 'bg-blue-100 text-blue-800',
-  ACCOUNT_ACTUAL: 'bg-amber-100 text-amber-800',
-};
+/* ── Constants ──────────────────────────────────────────────── */
 
 const TRIGGER_LABELS: Record<string, string> = {
-  SCHEDULED: '定时',
-  POST_FIX: '平账后复核',
-  MANUAL: '手动',
+  SCHEDULED: 'Scheduled',
+  MANUAL: 'Manual',
+  POST_FIX: 'Post-Fix',
 };
 
-/* ── Component ───────────────────────────────────────────────── */
+// Severity classes mapped onto the four available adm-* semantic colors.
+const SEVERITY_TONE: Record<string, string> = {
+  SAFEGUARDING: 'border-adm-red/30 bg-adm-red/10 text-adm-red',
+  ATTESTATION: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
+  BUSINESS: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
+  ACCOUNT_ACTUAL: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
+};
+
+const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
+const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
+
+const SeverityPill = ({ value }: { value: string }) => {
+  const tone = SEVERITY_TONE[value] || 'border-adm-border bg-adm-bg text-adm-t2';
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[9px] font-semibold ${tone}`}
+    >
+      {value}
+    </span>
+  );
+};
+
+/* ── Page Component ─────────────────────────────────────────── */
 
 const ReconciliationRunsDetailPage = () => {
   const { runNo } = useParams<{ runNo: string }>();
   const navigate = useNavigate();
   const [run, setRun] = useState<ReconRunDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchRun = async () => {
     if (!runNo) return;
     setLoading(true);
-    setError(null);
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/runs/${encodeURIComponent(runNo)}`,
       );
-      if (!res.ok)
-        throw new Error(await getApiErrorMessage(res, 'Failed to load reconciliation run.'));
-      const result = (await res.json()) as ReconRunDetail;
-      setRun(result);
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to load reconciliation run.');
+      if (res.ok) {
+        setRun((await res.json()) as ReconRunDetail);
+      } else {
+        alert(await getApiErrorMessage(res, 'Failed to load reconciliation run'));
+        navigate('/admin/reconciliation/runs');
+      }
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to fetch reconciliation run', error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void fetchRun();
+    if (runNo) void fetchRun();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runNo]);
 
-  const checks = run?.invariantChecks ?? [];
+  if (loading && !run) {
+    return (
+      <div className="flex min-h-[400px] flex-col items-center justify-center">
+        <RefreshCw className="mb-4 animate-spin text-adm-amber" size={32} />
+        <p className="text-adm-t3">Loading reconciliation run...</p>
+      </div>
+    );
+  }
+
+  if (!run) return null;
+
+  const checks = run.invariantChecks ?? [];
 
   return (
-    <div className="min-h-full bg-admin-content-bg p-6">
-      {/* ── Back + Refresh ── */}
-      <div className="mb-4 flex items-center justify-between">
-        <button
-          onClick={() => navigate('/admin/reconciliation/runs')}
-          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft size={16} />
-          Back to Runs
-        </button>
-        <button
-          onClick={() => void fetchRun()}
-          className="inline-flex items-center gap-2 rounded-lg border border-admin-border bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
+    <div className="flex h-full flex-col">
+      {/* ── Nav Header (back + refresh only) ── */}
+      <DetailPageHeader
+        onBack={() => navigate('/admin/reconciliation/runs')}
+        onRefresh={fetchRun}
+        refreshing={loading}
+        backLabel="Runs"
+      />
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {loading && !run && (
-        <div className="rounded-xl border border-admin-border bg-white px-6 py-10 text-center text-sm text-gray-500">
-          Loading…
-        </div>
-      )}
-
-      {run && (
-        <div className="space-y-6">
-          {/* ── Header ── */}
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-mono text-2xl font-bold text-gray-900">{run.runNo}</h1>
-            <span className="font-mono text-sm font-semibold text-brand-primary">
-              {run.layer}
-            </span>
-            <span className="font-mono text-sm text-gray-500">{run.businessDate}</span>
-            <StatusBadge value={run.status} />
-            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-              {TRIGGER_LABELS[run.triggerType] || run.triggerType}
-            </span>
+      {/* ── Body: Main + Sidebar ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* ── Main Body ── */}
+        <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
+          {/* 1. Hero */}
+          <div className="bg-adm-card px-6 py-5">
+            <div className="font-mono text-[19px] font-bold text-adm-amber">{run.runNo}</div>
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Status
+                </span>
+                <span className="mt-1 inline-block">
+                  <StatusPill value={run.status} size="md" />
+                </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Layer
+                </span>
+                <span className="font-mono text-adm-t1">{run.layer}</span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Business Date
+                </span>
+                <span className="font-mono text-adm-t1">{run.businessDate}</span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Invariant Status
+                </span>
+                <span className="mt-1 inline-block">
+                  <StatusPill value={run.invariantStatus} size="md" />
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* ── Run 概要 ── */}
-          <DetailCard title="Run 概要">
-            <InfoField label="Run No" value={run.runNo} mono />
-            <InfoField label="Business Date" value={run.businessDate} mono />
-            <InfoField label="Layer" value={run.layer} mono />
+          {/* 2. Run Summary */}
+          <DetailCard title="Run Summary" columns={3}>
             <InfoField label="Seq" value={String(run.seq)} mono />
-            <InfoField label="Trigger" value={TRIGGER_LABELS[run.triggerType] || run.triggerType} />
+            <InfoField label="Trigger" value={fmtTrigger(run.triggerType)} />
             <InfoField label="Mode" value={run.mode} />
-            <InfoField label="不变量状态" value={<StatusBadge value={run.invariantStatus} />} />
             <InfoField label="Opened Cases" value={String(run.openedCount)} mono />
-            <InfoField label="Re-observed Cases" value={String(run.reObservedCount)} mono />
+            <InfoField label="Re-observed" value={String(run.reObservedCount)} mono />
             <InfoField label="Closed Cases" value={String(run.closedCount)} mono />
-            <InfoField label="Started" value={formatDateTime(run.startedAt)} />
-            <InfoField label="Completed" value={formatDateTime(run.completedAt)} />
-            <InfoField label="Trace ID" value={run.traceId || '-'} mono />
           </DetailCard>
 
-          {/* ── 不变量 attestation (I1-I5) ── */}
-          <div className="rounded-xl border border-admin-border bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center gap-2">
-              <div className="text-brand-primary">
-                <ShieldCheck size={18} />
-              </div>
-              <h2 className="text-lg font-bold text-gray-900">
-                不变量 attestation (I1-I5)
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
+          {/* 3. Invariant Attestation (I1–I5) */}
+          <DetailCard title="Invariant Attestation (I1–I5)" columns={1}>
+            <div className="overflow-x-auto rounded-lg border border-adm-border">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-admin-border bg-admin-content-bg">
+                <thead className="border-b border-adm-border bg-adm-bg">
                   <tr>
-                    <th className="px-3 py-2 text-xs uppercase text-gray-500">不变量</th>
-                    <th className="px-3 py-2 text-xs uppercase text-gray-500">Currency</th>
-                    <th className="px-3 py-2 text-xs uppercase text-gray-500">Severity</th>
-                    <th className="px-3 py-2 text-xs uppercase text-gray-500">LHS</th>
-                    <th className="px-3 py-2 text-xs uppercase text-gray-500">RHS</th>
-                    <th className="px-3 py-2 text-right text-xs uppercase text-gray-500">Δ</th>
-                    <th className="px-3 py-2 text-xs uppercase text-gray-500">Status</th>
+                    {['Code', 'Currency', 'Severity', 'LHS', 'RHS', 'Δ', 'Status'].map((h) => (
+                      <th
+                        key={h}
+                        className={`px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 ${h === 'Δ' ? 'text-right' : 'text-left'}`}
+                      >
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-admin-border">
+                <tbody className="divide-y divide-adm-border">
                   {checks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-500">
+                      <td
+                        colSpan={7}
+                        className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
+                      >
                         No invariant checks recorded for this run.
                       </td>
                     </tr>
                   ) : (
                     checks.map((check) => (
-                      <tr key={check.id}>
-                        <td className="px-3 py-2.5 font-mono text-xs font-semibold text-gray-900">
+                      <tr key={check.id} className="transition-colors hover:bg-adm-hover">
+                        <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-adm-t1">
                           {check.invariantCode}
                         </td>
-                        <td className="px-3 py-2.5 font-mono text-xs text-gray-700">
-                          {check.currency || '-'}
+                        <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                          {check.currency || '—'}
                         </td>
                         <td className="px-3 py-2.5">
-                          <StatusBadge value={check.severity} colors={SEVERITY_COLORS} />
+                          <SeverityPill value={check.severity} />
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-700">
-                          <span className="text-gray-500">{check.lhsLabel} = </span>
-                          <span className="font-mono">{check.lhsValue}</span>
+                        <td className="px-3 py-2.5 text-[11px] text-adm-t2">
+                          <span className="text-adm-t3">{check.lhsLabel} = </span>
+                          <span className="font-mono text-adm-t1">{check.lhsValue}</span>
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-700">
-                          <span className="text-gray-500">{check.rhsLabel} = </span>
-                          <span className="font-mono">{check.rhsValue}</span>
+                        <td className="px-3 py-2.5 text-[11px] text-adm-t2">
+                          <span className="text-adm-t3">{check.rhsLabel} = </span>
+                          <span className="font-mono text-adm-t1">{check.rhsValue}</span>
                         </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-xs text-gray-900">
+                        <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
                           {check.delta}
                         </td>
                         <td className="px-3 py-2.5">
-                          <StatusBadge value={check.status} />
+                          <StatusPill value={check.status} />
                         </td>
                       </tr>
                     ))
@@ -227,9 +245,31 @@ const ReconciliationRunsDetailPage = () => {
                 </tbody>
               </table>
             </div>
-          </div>
+          </DetailCard>
+
+          {/* 4. Technical (LAST) */}
+          <DetailCard title="Technical" columns={2}>
+            <InfoField label="Trace ID" value={run.traceId} mono />
+            <InfoField label="Run ID" value={run.id} mono />
+          </DetailCard>
         </div>
-      )}
+
+        {/* ── Sidebar (no Actions block — read-only) ── */}
+        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          <SidebarGroup title="Identity">
+            <SidebarKV label="Run No" value={run.runNo} mono />
+            <SidebarKV label="Status" value={<StatusPill value={run.status} />} />
+            <SidebarKV label="Layer" value={run.layer} mono />
+            <SidebarKV label="Trigger" value={fmtTrigger(run.triggerType)} />
+          </SidebarGroup>
+
+          <SidebarGroup title="Lifecycle">
+            <SidebarKV label="Started" value={fmtTime(run.startedAt)} mono />
+            <SidebarKV label="Completed" value={fmtTime(run.completedAt)} mono />
+            <SidebarKV label="Created" value={fmtTime(run.createdAt)} mono />
+          </SidebarGroup>
+        </div>
+      </div>
     </div>
   );
 };

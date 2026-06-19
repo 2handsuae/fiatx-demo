@@ -155,6 +155,8 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **SwapTransaction** | `swapNo`, `status` badge, `ownerNo`, pair (`fromCode/toCode`), `netToAmount` | `createdAt`, `completedAt` |
 | **InternalTransfer** | `internalTxNo`, `pathLabel`, `status` badge, `asset.code` | `createdAt`, `completedAt`, `updatedAt` |
 | **SettlementBatch** | `batchNo`, `status` badge, `settlementType` | `createdAt`, `cutoffAt`, `completedAt` |
+| **ReconciliationRun** | `runNo`, `status` badge, `layer`, `triggerType` | `startedAt`, `completedAt`, `createdAt` |
+| **ReconciliationCase** | `caseNo`, `status` badge, `assetCode`, `deltaAmount` | `slaDeadline`, `createdAt`, `updatedAt` |
 
 ---
 

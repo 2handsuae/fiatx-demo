@@ -1,5 +1,5 @@
 // admin-web/src/pages/ReconciliationRunsListPage.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import {
@@ -7,8 +7,9 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { StatusBadge } from '../components/governance/GovernanceUi';
+import { StatusPill } from '../components/ui/StatusPill';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import Pagination from '../components/common/Pagination';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -33,10 +34,13 @@ interface ReconRun {
 
 /* ── Constants ───────────────────────────────────────────────── */
 
-const TRIGGER_LABELS: Record<string, { label: string; className: string }> = {
-  SCHEDULED: { label: '定时', className: 'bg-gray-100 text-gray-700' },
-  POST_FIX: { label: '平账后复核', className: 'bg-purple-100 text-purple-800' },
-  MANUAL: { label: '手动', className: 'bg-blue-100 text-blue-800' },
+const PAGE_SIZE = 25;
+
+// Trigger labels — English copy, rendered as adm-* small pills (no raw colors).
+const TRIGGER_LABELS: Record<string, { label: string; tone: string }> = {
+  SCHEDULED: { label: 'Scheduled', tone: 'border-adm-border bg-adm-bg text-adm-t2' },
+  MANUAL: { label: 'Manual', tone: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue' },
+  POST_FIX: { label: 'Post-Fix', tone: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber' },
 };
 
 /* ── Component ───────────────────────────────────────────────── */
@@ -46,6 +50,7 @@ const ReconciliationRunsListPage = () => {
   const [runs, setRuns] = useState<ReconRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const fetchRuns = async () => {
     setLoading(true);
@@ -59,6 +64,7 @@ const ReconciliationRunsListPage = () => {
       const result = await res.json();
       const rows: ReconRun[] = Array.isArray(result) ? result : (result.items ?? []);
       setRuns(rows);
+      setPage(1);
     } catch (err) {
       if (err instanceof AdminSessionError) return;
       setError(err instanceof Error ? err.message : 'Failed to load reconciliation runs.');
@@ -71,13 +77,20 @@ const ReconciliationRunsListPage = () => {
     void fetchRuns();
   }, []);
 
+  const pageRows = useMemo(
+    () => runs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [runs, page],
+  );
+
   const renderTrigger = (trigger: string) => {
     const conf = TRIGGER_LABELS[trigger] || {
       label: trigger,
-      className: 'bg-gray-100 text-gray-700',
+      tone: 'border-adm-border bg-adm-bg text-adm-t2',
     };
     return (
-      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${conf.className}`}>
+      <span
+        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-semibold ${conf.tone}`}
+      >
         {conf.label}
       </span>
     );
@@ -88,7 +101,7 @@ const ReconciliationRunsListPage = () => {
       {/* ── Title bar ── */}
       <PageTitleBar
         title="Reconciliation Runs"
-        meta={`${runs.length} run${runs.length === 1 ? '' : 's'} · 每日对账流水`}
+        meta={`${runs.length} run${runs.length === 1 ? '' : 's'} · Daily Reconciliation`}
       >
         <button
           onClick={() => void fetchRuns()}
@@ -114,12 +127,12 @@ const ReconciliationRunsListPage = () => {
               {(
                 [
                   ['Run No', '180px'],
-                  ['Business Date', '130px'],
                   ['Layer', '90px'],
                   ['Trigger', '120px'],
-                  ['不变量', '120px'],
-                  ['Case 动作', '130px'],
-                  ['Status', '110px'],
+                  ['Invariant', '110px'],
+                  ['Cases', '130px'],
+                  ['Status', '120px'],
+                  ['Business Date', '130px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
                 <th
@@ -148,7 +161,7 @@ const ReconciliationRunsListPage = () => {
               </tr>
             )}
             {!loading &&
-              runs.map((run) => (
+              pageRows.map((run) => (
                 <tr
                   key={run.id}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
@@ -162,11 +175,6 @@ const ReconciliationRunsListPage = () => {
                     <span className="ml-1 font-mono text-[10px] text-adm-t3">#{run.seq}</span>
                   </td>
 
-                  {/* Business Date */}
-                  <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t1 whitespace-nowrap">
-                    {run.businessDate}
-                  </td>
-
                   {/* Layer */}
                   <td className="px-4 py-2.5">
                     <span className="font-mono text-[10px] font-semibold text-adm-blue">
@@ -177,21 +185,26 @@ const ReconciliationRunsListPage = () => {
                   {/* Trigger */}
                   <td className="px-4 py-2.5">{renderTrigger(run.triggerType)}</td>
 
-                  {/* 不变量 */}
+                  {/* Invariant */}
                   <td className="px-4 py-2.5">
-                    <StatusBadge value={run.invariantStatus} />
+                    <StatusPill value={run.invariantStatus} />
                   </td>
 
-                  {/* Case 动作 */}
+                  {/* Cases */}
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                     <span className="text-adm-amber">+{run.openedCount}</span>
                     {' / '}
-                    <span className="text-adm-green">-{run.closedCount}</span>
+                    <span className="text-adm-green">✓{run.closedCount}</span>
                   </td>
 
                   {/* Status */}
                   <td className="px-4 py-2.5">
-                    <StatusBadge value={run.status} />
+                    <StatusPill value={run.status} />
+                  </td>
+
+                  {/* Business Date */}
+                  <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t1 whitespace-nowrap">
+                    {run.businessDate}
                   </td>
                 </tr>
               ))}
@@ -199,14 +212,13 @@ const ReconciliationRunsListPage = () => {
         </table>
       </div>
 
-      {/* ── Footer ── */}
-      <div className="shrink-0 border-t border-adm-border bg-adm-panel px-5 py-2.5">
-        <span className="font-mono text-[10px] text-adm-t3">
-          {runs.length > 0
-            ? `Showing ${runs.length} run${runs.length === 1 ? '' : 's'}`
-            : 'No runs'}
-        </span>
-      </div>
+      {/* ── Pagination ── */}
+      <Pagination
+        currentPage={page}
+        totalItems={runs.length}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
     </div>
   );
 };
