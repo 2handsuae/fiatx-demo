@@ -72,13 +72,15 @@ describe('OutstandingConsumerService', () => {
       },
     ]);
 
-    const groups = await service.findOpenCryptoByAsset();
+    const cutoff = new Date('2026-06-17T20:00:00.000Z');
+    const groups = await service.findOpenCryptoByAsset(cutoff);
 
     // query guards
     const where = prisma.outstanding.findMany.mock.calls[0][0].where;
     expect(where.status).toBe('OPEN');
     expect(where.asset).toEqual({ type: 'CRYPTO' });
     expect(where.settlementBatchId).toBeNull();
+    expect(where.createdAt).toEqual({ lt: cutoff });
 
     const a = groups.find((g) => g.assetId === 'asset-A')!;
     expect(a.inAmount.toString()).toBe('100');
@@ -91,6 +93,18 @@ describe('OutstandingConsumerService', () => {
     const b = groups.find((g) => g.assetId === 'asset-B')!;
     expect(b.net.toString()).toBe('5');
     expect(b.outstandingIds).toEqual(['o3']);
+  });
+
+  it('findOpenCryptoByAsset windows selection by createdAt < cutoff', async () => {
+    const cutoff = new Date('2026-06-17T20:00:00.000Z');
+
+    await service.findOpenCryptoByAsset(cutoff);
+
+    const where = prisma.outstanding.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe('OPEN');
+    expect(where.asset).toEqual({ type: 'CRYPTO' });
+    expect(where.settlementBatchId).toBeNull();
+    expect(where.createdAt).toEqual({ lt: cutoff });
   });
 
   it('lockToTransfer sets LOCKED + batch + transfer', async () => {

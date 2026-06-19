@@ -38,12 +38,13 @@ export class OutstandingConsumerService {
    * net = Σ(IN) − Σ(OUT); positive means net inflow owed into the customer
    * pool, negative means net outflow to be funded from liquidity.
    */
-  async findOpenCryptoByAsset(): Promise<CryptoOutstandingGroup[]> {
+  async findOpenCryptoByAsset(cutoff: Date): Promise<CryptoOutstandingGroup[]> {
     const rows = await (this.prisma as any).outstanding.findMany({
       where: {
         status: 'OPEN',
         asset: { type: 'CRYPTO' },
         settlementBatchId: null,
+        createdAt: { lt: cutoff },
       },
       select: {
         id: true,
