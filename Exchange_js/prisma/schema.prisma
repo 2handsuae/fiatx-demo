@@ -2034,3 +2034,19 @@ model ReconciliationLineItem {
   @@index([caseId])
   @@map("reconciliation_line_items")
 }
+
+// 外部对账单证据（"已拉取"的银行/托管对账单原文）。file adapter 按 source+businessDate+currency 读此行。
+model ReconciliationExternalStatement {
+  id             String   @id @default(uuid())
+  source         String   // ZAND | HEXTRUST
+  businessDate   String   // YYYY-MM-DD
+  currency       String   // AED | USDT
+  accountRef     String   // C_CMA account ref (Zand) / vaultId (HexTrust)
+  closingBalance Decimal  // as-of-cutoff 物理托管余额（human-decimal）
+  rawJson        String   // 对账单原文（StatementRecords / tx-array）
+  fetchedAt      DateTime
+  createdAt      DateTime @default(now())
+  @@unique([source, businessDate, currency])
+  @@index([businessDate])
+  @@map("reconciliation_external_statements")
+}

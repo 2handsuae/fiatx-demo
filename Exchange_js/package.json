@@ -66,6 +66,7 @@
     "rbac:backfill:apply": "ts-node scripts/backfill-rbac-permissions.ts --apply",
     "recon:verify:dry": "ts-node -r tsconfig-paths/register scripts/verify-reconciliation.ts",
     "recon:verify:apply": "ts-node -r tsconfig-paths/register scripts/verify-reconciliation.ts --apply",
+    "recon:demo": "ts-node -r tsconfig-paths/register scripts/recon-statement-demo.ts",
     "prestart:debug": "npm run prisma:generate",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
