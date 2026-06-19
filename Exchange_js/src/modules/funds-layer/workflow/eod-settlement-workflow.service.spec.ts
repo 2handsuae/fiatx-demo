@@ -302,6 +302,61 @@ describe('EodSettlementWorkflowService', () => {
     });
   });
 
+  describe('cutoff windowing', () => {
+    const cutoff = new Date('2026-06-17T20:00:00.000Z');
+
+    it('passes the injected cutoff to the principal query and stamps it on the batch', async () => {
+      consumer.findOpenCryptoByAsset.mockResolvedValue([groupNetZero]);
+      batchService.resolveCryptoDirection.mockReturnValue(null);
+
+      await service.runEodSettlement('TEST', cutoff);
+
+      expect(consumer.findOpenCryptoByAsset).toHaveBeenCalledWith(cutoff);
+      expect(batchService.createBatch).toHaveBeenCalledWith({ cutoffAt: cutoff });
+    });
+
+    it('windows all three fee-pass queries by createdAt < cutoff', async () => {
+      consumer.findOpenCryptoByAsset.mockResolvedValue([]); // fee-only path
+      prisma.feeAccrual.findMany
+        .mockResolvedValueOnce([{ assetId: 'a-btc' }]) // distinct assets
+        .mockResolvedValueOnce([{ id: 'fac-s1', assetId: 'a-btc', amount: '0.001' }]) // SWAP_FEE
+        .mockResolvedValueOnce([]); // WITHDRAW_FEE
+
+      await service.runEodSettlement('TEST', cutoff);
+
+      const distinctWhere = prisma.feeAccrual.findMany.mock.calls[0][0].where;
+      expect(distinctWhere).toMatchObject({
+        status: 'ACCRUED',
+        asset: { type: 'CRYPTO' },
+        createdAt: { lt: cutoff },
+      });
+      const swapWhere = prisma.feeAccrual.findMany.mock.calls[1][0].where;
+      expect(swapWhere).toMatchObject({
+        assetId: 'a-btc',
+        category: 'SWAP_FEE',
+        status: 'ACCRUED',
+        createdAt: { lt: cutoff },
+      });
+      const wdWhere = prisma.feeAccrual.findMany.mock.calls[2][0].where;
+      expect(wdWhere).toMatchObject({
+        assetId: 'a-btc',
+        category: 'WITHDRAW_FEE',
+        status: 'ACCRUED',
+        createdAt: { lt: cutoff },
+      });
+    });
+
+    it('defaults the cutoff when none is provided (principal query still receives a Date)', async () => {
+      consumer.findOpenCryptoByAsset.mockResolvedValue([]);
+
+      await service.runEodSettlement();
+
+      expect(consumer.findOpenCryptoByAsset).toHaveBeenCalledTimes(1);
+      const arg = consumer.findOpenCryptoByAsset.mock.calls[0][0];
+      expect(arg).toBeInstanceOf(Date);
+    });
+  });
+
   describe('onFundsFlowStatusChanged', () => {
     it('CLEAR for an EOD transfer: settles outstandings + recomputes batch', async () => {
       prisma.internalTransaction.findUnique.mockResolvedValue({

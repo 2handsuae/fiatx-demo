@@ -8,6 +8,7 @@ import { SystemWalletResolver } from '../domain/system-wallet-resolver.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { FxEodService } from '../accounting/fx-eod.service';
 import { FeeAccrualService } from '../domain/fee-accrual.service';
+import { resolveEodCutoff } from './eod-cutoff.util';
 
 const EOD_SOURCE_TYPE = 'EOD_SETTLEMENT';
 const SWAP_FEE_SOURCE_TYPE = 'SWAP_FEE_SETTLEMENT';
@@ -57,8 +58,9 @@ export class EodSettlementWorkflowService {
     private readonly feeAccrual: FeeAccrualService,
   ) {}
 
-  async runEodSettlement(operatorId = 'SYSTEM'): Promise<RunEodSettlementResult> {
-    const groups = await this.consumer.findOpenCryptoByAsset();
+  async runEodSettlement(operatorId = 'SYSTEM', cutoff?: Date): Promise<RunEodSettlementResult> {
+    const cut = cutoff ?? resolveEodCutoff(new Date());
+    const groups = await this.consumer.findOpenCryptoByAsset(cut);
 
     // No open crypto outstandings → skip the principal batch (avoids littering
     // the batch list with empty EOD runs), but STILL run the fee pass: a day can
@@ -66,11 +68,11 @@ export class EodSettlementWorkflowService {
     // accruals must still settle.
     if (groups.length === 0) {
       this.logger.log('EOD settlement: no open crypto outstandings — fee pass only');
-      await this.runFeePass();
+      await this.runFeePass(cut);
       return { batchNo: null, assetCount: 0, settledZero: 0, spawned: 0 };
     }
 
-    const batch = await this.batchService.createBatch({ cutoffAt: new Date() });
+    const batch = await this.batchService.createBatch({ cutoffAt: cut });
 
     let settledZero = 0;
     let spawned = 0;
@@ -129,7 +131,7 @@ export class EodSettlementWorkflowService {
 
     // Fee pass: net & settle the day's open crypto fee accruals (independent of
     // the principal pass — see runFeePass).
-    await this.runFeePass();
+    await this.runFeePass(cut);
 
     // Two-book: bridge sweep + FX reval + invariant checks ride the same EOD run.
     await this.fxEod.runEodAccounting(batch.batchNo);
@@ -156,23 +158,23 @@ export class EodSettlementWorkflowService {
    * category/asset and LOCKs the consumed accruals; the LOCKED→SETTLED flip rides
    * the transfer's funds-flow CLEAR (onFundsFlowStatusChanged → settleByTransfer).
    */
-  private async runFeePass(): Promise<void> {
+  private async runFeePass(cutoff: Date): Promise<void> {
     const assetRows = await (this.prisma as any).feeAccrual.findMany({
-      where: { status: 'ACCRUED', asset: { type: 'CRYPTO' } },
+      where: { status: 'ACCRUED', asset: { type: 'CRYPTO' }, createdAt: { lt: cutoff } },
       distinct: ['assetId'],
       select: { assetId: true },
     });
 
     for (const { assetId } of assetRows) {
       const swapFees = await (this.prisma as any).feeAccrual.findMany({
-        where: { assetId, category: 'SWAP_FEE', status: 'ACCRUED' },
+        where: { assetId, category: 'SWAP_FEE', status: 'ACCRUED', createdAt: { lt: cutoff } },
       });
       if (swapFees.length) {
         await this.feeAccrual.settle(swapFees, 'SWAP_FEE', 'EOD', this.prisma);
       }
 
       const wdFees = await (this.prisma as any).feeAccrual.findMany({
-        where: { assetId, category: 'WITHDRAW_FEE', status: 'ACCRUED' },
+        where: { assetId, category: 'WITHDRAW_FEE', status: 'ACCRUED', createdAt: { lt: cutoff } },
       });
       if (wdFees.length) {
         await this.feeAccrual.settle(wdFees, 'WITHDRAW_FEE', 'EOD', this.prisma);
