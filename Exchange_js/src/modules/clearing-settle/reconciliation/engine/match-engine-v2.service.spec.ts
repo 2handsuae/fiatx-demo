@@ -4,7 +4,7 @@ import { InternalLeg } from './leg-projection.service';
 
 const leg = (o: Partial<InternalLeg>): InternalLeg => ({
   source: 'PAYIN', sourceId: 'i', sourceNo: 'PI', account: 'acc', subAccount: 'sub',
-  direction: 'IN', currency: 'USDT', amount: new Prisma.Decimal('100'),
+  book: 'CLIENT', direction: 'IN', currency: 'USDT', amount: new Prisma.Decimal('100'),
   externalRef: null, datetime: new Date('2026-06-16T10:00:00Z'), ...o,
 });
 const line = (o: Partial<ExternalLine>): ExternalLine => ({

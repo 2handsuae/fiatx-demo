@@ -83,6 +83,23 @@ const FORMULA_TAG: Record<string, string> = {
   式1: 'F1', 式2: 'F2', 式3: 'F3', 式4: 'F4', 式5: 'F5',
 };
 
+// Layering axis (spec 2026-06-20 §3): each currency splits into three lanes by scope/book.
+//   Ledger-wide — 式1 Trial Balance + 式3 Bridge Tie-out (system/integrity checks).
+//   Client      — 式2 Client Tie-out + 式4 Client Off-book.
+//   Firm        — 式5 Firm Off-book.
+type LaneKey = 'LEDGER' | 'CLIENT' | 'FIRM';
+const LANES: { key: LaneKey; label: string; formulas: string[] }[] = [
+  { key: 'LEDGER', label: 'Ledger-wide', formulas: ['式1', '式3'] },
+  { key: 'CLIENT', label: 'Client', formulas: ['式2', '式4'] },
+  { key: 'FIRM', label: 'Firm', formulas: ['式5'] },
+];
+// Lane accent (adm-* semantic colors only): Ledger=blue (system), Client=amber, Firm=green.
+const LANE_TONE: Record<LaneKey, string> = {
+  LEDGER: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
+  CLIENT: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
+  FIRM: 'border-adm-green/30 bg-adm-green/10 text-adm-green',
+};
+
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 
@@ -96,6 +113,52 @@ const SeverityPill = ({ value }: { value: string }) => {
     </span>
   );
 };
+
+// One formula row (tag F1–F5, English label, Δ, PASS/FAIL pill) — shared across the three lanes.
+const FormulaRow = ({ check }: { check: InvariantCheck }) => (
+  <div className="flex items-center justify-between rounded-lg border border-adm-border bg-adm-bg px-4 py-2.5">
+    <div className="flex min-w-0 items-center gap-3">
+      <span className="shrink-0 rounded border border-adm-border bg-adm-panel px-1.5 py-0.5 font-mono text-[10px] font-semibold text-adm-amber">
+        {FORMULA_TAG[check.invariantCode] ?? check.invariantCode}
+      </span>
+      <span className="truncate text-[12px] text-adm-t2">
+        {FORMULA_LABEL[check.invariantCode] ?? check.lhsLabel}
+      </span>
+    </div>
+    <div className="flex shrink-0 items-center gap-4">
+      <span className="font-mono text-[11px] text-adm-t3">
+        Δ <span className="text-adm-t1">{check.delta}</span>
+      </span>
+      <StatusPill value={check.status} />
+    </div>
+  </div>
+);
+
+// One scope/book lane (Ledger-wide / Client / Firm) holding its formula rows.
+const FormulaLane = ({
+  lane,
+  rows,
+}: {
+  lane: (typeof LANES)[number];
+  rows: InvariantCheck[];
+}) => (
+  <div className="rounded-lg border border-adm-border bg-adm-card p-3">
+    <div className="mb-2 flex items-center gap-2">
+      <span
+        className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider ${LANE_TONE[lane.key]}`}
+      >
+        {lane.label}
+      </span>
+    </div>
+    <div className="flex flex-col gap-1.5">
+      {rows.length === 0 ? (
+        <p className="px-1 py-1 font-mono text-[10px] text-adm-t3">No formula in this lane.</p>
+      ) : (
+        rows.map((check) => <FormulaRow key={check.id} check={check} />)
+      )}
+    </div>
+  </div>
+);
 
 /* ── Page Component ─────────────────────────────────────────── */
 
@@ -219,48 +282,40 @@ const ReconciliationRunsDetailPage = () => {
             <InfoField label="Closed Cases" value={String(run.closedCount)} mono />
           </DetailCard>
 
-          {/* 3. Attestation — 5-formula checklist (redesign) OR I1–I5 table (legacy) */}
+          {/* 3. Attestation — per currency × (Ledger / Client / Firm) lanes (redesign) OR I1–I5 table (legacy) */}
           {isRedesignRun(run.layer) ? (
-            <DetailCard title="Reconciliation Formulas (per currency)" columns={1}>
+            <DetailCard title="Reconciliation Formulas (currency × client/firm)" columns={1}>
               {checks.length === 0 ? (
                 <p className="py-6 text-center font-mono text-[11px] text-adm-t3">
                   No formula checks recorded for this run.
                 </p>
               ) : (
-                <div className="flex flex-col gap-5">
-                  {currencyGroups.map(([ccy, rows]) => (
-                    <div key={ccy}>
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="font-mono text-[13px] font-bold text-adm-t1">{ccy}</span>
-                        <span className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                          5-formula check
-                        </span>
+                <div className="flex flex-col gap-6">
+                  {currencyGroups.map(([ccy, rows]) => {
+                    const byCode = new Map(rows.map((r) => [r.invariantCode, r]));
+                    return (
+                      <div key={ccy}>
+                        <div className="mb-2.5 flex items-center gap-2">
+                          <span className="font-mono text-[13px] font-bold text-adm-t1">{ccy}</span>
+                          <span className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                            5-formula · 3 lanes
+                          </span>
+                        </div>
+                        {/* Three labeled lanes make the currency × client/firm layering explicit. */}
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                          {LANES.map((lane) => (
+                            <FormulaLane
+                              key={lane.key}
+                              lane={lane}
+                              rows={lane.formulas
+                                .map((code) => byCode.get(code))
+                                .filter((c): c is InvariantCheck => Boolean(c))}
+                            />
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        {rows.map((check) => (
-                          <div
-                            key={check.id}
-                            className="flex items-center justify-between rounded-lg border border-adm-border bg-adm-bg px-4 py-2.5"
-                          >
-                            <div className="flex min-w-0 items-center gap-3">
-                              <span className="shrink-0 rounded border border-adm-border bg-adm-panel px-1.5 py-0.5 font-mono text-[10px] font-semibold text-adm-amber">
-                                {FORMULA_TAG[check.invariantCode] ?? check.invariantCode}
-                              </span>
-                              <span className="truncate text-[12px] text-adm-t2">
-                                {FORMULA_LABEL[check.invariantCode] ?? check.lhsLabel}
-                              </span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-4">
-                              <span className="font-mono text-[11px] text-adm-t3">
-                                Δ <span className="text-adm-t1">{check.delta}</span>
-                              </span>
-                              <StatusPill value={check.status} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </DetailCard>

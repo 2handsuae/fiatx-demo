@@ -14,11 +14,17 @@ export interface InternalLeg {
   sourceNo: string;
   account: string; // 法币=CMA；crypto=钱包 vaultId（缺则 walletId）
   subAccount: string | null; // VIBAN / walletId（下钻 + 法币入金模糊配）
+  book: 'CLIENT' | 'FIRM'; // 跟物理账户走（§0 rule 5）：钱包 role C_*→CLIENT / F_*→FIRM
   direction: 'IN' | 'OUT';
   currency: string;
   amount: Prisma.Decimal;
   externalRef: string | null; // txHash || referenceNo
   datetime: Date; // createdAt（fallback 模糊配的时序锚）
+}
+
+/** book 跟物理账户走（§0 rule 5）：钱包 role 前缀 C_*=客户本 / F_*=公司本。缺 role 默认 CLIENT。 */
+export function bookForWalletRole(walletRole: string | null | undefined): 'CLIENT' | 'FIRM' {
+  return walletRole?.startsWith('F_') ? 'FIRM' : 'CLIENT';
 }
 
 /** 法币 account_ref 一律滚到 CMA（§2.5）。与假对账单生成器同源常量，保证两边账户键对齐。 */
@@ -31,7 +37,10 @@ export function isFiat(currency: string): boolean {
   return currency in FIAT_CMA_ACCOUNT;
 }
 
-type WalletRef = { id?: string; vaultId?: string | null; iban?: string | null } | null | undefined;
+type WalletRef =
+  | { id?: string; vaultId?: string | null; iban?: string | null; walletRole?: string | null }
+  | null
+  | undefined;
 
 @Injectable()
 export class LegProjectionService {
@@ -58,7 +67,7 @@ export class LegProjectionService {
       where: { assetId, status: 'CLEARED', createdAt: { gte: start, lt: cutoff } },
       select: {
         id: true, payinNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true,
-        toWallet: { select: { id: true, vaultId: true, iban: true } },
+        toWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
       },
     });
     for (const p of payins) {
@@ -84,8 +93,8 @@ export class LegProjectionService {
       where: { assetId, status: 'CLEAR', createdAt: { gte: start, lt: cutoff } },
       select: {
         id: true, internalFundNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true,
-        fromWallet: { select: { id: true, vaultId: true, iban: true } },
-        toWallet: { select: { id: true, vaultId: true, iban: true } },
+        fromWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
+        toWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
       },
     });
     for (const f of funds) {
@@ -114,6 +123,7 @@ export class LegProjectionService {
     return {
       source, sourceId, sourceNo,
       account, subAccount,
+      book: bookForWalletRole(wallet?.walletRole),
       direction, currency,
       amount: new Prisma.Decimal(amount),
       externalRef: this.externalRefFor(currency, direction, txHash, referenceNo),
@@ -155,7 +165,7 @@ export class LegProjectionService {
     const role = isFiat(currency) ? 'C_VIBAN' : 'C_DEP';
     const wallets = await this.prisma.wallet.findMany({
       where: { assetId, ownerId: { in: ownerIds }, walletRole: role, status: 'ACTIVE' },
-      select: { id: true, ownerId: true, vaultId: true, iban: true },
+      select: { id: true, ownerId: true, vaultId: true, iban: true, walletRole: true },
     });
     for (const w of wallets) if (w.ownerId) map.set(w.ownerId, w);
     return map;

@@ -106,13 +106,14 @@ export class RedesignReconRunService {
     const overallPass = currencies.every((c) => c.formulas.every((f) => f.status === 'PASS'));
 
     // ── DRY_RUN：0 落库，纯内存返回（默认） ──
+    // openedCount 按 book 计（与 APPLY 一致）：每币种最多 CLIENT + FIRM 两个 case，仅该 book 有 break 才计。
     if (input.mode !== 'APPLY') {
       return {
         runNo: '(dry-run)',
         mode: 'DRY_RUN',
         businessDate,
         currencies,
-        openedCount: currencies.filter((c) => c.hasBreak).length,
+        openedCount: this.countOpenedByBook(currencies),
       };
     }
 
@@ -130,27 +131,33 @@ export class RedesignReconRunService {
         // 五公式 → invariant_checks（每币种 5 行）。
         await this.recordSvc.saveFormulaChecks(run.id, c.formulas, tx);
 
-        if (c.hasBreak) {
+        // 按 book 拆 case：CLIENT case 持 式4 delta + CLIENT-book items；FIRM case 持 式5 delta + FIRM-book items。
+        // 仅当该 book 有 break（式4/式5 FAIL 或该 book 的桶有 break）才建 case。
+        for (const book of ['CLIENT', 'FIRM'] as const) {
+          const slice = this.bookSlice(c, book);
+          if (!slice.hasBreak) continue;
+
           const kase = await this.caseSvc.upsertOpen(
             {
               businessDate,
               assetId: c.assetId,
               assetCode: c.currency,
               layer: c.layer,
-              // 五公式世界没有旧 I5 的 expected/actual 三段；把净差落 deltaAmount，其余置 0（schema 默认）。
-              tbAmount: this.formulaLhs(c, '式5') ?? new Prisma.Decimal(0),
+              book,
+              // 五公式世界没有旧 I5 的 expected/actual 三段；把该 book 的账外 delta 落 deltaAmount，其余置 0。
+              tbAmount: slice.lhs,
               inTransitAmount: new Prisma.Decimal(0),
-              expectedExternal: this.formulaRhs(c, '式5') ?? new Prisma.Decimal(0),
-              actualExternal: this.formulaRhs(c, '式4') ?? new Prisma.Decimal(0),
-              deltaAmount: c.netDelta,
+              expectedExternal: slice.rhs,
+              actualExternal: new Prisma.Decimal(0),
+              deltaAmount: slice.netDelta,
               openedByRunId: run.id,
             },
             tx,
           );
-          // 六类桶 line items（含串链 traceId）→ line_items。
-          await this.recordSvc.saveBucketedLineItems(kase.id, run.id, this.collectBreakItems(c), tx);
+          // 该 book 的桶 line items（含串链 traceId）→ line_items。
+          await this.recordSvc.saveBucketedLineItems(kase.id, run.id, slice.items, tx);
           // Reimbursement hook（§4.4）：仅标注，不建已废弃模型。
-          await this.maybeFlagReimbursement(kase.id, c, tx);
+          await this.maybeFlagReimbursement(kase.id, c.currency, slice.netDelta, tx);
           openedCount += 1;
         }
       }
@@ -207,17 +214,42 @@ export class RedesignReconRunService {
     };
   }
 
-  /** 把四桶 break line items 拍平成一串（PASS/INTERNAL_BOOK_LEG 非 break，不入 Case）。 */
-  private collectBreakItems(c: RedesignCurrencyResult): ClassifiedLineItem[] {
-    const cl = c.drilldown.classified;
-    return [...cl.amountMismatch, ...cl.orphanInternal, ...cl.orphanExternal, ...cl.manual];
+  /** 按 book 统计将开仓的 case 数（每币种 CLIENT/FIRM 各算一次，仅该 book 有 break 才计）。 */
+  private countOpenedByBook(currencies: RedesignCurrencyResult[]): number {
+    let n = 0;
+    for (const c of currencies) {
+      for (const book of ['CLIENT', 'FIRM'] as const) {
+        if (this.bookSlice(c, book).hasBreak) n += 1;
+      }
+    }
+    return n;
   }
 
-  private formulaLhs(c: RedesignCurrencyResult, code: FormulaResult['formula']): Prisma.Decimal | undefined {
-    return c.formulas.find((f) => f.formula === code)?.lhs;
-  }
-  private formulaRhs(c: RedesignCurrencyResult, code: FormulaResult['formula']): Prisma.Decimal | undefined {
-    return c.formulas.find((f) => f.formula === code)?.rhs;
+  /**
+   * 把一个币种结果切成单个 book（CLIENT/FIRM）的 case 物料：
+   *   - formula：CLIENT→式4（客户账外）、FIRM→式5（公司账外）。
+   *   - items：四桶 break line items 里 book 命中的（PASS/INTERNAL_BOOK_LEG 非 break，不入 Case）。
+   *   - hasBreak：该账外式 FAIL 或该 book 有 break item。
+   *   - lhs/rhs/netDelta：该账外式的 LHS/RHS/Δ（Δ 落 Case.deltaAmount，公司欠/被欠判别）。
+   */
+  private bookSlice(
+    c: RedesignCurrencyResult,
+    book: 'CLIENT' | 'FIRM',
+  ): { hasBreak: boolean; items: ClassifiedLineItem[]; lhs: Prisma.Decimal; rhs: Prisma.Decimal; netDelta: Prisma.Decimal } {
+    const code: FormulaResult['formula'] = book === 'CLIENT' ? '式4' : '式5';
+    const f = c.formulas.find((x) => x.formula === code);
+    const cl = c.drilldown.classified;
+    const items = [...cl.amountMismatch, ...cl.orphanInternal, ...cl.orphanExternal, ...cl.manual].filter(
+      (it) => it.book === book,
+    );
+    const offBookFail = f?.status === 'FAIL';
+    return {
+      hasBreak: offBookFail || items.length > 0,
+      items,
+      lhs: f?.lhs ?? new Prisma.Decimal(0),
+      rhs: f?.rhs ?? new Prisma.Decimal(0),
+      netDelta: f?.delta ?? new Prisma.Decimal(0),
+    };
   }
 
   /**
@@ -232,14 +264,15 @@ export class RedesignReconRunService {
    */
   private async maybeFlagReimbursement(
     caseId: string,
-    c: RedesignCurrencyResult,
+    currency: string,
+    netDelta: Prisma.Decimal,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
-    const needsReimbursement = c.netDelta.abs().greaterThan(TOLERANCE);
+    const needsReimbursement = netDelta.abs().greaterThan(TOLERANCE);
     if (!needsReimbursement) return;
     // hook：仅记录意图，不建已废弃模型。reimbursementObligationId 保持 null。
     this.logger.warn(
-      `[reimbursement-hook] Case ${caseId} (${c.currency}) netDelta=${c.netDelta} > tol — ` +
+      `[reimbursement-hook] Case ${caseId} (${currency}) netDelta=${netDelta} > tol — ` +
         `company owes/owed; ReimbursementObligation model retired (migration 20260617203304), TODO wire when revived.`,
     );
     await tx.reconciliationCase.update({

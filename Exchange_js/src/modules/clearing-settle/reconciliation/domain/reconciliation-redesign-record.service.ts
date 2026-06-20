@@ -16,7 +16,12 @@ import { ClassifiedLineItem } from '../engine/anomaly-classifier.service';
 export class ReconciliationRedesignRecordService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 五公式逐式落 invariant_checks（每币种 5 行：式1..式5）。 */
+  /**
+   * 五公式逐式落 invariant_checks（每币种 5 行：式1..式5）。
+   * severity 复用为 scope/book 标签（避免再加列）：
+   *   式1/式3 → LEDGER（系统/完整性，桥块整账）；式2/式4 → CLIENT；式5 → FIRM。
+   * 前端 run-detail 按此 scope 分三道（Ledger/Client/Firm），并独立维护 formula→lane 映射兜底老行。
+   */
   async saveFormulaChecks(
     runId: string,
     formulas: FormulaResult[],
@@ -35,10 +40,22 @@ export class ReconciliationRedesignRecordService {
           rhsValue: f.rhs,
           delta: f.delta,
           status: f.status, // PASS | FAIL
-          // 式1-3 账内（试算/勾稽）；式4-5 账外（vs 外部余额）。映射到既有 severity 语义。
-          severity: f.formula === '式4' || f.formula === '式5' ? 'ACCOUNT_ACTUAL' : 'ATTESTATION',
+          severity: ReconciliationRedesignRecordService.scopeForFormula(f.formula),
         },
       });
+    }
+  }
+
+  /** 式 → 分层 scope（存进 severity；与前端 run-detail 三道分层一致）。 */
+  static scopeForFormula(formula: FormulaResult['formula']): 'LEDGER' | 'CLIENT' | 'FIRM' {
+    switch (formula) {
+      case '式2':
+      case '式4':
+        return 'CLIENT';
+      case '式5':
+        return 'FIRM';
+      default: // 式1 / 式3
+        return 'LEDGER';
     }
   }
 

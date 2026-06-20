@@ -35,6 +35,8 @@ export interface ClassifiedLineItem {
   bucket: AnomalyBucket;
   qualifier: AnomalyQualifier;
   currency: string;
+  /** 账本（CLIENT/FIRM）：matched/orphan-external 取外部行 book；orphan-internal/ambiguous 取内部腿 book。按 book 拆 case。 */
+  book: string;
   /** 对 (内部 − 外部) 的符号化贡献：ORPHAN_INTERNAL +amt，ORPHAN_EXTERNAL −amt，AMOUNT_MISMATCH (i−e)，PASS 0。 */
   signedDelta: Prisma.Decimal;
   // 内部侧（下钻定位）
@@ -139,6 +141,7 @@ export class AnomalyClassifierService {
       bucket: isMismatch ? 'AMOUNT_MISMATCH' : 'PASS',
       qualifier: isMismatch ? 'AMOUNT_DIFF' : 'NONE',
       currency: il.currency,
+      book: e.book, // matched pair：外部行 book 权威（内部腿 book 应一致）
       signedDelta: isMismatch ? delta : new Prisma.Decimal(0),
       internalSource: il.source, internalSourceId: il.sourceId, internalSourceNo: il.sourceNo,
       internalAccount: il.account, internalSubAccount: il.subAccount,
@@ -155,6 +158,7 @@ export class AnomalyClassifierService {
       bucket: 'ORPHAN_INTERNAL',
       qualifier: 'TERMINAL_BREAK',
       currency: il.currency,
+      book: il.book, // 内部有外部无 → 取内部腿 book
       signedDelta: new Prisma.Decimal(il.amount), // 内部多 → +amt
       internalSource: il.source, internalSourceId: il.sourceId, internalSourceNo: il.sourceNo,
       internalAccount: il.account, internalSubAccount: il.subAccount,
@@ -169,6 +173,7 @@ export class AnomalyClassifierService {
       bucket: 'ORPHAN_INTERNAL',
       qualifier: 'INTERNAL_BOOK_LEG',
       currency: il.currency,
+      book: il.book, // 账内对手腿 → 取内部腿 book
       signedDelta: new Prisma.Decimal(0),
       internalSource: il.source, internalSourceId: il.sourceId, internalSourceNo: il.sourceNo,
       internalAccount: il.account, internalSubAccount: il.subAccount,
@@ -182,6 +187,7 @@ export class AnomalyClassifierService {
       bucket: 'ORPHAN_EXTERNAL',
       qualifier: this.qualifyOrphanExternal(e),
       currency: e.currency,
+      book: e.book, // 外部有内部无 → 取外部行 book
       signedDelta: new Prisma.Decimal(e.amount).negated(), // 外部多 → −amt
       externalId: e.id, externalSource: e.source, externalAccountRef: e.accountRef, externalSubAccount: e.subAccount,
       externalAmount: new Prisma.Decimal(e.amount), externalDirection: e.direction, externalRef: e.externalRef,
@@ -201,6 +207,7 @@ export class AnomalyClassifierService {
       bucket: 'MANUAL',
       qualifier: 'AMBIGUOUS',
       currency: a.internal.currency,
+      book: a.internal.book, // 模糊回退 → 取内部腿 book
       signedDelta: new Prisma.Decimal(0), // 未定，人工裁决前不计入闭合
       internalSource: a.internal.source, internalSourceId: a.internal.sourceId, internalSourceNo: a.internal.sourceNo,
       internalAccount: a.internal.account, internalSubAccount: a.internal.subAccount,

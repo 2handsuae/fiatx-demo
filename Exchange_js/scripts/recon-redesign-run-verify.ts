@@ -71,7 +71,7 @@ async function main() {
   console.log(`  cases=${caseCount}  line_items=${lineItemCount}`);
   for (const k of latest.cases) {
     console.log(
-      `    case ${k.caseNo} ${k.assetCode} delta=${k.deltaAmount} status=${k.status} ` +
+      `    case ${k.caseNo} ${k.assetCode} book=${k.book ?? '—'} delta=${k.deltaAmount} status=${k.status} ` +
         `reimbursementObligationId=${k.reimbursementObligationId ?? 'null(hook)'} lineItems=${k.lineItems.length}`,
     );
   }

@@ -156,7 +156,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **InternalTransfer** | `internalTxNo`, `pathLabel`, `status` badge, `asset.code` | `createdAt`, `completedAt`, `updatedAt` |
 | **SettlementBatch** | `batchNo`, `status` badge, `settlementType` | `createdAt`, `cutoffAt`, `completedAt` |
 | **ReconciliationRun** | `runNo`, `status` badge, `layer`, `triggerType` | `startedAt`, `completedAt`, `createdAt` |
-| **ReconciliationCase** | `caseNo`, `status` badge, `assetCode`, `deltaAmount` | `slaDeadline`, `createdAt`, `updatedAt` |
+| **ReconciliationCase** | `caseNo`, `status` badge, `book` badge (CLIENT/FIRM), `assetCode`, `deltaAmount` | `slaDeadline`, `createdAt`, `updatedAt` |
 | **ReconciliationExternalStatement** | `statementNo`, `source`, `currency`, `closingBalance` | `businessDate`, `fetchedAt`, `createdAt` |
 
 ---

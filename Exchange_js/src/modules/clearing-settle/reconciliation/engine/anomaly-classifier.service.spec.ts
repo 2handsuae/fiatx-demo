@@ -5,7 +5,7 @@ import { InternalLeg } from './leg-projection.service';
 
 const leg = (o: Partial<InternalLeg> = {}): InternalLeg => ({
   source: 'PAYIN', sourceId: 'i', sourceNo: 'PI', account: 'acc', subAccount: 'sub',
-  direction: 'IN', currency: 'USDT', amount: new Prisma.Decimal('100'),
+  book: 'CLIENT', direction: 'IN', currency: 'USDT', amount: new Prisma.Decimal('100'),
   externalRef: '0xREF', datetime: new Date('2026-06-16T10:00:00Z'), ...o,
 });
 const line = (o: Partial<ExternalLine> = {}): ExternalLine => ({
@@ -124,6 +124,25 @@ describe('AnomalyClassifierService', () => {
       expect(r.manual).toHaveLength(1);
       expect(r.manual[0].bucket).toBe('MANUAL');
       expect(r.manual[0].candidateCount).toBe(2);
+    });
+  });
+
+  describe('book propagation (per-book case split)', () => {
+    it('tags each classified item with its book (external for matched/orphan-ext, internal for orphan-int/ambiguous)', () => {
+      const m = emptyResult();
+      // matched mismatch → external book
+      m.matched.push({ internal: leg({ book: 'CLIENT', amount: new Prisma.Decimal('99') }), external: line({ book: 'FIRM' }), matchType: 'PRIMARY' });
+      // orphan internal → internal book
+      m.orphanInternal.push(leg({ book: 'FIRM', sourceNo: 'OI' }));
+      // orphan external → external book
+      m.orphanExternal.push(line({ id: 'oe', book: 'FIRM' }));
+      // ambiguous → internal book
+      m.ambiguous.push({ internal: leg({ book: 'CLIENT', externalRef: null, sourceNo: 'AMB' }), candidates: [line({ id: 'c1' }), line({ id: 'c2' })] });
+      const r = svc.classify(m);
+      expect(r.amountMismatch[0].book).toBe('FIRM'); // external authoritative on matched pair
+      expect(r.orphanInternal[0].book).toBe('FIRM');
+      expect(r.orphanExternal[0].book).toBe('FIRM');
+      expect(r.manual[0].book).toBe('CLIENT');
     });
   });
 

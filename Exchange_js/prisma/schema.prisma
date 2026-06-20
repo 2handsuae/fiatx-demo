@@ -1985,6 +1985,7 @@ model ReconciliationCase {
   assetId                   String
   assetCode                 String
   layer                     String
+  book                      String?  // CLIENT | FIRM (redesign per-book cases); null for legacy I1–I5 cases
   tbAmount                  Decimal  @default(0)
   inTransitAmount           Decimal  @default(0)
   expectedExternal          Decimal  @default(0)
@@ -2002,7 +2003,7 @@ model ReconciliationCase {
   openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
   asset                     Asset    @relation(fields: [assetId], references: [id])
   lineItems                 ReconciliationLineItem[]
-  @@unique([businessDate, assetId])
+  @@unique([businessDate, assetId, book])
   @@index([status])
   @@map("reconciliation_cases")
 }

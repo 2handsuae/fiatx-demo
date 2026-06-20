@@ -43,6 +43,7 @@ interface ReconCaseDetail {
   assetId: string;
   assetCode: string;
   layer: string;
+  book: string | null; // CLIENT | FIRM (redesign per-book case); null for legacy I1–I5
   tbAmount: string;
   inTransitAmount: string;
   expectedExternal: string;
@@ -94,9 +95,51 @@ const MatchPill = ({ value }: { value: string }) => {
   );
 };
 
-/* ── Three-layer ladder row (adm-* tokens) ── */
+/* ── Book (Client / Firm) — the layering axis (spec 2026-06-20 §3) ── */
 
-const LadderRow = ({
+// Client case → 式2/式4; Firm case → 式5. The case row stores the book's off-book formula
+// (tbAmount=LHS internal pool, expectedExternal=RHS external±in-transit, deltaAmount=Δ).
+const BOOK_META: Record<
+  string,
+  { label: string; tone: string; formula: string; formulaTag: string; lhsLabel: string }
+> = {
+  CLIENT: {
+    label: 'Client',
+    tone: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
+    formula: 'Client Off-book (式4)',
+    formulaTag: 'F4',
+    lhsLabel: 'Client Pool (internal)',
+  },
+  FIRM: {
+    label: 'Firm',
+    tone: 'border-adm-green/30 bg-adm-green/10 text-adm-green',
+    formula: 'Firm Off-book (式5)',
+    formulaTag: 'F5',
+    lhsLabel: 'Firm Treasury (internal)',
+  },
+};
+const bookMeta = (book: string | null) =>
+  (book && BOOK_META[book]) || {
+    label: book ?? 'Legacy',
+    tone: 'border-adm-border bg-adm-bg text-adm-t2',
+    formula: 'Off-book Tie-out',
+    formulaTag: '—',
+    lhsLabel: 'Internal',
+  };
+
+const BookBadge = ({ book }: { book: string | null }) => {
+  const m = bookMeta(book);
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${m.tone}`}
+    >
+      {m.label}
+    </span>
+  );
+};
+
+// One side of the book's off-book formula (internal LHS vs external RHS, emphasized Δ).
+const FormulaSideRow = ({
   label,
   value,
   emphasized = false,
@@ -107,9 +150,7 @@ const LadderRow = ({
 }) => (
   <div
     className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
-      emphasized
-        ? 'border-adm-amber/40 bg-adm-amber/10'
-        : 'border-adm-border bg-adm-bg'
+      emphasized ? 'border-adm-amber/40 bg-adm-amber/10' : 'border-adm-border bg-adm-bg'
     }`}
   >
     <span
@@ -188,7 +229,10 @@ const ReconciliationCasesDetailPage = () => {
         <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
           {/* 1. Hero */}
           <div className="bg-adm-card px-6 py-5">
-            <div className="font-mono text-[19px] font-bold text-adm-amber">{kase.caseNo}</div>
+            <div className="flex items-center gap-3">
+              <div className="font-mono text-[19px] font-bold text-adm-amber">{kase.caseNo}</div>
+              <BookBadge book={kase.book} />
+            </div>
             <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
@@ -200,15 +244,15 @@ const ReconciliationCasesDetailPage = () => {
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Asset
+                  Book
                 </span>
-                <span className="font-mono text-adm-t1">{kase.assetCode}</span>
+                <span className="font-mono text-adm-t1">{bookMeta(kase.book).label}</span>
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Layer
+                  Currency
                 </span>
-                <span className="font-mono text-adm-t1">{kase.layer}</span>
+                <span className="font-mono text-adm-t1">{kase.assetCode}</span>
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
@@ -219,19 +263,20 @@ const ReconciliationCasesDetailPage = () => {
             </div>
           </div>
 
-          {/* 2. Three-Layer Comparison */}
-          <DetailCard title="Three-Layer Comparison" columns={1}>
+          {/* 2. Off-book Tie-out for this book (Client → 式4 / Firm → 式5) */}
+          <DetailCard title={`Off-book Tie-out · ${bookMeta(kase.book).formula}`} columns={1}>
             <div className="flex flex-col gap-2">
-              <LadderRow label="TB Ledger" value={kase.tbAmount} />
-              <LadderRow label="In-Transit Adjustment" value={kase.inTransitAmount} />
-              <LadderRow label="Expected External" value={kase.expectedExternal} />
-              <LadderRow label="Actual External" value={kase.actualExternal} />
-              <LadderRow label="Delta" value={kase.deltaAmount} emphasized />
+              <FormulaSideRow label={bookMeta(kase.book).lhsLabel} value={kase.tbAmount} />
+              <FormulaSideRow label="External + In-Transit" value={kase.expectedExternal} />
+              <FormulaSideRow label="Delta (internal − external)" value={kase.deltaAmount} emphasized />
             </div>
           </DetailCard>
 
-          {/* 3. Anomaly Drilldown (4 buckets) */}
-          <DetailCard title={`Anomaly Drilldown (${lineItems.length})`} columns={1}>
+          {/* 3. Anomaly Drilldown (4 buckets, scoped to this book's line items) */}
+          <DetailCard
+            title={`Anomaly Drilldown · ${bookMeta(kase.book).label} (${lineItems.length})`}
+            columns={1}
+          >
             <div className="overflow-x-auto rounded-lg border border-adm-border">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-adm-border bg-adm-bg">
@@ -351,7 +396,8 @@ const ReconciliationCasesDetailPage = () => {
           <SidebarGroup title="Identity">
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
-            <SidebarKV label="Asset" value={kase.assetCode} mono />
+            <SidebarKV label="Book" value={<BookBadge book={kase.book} />} />
+            <SidebarKV label="Currency" value={kase.assetCode} mono />
             <SidebarKV label="Delta" value={kase.deltaAmount} mono />
           </SidebarGroup>
 

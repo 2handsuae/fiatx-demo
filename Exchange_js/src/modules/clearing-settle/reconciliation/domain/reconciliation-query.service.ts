@@ -75,11 +75,12 @@ export class ReconciliationQueryService {
     if (!run) return null;
 
     // 用 lastObservedRunId（本 run 最近触达的 case），不用 openedByRunId：
-    // ReconciliationCase 按 (businessDate, assetId) 唯一，跨旧 I1-I5 路径与本 redesign 路径共享，
+    // ReconciliationCase 按 (businessDate, assetId, book) 唯一，跨旧 I1-I5 路径与本 redesign 路径共享，
     // 老 case 的 openedByRunId 指向旧 run；upsertOpen 把 lastObservedRunId 刷成当前 run。
+    // 现按 book 拆 case：一个币种可同时有 CLIENT case 与 FIRM case，各持本 book 的账外式 + 桶 line items。
     const cases = await this.prisma.reconciliationCase.findMany({
       where: { lastObservedRunId: run.id },
-      orderBy: { assetCode: 'asc' },
+      orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
       include: { lineItems: { where: { foundByRunId: run.id }, orderBy: { lineNo: 'asc' } } },
     });
 
