@@ -2052,3 +2052,55 @@ model ReconciliationExternalStatement {
   @@index([businessDate])
   @@map("reconciliation_external_statements")
 }
+
+// 外部余额头表（每外部账户每 cutoff 一行）。对账式4/5 直接用 closing_balance，不靠明细加总。见 spec 2026-06-20 §2.1。
+model ExternalBalance {
+  id             String   @id @default(uuid())
+  source         String   // ZAND | HEXTRUST | CHAIN
+  accountRef     String   @map("account_ref") // 对账主体（法币滚到 CMA，见 §2.5）
+  currency       String   // AED | USDT
+  book           String   // CLIENT | FIRM（按 cutoff 快照映射）
+  cutoffDate     String   @map("cutoff_date") // 业务日 D（YYYY-MM-DD）
+  closingBalance Decimal  @map("closing_balance") // 核这个；Zand 取最新行 Balance
+  openingBalance Decimal? @map("opening_balance") // 连续性 + roll-forward 自检
+  asOfAt         DateTime? @map("as_of_at") // 外部余额精确时点（可能 ≠ cutoff）
+  statementId    String?  @map("statement_id") // 关联原始对账单
+  lineCount      Int?     @map("line_count")
+  ingestedAt     DateTime @default(now()) @map("ingested_at")
+  status         String?
+  rawRef         String?  @map("raw_ref")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@unique([source, accountRef, cutoffDate])
+  @@index([cutoffDate])
+  @@index([source, book, currency])
+  @@map("external_balances")
+}
+
+// 外部对账单归一化行表（每笔一行）。匹配键 = (account, direction, currency, external_ref)，不含金额。见 spec 2026-06-20 §2.2。
+model ExternalStatementLine {
+  id           String   @id @default(uuid())
+  source       String   // ZAND | HEXTRUST | CHAIN
+  accountRef   String   @map("account_ref") // 法币滚到 CMA（用于余额求和）
+  subAccount   String?  @map("sub_account") // 原始 VirtualAccount / walletId（保留！下钻 + 充值模糊配）
+  book         String   // CLIENT | FIRM
+  currency     String
+  direction    String   // IN | OUT（按余额增减，不用银行原始借贷）
+  amount       Decimal
+  externalRef  String?  @map("external_ref") // 出金=你的号(回显)；入金=空(法币)或 txHash(虚拟币)
+  channelRef   String?  @map("channel_ref") // Zand ChannelRefId（出金↔退汇关联，会重复）
+  datetime     DateTime // 精确入账时刻
+  balanceAfter Decimal? @map("balance_after") // 行后余额（法币=主账户级）
+  description  String?  // 分类（Incoming/Outgoing/Return/Intra…）
+  statementId  String?  @map("statement_id")
+  raw          String?  // 原始 json
+  ingestedAt   DateTime @default(now()) @map("ingested_at")
+  dedupKey     String   @map("dedup_key") // 内容组合键或来源 booking id（见 §2.4）
+  @@unique([dedupKey])
+  @@index([source, accountRef])
+  @@index([datetime])
+  @@index([externalRef])
+  @@index([channelRef])
+  @@index([subAccount])
+  @@map("external_statement_lines")
+}
