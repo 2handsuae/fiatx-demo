@@ -15,6 +15,7 @@ const STATUS_PILL_MAP: Record<string, string> = {
   APPROVED: 'bg-green-100 text-green-800',
   CLEARED: 'bg-green-100 text-green-800',
   CLEAR: 'bg-green-100 text-green-800',
+  PASS: 'bg-green-100 text-green-800',
   CONFIRMED: 'bg-indigo-100 text-indigo-800',
   // in-flight / pending
   CREATED: 'bg-gray-100 text-gray-800',
@@ -35,6 +36,7 @@ const STATUS_PILL_MAP: Record<string, string> = {
   REJECTED: 'bg-red-100 text-red-800',
   CANCELLED: 'bg-red-100 text-red-800',
   RETURNED: 'bg-red-100 text-red-800',
+  FAIL: 'bg-red-100 text-red-800',
   FAILED: 'bg-orange-100 text-orange-800',
   TIMEOUT: 'bg-orange-100 text-orange-800',
   EXPIRED: 'bg-gray-100 text-gray-800',

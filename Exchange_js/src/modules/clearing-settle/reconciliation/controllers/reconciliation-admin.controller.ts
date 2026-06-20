@@ -15,6 +15,13 @@ import { ReconRunQueryDto, ReconCaseQueryDto, ReconStatementQueryDto } from '../
 export class ReconciliationAdminController {
   constructor(private readonly query: ReconciliationQueryService) {}
 
+  @Get('redesign/latest')
+  @ApiOperation({ summary: 'Latest redesign reconciliation run (5-formula result + cases + 4-bucket line items)' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/runs'))
+  getRedesignLatest(@Query() q: ReconRunQueryDto) {
+    return this.query.getLatestRedesignRun(q.businessDate);
+  }
+
   @Get('runs')
   @ApiOperation({ summary: 'List reconciliation runs' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/runs'))

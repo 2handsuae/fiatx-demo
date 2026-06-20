@@ -28,9 +28,11 @@ interface CaseLineItem {
   internalTxHash: string | null;
   externalSource: string | null;
   externalTxId: string | null;
+  externalTxHash: string | null;
   externalAmount: string | null;
   externalDirection: string | null;
   externalTimestamp: string | null;
+  resolutionMemo: string | null;
   status: string;
 }
 
@@ -59,16 +61,27 @@ interface ReconCaseDetail {
 
 /* ── Constants ──────────────────────────────────────────────── */
 
-// Match-status classes mapped onto the four available adm-* semantic colors.
+// Bucket / match-status classes mapped onto the four available adm-* semantic colors.
+// PASS (green) / AMOUNT_MISMATCH (red) / ORPHAN_* (amber) / MANUAL (blue) per spec §4.3.
 const MATCH_TONE: Record<string, string> = {
   MATCHED: 'border-adm-green/30 bg-adm-green/10 text-adm-green',
+  PASS: 'border-adm-green/30 bg-adm-green/10 text-adm-green',
   ORPHAN_INTERNAL: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
   ORPHAN_EXTERNAL: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
   AMOUNT_MISMATCH: 'border-adm-red/30 bg-adm-red/10 text-adm-red',
+  MANUAL: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
 };
 
 const runRef = (id: string | null) => (id ? id.slice(0, 8) : null);
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
+
+// Bucketed line-item memo is "qualifier=… | signedδ=… | sub_account=… | channel_ref=… | …".
+// Pull a single key out for compact display (sub_account + qualifier surface in the drilldown table).
+const memoField = (memo: string | null, key: string): string | null => {
+  if (!memo) return null;
+  const m = memo.split('|').map((s) => s.trim()).find((s) => s.startsWith(`${key}=`));
+  return m ? m.slice(key.length + 1) : null;
+};
 
 const MatchPill = ({ value }: { value: string }) => {
   const tone = MATCH_TONE[value] || 'border-adm-border bg-adm-bg text-adm-t2';
@@ -217,13 +230,13 @@ const ReconciliationCasesDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* 3. Line Items */}
-          <DetailCard title={`Line Items (${lineItems.length})`} columns={1}>
+          {/* 3. Anomaly Drilldown (4 buckets) */}
+          <DetailCard title={`Anomaly Drilldown (${lineItems.length})`} columns={1}>
             <div className="overflow-x-auto rounded-lg border border-adm-border">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-adm-border bg-adm-bg">
                   <tr>
-                    {['Line No', 'Match', 'Internal', 'External', 'Status'].map((h) => (
+                    {['#', 'Bucket', 'Source Ref', 'Sub-account', 'Internal', 'External'].map((h) => (
                       <th
                         key={h}
                         className="px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
@@ -237,69 +250,88 @@ const ReconciliationCasesDetailPage = () => {
                   {lineItems.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={6}
                         className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
                       >
-                        No line items recorded for this case.
+                        No anomaly line items recorded for this case.
                       </td>
                     </tr>
                   ) : (
-                    lineItems.map((item) => (
-                      <tr key={item.id} className="transition-colors hover:bg-adm-hover">
-                        <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                          {item.lineNo}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <MatchPill value={item.matchStatus} />
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-adm-t2">
-                          {item.internalSourceNo || item.internalAmount ? (
-                            <div className="space-y-0.5">
-                              <div>
-                                <span className="text-adm-t3">
-                                  {item.internalSourceType || '—'}
-                                </span>{' '}
-                                <span className="font-mono text-adm-t1">
-                                  {item.internalSourceNo || '—'}
-                                </span>
-                              </div>
-                              <div className="font-mono text-adm-t1">
-                                {item.internalAmount || '—'}
-                                {item.internalDirection ? ` (${item.internalDirection})` : ''}
-                              </div>
-                              {item.internalTxHash ? (
-                                <div className="font-mono text-[10px] text-adm-t3">
-                                  {item.internalTxHash.slice(0, 14)}…
-                                </div>
+                    lineItems.map((item) => {
+                      const ref = item.internalTxHash || item.externalTxHash;
+                      const subAccount = memoField(item.resolutionMemo, 'sub_account');
+                      const qualifier = memoField(item.resolutionMemo, 'qualifier');
+                      const channelRef = memoField(item.resolutionMemo, 'channel_ref');
+                      return (
+                        <tr key={item.id} className="transition-colors hover:bg-adm-hover">
+                          <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                            {item.lineNo}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <div className="space-y-1">
+                              <MatchPill value={item.matchStatus} />
+                              {qualifier ? (
+                                <div className="font-mono text-[9px] text-adm-t3">{qualifier}</div>
                               ) : null}
                             </div>
-                          ) : (
-                            <span className="text-adm-t3">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-adm-t2">
-                          {item.externalTxId || item.externalAmount ? (
-                            <div className="space-y-0.5">
-                              <div>
-                                <span className="text-adm-t3">{item.externalSource || '—'}</span>{' '}
-                                <span className="font-mono text-adm-t1">
-                                  {item.externalTxId || '—'}
-                                </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px]">
+                            {ref ? (
+                              <span className="font-mono text-adm-t1">
+                                {ref.length > 16 ? `${ref.slice(0, 16)}…` : ref}
+                              </span>
+                            ) : (
+                              <span className="text-adm-t3">—</span>
+                            )}
+                            {channelRef ? (
+                              <div className="font-mono text-[9px] text-adm-t3">ch:{channelRef}</div>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px]">
+                            {subAccount ? (
+                              <span className="font-mono text-adm-t1">{subAccount}</span>
+                            ) : (
+                              <span className="text-adm-t3">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] text-adm-t2">
+                            {item.internalSourceNo || item.internalAmount ? (
+                              <div className="space-y-0.5">
+                                <div>
+                                  <span className="text-adm-t3">
+                                    {item.internalSourceType || '—'}
+                                  </span>{' '}
+                                  <span className="font-mono text-adm-t1">
+                                    {item.internalSourceNo || '—'}
+                                  </span>
+                                </div>
+                                <div className="font-mono text-adm-t1">
+                                  {item.internalAmount || '—'}
+                                  {item.internalDirection ? ` (${item.internalDirection})` : ''}
+                                </div>
                               </div>
-                              <div className="font-mono text-adm-t1">
-                                {item.externalAmount || '—'}
-                                {item.externalDirection ? ` (${item.externalDirection})` : ''}
+                            ) : (
+                              <span className="text-adm-t3">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] text-adm-t2">
+                            {item.externalSource || item.externalAmount ? (
+                              <div className="space-y-0.5">
+                                <div>
+                                  <span className="text-adm-t3">{item.externalSource || '—'}</span>
+                                </div>
+                                <div className="font-mono text-adm-t1">
+                                  {item.externalAmount || '—'}
+                                  {item.externalDirection ? ` (${item.externalDirection})` : ''}
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <span className="text-adm-t3">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <StatusPill value={item.status} />
-                        </td>
-                      </tr>
-                    ))
+                            ) : (
+                              <span className="text-adm-t3">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

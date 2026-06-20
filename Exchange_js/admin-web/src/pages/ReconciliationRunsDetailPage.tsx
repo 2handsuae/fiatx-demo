@@ -67,6 +67,22 @@ const SEVERITY_TONE: Record<string, string> = {
   ACCOUNT_ACTUAL: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
 };
 
+// Redesign (5-formula) runs carry layer=REDESIGN; their invariantChecks hold 式1..式5.
+const isRedesignRun = (layer: string) => layer === 'REDESIGN';
+const FORMULA_ORDER = ['式1', '式2', '式3', '式4', '式5'];
+
+// English label per formula (spec 2026-06-20 §3) — UI copy stays English.
+const FORMULA_LABEL: Record<string, string> = {
+  式1: 'Trial Balance (ledger-wide = 0)',
+  式2: 'Client Tie-out (client block ↔ open outstanding)',
+  式3: 'Bridge Tie-out (bridge block ↔ unswept swap)',
+  式4: 'Client Off-book (client pool ↔ external ± in-transit)',
+  式5: 'Firm Off-book (firm treasury ↔ external ± in-transit)',
+};
+const FORMULA_TAG: Record<string, string> = {
+  式1: 'F1', 式2: 'F2', 式3: 'F3', 式4: 'F4', 式5: 'F5',
+};
+
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 
@@ -128,6 +144,22 @@ const ReconciliationRunsDetailPage = () => {
 
   const checks = run.invariantChecks ?? [];
 
+  // Group checks by currency, formulas ordered 式1..式5 (redesign run rendering only).
+  const currencyGroups: [string, InvariantCheck[]][] = (() => {
+    const map = new Map<string, InvariantCheck[]>();
+    for (const c of checks) {
+      const ccy = c.currency ?? '—';
+      if (!map.has(ccy)) map.set(ccy, []);
+      map.get(ccy)!.push(c);
+    }
+    for (const rows of map.values()) {
+      rows.sort(
+        (a, b) => FORMULA_ORDER.indexOf(a.invariantCode) - FORMULA_ORDER.indexOf(b.invariantCode),
+      );
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  })();
+
   return (
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
@@ -187,65 +219,111 @@ const ReconciliationRunsDetailPage = () => {
             <InfoField label="Closed Cases" value={String(run.closedCount)} mono />
           </DetailCard>
 
-          {/* 3. Invariant Attestation (I1–I5) */}
-          <DetailCard title="Invariant Attestation (I1–I5)" columns={1}>
-            <div className="overflow-x-auto rounded-lg border border-adm-border">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-adm-border bg-adm-bg">
-                  <tr>
-                    {['Code', 'Currency', 'Severity', 'LHS', 'RHS', 'Δ', 'Status'].map((h) => (
-                      <th
-                        key={h}
-                        className={`px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 ${h === 'Δ' ? 'text-right' : 'text-left'}`}
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-adm-border">
-                  {checks.length === 0 ? (
+          {/* 3. Attestation — 5-formula checklist (redesign) OR I1–I5 table (legacy) */}
+          {isRedesignRun(run.layer) ? (
+            <DetailCard title="Reconciliation Formulas (per currency)" columns={1}>
+              {checks.length === 0 ? (
+                <p className="py-6 text-center font-mono text-[11px] text-adm-t3">
+                  No formula checks recorded for this run.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-5">
+                  {currencyGroups.map(([ccy, rows]) => (
+                    <div key={ccy}>
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="font-mono text-[13px] font-bold text-adm-t1">{ccy}</span>
+                        <span className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                          5-formula check
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {rows.map((check) => (
+                          <div
+                            key={check.id}
+                            className="flex items-center justify-between rounded-lg border border-adm-border bg-adm-bg px-4 py-2.5"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="shrink-0 rounded border border-adm-border bg-adm-panel px-1.5 py-0.5 font-mono text-[10px] font-semibold text-adm-amber">
+                                {FORMULA_TAG[check.invariantCode] ?? check.invariantCode}
+                              </span>
+                              <span className="truncate text-[12px] text-adm-t2">
+                                {FORMULA_LABEL[check.invariantCode] ?? check.lhsLabel}
+                              </span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-4">
+                              <span className="font-mono text-[11px] text-adm-t3">
+                                Δ <span className="text-adm-t1">{check.delta}</span>
+                              </span>
+                              <StatusPill value={check.status} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DetailCard>
+          ) : (
+            <DetailCard title="Invariant Attestation (I1–I5)" columns={1}>
+              <div className="overflow-x-auto rounded-lg border border-adm-border">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-adm-border bg-adm-bg">
                     <tr>
-                      <td
-                        colSpan={7}
-                        className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
-                      >
-                        No invariant checks recorded for this run.
-                      </td>
+                      {['Code', 'Currency', 'Severity', 'LHS', 'RHS', 'Δ', 'Status'].map((h) => (
+                        <th
+                          key={h}
+                          className={`px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 ${h === 'Δ' ? 'text-right' : 'text-left'}`}
+                        >
+                          {h}
+                        </th>
+                      ))}
                     </tr>
-                  ) : (
-                    checks.map((check) => (
-                      <tr key={check.id} className="transition-colors hover:bg-adm-hover">
-                        <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-adm-t1">
-                          {check.invariantCode}
-                        </td>
-                        <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                          {check.currency || '—'}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <SeverityPill value={check.severity} />
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-adm-t2">
-                          <span className="text-adm-t3">{check.lhsLabel} = </span>
-                          <span className="font-mono text-adm-t1">{check.lhsValue}</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] text-adm-t2">
-                          <span className="text-adm-t3">{check.rhsLabel} = </span>
-                          <span className="font-mono text-adm-t1">{check.rhsValue}</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                          {check.delta}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <StatusPill value={check.status} />
+                  </thead>
+                  <tbody className="divide-y divide-adm-border">
+                    {checks.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={7}
+                          className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
+                        >
+                          No invariant checks recorded for this run.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </DetailCard>
+                    ) : (
+                      checks.map((check) => (
+                        <tr key={check.id} className="transition-colors hover:bg-adm-hover">
+                          <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-adm-t1">
+                            {check.invariantCode}
+                          </td>
+                          <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
+                            {check.currency || '—'}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <SeverityPill value={check.severity} />
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] text-adm-t2">
+                            <span className="text-adm-t3">{check.lhsLabel} = </span>
+                            <span className="font-mono text-adm-t1">{check.lhsValue}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] text-adm-t2">
+                            <span className="text-adm-t3">{check.rhsLabel} = </span>
+                            <span className="font-mono text-adm-t1">{check.rhsValue}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                            {check.delta}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <StatusPill value={check.status} />
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </DetailCard>
+          )}
 
           {/* 4. Technical (LAST) */}
           <DetailCard title="Technical" columns={2}>

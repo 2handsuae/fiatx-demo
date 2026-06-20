@@ -20,9 +20,11 @@ import { EXTERNAL_BALANCE_PROVIDER, EXTERNAL_TX_PROVIDER } from './adapters/exte
 import { ReconciliationRunService } from './domain/reconciliation-run.service';
 import { ReconciliationCaseService } from './domain/reconciliation-case.service';
 import { ReconciliationRecordService } from './domain/reconciliation-record.service';
+import { ReconciliationRedesignRecordService } from './domain/reconciliation-redesign-record.service';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
 import { ReconciliationRunWorkflowService } from './workflow/reconciliation-run-workflow.service';
 import { FormulaReconService } from './workflow/formula-recon.service';
+import { RedesignReconRunService } from './workflow/redesign-recon-run.service';
 import { ReconciliationSweepService } from './sweep/reconciliation-sweep.service';
 import { ReconciliationAdminController } from './controllers/reconciliation-admin.controller';
 
@@ -37,9 +39,10 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
     MockExternalAdapter,
     { provide: EXTERNAL_BALANCE_PROVIDER, useExisting: MockExternalAdapter },
     { provide: EXTERNAL_TX_PROVIDER, useExisting: MockExternalAdapter },
-    ReconciliationRunService, ReconciliationCaseService, ReconciliationRecordService, ReconciliationQueryService,
-    ReconciliationRunWorkflowService, ReconciliationSweepService,
+    ReconciliationRunService, ReconciliationCaseService, ReconciliationRecordService,
+    ReconciliationRedesignRecordService, ReconciliationQueryService,
+    ReconciliationRunWorkflowService, ReconciliationSweepService, RedesignReconRunService,
   ],
-  exports: [ReconciliationRunWorkflowService],
+  exports: [ReconciliationRunWorkflowService, RedesignReconRunService],
 })
 export class ReconciliationModule {}

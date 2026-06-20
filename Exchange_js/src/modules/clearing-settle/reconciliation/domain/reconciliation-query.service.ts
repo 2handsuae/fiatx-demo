@@ -59,4 +59,36 @@ export class ReconciliationQueryService {
     }
     return { ...row, parsed };
   }
+
+  /**
+   * 对账重构（redesign，layer=REDESIGN）最新一次 run 的完整结果（G6）：
+   *   run 行 + 五公式 checks（按币种分组 式1..式5）+ cases（含 bucketed line items）。
+   * 给 admin Run detail 展示五公式 checklist + 四桶下钻。无 redesign run 时返回 null（前端显示空态）。
+   * @param businessDate 可选，限定业务日；不传取全局最新。
+   */
+  async getLatestRedesignRun(businessDate?: string) {
+    const run = await this.prisma.reconciliationRun.findFirst({
+      where: { layer: 'REDESIGN', businessDate },
+      orderBy: [{ businessDate: 'desc' }, { seq: 'desc' }],
+      include: { invariantChecks: true },
+    });
+    if (!run) return null;
+
+    // 用 lastObservedRunId（本 run 最近触达的 case），不用 openedByRunId：
+    // ReconciliationCase 按 (businessDate, assetId) 唯一，跨旧 I1-I5 路径与本 redesign 路径共享，
+    // 老 case 的 openedByRunId 指向旧 run；upsertOpen 把 lastObservedRunId 刷成当前 run。
+    const cases = await this.prisma.reconciliationCase.findMany({
+      where: { lastObservedRunId: run.id },
+      orderBy: { assetCode: 'asc' },
+      include: { lineItems: { where: { foundByRunId: run.id }, orderBy: { lineNo: 'asc' } } },
+    });
+
+    // 五公式按币种分组（式1..式5），便于前端逐币种渲染 checklist。
+    const formulasByCurrency: Record<string, typeof run.invariantChecks> = {};
+    for (const chk of run.invariantChecks) {
+      (formulasByCurrency[chk.currency] ??= []).push(chk);
+    }
+
+    return { run, formulasByCurrency, cases };
+  }
 }
