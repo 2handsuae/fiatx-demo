@@ -16,7 +16,15 @@ export class ReconciliationQueryService {
       where: { runNo }, include: { invariantChecks: true },
     });
     if (!run) throw new NotFoundException(`Run ${runNo} not found`);
-    return run;
+    // Cases this run last touched — lets the run-detail scorecard link a failing
+    // (currency, book) cell straight to its case. Same join as getLatestRedesignRun;
+    // no lineItems (the link only needs caseNo). Harmless for legacy I1–I5 runs.
+    const cases = await this.prisma.reconciliationCase.findMany({
+      where: { lastObservedRunId: run.id },
+      orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
+      select: { caseNo: true, assetCode: true, book: true, status: true, deltaAmount: true },
+    });
+    return { ...run, cases };
   }
   listCases(q: { status?: string; assetCode?: string }) {
     return this.prisma.reconciliationCase.findMany({
