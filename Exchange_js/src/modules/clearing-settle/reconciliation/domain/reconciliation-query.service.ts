@@ -40,32 +40,24 @@ export class ReconciliationQueryService {
     return kase;
   }
 
-  listStatements(q: { source?: string }) {
-    return this.prisma.reconciliationExternalStatement.findMany({
-      where: { source: q.source },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true, statementNo: true, source: true, businessDate: true,
-        currency: true, accountRef: true, closingBalance: true, fetchedAt: true, createdAt: true,
-      }, // NOT rawJson (big)
+  listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {
+    return this.prisma.externalBalance.findMany({
+      where: { cutoffDate: q.cutoffDate, book: q.book, source: q.source, currency: q.currency },
+      orderBy: [{ book: 'asc' }, { source: 'asc' }, { currency: 'asc' }, { accountRef: 'asc' }],
     });
   }
 
-  async getStatement(statementNo: string) {
-    const row = await this.prisma.reconciliationExternalStatement.findUnique({ where: { statementNo } });
-    if (!row) throw new NotFoundException(`Statement ${statementNo} not found`);
-    let parsed: unknown = null;
-    try {
-      const raw = JSON.parse(row.rawJson);
-      if (row.source === 'ZAND') {
-        parsed = { kind: 'ZAND', info: raw.StatementInfo, records: raw.StatementRecords ?? [] };
-      } else {
-        parsed = { kind: 'HEXTRUST', txs: Array.isArray(raw) ? raw : (raw.transactions ?? raw.data ?? []) };
-      }
-    } catch {
-      parsed = { kind: row.source, parseError: true };
-    }
-    return { ...row, parsed };
+  async getExternalBalance(statementId: string) {
+    // Keyed by statementId (business key STMT-{date}-{source}-{accountSlug}); the UUID id is not URL-exposed.
+    const balance = await this.prisma.externalBalance.findFirst({ where: { statementId } });
+    if (!balance) throw new NotFoundException(`External balance ${statementId} not found`);
+    // Lines carry no FK to the balance; join on the same dimensions (source + account + currency).
+    // The balance's denormalized lineCount is the cross-check against this list's length.
+    const lines = await this.prisma.externalStatementLine.findMany({
+      where: { source: balance.source, accountRef: balance.accountRef, currency: balance.currency },
+      orderBy: { datetime: 'asc' },
+    });
+    return { ...balance, lines };
   }
 
   /**

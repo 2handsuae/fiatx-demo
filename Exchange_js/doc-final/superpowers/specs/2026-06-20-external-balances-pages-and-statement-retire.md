@@ -16,8 +16,8 @@
 ## 1. 后端（复用现有 recon controller/query 模式）
 - `reconciliation-admin.controller.ts` 加：
   - `GET /admin/reconciliation/external-balances` → `query.listExternalBalances(q)`，filter `cutoffDate? / book? / source? / currency?`。
-  - `GET /admin/reconciliation/external-balances/:id` → `query.getExternalBalance(id)`。
-  - 权限 `buildPermissionCode('GET', ...)`：已验 `permission-code.util` 把 `[^a-zA-Z0-9]+→_`，故路由用 `external-balances`，码确定为 `api.get.admin_reconciliation_external_balances`（list）/ `api.get.admin_reconciliation_external_balances_id`（`:id` detail）。
+  - `GET /admin/reconciliation/external-balances/:statementId` → `query.getExternalBalance(statementId)`（用业务键 statementId 不暴露 UUID）。
+  - 权限 `buildPermissionCode('GET', ...)`：已验 `permission-code.util` 把 `[^a-zA-Z0-9]+→_`，码确定为 `api.get.admin_reconciliation_external_balances`（list）/ `api.get.admin_reconciliation_external_balances_statementid`（detail）。
 - `reconciliation-query.service.ts` 加：
   - `listExternalBalances(q)`：`externalBalance.findMany({ where:{cutoffDate,book,source,currency}, orderBy:[{book},{source},{currency}] })`。
   - `getExternalBalance(id)`：`findUnique({where:{id}})` + 取其流水 `externalStatementLine.findMany({ where:{ source, accountRef, currency }, orderBy:{datetime:'asc'} })`（行无 FK，按 `source+accountRef+currency` 同维匹配；`lineCount` 已 denormalize 做核对）。返 `{ ...balance, lines }`。NotFound 抛 404。
@@ -45,8 +45,9 @@
 - `DashboardLayout.tsx`：Reconciliation 组把 `External Statements`(statements) 项换成 `External Balances`(external-balances)，权限换 `RECON_EXTERNAL_BALANCE_READ`，icon 可沿用。
 - `permissions.ts`：删 `RECON_STATEMENT_READ` / `RECON_STATEMENT_DETAIL_READ`（确认无其它引用后），加新两条。
 - 后端：`reconciliation-admin.controller.ts` 删 `statements` / `statements/:statementNo` 两路由；`reconciliation-query.service.ts` 删 `listStatements` / `getStatement`。
-- 删 model `ReconciliationExternalStatement` + migration drop `reconciliation_external_statements`。`dev:rebuild` 重建。
-- 删 `ReconStatementQueryDto`（若仅此处用）。
+- 删 model `ReconciliationExternalStatement` + 新增 migration `DROP TABLE reconciliation_external_statements`。
+- 删 `ReconStatementQueryDto`（确认仅 controller 用 ✓）。
+- **连带死 blob 路径出清**（drop 表必然连带，否则留读死表的死代码）：删 `adapters/zand-file.adapter.ts` + `adapters/hextrust-file.adapter.ts`（未绑 module=死代码，读旧 blob）+ `scripts/recon-statement-demo.ts`（旧 demo，被 recon:gen 取代）+ package.json `recon:demo` 脚本。`external-data.provider.ts` 接口保留（MockExternalAdapter live 用）。
 
 ## 5. 生成器 FIRM 补齐（`scripts/recon-redesign-statement-gen.ts`）
 - **现状**：FIRM 仅 `VAULT_MAIN`(HEXTRUST USDT plug)。FIRM AED=0、firm treasury 账户全缺。

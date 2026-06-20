@@ -66,7 +66,6 @@
     "rbac:backfill:apply": "ts-node scripts/backfill-rbac-permissions.ts --apply",
     "recon:verify:dry": "ts-node -r tsconfig-paths/register scripts/verify-reconciliation.ts",
     "recon:verify:apply": "ts-node -r tsconfig-paths/register scripts/verify-reconciliation.ts --apply",
-    "recon:demo": "ts-node -r tsconfig-paths/register scripts/recon-statement-demo.ts",
     "recon:gen": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" ts-node -r tsconfig-paths/register scripts/recon-redesign-statement-gen.ts",
     "recon:drilldown": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" ts-node -r tsconfig-paths/register scripts/recon-drilldown-verify.ts",
     "recon:redesign": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" ts-node -r tsconfig-paths/register scripts/recon-redesign-run-verify.ts",

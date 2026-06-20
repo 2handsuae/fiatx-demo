@@ -7,6 +7,9 @@ export class ReconCaseQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
 }
-export class ReconStatementQueryDto {
+export class ReconExternalBalanceQueryDto {
+  @IsOptional() @IsString() cutoffDate?: string;
+  @IsOptional() @IsString() book?: string;
   @IsOptional() @IsString() source?: string;
+  @IsOptional() @IsString() currency?: string;
 }

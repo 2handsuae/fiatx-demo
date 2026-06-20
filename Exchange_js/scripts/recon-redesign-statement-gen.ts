@@ -308,6 +308,58 @@ async function main() {
     });
   }
 
+  // ─── 7b. FIRM treasury 账户补齐（每真实 F_* 钱包一张余额 + 一行；spec 2026-06-20 §5）──────
+  // 用户口径："每个 custodian 账号一个流水，VIBAN 除外"。F_* 钱包就是公司账本，其 mockBalance
+  // Σ 恰等于内部 A.FIRM_TREASURY TB。closing 锚到 firmTB，使 Σ FIRM external == firmTB → 式5 干净对平。
+  // vault-usdt-main（§4，USDT firm pooled）保留不动；F_OPS 作 plug 吸收差额使该币种 FIRM 总和=firmTB。
+  const firmWallets = await prisma.wallet.findMany({
+    where: { walletRole: { startsWith: 'F_' }, status: 'ACTIVE' },
+    select: { walletRole: true, walletNo: true, mockBalance: true, assetId: true },
+    orderBy: { walletRole: 'asc' },
+  });
+  let firmAcctCount = 0;
+  for (const [ccy, assetId, srcBal] of [
+    ['AED', AED_ASSET, balAED] as const,
+    ['USDT', USDT_ASSET, balUSDT] as const,
+  ]) {
+    const fw = firmWallets.filter((w) => w.assetId === assetId);
+    if (!fw.length) continue;
+    const firmTB = D(srcBal['A.FIRM_TREASURY'] ?? 0);
+    // 已写入的 FIRM 余额（该币种，§7）—— USDT 含 vault-usdt-main。
+    const existing = await prisma.externalBalance.aggregate({
+      where: { book: 'FIRM', currency: ccy, cutoffDate: BUSINESS_DATE },
+      _sum: { closingBalance: true },
+    });
+    const target = firmTB.minus(D(existing._sum.closingBalance ?? 0)); // Σ(F_* of ccy).closing 应等于此
+    const plugRole = 'F_OPS';
+    const sumOthers = fw
+      .filter((w) => w.walletRole !== plugRole)
+      .reduce((s, w) => s.plus(D(w.mockBalance)), D(0));
+    const source = ccy === 'AED' ? 'ZAND' : 'HEXTRUST';
+    for (const w of fw) {
+      const closing = w.walletRole === plugRole ? target.minus(sumOthers) : D(w.mockBalance);
+      const accountRef = `${w.walletRole}-${ccy}-0001`;
+      const dir: 'IN' | 'OUT' = closing.greaterThanOrEqualTo(0) ? 'IN' : 'OUT';
+      const bookingId = bk(source);
+      await prisma.externalStatementLine.upsert({
+        where: { dedupKey: bookingId },
+        update: {},
+        create: {
+          source, accountRef, subAccount: w.walletNo, book: 'FIRM', currency: ccy,
+          direction: dir, amount: closing.abs(), externalRef: null, channelRef: null,
+          datetime: new Date(DT), balanceAfter: closing, description: 'Treasury position snapshot',
+          statementId: `STMT-${BUSINESS_DATE.replace(/-/g, '')}-${source}-${slug(accountRef)}`,
+          raw: JSON.stringify({ bookingId, walletNo: w.walletNo, role: w.walletRole }), dedupKey: bookingId,
+        },
+      });
+      await upsertBalance(prisma, {
+        source, accountRef, currency: ccy, book: 'FIRM', closing, opening: D(0), lineCount: 1,
+      });
+      firmAcctCount += 1;
+    }
+  }
+  console.log(`FIRM treasury accounts backfilled: ${firmAcctCount} (firmTB-anchored, 式5 ties ~0)`);
+
   // ─── 8. summary ──────────────────────────────────────────────────────────────────
   const balCount = await prisma.externalBalance.count({ where: { cutoffDate: BUSINESS_DATE } });
   const lineCount = await prisma.externalStatementLine.count({ where: { datetime: { gte: dayLo, lte: dayHi } } });

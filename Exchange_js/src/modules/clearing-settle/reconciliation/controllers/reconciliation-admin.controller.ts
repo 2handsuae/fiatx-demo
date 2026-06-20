@@ -5,7 +5,7 @@ import { AdminPermissionGuard } from '../../../identity/access-control/admin-per
 import { RequirePermissions } from '../../../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../../../identity/access-control/permission-code.util';
 import { ReconciliationQueryService } from '../domain/reconciliation-query.service';
-import { ReconRunQueryDto, ReconCaseQueryDto, ReconStatementQueryDto } from '../dto/reconciliation.dto';
+import { ReconRunQueryDto, ReconCaseQueryDto, ReconExternalBalanceQueryDto } from '../dto/reconciliation.dto';
 
 @ApiTags('Admin - Reconciliation (V8)')
 @ApiBearerAuth()
@@ -42,13 +42,13 @@ export class ReconciliationAdminController {
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/cases/:caseNo'))
   getCase(@Param('caseNo') caseNo: string) { return this.query.getCase(caseNo); }
 
-  @Get('statements')
-  @ApiOperation({ summary: 'List external bank/custodian statements' })
-  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/statements'))
-  listStatements(@Query() q: ReconStatementQueryDto) { return this.query.listStatements(q); }
+  @Get('external-balances')
+  @ApiOperation({ summary: 'List external account balances (per source/account/cutoff, grouped by book)' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/external-balances'))
+  listExternalBalances(@Query() q: ReconExternalBalanceQueryDto) { return this.query.listExternalBalances(q); }
 
-  @Get('statements/:statementNo')
-  @ApiOperation({ summary: 'External statement detail (source-aware parsed entries)' })
-  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/statements/:statementNo'))
-  getStatement(@Param('statementNo') statementNo: string) { return this.query.getStatement(statementNo); }
+  @Get('external-balances/:statementId')
+  @ApiOperation({ summary: 'External balance detail (header fields + its statement lines)' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/external-balances/:statementId'))
+  getExternalBalance(@Param('statementId') statementId: string) { return this.query.getExternalBalance(statementId); }
 }
