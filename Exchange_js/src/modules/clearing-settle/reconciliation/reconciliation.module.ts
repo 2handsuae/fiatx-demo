@@ -11,6 +11,10 @@ import { BalanceReconService } from './engine/balance-recon.service';
 import { MatchEngineService } from './engine/match-engine.service';
 import { ClassifierService } from './engine/classifier.service';
 import { InternalActionsService } from './engine/internal-actions.service';
+import { LegProjectionService } from './engine/leg-projection.service';
+import { MatchEngineV2Service } from './engine/match-engine-v2.service';
+import { AnomalyClassifierService } from './engine/anomaly-classifier.service';
+import { DrilldownMatchService } from './engine/drilldown-match.service';
 import { MockExternalAdapter } from './adapters/mock-external.adapter';
 import { EXTERNAL_BALANCE_PROVIDER, EXTERNAL_TX_PROVIDER } from './adapters/external-data.provider';
 import { ReconciliationRunService } from './domain/reconciliation-run.service';
@@ -29,6 +33,7 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
     BalanceSnapshotService, InvariantCheckerService, InTransitService, BalanceReconService,
     CreditNetService, FormulaCheckerService, SubledgerInputsService, FormulaReconService,
     MatchEngineService, ClassifierService, InternalActionsService,
+    LegProjectionService, MatchEngineV2Service, AnomalyClassifierService, DrilldownMatchService,
     MockExternalAdapter,
     { provide: EXTERNAL_BALANCE_PROVIDER, useExisting: MockExternalAdapter },
     { provide: EXTERNAL_TX_PROVIDER, useExisting: MockExternalAdapter },
