@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
 
 export interface CreateRunInput {
   businessDate: string; layer: string; triggerType: string; mode: 'DRY_RUN' | 'APPLY';
+  demoManifest?: string | null;
 }
 
 @Injectable()
@@ -22,6 +23,7 @@ export class ReconciliationRunService {
         runNo, businessDate: input.businessDate, layer: input.layer, seq,
         triggerType: input.triggerType, mode: input.mode, status: 'RUNNING',
         traceId: `V8:${input.layer}:${input.businessDate.replace(/-/g, '')}`,
+        demoManifest: input.demoManifest ?? null,
       },
     });
   }

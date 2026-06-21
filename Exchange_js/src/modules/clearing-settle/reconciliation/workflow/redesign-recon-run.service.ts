@@ -24,6 +24,8 @@ export interface RedesignReconInput {
   mode: 'DRY_RUN' | 'APPLY';
   /** external_balances.cutoff_date（默认 = businessDate）。 */
   cutoffDateForExternal?: string;
+  /** 演示模式 manifest（recon-demo 脚本注入）；APPLY 时 JSON 序列化后落 ReconciliationRun.demoManifest。 */
+  demoManifest?: unknown;
 }
 
 /** 单币种装配结果（五公式 G4 + 下钻四桶 G5）。 */
@@ -123,6 +125,7 @@ export class RedesignReconRunService {
       layer: RedesignReconRunService.RUN_LAYER,
       triggerType: input.triggerType,
       mode: 'APPLY',
+      demoManifest: input.demoManifest ? JSON.stringify(input.demoManifest) : null,
     });
 
     let openedCount = 0;
