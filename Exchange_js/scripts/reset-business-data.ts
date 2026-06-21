@@ -49,6 +49,9 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'reconciliationInvariantCheck',
   'reconciliationCase',
   'reconciliationRun',
+  // External ingest (no FK; standalone demo data — must be cleared too).
+  'externalStatementLine',
+  'externalBalance',
 
   // ── Payment legs ───────────────────────────────────────────────────
   'payout',
