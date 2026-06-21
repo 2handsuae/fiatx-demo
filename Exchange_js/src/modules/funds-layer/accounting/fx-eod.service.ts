@@ -52,7 +52,14 @@ export class FxEodService {
    */
   private runChain: Promise<unknown> = Promise.resolve();
 
-  /** EOD 物理结算完成后调用。batchNo 进 evidence sourceNo → 同批次幂等。 */
+  /**
+   * Combined sweep + reval entry point — retained for direct/legacy callers.
+   * Settlement-triggered paths should use `runSweepOnly` (cost-basis sweep only,
+   * no FX mark-to-market) or `runReval` (EOD mark-to-market after full batch
+   * settlement) instead. The workflow no longer calls this method directly.
+   *
+   * EOD 物理结算完成后调用。batchNo 进 evidence sourceNo → 同批次幂等。
+   */
   async runEodAccounting(batchNo: string): Promise<EodAccountingReport> {
     const run = this.runChain.then(
       () => this.doRunEodAccounting(batchNo),

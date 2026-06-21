@@ -165,11 +165,11 @@ const SettlementListPage = () => {
         batchNo: string | null;
         assetCount: number;
         settledZero: number;
-        spawned: boolean;
+        spawned: number;
       };
       if (data.batchNo) {
         setNotice(
-          `Manual settle done — batch ${data.batchNo} (${data.assetCount} assets, ${data.settledZero} zero-settled, bridge-sweep spawned: ${data.spawned ? 'yes' : 'no'})`,
+          `Manual settle done — batch ${data.batchNo} (${data.assetCount} assets, ${data.settledZero} zero-settled, ${data.spawned} transfer(s) spawned)`,
         );
       } else {
         setNotice('No open crypto outstandings — nothing to settle.');

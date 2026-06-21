@@ -559,6 +559,7 @@ describe('EodSettlementWorkflowService', () => {
       expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ settlementType: 'MANUAL_SETTLE' }));
       expect(fxEod.revalueFxPositions).not.toHaveBeenCalled();
       expect(fxEod.runEodAccounting).not.toHaveBeenCalled();
+      expect(fxEod.runReval).not.toHaveBeenCalled();
       expect(result).toEqual({ batchNo: 'SB-1', assetCount: 1, settledZero: 0, spawned: 1 });
     });
   });
