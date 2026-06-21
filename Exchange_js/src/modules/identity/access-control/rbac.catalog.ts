@@ -589,6 +589,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/funds-layer/settlements', 'List settlement batches', ['SETTLEMENT_READ']),
   route('GET', '/admin/funds-layer/settlements/:batchNo', 'Get settlement batch detail', ['SETTLEMENT_READ']),
   route('POST', '/admin/funds-layer/settlements/run', 'Trigger EOD settlement run (DEV)', ['SETTLEMENT_WRITE']),
+  route('POST', '/admin/funds-layer/settlements/settle', 'Trigger manual crypto settlement', ['SETTLEMENT_WRITE']),
   route('GET', '/admin/funds-layer/funds', 'List funds flows', ['INTERNAL_FUND_READ']),
   route('GET', '/admin/funds-layer/funds/:internalFundNo', 'Get funds flow detail', ['INTERNAL_FUND_READ']),
 

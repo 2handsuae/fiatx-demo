@@ -46,6 +46,15 @@ export class SettlementAdminController {
     return this.eodWorkflow.runEodSettlement('ADMIN');
   }
 
+  @Post('settle')
+  @ApiOperation({ summary: 'Trigger manual crypto settlement' })
+  @RequirePermissions(
+    buildPermissionCode('POST', '/admin/funds-layer/settlements/settle'),
+  )
+  async manualSettle() {
+    return this.eodWorkflow.runManualCryptoSettlement('ADMIN');
+  }
+
   @Get(':batchNo')
   @ApiOperation({ summary: 'Get settlement batch detail' })
   @RequirePermissions(
