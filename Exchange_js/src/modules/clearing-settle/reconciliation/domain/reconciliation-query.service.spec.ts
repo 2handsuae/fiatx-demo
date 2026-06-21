@@ -1,70 +1,74 @@
 import { pairManifest } from './reconciliation-query.service';
 
-describe('pairManifest', () => {
-  it('pairs injected breaks vs detected line items by (currency,book,bucket,ref); reports missed & extra', () => {
+// Helpers to build test fixtures concisely.
+function mkBreak(
+  currency: string,
+  book: string,
+  bucket: string,
+  internalAmount: string | null,
+  externalAmount: string | null,
+  targetRef = 'REF-DISPLAY-ONLY',
+) {
+  return { currency, book, bucket, targetRef, internalAmount, externalAmount, targetType: '', signedDelta: '0', note: '' };
+}
+
+function mkItem(
+  currency: string,
+  book: string,
+  bucket: string,
+  internalAmount: unknown,
+  externalAmount: unknown,
+) {
+  return {
+    id: `item-${currency}-${bucket}`,
+    matchStatus: bucket,
+    internalSourceNo: null,
+    internalTxHash: null,
+    externalTxId: null,
+    externalTxHash: null,
+    internalAmount,
+    externalAmount,
+    _currency: currency,
+    _book: book,
+  };
+}
+
+describe('pairManifest — amount-keyed pairing', () => {
+  it('pairs injected breaks vs detected line-items by (currency,book,bucket,primaryAmount)', () => {
+    // AED ORPHAN_INTERNAL: both sides carry internalAmount = 500
+    // USDT ORPHAN_EXTERNAL: both sides carry externalAmount = 200
+    // extra: AED AMOUNT_MISMATCH not injected as a break
     const breaks = [
-      { currency: 'AED', book: 'CLIENT', bucket: 'ORPHAN_INTERNAL', targetRef: 'REF-DEMO-1-AED' },
-      { currency: 'USDT', book: 'FIRM', bucket: 'ORPHAN_EXTERNAL', targetRef: '0xEXTORPHANUSDT' },
+      mkBreak('AED', 'CLIENT', 'ORPHAN_INTERNAL', '500', null, 'REF-DEMO-1-AED'),
+      mkBreak('USDT', 'FIRM',  'ORPHAN_EXTERNAL', null, '200', '0xDEMO2USDT'),
     ];
     const items = [
-      {
-        matchStatus: 'ORPHAN_INTERNAL',
-        internalSourceNo: 'REF-DEMO-1-AED',
-        externalTxId: null,
-        externalTxHash: null,
-        internalTxHash: null,
-        _currency: 'AED',
-        _book: 'CLIENT',
-      },
-      {
-        // extra (not injected)
-        matchStatus: 'AMOUNT_MISMATCH',
-        internalSourceNo: 'REF-DEMO-2-AED',
-        externalTxId: null,
-        externalTxHash: null,
-        internalTxHash: null,
-        _currency: 'AED',
-        _book: 'CLIENT',
-      },
+      mkItem('AED',  'CLIENT', 'ORPHAN_INTERNAL', '500', null),
+      // extra — not in breaks
+      mkItem('AED',  'CLIENT', 'AMOUNT_MISMATCH', '300', '310'),
     ];
     const r = pairManifest(breaks as any, items as any);
     expect(r.matched).toHaveLength(1);
-    expect(r.missed).toHaveLength(1); // the USDT FIRM orphan-external
-    expect(r.extra).toHaveLength(1); // the AED amount-mismatch
+    expect(r.matched[0].break.currency).toBe('AED');
+    expect(r.missed).toHaveLength(1);   // USDT FIRM orphan-external — no item
+    expect(r.missed[0].currency).toBe('USDT');
+    expect(r.extra).toHaveLength(1);    // AED amount-mismatch not claimed
+    expect(r.extra[0].matchStatus).toBe('AMOUNT_MISMATCH');
   });
 
-  it('matches on externalTxId when targetRef equals externalTxId', () => {
-    const breaks = [{ currency: 'USDT', book: 'CLIENT', bucket: 'ORPHAN_EXTERNAL', targetRef: '0xEXT123' }];
-    const items = [
-      {
-        matchStatus: 'ORPHAN_EXTERNAL',
-        internalSourceNo: null,
-        externalTxId: '0xEXT123',
-        externalTxHash: null,
-        internalTxHash: null,
-        _currency: 'USDT',
-        _book: 'CLIENT',
-      },
-    ];
+  it('pairs when item externalAmount drives primaryAmount (ORPHAN_EXTERNAL, no internalAmount)', () => {
+    const breaks = [mkBreak('USDT', 'CLIENT', 'ORPHAN_EXTERNAL', null, '999.5', '0xEXT123')];
+    const items  = [mkItem('USDT', 'CLIENT', 'ORPHAN_EXTERNAL', null, '999.5')];
     const r = pairManifest(breaks as any, items as any);
     expect(r.matched).toHaveLength(1);
     expect(r.missed).toHaveLength(0);
     expect(r.extra).toHaveLength(0);
   });
 
-  it('matches on internalTxHash when targetRef equals internalTxHash', () => {
-    const breaks = [{ currency: 'USDT', book: 'CLIENT', bucket: 'ORPHAN_INTERNAL', targetRef: '0xTXHASH1' }];
-    const items = [
-      {
-        matchStatus: 'ORPHAN_INTERNAL',
-        internalSourceNo: null,
-        externalTxId: null,
-        externalTxHash: null,
-        internalTxHash: '0xTXHASH1',
-        _currency: 'USDT',
-        _book: 'CLIENT',
-      },
-    ];
+  it('pairs AMOUNT_MISMATCH break using internalAmount (takes precedence over externalAmount)', () => {
+    // For AMOUNT_MISMATCH both internal and external are present; primaryAmount = internalAmount.
+    const breaks = [mkBreak('USDT', 'CLIENT', 'AMOUNT_MISMATCH', '1000', '900', '0xTXHASH1')];
+    const items  = [mkItem('USDT', 'CLIENT', 'AMOUNT_MISMATCH', '1000', '900')];
     const r = pairManifest(breaks as any, items as any);
     expect(r.matched).toHaveLength(1);
     expect(r.missed).toHaveLength(0);
@@ -72,9 +76,7 @@ describe('pairManifest', () => {
   });
 
   it('returns all missed when no items exist', () => {
-    const breaks = [
-      { currency: 'AED', book: 'CLIENT', bucket: 'ORPHAN_INTERNAL', targetRef: 'REF-X' },
-    ];
+    const breaks = [mkBreak('AED', 'CLIENT', 'ORPHAN_INTERNAL', '500', null)];
     const r = pairManifest(breaks as any, []);
     expect(r.matched).toHaveLength(0);
     expect(r.missed).toHaveLength(1);
@@ -82,20 +84,32 @@ describe('pairManifest', () => {
   });
 
   it('returns all extra when no breaks exist', () => {
-    const items = [
-      {
-        matchStatus: 'AMOUNT_MISMATCH',
-        internalSourceNo: 'REF-Y',
-        externalTxId: null,
-        externalTxHash: null,
-        internalTxHash: null,
-        _currency: 'AED',
-        _book: 'CLIENT',
-      },
-    ];
+    const items = [mkItem('AED', 'CLIENT', 'AMOUNT_MISMATCH', '300', '310')];
     const r = pairManifest([], items as any);
     expect(r.matched).toHaveLength(0);
     expect(r.missed).toHaveLength(0);
     expect(r.extra).toHaveLength(1);
+  });
+
+  it('amount disambiguates two breaks with same (currency,book,bucket) but different amounts', () => {
+    // Two AED ORPHAN_INTERNAL breaks at different amounts — must pair each to its own item.
+    const breaks = [
+      mkBreak('AED', 'CLIENT', 'ORPHAN_INTERNAL', '100', null, 'REF-A'),
+      mkBreak('AED', 'CLIENT', 'ORPHAN_INTERNAL', '250', null, 'REF-B'),
+    ];
+    const items = [
+      mkItem('AED', 'CLIENT', 'ORPHAN_INTERNAL', '250', null), // listed first — should pair to REF-B
+      mkItem('AED', 'CLIENT', 'ORPHAN_INTERNAL', '100', null), // should pair to REF-A
+    ];
+    const r = pairManifest(breaks as any, items as any);
+    expect(r.matched).toHaveLength(2);
+    expect(r.missed).toHaveLength(0);
+    expect(r.extra).toHaveLength(0);
+    // REF-A (100) should match the item with internalAmount=100
+    const matchA = r.matched.find((m) => m.break.targetRef === 'REF-A');
+    expect(matchA?.item.internalAmount).toBe('100');
+    // REF-B (250) should match the item with internalAmount=250
+    const matchB = r.matched.find((m) => m.break.targetRef === 'REF-B');
+    expect(matchB?.item.internalAmount).toBe('250');
   });
 });

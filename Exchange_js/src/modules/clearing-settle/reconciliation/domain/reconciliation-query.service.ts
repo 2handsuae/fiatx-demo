@@ -37,13 +37,38 @@ export interface PairResult {
 }
 
 /**
+ * Primary amount for pairing: prefer internalAmount (present for ORPHAN_INTERNAL and
+ * AMOUNT_MISMATCH); fall back to externalAmount (present for ORPHAN_EXTERNAL).
+ * Returns null when neither is available (treated as non-matchable).
+ */
+function primaryAmount(internalAmount: unknown, externalAmount: unknown): string | null {
+  if (internalAmount != null) return String(internalAmount);
+  if (externalAmount != null) return String(externalAmount);
+  return null;
+}
+
+const AMOUNT_TOLERANCE = 1e-6;
+
+function amountsEqual(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return false;
+  return Math.abs(parseFloat(a) - parseFloat(b)) < AMOUNT_TOLERANCE;
+}
+
+/**
  * Pure function — no DB access.
- * Key = (currency, book, bucket, targetRef).
+ * Key = (currency, book, bucket, primaryAmount).
  * A manifest break matches a line-item when:
  *   - same currency  (_currency === break.currency)
- *   - same book      (_book === break.book)
+ *   - same book      (_book ?? '' === break.book ?? '')
  *   - same bucket    (matchStatus === break.bucket)
- *   - break.targetRef equals ANY of: internalSourceNo, internalTxHash, externalRef, externalTxHash
+ *   - primaryAmount(break) ≈ primaryAmount(item)  (within 1e-6)
+ *
+ * primaryAmount = internalAmount if present, else externalAmount.
+ * This is rail-agnostic: CRYPTO can ref-match coincidentally, but FIAT cannot
+ * (the engine assigns payinNo/UUIDs the manifest never knows).
+ *
+ * targetRef and line-item ref fields are preserved in returned data for DISPLAY,
+ * but are NOT used as the match key.
  *
  * Each item may be claimed by at most one break (first-come, first-served).
  */
@@ -56,17 +81,16 @@ export function pairManifest(
   const missed: ManifestBreak[] = [];
 
   for (const brk of breaks) {
+    const brkAmount = primaryAmount(brk.internalAmount, brk.externalAmount);
     let found = -1;
     for (const idx of unclaimedItems) {
       const item = items[idx];
+      const itemAmount = primaryAmount(item.internalAmount, item.externalAmount);
       if (
         item._currency === brk.currency &&
-        item._book === brk.book &&
+        (item._book ?? '') === (brk.book ?? '') &&
         item.matchStatus === brk.bucket &&
-        (item.internalSourceNo === brk.targetRef ||
-          item.internalTxHash === brk.targetRef ||
-          item.externalTxId === brk.targetRef ||
-          item.externalTxHash === brk.targetRef)
+        amountsEqual(brkAmount, itemAmount)
       ) {
         found = idx;
         break;
