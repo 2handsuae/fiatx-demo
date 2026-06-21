@@ -144,6 +144,74 @@ export class EodSettlementWorkflowService {
     };
   }
 
+  /** 手动结算：当日 0:00→cutoff 的 open 虚拟币 Outstanding+FeeAccrual 打包结算 + 桥清(成本)，不 reval。 */
+  async runManualCryptoSettlement(operatorId = 'ADMIN', cutoff?: Date): Promise<RunEodSettlementResult> {
+    // Manual settle uses cutoff = now (intraday); EOD uses resolveEodCutoff (start-of-day Dubai). Intentional.
+    const cut = cutoff ?? new Date();
+    const groups = await this.consumer.findOpenCryptoByAsset(cut);
+
+    if (groups.length === 0) {
+      this.logger.log('Manual settlement: no open crypto outstandings — fee pass only');
+      await this.runFeePass(cut);
+      return { batchNo: null, assetCount: 0, settledZero: 0, spawned: 0 };
+    }
+
+    const batch = await this.batchService.createBatch({ cutoffAt: cut, settlementType: 'MANUAL_SETTLE' });
+
+    let settledZero = 0;
+    let spawned = 0;
+
+    for (const group of groups) {
+      const dir = this.batchService.resolveCryptoDirection(group.net);
+
+      if (dir == null) {
+        await this.consumer.lockToBatch(group.outstandingIds, batch.id);
+        await this.consumer.markSettledNettedZero(batch.id, group.assetId);
+        settledZero += 1;
+        continue;
+      }
+
+      const from = await this.systemWallets.resolve(group.assetId, dir.fromRole);
+      const to = await this.systemWallets.resolve(group.assetId, dir.toRole);
+
+      const sourceId = `${batch.id}:${group.assetId}`;
+      const existing = await (this.prisma as any).internalTransaction.findFirst({
+        where: { sourceType: EOD_SOURCE_TYPE, sourceId },
+      });
+
+      const transfer = existing
+        ? existing
+        : await this.transferWorkflow.initiate(
+            {
+              fromRole: dir.fromRole,
+              toRole: dir.toRole,
+              sourceType: EOD_SOURCE_TYPE,
+              sourceId,
+              sourceNo: batch.batchNo,
+              ownerType: 'PLATFORM',
+              ownerId: 'PLATFORM',
+              assetId: group.assetId,
+              amount: dir.amount.toString(),
+              fromWalletId: from.id,
+              toWalletId: to.id,
+              triggerSource: 'MANUAL_SETTLE',
+              settlementBatchId: batch.id,
+              grossInAmount: group.inAmount.toString(),
+              grossOutAmount: group.outAmount.toString(),
+            },
+            operatorId,
+          );
+
+      await this.consumer.lockToTransfer(group.outstandingIds, batch.id, transfer.id);
+      spawned += 1;
+    }
+
+    await this.batchService.recomputeBatch(batch.id);
+    await this.runFeePass(cut);
+    // NO reval — bridge sweep rides the leg CLEAR handler.
+    return { batchNo: batch.batchNo, assetCount: groups.length, settledZero, spawned };
+  }
+
   /**
    * EOD fee pass: settle every open (ACCRUED) crypto fee accrual.
    *

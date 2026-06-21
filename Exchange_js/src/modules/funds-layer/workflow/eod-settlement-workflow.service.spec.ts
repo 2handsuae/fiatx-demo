@@ -25,7 +25,7 @@ describe('EodSettlementWorkflowService', () => {
   };
   let transferWorkflow: { initiate: jest.Mock };
   let systemWallets: { resolve: jest.Mock };
-  let fxEod: { runEodAccounting: jest.Mock };
+  let fxEod: { runEodAccounting: jest.Mock; revalueFxPositions: jest.Mock };
   let feeAccrual: { settleByTransfer: jest.Mock; settle: jest.Mock };
   let prisma: {
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
@@ -80,6 +80,7 @@ describe('EodSettlementWorkflowService', () => {
       runEodAccounting: jest
         .fn()
         .mockResolvedValue({ sweeps: [], revals: [], violations: [] }),
+      revalueFxPositions: jest.fn().mockResolvedValue(undefined),
     };
     feeAccrual = {
       settleByTransfer: jest.fn().mockResolvedValue({ count: 0 }),
@@ -497,6 +498,22 @@ describe('EodSettlementWorkflowService', () => {
 
       expect(consumer.settle).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runManualCryptoSettlement', () => {
+    it('runManualCryptoSettlement: creates MANUAL_SETTLE batch and never revalues', async () => {
+      consumer.findOpenCryptoByAsset.mockResolvedValue([
+        { assetId: 'usdt', net: 100n, inAmount: '100', outAmount: '0', outstandingIds: ['o1'] } as any,
+      ]);
+      batchService.createBatch.mockResolvedValue({ id: 'b1', batchNo: 'SB-1' } as any);
+      batchService.resolveCryptoDirection.mockReturnValue({ fromRole: 'C_MAIN', toRole: 'F_OPS', amount: { toString: () => '100' } } as any);
+      transferWorkflow.initiate.mockResolvedValue({ id: 't1' } as any);
+      const result = await service.runManualCryptoSettlement('ADMIN');
+      expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ settlementType: 'MANUAL_SETTLE' }));
+      expect(fxEod.revalueFxPositions).not.toHaveBeenCalled();
+      expect(fxEod.runEodAccounting).not.toHaveBeenCalled();
+      expect(result).toEqual({ batchNo: 'SB-1', assetCount: 1, settledZero: 0, spawned: 1 });
     });
   });
 });
