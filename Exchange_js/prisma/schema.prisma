@@ -1953,6 +1953,7 @@ model ReconciliationRun {
   startedAt       DateTime @default(now())
   completedAt     DateTime?
   createdAt       DateTime @default(now())
+  demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
   invariantChecks ReconciliationInvariantCheck[]
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
