@@ -134,7 +134,8 @@ export class EodSettlementWorkflowService {
     await this.runFeePass(cut);
 
     // Two-book: bridge sweep + FX reval + invariant checks ride the same EOD run.
-    await this.fxEod.runEodAccounting(batch.batchNo);
+    // EOD marks at EOD; per-leg CLEAR completion re-revals idempotently.
+    await this.fxEod.runReval(batch.batchNo);
 
     return {
       batchNo: batch.batchNo,
@@ -274,16 +275,24 @@ export class EodSettlementWorkflowService {
         await this.batchService.recomputeBatch(transfer.settlementBatchId);
 
         // Two-book: the bridge only becomes sweepable once async CLEARs mark
-        // swaps fully settled — re-run EOD accounting under the same batchNo
-        // (idempotent). Never let an accounting failure break the settlement
-        // closeout that just completed above.
+        // swaps fully settled. CLEAR does cost-basis sweep only (idempotent);
+        // FX revaluation is gated to EOD-kind batches and runs only once the
+        // batch is fully settled. Never let an accounting failure break the
+        // settlement closeout that just completed above.
         try {
           const batch = await (this.prisma as any).settlementBatch.findUnique({
             where: { id: transfer.settlementBatchId },
-            select: { batchNo: true },
+            select: { batchNo: true, settlementType: true },
           });
           if (batch?.batchNo) {
-            await this.fxEod.runEodAccounting(batch.batchNo);
+            if (
+              batch.settlementType === 'EOD' &&
+              (await this.isBatchFullySettled(transfer.settlementBatchId))
+            ) {
+              await this.fxEod.runReval(batch.batchNo);
+            } else {
+              await this.fxEod.runSweepOnly(batch.batchNo);
+            }
           }
         } catch (accountingErr) {
           this.logger.error(
@@ -309,5 +318,13 @@ export class EodSettlementWorkflowService {
         err instanceof Error ? err.stack : undefined,
       );
     }
+  }
+
+  /** All outstandings locked to this batch are SETTLED → batch settlement complete. */
+  private async isBatchFullySettled(batchId: string): Promise<boolean> {
+    const open = await (this.prisma as any).outstanding.count({
+      where: { settlementBatchId: batchId, status: { not: 'SETTLED' } },
+    });
+    return open === 0;
   }
 }

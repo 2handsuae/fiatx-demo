@@ -25,11 +25,17 @@ describe('EodSettlementWorkflowService', () => {
   };
   let transferWorkflow: { initiate: jest.Mock };
   let systemWallets: { resolve: jest.Mock };
-  let fxEod: { runEodAccounting: jest.Mock; revalueFxPositions: jest.Mock };
+  let fxEod: {
+    runEodAccounting: jest.Mock;
+    runSweepOnly: jest.Mock;
+    runReval: jest.Mock;
+    revalueFxPositions: jest.Mock;
+  };
   let feeAccrual: { settleByTransfer: jest.Mock; settle: jest.Mock };
   let prisma: {
     internalTransaction: { findFirst: jest.Mock; findUnique: jest.Mock };
     settlementBatch: { findUnique: jest.Mock };
+    outstanding: { count: jest.Mock };
     feeAccrual: { findMany: jest.Mock };
   };
 
@@ -80,6 +86,12 @@ describe('EodSettlementWorkflowService', () => {
       runEodAccounting: jest
         .fn()
         .mockResolvedValue({ sweeps: [], revals: [], violations: [] }),
+      runSweepOnly: jest
+        .fn()
+        .mockResolvedValue({ sweeps: [], revals: [], violations: [] }),
+      runReval: jest
+        .fn()
+        .mockResolvedValue({ sweeps: [], revals: [], violations: [] }),
       revalueFxPositions: jest.fn().mockResolvedValue(undefined),
     };
     feeAccrual = {
@@ -92,7 +104,12 @@ describe('EodSettlementWorkflowService', () => {
         findUnique: jest.fn(),
       },
       settlementBatch: {
-        findUnique: jest.fn().mockResolvedValue({ batchNo: 'OSB-001' }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ batchNo: 'OSB-001', settlementType: 'EOD' }),
+      },
+      outstanding: {
+        count: jest.fn().mockResolvedValue(0),
       },
       feeAccrual: {
         // Default: no open fee accruals → fee pass is a no-op.
@@ -124,7 +141,8 @@ describe('EodSettlementWorkflowService', () => {
 
       expect(batchService.createBatch).not.toHaveBeenCalled();
       // No batch → no EOD accounting run either.
-      expect(fxEod.runEodAccounting).not.toHaveBeenCalled();
+      expect(fxEod.runReval).not.toHaveBeenCalled();
+      expect(fxEod.runSweepOnly).not.toHaveBeenCalled();
       expect(result).toEqual({
         batchNo: null,
         assetCount: 0,
@@ -182,8 +200,8 @@ describe('EodSettlementWorkflowService', () => {
       expect(consumer.markSettledNettedZero).not.toHaveBeenCalled();
       expect(consumer.lockToBatch).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
-      // Two-book EOD accounting rides the same run under the batchNo.
-      expect(fxEod.runEodAccounting).toHaveBeenCalledWith('OSB-001');
+      // Two-book: EOD path revalues (mark-to-market) under the batchNo.
+      expect(fxEod.runReval).toHaveBeenCalledWith('OSB-001');
       expect(result).toEqual({
         batchNo: 'OSB-001',
         assetCount: 1,
@@ -377,12 +395,13 @@ describe('EodSettlementWorkflowService', () => {
       // EOD principal transfers carry no fee accruals — fee settlement is a fee-transfer concern.
       expect(feeAccrual.settleByTransfer).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
-      // Two-book: re-run EOD accounting after the closeout (same batchNo, idempotent).
+      // Two-book: look up the batch (kind + no) to decide sweep vs reval.
       expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith({
         where: { id: 'b-1' },
-        select: { batchNo: true },
+        select: { batchNo: true, settlementType: true },
       });
-      expect(fxEod.runEodAccounting).toHaveBeenCalledWith('OSB-001');
+      // EOD batch, fully settled (outstanding.count → 0) → revalue.
+      expect(fxEod.runReval).toHaveBeenCalledWith('OSB-001');
       // No settlementBatchItem lookup.
       expect((prisma as any).settlementBatchItem).toBeUndefined();
     });
@@ -393,7 +412,7 @@ describe('EodSettlementWorkflowService', () => {
         sourceType: 'EOD_SETTLEMENT',
         settlementBatchId: 'b-1',
       });
-      fxEod.runEodAccounting.mockRejectedValue(new Error('TB unavailable'));
+      fxEod.runReval.mockRejectedValue(new Error('TB unavailable'));
 
       await expect(
         service.onFundsFlowStatusChanged({
@@ -406,6 +425,33 @@ describe('EodSettlementWorkflowService', () => {
 
       expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
+    });
+
+    it('CLEAR of EOD principal leg: sweep-only, and reval when batch fully settled', async () => {
+      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't1', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b1' });
+      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-1', settlementType: 'EOD' });
+      (prisma as any).outstanding.count.mockResolvedValue(0); // fully settled
+      await service.onFundsFlowStatusChanged({ internalTransferId: 't1', fundsFlowId: 'f1', newStatus: 'CLEAR' } as any);
+      expect(fxEod.runReval).toHaveBeenCalledWith('SB-1');
+      expect(fxEod.runSweepOnly).not.toHaveBeenCalled();
+    });
+
+    it('CLEAR of EOD leg when batch NOT yet fully settled: sweep-only, not reval', async () => {
+      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't3', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b3' });
+      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-3', settlementType: 'EOD' });
+      (prisma as any).outstanding.count.mockResolvedValue(1); // one leg still LOCKED → not fully settled
+      await service.onFundsFlowStatusChanged({ internalTransferId: 't3', fundsFlowId: 'f3', newStatus: 'CLEAR' } as any);
+      expect(fxEod.runSweepOnly).toHaveBeenCalledWith('SB-3');
+      expect(fxEod.runReval).not.toHaveBeenCalled();
+    });
+
+    it('CLEAR of MANUAL_SETTLE principal leg: sweep-only, never reval', async () => {
+      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't2', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b2' });
+      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-2', settlementType: 'MANUAL_SETTLE' });
+      (prisma as any).outstanding.count.mockResolvedValue(0);
+      await service.onFundsFlowStatusChanged({ internalTransferId: 't2', fundsFlowId: 'f2', newStatus: 'CLEAR' } as any);
+      expect(fxEod.runSweepOnly).toHaveBeenCalledWith('SB-2');
+      expect(fxEod.runReval).not.toHaveBeenCalled();
     });
 
     it('CLEAR for a SWAP_FEE_SETTLEMENT transfer: settles fee accruals, NOT outstandings', async () => {

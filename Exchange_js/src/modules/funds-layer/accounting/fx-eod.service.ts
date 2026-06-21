@@ -71,6 +71,43 @@ export class FxEodService {
     return report;
   }
 
+  /** sweep-only (settlement-triggered path): cost-basis bridge sweep + invariants, NO reval. Serialized via runChain. */
+  async runSweepOnly(batchNo: string): Promise<EodAccountingReport> {
+    const run = this.runChain.then(
+      () => this.doSweepOnly(batchNo),
+      () => this.doSweepOnly(batchNo),
+    );
+    this.runChain = run.catch(() => {});
+    return run;
+  }
+
+  private async doSweepOnly(batchNo: string): Promise<EodAccountingReport> {
+    const report: EodAccountingReport = { sweeps: [], revals: [], violations: [] };
+    await this.sweepBridges(batchNo, report);
+    await this.checkInvariants(report);
+    this.logger.log(`Sweep-only ${batchNo}: ${JSON.stringify(report)}`);
+    return report;
+  }
+
+  /** reval (EOD-only): bridge sweep (catch stragglers) + mark-to-market + invariants. Serialized via runChain. */
+  async runReval(batchNo: string): Promise<EodAccountingReport> {
+    const run = this.runChain.then(
+      () => this.doReval(batchNo),
+      () => this.doReval(batchNo),
+    );
+    this.runChain = run.catch(() => {});
+    return run;
+  }
+
+  private async doReval(batchNo: string): Promise<EodAccountingReport> {
+    const report: EodAccountingReport = { sweeps: [], revals: [], violations: [] };
+    await this.sweepBridges(batchNo, report);
+    await this.revalueFxPositions(batchNo, report);
+    await this.checkInvariants(report);
+    this.logger.log(`Reval ${batchNo}: ${JSON.stringify(report)}`);
+    return report;
+  }
+
   /** 清桥:每币种 sweep = 桥净额 − open swap 桥贡献;转入 FX_POSITION。 */
   async sweepBridges(batchNo: string, report: EodAccountingReport): Promise<void> {
     const assets = await (this.prisma as any).asset.findMany({
