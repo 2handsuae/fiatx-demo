@@ -74,6 +74,7 @@
     "demo:swap": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" TB_ADDRESS=127.0.0.1:3503 ts-node -r tsconfig-paths/register scripts/demo-swap.ts",
     "demo:withdraw": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" TB_ADDRESS=127.0.0.1:3503 ts-node -r tsconfig-paths/register scripts/demo-withdraw.ts",
     "demo:all": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" TB_ADDRESS=127.0.0.1:3503 ts-node -r tsconfig-paths/register scripts/demo-all.ts",
+    "verify:manual-settle": "DATABASE_URL=\"file:/tmp/exchange_js_branch/dev.db\" TB_ADDRESS=127.0.0.1:3503 ts-node -r tsconfig-paths/register scripts/verify-manual-settle.ts",
     "prestart:debug": "npm run prisma:generate",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
