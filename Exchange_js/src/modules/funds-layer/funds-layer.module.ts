@@ -11,14 +11,12 @@ import { FundTransferWorkflowService } from './workflow/fund-transfer-workflow.s
 import { DepositAggregationWorkflowService } from './workflow/deposit-aggregation-workflow.service';
 import { DepositAggregationSweepService } from './sweep/deposit-aggregation-sweep.service';
 import { EodSettlementSweepService } from './sweep/eod-settlement-sweep.service';
-import { FeeCollectionSweepService } from './sweep/fee-collection-sweep.service';
 import { SystemWalletResolver } from './domain/system-wallet-resolver.service';
 import { SettlementBatchService } from './domain/settlement-batch.service';
 import { OutstandingConsumerService } from './domain/outstanding-consumer.service';
 import { DepositAggregationSourceService } from './domain/deposit-aggregation-source.service';
 import { FeeAccrualService } from './domain/fee-accrual.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
-import { FeeCollectionWorkflowService } from './workflow/fee-collection-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
 import { FiatFeeCollectionWorkflowService } from './workflow/fiat-fee-collection-workflow.service';
 import { FeeAccrualListenerService } from './workflow/fee-accrual-listener.service';
@@ -72,8 +70,6 @@ import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
     FeeAccrualService,
     EodSettlementWorkflowService,
     EodSettlementSweepService,
-    FeeCollectionWorkflowService,
-    FeeCollectionSweepService,
     FiatSettlementWorkflowService,
     FiatFeeCollectionWorkflowService,
     FeeAccrualListenerService,

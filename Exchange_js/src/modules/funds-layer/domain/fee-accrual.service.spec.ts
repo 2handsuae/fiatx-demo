@@ -207,8 +207,8 @@ describe('FeeAccrualService.settle', () => {
     const fundsFlow: any = { createLeg: jest.fn().mockResolvedValue({ id: 'leg1' }) };
     const systemWallets: any = { resolve: jest.fn().mockResolvedValue({ id: 'w' }), resolveCustomer: jest.fn().mockResolvedValue({ id: 'wv' }) };
     const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
-    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
-    expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ category: 'SWAP_FEE', settlementType: 'EOD' }));
+    await svc.settle(accruals, 'SWAP_FEE', 'CRYPTO_SWAP', prisma);
+    expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ category: 'SWAP_FEE', settlementType: 'CRYPTO_SWAP' }));
     expect(transfers.createTransfer).toHaveBeenCalledTimes(1);
     const t = transfers.createTransfer.mock.calls[0][0];
     expect(t.path).toBe('CRYPTO_SWAP_FEE_COLLECT');
@@ -256,7 +256,7 @@ describe('FeeAccrualService.settle', () => {
     const mockAudit: any = { recordSystem: jest.fn((args: any) => { auditCalls.push(args); return Promise.resolve(); }) };
     const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, mockAudit);
 
-    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
+    await svc.settle(accruals, 'SWAP_FEE', 'CRYPTO_SWAP', prisma);
 
     const lockedCalls = auditCalls.filter((a: any) => a.action === 'LOCKED' && a.entityType === 'FEE_ACCRUAL');
     expect(lockedCalls).toHaveLength(2);
@@ -290,7 +290,7 @@ describe('FeeAccrualService.settle', () => {
     };
     const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
 
-    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
+    await svc.settle(accruals, 'SWAP_FEE', 'CRYPTO_SWAP', prisma);
 
     expect(recomputeBatch).toHaveBeenCalledTimes(1);
     expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);
@@ -322,7 +322,7 @@ describe('FeeAccrualService.settle', () => {
     };
     const svc = new FeeAccrualService(prisma, transfers, fundsFlow, systemWallets, batchService, { recordSystem: jest.fn() } as any);
 
-    await svc.settle(accruals, 'SWAP_FEE', 'EOD', prisma);
+    await svc.settle(accruals, 'SWAP_FEE', 'CRYPTO_SWAP', prisma);
 
     expect(recomputeBatch).toHaveBeenCalledTimes(2);
     expect(recomputeBatch).toHaveBeenCalledWith('b1', prisma);

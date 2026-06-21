@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
+import { SETTLEMENT_TYPES, SettlementType } from '../constants/settlement-type.constant';
 
 /**
  * V7 admin query DTO for the funds-layer settlement-batch monitor.
@@ -24,10 +25,10 @@ export class SettlementQueryDto {
   @IsString()
   status?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: SETTLEMENT_TYPES })
   @IsOptional()
-  @IsString()
-  settlementType?: string;
+  @IsIn(SETTLEMENT_TYPES)
+  settlementType?: SettlementType;
 
   @ApiPropertyOptional()
   @IsOptional()

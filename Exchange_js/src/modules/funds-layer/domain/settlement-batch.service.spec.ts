@@ -43,26 +43,26 @@ describe('SettlementBatchService', () => {
     jest.clearAllMocks();
   });
 
-  it('createBatch sets batchNo (OSB prefix), settlementType=EOD, status=CREATED', async () => {
+  it('createBatch sets batchNo (OSB prefix), defaults settlementType=CRYPTO_PRINCIPAL, status=CREATED', async () => {
     const cutoffAt = new Date('2026-06-03T00:00:00.000Z');
     const created = await service.createBatch({ cutoffAt, requestId: 'req-1' });
 
     expect(created.batchNo).toMatch(/^OSB/);
-    expect(created.settlementType).toBe('EOD');
+    expect(created.settlementType).toBe('CRYPTO_PRINCIPAL');
     expect(created.status).toBe('CREATED');
     expect(created.cutoffAt).toBe(cutoffAt);
     expect(created.requestId).toBe('req-1');
     expect(prisma.settlementBatch.create).toHaveBeenCalledTimes(1);
   });
 
-  it('createBatch honors an explicit settlementType (FEE_COLLECT)', async () => {
+  it('createBatch honors an explicit settlementType (CRYPTO_SWAP)', async () => {
     const cutoffAt = new Date('2026-06-03T00:00:00.000Z');
     const created = await service.createBatch({
       cutoffAt,
-      settlementType: 'FEE_COLLECT',
+      settlementType: 'CRYPTO_SWAP',
     });
 
-    expect(created.settlementType).toBe('FEE_COLLECT');
+    expect(created.settlementType).toBe('CRYPTO_SWAP');
   });
 
   it('createBatch persists an explicit category (SWAP_FEE)', async () => {

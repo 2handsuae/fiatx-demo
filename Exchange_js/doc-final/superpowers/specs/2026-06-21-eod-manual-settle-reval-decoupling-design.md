@@ -40,8 +40,10 @@
 `onFundsFlowStatusChanged`（:218）的 `runEodAccounting(batchNo)` → 改为 **`sweepBridges()` + `checkInvariants()`**（去掉 reval）。这样无论手动批次还是 EOD 批次，结算腿一 CLEAR 就按成本扫桥，**永不重估**。
 
 ### 3.2 重估提升为 EOD 专属、按批次完成触发
-- `SettlementBatch` 增加 `kind`（`EOD` | `MANUAL_SETTLE`；或复用已有 `settlementType`）。
-- CLEAR 处理器在「该批次最后一条腿 CLEAR、批次进入全 SETTLED」且 `kind === 'EOD'` 时，**额外调一次 `revalueFxPositions()`**（整仓重标，幂等覆盖）。`MANUAL_SETTLE` 批次永不触发。
+- **重估门控键为 `transfer.triggerSource === 'EOD'`（不是 `batch.settlementType`）。**
+  - 原因：`settlementType` 已收口为「rail × kind」标签（见 §11），EOD 与手动结算的本金批次**共用 `CRYPTO_PRINCIPAL`**，无法再区分触发来源。唯一可靠区分是结算腿（internalTransaction）的 `triggerSource`：EOD 路径写 `'EOD'`，手动路径写 `'MANUAL_SETTLE'`，CLEAR 处理器里 `transfer` 已在作用域内。
+  - `batchNo` 仍从 `settlementBatch.findUnique` 取（供 `runReval`/`runSweepOnly` 调用），其 `select` 去掉 `settlementType`。
+- CLEAR 处理器在「该批次最后一条腿 CLEAR、批次进入全 SETTLED」且 `transfer.triggerSource === 'EOD'` 时，**额外调一次 `revalueFxPositions()`**（整仓重标，幂等覆盖）。`triggerSource==='MANUAL_SETTLE'` 永不触发。
 - 这样 EOD 的重估发生在「当日已结算头寸全部扫进 FX_POSITION 之后」，是真正的日终一次性盯市；手动批次只留成本头寸。
 - `runEodSettlement()`（:137）的 `runEodAccounting` → 改为 `sweepBridges()`（兜底扫既有已结算头寸）；reval 不在此处（移到批次完成）。
 
@@ -121,3 +123,27 @@
 ## 10. 与 demo 的关系
 
 demo 交易数据层当前用「不跑 EOD」让虚拟币挂起。本功能落地后，demo 改为：跑到挂起态 → 需要展示虚拟币已结算时点「结算+桥清」按钮（成本、不重估）；FX 重估留给真正的 EOD 演示。比脚本里硬跳过 EOD 更贴近真实操作。
+
+---
+
+## 11. settlementType 收口为 6 值枚举（防呆）+ FEE_COLLECT 退役（2026-06-21 落地）
+
+### 11.1 6 值枚举
+`SettlementBatch.settlementType` 原为 free-form string（曾有 `'EOD'`/`'MANUAL_SETTLE'`/`'FEE_COLLECT'`/`'FIAT_SWAP'` 等混用，导致过一次 mislabel bug）。现收口为恰好 6 值的 TS 字面量联合：
+
+| 值 | 含义 |
+|---|---|
+| `FIAT_SWAP` | 法币 swap 费批次 |
+| `FIAT_WITHDRAW` | 法币提现费批次 |
+| `FIAT_PRINCIPAL` | 法币本金结算批次（原 `'FIAT_SWAP'` 误用，实为本金） |
+| `CRYPTO_SWAP` | 虚拟币 swap 费批次 |
+| `CRYPTO_WITHDRAW` | 虚拟币提现费批次 |
+| `CRYPTO_PRINCIPAL` | 虚拟币本金结算批次（原 EOD=`'EOD'` / 手动=`'MANUAL_SETTLE'` 统一为此值） |
+
+- scheme = `{RAIL}_{KIND}`，RAIL ∈ FIAT/CRYPTO，KIND ∈ swap-fee / withdraw-fee / principal（本金）。
+- 定义于 `src/modules/funds-layer/constants/settlement-type.constant.ts`（`type SettlementType` + `SETTLEMENT_TYPES` 常量）。
+- `CreateBatchInput.settlementType?` 与 `FeeAccrualService.settle(...)` 的 `settlementType` 参数均改为 `SettlementType` 类型——任何 stray 字面量在 `tsc` 即报错（防呆）。`createBatch` 默认值 `'EOD'` → `'CRYPTO_PRINCIPAL'`。
+- **关键后果**：EOD 与手动虚拟币本金批次共用 `CRYPTO_PRINCIPAL`，故 `settlementType` 不再编码触发来源；重估区分改由 `transfer.triggerSource` 承担（见 §3.2）。
+
+### 11.2 FEE_COLLECT 工作流退役
+旧 `FeeCollectionWorkflowService`（建 `settlementType:'FEE_COLLECT'` 批次）已被 EOD fee pass 取代，且其唯一注入方 `FeeCollectionSweepService` 早已去 `@Cron`、无任何 live 调用方（无端点/无 cron/无其他 service 调用）。本轮整簇退役：删除 `workflow/fee-collection-workflow.service.ts`、`sweep/fee-collection-sweep.service.ts` 及两者 spec；移除 module 注册与 `domain-events.constants.ts` 订阅者文档项。虚拟币 fee 归集完全走 EOD fee pass（`runFeePass` → `CRYPTO_SWAP`/`CRYPTO_WITHDRAW`）。

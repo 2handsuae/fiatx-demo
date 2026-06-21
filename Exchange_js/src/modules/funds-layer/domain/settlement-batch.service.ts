@@ -13,13 +13,14 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { SettlementType } from '../constants/settlement-type.constant';
 
 type TxClient = Prisma.TransactionClient;
 
 export interface CreateBatchInput {
   cutoffAt: Date;
   requestId?: string;
-  settlementType?: string;
+  settlementType?: SettlementType;
   category?: string;
 }
 
@@ -27,7 +28,7 @@ export interface SettlementBatchAdminQuery {
   skip?: number;
   take?: number;
   status?: string;
-  settlementType?: string;
+  settlementType?: SettlementType;
   batchNo?: string;
   startDate?: string;
   endDate?: string;
@@ -79,7 +80,7 @@ export class SettlementBatchService {
           return await (client as any).settlementBatch.create({
             data: {
               batchNo,
-              settlementType: input.settlementType ?? 'EOD',
+              settlementType: input.settlementType ?? 'CRYPTO_PRINCIPAL',
               category: input.category ?? 'PRINCIPAL',
               status: 'CREATED',
               cutoffAt: input.cutoffAt,

@@ -104,9 +104,7 @@ describe('EodSettlementWorkflowService', () => {
         findUnique: jest.fn(),
       },
       settlementBatch: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({ batchNo: 'OSB-001', settlementType: 'EOD' }),
+        findUnique: jest.fn().mockResolvedValue({ batchNo: 'OSB-001' }),
       },
       outstanding: {
         count: jest.fn().mockResolvedValue(0),
@@ -332,7 +330,10 @@ describe('EodSettlementWorkflowService', () => {
       await service.runEodSettlement('TEST', cutoff);
 
       expect(consumer.findOpenCryptoByAsset).toHaveBeenCalledWith(cutoff);
-      expect(batchService.createBatch).toHaveBeenCalledWith({ cutoffAt: cutoff });
+      expect(batchService.createBatch).toHaveBeenCalledWith({
+        cutoffAt: cutoff,
+        settlementType: 'CRYPTO_PRINCIPAL',
+      });
     });
 
     it('windows all three fee-pass queries by createdAt < cutoff', async () => {
@@ -383,6 +384,7 @@ describe('EodSettlementWorkflowService', () => {
         id: 't-eod',
         sourceType: 'EOD_SETTLEMENT',
         settlementBatchId: 'b-1',
+        triggerSource: 'EOD',
       });
 
       await service.onFundsFlowStatusChanged({
@@ -396,12 +398,13 @@ describe('EodSettlementWorkflowService', () => {
       // EOD principal transfers carry no fee accruals — fee settlement is a fee-transfer concern.
       expect(feeAccrual.settleByTransfer).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
-      // Two-book: look up the batch (kind + no) to decide sweep vs reval.
+      // Two-book: look up the batch (batchNo only) for the reval/sweep call; the
+      // reval-vs-sweep decision keys on the transfer's triggerSource, not settlementType.
       expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith({
         where: { id: 'b-1' },
-        select: { batchNo: true, settlementType: true },
+        select: { batchNo: true },
       });
-      // EOD batch, fully settled (outstanding.count → 0) → revalue.
+      // EOD-triggered, fully settled (outstanding.count → 0) → revalue.
       expect(fxEod.runReval).toHaveBeenCalledWith('OSB-001');
       // No settlementBatchItem lookup.
       expect((prisma as any).settlementBatchItem).toBeUndefined();
@@ -412,6 +415,7 @@ describe('EodSettlementWorkflowService', () => {
         id: 't-eod',
         sourceType: 'EOD_SETTLEMENT',
         settlementBatchId: 'b-1',
+        triggerSource: 'EOD',
       });
       fxEod.runReval.mockRejectedValue(new Error('TB unavailable'));
 
@@ -428,27 +432,28 @@ describe('EodSettlementWorkflowService', () => {
       expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
     });
 
-    it('CLEAR of EOD principal leg: sweep-only, and reval when batch fully settled', async () => {
-      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't1', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b1' });
-      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-1', settlementType: 'EOD' });
+    it('CLEAR of EOD-triggered principal leg: reval when batch fully settled', async () => {
+      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't1', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b1', triggerSource: 'EOD' });
+      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-1' });
       (prisma as any).outstanding.count.mockResolvedValue(0); // fully settled
       await service.onFundsFlowStatusChanged({ internalTransferId: 't1', fundsFlowId: 'f1', newStatus: 'CLEAR' } as any);
       expect(fxEod.runReval).toHaveBeenCalledWith('SB-1');
       expect(fxEod.runSweepOnly).not.toHaveBeenCalled();
     });
 
-    it('CLEAR of EOD leg when batch NOT yet fully settled: sweep-only, not reval', async () => {
-      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't3', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b3' });
-      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-3', settlementType: 'EOD' });
+    it('CLEAR of EOD-triggered leg when batch NOT yet fully settled: sweep-only, not reval', async () => {
+      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't3', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b3', triggerSource: 'EOD' });
+      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-3' });
       (prisma as any).outstanding.count.mockResolvedValue(1); // one leg still LOCKED → not fully settled
       await service.onFundsFlowStatusChanged({ internalTransferId: 't3', fundsFlowId: 'f3', newStatus: 'CLEAR' } as any);
       expect(fxEod.runSweepOnly).toHaveBeenCalledWith('SB-3');
       expect(fxEod.runReval).not.toHaveBeenCalled();
     });
 
-    it('CLEAR of MANUAL_SETTLE principal leg: sweep-only, never reval', async () => {
-      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't2', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b2' });
-      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-2', settlementType: 'MANUAL_SETTLE' });
+    it('CLEAR of MANUAL_SETTLE-triggered principal leg: sweep-only, never reval (even fully settled)', async () => {
+      // Same settlementType (CRYPTO_PRINCIPAL) as EOD now — only triggerSource distinguishes.
+      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't2', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b2', triggerSource: 'MANUAL_SETTLE' });
+      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-2' });
       (prisma as any).outstanding.count.mockResolvedValue(0);
       await service.onFundsFlowStatusChanged({ internalTransferId: 't2', fundsFlowId: 'f2', newStatus: 'CLEAR' } as any);
       expect(fxEod.runSweepOnly).toHaveBeenCalledWith('SB-2');
@@ -549,7 +554,7 @@ describe('EodSettlementWorkflowService', () => {
   });
 
   describe('runManualCryptoSettlement', () => {
-    it('runManualCryptoSettlement: creates MANUAL_SETTLE batch and never revalues', async () => {
+    it('runManualCryptoSettlement: creates CRYPTO_PRINCIPAL batch (manual trigger) and never revalues', async () => {
       consumer.findOpenCryptoByAsset.mockResolvedValue([
         { assetId: 'usdt', net: 100n, inAmount: '100', outAmount: '0', outstandingIds: ['o1'] } as any,
       ]);
@@ -557,7 +562,12 @@ describe('EodSettlementWorkflowService', () => {
       batchService.resolveCryptoDirection.mockReturnValue({ fromRole: 'C_MAIN', toRole: 'F_OPS', amount: { toString: () => '100' } } as any);
       transferWorkflow.initiate.mockResolvedValue({ id: 't1' } as any);
       const result = await service.runManualCryptoSettlement('ADMIN');
-      expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ settlementType: 'MANUAL_SETTLE' }));
+      expect(batchService.createBatch).toHaveBeenCalledWith(expect.objectContaining({ settlementType: 'CRYPTO_PRINCIPAL' }));
+      // Manual trigger → transfer.triggerSource MANUAL_SETTLE → never reval (gated in the CLEAR handler).
+      expect(transferWorkflow.initiate).toHaveBeenCalledWith(
+        expect.objectContaining({ triggerSource: 'MANUAL_SETTLE' }),
+        'ADMIN',
+      );
       expect(fxEod.revalueFxPositions).not.toHaveBeenCalled();
       expect(fxEod.runEodAccounting).not.toHaveBeenCalled();
       expect(fxEod.runReval).not.toHaveBeenCalled();

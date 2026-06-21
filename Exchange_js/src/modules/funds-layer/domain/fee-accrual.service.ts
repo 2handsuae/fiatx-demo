@@ -10,6 +10,7 @@ import {
   TransferPath,
   TRANSFER_PATH_WHITELIST,
 } from '../constants/internal-transfer-paths.constant';
+import { SettlementType } from '../constants/settlement-type.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -185,7 +186,7 @@ export class FeeAccrualService {
   async settle(
     accruals: any[],
     category: string,
-    settlementType: string,
+    settlementType: SettlementType,
     tx: Tx,
   ): Promise<void> {
     const groups = new Map<string, any[]>();

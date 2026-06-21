@@ -54,7 +54,7 @@ export class FiatSettlementWorkflowService {
 
       const batch = await this.batchService.createBatch({
         cutoffAt: new Date(),
-        settlementType: 'FIAT_SWAP',
+        settlementType: 'FIAT_PRINCIPAL',
       });
 
       for (const o of outstandings) {

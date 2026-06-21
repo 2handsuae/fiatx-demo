@@ -9,6 +9,7 @@ import { InternalTransferWorkflowService } from './internal-transfer-workflow.se
 import { FxEodService } from '../accounting/fx-eod.service';
 import { FeeAccrualService } from '../domain/fee-accrual.service';
 import { resolveEodCutoff } from './eod-cutoff.util';
+import { SETTLEMENT_TRIGGER } from '../constants/settlement-type.constant';
 
 const EOD_SOURCE_TYPE = 'EOD_SETTLEMENT';
 const SWAP_FEE_SOURCE_TYPE = 'SWAP_FEE_SETTLEMENT';
@@ -72,7 +73,10 @@ export class EodSettlementWorkflowService {
       return { batchNo: null, assetCount: 0, settledZero: 0, spawned: 0 };
     }
 
-    const batch = await this.batchService.createBatch({ cutoffAt: cut });
+    const batch = await this.batchService.createBatch({
+      cutoffAt: cut,
+      settlementType: 'CRYPTO_PRINCIPAL',
+    });
 
     let settledZero = 0;
     let spawned = 0;
@@ -111,7 +115,7 @@ export class EodSettlementWorkflowService {
               amount: dir.amount.toString(),
               fromWalletId: from.id,
               toWalletId: to.id,
-              triggerSource: 'EOD',
+              triggerSource: SETTLEMENT_TRIGGER.EOD,
               settlementBatchId: batch.id,
               grossInAmount: group.inAmount.toString(),
               grossOutAmount: group.outAmount.toString(),
@@ -157,7 +161,7 @@ export class EodSettlementWorkflowService {
       return { batchNo: null, assetCount: 0, settledZero: 0, spawned: 0 };
     }
 
-    const batch = await this.batchService.createBatch({ cutoffAt: cut, settlementType: 'MANUAL_SETTLE' });
+    const batch = await this.batchService.createBatch({ cutoffAt: cut, settlementType: 'CRYPTO_PRINCIPAL' });
 
     let settledZero = 0;
     let spawned = 0;
@@ -195,7 +199,7 @@ export class EodSettlementWorkflowService {
               amount: dir.amount.toString(),
               fromWalletId: from.id,
               toWalletId: to.id,
-              triggerSource: 'MANUAL_SETTLE',
+              triggerSource: SETTLEMENT_TRIGGER.MANUAL,
               settlementBatchId: batch.id,
               grossInAmount: group.inAmount.toString(),
               grossOutAmount: group.outAmount.toString(),
@@ -239,8 +243,8 @@ export class EodSettlementWorkflowService {
         where: { assetId, category: 'SWAP_FEE', status: 'ACCRUED', createdAt: { lt: cutoff } },
       });
       if (swapFees.length) {
-        // settlementType labels the fee batch by rail+instrument (mirrors fiat's
-        // 'FIAT_SWAP'); 'EOD' is reserved for the principal EOD settlement batch.
+        // settlementType labels the fee batch by rail+kind (CRYPTO_SWAP); the
+        // principal crypto settlement batch is CRYPTO_PRINCIPAL — distinct value.
         await this.feeAccrual.settle(swapFees, 'SWAP_FEE', 'CRYPTO_SWAP', this.prisma);
       }
 
@@ -278,17 +282,23 @@ export class EodSettlementWorkflowService {
 
         // Two-book: the bridge only becomes sweepable once async CLEARs mark
         // swaps fully settled. CLEAR does cost-basis sweep only (idempotent);
-        // FX revaluation is gated to EOD-kind batches and runs only once the
+        // FX revaluation is gated to EOD-triggered runs and runs only once the
         // batch is fully settled. Never let an accounting failure break the
         // settlement closeout that just completed above.
+        //
+        // The gate keys on the TRANSFER's triggerSource, not the batch's
+        // settlementType: EOD and manual crypto-principal batches now share
+        // settlementType='CRYPTO_PRINCIPAL', so only triggerSource ('EOD' vs
+        // 'MANUAL_SETTLE') reliably distinguishes reval (EOD) from sweep-only
+        // (manual). batchNo is still fetched (for the runReval/runSweepOnly call).
         try {
           const batch = await (this.prisma as any).settlementBatch.findUnique({
             where: { id: transfer.settlementBatchId },
-            select: { batchNo: true, settlementType: true },
+            select: { batchNo: true },
           });
           if (batch?.batchNo) {
             if (
-              batch.settlementType === 'EOD' &&
+              transfer.triggerSource === SETTLEMENT_TRIGGER.EOD &&
               (await this.isBatchFullySettled(transfer.settlementBatchId))
             ) {
               await this.fxEod.runReval(batch.batchNo);
