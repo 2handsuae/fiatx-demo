@@ -1,7 +1,7 @@
 # Product Roadmap
 
-Last Updated: 2026-06-17
-格式：每个版本交付一组 workflow，✅ = 已交付验收，[ ] = 待实现。
+Last Updated: 2026-06-21
+格式：每个版本交付一组 workflow，✅ = 已交付验收，[~] = 部分交付，[ ] = 待实现。
 
 ---
 
@@ -415,21 +415,37 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 ## V8 — 对账流程
 
 > 客户资产对账：内部 TB 记录与外部（银行 / HexTrust 托管 / 链上）数据的核对与差异处置。设计基于两个前提：① Gas 费用全部由公司钱包承担，客户资产不因 Gas 产生差异；② TB 双式记账结构保证客户资产与负债内部持平，无需内部一致性检查。对账因此退化为单一外部核对。
+>
+> **模型重设计（2026-06-20）**：上述"退化为单一外部核对"经一轮 Socratic 推导重构为 **credit-net 五公式**（贷正借负、同币种 Σ=0）——式1 总账恒等 / 式2 客户块↔OPEN Outstanding / 式3 桥块↔未清桥 swap / 式4 客户账外 / 式5 公司账外（式1-3 账内、式4-5 账外扣在途）。取代早先 I1-I5；全程按 **币种 × 客户/公司(book)** 分层。外部接入归一化为两表 `external_balances`(头) + `external_statement_lines`(行)。详见 `superpowers/specs/2026-06-20-reconciliation-redesign-design.md` + `2026-06-20-external-balances-pages-and-statement-retire.md`。
 
 **前置：** V4 / V5 / V6 / V7（依赖完整交易与持仓数据）
 
 **Workflow 清单：**
 
 核心工作流（MVP）：
-- [ ] 每日法币对账工作流（Cron EOD 后触发 → 对比 Client Money Account TB 余额与银行对账单余额，按法币币种独立核对 → 自动识别已知时序差异：已记入 TB 但银行尚未到账的出金指令、银行已到账但 Payin 匹配尚未完成的入金 → 净差异 > 0 触发差异处理工作流）
-- [ ] 每日虚拟币对账工作流（Cron EOD 后触发 → 按币种核对：Sum(customer_[CCY] TB 账户) + KYT_pending余额 + outbound_in_transit余额 = HexTrust 客户托管钱包余额 → 自动从系统状态查出已知时序差异：KYT / Travel Rule 审查中尚未记入客户 TB 的链上到账、客户 TB 已扣除但仍在 Client Outbound Wallet 的出金 → 净差异 > 0 触发差异处理工作流）
-- [ ] 差异处理工作流（触发：任一对账工作流净差异 > 0 → 创建 ReconciliationCaseNo → 自动拉取当日流水逐笔比对定位根因 → 分配 Finance 人工核实 → 补录 / 联系 HexTrust / 联系银行 → RESOLVED + 完整审计记录；24h 内升级 MLRO + CFO，符合 VARA 差异上报要求）
-- [ ] **偿付义务工作流（从 V7 移入，决策 2026-06-03）** — 统一拥有 `ReimbursementObligation` 实体 + 独立状态机（OPEN→PENDING_APPROVAL→APPROVED→REIMBURSED/REJECTED）+ 审批门（CFO/MLRO）。**两类触发源共用同一出口**：① 对账差异处理判定公司确实欠/被欠（主要来源，detective）；② event-driven 失败（提现终态失败退回、法币银行 bounce 追偿，known 子集）。结清走 funds-layer 通用内部转账（资金侧）+ TB 记账（客户债权侧 CLIENT_PAYABLE 补回）。表已在 V7 Phase 0 解耦预备。
+- [~] 每日法币对账工作流（Cron EOD 后触发 → 对比 Client Money Account TB 余额与银行对账单余额，按法币币种独立核对 → 自动识别已知时序差异：已记入 TB 但银行尚未到账的出金指令、银行已到账但 Payin 匹配尚未完成的入金 → 净差异 > 0 触发差异处理工作流） — 🔶 **自动检测已交付**（credit-net 五公式 + 四桶匹配，按币种×客户/公司分层，见下「已交付实现」）；止于 Case OPEN，平账/人工核实 deferred
+- [~] 每日虚拟币对账工作流（Cron EOD 后触发 → 按币种核对：Sum(customer_[CCY] TB 账户) + KYT_pending余额 + outbound_in_transit余额 = HexTrust 客户托管钱包余额 → 自动从系统状态查出已知时序差异：KYT / Travel Rule 审查中尚未记入客户 TB 的链上到账、客户 TB 已扣除但仍在 Client Outbound Wallet 的出金 → 净差异 > 0 触发差异处理工作流） — 🔶 **自动检测已交付**（同上，crypto 侧式4/式5）；止于 Case OPEN
+- [~] 差异处理工作流（触发：任一对账工作流净差异 > 0 → 创建 ReconciliationCaseNo → 自动拉取当日流水逐笔比对定位根因 → 分配 Finance 人工核实 → 补录 / 联系 HexTrust / 联系银行 → RESOLVED + 完整审计记录；24h 内升级 MLRO + CFO，符合 VARA 差异上报要求） — 🔶 **Case + 四桶 line item 下钻已交付**（admin 可视，case 详情 book-aware）；Finance 人工核实/补录/RESOLVED + SLA 升级 deferred
+- [ ] **偿付义务工作流（从 V7 移入，决策 2026-06-03）** — 统一拥有 `ReimbursementObligation` 实体 + 独立状态机（OPEN→PENDING_APPROVAL→APPROVED→REIMBURSED/REJECTED）+ 审批门（CFO/MLRO）。**两类触发源共用同一出口**：① 对账差异处理判定公司确实欠/被欠（主要来源，detective）；② event-driven 失败（提现终态失败退回、法币银行 bounce 追偿，known 子集）。结清走 funds-layer 通用内部转账（资金侧）+ TB 记账（客户债权侧 CLIENT_PAYABLE 补回）。⚠️ **redesign 中 `ReimbursementObligation` 表已 drop、仅留 hook（TODO 复活）**——deferred。
+
+**已交付实现（2026-06-20/21, branch；模型重设计落地，领先 main 未合）：**
+
+- [x] **credit-net 五公式引擎** — `credit-net.service`(÷10^dec 缩放) + `formula-checker`(5 纯函数) + `subledger-inputs`；按币种×客户/公司(book) 分层；jest 绿 ✅ 2026-06-20
+- [x] **假对账单生成器（`recon:gen`）** — 以真实 payin/payout/internal_fund 为基底合成 Zand(AED)+HexTrust(USDT) 外部数据，写归一化两表 `external_balances`(头) + `external_statement_lines`(行)；FIRM 枚举真实 `F_*` 钱包补齐、closing 锚 `FIRM_TREASURY` TB（式5 干净对平）✅ 2026-06-20
+- [x] **内部腿投影 + 四桶匹配** — `leg-projection`(terminal-only, 法币滚 CMA) + `match-engine-v2`(匹配键不含金额 + VIBAN 回退 + 池化等额) + `anomaly-classifier`(PASS / AMOUNT_MISMATCH / ORPHAN_INTERNAL / ORPHAN_EXTERNAL) ✅ 2026-06-20
+- [x] **Run / Case admin 页** — 列表+详情按币种×客户/公司分层；run 详情**健康记分牌**（verdict 条 + scope×币种矩阵 + 点格下钻→case）；case 详情 book-aware（式4/式5 off-book + 桶下钻）✅ 2026-06-20
+- [x] **External Balances 父子页（外部数据 #4/#5）** — 一页 list 按 book 分区 + 每区 closing 小计（=式4/式5 外部侧）；detail = roll-forward 自检（opening+Σnet=closing）+ 流水行表（VIBAN sub-account）+ raw 行内展开；路由用 statementId 业务键 ✅ 2026-06-21
+- [x] **旧 External Statements 全退役** — drop `reconciliation_external_statements` blob 表（migration）+ 连带删死页 / endpoint / file adapter / 旧 demo；原始报文改走 `line.raw` + statementId + 审计 ✅ 2026-06-21
 
 推后交付：
 - [ ] 季度 Proof of Reserves 工作流（从 HexTrust 获取所有客户托管钱包地址 → 链上快照验证余额 → 生成 Sum(client liabilities) ≤ Reserve Assets 证明，按币种出具 → 提交 VARA 季度报告；早期可手动执行，进阶后自动化）
 - [ ] 对账报告导出工作流（按日期范围生成对账摘要：余额差异、流水匹配率、未解决 Case 数；VARA 审计 / 半年独立审计的输入材料）
 - [ ] LP 仓位对账工作流（与 LP 对手方核对 LP-IN / LP-OUT 历史记录及当前余额；依赖 LP 提供 API 或对账文件，格式待定）
+
+**redesign 遗留（technical debt）：**
+- [ ] 旧 I1-I5 对账引擎退役（当前与 credit-net 五公式并存）
+- [ ] FIRM "Treasury position snapshot" 余额标记行误入交易下钻 → firm case 在式5 已平(Δ=0)时仍 OPEN 带噪音（让 snapshot 行跳过 drilldown）
+- [ ] case line item 跨 run 累积去重（按最新 run 收口）；式5 firm-side 在途 stub=0 待接
 
 ---
 
