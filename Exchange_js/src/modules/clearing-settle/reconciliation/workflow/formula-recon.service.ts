@@ -64,6 +64,7 @@ export class FormulaReconService {
 
       const cn = await this.creditNet.creditNetAtCutoff(ccy, cutoff);
       const openOutstandingNet = await this.subledger.openOutstandingNet(ccy, cutoff);
+      const unsettledWithdrawFee = await this.subledger.unsettledWithdrawFee(ccy, cutoff);
       const unsweptSwapBridge = await this.subledger.unsweptSwapBridgeContribution(ccy, cutoff);
 
       const clientExternalSum = await this.subledger.externalBalanceSum('CLIENT', ccy, extCutoffDate);
@@ -76,6 +77,7 @@ export class FormulaReconService {
         ccy,
         cn,
         openOutstandingNet,
+        unsettledWithdrawFee,
         unsweptSwapBridge,
         { externalSum: clientExternalSum, inTransitAdj },
         // 式5 公司侧在途时序：本期公司库账外时序未单列，沿用同一 adj 仅作占位；公司侧无独立在途单时为 0 影响小。

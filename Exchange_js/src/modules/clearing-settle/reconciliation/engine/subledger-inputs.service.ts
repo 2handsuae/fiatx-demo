@@ -69,6 +69,27 @@ export class SubledgerInputsService {
     return contrib;
   }
 
+  /**
+   * 式2 RHS 第二项：未去混同的提现费 = Σ FeeAccrual.amount where
+   * category='WITHDRAW_FEE' AND status≠'SETTLED'，本币种、createdAt < cutoff。
+   * 提现费成功即从客户 claim 扣除，但物理去混同(client pool→F_FEE)在 EOD/手动结算才发生；
+   * cutoff 时这段在途使客户块比 OPEN Outstanding 少这笔 → 式2 须减去它。
+   * 币种无关、读数据决定：法币提现费成功即去混同→cutoff 时已 SETTLED→天然≈0；仅虚拟币有 lag。
+   * 不含 swap 费(已 netted 进 Outstanding 的 net)。
+   */
+  async unsettledWithdrawFee(currency: string, cutoff: Date): Promise<Prisma.Decimal> {
+    const rows = await this.prisma.feeAccrual.findMany({
+      where: {
+        asset: { is: { currency } },     // FeeAccrual.assetCode is nullable → filter by asset relation
+        category: 'WITHDRAW_FEE',
+        status: { not: 'SETTLED' },
+        createdAt: { lt: cutoff },
+      },
+      select: { amount: true },
+    });
+    return rows.reduce((s, r) => s.plus(new Prisma.Decimal(r.amount)), new Prisma.Decimal(0));
+  }
+
   /** 式4/5 RHS：Σ external_balances.closing_balance（指定 book + currency + cutoff_date）。 */
   async externalBalanceSum(
     book: 'CLIENT' | 'FIRM',

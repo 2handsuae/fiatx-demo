@@ -74,23 +74,27 @@ export class FormulaCheckerService {
 
   /**
    * 跑全部五式（per currency）。
-   * @param cn               credit-net map（human）
-   * @param openOutstandingNet 式2 RHS：仅 OPEN(未 SETTLED) Outstanding 的 (ΣIN − ΣOUT)。
-   * @param unsweptSwapBridge  式3 RHS：仅未清桥 swap 的桥贡献（from +fromAmount / to −mid）按本币种聚合。
-   * @param clientExternal     式4 右侧（book=CLIENT）。
-   * @param firmExternal       式5 右侧（book=FIRM）。
+   * @param cn                   credit-net map（human）
+   * @param openOutstandingNet   式2 RHS 第一项：仅 OPEN(未 SETTLED) Outstanding 的 (ΣIN − ΣOUT)。
+   * @param unsettledWithdrawFee 式2 RHS 第二项：未去混同的提现费（category=WITHDRAW_FEE, status≠SETTLED）。
+   *                             提现费扣客户 claim 时客户块即减，但物理去混同(client pool→F_FEE)在 EOD/手动才发生；
+   *                             故 RHS 须减去这段在途，使两侧同步。不含 swap 费（已 netted 进 Outstanding net）。
+   * @param unsweptSwapBridge    式3 RHS：仅未清桥 swap 的桥贡献（from +fromAmount / to −mid）按本币种聚合。
+   * @param clientExternal       式4 右侧（book=CLIENT）。
+   * @param firmExternal         式5 右侧（book=FIRM）。
    */
   checkAll(
     currency: string,
     cn: Record<string, Prisma.Decimal>,
     openOutstandingNet: Prisma.Decimal,
+    unsettledWithdrawFee: Prisma.Decimal,
     unsweptSwapBridge: Prisma.Decimal,
     clientExternal: ExternalSide,
     firmExternal: ExternalSide,
   ): FormulaResult[] {
     return [
       this.formula1(currency, cn),
-      this.formula2(currency, cn, openOutstandingNet),
+      this.formula2(currency, cn, openOutstandingNet, unsettledWithdrawFee),
       this.formula3(currency, cn, unsweptSwapBridge),
       this.formula4(currency, cn, clientExternal),
       this.formula5(currency, cn, firmExternal),
@@ -104,16 +108,20 @@ export class FormulaCheckerService {
   }
 
   /**
-   * 式2 客户勾稽：客户块cn − (ΣIN − ΣOUT)_OpenOutstanding = 0。
+   * 式2 客户勾稽：客户块cn = OPEN Outstanding net − 未去混同提现费。
    * ★ 仅 OPEN(未 SETTLED) 的 Outstanding 腿；某腿结算→该腿 SETTLED→退出求和（与客户块同步减）。
+   * ★ 提现费扣客户 claim 时客户块即减，但物理去混同(client pool→F_FEE)在 EOD 才发生→RHS 须减去在途费。
+   *    swap 费已 netted 进 Outstanding net，不重复扣。
    */
   formula2(
     currency: string,
     cn: Record<string, Prisma.Decimal>,
     openOutstandingNet: Prisma.Decimal,
+    unsettledWithdrawFee: Prisma.Decimal,
   ): FormulaResult {
     const lhs = this.clientBlock(cn);
-    return this.mk('式2', '客户勾稽(客户块↔OPEN Outstanding)', currency, lhs, openOutstandingNet);
+    const rhs = openOutstandingNet.minus(unsettledWithdrawFee);
+    return this.mk('式2', '客户勾稽(客户块 ↔ OPEN Outstanding − 未去混同提现费)', currency, lhs, rhs);
   }
 
   /**

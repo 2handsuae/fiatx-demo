@@ -47,7 +47,7 @@ describe('FormulaCheckerService', () => {
 
   it('all 5 formulas PASS at the cutoff in the worked 2-swap scenario (AED)', () => {
     const rs = svc.checkAll(
-      'AED', cnAed, openOutstandingNetAed, unsweptSwapBridgeAed, clientExtAed, firmExtAed,
+      'AED', cnAed, openOutstandingNetAed, D(0), unsweptSwapBridgeAed, clientExtAed, firmExtAed,
     );
     const m = byCode(rs);
     expect(rs).toHaveLength(5);
@@ -72,17 +72,42 @@ describe('FormulaCheckerService', () => {
     expect(r.delta.toString()).toBe('1');
   });
 
-  it('式2 客户勾稽: 客户块cn = OPEN Outstanding net (only OPEN legs)', () => {
-    const r = svc.formula2('AED', cnAed, openOutstandingNetAed);
+  it('式2 客户勾稽: 客户块cn = OPEN Outstanding net (only OPEN legs, no withdraw-fee in-transit)', () => {
+    const r = svc.formula2('AED', cnAed, openOutstandingNetAed, D(0));
     expect(r.lhs.toString()).toBe('-100'); // 客户块
-    expect(r.rhs.toString()).toBe('-100'); // ΣIN − ΣOUT (OPEN)
+    expect(r.rhs.toString()).toBe('-100'); // ΣIN − ΣOUT (OPEN) − 0
     expect(r.status).toBe('PASS');
   });
 
   it('式2 FAILS if a SETTLED leg is wrongly left in the Outstanding RHS', () => {
     // RHS still carries the already-settled -100 leg twice (-200) while 客户块 moved to -100.
-    const r = svc.formula2('AED', cnAed, D(-200));
+    const r = svc.formula2('AED', cnAed, D(-200), D(0));
     expect(r.delta.toString()).toBe('100');
+    expect(r.status).toBe('FAIL');
+  });
+
+  it('式2 with unsettledWithdrawFee: 客户块 = openOutstandingNet − unsettledWithdrawFee (crypto pending day)', () => {
+    // Scenario: USDT, crypto-pending day, 2 withdraw fees of 2 USDT each (not yet swept to F_FEE).
+    //   clientBlock      = -1672.21443  (client claim minus the 4 USDT fee already debited)
+    //   openOutstandingNet = -1668.21443  (net OPEN Outstanding, fee not yet netted here)
+    //   unsettledWithdrawFee = 4          (2 × 2 USDT, status ≠ SETTLED)
+    //   rhs = -1668.21443 − 4 = -1672.21443 → Δ = 0 → PASS
+    const cn = { 'L.CLIENT_PAYABLE': D('-1672.21443') };
+    const r = svc.formula2('USDT', cn, D('-1668.21443'), D(4));
+    expect(r.lhs.toString()).toBe('-1672.21443');
+    expect(r.rhs.toString()).toBe('-1672.21443');
+    expect(r.delta.toString()).toBe('0');
+    expect(r.status).toBe('PASS');
+  });
+
+  it('式2 FAILS without the unsettledWithdrawFee correction (the bug this fix addresses)', () => {
+    // Same scenario but passing 0 for unsettledWithdrawFee (old behavior pre-fix).
+    // rhs = -1668.21443 − 0 = -1668.21443 ; lhs = -1672.21443 ; Δ = -4 → FAIL
+    const cn = { 'L.CLIENT_PAYABLE': D('-1672.21443') };
+    const r = svc.formula2('USDT', cn, D('-1668.21443'), D(0));
+    expect(r.lhs.toString()).toBe('-1672.21443');
+    expect(r.rhs.toString()).toBe('-1668.21443');
+    expect(r.delta.toString()).toBe('-4');
     expect(r.status).toBe('FAIL');
   });
 
@@ -139,7 +164,8 @@ describe('FormulaCheckerService', () => {
     const rs = svc.checkAll(
       'USDT',
       cnUsdt,
-      D(100), // OPEN Outstanding net: USDT IN leg +100
+      D(100),  // OPEN Outstanding net: USDT IN leg +100
+      D(0),    // unsettledWithdrawFee: none in this scenario
       D(-100), // unswept bridge: to-leg -mid = -100
       { externalSum: D(0), inTransitAdj: D(0) }, // client crypto pool 0 = external 0
       { externalSum: D(0), inTransitAdj: D(0) },
