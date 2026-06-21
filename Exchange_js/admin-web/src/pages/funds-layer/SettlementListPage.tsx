@@ -1,7 +1,7 @@
 // admin-web/src/pages/funds-layer/SettlementListPage.tsx
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, RefreshCw, Search } from 'lucide-react';
+import { Play, RefreshCw, Search, Zap } from 'lucide-react';
 import Pagination from '../../components/common/Pagination';
 import {
   adminButtonClass,
@@ -62,6 +62,8 @@ const SettlementListPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [settling, setSettling] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const requestSeqRef = useRef(0);
 
@@ -140,6 +142,48 @@ const SettlementListPage = () => {
     }
   };
 
+  // Manual settle — settle + bridge-sweep, no FX reval.
+  // Null batchNo means no open crypto outstandings.
+  const handleManualSettle = async () => {
+    if (
+      !window.confirm(
+        'Run manual settle (settle + bridge-sweep, no FX reval)?\nThis will net all open crypto outstandings into a new batch.',
+      )
+    )
+      return;
+    setSettling(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/funds-layer/settlements/settle`,
+        { method: 'POST' },
+      );
+      if (!res.ok)
+        throw new Error(await getApiErrorMessage(res, 'Manual settle failed.'));
+      const data = (await res.json()) as {
+        batchNo: string | null;
+        assetCount: number;
+        settledZero: number;
+        spawned: boolean;
+      };
+      if (data.batchNo) {
+        setNotice(
+          `Manual settle done — batch ${data.batchNo} (${data.assetCount} assets, ${data.settledZero} zero-settled, bridge-sweep spawned: ${data.spawned ? 'yes' : 'no'})`,
+        );
+      } else {
+        setNotice('No open crypto outstandings — nothing to settle.');
+      }
+      await fetchItems(1, DEFAULT_FILTERS);
+      setFilters(DEFAULT_FILTERS);
+    } catch (err) {
+      if (err instanceof AdminSessionError) return;
+      setError(err instanceof Error ? err.message : 'Manual settle failed.');
+    } finally {
+      setSettling(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Title bar ── */}
@@ -149,12 +193,21 @@ const SettlementListPage = () => {
       >
         <button
           onClick={() => void handleRunEod()}
-          disabled={running}
+          disabled={running || settling}
           className={adminButtonClass('listPrimary')}
           title="Net all open crypto outstandings into a settlement batch (mirrors EOD cron)"
         >
           <Play size={13} />
           {running ? 'Running…' : 'Run EOD Settlement'}
+        </button>
+        <button
+          onClick={() => void handleManualSettle()}
+          disabled={running || settling}
+          className={adminButtonClass('listSecondary')}
+          title="Settle + bridge-sweep, no FX reval — manual trigger"
+        >
+          <Zap size={13} />
+          {settling ? 'Settling…' : 'Manual Settle (no reval)'}
         </button>
         <button
           onClick={() => void fetchItems(currentPage)}
@@ -205,6 +258,11 @@ const SettlementListPage = () => {
       {error && (
         <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-amber/20 bg-adm-amber/6 px-5 py-2.5 font-mono text-[11px] text-adm-amber">
+          {notice}
         </div>
       )}
 
