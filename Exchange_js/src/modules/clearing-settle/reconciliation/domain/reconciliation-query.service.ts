@@ -107,7 +107,7 @@ export class ReconciliationQueryService {
       orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
       select: { caseNo: true, assetCode: true, book: true, status: true, deltaAmount: true },
     });
-    return { ...run, cases };
+    return { ...run, hasDemoManifest: run.demoManifest !== null, cases };
   }
   listCases(q: { status?: string; assetCode?: string }) {
     return this.prisma.reconciliationCase.findMany({

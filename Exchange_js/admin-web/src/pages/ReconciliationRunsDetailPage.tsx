@@ -57,6 +57,7 @@ interface ReconRunDetail {
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  hasDemoManifest: boolean;
   invariantChecks: InvariantCheck[];
   cases?: ReconCaseLink[];
 }
@@ -350,6 +351,22 @@ const ReconciliationRunsDetailPage = () => {
                   <StatusPill value={run.invariantStatus} size="md" />
                 </span>
               </div>
+              {run.hasDemoManifest && (
+                <div>
+                  <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                    Demo
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/admin/reconciliation/demo-compare/${encodeURIComponent(run.runNo)}`)
+                    }
+                    className="mt-1 inline-flex items-center gap-1 rounded border border-adm-amber/40 bg-adm-amber/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-adm-amber transition-colors hover:bg-adm-amber/20"
+                  >
+                    Demo 对比 <ArrowRight size={11} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

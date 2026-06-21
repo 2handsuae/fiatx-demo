@@ -23,6 +23,7 @@ const ReconciliationCasesListPage = lazy(() => import('./pages/ReconciliationCas
 const ReconciliationCasesDetailPage = lazy(() => import('./pages/ReconciliationCasesDetailPage'));
 const ReconciliationExternalBalancesListPage = lazy(() => import('./pages/ReconciliationExternalBalancesListPage'));
 const ReconciliationExternalBalancesDetailPage = lazy(() => import('./pages/ReconciliationExternalBalancesDetailPage'));
+const ReconciliationDemoComparePage = lazy(() => import('./pages/ReconciliationDemoComparePage'));
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
 const LiquidityProviderList = lazy(() => import('./pages/LiquidityProviderList'));
 const LiquidityProviderCreate = lazy(() => import('./pages/LiquidityProviderCreate'));
@@ -291,6 +292,12 @@ function App() {
               path="reconciliation/external-balances/:statementId"
               element={withPermission(<ReconciliationExternalBalancesDetailPage />, [
                 PERMISSIONS.RECON_EXTERNAL_BALANCE_DETAIL_READ,
+              ])}
+            />
+            <Route
+              path="reconciliation/demo-compare/:runNo"
+              element={withPermission(<ReconciliationDemoComparePage />, [
+                PERMISSIONS.RECON_RUN_READ,
               ])}
             />
             <Route
@@ -730,6 +737,7 @@ function App() {
             <Route path="reconciliation/cases/:caseNo" element={withPermission(<ReconciliationCasesDetailPage />, [PERMISSIONS.RECON_CASE_DETAIL_READ])} />
             <Route path="reconciliation/external-balances" element={withPermission(<ReconciliationExternalBalancesListPage />, [PERMISSIONS.RECON_EXTERNAL_BALANCE_READ])} />
             <Route path="reconciliation/external-balances/:statementId" element={withPermission(<ReconciliationExternalBalancesDetailPage />, [PERMISSIONS.RECON_EXTERNAL_BALANCE_DETAIL_READ])} />
+            <Route path="reconciliation/demo-compare/:runNo" element={withPermission(<ReconciliationDemoComparePage />, [PERMISSIONS.RECON_RUN_READ])} />
 
             {/* ledger */}
             <Route path="ledger/accounts" element={withPermission(<LedgerAccountList />, [PERMISSIONS.TB_ACCOUNTS_READ])} />
