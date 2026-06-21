@@ -239,14 +239,16 @@ export class EodSettlementWorkflowService {
         where: { assetId, category: 'SWAP_FEE', status: 'ACCRUED', createdAt: { lt: cutoff } },
       });
       if (swapFees.length) {
-        await this.feeAccrual.settle(swapFees, 'SWAP_FEE', 'EOD', this.prisma);
+        // settlementType labels the fee batch by rail+instrument (mirrors fiat's
+        // 'FIAT_SWAP'); 'EOD' is reserved for the principal EOD settlement batch.
+        await this.feeAccrual.settle(swapFees, 'SWAP_FEE', 'CRYPTO_SWAP', this.prisma);
       }
 
       const wdFees = await (this.prisma as any).feeAccrual.findMany({
         where: { assetId, category: 'WITHDRAW_FEE', status: 'ACCRUED', createdAt: { lt: cutoff } },
       });
       if (wdFees.length) {
-        await this.feeAccrual.settle(wdFees, 'WITHDRAW_FEE', 'EOD', this.prisma);
+        await this.feeAccrual.settle(wdFees, 'WITHDRAW_FEE', 'CRYPTO_WITHDRAW', this.prisma);
       }
     }
   }

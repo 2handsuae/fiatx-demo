@@ -231,7 +231,7 @@ describe('EodSettlementWorkflowService', () => {
     });
 
     describe('fee pass (after principal settlement)', () => {
-      it('settles open crypto SWAP_FEE + WITHDRAW_FEE accruals once per category as EOD', async () => {
+      it('settles open crypto SWAP_FEE + WITHDRAW_FEE accruals once per category with crypto-fee settlementType', async () => {
         // No principal outstandings this EOD — the fee pass must still settle all
         // open crypto fee accruals (it gathers its asset set independently).
         consumer.findOpenCryptoByAsset.mockResolvedValue([]);
@@ -249,18 +249,19 @@ describe('EodSettlementWorkflowService', () => {
 
         await service.runEodSettlement();
 
-        // SWAP_FEE net settled as EOD
+        // SWAP_FEE net settled with crypto-fee type (NOT 'EOD' — that conflates
+        // fee batches with the principal EOD batch; mirrors fiat's 'FIAT_SWAP')
         expect(feeAccrual.settle).toHaveBeenCalledWith(
           swapFees,
           'SWAP_FEE',
-          'EOD',
+          'CRYPTO_SWAP',
           prisma,
         );
-        // WITHDRAW_FEE net settled as EOD
+        // WITHDRAW_FEE net settled with crypto-fee type (mirrors 'FIAT_WITHDRAW')
         expect(feeAccrual.settle).toHaveBeenCalledWith(
           wdFees,
           'WITHDRAW_FEE',
-          'EOD',
+          'CRYPTO_WITHDRAW',
           prisma,
         );
         expect(feeAccrual.settle).toHaveBeenCalledTimes(2);
@@ -280,7 +281,7 @@ describe('EodSettlementWorkflowService', () => {
         expect(feeAccrual.settle).toHaveBeenCalledWith(
           swapFees,
           'SWAP_FEE',
-          'EOD',
+          'CRYPTO_SWAP',
           prisma,
         );
         expect(feeAccrual.settle).toHaveBeenCalledTimes(1);
