@@ -1,5 +1,5 @@
 // admin-web/src/pages/ReconciliationRunsDetailPage.tsx
-import { useEffect, useState, Fragment, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, Check, AlertTriangle, ArrowRight } from 'lucide-react';
 import {
@@ -31,7 +31,7 @@ interface InvariantCheck {
   createdAt: string;
 }
 
-// Cases this run last touched — lets a failing (currency, book) scorecard cell link to its case.
+// Cases this run last touched — lets a failing formula row link to its (currency, book) case.
 interface ReconCaseLink {
   caseNo: string;
   assetCode: string;
@@ -80,35 +80,56 @@ const SEVERITY_TONE: Record<string, string> = {
 
 // Redesign (5-formula) runs carry layer=REDESIGN; their invariantChecks hold 式1..式5.
 const isRedesignRun = (layer: string) => layer === 'REDESIGN';
-const FORMULA_ORDER = ['式1', '式2', '式3', '式4', '式5'];
 
-// English label per formula (spec 2026-06-20 §3) — UI copy stays English.
-const FORMULA_LABEL: Record<string, string> = {
-  式1: 'Trial Balance (ledger-wide = 0)',
-  式2: 'Client Tie-out (client block ↔ open outstanding)',
-  式3: 'Bridge Tie-out (bridge block ↔ unswept swap)',
-  式4: 'Client Off-book (client pool ↔ external ± in-transit)',
-  式5: 'Firm Off-book (firm treasury ↔ external ± in-transit)',
-};
-const FORMULA_TAG: Record<string, string> = {
-  式1: 'F1', 式2: 'F2', 式3: 'F3', 式4: 'F4', 式5: 'F5',
+type Scope = 'CLIENT' | 'FIRM' | 'LEDGER';
+
+// COA-code makeup per formula — mirrors engine/formula-checker.service.ts blocks
+// (CLIENT_BLOCK_CODES / CLIENT_POOL_CODES / BRIDGE_BLOCK_CODES / FIRM_POOL_CODE). Keep in sync.
+// lhsCodes = internal ledger side (concrete COA codes); rhsTerm = external/subledger quantity
+// (no single COA account → kept descriptive); null rhsTerm = identity that must net to 0.
+const FORMULA_COMPONENTS: Record<
+  string,
+  { scope: Scope; name: string; lhsCodes: string; rhsTerm: string | null }
+> = {
+  式2: {
+    scope: 'CLIENT',
+    name: 'Client tie-out',
+    lhsCodes: 'A.CLIENT_BANK + A.CLIENT_CUSTODY + L.CLIENT_PAYABLE + L.DEPOSIT_SUSPENSE',
+    rhsTerm: 'open outstanding − unsettled w/d fee',
+  },
+  式4: {
+    scope: 'CLIENT',
+    name: 'Client off-book',
+    lhsCodes: 'A.CLIENT_BANK + A.CLIENT_CUSTODY',
+    rhsTerm: 'external ± in-transit',
+  },
+  式5: {
+    scope: 'FIRM',
+    name: 'Firm off-book',
+    lhsCodes: 'A.FIRM_TREASURY',
+    rhsTerm: 'external ± in-transit',
+  },
+  式1: {
+    scope: 'LEDGER',
+    name: 'Trial balance',
+    lhsCodes: 'Σ all accounts (client + bridge + firm)',
+    rhsTerm: null,
+  },
+  式3: {
+    scope: 'LEDGER',
+    name: 'Bridge tie-out',
+    lhsCodes: 'L.TRADE_CLEARING',
+    rhsTerm: 'unswept swap',
+  },
 };
 
-// Layering axis (spec 2026-06-20 §3): each currency splits into three lanes by scope/book.
-//   Ledger-wide — 式1 Trial Balance + 式3 Bridge Tie-out (system/integrity checks).
-//   Client      — 式2 Client Tie-out + 式4 Client Off-book.
-//   Firm        — 式5 Firm Off-book.
-type LaneKey = 'LEDGER' | 'CLIENT' | 'FIRM';
-const LANES: { key: LaneKey; label: string; formulas: string[] }[] = [
-  { key: 'LEDGER', label: 'Ledger-wide', formulas: ['式1', '式3'] },
-  { key: 'CLIENT', label: 'Client', formulas: ['式2', '式4'] },
-  { key: 'FIRM', label: 'Firm', formulas: ['式5'] },
-];
-// Lane accent (adm-* semantic colors only): Ledger=blue (system), Client=amber, Firm=green.
-const LANE_TONE: Record<LaneKey, string> = {
-  LEDGER: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
-  CLIENT: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
-  FIRM: 'border-adm-green/30 bg-adm-green/10 text-adm-green',
+// Tab-internal display order: Client → Firm → Ledger-wide.
+const FORMULA_DISPLAY_ORDER = ['式2', '式4', '式5', '式1', '式3'];
+
+const SCOPE_META: Record<Scope, { label: string; tone: string; book: 'CLIENT' | 'FIRM' | null }> = {
+  CLIENT: { label: 'Client', tone: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber', book: 'CLIENT' },
+  FIRM: { label: 'Firm', tone: 'border-adm-green/30 bg-adm-green/10 text-adm-green', book: 'FIRM' },
+  LEDGER: { label: 'Ledger-wide', tone: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue', book: null },
 };
 
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
@@ -125,93 +146,77 @@ const SeverityPill = ({ value }: { value: string }) => {
   );
 };
 
-// formula code → scope/book lane; short formula tags per lane (matrix row caption).
-const SCOPE_OF: Record<string, LaneKey> = {
-  式1: 'LEDGER', 式3: 'LEDGER', 式2: 'CLIENT', 式4: 'CLIENT', 式5: 'FIRM',
-};
-const LANE_SUB: Record<LaneKey, string> = { LEDGER: 'F1 · F3', CLIENT: 'F2 · F4', FIRM: 'F5' };
-
 const num = (s: string) => {
   const n = Number(String(s).replace(/,/g, ''));
   return Number.isFinite(n) ? n : 0;
 };
 
-type CellState = { rows: InvariantCheck[]; pass: boolean; worst: InvariantCheck | null };
-
-// Aggregate checks into a scope × currency matrix; each cell carries pass/fail
-// and its worst (max |Δ|) failing formula for the at-a-glance scorecard.
-function buildScorecard(checks: InvariantCheck[]) {
-  const currencies = [...new Set(checks.map((c) => c.currency ?? '—'))].sort();
-  const cells = {} as Record<LaneKey, Record<string, CellState>>;
-  for (const lane of LANES) {
-    cells[lane.key] = {};
-    for (const ccy of currencies) {
-      const rows = checks
-        .filter((c) => (c.currency ?? '—') === ccy && lane.formulas.includes(c.invariantCode))
-        .sort((a, b) => FORMULA_ORDER.indexOf(a.invariantCode) - FORMULA_ORDER.indexOf(b.invariantCode));
-      const fails = rows.filter((c) => c.status === 'FAIL');
-      const worst = fails.reduce<InvariantCheck | null>(
-        (m, c) => (!m || Math.abs(num(c.delta)) > Math.abs(num(m.delta)) ? c : m),
-        null,
-      );
-      cells[lane.key][ccy] = { rows, pass: fails.length === 0, worst };
-    }
-  }
-  return { currencies, cells };
-}
-
-// One scorecard cell: green when the scope balances for that currency, red with the
-// worst failing formula's tag + Δ otherwise. Click selects it for the drill panel.
-const MatrixCell = ({
-  state,
-  active,
-  onClick,
+// One formula row: scope badge + short name + COA-code equation on the left;
+// net Δ on the right (Δ=0 → green pass, Δ≠0 → red break + link to that scope's case).
+const FormulaRow = ({
+  check,
+  prevScope,
+  caseNo,
+  onCase,
 }: {
-  state: CellState;
-  active: boolean;
-  onClick: () => void;
+  check: InvariantCheck;
+  prevScope: Scope | undefined;
+  caseNo: string | null;
+  onCase: () => void;
 }) => {
-  if (state.rows.length === 0) {
-    return (
-      <div className="flex min-h-[66px] items-center justify-center rounded-lg border border-adm-border bg-adm-bg font-mono text-[11px] text-adm-t3">
-        —
-      </div>
-    );
-  }
-  const ring = active ? 'ring-2 ring-adm-blue ring-offset-1 ring-offset-adm-card' : '';
-  if (state.pass) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={`flex min-h-[66px] flex-col justify-center rounded-lg border border-adm-green/30 bg-adm-green/10 px-3 py-2.5 text-left transition-colors hover:bg-adm-green/20 ${ring}`}
-      >
-        <span className="flex items-center gap-1.5 text-[12px] font-semibold text-adm-green">
-          <Check size={13} /> balanced
-        </span>
-        <span className="mt-1 font-mono text-[10px] text-adm-green/70">
-          {state.rows.length} checks · Δ 0
-        </span>
-      </button>
-    );
-  }
-  const worst = state.worst!;
+  const comp = FORMULA_COMPONENTS[check.invariantCode];
+  if (!comp) return null;
+  const scope = SCOPE_META[comp.scope];
+  const fail = check.status === 'FAIL';
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex min-h-[66px] flex-col justify-center rounded-lg border border-adm-red/30 bg-adm-red/10 px-3 py-2.5 text-left transition-colors hover:bg-adm-red/20 ${ring}`}
+    <div
+      className={`flex items-start justify-between gap-4 rounded-lg border border-adm-border bg-adm-bg px-3.5 py-3 ${
+        prevScope && prevScope !== comp.scope ? 'mt-1.5' : ''
+      }`}
     >
-      <span className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-[12px] font-semibold text-adm-red">
-          <AlertTriangle size={13} /> break
-        </span>
-        <span className="shrink-0 rounded border border-adm-red/40 px-1 font-mono text-[9px] font-semibold text-adm-red">
-          {FORMULA_TAG[worst.invariantCode]}
-        </span>
-      </span>
-      <span className="mt-1 font-mono text-[16px] font-semibold text-adm-red">Δ {worst.delta}</span>
-    </button>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${scope.tone}`}
+          >
+            {scope.label}
+          </span>
+          <span className="text-[13px] text-adm-t1">{comp.name}</span>
+        </div>
+        <div className="mt-1.5 leading-relaxed">
+          <span className="font-mono text-[12px] text-adm-t2">{comp.lhsCodes}</span>{' '}
+          <span className="font-mono text-[12px] font-semibold text-adm-t1">{check.lhsValue}</span>
+          {comp.rhsTerm ? (
+            <>
+              <span className="px-1.5 font-mono text-[12px] text-adm-t3">↔</span>
+              <span className="font-mono text-[12px] text-adm-t2">{comp.rhsTerm}</span>{' '}
+              <span className="font-mono text-[12px] font-semibold text-adm-t1">{check.rhsValue}</span>
+            </>
+          ) : (
+            <span className="px-1.5 font-mono text-[12px] text-adm-t3">→ 0</span>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1.5" style={{ minWidth: 120 }}>
+        {fail ? (
+          <span className="font-mono text-[15px] font-semibold text-adm-red">Δ {check.delta}</span>
+        ) : (
+          <span className="flex items-center gap-1 font-mono text-[14px] text-adm-green">
+            <Check size={13} /> {check.delta}
+          </span>
+        )}
+        <StatusPill value={check.status} />
+        {fail && caseNo && (
+          <button
+            type="button"
+            onClick={onCase}
+            className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
+          >
+            {caseNo} <ArrowRight size={11} />
+          </button>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -230,8 +235,8 @@ const ReconciliationRunsDetailPage = () => {
   const navigate = useNavigate();
   const [run, setRun] = useState<ReconRunDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  // Selected scorecard cell for the drill panel; null falls back to the worst cell.
-  const [selected, setSelected] = useState<{ scope: LaneKey; ccy: string } | null>(null);
+  // Selected asset tab; null falls back to the first asset with a break (else the first asset).
+  const [activeCcy, setActiveCcy] = useState<string | null>(null);
 
   const fetchRun = async () => {
     if (!runNo) return;
@@ -255,7 +260,7 @@ const ReconciliationRunsDetailPage = () => {
   };
 
   useEffect(() => {
-    setSelected(null);
+    setActiveCcy(null);
     if (runNo) void fetchRun();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runNo]);
@@ -274,10 +279,8 @@ const ReconciliationRunsDetailPage = () => {
   const checks = run.invariantChecks ?? [];
   const redesign = isRedesignRun(run.layer);
 
-  // Scorecard model (redesign only): scope × currency cells.
-  const { currencies, cells } = redesign
-    ? buildScorecard(checks)
-    : { currencies: [] as string[], cells: {} as Record<LaneKey, Record<string, CellState>> };
+  // Currencies present in this run's checks (redesign only).
+  const currencies = redesign ? [...new Set(checks.map((c) => c.currency ?? '—'))].sort() : [];
 
   // Run-health roll-up.
   let passCount = 0;
@@ -296,14 +299,22 @@ const ReconciliationRunsDetailPage = () => {
     .every((c) => c.status === 'PASS');
   const isBreak = failCount > 0;
 
-  // Drill defaults to the worst failing cell (else the first cell).
-  const fallbackCell: { scope: LaneKey; ccy: string } = worstChk
-    ? { scope: SCOPE_OF[worstChk.invariantCode] ?? 'LEDGER', ccy: worstChk.currency ?? '—' }
-    : { scope: 'LEDGER', ccy: currencies[0] ?? '—' };
-  const active = selected ?? fallbackCell;
-  const activeState: CellState | undefined = cells[active.scope]?.[active.ccy];
-  const activeBook = active.scope === 'CLIENT' ? 'CLIENT' : active.scope === 'FIRM' ? 'FIRM' : null;
-  const activeCase = run.cases?.find((c) => c.assetCode === active.ccy && c.book === activeBook);
+  // Active tab defaults to the first asset with a break, else the first asset.
+  const firstBreakCcy = currencies.find((ccy) =>
+    checks.some((c) => (c.currency ?? '—') === ccy && c.status === 'FAIL'),
+  );
+  const activeCurrency = activeCcy ?? firstBreakCcy ?? currencies[0] ?? null;
+
+  // The active asset's five formulas, ordered Client → Firm → Ledger-wide.
+  const activeRows = activeCurrency
+    ? checks
+        .filter((c) => (c.currency ?? '—') === activeCurrency)
+        .sort(
+          (a, b) =>
+            FORMULA_DISPLAY_ORDER.indexOf(a.invariantCode) -
+            FORMULA_DISPLAY_ORDER.indexOf(b.invariantCode),
+        )
+    : [];
 
   return (
     <div className="flex h-full flex-col">
@@ -380,7 +391,7 @@ const ReconciliationRunsDetailPage = () => {
             <InfoField label="Closed Cases" value={String(run.closedCount)} mono />
           </DetailCard>
 
-          {/* 3. Health — scorecard (redesign): verdict strip + scope×currency matrix + drill, OR I1–I5 table (legacy) */}
+          {/* 3. Health — redesign: verdict strip + asset tabs + per-formula list, OR I1–I5 table (legacy) */}
           {redesign ? (
             <DetailCard title="Reconciliation Health" columns={1}>
               {checks.length === 0 ? (
@@ -401,7 +412,7 @@ const ReconciliationRunsDetailPage = () => {
                         {isBreak ? 'Break' : 'Balanced'}
                       </span>
                       <span className="font-mono text-[11px] text-adm-t3">
-                        {currencies.length} currencies · {LANES.length} scopes · {checks.length} formula checks
+                        {currencies.length} currencies · 3 scopes · {checks.length} formula checks
                       </span>
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -417,7 +428,7 @@ const ReconciliationRunsDetailPage = () => {
                           <span className="flex items-baseline gap-1.5">
                             <span className="font-mono text-adm-red">{worstChk.delta}</span>
                             <span className="text-[10px] font-normal text-adm-t3">
-                              {worstChk.currency} · {(SCOPE_OF[worstChk.invariantCode] ?? 'LEDGER').toLowerCase()}
+                              {worstChk.currency} · {(FORMULA_COMPONENTS[worstChk.invariantCode]?.scope ?? 'LEDGER').toLowerCase()}
                             </span>
                           </span>
                         ) : (
@@ -436,122 +447,62 @@ const ReconciliationRunsDetailPage = () => {
                     </div>
                   </div>
 
-                  {/* ── Scorecard matrix: scope (rows) × currency (cols) ── */}
-                  <div>
+                  {/* ── Asset tabs ── */}
+                  <div className="border-b border-adm-border pb-3">
                     <div className="mb-2 font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                      Scorecard · scope × currency
+                      Assets
                     </div>
-                    <div
-                      className="grid gap-2"
-                      style={{ gridTemplateColumns: `124px repeat(${currencies.length}, minmax(0, 1fr))` }}
-                    >
-                      <div />
-                      {currencies.map((ccy) => (
-                        <div
-                          key={ccy}
-                          className="pb-1 text-center font-mono text-[12px] font-semibold text-adm-t1"
-                        >
-                          {ccy}
-                        </div>
-                      ))}
-                      {LANES.map((lane) => (
-                        <Fragment key={lane.key}>
-                          <div className="flex flex-col justify-center">
-                            <span
-                              className={`inline-flex w-fit items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${LANE_TONE[lane.key]}`}
-                            >
-                              {lane.label}
-                            </span>
-                            <span className="mt-0.5 font-mono text-[9px] text-adm-t3">{LANE_SUB[lane.key]}</span>
-                          </div>
-                          {currencies.map((ccy) => (
-                            <MatrixCell
-                              key={ccy}
-                              state={cells[lane.key][ccy]}
-                              active={active.scope === lane.key && active.ccy === ccy}
-                              onClick={() => setSelected({ scope: lane.key, ccy })}
-                            />
-                          ))}
-                        </Fragment>
-                      ))}
+                    <div className="flex flex-wrap gap-2">
+                      {currencies.map((ccy) => {
+                        const broke = checks.some(
+                          (c) => (c.currency ?? '—') === ccy && c.status === 'FAIL',
+                        );
+                        const isActive = ccy === activeCurrency;
+                        return (
+                          <button
+                            key={ccy}
+                            type="button"
+                            onClick={() => setActiveCcy(ccy)}
+                            className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-1.5 font-mono text-[13px] transition-colors ${
+                              isActive
+                                ? 'border-adm-amber/50 bg-adm-amber/10 text-adm-amber'
+                                : 'border-adm-border text-adm-t2 hover:bg-adm-hover'
+                            }`}
+                          >
+                            {ccy}
+                            {broke && (
+                              <span className="h-1.5 w-1.5 rounded-full bg-adm-red" aria-label="break" />
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* ── Drill panel: selected cell's formulas + linked case ── */}
-                  {activeState && (
-                    <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${LANE_TONE[active.scope]}`}
-                          >
-                            {LANES.find((l) => l.key === active.scope)?.label}
-                          </span>
-                          <span className="font-mono text-[14px] font-bold text-adm-t1">{active.ccy}</span>
-                        </div>
-                        {activeCase ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              navigate(`/admin/reconciliation/cases/${encodeURIComponent(activeCase.caseNo)}`)
-                            }
-                            className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
-                          >
-                            {activeCase.caseNo} <ArrowRight size={12} />
-                          </button>
-                        ) : activeState.pass ? (
-                          <span className="font-mono text-[11px] text-adm-green">no case · balanced</span>
-                        ) : null}
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                          <thead>
-                            <tr className="border-b border-adm-border">
-                              {['Chk', 'Formula', 'Internal', '', 'External', 'Result'].map((h, i) => (
-                                <th
-                                  key={i}
-                                  className={`pb-1.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-adm-t3 ${h === 'Result' ? 'text-right' : 'text-left'}`}
-                                >
-                                  {h}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-adm-border">
-                            {activeState.rows.map((c) => (
-                              <tr key={c.id}>
-                                <td className="py-2 pr-2 align-top">
-                                  <span className="rounded border border-adm-border bg-adm-panel px-1.5 py-0.5 font-mono text-[10px] font-semibold text-adm-amber">
-                                    {FORMULA_TAG[c.invariantCode]}
-                                  </span>
-                                </td>
-                                <td className="py-2 pr-3 align-top text-[12px] text-adm-t2">
-                                  {FORMULA_LABEL[c.invariantCode] ?? c.lhsLabel}
-                                </td>
-                                <td className="py-2 pr-2 align-top">
-                                  <div className="text-[9px] text-adm-t3">{c.lhsLabel}</div>
-                                  <div className="font-mono text-[12px] text-adm-t1">{c.lhsValue}</div>
-                                </td>
-                                <td className="px-1 py-2 text-center align-middle text-adm-t3">↔</td>
-                                <td className="py-2 pr-3 align-top">
-                                  <div className="text-[9px] text-adm-t3">{c.rhsLabel}</div>
-                                  <div className="font-mono text-[12px] text-adm-t1">{c.rhsValue}</div>
-                                </td>
-                                <td className="py-2 text-right align-top">
-                                  <div
-                                    className={`mb-1 font-mono text-[12px] font-semibold ${c.status === 'FAIL' ? 'text-adm-red' : 'text-adm-green'}`}
-                                  >
-                                    {c.status === 'FAIL' ? `Δ ${c.delta}` : '✓'}
-                                  </div>
-                                  <StatusPill value={c.status} />
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
+                  {/* ── Active asset · five formulas (Client → Firm → Ledger-wide) ── */}
+                  <div className="flex flex-col gap-2">
+                    {activeRows.map((c, i) => {
+                      const comp = FORMULA_COMPONENTS[c.invariantCode];
+                      const book = comp ? SCOPE_META[comp.scope].book : null;
+                      const kase = book
+                        ? run.cases?.find((k) => k.assetCode === activeCurrency && k.book === book)
+                        : undefined;
+                      return (
+                        <FormulaRow
+                          key={c.id}
+                          check={c}
+                          prevScope={
+                            i > 0 ? FORMULA_COMPONENTS[activeRows[i - 1].invariantCode]?.scope : undefined
+                          }
+                          caseNo={kase?.caseNo ?? null}
+                          onCase={() =>
+                            kase &&
+                            navigate(`/admin/reconciliation/cases/${encodeURIComponent(kase.caseNo)}`)
+                          }
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </DetailCard>
