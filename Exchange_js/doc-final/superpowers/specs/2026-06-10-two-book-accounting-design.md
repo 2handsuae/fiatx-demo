@@ -4,6 +4,12 @@
 状态:已与产品对齐(脑暴五节逐节确认),待实施
 前置:Model A 法币净额结算(spec 2026-06-09,已落地 commit 2144d84)
 
+> **⚠️ 实现漂移修正(2026-06-21,以 live code 为准)**:本 spec 写定后落地代码有 4 处偏离,讲解/实现以此为准——
+> 1. **结算/费用路由钱包 = `F_OPS`(非 `F_LIQ`)**:法币本金 `C_VIBAN↔F_SET↔F_OPS`、crypto 本金 `C_MAIN↔F_OPS`、swap 费 `F_OPS→F_FEE`;`F_LIQ` 退出结算路径(仍是 FIRM_TREASURY 名下钱包,§2 COA 合并视角不变)。源 `internal-transfer-paths.constant.ts`。下文 §4 `F_LIQ→F_FEE` 即 `F_OPS→F_FEE`。
+> 2. **结算批 6 型 `settlementType`**:`{FIAT|CRYPTO}_{PRINCIPAL|WITHDRAW|SWAP}`(本金/提现费/兑换费),兑换费 accrual 拆 `SERVICE_FEE+SPREAD`。源 `settlement-type.constant.ts`。
+> 3. **§7 每日对账 I1–I5 已被取代**:对账重构(spec `2026-06-20-reconciliation-redesign-design.md`)用 **credit-net 五公式**(客户/桥/公司三块,贷正借负 Σ=0)替代 I1–I5;其中 **式2 客户勾稽加项** `= OPEN Outstanding net − 未去混同提现费`。
+> 4. **LP 平盘(§6.2,FX_REALIZED_PNL)本期不做**:头寸保持开口、只留 FX_UNREALIZED 浮盈。
+
 ---
 
 ## 1. 背景与目标

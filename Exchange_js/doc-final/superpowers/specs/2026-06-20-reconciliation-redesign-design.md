@@ -5,6 +5,12 @@
 前置：两本账记账体系（spec 2026-06-10）、Model A 法币净额结算（2026-06-09）
 背景设定：**法币(AED)当日实时结算；虚拟币(USDT)次日 EOD 结算；EOD 放在次日 00:30，cutoff = 业务日 D 的 00:00（D 结束）。**
 
+> **⚠️ 实现对齐补注（2026-06-21，以 live code 为准；本 spec 写定后代码有微调）**：
+> 1. **结算/费用路由钱包 = `F_OPS`**（原 spec/Model A 的 `F_LIQ` 已废）：法币本金 `C_VIBAN↔F_SET↔F_OPS`、crypto 本金 `C_MAIN↔F_OPS`、swap 费 `F_OPS→F_FEE`、提现费 `C_VIBAN/C_MAIN→F_FEE`；`F_SET` 仅作法币两跳中转，`F_LIQ` 退出结算路径（仍是 `FIRM_TREASURY` 名下钱包）。源：`internal-transfer-paths.constant.ts`。
+> 2. **式2 加项**：`客户块 = OPEN Outstanding net − 未去混同提现费`（§3 已同步改）。
+> 3. **清桥门控 + 触发**：仅"两腿全 SETTLED"的 swap 才清桥（`fx-eod.service`：open = 任一 Outstanding ≠ SETTLED）；清桥既在**每腿 CLEAR**（sweep-only）、也在 **EOD**（sweep+reval）触发，不止 §1.5 写的 EOD 一处。EOD 两大任务 = ①结算当天剩余 crypto（本金+费）②清桥+FX重估+五公式。
+> 4. **结算批 6 型 `settlementType`**：`{FIAT|CRYPTO}_{PRINCIPAL|WITHDRAW|SWAP}`（本金 / 提现费 / 兑换费），强类型防呆；兑换费 accrual 再拆 `feeKind = SERVICE_FEE + SPREAD`，提现费 `feeKind = WITHDRAW_FEE`。源：`settlement-type.constant.ts` / `fee-accrual.service.ts`。
+
 > 本 spec 覆盖四块：① swap + 日终结算全套记账；② 外部 statement 接入（余额头表 + 归一化行表）；③ credit-net 对账五公式；④ 下钻匹配找差异。所有金额用 **credit-net 口径（credits − debits，贷正借负，同币种）** 表达，符号机械化、同币种总和恒 = 0。
 
 ---
@@ -239,10 +245,13 @@ dedup_key = hash(source, sub_account, datetime, direction, amount, channel_ref, 
 客户块 + 桥块 + 公司块 = 0          (展开 = 全账每账户 cn 求和 = 0)
 ```
 
-**式2　客户勾稽（TB 客户块 ↔ Outstanding 子账）**
+**式2　客户勾稽（TB 客户块 ↔ Outstanding 子账 − 未去混同提现费）**
 ```
-客户块cn − (ΣIN − ΣOUT)_Outstanding = 0        (IN 记 +，OUT 记 −)
+客户块cn = (ΣIN − ΣOUT)_OPEN Outstanding − 未去混同提现费        (IN 记 +，OUT 记 −)
 ★ 仅 OPEN(未 SETTLED) 的 Outstanding 腿；某腿实物结算→该腿 SETTLED→退出求和（与客户块同步减）
+★ 未去混同提现费 = category=WITHDRAW_FEE 且 status≠SETTLED 的提现费：扣客户 claim 时客户块即减，
+  但物理去混同(client pool→F_FEE)在 EOD/手动才发生 → RHS 须减该段在途，两侧才同步；
+  swap 费已 netted 进 Outstanding net，不重复扣。（live code: formula-checker.formula2）
 ```
 
 **式3　桥勾稽（TB 桥块 ↔ swap 子账）**

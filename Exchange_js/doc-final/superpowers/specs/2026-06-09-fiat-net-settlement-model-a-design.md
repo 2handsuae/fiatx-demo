@@ -3,6 +3,7 @@
 > 状态:设计收口(pre-implementation)
 > 适用:`fiat-settlement-workflow.service.ts`、`fiat-fee-collection-workflow.service.ts`
 > 取代:`2026-06-08-v7-fiat-fee-collection-design.md` 中"IN 交割 gross + VIBAN→F_FEE 抽费"的部分(Model B)。
+> **⚠️ 钱包漂移修正(2026-06-21,以 live code 为准)**:本文所有结算/费用路由里的 `F_LIQ` 已改 **`F_OPS`**——`C_VIBAN↔F_SET↔F_OPS`(本金)、`F_OPS→F_FEE`(swap 费/点差);`F_LIQ` 退出结算路径(仍是 FIRM_TREASURY 名下钱包)。源 `internal-transfer-paths.constant.ts`。Model A 的 net 交割 + 公司侧收费逻辑不变,仅落地钱包角色 F_LIQ→F_OPS。
 
 ## 背景 / 决策
 

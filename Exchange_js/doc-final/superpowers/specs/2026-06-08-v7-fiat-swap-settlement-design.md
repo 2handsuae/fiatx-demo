@@ -3,6 +3,7 @@
 > 状态：设计收口（pre-implementation）
 > 关联：[[2026-06-03-v7-internal-transfer-crypto-mvp-design]]（crypto EOD 结算）、`reference/v7-funds-layer-baseline.md`
 > 适用：V6 swap 成交后，法币（FIAT）那一腿的真实银行交割。Crypto 腿仍走 EOD 轧差，不受影响。
+> **⚠️ 钱包漂移修正（2026-06-21，以 live code 为准）**：本文 §中所有 `F_LIQ`（FIAT_SETTLE_OUT/IN 的 `route` 端点、`F_SET`/`F_LIQ` 平台账户）已改 **`F_OPS`**——`FIAT_SETTLE_OUT route=['C_VIBAN','F_SET','F_OPS']`、`FIAT_SETTLE_IN=['F_OPS','F_SET','C_VIBAN']`；`F_LIQ` 退出结算路径，seed 系统钱包仍含 F_LIQ（流动性，不入路由）。源 `internal-transfer-paths.constant.ts`。两跳结构（经 F_SET）与 drain→**两本账 mirror** 取代逻辑见 `2026-06-10-two-book-accounting-design.md`。
 
 ---
 

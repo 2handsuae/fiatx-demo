@@ -347,16 +347,19 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 | 充值归集 (AGGREGATE) | C_DEP → C_MAIN | 链上 | A（零 TB） | 每小时 Cron / 超阈值 | ✅ crypto |
 | 出金预归集 (FUND_OUT) | C_MAIN → C_OUT | 链上 | A（零 TB） | V5 提现 Payout 前 | ✅ V5 已 wire |
 | 出金退回 (FUND_RETURN) | C_OUT → C_MAIN | 链上 | A（零 TB） | 提现取消/失败 | ✅ repair 入口 |
-| 兑换卖出交割 (INTERNAL_OUT) | C_MAIN → F_LIQ | 链上 | B（drain TRADE_CLEARING↔CUSTODY） | EOD 轧差 | ✅ crypto |
-| 兑换买入交割 (INTERNAL_IN) | F_LIQ → C_MAIN | 链上 | B（drain TRADE_CLEARING↔CUSTODY） | EOD 轧差 | ✅ crypto |
-| 手续费归集 (FEE_COLLECT) | C_MAIN → F_OPS | 链上 | B（drain FEE_RECEIVABLE↔CUSTODY） | 每日 Cron | ✅ crypto |
-| 法币卖出交割 (FIAT_SETTLE_OUT) | C_VIBAN → F_SET → F_LIQ | 银行 | B（drain TRADE_CLEARING↔BANK） | swap 成交即时 | ✅ fiat |
-| 法币买入交割 (FIAT_SETTLE_IN) | F_LIQ → F_SET → C_VIBAN(net) | 银行 | B（drain TRADE_CLEARING↔BANK） | swap 成交即时 | ✅ fiat |
-| 法币手续费 (FIAT_FEE_COLLECT) | C_VIBAN → F_FEE | 银行 | B（按额 drain FEE_RECEIVABLE↔BANK） | swap 结算后 / 提现成功 | ✅ fiat |
-| 法币点差 (FIAT_SPREAD_COLLECT) | F_LIQ → F_FEE | 银行 | B（按额 drain FEE_RECEIVABLE↔BANK） | swap 结算后 | ✅ fiat |
+| 兑换卖出交割 (INTERNAL_OUT) | C_MAIN → F_OPS | 链上 | B（mirror POOL_TO_FIRM） | EOD 轧差 | ✅ crypto |
+| 兑换买入交割 (INTERNAL_IN) | F_OPS → C_MAIN | 链上 | B（mirror FIRM_TO_POOL） | EOD 轧差 | ✅ crypto |
+| 手续费归集 (FEE_COLLECT) | C_MAIN → F_FEE | 链上 | B（mirror POOL_TO_FIRM） | EOD | ✅ crypto |
+| 法币卖出交割 (FIAT_SETTLE_OUT) | C_VIBAN → F_SET → F_OPS | 银行 | B（mirror POOL_TO_FIRM） | swap 成交即时 | ✅ fiat |
+| 法币买入交割 (FIAT_SETTLE_IN) | F_OPS → F_SET → C_VIBAN(net) | 银行 | B（mirror FIRM_TO_POOL） | swap 成交即时 | ✅ fiat |
+| 法币手续费 (FIAT_WITHDRAW_FEE_COLLECT) | C_VIBAN → F_FEE | 银行 | B（mirror POOL_TO_FIRM） | 提现成功 | ✅ fiat |
+| 兑换费/点差 (FIAT_SWAP_FEE_COLLECT) | F_OPS → F_FEE | 银行 | B（公司内倒手 TB no-op） | swap 结算后 | ✅ fiat |
 | ~~法币归集~~ | ~~客户 VA → 集中账户~~ | 银行 | — | — | ❌ 删除（银行自理） |
 
 > LP-IN/OUT、热/冷分层、Gas Reserve 移出 MVP（见 ADVANCED）。法币交割是 **2 跳**（经 F_SET），建模为 1 InternalTransaction + 2 顺序 InternalFund；法币费归集是 **1 跳**（1 transfer + 1 fund）。
+>
+> **⚠️ 钱包路由对齐（2026-06-21，以 live code 为准）**：本 V7 节**上方决策记录（Model A / 两本账条目）与下方交付清单中，凡结算/费用路由出现的 `F_LIQ` 一律以 `F_OPS` 为准**——`F_LIQ` 已退出所有结算/费用路径（仍是 `FIRM_TREASURY` 名下流动性钱包）。即：crypto 本金 `C_MAIN↔F_OPS`、法币本金 `C_VIBAN↔F_SET↔F_OPS`、swap 费 `F_OPS→F_FEE`、提现费 `C_VIBAN/C_MAIN→F_FEE`。源：`internal-transfer-paths.constant.ts`。
+> **结算批 6 型 `settlementType`**（`settlement-type.constant.ts`，强类型防呆）：`{FIAT|CRYPTO}_{PRINCIPAL|WITHDRAW|SWAP}` = 本金 / 提现费 / 兑换费；兑换费 accrual 再拆 `feeKind = SERVICE_FEE + SPREAD`。物理 CLEAR 时 TB 走 **mirror**（客户池↔FIRM_TREASURY）非 drain（见上方 2026-06-10 两本账条目）。
 
 ---
 
