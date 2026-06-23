@@ -198,6 +198,34 @@ describe('LegProjectionService', () => {
         account: FIAT_CMA.AED, book: 'CLIENT', subAccount: 'AE555',
       });
     });
+
+    it('crypto internal_fund FIRM leg: role account (F_*-USDT-0001), NOT wallet UUID/vault', async () => {
+      prisma.internalFund.findMany.mockResolvedValue([
+        {
+          id: 'f5', internalFundNo: 'IFD-CRYPTO-FIRM', amount: new Prisma.Decimal('4.36'),
+          txHash: '0xFEEFUND', referenceNo: null,
+          fromWallet: { id: 'fops-uuid', vaultId: null, iban: null, walletRole: 'F_OPS' },
+          toWallet: { id: 'ffee-uuid', vaultId: null, iban: null, walletRole: 'F_FEE' },
+        },
+      ]);
+      const legs = await svc.project('asset-usdt', 'USDT', businessDate, cutoff);
+      expect(legs.find((l) => l.direction === 'OUT')!).toMatchObject({ account: 'F_OPS-USDT-0001', book: 'FIRM' });
+      expect(legs.find((l) => l.direction === 'IN')!).toMatchObject({ account: 'F_FEE-USDT-0001', book: 'FIRM' });
+    });
+
+    it('crypto internal_fund client pool with no vaultId → role-key fallback (no wallet UUID exposed)', async () => {
+      prisma.internalFund.findMany.mockResolvedValue([
+        {
+          id: 'f6', internalFundNo: 'IFD-CMAIN', amount: new Prisma.Decimal('48'),
+          txHash: '0xCMAIN', referenceNo: null,
+          fromWallet: { id: 'cmain-uuid', vaultId: null, iban: null, walletRole: 'C_MAIN' },
+          toWallet: { id: 'cdep-uuid', vaultId: 'vault-dep-x', iban: null, walletRole: 'C_DEP' },
+        },
+      ]);
+      const legs = await svc.project('asset-usdt', 'USDT', businessDate, cutoff);
+      expect(legs.find((l) => l.direction === 'OUT')!).toMatchObject({ account: 'C_MAIN-USDT-0001', book: 'CLIENT' });
+      expect(legs.find((l) => l.direction === 'IN')!).toMatchObject({ account: 'vault-dep-x', book: 'CLIENT' });
+    });
   });
 
   it('combines all three sources into one leg list', async () => {

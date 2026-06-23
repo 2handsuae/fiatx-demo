@@ -37,7 +37,7 @@ import { BalanceSnapshotService } from '../src/modules/clearing-settle/reconcili
 import { InTransitService } from '../src/modules/clearing-settle/reconciliation/engine/in-transit.service';
 import { RedesignReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/redesign-recon-run.service';
 import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
-import { firmFiatAccountRef, isFiat } from '../src/modules/clearing-settle/reconciliation/engine/leg-projection.service';
+import { roleAccountRef, isFiat } from '../src/modules/clearing-settle/reconciliation/engine/leg-projection.service';
 
 const D = (n: any) => new Prisma.Decimal(n);
 
@@ -49,17 +49,24 @@ const VAULT_OUT = 'vault-usdt-out';
 
 // ── CLI args ───────────────────────────────────────────────────────────────────
 type Mode = 'pass' | 'break';
-function parseArgs(argv: string[]): { mode: Mode; date: string } {
+function parseArgs(argv: string[]): { mode: Mode; date: string; reset: boolean; all: boolean; runNo: string | null } {
   let mode: Mode = 'break'; // 默认 break
   let date = new Date().toISOString().slice(0, 10); // 默认今天（与 demo:all 的 stamp 对齐）
+  let reset = false; // --reset：清 recon demo footprint 后退出（不生成）
+  let all = false; // --all：连所有 businessDate 的 REDESIGN run + 全部 external 一起清（配 --reset）
+  let runNo: string | null = null; // --run=<runNo>：只清某一次 run（配 --reset）
   for (const a of argv) {
     const m = a.match(/^--mode=(pass|break)$/);
     if (m) mode = m[1] as Mode;
     else if (a.startsWith('--mode=')) console.warn(`⚠ unknown --mode "${a}" — defaulting to "break"`);
     const d = a.match(/^--date=(\d{4}-\d{2}-\d{2})$/);
     if (d) date = d[1];
+    if (a === '--reset') reset = true;
+    if (a === '--all') all = true;
+    const r = a.match(/^--run=(.+)$/);
+    if (r) runNo = r[1];
   }
-  return { mode, date };
+  return { mode, date, reset, all, runNo };
 }
 
 // 归一化行（写 external_statement_lines）。dedupKey = 合成 booking-id 风格稳定键（§2.4，优先 booking id）。
@@ -106,7 +113,7 @@ type BreakPlan = {
 };
 
 async function main() {
-  const { mode, date } = parseArgs(process.argv.slice(2));
+  const { mode, date, reset, all, runNo } = parseArgs(process.argv.slice(2));
   const BUSINESS_DATE = date;
   const ymd = BUSINESS_DATE.replace(/-/g, '');
   const DT = `${BUSINESS_DATE}T10:00:00.000Z`; // 合成入账时刻（缺字段即合成，§0.5）
@@ -115,12 +122,29 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   const prisma = app.get(PrismaService);
 
+  // ── --reset：清 recon demo footprint（reconciliation runs/cases + external 对账单）后退出，不生成。
+  //    demo:all 的业务数据（payin/payout/internalFund/wallet/settlement…）一律不动。──
+  if (reset) {
+    const scope = runNo ? `run ${runNo}` : all ? 'ALL REDESIGN runs + ALL external' : `businessDate ${BUSINESS_DATE}`;
+    console.log(`recon:demo --reset → clearing ${scope}  (reconciliation runs/cases + external statements; demo:all business data untouched)`);
+    const r = await clearReconDemo(prisma, { runNo, businessDate: BUSINESS_DATE, all, includeExternal: true });
+    console.log(`✓ cleared: runs=${r.deletedRuns} [${r.runNos.join(', ') || 'none'}]  cases=${r.deletedCases}  external_balances=${r.deletedExtBalances}  external_lines=${r.deletedExtLines}`);
+    await app.close();
+    process.exit(0);
+  }
+
   // ── 资产按 currency 查（去锚点②）──────────────────────────────────────────────
   const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED', status: 'ACTIVE' }, select: { id: true } });
   const usdtAsset = await prisma.asset.findFirst({ where: { currency: 'USDT', status: 'ACTIVE' }, select: { id: true } });
   if (!aedAsset || !usdtAsset) throw new Error('AED/USDT active assets not found — run the business seed first');
   const AED_ASSET = aedAsset.id;
   const USDT_ASSET = usdtAsset.id;
+
+  // ── 自清（补齐 spec 2026-06-21 §3.1「运行前清上次 demo run」）：删同 businessDate 旧 REDESIGN run +
+  //    其 cases/checks/line_items，保证本次重跑后该业务日只剩这一次 run（external 由 §6 清）。──
+  const selfCleaned = await clearReconDemo(prisma, { businessDate: BUSINESS_DATE, includeExternal: false });
+  if (selfCleaned.deletedRuns)
+    console.log(`↻ self-clean: removed ${selfCleaned.deletedRuns} prior REDESIGN run(s) for ${BUSINESS_DATE} [${selfCleaned.runNos.join(', ')}] + ${selfCleaned.deletedCases} case(s)`);
 
   // ─── 0. 读真实内部数据（payin/payout CLEARED 当日；internal_fund CLEAR 终态）────────
   const dayStart = new Date(`${BUSINESS_DATE}T00:00:00.000Z`);
@@ -300,18 +324,17 @@ async function main() {
     const book = role?.startsWith('F_') ? 'FIRM' : 'CLIENT';
     let accountRef: string;
     let subAccount: string | null;
-    if (isFiat(ccy)) {
-      if (book === 'FIRM') {
-        accountRef = firmFiatAccountRef(role!, ccy);
-        subAccount = null;
-      } else {
-        accountRef = CMA_ACCOUNT_REF;
-        subAccount = wallet?.iban ?? PLACEHOLDER_VIBAN;
-      }
+    if (book === 'FIRM') {
+      // 公司账户统一业务键 ${role}-${ccy}-0001（法币虚拟币一致），与 §7b 余额账号对齐 → 流水/余额同账号。
+      accountRef = roleAccountRef(role!, ccy);
+      subAccount = null;
+    } else if (isFiat(ccy)) {
+      accountRef = CMA_ACCOUNT_REF;
+      subAccount = wallet?.iban ?? PLACEHOLDER_VIBAN;
     } else {
-      const vault = wallet?.vaultId ?? wallet?.id ?? VAULT_MAIN;
-      accountRef = vault;
-      subAccount = vault;
+      // 客户虚拟币：有 vaultId 用 vaultId；无（池化 C_MAIN）用业务键，避免暴露钱包 UUID。
+      accountRef = wallet?.vaultId ?? (role ? roleAccountRef(role, ccy) : VAULT_MAIN);
+      subAccount = accountRef;
     }
     const externalRef = isFiat(ccy)
       ? direction === 'OUT'
@@ -406,7 +429,8 @@ async function main() {
   // 改用一个 CLIENT vault 作 plug：vault-usdt-out（pooled 出金 vault，非逐笔锚定）吸收差额，
   // 各 C_DEP 入金 vault 保持自身行净额（逐 vault 自洽）。
   const hexVaults = [...new Set(lines.filter((l) => l.source === 'HEXTRUST').map((l) => l.accountRef))].sort();
-  const clientVaults = hexVaults.filter((v) => v !== VAULT_MAIN);
+  // 公司账户(F_*)与 VAULT_MAIN 不参与客户池配平：F_* 由 §7b 锚 firmTB、VAULT_MAIN 取自身净额。
+  const clientVaults = hexVaults.filter((v) => v !== VAULT_MAIN && !v.startsWith('F_'));
   const CLIENT_PLUG_VAULT = clientVaults.includes(VAULT_OUT) ? VAULT_OUT : clientVaults[clientVaults.length - 1];
   const vaultClosing = new Map<string, Prisma.Decimal>();
   // ① 非 plug CLIENT vault：取自身行净额（IN +, OUT −）。
@@ -428,6 +452,7 @@ async function main() {
     vaultClosing.set(VAULT_MAIN, net);
   }
   for (const v of hexVaults) {
+    if (v.startsWith('F_')) continue; // 公司账户的 balanceAfter 由 §7b 处理
     applyRunning(lines.filter((l) => l.source === 'HEXTRUST' && l.accountRef === v), vaultClosing.get(v) ?? D(0));
   }
 
@@ -468,6 +493,7 @@ async function main() {
     closing: closingAED, opening: closingAED.minus(aedNet), lineCount: aedLines.length,
   });
   for (const v of hexVaults) {
+    if (v.startsWith('F_')) continue; // 公司账户由 §7b 写（closing 锚 firmTB）
     const vLines = lines.filter((l) => l.source === 'HEXTRUST' && l.accountRef === v);
     const vNet = vLines.reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
     const vClose = vaultClosing.get(v) ?? D(0);
@@ -652,6 +678,56 @@ async function upsertBalance(
       status: 'INGESTED', statementId,
     },
   });
+}
+
+/**
+ * 清 recon demo footprint：删 REDESIGN reconciliation run + 其 invariant_checks(runId cascade) +
+ * cases(openedBy 或 lastObserved 命中) + line_items(foundBy + case 的 caseId cascade)；可选清当日
+ * external_balances/lines。demo:all 业务数据(payin/payout/internalFund/wallet/settlement…)一律不动。
+ *   scope：runNo → 仅该次；all → 所有 REDESIGN + 全部 external；否则按 businessDate。
+ *   FK 顺序：line_items(foundBy) 先删 → cases(级联其 caseId line_items) → runs(级联 invariant_checks)。
+ *   （lastObservedRunId 无 FK 约束，故 case 命中它也安全删；openedByRunId/foundByRunId 是 Restrict，须先清。）
+ */
+async function clearReconDemo(
+  prisma: PrismaService,
+  opts: { runNo?: string | null; businessDate?: string; all?: boolean; includeExternal: boolean },
+): Promise<{ runNos: string[]; deletedRuns: number; deletedCases: number; deletedExtBalances: number; deletedExtLines: number; dates: string[] }> {
+  const where: Prisma.ReconciliationRunWhereInput = opts.all
+    ? { layer: 'REDESIGN' }
+    : opts.runNo
+      ? { runNo: opts.runNo }
+      : { layer: 'REDESIGN', businessDate: opts.businessDate };
+  const runs = await prisma.reconciliationRun.findMany({ where, select: { id: true, runNo: true, businessDate: true } });
+  const ids = runs.map((r) => r.id);
+  const dates = [...new Set(runs.map((r) => r.businessDate))];
+  let deletedRuns = 0;
+  let deletedCases = 0;
+  if (ids.length) {
+    await prisma.reconciliationLineItem.deleteMany({ where: { foundByRunId: { in: ids } } });
+    deletedCases = (
+      await prisma.reconciliationCase.deleteMany({
+        where: { OR: [{ openedByRunId: { in: ids } }, { lastObservedRunId: { in: ids } }] },
+      })
+    ).count;
+    deletedRuns = (await prisma.reconciliationRun.deleteMany({ where: { id: { in: ids } } })).count;
+  }
+  let deletedExtBalances = 0;
+  let deletedExtLines = 0;
+  if (opts.includeExternal) {
+    if (opts.all) {
+      deletedExtLines = (await prisma.externalStatementLine.deleteMany({})).count;
+      deletedExtBalances = (await prisma.externalBalance.deleteMany({})).count;
+    } else {
+      const targetDates = opts.runNo ? dates : opts.businessDate ? [opts.businessDate] : [];
+      for (const d of targetDates) {
+        const lo = new Date(`${d}T00:00:00.000Z`);
+        const hi = new Date(`${d}T23:59:59.999Z`);
+        deletedExtLines += (await prisma.externalStatementLine.deleteMany({ where: { datetime: { gte: lo, lte: hi } } })).count;
+        deletedExtBalances += (await prisma.externalBalance.deleteMany({ where: { cutoffDate: d } })).count;
+      }
+    }
+  }
+  return { runNos: runs.map((r) => r.runNo), deletedRuns, deletedCases, deletedExtBalances, deletedExtLines, dates };
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -25,13 +25,15 @@
 ## 3. 改动（两处）
 
 ### 3.1 `leg-projection.service.ts` — 公司法币腿落自有账户
-`resolveAccount`：**法币 + 公司钱包(role 前缀 F_)** → `account = ${walletRole}-${ccy}-0001`（新 exported helper `firmFiatAccountRef(role, ccy)`，与生成器 §7b 账户号同源），`sub_account=null`。
-法币客户(C_VIBAN) 仍滚 C_CMA、sub_account=iban。虚拟币不变（逐 vault）。
+`resolveAccount`：**公司钱包(role 前缀 F_) → `account = ${walletRole}-${ccy}-0001`（exported helper `roleAccountRef(role, ccy)`，与生成器 §7b 账户号同源），不分法币/虚拟币、`sub_account=null`**。
+法币客户(C_VIBAN) 仍滚 C_CMA、sub_account=iban。客户虚拟币：有 vaultId 用 vaultId；**无 vaultId（如池化 C_MAIN）回退 `roleAccountRef`，避免暴露钱包 UUID**。
+> 注：原设计只做法币公司账户；后扩展为虚拟币公司账户同样走 `${role}-${ccy}-0001`（否则公司腿落到钱包 UUID、与 §7b 余额账号对不上，公司账户余额有却 0 行——此 bug 已修）。
 
 ### 3.2 `recon-demo.ts` — internalfund 两腿生成
 每笔 `CLEAR` internalfund 取 from/to 钱包（role/iban/vaultId），生成**两条** `external_statement_line`：
-- **from 腿**：direction=OUT，落 from 账户（规则同 3.1：F_*→自有账户 / C_VIBAN→CMA(sub=VIBAN) / 虚拟币→vault）。
+- **from 腿**：direction=OUT，落 from 账户（规则同 3.1：**F_*→`${role}-${ccy}-0001`(法币虚拟币一致)** / C_VIBAN→CMA(sub=VIBAN) / 客户虚拟币→vaultId 或 roleAccountRef 回退）。
 - **to 腿**：direction=IN，落 to 账户（同上）。
+- 生成器 §5/§7 把公司账户(F_*)从"客户池配平"中排除（归 §7b 锚 firmTB）。
 
 `external_ref`：虚拟币=txHash；法币出=referenceNo；法币入=null（走账户级等额回退）。
 payin/payout 生成逻辑**不动**。
