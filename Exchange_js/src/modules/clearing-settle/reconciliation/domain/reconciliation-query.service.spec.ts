@@ -1,4 +1,4 @@
-import { pairManifest } from './reconciliation-query.service';
+import { pairManifest, ReconciliationQueryService } from './reconciliation-query.service';
 
 // Helpers to build test fixtures concisely.
 function mkBreak(
@@ -111,5 +111,33 @@ describe('pairManifest — amount-keyed pairing', () => {
     // REF-B (250) should match the item with internalAmount=250
     const matchB = r.matched.find((m) => m.break.targetRef === 'REF-B');
     expect(matchB?.item.internalAmount).toBe('250');
+  });
+});
+
+describe('getExternalBalance — statement lines scoped to the balance business day', () => {
+  it('filters lines by the balance cutoffDate day window (no multi-day bleed)', async () => {
+    const balance = {
+      id: 'b1', statementId: 'STMT-20260622-ZAND-C-CMA-AED-0001',
+      source: 'ZAND', accountRef: 'C_CMA-AED-0001', currency: 'AED', cutoffDate: '2026-06-22',
+    };
+    const prisma = {
+      externalBalance: { findFirst: jest.fn().mockResolvedValue(balance) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const svc = new ReconciliationQueryService(prisma as any);
+    await svc.getExternalBalance(balance.statementId);
+    expect(prisma.externalStatementLine.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          source: 'ZAND',
+          accountRef: 'C_CMA-AED-0001',
+          currency: 'AED',
+          datetime: {
+            gte: new Date('2026-06-22T00:00:00.000Z'),
+            lte: new Date('2026-06-22T23:59:59.999Z'),
+          },
+        }),
+      }),
+    );
   });
 });

@@ -158,10 +158,18 @@ export class ReconciliationQueryService {
     // Keyed by statementId (business key STMT-{date}-{source}-{accountSlug}); the UUID id is not URL-exposed.
     const balance = await this.prisma.externalBalance.findFirst({ where: { statementId } });
     if (!balance) throw new NotFoundException(`External balance ${statementId} not found`);
-    // Lines carry no FK to the balance; join on the same dimensions (source + account + currency).
-    // The balance's denormalized lineCount is the cross-check against this list's length.
+    // Lines carry no FK to the balance; join on the same dimensions (source + account + currency)
+    // AND scope to the balance's business day (cutoffDate) — otherwise multi-day history bleeds
+    // into one statement and the roll-forward self-check (opening + Σnet = closing) is wrong.
+    const dayLo = new Date(`${balance.cutoffDate}T00:00:00.000Z`);
+    const dayHi = new Date(`${balance.cutoffDate}T23:59:59.999Z`);
     const lines = await this.prisma.externalStatementLine.findMany({
-      where: { source: balance.source, accountRef: balance.accountRef, currency: balance.currency },
+      where: {
+        source: balance.source,
+        accountRef: balance.accountRef,
+        currency: balance.currency,
+        datetime: { gte: dayLo, lte: dayHi },
+      },
       orderBy: { datetime: 'asc' },
     });
     return { ...balance, lines };

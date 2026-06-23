@@ -60,6 +60,7 @@ const ReconciliationExternalBalancesListPage = () => {
   const [balances, setBalances] = useState<ExternalBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
 
   const fetchBalances = async () => {
     setLoading(true);
@@ -84,10 +85,26 @@ const ReconciliationExternalBalancesListPage = () => {
     void fetchBalances();
   }, []);
 
-  // Group by book, books ordered CLIENT → FIRM, accounts ordered by source then accountRef.
+  // Available business dates (newest first) — drives the date picker (history).
+  const dates = useMemo(
+    () => [...new Set(balances.map((b) => b.cutoffDate))].sort((a, b) => b.localeCompare(a)),
+    [balances],
+  );
+  // Default to the latest date once data arrives (or if the selected one disappears).
+  useEffect(() => {
+    if (dates.length && !dates.includes(selectedDate)) setSelectedDate(dates[0]);
+  }, [dates, selectedDate]);
+
+  // Only the selected day's snapshot — no more same-account-across-days duplicate rows.
+  const visible = useMemo(
+    () => balances.filter((b) => b.cutoffDate === selectedDate),
+    [balances, selectedDate],
+  );
+
+  // Group by book (CLIENT → FIRM), accounts by source then accountRef — within the selected date.
   const groups = useMemo(() => {
     const map = new Map<string, ExternalBalance[]>();
-    for (const b of balances) {
+    for (const b of visible) {
       if (!map.has(b.book)) map.set(b.book, []);
       map.get(b.book)!.push(b);
     }
@@ -97,7 +114,7 @@ const ReconciliationExternalBalancesListPage = () => {
     return [...map.entries()].sort(
       (a, b) => (BOOK_ORDER.indexOf(a[0]) + 99) - (BOOK_ORDER.indexOf(b[0]) + 99),
     );
-  }, [balances]);
+  }, [visible]);
 
   const openDetail = (b: ExternalBalance) => {
     if (b.statementId) navigate(`/admin/reconciliation/external-balances/${encodeURIComponent(b.statementId)}`);
@@ -107,7 +124,9 @@ const ReconciliationExternalBalancesListPage = () => {
     <div className="flex h-full flex-col overflow-hidden">
       <PageTitleBar
         title="External Balances"
-        meta={`${balances.length} account${balances.length === 1 ? '' : 's'} · external ledger (recon §4/§5 source)`}
+        meta={selectedDate
+          ? `${selectedDate} · ${visible.length} account${visible.length === 1 ? '' : 's'} · external ledger (recon §4/§5 source)`
+          : 'external ledger (recon §4/§5 source)'}
       >
         <button
           onClick={() => void fetchBalances()}
@@ -121,6 +140,25 @@ const ReconciliationExternalBalancesListPage = () => {
       {error && (
         <div className="shrink-0 border-b border-adm-red/20 bg-adm-red/6 px-5 py-2.5 font-mono text-[11px] text-adm-red">
           {error}
+        </div>
+      )}
+
+      {/* ── Filter bar: business-date picker (history) — same pattern as other list pages ── */}
+      {dates.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+          <label className="font-mono text-[10px] uppercase tracking-wider text-adm-t3">Business date</label>
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber transition-colors"
+          >
+            {dates.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <span className="font-mono text-[10px] text-adm-t3">
+            {dates.length} day{dates.length === 1 ? '' : 's'} available
+          </span>
         </div>
       )}
 
