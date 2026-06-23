@@ -161,6 +161,43 @@ describe('LegProjectionService', () => {
       expect(legs.find((l) => l.direction === 'OUT')!.subAccount).toBe('AE333');
       expect(legs.find((l) => l.direction === 'IN')!.subAccount).toBe('AE444');
     });
+
+    it('fiat internal_fund firm→firm: each firm leg → own account (NOT rolled to CMA)', async () => {
+      prisma.internalFund.findMany.mockResolvedValue([
+        {
+          id: 'f3', internalFundNo: 'IFD-FIRM-1', amount: new Prisma.Decimal('42.03'),
+          txHash: null, referenceNo: 'BANK-IFD-FIRM-1',
+          fromWallet: { id: 'fops', vaultId: null, iban: null, walletRole: 'F_OPS' },
+          toWallet: { id: 'ffee', vaultId: null, iban: null, walletRole: 'F_FEE' },
+        },
+      ]);
+      const legs = await svc.project('asset-aed', 'AED', businessDate, cutoff);
+      expect(legs).toHaveLength(2);
+      expect(legs.find((l) => l.direction === 'OUT')!).toMatchObject({
+        account: 'F_OPS-AED-0001', book: 'FIRM', subAccount: null,
+      });
+      expect(legs.find((l) => l.direction === 'IN')!).toMatchObject({
+        account: 'F_FEE-AED-0001', book: 'FIRM', subAccount: null,
+      });
+    });
+
+    it('fiat internal_fund firm→client: firm leg → own account, client (C_VIBAN) leg → CMA', async () => {
+      prisma.internalFund.findMany.mockResolvedValue([
+        {
+          id: 'f4', internalFundNo: 'IFD-MIX-1', amount: new Prisma.Decimal('3630.47'),
+          txHash: null, referenceNo: 'BANK-IFD-MIX-1',
+          fromWallet: { id: 'fset', vaultId: null, iban: null, walletRole: 'F_SET' },
+          toWallet: { id: 'cviban', vaultId: null, iban: 'AE555', walletRole: 'C_VIBAN' },
+        },
+      ]);
+      const legs = await svc.project('asset-aed', 'AED', businessDate, cutoff);
+      expect(legs.find((l) => l.direction === 'OUT')!).toMatchObject({
+        account: 'F_SET-AED-0001', book: 'FIRM', subAccount: null,
+      });
+      expect(legs.find((l) => l.direction === 'IN')!).toMatchObject({
+        account: FIAT_CMA.AED, book: 'CLIENT', subAccount: 'AE555',
+      });
+    });
   });
 
   it('combines all three sources into one leg list', async () => {

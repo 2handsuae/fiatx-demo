@@ -37,6 +37,7 @@ import { BalanceSnapshotService } from '../src/modules/clearing-settle/reconcili
 import { InTransitService } from '../src/modules/clearing-settle/reconciliation/engine/in-transit.service';
 import { RedesignReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/redesign-recon-run.service';
 import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
+import { firmFiatAccountRef, isFiat } from '../src/modules/clearing-settle/reconciliation/engine/leg-projection.service';
 
 const D = (n: any) => new Prisma.Decimal(n);
 
@@ -143,13 +144,16 @@ async function main() {
   });
   // CLEAR internal_fund：USDT 链上腿 keyed by txHash、AED 银行腿 keyed by referenceNo。
   // 它们投影为 IN/DEPOSIT，必须在外部对账单出现匹配行，否则成 ORPHAN_INTERNAL（对闭合贡献 0）。
+  const fundWalletSelect = { select: { walletRole: true, iban: true, vaultId: true, id: true } };
   const usdtFunds = await prisma.internalFund.findMany({
     where: { assetId: USDT_ASSET, status: 'CLEAR', txHash: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
-    select: { internalFundNo: true, txHash: true, amount: true }, orderBy: { internalFundNo: 'asc' },
+    select: { internalFundNo: true, txHash: true, amount: true, fromWallet: fundWalletSelect, toWallet: fundWalletSelect },
+    orderBy: { internalFundNo: 'asc' },
   });
   const aedFunds = await prisma.internalFund.findMany({
     where: { assetId: AED_ASSET, status: 'CLEAR', referenceNo: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
-    select: { internalFundNo: true, referenceNo: true, amount: true }, orderBy: { internalFundNo: 'asc' },
+    select: { internalFundNo: true, referenceNo: true, amount: true, fromWallet: fundWalletSelect, toWallet: fundWalletSelect },
+    orderBy: { internalFundNo: 'asc' },
   });
 
   // 补全 crypto payout txHash（DB 中为空）：0xWDR<payoutNo>，回填并回显到外部 WITHDRAWAL 行的 external_ref。
@@ -281,6 +285,48 @@ async function main() {
   let seq = 0;
   const bk = (src: string) => `BK-${ymd}-${src}-${String(++seq).padStart(4, '0')}`; // 合成 booking id
 
+  // internal_fund 单腿 → 归一化行。账户规则与 leg-projection.resolveAccount 同源（保证内外账户键对齐、能匹配）：
+  //   公司法币(F_*) → 各自独立账户(不滚 CMA)；客户法币(C_VIBAN) → 滚 CMA(留 VIBAN sub)；虚拟币 → 逐 vault。
+  //   external_ref：虚拟币=txHash；法币出=referenceNo(银行回显)、法币入=null(走账户级等额回退)。
+  type FundWallet = { walletRole?: string | null; iban?: string | null; vaultId?: string | null; id?: string } | null;
+  const fundLegLine = (
+    source: 'ZAND' | 'HEXTRUST',
+    f: { amount: any; referenceNo?: string | null; txHash?: string | null },
+    wallet: FundWallet,
+    direction: 'IN' | 'OUT',
+    ccy: string,
+  ): Line => {
+    const role = wallet?.walletRole ?? null;
+    const book = role?.startsWith('F_') ? 'FIRM' : 'CLIENT';
+    let accountRef: string;
+    let subAccount: string | null;
+    if (isFiat(ccy)) {
+      if (book === 'FIRM') {
+        accountRef = firmFiatAccountRef(role!, ccy);
+        subAccount = null;
+      } else {
+        accountRef = CMA_ACCOUNT_REF;
+        subAccount = wallet?.iban ?? PLACEHOLDER_VIBAN;
+      }
+    } else {
+      const vault = wallet?.vaultId ?? wallet?.id ?? VAULT_MAIN;
+      accountRef = vault;
+      subAccount = vault;
+    }
+    const externalRef = isFiat(ccy)
+      ? direction === 'OUT'
+        ? f.referenceNo ?? null
+        : null
+      : f.txHash ?? null;
+    return {
+      source, accountRef, subAccount, book, currency: ccy, direction,
+      amount: D(f.amount), externalRef,
+      channelRef: isFiat(ccy) ? `CHN-${f.referenceNo}` : null,
+      datetime: new Date(DT), balanceAfter: null,
+      description: 'Internal fund transfer', bookingId: bk(source),
+    };
+  };
+
   // 入金 payin = Credit/IN：external_ref=null（法币入金，§2.3）；channel_ref=合成；sub_account=客户 vIBAN。
   for (const p of aedPayins) {
     if (aedPlan?.omitRef && p.referenceNo === aedPlan.omitRef) continue; // OMIT → ORPHAN_INTERNAL
@@ -300,13 +346,10 @@ async function main() {
       datetime: new Date(DT), balanceAfter: null, description: 'Unmatched incoming credit', bookingId: bk('ZAND'),
     });
   }
-  // internal_fund 银行腿（Credit/IN，key=referenceNo）→ 匹配，0 闭合影响
+  // internal_fund 两腿（from OUT + to IN，各落真实账户：F_* 各自独立 / C_VIBAN 滚 CMA）。
   for (const f of aedFunds) {
-    lines.push({
-      source: 'ZAND', accountRef: CMA_ACCOUNT_REF, subAccount: PLACEHOLDER_VIBAN, book: 'CLIENT', currency: 'AED',
-      direction: 'IN', amount: D(f.amount), externalRef: null, channelRef: `CHN-${f.referenceNo}`,
-      datetime: new Date(DT), balanceAfter: null, description: 'Internal fund settlement transfer', bookingId: bk('ZAND'),
-    });
+    lines.push(fundLegLine('ZAND', f, f.fromWallet, 'OUT', 'AED'));
+    lines.push(fundLegLine('ZAND', f, f.toWallet, 'IN', 'AED'));
   }
   // 出金 payout = Debit/OUT：external_ref=你的内部号回显（InstructionIdentification=referenceNo），全 MATCH。
   for (const po of aedPayouts) {
@@ -338,13 +381,10 @@ async function main() {
       datetime: new Date(DT), balanceAfter: null, description: 'Unmatched crypto deposit', bookingId: bk('HEXTRUST'),
     });
   }
-  // internal_fund 链上腿（deposit/IN，key=txHash）→ 匹配，0 闭合影响（落归集 vault）
+  // internal_fund 两腿（from OUT + to IN，各落真实账户/vault）。
   for (const f of usdtFunds) {
-    lines.push({
-      source: 'HEXTRUST', accountRef: VAULT_MAIN, subAccount: VAULT_MAIN, book: 'FIRM', currency: 'USDT',
-      direction: 'IN', amount: D(f.amount), externalRef: f.txHash, channelRef: null,
-      datetime: new Date(DT), balanceAfter: null, description: 'Internal fund on-chain leg', bookingId: bk('HEXTRUST'),
-    });
+    lines.push(fundLegLine('HEXTRUST', f, f.fromWallet, 'OUT', 'USDT'));
+    lines.push(fundLegLine('HEXTRUST', f, f.toWallet, 'IN', 'USDT'));
   }
   // 出金 payout = withdrawal/OUT：external_ref=txHash（回填 0xWDR<no>），全 MATCH（落出金 vault）。
   for (const po of usdtPayouts) {
@@ -441,11 +481,9 @@ async function main() {
   // F_* 钱包 mockBalance Σ 恰等于内部 A.FIRM_TREASURY TB。closing 锚到 firmTB 使 Σ FIRM external == firmTB
   // → 式5 干净对平。F_OPS 作 plug 吸收差额（含 USDT orphan-external 引入的 FIRM 侧 Σbreak）。
   //
-  // ★ 只写 external_balances 头，**不写 external_statement_lines**：F_* 是公司库「头寸快照」（position
-  //   snapshot），不是交易流水——内部腿投影（leg-projection）只投影 payin/payout/internal_fund 真实movement，
-  //   公司头寸没有对应内部 movement 腿。若把快照写成行，下钻必把它判成 ORPHAN_EXTERNAL → pass 模式凭空开 FIRM
-  //   case。式5 读的是 external_balances（头），与行无关；故快照只入头表，break 的 orphan-external（真 DEPOSIT，
-  //   带 txHash，§4）才入行表。这样 pass=0 case、break 只暴露注入的差异。
+  // ★ closing 仍锚 firmTB（式5 读 external_balances 头）；但 F_* 账户**现在带 internal_fund 流水**——§3/§4 两腿
+  //   生成时，公司腿落到这些账户。这些行与内部 F_* 腿（leg-projection 不再滚 CMA）逐笔匹配 → pass 不冒假孤儿。
+  //   opening = closing − Σ(该账户行净额) 使 roll-forward 自洽；lineCount = 实际行数。
   const firmWallets = await prisma.wallet.findMany({
     where: { walletRole: { startsWith: 'F_' }, status: 'ACTIVE' },
     select: { walletRole: true, walletNo: true, mockBalance: true, assetId: true },
@@ -476,8 +514,11 @@ async function main() {
     for (const w of fw) {
       const closing = w.walletRole === plugRole ? target.minus(sumOthersFirm) : D(w.mockBalance);
       const accountRef = `${w.walletRole}-${ccy}-0001`;
+      const acctLines = lines.filter((l) => l.accountRef === accountRef);
+      const net = acctLines.reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
+      applyRunning(acctLines, closing); // balanceAfter（展示用，从 closing 倒推）
       await upsertBalance(prisma, BUSINESS_DATE, DT, {
-        source, accountRef, currency: ccy, book: 'FIRM', closing, opening: D(0), lineCount: 0,
+        source, accountRef, currency: ccy, book: 'FIRM', closing, opening: closing.minus(net), lineCount: acctLines.length,
       });
       firmAcctCount += 1;
     }

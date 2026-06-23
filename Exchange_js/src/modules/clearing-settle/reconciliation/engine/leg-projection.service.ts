@@ -37,6 +37,15 @@ export function isFiat(currency: string): boolean {
   return currency in FIAT_CMA_ACCOUNT;
 }
 
+/**
+ * 公司法币账户号（与假对账单生成器 §7b 同源）：`${role}-${ccy}-0001`。
+ * 公司账户(F_*)各自独立记账（不滚 CMA），使公司流水可逐笔对账。
+ * 假设：每角色×币种单账户；多账户需扩展账户标识。
+ */
+export function firmFiatAccountRef(walletRole: string, currency: string): string {
+  return `${walletRole}-${currency}-0001`;
+}
+
 type WalletRef =
   | { id?: string; vaultId?: string | null; iban?: string | null; walletRole?: string | null }
   | null
@@ -178,6 +187,10 @@ export class LegProjectionService {
    */
   private resolveAccount(currency: string, wallet: WalletRef): { account: string; subAccount: string | null } {
     if (isFiat(currency)) {
+      // 公司法币账户(F_*)各自独立记账（不滚 CMA）→ 公司流水逐笔可对；客户 C_VIBAN 仍滚 CMA、保留 VIBAN 下钻。
+      if (bookForWalletRole(wallet?.walletRole) === 'FIRM') {
+        return { account: firmFiatAccountRef(wallet!.walletRole!, currency), subAccount: null };
+      }
       return { account: FIAT_CMA_ACCOUNT[currency], subAccount: wallet?.iban ?? null };
     }
     const vault = wallet?.vaultId ?? wallet?.id ?? null;
