@@ -134,8 +134,14 @@ export class AssetActivationWorkflowService {
       throw new BadRequestException('Asset has not been provisioned for TigerBeetle');
     }
 
-    const custodyCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
-    const requiredCodes = [custodyCode, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.FIRM_TREASURY, TB_ACCOUNT_CODES.FEE_INCOME];
+    const requiredCodes = [
+      TB_ACCOUNT_CODES.CLIENT_ASSET,
+      TB_ACCOUNT_CODES.FIRM_ASSET,
+      TB_ACCOUNT_CODES.FIRM_OPS,
+      TB_ACCOUNT_CODES.FIRM_FEE,
+      TB_ACCOUNT_CODES.FIRM_LIQ,
+      ...(asset.type === 'FIAT' ? [TB_ACCOUNT_CODES.FIRM_SET] : []),
+    ];
 
     for (const code of requiredCodes) {
       const account = await this.registryService.resolve({

@@ -27,53 +27,14 @@ export class FeeAccrualListenerService {
   ) {}
 
   @OnEvent(DomainEventNames.SWAP_SUCCEEDED)
-  async onSwapSucceeded(event: { swapId: string }): Promise<void> {
-    try {
-      const swap = await (this.prisma as any).swapTransaction.findUnique({
-        where: { id: event.swapId },
-        select: { toAsset: { select: { type: true } } },
-      });
-      if (!swap) return;
-
-      // (1) Always accrue (was: crypto-only). Crypto-side stays ACCRUED and is
-      //     settled by the EOD batch pass (eod-settlement-workflow). Fiat-side
-      //     additionally settles immediately below — fee batch must spawn in
-      //     parallel with the principal FIAT_SETTLE_IN batch (Spec #6).
-      await this.feeAccrual.accrueForSwap(event.swapId, this.prisma);
-
-      if (swap.toAsset?.type === 'FIAT') {
-        const accruals = await (this.prisma as any).feeAccrual.findMany({
-          where: { sourceType: 'SWAP', sourceId: event.swapId, status: 'ACCRUED' },
-        });
-        if (accruals.length) {
-          await this.feeAccrual.settle(accruals, 'SWAP_FEE', 'FIAT_SWAP', this.prisma);
-        }
-      }
-    } catch (err) {
-      this.logger.error(
-        `Swap fee handle failed for swap=${event.swapId}`,
-        err instanceof Error ? err.stack : undefined,
-      );
-    }
+  async onSwapSucceeded(_event: { swapId: string }): Promise<void> {
+    return; // neutered in Phase A (no accruals) — remove in Phase C
   }
 
   @OnEvent(WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO)
-  async onCryptoWithdrawalSucceeded(event: {
+  async onCryptoWithdrawalSucceeded(_event: {
     withdrawId: string;
   }): Promise<void> {
-    try {
-      const w = await (this.prisma as any).withdrawTransaction.findUnique({
-        where: { id: event.withdrawId },
-        select: { asset: { select: { type: true } } },
-      });
-      if (!w || w.asset?.type !== 'CRYPTO') return;
-
-      await this.feeAccrual.accrueForWithdraw(event.withdrawId, this.prisma);
-    } catch (err) {
-      this.logger.error(
-        `Crypto withdrawal fee accrual failed for withdraw=${event.withdrawId}`,
-        err instanceof Error ? err.stack : undefined,
-      );
-    }
+    return; // neutered in Phase A (no accruals) — remove in Phase C
   }
 }
