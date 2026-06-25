@@ -404,4 +404,84 @@ export class SwapSettlementService {
 
     return result;
   }
+
+  // ── Public: reverseSwap ──
+
+  /**
+   * Compensate (reverse) a FAILED swap: post a REVERSING direct transfer for each
+   * accounting entry that was already posted (i.e. belongs to a CLEAR leg), swapping
+   * debit/credit to undo the original movement. Marks the swap REVERSED.
+   *
+   * // TODO retry: deferred (deterministic-id reuse needs attempt counter)
+   */
+  async reverseSwap(swapNo: string, operatorId: string): Promise<any> {
+    return this.prisma.$transaction(async (client) => {
+      const swap = await this.swaps.findByNoInternal(swapNo, client as any);
+      if (swap.status !== 'FAILED') {
+        throw new BadRequestException('Swap must be in FAILED status to reverse');
+      }
+
+      // Load all legs for this swap
+      const legs: any[] = await (client as any).internalFund.findMany({
+        where: { swapTransactionId: swap.id },
+        orderBy: { legSeq: 'asc' },
+      });
+
+      const ctx = this.ctxFromSwap(swap);
+      const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+
+      // For each CLEAR (posted) leg, post reversing transfers (swapped dr/cr)
+      for (const leg of legs) {
+        if (leg.status !== 'CLEAR') continue;
+
+        const spec = allSpecs.find((s) => s.legSeq === leg.legSeq);
+        if (!spec) continue;
+
+        for (const a of spec.accounting) {
+          const amt = this.amountBigint(a.amountRef, ctx);
+          if (amt <= 0n) continue;
+
+          const ledger = this.ledgerFor(a.side, ctx);
+          // Original: debit=a.debitCode, credit=a.creditCode
+          // Reverse:  debit=a.creditCode, credit=a.debitCode
+          const debitId = await this.resolveAcct(a.creditCode, ledger, ctx.ownerId);
+          const creditId = await this.resolveAcct(a.debitCode, ledger, ctx.ownerId);
+
+          await this.accounting.executeTransfer({
+            debitAccountId: debitId,
+            creditAccountId: creditId,
+            amount: amt,
+            ledger,
+            code: a.code,
+            evidence: {
+              ...this.evidence(ctx, a),
+              eventCode: a.eventCode + '_REVERSE',
+              memo: 'reverse failed swap leg',
+            },
+            tx: client as any,
+          });
+        }
+      }
+
+      await this.swaps.markStatus(swap.id, 'REVERSED', client as any);
+
+      await this.auditLogs.recordSystem(
+        {
+          action: AuditActions.SWAP_REVERSED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo,
+          traceId: swap.traceId ?? swap.swapNo,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          reason: `Swap reversed by operator ${operatorId}`,
+          sourcePlatform: 'SYSTEM',
+        },
+        client as any,
+      );
+
+      return swap;
+    });
+  }
 }

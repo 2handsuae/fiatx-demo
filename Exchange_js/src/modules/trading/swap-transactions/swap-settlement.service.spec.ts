@@ -24,6 +24,7 @@ const mockAccounting = {
   executePendingTransfer: jest.fn(),
   postPendingTransfer: jest.fn(),
   voidPendingTransfer: jest.fn(),
+  executeTransfer: jest.fn(),
   resolveTbAccountId: jest.fn(),
 };
 
@@ -156,6 +157,7 @@ describe('SwapSettlementService', () => {
     mockAccounting.executePendingTransfer.mockResolvedValue({ tbTransferId: 1n });
     mockAccounting.postPendingTransfer.mockResolvedValue(undefined);
     mockAccounting.voidPendingTransfer.mockResolvedValue(undefined);
+    mockAccounting.executeTransfer.mockResolvedValue({ tbTransferId: 2n });
     mockAccounting.resolveTbAccountId.mockResolvedValue(100n);
     mockWallets.resolve.mockResolvedValue({ id: 'wallet-platform' });
     mockWallets.resolveCustomer.mockResolvedValue({ id: 'wallet-customer' });
@@ -436,6 +438,63 @@ describe('SwapSettlementService', () => {
       await expect(
         svc.advanceLeg(SWAP_NO, 1, InternalFundAction.SIGN, 'admin-1'),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ────────────────── reverseSwap ──────────────────
+
+  describe('reverseSwap', () => {
+    it('reverses CLEAR legs by calling executeTransfer with swapped dr/cr, marks REVERSED, writes audit', async () => {
+      // Swap is FAILED; legs 1+2 are CLEAR (posted), legs 3+4 are not CLEAR (failed/voided)
+      mockSwaps.findByNoInternal.mockResolvedValue({ ...swapRow, status: 'FAILED' });
+
+      const legs = [
+        makeLegRow(1, 'CLEAR', 'CRYPTO'),
+        makeLegRow(2, 'CLEAR', 'FIAT'),
+        makeLegRow(3, 'FAILED', 'FIAT'),
+        makeLegRow(4, 'CREATED', 'FIAT'),
+      ];
+
+      const svc = await buildModule(legs);
+      await svc.reverseSwap(SWAP_NO, 'admin-op');
+
+      // Leg1 has 2 accounting entries, leg2 has 1 → 3 executeTransfer calls total
+      expect(mockAccounting.executeTransfer).toHaveBeenCalledTimes(3);
+
+      // Verify swap/credit are reversed for the first leg's first entry (SWAP_SELL_CLIENT):
+      // original: debit=CLIENT_PAYABLE(credit side arg), credit=CLIENT_ASSET(debit side arg)
+      // reversed: debit=CLIENT_ASSET acct, credit=CLIENT_PAYABLE acct
+      // resolveTbAccountId is called with the SWAPPED codes
+      const calls = mockAccounting.executeTransfer.mock.calls;
+      // Every call should have the eventCode ending in '_REVERSE'
+      for (const [params] of calls) {
+        expect(params.evidence.eventCode).toMatch(/_REVERSE$/);
+        expect(params.evidence.memo).toBe('reverse failed swap leg');
+      }
+
+      // swap marked REVERSED
+      expect(mockSwaps.markStatus).toHaveBeenCalledWith(SWAP_ID, 'REVERSED', expect.anything());
+
+      // audit written with SWAP_REVERSED
+      expect(mockAuditLogs.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'SWAP_REVERSED',
+          entityId: SWAP_ID,
+          entityNo: SWAP_NO,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('throws BadRequestException when swap is not FAILED', async () => {
+      mockSwaps.findByNoInternal.mockResolvedValue({ ...swapRow, status: 'SETTLING' });
+
+      const legs = [makeLegRow(1, 'CLEAR'), makeLegRow(2, 'CREATED'), makeLegRow(3, 'CREATED'), makeLegRow(4, 'CREATED')];
+      const svc = await buildModule(legs);
+
+      await expect(svc.reverseSwap(SWAP_NO, 'admin-op')).rejects.toThrow(BadRequestException);
+      expect(mockAccounting.executeTransfer).not.toHaveBeenCalled();
+      expect(mockSwaps.markStatus).not.toHaveBeenCalled();
     });
   });
 });

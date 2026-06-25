@@ -78,6 +78,13 @@ export class SwapTransactionsController {
     );
   }
 
+  @Post(':swapNo/reverse')
+  @ApiOperation({ summary: 'Reverse (compensate) a FAILED swap' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/reverse'))
+  reverseSwap(@Param('swapNo') swapNo: string, @Req() req: any) {
+    return this.swapSettlement.reverseSwap(swapNo, req.user?.userNo || req.user?.sub || 'ADMIN');
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get swap transaction by ID' })
   findOne(@Param('id') id: string) {
