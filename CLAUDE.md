@@ -1,22 +1,22 @@
 # Exchange_js — Claude Code Quick Reference
 
 NestJS + Prisma + SQLite 后端 | React 管理台 | React 客户端
-API: 3500 | Admin: 3501 | Client: 3502 | DB: `/tmp/exchange_js_branch/dev.db`
+API: 3000 | Admin: 3001 | Client: 3002 | DB: `/tmp/exchange_js_main/dev.db`
 
-Worktree 路径: `branch/Exchange_js/`
+工作目录: 仓库根目录下的 `Exchange_js/`（main 分支直接 checkout，无独立 worktree）
 
 ## 服务启动规则
 
-**必须使用 branch 端口，禁止混用其他端口：**
+**必须使用 main 栈端口，禁止混用其他栈端口：**
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
-| Backend API | **3500** | `.env` 中 `API_PORT=3500` |
-| Admin Web | **3501** | Vite `--port 3501` |
-| Client Web | **3502** | Vite `--port 3502` |
-| TigerBeetle | **3503** | branch 栈专用；main 栈用 **3003** |
+| Backend API | **3000** | `.env` 中 `API_PORT=3000` |
+| Admin Web | **3001** | Vite `--port 3001` |
+| Client Web | **3002** | Vite `--port 3002` |
+| TigerBeetle | **3003** | main 栈 |
 
-- `.env` 必须设置 `API_PORT=3500`、`ADMIN_URL=http://localhost:3501`、`CLIENT_URL=http://localhost:3502`
+- `.env` 必须设置 `API_PORT=3000`、`ADMIN_URL=http://localhost:3001`、`CLIENT_URL=http://localhost:3002`、`DATABASE_URL=file:/tmp/exchange_js_main/dev.db`（`bash scripts/stack.sh up main` 会自动生成）
 - **端口隔离规则（不可违反）**：每个栈的所有进程严格限定在自己的端口段内，禁止跨栈访问任何服务或数据库：
 
   | 栈 | Backend | Admin | Client | TigerBeetle |
@@ -25,21 +25,22 @@ Worktree 路径: `branch/Exchange_js/`
   | codex | 3100 | 3101 | 3102 | **3103** |
   | claude | 3200 | 3201 | 3202 | **3203** |
   | trae | 3300 | 3301 | 3302 | **3303** |
-  | branch | 3500 | 3501 | 3502 | **3503** |
 
-- `admin-web/.env.local` 和 `client-web/.env.local` 中 `VITE_API_URL=http://localhost:3500`
-- **禁止**用 3000/3001/3002 或其他端口启动服务，所有前后端必须统一指向 branch 端口
-- 启动前先确认端口无残留进程：`lsof -ti:3500,3501,3502`
+- `admin-web/.env` 和 `client-web/.env` 中 `VITE_API_URL=http://localhost:3000`
+- **禁止**用 3100/3200/3300 等其他栈端口启动服务，所有前后端必须统一指向 main 栈端口
+- 启动前先确认端口无残留进程：`lsof -ti:3000,3001,3002`
 
 ## 关键命令（在 Exchange_js/ 内执行）
 
 ```bash
-npm run dev:start     # 启动完整 stack（推荐）
-npm run dev:stop      # 停止
-npm run dev:reset     # 重置业务数据
-npm run dev:rebuild   # 完整重建 DB
-npm run runtime:diagnose  # 诊断迁移漂移
+bash scripts/stack.sh up main      # 启动 main 栈完整 stack（推荐）
+bash scripts/stack.sh down main    # 停止 main 栈
+bash scripts/stack.sh status       # 查看各栈运行状态
+bash scripts/stack.sh reset-main   # 重置 main 栈业务数据 / DB
+npm run runtime:diagnose           # 诊断迁移漂移
 ```
+
+> ⚠️ `recon:demo` / `demo:*` / `verify:manual-settle` 等 npm 脚本在 package.json 中硬编码了 branch DB 路径（`/tmp/exchange_js_branch`），branch 已删除，**直接 `npm run` 会指向不存在的库**。在 main 栈下必须经包装器运行：`bash scripts/on-stack.sh main <script>`（例：`bash scripts/on-stack.sh main recon:demo`）。
 
 ---
 
@@ -52,7 +53,7 @@ npm run runtime:diagnose  # 诊断迁移漂移
 | 前端管理台 | `doc-final/rules/frontend-admin.md` |
 | 前端客户端 | `doc-final/rules/frontend-client.md` |
 
-需要了解架构决策 → `doc-final/reference/decisions.md`
+需要了解版本路线图与架构决策 → `doc-final/reference/roadmap.md`、`doc-final/reference/v7-funds-layer-baseline.md`
 
 ---
 
