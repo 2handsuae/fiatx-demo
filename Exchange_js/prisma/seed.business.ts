@@ -40,7 +40,7 @@ export async function seedBusiness(
   await seedCustomers(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
-  // Firm capital bootstrap: FIRM_TREASURY ← PAID_IN_CAPITAL per currency.
+  // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
   await seedCapitalInjection(prisma);
 
   console.log('✅ Business data seeded.');
@@ -598,7 +598,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Capital injection — FIRM_TREASURY ← PAID_IN_CAPITAL per currency
+// Capital injection — DR FIRM_ASSET / CR FIRM_OPS per currency
 // ─────────────────────────────────────────────────────────────
 
 const SEED_FIRM_CAPITAL: Record<string, string> = {
@@ -636,17 +636,17 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
       const scale = BigInt(10 ** asset.decimals);
       const amount = BigInt(rawAmount) * scale;
 
-      // Resolve FIRM_TREASURY and PAID_IN_CAPITAL account ids from registry
-      const firmOpsReg = await (prisma as any).tbAccountRegistry.findFirst({
-        where: { code: TB_ACCOUNT_CODES.FIRM_TREASURY, ledger, ownerType: 'SYSTEM' },
+      // Resolve FIRM_ASSET and FIRM_OPS account ids from registry
+      const firmAssetReg = await (prisma as any).tbAccountRegistry.findFirst({
+        where: { code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' },
         select: { tbAccountId: true },
       });
-      const paidInCapReg = await (prisma as any).tbAccountRegistry.findFirst({
-        where: { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, ledger, ownerType: 'SYSTEM' },
+      const firmOpsReg = await (prisma as any).tbAccountRegistry.findFirst({
+        where: { code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' },
         select: { tbAccountId: true },
       });
 
-      if (!firmOpsReg || !paidInCapReg) {
+      if (!firmAssetReg || !firmOpsReg) {
         console.log(`  ⚠ Missing registry entries for capital injection (${asset.currency}), skipping`);
         continue;
       }
@@ -655,8 +655,8 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 
       transfers.push({
         id: transferId,
-        debit_account_id: BigInt('0x' + firmOpsReg.tbAccountId),
-        credit_account_id: BigInt('0x' + paidInCapReg.tbAccountId),
+        debit_account_id: BigInt('0x' + firmAssetReg.tbAccountId),  // DR FIRM_ASSET
+        credit_account_id: BigInt('0x' + firmOpsReg.tbAccountId),   // CR FIRM_OPS
         amount,
         pending_id: 0n,
         user_data_128: 0n,
