@@ -1,55 +1,30 @@
-/** TB transfer type codes (u16). Immutable once assigned. */
+// src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant.ts
+/** TB transfer type codes (u16). Immutable once assigned. 实时 1:1 模型。 */
 export const TB_TRANSFER_CODES = {
-  // Deposit (1–9)
-  DEPOSIT_CUSTODY_TO_AUDIT: 1,
-  DEPOSIT_AUDIT_TO_CREDIT: 2,
+  // ── 充值(1–9)──
+  DEPOSIT_ASSET_TO_SUSPENSE: 1,   // DR CLIENT_ASSET / CR DEPOSIT_SUSPENSE
+  DEPOSIT_SUSPENSE_TO_PAYABLE: 2, // DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE
 
-  // Withdrawal: pending lock (10–11)
-  WITHDRAW_CREDIT_TO_CUSTODY_PENDING: 10,
-  WITHDRAW_CREDIT_TO_FEE_PENDING: 11,
+  // ── 提现(10–19)──
+  WITHDRAW_NET_PENDING: 10, // 客户侧锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)
+  WITHDRAW_NET_POST: 11,    // 外部确认:post
+  WITHDRAW_NET_VOID: 12,    // 取消/失败:void
+  WITHDRAW_FEE_PENDING: 13, // 客户侧费锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)
+  WITHDRAW_FEE_POST: 14,    // post
+  WITHDRAW_FEE_VOID: 15,    // void
+  WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR FIRM_FEE
 
-  // Withdrawal: post — chain confirmed (12–13)
-  WITHDRAW_CREDIT_TO_CUSTODY_POST: 12,
-  WITHDRAW_CREDIT_TO_FEE_POST: 13,
+  // ── 兑换(30–49)──
+  SWAP_SELL_CLIENT: 30,        // 客户卖出(from):DR CLIENT_PAYABLE / CR CLIENT_ASSET
+  SWAP_SELL_FIRM: 31,          // 公司收入(from):DR FIRM_ASSET / CR FIRM_OPS
+  SWAP_BUY_OPS_TO_SET: 32,     // 法币公司内:DR FIRM_OPS / CR FIRM_SET (仅 fiat 腿)
+  SWAP_BUY_SET_TO_ASSET: 33,   // 公司放出(to):DR FIRM_SET / CR FIRM_ASSET (fiat) | DR FIRM_OPS / CR FIRM_ASSET (crypto)
+  SWAP_BUY_CLIENT: 34,         // 客户收到(to,毛):DR CLIENT_ASSET / CR CLIENT_PAYABLE
+  SWAP_FEE_CLIENT: 35,         // 客户付费(to):DR CLIENT_PAYABLE / CR CLIENT_ASSET
+  SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_ASSET / CR FIRM_FEE
 
-  // Withdrawal: void — cancel/fail (14–15)
-  WITHDRAW_CREDIT_TO_CUSTODY_VOID: 14,
-  WITHDRAW_CREDIT_TO_FEE_VOID: 15,
-
-  // Fiat withdrawal: pending lock (20)
-  WITHDRAW_CREDIT_TO_BANK_PENDING: 20,
-  // Fiat withdrawal: post — bank confirmed (21)
-  WITHDRAW_CREDIT_TO_BANK_POST: 21,
-  // Fiat withdrawal: void — cancel/fail (22)
-  WITHDRAW_CREDIT_TO_BANK_VOID: 22,
-
-  // Swap: from-leg lock + to-leg credit + fee + spread (30–35)
-  SWAP_CREDIT_TO_CLEARING_PENDING: 30,
-  SWAP_CREDIT_TO_CLEARING_POST: 31,
-  SWAP_CREDIT_TO_CLEARING_VOID: 32,
-  SWAP_CLEARING_TO_CREDIT: 33,
-  SWAP_CLEARING_TO_FEE: 34, // deprecated: fee now debits CLIENT_PAYABLE (see SWAP_CREDIT_TO_FEE)
-  SWAP_CLEARING_TO_SPREAD: 35,
-  SWAP_CREDIT_TO_FEE: 36,
-
-  // ── Two-book accounting (50–70) ──
-  // Settlement-leg physical mirrors: client pool ↔ FIRM_TREASURY
-  SETTLE_POOL_TO_FIRM: 50, // debit FIRM_TREASURY, credit CLIENT_BANK|CLIENT_CUSTODY
-  SETTLE_FIRM_TO_POOL: 51, // debit CLIENT_BANK|CLIENT_CUSTODY, credit FIRM_TREASURY
-  // Withdrawal-fee de-commingle: fee leaves the client pool into firm ops
-  FEE_DECOMMINGLE: 52,     // debit FIRM_TREASURY, credit CLIENT_BANK|CLIENT_CUSTODY
-
-  // EOD bridge sweep: TRADE_CLEARING ↔ FX_POSITION (the only cross-currency point)
-  BRIDGE_SWEEP_OUT: 60, // bridge net CREDIT → debit TRADE_CLEARING, credit FX_POSITION
-  BRIDGE_SWEEP_IN: 61,  // bridge net DEBIT  → debit FX_POSITION, credit TRADE_CLEARING
-
-  // FX revaluation / realization
-  FX_REVAL_LOSS: 62, // debit FX_UNREALIZED_PNL, credit FX_POSITION
-  FX_REVAL_GAIN: 63, // debit FX_POSITION, credit FX_UNREALIZED_PNL
-  FX_REALIZE: 64,    // LP fill: close position legs against FIRM_TREASURY + FX_REALIZED_PNL
-
-  // Bootstrap
-  CAPITAL_INJECTION: 70, // debit FIRM_TREASURY, credit PAID_IN_CAPITAL
+  // ── Bootstrap(70)──
+  CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_ASSET / CR FIRM_OPS
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
