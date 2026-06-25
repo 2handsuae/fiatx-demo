@@ -1,11 +1,10 @@
 /**
  * withdraw-fee-income.service.spec.ts
  *
- * TwoBook T5: Asserts that:
- * (a) createWithdrawal (service.create) locks fee pending into FEE_INCOME, NOT FEE_RECEIVABLE
- * (b) withdraw-workflow handlePayoutConfirmed posts fee leg with creditCode = FEE_INCOME
- *
- * Mirror of swap-workflow.service.spec.ts (T4 pattern).
+ * Real-time 1:1 T5: Asserts that:
+ * (a) createWithdrawal (service.create) locks fee pending into CLIENT_ASSET (not FEE_INCOME / FEE_RECEIVABLE)
+ * (b) withdraw-workflow handlePayoutConfirmed posts fee leg with creditCode = CLIENT_ASSET,
+ *     then executes firm-side collect DR FIRM_ASSET / CR FIRM_FEE
  */
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
@@ -44,16 +43,15 @@ function makeWithdrawRecord(overrides: Record<string, any> = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST A: WithdrawTransactionsService.create — fee pending → FEE_INCOME
+// TEST A: WithdrawTransactionsService.create — fee pending → CLIENT_ASSET
 // ═══════════════════════════════════════════════════════════════════
 
 function buildServiceMocks() {
   const resolveMap: Record<number, bigint> = {
     [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 10n,
-    [TB_ACCOUNT_CODES.CLIENT_CUSTODY]: 20n,
-    [TB_ACCOUNT_CODES.CLIENT_BANK]: 25n,
-    [120]: 30n, // FEE_RECEIVABLE (removed in Task 9) — must NOT be touched
-    [TB_ACCOUNT_CODES.FEE_INCOME]: 40n,
+    [TB_ACCOUNT_CODES.CLIENT_ASSET]: 20n,
+    [TB_ACCOUNT_CODES.FIRM_ASSET]: 50n,
+    [TB_ACCOUNT_CODES.FIRM_FEE]: 202n,
   };
 
   let counter = 1n;
@@ -64,6 +62,7 @@ function buildServiceMocks() {
       Promise.resolve(resolveMap[code] ?? 99n),
     ),
     executePendingTransfer: jest.fn(() => Promise.resolve(makeTx())),
+    executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: counter++ })),
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
   };
 
@@ -89,12 +88,6 @@ function buildServiceMocks() {
   };
 
   const eventEmitter = { emit: jest.fn() };
-
-  const transactionComplianceService = {
-    runCheck: jest.fn(() => Promise.resolve({ action: 'PASS' })),
-    assessTransaction: jest.fn(() => Promise.resolve({ action: 'PASS' })),
-    scheduleComplianceCheck: jest.fn(() => Promise.resolve()),
-  };
 
   const asset = { id: 'asset-usdt', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
   const customer = {
@@ -144,13 +137,12 @@ function buildServiceMocks() {
     withdrawQuoteService,
     auditLogsService,
     eventEmitter,
-    transactionComplianceService,
     prisma,
   };
 }
 
-describe('WithdrawTransactionsService — T5 fee account', () => {
-  it('locks fee pending to FEE_INCOME, not FEE_RECEIVABLE', async () => {
+describe('WithdrawTransactionsService — T5 fee account (real-time 1:1)', () => {
+  it('locks fee pending to CLIENT_ASSET, not FEE_INCOME or FEE_RECEIVABLE', async () => {
     const mocks = buildServiceMocks();
     const service = new WithdrawTransactionsService(
       mocks.prisma,
@@ -177,22 +169,63 @@ describe('WithdrawTransactionsService — T5 fee account', () => {
       (c) => c[0].code,
     );
 
-    // Must resolve FEE_INCOME for fee leg
-    expect(resolveCalls).toContain(TB_ACCOUNT_CODES.FEE_INCOME);
+    // Both net and fee must resolve CLIENT_ASSET (not FEE_INCOME or old CLIENT_CUSTODY/CLIENT_BANK)
+    expect(resolveCalls).toContain(TB_ACCOUNT_CODES.CLIENT_ASSET);
 
-    // Must NOT resolve FEE_RECEIVABLE (code 120, removed in Task 9)
+    // Must NOT resolve FEE_INCOME (code no longer exists in new COA)
+    // Must NOT resolve FEE_RECEIVABLE (code 120, removed)
     expect(resolveCalls).not.toContain(120);
+  });
+
+  it('executePendingTransfer calls use CLIENT_ASSET credit code for both net and fee', async () => {
+    const mocks = buildServiceMocks();
+    const service = new WithdrawTransactionsService(
+      mocks.prisma,
+      mocks.eventEmitter as any,
+      mocks.withdrawQuoteService as any,
+      mocks.auditLogsService as any,
+      mocks.accountingService as any,
+      { findFundsOrderBySource: jest.fn().mockResolvedValue([]) } as any,
+    );
+
+    await service.create(
+      {
+        assetId: 'asset-usdt',
+        amount: 10,
+        toAddress: '0xABCD',
+        network: 'ETH',
+        quoteId: 'q-1',
+      } as any,
+      'cust-1',
+      'CUSTOMER',
+    );
+
+    const pendingCalls = mocks.accountingService.executePendingTransfer.mock.calls as any[][];
+    const creditCodes = pendingCalls.map((c) => c[0]?.evidence?.creditCode).filter(Boolean);
+
+    // All credit codes should be CLIENT_ASSET
+    expect(creditCodes.every((code) => code === TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET])).toBe(true);
+    // Specifically: 'A.CLIENT_ASSET'
+    expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → FEE_INCOME
+// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_ASSET + FIRM_FEE collect
 // ═══════════════════════════════════════════════════════════════════
 
 function buildWorkflowMocks() {
   const accountingService = {
     postPendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
+    executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 3n })),
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
+    resolveTbAccountId: jest.fn((args: { code: number }) => {
+      const map: Record<number, bigint> = {
+        [TB_ACCOUNT_CODES.FIRM_ASSET]: 50n,
+        [TB_ACCOUNT_CODES.FIRM_FEE]: 202n,
+      };
+      return Promise.resolve(map[args.code] ?? 99n);
+    }),
   };
 
   const auditLogsService = {
@@ -234,8 +267,8 @@ function buildWorkflowMocks() {
   };
 }
 
-describe('WithdrawWorkflowService — T5 post fee evidence', () => {
-  it('posts fee pending with creditCode = FEE_INCOME, not FEE_RECEIVABLE', async () => {
+describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () => {
+  it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→FIRM_FEE', async () => {
     const mocks = buildWorkflowMocks();
     const service = new WithdrawWorkflowService(
       mocks.withdrawService as any,
@@ -254,18 +287,24 @@ describe('WithdrawWorkflowService — T5 post fee evidence', () => {
 
     const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
 
-    // At least one postPendingTransfer call is expected (fee leg)
-    expect(postCalls.length).toBeGreaterThanOrEqual(1);
+    // Two postPendingTransfer calls: net and fee client-side
+    expect(postCalls.length).toBeGreaterThanOrEqual(2);
 
     // Collect all creditCode values from evidence
-    const feeCreditCodes = postCalls
+    const creditCodes = postCalls
       .map((c) => c[0]?.evidence?.creditCode)
       .filter(Boolean);
 
-    // At least one should be FEE_INCOME
-    expect(feeCreditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_INCOME]);
+    // Both post calls should have CLIENT_ASSET as credit (not FEE_INCOME)
+    expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    // Must NOT contain FEE_INCOME or FEE_RECEIVABLE
+    expect(creditCodes).not.toContain('120');
 
-    // None should be FEE_RECEIVABLE (code 120, removed in Task 9)
-    expect(feeCreditCodes).not.toContain('120');
+    // Firm-side fee collect: executeTransfer called DR FIRM_ASSET / CR FIRM_FEE
+    const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
+    expect(execCalls.length).toBeGreaterThanOrEqual(1);
+    const firmCall = execCalls[0][0];
+    expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE]);
   });
 });
