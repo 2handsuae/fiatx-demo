@@ -1,50 +1,37 @@
-/**
- * TB account code → COA name (two-book chart of accounts).
- * Single display dictionary for the admin ledger pages — keep in sync with
- * backend `src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.ts`.
- */
+// admin-web/src/pages/ledger-account.constants.ts
+/** TB account code → COA name. 与后端 tb-account-codes.constant.ts 同步。 */
 export const TB_CODE_LABELS: Record<number, string> = {
-  // ── 客户账本(safeguarding)──
-  1: 'CLIENT_BANK',
-  10: 'CLIENT_CUSTODY',
+  1: 'CLIENT_ASSET',
+  50: 'FIRM_ASSET',
   100: 'CLIENT_PAYABLE',
   101: 'DEPOSIT_SUSPENSE',
-  110: 'TRADE_CLEARING',
-  // ── 公司账本 ──
-  50: 'FIRM_TREASURY',
-  60: 'FX_POSITION',
-  200: 'PAID_IN_CAPITAL',
-  210: 'RETAINED_EARNINGS',
-  300: 'FEE_INCOME',
-  310: 'SPREAD_INCOME',
-  320: 'FX_UNREALIZED_PNL',
-  330: 'FX_REALIZED_PNL',
+  200: 'FIRM_OPS',
+  201: 'FIRM_SET',
+  202: 'FIRM_FEE',
+  203: 'FIRM_LIQ',
 };
 
 const labelOf = (code: number) => `${code} · ${TB_CODE_LABELS[code] ?? `CODE_${code}`}`;
 
-/** Filter dropdown (string values, with an "all" entry). */
 export const TB_CODE_OPTIONS = [
   { value: '', label: 'All codes' },
   ...Object.keys(TB_CODE_LABELS).map((c) => ({ value: c, label: labelOf(Number(c)) })),
 ];
 
-/** Codes that exist once per ledger (SYSTEM owner). */
-export const SYSTEM_TB_CODES = [1, 10, 50, 60, 110, 200, 210, 300, 310, 320, 330];
-/** Per-customer codes (CUSTOMER owner). */
+/** SYSTEM-owner codes (1/ledger). */
+export const SYSTEM_TB_CODES = [1, 50, 200, 201, 202, 203];
+/** Per-customer codes. */
 export const CUSTOMER_TB_CODES = [100, 101];
 
 export const SYSTEM_CODE_OPTIONS = SYSTEM_TB_CODES.map((c) => ({ value: c, label: labelOf(c) }));
 export const CUSTOMER_CODE_OPTIONS = CUSTOMER_TB_CODES.map((c) => ({ value: c, label: labelOf(c) }));
 
 const CLASS_PREFIX: Record<number, string> = {
-  1: 'A', 10: 'A', 50: 'A', 60: 'A',
-  100: 'L', 101: 'L', 110: 'L',
-  200: 'E', 210: 'E',
-  300: 'R', 310: 'R', 320: 'R', 330: 'R',
+  1: 'A', 50: 'A',
+  100: 'L', 101: 'L',
+  200: 'E', 201: 'E', 202: 'E', 203: 'E',
 };
 
-/** COA 全名(如 'L.CLIENT_PAYABLE'),证据页筛选用。 */
 export const COA_OPTIONS = Object.entries(TB_CODE_LABELS).map(([code, name]) => ({
   value: `${CLASS_PREFIX[Number(code)]}.${name}`,
   label: `${CLASS_PREFIX[Number(code)]}.${name}`,
