@@ -23,6 +23,7 @@ export const TB_TRANSFER_CODES = {
   SWAP_FEE_CLIENT: 35,         // 客户付费(to):DR CLIENT_PAYABLE / CR CLIENT_ASSET
   SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_ASSET / CR FIRM_FEE
   SWAP_SELL_SET_TO_OPS: 37,    // 法币卖出公司内:DR FIRM_SET / CR FIRM_OPS (fiat-sell only)
+  SWAP_BUY_OPS_TO_ASSET: 38,  // 币买公司放出:DR FIRM_OPS / CR FIRM_ASSET (crypto-buy only)
 
   // ── Bootstrap(70)──
   CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_ASSET / CR FIRM_OPS

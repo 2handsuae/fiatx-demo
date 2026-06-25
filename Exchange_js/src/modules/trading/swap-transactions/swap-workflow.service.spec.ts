@@ -261,13 +261,13 @@ describe('SwapWorkflowService — real-time multi-leg, CASE B (AED→USDT)', () 
     await service.executeSwap('cust-1', 'q-1');
 
     expect(transferCodes(mocks.accountingService)).toEqual([
-      T.SWAP_SELL_CLIENT,      // 1
-      T.SWAP_SELL_FIRM,        // 2 fiat sell → FIRM_SET
-      T.SWAP_SELL_SET_TO_OPS,  // 3 fiat sell SET→OPS hop
-      T.SWAP_BUY_SET_TO_ASSET, // 4 crypto buy direct OPS→FIRM_ASSET (no OPS_TO_SET)
-      T.SWAP_BUY_CLIENT,       // 5
-      T.SWAP_FEE_CLIENT,       // 6
-      T.SWAP_FEE_FIRM,         // 7
+      T.SWAP_SELL_CLIENT,       // 1
+      T.SWAP_SELL_FIRM,         // 2 fiat sell → FIRM_SET
+      T.SWAP_SELL_SET_TO_OPS,   // 3 fiat sell SET→OPS hop
+      T.SWAP_BUY_OPS_TO_ASSET,  // 4 crypto buy direct OPS→FIRM_ASSET (no OPS_TO_SET)
+      T.SWAP_BUY_CLIENT,        // 5
+      T.SWAP_FEE_CLIENT,        // 6
+      T.SWAP_FEE_FIRM,          // 7
     ]);
 
     // Crypto-buy must NOT include the fiat OPS→SET hop.
@@ -291,7 +291,7 @@ describe('SwapWorkflowService — real-time multi-leg, CASE B (AED→USDT)', () 
     expect(l3.creditAccountId).toBe(acctId(C.FIRM_OPS, AED));
 
     // 4: crypto buy firm — DR FIRM_OPS·USDT / CR FIRM_ASSET·USDT
-    const l4 = legByCode(mocks.accountingService, T.SWAP_BUY_SET_TO_ASSET);
+    const l4 = legByCode(mocks.accountingService, T.SWAP_BUY_OPS_TO_ASSET);
     expect(l4.debitAccountId).toBe(acctId(C.FIRM_OPS, USDT));
     expect(l4.creditAccountId).toBe(acctId(C.FIRM_ASSET, USDT));
 

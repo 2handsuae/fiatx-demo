@@ -328,8 +328,8 @@ export class SwapWorkflowService {
       // CASE B buy: crypto out → FIRM_OPS→FIRM_ASSET (no SET hop), then client credit.
       await this.accountingService.executeTransfer({
         debitAccountId: firmOpsTo, creditAccountId: firmAssetTo, amount: grossToAmountBigint,
-        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_BUY_SET_TO_ASSET,
-        evidence: this.evidence(swapNo, 'SWAP_BUY_SET_TO_ASSET', C.FIRM_OPS, C.FIRM_ASSET, toCurrency, traceId, ownerId, 'Swap buy: firm ops → asset (crypto)'),
+        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_BUY_OPS_TO_ASSET,
+        evidence: this.evidence(swapNo, 'SWAP_BUY_OPS_TO_ASSET', C.FIRM_OPS, C.FIRM_ASSET, toCurrency, traceId, ownerId, 'Swap buy: firm ops → asset (crypto)'),
         tx,
       });
     }
@@ -343,6 +343,7 @@ export class SwapWorkflowService {
     // ── FEE legs (to-ledger, direct) ──
     let feeClientHex: string | null = null;
     if (feeAmountBigint > 0n) {
+      const firmFeeAccount = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_FEE, ledger: toLedger, ownerType: 'SYSTEM' });
       const feeClient = await this.accountingService.executeTransfer({
         debitAccountId: clientPayableTo, creditAccountId: clientAssetTo, amount: feeAmountBigint,
         ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_FEE_CLIENT,
@@ -350,7 +351,7 @@ export class SwapWorkflowService {
         tx,
       });
       await this.accountingService.executeTransfer({
-        debitAccountId: firmAssetTo, creditAccountId: await this.accountingService.resolveTbAccountId({ code: C.FIRM_FEE, ledger: toLedger, ownerType: 'SYSTEM' }), amount: feeAmountBigint,
+        debitAccountId: firmAssetTo, creditAccountId: firmFeeAccount, amount: feeAmountBigint,
         ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_FEE_FIRM,
         evidence: this.evidence(swapNo, 'SWAP_FEE_FIRM', C.FIRM_ASSET, C.FIRM_FEE, toCurrency, traceId, ownerId, 'Swap fee: firm-side fee income'),
         tx,
