@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowService } from './swap-workflow.service';
+import { SwapSettlementService } from './swap-settlement.service';
 import { SwapTransactionsController } from './swap-transactions.controller';
 import { SwapTransactionsCustomerController } from './swap-transactions-customer.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
@@ -22,7 +23,7 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
     FundsLayerModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
-  providers: [SwapTransactionsService, SwapWorkflowService],
-  exports: [SwapTransactionsService, SwapWorkflowService],
+  providers: [SwapTransactionsService, SwapWorkflowService, SwapSettlementService],
+  exports: [SwapTransactionsService, SwapWorkflowService, SwapSettlementService],
 })
 export class SwapTransactionsModule {}

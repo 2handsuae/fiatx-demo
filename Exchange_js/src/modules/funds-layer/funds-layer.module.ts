@@ -80,6 +80,8 @@ import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
     InternalTransferWorkflowService,
     FundTransferWorkflowService,
     EodSettlementWorkflowService,
+    FundsFlowService,
+    SystemWalletResolver,
   ],
 })
 export class FundsLayerModule {}

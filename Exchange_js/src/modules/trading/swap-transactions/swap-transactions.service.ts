@@ -303,6 +303,41 @@ export class SwapTransactionsService {
     return { items, total };
   }
 
+  async findByNoInternal(swapNo: string, tx?: Prisma.TransactionClient) {
+    const client: any = tx ?? this.prisma;
+    return client.swapTransaction.findUniqueOrThrow({
+      where: { swapNo },
+      include: { fromAsset: true, toAsset: true },
+    });
+  }
+
+  async markStatus(swapId: string, status: string, tx: Prisma.TransactionClient) {
+    let statusHistory: any[] = [];
+    try {
+      const current = await (tx as any).swapTransaction.findUnique({ where: { id: swapId }, select: { statusHistory: true } });
+      if (current?.statusHistory) {
+        statusHistory = JSON.parse(current.statusHistory);
+        if (!Array.isArray(statusHistory)) statusHistory = [];
+      }
+    } catch {
+      statusHistory = [];
+    }
+    statusHistory.push({
+      status,
+      timestamp: new Date().toISOString(),
+      operator: 'SYSTEM',
+      note: `Swap settlement status → ${status}`,
+    });
+    return (tx as any).swapTransaction.update({
+      where: { id: swapId },
+      data: {
+        status,
+        completedAt: status === 'SUCCESS' ? new Date() : undefined,
+        statusHistory: JSON.stringify(statusHistory),
+      },
+    });
+  }
+
   async findOne(id: string) {
     const item = await (this.prisma as any).swapTransaction.findUnique({
       where: { id },
