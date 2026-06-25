@@ -481,7 +481,7 @@ export class SwapSettlementService {
         client as any,
       );
 
-      return swap;
+      return this.swaps.findByNoInternal(swapNo, client as any);
     });
   }
 }
