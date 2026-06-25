@@ -130,20 +130,13 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
 
     // System TB accounts (ownerType SYSTEM, no ownerUuid).
     const isFiat = asset.type === 'FIAT';
-    const custodyCode = isFiat
-      ? TB_ACCOUNT_CODES.CLIENT_BANK
-      : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
     const systemAccounts = [
-      { code: custodyCode, desc: isFiat ? 'CLIENT_BANK' : 'CLIENT_CUSTODY' },
-      { code: TB_ACCOUNT_CODES.TRADE_CLEARING, desc: 'TRADE_CLEARING' },
-      { code: TB_ACCOUNT_CODES.FIRM_TREASURY, desc: 'FIRM_TREASURY' },
-      { code: TB_ACCOUNT_CODES.FX_POSITION, desc: 'FX_POSITION' },
-      { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, desc: 'PAID_IN_CAPITAL' },
-      { code: TB_ACCOUNT_CODES.RETAINED_EARNINGS, desc: 'RETAINED_EARNINGS' },
-      { code: TB_ACCOUNT_CODES.FEE_INCOME, desc: 'FEE_INCOME' },
-      { code: TB_ACCOUNT_CODES.SPREAD_INCOME, desc: 'SPREAD_INCOME' },
-      { code: TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, desc: 'FX_UNREALIZED_PNL' },
-      { code: TB_ACCOUNT_CODES.FX_REALIZED_PNL, desc: 'FX_REALIZED_PNL' },
+      { code: TB_ACCOUNT_CODES.CLIENT_ASSET, desc: 'CLIENT_ASSET' },
+      { code: TB_ACCOUNT_CODES.FIRM_ASSET, desc: 'FIRM_ASSET' },
+      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+      { code: TB_ACCOUNT_CODES.FIRM_FEE, desc: 'FIRM_FEE' },
+      { code: TB_ACCOUNT_CODES.FIRM_LIQ, desc: 'FIRM_LIQ' },
+      ...(isFiat ? [{ code: TB_ACCOUNT_CODES.FIRM_SET, desc: 'FIRM_SET' }] : []),
     ];
     for (const acct of systemAccounts) {
       await ensureTbAccountRegistry(prisma, {
