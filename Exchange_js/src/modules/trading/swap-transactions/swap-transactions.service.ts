@@ -349,15 +349,33 @@ export class SwapTransactionsService {
     });
     if (!item) throw new NotFoundException('Swap transaction not found');
 
-    // Enrich from 资金单: swap fans out to multiple InternalTransaction legs
-    // (from/to/fee/spread). Surface them so the detail page can link through.
+    // Legacy enrich (old InternalTransaction-based settlement); empty for
+    // real-time swaps which hang InternalFund legs directly on the swap.
     const fundsOrders =
       await this.internalTransferService.findFundsOrderBySource(
         'SWAP',
         item.id,
       );
 
-    return { ...item, fundsOrders };
+    // Real-time model: the swap's 4 InternalFund legs are hung directly on the
+    // swap via swapTransactionId. Surface them (ordered) so the detail page can
+    // list + link through to each fund order.
+    const internalFunds = await (this.prisma as any).internalFund.findMany({
+      where: { swapTransactionId: item.id },
+      orderBy: { legSeq: 'asc' },
+      select: {
+        id: true,
+        internalFundNo: true,
+        legSeq: true,
+        status: true,
+        amount: true,
+        asset: { select: { currency: true, decimals: true } },
+        fromWallet: { select: { walletRole: true } },
+        toWallet: { select: { walletRole: true } },
+      },
+    });
+
+    return { ...item, fundsOrders, internalFunds };
   }
 
   async create(

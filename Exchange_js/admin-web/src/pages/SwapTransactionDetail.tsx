@@ -46,6 +46,17 @@ interface FundsOrderSummary {
   legs: FundsOrderLeg[];
 }
 
+interface InternalFundLeg {
+  id: string;
+  internalFundNo: string;
+  legSeq: number | null;
+  status: string;
+  amount: string;
+  asset?: { currency: string; decimals: number } | null;
+  fromWallet?: { walletRole: string } | null;
+  toWallet?: { walletRole: string } | null;
+}
+
 interface SwapTransactionDetailData {
   id: string;
   swapNo: string;
@@ -80,6 +91,7 @@ interface SwapTransactionDetailData {
   } | null;
   statusHistory: string | null;
   fundsOrders?: FundsOrderSummary[];
+  internalFunds?: InternalFundLeg[];
 }
 
 interface SwapFx {
@@ -273,25 +285,36 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
-          {/* 5. Linked Funds Orders */}
+          {/* 5. Linked Funds Orders — the swap's InternalFund legs (real-time model) */}
           <DetailCard title="Linked Funds Orders" columns={1}>
-            {data.fundsOrders && data.fundsOrders.length > 0 ? (
+            {data.internalFunds && data.internalFunds.length > 0 ? (
               <div className="flex flex-col gap-2">
-                {data.fundsOrders.map((o) => (
-                  <LinkedRelationCard
-                    key={o.id}
-                    cap="Funds Order"
-                    identifier={o.internalTxNo}
-                    statusValue={o.status}
-                    meta={o.type}
-                    onClick={() => navigate(`/admin/funds/transfers/${o.internalTxNo}`)}
-                  />
-                ))}
+                {data.internalFunds.map((f) => {
+                  const routeLabel =
+                    f.fromWallet?.walletRole && f.toWallet?.walletRole
+                      ? `${f.fromWallet.walletRole} → ${f.toWallet.walletRole}`
+                      : null;
+                  const amountLabel = f.asset
+                    ? `${formatAssetAmount(f.amount, f.asset.decimals)} ${f.asset.currency}`
+                    : f.amount;
+                  return (
+                    <LinkedRelationCard
+                      key={f.id}
+                      cap={f.legSeq != null ? `Leg ${f.legSeq}` : 'Funds Order'}
+                      identifier={f.internalFundNo}
+                      statusValue={f.status}
+                      meta={[routeLabel, amountLabel].filter(Boolean).join(' · ')}
+                      onClick={() =>
+                        navigate(`/admin/funds/internal-funds/${f.internalFundNo}`)
+                      }
+                    />
+                  );
+                })}
               </div>
             ) : (
               <LinkedRelationEmpty
                 cap="Funds Orders"
-                message="Not settled to funds layer yet"
+                message="No funds orders for this swap yet"
               />
             )}
           </DetailCard>
