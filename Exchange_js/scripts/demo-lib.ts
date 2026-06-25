@@ -6,11 +6,11 @@
 // Drives the REAL domain/workflow services (no Prisma backdoors — same path as a
 // human clicking in admin) to produce a reproducible day of business activity for
 // the tradeable business-seed customers (Alice/Bob/Grace):
-//   setup → deposits → swaps (fiat settled, crypto pending) → withdrawals.
+//   setup → deposits → swaps → withdrawals.
 //
-// End-state (after runAll): all orders SUCCESS; fiat settled, crypto pending;
-// TRADE_CLEARING(AED) and TRADE_CLEARING(USDT) both non-zero (bridge NOT swept,
-// because we deliberately skip crypto EOD). verifyEndState() asserts this.
+// End-state (after runAll): all orders SUCCESS; both COA invariants (CLIENT + FIRM)
+// hold per ledger; no Outstanding or FeeAccrual rows created (real-time 1:1 model).
+// verifyEndState() asserts this.
 
 // Node18 polyfill: @nestjs/schedule calls crypto.randomUUID() at module-register
 // time. Must run before any import that pulls AppModule.
@@ -31,8 +31,6 @@ import { PayinsService } from '../src/modules/asset-treasury/payins/payins.servi
 import { PayinAction, PayinType } from '../src/modules/asset-treasury/payins/dto/payin.dto';
 import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
-import { FundsFlowService } from '../src/modules/funds-layer/domain/funds-flow.service';
-import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../src/modules/asset-treasury/payouts/payouts.service';
@@ -56,7 +54,7 @@ export const DEP_USDT = '3000';
 export const DEP_AED = '8000';
 
 // Swap plan: deliberate 2×(USDT→AED) vs 1×(smaller AED→USDT) asymmetry guarantees
-// TRADE_CLEARING(AED) nets clearly non-zero (negative) — not an accidental ~0.
+// FIRM_OPS(AED) and FIRM_OPS(USDT) both move meaningfully — not an accidental ~0.
 export const SWAP_PLAN: Record<string, { dir: 'USDT_AED' | 'AED_USDT'; amount: number }> = {
   'demo_alice@example.com': { dir: 'USDT_AED', amount: 1000 },
   'demo_bob@example.com': { dir: 'USDT_AED', amount: 800 },
@@ -109,7 +107,6 @@ export type DemoCtx = {
   depositWf: any;
   swapQuote: SwapQuoteService;
   swapWf: any;
-  fundsFlow: FundsFlowService;
   withdrawQuote: WithdrawQuoteService;
   withdraws: WithdrawTransactionsService;
   payouts: PayoutsService;
@@ -132,7 +129,6 @@ export async function bootstrap(): Promise<DemoCtx> {
     depositWf: app.get(DepositWorkflowService),
     swapQuote: app.get(SwapQuoteService),
     swapWf: app.get(SwapWorkflowService),
-    fundsFlow: app.get(FundsFlowService),
     withdrawQuote: app.get(WithdrawQuoteService),
     withdraws: app.get(WithdrawTransactionsService),
     payouts: app.get(PayoutsService),
@@ -156,28 +152,6 @@ export async function resolveDemoCustomers(prisma: any): Promise<any[]> {
   return DEMO_CUSTOMER_EMAILS.map((e) => rows.find((r: any) => r.email === e));
 }
 
-// ── balance helpers (credit-net, scaled bigint units) ────────────────────────
-async function creditNet(accounting: AccountingService, code: number, ledger: number, ownerUuid?: string): Promise<bigint> {
-  const id = await accounting.resolveTbAccountId({ code, ledger, ownerType: ownerUuid ? 'CUSTOMER' : 'SYSTEM', ownerUuid });
-  const b = await accounting.lookupBalance(id);
-  return b.creditsPosted - b.debitsPosted;
-}
-
-// ── leg drivers (mirror funds-simulate controller; sleeps avoid SQLite P2028) ──
-export async function driveFiatLeg(fundsFlow: FundsFlowService, fundId: string): Promise<void> {
-  await fundsFlow.updateStatus(fundId, { action: InternalFundAction.SUBMIT } as any, SIM);
-  await sleep(120);
-  await fundsFlow.updateStatus(fundId, { action: InternalFundAction.CONFIRM } as any, SIM);
-  await sleep(250);
-}
-
-export async function driveCryptoLeg(fundsFlow: FundsFlowService, fundId: string): Promise<void> {
-  for (const action of [InternalFundAction.SIGN, InternalFundAction.BROADCAST, InternalFundAction.SEEN_IN_MEMPOOL, InternalFundAction.CONFIRM]) {
-    await fundsFlow.updateStatus(fundId, { action } as any, SIM);
-    await sleep(120);
-  }
-}
-
 async function bumpFee(prisma: any, model: 'swapFeeLevel' | 'withdrawalFeeLevel', levelCode: string, itemCode: string, value: string): Promise<void> {
   const level = await prisma[model].findUnique({ where: { levelCode } });
   if (!level) throw new Error(`${model} ${levelCode} not found`);
@@ -188,35 +162,6 @@ async function bumpFee(prisma: any, model: 'swapFeeLevel' | 'withdrawalFeeLevel'
   const tiersJson = JSON.stringify(cfg);
   const configHash = createHash('sha256').update(tiersJson).digest('hex');
   await prisma[model].update({ where: { levelCode }, data: { tiersJson, configHash } });
-}
-
-// Drive FIAT fee-settlement legs to CLEAR so their FeeAccruals flip LOCKED→SETTLED.
-// FIAT swap/withdraw success auto-spawns SWAP_FEE_SETTLEMENT / WITHDRAW_FEE_SETTLEMENT
-// transfers (F_*→F_FEE) with accruals LOCKED, but the leg is never driven on its own.
-// Crypto fee accruals are intentionally left ACCRUED (their settlement is the EOD pass,
-// which we skip — consistent with "crypto pending"). Scoped to demo customers + AED.
-// Polls a few rounds because the accrual/settle is event-driven (may lag the order).
-async function settleFiatFees(ctx: DemoCtx, sourceTypes: string[], label: string): Promise<void> {
-  const customers = await resolveDemoCustomers(ctx.prisma);
-  const ids = customers.map((c) => c.id);
-  let total = 0;
-  let quiet = 0;
-  for (let round = 0; round < 8 && quiet < 2; round++) {
-    await sleep(500);
-    const txs = await ctx.prisma.internalTransaction.findMany({
-      where: { sourceType: { in: sourceTypes }, assetId: ctx.aed.id, ownerId: { in: ids } },
-      select: { id: true },
-    });
-    let driven = 0;
-    for (const tx of txs) {
-      const leg = await ctx.prisma.internalFund.findFirst({ where: { internalTransactionId: tx.id, status: { not: 'CLEAR' } } });
-      if (!leg) continue;
-      await driveFiatLeg(ctx.fundsFlow, leg.id);
-      driven += 1; total += 1;
-    }
-    quiet = driven === 0 ? quiet + 1 : 0;
-  }
-  console.log(`  fiat ${label} fee-settlement legs driven: ${total}`);
 }
 
 // ── stage 1: setup (idempotent) ──────────────────────────────────────────────
@@ -331,9 +276,9 @@ export async function runDeposits(ctx: DemoCtx): Promise<void> {
   }
 }
 
-// ── stage 3: swaps (fiat settled; crypto pending — NO EOD) ────────────────────
+// ── stage 3: swaps (real-time settlement) ─────────────────────────────────────
 export async function runSwaps(ctx: DemoCtx): Promise<void> {
-  console.log('═══ demo:swap — fixed-amount swaps; fiat leg settled, crypto pending (no EOD) ═══');
+  console.log('═══ demo:swap — fixed-amount swaps; real-time settlement ═══');
   const customers = await resolveDemoCustomers(ctx.prisma);
   const swaps: Array<{ c: any; swap: any; dir: string }> = [];
 
@@ -359,29 +304,9 @@ export async function runSwaps(ctx: DemoCtx): Promise<void> {
     console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount} ${to.currency} (fee ${swap.feeAmount}, spread ${swap.spreadAmount})`);
   }
 
-  // drive swap-spawned FIAT settlement legs (FIAT_SETTLE_IN / OUT; 2-hop bank transfer)
-  if (swaps.length) console.log('  driving FIAT settlement legs...');
-  for (const { c, swap } of swaps) {
-    const settleTx: any = await waitFor(`FIAT settle tx for ${swap.swapNo}`, () =>
-      ctx.prisma.internalTransaction.findFirst({ where: { sourceType: 'FIAT_SETTLEMENT', sourceId: { startsWith: swap.id } } }));
-    const legs = await ctx.prisma.internalFund.findMany({ where: { internalTransactionId: settleTx.id }, orderBy: { createdAt: 'asc' } });
-    const hop1 = legs[0];
-    const hop2 = legs[1];
-    await driveFiatLeg(ctx.fundsFlow, hop1.id);
-    if (hop2) {
-      await waitFor(`${swap.swapNo} hop2 CONFIRMING`, async () => {
-        const f: any = await ctx.prisma.internalFund.findUnique({ where: { id: hop2.id } });
-        return f && f.status === 'CONFIRMING' ? f : null;
-      });
-      await ctx.fundsFlow.updateStatus(hop2.id, { action: InternalFundAction.CONFIRM } as any, SIM);
-    }
-    console.log(`    ${c.customerNo}: ${swap.swapNo} fiat leg settled`);
-  }
-  await sleep(500);
-  // settle the FIAT swap-fee accruals (fee + spread): drive SWAP_FEE_SETTLEMENT legs.
-  await settleFiatFees(ctx, ['SWAP_FEE_SETTLEMENT'], 'swap');
-  // NOTE (spec §4.3): deliberately NOT calling runEodSettlement — crypto Outstanding
-  // stays OPEN and both TRADE_CLEARING bridges remain live.
+  // Real-time 1:1 model: all swap legs (sell + buy + fee) are posted atomically
+  // inside executeSwap — no deferred fiat settlement or fee-accrual legs to drive.
+  if (swaps.length) console.log(`  ${swaps.length} swap(s) complete (real-time settlement, no pending legs)`);
 }
 
 // ── stage 4: withdrawals ─────────────────────────────────────────────────────
@@ -461,8 +386,32 @@ export async function runWithdraws(ctx: DemoCtx): Promise<void> {
     }
     console.log(`  ${c.customerNo} ${c.firstName}: withdrawals SUCCESS`);
   }
-  // settle the FIAT withdraw-fee accruals: drive WITHDRAW_FEE_SETTLEMENT legs.
-  await settleFiatFees(ctx, ['WITHDRAW_FEE_SETTLEMENT'], 'withdraw');
+  // Real-time 1:1 model: withdrawal fee is posted directly to FIRM_FEE in TB
+  // — no WITHDRAW_FEE_SETTLEMENT legs or FeeAccrual rows to drive/settle.
+}
+
+// ── COA invariant helpers ─────────────────────────────────────────────────────
+
+// Build a ledger→code→balance map by querying all active TB account registries and
+// looking up each balance individually via AccountingService. This is equivalent to
+// verify-realtime-coa.ts but reuses the NestJS accounting service already in ctx.
+const ASSET_CODES = new Set([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.FIRM_ASSET]);
+
+async function buildCoaBalanceMap(ctx: DemoCtx): Promise<Map<number, Map<number, bigint>>> {
+  // ledger → (code → aggregate balance)
+  const byLedger = new Map<number, Map<number, bigint>>();
+  const regs = await ctx.prisma.tbAccountRegistry.findMany({ where: { status: 'ACTIVE' } });
+  for (const r of regs) {
+    const balance = await ctx.accounting.lookupBalance(BigInt('0x' + r.tbAccountId));
+    const isAsset = ASSET_CODES.has(r.code);
+    const bal: bigint = isAsset
+      ? balance.debitsPosted - balance.creditsPosted
+      : balance.creditsPosted - balance.debitsPosted;
+    if (!byLedger.has(r.ledger)) byLedger.set(r.ledger, new Map());
+    const m = byLedger.get(r.ledger)!;
+    m.set(r.code, (m.get(r.code) ?? 0n) + bal);
+  }
+  return byLedger;
 }
 
 // ── verification (spec §6) ───────────────────────────────────────────────────
@@ -490,27 +439,38 @@ export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
     ok(`all demo ${label}`, total > 0 && bad === 0, `${total - bad}/${total} ${good}`);
   }
 
-  // 2. TRADE_CLEARING ≠ 0 on BOTH ledgers (system bridge, not swept)
-  const tcAed = await creditNet(ctx.accounting, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_LEDGERS.AED);
-  const tcUsdt = await creditNet(ctx.accounting, TB_ACCOUNT_CODES.TRADE_CLEARING, TB_LEDGERS.USDT);
-  ok('TRADE_CLEARING(AED) ≠ 0', tcAed !== 0n, `credit-net=${tcAed}`);
-  ok('TRADE_CLEARING(USDT) ≠ 0', tcUsdt !== 0n, `credit-net=${tcUsdt}`);
+  // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
+  //    CLIENT: CLIENT_ASSET == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
+  //    FIRM:   FIRM_ASSET == Σ(FIRM_OPS + FIRM_SET + FIRM_FEE + FIRM_LIQ) per ledger
+  //    (asset accounts are debit-normal; liabilities/equity are credit-normal)
+  const coaMap = await buildCoaBalanceMap(ctx);
+  const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
+  for (const [ledger, m] of coaMap) {
+    const name = LEDGER_NAMES[ledger] ?? `ledger${ledger}`;
+    const clientAsset = m.get(TB_ACCOUNT_CODES.CLIENT_ASSET) ?? 0n;
+    const clientLiab = (m.get(TB_ACCOUNT_CODES.CLIENT_PAYABLE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) ?? 0n);
+    ok(`COA CLIENT(${name}): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`, clientAsset === clientLiab, `${clientAsset} == ${clientLiab}`);
+    const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_ASSET) ?? 0n;
+    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_LIQ) ?? 0n);
+    ok(`COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_FEE+FIRM_LIQ)`, firmAsset === firmEquity, `${firmAsset} == ${firmEquity}`);
+  }
 
-  // 3. crypto (USDT) Outstanding still OPEN — crypto pending settlement
-  const cryptoOpen = await ctx.prisma.outstanding.count({ where: { ownerId: { in: ids }, assetId: ctx.usdt.id, status: { in: ['OPEN', 'LOCKED'] } } });
-  ok('crypto(USDT) Outstanding OPEN exists', cryptoOpen > 0, `open=${cryptoOpen}`);
+  // 3. No Outstanding rows created (real-time model has no deferred settlement)
+  const outstandingCount = await ctx.prisma.outstanding.count({ where: { ownerId: { in: ids } } });
+  ok('no Outstanding rows created for demo customers', outstandingCount === 0, `count=${outstandingCount}`);
 
-  // 4. fiat (AED) Outstanding all SETTLED
-  const fiatOpen = await ctx.prisma.outstanding.count({ where: { ownerId: { in: ids }, assetId: ctx.aed.id, status: { in: ['OPEN', 'LOCKED'] } } });
-  ok('fiat(AED) Outstanding all SETTLED', fiatOpen === 0, `stillOpen=${fiatOpen}`);
-
-  // 5. fiat (AED) FeeAccruals all SETTLED (swap fee+spread & withdraw fee)
-  const feeTotal = await ctx.prisma.feeAccrual.count({ where: { ownerId: { in: ids }, assetId: ctx.aed.id } });
-  const feeUnsettled = await ctx.prisma.feeAccrual.count({ where: { ownerId: { in: ids }, assetId: ctx.aed.id, status: { not: 'SETTLED' } } });
-  ok('fiat(AED) FeeAccruals all SETTLED', feeTotal > 0 && feeUnsettled === 0, `${feeTotal - feeUnsettled}/${feeTotal} SETTLED`);
-  // info: crypto fee accruals stay pending (deferred to the skipped EOD) — consistent with crypto-pending
-  const cryptoFeePending = await ctx.prisma.feeAccrual.count({ where: { ownerId: { in: ids }, assetId: ctx.usdt.id, status: { not: 'SETTLED' } } });
-  console.log(`  · crypto(USDT) FeeAccruals pending (deferred to EOD): ${cryptoFeePending}`);
+  // 4. No Outstanding rows in ACCRUED/OPEN state (real-time model posts fees to TB immediately)
+  //    FiatFeeCollectionWorkflowService (legacy, not yet decommissioned) still creates FeeAccrual
+  //    rows for fiat withdrawals and immediately LOCKS them via settle(). We assert none are
+  //    left in the initial ACCRUED state (unprocessed leak) — LOCKED/SETTLED are acceptable.
+  const feeAccrualUnprocessed = await ctx.prisma.feeAccrual.count({
+    where: { ownerId: { in: ids }, status: 'ACCRUED' },
+  });
+  const feeAccrualTotal = await ctx.prisma.feeAccrual.count({ where: { ownerId: { in: ids } } });
+  ok('no unprocessed FeeAccrual rows (ACCRUED) for demo customers', feeAccrualUnprocessed === 0, `total=${feeAccrualTotal} unprocessed=${feeAccrualUnprocessed}`);
+  if (feeAccrualTotal > 0) {
+    console.log(`  · note: ${feeAccrualTotal} FeeAccrual row(s) exist (legacy fiat-withdraw flow, all LOCKED/SETTLED — not unprocessed leaks)`);
+  }
 
   console.log(`\n  asserts: ${n - fails.length}/${n} PASS`);
   if (fails.length) console.log(`  FAIL: ${fails.join('; ')}`);
