@@ -727,6 +727,135 @@ export class FundsFlowService {
     return result.updated;
   }
 
+  async createSwapLeg(
+    input: {
+      swapTransactionId: string;
+      legSeq: number;
+      assetId: string;
+      amount: Prisma.Decimal;
+      fromWalletId?: string | null;
+      toWalletId?: string | null;
+    },
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const exec = async (client: TxClient) => {
+      for (
+        let attempt = 1;
+        attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
+        attempt += 1
+      ) {
+        const internalFundNo = generateReferenceNo('IFD');
+        try {
+          const created = await (client as any).internalFund.create({
+            data: {
+              internalFundNo,
+              internalTransactionId: null,
+              swapTransactionId: input.swapTransactionId,
+              legSeq: input.legSeq,
+              status: InternalFundStatus.CREATED,
+              assetId: input.assetId,
+              amount: input.amount,
+              feeAmount: new Prisma.Decimal(0),
+              netAmount: input.amount,
+              fromWalletId: input.fromWalletId ?? null,
+              toWalletId: input.toWalletId ?? null,
+              statusHistory: this.appendStatusHistory(
+                null,
+                InternalFundStatus.CREATED,
+                operatorId,
+                `Swap leg ${input.legSeq} created`,
+              ),
+            },
+          });
+          await this.auditLogsService.recordByActor(
+            {
+              action: AuditActions.CREATED,
+              entityType: AuditEntityTypes.INTERNAL_FUND,
+              entityId: created.id,
+              entityNo: created.internalFundNo,
+              reason: `Swap leg ${input.legSeq} created`,
+              sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
+            },
+            {
+              actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+              actorId: operatorId,
+              actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            },
+            client,
+          );
+          return created;
+        } catch (e) {
+          if (this.isInternalFundNoUniqueConflict(e)) continue;
+          throw e;
+        }
+      }
+      throw new InternalServerErrorException(
+        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+      );
+    };
+    if (tx) return exec(tx);
+    return (this.prisma as any).$transaction((c: TxClient) => exec(c));
+  }
+
+  async transitionSwapLeg(
+    id: string,
+    action: InternalFundAction,
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const exec = async (client: TxClient) => {
+      const leg = await (client as any).internalFund.findUnique({
+        where: { id },
+        include: { asset: true },
+      });
+      if (!leg) throw new NotFoundException('Internal fund leg not found');
+      const cur = leg.status as InternalFundStatus;
+      const map = this.getTransitionMap(leg.asset?.type || 'CRYPTO');
+      const next = map[cur]?.[action];
+      if (!next) {
+        throw new BadRequestException(
+          `Invalid action ${action} for status ${cur}`,
+        );
+      }
+      const updated = await (client as any).internalFund.update({
+        where: { id },
+        data: {
+          status: next,
+          statusHistory: this.appendStatusHistory(
+            leg.statusHistory,
+            next,
+            operatorId,
+            `Swap leg ${cur}->${next}`,
+          ),
+          confirmedAt:
+            next === InternalFundStatus.CONFIRMED ? new Date() : leg.confirmedAt,
+          completedAt: TERMINAL_STATUSES.has(next) ? new Date() : leg.completedAt,
+        },
+      });
+      await this.auditLogsService.recordByActor(
+        {
+          action: buildInternalFundStateAction(next),
+          metadata: JSON.stringify({ from: cur }) as any,
+          entityType: AuditEntityTypes.INTERNAL_FUND,
+          entityId: id,
+          entityNo: leg.internalFundNo,
+          reason: `Swap leg ${cur}->${next}`,
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
+        },
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
+      return { leg: updated, prevStatus: cur, nextStatus: next };
+    };
+    if (tx) return exec(tx);
+    return (this.prisma as any).$transaction((c: TxClient) => exec(c));
+  }
+
   async findAllForAdmin(query: InternalFundQueryDto) {
     const {
       skip = 0,

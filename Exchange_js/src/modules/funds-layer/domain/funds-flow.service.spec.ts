@@ -722,6 +722,117 @@ describe('createLeg', () => {
   });
 });
 
+describe('swap legs', () => {
+  let service: FundsFlowService;
+  let prisma: any;
+  let auditLogsService: any;
+
+  beforeEach(async () => {
+    prisma = {
+      internalFund: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        count: jest.fn(),
+      },
+      internalTransaction: {
+        findUnique: jest.fn(),
+      },
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+    };
+
+    auditLogsService = {
+      recordByActor: jest.fn().mockResolvedValue({ id: 'audit-log-swap' }),
+      recordSystem: jest.fn().mockResolvedValue({ id: 'audit-log-swap' }),
+    };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        FundsFlowService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: FundsFlowAggregatorPort, useValue: { syncStatusFromFunds: jest.fn() } },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        { provide: AuditLogsService, useValue: auditLogsService },
+        { provide: WalletBalanceService, useValue: { adjust: jest.fn().mockResolvedValue(undefined) } },
+      ],
+    }).compile();
+
+    service = moduleRef.get<FundsFlowService>(FundsFlowService);
+    jest.clearAllMocks();
+  });
+
+  it('createSwapLeg: internalFund.create called with swapTransactionId, legSeq, internalTransactionId: null, status: CREATED', async () => {
+    prisma.internalFund.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'swap-leg-1', internalFundNo: data.internalFundNo, ...data }),
+    );
+
+    await service.createSwapLeg({
+      swapTransactionId: 'swap-tx-1',
+      legSeq: 1,
+      assetId: 'asset-crypto-1',
+      amount: new Prisma.Decimal(100),
+      fromWalletId: 'w-from',
+      toWalletId: 'w-to',
+    });
+
+    expect(prisma.internalFund.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          swapTransactionId: 'swap-tx-1',
+          legSeq: 1,
+          internalTransactionId: null,
+          status: InternalFundStatus.CREATED,
+        }),
+      }),
+    );
+  });
+
+  it('transitionSwapLeg: crypto leg CREATED + action SIGN → update called with status SIGNING; returns nextStatus===SIGNING', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'swap-leg-2',
+      internalFundNo: 'IFD-SWAP-2',
+      status: InternalFundStatus.CREATED,
+      statusHistory: '[]',
+      confirmedAt: null,
+      completedAt: null,
+      asset: { type: 'CRYPTO' },
+    });
+    prisma.internalFund.update.mockResolvedValue({
+      id: 'swap-leg-2',
+      status: InternalFundStatus.SIGNING,
+    });
+
+    const result = await service.transitionSwapLeg('swap-leg-2', InternalFundAction.SIGN);
+
+    expect(prisma.internalFund.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: InternalFundStatus.SIGNING }),
+      }),
+    );
+    expect(result.nextStatus).toBe(InternalFundStatus.SIGNING);
+  });
+
+  it('transitionSwapLeg: illegal transition (CREATED + CONFIRM on crypto) → throws BadRequestException', async () => {
+    prisma.internalFund.findUnique.mockResolvedValue({
+      id: 'swap-leg-3',
+      internalFundNo: 'IFD-SWAP-3',
+      status: InternalFundStatus.CREATED,
+      statusHistory: '[]',
+      confirmedAt: null,
+      completedAt: null,
+      asset: { type: 'CRYPTO' },
+    });
+
+    await expect(
+      service.transitionSwapLeg('swap-leg-3', InternalFundAction.CONFIRM),
+    ).rejects.toThrow(/Invalid action/);
+
+    expect(prisma.internalFund.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('FIAT_TRANSITIONS', () => {
   it('CREATED --SUBMIT--> CONFIRMING', () => {
     expect(FIAT_TRANSITIONS[InternalFundStatus.CREATED][InternalFundAction.SUBMIT])
