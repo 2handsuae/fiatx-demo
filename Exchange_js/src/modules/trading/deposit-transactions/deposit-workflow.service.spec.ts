@@ -9,6 +9,8 @@ import {
   DepositTransactionStatus,
   DepositTransactionAction,
 } from './dto/deposit-transaction.dto';
+import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -261,6 +263,134 @@ describe('DepositWorkflowService', () => {
       // Signature after this task: createFromPayin(amount, assetId, toWalletId, txHash?, fromAddress?, payinId?, traceId?)
       // 7th positional arg is the inherited traceId.
       expect(captured[0][6]).toBe('TRACE-FROM-PAYIN');
+    });
+  });
+
+  describe('executeDepositAccounting — real-time 1:1 model', () => {
+    let accountingService: { resolveTbAccountId: jest.Mock; executeTransfer: jest.Mock };
+
+    beforeEach(async () => {
+      accountingService = {
+        resolveTbAccountId: jest.fn(),
+        executeTransfer: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          DepositWorkflowService,
+          { provide: DepositTransactionsService, useValue: depositService },
+          { provide: PayinsService, useValue: payinsService },
+          { provide: AuditLogsService, useValue: auditLogsService },
+          { provide: AccountingService, useValue: accountingService },
+        ],
+      }).compile();
+
+      service = module.get<DepositWorkflowService>(DepositWorkflowService);
+    });
+
+    const baseDeposit = {
+      id: 'dep-acc-1',
+      depositNo: 'DEP-ACC-001',
+      ownerId: 'cust-uuid-1',
+      ownerType: 'CUSTOMER',
+      amount: '100.50',
+      traceId: 'trace-acc-1',
+      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
+    };
+
+    it('STEP_1: debits CLIENT_ASSET/SYSTEM and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
+      accountingService.resolveTbAccountId
+        .mockResolvedValueOnce('tb-client-asset-id')   // debit: CLIENT_ASSET SYSTEM
+        .mockResolvedValueOnce('tb-suspense-id');       // credit: DEPOSIT_SUSPENSE CUSTOMER
+
+      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1');
+
+      // First resolve call: CLIENT_ASSET / SYSTEM (no ownerUuid)
+      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
+        code: TB_ACCOUNT_CODES.CLIENT_ASSET,
+        ledger: 2,
+        ownerType: 'SYSTEM',
+      });
+
+      // Second resolve call: DEPOSIT_SUSPENSE / CUSTOMER
+      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
+        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
+        ledger: 2,
+        ownerType: 'CUSTOMER',
+        ownerUuid: 'cust-uuid-1',
+      });
+
+      expect(accountingService.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          debitAccountId: 'tb-client-asset-id',
+          creditAccountId: 'tb-suspense-id',
+          code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+          evidence: expect.objectContaining({
+            debitCode: 'A.CLIENT_ASSET',
+            creditCode: 'L.DEPOSIT_SUSPENSE',
+          }),
+        }),
+      );
+    });
+
+    it('STEP_1: works the same for FIAT assets (no fiat/crypto branching for debit account)', async () => {
+      const fiatDeposit = {
+        ...baseDeposit,
+        asset: { currency: 'USD', tbLedgerId: 3, decimals: 2, type: 'FIAT' },
+      };
+
+      accountingService.resolveTbAccountId
+        .mockResolvedValueOnce('tb-client-asset-fiat-id')
+        .mockResolvedValueOnce('tb-suspense-fiat-id');
+
+      await (service as any).executeDepositAccounting(fiatDeposit, 'STEP_1');
+
+      // Debit must still be CLIENT_ASSET/SYSTEM — NOT CLIENT_BANK or CLIENT_CUSTODY
+      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
+        code: TB_ACCOUNT_CODES.CLIENT_ASSET,
+        ledger: 3,
+        ownerType: 'SYSTEM',
+      });
+
+      expect(accountingService.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+        }),
+      );
+    });
+
+    it('STEP_2: debits DEPOSIT_SUSPENSE/CUSTOMER and credits CLIENT_PAYABLE/CUSTOMER with DEPOSIT_SUSPENSE_TO_PAYABLE code', async () => {
+      accountingService.resolveTbAccountId
+        .mockResolvedValueOnce('tb-suspense-id')    // debit: DEPOSIT_SUSPENSE CUSTOMER
+        .mockResolvedValueOnce('tb-payable-id');    // credit: CLIENT_PAYABLE CUSTOMER
+
+      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_2');
+
+      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
+        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
+        ledger: 2,
+        ownerType: 'CUSTOMER',
+        ownerUuid: 'cust-uuid-1',
+      });
+
+      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
+        code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+        ledger: 2,
+        ownerType: 'CUSTOMER',
+        ownerUuid: 'cust-uuid-1',
+      });
+
+      expect(accountingService.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          debitAccountId: 'tb-suspense-id',
+          creditAccountId: 'tb-payable-id',
+          code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
+          evidence: expect.objectContaining({
+            debitCode: 'L.DEPOSIT_SUSPENSE',
+            creditCode: 'L.CLIENT_PAYABLE',
+          }),
+        }),
+      );
     });
   });
 });

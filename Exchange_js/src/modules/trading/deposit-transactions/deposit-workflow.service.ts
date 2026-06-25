@@ -252,7 +252,7 @@ export class DepositWorkflowService implements OnModuleInit {
           workflowType: 'DEPOSIT',
           result: AuditResult.FAILED,
           reason: `TB Step 2 failed: ${error.message}`,
-          metadata: { eventCode: 'DEPOSIT_AUDIT_TO_CREDIT', step: 'STEP_2' },
+          metadata: { eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', step: 'STEP_2' },
           sourcePlatform: 'SYSTEM',
         });
         return;
@@ -366,7 +366,7 @@ export class DepositWorkflowService implements OnModuleInit {
           workflowType: 'DEPOSIT',
           result: AuditResult.FAILED,
           reason: `TB Step 1 failed: ${error.message}`,
-          metadata: { eventCode: 'DEPOSIT_HOLDING_TO_AUDIT', step: 'STEP_1' },
+          metadata: { eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE', step: 'STEP_1' },
           sourcePlatform: 'SYSTEM',
         });
         return;
@@ -408,13 +408,9 @@ export class DepositWorkflowService implements OnModuleInit {
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
     if (step === 'STEP_1') {
-      // Fiat assets use BANK (code 1), crypto uses CUSTODY (code 10)
-      const holdingCode = asset.type === 'FIAT'
-        ? TB_ACCOUNT_CODES.CLIENT_BANK
-        : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
-
+      // Real-time 1:1: debit the aggregate CLIENT_ASSET (SYSTEM), credit DEPOSIT_SUSPENSE (CUSTOMER)
       const debitAccountId = await this.accountingService.resolveTbAccountId({
-        code: holdingCode,
+        code: TB_ACCOUNT_CODES.CLIENT_ASSET,
         ledger,
         ownerType: 'SYSTEM',
       });
@@ -430,22 +426,22 @@ export class DepositWorkflowService implements OnModuleInit {
         creditAccountId,
         amount: amountBigint,
         ledger,
-        code: TB_TRANSFER_CODES.DEPOSIT_CUSTODY_TO_AUDIT,
+        code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
         evidence: {
           sourceType: 'DEPOSIT',
           sourceNo: deposit.depositNo,
-          eventCode: 'DEPOSIT_HOLDING_TO_AUDIT',
-          debitCode: TB_CODE_TO_COA[holdingCode],
+          eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
           creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
           assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
-          memo: `Payin confirmed, funds in audit hold (${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'}→AUDIT)`,
+          memo: 'Payin confirmed, funds in compliance hold (CLIENT_ASSET→DEPOSIT_SUSPENSE)',
         },
       });
 
-      this.logger.log(`TB Step 1 complete: ${asset.type === 'FIAT' ? 'BANK' : 'CUSTODY'}→DEPOSIT_SUSPENSE for deposit ${deposit.depositNo}`);
+      this.logger.log(`TB Step 1 complete: CLIENT_ASSET→DEPOSIT_SUSPENSE for deposit ${deposit.depositNo}`);
     } else {
       const debitAccountId = await this.accountingService.resolveTbAccountId({
         code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
@@ -465,18 +461,18 @@ export class DepositWorkflowService implements OnModuleInit {
         creditAccountId,
         amount: amountBigint,
         ledger,
-        code: TB_TRANSFER_CODES.DEPOSIT_AUDIT_TO_CREDIT,
+        code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
         evidence: {
           sourceType: 'DEPOSIT',
           sourceNo: deposit.depositNo,
-          eventCode: 'DEPOSIT_AUDIT_TO_CREDIT',
+          eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
           debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
           creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
           assetCurrency: asset.currency,
           traceId: deposit.traceId || deposit.id,
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
-          memo: 'Compliance approved, funds credited',
+          memo: 'Compliance approved, funds credited to client payable',
         },
       });
 
