@@ -13,6 +13,8 @@ import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.ser
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -75,6 +77,7 @@ describe('WithdrawTransactionsService', () => {
           useValue: {
             resolveTbAccountId: jest.fn().mockResolvedValue(BigInt(1)),
             executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
+            executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(2) }),
             voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
           },
         },
@@ -618,5 +621,83 @@ describe('WithdrawTransactionsService', () => {
       WithdrawEvents.EVT_WITHDRAWAL_FAILED,
       { withdrawId: 'wd-5' },
     );
+  });
+
+  describe('real-time 1:1 TB accounting on create()', () => {
+    function arrangeCreateAsset(assetType: string) {
+      prisma.asset.findUnique.mockResolvedValue({
+        id: 'asset-tb-1',
+        type: assetType,
+        currency: 'AED',
+        decimals: 8,
+      });
+      prisma.customerMain.findUnique.mockResolvedValue({
+        customerNo: 'C100',
+        onboardingStatus: 'APPROVED',
+        adminStatus: 'ACTIVE',
+      });
+      mockTx.withdrawTransaction.create.mockResolvedValue({
+        id: 'wd-tb-1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'user-tb',
+        assetId: 'asset-tb-1',
+        amount: new Prisma.Decimal(110),
+        netAmount: new Prisma.Decimal(100),
+        feeAmount: new Prisma.Decimal(10),
+        withdrawNo: 'WD9001',
+        fromWalletId: null,
+        fromWalletNo: null,
+        toWalletId: null,
+        toWalletNo: null,
+        traceId: 'trace-tb-1',
+      });
+      mockTx.withdrawTransaction.update.mockResolvedValue({});
+      mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-tb' });
+      withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
+        id: 'wq-tb',
+        assetId: 'asset-tb-1',
+        amount: new Prisma.Decimal(110),
+        totalsJson: JSON.stringify({ AED: '10' }),
+      });
+      withdrawQuoteService.consumeQuote.mockResolvedValue({ id: 'wq-tb', status: 'USED' });
+    }
+
+    it('net pending uses CLIENT_ASSET as credit target with WITHDRAW_NET_PENDING code (crypto)', async () => {
+      arrangeCreateAsset('CRYPTO');
+      const accountingService = module.get<AccountingService>(AccountingService);
+
+      await service.create({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
+
+      const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
+      const netCall = calls.find((c: any[]) => c[0].evidence.eventCode === 'WITHDRAW_LOCK_NET');
+      expect(netCall).toBeDefined();
+      expect(netCall[0].code).toBe(TB_TRANSFER_CODES.WITHDRAW_NET_PENDING);
+      expect(netCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    });
+
+    it('fee pending uses CLIENT_ASSET as credit target with WITHDRAW_FEE_PENDING code (crypto)', async () => {
+      arrangeCreateAsset('CRYPTO');
+      const accountingService = module.get<AccountingService>(AccountingService);
+
+      await service.create({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
+
+      const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
+      const feeCall = calls.find((c: any[]) => c[0].evidence.eventCode === 'WITHDRAW_LOCK_FEE');
+      expect(feeCall).toBeDefined();
+      expect(feeCall[0].code).toBe(TB_TRANSFER_CODES.WITHDRAW_FEE_PENDING);
+      expect(feeCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    });
+
+    it('net and fee pending both use CLIENT_ASSET (fiat — no branch)', async () => {
+      arrangeCreateAsset('FIAT');
+      const accountingService = module.get<AccountingService>(AccountingService);
+
+      await service.create({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
+
+      const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
+      for (const call of calls) {
+        expect(call[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+      }
+    });
   });
 });

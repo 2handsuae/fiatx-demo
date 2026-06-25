@@ -14,6 +14,8 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
@@ -461,7 +463,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     const decimals = w.asset?.decimals ?? 8;
 
-    // POST pending transfer #1: net amount
+    // POST pending transfer #1: net amount (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
     if (w.tbPendingNetId) {
       const pendingNetBigint = hexToBigint(w.tbPendingNetId);
       const netBigint = this.decimalToBigint(w.netAmount, decimals);
@@ -471,40 +473,74 @@ export class WithdrawWorkflowService implements OnModuleInit {
         evidence: {
           sourceType: 'WITHDRAWAL',
           sourceNo: w.withdrawNo,
-          eventCode: 'WITHDRAW_POST_NET',
+          eventCode: 'WITHDRAW_NET_POST',
           debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-          creditCode: TB_CODE_TO_COA[w.asset?.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
-          memo: w.asset?.type === 'FIAT'
-            ? 'Bank transfer confirmed: POST net pending transfer'
-            : 'Chain confirmed: POST net pending transfer',
+          memo: 'Payout confirmed: POST net pending transfer → CLIENT_ASSET',
         },
       });
     }
 
-    // POST pending transfer #2: fee amount
+    // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
+    const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
     if (w.tbPendingFeeId) {
       const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
-      const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
       await this.accountingService.postPendingTransfer({
         pendingTransferId: pendingFeeBigint,
         amount: feeBigint,
         evidence: {
           sourceType: 'WITHDRAWAL',
           sourceNo: w.withdrawNo,
-          eventCode: 'WITHDRAW_POST_FEE',
+          eventCode: 'WITHDRAW_FEE_POST',
           debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_INCOME],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
           assetCurrency: w.asset?.currency || '',
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
-          memo: 'Chain confirmed: POST fee pending transfer → FEE_INCOME',
+          memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET',
         },
       });
+    }
+
+    // Firm-side fee collect: DR FIRM_ASSET / CR FIRM_FEE (direct transfer, same ledger as asset)
+    if (feeBigint > 0n && w.asset?.currency) {
+      const ledger = TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS];
+      if (ledger) {
+        const firmAssetId = await this.accountingService.resolveTbAccountId({
+          code: TB_ACCOUNT_CODES.FIRM_ASSET,
+          ledger,
+          ownerType: 'SYSTEM',
+        });
+        const firmFeeId = await this.accountingService.resolveTbAccountId({
+          code: TB_ACCOUNT_CODES.FIRM_FEE,
+          ledger,
+          ownerType: 'SYSTEM',
+        });
+        await this.accountingService.executeTransfer({
+          debitAccountId: firmAssetId,
+          creditAccountId: firmFeeId,
+          amount: feeBigint,
+          ledger,
+          code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
+          evidence: {
+            sourceType: 'WITHDRAWAL',
+            sourceNo: w.withdrawNo,
+            eventCode: 'WITHDRAW_FEE_FIRM',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+            creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+            assetCurrency: w.asset.currency,
+            traceId: w.traceId || w.id,
+            actorType: 'SYSTEM',
+            actorId: 'WITHDRAW_WORKFLOW',
+            memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
+          },
+        });
+      }
     }
 
     await this.auditLogsService.recordSystem({

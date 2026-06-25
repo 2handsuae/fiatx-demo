@@ -504,6 +504,8 @@ export class WithdrawTransactionsService {
           const traceId = randomUUID();
 
           const isCryptoWithdraw = this.deriveWithdrawType(asset.type) === 'crypto';
+          // NOTE: isCryptoWithdraw is retained for compliance-field branching below;
+          // TB accounting no longer branches by asset type (both use CLIENT_ASSET).
 
           const record = await tx.withdrawTransaction.create({
             data: {
@@ -538,17 +540,17 @@ export class WithdrawTransactionsService {
           });
 
           // TB: create 2 pending transfers — lock customer balance
+          // Real-time 1:1 model: both net and fee lock into CLIENT_ASSET (no crypto/fiat branch).
           const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
           if (ledger && ownerType === 'CUSTOMER') {
-            const clientCreditId = await this.accountingService.resolveTbAccountId({
+            const clientPayableId = await this.accountingService.resolveTbAccountId({
               code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
               ledger,
               ownerType: 'CUSTOMER',
               ownerUuid: userId,
             });
-            const netTargetCode = isCryptoWithdraw ? TB_ACCOUNT_CODES.CLIENT_CUSTODY : TB_ACCOUNT_CODES.CLIENT_BANK;
-            const netTargetId = await this.accountingService.resolveTbAccountId({
-              code: netTargetCode,
+            const clientAssetId = await this.accountingService.resolveTbAccountId({
+              code: TB_ACCOUNT_CODES.CLIENT_ASSET,
               ledger,
               ownerType: 'SYSTEM',
             });
@@ -560,26 +562,24 @@ export class WithdrawTransactionsService {
               sourceType: 'WITHDRAWAL',
               sourceNo: withdrawNo,
               debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+              creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
               assetCurrency: asset.currency,
               traceId,
               actorType: ownerType,
               actorId: userId,
             };
 
-            // Pending #1: net amount CLIENT_PAYABLE → CUSTODY (crypto) or BANK (fiat)
+            // Pending #1: net amount CLIENT_PAYABLE → CLIENT_ASSET (pending)
             const { tbTransferId: pendingNetId } = await this.accountingService.executePendingTransfer({
-              debitAccountId: clientCreditId,
-              creditAccountId: netTargetId,
+              debitAccountId: clientPayableId,
+              creditAccountId: clientAssetId,
               amount: netBigint,
               ledger,
-              code: isCryptoWithdraw
-                ? TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_CUSTODY_PENDING
-                : TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_BANK_PENDING,
+              code: TB_TRANSFER_CODES.WITHDRAW_NET_PENDING,
               timeout: 0,
               evidence: {
                 ...evidenceBase,
                 eventCode: 'WITHDRAW_LOCK_NET',
-                creditCode: TB_CODE_TO_COA[netTargetCode],
                 memo: 'Withdrawal pending lock: net amount',
               },
               tx,
@@ -587,29 +587,22 @@ export class WithdrawTransactionsService {
             tbPendingNetBigint = pendingNetId;
             netBigintForVoid = netBigint;
 
-            // Pending #2: fee amount CLIENT_PAYABLE → FEE_INCOME (two-phase:
-            // posted on payout success = revenue recognized; voided on fail/return
-            // = revenue never existed, zero reversal entries)
+            // Pending #2: fee amount CLIENT_PAYABLE → CLIENT_ASSET (pending).
+            // Posted on payout success (revenue recognised); voided on fail/cancel.
+            // Firm-side fee collect (DR FIRM_ASSET / CR FIRM_FEE) fires separately on finalize.
             let pendingFeeId: bigint | undefined;
             if (feeBigint > 0n) {
-              const feeIncomeId = await this.accountingService.resolveTbAccountId({
-                code: TB_ACCOUNT_CODES.FEE_INCOME,
-                ledger,
-                ownerType: 'SYSTEM',
-              });
-
               const result = await this.accountingService.executePendingTransfer({
-                debitAccountId: clientCreditId,
-                creditAccountId: feeIncomeId,
+                debitAccountId: clientPayableId,
+                creditAccountId: clientAssetId,
                 amount: feeBigint,
                 ledger,
-                code: TB_TRANSFER_CODES.WITHDRAW_CREDIT_TO_FEE_PENDING,
+                code: TB_TRANSFER_CODES.WITHDRAW_FEE_PENDING,
                 timeout: 0,
                 evidence: {
                   ...evidenceBase,
                   eventCode: 'WITHDRAW_LOCK_FEE',
-                  creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FEE_INCOME],
-                  memo: 'Withdrawal pending lock: fee → FEE_INCOME',
+                  memo: 'Withdrawal pending lock: fee amount',
                 },
                 tx,
               });
