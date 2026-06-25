@@ -9,8 +9,10 @@ import {
 import { Type } from 'class-transformer';
 
 export enum SwapTransactionStatus {
+  SETTLING = 'SETTLING',
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
+  REVERSED = 'REVERSED',
 }
 
 export class CreateSwapTransactionDto {

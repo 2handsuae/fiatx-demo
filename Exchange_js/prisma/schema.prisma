@@ -1104,7 +1104,9 @@ model InternalTransaction {
 model InternalFund {
   id                    String                 @id @default(uuid())
   internalFundNo        String                 @unique
-  internalTransactionId String
+  internalTransactionId String?
+  swapTransactionId     String?
+  legSeq                Int?
   status                String
   assetId               String
   amount                Decimal
@@ -1130,7 +1132,8 @@ model InternalFund {
   statusHistory         String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
-  internalTransaction   InternalTransaction    @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
+  internalTransaction   InternalTransaction?   @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
+  swapTransaction       SwapTransaction?       @relation("SwapInternalFunds", fields: [swapTransactionId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
   fromWallet            Wallet?                @relation("InternalFundFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("InternalFundToWallet", fields: [toWalletId], references: [id])
@@ -1139,6 +1142,7 @@ model InternalFund {
   closedFeeAccruals     FeeAccrual[]           @relation("FeeAccrualClosedByFund")
 
   @@index([internalTransactionId])
+  @@index([swapTransactionId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
@@ -1261,6 +1265,7 @@ model SwapTransaction {
   quote            SwapQuote?    @relation(fields: [quoteId], references: [id])
   customer         CustomerMain? @relation(fields: [ownerId], references: [id])
   outstandings     Outstanding[]
+  internalFunds    InternalFund[] @relation("SwapInternalFunds")
 
   @@index([swapNo])
   @@index([ownerType, ownerId])
