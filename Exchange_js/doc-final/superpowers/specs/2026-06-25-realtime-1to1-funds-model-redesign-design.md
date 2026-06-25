@@ -186,16 +186,17 @@
 
 ---
 
-## 8. 分期实施计划（owner 选「分期」）
+## 8. 分期实施计划（owner 选「分期」；2026-06-25 收口重切为 3 期）
 
-每期独立可交付、可验收。
+> 重切原因：换 COA 是**全局原子操作**——新旧码号冲突（`1/50/200`）+ 删 `TRADE_CLEARING` 桥即破旧流，COA 与三大流无法在「主干可编译」前提下拆成两期，故合并为 Phase A。
 
-- **Phase 1 — COA 地基**：新 TB 账户类型（5/8）、provisioning、seed、`AccountingService` 适配、新 transfer codes。验收：账户可建、恒等式自检通过。
-- **Phase 2 — 三大业务流改造**：swap/withdraw/deposit 改为新模型并产出真实转账记录；同步停用 Outstanding/FeeAccrual 创建、EOD/归集 cron。验收：三流端到端 happy path + 逐跳记账对平。
-- **Phase 3 — 对账重写**：退役五公式引擎，建逐账户比对 + 恒等式 + 在途；简化外部摄入与 Run/Case 页。验收：人为造差能定位、无差时全绿。
-- **Phase 4 — 前端 + 死代码清除**：客户流水加工层（合并+下钻）、admin COA 视图更新；清除全部孤儿代码（旧实体/服务/科目/白名单）。验收：渲染截图比对 + build 绿 + 无死引用。
+每期独立可交付、可验收。**fresh DB，不迁历史数据**（重建期）。
 
-> 每期单独走 writing-plans 出实施计划。本设计文档是 Phase 1 计划的输入。
+- **Phase A — 资金核心**：新 COA 常量 + provisioning + seed + `AccountingService` 适配 + 新 transfer codes；swap/withdraw/deposit 改实时模型并产出真实转账记录；停止创建 Outstanding/FeeAccrual、停用 EOD/归集 cron；不变量自检脚本。验收：三流端到端 happy path + 逐账户/逐跳对平 + 两条恒等式通过。
+- **Phase B — 对账重写**：退役五公式引擎，建逐账户比对 + 恒等式 + 在途；简化外部摄入与 Run/Case 页。验收：人为造差能定位、无差时全绿。
+- **Phase C — 前端 + 死代码总清除**：客户流水加工层（合并+下钻）、admin COA 视图更新；删除全部孤儿代码（Outstanding/FeeAccrual/SettlementBatch/EOD/FxEod/旧科目/旧 transfer codes/五公式引擎/旧白名单）。验收：渲染截图比对 + build 绿 + 无死引用。
+
+> 每期单独走 writing-plans 出实施计划。本设计文档是 Phase A 计划的输入。
 
 ---
 
