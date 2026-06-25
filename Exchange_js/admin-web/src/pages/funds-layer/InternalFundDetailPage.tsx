@@ -77,7 +77,7 @@ interface FundDetail {
   asset: FundAsset | null;
   fromWallet: FundWallet | null;
   toWallet: FundWallet | null;
-  internalTransaction: FundInternalTransaction;
+  internalTransaction?: FundInternalTransaction | null;
 }
 
 /* ── Wallet field (main-area, internal navigation) ──────────── */
@@ -169,6 +169,10 @@ const InternalFundDetailPage = () => {
 
   const handleSimAction = async (action: string) => {
     if (!data) return;
+    if (!data?.internalTransaction) {
+      setSimError('This fund leg is advanced from its swap, not here.');
+      return;
+    }
     setSimSubmitting(true);
     setSimError('');
     try {
@@ -206,7 +210,7 @@ const InternalFundDetailPage = () => {
 
   const assetType = data.asset?.type?.toUpperCase() ?? null;
   const isFiat = assetType === 'FIAT';
-  const simActions = simulationModeEnabled
+  const simActions = simulationModeEnabled && data.internalTransaction
     ? getFundSimActionsForStatus(data.status, data.asset?.type)
     : [];
 

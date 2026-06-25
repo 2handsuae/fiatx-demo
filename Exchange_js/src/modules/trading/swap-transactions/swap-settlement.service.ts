@@ -237,7 +237,7 @@ export class SwapSettlementService {
   // ── Public: start ──
 
   /**
-   * Called within an outer transaction when a swap first enters SETTLING.
+   * Called within an outer transaction when a swap first enters PROCESSING.
    * Creates all 4 legs and initiates leg 1 (books pending + advances status).
    */
   async start(ctx: SwapSettleCtx, tx: Prisma.TransactionClient): Promise<void> {
@@ -293,8 +293,8 @@ export class SwapSettlementService {
 
     const result = await this.prisma.$transaction(async (client) => {
       const swap = await this.swaps.findByNoInternal(swapNo, client as any);
-      if (swap.status !== 'SETTLING') {
-        throw new BadRequestException('Swap is not in SETTLING status');
+      if (swap.status !== 'PROCESSING') {
+        throw new BadRequestException('Swap is not in PROCESSING status');
       }
 
       // Load all legs ordered by legSeq

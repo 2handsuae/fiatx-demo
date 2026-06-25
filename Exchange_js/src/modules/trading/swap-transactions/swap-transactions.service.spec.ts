@@ -11,6 +11,9 @@ describe('SwapTransactionsService', () => {
       swapTransaction: {
         findUnique: jest.fn(),
       },
+      internalFund: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     internalTransferService = {
       findFundsOrderBySource: jest.fn().mockResolvedValue([]),

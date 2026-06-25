@@ -92,7 +92,7 @@ export class SwapWorkflowService {
           .toDecimalPlaces(toDecimals, Prisma.Decimal.ROUND_HALF_UP);
         const spreadAmount = marketValueOut.sub(toAmount);
 
-        // Create the swap row in SETTLING status — legs will be posted by SwapSettlementService.
+        // Create the swap row in PROCESSING status — legs will be posted by SwapSettlementService.
         const swap = await this.swapTransactionsService.create({
           swapNo, quoteId: quote.id, quoteNo: quote.quoteNo,
           ownerType: 'CUSTOMER', ownerId, ownerNo: quote.ownerNo,
@@ -174,7 +174,7 @@ export class SwapWorkflowService {
       throw error;
     }
 
-    // Swap is now SETTLING (not yet succeeded). Return the persisted row.
+    // Swap is now PROCESSING (not yet succeeded). Return the persisted row.
     return this.swapTransactionsService.findOne(swapId);
   }
 

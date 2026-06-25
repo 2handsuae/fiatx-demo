@@ -415,7 +415,7 @@ export class SwapTransactionsService {
         ownerType: input.ownerType,
         ownerId: input.ownerId,
         ownerNo: input.ownerNo,
-        status: 'SETTLING',
+        status: 'PROCESSING',
         fromAssetId: input.fromAssetId,
         fromAssetCode: input.fromAssetCode,
         fromAmount: input.fromAmount,
@@ -436,11 +436,11 @@ export class SwapTransactionsService {
         completedAt: null,
         statusHistory: JSON.stringify([
           {
-            status: 'SETTLING',
+            status: 'PROCESSING',
             timestamp: new Date().toISOString(),
             operator: input.ownerId,
             source: 'CUSTOMER',
-            note: 'Swap created; settling (legs pending)',
+            note: 'Swap created; processing (legs pending)',
           },
         ]),
       },

@@ -92,7 +92,7 @@ const cryptoToFiatCtx = {
   toDecimals: 2,
 };
 
-// leg rows for the mock prisma (SETTLING swap / all CREATED except where set)
+// leg rows for the mock prisma (PROCESSING swap / all CREATED except where set)
 const makeLegRow = (legSeq: number, status: string = 'CREATED', assetType = 'CRYPTO') => ({
   id: `leg-${legSeq}-id`,
   legSeq,
@@ -105,7 +105,7 @@ const makeLegRow = (legSeq: number, status: string = 'CREATED', assetType = 'CRY
 const swapRow = {
   id: SWAP_ID,
   swapNo: SWAP_NO,
-  status: 'SETTLING',
+  status: 'PROCESSING',
   ownerId: OWNER_ID,
   ownerType: 'CUSTOMER',
   ownerNo: null,
@@ -429,7 +429,7 @@ describe('SwapSettlementService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects when swap status is not SETTLING', async () => {
+    it('rejects when swap status is not PROCESSING', async () => {
       mockSwaps.findByNoInternal.mockResolvedValue({ ...swapRow, status: 'SUCCESS' });
 
       const legs = [makeLegRow(1, 'CLEAR'), makeLegRow(2, 'CREATED'), makeLegRow(3, 'CREATED'), makeLegRow(4, 'CREATED')];
@@ -487,7 +487,7 @@ describe('SwapSettlementService', () => {
     });
 
     it('throws BadRequestException when swap is not FAILED', async () => {
-      mockSwaps.findByNoInternal.mockResolvedValue({ ...swapRow, status: 'SETTLING' });
+      mockSwaps.findByNoInternal.mockResolvedValue({ ...swapRow, status: 'PROCESSING' });
 
       const legs = [makeLegRow(1, 'CLEAR'), makeLegRow(2, 'CREATED'), makeLegRow(3, 'CREATED'), makeLegRow(4, 'CREATED')];
       const svc = await buildModule(legs);

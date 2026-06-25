@@ -1,7 +1,7 @@
 /**
  * swap-workflow.service.spec.ts
  *
- * Task 5: executeSwap creates a SETTLING swap and delegates physical leg
+ * Task 5: executeSwap creates a PROCESSING swap and delegates physical leg
  * creation to SwapSettlementService.start — no atomic 7-leg accounting,
  * no SWAP_SUCCEEDED emit at executeSwap return.
  */
@@ -82,7 +82,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode,
       toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode,
     })),
-    findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'SETTLING' })),
+    findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'PROCESSING' })),
   };
 
   const swapSettlement = {
@@ -135,8 +135,8 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
 
 // ── Core behavior ────────────────────────────────────────────────────────────
 
-describe('SwapWorkflowService — Task 5: SETTLING + delegation', () => {
-  it('creates swap with status SETTLING (no atomic TB legs, no SUCCESS)', async () => {
+describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
+  it('creates swap with status PROCESSING (no atomic TB legs, no SUCCESS)', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
@@ -158,7 +158,7 @@ describe('SwapWorkflowService — Task 5: SETTLING + delegation', () => {
     // SwapSettlementService.start called once with the swap ctx
     expect(mocks.swapSettlement.start).toHaveBeenCalledTimes(1);
 
-    // No SWAP_SUCCEEDED domain event at executeSwap return (swap is still SETTLING)
+    // No SWAP_SUCCEEDED domain event at executeSwap return (swap is still PROCESSING)
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
   });
 

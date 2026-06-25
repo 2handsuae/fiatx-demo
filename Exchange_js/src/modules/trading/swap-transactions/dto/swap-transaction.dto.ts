@@ -10,7 +10,7 @@ import { Type } from 'class-transformer';
 import { InternalFundAction } from '../../../funds-layer/dto/internal-fund.dto';
 
 export enum SwapTransactionStatus {
-  SETTLING = 'SETTLING',
+  PROCESSING = 'PROCESSING',
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
   REVERSED = 'REVERSED',
