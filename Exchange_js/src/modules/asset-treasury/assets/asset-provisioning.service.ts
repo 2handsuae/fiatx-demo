@@ -28,46 +28,27 @@ export class AssetProvisioningService {
       data: { tbLedgerId },
     });
 
-    const poolCode = asset.type === 'FIAT' ? TB_ACCOUNT_CODES.CLIENT_BANK : TB_ACCOUNT_CODES.CLIENT_CUSTODY;
-
-    const firmBookCodes: Array<{ code: number; desc: string }> = [
-      { code: TB_ACCOUNT_CODES.FIRM_TREASURY, desc: 'FIRM_TREASURY' },
-      { code: TB_ACCOUNT_CODES.FX_POSITION, desc: 'FX_POSITION' },
-      { code: TB_ACCOUNT_CODES.PAID_IN_CAPITAL, desc: 'PAID_IN_CAPITAL' },
-      { code: TB_ACCOUNT_CODES.RETAINED_EARNINGS, desc: 'RETAINED_EARNINGS' },
-      { code: TB_ACCOUNT_CODES.FEE_INCOME, desc: 'FEE_INCOME' },
-      { code: TB_ACCOUNT_CODES.SPREAD_INCOME, desc: 'SPREAD_INCOME' },
-      { code: TB_ACCOUNT_CODES.FX_UNREALIZED_PNL, desc: 'FX_UNREALIZED_PNL' },
-      { code: TB_ACCOUNT_CODES.FX_REALIZED_PNL, desc: 'FX_REALIZED_PNL' },
+    // 系统账户:聚合资产 + 公司权益账户。法币额外 FIRM_SET。
+    const isFiat = asset.type === 'FIAT';
+    const systemCodes: Array<{ code: number; desc: string }> = [
+      { code: TB_ACCOUNT_CODES.CLIENT_ASSET, desc: 'CLIENT_ASSET' },
+      { code: TB_ACCOUNT_CODES.FIRM_ASSET, desc: 'FIRM_ASSET' },
+      { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+      { code: TB_ACCOUNT_CODES.FIRM_FEE, desc: 'FIRM_FEE' },
+      { code: TB_ACCOUNT_CODES.FIRM_LIQ, desc: 'FIRM_LIQ' },
+      ...(isFiat ? [{ code: TB_ACCOUNT_CODES.FIRM_SET, desc: 'FIRM_SET' }] : []),
     ];
 
-    const accountParams: CreateTbAccountParams[] = [
-      {
-        code: poolCode,
-        ledger: tbLedgerId,
-        ownerType: 'SYSTEM',
-        assetCurrency: asset.currency,
-        description: `${asset.type === 'FIAT' ? 'CLIENT_BANK' : 'CLIENT_CUSTODY'} for ${asset.currency}`,
-      },
-      {
-        code: TB_ACCOUNT_CODES.TRADE_CLEARING,
-        ledger: tbLedgerId,
-        ownerType: 'SYSTEM',
-        assetCurrency: asset.currency,
-        description: `TRADE_CLEARING for ${asset.currency}`,
-      },
-      ...firmBookCodes.map(({ code, desc }) => ({
-        code,
-        ledger: tbLedgerId,
-        ownerType: 'SYSTEM' as const,
-        assetCurrency: asset.currency,
-        description: `${desc} for ${asset.currency}`,
-      })),
-    ];
+    const accountParams: CreateTbAccountParams[] = systemCodes.map(({ code, desc }) => ({
+      code,
+      ledger: tbLedgerId,
+      ownerType: 'SYSTEM' as const,
+      assetCurrency: asset.currency,
+      description: `${desc} for ${asset.currency}`,
+    }));
 
     await this.accountingService.createAccounts(accountParams, tx);
-
-    this.logger.log(`Asset ${asset.assetNo} provisioned with tbLedgerId=${tbLedgerId}, ${accountParams.length} TB accounts created`);
+    this.logger.log(`Asset ${asset.assetNo} provisioned tbLedgerId=${tbLedgerId}, ${accountParams.length} system TB accounts`);
     return { tbLedgerId };
   }
 }
