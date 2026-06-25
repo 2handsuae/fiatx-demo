@@ -14,18 +14,12 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
-import { OutstandingsService } from '../../clearing-settle/outstandings/outstandings.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { SwapTransactionsService } from './swap-transactions.service';
-
-interface PendingRef {
-  id: bigint;
-  amount: bigint;
-}
 
 @Injectable()
 export class SwapWorkflowService {
@@ -36,7 +30,6 @@ export class SwapWorkflowService {
     private readonly onboardingService: OnboardingService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly swapTransactionsService: SwapTransactionsService,
-    private readonly outstandingsService: OutstandingsService,
     private readonly accountingService: AccountingService,
     private readonly auditLogsService: AuditLogsService,
     private readonly eventEmitter: EventEmitter2,
@@ -65,8 +58,6 @@ export class SwapWorkflowService {
 
     const now = new Date();
     const swapNo = generateReferenceNo('SWP');
-
-    const created: PendingRef[] = [];
 
     // Lifted to outer scope so the catch block can emit SWAP_FAILED with the
     // inherited traceId. Assigned at the top of the transaction once we read
@@ -97,8 +88,8 @@ export class SwapWorkflowService {
         await this.swapQuoteService.consumeQuote(quoteId, 'CUSTOMER', ownerId, fromAmount, tx);
 
         const [fromAsset, toAsset] = await Promise.all([
-          tx.asset.findUnique({ where: { id: quote.fromAssetId }, select: { decimals: true, currency: true } }),
-          tx.asset.findUnique({ where: { id: quote.toAssetId }, select: { decimals: true, currency: true } }),
+          tx.asset.findUnique({ where: { id: quote.fromAssetId }, select: { decimals: true, currency: true, type: true } }),
+          tx.asset.findUnique({ where: { id: quote.toAssetId }, select: { decimals: true, currency: true, type: true } }),
         ]);
         const fromCurrency = fromAsset?.currency || quote.fromAssetCode || '';
         const toCurrency = toAsset?.currency || quote.toAssetCode || '';
@@ -109,73 +100,28 @@ export class SwapWorkflowService {
 
         const fromAmountBigint = this.decimalToBigint(fromAmount, fromDecimals);
         const feeAmountBigint = this.decimalToBigint(feeAmount, toDecimals);
+        // grossTo = the to-ccy amount the customer receives BEFORE fee (= net + fee).
+        const grossToAmountBigint = this.decimalToBigint(toAmount, toDecimals);
 
         // Spread margin = market value of the in-leg minus the quoted gross out.
-        // This is platform revenue (rate markup) and is booked directly to
-        // SPREAD_INCOME at trade time (T1 recognition). Without this entry the
-        // spread would remain as an FX imbalance stranded in TRADE_CLEARING —
-        // on spread-only fee levels (feeTotal = 0) the platform's entire margin
-        // would never be recognized.
+        // Kept as a reporting field on the swap row only; in the real-time 1:1
+        // model there is NO spread leg — the platform's rate markup stays implicit
+        // in FIRM_OPS (the firm pays out grossTo from FIRM_OPS but only sourced
+        // fromAmount-worth of the opposite leg into it).
         const marketRate = new Prisma.Decimal(quote.marketRate);
         const marketValueOut = fromAmount
           .mul(marketRate)
           .toDecimalPlaces(toDecimals, Prisma.Decimal.ROUND_HALF_UP);
         const spreadAmount = marketValueOut.sub(toAmount);
-        const spreadAmountBigint = spreadAmount.gt(0)
-          ? this.decimalToBigint(spreadAmount, toDecimals)
-          : 0n;
-        // Customer is credited the GROSS out (net + fee); the fee is then debited
-        // from CLIENT_PAYABLE so the ledger shows the deduction on the customer's
-        // own account. (Fee leg is created AFTER the gross credit is posted —
-        // CLIENT_PAYABLE enforces debits_must_not_exceed_credits, and a pending
-        // credit does not count toward available balance.)
-        const grossToAmountBigint = this.decimalToBigint(toAmount, toDecimals);
 
-        const clientCreditFrom = await this.accountingService.resolveTbAccountId({
-          code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: fromLedger, ownerType: 'CUSTOMER', ownerUuid: ownerId,
+        // Post the real-time multi-leg physical transfers (SELL → BUY → FEE).
+        // CASE A (USDT→AED) and CASE B (AED→USDT) are selected by currency type.
+        const legIds = await this.postSwapLegs({
+          tx, traceId, swapNo, ownerId,
+          fromIsFiat: fromAsset?.type === 'FIAT',
+          fromCurrency, toCurrency, fromLedger, toLedger,
+          fromAmountBigint, grossToAmountBigint, feeAmountBigint,
         });
-        const clearingFrom = await this.accountingService.resolveTbAccountId({
-          code: TB_ACCOUNT_CODES.TRADE_CLEARING, ledger: fromLedger, ownerType: 'SYSTEM',
-        });
-        const clearingTo = await this.accountingService.resolveTbAccountId({
-          code: TB_ACCOUNT_CODES.TRADE_CLEARING, ledger: toLedger, ownerType: 'SYSTEM',
-        });
-        const clientCreditTo = await this.accountingService.resolveTbAccountId({
-          code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: toLedger, ownerType: 'CUSTOMER', ownerUuid: ownerId,
-        });
-
-        const fromPending = await this.accountingService.executePendingTransfer({
-          debitAccountId: clientCreditFrom, creditAccountId: clearingFrom, amount: fromAmountBigint,
-          ledger: fromLedger, code: TB_TRANSFER_CODES.SWAP_CREDIT_TO_CLEARING_PENDING, timeout: 0,
-          evidence: this.evidence(swapNo, 'SWAP_LOCK_FROM', TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.TRADE_CLEARING, fromCurrency, traceId, ownerId, 'Swap pending lock: from-leg'),
-          tx,
-        });
-        created.push({ id: fromPending.tbTransferId, amount: fromAmountBigint });
-
-        const toPending = await this.accountingService.executePendingTransfer({
-          debitAccountId: clearingTo, creditAccountId: clientCreditTo, amount: grossToAmountBigint,
-          ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CLEARING_TO_CREDIT, timeout: 0,
-          evidence: this.evidence(swapNo, 'SWAP_CREDIT_TO', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.CLIENT_PAYABLE, toCurrency, traceId, ownerId, 'Swap pending: to-leg credit (gross)'),
-          tx,
-        });
-        created.push({ id: toPending.tbTransferId, amount: grossToAmountBigint });
-
-        let spreadTransferIdHex: string | null = null;
-        let spreadPendingId: bigint | null = null;
-        if (spreadAmountBigint > 0n) {
-          const spreadIncome = await this.accountingService.resolveTbAccountId({
-            code: TB_ACCOUNT_CODES.SPREAD_INCOME, ledger: toLedger, ownerType: 'SYSTEM',
-          });
-          const spreadPending = await this.accountingService.executePendingTransfer({
-            debitAccountId: clearingTo, creditAccountId: spreadIncome, amount: spreadAmountBigint,
-            ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CLEARING_TO_SPREAD, timeout: 0,
-            evidence: this.evidence(swapNo, 'SWAP_SPREAD', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.SPREAD_INCOME, toCurrency, traceId, ownerId, 'Swap pending: spread income (T1 recognition)'),
-            tx,
-          });
-          created.push({ id: spreadPending.tbTransferId, amount: spreadAmountBigint });
-          spreadTransferIdHex = bigintToHex(spreadPending.tbTransferId);
-          spreadPendingId = spreadPending.tbTransferId;
-        }
 
         const swap = await this.swapTransactionsService.create({
           swapNo, quoteId: quote.id, quoteNo: quote.quoteNo,
@@ -184,55 +130,12 @@ export class SwapWorkflowService {
           toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode, toAmount,
           netToAmount, feeAmount, feeCurrency: quote.feeCurrency || quote.toAssetCode,
           feeBreakdown: quote.feeBreakdown, spreadAmount, exchangeRate: rate,
-          tbFromTransferId: bigintToHex(fromPending.tbTransferId),
-          tbToTransferId: bigintToHex(toPending.tbTransferId),
-          tbFeeTransferId: null, // set after the gross credit is posted (see below)
-          tbSpreadTransferId: spreadTransferIdHex,
+          tbFromTransferId: legIds.sellClientHex,
+          tbToTransferId: legIds.buyClientHex,
+          tbFeeTransferId: legIds.feeClientHex,
+          tbSpreadTransferId: null, // no spread leg in the real-time 1:1 model
           traceId,
         }, tx);
-
-        await this.outstandingsService.createForSwapSuccess(tx, {
-          id: swap.id, swapNo: swap.swapNo, ownerType: swap.ownerType, ownerId: swap.ownerId, ownerNo: swap.ownerNo,
-          status: 'SUCCESS', fromAssetId: swap.fromAssetId, fromAssetCurrency: swap.fromAssetCode, fromAmount,
-          toAssetId: swap.toAssetId, toAssetCurrency: swap.toAssetCode, toAmount, netToAmount,
-        });
-
-        await this.accountingService.postPendingTransfer({
-          pendingTransferId: fromPending.tbTransferId, amount: fromAmountBigint,
-          evidence: this.evidence(swapNo, 'SWAP_POST_FROM', TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.TRADE_CLEARING, fromCurrency, traceId, ownerId, 'Swap post: from-leg'),
-          tx,
-        });
-        await this.accountingService.postPendingTransfer({
-          pendingTransferId: toPending.tbTransferId, amount: grossToAmountBigint,
-          evidence: this.evidence(swapNo, 'SWAP_POST_TO', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.CLIENT_PAYABLE, toCurrency, traceId, ownerId, 'Swap post: to-leg (gross)'),
-          tx,
-        });
-        if (spreadPendingId) {
-          await this.accountingService.postPendingTransfer({
-            pendingTransferId: spreadPendingId, amount: spreadAmountBigint,
-            evidence: this.evidence(swapNo, 'SWAP_POST_SPREAD', TB_ACCOUNT_CODES.TRADE_CLEARING, TB_ACCOUNT_CODES.SPREAD_INCOME, toCurrency, traceId, ownerId, 'Swap post: spread income'),
-            tx,
-          });
-        }
-
-        // Fee: debit the customer's CLIENT_PAYABLE (now holding the posted gross)
-        // into FEE_INCOME. Posted directly because the debit is only valid
-        // once the gross credit above is posted.
-        if (feeAmountBigint > 0n) {
-          const feeIncome = await this.accountingService.resolveTbAccountId({
-            code: TB_ACCOUNT_CODES.FEE_INCOME, ledger: toLedger, ownerType: 'SYSTEM',
-          });
-          const feeTransfer = await this.accountingService.executeTransfer({
-            debitAccountId: clientCreditTo, creditAccountId: feeIncome, amount: feeAmountBigint,
-            ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_CREDIT_TO_FEE,
-            evidence: this.evidence(swapNo, 'SWAP_FEE', TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.FEE_INCOME, toCurrency, traceId, ownerId, 'Swap: fee income debited from client credit (T1 recognition)'),
-            tx,
-          });
-          await tx.swapTransaction.update({
-            where: { id: swap.id },
-            data: { tbFeeTransferId: bigintToHex(feeTransfer.tbTransferId) },
-          });
-        }
 
         await this.auditLogsService.recordByActor(
           {
@@ -279,13 +182,14 @@ export class SwapWorkflowService {
       swapId = result.id;
       swapNoForEvent = result.swapNo;
     } catch (error) {
-      for (const ref of created) {
-        await this.accountingService.voidPendingTransferBestEffort(ref.id, ref.amount);
-      }
+      // Real-time 1:1 model: all swap legs are direct (non-pending) transfers
+      // posted inside the Prisma $transaction, so a failure rolls back the swap
+      // row + audit + evidence atomically. The deterministic-id TB transfers are
+      // idempotent on retry; there are no pending transfers to void.
       // Best-effort terminal audit — swap row may or may not exist depending
       // on the failure stage. We carry the quote.traceId (captured at the top
       // of the transaction) and the pre-allocated swapNo so operators can
-      // correlate with TB pending evidence even when the Prisma row is gone.
+      // correlate with TB evidence even when the Prisma row is gone.
       await this.auditLogsService
         .recordSystem({
           action: AuditActions.SWAP_FAILED,
@@ -314,6 +218,151 @@ export class SwapWorkflowService {
     });
 
     return this.swapTransactionsService.findOne(swapId);
+  }
+
+  /**
+   * Post the real-time multi-leg physical transfers for one swap.
+   *
+   * Two currencies only: AED (FIAT) + USDT (CRYPTO), so every swap is exactly
+   * one fiat leg + one crypto leg. Legs are posted SELL → BUY → FEE (先转出再转入).
+   * No clearing bridge, no Outstanding, no spread leg — the rate markup stays
+   * implicit in FIRM_OPS.
+   *
+   * Routing rule: a leg touching a customer fiat vIBAN ↔ FIRM_OPS must pass
+   * through FIRM_SET; crypto is direct; the firm's liquidity is always FIRM_OPS.
+   *
+   *   CASE A (USDT→AED, fromIsFiat=false): SELL crypto direct to FIRM_OPS;
+   *     BUY fiat via FIRM_OPS→FIRM_SET→FIRM_ASSET→client.
+   *   CASE B (AED→USDT, fromIsFiat=true):  SELL fiat via FIRM_ASSET→FIRM_SET→FIRM_OPS;
+   *     BUY crypto direct FIRM_OPS→FIRM_ASSET→client.
+   *
+   * Returns the headline transfer ids (client sell / client buy / client fee)
+   * that the swap row stores; every leg is durably captured in TB evidence
+   * (sourceNo = swapNo) regardless.
+   */
+  private async postSwapLegs(params: {
+    tx: Prisma.TransactionClient;
+    traceId: string;
+    swapNo: string;
+    ownerId: string;
+    fromIsFiat: boolean;
+    fromCurrency: string;
+    toCurrency: string;
+    fromLedger: number;
+    toLedger: number;
+    fromAmountBigint: bigint;
+    grossToAmountBigint: bigint;
+    feeAmountBigint: bigint;
+  }): Promise<{ sellClientHex: string; buyClientHex: string; feeClientHex: string | null }> {
+    const {
+      tx, traceId, swapNo, ownerId, fromIsFiat,
+      fromCurrency, toCurrency, fromLedger, toLedger,
+      fromAmountBigint, grossToAmountBigint, feeAmountBigint,
+    } = params;
+    const C = TB_ACCOUNT_CODES;
+
+    // Resolve every account once (one of each per ledger / owner).
+    const clientPayableFrom = await this.accountingService.resolveTbAccountId({ code: C.CLIENT_PAYABLE, ledger: fromLedger, ownerType: 'CUSTOMER', ownerUuid: ownerId });
+    const clientAssetFrom = await this.accountingService.resolveTbAccountId({ code: C.CLIENT_ASSET, ledger: fromLedger, ownerType: 'SYSTEM' });
+    const firmAssetFrom = await this.accountingService.resolveTbAccountId({ code: C.FIRM_ASSET, ledger: fromLedger, ownerType: 'SYSTEM' });
+    const firmOpsFrom = await this.accountingService.resolveTbAccountId({ code: C.FIRM_OPS, ledger: fromLedger, ownerType: 'SYSTEM' });
+
+    const clientPayableTo = await this.accountingService.resolveTbAccountId({ code: C.CLIENT_PAYABLE, ledger: toLedger, ownerType: 'CUSTOMER', ownerUuid: ownerId });
+    const clientAssetTo = await this.accountingService.resolveTbAccountId({ code: C.CLIENT_ASSET, ledger: toLedger, ownerType: 'SYSTEM' });
+    const firmAssetTo = await this.accountingService.resolveTbAccountId({ code: C.FIRM_ASSET, ledger: toLedger, ownerType: 'SYSTEM' });
+    const firmOpsTo = await this.accountingService.resolveTbAccountId({ code: C.FIRM_OPS, ledger: toLedger, ownerType: 'SYSTEM' });
+
+    // ── SELL legs (from-ledger) ──
+    // leg1: client gives up the from-asset (PAYABLE → ASSET, from-ledger).
+    const sellClient = await this.accountingService.executeTransfer({
+      debitAccountId: clientPayableFrom, creditAccountId: clientAssetFrom, amount: fromAmountBigint,
+      ledger: fromLedger, code: TB_TRANSFER_CODES.SWAP_SELL_CLIENT,
+      evidence: this.evidence(swapNo, 'SWAP_SELL_CLIENT', C.CLIENT_PAYABLE, C.CLIENT_ASSET, fromCurrency, traceId, ownerId, 'Swap sell: client gives up from-asset'),
+      tx,
+    });
+
+    if (fromIsFiat) {
+      // CASE B sell: fiat in → FIRM_ASSET, route FIRM_ASSET→FIRM_SET then FIRM_SET→FIRM_OPS.
+      const firmSetFrom = await this.accountingService.resolveTbAccountId({ code: C.FIRM_SET, ledger: fromLedger, ownerType: 'SYSTEM' });
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmAssetFrom, creditAccountId: firmSetFrom, amount: fromAmountBigint,
+        ledger: fromLedger, code: TB_TRANSFER_CODES.SWAP_SELL_FIRM,
+        evidence: this.evidence(swapNo, 'SWAP_SELL_FIRM', C.FIRM_ASSET, C.FIRM_SET, fromCurrency, traceId, ownerId, 'Swap sell: firm receives fiat into settlement'),
+        tx,
+      });
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmSetFrom, creditAccountId: firmOpsFrom, amount: fromAmountBigint,
+        ledger: fromLedger, code: TB_TRANSFER_CODES.SWAP_SELL_SET_TO_OPS,
+        evidence: this.evidence(swapNo, 'SWAP_SELL_SET_TO_OPS', C.FIRM_SET, C.FIRM_OPS, fromCurrency, traceId, ownerId, 'Swap sell: firm settlement → ops liquidity'),
+        tx,
+      });
+    } else {
+      // CASE A sell: crypto in → FIRM_ASSET, direct to FIRM_OPS liquidity.
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmAssetFrom, creditAccountId: firmOpsFrom, amount: fromAmountBigint,
+        ledger: fromLedger, code: TB_TRANSFER_CODES.SWAP_SELL_FIRM,
+        evidence: this.evidence(swapNo, 'SWAP_SELL_FIRM', C.FIRM_ASSET, C.FIRM_OPS, fromCurrency, traceId, ownerId, 'Swap sell: firm receives crypto into ops liquidity'),
+        tx,
+      });
+    }
+
+    // ── BUY legs (to-ledger, gross) ──
+    // toIsFiat is the complement of fromIsFiat (exactly one fiat + one crypto leg).
+    const toIsFiat = !fromIsFiat;
+    if (toIsFiat) {
+      // CASE A buy: fiat out → FIRM_OPS→FIRM_SET→FIRM_ASSET, then client credit.
+      const firmSetTo = await this.accountingService.resolveTbAccountId({ code: C.FIRM_SET, ledger: toLedger, ownerType: 'SYSTEM' });
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmOpsTo, creditAccountId: firmSetTo, amount: grossToAmountBigint,
+        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_BUY_OPS_TO_SET,
+        evidence: this.evidence(swapNo, 'SWAP_BUY_OPS_TO_SET', C.FIRM_OPS, C.FIRM_SET, toCurrency, traceId, ownerId, 'Swap buy: firm ops → settlement (fiat)'),
+        tx,
+      });
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmSetTo, creditAccountId: firmAssetTo, amount: grossToAmountBigint,
+        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_BUY_SET_TO_ASSET,
+        evidence: this.evidence(swapNo, 'SWAP_BUY_SET_TO_ASSET', C.FIRM_SET, C.FIRM_ASSET, toCurrency, traceId, ownerId, 'Swap buy: firm settlement → asset (fiat)'),
+        tx,
+      });
+    } else {
+      // CASE B buy: crypto out → FIRM_OPS→FIRM_ASSET (no SET hop), then client credit.
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmOpsTo, creditAccountId: firmAssetTo, amount: grossToAmountBigint,
+        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_BUY_SET_TO_ASSET,
+        evidence: this.evidence(swapNo, 'SWAP_BUY_SET_TO_ASSET', C.FIRM_OPS, C.FIRM_ASSET, toCurrency, traceId, ownerId, 'Swap buy: firm ops → asset (crypto)'),
+        tx,
+      });
+    }
+    const buyClient = await this.accountingService.executeTransfer({
+      debitAccountId: clientAssetTo, creditAccountId: clientPayableTo, amount: grossToAmountBigint,
+      ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_BUY_CLIENT,
+      evidence: this.evidence(swapNo, 'SWAP_BUY_CLIENT', C.CLIENT_ASSET, C.CLIENT_PAYABLE, toCurrency, traceId, ownerId, 'Swap buy: client receives to-asset (gross)'),
+      tx,
+    });
+
+    // ── FEE legs (to-ledger, direct) ──
+    let feeClientHex: string | null = null;
+    if (feeAmountBigint > 0n) {
+      const feeClient = await this.accountingService.executeTransfer({
+        debitAccountId: clientPayableTo, creditAccountId: clientAssetTo, amount: feeAmountBigint,
+        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_FEE_CLIENT,
+        evidence: this.evidence(swapNo, 'SWAP_FEE_CLIENT', C.CLIENT_PAYABLE, C.CLIENT_ASSET, toCurrency, traceId, ownerId, 'Swap fee: deducted from client to-asset'),
+        tx,
+      });
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmAssetTo, creditAccountId: await this.accountingService.resolveTbAccountId({ code: C.FIRM_FEE, ledger: toLedger, ownerType: 'SYSTEM' }), amount: feeAmountBigint,
+        ledger: toLedger, code: TB_TRANSFER_CODES.SWAP_FEE_FIRM,
+        evidence: this.evidence(swapNo, 'SWAP_FEE_FIRM', C.FIRM_ASSET, C.FIRM_FEE, toCurrency, traceId, ownerId, 'Swap fee: firm-side fee income'),
+        tx,
+      });
+      feeClientHex = bigintToHex(feeClient.tbTransferId);
+    }
+
+    return {
+      sellClientHex: bigintToHex(sellClient.tbTransferId),
+      buyClientHex: bigintToHex(buyClient.tbTransferId),
+      feeClientHex,
+    };
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {
