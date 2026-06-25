@@ -14,28 +14,10 @@ export class FiatFeeCollectionWorkflowService {
   ) {}
 
   @OnEvent(WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT)
-  async onFiatWithdrawalSucceeded(event: { withdrawId: string }): Promise<void> {
-    try {
-      const w = await (this.prisma as any).withdrawTransaction.findUnique({
-        where: { id: event.withdrawId },
-        select: { asset: { select: { type: true } } },
-      });
-      if (!w || w.asset?.type !== 'FIAT') return;
-
-      // INVARIANT: fiat settle is per-order (single owner), so the WITHDRAW_FEE
-      // C_VIBAN per-customer source resolved inside settle() is correct.
-      await this.feeAccrual.accrueForWithdraw(event.withdrawId, this.prisma);
-      const accruals = await (this.prisma as any).feeAccrual.findMany({
-        where: { sourceType: 'WITHDRAW', sourceId: event.withdrawId, status: 'ACCRUED' },
-      });
-      if (accruals.length) {
-        await this.feeAccrual.settle(accruals, 'WITHDRAW_FEE', 'FIAT_WITHDRAW', this.prisma);
-      }
-    } catch (err) {
-      this.logger.error(
-        `Withdrawal fee collection failed for withdraw=${event.withdrawId}`,
-        err instanceof Error ? err.stack : undefined,
-      );
-    }
+  async onFiatWithdrawalSucceeded(_event: { withdrawId: string }): Promise<void> {
+    // neutered in Phase A (real-time inline accounting) — remove in Phase C
+    // The new withdraw flow (Task 9) posts WITHDRAW_FEE_FIRM directly to TB inline.
+    // This old handler created orphan FeeAccrual rows + old-model settlement transfers.
+    return;
   }
 }

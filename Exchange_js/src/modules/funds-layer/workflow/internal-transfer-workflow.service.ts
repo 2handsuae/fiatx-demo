@@ -143,41 +143,9 @@ export class InternalTransferWorkflowService {
   }
 
   @OnEvent(DomainEventNames.FUNDSFLOW_STATUS_CHANGED)
-  async onFundsFlowStatusChanged(event: FundsFlowStatusChangedEvent) {
-    // Only internal-transfer journeys carry an internalTransferId.
-    if (!event?.internalTransferId) return;
-
-    // The event fires AFTER the funds-flow transaction has committed; an audit
-    // write failure here must not become an unhandled rejection in the event
-    // pipeline (which would silently lose the terminal journey audit).
-    try {
-      if (event.newStatus === 'CLEAR') {
-        await this.accounting.mirrorPhysicalTransfer({
-          internalTransferId: event.internalTransferId,
-        });
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.SUCCEEDED,
-          entityType: AuditEntityTypes.INTERNAL_TRANSFER,
-          entityId: event.internalTransferId,
-          workflowType: AuditBusinessWorkflowTypes.INTERNAL_TRANSFER,
-          reason: 'Funds flow cleared',
-          sourcePlatform: 'SYSTEM',
-        });
-      } else if (event.newStatus === 'FAILED' || event.newStatus === 'TIMEOUT') {
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.FAILED,
-          entityType: AuditEntityTypes.INTERNAL_TRANSFER,
-          entityId: event.internalTransferId,
-          workflowType: AuditBusinessWorkflowTypes.INTERNAL_TRANSFER,
-          reason: `Funds flow ${event.newStatus}`,
-          sourcePlatform: 'SYSTEM',
-        });
-      }
-    } catch (err) {
-      this.logger.error(
-        `Failed to write terminal audit for internalTransfer=${event.internalTransferId} status=${event.newStatus}`,
-        err instanceof Error ? err.stack : undefined,
-      );
-    }
+  async onFundsFlowStatusChanged(_event: FundsFlowStatusChangedEvent) {
+    // neutered in Phase A (real-time inline accounting) — remove in Phase C
+    // mirrorPhysicalTransfer is deprecated and throws; new flows post TB directly inline.
+    return;
   }
 }

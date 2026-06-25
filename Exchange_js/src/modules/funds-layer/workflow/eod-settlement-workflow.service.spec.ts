@@ -379,46 +379,8 @@ describe('EodSettlementWorkflowService', () => {
   });
 
   describe('onFundsFlowStatusChanged', () => {
-    it('CLEAR for an EOD transfer: settles outstandings + recomputes batch', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-eod',
-        sourceType: 'EOD_SETTLEMENT',
-        settlementBatchId: 'b-1',
-        triggerSource: 'EOD',
-      });
-
-      await service.onFundsFlowStatusChanged({
-        fundsFlowId: 'ff-1',
-        internalTransferId: 't-eod',
-        oldStatus: 'PENDING',
-        newStatus: 'CLEAR',
-      });
-
-      expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
-      // EOD principal transfers carry no fee accruals — fee settlement is a fee-transfer concern.
-      expect(feeAccrual.settleByTransfer).not.toHaveBeenCalled();
-      expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
-      // Two-book: look up the batch (batchNo only) for the reval/sweep call; the
-      // reval-vs-sweep decision keys on the transfer's triggerSource, not settlementType.
-      expect(prisma.settlementBatch.findUnique).toHaveBeenCalledWith({
-        where: { id: 'b-1' },
-        select: { batchNo: true },
-      });
-      // EOD-triggered, fully settled (outstanding.count → 0) → revalue.
-      expect(fxEod.runReval).toHaveBeenCalledWith('OSB-001');
-      // No settlementBatchItem lookup.
-      expect((prisma as any).settlementBatchItem).toBeUndefined();
-    });
-
-    it('CLEAR closeout survives an EOD accounting failure (logged, not thrown)', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-eod',
-        sourceType: 'EOD_SETTLEMENT',
-        settlementBatchId: 'b-1',
-        triggerSource: 'EOD',
-      });
-      fxEod.runReval.mockRejectedValue(new Error('TB unavailable'));
-
+    // neutered in Phase A (real-time inline accounting) — tests updated to match no-op
+    it('is a no-op for any event (neutered Phase A)', async () => {
       await expect(
         service.onFundsFlowStatusChanged({
           fundsFlowId: 'ff-1',
@@ -428,128 +390,11 @@ describe('EodSettlementWorkflowService', () => {
         }),
       ).resolves.toBeUndefined();
 
-      expect(consumer.settle).toHaveBeenCalledWith('t-eod', 'ff-1');
-      expect(batchService.recomputeBatch).toHaveBeenCalledWith('b-1');
-    });
-
-    it('CLEAR of EOD-triggered principal leg: reval when batch fully settled', async () => {
-      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't1', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b1', triggerSource: 'EOD' });
-      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-1' });
-      (prisma as any).outstanding.count.mockResolvedValue(0); // fully settled
-      await service.onFundsFlowStatusChanged({ internalTransferId: 't1', fundsFlowId: 'f1', newStatus: 'CLEAR' } as any);
-      expect(fxEod.runReval).toHaveBeenCalledWith('SB-1');
-      expect(fxEod.runSweepOnly).not.toHaveBeenCalled();
-    });
-
-    it('CLEAR of EOD-triggered leg when batch NOT yet fully settled: sweep-only, not reval', async () => {
-      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't3', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b3', triggerSource: 'EOD' });
-      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-3' });
-      (prisma as any).outstanding.count.mockResolvedValue(1); // one leg still LOCKED → not fully settled
-      await service.onFundsFlowStatusChanged({ internalTransferId: 't3', fundsFlowId: 'f3', newStatus: 'CLEAR' } as any);
-      expect(fxEod.runSweepOnly).toHaveBeenCalledWith('SB-3');
-      expect(fxEod.runReval).not.toHaveBeenCalled();
-    });
-
-    it('CLEAR of MANUAL_SETTLE-triggered principal leg: sweep-only, never reval (even fully settled)', async () => {
-      // Same settlementType (CRYPTO_PRINCIPAL) as EOD now — only triggerSource distinguishes.
-      (prisma as any).internalTransaction.findUnique.mockResolvedValue({ id: 't2', sourceType: 'EOD_SETTLEMENT', settlementBatchId: 'b2', triggerSource: 'MANUAL_SETTLE' });
-      (prisma as any).settlementBatch.findUnique.mockResolvedValue({ batchNo: 'SB-2' });
-      (prisma as any).outstanding.count.mockResolvedValue(0);
-      await service.onFundsFlowStatusChanged({ internalTransferId: 't2', fundsFlowId: 'f2', newStatus: 'CLEAR' } as any);
-      expect(fxEod.runSweepOnly).toHaveBeenCalledWith('SB-2');
-      expect(fxEod.runReval).not.toHaveBeenCalled();
-    });
-
-    it('CLEAR for a SWAP_FEE_SETTLEMENT transfer: settles fee accruals, NOT outstandings', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-fee',
-        sourceType: 'SWAP_FEE_SETTLEMENT',
-      });
-
-      await service.onFundsFlowStatusChanged({
-        fundsFlowId: 'ff-fee',
-        internalTransferId: 't-fee',
-        oldStatus: 'PENDING',
-        newStatus: 'CLEAR',
-      });
-
-      // Fee transfer → flip LOCKED→SETTLED fee accruals for this transfer.
-      expect(feeAccrual.settleByTransfer).toHaveBeenCalledWith(
-        't-fee',
-        'ff-fee',
-        prisma,
-      );
-      // Fee transfers carry no crypto outstandings — the consumer path must not run.
-      expect(consumer.settle).not.toHaveBeenCalled();
-    });
-
-    it('CLEAR for a WITHDRAW_FEE_SETTLEMENT transfer: settles fee accruals, NOT outstandings', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-wfee',
-        sourceType: 'WITHDRAW_FEE_SETTLEMENT',
-      });
-
-      await service.onFundsFlowStatusChanged({
-        fundsFlowId: 'ff-wfee',
-        internalTransferId: 't-wfee',
-        oldStatus: 'PENDING',
-        newStatus: 'CLEAR',
-      });
-
-      expect(feeAccrual.settleByTransfer).toHaveBeenCalledWith(
-        't-wfee',
-        'ff-wfee',
-        prisma,
-      );
-      expect(consumer.settle).not.toHaveBeenCalled();
-    });
-
-    it('CLEAR for a non-settlement transfer: does nothing', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-other',
-        sourceType: 'DEPOSIT_AGGREGATION',
-      });
-
-      await service.onFundsFlowStatusChanged({
-        fundsFlowId: 'ff-2',
-        internalTransferId: 't-other',
-        oldStatus: 'PENDING',
-        newStatus: 'CLEAR',
-      });
-
       expect(consumer.settle).not.toHaveBeenCalled();
       expect(feeAccrual.settleByTransfer).not.toHaveBeenCalled();
       expect(batchService.recomputeBatch).not.toHaveBeenCalled();
-    });
-
-    it('ignores events without an internalTransferId', async () => {
-      await service.onFundsFlowStatusChanged({
-        fundsFlowId: 'ff-3',
-        internalTransferId: undefined as any,
-        oldStatus: 'PENDING',
-        newStatus: 'CLEAR',
-      });
-
-      expect(prisma.internalTransaction.findUnique).not.toHaveBeenCalled();
-      expect(consumer.settle).not.toHaveBeenCalled();
-    });
-
-    it('ignores non-CLEAR status transitions', async () => {
-      prisma.internalTransaction.findUnique.mockResolvedValue({
-        id: 't-eod',
-        sourceType: 'EOD_SETTLEMENT',
-        settlementBatchId: 'b-1',
-      });
-
-      await service.onFundsFlowStatusChanged({
-        fundsFlowId: 'ff-4',
-        internalTransferId: 't-eod',
-        oldStatus: 'PENDING',
-        newStatus: 'FAILED',
-      });
-
-      expect(consumer.settle).not.toHaveBeenCalled();
-      expect(batchService.recomputeBatch).not.toHaveBeenCalled();
+      expect(fxEod.runReval).not.toHaveBeenCalled();
+      expect(fxEod.runSweepOnly).not.toHaveBeenCalled();
     });
   });
 

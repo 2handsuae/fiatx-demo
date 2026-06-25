@@ -169,39 +169,19 @@ describe('InternalTransferWorkflowService', () => {
     );
   });
 
-  it('onFundsFlowStatusChanged writes SUCCEEDED on CLEAR and calls mirrorPhysicalTransfer', async () => {
-    await service.onFundsFlowStatusChanged({
-      fundsFlowId: 'f1',
-      internalTransferId: 't1',
-      oldStatus: 'CONFIRMED',
-      newStatus: 'CLEAR',
-    });
-
-    // mirror fires first on CLEAR
-    expect(accounting.mirrorPhysicalTransfer).toHaveBeenCalledWith({ internalTransferId: 't1' });
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'SUCCEEDED',
-        entityId: 't1',
+  // neutered in Phase A (real-time inline accounting) — mirrorPhysicalTransfer is deprecated
+  it('onFundsFlowStatusChanged is a no-op (neutered Phase A)', async () => {
+    await expect(
+      service.onFundsFlowStatusChanged({
+        fundsFlowId: 'f1',
+        internalTransferId: 't1',
+        oldStatus: 'CONFIRMED',
+        newStatus: 'CLEAR',
       }),
-    );
-  });
+    ).resolves.toBeUndefined();
 
-  it('onFundsFlowStatusChanged writes FAILED on FAILED', async () => {
-    await service.onFundsFlowStatusChanged({
-      fundsFlowId: 'f1',
-      internalTransferId: 't1',
-      oldStatus: 'CONFIRMING',
-      newStatus: 'FAILED',
-    });
-
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: 'FAILED',
-        entityId: 't1',
-        reason: 'Funds flow FAILED',
-      }),
-    );
+    expect(accounting.mirrorPhysicalTransfer).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
   });
 
   describe('Spec #4: INTERNAL_TRANSFER short-name audit actions', () => {
@@ -225,30 +205,25 @@ describe('InternalTransferWorkflowService', () => {
       );
     });
 
-    it('emits SUCCEEDED on funds-flow CLEAR event', async () => {
+    // neutered in Phase A — onFundsFlowStatusChanged is a no-op
+    it('onFundsFlowStatusChanged CLEAR is a no-op (neutered Phase A)', async () => {
       await service.onFundsFlowStatusChanged({
         fundsFlowId: 'f1',
         internalTransferId: 't1',
         oldStatus: 'CONFIRMED',
         newStatus: 'CLEAR',
       });
-
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'SUCCEEDED' }),
-      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
 
-    it('emits FAILED on funds-flow FAILED/TIMEOUT event', async () => {
+    it('onFundsFlowStatusChanged FAILED is a no-op (neutered Phase A)', async () => {
       await service.onFundsFlowStatusChanged({
         fundsFlowId: 'f1',
         internalTransferId: 't1',
         oldStatus: 'CONFIRMING',
         newStatus: 'FAILED',
       });
-
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'FAILED' }),
-      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
   });
 });
