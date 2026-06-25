@@ -6,6 +6,8 @@ import { FundsFlowService } from '../../funds-layer/domain/funds-flow.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { SwapTransactionsService } from './swap-transactions.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditActions, AuditEntityTypes, AuditWorkflowTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { buildSwapLegPlan, LegAccounting, SwapLegSpec } from '../../funds-layer/constants/swap-leg-plan.constant';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -46,6 +48,7 @@ export class SwapSettlementService {
     private readonly accounting: AccountingService,
     private readonly wallets: SystemWalletResolver,
     private readonly swaps: SwapTransactionsService,
+    private readonly auditLogs: AuditLogsService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -146,8 +149,13 @@ export class SwapSettlementService {
     const toAsset = swap.toAsset;
     const fromCurrency: string = fromAsset?.currency ?? '';
     const toCurrency: string = toAsset?.currency ?? '';
-    const fromLedger = (TB_LEDGERS as Record<string, number>)[fromCurrency] ?? 0;
-    const toLedger = (TB_LEDGERS as Record<string, number>)[toCurrency] ?? 0;
+
+    // Fix D: throw if ledger is not resolvable — prevents silent 0-ledger posting
+    const fromLedger = (TB_LEDGERS as Record<string, number>)[fromCurrency];
+    if (!fromLedger) throw new BadRequestException(`SWAP_UNRESOLVABLE_LEDGER: cannot resolve ledger for currency "${fromCurrency}"`);
+    const toLedger = (TB_LEDGERS as Record<string, number>)[toCurrency];
+    if (!toLedger) throw new BadRequestException(`SWAP_UNRESOLVABLE_LEDGER: cannot resolve ledger for currency "${toCurrency}"`);
+
     return {
       swapId: swap.id,
       swapNo: swap.swapNo,
@@ -167,13 +175,14 @@ export class SwapSettlementService {
     };
   }
 
-  // ── initiateLeg: book pending + advance leg out of CREATED ──
+  // ── initiateLegPending: book pending TB transfers for a leg (no transition) ──
 
   /**
-   * Books pending TB transfers for a leg and advances it out of CREATED.
-   * @param legId - the InternalFund row id (passed in to avoid extra DB lookup)
+   * Books pending TB transfers for a leg's accounting entries (amount > 0).
+   * Shared between start() (leg1) and advanceLeg() (legs 2-4 on first advance).
+   * Does NOT call transitionSwapLeg — caller is responsible for the transition.
    */
-  private async initiateLeg(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any, legId: string): Promise<void> {
+  private async initiateLegPending(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
@@ -191,20 +200,6 @@ export class SwapSettlementService {
         tx: client,
       });
     }
-
-    // Determine the action to advance out of CREATED based on asset type of leg
-    // side='from' → fromIsFiat tells us from-ledger type
-    // side='to'   → !fromIsFiat tells us to-ledger type
-    const legIsFiat = spec.side === 'from' ? ctx.fromIsFiat : !ctx.fromIsFiat;
-    const action = legIsFiat ? InternalFundAction.SUBMIT : InternalFundAction.SIGN;
-
-    await this.fundsFlow.transitionSwapLeg(legId, action, 'SYSTEM', client);
-  }
-
-  /** Variant used during advanceLeg where we need to look up the leg row */
-  private async initiateLegBySeq(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
-    const row = await this.legRow(ctx.swapId, spec.legSeq, client);
-    return this.initiateLeg(ctx, spec, client, row.id);
   }
 
   // ── postLeg: post all pending transfers for a leg ──
@@ -265,15 +260,25 @@ export class SwapSettlementService {
       if (spec.legSeq === 1) leg1Id = (created as any).id;
     }
 
-    // Initiate leg 1 immediately using the id returned from createSwapLeg
-    await this.initiateLeg(ctx, legs[0], tx, leg1Id!);
+    // Initiate leg 1 immediately: book pending transfers then transition out of CREATED
+    await this.initiateLegPending(ctx, legs[0], tx);
+    const leg1IsFiat = ctx.fromIsFiat; // leg1 side='from'
+    const leg1Action = leg1IsFiat ? InternalFundAction.SUBMIT : InternalFundAction.SIGN;
+    await this.fundsFlow.transitionSwapLeg(leg1Id!, leg1Action, 'SYSTEM', tx);
   }
 
   // ── Public: advanceLeg ──
 
   /**
    * Admin (or webhook) calls this to advance a specific leg.
-   * Enforces sequence order, triggers post/void+next-leg/SUCCESS/FAILED.
+   * Enforces sequence order, triggers post/void/SUCCESS/FAILED.
+   *
+   * Per-leg lazy initiation model (spec §6 step 2):
+   *   - Legs 2-4 start in CREATED. Their pending is booked here, on FIRST advance.
+   *   - CLEAR of a mid-leg does NOT auto-initiate the next leg (operator drives each leg).
+   *   - CLEAR of the last leg marks swap SUCCESS (with audit).
+   *   - Any terminal-fail voids the leg and marks swap FAILED (with audit).
+   *   - Intermediate hops (not CLEAR, not terminal-fail) just advance status — no accounting.
    */
   async advanceLeg(
     swapNo: string,
@@ -310,6 +315,20 @@ export class SwapSettlementService {
         throw new BadRequestException('Previous leg is not yet cleared');
       }
 
+      // Rebuild ctx from swap row
+      const ctx = this.ctxFromSwap(swap);
+      const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+      const spec = allSpecs.find((s) => s.legSeq === legSeq);
+      if (!spec) throw new Error(`Spec not found for legSeq ${legSeq}`);
+
+      // Fix A: if this leg is still CREATED (first advance for legs 2-4),
+      // book its pending BEFORE transitioning. Both ops are in the same tx:
+      // if pending fails, leg stays CREATED and can be retried; deterministic
+      // transfer ids make the booking idempotent.
+      if (target.status === 'CREATED') {
+        await this.initiateLegPending(ctx, spec, client);
+      }
+
       // Transition the target leg
       const { nextStatus } = await this.fundsFlow.transitionSwapLeg(
         target.id,
@@ -318,33 +337,58 @@ export class SwapSettlementService {
         client as any,
       );
 
-      // Rebuild ctx from swap row
-      const ctx = this.ctxFromSwap(swap);
-      const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
-      const spec = allSpecs.find((s) => s.legSeq === legSeq);
-      if (!spec) throw new Error(`Spec not found for legSeq ${legSeq}`);
-
       if (nextStatus === InternalFundStatus.CLEAR) {
         // Post this leg's pending transfers
         await this.postLeg(ctx, spec, client);
 
-        // Initiate next leg, or finalize if last
-        const nextSpec = allSpecs.find((s) => s.legSeq === legSeq + 1);
-        if (nextSpec) {
-          await this.initiateLegBySeq(ctx, nextSpec, client);
-        } else {
-          // All 4 legs cleared — mark SUCCESS
+        const isLastLeg = !allSpecs.some((s) => s.legSeq === legSeq + 1);
+        if (isLastLeg) {
+          // All 4 legs cleared — mark SUCCESS + audit
           await this.swaps.markStatus(swap.id, 'SUCCESS', client as any);
+          await this.auditLogs.recordSystem(
+            {
+              action: AuditActions.SWAP_SUCCEEDED,
+              entityType: AuditEntityTypes.SWAP_TRANSACTION,
+              entityId: swap.id,
+              entityNo: swap.swapNo,
+              traceId: swap.traceId ?? swap.swapNo,
+              workflowType: AuditWorkflowTypes.SWAP,
+              entityOwnerType: swap.ownerType,
+              entityOwnerId: swap.ownerId,
+              reason: 'Swap settlement completed — all 4 legs cleared',
+              sourcePlatform: 'SYSTEM',
+            },
+            client as any,
+          );
           emitSuccess = true;
           swapIdForEvent = swap.id;
           swapNoForEvent = swap.swapNo;
           ownerIdForEvent = swap.ownerId;
         }
+        // Mid-leg CLEAR: operator will advance the next leg (still CREATED),
+        // which will book its pending on that first advance call.
       } else if (TERMINAL_FAIL.has(nextStatus)) {
-        // Void this leg's pending transfers
+        // Void this leg's pending transfers + mark FAILED + audit
         await this.voidLeg(ctx, spec, client);
         await this.swaps.markStatus(swap.id, 'FAILED', client as any);
+        await this.auditLogs.recordSystem(
+          {
+            action: AuditActions.SWAP_FAILED,
+            entityType: AuditEntityTypes.SWAP_TRANSACTION,
+            entityId: swap.id,
+            entityNo: swap.swapNo,
+            traceId: swap.traceId ?? swap.swapNo,
+            workflowType: AuditWorkflowTypes.SWAP,
+            entityOwnerType: swap.ownerType,
+            entityOwnerId: swap.ownerId,
+            reason: `Swap settlement failed — leg ${legSeq} reached ${nextStatus}`,
+            sourcePlatform: 'SYSTEM',
+          },
+          client as any,
+        );
       }
+      // Intermediate hops (e.g. SIGNING, BROADCASTED, CONFIRMING, CONFIRMED):
+      // no accounting — the transition above already advanced the leg status.
 
       return this.legRow(swap.id, legSeq, client);
     });
