@@ -380,10 +380,10 @@ export class SwapTransactionsService {
       feeBreakdown: string | null;
       spreadAmount: Prisma.Decimal;
       exchangeRate: Prisma.Decimal;
-      tbFromTransferId: string | null;
-      tbToTransferId: string | null;
-      tbFeeTransferId: string | null;
-      tbSpreadTransferId: string | null;
+      tbFromTransferId?: string | null;
+      tbToTransferId?: string | null;
+      tbFeeTransferId?: string | null;
+      tbSpreadTransferId?: string | null;
       traceId: string;
     },
     tx: Prisma.TransactionClient,
@@ -397,7 +397,7 @@ export class SwapTransactionsService {
         ownerType: input.ownerType,
         ownerId: input.ownerId,
         ownerNo: input.ownerNo,
-        status: 'SUCCESS',
+        status: 'SETTLING',
         fromAssetId: input.fromAssetId,
         fromAssetCode: input.fromAssetCode,
         fromAmount: input.fromAmount,
@@ -410,19 +410,19 @@ export class SwapTransactionsService {
         feeBreakdown: input.feeBreakdown,
         spreadAmount: input.spreadAmount,
         exchangeRate: input.exchangeRate,
-        tbFromTransferId: input.tbFromTransferId,
-        tbToTransferId: input.tbToTransferId,
-        tbFeeTransferId: input.tbFeeTransferId,
-        tbSpreadTransferId: input.tbSpreadTransferId,
+        tbFromTransferId: input.tbFromTransferId ?? null,
+        tbToTransferId: input.tbToTransferId ?? null,
+        tbFeeTransferId: input.tbFeeTransferId ?? null,
+        tbSpreadTransferId: input.tbSpreadTransferId ?? null,
         traceId: input.traceId,
-        completedAt: new Date(),
+        completedAt: null,
         statusHistory: JSON.stringify([
           {
-            status: 'SUCCESS',
+            status: 'SETTLING',
             timestamp: new Date().toISOString(),
             operator: input.ownerId,
             source: 'CUSTOMER',
-            note: `Swap executed from quote ${input.quoteNo || input.quoteId}`,
+            note: 'Swap created; settling (legs pending)',
           },
         ]),
       },
