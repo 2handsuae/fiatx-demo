@@ -5,14 +5,19 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { RequirePermissions } from 'src/modules/identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from 'src/modules/identity/access-control/permission-code.util';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
+import { SwapSettlementService } from './swap-settlement.service';
 import {
+  AdvanceSwapLegDto,
   CreateSwapTransactionDto,
   SwapTransactionQueryDto,
 } from './dto/swap-transaction.dto';
@@ -27,6 +32,7 @@ export class SwapTransactionsController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly swapQuoteService: SwapQuoteService,
+    private readonly swapSettlement: SwapSettlementService,
   ) {}
 
   @Post()
@@ -51,6 +57,25 @@ export class SwapTransactionsController {
   @ApiOperation({ summary: 'Get swap quote detail' })
   findOneQuote(@Param('id') id: string) {
     return this.swapQuoteService.findOneForAdmin(id);
+  }
+
+  @Post(':swapNo/legs/:legSeq/advance')
+  @ApiOperation({ summary: 'Advance a swap settlement leg (manual simulate)' })
+  @RequirePermissions(
+    buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance'),
+  )
+  advanceSwapLeg(
+    @Param('swapNo') swapNo: string,
+    @Param('legSeq') legSeq: string,
+    @Body() dto: AdvanceSwapLegDto,
+    @Req() req: any,
+  ) {
+    return this.swapSettlement.advanceLeg(
+      swapNo,
+      Number(legSeq),
+      dto.action,
+      req.user?.userNo || req.user?.sub || 'ADMIN',
+    );
   }
 
   @Get(':id')

@@ -7,6 +7,7 @@ import {
   IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { InternalFundAction } from '../../../funds-layer/dto/internal-fund.dto';
 
 export enum SwapTransactionStatus {
   SETTLING = 'SETTLING',
@@ -46,6 +47,12 @@ export class CreateSwapTransactionDto {
   @IsNumber()
   @Type(() => Number)
   toAmount!: number;
+}
+
+export class AdvanceSwapLegDto {
+  @ApiProperty({ enum: InternalFundAction, description: 'Action to apply to the swap settlement leg' })
+  @IsEnum(InternalFundAction)
+  action!: InternalFundAction;
 }
 
 export class SwapTransactionQueryDto {
