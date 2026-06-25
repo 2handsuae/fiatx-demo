@@ -487,7 +487,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
     const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
-    if (w.tbPendingFeeId) {
+    if (w.tbPendingFeeId && feeBigint > 0n) {
       const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
       await this.accountingService.postPendingTransfer({
         pendingTransferId: pendingFeeBigint,
