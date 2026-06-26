@@ -106,6 +106,41 @@ export class TbEvidenceService {
     });
   }
 
+  /**
+   * Phase B: when a pending LOCK transitions to POSTED, the row now represents a
+   * real external crossing (e.g. a withdrawal that actually moved on-chain). The
+   * caller passes the POST-event eventCode + the Phase B recon fields so the row
+   * records the crossing semantics. `postPendingTransfer` itself doesn't write a
+   * new evidence row (it only flips transferType), so this is the hook that lets
+   * the workflow promote a LOCK row to a POST event without duplicating evidence.
+   */
+  async enrichForPost(
+    tbTransferId: string,
+    fields: {
+      eventCode?: string;
+      memo?: string | null;
+      debitWalletRef?: string | null;
+      creditWalletRef?: string | null;
+      externalRef?: string | null;
+      isExternalCrossing?: boolean;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const client = tx ?? this.prisma;
+    const data: any = {};
+    if (fields.eventCode !== undefined) data.eventCode = fields.eventCode;
+    if (fields.memo !== undefined) data.memo = fields.memo;
+    if (fields.debitWalletRef !== undefined) data.debitWalletRef = fields.debitWalletRef;
+    if (fields.creditWalletRef !== undefined) data.creditWalletRef = fields.creditWalletRef;
+    if (fields.externalRef !== undefined) data.externalRef = fields.externalRef;
+    if (fields.isExternalCrossing !== undefined) data.isExternalCrossing = fields.isExternalCrossing;
+    if (Object.keys(data).length === 0) return;
+    await (client as any).tbTransferEvidence.update({
+      where: { tbTransferId },
+      data,
+    });
+  }
+
   async findBySource(sourceType: string, sourceNo: string) {
     return (this.prisma as any).tbTransferEvidence.findMany({
       where: { sourceType, sourceNo },

@@ -13,6 +13,7 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
+import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -29,6 +30,7 @@ import {
 } from './constants/withdraw-approval.constant';
 import { FundsFlowService } from '../../funds-layer/domain/funds-flow.service';
 import { InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
+import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
@@ -49,7 +51,24 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly approvalsService: ApprovalsService,
     private readonly binanceRateProvider: BinanceRateProvider,
     private readonly fundsFlowService: FundsFlowService,
+    private readonly systemWalletResolver: SystemWalletResolver,
+    private readonly tbEvidenceService: TbEvidenceService,
   ) {}
+
+  // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
+  // as creditWalletRef on FIRM-side fee rows. Returns null on miss (best-effort
+  // — the evidence row still records correctly, recon just can't pair by wallet).
+  private async resolveFirmFeeWalletRef(assetId: string): Promise<string | null> {
+    try {
+      const wallet = await this.systemWalletResolver.resolve(assetId, 'F_FEE');
+      return wallet?.id ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `F_FEE wallet not found for asset ${assetId}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
 
   onModuleInit() {
     this.logger.log('WithdrawWorkflowService initialized and listening for events.');
@@ -475,6 +494,28 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     const decimals = w.asset?.decimals ?? 8;
 
+    // Phase B per-physical-wallet recon: pre-compute once for use across POST_NET,
+    // POST_FEE, and FEE_FIRM evidence.
+    //   walletRef     = the customer's source wallet (vIBAN / C_OUT) bound by the
+    //                   orchestrator before finalize.
+    //   externalRef   = the real-world identifier of the external crossing —
+    //                   blockchain txHash or bank reference. Looked up on the
+    //                   withdrawal first; falls back to the linked payout's txHash.
+    //   Crucially, FEE_POST and FEE_FIRM share the SAME externalRef so the recon
+    //   engine can match "client OUT ↔ firm IN" as a cross-wallet same-ref pair.
+    const walletRef: string | null = w.fromWalletId ?? null;
+    let externalRef: string | null = w.txHash ?? w.referenceNo ?? null;
+    if (!externalRef && w.payoutId) {
+      try {
+        const payout = await this.payoutsService.findOne(w.payoutId);
+        externalRef = payout?.txHash ?? payout?.referenceNo ?? null;
+      } catch (err) {
+        this.logger.warn(
+          `Could not look up payout ${w.payoutId} for externalRef on ${withdrawId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
     // POST pending transfer #1: net amount (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
     if (w.tbPendingNetId) {
       const pendingNetBigint = hexToBigint(w.tbPendingNetId);
@@ -493,7 +534,25 @@ export class WithdrawWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
           memo: 'Payout confirmed: POST net pending transfer → CLIENT_ASSET',
+          // Phase B: outbound real-world recognition. Both legs sit on the
+          // customer's source wallet; the external crossing is the on-chain /
+          // bank-statement entry identified by externalRef.
+          debitWalletRef: walletRef,
+          creditWalletRef: walletRef,
+          externalRef,
+          isExternalCrossing: true,
         },
+      });
+      // postPendingTransfer only flips transferType — it doesn't write a new evidence
+      // row or carry Phase B fields. Enrich the LOCK row so it now records the POST
+      // event semantics (new eventCode + walletRef/externalRef/crossing).
+      await this.tbEvidenceService.enrichForPost(w.tbPendingNetId, {
+        eventCode: 'WITHDRAW_NET_POST',
+        memo: 'Payout confirmed: POST net pending transfer → CLIENT_ASSET',
+        debitWalletRef: walletRef,
+        creditWalletRef: walletRef,
+        externalRef,
+        isExternalCrossing: true,
       });
     }
 
@@ -515,7 +574,22 @@ export class WithdrawWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
           memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET',
+          // Phase B: client-side fee leg of the cross-wallet same-ref pair —
+          // FEE_POST and FEE_FIRM share externalRef so recon can match them.
+          debitWalletRef: walletRef,
+          creditWalletRef: walletRef,
+          externalRef,
+          isExternalCrossing: true,
         },
+      });
+      // Same as NET_POST: enrich the LOCK_FEE row to record FEE_POST semantics.
+      await this.tbEvidenceService.enrichForPost(w.tbPendingFeeId, {
+        eventCode: 'WITHDRAW_FEE_POST',
+        memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET',
+        debitWalletRef: walletRef,
+        creditWalletRef: walletRef,
+        externalRef,
+        isExternalCrossing: true,
       });
     }
 
@@ -533,6 +607,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
           ledger,
           ownerType: 'SYSTEM',
         });
+
+        // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
+        // FIRM_FEE is the platform's F_FEE wallet for this asset.
+        const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
+
         await this.accountingService.executeTransfer({
           debitAccountId: firmAssetId,
           creditAccountId: firmFeeId,
@@ -550,6 +629,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
             actorType: 'SYSTEM',
             actorId: 'WITHDRAW_WORKFLOW',
             memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
+            // Phase B firm-side fee leg of the cross-wallet same-ref pair.
+            // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
+            // creditWalletRef points at the platform's F_FEE wallet so recon can
+            // tie this row to the matching FEE_POST row by externalRef.
+            debitWalletRef: null,
+            creditWalletRef: firmFeeWalletRef,
+            externalRef,
+            isExternalCrossing: true,
           },
         });
       }

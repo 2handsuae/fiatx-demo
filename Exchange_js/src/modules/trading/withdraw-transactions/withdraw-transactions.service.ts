@@ -593,6 +593,14 @@ export class WithdrawTransactionsService {
             const netBigint = this.decimalToBigint(netAmount, asset.decimals);
             const feeBigint = this.decimalToBigint(quoteFeeAmount, asset.decimals);
 
+            // Phase B per-physical-wallet recon: the customer's source wallet
+            // (vIBAN / C_OUT crypto wallet) is on the withdrawal record. Both legs
+            // of a pending lock sit on the same wallet — pending is a pre-occupation,
+            // not yet a real external crossing (the crossing happens on POST). At
+            // create-time fromWalletId is often null (orchestrator binds it later);
+            // that's fine — LOCK rows simply carry null and don't fail recon.
+            const walletRef: string | null = record.fromWalletId ?? null;
+
             const evidenceBase = {
               sourceType: 'WITHDRAWAL',
               sourceNo: withdrawNo,
@@ -602,6 +610,12 @@ export class WithdrawTransactionsService {
               traceId,
               actorType: ownerType,
               actorId: userId,
+              // Phase B: LOCK rows are pure ledger pre-occupation — same wallet on
+              // both legs, no external statement entry, not a real-world crossing.
+              debitWalletRef: walletRef,
+              creditWalletRef: walletRef,
+              externalRef: null,
+              isExternalCrossing: false,
             };
 
             // Pending #1: net amount CLIENT_PAYABLE → CLIENT_ASSET (pending)

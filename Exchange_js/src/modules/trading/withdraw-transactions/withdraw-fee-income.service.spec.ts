@@ -254,7 +254,13 @@ function buildWorkflowMocks() {
   };
   const approvalsService = { completeApproval: jest.fn(() => Promise.resolve({})) };
   const binanceRateProvider = {};
-  const fundTransferWorkflow = {};
+  // FundsFlowService is downstream of finalize (sets fee fund CLEAR).
+  const fundsFlowService = { setWithdrawFeeFundStatus: jest.fn(() => Promise.resolve()) };
+  // Phase B: resolves the platform F_FEE wallet for creditWalletRef on FIRM rows.
+  const systemWalletResolver = { resolve: jest.fn(() => Promise.resolve({ id: 'wallet-f-fee-1' })) };
+  // Phase B: post-promote enrichment — promotes a LOCK row's eventCode/walletRef/externalRef
+  // to its POST semantics after postPendingTransfer flips transferType.
+  const tbEvidenceService = { enrichForPost: jest.fn(() => Promise.resolve()) };
 
   return {
     accountingService,
@@ -263,7 +269,9 @@ function buildWorkflowMocks() {
     payoutsService,
     approvalsService,
     binanceRateProvider,
-    fundTransferWorkflow,
+    fundsFlowService,
+    systemWalletResolver,
+    tbEvidenceService,
   };
 }
 
@@ -277,7 +285,9 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
       mocks.payoutsService as any,
       mocks.approvalsService as any,
       mocks.binanceRateProvider as any,
-      mocks.fundTransferWorkflow as any,
+      mocks.fundsFlowService as any,
+      mocks.systemWalletResolver as any,
+      mocks.tbEvidenceService as any,
     );
 
     await (service as any).handlePayoutConfirmed({
@@ -306,5 +316,219 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
     const firmCall = execCalls[0][0];
     expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
     expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// TEST C: Phase B per-physical-wallet recon fields on withdraw flow
+// ═══════════════════════════════════════════════════════════════════
+
+describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet same-ref fee pair)', () => {
+  function buildPhaseBMocks() {
+    const m = buildWorkflowMocks();
+    // Override withdraw record to carry fromWalletId + txHash so we can assert
+    // that walletRef + externalRef thread through correctly.
+    const recordWithWallet = makeWithdrawRecord({
+      fromWalletId: 'wallet-c-out-1',
+      fromWalletNo: 'WA-CLI-001',
+      txHash: '0xabc123dead',
+      referenceNo: null,
+    });
+    m.withdrawService.findOneInternal = jest.fn(() => Promise.resolve(recordWithWallet));
+    return m;
+  }
+
+  function makeService(m: ReturnType<typeof buildPhaseBMocks>) {
+    return new WithdrawWorkflowService(
+      m.withdrawService as any,
+      m.auditLogsService as any,
+      m.accountingService as any,
+      m.payoutsService as any,
+      m.approvalsService as any,
+      m.binanceRateProvider as any,
+      m.fundsFlowService as any,
+      m.systemWalletResolver as any,
+      m.tbEvidenceService as any,
+    );
+  }
+
+  it('finalize: POST rows carry walletRef + externalRef + crossing=true', async () => {
+    const mocks = buildPhaseBMocks();
+    const service = makeService(mocks);
+
+    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+
+    const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
+    expect(postCalls.length).toBe(2);
+
+    // POST_NET evidence
+    const netEvidence = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
+    expect(netEvidence).toMatchObject({
+      debitWalletRef: 'wallet-c-out-1',
+      creditWalletRef: 'wallet-c-out-1',
+      externalRef: '0xabc123dead',
+      isExternalCrossing: true,
+    });
+
+    // POST_FEE evidence
+    const feeEvidence = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_POST')?.[0]?.evidence;
+    expect(feeEvidence).toMatchObject({
+      debitWalletRef: 'wallet-c-out-1',
+      creditWalletRef: 'wallet-c-out-1',
+      externalRef: '0xabc123dead',
+      isExternalCrossing: true,
+    });
+  });
+
+  it('finalize: FEE_FIRM debits aggregate (null wallet) and credits F_FEE wallet, shares externalRef with FEE_POST', async () => {
+    const mocks = buildPhaseBMocks();
+    const service = makeService(mocks);
+
+    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+
+    const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
+    const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;
+    expect(firmEvidence).toMatchObject({
+      debitWalletRef: null,                   // FIRM_ASSET is aggregate, no physical wallet
+      creditWalletRef: 'wallet-f-fee-1',      // F_FEE platform wallet (from SystemWalletResolver mock)
+      externalRef: '0xabc123dead',
+      isExternalCrossing: true,
+    });
+
+    // CRITICAL: FEE_POST and FEE_FIRM share the EXACT same externalRef.
+    const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
+    const feePostEv = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_POST')?.[0]?.evidence;
+    expect(feePostEv.externalRef).toBe(firmEvidence.externalRef);
+    expect(firmEvidence.externalRef).not.toBeNull();
+
+    // SystemWalletResolver was called for F_FEE on the correct asset
+    expect(mocks.systemWalletResolver.resolve).toHaveBeenCalledWith('asset-usdt', 'F_FEE');
+  });
+
+  it('finalize: falls back to referenceNo when txHash is null on withdrawal', async () => {
+    const mocks = buildPhaseBMocks();
+    const recordWithRefNo = makeWithdrawRecord({
+      fromWalletId: 'wallet-c-out-1',
+      txHash: null,
+      referenceNo: 'BANK-REF-XYZ',
+    });
+    mocks.withdrawService.findOneInternal = jest.fn(() => Promise.resolve(recordWithRefNo));
+    const service = makeService(mocks);
+
+    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+
+    const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
+    const netEv = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
+    expect(netEv.externalRef).toBe('BANK-REF-XYZ');
+  });
+
+  it('finalize: falls back to payout.txHash when withdrawal has neither txHash nor referenceNo', async () => {
+    const mocks = buildPhaseBMocks();
+    const recordWithoutRef = makeWithdrawRecord({
+      fromWalletId: 'wallet-c-out-1',
+      txHash: null,
+      referenceNo: null,
+    });
+    mocks.withdrawService.findOneInternal = jest.fn(() => Promise.resolve(recordWithoutRef));
+    (mocks.payoutsService.findOne as any) = jest.fn(() => Promise.resolve({
+      id: 'payout-1', txHash: '0xpayoutfallback', referenceNo: null,
+    }));
+    const service = makeService(mocks);
+
+    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+
+    const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
+    const netEv = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
+    expect(netEv.externalRef).toBe('0xpayoutfallback');
+  });
+
+  it('finalize: enrichForPost promotes LOCK rows to POST eventCode + walletRef + externalRef + crossing=true', async () => {
+    const mocks = buildPhaseBMocks();
+    const service = makeService(mocks);
+
+    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+
+    const enrichCalls = mocks.tbEvidenceService.enrichForPost.mock.calls as any[][];
+    // Two enrich calls — one for net pending hex id, one for fee pending hex id.
+    expect(enrichCalls.length).toBe(2);
+
+    // NET enrichment targets the net pending id
+    const netEnrich = enrichCalls.find(c => c[0] === '0000000000000001')?.[1];
+    expect(netEnrich).toMatchObject({
+      eventCode: 'WITHDRAW_NET_POST',
+      debitWalletRef: 'wallet-c-out-1',
+      creditWalletRef: 'wallet-c-out-1',
+      externalRef: '0xabc123dead',
+      isExternalCrossing: true,
+    });
+
+    // FEE enrichment targets the fee pending id
+    const feeEnrich = enrichCalls.find(c => c[0] === '0000000000000002')?.[1];
+    expect(feeEnrich).toMatchObject({
+      eventCode: 'WITHDRAW_FEE_POST',
+      debitWalletRef: 'wallet-c-out-1',
+      creditWalletRef: 'wallet-c-out-1',
+      externalRef: '0xabc123dead',
+      isExternalCrossing: true,
+    });
+  });
+
+  it('finalize: F_FEE wallet miss returns null creditWalletRef but evidence still posts (best-effort)', async () => {
+    const mocks = buildPhaseBMocks();
+    mocks.systemWalletResolver.resolve = jest.fn(() => Promise.reject(new Error('SYSTEM_WALLET_NOT_FOUND')));
+    const service = makeService(mocks);
+
+    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+
+    const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
+    const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;
+    expect(firmEvidence.creditWalletRef).toBeNull();
+    // externalRef must still be set so it pairs with FEE_POST
+    expect(firmEvidence.externalRef).toBe('0xabc123dead');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// TEST D: Phase B fields on the LOCK pending rows at create()
+// ═══════════════════════════════════════════════════════════════════
+
+describe('WithdrawTransactionsService — T2b Phase B LOCK rows', () => {
+  it('LOCK_NET + LOCK_FEE pendings carry walletRef=null externalRef=null crossing=false at create time', async () => {
+    const mocks = buildServiceMocks();
+    const service = new WithdrawTransactionsService(
+      mocks.prisma,
+      mocks.eventEmitter as any,
+      mocks.withdrawQuoteService as any,
+      mocks.auditLogsService as any,
+      mocks.accountingService as any,
+      { findFundsOrderBySource: jest.fn().mockResolvedValue([]) } as any,
+    );
+
+    await service.create(
+      { assetId: 'asset-usdt', amount: 10, toAddress: '0xABCD', network: 'ETH', quoteId: 'q-1' } as any,
+      'cust-1',
+      'CUSTOMER',
+    );
+
+    const pendingCalls = mocks.accountingService.executePendingTransfer.mock.calls as any[][];
+    const lockEvidence = pendingCalls.map(c => c[0]?.evidence).filter(Boolean);
+
+    // Both LOCK_NET and LOCK_FEE present
+    const codes = lockEvidence.map(e => e.eventCode).sort();
+    expect(codes).toEqual(['WITHDRAW_LOCK_FEE', 'WITHDRAW_LOCK_NET']);
+
+    // Every LOCK evidence row: externalRef null, isExternalCrossing false.
+    // walletRef tracks record.fromWalletId — null at create time in this test
+    // (orchestrator binds source wallet later), which is the expected behaviour.
+    for (const ev of lockEvidence) {
+      expect(ev).toMatchObject({
+        externalRef: null,
+        isExternalCrossing: false,
+      });
+      // walletRef may be null in this test; the contract is it equals
+      // record.fromWalletId — which is null here because makeWithdrawRecord
+      // sets fromWalletId: null.
+      expect(ev.debitWalletRef).toBe(ev.creditWalletRef);
+    }
   });
 });
