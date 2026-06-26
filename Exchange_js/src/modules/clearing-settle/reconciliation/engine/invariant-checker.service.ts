@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { LAYER_ASSET_CODE } from '../constants/reconciliation.constants';
 
@@ -15,14 +15,21 @@ export interface InvariantResult {
 const D0 = () => new Prisma.Decimal(0);
 const g = (b: Record<string, Prisma.Decimal>, k: string) => b[k] ?? D0();
 
-/** I1–I4：纯 TB 账内不变量。只读余额 map，无副作用。 */
+/**
+ * I1–I4：纯 TB 账内不变量。只读余额 map，无副作用。
+ *
+ * @deprecated V8 five-formula engine; replaced by WalletReconRunService (Phase B, 2026-06-26). Phase C will remove.
+ */
 @Injectable()
 export class InvariantCheckerService {
+  private readonly logger = new Logger(InvariantCheckerService.name);
+
   check(
     currency: string,
     layer: string,
     bal: Record<string, Prisma.Decimal>,
   ): InvariantResult[] {
+    this.logger.warn('[V8 deprecated] InvariantCheckerService.check called; route to WalletReconRunService.');
     const assetCode = LAYER_ASSET_CODE[layer];
     const out: InvariantResult[] = [];
 

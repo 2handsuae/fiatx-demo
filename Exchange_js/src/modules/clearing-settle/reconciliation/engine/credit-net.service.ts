@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
 
@@ -11,9 +11,13 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
  *
  * 缩放：tb_transfer_evidence.amount 以 TigerBeetle 最小单位存储（整数 × 10^decimals）。
  * 这里除以 10^decimals 还原 human-decimal，使 cn 与 Outstanding/swap/external_balances（均 human）单位自洽。
+ *
+ * @deprecated V8 five-formula engine; replaced by WalletReconRunService (Phase B, 2026-06-26). Phase C will remove.
  */
 @Injectable()
 export class CreditNetService {
+  private readonly logger = new Logger(CreditNetService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -24,6 +28,7 @@ export class CreditNetService {
     currency: string,
     cutoff: Date,
   ): Promise<Record<string, Prisma.Decimal>> {
+    this.logger.warn('[V8 deprecated] CreditNetService.creditNetAtCutoff called; route to WalletReconRunService.');
     const rows = await this.prisma.tbTransferEvidence.findMany({
       where: { assetCode: currency, transferType: 'POSTED', createdAt: { lt: cutoff } },
       select: { debitCode: true, creditCode: true, amount: true },

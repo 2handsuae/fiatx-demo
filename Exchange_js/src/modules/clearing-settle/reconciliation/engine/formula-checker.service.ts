@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 /**
@@ -10,6 +10,8 @@ import { Prisma } from '@prisma/client';
  *   桥块   = TRADE_CLEARING
  *   公司块 = FIRM_TREASURY + FX_POSITION + PAID_IN_CAPITAL + RETAINED_EARNINGS
  *           + FEE_INCOME + SPREAD_INCOME + FX_UNREALIZED_PNL + FX_REALIZED_PNL
+ *
+ * @deprecated V8 five-formula engine; replaced by WalletReconRunService (Phase B, 2026-06-26). Phase C will remove.
  */
 
 export type FormulaCode = '式1' | '式2' | '式3' | '式4' | '式5';
@@ -63,6 +65,8 @@ const D0 = () => new Prisma.Decimal(0);
 
 @Injectable()
 export class FormulaCheckerService {
+  private readonly logger = new Logger(FormulaCheckerService.name);
+
   /** 同币种 credit-net，取 codes 子集求和（缺失 code 视为 0）。 */
   blockSum(cn: Record<string, Prisma.Decimal>, codes: readonly string[]): Prisma.Decimal {
     return codes.reduce((s, c) => s.plus(cn[c] ?? D0()), D0());
@@ -92,6 +96,7 @@ export class FormulaCheckerService {
     clientExternal: ExternalSide,
     firmExternal: ExternalSide,
   ): FormulaResult[] {
+    this.logger.warn('[V8 deprecated] FormulaCheckerService.checkAll called; route to WalletReconRunService.');
     return [
       this.formula1(currency, cn),
       this.formula2(currency, cn, openOutstandingNet, unsettledWithdrawFee),

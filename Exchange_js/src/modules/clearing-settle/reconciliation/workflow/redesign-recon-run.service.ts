@@ -9,11 +9,7 @@ import { ReconciliationRunService } from '../domain/reconciliation-run.service';
 import { ReconciliationCaseService } from '../domain/reconciliation-case.service';
 import { ReconciliationRedesignRecordService } from '../domain/reconciliation-redesign-record.service';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
-import {
-  AuditActions,
-  AuditEntityTypes,
-  AuditBusinessWorkflowTypes,
-} from '../../../audit-logging/constants/audit-actions.constant';
+import { WalletReconRunService } from './wallet-recon-run.service';
 
 export interface RedesignReconInput {
   /** 业务日 D（YYYY-MM-DD）。 */
@@ -28,7 +24,7 @@ export interface RedesignReconInput {
   demoManifest?: unknown;
 }
 
-/** 单币种装配结果（五公式 G4 + 下钻四桶 G5）。 */
+/** 单币种装配结果（五公式 G4 + 下钻四桶 G5）。已废弃；保留以满足历史调用方的类型签名。 */
 export interface RedesignCurrencyResult {
   currency: string;
   assetId: string;
@@ -47,26 +43,27 @@ export interface RedesignReconRunResult {
   runNo: string;
   mode: 'DRY_RUN' | 'APPLY';
   businessDate: string;
+  /** Legacy V8 per-currency assembly. Always empty under the wallet engine — see service-class JSDoc. */
   currencies: RedesignCurrencyResult[];
   openedCount: number;
 }
 
-const TOLERANCE = new Prisma.Decimal('0.000001');
-
 /**
- * 对账重构编排器（spec 2026-06-20 收口组 G6）。**编排 + 持久化**，不重造引擎：
- *   ① G4 五公式（FormulaReconService）— 每币种 式1..式5（credit-net 口径，§3）。
- *   ② G5 下钻四桶（DrilldownMatchService）— 每币种 投影→匹配→定性（§4）。
- * 装配成 per-currency 结果，DRY_RUN 默认 0 落库（与旧 workflow §6.3 一致）；APPLY 落到既有 recon 表：
- *   - ReconciliationRun（run 行 + invariantStatus = 五公式整体 PASS/FAIL）。
- *   - ReconciliationInvariantCheck（每币种 5 行：式1..式5，复用既有表，invariantCode 承载 式N）。
- *   - 式4/式5 FAIL 或桶有 break → ReconciliationCase（per businessDate+asset，净差落 deltaAmount）。
- *   - bucketed line items（六类下钻输出）→ ReconciliationLineItem（串链 traceId，§4.4）。
+ * @deprecated V8 five-formula engine; replaced by WalletReconRunService (Phase B, 2026-06-26). Phase C will remove.
  *
- * 串链 + Reimbursement（§4.4）：净差 > 容差建 Case；公司欠/被欠走 ReimbursementObligation。
- *   ⚠ ReimbursementObligation 模型已于 migration 20260617203304 整表 DROP（无 prisma delegate / 无 service）。
- *   本编排器只**保留 hook**：在 Case 上标注是否需要 reimbursement（needsReimbursement），Case.reimbursementObligationId
- *   列保留为 null + 明确 TODO；不重建已废弃的模型（避免半拉子）。详见 maybeFlagReimbursement()。
+ * Phase B (T9) shim: this orchestrator no longer runs the five-formula engine. All public `run(...)` calls are
+ * routed to {@link WalletReconRunService} (engineVersion='WALLET_V1'). The original constructor dependencies
+ * (FormulaReconService / DrilldownMatchService / RunService / CaseService / RecordService / Audit) remain
+ * declared but unused so the DI graph in `reconciliation.module.ts` is undisturbed and the module exports
+ * keep their existing shape until Phase C removes this file outright.
+ *
+ * Return-shape adapter: the wallet engine returns a leaner result
+ * (`{ runId, status, walletsChecked, casesOpened, ... }`). We re-read the persisted ReconciliationRun row
+ * by id to recover `runNo`, then synthesize the legacy envelope `{ runNo, mode, businessDate, currencies: [],
+ * openedCount }`. The legacy per-currency `currencies[]` slot is intentionally empty — V8 five-formula
+ * results have no equivalent in the per-wallet world. The `/admin/reconciliation/redesign/latest` page
+ * reads from DB (layer='REDESIGN'), so it surfaces historical V8 runs untouched; any new run created via
+ * this shim shows up under layer='WALLET' instead.
  */
 @Injectable()
 export class RedesignReconRunService {
@@ -74,213 +71,77 @@ export class RedesignReconRunService {
 
   constructor(
     private readonly prisma: PrismaService,
+    // Legacy V8 collaborators retained for DI-graph stability; intentionally unused by `run()`.
     private readonly formulaRecon: FormulaReconService,
     private readonly drilldown: DrilldownMatchService,
     private readonly runSvc: ReconciliationRunService,
     private readonly caseSvc: ReconciliationCaseService,
     private readonly recordSvc: ReconciliationRedesignRecordService,
     private readonly audit: AuditLogsService,
+    private readonly walletReconRun: WalletReconRunService,
   ) {}
 
   /** layer 标签：五公式跑全币种，run 行 layer 用 REDESIGN 区分于旧 CRYPTO/FIAT 分层路径。 */
   private static readonly RUN_LAYER = 'REDESIGN';
 
   async run(input: RedesignReconInput): Promise<RedesignReconRunResult> {
-    const businessDate = input.businessDate;
-    const cutoff = new Date(`${businessDate}T00:00:00.000Z`);
-    cutoff.setUTCDate(cutoff.getUTCDate() + 1); // T+1 00:00 = D 24:00（与 G4/G5 cutoff 口径一致）
+    this.logger.warn(
+      `[V8 deprecated] RedesignReconRunService.run called (businessDate=${input.businessDate}, mode=${input.mode}); ` +
+        `delegating to WalletReconRunService.`,
+    );
 
-    // ── ① G4 五公式（全币种） ──
-    const formulaResults = await this.formulaRecon.runFormulas(businessDate, input.cutoffDateForExternal);
+    // Map legacy input → wallet input. We use `cutoffDateForExternal` (when provided) as the cutoff date,
+    // otherwise the business date. Either way we pin to T+1 00:00 UTC so the cutoff covers the full
+    // business day — matches the original V8 orchestrator's `cutoff.setUTCDate(+1)` semantics.
+    const cutoffDay = input.cutoffDateForExternal ?? input.businessDate;
+    const cutoff = new Date(`${cutoffDay}T00:00:00.000Z`);
+    cutoff.setUTCDate(cutoff.getUTCDate() + 1);
 
-    // ── ② G5 下钻四桶（逐币种） + 装配 ──
-    const currencies: RedesignCurrencyResult[] = [];
-    for (const fr of formulaResults) {
-      const drilldown = await this.drilldown.run({
-        currency: fr.currency,
-        businessDate,
-        cutoff,
-        assetId: fr.assetId,
-      });
-      currencies.push(this.assemble(fr, drilldown));
-    }
-
-    const overallPass = currencies.every((c) => c.formulas.every((f) => f.status === 'PASS'));
-
-    // ── DRY_RUN：0 落库，纯内存返回（默认） ──
-    // openedCount 按 book 计（与 APPLY 一致）：每币种最多 CLIENT + FIRM 两个 case，仅该 book 有 break 才计。
+    // DRY_RUN: legacy contract is "0 落库, 纯内存返回". The wallet engine always persists, so we honor
+    // DRY_RUN by short-circuiting before the delegation — return the legacy stub envelope.
     if (input.mode !== 'APPLY') {
       return {
         runNo: '(dry-run)',
         mode: 'DRY_RUN',
-        businessDate,
-        currencies,
-        openedCount: this.countOpenedByBook(currencies),
+        businessDate: input.businessDate,
+        currencies: [],
+        openedCount: 0,
       };
     }
 
-    // ── APPLY：落到既有 recon 表（单事务） ──
-    const run = await this.runSvc.createRun({
-      businessDate,
-      layer: RedesignReconRunService.RUN_LAYER,
-      triggerType: input.triggerType,
+    // APPLY: delegate. The new run row gets engineVersion='WALLET_V1' automatically (stamped by
+    // WalletReconRunService.createRun in T7).
+    const walletRes = await this.walletReconRun.run({ cutoff, manifest: input.demoManifest });
+
+    // Re-read the run row to recover runNo (the wallet result returns id only).
+    const runRow = await (this.prisma as any).reconciliationRun.findUnique({
+      where: { id: walletRes.runId },
+      select: { runNo: true },
+    });
+
+    return {
+      runNo: runRow?.runNo ?? walletRes.runId,
       mode: 'APPLY',
-      demoManifest: input.demoManifest ? JSON.stringify(input.demoManifest) : null,
-    });
-
-    let openedCount = 0;
-    await this.prisma.$transaction(async (tx) => {
-      for (const c of currencies) {
-        // 五公式 → invariant_checks（每币种 5 行）。
-        await this.recordSvc.saveFormulaChecks(run.id, c.formulas, tx);
-
-        // 按 book 拆 case：CLIENT case 持 式4 delta + CLIENT-book items；FIRM case 持 式5 delta + FIRM-book items。
-        // 仅当该 book 有 break（式4/式5 FAIL 或该 book 的桶有 break）才建 case。
-        for (const book of ['CLIENT', 'FIRM'] as const) {
-          const slice = this.bookSlice(c, book);
-          if (!slice.hasBreak) continue;
-
-          const kase = await this.caseSvc.upsertOpen(
-            {
-              businessDate,
-              assetId: c.assetId,
-              assetCode: c.currency,
-              layer: c.layer,
-              book,
-              // 五公式世界没有旧 I5 的 expected/actual 三段；把该 book 的账外 delta 落 deltaAmount，其余置 0。
-              tbAmount: slice.lhs,
-              inTransitAmount: new Prisma.Decimal(0),
-              expectedExternal: slice.rhs,
-              actualExternal: new Prisma.Decimal(0),
-              deltaAmount: slice.netDelta,
-              openedByRunId: run.id,
-            },
-            tx,
-          );
-          // 该 book 的桶 line items（含串链 traceId）→ line_items。
-          await this.recordSvc.saveBucketedLineItems(kase.id, run.id, slice.items, tx);
-          // Reimbursement hook（§4.4）：仅标注，不建已废弃模型。
-          await this.maybeFlagReimbursement(kase.id, c.currency, slice.netDelta, tx);
-          openedCount += 1;
-        }
-      }
-
-      await this.runSvc.finish(
-        run.id,
-        {
-          status: 'COMPLETED',
-          invariantStatus: overallPass ? 'PASS' : 'FAIL',
-          openedCount,
-          reObservedCount: 0,
-          closedCount: 0,
-        },
-        tx,
-      );
-    });
-
-    await this.audit.recordSystem({
-      action: AuditActions.RECON_RUN_COMPLETED,
-      entityType: AuditEntityTypes.RECONCILIATION_RUN_V8,
-      entityId: run.id,
-      entityNo: run.runNo,
-      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
-      traceId: run.traceId ?? undefined,
-      reason: `Redesign reconciliation ${businessDate}: formulas=${overallPass ? 'PASS' : 'FAIL'} opened=${openedCount}`,
-      metadata: { businessDate, layer: RedesignReconRunService.RUN_LAYER, openedCount, mode: 'APPLY' },
-      sourcePlatform: 'SYSTEM',
-    });
-
-    return { runNo: run.runNo, mode: 'APPLY', businessDate, currencies, openedCount };
-  }
-
-  /* ── 装配 helpers ──────────────────────────────────────────── */
-
-  private assemble(fr: FormulaReconCurrencyResult, drilldown: DrilldownResult): RedesignCurrencyResult {
-    const s = drilldown.classified.summary;
-    const bucketBreaks = s.amountMismatch + s.orphanInternal + s.orphanExternal;
-    // 账外失衡：式4(客户) / 式5(公司) FAIL。
-    const f4 = fr.results.find((r) => r.formula === '式4');
-    const f5 = fr.results.find((r) => r.formula === '式5');
-    const offBookFail =
-      (f4?.status === 'FAIL') || (f5?.status === 'FAIL');
-    const hasBreak = offBookFail || bucketBreaks > 0;
-    // 净差：式5 公司账外 delta 优先（公司欠/被欠口径），无则回落式4。
-    const netDelta = f5?.delta ?? f4?.delta ?? new Prisma.Decimal(0);
-    return {
-      currency: fr.currency,
-      assetId: fr.assetId,
-      layer: fr.layer,
-      formulas: fr.results,
-      drilldown,
-      hasBreak,
-      netDelta,
+      businessDate: input.businessDate,
+      currencies: [],
+      openedCount: walletRes.casesOpened,
     };
   }
 
-  /** 按 book 统计将开仓的 case 数（每币种 CLIENT/FIRM 各算一次，仅该 book 有 break 才计）。 */
-  private countOpenedByBook(currencies: RedesignCurrencyResult[]): number {
-    let n = 0;
-    for (const c of currencies) {
-      for (const book of ['CLIENT', 'FIRM'] as const) {
-        if (this.bookSlice(c, book).hasBreak) n += 1;
-      }
-    }
-    return n;
+  // ── Legacy helpers retained for tests / historical reads. Not invoked by `run()`. ──────────────
+
+  /** @deprecated V8 helper; retained only to avoid breaking imports. Never called by `run()`. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private assemble(_fr: FormulaReconCurrencyResult, _drilldown: DrilldownResult): RedesignCurrencyResult {
+    throw new Error('V8 deprecated: RedesignReconRunService.assemble is no longer used.');
   }
 
-  /**
-   * 把一个币种结果切成单个 book（CLIENT/FIRM）的 case 物料：
-   *   - formula：CLIENT→式4（客户账外）、FIRM→式5（公司账外）。
-   *   - items：四桶 break line items 里 book 命中的（PASS/INTERNAL_BOOK_LEG 非 break，不入 Case）。
-   *   - hasBreak：该账外式 FAIL 或该 book 有 break item。
-   *   - lhs/rhs/netDelta：该账外式的 LHS/RHS/Δ（Δ 落 Case.deltaAmount，公司欠/被欠判别）。
-   */
+  /** @deprecated V8 helper; retained only to avoid breaking imports. Never called by `run()`. */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private bookSlice(
-    c: RedesignCurrencyResult,
-    book: 'CLIENT' | 'FIRM',
+    _c: RedesignCurrencyResult,
+    _book: 'CLIENT' | 'FIRM',
   ): { hasBreak: boolean; items: ClassifiedLineItem[]; lhs: Prisma.Decimal; rhs: Prisma.Decimal; netDelta: Prisma.Decimal } {
-    const code: FormulaResult['formula'] = book === 'CLIENT' ? '式4' : '式5';
-    const f = c.formulas.find((x) => x.formula === code);
-    const cl = c.drilldown.classified;
-    const items = [...cl.amountMismatch, ...cl.orphanInternal, ...cl.orphanExternal, ...cl.manual].filter(
-      (it) => it.book === book,
-    );
-    const offBookFail = f?.status === 'FAIL';
-    return {
-      hasBreak: offBookFail || items.length > 0,
-      items,
-      lhs: f?.lhs ?? new Prisma.Decimal(0),
-      rhs: f?.rhs ?? new Prisma.Decimal(0),
-      netDelta: f?.delta ?? new Prisma.Decimal(0),
-    };
-  }
-
-  /**
-   * Reimbursement hook（§4.4：公司欠/被欠走 ReimbursementObligation，CFO/MLRO 审批 + TB 补 CLIENT_PAYABLE）。
-   *
-   * TODO(reimbursement): ReimbursementObligation 模型已于 migration 20260617203304 整表 DROP（无 prisma
-   *   delegate、无 service、无 controller）。重建是独立的一大块（模型 + 迁移 + 审批流 + 资金侧内部转账 + TB 补
-   *   分录），不在本收口组范围。当前只保留 hook：
-   *     - 判别「需要 reimbursement」= 净差 > 容差（公司侧账外失衡 → 公司欠客户 或 客户欠公司）。
-   *     - Case.reimbursementObligationId 列已在 schema 保留（FK 占位），此处置 null + 记一条 audit 标注。
-   *   待 ReimbursementObligation 复活后，把这里替换成：创建 obligation → 回填 reimbursementObligationId。
-   */
-  private async maybeFlagReimbursement(
-    caseId: string,
-    currency: string,
-    netDelta: Prisma.Decimal,
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    const needsReimbursement = netDelta.abs().greaterThan(TOLERANCE);
-    if (!needsReimbursement) return;
-    // hook：仅记录意图，不建已废弃模型。reimbursementObligationId 保持 null。
-    this.logger.warn(
-      `[reimbursement-hook] Case ${caseId} (${currency}) netDelta=${netDelta} > tol — ` +
-        `company owes/owed; ReimbursementObligation model retired (migration 20260617203304), TODO wire when revived.`,
-    );
-    await tx.reconciliationCase.update({
-      where: { id: caseId },
-      data: { reimbursementObligationId: null }, // 显式 hook：占位 FK，待 obligation 复活回填
-    });
+    throw new Error('V8 deprecated: RedesignReconRunService.bookSlice is no longer used.');
   }
 }

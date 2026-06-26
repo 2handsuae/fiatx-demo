@@ -48,7 +48,8 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
     ReconciliationRunService, ReconciliationCaseService, ReconciliationRecordService,
     ReconciliationRedesignRecordService, ReconciliationQueryService,
     ReconciliationRunWorkflowService, ReconciliationSweepService, RedesignReconRunService,
-    // Phase B / T7 — per-wallet engine
+    // Phase B / T7 — per-wallet engine. WalletReconRunService is injected into RedesignReconRunService
+    // by the T9 (2026-06-26) re-routing shim (DI by type token; provider order doesn't matter to Nest).
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,
   ],
   exports: [ReconciliationRunWorkflowService, RedesignReconRunService, WalletReconRunService],
