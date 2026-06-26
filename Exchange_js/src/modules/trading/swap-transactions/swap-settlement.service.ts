@@ -101,18 +101,46 @@ export class SwapSettlementService {
 
   // ── Evidence builder ──
 
-  private evidence(ctx: SwapSettleCtx, a: LegAccounting) {
+  /**
+   * Build the base evidence params for a leg-accounting entry, optionally
+   * augmented with Phase B per-physical-wallet recon fields.
+   *
+   * Phase B fields:
+   *   debit/creditWalletRef → physical wallet on each side (resolved per TB code).
+   *   externalRef           → swap-internal reference `${swapNo}:${legSeq}:${phase}`.
+   *                           Swaps don't broadcast on-chain, so the swap-internal
+   *                           prefix IS the cross-validation key.
+   *   isExternalCrossing    → true for all swap legs in this codebase (all are
+   *                           genuine cross-wallet moves per swap-leg-plan).
+   */
+  private evidence(
+    ctx: SwapSettleCtx,
+    a: LegAccounting,
+    extra?: {
+      eventCodeOverride?: string;
+      memoOverride?: string;
+      debitWalletRef?: string | null;
+      creditWalletRef?: string | null;
+      externalRef?: string | null;
+      isExternalCrossing?: boolean;
+    },
+  ) {
     return {
       sourceType: 'SWAP',
       sourceNo: ctx.swapNo,
-      eventCode: a.eventCode,
+      eventCode: extra?.eventCodeOverride ?? a.eventCode,
       debitCode: TB_CODE_TO_COA[a.debitCode],
       creditCode: TB_CODE_TO_COA[a.creditCode],
       assetCurrency: this.currencyFor(a.side, ctx),
       traceId: ctx.swapNo,
       actorType: 'SYSTEM',
       actorId: 'SWAP_SETTLEMENT',
-      memo: `swap leg ${a.eventCode}`,
+      memo: extra?.memoOverride ?? `swap leg ${a.eventCode}`,
+      // Phase B per-physical-wallet recon (forwarded by AccountingService to TbEvidenceService)
+      debitWalletRef: extra?.debitWalletRef ?? null,
+      creditWalletRef: extra?.creditWalletRef ?? null,
+      externalRef: extra?.externalRef ?? null,
+      isExternalCrossing: extra?.isExternalCrossing ?? false,
     };
   }
 
@@ -130,6 +158,75 @@ export class SwapSettlementService {
     } catch {
       return null;
     }
+  }
+
+  // ── Phase B walletRef-by-TB-code helper ──
+
+  /**
+   * Phase B: resolve the physical wallet that a TB-code side of an accounting
+   * entry sits on. Best-effort — returns null on miss so the evidence row is
+   * still written (recon just can't pair this row by wallet).
+   *
+   * Mapping (per Phase B spec §4):
+   *   CLIENT_PAYABLE       → customer's wallet for this leg's customer role
+   *   CLIENT_ASSET (agg.)  → SAME customer wallet (carried for audit drill-down)
+   *   FIRM_OPS             → platform's F_OPS wallet for this leg's asset
+   *   FIRM_SET             → platform's F_SET wallet
+   *   FIRM_FEE             → platform's F_FEE wallet
+   *   FIRM_ASSET (agg.)    → matched to the OTHER side's firm role (the entry's
+   *                          counterpart equity), so the aggregate row carries
+   *                          the same firm wallet as its equity counterpart.
+   */
+  private async walletRefForCode(
+    code: number,
+    counterpartCode: number,
+    spec: SwapLegSpec,
+    ctx: SwapSettleCtx,
+  ): Promise<string | null> {
+    const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+
+    // Customer side: CLIENT_PAYABLE or its aggregate counterpart CLIENT_ASSET
+    if (
+      code === TB_ACCOUNT_CODES.CLIENT_PAYABLE ||
+      code === TB_ACCOUNT_CODES.CLIENT_ASSET
+    ) {
+      // Pick whichever of fromRole/toRole is the customer role on this leg
+      const customerRole = spec.fromRole.startsWith('C_')
+        ? spec.fromRole
+        : spec.toRole.startsWith('C_')
+        ? spec.toRole
+        : null;
+      if (!customerRole) return null;
+      return this.resolveWallet(assetId, customerRole, ctx.ownerId);
+    }
+
+    // Firm equity side: direct mapping to the role
+    const equityRoleMap: Record<number, string> = {
+      [TB_ACCOUNT_CODES.FIRM_OPS]: 'F_OPS',
+      [TB_ACCOUNT_CODES.FIRM_SET]: 'F_SET',
+      [TB_ACCOUNT_CODES.FIRM_FEE]: 'F_FEE',
+    };
+    if (equityRoleMap[code]) {
+      return this.resolveWallet(assetId, equityRoleMap[code], ctx.ownerId);
+    }
+
+    // FIRM_ASSET (aggregate): inherit the counterpart equity's wallet for audit
+    if (code === TB_ACCOUNT_CODES.FIRM_ASSET && equityRoleMap[counterpartCode]) {
+      return this.resolveWallet(assetId, equityRoleMap[counterpartCode], ctx.ownerId);
+    }
+
+    return null;
+  }
+
+  /** Phase B: resolve walletRef pair for a leg accounting entry. */
+  private async resolveLegWalletRefs(
+    a: LegAccounting,
+    spec: SwapLegSpec,
+    ctx: SwapSettleCtx,
+  ): Promise<{ debitWalletRef: string | null; creditWalletRef: string | null }> {
+    const debitWalletRef = await this.walletRefForCode(a.debitCode, a.creditCode, spec, ctx);
+    const creditWalletRef = await this.walletRefForCode(a.creditCode, a.debitCode, spec, ctx);
+    return { debitWalletRef, creditWalletRef };
   }
 
   // ── Load leg row inside transaction ──
@@ -183,12 +280,18 @@ export class SwapSettlementService {
    * Does NOT call transitionSwapLeg — caller is responsible for the transition.
    */
   private async initiateLegPending(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
+    // Phase B: every swap leg is a real cross-wallet movement (per swap-leg-plan
+    // there are no pure-bookkeeping legs). externalRef = `${swapNo}:${legSeq}:pending`
+    // serves as the cross-validation key — swaps don't broadcast on-chain, so the
+    // swap-internal reference IS sufficient for §8 recon.
+    const externalRef = `${ctx.swapNo}:${spec.legSeq}:pending`;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
       const ledger = this.ledgerFor(a.side, ctx);
       const debitId = await this.resolveAcct(a.debitCode, ledger, ctx.ownerId);
       const creditId = await this.resolveAcct(a.creditCode, ledger, ctx.ownerId);
+      const { debitWalletRef, creditWalletRef } = await this.resolveLegWalletRefs(a, spec, ctx);
       await this.accounting.executePendingTransfer({
         debitAccountId: debitId,
         creditAccountId: creditId,
@@ -196,7 +299,12 @@ export class SwapSettlementService {
         ledger,
         code: a.code,
         timeout: 0,
-        evidence: this.evidence(ctx, a),
+        evidence: this.evidence(ctx, a, {
+          debitWalletRef,
+          creditWalletRef,
+          externalRef,
+          isExternalCrossing: true,
+        }),
         tx: client,
       });
     }
@@ -205,6 +313,11 @@ export class SwapSettlementService {
   // ── postLeg: post all pending transfers for a leg ──
 
   private async postLeg(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
+    // Phase B: postPendingTransfer flips transferType on the existing evidence
+    // row (no new row, no field rewrite). The walletRef/externalRef/crossing
+    // captured at initiateLegPending therefore survive POST untouched — and the
+    // swap-internal externalRef stays as `${swapNo}:${legSeq}:pending` (there is
+    // no real chain txHash to substitute in this codebase).
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
@@ -221,6 +334,7 @@ export class SwapSettlementService {
   // ── voidLeg: void all pending transfers for a leg ──
 
   private async voidLeg(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
+    // Phase B: same as POST — void flips transferType only, no new evidence row.
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
@@ -437,6 +551,12 @@ export class SwapSettlementService {
         const spec = allSpecs.find((s) => s.legSeq === leg.legSeq);
         if (!spec) continue;
 
+        // Phase B: REVERSING transfers preserve the original walletRef pair
+        // (the money is moving back through the same physical wallets) but
+        // swap debit↔credit. externalRef uses a `:reverse` suffix so recon can
+        // distinguish the compensation row from the original.
+        const externalRef = `${ctx.swapNo}:${spec.legSeq}:reverse`;
+
         for (const a of spec.accounting) {
           const amt = this.amountBigint(a.amountRef, ctx);
           if (amt <= 0n) continue;
@@ -447,17 +567,25 @@ export class SwapSettlementService {
           const debitId = await this.resolveAcct(a.creditCode, ledger, ctx.ownerId);
           const creditId = await this.resolveAcct(a.debitCode, ledger, ctx.ownerId);
 
+          // Wallet refs computed against the ORIGINAL entry, then mapped to the
+          // reversed sides: original-debit-wallet becomes the new credit side
+          // (money flows back into it), and vice versa.
+          const original = await this.resolveLegWalletRefs(a, spec, ctx);
+
           await this.accounting.executeTransfer({
             debitAccountId: debitId,
             creditAccountId: creditId,
             amount: amt,
             ledger,
             code: a.code,
-            evidence: {
-              ...this.evidence(ctx, a),
-              eventCode: a.eventCode + '_REVERSE',
-              memo: 'reverse failed swap leg',
-            },
+            evidence: this.evidence(ctx, a, {
+              eventCodeOverride: a.eventCode + '_REVERSE',
+              memoOverride: 'reverse failed swap leg',
+              debitWalletRef: original.creditWalletRef,
+              creditWalletRef: original.debitWalletRef,
+              externalRef,
+              isExternalCrossing: true,
+            }),
             tx: client as any,
           });
         }

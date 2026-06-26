@@ -230,6 +230,115 @@ describe('SwapSettlementService', () => {
         expect.objectContaining({ ledger: cryptoToFiatCtx.fromLedger }),
       );
     });
+
+    // ─────── Phase B (T2c): walletRef/externalRef on leg-1 pending rows ───────
+
+    it('Phase B: leg1 pending rows carry walletRef + externalRef format SWP...:1:pending (crossing=true)', async () => {
+      // crypto→fiat leg 1 (side=from=USDT, fromRole=C_DEP) has 2 entries:
+      //   SWAP_SELL_CLIENT  DR CLIENT_PAYABLE  CR CLIENT_ASSET → both sit on customer's C_DEP USDT wallet
+      //   SWAP_SELL_FIRM    DR FIRM_ASSET      CR FIRM_OPS     → both sit on platform's F_OPS USDT wallet
+      mockWallets.resolveCustomer.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `cust-${role}` }),
+      );
+      mockWallets.resolve.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `firm-${role}` }),
+      );
+
+      const svc = await buildModule([]);
+      await svc.start(cryptoToFiatCtx, {} as any);
+
+      // 1st pending = SWAP_SELL_CLIENT (customer book — C_DEP wallet)
+      expect(mockAccounting.executePendingTransfer).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_SELL_CLIENT',
+            debitWalletRef: 'cust-C_DEP',
+            creditWalletRef: 'cust-C_DEP',
+            externalRef: `${SWAP_NO}:1:pending`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+
+      // 2nd pending = SWAP_SELL_FIRM (firm book — F_OPS wallet on both sides)
+      expect(mockAccounting.executePendingTransfer).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_SELL_FIRM',
+            debitWalletRef: 'firm-F_OPS',
+            creditWalletRef: 'firm-F_OPS',
+            externalRef: `${SWAP_NO}:1:pending`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+    });
+
+    it('Phase B: leg1 firm-internal book transfer carries per-role walletRef on each side', async () => {
+      // fiat→crypto direction has leg2 = SWAP_SELL_SET_TO_OPS (DR FIRM_SET CR FIRM_OPS).
+      // This is firm-internal: each side carries its own role's wallet (not the same).
+      // But leg2 is only initiated on first advance — out of scope here. Confirm leg1
+      // for fiat→crypto: SWAP_SELL_CLIENT (C_VIBAN) + SWAP_SELL_FIRM (FIRM_ASSET↔FIRM_SET, F_SET).
+      mockWallets.resolveCustomer.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `cust-${role}` }),
+      );
+      mockWallets.resolve.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `firm-${role}` }),
+      );
+
+      const fiatCtx = { ...cryptoToFiatCtx, fromIsFiat: true };
+      const svc = await buildModule([]);
+      await svc.start(fiatCtx, {} as any);
+
+      // fiat→crypto leg1: SWAP_SELL_CLIENT (customer C_VIBAN) + SWAP_SELL_FIRM (firm F_SET aggregate↔equity)
+      expect(mockAccounting.executePendingTransfer).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_SELL_CLIENT',
+            debitWalletRef: 'cust-C_VIBAN',
+            creditWalletRef: 'cust-C_VIBAN',
+            externalRef: `${SWAP_NO}:1:pending`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+      expect(mockAccounting.executePendingTransfer).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_SELL_FIRM',
+            debitWalletRef: 'firm-F_SET',
+            creditWalletRef: 'firm-F_SET',
+            externalRef: `${SWAP_NO}:1:pending`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+    });
+
+    it('Phase B: walletRef is null when wallet resolution fails (best-effort)', async () => {
+      mockWallets.resolveCustomer.mockRejectedValue(new Error('no wallet'));
+      mockWallets.resolve.mockRejectedValue(new Error('no wallet'));
+
+      const svc = await buildModule([]);
+      await svc.start(cryptoToFiatCtx, {} as any);
+
+      // Both pending rows should still be written, but with null walletRef
+      expect(mockAccounting.executePendingTransfer).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            debitWalletRef: null,
+            creditWalletRef: null,
+            externalRef: `${SWAP_NO}:1:pending`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+    });
   });
 
   // ────────────────── advanceLeg: first advance of leg2 (CREATED→CONFIRMING) ──────────────────
@@ -274,6 +383,42 @@ describe('SwapSettlementService', () => {
       expect(mockAccounting.postPendingTransfer).not.toHaveBeenCalled();
       expect(mockAccounting.voidPendingTransfer).not.toHaveBeenCalled();
       expect(mockSwaps.markStatus).not.toHaveBeenCalled();
+    });
+
+    it('Phase B: leg2 pending row carries firm wallet (F_OPS→F_SET) + externalRef SWP...:2:pending', async () => {
+      // crypto→fiat leg 2 = SWAP_BUY_OPS_TO_SET: DR FIRM_OPS CR FIRM_SET.
+      // Both sides are firm equity wallets — each side carries its own role's wallet.
+      const legs = [
+        makeLegRow(1, 'CLEAR', 'CRYPTO'),
+        makeLegRow(2, 'CREATED', 'FIAT'),
+        makeLegRow(3, 'CREATED', 'FIAT'),
+        makeLegRow(4, 'CREATED', 'FIAT'),
+      ];
+      mockFundsFlow.transitionSwapLeg.mockResolvedValue({
+        leg: { id: 'leg-2-id' },
+        prevStatus: 'CREATED',
+        nextStatus: InternalFundStatus.CONFIRMING,
+      });
+      mockWallets.resolve.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `firm-${role}` }),
+      );
+
+      const svc = await buildModule(legs);
+      await svc.advanceLeg(SWAP_NO, 2, InternalFundAction.SUBMIT, 'admin-1');
+
+      // Leg 2 has 1 accounting entry (SWAP_BUY_OPS_TO_SET).
+      // debit=FIRM_OPS → firm-F_OPS wallet; credit=FIRM_SET → firm-F_SET wallet (firm-internal).
+      expect(mockAccounting.executePendingTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_BUY_OPS_TO_SET',
+            debitWalletRef: 'firm-F_OPS',
+            creditWalletRef: 'firm-F_SET',
+            externalRef: `${SWAP_NO}:2:pending`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
     });
   });
 
@@ -495,6 +640,53 @@ describe('SwapSettlementService', () => {
       await expect(svc.reverseSwap(SWAP_NO, 'admin-op')).rejects.toThrow(BadRequestException);
       expect(mockAccounting.executeTransfer).not.toHaveBeenCalled();
       expect(mockSwaps.markStatus).not.toHaveBeenCalled();
+    });
+
+    it('Phase B: REVERSING transfers carry walletRef + crossing (externalRef=SWP...:legSeq:reverse)', async () => {
+      mockSwaps.findByNoInternal.mockResolvedValue({ ...swapRow, status: 'FAILED' });
+      mockWallets.resolveCustomer.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `cust-${role}` }),
+      );
+      mockWallets.resolve.mockImplementation((_a: string, role: string) =>
+        Promise.resolve({ id: `firm-${role}` }),
+      );
+
+      // Only leg1 is CLEAR — 2 reversing transfers expected (the 2 leg1 entries)
+      const legs = [
+        makeLegRow(1, 'CLEAR', 'CRYPTO'),
+        makeLegRow(2, 'FAILED', 'FIAT'),
+        makeLegRow(3, 'CREATED', 'FIAT'),
+        makeLegRow(4, 'CREATED', 'FIAT'),
+      ];
+      const svc = await buildModule(legs);
+      await svc.reverseSwap(SWAP_NO, 'admin-op');
+
+      expect(mockAccounting.executeTransfer).toHaveBeenCalledTimes(2);
+
+      // REVERSING SWAP_SELL_CLIENT: customer wallet preserved (debit/credit codes swapped, wallet unchanged)
+      expect(mockAccounting.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_SELL_CLIENT_REVERSE',
+            debitWalletRef: 'cust-C_DEP',
+            creditWalletRef: 'cust-C_DEP',
+            externalRef: `${SWAP_NO}:1:reverse`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+      // REVERSING SWAP_SELL_FIRM: firm F_OPS wallet preserved
+      expect(mockAccounting.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            eventCode: 'SWAP_SELL_FIRM_REVERSE',
+            debitWalletRef: 'firm-F_OPS',
+            creditWalletRef: 'firm-F_OPS',
+            externalRef: `${SWAP_NO}:1:reverse`,
+            isExternalCrossing: true,
+          }),
+        }),
+      );
     });
   });
 });
