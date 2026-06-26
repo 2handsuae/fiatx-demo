@@ -33,25 +33,13 @@ import { getComplianceLayerStyle } from '../utils/depositActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-interface FundsOrderLeg {
-  internalFundNo: string;
-  status: string;
-  txHash: string | null;
-  confirmations: number | null;
-  blockNo: string | null;
-  nonce: string | null;
-  gasUsed: string | null;
-  effectiveGasPrice: string | null;
-  sentAt: string | null;
-  confirmedAt: string | null;
-}
-
-interface FundsOrderSummary {
+interface LinkedFundOrder {
+  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN';
+  no: string;
   id: string;
-  internalTxNo: string;
-  type: string;
   status: string;
-  legs: FundsOrderLeg[];
+  amount: string;
+  role: 'principal' | 'fee';
 }
 
 interface WithdrawDetail {
@@ -101,8 +89,13 @@ interface WithdrawDetail {
   statusHistory: string | null;
   asset: { code: string; type: string; network: string | null; decimals: number };
   customer?: { complianceStatus?: string | null; customerNo?: string } | null;
-  payout?: { payoutNo: string; status: string } | null;
-  fundsOrders?: FundsOrderSummary[];
+  payout?: {
+    payoutNo: string;
+    status: string;
+    gasUsed?: string | null;
+    effectiveGasPrice?: string | null;
+  } | null;
+  linkedFundOrders?: LinkedFundOrder[];
 }
 
 /* ── Page Component ─────────────────────────────────────────── */
@@ -210,8 +203,6 @@ const WithdrawTransactionDetail = () => {
   );
   const postKytStyle = getComplianceLayerStyle(data.kytStatus);
   const isFiat = data.asset?.type === 'FIAT';
-  const fundsOrder = data.fundsOrders?.[0];
-  const leg = fundsOrder?.legs?.[0];
 
   return (
     <div className="flex h-full flex-col">
@@ -324,46 +315,36 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
             <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
             <InfoField label="Confirmations" value={data.confirmations ?? null} />
-            <InfoField label="Block No" value={leg?.blockNo ?? null} mono />
-            <InfoField label="Nonce" value={leg?.nonce ?? null} mono />
-            <InfoField label="Gas Used" value={leg?.gasUsed ?? null} mono />
-            <InfoField label="Effective Gas Price" value={leg?.effectiveGasPrice ?? null} mono />
+            <InfoField label="Gas Used" value={data.payout?.gasUsed ?? null} mono />
+            <InfoField label="Effective Gas Price" value={data.payout?.effectiveGasPrice ?? null} mono />
             <InfoField label="Destination Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
             <InfoField label="From Wallet" value={data.fromWalletNo} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
           </DetailCard>
 
-          {/* 5. Linked Funds Order */}
-          <DetailCard title="Linked Funds Order" columns={1}>
-            {fundsOrder ? (
-              <LinkedRelationCard
-                cap="Funds Order"
-                identifier={fundsOrder.internalTxNo}
-                statusValue={fundsOrder.status}
-                meta={fundsOrder.type}
-                onClick={() =>
-                  navigate(`/admin/funds/transfers/${fundsOrder.internalTxNo}`)
-                }
-              />
+          {/* 5. Linked Funds Orders — payout (principal) + internal fund (fee) */}
+          <DetailCard title="Linked Funds Orders" columns={1}>
+            {data.linkedFundOrders && data.linkedFundOrders.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.linkedFundOrders.map((o) => (
+                  <LinkedRelationCard
+                    key={o.no}
+                    cap={o.role === 'fee' ? 'Fee · Internal Fund' : 'Principal · Payout'}
+                    identifier={o.no}
+                    statusValue={o.status}
+                    meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
+                    onClick={() =>
+                      o.kind === 'PAYOUT'
+                        ? navigate(`/admin/trading/payouts/${o.id}`)
+                        : navigate(`/admin/funds/internal-funds/${o.no}`)
+                    }
+                  />
+                ))}
+              </div>
             ) : (
-              <LinkedRelationEmpty
-                cap="Funds Order"
-                message="Not settled to funds layer yet"
-              />
+              <LinkedRelationEmpty cap="Funds Order" message="No fund orders yet" />
             )}
           </DetailCard>
-
-          {/* 6. Linked Payout (conditional) */}
-          {data.payoutNo && (
-            <DetailCard title="Linked Payout" columns={1}>
-              <LinkedRelationCard
-                cap="Payout"
-                identifier={data.payoutNo}
-                statusValue={data.payout?.status}
-                onClick={() => navigate(`/admin/trading/payouts/${data.payoutId}`)}
-              />
-            </DetailCard>
-          )}
 
           {/* 7. Status History */}
           <DetailCard title="Status History" columns={1}>

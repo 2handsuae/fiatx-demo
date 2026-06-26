@@ -1106,6 +1106,7 @@ model InternalFund {
   internalFundNo        String                 @unique
   internalTransactionId String?
   swapTransactionId     String?
+  withdrawTransactionId String?
   legSeq                Int?
   status                String
   assetId               String
@@ -1134,6 +1135,7 @@ model InternalFund {
   updatedAt             DateTime               @updatedAt
   internalTransaction   InternalTransaction?   @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
   swapTransaction       SwapTransaction?       @relation("SwapInternalFunds", fields: [swapTransactionId], references: [id], onDelete: Cascade)
+  withdrawTransaction   WithdrawTransaction?   @relation("WithdrawInternalFunds", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
   fromWallet            Wallet?                @relation("InternalFundFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("InternalFundToWallet", fields: [toWalletId], references: [id])
@@ -1143,6 +1145,7 @@ model InternalFund {
 
   @@index([internalTransactionId])
   @@index([swapTransactionId])
+  @@index([withdrawTransactionId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
@@ -1444,6 +1447,7 @@ model WithdrawTransaction {
   statusHistory        String?
   updatedAt            DateTime              @updatedAt
   payout               Payout?               @relation("WithdrawToPayout")
+  internalFunds        InternalFund[]        @relation("WithdrawInternalFunds")
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain          @relation(fields: [ownerId], references: [id])

@@ -856,6 +856,141 @@ export class FundsFlowService {
     return (this.prisma as any).$transaction((c: TxClient) => exec(c));
   }
 
+  /**
+   * Create the fee leg for a withdrawal. Hangs directly on the withdraw
+   * transaction (no InternalTransaction parent) — mirrors createSwapLeg.
+   * The fee leg is a REPRESENTATION that follows the withdrawal lifecycle:
+   * created CREATED at fee-lock, set CLEAR on finalize, CANCELLED on void.
+   * It does NOT drive accounting — the withdraw workflow posts the fee TB
+   * transfers (FEE_POST + FEE_FIRM) itself.
+   */
+  async createWithdrawFeeFund(
+    input: {
+      withdrawTransactionId: string;
+      assetId: string;
+      amount: Prisma.Decimal;
+      fromWalletId?: string | null;
+      toWalletId?: string | null;
+    },
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const exec = async (client: TxClient) => {
+      for (
+        let attempt = 1;
+        attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
+        attempt += 1
+      ) {
+        const internalFundNo = generateReferenceNo('IFD');
+        try {
+          const created = await (client as any).internalFund.create({
+            data: {
+              internalFundNo,
+              internalTransactionId: null,
+              swapTransactionId: null,
+              withdrawTransactionId: input.withdrawTransactionId,
+              status: InternalFundStatus.CREATED,
+              assetId: input.assetId,
+              amount: input.amount,
+              feeAmount: new Prisma.Decimal(0),
+              netAmount: input.amount,
+              fromWalletId: input.fromWalletId ?? null,
+              toWalletId: input.toWalletId ?? null,
+              statusHistory: this.appendStatusHistory(
+                null,
+                InternalFundStatus.CREATED,
+                operatorId,
+                'Withdrawal fee fund created',
+              ),
+            },
+          });
+          await this.auditLogsService.recordByActor(
+            {
+              action: AuditActions.CREATED,
+              entityType: AuditEntityTypes.INTERNAL_FUND,
+              entityId: created.id,
+              entityNo: created.internalFundNo,
+              reason: 'Withdrawal fee fund created',
+              sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
+            },
+            {
+              actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+              actorId: operatorId,
+              actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+            },
+            client,
+          );
+          return created;
+        } catch (e) {
+          if (this.isInternalFundNoUniqueConflict(e)) continue;
+          throw e;
+        }
+      }
+      throw new InternalServerErrorException(
+        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+      );
+    };
+    if (tx) return exec(tx);
+    return (this.prisma as any).$transaction((c: TxClient) => exec(c));
+  }
+
+  /**
+   * Directly set the status of a withdrawal's fee fund (follows-the-withdrawal
+   * model, e.g. CREATED→CLEAR on finalize, CREATED→CANCELLED on void). Not a
+   * transition-map move — the fee fund is a representation, not a chain-tracked
+   * leg. No-op (returns null) when the withdrawal has no fee fund (fee was 0).
+   */
+  async setWithdrawFeeFundStatus(
+    withdrawTransactionId: string,
+    status: InternalFundStatus,
+    reason: string,
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const exec = async (client: TxClient) => {
+      const fund = await (client as any).internalFund.findFirst({
+        where: { withdrawTransactionId },
+      });
+      if (!fund) return null;
+      if (fund.status === status) return fund;
+      const updated = await (client as any).internalFund.update({
+        where: { id: fund.id },
+        data: {
+          status,
+          completedAt: TERMINAL_STATUSES.has(status)
+            ? new Date()
+            : fund.completedAt,
+          statusHistory: this.appendStatusHistory(
+            fund.statusHistory,
+            status,
+            operatorId,
+            reason,
+          ),
+        },
+      });
+      await this.auditLogsService.recordByActor(
+        {
+          action: buildInternalFundStateAction(status),
+          metadata: JSON.stringify({ from: fund.status }) as any,
+          entityType: AuditEntityTypes.INTERNAL_FUND,
+          entityId: fund.id,
+          entityNo: fund.internalFundNo,
+          reason,
+          sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
+        },
+        {
+          actorType: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+          actorId: operatorId,
+          actorRole: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN',
+        },
+        client,
+      );
+      return updated;
+    };
+    if (tx) return exec(tx);
+    return (this.prisma as any).$transaction((c: TxClient) => exec(c));
+  }
+
   async findAllForAdmin(query: InternalFundQueryDto) {
     const {
       skip = 0,
@@ -921,6 +1056,24 @@ export class FundsFlowService {
             internalTxNo: true,
             pathLabel: true,
             type: true,
+            status: true,
+          },
+        },
+        // Swap legs hang directly on the swap (no internalTransaction parent).
+        // Expose swapNo + status so the detail page can advance the leg via the
+        // swap settlement endpoint instead of the transfer-simulate endpoint.
+        swapTransaction: {
+          select: {
+            id: true,
+            swapNo: true,
+            status: true,
+          },
+        },
+        // Withdrawal fee funds hang directly on the withdraw transaction.
+        withdrawTransaction: {
+          select: {
+            id: true,
+            withdrawNo: true,
             status: true,
           },
         },

@@ -21,7 +21,10 @@ import {
 import { useSimulationMode } from '../../utils/simulationMode';
 import {
   getFundSimActionsForStatus,
+  getSwapLegSimActionsForStatus,
   isFundSimTerminal,
+  isSwapLegSimTerminal,
+  type FundSimAction,
 } from '../../utils/fundActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -52,6 +55,18 @@ interface FundInternalTransaction {
   status: string;
 }
 
+interface FundSwapTransaction {
+  id: string;
+  swapNo: string;
+  status: string;
+}
+
+interface FundWithdrawTransaction {
+  id: string;
+  withdrawNo: string;
+  status: string;
+}
+
 interface FundDetail {
   id: string;
   internalFundNo: string;
@@ -78,6 +93,9 @@ interface FundDetail {
   fromWallet: FundWallet | null;
   toWallet: FundWallet | null;
   internalTransaction?: FundInternalTransaction | null;
+  swapTransaction?: FundSwapTransaction | null;
+  withdrawTransaction?: FundWithdrawTransaction | null;
+  legSeq?: number | null;
 }
 
 /* ── Wallet field (main-area, internal navigation) ──────────── */
@@ -169,21 +187,31 @@ const InternalFundDetailPage = () => {
 
   const handleSimAction = async (action: string) => {
     if (!data) return;
-    if (!data?.internalTransaction) {
-      setSimError('This fund leg is advanced from its swap, not here.');
+
+    // Swap legs hang directly on the swap → advance via the swap settlement
+    // endpoint (drives the leg + posts/voids its two-phase TB entries).
+    // Transfer legs use the funds-layer simulate endpoint keyed by fundsFlowId.
+    let url: string;
+    let body: Record<string, unknown>;
+    if (data.swapTransaction && data.legSeq != null) {
+      url = `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${data.swapTransaction.swapNo}/legs/${data.legSeq}/advance`;
+      body = { action };
+    } else if (data.internalTransaction) {
+      url = `${import.meta.env.VITE_API_URL}/admin/funds-layer/transfers/${data.internalTransaction.internalTxNo}/simulate`;
+      body = { fundsFlowId: data.id, action };
+    } else {
+      setSimError('This fund has no simulatable parent.');
       return;
     }
+
     setSimSubmitting(true);
     setSimError('');
     try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/funds-layer/transfers/${data.internalTransaction.internalTxNo}/simulate`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fundsFlowId: data.id, action }),
-        },
-      );
+      const response = await adminFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       if (!response.ok) {
         setSimError(await getApiErrorMessage(response, 'Simulation step failed.'));
         return;
@@ -210,9 +238,38 @@ const InternalFundDetailPage = () => {
 
   const assetType = data.asset?.type?.toUpperCase() ?? null;
   const isFiat = assetType === 'FIAT';
-  const simActions = simulationModeEnabled && data.internalTransaction
-    ? getFundSimActionsForStatus(data.status, data.asset?.type)
-    : [];
+
+  // Two simulate surfaces share this card:
+  //  - swap leg (hangs on a swap, no internalTransaction) → advance via swap
+  //    settlement; CLEAR is an explicit step (no auto-clear).
+  //  - transfer leg (has internalTransaction) → simulate; CLEAR auto-fires when
+  //    the parent transfer succeeds.
+  const isSwapLeg = !!data.swapTransaction;
+  const swapInProgress = data.swapTransaction?.status === 'PROCESSING';
+  const simActions: Array<FundSimAction & { enabled: boolean }> = !simulationModeEnabled
+    ? []
+    : isSwapLeg
+      ? swapInProgress
+        ? getSwapLegSimActionsForStatus(data.status, data.asset?.type)
+        : []
+      : data.internalTransaction
+        ? getFundSimActionsForStatus(data.status, data.asset?.type)
+        : [];
+  const simTerminal = isSwapLeg
+    ? isSwapLegSimTerminal(data.status)
+    : isFundSimTerminal(data.status, data.asset?.type);
+  // Withdrawal fee fund: follows the withdrawal lifecycle automatically (no
+  // manual steps here) — the withdraw workflow sets it CLEAR/CANCELLED.
+  const isWithdrawFee = !!data.withdrawTransaction;
+  const simEmptyReason = simTerminal
+    ? 'Terminal state — no simulatable events'
+    : isWithdrawFee
+      ? 'Driven by the withdrawal — no manual steps'
+      : isSwapLeg && !swapInProgress
+        ? `Swap is ${data.swapTransaction?.status ?? 'not in progress'} — nothing to advance here`
+        : isSwapLeg
+          ? 'No action available at this status'
+          : 'Auto-clears when all legs of the transfer confirm…';
 
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
@@ -372,7 +429,38 @@ const InternalFundDetailPage = () => {
                   .join(' · ') || undefined}
                 onClick={() =>
                   navigate(
-                    '/admin/funds/transfers/' + data.internalTransaction.internalTxNo,
+                    '/admin/funds/transfers/' + data.internalTransaction!.internalTxNo,
+                  )
+                }
+              />
+            </DetailCard>
+          )}
+
+          {/* 4b. Linked Swap (swap legs hang directly on the swap) */}
+          {data.swapTransaction && (
+            <DetailCard title="Linked Swap" columns={1}>
+              <LinkedRelationCard
+                cap="Swap Transaction"
+                identifier={data.swapTransaction.swapNo}
+                statusValue={data.swapTransaction.status}
+                meta={data.legSeq != null ? `Leg ${data.legSeq} of 4` : undefined}
+                onClick={() =>
+                  navigate('/admin/trading/swaps/' + data.swapTransaction!.id)
+                }
+              />
+            </DetailCard>
+          )}
+
+          {/* 4c. Linked Withdrawal (fee fund hangs directly on the withdrawal) */}
+          {data.withdrawTransaction && (
+            <DetailCard title="Linked Withdrawal" columns={1}>
+              <LinkedRelationCard
+                cap="Withdrawal · Fee"
+                identifier={data.withdrawTransaction.withdrawNo}
+                statusValue={data.withdrawTransaction.status}
+                onClick={() =>
+                  navigate(
+                    '/admin/trading/withdrawals/' + data.withdrawTransaction!.id,
                   )
                 }
               />
@@ -388,7 +476,8 @@ const InternalFundDetailPage = () => {
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
           {/* Simulation Controls (sim mode only, Payout-style) */}
-          {simulationModeEnabled && (
+          {simulationModeEnabled &&
+            (data.internalTransaction || data.swapTransaction || data.withdrawTransaction) && (
             <SidebarGroup title="Simulation Controls">
               <div className="rounded border border-dashed border-amber-400 bg-amber-900/20 p-2">
                 <div className="mb-2 flex items-center gap-1 font-mono text-[9px] text-amber-400">
@@ -402,9 +491,7 @@ const InternalFundDetailPage = () => {
                   if (!hasEnabled) {
                     return (
                       <div className="px-2 py-1.5 font-mono text-[10px] text-amber-400/80">
-                        {isFundSimTerminal(data.status, data.asset?.type)
-                          ? 'Terminal state — no simulatable events'
-                          : 'Auto-clears when all legs of the transfer confirm…'}
+                        {simEmptyReason}
                       </div>
                     );
                   }
@@ -439,7 +526,7 @@ const InternalFundDetailPage = () => {
                   <button
                     onClick={() =>
                       navigate(
-                        '/admin/funds/transfers/' + data.internalTransaction.internalTxNo,
+                        '/admin/funds/transfers/' + data.internalTransaction!.internalTxNo,
                       )
                     }
                     className="font-mono text-[11px] text-adm-amber underline-offset-2 hover:underline"
@@ -449,6 +536,41 @@ const InternalFundDetailPage = () => {
                 ) : null
               }
             />
+            {data.swapTransaction && (
+              <SidebarKV
+                label="Swap"
+                value={
+                  <button
+                    onClick={() =>
+                      navigate('/admin/trading/swaps/' + data.swapTransaction!.id)
+                    }
+                    className="font-mono text-[11px] text-adm-amber underline-offset-2 hover:underline"
+                  >
+                    {data.swapTransaction.swapNo}
+                  </button>
+                }
+              />
+            )}
+            {data.swapTransaction && data.legSeq != null && (
+              <SidebarKV label="Leg" value={`${data.legSeq} of 4`} />
+            )}
+            {data.withdrawTransaction && (
+              <SidebarKV
+                label="Withdrawal"
+                value={
+                  <button
+                    onClick={() =>
+                      navigate(
+                        '/admin/trading/withdrawals/' + data.withdrawTransaction!.id,
+                      )
+                    }
+                    className="font-mono text-[11px] text-adm-amber underline-offset-2 hover:underline"
+                  >
+                    {data.withdrawTransaction.withdrawNo}
+                  </button>
+                }
+              />
+            )}
           </SidebarGroup>
 
           {/* LIFECYCLE */}

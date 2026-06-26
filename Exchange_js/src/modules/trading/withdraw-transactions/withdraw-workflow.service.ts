@@ -27,7 +27,8 @@ import {
   shouldRequireApproval,
   SYSTEM_APPROVAL_ACTOR,
 } from './constants/withdraw-approval.constant';
-import { FundTransferWorkflowService } from '../../funds-layer/workflow/fund-transfer-workflow.service';
+import { FundsFlowService } from '../../funds-layer/domain/funds-flow.service';
+import { InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
 
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
@@ -47,7 +48,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly payoutsService: PayoutsService,
     private readonly approvalsService: ApprovalsService,
     private readonly binanceRateProvider: BinanceRateProvider,
-    private readonly fundTransferWorkflow: FundTransferWorkflowService,
+    private readonly fundsFlowService: FundsFlowService,
   ) {}
 
   onModuleInit() {
@@ -253,6 +254,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
         this.logger.error(`CRITICAL: failed to void fee pending transfer for withdrawal ${w.id} on rejection — funds may stay locked`);
       }
     }
+
+    // Fee fund order follows the withdrawal: pending voided → CANCELLED.
+    // No-op when the withdrawal has no fee fund (fee was 0).
+    await this.fundsFlowService.setWithdrawFeeFundStatus(
+      w.id,
+      InternalFundStatus.CANCELLED,
+      'Withdrawal pending voided',
+    );
   }
 
   @OnEvent(DomainEventNames.WITHDRAWAL_KYT_UPDATED)
@@ -412,22 +421,25 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.withdrawService.linkPayout(w.id, payout.id, payout.payoutNo);
 
-    // V7 Phase 2: 付款前 Main→Outbound 预归集（FUND_OUT，跟踪转账，crypto only，非阻塞）
-    if (w.asset?.type === 'CRYPTO') {
-      try {
-        await this.fundTransferWorkflow.fundOut(
-          { withdrawId: w.id, withdrawNo: w.withdrawNo, assetId: w.assetId, netAmount: String(w.netAmount) },
-          'WITHDRAW_WORKFLOW',
-        );
-      } catch (err) {
-        this.logger.error(
-          `FUND_OUT failed for withdrawal ${w.id} (non-blocking)`,
-          err instanceof Error ? err.stack : undefined,
-        );
-      }
+    // Real-time 1:1 model: at PAYOUT_PENDING the withdrawal materialises its two
+    // fund orders — the Payout (principal, above) and the fee InternalFund
+    // (below). Created HERE (not at request) so a withdrawal rejected during
+    // compliance/approval never spawns fund orders. The fee TB lock stays at
+    // request; this fund order is the representation, set CLEAR on finalize.
+    if (Number(w.feeAmount) > 0) {
+      await this.fundsFlowService.createWithdrawFeeFund(
+        {
+          withdrawTransactionId: w.id,
+          assetId: w.assetId,
+          amount: new Prisma.Decimal(w.feeAmount),
+        },
+        'WITHDRAW_WORKFLOW',
+      );
     }
 
-    this.logger.log(`Withdrawal ${withdrawId} now PAYOUT_PENDING — payout ${payout.payoutNo} created`);
+    this.logger.log(
+      `Withdrawal ${withdrawId} now PAYOUT_PENDING — payout ${payout.payoutNo} + fee fund created`,
+    );
   }
 
   // ── Post-Broadcast KYT (Phase 2): after payout is in-flight ──
@@ -542,6 +554,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
         });
       }
     }
+
+    // Fee fund order follows the withdrawal: fee posted → CLEAR.
+    // No-op when the withdrawal has no fee fund (fee was 0).
+    await this.fundsFlowService.setWithdrawFeeFundStatus(
+      w.id,
+      InternalFundStatus.CLEAR,
+      'Withdrawal finalized: fee posted',
+    );
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_ACCOUNTING_POSTED,

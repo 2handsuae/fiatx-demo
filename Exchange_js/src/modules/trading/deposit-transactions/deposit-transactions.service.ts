@@ -16,7 +16,6 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import { randomUUID } from 'crypto';
-import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -46,7 +45,6 @@ export class DepositTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    private readonly internalTransferService: InternalTransferService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -157,11 +155,20 @@ export class DepositTransactionsService {
       ownerNo = deposit.customer.customerNo;
     }
 
-    const fundsOrders =
-      await this.internalTransferService.findFundsOrderBySource(
-        'DEPOSIT',
-        deposit.id,
-      );
+    // Unified fund-order list for the detail page's "Linked Funds Orders".
+    // A deposit's fund order is its Payin (principal in); no fee (deposits free).
+    const linkedFundOrders = deposit.payin
+      ? [
+          {
+            kind: 'PAYIN' as const,
+            no: deposit.payin.payinNo,
+            id: deposit.payin.id,
+            status: deposit.payin.status,
+            amount: String(deposit.payin.amount),
+            role: 'principal' as const,
+          },
+        ]
+      : [];
 
     return {
       ...item,
@@ -172,7 +179,7 @@ export class DepositTransactionsService {
       payinType: deposit.payin?.type || null,
       toWalletNo: deposit.wallet?.walletNo,
       fromWalletNo: deposit.fromWallet?.walletNo,
-      fundsOrders,
+      linkedFundOrders,
     };
   }
 

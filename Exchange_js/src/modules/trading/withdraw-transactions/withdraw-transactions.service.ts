@@ -387,6 +387,43 @@ export class WithdrawTransactionsService {
     return item;
   }
 
+  /**
+   * Unified fund-order list for the detail page's "Linked Funds Orders":
+   * the Payout (principal) + the fee InternalFund. Both carry the business key
+   * (`no`) for display; `id` is only for the payout's detail route.
+   */
+  private buildLinkedFundOrders(item: any) {
+    const orders: Array<{
+      kind: 'PAYOUT' | 'INTERNAL_FUND';
+      no: string;
+      id: string;
+      status: string;
+      amount: string;
+      role: 'principal' | 'fee';
+    }> = [];
+    if (item.payout) {
+      orders.push({
+        kind: 'PAYOUT',
+        no: item.payout.payoutNo,
+        id: item.payout.id,
+        status: item.payout.status,
+        amount: String(item.payout.amount),
+        role: 'principal',
+      });
+    }
+    for (const f of item.internalFunds ?? []) {
+      orders.push({
+        kind: 'INTERNAL_FUND',
+        no: f.internalFundNo,
+        id: f.id,
+        status: f.status,
+        amount: String(f.amount),
+        role: 'fee',
+      });
+    }
+    return orders;
+  }
+
   async findOne(id: string) {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({
       where: { id },
@@ -394,6 +431,7 @@ export class WithdrawTransactionsService {
         asset: true,
         customer: true,
         payout: true,
+        internalFunds: { include: { asset: true } },
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
@@ -407,10 +445,7 @@ export class WithdrawTransactionsService {
       ...item,
       type: this.deriveWithdrawType(item.asset?.type),
       auditLogs,
-      fundsOrders: await this.internalTransferService.findFundsOrderBySource(
-        'WITHDRAW',
-        item.id,
-      ),
+      linkedFundOrders: this.buildLinkedFundOrders(item),
     };
   }
 
