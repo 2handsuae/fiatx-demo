@@ -212,6 +212,13 @@ export default function LedgerAccountDetail() {
                 <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Status</div>
                 <div className="mt-1"><AdminBadge value={detail.status} /></div>
               </div>
+              <button
+                onClick={() => navigate(`/admin/ledger/account-statement?account=${detail.tbAccountId}`)}
+                className={adminButtonClass('detailUtility')}
+                title="View this account's ledger activity"
+              >
+                View Statement (流水) →
+              </button>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">
               <InfoField label="Code" value={String(detail.code)} mono />

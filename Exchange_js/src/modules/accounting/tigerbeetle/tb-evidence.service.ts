@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { COA_TO_TB_CODE } from './constants/tb-account-codes.constant';
+import { COA_TO_TB_CODE, isAssetCode } from './constants/tb-account-codes.constant';
 
 interface WriteEvidenceParams {
   tbTransferId: string;
@@ -181,6 +181,15 @@ export class TbEvidenceService {
     }>;
     currentBalance: number;
   }> {
+    // Sign convention by account class: assets are DEBIT-normal (a debit = IN/+,
+    // balance = debits − credits); liabilities & equity are CREDIT-normal
+    // (a credit = IN/+). Without this an asset account shows a negative balance.
+    const reg = await (this.prisma as any).tbAccountRegistry.findUnique({
+      where: { tbAccountId },
+      select: { code: true },
+    });
+    const isAsset = reg ? isAssetCode(reg.code) : false;
+
     const rows = await (this.prisma as any).tbTransferEvidence.findMany({
       where: {
         transferType: 'POSTED',
@@ -194,7 +203,11 @@ export class TbEvidenceService {
 
     let balance = 0;
     const items = rows.map((row: any) => {
-      const direction: 'IN' | 'OUT' = row.creditTbAccountId === tbAccountId ? 'IN' : 'OUT';
+      const isCreditSide = row.creditTbAccountId === tbAccountId;
+      // asset: debit = IN ; liability/equity: credit = IN
+      const direction: 'IN' | 'OUT' = isAsset
+        ? (isCreditSide ? 'OUT' : 'IN')
+        : (isCreditSide ? 'IN' : 'OUT');
       const amount = Number(row.amount);
       balance += direction === 'IN' ? amount : -amount;
       return {

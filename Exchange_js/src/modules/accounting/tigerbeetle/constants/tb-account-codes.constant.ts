@@ -37,3 +37,17 @@ export const COA_TO_TB_CODE: Record<string, number> = {
 export const TB_CODE_TO_COA: Record<number, string> = Object.fromEntries(
   Object.entries(COA_TO_TB_CODE).map(([k, v]) => [v, k]),
 );
+
+/**
+ * Asset-class codes are DEBIT-normal; everything else (L/E) is CREDIT-normal.
+ * Any balance/statement sign MUST respect this, else assets show negative:
+ *   asset  balance = debits − credits   (debit = increase / IN)
+ *   L / E  balance = credits − debits   (credit = increase / IN)
+ * (Mirrors scripts/verify-realtime-coa.ts, the COA-invariant reference.)
+ */
+export const ASSET_TB_CODES: ReadonlySet<number> = new Set<number>([
+  TB_ACCOUNT_CODES.CLIENT_ASSET,
+  TB_ACCOUNT_CODES.FIRM_ASSET,
+]);
+
+export const isAssetCode = (code: number): boolean => ASSET_TB_CODES.has(code);
