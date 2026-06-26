@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { COA_TO_TB_CODE, isAssetCode } from './constants/tb-account-codes.constant';
+import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
 
 interface WriteEvidenceParams {
   tbTransferId: string;
@@ -35,35 +36,48 @@ interface WriteEvidenceParams {
 export class TbEvidenceService {
   private readonly logger = new Logger(TbEvidenceService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Phase B / T3: project each evidence write into 2 AccountFlow rows so
+    // per-wallet drill-down is a single indexed query. The projector is
+    // optional — if not injected (unit tests with a partial DI surface) the
+    // evidence write still succeeds.
+    private readonly flowProjector?: AccountFlowProjectorService,
+  ) {}
 
   async writeEvidence(params: WriteEvidenceParams, tx?: Prisma.TransactionClient): Promise<void> {
     const client = tx ?? this.prisma;
     try {
-      await (client as any).tbTransferEvidence.create({
-        data: {
-          tbTransferId: params.tbTransferId,
-          sourceType: params.sourceType,
-          sourceNo: params.sourceNo,
-          eventCode: params.eventCode,
-          debitCode: params.debitCode,
-          creditCode: params.creditCode,
-          amount: params.amount,
-          assetCode: params.assetCurrency,
-          traceId: params.traceId,
-          actorType: params.actorType,
-          actorId: params.actorId,
-          memo: params.memo ?? null,
-          pendingId: params.pendingId ?? null,
-          transferType: params.transferType ?? 'POSTED',
-          debitTbAccountId: params.debitTbAccountId ?? null,
-          creditTbAccountId: params.creditTbAccountId ?? null,
-          debitWalletRef: params.debitWalletRef ?? null,
-          creditWalletRef: params.creditWalletRef ?? null,
-          externalRef: params.externalRef ?? null,
-          isExternalCrossing: params.isExternalCrossing ?? false,
-        },
-      });
+      const evidenceData = {
+        tbTransferId: params.tbTransferId,
+        sourceType: params.sourceType,
+        sourceNo: params.sourceNo,
+        eventCode: params.eventCode,
+        debitCode: params.debitCode,
+        creditCode: params.creditCode,
+        amount: params.amount,
+        assetCode: params.assetCurrency,
+        traceId: params.traceId,
+        actorType: params.actorType,
+        actorId: params.actorId,
+        memo: params.memo ?? null,
+        pendingId: params.pendingId ?? null,
+        transferType: params.transferType ?? 'POSTED',
+        debitTbAccountId: params.debitTbAccountId ?? null,
+        creditTbAccountId: params.creditTbAccountId ?? null,
+        debitWalletRef: params.debitWalletRef ?? null,
+        creditWalletRef: params.creditWalletRef ?? null,
+        externalRef: params.externalRef ?? null,
+        isExternalCrossing: params.isExternalCrossing ?? false,
+        createdAt: new Date(),
+      };
+      await (client as any).tbTransferEvidence.create({ data: evidenceData });
+
+      // Phase B / T3: project to AccountFlow on the same client (tx if given)
+      // so the 2 flow rows commit atomically with the evidence row.
+      if (this.flowProjector) {
+        await this.flowProjector.persist(client as any, evidenceData as any);
+      }
     } catch (error: any) {
       this.logger.error(`Evidence write failed for transfer ${params.tbTransferId}: ${error.message}`);
       await this.writeToBacklog(params, error.message);
@@ -139,6 +153,18 @@ export class TbEvidenceService {
       where: { tbTransferId },
       data,
     });
+
+    // Phase B / T3: re-project so AccountFlow rows reflect the enriched fields
+    // (eventCode/externalRef/isExternalCrossing/wallet refs). Re-read the row
+    // post-update so the projection input is the canonical persisted state.
+    if (this.flowProjector) {
+      const updated = await (client as any).tbTransferEvidence.findUnique({
+        where: { tbTransferId },
+      });
+      if (updated) {
+        await this.flowProjector.persist(client as any, updated);
+      }
+    }
   }
 
   async findBySource(sourceType: string, sourceNo: string) {

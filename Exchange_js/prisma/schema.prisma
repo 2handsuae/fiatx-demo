@@ -1766,6 +1766,35 @@ model TbTransferEvidence {
   @@map("tb_transfer_evidence")
 }
 
+// Phase B reconciliation projection: 2 rows per TB transfer (debit→OUT, credit→IN).
+// Lets per-wallet drill-down do a single indexed query instead of OR-filtering
+// tb_transfer_evidence and computing direction at read time. Idempotency is
+// enforced by (tbTransferId, tbAccountId) — a transfer's two legs hit two
+// different accounts, but re-projecting the same evidence is a no-op upsert.
+model AccountFlow {
+  id                   String   @id @default(uuid())
+  tbTransferId         String
+  tbAccountId          String
+  walletRef            String?
+  direction            String   // 'IN' | 'OUT'
+  amount               Decimal
+  isExternalCrossing   Boolean  @default(false)
+  externalRef          String?
+  eventCode            String
+  sourceType           String
+  sourceNo             String
+  transferType         String   // 'POSTED' | 'PENDING' | 'POST_PENDING' | 'VOID_PENDING'
+  assetCode            String
+  createdAt            DateTime
+
+  @@unique([tbTransferId, tbAccountId])
+  @@index([tbAccountId, createdAt])
+  @@index([walletRef])
+  @@index([externalRef])
+  @@index([tbTransferId])
+  @@map("account_flows")
+}
+
 model TbEvidenceBacklog {
   id           String    @id @default(uuid())
   tbTransferId String    @unique         // TB u128 as hex string

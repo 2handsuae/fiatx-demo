@@ -101,6 +101,74 @@ describe('TbEvidenceService', () => {
         }),
       });
     });
+
+    it('Phase B / T3: when projector is wired, writeEvidence calls projector.persist on the same client (tx)', async () => {
+      const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
+      const svc = new TbEvidenceService(mockPrisma, projector);
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await svc.writeEvidence(
+        {
+          ...params,
+          debitTbAccountId: 'tb-debit',
+          creditTbAccountId: 'tb-credit',
+        } as any,
+      );
+
+      expect(projector.persist).toHaveBeenCalledTimes(1);
+      // The projector receives the same evidence data that was written
+      const [, evidenceArg] = projector.persist.mock.calls[0];
+      expect(evidenceArg).toEqual(expect.objectContaining({
+        tbTransferId: 'abc123',
+        debitTbAccountId: 'tb-debit',
+        creditTbAccountId: 'tb-credit',
+      }));
+    });
+
+    it('Phase B / T3: writeEvidence with no projector (legacy DI) still succeeds', async () => {
+      const svc = new TbEvidenceService(mockPrisma); // projector omitted
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await expect(svc.writeEvidence(params)).resolves.toBeUndefined();
+      expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('enrichForPost — Phase B / T3 re-projection', () => {
+    it('re-reads evidence after update and re-projects via projector', async () => {
+      const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
+      mockPrisma.tbTransferEvidence.update = jest.fn().mockResolvedValue({});
+      mockPrisma.tbTransferEvidence.findUnique.mockResolvedValue({
+        tbTransferId: 'abc123',
+        eventCode: 'EVT_WITHDRAW_SUCCESS',
+        externalRef: '0xnew',
+        isExternalCrossing: true,
+      });
+      const svc = new TbEvidenceService(mockPrisma, projector);
+
+      await svc.enrichForPost('abc123', {
+        eventCode: 'EVT_WITHDRAW_SUCCESS',
+        externalRef: '0xnew',
+        isExternalCrossing: true,
+      });
+
+      expect(mockPrisma.tbTransferEvidence.update).toHaveBeenCalled();
+      expect(mockPrisma.tbTransferEvidence.findUnique).toHaveBeenCalledWith({
+        where: { tbTransferId: 'abc123' },
+      });
+      expect(projector.persist).toHaveBeenCalledTimes(1);
+    });
+
+    it('no-op enrichForPost (empty fields) does not call projector', async () => {
+      const projector = { persist: jest.fn() } as any;
+      mockPrisma.tbTransferEvidence.update = jest.fn();
+      const svc = new TbEvidenceService(mockPrisma, projector);
+
+      await svc.enrichForPost('abc123', {});
+
+      expect(mockPrisma.tbTransferEvidence.update).not.toHaveBeenCalled();
+      expect(projector.persist).not.toHaveBeenCalled();
+    });
   });
 
   describe('findBySource', () => {

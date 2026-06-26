@@ -6,6 +6,10 @@ import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbManualAccountService } from './tb-manual-account.service';
 import { TbAdminController } from './tb-admin.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
+// Phase B / T3: AccountFlow projector lives under reconciliation/ (its consumer
+// is the recon engine) but its producer is TbEvidenceService. Providing it
+// here avoids a cyclic module dependency.
+import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
 
 @Module({
   imports: [PrismaModule],
@@ -16,12 +20,14 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
     TbEvidenceService,
     TbAccountRegistryService,
     TbManualAccountService,
+    AccountFlowProjectorService,
   ],
   exports: [
     AccountingService,
     TbEvidenceService,
     TbAccountRegistryService,
     TbManualAccountService,
+    AccountFlowProjectorService,
   ],
 })
 export class TigerBeetleModule {}
