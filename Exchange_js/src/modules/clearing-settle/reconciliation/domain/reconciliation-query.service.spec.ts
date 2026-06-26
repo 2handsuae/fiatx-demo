@@ -114,6 +114,39 @@ describe('pairManifest — amount-keyed pairing', () => {
   });
 });
 
+describe('listRuns — engineVersion filter (Phase B)', () => {
+  // Per T5: every existing ReconciliationRun row gets engineVersion='V8_FORMULA' via column default.
+  // Phase B (T7) will stamp new runs with 'WALLET_V1'. Filter must respect undefined = all engines.
+  function mkPrisma(rows: any[]) {
+    return {
+      reconciliationRun: {
+        findMany: jest.fn().mockImplementation(({ where }: any) => {
+          if (where?.engineVersion === undefined) return Promise.resolve(rows);
+          return Promise.resolve(rows.filter((r) => r.engineVersion === where.engineVersion));
+        }),
+      },
+    } as any;
+  }
+  const legacyRow = { id: 'r1', runNo: 'RUN-1', engineVersion: 'V8_FORMULA', businessDate: '2026-06-25', layer: 'REDESIGN' };
+
+  it('returns all rows when engineVersion is undefined', async () => {
+    const svc = new ReconciliationQueryService(mkPrisma([legacyRow]));
+    const rows = await svc.listRuns({});
+    expect(rows).toHaveLength(1);
+  });
+  it('returns existing V8_FORMULA runs when filtered explicitly', async () => {
+    const svc = new ReconciliationQueryService(mkPrisma([legacyRow]));
+    const rows = await svc.listRuns({ engineVersion: 'V8_FORMULA' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].engineVersion).toBe('V8_FORMULA');
+  });
+  it('returns empty when filtering for WALLET_V1 (no Phase B runs exist yet)', async () => {
+    const svc = new ReconciliationQueryService(mkPrisma([legacyRow]));
+    const rows = await svc.listRuns({ engineVersion: 'WALLET_V1' });
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe('getExternalBalance — statement lines scoped to the balance business day', () => {
   it('filters lines by the balance cutoffDate day window (no multi-day bleed)', async () => {
     const balance = {

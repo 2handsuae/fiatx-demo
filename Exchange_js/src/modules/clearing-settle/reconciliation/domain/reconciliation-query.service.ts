@@ -112,9 +112,14 @@ export function pairManifest(
 export class ReconciliationQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  listRuns(q: { businessDate?: string; layer?: string }) {
+  listRuns(q: { businessDate?: string; layer?: string; engineVersion?: string }) {
     return this.prisma.reconciliationRun.findMany({
-      where: { businessDate: q.businessDate, layer: q.layer },
+      where: {
+        businessDate: q.businessDate,
+        layer: q.layer,
+        // engineVersion: omit when undefined → all engines; pass-through when supplied.
+        engineVersion: q.engineVersion,
+      },
       orderBy: [{ businessDate: 'desc' }, { layer: 'asc' }, { seq: 'desc' }],
     });
   }

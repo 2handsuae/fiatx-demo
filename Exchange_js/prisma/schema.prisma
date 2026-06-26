@@ -2003,10 +2003,14 @@ model ReconciliationRun {
   completedAt     DateTime?
   createdAt       DateTime @default(now())
   demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
+  // Engine version stamp — historical runs (credit-net five-formula) default to V8_FORMULA;
+  // Phase B per-wallet engine (T7) will stamp new runs with WALLET_V1.
+  engineVersion   String   @default("V8_FORMULA")
   invariantChecks ReconciliationInvariantCheck[]
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
   @@index([businessDate, layer])
+  @@index([engineVersion])
   @@map("reconciliation_runs")
 }
 
@@ -2035,7 +2039,7 @@ model ReconciliationCase {
   assetId                   String
   assetCode                 String
   layer                     String
-  book                      String?  // CLIENT | FIRM (redesign per-book cases); null for legacy I1–I5 cases
+  book                      String?  // CLIENT | FIRM (redesign per-book case); null for legacy I1–I5 cases
   tbAmount                  Decimal  @default(0)
   inTransitAmount           Decimal  @default(0)
   expectedExternal          Decimal  @default(0)
@@ -2048,6 +2052,11 @@ model ReconciliationCase {
   slaDeadline               DateTime?
   traceId                   String?
   reimbursementObligationId String?
+  // Phase B locator — pinpoints which physical wallet / COA bucket / owner this case belongs to
+  // (T7 wallet-level engine fills these; legacy V8_FORMULA cases leave them null).
+  walletRef                 String?
+  coaCode                   String?  // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_OPS' | ...
+  ownerNo                   String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
   openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
@@ -2055,6 +2064,7 @@ model ReconciliationCase {
   lineItems                 ReconciliationLineItem[]
   @@unique([businessDate, assetId, book])
   @@index([status])
+  @@index([walletRef])
   @@map("reconciliation_cases")
 }
 
@@ -2076,6 +2086,12 @@ model ReconciliationLineItem {
   externalAmount     Decimal?
   externalDirection  String?
   externalTimestamp  DateTime?
+  // Phase B drill-down hooks — wallet-level engine references these to link a bucketed
+  // line item back to its source (per-wallet evidence row or external statement line).
+  // externalRef = bank booking id / chain tx hash (matches tb_transfer_evidence.externalRef);
+  // walletRef   = which physical wallet this side belongs to.
+  externalRef        String?
+  walletRef          String?
   status             String  @default("OPEN")
   resolution         String?
   resolutionMemo     String?
@@ -2083,6 +2099,8 @@ model ReconciliationLineItem {
   case               ReconciliationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
   run                ReconciliationRun  @relation(fields: [foundByRunId], references: [id])
   @@index([caseId])
+  @@index([externalRef])
+  @@index([walletRef])
   @@map("reconciliation_line_items")
 }
 
@@ -2102,11 +2120,17 @@ model ExternalBalance {
   ingestedAt     DateTime @default(now()) @map("ingested_at")
   status         String?
   rawRef         String?  @map("raw_ref")
+  // Phase B locator — which physical wallet / COA bucket this balance attests to
+  // (T7 wallet-level engine matches per-wallet; legacy V8_FORMULA rows leave them null).
+  walletRef      String?
+  coaCode        String?
+  ownerNo        String?
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
   @@unique([source, accountRef, cutoffDate])
   @@index([cutoffDate])
   @@index([source, book, currency])
+  @@index([walletRef])
   @@map("external_balances")
 }
 
