@@ -420,6 +420,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 > 客户资产对账：内部 TB 记录与外部（银行 / HexTrust 托管 / 链上）数据的核对与差异处置。设计基于两个前提：① Gas 费用全部由公司钱包承担，客户资产不因 Gas 产生差异；② TB 双式记账结构保证客户资产与负债内部持平，无需内部一致性检查。对账因此退化为单一外部核对。
 >
 > **模型重设计（2026-06-20）**：上述"退化为单一外部核对"经一轮 Socratic 推导重构为 **credit-net 五公式**（贷正借负、同币种 Σ=0）——式1 总账恒等 / 式2 客户块↔OPEN Outstanding / 式3 桥块↔未清桥 swap / 式4 客户账外 / 式5 公司账外（式1-3 账内、式4-5 账外扣在途）。取代早先 I1-I5；全程按 **币种 × 客户/公司(book)** 分层。外部接入归一化为两表 `external_balances`(头) + `external_statement_lines`(行)。详见 `superpowers/specs/2026-06-20-reconciliation-redesign-design.md` + `2026-06-20-external-balances-pages-and-statement-retire.md`。
+>
+> **再次重设计（2026-06-25/26，实时 1:1 资金模型后）**：随 V4/V5/V6 完成 **实时 1:1 镜像账本** 重构（8 码新 COA：CLIENT_ASSET/FIRM_ASSET + CLIENT_PAYABLE/DEPOSIT_SUSPENSE + FIRM_OPS/SET/FEE/LIQ；删除 Outstanding/FeeAccrual/SettlementBatch/L.TRADE_CLEARING），**credit-net 五公式失去前提**（式2 客户块↔Outstanding、式3 桥块↔swap bridge 引用的实体均已不存在）。Phase B 改为 **按物理钱包 1:1 外部对账**：①(SUSPENSE[c]+PAYABLE[c]) 1:1 镜像一个客户钱包、外部余额 1:1 直比（不分层）；② AccountFlow 投影 + `walletRef`/`externalRef`/`isExternalCrossing` 三字段，跨钱包一笔转账两端同 ref 互证；③ 内部 reclass（SUSPENSE→PAYABLE）排除流水匹配。详见 `superpowers/specs/2026-06-26-phase-b-reconciliation-design.md` + plans/2026-06-26-phase-b-reconciliation-plan.md（10 任务，subagent-driven）。credit-net 五公式引擎本期 **neuter，不删**（Phase C 统一清死码）。
 
 **前置：** V4 / V5 / V6 / V7（依赖完整交易与持仓数据）
 
@@ -440,15 +442,33 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [x] **External Balances 父子页（外部数据 #4/#5）** — 一页 list 按 book 分区 + 每区 closing 小计（=式4/式5 外部侧）；detail = roll-forward 自检（opening+Σnet=closing）+ 流水行表（VIBAN sub-account）+ raw 行内展开；路由用 statementId 业务键 ✅ 2026-06-21
 - [x] **旧 External Statements 全退役** — drop `reconciliation_external_statements` blob 表（migration）+ 连带删死页 / endpoint / file adapter / 旧 demo；原始报文改走 `line.raw` + statementId + 审计 ✅ 2026-06-21
 
+**已交付实现（2026-06-25/26，已合 main，funds-realtime-1to1 分支）：**
+
+- [x] **Phase A · 实时 1:1 资金核心** — 8 码新 COA + 充值/提现/兑换 三流改为实时记账（删 Outstanding/FeeAccrual/SettlementBatch）；e2e 充值/提现/swap 全 SUCCESS、verify:coa 四式 ALL PASS ✅ 2026-06-25
+- [x] **swap 4-腿 InternalFund 编排** — 不再原子瞬态 SUCCESS：swap 自持 4 个 InternalFund 腿（swapTransactionId+legSeq，不走 InternalTransaction/白名单）+ 每腿两阶段记账（pending→post / void）+ admin `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` 手动逐腿推进 + 失败 `POST .../:swapNo/reverse` 冲正 ✅ 2026-06-25
+- [x] **InternalFund 详情可逐腿 simulate**（swap 腿点击落地到 advance 端点；含所属 Swap/Withdrawal 跳转、状态机感知按钮集）✅ 2026-06-26
+- [x] **提现资金单重设计** — 删 C_MAIN→C_OUT FUND_OUT 跟踪单；一笔提现 = 1 Payout(本金) + 1 InternalFund(手续费)；fee fund 在 PAYOUT_PENDING 创建（compliance/approval 被拒不产生）；订单详情统一 Linked Funds Orders（提现=payout+fee/充值=payin/swap=4 腿）✅ 2026-06-26
+- [x] **Account Statement 多账户化 + 资产符号修复** — 改为 master-detail（左所有 TB 账户 + 过滤 / 右单账户流水），按 COA 类别取号（资产 = debits − credits，L/E = credits − debits），LedgerAccountDetail 加"View Statement (流水)"深链接 ✅ 2026-06-26
+- [x] **Phase B 对账设计 + 实施计划落盘** — `superpowers/specs/2026-06-26-phase-b-reconciliation-design.md` + `plans/2026-06-26-phase-b-reconciliation-plan.md`（10 任务）✅ 2026-06-26（**实施未开工**）
+
 推后交付：
 - [ ] 季度 Proof of Reserves 工作流（从 HexTrust 获取所有客户托管钱包地址 → 链上快照验证余额 → 生成 Sum(client liabilities) ≤ Reserve Assets 证明，按币种出具 → 提交 VARA 季度报告；早期可手动执行，进阶后自动化）
 - [ ] 对账报告导出工作流（按日期范围生成对账摘要：余额差异、流水匹配率、未解决 Case 数；VARA 审计 / 半年独立审计的输入材料）
 - [ ] LP 仓位对账工作流（与 LP 对手方核对 LP-IN / LP-OUT 历史记录及当前余额；依赖 LP 提供 API 或对账文件，格式待定）
 
-**redesign 遗留（technical debt）：**
-- [ ] 旧 I1-I5 对账引擎退役（当前与 credit-net 五公式并存）
-- [ ] FIRM "Treasury position snapshot" 余额标记行误入交易下钻 → firm case 在式5 已平(Δ=0)时仍 OPEN 带噪音（让 snapshot 行跳过 drilldown）
-- [ ] case line item 跨 run 累积去重（按最新 run 收口）；式5 firm-side 在途 stub=0 待接
+**下一步（Phase B 实施，spec/plan 已落盘）：**
+- [ ] **T1-T3 流水基建** — `tb_transfer_evidence` 加 `walletRef`/`externalRef`/`isExternalCrossing` 三列；记账写入路径（充值/提现/swap/手续费四条流程）逐腿供给；新建 `AccountFlow` 投影表（2 行/transfer）+ 回填脚本。
+- [ ] **T4 Account Statement by-wallet 视图** — 按 walletRef 合并 SUSPENSE[c]+PAYABLE[c]（客户钱包）/ FIRM_OPS/SET/FEE（公司钱包）的流水；全量 / 链上对账（crossingOnly）两视图切换。
+- [ ] **T5-T7 引擎重写** — ExternalBalance/Case/LineItem 加 walletRef/coaCode/ownerNo 定位列；逐钱包余额对账（external == PAYABLE+SUSPENSE / 公司 1:1 直比）+ 流水匹配（同 ref 跨钱包互证）+ Run 编排（`WalletReconRunService`）。
+- [ ] **T8 recon:demo 重写** — anchor-free pass/break + manifest 答案键（4 类异常：ORPHAN_INTERNAL/EXTERNAL、AMOUNT_MISMATCH、balance break）。
+- [ ] **T9 旧 V8 引擎 neuter** — credit-net + formula-checker(式1-5) + invariant-checker(I1/I2) 标 @deprecated、推到新引擎；Phase C 物理删。
+
+**redesign 遗留（technical debt，Phase B 进行中不立即处理）：**
+- [~] **旧 I1-I5 + credit-net 五公式引擎退役** — Phase B 取代后随 Phase C 死码清扫物理删（neuter 优先）
+- [ ] FIRM "Treasury position snapshot" 余额标记行误入交易下钻 → firm case 在式5 已平(Δ=0)时仍 OPEN 带噪音（Phase B 重设计后此 case 不再产生，但旧 Run 历史数据残留）
+- [ ] case line item 跨 run 累积去重（按最新 run 收口）；式5 firm-side 在途 stub=0 待接（Phase B 重写后口径改变，旧 case 历史不动）
+- [ ] **资本注入流水补写** — FIRM_ASSET 流水缺资本那笔的 evidence 行（小修，独立于 Phase B）
+- [ ] **资金单合并可行性评估** — payin/payout/internalfund 状态机近乎同构（Payout ≈ InternalFund crypto；Payin = 只观察子集），可合表合服务；本期未做，Phase C 决策
 
 ---
 
