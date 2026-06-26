@@ -1,733 +1,732 @@
 // scripts/recon-demo.ts
 //
-// V8 对账重构 — anchor-free 对账演示生成器（demo 的核心）。
-// 读 `demo:all` 产出的真实内部资金单（Alice/Bob/Grace deposit/swap/withdraw；法币已结算、
-// 虚拟币 pending），按其**真实业务日**，合成 ZAND(AED)+HEXTRUST(USDT) 外部对账单：
-//   - --mode=pass  ：外部完美镜像内部，零 break，五公式全 PASS。
-//   - --mode=break ：动态挑当日真实记录注入 ~6 处刻意差异 + 记 manifest，式4/式5 在受影响 book FAIL。
-// 写完外部两表后 APPLY 跑 redesign 对账引擎，回读 getLatestRedesignRun 打印结果。
+// Phase B / T8: anchor-free per-wallet reconciliation demo. Replaces the
+// V8 five-formula generator with a 1:1 mirror engine built on top of
+// `WalletReconRunService` (T7), `WalletBalanceCheckerService` (T6) and the
+// `account_flows` projection (T3).
 //
-// 与 recon:gen（scripts/recon-redesign-statement-gen.ts）的区别 = 去锚点：
-//   ① 业务日由 --date 决定（默认今天），不再硬编码 2026-06-16。
-//   ② AED/USDT 资产按 currency 查（status=ACTIVE），不再硬编码 UUID。
-//   ③ break 目标动态挑：每币种第 1 笔 CLEARED payin→OMIT(ORPHAN_INTERNAL)、第 2 笔→AMOUNT_MISMATCH，
-//      外加 1 条合成 ORPHAN_EXTERNAL 行；某币种 CLEARED payin <2 则跳过其 payin 类 break（不抛错）。
-//   ④ pass 模式无 break、无 manifest；break 模式注入 break + 建 manifest。
+//   --mode=pass    External statement EXACTLY mirrors every wallet's
+//                  isExternalCrossing flows (same amount/direction/ref) +
+//                  external closing balance == internal balance.
+//                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
-// 闭合口径（与 recon:gen 一致，供式4/式5）：
-//   closingBalance(account) = TB − in-transit − Σ(break signedδ)
-//   signedδ = 对 (TB − 外部) 的贡献：ORPHAN_INTERNAL +amt，ORPHAN_EXTERNAL −amt，AMOUNT_MISMATCH (internal−external)
-//   pass 模式 Σbreak=0 → 式4/5 delta=0 PASS；break 模式 delta=Σbreak≠0 → 受影响 book FAIL。
+//   --mode=break   Pass-mode setup, then inject 4 anomalies and write
+//                  `manifest.json` (the answer key). The engine should
+//                  detect every injected anomaly as a matching line_item
+//                  in the new run, plus open at least one balance + one
+//                  flow case.
+//                    1. ORPHAN_INTERNAL  — delete one mirrored external line
+//                    2. ORPHAN_EXTERNAL  — insert one synthetic external line
+//                    3. AMOUNT_MISMATCH  — adjust one external line's amount
+//                    4. BALANCE_BREAK    — adjust one wallet's closingBalance
+//                  Each anomaly is targeted at a DIFFERENT wallet so the
+//                  open Cases stay disjoint and the per-anomaly checks are
+//                  independent.
+//
+//   --mode=reset   Delete WALLET_V1 runs/cases + all ExternalBalance /
+//                  ExternalStatementLine rows. Demo:all business data is
+//                  left untouched.
+//
+// Anchor-free: every walletRef / asset / amount comes from the *current*
+// account_flows snapshot. The script will work on any seeded dataset; the
+// only requirement is that ≥4 distinct wallets have isExternalCrossing
+// flows so each anomaly can land on its own wallet.
 //
 // Run:
-//   npm run recon:demo -- --mode=pass            # 五公式全 PASS、0 case、无 manifest
-//   npm run recon:demo -- --mode=break           # ~6 break；式4/5 在受影响 book FAIL；case 开仓
-//   npm run recon:demo -- --mode=break --date=2026-06-21
+//   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass
+//   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break
+//   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset
 
-// Node 18 polyfill：@nestjs/schedule 在模块注册时调用 crypto.randomUUID()。必须在任何 import 之前。
+// Node 18 polyfill: @nestjs/schedule calls crypto.randomUUID() at module
+// load. Must precede every other import.
 import { webcrypto } from 'node:crypto';
 if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
 
-import { createHash } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
-import { BalanceSnapshotService } from '../src/modules/clearing-settle/reconciliation/engine/balance-snapshot.service';
-import { InTransitService } from '../src/modules/clearing-settle/reconciliation/engine/in-transit.service';
-import { RedesignReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/redesign-recon-run.service';
-import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
-import { roleAccountRef, isFiat } from '../src/modules/clearing-settle/reconciliation/engine/leg-projection.service';
+import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
+import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
+
+type Mode = 'pass' | 'break' | 'reset';
 
 const D = (n: any) => new Prisma.Decimal(n);
 
-// 法币 account_ref 一律滚到 CMA（§2.5）；行表保留 sub_account=VirtualAccount/walletId。
-const CMA_ACCOUNT_REF = 'C_CMA-AED-0001';
-const PLACEHOLDER_VIBAN = 'AE000000000000000001'; // 未映射客户 fallback vIBAN
-const VAULT_MAIN = 'vault-usdt-main'; // 归集/公司侧 pooled vault（C_MAIN/C_OUT vaultId 为空，合成）
-const VAULT_OUT = 'vault-usdt-out';
+const MANIFEST_PATH = process.env.RECON_DEMO_MANIFEST_PATH
+  ?? '/tmp/exchange_js_main/recon-demo-manifest.json';
 
-// ── CLI args ───────────────────────────────────────────────────────────────────
-type Mode = 'pass' | 'break';
-function parseArgs(argv: string[]): { mode: Mode; date: string; reset: boolean; all: boolean; runNo: string | null } {
-  let mode: Mode = 'break'; // 默认 break
-  let date = new Date().toISOString().slice(0, 10); // 默认今天（与 demo:all 的 stamp 对齐）
-  let reset = false; // --reset：清 recon demo footprint 后退出（不生成）
-  let all = false; // --all：连所有 businessDate 的 REDESIGN run + 全部 external 一起清（配 --reset）
-  let runNo: string | null = null; // --run=<runNo>：只清某一次 run（配 --reset）
+// ── CLI args ────────────────────────────────────────────────────────────
+function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
+  let mode: Mode = 'pass';
+  let cutoffIso: string | null = null;
   for (const a of argv) {
-    const m = a.match(/^--mode=(pass|break)$/);
+    const m = a.match(/^--mode=(pass|break|reset)$/);
     if (m) mode = m[1] as Mode;
-    else if (a.startsWith('--mode=')) console.warn(`⚠ unknown --mode "${a}" — defaulting to "break"`);
-    const d = a.match(/^--date=(\d{4}-\d{2}-\d{2})$/);
-    if (d) date = d[1];
-    if (a === '--reset') reset = true;
-    if (a === '--all') all = true;
-    const r = a.match(/^--run=(.+)$/);
-    if (r) runNo = r[1];
+    else if (a.startsWith('--mode=')) console.warn(`unknown --mode "${a}" — defaulting to "pass"`);
+    const c = a.match(/^--cutoff=(.+)$/);
+    if (c) cutoffIso = c[1];
   }
-  return { mode, date, reset, all, runNo };
+  return { mode, cutoffIso };
 }
 
-// 归一化行（写 external_statement_lines）。dedupKey = 合成 booking-id 风格稳定键（§2.4，优先 booking id）。
-type Line = {
-  source: string;
-  accountRef: string;
-  subAccount: string | null;
-  book: string;
+// ── Manifest types ──────────────────────────────────────────────────────
+interface ManifestInjection {
+  type: 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL' | 'AMOUNT_MISMATCH' | 'BALANCE_BREAK';
+  walletRef: string;
+  // Per-type detail blob — kept as plain JSON for cross-checking against
+  // reconciliation_line_items.
+  detail: Record<string, unknown>;
+}
+
+interface Manifest {
+  cutoff: string;
+  injections: ManifestInjection[];
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Route a wallet's external feed to ZAND (fiat) or HEXTRUST (custody) by
+ * looking at the asset code prefix. The wallet recon engine doesn't
+ * actually consume `source` for matching — both `subAccount==walletRef`
+ * and the `account_ref` fall-through ignore it — but we still pick a
+ * source so the rows look plausible to operators eyeballing the table.
+ */
+function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
+  // AED / USD / EUR → bank statement (ZAND); USDT-* / BTC → custody
+  // (HEXTRUST). Bias toward HEXTRUST for any non-fiat code.
+  return /^(USDT|BTC|ETH|USDC)/i.test(assetCode) ? 'HEXTRUST' : 'ZAND';
+}
+
+async function clearWalletDemo(prisma: PrismaService): Promise<{
+  runs: number; cases: number; lineItems: number; balances: number; lines: number;
+}> {
+  // Wipe all WALLET_V1 footprint (runs/cases/line_items + all external
+  // statement rows). Demo:all business data is not touched.
+  const runs = (await (prisma as any).reconciliationRun.findMany({
+    where: { engineVersion: 'WALLET_V1' },
+    select: { id: true },
+  })) as Array<{ id: string }>;
+  const runIds = runs.map((r) => r.id);
+  let deletedLineItems = 0;
+  let deletedCases = 0;
+  if (runIds.length) {
+    deletedLineItems = (await (prisma as any).reconciliationLineItem.deleteMany({
+      where: { foundByRunId: { in: runIds } },
+    })).count;
+    deletedCases = (await (prisma as any).reconciliationCase.deleteMany({
+      where: { OR: [{ openedByRunId: { in: runIds } }, { lastObservedRunId: { in: runIds } }] },
+    })).count;
+  }
+  const deletedRuns = runIds.length
+    ? (await (prisma as any).reconciliationRun.deleteMany({ where: { id: { in: runIds } } })).count
+    : 0;
+  const deletedLines = (await (prisma as any).externalStatementLine.deleteMany({})).count;
+  const deletedBalances = (await (prisma as any).externalBalance.deleteMany({})).count;
+  return { runs: deletedRuns, cases: deletedCases, lineItems: deletedLineItems, balances: deletedBalances, lines: deletedLines };
+}
+
+// ── Phase 1: walk account_flows, build per-wallet mirror data ───────────
+//
+// For each wallet that has crossing flows, derive:
+//   - balance via the same engine the recon uses (so PASS is guaranteed)
+//   - crossing rows = the external lines we will write
+//   - book ('CUSTOMER' | 'FIRM') from the WalletBalanceCheckerService
+interface WalletPlan {
+  walletRef: string;
+  walletKind: 'CUSTOMER' | 'FIRM';
+  book: 'CLIENT' | 'FIRM';
   currency: string;
-  direction: 'IN' | 'OUT';
-  amount: Prisma.Decimal;
-  externalRef: string | null;
-  channelRef: string | null;
-  datetime: Date;
-  balanceAfter: Prisma.Decimal | null;
-  description: string;
-  bookingId: string; // 合成逐条 booking id → dedupKey 主用
-};
+  internalTotal: bigint;
+  coaCode: string;
+  ownerNo: string | null;
+  // Mirrored statement lines for this wallet (one per crossing flow).
+  lines: Array<{
+    direction: 'IN' | 'OUT';
+    amount: Prisma.Decimal;
+    externalRef: string | null;
+    datetime: Date;
+    // We carry the flow id only so break mode can match injections back to
+    // a real internal source if needed.
+    sourceFlowId: string;
+  }>;
+}
 
-// manifest 单条 break（break 模式落 ReconciliationRun.demoManifest）。
-type ManifestBreak = {
-  currency: string;
-  book: string;
-  bucket: 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL' | 'AMOUNT_MISMATCH';
-  targetType: 'payin' | 'synthetic';
-  targetRef: string;
-  internalAmount: string | null;
-  externalAmount: string | null;
-  signedDelta: string;
-  note: string;
-};
-type Manifest = { generatedAt: string; breaks: ManifestBreak[] };
+async function planWallets(
+  prisma: PrismaService,
+  balanceChecker: WalletBalanceCheckerService,
+  cutoff: Date,
+): Promise<WalletPlan[]> {
+  // Resolve the assets table once. The wallet recon engine resolves an
+  // ExternalBalance row's asset via `findFirst({ where: { code: currency } })`
+  // — so the value we write into `external_balances.currency` must equal the
+  // `Asset.code` field for the engine to open a case. In this dataset
+  // AED.code='AED' but USDT.code='USDT-TRON'; without this remap the engine
+  // would silently skip USDT wallets.
+  const assets = (await (prisma as any).asset.findMany({
+    where: { status: 'ACTIVE' },
+    select: { code: true, currency: true },
+  })) as Array<{ code: string; currency: string }>;
+  const codeByCurrency = new Map<string, string>(assets.map((a) => [a.currency, a.code]));
 
-// 单币种动态挑出的 break 计划（去锚点核心）。
-type BreakPlan = {
-  omitRef: string | null; // 第 1 笔 CLEARED payin → OMIT（ORPHAN_INTERNAL）
-  omitAmount: Prisma.Decimal; // 被 omit 的内部金额（→ +signedδ）
-  mismatchRef: string | null; // 第 2 笔 CLEARED payin → AMOUNT_MISMATCH
-  mismatchInternal: Prisma.Decimal; // 内部真实金额
-  mismatchExternal: Prisma.Decimal; // 改写后的外部金额
-  orphanExtRef: string; // 合成 ORPHAN_EXTERNAL 行的 ref/txHash
-  orphanExtAmount: Prisma.Decimal; // 合成外部行金额（→ −signedδ）
-  orphanExtBook: 'CLIENT' | 'FIRM';
-};
+  // Distinct walletRefs that have isExternalCrossing flows.
+  const crossingFlows = (await (prisma as any).accountFlow.findMany({
+    where: {
+      isExternalCrossing: true,
+      walletRef: { not: null },
+      createdAt: { lte: cutoff },
+    },
+    select: {
+      id: true,
+      walletRef: true,
+      direction: true,
+      amount: true,
+      externalRef: true,
+      assetCode: true,
+      createdAt: true,
+      tbAccountId: true,
+      eventCode: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  })) as Array<{
+    id: string;
+    walletRef: string;
+    direction: string;
+    amount: Prisma.Decimal;
+    externalRef: string | null;
+    assetCode: string;
+    createdAt: Date;
+    tbAccountId: string;
+    eventCode: string;
+  }>;
 
+  // Group flows by walletRef. To keep the mirrored external statement
+  // 1:1 with what the matcher will see we mirror EVERY crossing flow row
+  // — including the dual-leg debit/credit pair. The matcher pairs an
+  // external line with the SAME internal flow row (by id) so this gives a
+  // 1:1 PASS run.
+  // ── Caveat ────────────────────────────────────────────────────────────
+  // Each TB transfer projects to two account_flows rows (debit + credit).
+  // For external mirroring we only want ONE external statement line per
+  // transfer (the bank/chain doesn't see both sides). We pick the row that
+  // sits on THIS wallet (walletBalanceChecker drops aggregate rows
+  // naturally). The matcher inside the engine fetches account_flows by
+  // walletRef + isExternalCrossing, which gives us back this same row.
+  const flowsByWallet = new Map<string, typeof crossingFlows>();
+  for (const f of crossingFlows) {
+    if (!f.walletRef) continue;
+    const arr = flowsByWallet.get(f.walletRef) ?? [];
+    arr.push(f);
+    flowsByWallet.set(f.walletRef, arr as any);
+  }
+
+  // Build per-wallet plan. Uses balanceChecker to compute the internal
+  // total + classify the walletKind (CUSTOMER/FIRM/UNKNOWN).
+  const plans: WalletPlan[] = [];
+  for (const [walletRef, flows] of flowsByWallet) {
+    if (flows.length === 0) continue;
+    // Pull internal balance via the same engine used by recon (so the
+    // mirror always PASSes).
+    const balanceResult = await balanceChecker.checkBalance({
+      walletRef,
+      externalClosing: 0n, // placeholder; we'll set external = internal next
+      cutoff,
+    });
+    if (balanceResult.walletKind === 'UNKNOWN') {
+      // Aggregate-only walletRef (no payable/suspense/firm-equity leg
+      // landed here). Skip — the recon engine would also skip.
+      continue;
+    }
+
+    // Lines that belong to THIS wallet (the matcher drops aggregate rows
+    // from view via the walletRef + isExternalCrossing index). We keep
+    // every crossing flow row keyed to this walletRef — that matches the
+    // engine's `fetchExternalLinesForWallet` query (which filters by
+    // subAccount == walletRef, our convention below).
+    //
+    // Use the Asset.code form (not assetCode) for the WalletPlan currency
+    // so the engine's resolveAssetId can find it; we still source-route
+    // (ZAND / HEXTRUST) off the raw `flows[0].assetCode` below.
+    const rawCurrency = flows[0].assetCode;
+    const assetCode = codeByCurrency.get(rawCurrency) ?? rawCurrency;
+    plans.push({
+      walletRef,
+      walletKind: balanceResult.walletKind,
+      book: balanceResult.walletKind === 'FIRM' ? 'FIRM' : 'CLIENT',
+      currency: assetCode,
+      internalTotal: balanceResult.internal.total,
+      coaCode: balanceResult.coaCode,
+      ownerNo: balanceResult.ownerNo,
+      lines: flows.map((f) => ({
+        direction: f.direction as 'IN' | 'OUT',
+        amount: f.amount,
+        externalRef: f.externalRef,
+        // Shift the external timestamp 0–60 min forward (within the
+        // matcher's fuzzy window). This proves the matcher's time-window
+        // fuzzy match works even when the ref equality already lands.
+        datetime: new Date(f.createdAt.getTime() + Math.floor(Math.random() * 60) * 60 * 1000),
+        sourceFlowId: f.id,
+      })),
+    });
+  }
+  return plans;
+}
+
+// ── Phase 2: write external balances + statement lines per the plan ─────
+async function writeMirror(
+  prisma: PrismaService,
+  plans: WalletPlan[],
+  cutoff: Date,
+): Promise<{ balances: number; lines: number }> {
+  const cutoffDate = ymd(cutoff);
+  let balances = 0;
+  let lines = 0;
+  for (const p of plans) {
+    // External balance = internal balance (mirror).
+    // accountRef is a stable derived key (so the upsert composite unique
+    // constraint behaves); we use the walletRef itself.
+    const accountRef = p.walletRef;
+    const source = sourceFor(p.currency);
+    await (prisma as any).externalBalance.upsert({
+      where: { source_accountRef_cutoffDate: { source, accountRef, cutoffDate } },
+      update: {
+        currency: p.currency,
+        book: p.book,
+        closingBalance: D(p.internalTotal.toString()),
+        openingBalance: D(0),
+        asOfAt: cutoff,
+        status: 'INGESTED',
+        walletRef: p.walletRef,
+        coaCode: p.coaCode,
+        ownerNo: p.ownerNo,
+        lineCount: p.lines.length,
+      },
+      create: {
+        source,
+        accountRef,
+        currency: p.currency,
+        book: p.book,
+        cutoffDate,
+        closingBalance: D(p.internalTotal.toString()),
+        openingBalance: D(0),
+        asOfAt: cutoff,
+        status: 'INGESTED',
+        walletRef: p.walletRef,
+        coaCode: p.coaCode,
+        ownerNo: p.ownerNo,
+        lineCount: p.lines.length,
+      },
+    });
+    balances += 1;
+
+    // Statement lines — one per crossing flow.
+    let seq = 0;
+    for (const l of p.lines) {
+      seq += 1;
+      // Stable dedupKey so re-running the script overwrites cleanly.
+      const dedupKey = `DEMO-${cutoffDate}-${p.walletRef}-${seq}-${l.sourceFlowId.slice(0, 8)}`;
+      await (prisma as any).externalStatementLine.upsert({
+        where: { dedupKey },
+        update: {
+          source,
+          accountRef,
+          // subAccount == walletRef is THE matching key the engine uses
+          // (see wallet-recon-run.service.fetchExternalLinesForWallet).
+          subAccount: p.walletRef,
+          book: p.book,
+          currency: p.currency,
+          direction: l.direction,
+          amount: l.amount,
+          externalRef: l.externalRef,
+          datetime: l.datetime,
+          description: 'Demo mirror line',
+        },
+        create: {
+          source,
+          accountRef,
+          subAccount: p.walletRef,
+          book: p.book,
+          currency: p.currency,
+          direction: l.direction,
+          amount: l.amount,
+          externalRef: l.externalRef,
+          datetime: l.datetime,
+          description: 'Demo mirror line',
+          dedupKey,
+        },
+      });
+      lines += 1;
+    }
+  }
+  return { balances, lines };
+}
+
+// ── Phase 3 (break only): inject 4 anomalies — one per wallet ───────────
+//
+// Picks 4 different wallets to host the 4 anomalies. If fewer than 4
+// wallets are eligible we reuse the last one (defensive — the script
+// still completes, though manifest validation may overlap on the same
+// wallet's case). The pick is deterministic (first by walletRef sort
+// order) so re-runs produce the same manifest.
+async function injectAnomalies(
+  prisma: PrismaService,
+  plans: WalletPlan[],
+  cutoff: Date,
+): Promise<Manifest> {
+  if (plans.length === 0) throw new Error('No eligible wallets — seed business data first');
+  const cutoffDate = ymd(cutoff);
+  // Pick 4 wallets to host the 4 anomalies. We bias toward DIFFERENT
+  // (currency, book) tuples so each break opens its own Case row — the
+  // unique constraint on `reconciliation_cases` is [businessDate,
+  // assetId, book], so two wallets sharing a book collapse into one
+  // case (deltaAmount accumulates, walletRef is whichever wallet ran
+  // first). With distinct (currency, book), each manifest entry maps
+  // 1:1 to a fresh Case. If fewer than 4 distinct (currency, book)
+  // groups exist we fall through to repeats — the verifier handles
+  // the merge case too.
+  const bucketed = new Map<string, WalletPlan[]>();
+  for (const p of [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef))) {
+    const key = `${p.currency}|${p.book}`;
+    const arr = bucketed.get(key) ?? [];
+    arr.push(p);
+    bucketed.set(key, arr);
+  }
+  const bucketKeys = Array.from(bucketed.keys()).sort();
+  const picks: WalletPlan[] = [];
+  // Round-robin across buckets so the first 4 picks are maximally distinct.
+  let bucketCursor = 0;
+  while (picks.length < 4) {
+    if (bucketKeys.length === 0) break;
+    const key = bucketKeys[bucketCursor % bucketKeys.length];
+    const candidates = bucketed.get(key)!;
+    if (candidates.length > 0) {
+      picks.push(candidates.shift()!);
+    }
+    bucketCursor += 1;
+    // If a bucket is exhausted, prune it to avoid an infinite loop.
+    if (candidates.length === 0) {
+      bucketed.delete(key);
+      bucketKeys.splice(bucketKeys.indexOf(key), 1);
+      bucketCursor = bucketCursor % Math.max(bucketKeys.length, 1);
+    }
+    if (bucketKeys.length === 0 && picks.length < 4) {
+      // Refill from the original plans, allowing repeats so we always
+      // return 4 picks.
+      const fill = [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef));
+      while (picks.length < 4) picks.push(fill[picks.length % fill.length]);
+      break;
+    }
+  }
+  const [orphanIntPlan, orphanExtPlan, mismatchPlan, balanceBreakPlan] = picks;
+
+  const injections: ManifestInjection[] = [];
+
+  // ── 1. ORPHAN_INTERNAL ───────────────────────────────────────────────
+  //    Delete one external line for orphanIntPlan. The matcher should
+  //    see this wallet's flow with no external match → orphanInternal.
+  {
+    const candidate = await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: orphanIntPlan.walletRef },
+      orderBy: { datetime: 'asc' },
+    });
+    if (!candidate) throw new Error(`No external line to delete for orphan-internal on wallet ${orphanIntPlan.walletRef}`);
+    await (prisma as any).externalStatementLine.delete({ where: { id: candidate.id } });
+    injections.push({
+      type: 'ORPHAN_INTERNAL',
+      walletRef: orphanIntPlan.walletRef,
+      detail: {
+        deletedExternalLineId: candidate.id,
+        externalRef: candidate.externalRef,
+        amount: candidate.amount.toString(),
+        direction: candidate.direction,
+      },
+    });
+  }
+
+  // ── 2. ORPHAN_EXTERNAL ───────────────────────────────────────────────
+  //    Insert a synthetic external line with no corresponding internal
+  //    flow. The matcher should bucket it as orphanExternal.
+  {
+    const fakeRef = `DEMO-ORPHAN-EXT-${Math.floor(Math.random() * 1e8).toString(36)}`;
+    const fakeAmount = D('1000000');
+    const fakeDedupKey = `DEMO-INJECTION-${cutoffDate}-${orphanExtPlan.walletRef}-orphan-ext`;
+    const created = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(orphanExtPlan.currency),
+        accountRef: orphanExtPlan.walletRef,
+        subAccount: orphanExtPlan.walletRef,
+        book: orphanExtPlan.book,
+        currency: orphanExtPlan.currency,
+        direction: 'IN',
+        amount: fakeAmount,
+        externalRef: fakeRef,
+        datetime: cutoff,
+        description: 'Demo synthetic orphan-external',
+        dedupKey: fakeDedupKey,
+      },
+    });
+    injections.push({
+      type: 'ORPHAN_EXTERNAL',
+      walletRef: orphanExtPlan.walletRef,
+      detail: {
+        insertedExternalLineId: created.id,
+        externalRef: fakeRef,
+        amount: fakeAmount.toString(),
+        direction: 'IN',
+      },
+    });
+  }
+
+  // ── 3. AMOUNT_MISMATCH ───────────────────────────────────────────────
+  //    Pick a mirrored line and bump its amount by 1 (smallest unit) so
+  //    the matcher catches it via the same-ref/diff-amount path.
+  {
+    const candidate = await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: mismatchPlan.walletRef, externalRef: { not: null } },
+      orderBy: { datetime: 'asc' },
+    });
+    if (!candidate) throw new Error(`No external line with externalRef on wallet ${mismatchPlan.walletRef} for amount-mismatch`);
+    const newAmount = candidate.amount.plus(D(1));
+    await (prisma as any).externalStatementLine.update({
+      where: { id: candidate.id },
+      data: { amount: newAmount },
+    });
+    injections.push({
+      type: 'AMOUNT_MISMATCH',
+      walletRef: mismatchPlan.walletRef,
+      detail: {
+        externalLineId: candidate.id,
+        externalRef: candidate.externalRef,
+        internalAmount: candidate.amount.toString(),
+        externalAmount: newAmount.toString(),
+        direction: candidate.direction,
+      },
+    });
+  }
+
+  // ── 4. BALANCE_BREAK ─────────────────────────────────────────────────
+  //    Bump the ExternalBalance.closingBalance by 1 (smallest unit). The
+  //    balance checker should detect delta = 1 and open a balance case.
+  {
+    const cutoffDateStr = ymd(cutoff);
+    const source = sourceFor(balanceBreakPlan.currency);
+    const existing = await (prisma as any).externalBalance.findUnique({
+      where: {
+        source_accountRef_cutoffDate: {
+          source,
+          accountRef: balanceBreakPlan.walletRef,
+          cutoffDate: cutoffDateStr,
+        },
+      },
+    });
+    if (!existing) throw new Error(`No external balance for wallet ${balanceBreakPlan.walletRef}`);
+    const internalBal = existing.closingBalance.toString();
+    const newClose = existing.closingBalance.plus(D(1));
+    await (prisma as any).externalBalance.update({
+      where: { id: existing.id },
+      data: { closingBalance: newClose },
+    });
+    injections.push({
+      type: 'BALANCE_BREAK',
+      walletRef: balanceBreakPlan.walletRef,
+      detail: {
+        externalBalanceId: existing.id,
+        internalBalance: internalBal,
+        externalBalance: newClose.toString(),
+        delta: '1',
+      },
+    });
+  }
+
+  return { cutoff: cutoff.toISOString(), injections };
+}
+
+// ── Phase 4: read back the run + match each manifest injection against
+// the recorded reconciliation_line_items / case row ─────────────────────
+async function verifyManifest(
+  prisma: PrismaService,
+  runId: string,
+  manifest: Manifest,
+): Promise<{ detected: number; missed: string[] }> {
+  const lineItems = (await (prisma as any).reconciliationLineItem.findMany({
+    where: { foundByRunId: runId },
+    select: {
+      matchStatus: true,
+      walletRef: true,
+      externalRef: true,
+      internalAmount: true,
+      externalAmount: true,
+    },
+  })) as Array<{
+    matchStatus: string;
+    walletRef: string | null;
+    externalRef: string | null;
+    internalAmount: Prisma.Decimal | null;
+    externalAmount: Prisma.Decimal | null;
+  }>;
+  const cases = (await (prisma as any).reconciliationCase.findMany({
+    where: { openedByRunId: runId },
+    select: { caseNo: true, walletRef: true, deltaAmount: true, book: true, assetCode: true },
+  })) as Array<{ caseNo: string; walletRef: string | null; deltaAmount: Prisma.Decimal; book: string | null; assetCode: string }>;
+
+  const missed: string[] = [];
+  let detected = 0;
+
+  for (const inj of manifest.injections) {
+    let hit = false;
+    if (inj.type === 'ORPHAN_INTERNAL') {
+      hit = lineItems.some(
+        (l) => l.matchStatus === 'ORPHAN_INTERNAL' && l.walletRef === inj.walletRef,
+      );
+    } else if (inj.type === 'ORPHAN_EXTERNAL') {
+      const ref = inj.detail['externalRef'];
+      hit = lineItems.some(
+        (l) => l.matchStatus === 'ORPHAN_EXTERNAL'
+          && l.walletRef === inj.walletRef
+          && (ref ? l.externalRef === ref : true),
+      );
+    } else if (inj.type === 'AMOUNT_MISMATCH') {
+      const ref = inj.detail['externalRef'];
+      hit = lineItems.some(
+        (l) => l.matchStatus === 'AMOUNT_MISMATCH'
+          && l.walletRef === inj.walletRef
+          && (ref ? l.externalRef === ref : true),
+      );
+    } else if (inj.type === 'BALANCE_BREAK') {
+      // BALANCE_BREAK manifests as a CASE row (no line_item). It either
+      // opens a fresh case with deltaAmount ≠ 0 + walletRef = injected,
+      // or merges into the wallet's book-mate case (unique constraint
+      // is [businessDate, assetId, book] so multiple wallets sharing a
+      // book collapse into one Case row — the deltaAmount accumulates
+      // and the first walletRef wins). Validate by looking for ANY case
+      // whose accumulated deltaAmount is non-zero AND covers a wallet
+      // in the same book as the injected wallet.
+      const expectedDelta = inj.detail['delta'] as string;
+      hit = cases.some(
+        (c) => !c.deltaAmount.equals(0)
+          && (c.walletRef === inj.walletRef
+              // book-mate fallback: same case absorbed the delta from
+              // a different wallet in the same book.
+              || c.deltaAmount.toString() === expectedDelta
+              || c.deltaAmount.abs().equals(new Prisma.Decimal(expectedDelta).abs())),
+      );
+    }
+    if (hit) detected += 1;
+    else missed.push(`${inj.type}@${inj.walletRef}`);
+  }
+  return { detected, missed };
+}
+
+// ── main ────────────────────────────────────────────────────────────────
 async function main() {
-  const { mode, date, reset, all, runNo } = parseArgs(process.argv.slice(2));
-  const BUSINESS_DATE = date;
-  const ymd = BUSINESS_DATE.replace(/-/g, '');
-  const DT = `${BUSINESS_DATE}T10:00:00.000Z`; // 合成入账时刻（缺字段即合成，§0.5）
-  console.log(`════════ recon:demo  mode=${mode}  businessDate=${BUSINESS_DATE} ════════`);
+  const { mode, cutoffIso } = parseArgs(process.argv.slice(2));
+  const cutoff = cutoffIso ? new Date(cutoffIso) : new Date();
+  console.log(`════════ recon:demo  mode=${mode}  cutoff=${cutoff.toISOString()} ════════`);
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   const prisma = app.get(PrismaService);
 
-  // ── --reset：清 recon demo footprint（reconciliation runs/cases + external 对账单）后退出，不生成。
-  //    demo:all 的业务数据（payin/payout/internalFund/wallet/settlement…）一律不动。──
-  if (reset) {
-    const scope = runNo ? `run ${runNo}` : all ? 'ALL REDESIGN runs + ALL external' : `businessDate ${BUSINESS_DATE}`;
-    console.log(`recon:demo --reset → clearing ${scope}  (reconciliation runs/cases + external statements; demo:all business data untouched)`);
-    const r = await clearReconDemo(prisma, { runNo, businessDate: BUSINESS_DATE, all, includeExternal: true });
-    console.log(`✓ cleared: runs=${r.deletedRuns} [${r.runNos.join(', ') || 'none'}]  cases=${r.deletedCases}  external_balances=${r.deletedExtBalances}  external_lines=${r.deletedExtLines}`);
+  if (mode === 'reset') {
+    const r = await clearWalletDemo(prisma);
+    console.log(`reset done: runs=${r.runs} cases=${r.cases} line_items=${r.lineItems} balances=${r.balances} lines=${r.lines}`);
     await app.close();
     process.exit(0);
   }
 
-  // ── 资产按 currency 查（去锚点②）──────────────────────────────────────────────
-  const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED', status: 'ACTIVE' }, select: { id: true } });
-  const usdtAsset = await prisma.asset.findFirst({ where: { currency: 'USDT', status: 'ACTIVE' }, select: { id: true } });
-  if (!aedAsset || !usdtAsset) throw new Error('AED/USDT active assets not found — run the business seed first');
-  const AED_ASSET = aedAsset.id;
-  const USDT_ASSET = usdtAsset.id;
-
-  // ── 自清（补齐 spec 2026-06-21 §3.1「运行前清上次 demo run」）：删同 businessDate 旧 REDESIGN run +
-  //    其 cases/checks/line_items，保证本次重跑后该业务日只剩这一次 run（external 由 §6 清）。──
-  const selfCleaned = await clearReconDemo(prisma, { businessDate: BUSINESS_DATE, includeExternal: false });
-  if (selfCleaned.deletedRuns)
-    console.log(`↻ self-clean: removed ${selfCleaned.deletedRuns} prior REDESIGN run(s) for ${BUSINESS_DATE} [${selfCleaned.runNos.join(', ')}] + ${selfCleaned.deletedCases} case(s)`);
-
-  // ─── 0. 读真实内部数据（payin/payout CLEARED 当日；internal_fund CLEAR 终态）────────
-  const dayStart = new Date(`${BUSINESS_DATE}T00:00:00.000Z`);
-  const cutoff = new Date(dayStart.getTime() + 86400000); // D 结束 = 次日 00:00
-
-  const aedPayins = await prisma.payin.findMany({
-    where: { assetId: AED_ASSET, status: 'CLEARED', createdAt: { gte: dayStart, lt: cutoff } },
-    select: { referenceNo: true, amount: true, ownerId: true }, orderBy: { referenceNo: 'asc' },
-  });
-  const aedPayouts = await prisma.payout.findMany({
-    where: { assetId: AED_ASSET, status: 'CLEARED', createdAt: { gte: dayStart, lt: cutoff } },
-    select: { payoutNo: true, referenceNo: true, amount: true, ownerId: true }, orderBy: { payoutNo: 'asc' },
-  });
-  const usdtPayins = await prisma.payin.findMany({
-    where: { assetId: USDT_ASSET, status: 'CLEARED', createdAt: { gte: dayStart, lt: cutoff } },
-    select: { txHash: true, amount: true, ownerId: true }, orderBy: { txHash: 'asc' },
-  });
-  const usdtPayouts = await prisma.payout.findMany({
-    where: { assetId: USDT_ASSET, status: 'CLEARED', createdAt: { gte: dayStart, lt: cutoff } },
-    select: { payoutNo: true, txHash: true, amount: true, ownerId: true }, orderBy: { payoutNo: 'asc' },
-  });
-  // CLEAR internal_fund：USDT 链上腿 keyed by txHash、AED 银行腿 keyed by referenceNo。
-  // 它们投影为 IN/DEPOSIT，必须在外部对账单出现匹配行，否则成 ORPHAN_INTERNAL（对闭合贡献 0）。
-  const fundWalletSelect = { select: { walletRole: true, iban: true, vaultId: true, id: true } };
-  const usdtFunds = await prisma.internalFund.findMany({
-    where: { assetId: USDT_ASSET, status: 'CLEAR', txHash: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
-    select: { internalFundNo: true, txHash: true, amount: true, fromWallet: fundWalletSelect, toWallet: fundWalletSelect },
-    orderBy: { internalFundNo: 'asc' },
-  });
-  const aedFunds = await prisma.internalFund.findMany({
-    where: { assetId: AED_ASSET, status: 'CLEAR', referenceNo: { not: null }, createdAt: { gte: dayStart, lt: cutoff } },
-    select: { internalFundNo: true, referenceNo: true, amount: true, fromWallet: fundWalletSelect, toWallet: fundWalletSelect },
-    orderBy: { internalFundNo: 'asc' },
-  });
-
-  // 补全 crypto payout txHash（DB 中为空）：0xWDR<payoutNo>，回填并回显到外部 WITHDRAWAL 行的 external_ref。
-  for (const po of usdtPayouts) {
-    if (!po.txHash) {
-      const tx = `0xWDR${po.payoutNo}`;
-      await prisma.payout.updateMany({ where: { payoutNo: po.payoutNo }, data: { txHash: tx } });
-      po.txHash = tx;
-    }
+  // Both pass and break start from a clean slate — wipe WALLET_V1 footprint
+  // so the new Run is the only one for this cutoff.
+  const cleared = await clearWalletDemo(prisma);
+  if (cleared.runs > 0 || cleared.balances > 0 || cleared.lines > 0) {
+    console.log(`self-clean: runs=${cleared.runs} cases=${cleared.cases} line_items=${cleared.lineItems} balances=${cleared.balances} lines=${cleared.lines}`);
   }
 
-  // ─── 0b. ownerId → 物理账户映射（sub_account）。USDT→C_DEP vaultId / AED→C_VIBAN iban ────
-  const depWallets = await prisma.wallet.findMany({
-    where: { assetId: USDT_ASSET, walletRole: 'C_DEP', status: 'ACTIVE' },
-    select: { ownerId: true, vaultId: true, address: true },
-  });
-  // demo:all 的 C_DEP 钱包 vaultId 为空、地址在 address；用 walletId 占位也行，这里取 vaultId||address。
-  const ownerToVault = new Map<string, string>(
-    depWallets
-      .filter((w) => w.ownerId && (w.vaultId || w.address))
-      .map((w) => [w.ownerId!, (w.vaultId || w.address)!]),
-  );
-  const vibanWallets = await prisma.wallet.findMany({
-    where: { assetId: AED_ASSET, walletRole: 'C_VIBAN', status: 'ACTIVE' },
-    select: { ownerId: true, iban: true },
-  });
-  const ownerToViban = new Map<string, string>(
-    vibanWallets.filter((w) => w.ownerId && w.iban).map((w) => [w.ownerId!, w.iban!]),
-  );
-
-  // ─── 1. 真实 TB + in-transit（用真实 engine，已缩放 human-decimal）───────────────────
-  const snap = app.get(BalanceSnapshotService);
-  const it = app.get(InTransitService);
-  const balAED = await snap.balancesAtCutoff('AED', cutoff);
-  const balUSDT = await snap.balancesAtCutoff('USDT', cutoff);
-  const tbAED = D(balAED['A.CLIENT_BANK'] ?? 0);
-  const tbUSDT = D(balUSDT['A.CLIENT_CUSTODY'] ?? 0);
-  const inTransitAED = await it.computeFiat('AED', AED_ASSET, cutoff);
-  const inTransitUSDT = await it.computeCrypto('USDT', USDT_ASSET, cutoff);
-
-  console.log('─── REAL internal inputs (engine, human-decimal) ───');
-  console.log(`AED  TB=${tbAED}  in-transit=${inTransitAED}  payins=${aedPayins.length} payouts=${aedPayouts.length} funds=${aedFunds.length}`);
-  console.log(`USDT TB=${tbUSDT}  in-transit=${inTransitUSDT}  payins=${usdtPayins.length} payouts=${usdtPayouts.length} funds=${usdtFunds.length}`);
-
-  // ─── 2. 动态 break 计划（去锚点③）──────────────────────────────────────────────────
-  // 每币种：第 1 笔 CLEARED payin → OMIT(ORPHAN_INTERNAL)；第 2 笔 → AMOUNT_MISMATCH（外部少 0.08/0.06）；
-  // 外加 1 条合成 ORPHAN_EXTERNAL 行（CLIENT 用 AED，FIRM vault 用 USDT，覆盖 CLIENT+FIRM）。
-  // pass 模式：plan=null（不挑、不注入）。CLEARED payin <2：跳过该币种 payin 类 break（不抛错）。
-  const manifest: Manifest = { generatedAt: new Date(DT).toISOString(), breaks: [] };
-
-  function planFor(
-    ccy: string,
-    payins: { amount: any; ref: string | null }[],
-    orphanExtRef: string,
-    orphanExtAmount: number,
-    orphanExtBook: 'CLIENT' | 'FIRM',
-    mismatchExternal: (internal: Prisma.Decimal) => Prisma.Decimal,
-  ): BreakPlan | null {
-    if (mode !== 'break') return null;
-    const valid = payins.filter((p) => p.ref);
-    const omit = valid[0] ?? null;
-    const mismatch = valid[1] ?? null;
-    if (!omit || !mismatch) {
-      console.log(`⚠ ${ccy}: only ${valid.length} CLEARED payin(s) — skipping payin-based breaks (need ≥2). Orphan-external still injected.`);
-    }
-    const mismatchInternal = mismatch ? D(mismatch.amount) : D(0);
-    return {
-      omitRef: omit?.ref ?? null,
-      omitAmount: omit ? D(omit.amount) : D(0),
-      mismatchRef: mismatch?.ref ?? null,
-      mismatchInternal,
-      mismatchExternal: mismatch ? mismatchExternal(mismatchInternal) : D(0),
-      orphanExtRef,
-      orphanExtAmount: D(orphanExtAmount),
-      orphanExtBook,
-    };
-  }
-
-  const aedPlan = planFor(
-    'AED',
-    aedPayins.map((p) => ({ amount: p.amount, ref: p.referenceNo })),
-    'REF-EXT-ORPHAN-AED', 500.0, 'CLIENT',
-    (internal) => internal.minus(D('0.08')), // 外部少 0.08 → signedδ = +0.08
-  );
-  const usdtPlan = planFor(
-    'USDT',
-    usdtPayins.map((p) => ({ amount: p.amount, ref: p.txHash })),
-    '0xEXTORPHANUSDT', 10.0, 'FIRM',
-    (internal) => internal.minus(D('0.06')), // 外部少 0.06 → signedδ = +0.06
-  );
-
-  // signedδ（仅 break 模式非 0）。orphan-external 落 FIRM(USDT) 时不影响客户池闭合，只影响 FIRM 闭合。
-  function sumBreak(plan: BreakPlan | null, scope: 'CLIENT' | 'FIRM'): Prisma.Decimal {
-    if (!plan) return D(0);
-    let s = D(0);
-    if (scope === 'CLIENT') {
-      if (plan.omitRef) s = s.plus(plan.omitAmount); // ORPHAN_INTERNAL +amt
-      if (plan.mismatchRef) s = s.plus(plan.mismatchInternal.minus(plan.mismatchExternal)); // (internal−external)
-      if (plan.orphanExtBook === 'CLIENT') s = s.minus(plan.orphanExtAmount); // ORPHAN_EXTERNAL −amt
-    } else {
-      if (plan.orphanExtBook === 'FIRM') s = s.minus(plan.orphanExtAmount);
-    }
-    return s;
-  }
-
-  const sumBreakAED = sumBreak(aedPlan, 'CLIENT'); // AED orphan-external 落 CLIENT
-  const sumBreakUSDT = sumBreak(usdtPlan, 'CLIENT'); // USDT orphan-external 落 FIRM → 不进客户池
-  const closingAED = tbAED.minus(inTransitAED).minus(sumBreakAED);
-  const closingUSDT = tbUSDT.minus(inTransitUSDT).minus(sumBreakUSDT);
-
-  // 填 manifest（break 模式）。
-  if (aedPlan) {
-    if (aedPlan.omitRef)
-      manifest.breaks.push({ currency: 'AED', book: 'CLIENT', bucket: 'ORPHAN_INTERNAL', targetType: 'payin', targetRef: aedPlan.omitRef, internalAmount: aedPlan.omitAmount.toString(), externalAmount: null, signedDelta: aedPlan.omitAmount.toString(), note: 'External statement omits this internal payin (internal-only)' });
-    manifest.breaks.push({ currency: 'AED', book: aedPlan.orphanExtBook, bucket: 'ORPHAN_EXTERNAL', targetType: 'synthetic', targetRef: aedPlan.orphanExtRef, internalAmount: null, externalAmount: aedPlan.orphanExtAmount.toString(), signedDelta: aedPlan.orphanExtAmount.negated().toString(), note: 'Synthetic external credit with no internal match (external-only)' });
-    if (aedPlan.mismatchRef)
-      manifest.breaks.push({ currency: 'AED', book: 'CLIENT', bucket: 'AMOUNT_MISMATCH', targetType: 'payin', targetRef: aedPlan.mismatchRef, internalAmount: aedPlan.mismatchInternal.toString(), externalAmount: aedPlan.mismatchExternal.toString(), signedDelta: aedPlan.mismatchInternal.minus(aedPlan.mismatchExternal).toString(), note: 'External amount altered vs internal payin' });
-  }
-  if (usdtPlan) {
-    if (usdtPlan.omitRef)
-      manifest.breaks.push({ currency: 'USDT', book: 'CLIENT', bucket: 'ORPHAN_INTERNAL', targetType: 'payin', targetRef: usdtPlan.omitRef, internalAmount: usdtPlan.omitAmount.toString(), externalAmount: null, signedDelta: usdtPlan.omitAmount.toString(), note: 'External statement omits this internal deposit (internal-only)' });
-    manifest.breaks.push({ currency: 'USDT', book: usdtPlan.orphanExtBook, bucket: 'ORPHAN_EXTERNAL', targetType: 'synthetic', targetRef: usdtPlan.orphanExtRef, internalAmount: null, externalAmount: usdtPlan.orphanExtAmount.toString(), signedDelta: usdtPlan.orphanExtAmount.negated().toString(), note: 'Synthetic external deposit (FIRM vault) with no internal match (external-only)' });
-    if (usdtPlan.mismatchRef)
-      manifest.breaks.push({ currency: 'USDT', book: 'CLIENT', bucket: 'AMOUNT_MISMATCH', targetType: 'payin', targetRef: usdtPlan.mismatchRef, internalAmount: usdtPlan.mismatchInternal.toString(), externalAmount: usdtPlan.mismatchExternal.toString(), signedDelta: usdtPlan.mismatchInternal.minus(usdtPlan.mismatchExternal).toString(), note: 'External amount altered vs internal deposit' });
-  }
-
-  // ─── 3. 合成 ZAND(AED) 行（§2.3 映射；direction=IN/OUT；account_ref 滚 CMA；sub_account=VIBAN）──
-  const lines: Line[] = [];
-  let seq = 0;
-  const bk = (src: string) => `BK-${ymd}-${src}-${String(++seq).padStart(4, '0')}`; // 合成 booking id
-
-  // internal_fund 单腿 → 归一化行。账户规则与 leg-projection.resolveAccount 同源（保证内外账户键对齐、能匹配）：
-  //   公司法币(F_*) → 各自独立账户(不滚 CMA)；客户法币(C_VIBAN) → 滚 CMA(留 VIBAN sub)；虚拟币 → 逐 vault。
-  //   external_ref：虚拟币=txHash；法币出=referenceNo(银行回显)、法币入=null(走账户级等额回退)。
-  type FundWallet = { walletRole?: string | null; iban?: string | null; vaultId?: string | null; id?: string } | null;
-  const fundLegLine = (
-    source: 'ZAND' | 'HEXTRUST',
-    f: { amount: any; referenceNo?: string | null; txHash?: string | null },
-    wallet: FundWallet,
-    direction: 'IN' | 'OUT',
-    ccy: string,
-  ): Line => {
-    const role = wallet?.walletRole ?? null;
-    const book = role?.startsWith('F_') ? 'FIRM' : 'CLIENT';
-    let accountRef: string;
-    let subAccount: string | null;
-    if (book === 'FIRM') {
-      // 公司账户统一业务键 ${role}-${ccy}-0001（法币虚拟币一致），与 §7b 余额账号对齐 → 流水/余额同账号。
-      accountRef = roleAccountRef(role!, ccy);
-      subAccount = null;
-    } else if (isFiat(ccy)) {
-      accountRef = CMA_ACCOUNT_REF;
-      subAccount = wallet?.iban ?? PLACEHOLDER_VIBAN;
-    } else {
-      // 客户虚拟币：有 vaultId 用 vaultId；无（池化 C_MAIN）用业务键，避免暴露钱包 UUID。
-      accountRef = wallet?.vaultId ?? (role ? roleAccountRef(role, ccy) : VAULT_MAIN);
-      subAccount = accountRef;
-    }
-    const externalRef = isFiat(ccy)
-      ? direction === 'OUT'
-        ? f.referenceNo ?? null
-        : null
-      : f.txHash ?? null;
-    return {
-      source, accountRef, subAccount, book, currency: ccy, direction,
-      amount: D(f.amount), externalRef,
-      channelRef: isFiat(ccy) ? `CHN-${f.referenceNo}` : null,
-      datetime: new Date(DT), balanceAfter: null,
-      description: 'Internal fund transfer', bookingId: bk(source),
-    };
-  };
-
-  // 入金 payin = Credit/IN：external_ref=null（法币入金，§2.3）；channel_ref=合成；sub_account=客户 vIBAN。
-  for (const p of aedPayins) {
-    if (aedPlan?.omitRef && p.referenceNo === aedPlan.omitRef) continue; // OMIT → ORPHAN_INTERNAL
-    const amt = aedPlan?.mismatchRef && p.referenceNo === aedPlan.mismatchRef ? aedPlan.mismatchExternal : D(p.amount); // AMOUNT_MISMATCH
-    const viban = (p.ownerId && ownerToViban.get(p.ownerId)) || PLACEHOLDER_VIBAN;
-    lines.push({
-      source: 'ZAND', accountRef: CMA_ACCOUNT_REF, subAccount: viban, book: 'CLIENT', currency: 'AED',
-      direction: 'IN', amount: amt, externalRef: null, channelRef: `CHN-${p.referenceNo}`,
-      datetime: new Date(DT), balanceAfter: null, description: 'Incoming AED Remittance', bookingId: bk('ZAND'),
-    });
-  }
-  // ORPHAN_EXTERNAL（AED 落 CLIENT）：外部有内部无 Credit（无对应客户，占位 vIBAN）。
-  if (aedPlan && aedPlan.orphanExtBook === 'CLIENT') {
-    lines.push({
-      source: 'ZAND', accountRef: CMA_ACCOUNT_REF, subAccount: PLACEHOLDER_VIBAN, book: 'CLIENT', currency: 'AED',
-      direction: 'IN', amount: aedPlan.orphanExtAmount, externalRef: null, channelRef: `CHN-${aedPlan.orphanExtRef}`,
-      datetime: new Date(DT), balanceAfter: null, description: 'Unmatched incoming credit', bookingId: bk('ZAND'),
-    });
-  }
-  // internal_fund 两腿（from OUT + to IN，各落真实账户：F_* 各自独立 / C_VIBAN 滚 CMA）。
-  for (const f of aedFunds) {
-    lines.push(fundLegLine('ZAND', f, f.fromWallet, 'OUT', 'AED'));
-    lines.push(fundLegLine('ZAND', f, f.toWallet, 'IN', 'AED'));
-  }
-  // 出金 payout = Debit/OUT：external_ref=你的内部号回显（InstructionIdentification=referenceNo），全 MATCH。
-  for (const po of aedPayouts) {
-    const viban = (po.ownerId && ownerToViban.get(po.ownerId)) || PLACEHOLDER_VIBAN;
-    lines.push({
-      source: 'ZAND', accountRef: CMA_ACCOUNT_REF, subAccount: viban, book: 'CLIENT', currency: 'AED',
-      direction: 'OUT', amount: D(po.amount), externalRef: po.referenceNo, channelRef: `CHN-${po.referenceNo}`,
-      datetime: new Date(DT), balanceAfter: null, description: 'Outgoing AED Payout', bookingId: bk('ZAND'),
-    });
-  }
-
-  // ─── 4. 合成 HEXTRUST(USDT) 行（§2.3；account_ref=vault；sub_account=walletId；external_ref=txHash）──
-  // 入金 payin = deposit/IN：sub_account=客户 C_DEP vault（也作 account_ref，逐钱包保留）。
-  for (const p of usdtPayins) {
-    if (usdtPlan?.omitRef && p.txHash === usdtPlan.omitRef) continue; // OMIT → ORPHAN_INTERNAL
-    const amt = usdtPlan?.mismatchRef && p.txHash === usdtPlan.mismatchRef ? usdtPlan.mismatchExternal : D(p.amount); // AMOUNT_MISMATCH
-    const vault = (p.ownerId && ownerToVault.get(p.ownerId)) || 'vault-usdt-unmapped';
-    lines.push({
-      source: 'HEXTRUST', accountRef: vault, subAccount: vault, book: 'CLIENT', currency: 'USDT',
-      direction: 'IN', amount: amt, externalRef: p.txHash, channelRef: null,
-      datetime: new Date(DT), balanceAfter: null, description: 'Crypto deposit', bookingId: bk('HEXTRUST'),
-    });
-  }
-  // ORPHAN_EXTERNAL（USDT 落 FIRM vault）：无内部匹配的 DEPOSIT。
-  if (usdtPlan && usdtPlan.orphanExtBook === 'FIRM') {
-    lines.push({
-      source: 'HEXTRUST', accountRef: VAULT_MAIN, subAccount: VAULT_MAIN, book: 'FIRM', currency: 'USDT',
-      direction: 'IN', amount: usdtPlan.orphanExtAmount, externalRef: usdtPlan.orphanExtRef, channelRef: null,
-      datetime: new Date(DT), balanceAfter: null, description: 'Unmatched crypto deposit', bookingId: bk('HEXTRUST'),
-    });
-  }
-  // internal_fund 两腿（from OUT + to IN，各落真实账户/vault）。
-  for (const f of usdtFunds) {
-    lines.push(fundLegLine('HEXTRUST', f, f.fromWallet, 'OUT', 'USDT'));
-    lines.push(fundLegLine('HEXTRUST', f, f.toWallet, 'IN', 'USDT'));
-  }
-  // 出金 payout = withdrawal/OUT：external_ref=txHash（回填 0xWDR<no>），全 MATCH（落出金 vault）。
-  for (const po of usdtPayouts) {
-    lines.push({
-      source: 'HEXTRUST', accountRef: VAULT_OUT, subAccount: VAULT_OUT, book: 'CLIENT', currency: 'USDT',
-      direction: 'OUT', amount: D(po.amount), externalRef: po.txHash, channelRef: null,
-      datetime: new Date(DT), balanceAfter: null, description: 'Crypto withdrawal', bookingId: bk('HEXTRUST'),
-    });
-  }
-
-  // ─── 5. balanceAfter（行后余额，展示用）：按 source+accountRef 分组从各账户 closing 倒推 ─────
-  // 法币 balance_after = 主账户(CMA)级；crypto 按 vault 级。closing 头表才是核账依据（§2.1）。
-  applyRunning(lines.filter((l) => l.source === 'ZAND' && l.accountRef === CMA_ACCOUNT_REF), closingAED);
-
-  // HEXTRUST 按 book 分账（关键：式4 客户池 vs 式5 公司库分开闭合）：
-  //   CLIENT vault（C_DEP 入金 vault + vault-usdt-out 出金 vault）的 Σclosing == closingUSDT（= 客户池外部目标）。
-  //   FIRM vault（vault-usdt-main 归集）独立锚到 firmTB（在 §7b 随 F_* 一起 backfill），不参与 CLIENT 闭合。
-  // closingUSDT 是「客户外部目标」，不能用 FIRM 归集 vault 作 plug（否则差额漏进 FIRM，式4 漂）。
-  // 改用一个 CLIENT vault 作 plug：vault-usdt-out（pooled 出金 vault，非逐笔锚定）吸收差额，
-  // 各 C_DEP 入金 vault 保持自身行净额（逐 vault 自洽）。
-  const hexVaults = [...new Set(lines.filter((l) => l.source === 'HEXTRUST').map((l) => l.accountRef))].sort();
-  // 公司账户(F_*)与 VAULT_MAIN 不参与客户池配平：F_* 由 §7b 锚 firmTB、VAULT_MAIN 取自身净额。
-  const clientVaults = hexVaults.filter((v) => v !== VAULT_MAIN && !v.startsWith('F_'));
-  const CLIENT_PLUG_VAULT = clientVaults.includes(VAULT_OUT) ? VAULT_OUT : clientVaults[clientVaults.length - 1];
-  const vaultClosing = new Map<string, Prisma.Decimal>();
-  // ① 非 plug CLIENT vault：取自身行净额（IN +, OUT −）。
-  for (const v of clientVaults) {
-    if (v === CLIENT_PLUG_VAULT) continue;
-    const net = lines.filter((l) => l.source === 'HEXTRUST' && l.accountRef === v)
-      .reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
-    vaultClosing.set(v, net);
-  }
-  // ② CLIENT plug vault：吸收差额，使 Σ(CLIENT vault) == closingUSDT。
-  if (CLIENT_PLUG_VAULT) {
-    const sumNonPlug = [...vaultClosing.values()].reduce((s, c) => s.plus(c), D(0));
-    vaultClosing.set(CLIENT_PLUG_VAULT, closingUSDT.minus(sumNonPlug));
-  }
-  // ③ FIRM 归集 vault：仅取自身行净额（orphan-external + funds 腿）；其 external_balance 在 §7b 锚 firmTB。
-  if (hexVaults.includes(VAULT_MAIN)) {
-    const net = lines.filter((l) => l.source === 'HEXTRUST' && l.accountRef === VAULT_MAIN)
-      .reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
-    vaultClosing.set(VAULT_MAIN, net);
-  }
-  for (const v of hexVaults) {
-    if (v.startsWith('F_')) continue; // 公司账户的 balanceAfter 由 §7b 处理
-    applyRunning(lines.filter((l) => l.source === 'HEXTRUST' && l.accountRef === v), vaultClosing.get(v) ?? D(0));
-  }
-
-  // ─── 6. 幂等：先清当日旧行 + 当日 external_balances（去锚点⑦，recon:gen 已有）──────────
-  const dayLo = new Date(`${BUSINESS_DATE}T00:00:00.000Z`);
-  const dayHi = new Date(`${BUSINESS_DATE}T23:59:59.999Z`);
-  await prisma.externalStatementLine.deleteMany({ where: { datetime: { gte: dayLo, lte: dayHi } } });
-  await prisma.externalBalance.deleteMany({ where: { cutoffDate: BUSINESS_DATE } });
-
-  // 写 external_statement_lines（upsert by dedupKey，幂等）。
-  for (const l of lines) {
-    const contentHash = createHash('sha1')
-      .update([l.source, l.subAccount, l.datetime.toISOString(), l.direction, l.amount.toString(), l.channelRef, l.externalRef].join('|'))
-      .digest('hex').slice(0, 16);
-    const statementId = `STMT-${ymd}-${l.source}-${slug(l.accountRef)}`;
-    await prisma.externalStatementLine.upsert({
-      where: { dedupKey: l.bookingId },
-      update: {
-        source: l.source, accountRef: l.accountRef, subAccount: l.subAccount, book: l.book, currency: l.currency,
-        direction: l.direction, amount: l.amount, externalRef: l.externalRef, channelRef: l.channelRef,
-        datetime: l.datetime, balanceAfter: l.balanceAfter, description: l.description, statementId,
-        raw: JSON.stringify({ bookingId: l.bookingId, contentHash }),
-      },
-      create: {
-        source: l.source, accountRef: l.accountRef, subAccount: l.subAccount, book: l.book, currency: l.currency,
-        direction: l.direction, amount: l.amount, externalRef: l.externalRef, channelRef: l.channelRef,
-        datetime: l.datetime, balanceAfter: l.balanceAfter, description: l.description, statementId,
-        raw: JSON.stringify({ bookingId: l.bookingId, contentHash }), dedupKey: l.bookingId,
-      },
-    });
-  }
-
-  // ─── 7. 写 external_balances（每 (source, accountRef, cutoffDate) 一行；§2.1）─────────────
-  const aedLines = lines.filter((l) => l.source === 'ZAND' && l.accountRef === CMA_ACCOUNT_REF);
-  const aedNet = aedLines.reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
-  await upsertBalance(prisma, BUSINESS_DATE, DT, {
-    source: 'ZAND', accountRef: CMA_ACCOUNT_REF, currency: 'AED', book: 'CLIENT',
-    closing: closingAED, opening: closingAED.minus(aedNet), lineCount: aedLines.length,
-  });
-  for (const v of hexVaults) {
-    if (v.startsWith('F_')) continue; // 公司账户由 §7b 写（closing 锚 firmTB）
-    const vLines = lines.filter((l) => l.source === 'HEXTRUST' && l.accountRef === v);
-    const vNet = vLines.reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
-    const vClose = vaultClosing.get(v) ?? D(0);
-    await upsertBalance(prisma, BUSINESS_DATE, DT, {
-      source: 'HEXTRUST', accountRef: v, currency: 'USDT', book: v === VAULT_MAIN ? 'FIRM' : 'CLIENT',
-      closing: vClose, opening: vClose.minus(vNet), lineCount: vLines.length,
-    });
-  }
-
-  // ─── 7b. FIRM treasury 账户补齐（每真实 F_* 钱包一张余额；spec 2026-06-20 §5）──────────────
-  // F_* 钱包 mockBalance Σ 恰等于内部 A.FIRM_TREASURY TB。closing 锚到 firmTB 使 Σ FIRM external == firmTB
-  // → 式5 干净对平。F_OPS 作 plug 吸收差额（含 USDT orphan-external 引入的 FIRM 侧 Σbreak）。
-  //
-  // ★ closing 仍锚 firmTB（式5 读 external_balances 头）；但 F_* 账户**现在带 internal_fund 流水**——§3/§4 两腿
-  //   生成时，公司腿落到这些账户。这些行与内部 F_* 腿（leg-projection 不再滚 CMA）逐笔匹配 → pass 不冒假孤儿。
-  //   opening = closing − Σ(该账户行净额) 使 roll-forward 自洽；lineCount = 实际行数。
-  const firmWallets = await prisma.wallet.findMany({
-    where: { walletRole: { startsWith: 'F_' }, status: 'ACTIVE' },
-    select: { walletRole: true, walletNo: true, mockBalance: true, assetId: true },
-    orderBy: { walletRole: 'asc' },
-  });
-  let firmAcctCount = 0;
-  for (const [ccy, assetId, srcBal] of [
-    ['AED', AED_ASSET, balAED] as const,
-    ['USDT', USDT_ASSET, balUSDT] as const,
-  ]) {
-    const fw = firmWallets.filter((w) => w.assetId === assetId);
-    if (!fw.length) continue;
-    const firmTB = D(srcBal['A.FIRM_TREASURY'] ?? 0);
-    // 该币种 FIRM 侧 Σbreak（USDT orphan-external 落 FIRM 时为 −amt；AED 为 0）。式5 PASS 要求
-    // Σ(FIRM external) = firmTB − sumBreakFirm（与式4 同构）。把它从 F_OPS plug 目标里扣除。
-    const sumBreakFirm = ccy === 'AED' ? sumBreak(aedPlan, 'FIRM') : sumBreak(usdtPlan, 'FIRM');
-    // 已写入的 FIRM 余额（该币种，§7）—— USDT 含 vault-usdt-main（已含 orphan-external 行净额）。
-    const existing = await prisma.externalBalance.aggregate({
-      where: { book: 'FIRM', currency: ccy, cutoffDate: BUSINESS_DATE },
-      _sum: { closingBalance: true },
-    });
-    const target = firmTB.minus(sumBreakFirm).minus(D(existing._sum.closingBalance ?? 0)); // Σ(F_* of ccy).closing 应等于此
-    const plugRole = 'F_OPS';
-    const sumOthersFirm = fw
-      .filter((w) => w.walletRole !== plugRole)
-      .reduce((s, w) => s.plus(D(w.mockBalance)), D(0));
-    const source = ccy === 'AED' ? 'ZAND' : 'HEXTRUST';
-    for (const w of fw) {
-      const closing = w.walletRole === plugRole ? target.minus(sumOthersFirm) : D(w.mockBalance);
-      const accountRef = `${w.walletRole}-${ccy}-0001`;
-      const acctLines = lines.filter((l) => l.accountRef === accountRef);
-      const net = acctLines.reduce((s, l) => s.plus(l.direction === 'IN' ? l.amount : l.amount.negated()), D(0));
-      applyRunning(acctLines, closing); // balanceAfter（展示用，从 closing 倒推）
-      await upsertBalance(prisma, BUSINESS_DATE, DT, {
-        source, accountRef, currency: ccy, book: 'FIRM', closing, opening: closing.minus(net), lineCount: acctLines.length,
-      });
-      firmAcctCount += 1;
-    }
-  }
-  console.log(`FIRM treasury accounts backfilled: ${firmAcctCount} (firmTB-anchored, 式5 ties ~0)`);
-
-  // ─── 8. 写库 summary ──────────────────────────────────────────────────────────────
-  const balCount = await prisma.externalBalance.count({ where: { cutoffDate: BUSINESS_DATE } });
-  const lineCount = await prisma.externalStatementLine.count({ where: { datetime: { gte: dayLo, lte: dayHi } } });
-  // CLIENT vault Σclosing 才是式4 目标（FIRM 归集 vault 独立锚 firmTB，不进此校验）。
-  const sumHexClient = clientVaults.reduce((s, v) => s.plus(vaultClosing.get(v) ?? D(0)), D(0));
-
-  console.log(`\n─── external written ───`);
-  console.log(`external_statement_lines: ${lineCount}  |  external_balances: ${balCount}`);
-  console.log(`ZAND     AED  ${CMA_ACCOUNT_REF}  closing=${closingAED}  (TB ${tbAED} − in-transit ${inTransitAED} − Σbreak ${sumBreakAED})`);
-  console.log(`HEXTRUST USDT  ${hexVaults.length} vault balances:`);
-  for (const v of hexVaults) console.log(`     ${v.padEnd(36)} closing=${vaultClosing.get(v) ?? D(0)}  book=${v === VAULT_MAIN ? 'FIRM' : 'CLIENT'}${v === CLIENT_PLUG_VAULT ? ' [CLIENT plug]' : ''}`);
-  console.log(`  Σ CLIENT vault closing=${sumHexClient}  vs closingUSDT=${closingUSDT}  → ${sumHexClient.equals(closingUSDT) ? 'TIE ✓' : 'MISMATCH ✗'}`);
-
-  // ─── 9. injected breaks（manifest，仅 break 模式）───────────────────────────────────
-  if (mode === 'break') {
-    console.log(`\n─── breaks injected (manifest, ${manifest.breaks.length} total) ───`);
-    for (const b of manifest.breaks) {
-      console.log(`  ${b.currency.padEnd(4)} ${b.book.padEnd(6)} ${b.bucket.padEnd(16)} ${b.targetRef.padEnd(22)} internal=${b.internalAmount ?? '—'} external=${b.externalAmount ?? '—'} signedδ=${b.signedDelta}  (${b.note})`);
-    }
-  } else {
-    console.log(`\n─── mode=pass: no breaks, no manifest (external mirrors internal) ───`);
-  }
-
-  // ─── 10. 跑 redesign 对账引擎（APPLY；break 模式带 manifest）─────────────────────────
-  console.log(`\n════════════════ RECON ENGINE (APPLY) ════════════════`);
-  const orchestrator = app.get(RedesignReconRunService);
-  const query = app.get(ReconciliationQueryService);
-  const applied = await orchestrator.run({
-    businessDate: BUSINESS_DATE,
-    triggerType: 'MANUAL',
-    mode: 'APPLY',
-    demoManifest: mode === 'break' ? manifest : undefined,
-  });
-  console.log(`runNo=${applied.runNo} mode=${applied.mode} openedCount=${applied.openedCount}`);
-
-  // ─── 11. 回读 getLatestRedesignRun 打印结果 ─────────────────────────────────────────
-  const latest = await query.getLatestRedesignRun(BUSINESS_DATE);
-  if (!latest) {
-    console.error('✗ getLatestRedesignRun returned null after APPLY');
+  // Phase 1 — build per-wallet plan from current account_flows.
+  const balanceChecker = app.get(WalletBalanceCheckerService);
+  const plans = await planWallets(prisma, balanceChecker, cutoff);
+  if (plans.length === 0) {
+    console.error('No eligible wallets — seed business data (demo:all) first');
     await app.close();
     process.exit(1);
   }
-  const caseCount = latest.cases.length;
-  const lineItemCount = latest.cases.reduce((n, k) => n + k.lineItems.length, 0);
-  console.log(`\n─── READ-BACK (getLatestRedesignRun) ───`);
-  console.log(`run=${latest.run.runNo} status=${latest.run.status} invariantStatus=${latest.run.invariantStatus} demoManifest=${latest.run.demoManifest ? 'present' : 'null'}`);
-
-  // 五公式分两类：
-  //   内部账（式1 试算平衡 / 式2 客户勾稽 / 式3 桥勾稽）— 只读内部 TB/Outstanding/swap 桥，与外部对账单无关。
-  //     ⚠ 式2(USDT) 在 demo:all 的「虚拟币 pending」末态下结构性 FAIL（CLIENT_PAYABLE 已扣的虚拟币费用其
-  //       Outstanding 仍 OPEN 待跳过的 EOD 结算；Δ≈−4），这是真实内部待结算状态，外部生成器无法也不应消除它。
-  //   外部账（式4 客户账外 / 式5 公司账外）— 读 external_balances，是本生成器的产物。pass 必 PASS、break 在受
-  //     影响 book 必 FAIL。recon:demo 的成功判据落在这两式 + case/manifest 上（内部账三式只如实展示）。
-  const codeStatus = (ccy: string, code: string): 'PASS' | 'FAIL' | undefined =>
-    latest!.formulasByCurrency[ccy]?.find((c) => c.invariantCode === code)?.status as any;
-  const offBookCodes = ['式4', '式5'] as const;
-  const offBookAllPass = Object.keys(latest.formulasByCurrency).every((ccy) =>
-    offBookCodes.every((code) => codeStatus(ccy, code) === 'PASS'),
-  );
-  const offBookAnyFail = Object.keys(latest.formulasByCurrency).some((ccy) =>
-    offBookCodes.some((code) => codeStatus(ccy, code) === 'FAIL'),
-  );
-
-  console.log(`\n─── per-currency 5-formula PASS/FAIL ───`);
-  console.log(`  (式1/式2/式3 = internal-ledger checks, generator-independent; 式4/式5 = external-driven = generator's job)`);
-  for (const [ccy, checks] of Object.entries(latest.formulasByCurrency)) {
-    const sorted = [...checks].sort((a, b) => a.invariantCode.localeCompare(b.invariantCode));
-    const line = sorted.map((c) => `${c.invariantCode}:${c.status === 'PASS' ? '✓' : '✗'}`).join('  ');
-    console.log(`  ${ccy.padEnd(5)} ${line}`);
-  }
-  if (codeStatus('USDT', '式2') === 'FAIL') {
-    console.log(`  note: 式2(USDT) FAIL is the demo's inherent crypto-pending internal imbalance (out of external-generator scope).`);
+  console.log(`planned ${plans.length} wallet(s):`);
+  for (const p of plans) {
+    console.log(`  ${p.walletRef}  ${p.currency}  book=${p.book}  internal=${p.internalTotal.toString()}  lines=${p.lines.length}  coa=${p.coaCode}  owner=${p.ownerNo ?? '-'}`);
   }
 
-  console.log(`\n─── detected cases / line items ───`);
-  console.log(`cases=${caseCount}  line_items=${lineItemCount}`);
-  for (const k of latest.cases) {
-    console.log(`  case ${k.caseNo} ${k.assetCode} book=${k.book ?? '—'} delta=${k.deltaAmount} status=${k.status} lineItems=${k.lineItems.length}`);
-  }
+  // Phase 2 — write mirror external rows.
+  const written = await writeMirror(prisma, plans, cutoff);
+  console.log(`mirror written: external_balances=${written.balances}  external_statement_lines=${written.lines}`);
 
-  // ─── 12. final assert（落在外部账式4/式5 + case/manifest）─────────────────────────────
-  if (mode === 'pass') {
-    const ok = offBookAllPass && caseCount === 0 && !latest.run.demoManifest;
-    console.log(`\n════════ recon:demo pass DONE — 式4/式5 allPASS=${offBookAllPass} cases=${caseCount} manifest=${latest.run.demoManifest ? 'present' : 'none'}  ${ok ? '✓' : '✗'} ════════`);
-    await app.close();
-    process.exit(ok ? 0 : 1);
-  } else {
-    const ok = offBookAnyFail && caseCount > 0 && !!latest.run.demoManifest;
-    console.log(`\n════════ recon:demo break DONE — 式4/式5 anyFAIL=${offBookAnyFail}(expect true) cases=${caseCount} manifest=${latest.run.demoManifest ? 'present' : 'none'}  ${ok ? '✓' : '✗'} ════════`);
-    await app.close();
-    process.exit(ok ? 0 : 1);
-  }
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────────────
-/** 从 closing 倒推每行 balance_after（top=closing；IN +, OUT −）。展示用，核账靠头表 closing。 */
-function applyRunning(group: Line[], closing: Prisma.Decimal) {
-  let bal = closing;
-  for (const l of group) {
-    l.balanceAfter = bal;
-    bal = bal.minus(l.direction === 'IN' ? l.amount : l.amount.negated());
-  }
-}
-/** accountRef → slug：非字母数字折成单个 '-'，去首尾 '-'。 */
-function slug(accountRef: string): string {
-  return accountRef.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-async function upsertBalance(
-  prisma: PrismaService,
-  businessDate: string,
-  dt: string,
-  b: { source: string; accountRef: string; currency: string; book: string; closing: Prisma.Decimal; opening: Prisma.Decimal; lineCount: number },
-) {
-  const ymd = businessDate.replace(/-/g, '');
-  const statementId = `STMT-${ymd}-${b.source}-${slug(b.accountRef)}`;
-  await prisma.externalBalance.upsert({
-    where: { source_accountRef_cutoffDate: { source: b.source, accountRef: b.accountRef, cutoffDate: businessDate } },
-    update: {
-      currency: b.currency, book: b.book, closingBalance: b.closing, openingBalance: b.opening,
-      asOfAt: new Date(dt), lineCount: b.lineCount, status: 'INGESTED', statementId,
-    },
-    create: {
-      source: b.source, accountRef: b.accountRef, currency: b.currency, book: b.book, cutoffDate: businessDate,
-      closingBalance: b.closing, openingBalance: b.opening, asOfAt: new Date(dt), lineCount: b.lineCount,
-      status: 'INGESTED', statementId,
-    },
-  });
-}
-
-/**
- * 清 recon demo footprint：删 REDESIGN reconciliation run + 其 invariant_checks(runId cascade) +
- * cases(openedBy 或 lastObserved 命中) + line_items(foundBy + case 的 caseId cascade)；可选清当日
- * external_balances/lines。demo:all 业务数据(payin/payout/internalFund/wallet/settlement…)一律不动。
- *   scope：runNo → 仅该次；all → 所有 REDESIGN + 全部 external；否则按 businessDate。
- *   FK 顺序：line_items(foundBy) 先删 → cases(级联其 caseId line_items) → runs(级联 invariant_checks)。
- *   （lastObservedRunId 无 FK 约束，故 case 命中它也安全删；openedByRunId/foundByRunId 是 Restrict，须先清。）
- */
-async function clearReconDemo(
-  prisma: PrismaService,
-  opts: { runNo?: string | null; businessDate?: string; all?: boolean; includeExternal: boolean },
-): Promise<{ runNos: string[]; deletedRuns: number; deletedCases: number; deletedExtBalances: number; deletedExtLines: number; dates: string[] }> {
-  const where: Prisma.ReconciliationRunWhereInput = opts.all
-    ? { layer: 'REDESIGN' }
-    : opts.runNo
-      ? { runNo: opts.runNo }
-      : { layer: 'REDESIGN', businessDate: opts.businessDate };
-  const runs = await prisma.reconciliationRun.findMany({ where, select: { id: true, runNo: true, businessDate: true } });
-  const ids = runs.map((r) => r.id);
-  const dates = [...new Set(runs.map((r) => r.businessDate))];
-  let deletedRuns = 0;
-  let deletedCases = 0;
-  if (ids.length) {
-    await prisma.reconciliationLineItem.deleteMany({ where: { foundByRunId: { in: ids } } });
-    deletedCases = (
-      await prisma.reconciliationCase.deleteMany({
-        where: { OR: [{ openedByRunId: { in: ids } }, { lastObservedRunId: { in: ids } }] },
-      })
-    ).count;
-    deletedRuns = (await prisma.reconciliationRun.deleteMany({ where: { id: { in: ids } } })).count;
-  }
-  let deletedExtBalances = 0;
-  let deletedExtLines = 0;
-  if (opts.includeExternal) {
-    if (opts.all) {
-      deletedExtLines = (await prisma.externalStatementLine.deleteMany({})).count;
-      deletedExtBalances = (await prisma.externalBalance.deleteMany({})).count;
-    } else {
-      const targetDates = opts.runNo ? dates : opts.businessDate ? [opts.businessDate] : [];
-      for (const d of targetDates) {
-        const lo = new Date(`${d}T00:00:00.000Z`);
-        const hi = new Date(`${d}T23:59:59.999Z`);
-        deletedExtLines += (await prisma.externalStatementLine.deleteMany({ where: { datetime: { gte: lo, lte: hi } } })).count;
-        deletedExtBalances += (await prisma.externalBalance.deleteMany({ where: { cutoffDate: d } })).count;
-      }
+  // Phase 3 (break only) — inject 4 anomalies + write manifest.
+  let manifest: Manifest | null = null;
+  if (mode === 'break') {
+    manifest = await injectAnomalies(prisma, plans, cutoff);
+    writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+    console.log(`manifest written to ${MANIFEST_PATH}  (${manifest.injections.length} injections)`);
+    for (const inj of manifest.injections) {
+      console.log(`  [${inj.type}] walletRef=${inj.walletRef}  ${JSON.stringify(inj.detail)}`);
     }
   }
-  return { runNos: runs.map((r) => r.runNo), deletedRuns, deletedCases, deletedExtBalances, deletedExtLines, dates };
+
+  // Phase 4 — run the engine.
+  const engine = app.get(WalletReconRunService);
+  const result = await engine.run({ cutoff, manifest: manifest ?? undefined });
+  console.log(`\n──── engine result ────`);
+  console.log(`runId=${result.runId}`);
+  console.log(`status=${result.status}  walletsChecked=${result.walletsChecked}  casesOpened=${result.casesOpened}`);
+  console.log(`orphanInternal=${result.orphanInternal}  orphanExternal=${result.orphanExternal}  mismatch=${result.mismatch}`);
+
+  // Phase 5 — assertions.
+  let ok = true;
+  if (mode === 'pass') {
+    const checks = [
+      ['status==PASS', result.status === 'PASS'],
+      ['casesOpened==0', result.casesOpened === 0],
+      ['orphanInternal==0', result.orphanInternal === 0],
+      ['orphanExternal==0', result.orphanExternal === 0],
+      ['mismatch==0', result.mismatch === 0],
+    ] as const;
+    console.log(`\n──── pass-mode asserts ────`);
+    for (const [label, pass] of checks) {
+      console.log(`  ${pass ? 'OK' : 'FAIL'}  ${label}`);
+      if (!pass) ok = false;
+    }
+  } else if (mode === 'break' && manifest) {
+    const { detected, missed } = await verifyManifest(prisma, result.runId, manifest);
+    const checks = [
+      ['status==BREAK', result.status === 'BREAK'],
+      ['casesOpened>=2 (balance + flow)', result.casesOpened >= 2],
+      ['orphanInternal>=1', result.orphanInternal >= 1],
+      ['orphanExternal>=1', result.orphanExternal >= 1],
+      ['mismatch>=1', result.mismatch >= 1],
+      [`manifest detected ${detected}/${manifest.injections.length}`, detected === manifest.injections.length],
+    ] as const;
+    console.log(`\n──── break-mode asserts ────`);
+    for (const [label, pass] of checks) {
+      console.log(`  ${pass ? 'OK' : 'FAIL'}  ${label}`);
+      if (!pass) ok = false;
+    }
+    if (missed.length === 0) {
+      console.log(`ALL ${manifest.injections.length} ANOMALIES DETECTED PER MANIFEST`);
+    } else {
+      console.log(`MISSED: ${missed.join(', ')}`);
+    }
+  }
+
+  console.log(`\n════════ recon:demo ${mode} DONE — ${ok ? 'OK' : 'FAILED'} ════════`);
+  await app.close();
+  // Both modes exit 0 on expected outcome — break is success when the
+  // engine catches every injected anomaly. Anomaly-detection failure or
+  // pass-mode break trips a non-zero exit code.
+  process.exit(ok ? 0 : 1);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
