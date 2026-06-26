@@ -274,6 +274,7 @@ describe('DepositWorkflowService', () => {
         resolveTbAccountId: jest.fn(),
         executeTransfer: jest.fn().mockResolvedValue(undefined),
       };
+      depositService.findPayinByDepositId = jest.fn();
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -295,10 +296,17 @@ describe('DepositWorkflowService', () => {
       ownerType: 'CUSTOMER',
       amount: '100.50',
       traceId: 'trace-acc-1',
+      payinId: 'payin-acc-1',
       asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
     };
 
     it('STEP_1: debits CLIENT_ASSET/SYSTEM and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
+      payinsService.findOne.mockResolvedValue({
+        id: 'payin-acc-1',
+        toWalletId: 'wallet-acc-1',
+        txHash: '0xdeadbeef',
+        referenceNo: null,
+      });
       accountingService.resolveTbAccountId
         .mockResolvedValueOnce('tb-client-asset-id')   // debit: CLIENT_ASSET SYSTEM
         .mockResolvedValueOnce('tb-suspense-id');       // credit: DEPOSIT_SUSPENSE CUSTOMER
@@ -328,6 +336,34 @@ describe('DepositWorkflowService', () => {
           evidence: expect.objectContaining({
             debitCode: 'A.CLIENT_ASSET',
             creditCode: 'L.DEPOSIT_SUSPENSE',
+            // Phase B: both legs carry the customer's wallet, externalRef = txHash, crossing = true
+            debitWalletRef: 'wallet-acc-1',
+            creditWalletRef: 'wallet-acc-1',
+            externalRef: '0xdeadbeef',
+            isExternalCrossing: true,
+          }),
+        }),
+      );
+    });
+
+    it('STEP_1: falls back to payin.referenceNo when txHash is null', async () => {
+      payinsService.findOne.mockResolvedValue({
+        id: 'payin-acc-1',
+        toWalletId: 'wallet-acc-1',
+        txHash: null,
+        referenceNo: 'BANK-REF-XYZ',
+      });
+      accountingService.resolveTbAccountId
+        .mockResolvedValueOnce('tb-client-asset-id')
+        .mockResolvedValueOnce('tb-suspense-id');
+
+      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1');
+
+      expect(accountingService.executeTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            externalRef: 'BANK-REF-XYZ',
+            isExternalCrossing: true,
           }),
         }),
       );
@@ -360,6 +396,12 @@ describe('DepositWorkflowService', () => {
     });
 
     it('STEP_2: debits DEPOSIT_SUSPENSE/CUSTOMER and credits CLIENT_PAYABLE/CUSTOMER with DEPOSIT_SUSPENSE_TO_PAYABLE code', async () => {
+      payinsService.findOne.mockResolvedValue({
+        id: 'payin-acc-1',
+        toWalletId: 'wallet-acc-1',
+        txHash: '0xdeadbeef',
+        referenceNo: null,
+      });
       accountingService.resolveTbAccountId
         .mockResolvedValueOnce('tb-suspense-id')    // debit: DEPOSIT_SUSPENSE CUSTOMER
         .mockResolvedValueOnce('tb-payable-id');    // credit: CLIENT_PAYABLE CUSTOMER
@@ -388,6 +430,11 @@ describe('DepositWorkflowService', () => {
           evidence: expect.objectContaining({
             debitCode: 'L.DEPOSIT_SUSPENSE',
             creditCode: 'L.CLIENT_PAYABLE',
+            // Phase B: same wallet on both legs (pure ledger reclass), no external ref, not crossing
+            debitWalletRef: 'wallet-acc-1',
+            creditWalletRef: 'wallet-acc-1',
+            externalRef: null,
+            isExternalCrossing: false,
           }),
         }),
       );

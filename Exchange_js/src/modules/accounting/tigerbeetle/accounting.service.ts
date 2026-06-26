@@ -140,6 +140,11 @@ export class AccountingService {
       transferType: 'POSTED',
       debitTbAccountId: bigintToHex(params.debitAccountId),
       creditTbAccountId: bigintToHex(params.creditAccountId),
+      // Phase B forwarding: per-physical-wallet refs + external crossing flag (all optional)
+      debitWalletRef: params.evidence.debitWalletRef ?? null,
+      creditWalletRef: params.evidence.creditWalletRef ?? null,
+      externalRef: params.evidence.externalRef ?? null,
+      isExternalCrossing: params.evidence.isExternalCrossing ?? false,
     }, params.tx);
 
     return { tbTransferId: transferId };
@@ -202,6 +207,11 @@ export class AccountingService {
       transferType: 'PENDING',
       debitTbAccountId: bigintToHex(params.debitAccountId),
       creditTbAccountId: bigintToHex(params.creditAccountId),
+      // Phase B forwarding: per-physical-wallet refs + external crossing flag (all optional)
+      debitWalletRef: params.evidence.debitWalletRef ?? null,
+      creditWalletRef: params.evidence.creditWalletRef ?? null,
+      externalRef: params.evidence.externalRef ?? null,
+      isExternalCrossing: params.evidence.isExternalCrossing ?? false,
     }, params.tx);
 
     return { tbTransferId: transferId };

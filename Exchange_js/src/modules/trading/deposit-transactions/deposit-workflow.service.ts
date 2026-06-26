@@ -407,6 +407,13 @@ export class DepositWorkflowService implements OnModuleInit {
     const ledger = asset.tbLedgerId;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
+    // Phase B per-physical-wallet recon: every deposit traces back to a payin which
+    // pins the specific wallet that received the funds. Cheap indexed lookup.
+    const payin = deposit.payinId
+      ? await this.payinsService.findOne(deposit.payinId)
+      : null;
+    const walletRef: string | null = payin?.toWalletId ?? null;
+
     if (step === 'STEP_1') {
       // Real-time 1:1: debit the aggregate CLIENT_ASSET (SYSTEM), credit DEPOSIT_SUSPENSE (CUSTOMER)
       const debitAccountId = await this.accountingService.resolveTbAccountId({
@@ -438,6 +445,12 @@ export class DepositWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
           memo: 'Payin confirmed, funds in compliance hold (CLIENT_ASSET→DEPOSIT_SUSPENSE)',
+          // Phase B: inbound real-world recognition — both aggregate (CLIENT_ASSET) and
+          // SUSPENSE legs reference the specific wallet that received the on-chain / bank inbound.
+          debitWalletRef: walletRef,
+          creditWalletRef: walletRef,
+          externalRef: payin?.txHash ?? payin?.referenceNo ?? null,
+          isExternalCrossing: true,
         },
       });
 
@@ -473,6 +486,12 @@ export class DepositWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
           memo: 'Compliance approved, funds credited to client payable',
+          // Phase B: pure ledger reclass — money doesn't move physically, both legs sit on the same wallet,
+          // no external statement entry, not a real-world crossing.
+          debitWalletRef: walletRef,
+          creditWalletRef: walletRef,
+          externalRef: null,
+          isExternalCrossing: false,
         },
       });
 

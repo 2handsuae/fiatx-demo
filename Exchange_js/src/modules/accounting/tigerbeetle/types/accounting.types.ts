@@ -20,6 +20,14 @@ export interface EvidenceParams {
   actorType: string;
   actorId: string;
   memo?: string;
+  // Phase B per-physical-wallet reconciliation fields — all optional, backward compatible.
+  //   debit/creditWalletRef → which physical wallet each leg sits on
+  //   externalRef           → blockchain txHash / bank statement ref for legs that cross an external boundary
+  //   isExternalCrossing    → true only for legs whose movement actually appears on an external statement
+  debitWalletRef?: string | null;
+  creditWalletRef?: string | null;
+  externalRef?: string | null;
+  isExternalCrossing?: boolean;
 }
 
 export interface ExecuteTransferParams {
