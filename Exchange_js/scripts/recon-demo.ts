@@ -266,10 +266,13 @@ async function planWallets(
         direction: f.direction as 'IN' | 'OUT',
         amount: f.amount,
         externalRef: f.externalRef,
-        // Shift the external timestamp 0–60 min forward (within the
-        // matcher's fuzzy window). This proves the matcher's time-window
-        // fuzzy match works even when the ref equality already lands.
-        datetime: new Date(f.createdAt.getTime() + Math.floor(Math.random() * 60) * 60 * 1000),
+        // Shift the external timestamp 0–60 min BACKWARD (within the
+        // matcher's fuzzy window). Forward shift could push past `cutoff`
+        // (`new Date()`), causing `fetchExternalLinesForWallet`'s
+        // `datetime: { lte: cutoff }` filter to drop the line and the
+        // matcher to mark its internal counterpart as orphan. Backward
+        // shift exercises the same fuzzy-match path without that race.
+        datetime: new Date(f.createdAt.getTime() - Math.floor(Math.random() * 60) * 60 * 1000),
         sourceFlowId: f.id,
       })),
     });
