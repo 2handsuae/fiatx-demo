@@ -50,6 +50,42 @@ describe('TbEvidenceService', () => {
       });
     });
 
+    it('should persist debitWalletRef/creditWalletRef/externalRef/isExternalCrossing when provided', async () => {
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await service.writeEvidence({
+        ...params,
+        debitWalletRef: 'wallet-debit-001',
+        creditWalletRef: 'wallet-credit-002',
+        externalRef: '0xabcdef123456',
+        isExternalCrossing: true,
+      } as any);
+
+      expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          debitWalletRef: 'wallet-debit-001',
+          creditWalletRef: 'wallet-credit-002',
+          externalRef: '0xabcdef123456',
+          isExternalCrossing: true,
+        }),
+      });
+    });
+
+    it('should default the new wallet/external fields to null/false when omitted', async () => {
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await service.writeEvidence(params);
+
+      expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          debitWalletRef: null,
+          creditWalletRef: null,
+          externalRef: null,
+          isExternalCrossing: false,
+        }),
+      });
+    });
+
     it('should write to backlog on Prisma failure and rethrow the error', async () => {
       mockPrisma.tbTransferEvidence.create.mockRejectedValue(new Error('DB error'));
       mockPrisma.tbEvidenceBacklog.create.mockResolvedValue({});

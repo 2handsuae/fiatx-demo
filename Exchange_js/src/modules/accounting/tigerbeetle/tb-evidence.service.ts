@@ -21,6 +21,14 @@ interface WriteEvidenceParams {
   transferType?: string;
   debitTbAccountId?: string;
   creditTbAccountId?: string;
+  // Phase B per-physical-wallet reconciliation fields (all optional / default null|false):
+  //   debit/creditWalletRef → which physical wallet each leg sits on
+  //   externalRef           → blockchain txHash / bank statement ref when this leg crosses an external boundary
+  //   isExternalCrossing    → true only for legs whose movement actually appears on an external statement
+  debitWalletRef?: string | null;
+  creditWalletRef?: string | null;
+  externalRef?: string | null;
+  isExternalCrossing?: boolean;
 }
 
 @Injectable()
@@ -50,6 +58,10 @@ export class TbEvidenceService {
           transferType: params.transferType ?? 'POSTED',
           debitTbAccountId: params.debitTbAccountId ?? null,
           creditTbAccountId: params.creditTbAccountId ?? null,
+          debitWalletRef: params.debitWalletRef ?? null,
+          creditWalletRef: params.creditWalletRef ?? null,
+          externalRef: params.externalRef ?? null,
+          isExternalCrossing: params.isExternalCrossing ?? false,
         },
       });
     } catch (error: any) {

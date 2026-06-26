@@ -1744,6 +1744,14 @@ model TbTransferEvidence {
   memo         String?
   pendingId    String?                  // Related pending transfer hex ID
   transferType String   @default("POSTED") // POSTED | PENDING | POST_PENDING | VOID_PENDING | CORRECTING
+  // Phase B per-physical-wallet reconciliation:
+  // walletRef = physical wallet identifier each leg sits on (customer wallet id, or firm wallet code)
+  // externalRef = blockchain txHash / bank statement ref when this leg truly crosses an external boundary
+  // isExternalCrossing = true only for legs whose movement appears on an external statement (deposit credit, withdraw send)
+  debitWalletRef     String?
+  creditWalletRef    String?
+  externalRef        String?
+  isExternalCrossing Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   @@index([sourceType, sourceNo])
@@ -1752,6 +1760,9 @@ model TbTransferEvidence {
   @@index([assetCode])
   @@index([actorType, actorId])
   @@index([createdAt])
+  @@index([debitWalletRef])
+  @@index([creditWalletRef])
+  @@index([externalRef])
   @@map("tb_transfer_evidence")
 }
 
