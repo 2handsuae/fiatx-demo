@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../identity/access-control/admin-permission.guard';
@@ -6,6 +6,7 @@ import { RequirePermissions } from '../../../identity/access-control/require-per
 import { buildPermissionCode } from '../../../identity/access-control/permission-code.util';
 import { ReconciliationQueryService } from '../domain/reconciliation-query.service';
 import { ReconRunQueryDto, ReconCaseQueryDto, ReconExternalBalanceQueryDto } from '../dto/reconciliation.dto';
+import { WalletReconRunService } from '../workflow/wallet-recon-run.service';
 
 @ApiTags('Admin - Reconciliation (V8)')
 @ApiBearerAuth()
@@ -13,7 +14,20 @@ import { ReconRunQueryDto, ReconCaseQueryDto, ReconExternalBalanceQueryDto } fro
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class ReconciliationAdminController {
-  constructor(private readonly query: ReconciliationQueryService) {}
+  constructor(
+    private readonly query: ReconciliationQueryService,
+    private readonly walletReconRun: WalletReconRunService,
+  ) {}
+
+  @Post('runs/wallet')
+  @ApiOperation({ summary: 'Trigger a per-wallet reconciliation run (engineVersion=WALLET_V1)' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/runs/wallet'))
+  async createWalletRun(@Body() dto: { cutoff: string }) {
+    if (!dto?.cutoff) throw new BadRequestException('cutoff is required (ISO timestamp)');
+    const cutoff = new Date(dto.cutoff);
+    if (Number.isNaN(cutoff.getTime())) throw new BadRequestException('cutoff is not a valid ISO timestamp');
+    return this.walletReconRun.run({ cutoff });
+  }
 
   @Get('redesign/latest')
   @ApiOperation({ summary: 'Latest redesign reconciliation run (5-formula result + cases + 4-bucket line items)' })

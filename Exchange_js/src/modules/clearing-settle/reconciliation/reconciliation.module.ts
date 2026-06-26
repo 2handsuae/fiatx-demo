@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
+// Phase B / T7: WalletReconRunService needs TigerBeetleService for the
+// internal-identity pre-gate (mirrors scripts/verify-realtime-coa.ts).
+import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { BalanceSnapshotService } from './engine/balance-snapshot.service';
 import { InvariantCheckerService } from './engine/invariant-checker.service';
 import { CreditNetService } from './engine/credit-net.service';
@@ -25,11 +28,14 @@ import { ReconciliationQueryService } from './domain/reconciliation-query.servic
 import { ReconciliationRunWorkflowService } from './workflow/reconciliation-run-workflow.service';
 import { FormulaReconService } from './workflow/formula-recon.service';
 import { RedesignReconRunService } from './workflow/redesign-recon-run.service';
+import { WalletReconRunService } from './workflow/wallet-recon-run.service';
+import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
+import { WalletFlowMatcherService } from './engine/v2/wallet-flow-matcher.service';
 import { ReconciliationSweepService } from './sweep/reconciliation-sweep.service';
 import { ReconciliationAdminController } from './controllers/reconciliation-admin.controller';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule],
+  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule],
   controllers: [ReconciliationAdminController],
   providers: [
     BalanceSnapshotService, InvariantCheckerService, InTransitService, BalanceReconService,
@@ -42,7 +48,9 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
     ReconciliationRunService, ReconciliationCaseService, ReconciliationRecordService,
     ReconciliationRedesignRecordService, ReconciliationQueryService,
     ReconciliationRunWorkflowService, ReconciliationSweepService, RedesignReconRunService,
+    // Phase B / T7 — per-wallet engine
+    WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,
   ],
-  exports: [ReconciliationRunWorkflowService, RedesignReconRunService],
+  exports: [ReconciliationRunWorkflowService, RedesignReconRunService, WalletReconRunService],
 })
 export class ReconciliationModule {}

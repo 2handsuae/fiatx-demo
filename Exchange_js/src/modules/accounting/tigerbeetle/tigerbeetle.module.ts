@@ -23,6 +23,7 @@ import { AccountFlowProjectorService } from '../../clearing-settle/reconciliatio
     AccountFlowProjectorService,
   ],
   exports: [
+    TigerBeetleService,
     AccountingService,
     TbEvidenceService,
     TbAccountRegistryService,
