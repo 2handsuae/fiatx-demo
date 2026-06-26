@@ -144,13 +144,17 @@ export class TbAdminController {
   }
 
   @Get('account-statement')
-  @ApiOperation({ summary: 'Get account statement — by tbAccountId (any account), or customerNo+asset (legacy → CLIENT_PAYABLE)' })
+  @ApiOperation({ summary: 'Get account statement — by tbAccountId | walletRef (new) | customerNo+asset (legacy → CLIENT_PAYABLE)' })
   async getAccountStatement(
     @Query('tbAccountId') tbAccountId?: string,
+    @Query('walletRef') walletRef?: string,
     @Query('customerNo') customerNo?: string,
     @Query('assetCurrency') assetCurrency?: string,
+    @Query('crossingOnly') crossingOnly?: string,
   ) {
-    // Path 1 — any account by tbAccountId (the multi-account statement entry).
+    const wantCrossingOnly = crossingOnly === 'true' || crossingOnly === '1';
+
+    // Path 1 — by tbAccountId.
     if (tbAccountId) {
       const registry = await this.tbAccountRegistryService.findByTbAccountId(tbAccountId);
       if (!registry) {
@@ -158,11 +162,14 @@ export class TbAdminController {
       }
       const asset = await this.prisma.asset.findFirst({ where: { currency: registry.assetCode, status: 'ACTIVE' } });
       const decimals = asset?.decimals ?? 6;
-      const statement = await this.tbEvidenceService.getAccountStatement(tbAccountId);
+      const statement = await this.tbEvidenceService.getAccountStatement(tbAccountId, {
+        crossingOnly: wantCrossingOnly,
+      });
       return {
         ...statement,
         decimals,
         assetCurrency: registry.assetCode,
+        crossingOnly: wantCrossingOnly,
         account: {
           tbAccountId: registry.tbAccountId,
           code: registry.code,
@@ -174,9 +181,20 @@ export class TbAdminController {
       };
     }
 
-    // Path 2 — legacy: customerNo + assetCurrency → that customer's CLIENT_PAYABLE.
+    // Path 2 (NEW — T4) — by walletRef. Returns the combined flow of all
+    // account legs landing on this physical wallet (reads AccountFlow / T3).
+    if (walletRef) {
+      return this.tbEvidenceService.getWalletStatement(walletRef, {
+        crossingOnly: wantCrossingOnly,
+      });
+    }
+
+    // Path 3 — legacy: customerNo + assetCurrency → that customer's CLIENT_PAYABLE.
     if (!customerNo || !assetCurrency) {
-      throw new BadRequestException({ code: 'MISSING_PARAMS', message: 'tbAccountId, or customerNo + assetCurrency, is required' });
+      throw new BadRequestException({
+        code: 'MISSING_PARAMS',
+        message: 'tbAccountId, walletRef, or customerNo + assetCurrency, is required',
+      });
     }
 
     const ledger = TB_LEDGERS[assetCurrency as keyof typeof TB_LEDGERS];
@@ -202,7 +220,16 @@ export class TbAdminController {
       return { items: [], currentBalance: 0, customerNo, assetCurrency, decimals };
     }
 
-    const statement = await this.tbEvidenceService.getAccountStatement(registry.tbAccountId);
-    return { ...statement, customerNo, assetCurrency, decimals };
+    const statement = await this.tbEvidenceService.getAccountStatement(registry.tbAccountId, {
+      crossingOnly: wantCrossingOnly,
+    });
+    return { ...statement, customerNo, assetCurrency, decimals, crossingOnly: wantCrossingOnly };
+  }
+
+  @Get('wallets')
+  @ApiOperation({ summary: 'List distinct walletRefs from account_flows with owner info (T4)' })
+  async listWallets() {
+    const items = await this.tbEvidenceService.listWallets();
+    return { items };
   }
 }

@@ -239,7 +239,10 @@ export class TbEvidenceService {
     return { items, total };
   }
 
-  async getAccountStatement(tbAccountId: string): Promise<{
+  async getAccountStatement(
+    tbAccountId: string,
+    opts: { crossingOnly?: boolean } = {},
+  ): Promise<{
     items: Array<{
       tbTransferId: string;
       sourceType: string;
@@ -250,6 +253,8 @@ export class TbEvidenceService {
       runningBalance: number;
       assetCode: string;
       memo: string | null;
+      isExternalCrossing: boolean;
+      externalRef: string | null;
       createdAt: string;
     }>;
     currentBalance: number;
@@ -263,14 +268,17 @@ export class TbEvidenceService {
     });
     const isAsset = reg ? isAssetCode(reg.code) : false;
 
+    const where: any = {
+      transferType: 'POSTED',
+      OR: [
+        { creditTbAccountId: tbAccountId },
+        { debitTbAccountId: tbAccountId },
+      ],
+    };
+    if (opts.crossingOnly) where.isExternalCrossing = true;
+
     const rows = await (this.prisma as any).tbTransferEvidence.findMany({
-      where: {
-        transferType: 'POSTED',
-        OR: [
-          { creditTbAccountId: tbAccountId },
-          { debitTbAccountId: tbAccountId },
-        ],
-      },
+      where,
       orderBy: { createdAt: 'asc' },
     });
 
@@ -293,11 +301,315 @@ export class TbEvidenceService {
         runningBalance: balance,
         assetCode: row.assetCode,
         memo: row.memo,
+        isExternalCrossing: row.isExternalCrossing === true,
+        externalRef: row.externalRef ?? null,
         createdAt: row.createdAt,
       };
     });
 
     return { items, currentBalance: balance };
+  }
+
+  /**
+   * Phase B / T4: aggregate flow of all account legs landing on a single
+   * physical wallet (identified by `walletRef`). For a customer wallet this
+   * merges that customer's SUSPENSE + PAYABLE legs naturally — both legs
+   * carry the same walletRef per T2a's "same-ref" convention.
+   *
+   * Filters out aggregate-account legs (e.g. CLIENT_ASSET / FIRM_ASSET) whose
+   * registry owner does not match this wallet's owner — those legs share the
+   * walletRef purely for traceability, but their balance changes belong to
+   * the aggregate book, not to this wallet's view.
+   *
+   * Reads from the AccountFlow projection (T3) for O(1) indexed lookup.
+   */
+  async getWalletStatement(
+    walletRef: string,
+    opts: { crossingOnly?: boolean } = {},
+  ): Promise<{
+    items: Array<{
+      tbTransferId: string;
+      tbAccountId: string;
+      sourceType: string;
+      sourceNo: string;
+      eventCode: string;
+      direction: 'IN' | 'OUT';
+      amount: number;
+      runningBalance: number;
+      assetCode: string;
+      accountCode: number | null;
+      isExternalCrossing: boolean;
+      externalRef: string | null;
+      createdAt: string;
+    }>;
+    currentBalance: number;
+    walletRef: string;
+    account: {
+      walletRef: string;
+      ownerType: string | null;
+      ownerNo: string | null;
+      ownerName: string | null;
+      assetCode: string | null;
+    };
+    decimals: number;
+    assetCurrency: string | null;
+    crossingOnly: boolean;
+  }> {
+    // 1. Resolve the wallet → owner (so we can drop aggregate-account legs that
+    //    share the walletRef but don't belong to this wallet's view).
+    const wallet = await (this.prisma as any).wallet.findUnique({
+      where: { id: walletRef },
+      include: { asset: true },
+    });
+
+    // 2. Pull AccountFlow rows for this walletRef (POSTED only, optional crossing filter).
+    const where: any = { walletRef, transferType: 'POSTED' };
+    if (opts.crossingOnly) where.isExternalCrossing = true;
+    const flows = await (this.prisma as any).accountFlow.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 3. Resolve each row's tbAccountId → registry entry. The historical
+    //    backfill stores tbAccountId without the leading zero in some rows;
+    //    normalize to 32-char left-padded hex before lookup.
+    const padId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+    const accountIds = Array.from(
+      new Set(flows.map((f: any) => padId(String(f.tbAccountId)))),
+    ) as string[];
+    const registries = accountIds.length
+      ? await (this.prisma as any).tbAccountRegistry.findMany({
+          where: { tbAccountId: { in: accountIds } },
+        })
+      : [];
+    const regByPaddedId = new Map<string, any>(
+      registries.map((r: any) => [r.tbAccountId, r]),
+    );
+    const regOf = (id: string) => regByPaddedId.get(padId(String(id))) ?? null;
+
+    // 4. Drop rows whose account belongs to a DIFFERENT owner than this wallet.
+    //    Rows with no registry match are kept (we can't disprove ownership).
+    const ownerNo = wallet?.ownerNo ?? null;
+    const filtered = flows.filter((f: any) => {
+      const reg = regOf(f.tbAccountId);
+      if (!reg) return true;
+      if (!ownerNo) return true;
+      // Drop rows that hit a registry entry owned by someone else (the
+      // aggregate-account legs are SYSTEM-owned, not this customer).
+      if (reg.ownerType === 'CUSTOMER' && reg.ownerNo !== ownerNo) return false;
+      // For a customer wallet, drop SYSTEM-owned account legs (CLIENT_ASSET etc).
+      if (wallet?.ownerType === 'CUSTOMER' && reg.ownerType === 'SYSTEM') return false;
+      return true;
+    });
+
+    // 5. Compute class-aware direction and running balance.
+    //    The AccountFlow.direction field is set by the projector based on
+    //    debit/credit side (not class). For balance arithmetic we need the
+    //    class-aware "IN means balance up" view:
+    //      asset class (DEBIT-normal): debit side = balance up
+    //      L/E class  (CREDIT-normal): credit side = balance up
+    //    Translation: for an asset row, flip the projector's direction so the
+    //    rendered direction is the user-facing one.
+    let balance = 0;
+    const items = filtered.map((row: any) => {
+      const reg = regOf(row.tbAccountId);
+      const code = reg?.code ?? null;
+      const isAsset = code != null ? isAssetCode(code) : false;
+      // AccountFlow.direction: 'IN' = was on credit side; 'OUT' = was on debit side.
+      // For asset accounts we flip to keep "IN = balance up".
+      const projDirection = row.direction as 'IN' | 'OUT';
+      const direction: 'IN' | 'OUT' = isAsset
+        ? (projDirection === 'IN' ? 'OUT' : 'IN')
+        : projDirection;
+      const amount = Number(row.amount);
+      balance += direction === 'IN' ? amount : -amount;
+      return {
+        tbTransferId: row.tbTransferId,
+        tbAccountId: row.tbAccountId,
+        sourceType: row.sourceType,
+        sourceNo: row.sourceNo,
+        eventCode: row.eventCode,
+        direction,
+        amount,
+        runningBalance: balance,
+        assetCode: row.assetCode,
+        accountCode: code,
+        isExternalCrossing: row.isExternalCrossing === true,
+        externalRef: row.externalRef ?? null,
+        createdAt: row.createdAt,
+      };
+    });
+
+    // 6. Owner header — prefer the Wallet table; fall back to the most common
+    //    registry owner among the rows for defensiveness.
+    let ownerType: string | null = wallet?.ownerType ?? null;
+    let derivedOwnerNo: string | null = ownerNo;
+    let ownerName: string | null = null;
+    let assetCode: string | null = wallet?.asset?.currency ?? null;
+    if (!ownerType || !derivedOwnerNo) {
+      // Fallback: most common (ownerType, ownerNo) among row registry entries.
+      const tally = new Map<string, { count: number; reg: any }>();
+      for (const f of filtered) {
+        const reg = regOf(f.tbAccountId);
+        if (!reg) continue;
+        const k = `${reg.ownerType}:${reg.ownerNo ?? ''}`;
+        const prev = tally.get(k);
+        if (prev) prev.count += 1;
+        else tally.set(k, { count: 1, reg });
+      }
+      let topReg: any = null;
+      let topCount = 0;
+      for (const v of tally.values()) {
+        if (v.count > topCount) {
+          topCount = v.count;
+          topReg = v.reg;
+        }
+      }
+      if (topReg) {
+        ownerType = ownerType ?? topReg.ownerType;
+        derivedOwnerNo = derivedOwnerNo ?? topReg.ownerNo;
+        ownerName = topReg.ownerName ?? null;
+        assetCode = assetCode ?? topReg.assetCode ?? null;
+      }
+    }
+    if (!ownerName && derivedOwnerNo) {
+      // Resolve customer name from CustomerMain for nicer header labels.
+      const cust = await (this.prisma as any).customerMain.findFirst({
+        where: { customerNo: derivedOwnerNo },
+        select: { firstName: true, lastName: true },
+      });
+      if (cust) {
+        ownerName = [cust.firstName, cust.lastName].filter(Boolean).join(' ') || null;
+      }
+    }
+
+    // 7. Decimal scaling — assets table by currency.
+    let decimals = 6;
+    if (assetCode) {
+      const asset = await (this.prisma as any).asset.findFirst({
+        where: { currency: assetCode, status: 'ACTIVE' },
+        select: { decimals: true },
+      });
+      if (asset?.decimals != null) decimals = asset.decimals;
+    }
+
+    return {
+      items,
+      currentBalance: balance,
+      walletRef,
+      account: {
+        walletRef,
+        ownerType,
+        ownerNo: derivedOwnerNo,
+        ownerName,
+        assetCode,
+      },
+      decimals,
+      assetCurrency: assetCode,
+      crossingOnly: opts.crossingOnly === true,
+    };
+  }
+
+  /**
+   * Phase B / T4: list distinct walletRefs from account_flows with their owner
+   * info (joined via tbAccountRegistry → Wallet). Drives the "Wallets" mode in
+   * the Account Statement page's left panel.
+   */
+  async listWallets(): Promise<Array<{
+    walletRef: string;
+    ownerType: string | null;
+    ownerNo: string | null;
+    ownerName: string | null;
+    assetCodes: string[];
+    walletRole: string | null;
+    flowCount: number;
+  }>> {
+    // 1. Distinct walletRefs + per-ref flow counts.
+    const rows = await (this.prisma as any).accountFlow.groupBy({
+      by: ['walletRef'],
+      where: { walletRef: { not: null } },
+      _count: { _all: true },
+    });
+    const walletRefs: string[] = rows
+      .map((r: any) => r.walletRef)
+      .filter((x: any): x is string => typeof x === 'string' && x.length > 0);
+    if (walletRefs.length === 0) return [];
+
+    // 2. Resolve owners from Wallet table.
+    const wallets = await (this.prisma as any).wallet.findMany({
+      where: { id: { in: walletRefs } },
+      include: { asset: true },
+    });
+    const walletById = new Map<string, any>(wallets.map((w: any) => [w.id, w]));
+
+    // 3. For each walletRef, gather the set of asset currencies seen in its flows.
+    //    (Customer wallets are single-currency; firm wallets too. But we still
+    //    aggregate defensively in case a wallet UUID is reused across assets.)
+    const flowAssetRows = await (this.prisma as any).accountFlow.groupBy({
+      by: ['walletRef', 'assetCode'],
+      where: { walletRef: { in: walletRefs } },
+    });
+    const assetsByWalletRef = new Map<string, Set<string>>();
+    for (const r of flowAssetRows as any[]) {
+      if (!r.walletRef) continue;
+      let s = assetsByWalletRef.get(r.walletRef);
+      if (!s) {
+        s = new Set();
+        assetsByWalletRef.set(r.walletRef, s);
+      }
+      if (r.assetCode) s.add(r.assetCode);
+    }
+
+    // 4. Resolve customer names for CUSTOMER wallets.
+    const customerNos = Array.from(
+      new Set(
+        wallets
+          .filter((w: any) => w.ownerType === 'CUSTOMER' && w.ownerNo)
+          .map((w: any) => w.ownerNo as string),
+      ),
+    );
+    const customers = customerNos.length
+      ? await (this.prisma as any).customerMain.findMany({
+          where: { customerNo: { in: customerNos } },
+          select: { customerNo: true, firstName: true, lastName: true },
+        })
+      : [];
+    const custNameByNo = new Map<string, string>(
+      customers.map((c: any) => [
+        c.customerNo,
+        [c.firstName, c.lastName].filter(Boolean).join(' '),
+      ]),
+    );
+
+    const countByRef = new Map<string, number>(
+      rows.map((r: any) => [r.walletRef as string, r._count._all as number]),
+    );
+
+    return walletRefs
+      .map((ref) => {
+        const w = walletById.get(ref);
+        const assetCodes = Array.from(assetsByWalletRef.get(ref) ?? []).sort();
+        const ownerName = w?.ownerType === 'CUSTOMER' && w?.ownerNo
+          ? (custNameByNo.get(w.ownerNo) || null)
+          : null;
+        return {
+          walletRef: ref,
+          ownerType: w?.ownerType ?? null,
+          ownerNo: w?.ownerNo ?? null,
+          ownerName,
+          assetCodes,
+          walletRole: w?.walletRole ?? null,
+          flowCount: countByRef.get(ref) ?? 0,
+        };
+      })
+      .sort((a, b) => {
+        // CUSTOMER first, then SYSTEM, then unknown; within each by ownerNo.
+        const rank = (x: string | null) =>
+          x === 'CUSTOMER' ? 0 : x === 'SYSTEM' ? 1 : 2;
+        const r = rank(a.ownerType) - rank(b.ownerType);
+        if (r !== 0) return r;
+        return (a.ownerNo ?? '').localeCompare(b.ownerNo ?? '');
+      });
   }
 
   async findBacklog(filters: {
