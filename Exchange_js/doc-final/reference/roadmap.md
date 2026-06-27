@@ -206,7 +206,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **虚拟币提现工作流** — **VARA + 业务**：CRM Rulebook II.A CDD + TIR Rulebook Schedule 1
 
-- [x] Happy Path：客户提交提现 → L1 Eligibility（assertTradingEligibility pre-creation）→ Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_PAYABLE→CUSTODY net + fee）→ L2 Transaction Screen（Pre-KYT + Travel Rule 并行）→ 全部 PASSED → 自动审批 APPROVED → 创建 Payout → Payout 确认（txHash）→ TB post pending transfer 结算 → L3 Post-Tx Archive（fire-and-forget txHash 归档）→ Withdraw SUCCESS ✅ 2026-05-30
+- [x] Happy Path：客户提交提现 → L1 Eligibility（assertTradingEligibility pre-creation）→ Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_PAYABLE→CLIENT_ASSET net + fee，real-time 1:1）→ L2 Transaction Screen（Pre-KYT + Travel Rule 并行）→ 全部 PASSED → 自动审批 APPROVED → 创建 Payout → Payout 确认（txHash）→ TB post pending + 公司侧 `FIRM_ASSET→FIRM_FEE` 同笔收取 fee → L3 Post-Tx Archive（fire-and-forget txHash 归档）→ Withdraw SUCCESS ✅ 2026-05-30
 - [ ] 异常分支 — KYT 高风险地址：目标地址高风险 → 提现挂起 FROZEN → MLRO 审批门 → 放行恢复广播 / 拒绝解锁余额（TB void pending）
 - [ ] 异常分支 — 制裁地址拦截：目标地址命中 OFAC/SDN → 强制取消 → 余额解锁（TB void pending）→ MLRO 审计确认 → SAR
 - [ ] 异常分支 — 链上失败：stuck/failed tx → 超时后重试加速 / 取消 → 余额解锁退回（TB void pending）
@@ -216,13 +216,13 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **法币提现工作流** — **VARA + 业务**：同上
 
-- [x] Happy Path：客户提交法币提现 → L1 Eligibility → Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_PAYABLE→BANK net + fee）→ L2 Transaction Screen（Pre-KYT PENDING + TR NOT_REQUIRED）→ Pre-KYT PASSED → 自动审批 → 创建 Payout（FIAT）→ 银行到账确认 → TB post → Withdraw SUCCESS ✅ 2026-05-31
+- [x] Happy Path：客户提交法币提现 → L1 Eligibility → Withdraw CREATED → TB pending transfer 锁定余额（CLIENT_PAYABLE→CLIENT_ASSET net + fee，real-time 1:1）→ L2 Transaction Screen（Pre-KYT PENDING + TR NOT_REQUIRED）→ Pre-KYT PASSED → 自动审批 → 创建 Payout（FIAT）→ 银行到账确认 → TB post + 公司侧 `FIRM_ASSET→FIRM_FEE` 同笔收取 fee → Withdraw SUCCESS ✅ 2026-05-31
 - [ ] 异常分支 — KYT 高风险受益人：大额/结构化汇款/高风险受益人 → FROZEN → MLRO 审批门 → 放行 / 拒绝解锁余额（TB void pending）
 - [ ] 异常分支 — 制裁命中：受益人银行/国家命中制裁名单 → 强制取消 → 余额解锁（TB void pending）→ MLRO 审计确认 → SAR
 - [ ] 异常分支 — 银行退回（bounced）：银行退汇 → 余额恢复记账（TB void pending）→ 通知客户 → 审计记录
 - [ ] 异常分支 — REJECTED：管理员拒绝 → TB void pending 解锁余额 → 通知客户
 
-> 法币 vs 虚拟币差异：① TB 账户：法币 BANK（code 1），虚拟币 CUSTODY（code 10）；② Travel Rule：法币自动 NOT_REQUIRED；③ L3 Archive：法币无（仅虚拟币有 txHash 归档）；④ KYT/制裁/REJECTED 异常路径共享同一 workflow 逻辑，仅触发场景不同（IBAN+受益人 vs 链上地址）；⑤ 法币独有：银行退回（bounced），虚拟币独有：链上失败（stuck/failed tx）
+> 法币 vs 虚拟币差异：① Travel Rule：法币自动 NOT_REQUIRED；② L3 Archive：法币无（仅虚拟币有 txHash 归档）；③ KYT/制裁/REJECTED 异常路径共享同一 workflow 逻辑，仅触发场景不同（IBAN+受益人 vs 链上地址）；④ 法币独有：银行退回（bounced），虚拟币独有：链上失败（stuck/failed tx）（TB 账户统一 `CLIENT_ASSET`，按 ledger 区分资产）
 
 **提现费率配置治理** — **业务必须**：费率结构变更的受控审批路径
 
@@ -246,7 +246,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 **已完成：**
 - **Withdraw 事件驱动编排** — WithdrawWorkflowService 三层合规架构：CREATED → L2 initializeTransactionScreen（Pre-KYT + TR）→ checkScreenPass convergence → APPROVED → Payout → handlePayoutConfirmed → finalizeWithdrawal → L3 archivePostKyt（crypto only）→ SUCCESS；事件：WITHDRAWAL_CREATED / KYT_UPDATED / TRAVELRULE_UPDATED / PAYOUT_STATUS_CONFIRMED ✅ 2026-05-31
-- **TB pending transfer 记账** — 创建时锁定余额（create pending net + fee），成功时结算（post pending），失败/拒绝时解锁（void pending）；法币用 BANK 账户码（code 1），虚拟币用 CUSTODY（code 10）；decimalToBigint 精度转换 ✅ 2026-05-31
+- **TB pending transfer 记账** — 创建时锁定余额（create pending net + fee），成功时结算（post pending），失败/拒绝时解锁（void pending）；客户侧统一 `CLIENT_PAYABLE↔CLIENT_ASSET`（real-time 1:1，按 ledger 区分资产）；post 时公司侧同笔 `FIRM_ASSET→FIRM_FEE` 收取 fee（无 FEE_RECEIVABLE 中转、无 EOD drain）；decimalToBigint 精度转换 ✅ 2026-05-31
 - **模拟端点** — `POST /withdraw-transactions/:id/simulate/kyt-phase1` + `kyt-phase2` + `travel-rule` + `payout-confirmed`，DEV 阶段模拟合规结果与链上确认；法币和虚拟币共用同一组端点 ✅ 2026-05-30
 - **Admin 提现页面** — Withdraw 列表/详情（含 L1/L2/L3 合规层卡片、Payout 关联、状态历史时间线）+ Payout 列表/详情 + Withdrawal Fee Level 列表/详情（含 TierEditor、Create/Change/Bind Modal），深色主题 ✅ 2026-05-31
 - **Client 提现页面** — 三 Tab（Crypto/Fiat/History）：资产选择 → 地址选择/手动输入 → 金额输入含费用预览 → 确认弹窗 → 提交；History 列表含状态筛选 ✅ 2026-05-30
@@ -258,6 +258,9 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 **已完成（追加）：**
 - **大额审批门** — 提现毛额 ≥ 200,000 AED（Binance 市场汇率估值，fail-closed）触发 SENIOR_MANAGEMENT_OFFICER 单步审批（48h），门置于 L2 合规之前；新增 `PENDING_APPROVAL` 态 + `WITHDRAW_LARGE_VALUE_APPROVAL` 审批类型；批准→进合规 / 拒绝→void TB pending 解锁；估值快照（grossAedValue/aedRate/...）落库 + Admin Approval Gate 卡片。设计/计划见 `doc-final/superpowers/specs/2026-06-01-withdraw-large-value-approval-gate-design.md`。兑换流程经评估**不设**审批门（资金不出境）。✅ 2026-06-01
 
+- **提现资金单结构** — 一笔提现 = 1 Payout(本金) + 1 fee InternalFund（fee fund 仅 PAYOUT_PENDING 创建）；无独立的本金跟踪单 ✅ 2026-06-26
+- **对账 evidence 字段** — NET_POST / FEE_POST / FEE_FIRM evidence 携带 `walletRef` + `externalRef`；FEE_POST 与 FEE_FIRM 共享同一 externalRef，支持跨钱包同 ref 互证 ✅ 2026-06-26
+
 **待实现：**
 - **Sumsub KYT/TR 真实集成** — 替换模拟端点，走 Sumsub webhook 翻译层；L3 archivePostKyt stub 替换为真实 PATCH /kyt/txns/{id}/data/info 调用
 - **热钱包余额校验** — Payout 前检查 Outbound Wallet 余额，不足时显式失败
@@ -268,7 +271,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ## V6 — 兑换流程
 
-> 报价中心、Quote 创建与消费、兑换成交、未达成项创建，以及费率与货币对的治理工作流。兑换为平台内余额交换，资金不出境、无外部对手方，合规仅 L1 Eligibility 同步闸门；成交为同步原子操作，未达成项交 V7 EOD 结算。
+> 报价中心、Quote 创建与消费、兑换成交，以及费率与货币对的治理工作流。兑换为平台内余额交换，资金不出境、无外部对手方，合规仅 L1 Eligibility 同步闸门；成交为 4 腿 per-leg two-phase 实时多腿记账，无未达成项概念。
 
 **前置：** V2 + V3
 
@@ -277,8 +280,8 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 **主流程：**
 
 - [x] 报价工作流（客户请求 from/to CCY + 金额 → SwapQuoteService 解析 SwapFeeLevel 最优费率 + BinanceRateProvider 实时汇率 → PricingEngine 计算 amountOut/spread/fee → Quote 创建含 30s TTL → 客户确认触发成交 / 取消 → CANCELLED） — **业务必须** ✅ 2026-06-01
-- [x] 兑换成交工作流 Happy Path（L1 Eligibility 闸门（assertTradingEligibility，pre-creation 同步）→ 消费 Quote → TB 三腿 pending+post 记账：CLIENT_PAYABLE→TRADE_CLEARING（from 锁定）/ TRADE_CLEARING→CLIENT_PAYABLE（to net 入账）/ TRADE_CLEARING→FEE_RECEIVABLE（fee）→ L1 create SUCCESS + TB transfer refs → Outstanding 两腿创建 → 业务审计；SwapWorkflowService 同步原子三层架构：L1 SwapTransactionsService + L3 SwapWorkflowService） — **VARA + 业务**：CRM Rulebook II.A CDD ✅ 2026-06-01
-  - [ ] 异常分支 — 执行失败回滚（TB best-effort void 补偿已内置于 executeSwap；独立 FAILED 状态机待定）
+- [x] 兑换成交工作流 Happy Path（L1 Eligibility 闸门（assertTradingEligibility，pre-creation 同步）→ 消费 Quote → swap 进 PROCESSING，`SwapSettlementService.start()` 按 `swap-leg-plan.constant.ts` 创建 4 个 InternalFund 腿（挂 swapTransactionId+legSeq，不走白名单），leg1 自动 initiate pending，leg 2-4 lazy（admin `POST .../legs/:legSeq/advance` 推）→ per-leg two-phase pending→post（成功）/ void（失败）→ 4 腿全 CLEAR 即 SUCCESS；客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE` 实时记账；三层架构 L1 SwapTransactionsService + L3 SwapWorkflowService + L2 SwapSettlementService） — **VARA + 业务**：CRM Rulebook II.A CDD ✅ 2026-06-01
+  - [ ] 异常分支 — 执行失败回滚（TB best-effort void 补偿已内置；失败 swap 可经 admin `POST .../reverse` 整笔冲正到 REVERSED 终态；自动 FAILED 状态机仍 deferred）
   - [ ] 异常分支 — 大额/可疑兑换 COMPLIANCE_HOLD → MLRO（**设计偏离：swap 资金不出境，现为同步 eligibility-only，无异步合规闸门；此项待确认是否适用**）
 
 **兑换费率配置治理：** — **VARA + 业务**：CRM Rulebook II.C Risk-Based Approach
@@ -291,7 +294,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 - [ ] 交易暂停 / 恢复工作流（指定货币对或全局暂停：已在途 Quote 强制 EXPIRED → Maker 提案 + Checker 审批；恢复时同样需审批门；全程审计） — **业务必须**
 
-> 不单做工作流（技术处理 / 主流程内嵌）：余额不足 / 客户暂停 / Tier 限额 → 前置校验失败不创建订单；Quote TTL 过期 → Cron sweep 标 EXPIRED；未达成项创建 → 成交工作流内嵌步骤（交 V7 EOD 结算）。
+> 不单做工作流（技术处理 / 主流程内嵌）：余额不足 / 客户暂停 / Tier 限额 → 前置校验失败不创建订单；Quote TTL 过期 → Cron sweep 标 EXPIRED；4 腿全部实时 post，无未达成项创建。
 
 ### ADVANCED
 
@@ -306,10 +309,13 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - **PricingCenterService 删除** — God Service（2926 行）彻底移除，swap/withdraw quote 各自归属领域模块，PricingCenterModule 仅保留 PricingEngineService + BinanceRateProvider 工具导出，净减 ~3500 行 ✅ 2026-06-01
 - **SwapFeeLevel 三层治理 + Admin 页面** — SwapFeeLevelService（L1）+ 创建/变更/绑定审批处理器与工作流；Admin List/Detail + Create/Change/Bind Modal + TierEditor swap 模式 ✅ 2026-06-01
 - **Swap Quotes admin 只读页** — 报价快照列表/详情（含 from/to pair、amounts、rate、spread、fee、生命周期），dark 主题 ✅ 2026-06-01
-- **TB 三腿记账** — 全走 TRADE_CLEARING 不分资产类型；pending→post 可补偿；法币/虚拟币差异下推到 Outstanding 结算层（虚拟币合并结算、法币按 VIBAN 逐笔）✅ 2026-06-01
+- **TB 4 腿 per-leg 记账** — `swap-leg-plan.constant.ts` 声明式 4 腿（CRYPTO→FIAT / FIAT→CRYPTO 各一组）；客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE`；per-leg two-phase pending→post 可补偿；无 clearing bridge、无 Outstanding、无 FEE_RECEIVABLE ✅ 2026-06-01
 - **Client 兑换页面** — 报价 → 确认弹窗（pay/net receive/fee/rate）→ 执行 → 历史；余额读 TB portfolio；dark-native 品牌样式对齐 Deposit/Withdraw ✅ 2026-06-01
 - **Customer 报价契约 + 余额接口** — createQuote 全字段返回（netAmountOut/currencyIn/currencyOut 等）；余额改用 `/client/portfolio/balances`（TB ledger，JWT 取客户）✅ 2026-06-01
 - **审批策略简化** — TRANSACTION_LIMIT_CREATION/CHANGE + WITHDRAWAL_FEE_LEVEL_CREATION/CHANGE + SWAP_FEE_LEVEL_CREATION/CHANGE 共 6 类从 MLRO→SMO 两步改为 OPS_OFFICER 单步（含 OPS_OFFICER 权限补充与 backfill）✅ 2026-06-01
+
+- **SwapSettlementService per-leg 编排** — swap PROCESSING 创建 4 个 InternalFund 腿（挂 swapTransactionId+legSeq，不走白名单）；leg1 自动 initiate、leg 2-4 lazy；admin `POST .../legs/:legSeq/advance` 逐腿推 + `POST .../reverse` 整笔冲正；状态机含 PROCESSING / SUCCESS / FAILED / REVERSED 终态 ✅ 2026-06-26
+- **对账 evidence 字段** — 每腿 evidence 携带 `debitWalletRef`/`creditWalletRef`/`externalRef = ${swapNo}:${legSeq}:pending`/`isExternalCrossing = true`；swap 不上链，swap-internal ref 即跨钱包同 ref 互证键 ✅ 2026-06-26
 
 **待实现：**
 - **Sumsub TM 真实集成** — 若启用大额兑换合规，替换为 Sumsub webhook 翻译层

@@ -2,6 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "admin",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js/admin-web && exec /Users/songshengwei/.nvm/versions/node/v20.20.2/bin/node ./node_modules/.bin/vite --port 3001 --host 127.0.0.1"
+      ],
+      "port": 3001
+    },
+    {
       "name": "audit-log-redesign",
       "runtimeExecutable": "/usr/bin/python3",
       "runtimeArgs": ["/tmp/serve-audit.py"],
