@@ -7,6 +7,9 @@ export class ReconRunQueryDto {
   @IsOptional() @IsString() engineVersion?: string;
 }
 export class ReconCaseQueryDto {
+  // T3 cockpit default: when status is omitted the list is filtered to OPEN
+  // (the cockpit screen only shows actionable cases). Pass status='ALL' to opt
+  // out of the default and see every status.
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
 }
@@ -15,4 +18,87 @@ export class ReconExternalBalanceQueryDto {
   @IsOptional() @IsString() book?: string;
   @IsOptional() @IsString() source?: string;
   @IsOptional() @IsString() currency?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T3 response shapes — surfaced to admin cockpit UI (T4–T6).
+// These are pure response types (no validation needed); kept here so the
+// frontend codegen has a single source of truth alongside the query DTOs.
+// All numeric fields are serialised as strings to dodge JSON BigInt issues.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AccountStatusRowStatus =
+  | 'MATCH'      // balance OK AND flows OK
+  | 'BALANCE'    // delta != 0, flows OK
+  | 'ORPHAN'     // delta == 0, only orphans (no mismatch)
+  | 'MISMATCH'   // delta == 0, only mismatch
+  | 'BOTH';      // balance break AND flow break
+
+export interface AccountStatusRow {
+  walletRef: string;
+  walletRole?: string | null;       // 'C_DEP' | 'C_VIBAN' | 'F_FEE' | ... — from wallets lookup
+  ownerNo?: string | null;          // customer / firm owner number
+  ownerName?: string | null;        // first+last name or company name (null for firm)
+  asset: string;                    // 'AED' | 'USDT-TRON'
+  coaCode: string;                  // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_FEE' | ...
+  internal: { balance: string };
+  external: { balance: string };
+  delta: string;                    // external − internal (string of bigint)
+  flowMatched: number;
+  flowTotal: number;
+  flowOrphanInternal: number;
+  flowOrphanExternal: number;
+  flowMismatch: number;
+  status: AccountStatusRowStatus;
+  caseId?: string | null;           // null for MATCH rows
+  caseNo?: string | null;           // human-readable case key (null for MATCH)
+}
+
+export interface RunDetailSummary {
+  accountsChecked: number;
+  matchCount: number;
+  breakCount: number;
+  balanceBreakCount: number;
+  orphanCount: number;
+  mismatchCount: number;
+}
+
+export type FlowComparisonMatchType =
+  | 'MATCHED'
+  | 'ORPHAN_EXTERNAL'
+  | 'ORPHAN_INTERNAL'
+  | 'AMOUNT_MISMATCH';
+
+export interface FlowComparisonExternalSide {
+  id?: string;
+  externalRef: string | null;
+  amount: string;
+  direction: 'IN' | 'OUT';
+  timestamp: string;                // ISO
+  description?: string | null;
+}
+
+export interface FlowComparisonInternalSide {
+  id?: string;
+  externalRef: string | null;
+  amount: string;
+  direction: 'IN' | 'OUT';
+  timestamp: string;                // ISO (account_flows.createdAt)
+  eventCode: string;
+  sourceType: string;
+  sourceNo: string;
+}
+
+export interface FlowComparisonRow {
+  externalLine: FlowComparisonExternalSide | null;
+  internalFlow: FlowComparisonInternalSide | null;
+  matchType: FlowComparisonMatchType;
+  deltaAmount?: string;             // only for AMOUNT_MISMATCH
+}
+
+export interface FlowComparisonSummary {
+  matched: number;
+  orphanInternal: number;
+  orphanExternal: number;
+  mismatch: number;
 }

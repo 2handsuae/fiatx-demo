@@ -1,5 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker.service';
+import {
+  WalletFlowMatcherService,
+  ExternalStatementLineInput,
+} from '../engine/v2/wallet-flow-matcher.service';
+import {
+  AccountStatusRow,
+  AccountStatusRowStatus,
+  FlowComparisonRow,
+  FlowComparisonSummary,
+  RunDetailSummary,
+} from '../dto/reconciliation.dto';
 
 // ── Types used by pairManifest ────────────────────────────────────────────────
 
@@ -108,9 +121,39 @@ export function pairManifest(
   return { matched, missed, extra };
 }
 
+// ─── T3 helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Derive the per-wallet status from the balance delta and the flow bucket counts.
+ * Decision rule (per plan §Task 3, deterministic; no priority order):
+ *   delta == 0  & no flow break       → MATCH
+ *   delta != 0  & no flow break       → BALANCE
+ *   delta == 0  & only orphans        → ORPHAN
+ *   delta == 0  & only mismatch       → MISMATCH
+ *   delta == 0  & orphans + mismatch  → MISMATCH (mismatch wins for triage)
+ *   delta != 0  & any flow break      → BOTH
+ */
+function deriveAccountStatus(
+  deltaIsZero: boolean,
+  orphanInternal: number,
+  orphanExternal: number,
+  mismatch: number,
+): AccountStatusRowStatus {
+  const flowBreak = orphanInternal + orphanExternal + mismatch > 0;
+  if (!deltaIsZero && !flowBreak) return 'BALANCE';
+  if (!deltaIsZero && flowBreak) return 'BOTH';
+  if (deltaIsZero && !flowBreak) return 'MATCH';
+  if (mismatch > 0) return 'MISMATCH';
+  return 'ORPHAN';
+}
+
 @Injectable()
 export class ReconciliationQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly walletBalanceChecker: WalletBalanceCheckerService,
+    private readonly walletFlowMatcher: WalletFlowMatcherService,
+  ) {}
 
   listRuns(q: { businessDate?: string; layer?: string; engineVersion?: string }) {
     return this.prisma.reconciliationRun.findMany({
@@ -123,6 +166,13 @@ export class ReconciliationQueryService {
       orderBy: [{ businessDate: 'desc' }, { layer: 'asc' }, { seq: 'desc' }],
     });
   }
+  /**
+   * Run detail (T3). For WALLET_V1 runs we also build the per-wallet status
+   * table from ExternalBalance + a fresh balance-checker pass + this run's
+   * Cases (so the UI can render the dashboard without N round-trips). Legacy
+   * V8_FORMULA runs return accountStatusTable=[] and an empty summary —
+   * callers degrade gracefully.
+   */
   async getRun(runNo: string) {
     const run = await this.prisma.reconciliationRun.findUnique({
       where: { runNo }, include: { invariantChecks: true },
@@ -134,22 +184,94 @@ export class ReconciliationQueryService {
     const cases = await this.prisma.reconciliationCase.findMany({
       where: { lastObservedRunId: run.id },
       orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
-      select: { caseNo: true, assetCode: true, book: true, status: true, deltaAmount: true },
+      select: {
+        id: true,
+        caseNo: true,
+        assetCode: true,
+        book: true,
+        status: true,
+        deltaAmount: true,
+        walletRef: true,
+      },
     });
-    return { ...run, hasDemoManifest: run.demoManifest !== null, cases };
+
+    // T3: build per-wallet status table — only meaningful for WALLET_V1 runs.
+    let accountStatusTable: AccountStatusRow[] = [];
+    let summary: RunDetailSummary = {
+      accountsChecked: 0,
+      matchCount: 0,
+      breakCount: 0,
+      balanceBreakCount: 0,
+      orphanCount: 0,
+      mismatchCount: 0,
+    };
+    if (run.engineVersion === 'WALLET_V1') {
+      const built = await this.buildAccountStatusTable(run.businessDate, cases as any);
+      accountStatusTable = built.rows;
+      summary = built.summary;
+    }
+
+    return {
+      ...run,
+      hasDemoManifest: run.demoManifest !== null,
+      cases,
+      accountStatusTable,
+      summary,
+    };
   }
-  listCases(q: { status?: string; assetCode?: string }) {
-    return this.prisma.reconciliationCase.findMany({
-      where: { status: q.status, assetCode: q.assetCode },
-      orderBy: { createdAt: 'desc' },
+
+  /**
+   * T3 listCases:
+   *   - default to status=OPEN when caller omits status (cockpit landing view)
+   *   - pass status='ALL' to opt out and see every status
+   *   - sort by aging desc (oldest first → triage prioritisation)
+   *   - decorate each row with aging (days since firstSeenAt|createdAt)
+   *     and surface firstSeenRunId / lastUpdatedRunId for run-history drill-down
+   */
+  async listCases(q: { status?: string; assetCode?: string }) {
+    const effectiveStatus = q.status === undefined ? 'OPEN' : q.status === 'ALL' ? undefined : q.status;
+    const rows = await this.prisma.reconciliationCase.findMany({
+      where: { status: effectiveStatus, assetCode: q.assetCode },
+      orderBy: { createdAt: 'asc' }, // oldest first = highest aging; re-sorted below for resilience
     });
+    const now = Date.now();
+    const decorated = rows.map((r: any) => {
+      const ref = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime();
+      const aging = Number.isFinite(ref) ? Math.floor((now - ref) / 86_400_000) : 0;
+      return {
+        ...r,
+        aging,
+        firstSeenRunId: r.firstSeenRunId ?? null,
+        lastUpdatedRunId: r.lastUpdatedRunId ?? null,
+      };
+    });
+    decorated.sort((a, b) => b.aging - a.aging);
+    return decorated;
   }
+
+  /**
+   * Case detail (T3). Per-wallet WALLET_V1 cases get a fresh `flowComparison`:
+   * re-run the wallet-flow-matcher against the source datasets (external lines
+   * + internal account_flows) so the UI shows BOTH sides of every comparison
+   * row — matched pairs, orphans, mismatches. Legacy non-wallet cases return
+   * flowComparison=[] and summary all-zero (the old lineItems include is left
+   * untouched).
+   */
   async getCase(caseNo: string) {
-    const kase = await this.prisma.reconciliationCase.findUnique({
+    const kase = await (this.prisma as any).reconciliationCase.findUnique({
       where: { caseNo }, include: { lineItems: true },
     });
     if (!kase) throw new NotFoundException(`Case ${caseNo} not found`);
-    return kase;
+
+    let flowComparison: FlowComparisonRow[] = [];
+    let flowSummary: FlowComparisonSummary = { matched: 0, orphanInternal: 0, orphanExternal: 0, mismatch: 0 };
+    if (kase.walletRef && !kase.walletRef.startsWith('XREF:')) {
+      const built = await this.buildFlowComparison(kase);
+      flowComparison = built.rows;
+      flowSummary = built.summary;
+    }
+
+    return { ...kase, flowComparison, flowSummary };
   }
 
   listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {
@@ -253,5 +375,376 @@ export class ReconciliationQueryService {
     }
 
     return { run, formulasByCurrency, cases };
+  }
+
+  // ─── T3 builders ───────────────────────────────────────────────────────────
+
+  /**
+   * Build the per-wallet status table for the cockpit Run detail page.
+   * Source datasets:
+   *   - ExternalBalance @ businessDate (one row per wallet checked)
+   *   - this run's Cases (already includes wallet-level findings)
+   *   - wallets table (walletRole + ownerNo metadata)
+   *   - customer_main table (display name)
+   *
+   * For MATCH rows we still need to run the balance checker (the run already
+   * did, but the result isn't persisted per-wallet — only the absence of a Case
+   * implies pass). We accept the second pass: recon detail isn't hot.
+   *
+   * If a wallet has a Case from this run, its caseId + line-item counts come
+   * straight from the Case + its lineItems (avoiding a second matcher pass).
+   */
+  private async buildAccountStatusTable(
+    businessDate: string,
+    cases: Array<{
+      id: string;
+      caseNo: string;
+      assetCode: string;
+      book: string | null;
+      status: string;
+      deltaAmount: Prisma.Decimal;
+      walletRef: string | null;
+    }>,
+  ): Promise<{ rows: AccountStatusRow[]; summary: RunDetailSummary }> {
+    const balances = (await (this.prisma as any).externalBalance.findMany({
+      where: { cutoffDate: businessDate, walletRef: { not: null } },
+      select: {
+        walletRef: true,
+        closingBalance: true,
+        currency: true,
+        coaCode: true,
+        ownerNo: true,
+      },
+    })) as Array<{
+      walletRef: string;
+      closingBalance: Prisma.Decimal;
+      currency: string;
+      coaCode: string | null;
+      ownerNo: string | null;
+    }>;
+
+    if (balances.length === 0) {
+      return {
+        rows: [],
+        summary: { accountsChecked: 0, matchCount: 0, breakCount: 0, balanceBreakCount: 0, orphanCount: 0, mismatchCount: 0 },
+      };
+    }
+
+    // Index this run's wallet-keyed cases for O(1) lookup; XREF synthetic
+    // walletRefs (start with "XREF:") aren't real wallets and don't belong in
+    // this table — keep them out.
+    const caseByWalletRef = new Map<string, (typeof cases)[number] & { lineItems?: any[] }>();
+    for (const c of cases) {
+      if (!c.walletRef || c.walletRef.startsWith('XREF:')) continue;
+      caseByWalletRef.set(c.walletRef, c);
+    }
+    // Bulk-load line items for those cases (avoid N round-trips).
+    const caseIds = Array.from(caseByWalletRef.values()).map((c) => c.id);
+    const allLineItems = caseIds.length
+      ? ((await (this.prisma as any).reconciliationLineItem.findMany({
+          where: { caseId: { in: caseIds } },
+          select: { caseId: true, matchStatus: true },
+        })) as Array<{ caseId: string; matchStatus: string }>)
+      : [];
+    const lineItemsByCase = new Map<string, Array<{ matchStatus: string }>>();
+    for (const li of allLineItems) {
+      const arr = lineItemsByCase.get(li.caseId) ?? [];
+      arr.push(li);
+      lineItemsByCase.set(li.caseId, arr);
+    }
+
+    // Bulk-load wallet metadata.
+    const walletRefs = Array.from(new Set(balances.map((b) => b.walletRef)));
+    const wallets = (await (this.prisma as any).wallet.findMany({
+      where: { id: { in: walletRefs } },
+      select: { id: true, walletRole: true, ownerNo: true, ownerType: true },
+    })) as Array<{ id: string; walletRole: string | null; ownerNo: string | null; ownerType: string }>;
+    const walletById = new Map(wallets.map((w) => [w.id, w]));
+
+    // Bulk-load customer names for customer-owned wallets.
+    const customerNos = Array.from(
+      new Set(
+        wallets
+          .filter((w) => w.ownerType === 'CUSTOMER' && w.ownerNo)
+          .map((w) => w.ownerNo as string),
+      ),
+    );
+    const customers = customerNos.length
+      ? ((await (this.prisma as any).customerMain.findMany({
+          where: { customerNo: { in: customerNos } },
+          select: { customerNo: true, firstName: true, lastName: true, companyName: true },
+        })) as Array<{ customerNo: string; firstName: string | null; lastName: string | null; companyName: string | null }>)
+      : [];
+    const nameByCustomerNo = new Map(
+      customers.map((c) => [
+        c.customerNo,
+        c.companyName ?? ([c.firstName, c.lastName].filter(Boolean).join(' ') || null),
+      ]),
+    );
+
+    // Use the cutoff = end-of-businessDate (UTC) for the balance check. This
+    // is what WalletReconRunService passes when it runs the recon — keeps
+    // recomputed deltas consistent with the original run.
+    const cutoff = new Date(`${businessDate}T23:59:59.999Z`);
+
+    const rows: AccountStatusRow[] = [];
+    let matchCount = 0;
+    let balanceBreakCount = 0;
+    let orphanCount = 0;
+    let mismatchCount = 0;
+
+    for (const bal of balances) {
+      const externalBig = BigInt(bal.closingBalance.toString());
+      const check = await this.walletBalanceChecker.checkBalance({
+        walletRef: bal.walletRef,
+        externalClosing: externalBig,
+        cutoff,
+      });
+      const meta = walletById.get(bal.walletRef);
+      const ownerName = meta?.ownerType === 'CUSTOMER' && meta.ownerNo
+        ? nameByCustomerNo.get(meta.ownerNo) ?? null
+        : null;
+
+      const kase = caseByWalletRef.get(bal.walletRef);
+      const items = kase ? lineItemsByCase.get(kase.id) ?? [] : [];
+      let oi = 0, oe = 0, mm = 0;
+      for (const li of items) {
+        if (li.matchStatus === 'ORPHAN_INTERNAL') oi += 1;
+        else if (li.matchStatus === 'ORPHAN_EXTERNAL') oe += 1;
+        else if (li.matchStatus === 'AMOUNT_MISMATCH') mm += 1;
+      }
+      const flowTotal = oi + oe + mm;
+      const matched = 0; // line items only encode anomalies; matched pairs not persisted
+      const status = deriveAccountStatus(check.delta === 0n, oi, oe, mm);
+      if (status === 'MATCH') matchCount += 1;
+      if (status === 'BALANCE' || status === 'BOTH') balanceBreakCount += 1;
+      if (oi > 0 || oe > 0) orphanCount += 1;
+      if (mm > 0) mismatchCount += 1;
+
+      rows.push({
+        walletRef: bal.walletRef,
+        walletRole: meta?.walletRole ?? null,
+        ownerNo: meta?.ownerNo ?? bal.ownerNo ?? null,
+        ownerName,
+        asset: bal.currency,
+        coaCode: bal.coaCode ?? check.coaCode,
+        internal: { balance: check.internal.total.toString() },
+        external: { balance: check.external.toString() },
+        delta: check.delta.toString(),
+        flowMatched: matched,
+        flowTotal,
+        flowOrphanInternal: oi,
+        flowOrphanExternal: oe,
+        flowMismatch: mm,
+        status,
+        caseId: kase?.id ?? null,
+        caseNo: kase?.caseNo ?? null,
+      });
+    }
+
+    const summary: RunDetailSummary = {
+      accountsChecked: rows.length,
+      matchCount,
+      breakCount: rows.length - matchCount,
+      balanceBreakCount,
+      orphanCount,
+      mismatchCount,
+    };
+
+    return { rows, summary };
+  }
+
+  /**
+   * Build the per-case flow comparison rows for the cockpit Case detail page.
+   * Two-pass reconstruction:
+   *   1. matched pairs → recompute via WalletFlowMatcherService (re-run the
+   *      same pairing the engine did)
+   *   2. orphans + mismatches → enrich the matched output with line-item
+   *      details (source/dest IDs come from the matcher; we hydrate the
+   *      original rows for display fields)
+   *
+   * This produces one FlowComparisonRow per pair OR orphan — i.e. the union
+   * of matched + matcherResult anomalies. Matched rows have both sides
+   * populated; orphan rows have one side null.
+   */
+  private async buildFlowComparison(
+    kase: { walletRef: string; businessDate: string },
+  ): Promise<{ rows: FlowComparisonRow[]; summary: FlowComparisonSummary }> {
+    // End-of-businessDate cutoff — same as the engine uses.
+    const cutoff = new Date(`${kase.businessDate}T23:59:59.999Z`);
+
+    // 1. Source datasets.
+    const accountRefs = (await (this.prisma as any).externalBalance.findMany({
+      where: { walletRef: kase.walletRef, cutoffDate: kase.businessDate },
+      select: { accountRef: true },
+    })) as Array<{ accountRef: string }>;
+
+    const externalRowsRaw = (await (this.prisma as any).externalStatementLine.findMany({
+      where: {
+        OR: [
+          { subAccount: kase.walletRef },
+          { subAccount: null, accountRef: { in: accountRefs.map((a) => a.accountRef) } },
+        ],
+        datetime: { lte: cutoff },
+      },
+      select: {
+        id: true,
+        direction: true,
+        amount: true,
+        externalRef: true,
+        datetime: true,
+        description: true,
+      },
+    })) as Array<{
+      id: string;
+      direction: string;
+      amount: Prisma.Decimal;
+      externalRef: string | null;
+      datetime: Date;
+      description: string | null;
+    }>;
+
+    const externalLines: ExternalStatementLineInput[] = externalRowsRaw.map((r) => ({
+      id: r.id,
+      direction: r.direction as 'IN' | 'OUT',
+      amount: r.amount,
+      externalRef: r.externalRef,
+      datetime: r.datetime,
+    }));
+    const extById = new Map(externalRowsRaw.map((r) => [r.id, r]));
+
+    const internalRows = (await (this.prisma as any).accountFlow.findMany({
+      where: {
+        walletRef: kase.walletRef,
+        isExternalCrossing: true,
+        createdAt: { lte: cutoff },
+      },
+      select: {
+        id: true,
+        direction: true,
+        amount: true,
+        externalRef: true,
+        eventCode: true,
+        sourceType: true,
+        sourceNo: true,
+        createdAt: true,
+      },
+    })) as Array<{
+      id: string;
+      direction: string;
+      amount: Prisma.Decimal;
+      externalRef: string | null;
+      eventCode: string;
+      sourceType: string;
+      sourceNo: string;
+      createdAt: Date;
+    }>;
+    const intById = new Map(internalRows.map((r) => [r.id, r]));
+
+    // 2. Re-pair via the matcher (uses the same precedence as the engine).
+    const matcher = await this.walletFlowMatcher.matchFlows({
+      walletRef: kase.walletRef,
+      externalLines,
+      cutoff,
+    });
+
+    const rows: FlowComparisonRow[] = [];
+    for (const m of matcher.matched) {
+      const ext = extById.get(m.externalLineId);
+      const intl = intById.get(m.internalFlowId);
+      if (!ext || !intl) continue;
+      rows.push({
+        externalLine: {
+          id: ext.id,
+          externalRef: ext.externalRef,
+          amount: ext.amount.toString(),
+          direction: ext.direction as 'IN' | 'OUT',
+          timestamp: ext.datetime.toISOString(),
+          description: ext.description,
+        },
+        internalFlow: {
+          id: intl.id,
+          externalRef: intl.externalRef,
+          amount: intl.amount.toString(),
+          direction: intl.direction as 'IN' | 'OUT',
+          timestamp: intl.createdAt.toISOString(),
+          eventCode: intl.eventCode,
+          sourceType: intl.sourceType,
+          sourceNo: intl.sourceNo,
+        },
+        matchType: 'MATCHED',
+      });
+    }
+    for (const oi of matcher.orphanInternal) {
+      const intl = intById.get(oi.internalFlowId);
+      if (!intl) continue;
+      rows.push({
+        externalLine: null,
+        internalFlow: {
+          id: intl.id,
+          externalRef: intl.externalRef,
+          amount: intl.amount.toString(),
+          direction: intl.direction as 'IN' | 'OUT',
+          timestamp: intl.createdAt.toISOString(),
+          eventCode: intl.eventCode,
+          sourceType: intl.sourceType,
+          sourceNo: intl.sourceNo,
+        },
+        matchType: 'ORPHAN_INTERNAL',
+      });
+    }
+    for (const oe of matcher.orphanExternal) {
+      const ext = extById.get(oe.externalLineId);
+      if (!ext) continue;
+      rows.push({
+        externalLine: {
+          id: ext.id,
+          externalRef: ext.externalRef,
+          amount: ext.amount.toString(),
+          direction: ext.direction as 'IN' | 'OUT',
+          timestamp: ext.datetime.toISOString(),
+          description: ext.description,
+        },
+        internalFlow: null,
+        matchType: 'ORPHAN_EXTERNAL',
+      });
+    }
+    for (const m of matcher.mismatch) {
+      const ext = extById.get(m.externalLineId);
+      const intl = intById.get(m.internalFlowId);
+      if (!ext || !intl) continue;
+      const delta = ext.amount.minus(intl.amount);
+      rows.push({
+        externalLine: {
+          id: ext.id,
+          externalRef: ext.externalRef,
+          amount: ext.amount.toString(),
+          direction: ext.direction as 'IN' | 'OUT',
+          timestamp: ext.datetime.toISOString(),
+          description: ext.description,
+        },
+        internalFlow: {
+          id: intl.id,
+          externalRef: intl.externalRef,
+          amount: intl.amount.toString(),
+          direction: intl.direction as 'IN' | 'OUT',
+          timestamp: intl.createdAt.toISOString(),
+          eventCode: intl.eventCode,
+          sourceType: intl.sourceType,
+          sourceNo: intl.sourceNo,
+        },
+        matchType: 'AMOUNT_MISMATCH',
+        deltaAmount: delta.toString(),
+      });
+    }
+
+    const summary: FlowComparisonSummary = {
+      matched: matcher.matched.length,
+      orphanInternal: matcher.orphanInternal.length,
+      orphanExternal: matcher.orphanExternal.length,
+      mismatch: matcher.mismatch.length,
+    };
+
+    return { rows, summary };
   }
 }
