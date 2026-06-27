@@ -50,6 +50,16 @@ interface UpdatePayinStatusOptions {
   simulationMode?: PayinSimulationMode | null;
 }
 
+/**
+ * INGESTION / ADAPTER LAYER — inbound rail detection.
+ *
+ * PayinsService detects on-chain / bank inbound transfers and normalises them
+ * into internal domain events (`payin.created`, `payin.status.changed`) consumed
+ * by DepositWorkflowService. Per backend-platform rules the ingestion/adapter
+ * layer MAY emit internal events and record detection audit (PAYIN_CREATED + rail
+ * state transitions) — this is NOT a pure domain service, and the audit it writes
+ * is rail-detection evidence, consistent with the SumsubIngestion pattern.
+ */
 @Injectable()
 export class PayinsService {
   private readonly logger = new Logger(PayinsService.name);
