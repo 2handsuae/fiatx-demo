@@ -401,6 +401,28 @@ export class WithdrawTransactionsService {
     });
   }
 
+  /** Pure persistence: insert a withdrawal row inside a caller-owned tx.
+   *  No events, no audit, no accounting — the workflow owns those. */
+  async insertRecord(
+    tx: Prisma.TransactionClient,
+    data: Record<string, any>,
+  ) {
+    return (tx as any).withdrawTransaction.create({ data });
+  }
+
+  /** Persist TB pending transfer ids on a withdrawal inside a caller-owned tx. */
+  async setPendingIds(
+    tx: Prisma.TransactionClient,
+    id: string,
+    tbPendingNetId: string,
+    tbPendingFeeId: string | null,
+  ) {
+    return (tx as any).withdrawTransaction.update({
+      where: { id },
+      data: { tbPendingNetId, tbPendingFeeId },
+    });
+  }
+
   /**
    * Unified fund-order list for the detail page's "Linked Funds Orders":
    * the Payout (principal) + the fee InternalFund. Both carry the business key
