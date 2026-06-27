@@ -1,13 +1,19 @@
 // admin-web/src/pages/ReconciliationCasesListPage.tsx
+//
+// T6 — Cases list = tracking view.
+//   - Default URL: ?status=OPEN&sort=aging.desc (server already sorts aging desc per T3).
+//   - Columns: Case ID | Account | Owner | Asset | Aging | Δ | First Run | Last Run | Status.
+//   - Aging tiers visualise triage urgency (0-3 muted, 4-7 amber, 8+ red).
+//   - Row click → /admin/reconciliation/cases/{caseNo}.
+//   - V8 columns (book/layer/business-date) removed; per-wallet model surfaces account+owner instead.
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { StatusPill } from '../components/ui/StatusPill';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import Pagination from '../components/common/Pagination';
 
@@ -16,51 +22,84 @@ import Pagination from '../components/common/Pagination';
 interface ReconCase {
   id: string;
   caseNo: string;
-  businessDate: string;
-  assetId: string;
   assetCode: string;
-  layer: string;
-  tbAmount: string;
-  inTransitAmount: string;
-  expectedExternal: string;
-  actualExternal: string;
+  walletRef: string | null;
+  coaCode: string | null;
+  ownerNo: string | null;
   deltaAmount: string;
   status: string;
-  openedByRunId: string | null;
-  closedByRunId: string | null;
-  lastObservedRunId: string | null;
-  slaDeadline: string | null;
-  traceId: string | null;
-  createdAt: string;
-  updatedAt: string;
+  aging: number;
+  firstSeenRunId: string | null;
+  lastUpdatedRunId: string | null;
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
 
-const CASE_STATUSES = ['OPEN', 'PENDING_RECHECK', 'RESOLVED'];
+// Status filter values. Server interprets `ALL` as "no status filter"; OPEN is the
+// implicit landing default per T3 (omit param == OPEN).
+const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'OPEN', label: 'Open' },
+  { value: 'RESOLVED', label: 'Resolved' },
+  { value: 'WAIVED', label: 'Waived' },
+  { value: 'ALL', label: 'All' },
+];
+
 const PAGE_SIZE = 25;
 
-const runRef = (id: string | null) => (id ? id.slice(0, 8) : '—');
+/* ── Helpers ─────────────────────────────────────────────────── */
+
+const shortId = (id: string | null, n = 8) => (id ? id.slice(0, n) : null);
+
+// Aging tier → muted (0-3d) / amber (4-7d) / red (8d+). Greys out the column when
+// there's nothing urgent so the operator's eye jumps straight to red rows.
+const agingClass = (days: number): string => {
+  if (days >= 8) return 'text-adm-red font-semibold';
+  if (days >= 4) return 'text-adm-amber font-semibold';
+  return 'text-adm-t3';
+};
+
+// Status badge palette: amber for OPEN (needs attention), green for RESOLVED
+// (clean), muted gray for WAIVED (acknowledged, no action). Anything else falls
+// back to neutral.
+const statusBadgeClass = (status: string): string => {
+  const s = status.toUpperCase();
+  if (s === 'OPEN' || s === 'PENDING_RECHECK') return 'bg-amber-100 text-amber-800';
+  if (s === 'RESOLVED') return 'bg-green-100 text-green-800';
+  if (s === 'WAIVED') return 'bg-gray-100 text-gray-500';
+  return 'bg-gray-100 text-gray-800';
+};
+
+const statusLabel = (status: string): string => {
+  const s = status.toUpperCase();
+  if (s === 'OPEN') return 'Open';
+  if (s === 'RESOLVED') return 'Resolved';
+  if (s === 'WAIVED') return 'Waived';
+  if (s === 'PENDING_RECHECK') return 'Pending recheck';
+  return status;
+};
 
 /* ── Component ───────────────────────────────────────────────── */
 
 const ReconciliationCasesListPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // URL is the source of truth; missing/empty status param means OPEN (server default).
+  const statusFromUrl = searchParams.get('status') ?? 'OPEN';
+
   const [cases, setCases] = useState<ReconCase[]>([]);
-  const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const fetchCases = async (status: string = statusFilter) => {
+  const fetchCases = async (status: string) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (status) params.set('status', status);
-      const query = params.toString();
+      // Pass status explicitly (incl. OPEN) for clarity. `ALL` opts out per T3 contract.
+      params.set('status', status);
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases${query ? `?${query}` : ''}`,
+        `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases?${params.toString()}`,
       );
       if (!res.ok)
         throw new Error(await getApiErrorMessage(res, 'Failed to load reconciliation cases.'));
@@ -77,13 +116,17 @@ const ReconciliationCasesListPage = () => {
   };
 
   useEffect(() => {
-    void fetchCases('');
+    void fetchCases(statusFromUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [statusFromUrl]);
 
   const handleStatusChange = (value: string) => {
-    setStatusFilter(value);
-    void fetchCases(value);
+    // Update URL → effect re-fetches. Keep sort param for shareable links even
+    // though the backend already sorts; future-proofs if we add other sort modes.
+    const next = new URLSearchParams(searchParams);
+    next.set('status', value);
+    next.set('sort', 'aging.desc');
+    setSearchParams(next, { replace: true });
   };
 
   const pageRows = useMemo(
@@ -99,10 +142,10 @@ const ReconciliationCasesListPage = () => {
       {/* ── Title bar ── */}
       <PageTitleBar
         title="Reconciliation Cases"
-        meta={`${cases.length} case${cases.length === 1 ? '' : 's'} · Discrepancy Cases`}
+        meta={`${cases.length} case${cases.length === 1 ? '' : 's'} · sorted by aging`}
       >
         <button
-          onClick={() => void fetchCases()}
+          onClick={() => void fetchCases(statusFromUrl)}
           className="inline-flex h-[30px] w-[30px] items-center justify-center rounded border border-adm-border bg-adm-bg text-adm-t2 transition-colors hover:bg-adm-hover"
           title="Refresh"
         >
@@ -112,15 +155,17 @@ const ReconciliationCasesListPage = () => {
 
       {/* ── Filter bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
+        <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+          Status
+        </label>
         <select
-          value={statusFilter}
+          value={statusFromUrl}
           onChange={(e) => handleStatusChange(e.target.value)}
-          className={`${fi} w-44`}
+          className={`${fi} w-36`}
         >
-          <option value="">All status</option>
-          {CASE_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          {STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </select>
@@ -140,14 +185,15 @@ const ReconciliationCasesListPage = () => {
             <tr>
               {(
                 [
-                  ['Case No', '180px', 'left'],
-                  ['Asset', '90px', 'left'],
-                  ['Layer', '90px', 'left'],
-                  ['Delta', '140px', 'right'],
-                  ['Status', '130px', 'left'],
-                  ['Opened Run', '110px', 'left'],
-                  ['Closed Run', '110px', 'left'],
-                  ['Business Date', '130px', 'left'],
+                  ['Case ID', '160px', 'left'],
+                  ['Account', '160px', 'left'],
+                  ['Owner', '120px', 'left'],
+                  ['Asset', '80px', 'left'],
+                  ['Aging', '80px', 'right'],
+                  ['Δ', '140px', 'right'],
+                  ['First Run', '110px', 'left'],
+                  ['Last Run', '110px', 'left'],
+                  ['Status', '110px', 'left'],
                 ] as [string, string, string][]
               ).map(([label, w, align]) => (
                 <th
@@ -163,32 +209,61 @@ const ReconciliationCasesListPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && cases.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
-                  No reconciliation cases found.
+                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                  No {statusFromUrl === 'ALL' ? '' : statusLabel(statusFromUrl).toLowerCase() + ' '}
+                  reconciliation cases found.
                 </td>
               </tr>
             )}
             {!loading &&
               pageRows.map((kase) => {
-                const hasDelta = kase.deltaAmount && Number(kase.deltaAmount) !== 0;
+                const deltaNum = Number(kase.deltaAmount ?? '0');
+                const hasDelta = Number.isFinite(deltaNum) && deltaNum !== 0;
+                const deltaSign = deltaNum > 0 ? '+' : '';
+                const firstRunShort = shortId(kase.firstSeenRunId);
+                const lastRunShort = shortId(kase.lastUpdatedRunId);
+                const sameRun =
+                  kase.firstSeenRunId &&
+                  kase.lastUpdatedRunId &&
+                  kase.firstSeenRunId === kase.lastUpdatedRunId;
                 return (
                   <tr
                     key={kase.id}
                     className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
                     onClick={() => navigate(`/admin/reconciliation/cases/${kase.caseNo}`)}
                   >
-                    {/* Case No */}
+                    {/* Case ID */}
                     <td className="px-4 py-2.5">
                       <span className="font-mono text-[11px] font-semibold text-adm-amber">
                         {kase.caseNo}
                       </span>
+                    </td>
+
+                    {/* Account — coaCode role + short walletRef; full ref on hover */}
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-col">
+                        <span className="font-mono text-[10px] font-semibold text-adm-blue">
+                          {kase.coaCode ?? '—'}
+                        </span>
+                        <span
+                          className="font-mono text-[9px] text-adm-t3"
+                          title={kase.walletRef ?? undefined}
+                        >
+                          {kase.walletRef ? `${shortId(kase.walletRef, 8)}…` : '—'}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Owner — ownerNo (name not on row; can drill into detail for full identity) */}
+                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                      {kase.ownerNo ?? '—'}
                     </td>
 
                     {/* Asset */}
@@ -198,36 +273,54 @@ const ReconciliationCasesListPage = () => {
                       </span>
                     </td>
 
-                    {/* Layer */}
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">{kase.layer}</td>
-
-                    {/* Delta */}
+                    {/* Aging — tier-coloured days since first seen */}
                     <td className="px-4 py-2.5 text-right">
-                      <span
-                        className={`font-mono text-[11px] ${hasDelta ? 'font-semibold text-adm-amber' : 'text-adm-t2'}`}
-                      >
-                        {kase.deltaAmount}
+                      <span className={`font-mono text-[11px] ${agingClass(kase.aging)}`}>
+                        {kase.aging}d
                       </span>
                     </td>
 
-                    {/* Status */}
+                    {/* Δ — bold+signed when non-zero; muted "balanced" when zero */}
+                    <td className="px-4 py-2.5 text-right">
+                      {hasDelta ? (
+                        <span className="font-mono text-[11px] font-semibold text-adm-amber">
+                          {deltaSign}
+                          {kase.deltaAmount}
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[10px] italic text-adm-t3">balanced</span>
+                      )}
+                    </td>
+
+                    {/* First Run */}
+                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                      {firstRunShort ? (
+                        <span title={kase.firstSeenRunId ?? undefined}>{firstRunShort}…</span>
+                      ) : (
+                        <span className="text-adm-t3">—</span>
+                      )}
+                    </td>
+
+                    {/* Last Run — collapse to "(same)" when identical to First Run */}
+                    <td className="px-4 py-2.5 font-mono text-[10px]">
+                      {!lastRunShort ? (
+                        <span className="text-adm-t3">—</span>
+                      ) : sameRun ? (
+                        <span className="italic text-adm-t3">(same)</span>
+                      ) : (
+                        <span className="text-adm-t2" title={kase.lastUpdatedRunId ?? undefined}>
+                          {lastRunShort}…
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Status badge */}
                     <td className="px-4 py-2.5">
-                      <StatusPill value={kase.status} />
-                    </td>
-
-                    {/* Opened Run */}
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
-                      {runRef(kase.openedByRunId)}
-                    </td>
-
-                    {/* Closed Run */}
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
-                      {runRef(kase.closedByRunId)}
-                    </td>
-
-                    {/* Business Date */}
-                    <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
-                      {kase.businessDate}
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusBadgeClass(kase.status)}`}
+                      >
+                        {statusLabel(kase.status)}
+                      </span>
                     </td>
                   </tr>
                 );
