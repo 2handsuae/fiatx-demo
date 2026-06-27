@@ -549,7 +549,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         { action: WithdrawTransactionAction.REJECT, reason: `Approval ${payload.decision}: ${payload.decisionReason || 'no reason'}` },
         this.systemCtx,
       );
-      await this.voidWithdrawPending(w);
+      await this.releaseLock(w, 'Large-value approval ' + payload.decision);
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_APPROVAL_DECLINED,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
@@ -565,14 +565,25 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
   }
 
-  private async voidWithdrawPending(w: {
-    id: string;
-    netAmount: Prisma.Decimal | string;
-    feeAmount: Prisma.Decimal | string;
-    tbPendingNetId: string | null;
-    tbPendingFeeId: string | null;
-    asset?: { decimals?: number | null } | null;
-  }) {
+  // The single terminal-unlock primitive: voids the customer's TB pending locks
+  // (net + fee), cancels the fee InternalFund, and audits the release. Reused by
+  // all terminal-unlock outcomes; `reason` parameterizes the audit + fund-cancel
+  // reason and the CRITICAL log context.
+  private async releaseLock(
+    w: {
+      id: string;
+      withdrawNo: string;
+      ownerType: string;
+      ownerId: string;
+      traceId: string | null;
+      netAmount: Prisma.Decimal | string;
+      feeAmount: Prisma.Decimal | string;
+      tbPendingNetId: string | null;
+      tbPendingFeeId: string | null;
+      asset?: { decimals?: number | null } | null;
+    },
+    reason: string,
+  ) {
     const decimals = w.asset?.decimals ?? 8;
     if (w.tbPendingNetId) {
       const voided = await this.accountingService.voidPendingTransferBestEffort(
@@ -580,7 +591,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         this.decimalToBigint(w.netAmount, decimals),
       );
       if (!voided) {
-        this.logger.error(`CRITICAL: failed to void net pending transfer for withdrawal ${w.id} on rejection — funds may stay locked`);
+        this.logger.error(`CRITICAL: failed to void net pending transfer for withdrawal ${w.id} (${reason}) — funds may stay locked`);
       }
     }
     if (w.tbPendingFeeId) {
@@ -589,7 +600,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         this.decimalToBigint(w.feeAmount, decimals),
       );
       if (!voided) {
-        this.logger.error(`CRITICAL: failed to void fee pending transfer for withdrawal ${w.id} on rejection — funds may stay locked`);
+        this.logger.error(`CRITICAL: failed to void fee pending transfer for withdrawal ${w.id} (${reason}) — funds may stay locked`);
       }
     }
 
@@ -598,8 +609,21 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.fundsFlowService.setWithdrawFeeFundStatus(
       w.id,
       InternalFundStatus.CANCELLED,
-      'Withdrawal pending voided',
+      reason,
     );
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_LOCK_RELEASED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `Lock released: ${reason}`,
+      sourcePlatform: 'SYSTEM',
+    });
   }
 
   @OnEvent(DomainEventNames.WITHDRAWAL_KYT_UPDATED)
