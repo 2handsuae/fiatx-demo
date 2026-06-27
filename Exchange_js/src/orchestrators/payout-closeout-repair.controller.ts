@@ -11,7 +11,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../modules/identity/access-control/admin-permission.guard';
-import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
+import { WithdrawWorkflowService } from '../modules/trading/withdraw-transactions/withdraw-workflow.service';
 
 @ApiTags('Payouts')
 @ApiBearerAuth()
@@ -19,7 +19,7 @@ import { WithdrawWorkflowOrchestrator } from './withdraw-workflow.orchestrator';
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class PayoutCloseoutRepairController {
   constructor(
-    private readonly withdrawWorkflowOrchestrator: WithdrawWorkflowOrchestrator,
+    private readonly withdrawWorkflowService: WithdrawWorkflowService,
   ) {}
 
   @Post(':id/re-closeout')
@@ -27,7 +27,7 @@ export class PayoutCloseoutRepairController {
   reCloseout(
     @Param('id') id: string,
   ) {
-    return this.withdrawWorkflowOrchestrator.reCloseoutPayout(id);
+    return this.withdrawWorkflowService.reCloseoutPayout(id);
   }
 
   @Post(':id/re-compensate')
@@ -35,6 +35,6 @@ export class PayoutCloseoutRepairController {
   reCompensate(
     @Param('id') id: string,
   ) {
-    return this.withdrawWorkflowOrchestrator.reCompensatePayout(id);
+    return this.withdrawWorkflowService.reCompensatePayout(id);
   }
 }

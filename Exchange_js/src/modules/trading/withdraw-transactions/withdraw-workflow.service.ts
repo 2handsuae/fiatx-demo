@@ -34,7 +34,9 @@ import { DomainEventNames } from '../../../common/events/domain-events.constants
 import { bigintToHex, hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
-import { PayoutAction } from '../../asset-treasury/payouts/dto/payout.dto';
+import { PayoutAction, PayoutStatus } from '../../asset-treasury/payouts/dto/payout.dto';
+import { PayoutEvents } from '../../asset-treasury/payouts/constants/payout-events.constant';
+import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
@@ -745,7 +747,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Payout Phase ──
 
   private async initiatePayoutPhase(withdrawId: string) {
-    const w = await this.withdrawService.findOneInternal(withdrawId);
+    let w = await this.withdrawService.findOneInternal(withdrawId);
+
+    // Bind the source wallet on the withdrawal itself BEFORE creating the Payout
+    // / fee fund. This was previously done by the (now-deleted) orchestrator on a
+    // separate event channel, which race-lost against this workflow — leaving
+    // fromWalletId null at fee-fund creation and at finalize. Binding here makes
+    // the workflow the single owner and guarantees fromWalletId is populated.
+    w = await this.ensureSourceWalletBound(w);
 
     await this.withdrawService.updateStatus(w.id, {
       action: WithdrawTransactionAction.APPROVE,
@@ -789,17 +798,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // compliance/approval never spawns fund orders. The fee TB lock stays at
     // request; this fund order is the representation, set CLEAR on finalize.
     if (Number(w.feeAmount) > 0) {
-      // From = customer's source wallet (C_DEP for crypto / C_VIBAN for fiat).
-      // We resolve synchronously here — the orchestrator binds withdrawal.fromWalletId
-      // via a separate event listener (EVT_WITHDRAWAL_APPROVED__*) on a different
-      // event channel than this workflow's updateStatus, so the bind race-loses
-      // when we read w.fromWalletId at this point.
-      const customerSourceRole = w.asset?.type === 'CRYPTO' ? 'C_DEP' : 'C_VIBAN';
-      const customerSourceWallet = await this.withdrawService.findCustomerWallet(
-        w.ownerId,
-        w.assetId,
-        customerSourceRole,
-      );
+      // From = customer's source wallet, now bound on the withdrawal itself by
+      // ensureSourceWalletBound above (C_DEP for crypto / C_CMA pool for fiat).
       // To = firm's FIRM_FEE wallet for this asset.
       const feeWallet = await this.systemWalletResolver.resolve(w.assetId, 'F_FEE');
       await this.fundsFlowService.createWithdrawFeeFund(
@@ -807,9 +807,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
           withdrawTransactionId: w.id,
           assetId: w.assetId,
           amount: new Prisma.Decimal(w.feeAmount),
-          fromWalletId: customerSourceWallet?.id ?? null,
-          fromAddress: customerSourceWallet?.address ?? null,
-          fromIban: customerSourceWallet?.iban ?? null,
+          fromWalletId: w.fromWalletId ?? null,
+          fromAddress: w.fromAddress ?? null,
+          fromIban: w.fromIban ?? null,
           toWalletId: feeWallet?.id ?? null,
           toAddress: feeWallet?.address ?? null,
           toIban: feeWallet?.iban ?? null,
@@ -1062,6 +1062,229 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     this.logger.log(`Withdrawal ${withdrawId} finalized: TB posted, status SUCCESS`);
+  }
+
+  // ── Source-wallet binding (absorbed from the deleted orchestrator) ──
+
+  /**
+   * Bind the withdrawal's source wallet (fromWalletId/No/Address/Iban) if not
+   * already bound. Crypto withdrawals source from the customer's own C_DEP
+   * wallet (CUSTOMER owner); fiat sources from the platform C_CMA pool
+   * (PLATFORM owner). Returns the (possibly re-read) withdrawal with the binding
+   * applied. Idempotent: a no-op when fromWalletId is already set.
+   */
+  private async ensureSourceWalletBound(w: any): Promise<any> {
+    if (w.fromWalletId) {
+      return w;
+    }
+
+    if (!w.asset?.currency) {
+      throw new BadRequestException(
+        `Asset currency is missing for withdrawal ${w.id}`,
+      );
+    }
+
+    const isCrypto = w.asset?.type === 'CRYPTO';
+    const walletRole = isCrypto ? WalletRole.C_DEP : WalletRole.C_CMA;
+
+    const sourceWallet = await (this.prisma as any).wallet.findFirst({
+      where: {
+        walletRole,
+        assetId: w.assetId,
+        ownerType: isCrypto ? 'CUSTOMER' : 'PLATFORM',
+        ...(isCrypto ? { ownerId: w.ownerId } : {}),
+        status: 'ACTIVE',
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, walletNo: true, address: true, iban: true },
+    });
+
+    if (!sourceWallet) {
+      throw new BadRequestException(
+        `Source wallet with role ${walletRole} not found for withdrawal ${w.id}`,
+      );
+    }
+
+    await (this.prisma as any).withdrawTransaction.update({
+      where: { id: w.id },
+      data: {
+        fromWalletId: sourceWallet.id,
+        fromWalletNo: sourceWallet.walletNo ?? null,
+        fromAddress: sourceWallet.address ?? null,
+        fromIban: sourceWallet.iban ?? null,
+      },
+    });
+
+    return {
+      ...w,
+      fromWalletId: sourceWallet.id,
+      fromWalletNo: sourceWallet.walletNo ?? null,
+      fromAddress: sourceWallet.address ?? null,
+      fromIban: sourceWallet.iban ?? null,
+    };
+  }
+
+  // ── Payout-failure compensation (P6 fix — absorbed from the deleted orchestrator) ──
+
+  @OnEvent(PayoutEvents.EVT_PAYOUT_FAILED)
+  async onPayoutFailed(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
+    await this.compensatePayout(
+      payload.withdrawId,
+      WithdrawTransactionAction.FAIL,
+      WithdrawTransactionStatus.FAILED,
+      `Payout ${payload.payoutId} failed`,
+    );
+  }
+
+  @OnEvent(PayoutEvents.EVT_PAYOUT_TIMEOUT)
+  async onPayoutTimeout(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
+    await this.compensatePayout(
+      payload.withdrawId,
+      WithdrawTransactionAction.FAIL,
+      WithdrawTransactionStatus.FAILED,
+      `Payout ${payload.payoutId} timed out`,
+    );
+  }
+
+  @OnEvent(PayoutEvents.EVT_PAYOUT_RETURNED)
+  async onPayoutReturned(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
+    await this.compensatePayout(
+      payload.withdrawId,
+      WithdrawTransactionAction.RETURN,
+      WithdrawTransactionStatus.RETURNED,
+      `Payout ${payload.payoutId} returned`,
+    );
+  }
+
+  /**
+   * Terminal payout-failure compensation. Transitions the withdrawal to its
+   * terminal status (FAILED / RETURNED) and — THE P6 FIX — releases the
+   * customer's TB pending locks (net + fee) + cancels the fee fund via
+   * releaseLock. The old orchestrator only flipped the status and audited,
+   * leaving the customer's balance locked forever on payout failure.
+   *
+   * Idempotent: if the withdrawal is already at the target terminal status we
+   * still run releaseLock (its void is best-effort/safe on replay) but do not
+   * double-transition.
+   */
+  private async compensatePayout(
+    withdrawId: string,
+    action: WithdrawTransactionAction,
+    targetStatus: WithdrawTransactionStatus,
+    reason: string,
+  ) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+
+    if (w.status !== targetStatus) {
+      await this.withdrawService.updateStatus(
+        w.id,
+        { action, reason },
+        this.systemCtx,
+      );
+    } else {
+      this.logger.warn(
+        `Withdrawal ${withdrawId} already ${targetStatus} — releasing lock idempotently without re-transition`,
+      );
+    }
+
+    await this.releaseLock(w, reason);
+  }
+
+  // ── Repair entrypoints (absorbed from the deleted orchestrator) ──
+
+  /**
+   * Re-run the success closeout for a CONFIRMED payout whose withdrawal is still
+   * PAYOUT_PENDING (operator repair). Re-runs finalizeWithdrawal. No-op when
+   * already settled (CLEARED payout + SUCCESS withdraw).
+   */
+  async reCloseoutPayout(payoutId: string) {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: { id: true, withdrawId: true, status: true },
+    });
+    if (!payout) {
+      throw new BadRequestException(`Payout ${payoutId} not found`);
+    }
+
+    const withdrawal = await this.withdrawService.findOneInternal(payout.withdrawId);
+
+    // Already settled — idempotent no-op.
+    if (
+      payout.status === PayoutStatus.CLEARED &&
+      withdrawal.status === WithdrawTransactionStatus.SUCCESS
+    ) {
+      return { repairApplied: false, withdrawStatus: withdrawal.status, payoutStatus: payout.status };
+    }
+
+    if (
+      payout.status !== PayoutStatus.CONFIRMED ||
+      withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING
+    ) {
+      throw new BadRequestException({
+        code: 'PAYOUT_RECLOSEOUT_NOT_APPLICABLE',
+        message:
+          'Re-closeout is only available for CONFIRMED payout linked to PAYOUT_PENDING withdraw.',
+        details: {
+          payoutId,
+          payoutStatus: payout.status,
+          withdrawId: payout.withdrawId,
+          withdrawStatus: withdrawal.status,
+        },
+      });
+    }
+
+    await this.finalizeWithdrawal(payout.withdrawId);
+
+    const refreshed = await this.withdrawService.findOneInternal(payout.withdrawId);
+    return { repairApplied: true, withdrawStatus: refreshed.status, payoutStatus: payout.status };
+  }
+
+  /**
+   * Re-run the failure compensation for a terminal (FAILED/TIMEOUT/RETURNED)
+   * payout (operator repair). Re-runs compensatePayout (status flip +
+   * releaseLock). No-op when the withdrawal is already at its terminal status.
+   */
+  async reCompensatePayout(payoutId: string) {
+    const payout = await this.prisma.payout.findUnique({
+      where: { id: payoutId },
+      select: { id: true, withdrawId: true, status: true },
+    });
+    if (!payout) {
+      throw new BadRequestException(`Payout ${payoutId} not found`);
+    }
+
+    const payoutStatus = payout.status as PayoutStatus;
+    if (
+      payoutStatus !== PayoutStatus.FAILED &&
+      payoutStatus !== PayoutStatus.TIMEOUT &&
+      payoutStatus !== PayoutStatus.RETURNED
+    ) {
+      throw new BadRequestException({
+        code: 'PAYOUT_RECOMPENSATE_NOT_APPLICABLE',
+        message:
+          'Re-compensate is only available for FAILED, TIMEOUT, or RETURNED payout.',
+        details: { payoutId, payoutStatus: payout.status },
+      });
+    }
+
+    const targetStatus =
+      payoutStatus === PayoutStatus.RETURNED
+        ? WithdrawTransactionStatus.RETURNED
+        : WithdrawTransactionStatus.FAILED;
+    const action =
+      payoutStatus === PayoutStatus.RETURNED
+        ? WithdrawTransactionAction.RETURN
+        : WithdrawTransactionAction.FAIL;
+
+    await this.compensatePayout(
+      payout.withdrawId,
+      action,
+      targetStatus,
+      `Re-compensate payout ${payoutId} (${payoutStatus})`,
+    );
+
+    const refreshed = await this.withdrawService.findOneInternal(payout.withdrawId);
+    return { repairApplied: true, withdrawStatus: refreshed.status, payoutStatus: payout.status };
   }
 
   // ── L3: Post-Tx Archive — fire-and-forget ──
