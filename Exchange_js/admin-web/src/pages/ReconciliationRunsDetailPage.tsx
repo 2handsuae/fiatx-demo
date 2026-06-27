@@ -1,26 +1,19 @@
 // admin-web/src/pages/ReconciliationRunsDetailPage.tsx
 //
-// T4 "Driver cockpit" — Run detail for the WALLET_V1 engine.
-// Replaces the V8 five-formula INVARIANT ATTESTATION view (kept only for the
-// occasional legacy run as a thin fallback).
+// "Driver cockpit" — Run detail. Single engine (per-wallet); engine column
+// removed because there's no other engine to compare against.
 //
 // Headline status follows the industry "balance first" convention with a
 // fake-match probe on top:
 //   • MATCH       — balance OK AND flows OK             (green)
-//   • FLOW_REVIEW — balance OK BUT flow line-items off  (amber — the "fake
-//                   match" probe: balances happen to nett but underlying
-//                   flows are broken; investigate but not a hard break)
-//   • BREAK       — balance != external                 (red — immediate)
+//   • FLOW_REVIEW — balance OK BUT flow line-items off  (amber — Soft Flag)
+//   • BREAK       — balance != external                 (red — Hard Break)
 //
 // Layout (top → bottom):
-//   1. Header + Hero (run identity strip)
-//   2. Overview — Accounts / Match / Break (with FLOW REVIEW shown as a
-//      smaller secondary chip — it's an investigation, not a hard break)
+//   1. Header + Hero
+//   2. Overview — 4 equal tiles: Accounts / Match / Hard Break / Soft Flag
 //   3. Account Status table — one row per wallet; click any non-MATCH row to its case
 //   4. Technical (trace + run id)
-//
-// Legacy V8_FORMULA runs (engineVersion !== 'WALLET_V1') get a minimal info
-// banner; their invariantChecks are no longer rendered as a table.
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, Check, AlertTriangle, ArrowRight, ArrowUpDown } from 'lucide-react';
@@ -114,7 +107,6 @@ interface ReconRunDetail {
   completedAt: string | null;
   createdAt: string;
   hasDemoManifest: boolean;
-  engineVersion?: string | null;
   invariantChecks: InvariantCheck[];
   cases?: ReconCaseLink[];
   accountStatusTable?: AccountStatusRow[];
@@ -271,7 +263,6 @@ const ReconciliationRunsDetailPage = () => {
 
   if (!run) return null;
 
-  const isWallet = (run.engineVersion ?? '') === 'WALLET_V1';
   const summary: RunDetailSummary = run.summary ?? {
     accountsChecked: 0,
     matchCount: 0,
@@ -326,12 +317,6 @@ const ReconciliationRunsDetailPage = () => {
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Engine
-                </span>
-                <span className="font-mono text-adm-t1">{run.engineVersion ?? run.layer}</span>
-              </div>
-              <div>
-                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
                   Business Date
                 </span>
                 <span className="font-mono text-adm-t1">{run.businessDate}</span>
@@ -366,87 +351,72 @@ const ReconciliationRunsDetailPage = () => {
           {/* 2. Overview — four equal cards (Accounts / Match / HARD BREAK / SOFT FLAG).
               HARD BREAK = balance != external; SOFT FLAG = balance OK but flow
               line-items have orphan/mismatch (the "fake match" probe). */}
-          {isWallet ? (
-            <DetailCard title="Overview" columns={1}>
-              <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <DetailCard title="Overview" columns={1}>
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
                   {/* Accounts checked — the headline scope. */}
-                  <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                    <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                      Accounts Checked
-                    </div>
-                    <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
-                      {summary.accountsChecked}
-                    </div>
+                <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
+                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                    Accounts Checked
                   </div>
-                  {/* Match */}
-                  <div className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4">
-                    <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
-                      <Check size={11} /> Match
-                    </div>
-                    <div className="mt-1 text-[28px] font-bold leading-tight text-adm-green">
-                      {summary.matchCount}
-                    </div>
-                  </div>
-                  {/* HARD BREAK — balance != external */}
-                  <div
-                    className={`rounded-lg border p-4 ${summary.breakCount > 0 ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg'}`}
-                  >
-                    <div
-                      className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t3'}`}
-                    >
-                      <AlertTriangle size={11} /> Hard Break
-                    </div>
-                    <div
-                      className={`mt-1 text-[28px] font-bold leading-tight ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t1'}`}
-                    >
-                      {summary.breakCount}
-                    </div>
-                  </div>
-                  {/* SOFT FLAG — balance OK but flow line-items off */}
-                  <div
-                    className={`rounded-lg border p-4 ${summary.flowReviewCount > 0 ? 'border-adm-amber/30 bg-adm-amber/5' : 'border-adm-border bg-adm-bg'}`}
-                    title="Balance matched, but flow line-items have orphan/mismatch — fake-match probe"
-                  >
-                    <div
-                      className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t3'}`}
-                    >
-                      <AlertTriangle size={11} /> Soft Flag
-                    </div>
-                    <div
-                      className={`mt-1 text-[28px] font-bold leading-tight ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t1'}`}
-                    >
-                      {summary.flowReviewCount}
-                    </div>
+                  <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
+                    {summary.accountsChecked}
                   </div>
                 </div>
-
-                {/* Self-heal chip — only shown when this run auto-healed prior breaks. */}
-                {run.closedCount > 0 && (
-                  <div className="inline-flex w-fit items-center gap-2 rounded-md border border-adm-green/30 bg-adm-green/5 px-3 py-1.5 font-mono text-[11px] text-adm-green">
-                    <Check size={12} />
-                    Auto-healed {run.closedCount} case{run.closedCount === 1 ? '' : 's'} from previous runs
+                {/* Match */}
+                <div className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4">
+                  <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
+                    <Check size={11} /> Match
                   </div>
-                )}
+                  <div className="mt-1 text-[28px] font-bold leading-tight text-adm-green">
+                    {summary.matchCount}
+                  </div>
+                </div>
+                {/* HARD BREAK — balance != external */}
+                <div
+                  className={`rounded-lg border p-4 ${summary.breakCount > 0 ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg'}`}
+                >
+                  <div
+                    className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t3'}`}
+                  >
+                    <AlertTriangle size={11} /> Hard Break
+                  </div>
+                  <div
+                    className={`mt-1 text-[28px] font-bold leading-tight ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t1'}`}
+                  >
+                    {summary.breakCount}
+                  </div>
+                </div>
+                {/* SOFT FLAG — balance OK but flow line-items off */}
+                <div
+                  className={`rounded-lg border p-4 ${summary.flowReviewCount > 0 ? 'border-adm-amber/30 bg-adm-amber/5' : 'border-adm-border bg-adm-bg'}`}
+                  title="Balance matched, but flow line-items have orphan/mismatch — fake-match probe"
+                >
+                  <div
+                    className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t3'}`}
+                  >
+                    <AlertTriangle size={11} /> Soft Flag
+                  </div>
+                  <div
+                    className={`mt-1 text-[28px] font-bold leading-tight ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t1'}`}
+                  >
+                    {summary.flowReviewCount}
+                  </div>
+                </div>
               </div>
-            </DetailCard>
-          ) : (
-            // Legacy V8_FORMULA run — show the lightest possible notice instead of
-            // the dead five-formula attestation table. We keep the run navigable
-            // (so historical V8 runs still open) but funnel operators to wallet
-            // runs for actionable detail.
-            <DetailCard title="Overview" columns={1}>
-              <div className="rounded-lg border border-adm-border bg-adm-bg p-4 text-[12px] text-adm-t2">
-                This is a legacy run from the V8 five-formula engine. The cockpit
-                view applies to WALLET_V1 runs only. Open a recent WALLET_V1 run
-                for the per-account status table.
-              </div>
-            </DetailCard>
-          )}
+
+              {/* Self-heal chip — only shown when this run auto-healed prior breaks. */}
+              {run.closedCount > 0 && (
+                <div className="inline-flex w-fit items-center gap-2 rounded-md border border-adm-green/30 bg-adm-green/5 px-3 py-1.5 font-mono text-[11px] text-adm-green">
+                  <Check size={12} />
+                  Auto-healed {run.closedCount} case{run.closedCount === 1 ? '' : 's'} from previous runs
+                </div>
+              )}
+            </div>
+          </DetailCard>
 
           {/* 4. Account Status Table */}
-          {isWallet && (
-            <DetailCard title="Account Status" columns={1}>
+          <DetailCard title="Account Status" columns={1}>
               <div className="flex flex-col gap-3">
                 {/* Filter + utilities row */}
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -653,8 +623,7 @@ const ReconciliationRunsDetailPage = () => {
                   </table>
                 </div>
               </div>
-            </DetailCard>
-          )}
+          </DetailCard>
 
           {/* 5. Technical (LAST) */}
           <DetailCard title="Technical" columns={2}>
@@ -668,7 +637,6 @@ const ReconciliationRunsDetailPage = () => {
           <SidebarGroup title="Identity">
             <SidebarKV label="Run No" value={run.runNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={run.status} />} />
-            <SidebarKV label="Engine" value={run.engineVersion ?? run.layer} mono />
             <SidebarKV label="Trigger" value={fmtTrigger(run.triggerType)} />
           </SidebarGroup>
 

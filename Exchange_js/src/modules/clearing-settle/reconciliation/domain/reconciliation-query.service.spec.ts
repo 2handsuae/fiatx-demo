@@ -135,36 +135,21 @@ describe('pairManifest — amount-keyed pairing', () => {
   });
 });
 
-describe('listRuns — engineVersion filter (Phase B)', () => {
-  // Per T5: every existing ReconciliationRun row gets engineVersion='V8_FORMULA' via column default.
-  // Phase B (T7) will stamp new runs with 'WALLET_V1'. Filter must respect undefined = all engines.
+describe('listRuns — single engine surface', () => {
+  // Single engine now (WALLET_V1). No engineVersion filter.
   function mkPrisma(rows: any[]) {
     return {
       reconciliationRun: {
-        findMany: jest.fn().mockImplementation(({ where }: any) => {
-          if (where?.engineVersion === undefined) return Promise.resolve(rows);
-          return Promise.resolve(rows.filter((r) => r.engineVersion === where.engineVersion));
-        }),
+        findMany: jest.fn().mockResolvedValue(rows),
       },
     } as any;
   }
-  const legacyRow = { id: 'r1', runNo: 'RUN-1', engineVersion: 'V8_FORMULA', businessDate: '2026-06-25', layer: 'REDESIGN' };
+  const row = { id: 'r1', runNo: 'RUN20260625-1', businessDate: '2026-06-25', layer: 'WALLET' };
 
-  it('returns all rows when engineVersion is undefined', async () => {
-    const svc = mkSvc(mkPrisma([legacyRow]));
+  it('returns all rows without engine filtering', async () => {
+    const svc = mkSvc(mkPrisma([row]));
     const rows = await svc.listRuns({});
     expect(rows).toHaveLength(1);
-  });
-  it('returns existing V8_FORMULA runs when filtered explicitly', async () => {
-    const svc = mkSvc(mkPrisma([legacyRow]));
-    const rows = await svc.listRuns({ engineVersion: 'V8_FORMULA' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].engineVersion).toBe('V8_FORMULA');
-  });
-  it('returns empty when filtering for WALLET_V1 (no Phase B runs exist yet)', async () => {
-    const svc = mkSvc(mkPrisma([legacyRow]));
-    const rows = await svc.listRuns({ engineVersion: 'WALLET_V1' });
-    expect(rows).toHaveLength(0);
   });
 });
 
@@ -205,15 +190,14 @@ describe('getRun — accountStatusTable (T3)', () => {
   // MATCH and ORPHAN respectively.
   const run = {
     id: 'run-w1',
-    runNo: 'RUN-20260627-WALLET-1',
+    runNo: 'RUN20260627-1',
     businessDate: '2026-06-27',
     layer: 'WALLET',
-    engineVersion: 'WALLET_V1',
     demoManifest: null,
     invariantChecks: [],
   };
   const cases = [
-    { id: 'case-1', caseNo: 'REC-20260627-AED-W-001', assetCode: 'AED', book: 'CUSTOMER', status: 'OPEN', deltaAmount: new Prisma.Decimal(0), walletRef: 'walletB' },
+    { id: 'case-1', caseNo: 'REC20260627-001', assetCode: 'AED', book: 'CUSTOMER', status: 'OPEN', deltaAmount: new Prisma.Decimal(0), walletRef: 'walletB' },
   ];
 
   function mkPrisma() {
@@ -275,7 +259,7 @@ describe('getRun — accountStatusTable (T3)', () => {
     // but underlying line-items broken). Old engine called this 'ORPHAN'.
     expect(b.status).toBe('FLOW_REVIEW');
     expect(b.caseId).toBe('case-1');
-    expect(b.caseNo).toBe('REC-20260627-AED-W-001');
+    expect(b.caseNo).toBe('REC20260627-001');
     expect(b.flowOrphanExternal).toBe(1);
     expect(b.flowOrphanInternal).toBe(0);
     expect(b.flowMismatch).toBe(0);
@@ -286,15 +270,6 @@ describe('getRun — accountStatusTable (T3)', () => {
     expect(result.summary.flowReviewCount).toBe(1);
     expect(result.summary.breakCount).toBe(0);
     expect(result.summary.orphanCount).toBe(1); // per-anomaly axis (any orphan line item)
-  });
-
-  it('returns empty accountStatusTable for legacy V8_FORMULA runs', async () => {
-    const prisma = mkPrisma();
-    prisma.reconciliationRun.findUnique = jest.fn().mockResolvedValue({ ...run, engineVersion: 'V8_FORMULA' });
-    const svc = mkSvc(prisma);
-    const result: any = await svc.getRun(run.runNo);
-    expect(result.accountStatusTable).toEqual([]);
-    expect(result.summary.accountsChecked).toBe(0);
   });
 
   it('marks BREAK when delta != 0 (industry "balance first": flow state irrelevant for headline)', async () => {

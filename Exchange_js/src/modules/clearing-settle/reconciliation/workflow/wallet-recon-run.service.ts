@@ -259,7 +259,9 @@ export class WalletReconRunService {
       where: { businessDate, layer: RUN_LAYER },
     });
     const seq = prior + 1;
-    const runNo = `RUN-${businessDate.replace(/-/g, '')}-${RUN_LAYER}-${seq}`;
+    // Format: RUN{YYYYMMDD}-{seq} — single engine (WALLET_V1), so no engine
+    // tag in the no. Sequence scoped to layer=WALLET per day.
+    const runNo = `RUN${businessDate.replace(/-/g, '')}-${seq}`;
     return (this.prisma as any).reconciliationRun.create({
       data: {
         runNo,
@@ -511,13 +513,13 @@ export class WalletReconRunService {
         where: { caseId: existing.id },
       });
     } else {
-      // caseNo uses asset + zero-padded sequence, scoped per businessDate +
-      // assetCode for human readability. We count existing rows (any status)
-      // to avoid caseNo collisions when an earlier RESOLVED case exists.
+      // Format: REC{YYYYMMDD}-{nnn}. Sequence counts ALL cases for the
+      // businessDate (wallet + XREF share the counter) — collision-safe across
+      // both code paths. Asset/wallet info is in the detail page.
       const priorToday = await (this.prisma as any).reconciliationCase.count({
-        where: { businessDate: input.businessDate, assetCode: input.assetCode },
+        where: { businessDate: input.businessDate },
       });
-      const caseNo = `REC-${input.businessDate.replace(/-/g, '')}-${input.assetCode}-W-${String(priorToday + 1).padStart(3, '0')}`;
+      const caseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
       const createdRow = await (this.prisma as any).reconciliationCase.create({
         data: {
           caseNo,
@@ -744,9 +746,9 @@ export class WalletReconRunService {
         updated += 1;
       } else {
         const priorToday = await (this.prisma as any).reconciliationCase.count({
-          where: { businessDate: input.businessDate, assetCode: first.assetCode },
+          where: { businessDate: input.businessDate },
         });
-        const caseNo = `REC-${input.businessDate.replace(/-/g, '')}-${first.assetCode}-XREF-${safeRef}-${String(priorToday + 1).padStart(3, '0')}`;
+        const caseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
         const createdRow = await (this.prisma as any).reconciliationCase.create({
           data: {
             caseNo,

@@ -155,32 +155,25 @@ export class ReconciliationQueryService {
     private readonly walletFlowMatcher: WalletFlowMatcherService,
   ) {}
 
-  listRuns(q: { businessDate?: string; layer?: string; engineVersion?: string }) {
+  listRuns(q: { businessDate?: string; layer?: string }) {
     return this.prisma.reconciliationRun.findMany({
       where: {
         businessDate: q.businessDate,
         layer: q.layer,
-        // engineVersion: omit when undefined → all engines; pass-through when supplied.
-        engineVersion: q.engineVersion,
       },
       orderBy: [{ businessDate: 'desc' }, { layer: 'asc' }, { seq: 'desc' }],
     });
   }
   /**
-   * Run detail (T3). For WALLET_V1 runs we also build the per-wallet status
-   * table from ExternalBalance + a fresh balance-checker pass + this run's
-   * Cases (so the UI can render the dashboard without N round-trips). Legacy
-   * V8_FORMULA runs return accountStatusTable=[] and an empty summary —
-   * callers degrade gracefully.
+   * Run detail. Builds the per-wallet status table from ExternalBalance + a
+   * fresh balance-checker pass + this run's Cases (so the UI cockpit can
+   * render the dashboard without N round-trips).
    */
   async getRun(runNo: string) {
     const run = await this.prisma.reconciliationRun.findUnique({
       where: { runNo }, include: { invariantChecks: true },
     });
     if (!run) throw new NotFoundException(`Run ${runNo} not found`);
-    // Cases this run last touched — lets the run-detail scorecard link a failing
-    // (currency, book) cell straight to its case. Same join as getLatestRedesignRun;
-    // no lineItems (the link only needs caseNo). Harmless for legacy I1–I5 runs.
     const cases = await this.prisma.reconciliationCase.findMany({
       where: { lastObservedRunId: run.id },
       orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
@@ -195,22 +188,10 @@ export class ReconciliationQueryService {
       },
     });
 
-    // T3: build per-wallet status table — only meaningful for WALLET_V1 runs.
-    let accountStatusTable: AccountStatusRow[] = [];
-    let summary: RunDetailSummary = {
-      accountsChecked: 0,
-      matchCount: 0,
-      flowReviewCount: 0,
-      breakCount: 0,
-      balanceBreakCount: 0,
-      orphanCount: 0,
-      mismatchCount: 0,
-    };
-    if (run.engineVersion === 'WALLET_V1') {
-      const built = await this.buildAccountStatusTable(run.businessDate, cases as any);
-      accountStatusTable = built.rows;
-      summary = built.summary;
-    }
+    const { rows: accountStatusTable, summary } = await this.buildAccountStatusTable(
+      run.businessDate,
+      cases as any,
+    );
 
     return {
       ...run,

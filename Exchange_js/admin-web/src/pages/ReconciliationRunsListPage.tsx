@@ -30,12 +30,7 @@ interface ReconRun {
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
-  // Phase B engine stamp — V8_FORMULA (legacy credit-net) | WALLET_V1 (per-wallet).
-  engineVersion: string;
 }
-
-// Phase B per-wallet engine is the new default surface; All keeps the historical view discoverable.
-type EngineFilter = 'WALLET_V1' | 'V8_FORMULA' | 'ALL';
 
 /* ── Constants ───────────────────────────────────────────────── */
 
@@ -48,12 +43,6 @@ const TRIGGER_LABELS: Record<string, { label: string; tone: string }> = {
   POST_FIX: { label: 'Post-Fix', tone: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber' },
 };
 
-// Engine version pill tones — keep WALLET_V1 distinct as the new live engine.
-const ENGINE_LABELS: Record<string, { label: string; tone: string }> = {
-  WALLET_V1: { label: 'Wallet v1', tone: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue' },
-  V8_FORMULA: { label: 'V8 Formula', tone: 'border-adm-border bg-adm-bg text-adm-t2' },
-};
-
 /* ── Component ───────────────────────────────────────────────── */
 
 const ReconciliationRunsListPage = () => {
@@ -62,17 +51,12 @@ const ReconciliationRunsListPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  // Default to WALLET_V1 — that's the Phase B engine new runs are stamped with.
-  // Switch to V8_FORMULA to inspect legacy credit-net runs, or ALL for the full history.
-  const [engineFilter, setEngineFilter] = useState<EngineFilter>('WALLET_V1');
 
-  const fetchRuns = async (engine: EngineFilter = engineFilter) => {
+  const fetchRuns = async () => {
     setLoading(true);
     setError(null);
     try {
-      const url = new URL(`${import.meta.env.VITE_API_URL}/admin/reconciliation/runs`);
-      if (engine !== 'ALL') url.searchParams.set('engineVersion', engine);
-      const res = await adminFetch(url.toString());
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/reconciliation/runs`);
       if (!res.ok)
         throw new Error(await getApiErrorMessage(res, 'Failed to load reconciliation runs.'));
       const result = await res.json();
@@ -88,9 +72,9 @@ const ReconciliationRunsListPage = () => {
   };
 
   useEffect(() => {
-    void fetchRuns(engineFilter);
+    void fetchRuns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engineFilter]);
+  }, []);
 
   const pageRows = useMemo(
     () => runs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -111,21 +95,6 @@ const ReconciliationRunsListPage = () => {
     );
   };
 
-  const renderEngine = (engine: string | null | undefined) => {
-    const value = engine ?? 'V8_FORMULA';
-    const conf = ENGINE_LABELS[value] || {
-      label: value,
-      tone: 'border-adm-border bg-adm-bg text-adm-t2',
-    };
-    return (
-      <span
-        className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[9px] font-semibold ${conf.tone}`}
-      >
-        {conf.label}
-      </span>
-    );
-  };
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Title bar ── */}
@@ -133,19 +102,6 @@ const ReconciliationRunsListPage = () => {
         title="Reconciliation Runs"
         meta={`${runs.length} run${runs.length === 1 ? '' : 's'} · Daily Reconciliation`}
       >
-        <label className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-adm-t3">
-          Engine
-          <select
-            value={engineFilter}
-            onChange={(e) => setEngineFilter(e.target.value as EngineFilter)}
-            className="h-[30px] rounded border border-adm-border bg-adm-bg px-2 font-mono text-[11px] text-adm-t1 focus:border-adm-blue focus:outline-none"
-            title="Engine version filter (V8 Formula = legacy; Wallet v1 = Phase B)"
-          >
-            <option value="WALLET_V1">Wallet v1</option>
-            <option value="V8_FORMULA">V8 Formula</option>
-            <option value="ALL">All</option>
-          </select>
-        </label>
         <button
           onClick={() => void fetchRuns()}
           className="inline-flex h-[30px] w-[30px] items-center justify-center rounded border border-adm-border bg-adm-bg text-adm-t2 transition-colors hover:bg-adm-hover"
@@ -170,7 +126,6 @@ const ReconciliationRunsListPage = () => {
               {(
                 [
                   ['Run No', '180px'],
-                  ['Engine', '110px'],
                   ['Layer', '90px'],
                   ['Trigger', '120px'],
                   ['Invariant', '110px'],
@@ -192,14 +147,14 @@ const ReconciliationRunsListPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && runs.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No reconciliation runs found.
                 </td>
               </tr>
@@ -218,9 +173,6 @@ const ReconciliationRunsListPage = () => {
                     </span>
                     <span className="ml-1 font-mono text-[10px] text-adm-t3">#{run.seq}</span>
                   </td>
-
-                  {/* Engine */}
-                  <td className="px-4 py-2.5">{renderEngine(run.engineVersion)}</td>
 
                   {/* Layer */}
                   <td className="px-4 py-2.5">
