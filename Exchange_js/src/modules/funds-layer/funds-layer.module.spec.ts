@@ -14,7 +14,6 @@ import { MockCustodianExecutionAdapter } from './adapters/mock-custodian-executi
 import { InternalTransferWorkflowService } from './workflow/internal-transfer-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
 import { FiatFeeCollectionWorkflowService } from './workflow/fiat-fee-collection-workflow.service';
-import { FeeAccrualListenerService } from './workflow/fee-accrual-listener.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
 import { FeeAccrualService } from './domain/fee-accrual.service';
 import { FxEodService } from './accounting/fx-eod.service';
@@ -53,7 +52,6 @@ describe('FundsLayerModule wiring', () => {
         InternalTransferWorkflowService,
         FiatSettlementWorkflowService,
         FiatFeeCollectionWorkflowService,
-        FeeAccrualListenerService,
         // Real EOD workflow + FeeAccrualService prove the settle-on-CLEAR wiring
         // edge (EodSettlementWorkflowService → FeeAccrualService) resolves with
         // no circular DI.
@@ -101,10 +99,6 @@ describe('FundsLayerModule wiring', () => {
 
   it('provides FiatFeeCollectionWorkflowService', () => {
     expect(moduleRef.get(FiatFeeCollectionWorkflowService)).toBeDefined();
-  });
-
-  it('provides FeeAccrualListenerService (so its @OnEvent listeners register)', () => {
-    expect(moduleRef.get(FeeAccrualListenerService)).toBeDefined();
   });
 
   it('resolves EodSettlementWorkflowService with FeeAccrualService injected (no circular DI)', () => {

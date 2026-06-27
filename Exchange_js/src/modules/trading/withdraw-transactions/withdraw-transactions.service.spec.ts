@@ -9,7 +9,6 @@ import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
-import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
@@ -378,7 +377,7 @@ describe('WithdrawTransactionsService', () => {
     expect(result.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
   });
 
-  it('should emit domain events when external tx is provided', async () => {
+  it('should transition crypto approval via external tx', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-3',
       status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
@@ -426,13 +425,9 @@ describe('WithdrawTransactionsService', () => {
     );
 
     expect(result.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
-      WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO,
-      { withdrawId: 'wd-3' },
-    );
   });
 
-  it('should emit fiat approval event based on asset.type', async () => {
+  it('should transition fiat approval based on asset.type', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-4',
       status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
@@ -472,10 +467,6 @@ describe('WithdrawTransactionsService', () => {
     );
 
     expect(result.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
-      WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT,
-      { withdrawId: 'wd-4' },
-    );
   });
 
   it('should return derivedComplianceStatus in list payload', async () => {
@@ -615,7 +606,7 @@ describe('WithdrawTransactionsService', () => {
     });
   });
 
-  it('should emit unified failed event when payout fails', async () => {
+  it('should transition to FAILED when payout fails', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-5',
       status: WithdrawTransactionStatus.PAYOUT_PENDING,
@@ -645,10 +636,6 @@ describe('WithdrawTransactionsService', () => {
     });
 
     expect(result.status).toBe(WithdrawTransactionStatus.FAILED);
-    expect(eventEmitter.emit).toHaveBeenCalledWith(
-      WithdrawEvents.EVT_WITHDRAWAL_FAILED,
-      { withdrawId: 'wd-5' },
-    );
   });
 
   describe('real-time 1:1 TB accounting on create()', () => {

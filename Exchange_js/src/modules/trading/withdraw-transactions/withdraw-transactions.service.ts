@@ -8,7 +8,6 @@ import {
 } from './dto/withdraw-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { WithdrawEvents } from './constants/withdraw-events.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -565,57 +564,6 @@ export class WithdrawTransactionsService {
       );
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
-
-      if (nextStatus === WithdrawTransactionStatus.CANCELLED) {
-        postCommitEvents.push({
-          eventName: WithdrawEvents.EVT_WITHDRAWAL_CANCELLED,
-          payload: { withdrawId: id },
-        });
-      } else if (nextStatus === WithdrawTransactionStatus.REJECTED) {
-        postCommitEvents.push({
-          eventName: WithdrawEvents.EVT_WITHDRAWAL_REJECTED,
-          payload: { withdrawId: id },
-        });
-      } else if (
-        nextStatus === WithdrawTransactionStatus.APPROVED ||
-        nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING
-      ) {
-        if (
-          currentStatus !== WithdrawTransactionStatus.APPROVED &&
-          currentStatus !== WithdrawTransactionStatus.PAYOUT_PENDING
-        ) {
-          if (withdrawType === 'crypto') {
-            postCommitEvents.push({
-              eventName: WithdrawEvents.EVT_WITHDRAWAL_APPROVED__CRYPTO,
-              payload: { withdrawId: id },
-            });
-          } else if (withdrawType === 'fiat') {
-            postCommitEvents.push({
-              eventName: WithdrawEvents.EVT_WITHDRAWAL_APPROVED__FIAT,
-              payload: { withdrawId: id },
-            });
-          }
-        }
-      } else if (nextStatus === WithdrawTransactionStatus.SUCCESS) {
-        const successEvent =
-          withdrawType === 'crypto'
-            ? WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__CRYPTO
-            : WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT;
-        postCommitEvents.push({
-          eventName: successEvent,
-          payload: { withdrawId: id },
-        });
-      } else if (nextStatus === WithdrawTransactionStatus.FAILED) {
-        postCommitEvents.push({
-          eventName: WithdrawEvents.EVT_WITHDRAWAL_FAILED,
-          payload: { withdrawId: id },
-        });
-      } else if (nextStatus === WithdrawTransactionStatus.RETURNED) {
-        postCommitEvents.push({
-          eventName: WithdrawEvents.EVT_WITHDRAWAL_RETURNED__FIAT,
-          payload: { withdrawId: id },
-        });
-      }
 
       return {
         updated: {

@@ -19,7 +19,6 @@ import { FeeAccrualService } from './domain/fee-accrual.service';
 import { EodSettlementWorkflowService } from './workflow/eod-settlement-workflow.service';
 import { FiatSettlementWorkflowService } from './workflow/fiat-settlement-workflow.service';
 import { FiatFeeCollectionWorkflowService } from './workflow/fiat-fee-collection-workflow.service';
-import { FeeAccrualListenerService } from './workflow/fee-accrual-listener.service';
 import { InternalTransferAdminController } from './controllers/internal-transfer-admin.controller';
 import { FundsSimulateController } from './controllers/funds-simulate.controller';
 import { FundReturnRepairController } from './controllers/fund-return-repair.controller';
@@ -72,7 +71,6 @@ import { WalletsModule } from '../asset-treasury/wallets/wallets.module';
     EodSettlementSweepService,
     FiatSettlementWorkflowService,
     FiatFeeCollectionWorkflowService,
-    FeeAccrualListenerService,
     { provide: FundsFlowAggregatorPort, useExisting: InternalTransferService },
   ],
   exports: [
