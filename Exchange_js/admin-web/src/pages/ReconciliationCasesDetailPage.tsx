@@ -188,6 +188,13 @@ const MATCH_TONE: Record<FlowMatchType, string> = {
   AMOUNT_MISMATCH: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
 };
 
+const MATCH_LABEL: Record<FlowMatchType, string> = {
+  MATCHED:         'matched',
+  ORPHAN_INTERNAL: 'Internal only',
+  ORPHAN_EXTERNAL: 'External only',
+  AMOUNT_MISMATCH: 'Amount mismatch',
+};
+
 const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   const tone = MATCH_TONE[row.matchType];
   if (row.matchType === 'MATCHED') {
@@ -201,13 +208,13 @@ const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
     const sign = deltaSign(row.deltaAmount);
     return (
       <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${tone}`}>
-        <AlertTriangle size={10} /> MISMATCH {sign && `(${sign}${formatAmount(row.deltaAmount)})`}
+        <AlertTriangle size={10} /> {MATCH_LABEL.AMOUNT_MISMATCH} {sign && `(${sign}${formatAmount(row.deltaAmount)})`}
       </span>
     );
   }
   return (
     <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${tone}`}>
-      <AlertTriangle size={10} /> {row.matchType}
+      <AlertTriangle size={10} /> {MATCH_LABEL[row.matchType]}
     </span>
   );
 };
@@ -250,12 +257,14 @@ const ReconciliationCasesDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseNo]);
 
-  // Sort flow rows: MATCHED first → orphan internal → orphan external → mismatch.
-  // Inside each bucket, by row timestamp asc. Hook called BEFORE early returns
-  // so hook order is stable across renders.
+  // Investigation surface: only problematic rows (orphans + mismatches). MATCHED
+  // pairs are noise here — Case detail is the "what went wrong" screen, not the
+  // ledger audit baseline. Sort orphan internal → orphan external → mismatch,
+  // then by timestamp asc. Hook called BEFORE early returns so hook order stays
+  // stable across renders.
   const sortedFlows = useMemo<FlowComparisonRow[]>(() => {
-    const rows = kase?.flowComparison ?? [];
-    return [...rows].sort((a, b) => {
+    const rows = (kase?.flowComparison ?? []).filter((r) => r.matchType !== 'MATCHED');
+    return rows.sort((a, b) => {
       const r = MATCH_RANK[a.matchType] - MATCH_RANK[b.matchType];
       if (r !== 0) return r;
       return rowTimestamp(a) - rowTimestamp(b);
@@ -469,13 +478,14 @@ const ReconciliationCasesDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* 4. Anomaly Summary — 3 chips (click → scroll to first row) */}
+          {/* 4. Anomaly Summary — 3 chips (click → scroll to first row).
+              These are the only three problem buckets that drive this case. */}
           <DetailCard title="Anomaly Summary" columns={1}>
             <div className="flex flex-wrap items-center gap-2">
               {[
-                { key: 'ORPHAN_INTERNAL' as FlowMatchType, label: 'ORPHAN_INTERNAL', count: summary.orphanInternal },
-                { key: 'ORPHAN_EXTERNAL' as FlowMatchType, label: 'ORPHAN_EXTERNAL', count: summary.orphanExternal },
-                { key: 'AMOUNT_MISMATCH' as FlowMatchType, label: 'AMOUNT_MISMATCH', count: summary.mismatch },
+                { key: 'ORPHAN_INTERNAL' as FlowMatchType, label: 'Internal only', count: summary.orphanInternal },
+                { key: 'ORPHAN_EXTERNAL' as FlowMatchType, label: 'External only', count: summary.orphanExternal },
+                { key: 'AMOUNT_MISMATCH' as FlowMatchType, label: 'Amount mismatch', count: summary.mismatch },
               ].map((chip) => {
                 const isZero = chip.count === 0;
                 const tone = chip.key === 'AMOUNT_MISMATCH'
@@ -502,14 +512,16 @@ const ReconciliationCasesDetailPage = () => {
                 );
               })}
               <span className="ml-2 font-mono text-[10px] text-adm-t3">
-                Matched (audit baseline): <span className="text-adm-t1">{summary.matched}</span>
+                Matched baseline (hidden below): <span className="text-adm-t1">{summary.matched}</span>
               </span>
             </div>
           </DetailCard>
 
-          {/* 5. Flow Comparison — dual-column EXTERNAL ‖ INTERNAL ‖ Match */}
+          {/* 5. Problem Flows — only orphans + mismatches. Matched pairs are
+              hidden — Case detail is "what went wrong", the audit baseline lives
+              in Account Statement (linked at the bottom). */}
           <DetailCard
-            title={`Flow Comparison · ${sortedFlows.length} row${sortedFlows.length === 1 ? '' : 's'}`}
+            title={`Problem Flows · ${sortedFlows.length} row${sortedFlows.length === 1 ? '' : 's'}`}
             columns={1}
           >
             <div className="overflow-x-auto rounded-lg border border-adm-border">
@@ -531,7 +543,7 @@ const ReconciliationCasesDetailPage = () => {
                   {sortedFlows.length === 0 ? (
                     <tr>
                       <td colSpan={3} className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3">
-                        No flow comparison rows for this case (legacy non-wallet case or empty wallet).
+                        No problem flows for this case. (Matched pairs are hidden — open Account Statement for the full ledger.)
                       </td>
                     </tr>
                   ) : (

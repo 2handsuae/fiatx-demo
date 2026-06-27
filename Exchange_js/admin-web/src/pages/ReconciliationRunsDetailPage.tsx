@@ -159,11 +159,11 @@ const isZeroAmount = (raw: string): boolean => {
 
 // Status badge for the AccountStatusRow.status enum — distinct from StatusPill
 // because the cockpit needs three semantic colours that don't map to the
-// trading-status palette. MATCH=green, FLOW_REVIEW=amber, BREAK=red.
+// trading-status palette. MATCH=green, FLOW_REVIEW=amber (SOFT FLAG), BREAK=red (HARD BREAK).
 const STATUS_BADGE: Record<AccountStatusRowStatus, { cls: string; icon: 'ok' | 'warn'; label: string }> = {
   MATCH:       { cls: 'border-adm-green/30 bg-adm-green/10 text-adm-green', icon: 'ok',   label: 'Match' },
-  FLOW_REVIEW: { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber', icon: 'warn', label: 'Flow review' },
-  BREAK:       { cls: 'border-adm-red/30 bg-adm-red/10 text-adm-red',       icon: 'warn', label: 'Break' },
+  FLOW_REVIEW: { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber', icon: 'warn', label: 'Soft flag' },
+  BREAK:       { cls: 'border-adm-red/30 bg-adm-red/10 text-adm-red',       icon: 'warn', label: 'Hard break' },
 };
 
 const StatusBadge = ({ value }: { value: AccountStatusRowStatus }) => {
@@ -363,15 +363,14 @@ const ReconciliationRunsDetailPage = () => {
             </div>
           </div>
 
-          {/* 2. Overview — three cards. Break (red) is the headline; Flow review
-              (amber) appears as a smaller chip below — it's an investigation
-              probe, not a hard break. "Why" a specific account broke lives in
-              the Case detail. */}
+          {/* 2. Overview — four equal cards (Accounts / Match / HARD BREAK / SOFT FLAG).
+              HARD BREAK = balance != external; SOFT FLAG = balance OK but flow
+              line-items have orphan/mismatch (the "fake match" probe). */}
           {isWallet ? (
             <DetailCard title="Overview" columns={1}>
               <div className="flex flex-col gap-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  {/* Accounts checked — the headline number. */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                  {/* Accounts checked — the headline scope. */}
                   <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
                     <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
                       Accounts Checked
@@ -380,7 +379,7 @@ const ReconciliationRunsDetailPage = () => {
                       {summary.accountsChecked}
                     </div>
                   </div>
-                  {/* Match pill */}
+                  {/* Match */}
                   <div className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4">
                     <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
                       <Check size={11} /> Match
@@ -389,14 +388,14 @@ const ReconciliationRunsDetailPage = () => {
                       {summary.matchCount}
                     </div>
                   </div>
-                  {/* Break pill — single number; drill into Case for the why. */}
+                  {/* HARD BREAK — balance != external */}
                   <div
                     className={`rounded-lg border p-4 ${summary.breakCount > 0 ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg'}`}
                   >
                     <div
                       className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t3'}`}
                     >
-                      <AlertTriangle size={11} /> Break
+                      <AlertTriangle size={11} /> Hard Break
                     </div>
                     <div
                       className={`mt-1 text-[28px] font-bold leading-tight ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t1'}`}
@@ -404,21 +403,23 @@ const ReconciliationRunsDetailPage = () => {
                       {summary.breakCount}
                     </div>
                   </div>
-                </div>
-
-                {/* Flow review chip — secondary signal. Balance OK but flow
-                    line-items have orphan/mismatch (the "fake match" probe). */}
-                {summary.flowReviewCount > 0 && (
+                  {/* SOFT FLAG — balance OK but flow line-items off */}
                   <div
-                    className="inline-flex w-fit items-center gap-2 rounded-md border border-adm-amber/30 bg-adm-amber/5 px-3 py-1.5 font-mono text-[11px] text-adm-amber"
-                    title="Balance matched, but flow line-items have orphan or mismatch — investigate for fake match / fraud / omissions"
+                    className={`rounded-lg border p-4 ${summary.flowReviewCount > 0 ? 'border-adm-amber/30 bg-adm-amber/5' : 'border-adm-border bg-adm-bg'}`}
+                    title="Balance matched, but flow line-items have orphan/mismatch — fake-match probe"
                   >
-                    <AlertTriangle size={12} />
-                    {summary.flowReviewCount} flow review
-                    {summary.flowReviewCount === 1 ? '' : 's'} — balance OK,
-                    but underlying flows need a closer look
+                    <div
+                      className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t3'}`}
+                    >
+                      <AlertTriangle size={11} /> Soft Flag
+                    </div>
+                    <div
+                      className={`mt-1 text-[28px] font-bold leading-tight ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t1'}`}
+                    >
+                      {summary.flowReviewCount}
+                    </div>
                   </div>
-                )}
+                </div>
 
                 {/* Self-heal chip — only shown when this run auto-healed prior breaks. */}
                 {run.closedCount > 0 && (
