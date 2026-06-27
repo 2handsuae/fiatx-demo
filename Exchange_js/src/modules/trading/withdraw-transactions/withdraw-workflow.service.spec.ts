@@ -167,3 +167,73 @@ describe('WithdrawWorkflowService — releaseLock on payout failure (P6)', () =>
     );
   });
 });
+
+describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invariant)', () => {
+  let workflow: WithdrawWorkflowService;
+  let prisma: any;
+  let payoutsService: any;
+
+  beforeEach(() => {
+    prisma = {
+      tbTransferEvidence: { findMany: jest.fn() },
+    };
+    payoutsService = {
+      findOne: jest.fn(),
+    };
+
+    workflow = new WithdrawWorkflowService(
+      prisma as any, // prisma
+      {} as any, // eventEmitter
+      {} as any, // withdrawService
+      {} as any, // withdrawQuoteService
+      {} as any, // auditLogsService
+      {} as any, // accountingService
+      payoutsService as any, // payoutsService
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // fundsFlowService
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+    );
+  });
+
+  const baseWithdrawal = {
+    id: 'wd-settle-1',
+    withdrawNo: 'WD9200',
+    payoutId: 'po-settle-1',
+    tbPendingNetId: '101',
+  };
+
+  it('throws when firm-fee evidence (WITHDRAW_FEE_FIRM) is missing', async () => {
+    payoutsService.findOne.mockResolvedValue({ status: PayoutStatus.CONFIRMED });
+    prisma.tbTransferEvidence.findMany.mockResolvedValue([
+      { eventCode: 'WITHDRAW_NET_POST' },
+      { eventCode: 'WITHDRAW_FEE_POST' },
+    ]);
+
+    await expect(
+      (workflow as any).assertWithdrawSettled(baseWithdrawal, 100n),
+    ).rejects.toThrow(/WITHDRAW_FEE_FIRM/);
+  });
+
+  it('throws when the payout is not confirmed', async () => {
+    payoutsService.findOne.mockResolvedValue({ status: 'CONFIRMING' });
+
+    await expect(
+      (workflow as any).assertWithdrawSettled(baseWithdrawal, 100n),
+    ).rejects.toThrow(/payout/);
+  });
+
+  it('resolves when payout is confirmed and all settlement evidence is present', async () => {
+    payoutsService.findOne.mockResolvedValue({ status: PayoutStatus.CONFIRMED });
+    prisma.tbTransferEvidence.findMany.mockResolvedValue([
+      { eventCode: 'WITHDRAW_NET_POST' },
+      { eventCode: 'WITHDRAW_FEE_POST' },
+      { eventCode: 'WITHDRAW_FEE_FIRM' },
+    ]);
+
+    await expect(
+      (workflow as any).assertWithdrawSettled(baseWithdrawal, 100n),
+    ).resolves.toBeUndefined();
+  });
+});

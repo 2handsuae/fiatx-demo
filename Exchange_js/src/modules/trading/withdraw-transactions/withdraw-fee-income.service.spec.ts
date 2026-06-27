@@ -261,7 +261,8 @@ function buildWorkflowMocks() {
       Promise.resolve({
         id: 'payout-1',
         payoutNo: 'PO0001',
-        status: 'SUCCESS',
+        // 乙 SUCCESS invariant: assertWithdrawSettled requires CONFIRMED/CLEARED.
+        status: 'CONFIRMED',
         withdrawId: 'wd-1',
       }),
     ),
@@ -276,6 +277,20 @@ function buildWorkflowMocks() {
   // to its POST semantics after postPendingTransfer flips transferType.
   const tbEvidenceService = { enrichForPost: jest.fn(() => Promise.resolve()) };
 
+  // 乙 SUCCESS invariant: assertWithdrawSettled reads tbTransferEvidence to confirm
+  // the full settlement (NET_POST + FEE_POST + FEE_FIRM) is on the books before SUCCESS.
+  const prisma = {
+    tbTransferEvidence: {
+      findMany: jest.fn(() =>
+        Promise.resolve([
+          { eventCode: 'WITHDRAW_NET_POST' },
+          { eventCode: 'WITHDRAW_FEE_POST' },
+          { eventCode: 'WITHDRAW_FEE_FIRM' },
+        ]),
+      ),
+    },
+  };
+
   return {
     accountingService,
     auditLogsService,
@@ -286,6 +301,7 @@ function buildWorkflowMocks() {
     fundsFlowService,
     systemWalletResolver,
     tbEvidenceService,
+    prisma,
   };
 }
 
@@ -293,7 +309,7 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
   it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→FIRM_FEE', async () => {
     const mocks = buildWorkflowMocks();
     const service = new WithdrawWorkflowService(
-      {} as any, // prisma
+      mocks.prisma as any, // prisma
       { emit: jest.fn() } as any, // eventEmitter
       mocks.withdrawService as any,
       {} as any, // withdrawQuoteService
@@ -357,7 +373,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
 
   function makeService(m: ReturnType<typeof buildPhaseBMocks>) {
     return new WithdrawWorkflowService(
-      {} as any, // prisma
+      m.prisma as any, // prisma
       { emit: jest.fn() } as any, // eventEmitter
       m.withdrawService as any,
       {} as any, // withdrawQuoteService
@@ -451,7 +467,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     });
     mocks.withdrawService.findOneInternal = jest.fn(() => Promise.resolve(recordWithoutRef));
     (mocks.payoutsService.findOne as any) = jest.fn(() => Promise.resolve({
-      id: 'payout-1', txHash: '0xpayoutfallback', referenceNo: null,
+      id: 'payout-1', txHash: '0xpayoutfallback', referenceNo: null, status: 'CONFIRMED',
     }));
     const service = makeService(mocks);
 

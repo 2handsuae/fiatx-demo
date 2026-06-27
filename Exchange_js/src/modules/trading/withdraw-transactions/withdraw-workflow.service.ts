@@ -856,6 +856,45 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   // ── Finalization: TB POST on chain confirmation ──
 
+  /**
+   * 乙 SUCCESS invariant. A withdrawal may only become SUCCESS when its WHOLE
+   * settlement is on the books: the principal payout is externally confirmed AND
+   * (when a fee was charged) the fee is collected on BOTH sides — the customer-side
+   * FEE_POST and the firm-side FEE_FIRM legs. Throws otherwise (fail-closed → the
+   * withdrawal stays PAYOUT_PENDING for operator repair via reCloseoutPayout).
+   */
+  private async assertWithdrawSettled(w: any, feeBigint: bigint): Promise<void> {
+    if (w.payoutId) {
+      const payout = await this.payoutsService.findOne(w.payoutId);
+      const settled =
+        payout &&
+        (payout.status === PayoutStatus.CONFIRMED || payout.status === PayoutStatus.CLEARED);
+      if (!settled) {
+        throw new Error(
+          `Withdraw ${w.withdrawNo} cannot settle SUCCESS: payout ${w.payoutId} status ` +
+          `'${payout?.status ?? 'MISSING'}' (need CONFIRMED or CLEARED).`,
+        );
+      }
+    }
+    const required: string[] = [];
+    if (w.tbPendingNetId) required.push('WITHDRAW_NET_POST');
+    if (feeBigint > 0n) required.push('WITHDRAW_FEE_POST', 'WITHDRAW_FEE_FIRM');
+    if (required.length > 0) {
+      const rows = await (this.prisma as any).tbTransferEvidence.findMany({
+        where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo },
+        select: { eventCode: true },
+      });
+      const codes = new Set(rows.map((r: any) => r.eventCode));
+      const missing = required.filter((c) => !codes.has(c));
+      if (missing.length > 0) {
+        throw new Error(
+          `Withdraw ${w.withdrawNo} cannot settle SUCCESS: settlement incomplete, ` +
+          `missing TB legs [${missing.join(', ')}] — fee not fully collected.`,
+        );
+      }
+    }
+  }
+
   private async finalizeWithdrawal(withdrawId: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
 
@@ -865,6 +904,22 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     const decimals = w.asset?.decimals ?? 8;
+    const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
+
+    // 乙 SUCCESS invariant — pre-flight (fail-closed): when a fee is owed, the firm-fee
+    // ledger MUST resolve BEFORE we POST anything. Aborting here keeps the settlement
+    // atomic (no partial post) — the customer is never charged a fee the firm can't book.
+    if (feeBigint > 0n) {
+      const feeLedger = w.asset?.currency
+        ? TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS]
+        : undefined;
+      if (!feeLedger) {
+        throw new Error(
+          `Withdraw ${w.withdrawNo}: cannot collect firm fee — no TB ledger for ` +
+          `'${w.asset?.currency ?? 'UNKNOWN'}'. Refusing to settle SUCCESS with an uncollected fee.`,
+        );
+      }
+    }
 
     // Phase B per-physical-wallet recon: pre-compute once for use across POST_NET,
     // POST_FEE, and FEE_FIRM evidence.
@@ -929,7 +984,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
-    const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
     if (w.tbPendingFeeId && feeBigint > 0n) {
       const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
       await this.accountingService.postPendingTransfer({
@@ -966,52 +1020,50 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     // Firm-side fee collect: DR FIRM_ASSET / CR FIRM_FEE (direct transfer, same ledger as asset)
-    if (feeBigint > 0n && w.asset?.currency) {
-      const ledger = TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS];
-      if (ledger) {
-        const firmAssetId = await this.accountingService.resolveTbAccountId({
-          code: TB_ACCOUNT_CODES.FIRM_ASSET,
-          ledger,
-          ownerType: 'SYSTEM',
-        });
-        const firmFeeId = await this.accountingService.resolveTbAccountId({
-          code: TB_ACCOUNT_CODES.FIRM_FEE,
-          ledger,
-          ownerType: 'SYSTEM',
-        });
+    if (feeBigint > 0n) {
+      const ledger = TB_LEDGERS[w.asset!.currency as keyof typeof TB_LEDGERS];
+      const firmAssetId = await this.accountingService.resolveTbAccountId({
+        code: TB_ACCOUNT_CODES.FIRM_ASSET,
+        ledger,
+        ownerType: 'SYSTEM',
+      });
+      const firmFeeId = await this.accountingService.resolveTbAccountId({
+        code: TB_ACCOUNT_CODES.FIRM_FEE,
+        ledger,
+        ownerType: 'SYSTEM',
+      });
 
-        // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
-        // FIRM_FEE is the platform's F_FEE wallet for this asset.
-        const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
+      // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
+      // FIRM_FEE is the platform's F_FEE wallet for this asset.
+      const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
 
-        await this.accountingService.executeTransfer({
-          debitAccountId: firmAssetId,
-          creditAccountId: firmFeeId,
-          amount: feeBigint,
-          ledger,
-          code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
-          evidence: {
-            sourceType: 'WITHDRAWAL',
-            sourceNo: w.withdrawNo,
-            eventCode: 'WITHDRAW_FEE_FIRM',
-            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
-            creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
-            assetCurrency: w.asset.currency,
-            traceId: w.traceId || w.id,
-            actorType: 'SYSTEM',
-            actorId: 'WITHDRAW_WORKFLOW',
-            memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
-            // Phase B firm-side fee leg of the cross-wallet same-ref pair.
-            // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
-            // creditWalletRef points at the platform's F_FEE wallet so recon can
-            // tie this row to the matching FEE_POST row by externalRef.
-            debitWalletRef: null,
-            creditWalletRef: firmFeeWalletRef,
-            externalRef,
-            isExternalCrossing: true,
-          },
-        });
-      }
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmAssetId,
+        creditAccountId: firmFeeId,
+        amount: feeBigint,
+        ledger,
+        code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
+        evidence: {
+          sourceType: 'WITHDRAWAL',
+          sourceNo: w.withdrawNo,
+          eventCode: 'WITHDRAW_FEE_FIRM',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+          assetCurrency: w.asset!.currency,
+          traceId: w.traceId || w.id,
+          actorType: 'SYSTEM',
+          actorId: 'WITHDRAW_WORKFLOW',
+          memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
+          // Phase B firm-side fee leg of the cross-wallet same-ref pair.
+          // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
+          // creditWalletRef points at the platform's F_FEE wallet so recon can
+          // tie this row to the matching FEE_POST row by externalRef.
+          debitWalletRef: null,
+          creditWalletRef: firmFeeWalletRef,
+          externalRef,
+          isExternalCrossing: true,
+        },
+      });
     }
 
     // Fee fund order follows the withdrawal: fee posted → CLEAR.
@@ -1036,6 +1088,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
         : 'TB pending transfers posted after chain confirmation',
       sourcePlatform: 'SYSTEM',
     });
+
+    // 乙 SUCCESS invariant: only settle when the whole settlement is on the books.
+    await this.assertWithdrawSettled(w, feeBigint);
 
     await this.withdrawService.updateStatus(w.id, {
       action: WithdrawTransactionAction.SUCCESS,
