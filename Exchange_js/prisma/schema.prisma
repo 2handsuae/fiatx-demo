@@ -2057,6 +2057,16 @@ model ReconciliationCase {
   walletRef                 String?
   coaCode                   String?  // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_OPS' | ...
   ownerNo                   String?
+  // T1 idempotency tracking — wallet-level engine reuses one case per (walletRef, businessDate)
+  // across reruns. firstSeenRunId pins the run that opened it; lastUpdatedRunId moves forward each
+  // rerun that re-confirms the break; resolvedAt + resolutionReason close the loop (auto-heal /
+  // manual resolution / waiver); severity classifies for the cockpit. All optional — legacy
+  // V8_FORMULA cases leave them null. T2 wires the upsert; T3 surfaces them via endpoints.
+  firstSeenRunId            String?
+  lastUpdatedRunId          String?
+  resolvedAt                DateTime?
+  resolutionReason          String?  // 'AUTO_HEALED' | 'MANUAL_RESOLVED' | 'WAIVED'
+  severity                  String?  // 'HIGH' | 'MEDIUM' | 'LOW'
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
   openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
@@ -2065,6 +2075,7 @@ model ReconciliationCase {
   @@unique([businessDate, assetId, book])
   @@index([status])
   @@index([walletRef])
+  @@index([walletRef, businessDate, status])
   @@map("reconciliation_cases")
 }
 
