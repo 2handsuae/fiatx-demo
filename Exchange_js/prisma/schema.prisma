@@ -2072,7 +2072,13 @@ model ReconciliationCase {
   openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
   asset                     Asset    @relation(fields: [assetId], references: [id])
   lineItems                 ReconciliationLineItem[]
-  @@unique([businessDate, assetId, book])
+  // T2: dropped @@unique([businessDate, assetId, book]) — Phase B wallet engine
+  // upserts one case per (walletRef, businessDate), so multiple wallets sharing the
+  // same (book, asset, date) each get their own case row. Service-layer idempotency
+  // (findFirst by walletRef + status=OPEN) replaces the DB unique; a DB-level
+  // partial unique (walletRef, businessDate, status=OPEN) is deferred to Phase C
+  // (SQLite expression-index compatibility pending).
+  @@index([businessDate, assetId, book])
   @@index([status])
   @@index([walletRef])
   @@index([walletRef, businessDate, status])

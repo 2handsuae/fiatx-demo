@@ -24,11 +24,15 @@ function makeDeps(overrides: any = {}) {
   };
   const reconciliationCase = {
     findFirst: jest.fn().mockResolvedValue(null),
+    findMany: jest.fn().mockResolvedValue([]),
     count: jest.fn().mockResolvedValue(0),
     create: jest.fn(async ({ data }: any) => ({ id: `case-${Math.random().toString(36).slice(2, 8)}`, ...data })),
-    update: jest.fn(),
+    update: jest.fn(async ({ where, data }: any) => ({ id: where.id, ...data })),
   };
-  const reconciliationLineItem = { create: jest.fn(), createMany: jest.fn() };
+  // T2 upsert deletes prior line items before re-inserting the current run's
+  // findings; auto-heal also looks at findMany / update on cases. Default mocks
+  // here so individual tests don't need to wire them.
+  const reconciliationLineItem = { create: jest.fn(), createMany: jest.fn(), deleteMany: jest.fn() };
   const externalBalance = { findMany: jest.fn().mockResolvedValue([]) };
   const externalStatementLine = { findMany: jest.fn().mockResolvedValue([]) };
   const accountFlow = {
@@ -260,5 +264,224 @@ describe('WalletReconRunService', () => {
       arg?.data?.coaCode === 'CROSS_REF' || /cross.?match/i.test(arg?.data?.caseNo ?? ''),
     );
     expect(crossCase).toBeDefined();
+  });
+
+  // ── T2: (walletRef, businessDate) idempotent upsert + auto-heal ──────────
+  describe('T2 idempotent upsert + auto-heal', () => {
+    /**
+     * Helper: drives a single recon run with one configurable breaking wallet.
+     * Wires deps fresh per run so we can simulate sequential runs by reusing
+     * the same DB-shaped state (caseStore Map) across them.
+     */
+    function makeRunHarness() {
+      // Shared mutable "DB" — one Map row per real-life ReconciliationCase.
+      const caseStore = new Map<string, any>();
+      let runSeq = 0;
+
+      function drive(opts: {
+        cutoff: Date;
+        breakingWallet?: {
+          walletRef: string;
+          assetCode: string;
+          delta: bigint;
+          ownerNo?: string;
+          walletKind?: 'CUSTOMER' | 'FIRM';
+        };
+        // If omitted, no wallets present → run will auto-heal anything OPEN.
+        wallets?: Array<{ walletRef: string; assetCode: string }>;
+      }) {
+        runSeq += 1;
+        const runId = `run-${runSeq}`;
+        const businessDate = opts.cutoff.toISOString().slice(0, 10);
+
+        const deps = makeDeps();
+        deps.prisma.reconciliationRun.create.mockResolvedValue({
+          id: runId, runNo: `RUN-WALLET-${runSeq}`, engineVersion: 'WALLET_V1',
+        });
+
+        // External balances → drives which wallets the engine iterates.
+        const wallets = opts.wallets ?? (opts.breakingWallet ? [opts.breakingWallet] : []);
+        deps.prisma.externalBalance.findMany.mockResolvedValue(
+          wallets.map((w) => ({
+            walletRef: w.walletRef,
+            closingBalance: D(0),
+            book: 'CLIENT',
+            currency: w.assetCode,
+            accountRef: `acc-${w.walletRef}`,
+          })),
+        );
+
+        // Per-wallet balance check
+        deps.balanceChecker.checkBalance.mockImplementation(async ({ walletRef }: any) => {
+          const isBreaking = opts.breakingWallet && walletRef === opts.breakingWallet.walletRef;
+          if (isBreaking) {
+            return {
+              pass: false,
+              walletRef,
+              walletKind: opts.breakingWallet!.walletKind ?? 'CUSTOMER',
+              coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+              ownerNo: opts.breakingWallet!.ownerNo ?? 'c-001',
+              internal: { total: 0n },
+              external: opts.breakingWallet!.delta,
+              delta: opts.breakingWallet!.delta,
+            };
+          }
+          return {
+            pass: true,
+            walletRef,
+            walletKind: 'CUSTOMER',
+            coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+            ownerNo: 'c-default',
+            internal: { total: 0n },
+            external: 0n,
+            delta: 0n,
+          };
+        });
+
+        // findFirst by (walletRef, businessDate, status:OPEN) — read from caseStore
+        deps.prisma.reconciliationCase.findFirst.mockImplementation(async ({ where }: any) => {
+          for (const row of caseStore.values()) {
+            if (
+              row.walletRef === where.walletRef &&
+              row.businessDate === where.businessDate &&
+              row.status === where.status
+            ) return { id: row.id };
+          }
+          return null;
+        });
+
+        // create → insert into caseStore
+        deps.prisma.reconciliationCase.create.mockImplementation(async ({ data }: any) => {
+          const id = `case-${Math.random().toString(36).slice(2, 8)}`;
+          caseStore.set(id, { id, ...data });
+          return { id, ...data };
+        });
+
+        // update → mutate caseStore (so subsequent runs see new state)
+        deps.prisma.reconciliationCase.update.mockImplementation(async ({ where, data }: any) => {
+          const row = caseStore.get(where.id);
+          if (row) Object.assign(row, data);
+          return row ?? { id: where.id, ...data };
+        });
+
+        // findMany used by auto-heal — return all OPEN cases for the businessDate
+        // whose walletRef is NOT in the excluded list.
+        deps.prisma.reconciliationCase.findMany.mockImplementation(async ({ where }: any) => {
+          const excluded: string[] = where.walletRef?.notIn ?? [];
+          const rows: any[] = [];
+          for (const row of caseStore.values()) {
+            if (
+              row.status === where.status &&
+              row.businessDate === where.businessDate &&
+              row.layer === where.layer &&
+              !excluded.includes(row.walletRef)
+            ) rows.push(row);
+          }
+          return rows;
+        });
+
+        const svc = new WalletReconRunService(
+          deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any,
+        );
+        (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+        (svc as any).resolveAssetId = jest.fn(async (currency: string) => `a-${currency.toLowerCase()}`);
+
+        return { svc, runId, deps, cutoff: opts.cutoff };
+      }
+
+      function getStore() { return caseStore; }
+      return { drive, getStore };
+    }
+
+    it('same wallet breaks in 3 sequential runs → 1 OPEN case; firstSeenRunId pins run 1; lastUpdatedRunId follows', async () => {
+      const harness = makeRunHarness();
+      const cutoff = new Date('2026-06-26T23:59:59Z');
+      const breaking = { walletRef: 'w-cust-1', assetCode: 'USDT', delta: 100n };
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const { svc, runId } = harness.drive({ cutoff, breakingWallet: breaking });
+        ids.push(runId);
+        await svc.run({ cutoff });
+      }
+
+      const openCases = Array.from(harness.getStore().values()).filter((c: any) => c.status === 'OPEN');
+      // Idempotency: only one OPEN case for the wallet, not three.
+      expect(openCases).toHaveLength(1);
+      const c = openCases[0];
+      expect(c.walletRef).toBe('w-cust-1');
+      // firstSeenRunId == run 1 (pinned on create).
+      expect(c.firstSeenRunId).toBe(ids[0]);
+      // lastUpdatedRunId == run 3 (bumped on each rerun's update).
+      expect(c.lastUpdatedRunId).toBe(ids[2]);
+      expect(c.firstSeenRunId).not.toBe(c.lastUpdatedRunId);
+    });
+
+    it('wallet breaks in run A then recovers in run B → run A case RESOLVED with AUTO_HEALED', async () => {
+      const harness = makeRunHarness();
+      const cutoff = new Date('2026-06-26T23:59:59Z');
+
+      // Run A: wallet breaks → 1 OPEN case
+      const a = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-cust-1', assetCode: 'USDT', delta: 100n } });
+      await a.svc.run({ cutoff });
+
+      // Run B: same wallet present but PASSES (no breaking). Engine sees the
+      // wallet in externalBalances and the balanceChecker returns pass=true
+      // → auto-heal sees it's not in currentBreakingWallets → resolves it.
+      const b = harness.drive({ cutoff, wallets: [{ walletRef: 'w-cust-1', assetCode: 'USDT' }] });
+      const bResult = await b.svc.run({ cutoff });
+
+      const cases = Array.from(harness.getStore().values());
+      expect(cases).toHaveLength(1);
+      const c: any = cases[0];
+      expect(c.status).toBe('RESOLVED');
+      expect(c.resolutionReason).toBe('AUTO_HEALED');
+      expect(c.resolvedAt).toBeInstanceOf(Date);
+      expect(c.lastUpdatedRunId).toBe(b.runId);
+      expect(c.closedByRunId).toBe(b.runId);
+      // And the run result surfaces the heal count for the cockpit summary.
+      expect(bResult.casesAutoHealed).toBe(1);
+    });
+
+    it('same wallet breaks on two different businessDates → 2 independent OPEN cases', async () => {
+      const harness = makeRunHarness();
+      const day1 = new Date('2026-06-26T23:59:59Z');
+      const day2 = new Date('2026-06-27T23:59:59Z');
+      const breaking = { walletRef: 'w-cust-1', assetCode: 'USDT', delta: 100n };
+
+      await harness.drive({ cutoff: day1, breakingWallet: breaking }).svc.run({ cutoff: day1 });
+      await harness.drive({ cutoff: day2, breakingWallet: breaking }).svc.run({ cutoff: day2 });
+
+      const openCases = Array.from(harness.getStore().values()).filter((c: any) => c.status === 'OPEN');
+      // One case per (walletRef, businessDate) — two distinct rows.
+      expect(openCases).toHaveLength(2);
+      const dates = openCases.map((c: any) => c.businessDate).sort();
+      expect(dates).toEqual(['2026-06-26', '2026-06-27']);
+    });
+
+    it('severity bucketing: delta>=10000 → HIGH, >=100 → MEDIUM, else LOW', async () => {
+      const cases = [
+        { delta: 15_000n, expected: 'HIGH' },
+        { delta: -15_000n, expected: 'HIGH' },
+        { delta: 500n, expected: 'MEDIUM' },
+        { delta: -100n, expected: 'MEDIUM' },
+        { delta: 10n, expected: 'LOW' },
+        { delta: 0n, expected: 'LOW' },
+      ] as const;
+
+      // Pure unit test of the exported helper — no run plumbing needed.
+      const { computeSeverity } = await import('./wallet-recon-run.service');
+      for (const tc of cases) {
+        expect(computeSeverity(tc.delta)).toBe(tc.expected);
+      }
+
+      // And one round-trip through the upsert path to prove severity lands
+      // on the persisted Case row.
+      const harness = makeRunHarness();
+      const cutoff = new Date('2026-06-26T23:59:59Z');
+      const { svc } = harness.drive({ cutoff, breakingWallet: { walletRef: 'w-sev-1', assetCode: 'USDT', delta: 15_000n } });
+      await svc.run({ cutoff });
+      const c: any = Array.from(harness.getStore().values())[0];
+      expect(c.severity).toBe('HIGH');
+    });
   });
 });

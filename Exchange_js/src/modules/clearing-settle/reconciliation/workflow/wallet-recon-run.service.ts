@@ -37,6 +37,22 @@ import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.
 const RUN_LAYER = 'WALLET';
 const ENGINE_VERSION = 'WALLET_V1';
 
+// T2: severity thresholds (absolute delta in minor-unit ints; hard-coded this
+// version, configurable later per plan §Deferred). Used to triage cases in the
+// cockpit UI. Magnitude is computed on the raw bigint (no asset-scale lookup);
+// since recon caps run inside a single asset, the threshold is comparable
+// across runs for that asset.
+const SEVERITY_HIGH_THRESHOLD = 10_000n;
+const SEVERITY_MED_THRESHOLD = 100n;
+export type CaseSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export function computeSeverity(delta: bigint): CaseSeverity {
+  const mag = delta < 0n ? -delta : delta;
+  if (mag >= SEVERITY_HIGH_THRESHOLD) return 'HIGH';
+  if (mag >= SEVERITY_MED_THRESHOLD) return 'MEDIUM';
+  return 'LOW';
+}
+
 export interface WalletReconRunInput {
   cutoff: Date;
   manifest?: unknown;
@@ -46,7 +62,9 @@ export interface WalletReconRunResult {
   runId: string;
   status: 'PASS' | 'BREAK' | 'INTERNAL_BREAK';
   walletsChecked: number;
-  casesOpened: number;
+  casesOpened: number;        // newly created cases this run
+  casesReObserved: number;    // existing OPEN cases re-confirmed this run
+  casesAutoHealed: number;    // cases auto-resolved this run (previously breaking wallet now passes)
   orphanInternal: number;
   orphanExternal: number;
   mismatch: number;
@@ -92,12 +110,16 @@ export class WalletReconRunService {
         status: 'INTERNAL_BREAK',
         walletsChecked: 0,
         casesOpened: 0,
+        casesReObserved: 0,
+        casesAutoHealed: 0,
       });
       return {
         runId: run.id,
         status: 'INTERNAL_BREAK',
         walletsChecked: 0,
         casesOpened: 0,
+        casesReObserved: 0,
+        casesAutoHealed: 0,
         orphanInternal: 0,
         orphanExternal: 0,
         mismatch: 0,
@@ -114,13 +136,19 @@ export class WalletReconRunService {
     const walletRefs = Array.from(
       new Set(externalBalances.map((b) => b.walletRef).filter((r): r is string => !!r)),
     );
-    let casesOpened = 0;
+    let casesCreated = 0;
+    let casesUpdated = 0;
     let orphanInternal = 0;
     let orphanExternal = 0;
     let mismatch = 0;
     // For cross-wallet ref invariant: track matched (walletRef, internalFlowId)
-    // pairs across all wallets so step 4 can group by externalRef.
+    // pairs across all wallets so step 3 can group by externalRef.
     const matchedFlowIds: string[] = [];
+    // T2 auto-heal input: every walletRef (real wallet OR synthetic XREF key)
+    // touched by this run as "still breaking". After all wallets are processed,
+    // any OPEN case on this businessDate whose walletRef is NOT in this set is
+    // assumed to have recovered → auto-resolve.
+    const currentBreakingWallets = new Set<string>();
 
     for (const walletRef of walletRefs) {
       const bal = externalBalances.find((b) => b.walletRef === walletRef)!;
@@ -134,25 +162,6 @@ export class WalletReconRunService {
         externalClosing: BigInt(bal.closingBalance.toString()),
         cutoff,
       });
-
-      let caseId: string | null = null;
-      if (!balanceCheck.pass) {
-        caseId = await this.openCase({
-          businessDate,
-          assetId,
-          assetCode: currency,
-          book: balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER',
-          walletRef,
-          coaCode: balanceCheck.coaCode,
-          ownerNo: balanceCheck.ownerNo,
-          deltaAmount: new Prisma.Decimal(balanceCheck.delta.toString()),
-          tbAmount: new Prisma.Decimal(balanceCheck.internal.total.toString()),
-          actualExternal: new Prisma.Decimal(balanceCheck.external.toString()),
-          openedByRunId: run.id,
-          caseReason: 'wallet_balance_mismatch',
-        });
-        if (caseId) casesOpened += 1;
-      }
 
       // 2b. Flow match
       const externalLines = await this.fetchExternalLinesForWallet(walletRef, bal.accountRef, cutoff);
@@ -170,51 +179,74 @@ export class WalletReconRunService {
         matcherResult.orphanInternal.length > 0 ||
         matcherResult.orphanExternal.length > 0 ||
         matcherResult.mismatch.length > 0;
-      if (flowHasBreak) {
-        // Reuse the balance case if one was opened; otherwise open a new case
-        // for this wallet to host the line items.
-        if (!caseId) {
-          caseId = await this.openCase({
-            businessDate,
-            assetId,
-            assetCode: currency,
-            book: balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER',
-            walletRef,
-            coaCode: balanceCheck.coaCode,
-            ownerNo: balanceCheck.ownerNo,
-            deltaAmount: new Prisma.Decimal(0),
-            tbAmount: new Prisma.Decimal(balanceCheck.internal.total.toString()),
-            actualExternal: new Prisma.Decimal(balanceCheck.external.toString()),
-            openedByRunId: run.id,
-            caseReason: 'wallet_flow_break',
-          });
-          if (caseId) casesOpened += 1;
-        }
-        if (caseId) await this.writeLineItems(caseId, run.id, walletRef, matcherResult);
+
+      // T2: one wallet-level Case per breaking wallet — upsert by (walletRef,
+      // businessDate). Whether the break is balance, flow, or both, we land on
+      // the same Case row; line items reflect the current run's findings.
+      if (!balanceCheck.pass || flowHasBreak) {
+        const caseReason = !balanceCheck.pass && flowHasBreak
+          ? 'wallet_balance_and_flow_break'
+          : !balanceCheck.pass
+            ? 'wallet_balance_mismatch'
+            : 'wallet_flow_break';
+        const { created } = await this.upsertCaseForWallet({
+          runId: run.id,
+          businessDate,
+          assetId,
+          assetCode: currency,
+          book: balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER',
+          walletRef,
+          coaCode: balanceCheck.coaCode,
+          ownerNo: balanceCheck.ownerNo,
+          delta: balanceCheck.delta,
+          tbAmount: balanceCheck.internal.total,
+          actualExternal: balanceCheck.external,
+          matcherResult,
+          caseReason,
+        });
+        if (created) casesCreated += 1; else casesUpdated += 1;
+        currentBreakingWallets.add(walletRef);
       }
     }
 
     // ── 3. Cross-wallet same-ref invariant ──────────────────────────────────
-    const crossMismatchOpened = await this.checkCrossWalletRefInvariant({
+    const xrefResult = await this.checkCrossWalletRefInvariant({
       runId: run.id,
       matchedFlowIds,
       businessDate,
     });
-    casesOpened += crossMismatchOpened;
+    casesCreated += xrefResult.created;
+    casesUpdated += xrefResult.updated;
+    for (const key of xrefResult.touchedKeys) currentBreakingWallets.add(key);
 
-    // ── 4. Summarize ────────────────────────────────────────────────────────
-    const status: WalletReconRunResult['status'] = casesOpened > 0 ? 'BREAK' : 'PASS';
+    // ── 4. Auto-heal: any previously OPEN case whose wallet didn't break in
+    // this run is presumed recovered → mark RESOLVED + AUTO_HEALED. Scoped to
+    // engineVersion=WALLET_V1 via layer=WALLET so this never touches legacy
+    // V8_FORMULA cases.
+    const closedCount = await this.autoHealCases({
+      runId: run.id,
+      businessDate,
+      currentBreakingWallets,
+    });
+
+    // ── 5. Summarize ────────────────────────────────────────────────────────
+    const totalOpenAfter = casesCreated + casesUpdated;
+    const status: WalletReconRunResult['status'] = totalOpenAfter > 0 ? 'BREAK' : 'PASS';
     await this.finishRun(run.id, {
       status,
       walletsChecked: walletRefs.length,
-      casesOpened,
+      casesOpened: casesCreated,
+      casesReObserved: casesUpdated,
+      casesAutoHealed: closedCount,
     });
 
     return {
       runId: run.id,
       status,
       walletsChecked: walletRefs.length,
-      casesOpened,
+      casesOpened: casesCreated,
+      casesReObserved: casesUpdated,
+      casesAutoHealed: closedCount,
       orphanInternal,
       orphanExternal,
       mismatch,
@@ -246,14 +278,25 @@ export class WalletReconRunService {
 
   private async finishRun(
     runId: string,
-    data: { status: WalletReconRunResult['status']; walletsChecked: number; casesOpened: number },
+    data: {
+      status: WalletReconRunResult['status'];
+      walletsChecked: number;
+      casesOpened: number;
+      casesReObserved: number;
+      casesAutoHealed: number;
+    },
   ): Promise<void> {
+    // T2: populate ReconciliationRun summary counters so the UI cockpit can
+    // render meaningful totals (the old single-counter `openedCount` lumped
+    // create+update together; here we split them and surface auto-heal).
     await (this.prisma as any).reconciliationRun.update({
       where: { id: runId },
       data: {
         status: 'COMPLETED',
         invariantStatus: data.status === 'PASS' ? 'PASS' : 'FAIL',
         openedCount: data.casesOpened,
+        reObservedCount: data.casesReObserved,
+        closedCount: data.casesAutoHealed,
         completedAt: new Date(),
       },
     });
@@ -386,8 +429,24 @@ export class WalletReconRunService {
     return asset?.id ?? null;
   }
 
-  // ── Case + line items ─────────────────────────────────────────────────────
-  private async openCase(input: {
+  // ── Case + line items (T2 wallet-keyed upsert) ────────────────────────────
+  /**
+   * T2: upsert one Case per (walletRef, businessDate). If a status=OPEN case
+   * already exists for the wallet on this date, refresh its snapshot fields
+   * (delta / amounts / lastUpdatedRunId / severity) and replace its line items
+   * with the current run's findings — do NOT bump firstSeenRunId. If absent,
+   * create a fresh case with firstSeenRunId=lastUpdatedRunId=runId.
+   *
+   * Returns `{ caseId, created }` so the caller can split create vs re-observe
+   * counters for the Run summary fields.
+   *
+   * Line-item strategy: delete-then-insert. The lineItems describe the *current*
+   * run's findings, not historical accumulation — so each rerun overwrites the
+   * prior set. (Audit trail of which run found what is recoverable via
+   * lineItem.foundByRunId joined back to ReconciliationRun.)
+   */
+  protected async upsertCaseForWallet(input: {
+    runId: string;
     businessDate: string;
     assetId: string;
     assetCode: string;
@@ -395,59 +454,102 @@ export class WalletReconRunService {
     walletRef: string;
     coaCode: string;
     ownerNo: string | null;
-    deltaAmount: Prisma.Decimal;
-    tbAmount: Prisma.Decimal;
-    actualExternal: Prisma.Decimal;
-    openedByRunId: string;
+    delta: bigint;
+    tbAmount: bigint;
+    actualExternal: bigint;
+    matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>;
     caseReason: string;
-  }): Promise<string | null> {
-    // Schema unique [businessDate, assetId, book] enforces one Case per
-    // (day, asset, book). When multiple wallets in the same book break on
-    // the same day they share the same Case row; per-wallet identity lives
-    // on the LineItem (walletRef stamped there). The Case's walletRef holds
-    // the first-observed wallet, lastObservedRunId bumps on re-observation,
-    // and deltaAmount accumulates the net break.
+  }): Promise<{ caseId: string; created: boolean }> {
+    const deltaDecimal = new Prisma.Decimal(input.delta.toString());
+    const tbDecimal = new Prisma.Decimal(input.tbAmount.toString());
+    const externalDecimal = new Prisma.Decimal(input.actualExternal.toString());
+    const expectedDecimal = externalDecimal.minus(deltaDecimal);
+    const severity = computeSeverity(input.delta);
+
+    // Idempotency probe: T1 composite index (walletRef, businessDate, status)
+    // makes this O(log n) per wallet.
     const existing = await (this.prisma as any).reconciliationCase.findFirst({
-      where: { businessDate: input.businessDate, assetId: input.assetId, book: input.book },
+      where: {
+        walletRef: input.walletRef,
+        businessDate: input.businessDate,
+        status: 'OPEN',
+      },
+      select: { id: true },
     });
+
+    let caseId: string;
+    let created: boolean;
     if (existing) {
-      const accumulated = new Prisma.Decimal(existing.deltaAmount ?? 0).plus(input.deltaAmount);
       await (this.prisma as any).reconciliationCase.update({
         where: { id: existing.id },
         data: {
-          lastObservedRunId: input.openedByRunId,
-          deltaAmount: accumulated,
+          // Snapshot fields → reflect THIS run's measurement, not history.
+          tbAmount: tbDecimal,
+          inTransitAmount: new Prisma.Decimal(0),
+          expectedExternal: expectedDecimal,
+          actualExternal: externalDecimal,
+          deltaAmount: deltaDecimal,
+          severity,
+          // Locator fields can drift if a wallet's owner/coa changes
+          // mid-stream; keep them current for the cockpit.
+          assetId: input.assetId,
+          assetCode: input.assetCode,
+          book: input.book,
+          coaCode: input.coaCode,
+          ownerNo: input.ownerNo,
+          // Bookkeeping. firstSeenRunId stays as-is (pin the original observer).
+          lastUpdatedRunId: input.runId,
+          lastObservedRunId: input.runId,
+          traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:${input.caseReason}`,
         },
       });
-      return existing.id;
+      caseId = existing.id;
+      created = false;
+      // Replace line items: drop prior + insert current. ON DELETE CASCADE
+      // is set on the FK so this is atomic to the lineItems table.
+      await (this.prisma as any).reconciliationLineItem.deleteMany({
+        where: { caseId: existing.id },
+      });
+    } else {
+      // caseNo uses asset + zero-padded sequence, scoped per businessDate +
+      // assetCode for human readability. We count existing rows (any status)
+      // to avoid caseNo collisions when an earlier RESOLVED case exists.
+      const priorToday = await (this.prisma as any).reconciliationCase.count({
+        where: { businessDate: input.businessDate, assetCode: input.assetCode },
+      });
+      const caseNo = `REC-${input.businessDate.replace(/-/g, '')}-${input.assetCode}-W-${String(priorToday + 1).padStart(3, '0')}`;
+      const createdRow = await (this.prisma as any).reconciliationCase.create({
+        data: {
+          caseNo,
+          businessDate: input.businessDate,
+          assetId: input.assetId,
+          assetCode: input.assetCode,
+          layer: RUN_LAYER,
+          book: input.book,
+          tbAmount: tbDecimal,
+          inTransitAmount: new Prisma.Decimal(0),
+          expectedExternal: expectedDecimal,
+          actualExternal: externalDecimal,
+          deltaAmount: deltaDecimal,
+          status: 'OPEN',
+          openedByRunId: input.runId,
+          lastObservedRunId: input.runId,
+          // T1 fields: pin the first observer + last updater (initially same).
+          firstSeenRunId: input.runId,
+          lastUpdatedRunId: input.runId,
+          severity,
+          traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:${input.caseReason}`,
+          walletRef: input.walletRef,
+          coaCode: input.coaCode,
+          ownerNo: input.ownerNo,
+        },
+      });
+      caseId = createdRow.id;
+      created = true;
     }
-    const priorToday = await (this.prisma as any).reconciliationCase.count({
-      where: { businessDate: input.businessDate, assetCode: input.assetCode },
-    });
-    const caseNo = `REC-${input.businessDate.replace(/-/g, '')}-${input.assetCode}-W-${String(priorToday + 1).padStart(3, '0')}`;
-    const created = await (this.prisma as any).reconciliationCase.create({
-      data: {
-        caseNo,
-        businessDate: input.businessDate,
-        assetId: input.assetId,
-        assetCode: input.assetCode,
-        layer: RUN_LAYER,
-        book: input.book,
-        tbAmount: input.tbAmount,
-        inTransitAmount: new Prisma.Decimal(0),
-        expectedExternal: input.actualExternal.minus(input.deltaAmount),
-        actualExternal: input.actualExternal,
-        deltaAmount: input.deltaAmount,
-        status: 'OPEN',
-        openedByRunId: input.openedByRunId,
-        lastObservedRunId: input.openedByRunId,
-        traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:${input.caseReason}`,
-        walletRef: input.walletRef,
-        coaCode: input.coaCode,
-        ownerNo: input.ownerNo,
-      },
-    });
-    return created.id;
+
+    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult);
+    return { caseId, created };
   }
 
   private async writeLineItems(
@@ -508,19 +610,69 @@ export class WalletReconRunService {
     }
   }
 
+  /**
+   * T2 auto-heal: at the end of the run, any OPEN case for THIS businessDate
+   * whose walletRef is NOT in `currentBreakingWallets` is presumed to have
+   * recovered (no break detected this run on that wallet). Close it.
+   *
+   * Scoped to layer=WALLET so we never touch legacy V8_FORMULA cases that
+   * sit alongside Phase B rows.
+   */
+  protected async autoHealCases(input: {
+    runId: string;
+    businessDate: string;
+    currentBreakingWallets: Set<string>;
+  }): Promise<number> {
+    const stale = (await (this.prisma as any).reconciliationCase.findMany({
+      where: {
+        status: 'OPEN',
+        businessDate: input.businessDate,
+        layer: RUN_LAYER,
+        walletRef: { notIn: Array.from(input.currentBreakingWallets) },
+      },
+      select: { id: true },
+    })) as Array<{ id: string }>;
+
+    if (stale.length === 0) return 0;
+    const now = new Date();
+    for (const c of stale) {
+      await (this.prisma as any).reconciliationCase.update({
+        where: { id: c.id },
+        data: {
+          status: 'RESOLVED',
+          resolutionReason: 'AUTO_HEALED',
+          resolvedAt: now,
+          lastUpdatedRunId: input.runId,
+          closedByRunId: input.runId,
+        },
+      });
+    }
+    return stale.length;
+  }
+
   // ── Cross-wallet same-externalRef invariant ───────────────────────────────
   /**
    * For each externalRef shared by ≥2 matched flows across wallets (e.g. a
    * withdrawal fee posts a client OUT and a firm IN with the same ref),
    * |amount(client OUT)| must equal |amount(firm IN)|. Mismatch → open a
    * 'CROSS_REF' case (one per offending ref).
+   *
+   * T2: XREF cases follow the same (walletRef, businessDate) upsert idiom as
+   * wallet cases. The "walletRef" for an XREF case is synthetic — `XREF:<ref>`
+   * — so each distinct broken ref gets its own row and reruns are idempotent.
+   * Auto-heal sees these synthetic keys in `touchedKeys` so an XREF that
+   * recovered between runs gets resolved like any other.
+   *
+   * Returns counts split by create vs update + the touched synthetic walletRef
+   * keys so the caller can feed them into the auto-heal exclusion set.
    */
   private async checkCrossWalletRefInvariant(input: {
     runId: string;
     matchedFlowIds: string[];
     businessDate: string;
-  }): Promise<number> {
-    if (input.matchedFlowIds.length < 2) return 0;
+  }): Promise<{ created: number; updated: number; touchedKeys: string[] }> {
+    const touchedKeys: string[] = [];
+    if (input.matchedFlowIds.length < 2) return { created: 0, updated: 0, touchedKeys };
     const flows = (await (this.prisma as any).accountFlow.findMany({
       where: { id: { in: input.matchedFlowIds }, externalRef: { not: null } },
       select: { id: true, walletRef: true, externalRef: true, direction: true, amount: true, assetCode: true },
@@ -540,108 +692,109 @@ export class WalletReconRunService {
       byRef.set(f.externalRef, arr as any);
     }
 
-    let opened = 0;
+    let created = 0;
+    let updated = 0;
     for (const [ref, group] of byRef) {
       if (group.length < 2) continue;
       // Compare absolute amounts; if any pair disagrees, open a case for this ref.
       const amounts = group.map((g) => g.amount.abs());
       const allEqual = amounts.every((a) => a.equals(amounts[0]));
       if (allEqual) continue;
-      // Open one cross-ref case; we attach to the first wallet's asset for
-      // book-keeping but mark coaCode='CROSS_REF' to make it discoverable.
       const first = group[0];
       const assetId = await this.resolveAssetId(first.assetCode);
       if (!assetId) continue;
 
-      // Cross-ref cases live under book='XREF' (distinct from CUSTOMER/FIRM
-      // so a customer-side break and a cross-ref break can coexist for the
-      // same asset). One XREF case per ref via unique [date, asset, book]; we
-      // include the ref in caseNo for human disambiguation across refs.
       const safeRef = ref.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
-      const priorToday = await (this.prisma as any).reconciliationCase.count({
-        where: { businessDate: input.businessDate, assetCode: first.assetCode },
-      });
-      const caseNo = `REC-${input.businessDate.replace(/-/g, '')}-${first.assetCode}-XREF-${safeRef}-${String(priorToday + 1).padStart(3, '0')}`;
-      // findFirst guard so re-runs against the same ref don't blow up the unique
-      // constraint — XREF book holds only one case per asset/day in this run.
+      // Synthetic walletRef — namespaces XREF rows away from real-wallet rows
+      // and makes per-ref upsert work via the same (walletRef, businessDate)
+      // key everything else uses.
+      const syntheticWalletRef = `XREF:${safeRef}`;
+      touchedKeys.push(syntheticWalletRef);
+
+      // Compute severity from the *largest pairwise gap* between matched legs.
+      // A 1¢ XREF disagreement is LOW noise; a $10k disagreement is HIGH.
+      const maxAmount = amounts.reduce((m, a) => (a.greaterThan(m) ? a : m), new Prisma.Decimal(0));
+      const minAmount = amounts.reduce((m, a) => (a.lessThan(m) ? a : m), maxAmount);
+      const gap = maxAmount.minus(minAmount);
+      const gapBig = BigInt(gap.round().toString());
+      const severity = computeSeverity(gapBig);
+
       const xrefExisting = await (this.prisma as any).reconciliationCase.findFirst({
-        where: { businessDate: input.businessDate, assetId, book: 'XREF' },
+        where: {
+          walletRef: syntheticWalletRef,
+          businessDate: input.businessDate,
+          status: 'OPEN',
+        },
+        select: { id: true },
       });
+      let caseId: string;
       if (xrefExisting) {
         await (this.prisma as any).reconciliationCase.update({
           where: { id: xrefExisting.id },
-          data: { lastObservedRunId: input.runId },
+          data: {
+            severity,
+            lastUpdatedRunId: input.runId,
+            lastObservedRunId: input.runId,
+          },
         });
-        // still write line items for new divergences
-        let lineNoExist = 0;
-        for (const leg of group) {
-          lineNoExist += 1;
-          await (this.prisma as any).reconciliationLineItem.create({
-            data: {
-              caseId: xrefExisting.id,
-              foundByRunId: input.runId,
-              lineNo: lineNoExist,
-              matchStatus: 'AMOUNT_MISMATCH',
-              internalSourceId: leg.id,
-              internalAmount: leg.amount,
-              internalDirection: leg.direction,
-              walletRef: leg.walletRef,
-              externalRef: ref,
-            },
-          });
-        }
-        opened += 1;
-        continue;
+        await (this.prisma as any).reconciliationLineItem.deleteMany({
+          where: { caseId: xrefExisting.id },
+        });
+        caseId = xrefExisting.id;
+        updated += 1;
+      } else {
+        const priorToday = await (this.prisma as any).reconciliationCase.count({
+          where: { businessDate: input.businessDate, assetCode: first.assetCode },
+        });
+        const caseNo = `REC-${input.businessDate.replace(/-/g, '')}-${first.assetCode}-XREF-${safeRef}-${String(priorToday + 1).padStart(3, '0')}`;
+        const createdRow = await (this.prisma as any).reconciliationCase.create({
+          data: {
+            caseNo,
+            businessDate: input.businessDate,
+            assetId,
+            assetCode: first.assetCode,
+            layer: RUN_LAYER,
+            book: 'XREF',
+            tbAmount: new Prisma.Decimal(0),
+            inTransitAmount: new Prisma.Decimal(0),
+            expectedExternal: new Prisma.Decimal(0),
+            actualExternal: new Prisma.Decimal(0),
+            deltaAmount: new Prisma.Decimal(0),
+            status: 'OPEN',
+            openedByRunId: input.runId,
+            lastObservedRunId: input.runId,
+            firstSeenRunId: input.runId,
+            lastUpdatedRunId: input.runId,
+            severity,
+            traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:cross_match_mismatch`,
+            walletRef: syntheticWalletRef,
+            coaCode: 'CROSS_REF',
+            ownerNo: null,
+          },
+        });
+        caseId = createdRow.id;
+        created += 1;
       }
-      await (this.prisma as any).reconciliationCase.create({
-        data: {
-          caseNo,
-          businessDate: input.businessDate,
-          assetId,
-          assetCode: first.assetCode,
-          layer: RUN_LAYER,
-          book: 'XREF',
-          tbAmount: new Prisma.Decimal(0),
-          inTransitAmount: new Prisma.Decimal(0),
-          expectedExternal: new Prisma.Decimal(0),
-          actualExternal: new Prisma.Decimal(0),
-          deltaAmount: new Prisma.Decimal(0),
-          status: 'OPEN',
-          openedByRunId: input.runId,
-          lastObservedRunId: input.runId,
-          traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:cross_match_mismatch`,
-          walletRef: first.walletRef,
-          coaCode: 'CROSS_REF',
-          ownerNo: null,
-        },
-      });
       // Line items: one per leg in the group so operators see the divergent amounts.
       let lineNo = 0;
-      const createdCase = await (this.prisma as any).reconciliationCase.findFirst({
-        where: { caseNo },
-        select: { id: true },
-      });
-      if (createdCase) {
-        for (const leg of group) {
-          lineNo += 1;
-          await (this.prisma as any).reconciliationLineItem.create({
-            data: {
-              caseId: createdCase.id,
-              foundByRunId: input.runId,
-              lineNo,
-              matchStatus: 'AMOUNT_MISMATCH',
-              internalSourceId: leg.id,
-              internalAmount: leg.amount,
-              internalDirection: leg.direction,
-              walletRef: leg.walletRef,
-              externalRef: ref,
-            },
-          });
-        }
+      for (const leg of group) {
+        lineNo += 1;
+        await (this.prisma as any).reconciliationLineItem.create({
+          data: {
+            caseId,
+            foundByRunId: input.runId,
+            lineNo,
+            matchStatus: 'AMOUNT_MISMATCH',
+            internalSourceId: leg.id,
+            internalAmount: leg.amount,
+            internalDirection: leg.direction,
+            walletRef: leg.walletRef,
+            externalRef: ref,
+          },
+        });
       }
-      opened += 1;
     }
-    return opened;
+    return { created, updated, touchedKeys };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
