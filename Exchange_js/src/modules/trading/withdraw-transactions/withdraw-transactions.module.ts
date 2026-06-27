@@ -4,7 +4,6 @@ import { WithdrawTransactionsController } from './withdraw-transactions.controll
 import { CustomerWithdrawController } from './customer-withdraw.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
-import { WithdrawTransactionWorkflowService } from './withdraw-transaction-workflow.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { PayoutsModule } from '../../asset-treasury/payouts/payouts.module';
@@ -28,13 +27,11 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [
     WithdrawTransactionsService,
-    WithdrawTransactionWorkflowService,
     WithdrawWorkflowService,
     WithdrawLargeValueApprovalService,
   ],
   exports: [
     WithdrawTransactionsService,
-    WithdrawTransactionWorkflowService,
     WithdrawWorkflowService,
   ],
 })
