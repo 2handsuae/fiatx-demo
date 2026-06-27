@@ -446,11 +446,30 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // compliance/approval never spawns fund orders. The fee TB lock stays at
     // request; this fund order is the representation, set CLEAR on finalize.
     if (Number(w.feeAmount) > 0) {
+      // From = customer's source wallet (C_DEP for crypto / C_VIBAN for fiat).
+      // We resolve synchronously here — the orchestrator binds withdrawal.fromWalletId
+      // via a separate event listener (EVT_WITHDRAWAL_APPROVED__*) on a different
+      // event channel than this workflow's updateStatus, so the bind race-loses
+      // when we read w.fromWalletId at this point.
+      const customerSourceRole = w.asset?.type === 'CRYPTO' ? 'C_DEP' : 'C_VIBAN';
+      const customerSourceWallet = await this.withdrawService.findCustomerWallet(
+        w.ownerId,
+        w.assetId,
+        customerSourceRole,
+      );
+      // To = firm's FIRM_FEE wallet for this asset.
+      const feeWallet = await this.systemWalletResolver.resolve(w.assetId, 'F_FEE');
       await this.fundsFlowService.createWithdrawFeeFund(
         {
           withdrawTransactionId: w.id,
           assetId: w.assetId,
           amount: new Prisma.Decimal(w.feeAmount),
+          fromWalletId: customerSourceWallet?.id ?? null,
+          fromAddress: customerSourceWallet?.address ?? null,
+          fromIban: customerSourceWallet?.iban ?? null,
+          toWalletId: feeWallet?.id ?? null,
+          toAddress: feeWallet?.address ?? null,
+          toIban: feeWallet?.iban ?? null,
         },
         'WITHDRAW_WORKFLOW',
       );

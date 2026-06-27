@@ -870,7 +870,11 @@ export class FundsFlowService {
       assetId: string;
       amount: Prisma.Decimal;
       fromWalletId?: string | null;
+      fromAddress?: string | null;
+      fromIban?: string | null;
       toWalletId?: string | null;
+      toAddress?: string | null;
+      toIban?: string | null;
     },
     operatorId = 'SYSTEM',
     tx?: TxClient,
@@ -895,7 +899,11 @@ export class FundsFlowService {
               feeAmount: new Prisma.Decimal(0),
               netAmount: input.amount,
               fromWalletId: input.fromWalletId ?? null,
+              fromAddress: input.fromAddress ?? null,
+              fromIban: input.fromIban ?? null,
               toWalletId: input.toWalletId ?? null,
+              toAddress: input.toAddress ?? null,
+              toIban: input.toIban ?? null,
               statusHistory: this.appendStatusHistory(
                 null,
                 InternalFundStatus.CREATED,

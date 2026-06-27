@@ -387,6 +387,20 @@ export class WithdrawTransactionsService {
     return item;
   }
 
+  /** Resolve a customer's source wallet for a withdrawal (C_DEP for crypto, C_VIBAN for fiat).
+   *  Used by the workflow at PAYOUT_PENDING to stamp from-wallet info on the fee InternalFund
+   *  without depending on the orchestrator's async fromWalletId binding. */
+  async findCustomerWallet(
+    ownerId: string,
+    assetId: string,
+    walletRole: 'C_DEP' | 'C_VIBAN',
+  ): Promise<{ id: string; address: string | null; iban: string | null } | null> {
+    return (this.prisma as any).wallet.findFirst({
+      where: { walletRole, ownerType: 'CUSTOMER', ownerId, assetId, status: 'ACTIVE' },
+      select: { id: true, address: true, iban: true },
+    });
+  }
+
   /**
    * Unified fund-order list for the detail page's "Linked Funds Orders":
    * the Payout (principal) + the fee InternalFund. Both carry the business key
