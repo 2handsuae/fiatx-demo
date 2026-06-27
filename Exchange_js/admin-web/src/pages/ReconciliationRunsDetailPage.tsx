@@ -2,15 +2,21 @@
 //
 // T4 "Driver cockpit" — Run detail for the WALLET_V1 engine.
 // Replaces the V8 five-formula INVARIANT ATTESTATION view (kept only for the
-// occasional legacy run as a thin fallback). The cockpit answers, at a glance,
-// the operator's two questions: "How many accounts checked, how many broke?"
-// and "Which accounts broke — let me click into one and fix it."
+// occasional legacy run as a thin fallback).
+//
+// Headline status follows the industry "balance first" convention with a
+// fake-match probe on top:
+//   • MATCH       — balance OK AND flows OK             (green)
+//   • FLOW_REVIEW — balance OK BUT flow line-items off  (amber — the "fake
+//                   match" probe: balances happen to nett but underlying
+//                   flows are broken; investigate but not a hard break)
+//   • BREAK       — balance != external                 (red — immediate)
 //
 // Layout (top → bottom):
 //   1. Header + Hero (run identity strip)
-//   2. Overview card — 5-number summary (accounts checked / match / break /
-//      and the three break sub-counters: balance / orphan / mismatch)
-//   3. Accounts Status table — one row per wallet, click a break row to its case
+//   2. Overview — Accounts / Match / Break (with FLOW REVIEW shown as a
+//      smaller secondary chip — it's an investigation, not a hard break)
+//   3. Account Status table — one row per wallet; click any non-MATCH row to its case
 //   4. Technical (trace + run id)
 //
 // Legacy V8_FORMULA runs (engineVersion !== 'WALLET_V1') get a minimal info
@@ -57,7 +63,7 @@ interface ReconCaseLink {
   deltaAmount: string;
 }
 
-type AccountStatusRowStatus = 'MATCH' | 'BALANCE' | 'ORPHAN' | 'MISMATCH' | 'BOTH';
+type AccountStatusRowStatus = 'MATCH' | 'FLOW_REVIEW' | 'BREAK';
 
 interface AccountStatusRow {
   walletRef: string;
@@ -82,7 +88,9 @@ interface AccountStatusRow {
 interface RunDetailSummary {
   accountsChecked: number;
   matchCount: number;
+  flowReviewCount: number;
   breakCount: number;
+  // Kept on the wire for compat with non-cockpit callers; not rendered here.
   balanceBreakCount: number;
   orphanCount: number;
   mismatchCount: number;
@@ -150,15 +158,12 @@ const isZeroAmount = (raw: string): boolean => {
 };
 
 // Status badge for the AccountStatusRow.status enum — distinct from StatusPill
-// because the recon cockpit needs five custom semantic colours that don't map
-// to the trading-status palette. (MATCH=green, BALANCE/MISMATCH=amber,
-// ORPHAN=orange, BOTH=red.)
-const STATUS_BADGE: Record<AccountStatusRowStatus, { cls: string; icon: 'ok' | 'warn' | 'double'; label: string }> = {
-  MATCH:    { cls: 'border-adm-green/30 bg-adm-green/10 text-adm-green',     icon: 'ok',     label: 'Match' },
-  BALANCE:  { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',     icon: 'warn',   label: 'Balance' },
-  ORPHAN:   { cls: 'border-amber-500/30 bg-amber-500/10 text-amber-500',     icon: 'warn',   label: 'Orphan' },
-  MISMATCH: { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',     icon: 'warn',   label: 'Mismatch' },
-  BOTH:     { cls: 'border-adm-red/30 bg-adm-red/10 text-adm-red',           icon: 'double', label: 'Both' },
+// because the cockpit needs three semantic colours that don't map to the
+// trading-status palette. MATCH=green, FLOW_REVIEW=amber, BREAK=red.
+const STATUS_BADGE: Record<AccountStatusRowStatus, { cls: string; icon: 'ok' | 'warn'; label: string }> = {
+  MATCH:       { cls: 'border-adm-green/30 bg-adm-green/10 text-adm-green', icon: 'ok',   label: 'Match' },
+  FLOW_REVIEW: { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber', icon: 'warn', label: 'Flow review' },
+  BREAK:       { cls: 'border-adm-red/30 bg-adm-red/10 text-adm-red',       icon: 'warn', label: 'Break' },
 };
 
 const StatusBadge = ({ value }: { value: AccountStatusRowStatus }) => {
@@ -167,28 +172,18 @@ const StatusBadge = ({ value }: { value: AccountStatusRowStatus }) => {
     <span
       className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${meta.cls}`}
     >
-      {meta.icon === 'ok' ? (
-        <Check size={10} />
-      ) : meta.icon === 'double' ? (
-        <>
-          <AlertTriangle size={10} />
-          <AlertTriangle size={10} className="-ml-1.5" />
-        </>
-      ) : (
-        <AlertTriangle size={10} />
-      )}
+      {meta.icon === 'ok' ? <Check size={10} /> : <AlertTriangle size={10} />}
       {meta.label}
     </span>
   );
 };
 
-// Sort priority for status column — BREAK rows first (BOTH worst), MATCH last.
+// Sort priority for status column — BREAK first (hard, act now),
+// FLOW_REVIEW next (investigate), MATCH last (done).
 const STATUS_RANK: Record<AccountStatusRowStatus, number> = {
-  BOTH: 0,
-  BALANCE: 1,
-  MISMATCH: 2,
-  ORPHAN: 3,
-  MATCH: 4,
+  BREAK: 0,
+  FLOW_REVIEW: 1,
+  MATCH: 2,
 };
 
 type SortKey = 'status' | 'delta' | 'asset';
@@ -280,6 +275,7 @@ const ReconciliationRunsDetailPage = () => {
   const summary: RunDetailSummary = run.summary ?? {
     accountsChecked: 0,
     matchCount: 0,
+    flowReviewCount: 0,
     breakCount: 0,
     balanceBreakCount: 0,
     orphanCount: 0,
@@ -367,10 +363,10 @@ const ReconciliationRunsDetailPage = () => {
             </div>
           </div>
 
-          {/* 2. Overview — binary judgment: Match / Break per account.
-              "Why" each account broke (balance vs orphan vs mismatch) lives in
-              the Case detail, not here — a single broken account is one root
-              cause, not multiple categories. */}
+          {/* 2. Overview — three cards. Break (red) is the headline; Flow review
+              (amber) appears as a smaller chip below — it's an investigation
+              probe, not a hard break. "Why" a specific account broke lives in
+              the Case detail. */}
           {isWallet ? (
             <DetailCard title="Overview" columns={1}>
               <div className="flex flex-col gap-4">
@@ -409,6 +405,20 @@ const ReconciliationRunsDetailPage = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* Flow review chip — secondary signal. Balance OK but flow
+                    line-items have orphan/mismatch (the "fake match" probe). */}
+                {summary.flowReviewCount > 0 && (
+                  <div
+                    className="inline-flex w-fit items-center gap-2 rounded-md border border-adm-amber/30 bg-adm-amber/5 px-3 py-1.5 font-mono text-[11px] text-adm-amber"
+                    title="Balance matched, but flow line-items have orphan or mismatch — investigate for fake match / fraud / omissions"
+                  >
+                    <AlertTriangle size={12} />
+                    {summary.flowReviewCount} flow review
+                    {summary.flowReviewCount === 1 ? '' : 's'} — balance OK,
+                    but underlying flows need a closer look
+                  </div>
+                )}
 
                 {/* Self-heal chip — only shown when this run auto-healed prior breaks. */}
                 {run.closedCount > 0 && (

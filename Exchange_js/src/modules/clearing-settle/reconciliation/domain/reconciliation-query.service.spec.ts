@@ -271,7 +271,9 @@ describe('getRun — accountStatusTable (T3)', () => {
     expect(a.delta).toBe('0');
 
     const b = result.accountStatusTable.find((r: any) => r.walletRef === 'walletB');
-    expect(b.status).toBe('ORPHAN');
+    // delta=0 + only an external orphan → FLOW_REVIEW (fake-match probe: net balances
+    // but underlying line-items broken). Old engine called this 'ORPHAN'.
+    expect(b.status).toBe('FLOW_REVIEW');
     expect(b.caseId).toBe('case-1');
     expect(b.caseNo).toBe('REC-20260627-AED-W-001');
     expect(b.flowOrphanExternal).toBe(1);
@@ -281,8 +283,9 @@ describe('getRun — accountStatusTable (T3)', () => {
 
     expect(result.summary.accountsChecked).toBe(2);
     expect(result.summary.matchCount).toBe(1);
-    expect(result.summary.breakCount).toBe(1);
-    expect(result.summary.orphanCount).toBe(1);
+    expect(result.summary.flowReviewCount).toBe(1);
+    expect(result.summary.breakCount).toBe(0);
+    expect(result.summary.orphanCount).toBe(1); // per-anomaly axis (any orphan line item)
   });
 
   it('returns empty accountStatusTable for legacy V8_FORMULA runs', async () => {
@@ -294,7 +297,7 @@ describe('getRun — accountStatusTable (T3)', () => {
     expect(result.summary.accountsChecked).toBe(0);
   });
 
-  it('marks BALANCE when delta != 0 and flows are clean', async () => {
+  it('marks BREAK when delta != 0 (industry "balance first": flow state irrelevant for headline)', async () => {
     const prisma = mkPrisma();
     prisma.reconciliationCase.findMany = jest.fn().mockResolvedValue([]); // no cases → no line items
     prisma.reconciliationLineItem.findMany = jest.fn().mockResolvedValue([]);
@@ -308,8 +311,9 @@ describe('getRun — accountStatusTable (T3)', () => {
     const svc = mkSvc(prisma, { balanceChecker });
     const result: any = await svc.getRun(run.runNo);
     const a = result.accountStatusTable.find((r: any) => r.walletRef === 'walletA');
-    expect(a.status).toBe('BALANCE');
-    expect(result.summary.balanceBreakCount).toBe(1);
+    expect(a.status).toBe('BREAK');
+    expect(result.summary.breakCount).toBe(1);
+    expect(result.summary.balanceBreakCount).toBe(1); // alias axis
   });
 });
 

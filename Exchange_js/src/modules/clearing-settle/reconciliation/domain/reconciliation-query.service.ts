@@ -124,14 +124,17 @@ export function pairManifest(
 // ─── T3 helpers ──────────────────────────────────────────────────────────────
 
 /**
- * Derive the per-wallet status from the balance delta and the flow bucket counts.
- * Decision rule (per plan §Task 3, deterministic; no priority order):
- *   delta == 0  & no flow break       → MATCH
- *   delta != 0  & no flow break       → BALANCE
- *   delta == 0  & only orphans        → ORPHAN
- *   delta == 0  & only mismatch       → MISMATCH
- *   delta == 0  & orphans + mismatch  → MISMATCH (mismatch wins for triage)
- *   delta != 0  & any flow break      → BOTH
+ * Three-tier status per industry "balance first" convention:
+ *   delta != 0                          → BREAK         (red — hard break, investigate)
+ *   delta == 0 & flow has anomalies     → FLOW_REVIEW   (amber — "fake match" probe;
+ *                                                        balance happens to nett, but
+ *                                                        line-items orphan/mismatch)
+ *   delta == 0 & flow clean             → MATCH         (green — done)
+ *
+ * Why FLOW_REVIEW is a distinct tier: balance can match by coincidence (one
+ * wrong-amount debit cancelled by one wrong-amount credit). Flagging this as
+ * a softer "review" — not a hard break — catches fraud/omissions without
+ * inflating the BREAK count operations triages first.
  */
 function deriveAccountStatus(
   deltaIsZero: boolean,
@@ -139,12 +142,9 @@ function deriveAccountStatus(
   orphanExternal: number,
   mismatch: number,
 ): AccountStatusRowStatus {
-  const flowBreak = orphanInternal + orphanExternal + mismatch > 0;
-  if (!deltaIsZero && !flowBreak) return 'BALANCE';
-  if (!deltaIsZero && flowBreak) return 'BOTH';
-  if (deltaIsZero && !flowBreak) return 'MATCH';
-  if (mismatch > 0) return 'MISMATCH';
-  return 'ORPHAN';
+  if (!deltaIsZero) return 'BREAK';
+  const flowAnomaly = orphanInternal + orphanExternal + mismatch > 0;
+  return flowAnomaly ? 'FLOW_REVIEW' : 'MATCH';
 }
 
 @Injectable()
@@ -200,6 +200,7 @@ export class ReconciliationQueryService {
     let summary: RunDetailSummary = {
       accountsChecked: 0,
       matchCount: 0,
+      flowReviewCount: 0,
       breakCount: 0,
       balanceBreakCount: 0,
       orphanCount: 0,
@@ -426,7 +427,7 @@ export class ReconciliationQueryService {
     if (balances.length === 0) {
       return {
         rows: [],
-        summary: { accountsChecked: 0, matchCount: 0, breakCount: 0, balanceBreakCount: 0, orphanCount: 0, mismatchCount: 0 },
+        summary: { accountsChecked: 0, matchCount: 0, flowReviewCount: 0, breakCount: 0, balanceBreakCount: 0, orphanCount: 0, mismatchCount: 0 },
       };
     }
 
@@ -488,7 +489,11 @@ export class ReconciliationQueryService {
     const cutoff = new Date(`${businessDate}T23:59:59.999Z`);
 
     const rows: AccountStatusRow[] = [];
+    // Three-tier counts (cockpit Overview):
     let matchCount = 0;
+    let flowReviewCount = 0;
+    let breakCount = 0;
+    // Per-anomaly account tallies (backward-compat — separate axis from status):
     let balanceBreakCount = 0;
     let orphanCount = 0;
     let mismatchCount = 0;
@@ -517,7 +522,9 @@ export class ReconciliationQueryService {
       const matched = 0; // line items only encode anomalies; matched pairs not persisted
       const status = deriveAccountStatus(check.delta === 0n, oi, oe, mm);
       if (status === 'MATCH') matchCount += 1;
-      if (status === 'BALANCE' || status === 'BOTH') balanceBreakCount += 1;
+      else if (status === 'FLOW_REVIEW') flowReviewCount += 1;
+      else if (status === 'BREAK') breakCount += 1;
+      if (check.delta !== 0n) balanceBreakCount += 1;
       if (oi > 0 || oe > 0) orphanCount += 1;
       if (mm > 0) mismatchCount += 1;
 
@@ -545,7 +552,8 @@ export class ReconciliationQueryService {
     const summary: RunDetailSummary = {
       accountsChecked: rows.length,
       matchCount,
-      breakCount: rows.length - matchCount,
+      flowReviewCount,
+      breakCount,
       balanceBreakCount,
       orphanCount,
       mismatchCount,

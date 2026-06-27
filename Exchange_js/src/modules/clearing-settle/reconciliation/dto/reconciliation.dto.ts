@@ -27,12 +27,15 @@ export class ReconExternalBalanceQueryDto {
 // All numeric fields are serialised as strings to dodge JSON BigInt issues.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Three-tier per industry "balance first" convention. Balance drives the
+// account's headline status; flows are a secondary fraud/omission probe
+// catching the "fake match" case (orphans that nett to zero).
 export type AccountStatusRowStatus =
-  | 'MATCH'      // balance OK AND flows OK
-  | 'BALANCE'    // delta != 0, flows OK
-  | 'ORPHAN'     // delta == 0, only orphans (no mismatch)
-  | 'MISMATCH'   // delta == 0, only mismatch
-  | 'BOTH';      // balance break AND flow break
+  | 'MATCH'         // balance OK AND flows OK — green, done
+  | 'FLOW_REVIEW'   // balance OK BUT flow line-items have orphan/mismatch
+                    // (the "fake match" probe — net happens to balance,
+                    //  but underlying flows broken)
+  | 'BREAK';        // balance != external — red, hard break
 
 export interface AccountStatusRow {
   walletRef: string;
@@ -56,11 +59,14 @@ export interface AccountStatusRow {
 
 export interface RunDetailSummary {
   accountsChecked: number;
-  matchCount: number;
-  breakCount: number;
-  balanceBreakCount: number;
-  orphanCount: number;
-  mismatchCount: number;
+  // Three-tier counts (cockpit Overview uses these three):
+  matchCount: number;        // status=MATCH       — balance OK + flows OK
+  flowReviewCount: number;   // status=FLOW_REVIEW — balance OK + flow anomaly (fake-match probe)
+  breakCount: number;        // status=BREAK       — balance != external (hard break)
+  // Backwards-compat per-anomaly tallies (independent of status):
+  balanceBreakCount: number; // # accounts with delta != 0
+  orphanCount: number;       // # accounts with any flow orphan (internal or external)
+  mismatchCount: number;     // # accounts with any flow amount mismatch
 }
 
 export type FlowComparisonMatchType =
