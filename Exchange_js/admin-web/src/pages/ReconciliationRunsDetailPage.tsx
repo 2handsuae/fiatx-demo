@@ -367,17 +367,10 @@ const ReconciliationRunsDetailPage = () => {
             </div>
           </div>
 
-          {/* 2. Run Summary */}
-          <DetailCard title="Run Summary" columns={3}>
-            <InfoField label="Seq" value={String(run.seq)} mono />
-            <InfoField label="Trigger" value={fmtTrigger(run.triggerType)} />
-            <InfoField label="Mode" value={run.mode} />
-            <InfoField label="Opened Cases" value={String(run.openedCount)} mono />
-            <InfoField label="Re-observed" value={String(run.reObservedCount)} mono />
-            <InfoField label="Closed Cases" value={String(run.closedCount)} mono />
-          </DetailCard>
-
-          {/* 3. Overview — 5-number cockpit summary */}
+          {/* 2. Overview — binary judgment: Match / Break per account.
+              "Why" each account broke (balance vs orphan vs mismatch) lives in
+              the Case detail, not here — a single broken account is one root
+              cause, not multiple categories. */}
           {isWallet ? (
             <DetailCard title="Overview" columns={1}>
               <div className="flex flex-col gap-4">
@@ -400,7 +393,7 @@ const ReconciliationRunsDetailPage = () => {
                       {summary.matchCount}
                     </div>
                   </div>
-                  {/* Break pill + 3 sub-counters */}
+                  {/* Break pill — single number; drill into Case for the why. */}
                   <div
                     className={`rounded-lg border p-4 ${summary.breakCount > 0 ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg'}`}
                   >
@@ -413,17 +406,6 @@ const ReconciliationRunsDetailPage = () => {
                       className={`mt-1 text-[28px] font-bold leading-tight ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t1'}`}
                     >
                       {summary.breakCount}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-adm-t2">
-                      <span>
-                        Balance: <span className="font-semibold text-adm-t1">{summary.balanceBreakCount}</span>
-                      </span>
-                      <span>
-                        Orphan: <span className="font-semibold text-adm-t1">{summary.orphanCount}</span>
-                      </span>
-                      <span>
-                        Mismatch: <span className="font-semibold text-adm-t1">{summary.mismatchCount}</span>
-                      </span>
                     </div>
                   </div>
                 </div>
