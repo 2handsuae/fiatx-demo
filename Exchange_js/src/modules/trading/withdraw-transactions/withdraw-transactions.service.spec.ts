@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
+import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   WithdrawTransactionAction,
@@ -18,9 +19,15 @@ import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-tra
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
+  // create+lock was relocated into WithdrawWorkflowService.createWithdrawal; the
+  // create tests below drive it through the workflow (real domain delegate +
+  // shared mocks), while updateStatus/findAll/findOne stay on the domain service.
+  let workflow: WithdrawWorkflowService;
   let prisma: any;
   let eventEmitter: any;
   let withdrawQuoteService: any;
+  let accountingService: any;
+  let auditLogsService: any;
   let module: TestingModule;
 
   const mockTx: any = {
@@ -94,6 +101,27 @@ describe('WithdrawTransactionsService', () => {
     prisma = module.get<PrismaService>(PrismaService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
     withdrawQuoteService = module.get<WithdrawQuoteService>(WithdrawQuoteService);
+    accountingService = module.get<AccountingService>(AccountingService);
+    auditLogsService = module.get<AuditLogsService>(AuditLogsService);
+
+    // The create+lock orchestration moved into the workflow. Wire it with the
+    // real domain service (for insertRecord/setPendingIds → tx.withdrawTransaction)
+    // plus the same shared mocks; downstream deps are inert stubs (createWithdrawal
+    // does not touch them).
+    workflow = new WithdrawWorkflowService(
+      prisma,
+      eventEmitter as any,
+      service,
+      withdrawQuoteService as any,
+      auditLogsService as any,
+      accountingService as any,
+      {} as any, // payoutsService
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // fundsFlowService
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+    );
 
     jest.clearAllMocks();
     mockTx.withdrawTransaction.findUnique.mockReset();
@@ -136,7 +164,7 @@ describe('WithdrawTransactionsService', () => {
     });
     mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-1' });
 
-    await service.create(
+    await workflow.createWithdrawal(
       {
         assetId: 'asset-1',
         amount: 100,
@@ -195,7 +223,7 @@ describe('WithdrawTransactionsService', () => {
       status: 'USED',
     });
 
-    await service.create(
+    await workflow.createWithdrawal(
       {
         assetId: 'asset-fiat-1',
         amount: 100,
@@ -221,7 +249,7 @@ describe('WithdrawTransactionsService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
 
     await expect(
-      service.create(
+      workflow.createWithdrawal(
         {
           assetId: 'asset-1',
           amount: 100,
@@ -666,7 +694,7 @@ describe('WithdrawTransactionsService', () => {
       arrangeCreateAsset('CRYPTO');
       const accountingService = module.get<AccountingService>(AccountingService);
 
-      await service.create({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
+      await workflow.createWithdrawal({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
 
       const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
       const netCall = calls.find((c: any[]) => c[0].evidence.eventCode === 'WITHDRAW_LOCK_NET');
@@ -679,7 +707,7 @@ describe('WithdrawTransactionsService', () => {
       arrangeCreateAsset('CRYPTO');
       const accountingService = module.get<AccountingService>(AccountingService);
 
-      await service.create({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
+      await workflow.createWithdrawal({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
 
       const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
       const feeCall = calls.find((c: any[]) => c[0].evidence.eventCode === 'WITHDRAW_LOCK_FEE');
@@ -692,7 +720,7 @@ describe('WithdrawTransactionsService', () => {
       arrangeCreateAsset('FIAT');
       const accountingService = module.get<AccountingService>(AccountingService);
 
-      await service.create({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
+      await workflow.createWithdrawal({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
 
       const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
       for (const call of calls) {

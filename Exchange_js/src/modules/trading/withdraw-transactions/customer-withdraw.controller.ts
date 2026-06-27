@@ -14,6 +14,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
+import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import {
   WithdrawTransactionQueryDto,
@@ -27,6 +28,7 @@ import {
 export class CustomerWithdrawController {
   constructor(
     private readonly service: WithdrawTransactionsService,
+    private readonly workflow: WithdrawWorkflowService,
     private readonly onboardingService: OnboardingService,
   ) {}
 
@@ -42,7 +44,7 @@ export class CustomerWithdrawController {
   async create(@Req() req: any, @Body() dto: CreateWithdrawTransactionDto) {
     const userId = this.assertCustomer(req);
     await this.onboardingService.assertTradingEligibility(userId, 'WITHDRAW');
-    return this.service.create(dto, userId);
+    return this.workflow.createWithdrawal(dto, userId);
   }
 
   @Get()

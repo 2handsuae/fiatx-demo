@@ -35,6 +35,7 @@ import { SwapSettlementService } from '../src/modules/trading/swap-transactions/
 import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
+import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
 import { PayoutsService } from '../src/modules/asset-treasury/payouts/payouts.service';
 import { PayoutAction } from '../src/modules/asset-treasury/payouts/dto/payout.dto';
 import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
@@ -112,6 +113,7 @@ export type DemoCtx = {
   swapSettlement: SwapSettlementService;
   withdrawQuote: WithdrawQuoteService;
   withdraws: WithdrawTransactionsService;
+  withdrawWf: WithdrawWorkflowService;
   payouts: PayoutsService;
   usdt: any;
   aed: any;
@@ -135,6 +137,7 @@ export async function bootstrap(): Promise<DemoCtx> {
     swapSettlement: app.get(SwapSettlementService),
     withdrawQuote: app.get(WithdrawQuoteService),
     withdraws: app.get(WithdrawTransactionsService),
+    withdrawWf: app.get(WithdrawWorkflowService),
     payouts: app.get(PayoutsService),
     usdt,
     aed,
@@ -387,7 +390,7 @@ async function driveWithdraw(ctx: DemoCtx, c: any, asset: any, amount: number, t
   let wd: any;
   for (let attempt = 1; ; attempt++) {
     try {
-      wd = await ctx.withdraws.create({ assetId: asset.id, amount, toIban, toAddress, quoteId: wq.id } as any, c.id, 'CUSTOMER');
+      wd = await ctx.withdrawWf.createWithdrawal({ assetId: asset.id, amount, toIban, toAddress, quoteId: wq.id } as any, c.id, 'CUSTOMER');
       break;
     } catch (e: any) {
       if (e?.code === 'P2002' && attempt < 8) { await sleep(60); continue; }

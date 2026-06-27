@@ -2,11 +2,10 @@
  * withdraw-fee-income.service.spec.ts
  *
  * Real-time 1:1 T5: Asserts that:
- * (a) createWithdrawal (service.create) locks fee pending into CLIENT_ASSET (not FEE_INCOME / FEE_RECEIVABLE)
+ * (a) WithdrawWorkflowService.createWithdrawal locks fee pending into CLIENT_ASSET (not FEE_INCOME / FEE_RECEIVABLE)
  * (b) withdraw-workflow handlePayoutConfirmed posts fee leg with creditCode = CLIENT_ASSET,
  *     then executes firm-side collect DR FIRM_ASSET / CR FIRM_FEE
  */
-import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { Prisma } from '@prisma/client';
@@ -100,6 +99,14 @@ function buildServiceMocks() {
 
   const createdRecord = makeWithdrawRecord();
 
+  // Domain delegate the workflow leans on for pure persistence inside the tx.
+  const withdrawService = {
+    insertRecord: jest.fn((_tx: any, data: Record<string, any>) =>
+      Promise.resolve({ ...createdRecord, ...data, id: 'wd-new' }),
+    ),
+    setPendingIds: jest.fn(() => Promise.resolve({})),
+  };
+
   const prisma: any = {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve(customer)),
@@ -138,22 +145,36 @@ function buildServiceMocks() {
     auditLogsService,
     eventEmitter,
     prisma,
+    withdrawService,
   };
 }
 
-describe('WithdrawTransactionsService — T5 fee account (real-time 1:1)', () => {
+// Build a WithdrawWorkflowService wired with the create-path deps from
+// buildServiceMocks. The remaining downstream deps (payouts/approvals/etc.)
+// are inert stubs — createWithdrawal does not touch them.
+function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
+  return new WithdrawWorkflowService(
+    mocks.prisma,
+    mocks.eventEmitter as any,
+    mocks.withdrawService as any,
+    mocks.withdrawQuoteService as any,
+    mocks.auditLogsService as any,
+    mocks.accountingService as any,
+    {} as any, // payoutsService
+    {} as any, // approvalsService
+    {} as any, // binanceRateProvider
+    {} as any, // fundsFlowService
+    {} as any, // systemWalletResolver
+    {} as any, // tbEvidenceService
+  );
+}
+
+describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time 1:1)', () => {
   it('locks fee pending to CLIENT_ASSET, not FEE_INCOME or FEE_RECEIVABLE', async () => {
     const mocks = buildServiceMocks();
-    const service = new WithdrawTransactionsService(
-      mocks.prisma,
-      mocks.eventEmitter as any,
-      mocks.withdrawQuoteService as any,
-      mocks.auditLogsService as any,
-      mocks.accountingService as any,
-      { findFundsOrderBySource: jest.fn().mockResolvedValue([]) } as any,
-    );
+    const service = makeWorkflowForCreate(mocks);
 
-    await service.create(
+    await service.createWithdrawal(
       {
         assetId: 'asset-usdt',
         amount: 10,
@@ -179,16 +200,9 @@ describe('WithdrawTransactionsService — T5 fee account (real-time 1:1)', () =>
 
   it('executePendingTransfer calls use CLIENT_ASSET credit code for both net and fee', async () => {
     const mocks = buildServiceMocks();
-    const service = new WithdrawTransactionsService(
-      mocks.prisma,
-      mocks.eventEmitter as any,
-      mocks.withdrawQuoteService as any,
-      mocks.auditLogsService as any,
-      mocks.accountingService as any,
-      { findFundsOrderBySource: jest.fn().mockResolvedValue([]) } as any,
-    );
+    const service = makeWorkflowForCreate(mocks);
 
-    await service.create(
+    await service.createWithdrawal(
       {
         assetId: 'asset-usdt',
         amount: 10,
@@ -279,7 +293,10 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
   it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→FIRM_FEE', async () => {
     const mocks = buildWorkflowMocks();
     const service = new WithdrawWorkflowService(
+      {} as any, // prisma
+      { emit: jest.fn() } as any, // eventEmitter
       mocks.withdrawService as any,
+      {} as any, // withdrawQuoteService
       mocks.auditLogsService as any,
       mocks.accountingService as any,
       mocks.payoutsService as any,
@@ -340,7 +357,10 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
 
   function makeService(m: ReturnType<typeof buildPhaseBMocks>) {
     return new WithdrawWorkflowService(
+      {} as any, // prisma
+      { emit: jest.fn() } as any, // eventEmitter
       m.withdrawService as any,
+      {} as any, // withdrawQuoteService
       m.auditLogsService as any,
       m.accountingService as any,
       m.payoutsService as any,
@@ -492,19 +512,12 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
 // TEST D: Phase B fields on the LOCK pending rows at create()
 // ═══════════════════════════════════════════════════════════════════
 
-describe('WithdrawTransactionsService — T2b Phase B LOCK rows', () => {
+describe('WithdrawWorkflowService.createWithdrawal — T2b Phase B LOCK rows', () => {
   it('LOCK_NET + LOCK_FEE pendings carry walletRef=null externalRef=null crossing=false at create time', async () => {
     const mocks = buildServiceMocks();
-    const service = new WithdrawTransactionsService(
-      mocks.prisma,
-      mocks.eventEmitter as any,
-      mocks.withdrawQuoteService as any,
-      mocks.auditLogsService as any,
-      mocks.accountingService as any,
-      { findFundsOrderBySource: jest.fn().mockResolvedValue([]) } as any,
-    );
+    const service = makeWorkflowForCreate(mocks);
 
-    await service.create(
+    await service.createWithdrawal(
       { assetId: 'asset-usdt', amount: 10, toAddress: '0xABCD', network: 'ETH', quoteId: 'q-1' } as any,
       'cust-1',
       'CUSTOMER',

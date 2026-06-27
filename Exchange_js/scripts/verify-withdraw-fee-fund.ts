@@ -36,7 +36,7 @@ async function main() {
     let wd: any;
     for (let attempt = 1; ; attempt++) {
       try {
-        wd = await ctx.withdraws.create(
+        wd = await ctx.withdrawWf.createWithdrawal(
           { assetId: asset.id, amount, toAddress: toAddr, quoteId: wq.id } as any,
           c.id, 'CUSTOMER',
         );
