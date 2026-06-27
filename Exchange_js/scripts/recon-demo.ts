@@ -162,121 +162,111 @@ async function planWallets(
   balanceChecker: WalletBalanceCheckerService,
   cutoff: Date,
 ): Promise<WalletPlan[]> {
-  // Resolve the assets table once. The wallet recon engine resolves an
-  // ExternalBalance row's asset via `findFirst({ where: { code: currency } })`
-  // — so the value we write into `external_balances.currency` must equal the
-  // `Asset.code` field for the engine to open a case. In this dataset
-  // AED.code='AED' but USDT.code='USDT-TRON'; without this remap the engine
-  // would silently skip USDT wallets.
+  // Resolve assets once — recon engine matches ExternalBalance.currency
+  // against Asset.code, not the human currency. AED.code='AED' but
+  // USDT.code='USDT-TRON'; without this remap USDT wallets get skipped.
   const assets = (await (prisma as any).asset.findMany({
     where: { status: 'ACTIVE' },
     select: { code: true, currency: true },
   })) as Array<{ code: string; currency: string }>;
   const codeByCurrency = new Map<string, string>(assets.map((a) => [a.currency, a.code]));
 
-  // Distinct walletRefs that have isExternalCrossing flows.
-  const crossingFlows = (await (prisma as any).accountFlow.findMany({
-    where: {
-      isExternalCrossing: true,
-      walletRef: { not: null },
-      createdAt: { lte: cutoff },
-    },
+  // Single pass — enumerate every active wallet (full coverage). For each
+  // wallet: pull its crossing flows (may be empty), call the balance checker
+  // for internal total, and fall back to walletRole-based classification
+  // when the checker returns UNKNOWN (aggregate-only flow history but the
+  // wallet is still a real F_OPS / F_SET / F_LIQ account that operators
+  // need to see).
+  const COA_BY_ROLE: Record<string, string> = {
+    F_OPS:   'E.FIRM_OPS',
+    F_SET:   'E.FIRM_SET',
+    F_LIQ:   'E.FIRM_LIQ',
+    F_FEE:   'E.FIRM_FEE',
+    C_DEP:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+    C_VIBAN: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+    C_CMA:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+  };
+
+  const allActiveWallets = (await (prisma as any).wallet.findMany({
+    where: { status: 'ACTIVE' },
     select: {
       id: true,
-      walletRef: true,
-      direction: true,
-      amount: true,
-      externalRef: true,
-      assetCode: true,
-      createdAt: true,
-      tbAccountId: true,
-      eventCode: true,
+      walletRole: true,
+      ownerType: true,
+      ownerNo: true,
+      asset: { select: { code: true, currency: true } },
     },
-    orderBy: { createdAt: 'asc' },
   })) as Array<{
     id: string;
-    walletRef: string;
-    direction: string;
-    amount: Prisma.Decimal;
-    externalRef: string | null;
-    assetCode: string;
-    createdAt: Date;
-    tbAccountId: string;
-    eventCode: string;
+    walletRole: string;
+    ownerType: string;
+    ownerNo: string | null;
+    asset: { code: string; currency: string } | null;
   }>;
 
-  // Group flows by walletRef. To keep the mirrored external statement
-  // 1:1 with what the matcher will see we mirror EVERY crossing flow row
-  // — including the dual-leg debit/credit pair. The matcher pairs an
-  // external line with the SAME internal flow row (by id) so this gives a
-  // 1:1 PASS run.
-  // ── Caveat ────────────────────────────────────────────────────────────
-  // Each TB transfer projects to two account_flows rows (debit + credit).
-  // For external mirroring we only want ONE external statement line per
-  // transfer (the bank/chain doesn't see both sides). We pick the row that
-  // sits on THIS wallet (walletBalanceChecker drops aggregate rows
-  // naturally). The matcher inside the engine fetches account_flows by
-  // walletRef + isExternalCrossing, which gives us back this same row.
-  const flowsByWallet = new Map<string, typeof crossingFlows>();
-  for (const f of crossingFlows) {
-    if (!f.walletRef) continue;
-    const arr = flowsByWallet.get(f.walletRef) ?? [];
-    arr.push(f);
-    flowsByWallet.set(f.walletRef, arr as any);
-  }
-
-  // Build per-wallet plan. Uses balanceChecker to compute the internal
-  // total + classify the walletKind (CUSTOMER/FIRM/UNKNOWN).
   const plans: WalletPlan[] = [];
-  for (const [walletRef, flows] of flowsByWallet) {
-    if (flows.length === 0) continue;
-    // Pull internal balance via the same engine used by recon (so the
-    // mirror always PASSes).
-    const balanceResult = await balanceChecker.checkBalance({
-      walletRef,
-      externalClosing: 0n, // placeholder; we'll set external = internal next
+  for (const w of allActiveWallets) {
+    const currency = w.asset?.code ?? w.asset?.currency ?? null;
+    if (!currency) continue;
+    const isFirm = w.ownerType !== 'CUSTOMER';
+
+    // Crossing flows landing on this wallet — drive the mirrored statement lines.
+    const flows = (await (prisma as any).accountFlow.findMany({
+      where: {
+        walletRef: w.id,
+        isExternalCrossing: true,
+        createdAt: { lte: cutoff },
+      },
+      select: {
+        id: true,
+        direction: true,
+        amount: true,
+        externalRef: true,
+        assetCode: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    })) as Array<{
+      id: string;
+      direction: string;
+      amount: Prisma.Decimal;
+      externalRef: string | null;
+      assetCode: string;
+      createdAt: Date;
+    }>;
+
+    // Balance: trust the engine's own checker — recon will run the SAME
+    // check, so anchoring closingBalance to it guarantees delta=0 in pass
+    // mode. UNKNOWN wallets (firm OPS/SET/LIQ whose flows landed only on
+    // aggregate FIRM_ASSET legs) return internal.total=0, which is the
+    // engine's view; mirror that to MATCH instead of fabricating a balance.
+    const bal = await balanceChecker.checkBalance({
+      walletRef: w.id,
+      externalClosing: 0n,
       cutoff,
     });
-    if (balanceResult.walletKind === 'UNKNOWN') {
-      // Aggregate-only walletRef (no payable/suspense/firm-equity leg
-      // landed here). Skip — the recon engine would also skip.
-      continue;
-    }
+    const internalTotal = bal.internal.total;
 
-    // Lines that belong to THIS wallet (the matcher drops aggregate rows
-    // from view via the walletRef + isExternalCrossing index). We keep
-    // every crossing flow row keyed to this walletRef — that matches the
-    // engine's `fetchExternalLinesForWallet` query (which filters by
-    // subAccount == walletRef, our convention below).
-    //
-    // Use the Asset.code form (not assetCode) for the WalletPlan currency
-    // so the engine's resolveAssetId can find it; we still source-route
-    // (ZAND / HEXTRUST) off the raw `flows[0].assetCode` below.
-    const rawCurrency = flows[0].assetCode;
-    const assetCode = codeByCurrency.get(rawCurrency) ?? rawCurrency;
     plans.push({
-      walletRef,
-      walletKind: balanceResult.walletKind,
-      book: balanceResult.walletKind === 'FIRM' ? 'FIRM' : 'CLIENT',
-      currency: assetCode,
-      internalTotal: balanceResult.internal.total,
-      coaCode: balanceResult.coaCode,
-      ownerNo: balanceResult.ownerNo,
+      walletRef: w.id,
+      walletKind: isFirm ? 'FIRM' : 'CUSTOMER',
+      book: isFirm ? 'FIRM' : 'CLIENT',
+      currency: codeByCurrency.get(flows[0]?.assetCode ?? '') ?? currency,
+      internalTotal,
+      coaCode: bal.walletKind !== 'UNKNOWN' ? bal.coaCode : (COA_BY_ROLE[w.walletRole] ?? ''),
+      ownerNo: bal.ownerNo ?? w.ownerNo,
       lines: flows.map((f) => ({
         direction: f.direction as 'IN' | 'OUT',
         amount: f.amount,
         externalRef: f.externalRef,
-        // Shift the external timestamp 0–60 min BACKWARD (within the
-        // matcher's fuzzy window). Forward shift could push past `cutoff`
-        // (`new Date()`), causing `fetchExternalLinesForWallet`'s
-        // `datetime: { lte: cutoff }` filter to drop the line and the
-        // matcher to mark its internal counterpart as orphan. Backward
-        // shift exercises the same fuzzy-match path without that race.
+        // Shift external timestamp 0–60 min BACKWARD (matcher fuzzy window).
+        // Forward shift could push past cutoff and break the engine query.
         datetime: new Date(f.createdAt.getTime() - Math.floor(Math.random() * 60) * 60 * 1000),
         sourceFlowId: f.id,
       })),
     });
   }
+
   return plans;
 }
 
