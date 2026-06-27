@@ -798,8 +798,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // compliance/approval never spawns fund orders. The fee TB lock stays at
     // request; this fund order is the representation, set CLEAR on finalize.
     if (Number(w.feeAmount) > 0) {
-      // From = customer's source wallet, now bound on the withdrawal itself by
-      // ensureSourceWalletBound above (C_DEP for crypto / C_CMA pool for fiat).
+      // From = the CUSTOMER's own wallet (C_DEP for crypto / C_VIBAN for fiat).
+      // System-wide invariant C_VIBAN → F_FEE: the withdrawal fee is debited from
+      // the per-customer wallet, NOT the platform pool. We therefore resolve the
+      // customer wallet separately here — distinct from the withdrawal's bound
+      // fromWalletId (which is the principal source: C_CMA pool for fiat) used by
+      // the payout above. See fee-accrual.service.ts INVARIANT.
+      const customerSourceRole = w.asset?.type === 'CRYPTO' ? 'C_DEP' : 'C_VIBAN';
+      const customerSourceWallet = await this.withdrawService.findCustomerWallet(
+        w.ownerId,
+        w.assetId,
+        customerSourceRole,
+      );
       // To = firm's FIRM_FEE wallet for this asset.
       const feeWallet = await this.systemWalletResolver.resolve(w.assetId, 'F_FEE');
       await this.fundsFlowService.createWithdrawFeeFund(
@@ -807,9 +817,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
           withdrawTransactionId: w.id,
           assetId: w.assetId,
           amount: new Prisma.Decimal(w.feeAmount),
-          fromWalletId: w.fromWalletId ?? null,
-          fromAddress: w.fromAddress ?? null,
-          fromIban: w.fromIban ?? null,
+          fromWalletId: customerSourceWallet?.id ?? null,
+          fromAddress: customerSourceWallet?.address ?? null,
+          fromIban: customerSourceWallet?.iban ?? null,
           toWalletId: feeWallet?.id ?? null,
           toAddress: feeWallet?.address ?? null,
           toIban: feeWallet?.iban ?? null,
