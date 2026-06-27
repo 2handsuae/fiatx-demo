@@ -31,6 +31,8 @@ import { PayinsService } from '../src/modules/asset-treasury/payins/payins.servi
 import { PayinAction, PayinType } from '../src/modules/asset-treasury/payins/dto/payin.dto';
 import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
+import { SwapSettlementService } from '../src/modules/trading/swap-transactions/swap-settlement.service';
+import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { PayoutsService } from '../src/modules/asset-treasury/payouts/payouts.service';
@@ -107,6 +109,7 @@ export type DemoCtx = {
   depositWf: any;
   swapQuote: SwapQuoteService;
   swapWf: any;
+  swapSettlement: SwapSettlementService;
   withdrawQuote: WithdrawQuoteService;
   withdraws: WithdrawTransactionsService;
   payouts: PayoutsService;
@@ -129,6 +132,7 @@ export async function bootstrap(): Promise<DemoCtx> {
     depositWf: app.get(DepositWorkflowService),
     swapQuote: app.get(SwapQuoteService),
     swapWf: app.get(SwapWorkflowService),
+    swapSettlement: app.get(SwapSettlementService),
     withdrawQuote: app.get(WithdrawQuoteService),
     withdraws: app.get(WithdrawTransactionsService),
     payouts: app.get(PayoutsService),
@@ -276,20 +280,79 @@ export async function runDeposits(ctx: DemoCtx): Promise<void> {
   }
 }
 
-// ── stage 3: swaps (real-time settlement) ─────────────────────────────────────
+// ── stage 3: swaps (4-leg two-phase orchestration; auto-advance to SUCCESS) ──
+
+/** Drive ONE swap leg from its current state to CLEAR by repeatedly calling
+ *  advanceLeg with the next valid action per the per-asset-type state machine.
+ *  CRYPTO: CREATED→SIGN→SIGNING→BROADCAST→BROADCASTED→SEEN_IN_MEMPOOL→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEAR.
+ *  FIAT:   CREATED→SUBMIT→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEAR.
+ *  Note: leg 1 was already pushed out of CREATED inside SwapSettlementService.start. */
+async function driveSwapLegToClear(ctx: DemoCtx, swapId: string, swapNo: string, legSeq: number): Promise<void> {
+  for (let step = 0; step < 12; step++) {
+    const leg: any = await ctx.prisma.internalFund.findFirst({
+      where: { swapTransactionId: swapId, legSeq },
+      include: { asset: true },
+    });
+    if (!leg) throw new Error(`${swapNo} leg ${legSeq} not found`);
+    if (leg.status === 'CLEAR') return;
+    const isFiat = (leg.asset?.type || '').toUpperCase() === 'FIAT';
+    let action: InternalFundAction;
+    if (isFiat) {
+      if (leg.status === 'CREATED') action = InternalFundAction.SUBMIT;
+      else if (leg.status === 'CONFIRMING') action = InternalFundAction.CONFIRM;
+      else if (leg.status === 'CONFIRMED') action = InternalFundAction.CLEAR;
+      else throw new Error(`${swapNo} leg ${legSeq} unexpected fiat status ${leg.status}`);
+    } else {
+      if (leg.status === 'CREATED') action = InternalFundAction.SIGN;
+      else if (leg.status === 'SIGNING') action = InternalFundAction.BROADCAST;
+      else if (leg.status === 'BROADCASTED') action = InternalFundAction.SEEN_IN_MEMPOOL;
+      else if (leg.status === 'CONFIRMING') action = InternalFundAction.CONFIRM;
+      else if (leg.status === 'CONFIRMED') action = InternalFundAction.CLEAR;
+      else throw new Error(`${swapNo} leg ${legSeq} unexpected crypto status ${leg.status}`);
+    }
+    await ctx.swapSettlement.advanceLeg(swapNo, legSeq, action, 'DEMO');
+    await sleep(40);
+  }
+  throw new Error(`${swapNo} leg ${legSeq} did not reach CLEAR after 12 steps`);
+}
+
+/** Drive an entire PROCESSING swap (all 4 legs) to SUCCESS. */
+async function driveSwapToSuccess(ctx: DemoCtx, swap: { id: string; swapNo: string }): Promise<void> {
+  for (const legSeq of [1, 2, 3, 4]) {
+    await driveSwapLegToClear(ctx, swap.id, swap.swapNo, legSeq);
+  }
+  await waitFor(`${swap.swapNo} SUCCESS`, async () => {
+    const s: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });
+    return s?.status === 'SUCCESS' ? s : null;
+  }, 8000);
+}
+
 export async function runSwaps(ctx: DemoCtx): Promise<void> {
-  console.log('═══ demo:swap — fixed-amount swaps; real-time settlement ═══');
+  console.log('═══ demo:swap — fixed-amount swaps; auto-advance 4 legs to SUCCESS ═══');
   const customers = await resolveDemoCustomers(ctx.prisma);
-  const swaps: Array<{ c: any; swap: any; dir: string }> = [];
+  let driven = 0;
+  let skippedSuccess = 0;
+  let recovered = 0;
 
   for (const c of customers) {
     const plan = SWAP_PLAN[c.email];
-    // idempotent: skip if customer already has a SUCCESS swap
-    const existing = await ctx.prisma.swapTransaction.findFirst({ where: { ownerId: c.id, status: 'SUCCESS' } });
-    if (existing) {
-      console.log(`  ${c.customerNo} ${c.firstName}: swap already exists (${existing.swapNo}) — skip`);
+    // idempotent: SUCCESS → skip; PROCESSING → auto-advance to SUCCESS; else create new + advance.
+    const existing: any = await ctx.prisma.swapTransaction.findFirst({
+      where: { ownerId: c.id, status: { in: ['SUCCESS', 'PROCESSING'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing?.status === 'SUCCESS') {
+      console.log(`  ${c.customerNo} ${c.firstName}: swap ${existing.swapNo} already SUCCESS — skip`);
+      skippedSuccess++;
       continue;
     }
+    if (existing?.status === 'PROCESSING') {
+      console.log(`  ${c.customerNo} ${c.firstName}: swap ${existing.swapNo} PROCESSING — auto-advance to SUCCESS`);
+      await driveSwapToSuccess(ctx, { id: existing.id, swapNo: existing.swapNo });
+      recovered++;
+      continue;
+    }
+
     const usdtToAed = plan.dir === 'USDT_AED';
     const from = usdtToAed ? ctx.usdt : ctx.aed;
     const to = usdtToAed ? ctx.aed : ctx.usdt;
@@ -300,13 +363,12 @@ export async function runSwaps(ctx: DemoCtx): Promise<void> {
       amount: new Prisma.Decimal(plan.amount), customerId: c.id,
     } as any);
     const swap: any = await ctx.swapWf.executeSwap(c.id, quote.id);
-    swaps.push({ c, swap, dir: usdtToAed ? 'USDT→AED' : 'AED→USDT' });
-    console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount} ${to.currency} (fee ${swap.feeAmount}, spread ${swap.spreadAmount})`);
+    console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount ?? swap.toAmount} ${to.currency} (PROCESSING)`);
+    await driveSwapToSuccess(ctx, { id: swap.id, swapNo: swap.swapNo });
+    console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} 4 legs CLEAR → SUCCESS`);
+    driven++;
   }
-
-  // Real-time 1:1 model: all swap legs (sell + buy + fee) are posted atomically
-  // inside executeSwap — no deferred fiat settlement or fee-accrual legs to drive.
-  if (swaps.length) console.log(`  ${swaps.length} swap(s) complete (real-time settlement, no pending legs)`);
+  console.log(`  ${driven} new swap(s) driven to SUCCESS, ${recovered} PROCESSING recovered, ${skippedSuccess} already-SUCCESS skipped`);
 }
 
 // ── stage 4: withdrawals ─────────────────────────────────────────────────────
