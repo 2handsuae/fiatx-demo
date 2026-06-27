@@ -15,7 +15,9 @@ import { DepositTransactionsService } from './deposit-transactions.service';
 import {
   DepositTransactionQueryDto,
   UpdateDepositTransactionStatusDto,
+  DepositTransactionAction,
 } from './dto/deposit-transaction.dto';
+import { DepositWorkflowService } from './deposit-workflow.service';
 import {
   CreateInboundTransferSignalDto,
   InboundTransferSignalQueryDto,
@@ -38,6 +40,7 @@ export class DepositTransactionsController {
   constructor(
     private readonly service: DepositTransactionsService,
     private readonly inboundTransferSignalsService: InboundTransferSignalsService,
+    private readonly workflow: DepositWorkflowService,
   ) {}
 
   @Get('my')
@@ -94,14 +97,34 @@ export class DepositTransactionsController {
     return this.service.findOne(id);
   }
 
-  // TODO: Route approve/reject/freeze through DepositWorkflowService for TB accounting + audit logging
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update deposit transaction status' })
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateDepositTransactionStatusDto,
+    @Req() req: any,
   ) {
-    return this.service.updateStatus(id, dto);
+    const actor = {
+      actorId: req.user?.userId,
+      actorRole: req.user?.role,
+    };
+    switch (dto.action) {
+      case DepositTransactionAction.APPROVE:
+        return this.workflow.approveDeposit(id);
+      case DepositTransactionAction.REJECT:
+        return this.workflow.adminReject(id, dto.reason, actor);
+      case DepositTransactionAction.FREEZE:
+        return this.workflow.adminFreeze(id, dto.reason, actor);
+      default:
+        return this.service.updateStatus(id, dto, {
+          sourcePlatform: 'ADMIN_API',
+          actor: {
+            actorType: 'ADMIN',
+            actorId: req.user?.userId,
+            actorRole: req.user?.role,
+          },
+        });
+    }
   }
 
   @Get('export')

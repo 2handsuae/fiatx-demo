@@ -198,6 +198,17 @@ export class DepositTransactionsService {
     const action = dto.action;
     const nextStatus = this.getNextStatus(currentStatus, action);
 
+    const isAdminApi = options?.sourcePlatform === 'ADMIN_API';
+    const ACCOUNTING_TERMINALS = new Set([DepositTransactionStatus.SUCCESS]);
+    if (isAdminApi && ACCOUNTING_TERMINALS.has(nextStatus)) {
+      throw new BadRequestException({
+        code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY',
+        message:
+          'Deposit progression that posts to TigerBeetle must go through DepositWorkflowService, not a direct admin status patch.',
+        details: { nextStatus },
+      });
+    }
+
     const historyEntry = {
       status: nextStatus,
       timestamp: new Date().toISOString(),

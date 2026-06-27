@@ -280,6 +280,58 @@ export class DepositWorkflowService implements OnModuleInit {
     this.logger.log(`Deposit ${depositId} approved and credited.`);
   }
 
+  async adminReject(
+    depositId: string,
+    reason: string | undefined,
+    actor: { actorId: string; actorRole?: string },
+  ) {
+    const updated = await this.depositService.updateStatus(
+      depositId,
+      { action: DepositTransactionAction.REJECT, reason },
+      {
+        actor: {
+          actorType: 'ADMIN',
+          actorId: actor.actorId,
+          actorRole: actor.actorRole,
+        },
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
+    await this.recordStateTransitionAudit(
+      updated,
+      '',
+      updated.status,
+      reason || 'Admin reject',
+    );
+    return updated;
+  }
+
+  async adminFreeze(
+    depositId: string,
+    reason: string | undefined,
+    actor: { actorId: string; actorRole?: string },
+  ) {
+    const updated = await this.depositService.updateStatus(
+      depositId,
+      { action: DepositTransactionAction.FREEZE, reason },
+      {
+        actor: {
+          actorType: 'ADMIN',
+          actorId: actor.actorId,
+          actorRole: actor.actorRole,
+        },
+        sourcePlatform: 'ADMIN_API',
+      },
+    );
+    await this.recordStateTransitionAudit(
+      updated,
+      '',
+      updated.status,
+      reason || 'Admin freeze',
+    );
+    return updated;
+  }
+
   private async orchestratePayinDetected(payinId: string) {
     let deposit = await this.depositService.findByPayinId(payinId);
     if (!deposit) {

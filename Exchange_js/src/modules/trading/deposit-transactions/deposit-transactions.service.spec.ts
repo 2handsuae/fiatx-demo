@@ -140,6 +140,27 @@ describe('DepositTransactionsService', () => {
       );
     });
 
+    it('blocks ADMIN_API from directly reaching SUCCESS (workflow-only guard)', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+      await expect(
+        service.updateStatus(
+          mockId,
+          { action: DepositTransactionAction.APPROVE },
+          {
+            sourcePlatform: 'ADMIN_API',
+            actor: { actorType: 'ADMIN', actorId: 'a1' },
+          },
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY',
+        }),
+      });
+
+      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+    });
+
     it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
