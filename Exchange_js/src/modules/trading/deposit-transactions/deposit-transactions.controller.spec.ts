@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DepositTransactionsController } from './deposit-transactions.controller';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
+import { DepositWorkflowService } from './deposit-workflow.service';
 
 describe('DepositTransactionsController', () => {
   let controller: DepositTransactionsController;
@@ -10,6 +11,11 @@ describe('DepositTransactionsController', () => {
     findAllForCustomer: jest.Mock;
     createForCustomer: jest.Mock;
     scanForCustomer: jest.Mock;
+  };
+  let depositWorkflow: {
+    approveDeposit: jest.Mock;
+    adminReject: jest.Mock;
+    adminFreeze: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -23,6 +29,11 @@ describe('DepositTransactionsController', () => {
       createForCustomer: jest.fn(),
       scanForCustomer: jest.fn(),
     };
+    depositWorkflow = {
+      approveDeposit: jest.fn(),
+      adminReject: jest.fn(),
+      adminFreeze: jest.fn(),
+    };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DepositTransactionsController],
       providers: [
@@ -33,6 +44,10 @@ describe('DepositTransactionsController', () => {
         {
           provide: InboundTransferSignalsService,
           useValue: inboundSignalsService,
+        },
+        {
+          provide: DepositWorkflowService,
+          useValue: depositWorkflow,
         },
       ],
     }).compile();
