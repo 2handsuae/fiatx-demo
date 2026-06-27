@@ -1,7 +1,23 @@
 // admin-web/src/pages/ReconciliationRunsDetailPage.tsx
-import { useEffect, useState, type ReactNode } from 'react';
+//
+// T4 "Driver cockpit" — Run detail for the WALLET_V1 engine.
+// Replaces the V8 five-formula INVARIANT ATTESTATION view (kept only for the
+// occasional legacy run as a thin fallback). The cockpit answers, at a glance,
+// the operator's two questions: "How many accounts checked, how many broke?"
+// and "Which accounts broke — let me click into one and fix it."
+//
+// Layout (top → bottom):
+//   1. Header + Hero (run identity strip)
+//   2. Overview card — 5-number summary (accounts checked / match / break /
+//      and the three break sub-counters: balance / orphan / mismatch)
+//   3. Accounts Status table — one row per wallet, click a break row to its case
+//   4. Technical (trace + run id)
+//
+// Legacy V8_FORMULA runs (engineVersion !== 'WALLET_V1') get a minimal info
+// banner; their invariantChecks are no longer rendered as a table.
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RefreshCw, Check, AlertTriangle, ArrowRight } from 'lucide-react';
+import { RefreshCw, Check, AlertTriangle, ArrowRight, ArrowUpDown } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -17,6 +33,8 @@ import {
 
 /* ── Types ──────────────────────────────────────────────────── */
 
+// Kept for backwards-compat with the legacy V8 run shape (we no longer render
+// the table, but the field still arrives in the response).
 interface InvariantCheck {
   id: string;
   invariantCode: string;
@@ -31,13 +49,43 @@ interface InvariantCheck {
   createdAt: string;
 }
 
-// Cases this run last touched — lets a failing formula row link to its (currency, book) case.
 interface ReconCaseLink {
   caseNo: string;
   assetCode: string;
   book: string | null;
   status: string;
   deltaAmount: string;
+}
+
+type AccountStatusRowStatus = 'MATCH' | 'BALANCE' | 'ORPHAN' | 'MISMATCH' | 'BOTH';
+
+interface AccountStatusRow {
+  walletRef: string;
+  walletRole?: string | null;
+  ownerNo?: string | null;
+  ownerName?: string | null;
+  asset: string;
+  coaCode: string;
+  internal: { balance: string };
+  external: { balance: string };
+  delta: string;
+  flowMatched: number;
+  flowTotal: number;
+  flowOrphanInternal: number;
+  flowOrphanExternal: number;
+  flowMismatch: number;
+  status: AccountStatusRowStatus;
+  caseId?: string | null;
+  caseNo?: string | null;
+}
+
+interface RunDetailSummary {
+  accountsChecked: number;
+  matchCount: number;
+  breakCount: number;
+  balanceBreakCount: number;
+  orphanCount: number;
+  mismatchCount: number;
 }
 
 interface ReconRunDetail {
@@ -58,8 +106,11 @@ interface ReconRunDetail {
   completedAt: string | null;
   createdAt: string;
   hasDemoManifest: boolean;
+  engineVersion?: string | null;
   invariantChecks: InvariantCheck[];
   cases?: ReconCaseLink[];
+  accountStatusTable?: AccountStatusRow[];
+  summary?: RunDetailSummary;
 }
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -70,163 +121,78 @@ const TRIGGER_LABELS: Record<string, string> = {
   POST_FIX: 'Post-Fix',
 };
 
-// Severity classes mapped onto the four available adm-* semantic colors.
-const SEVERITY_TONE: Record<string, string> = {
-  SAFEGUARDING: 'border-adm-red/30 bg-adm-red/10 text-adm-red',
-  ATTESTATION: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
-  BUSINESS: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue',
-  ACCOUNT_ACTUAL: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
-};
-
-// Redesign (5-formula) runs carry layer=REDESIGN; their invariantChecks hold 式1..式5.
-const isRedesignRun = (layer: string) => layer === 'REDESIGN';
-
-type Scope = 'CLIENT' | 'FIRM' | 'LEDGER';
-
-// COA-code makeup per formula — mirrors engine/formula-checker.service.ts blocks
-// (CLIENT_BLOCK_CODES / CLIENT_POOL_CODES / BRIDGE_BLOCK_CODES / FIRM_POOL_CODE). Keep in sync.
-// lhsCodes = internal ledger side (concrete COA codes); rhsTerm = external/subledger quantity
-// (no single COA account → kept descriptive); null rhsTerm = identity that must net to 0.
-const FORMULA_COMPONENTS: Record<
-  string,
-  { scope: Scope; name: string; lhsCodes: string; rhsTerm: string | null }
-> = {
-  式2: {
-    scope: 'CLIENT',
-    name: 'Client tie-out',
-    lhsCodes: 'A.CLIENT_BANK + A.CLIENT_CUSTODY + L.CLIENT_PAYABLE + L.DEPOSIT_SUSPENSE',
-    rhsTerm: 'open outstanding − unsettled w/d fee',
-  },
-  式4: {
-    scope: 'CLIENT',
-    name: 'Client off-book',
-    lhsCodes: 'A.CLIENT_BANK + A.CLIENT_CUSTODY',
-    rhsTerm: 'external ± in-transit',
-  },
-  式5: {
-    scope: 'FIRM',
-    name: 'Firm off-book',
-    lhsCodes: 'A.FIRM_TREASURY',
-    rhsTerm: 'external ± in-transit',
-  },
-  式1: {
-    scope: 'LEDGER',
-    name: 'Trial balance',
-    lhsCodes: 'Σ all accounts (client + bridge + firm)',
-    rhsTerm: null,
-  },
-  式3: {
-    scope: 'LEDGER',
-    name: 'Bridge tie-out',
-    lhsCodes: 'L.TRADE_CLEARING',
-    rhsTerm: 'unswept swap',
-  },
-};
-
-// Tab-internal display order: Client → Firm → Ledger-wide.
-const FORMULA_DISPLAY_ORDER = ['式2', '式4', '式5', '式1', '式3'];
-
-const SCOPE_META: Record<Scope, { label: string; tone: string; book: 'CLIENT' | 'FIRM' | null }> = {
-  CLIENT: { label: 'Client', tone: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber', book: 'CLIENT' },
-  FIRM: { label: 'Firm', tone: 'border-adm-green/30 bg-adm-green/10 text-adm-green', book: 'FIRM' },
-  LEDGER: { label: 'Ledger-wide', tone: 'border-adm-blue/30 bg-adm-blue/10 text-adm-blue', book: null },
-};
-
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 
-const SeverityPill = ({ value }: { value: string }) => {
-  const tone = SEVERITY_TONE[value] || 'border-adm-border bg-adm-bg text-adm-t2';
+// Decimals for amount rendering. Internal/external balances are bigints; this
+// matches AccountStatementPage's default of 6 decimals so the two pages tell
+// the same story for the same wallet. (FIAT shows trailing zeros — fine; the
+// cockpit is for operators, not customers.)
+const DEFAULT_DECIMALS = 6;
+const formatAmount = (raw: string): string => {
+  // Treat input as integer string of base units; do bigint-safe division.
+  // Negative ok; locale comma grouping; min/max fraction = decimals.
+  const s = String(raw ?? '0');
+  let neg = false;
+  let body = s;
+  if (body.startsWith('-')) { neg = true; body = body.slice(1); }
+  const padded = body.padStart(DEFAULT_DECIMALS + 1, '0');
+  const intPart = padded.slice(0, padded.length - DEFAULT_DECIMALS) || '0';
+  const fracPart = padded.slice(padded.length - DEFAULT_DECIMALS);
+  // Group thousands in the integer part.
+  const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${neg ? '-' : ''}${intGrouped}.${fracPart}`;
+};
+
+const isZeroAmount = (raw: string): boolean => {
+  const s = String(raw ?? '0').replace(/^-/, '');
+  return s === '' || /^0+$/.test(s);
+};
+
+// Status badge for the AccountStatusRow.status enum — distinct from StatusPill
+// because the recon cockpit needs five custom semantic colours that don't map
+// to the trading-status palette. (MATCH=green, BALANCE/MISMATCH=amber,
+// ORPHAN=orange, BOTH=red.)
+const STATUS_BADGE: Record<AccountStatusRowStatus, { cls: string; icon: 'ok' | 'warn' | 'double'; label: string }> = {
+  MATCH:    { cls: 'border-adm-green/30 bg-adm-green/10 text-adm-green',     icon: 'ok',     label: 'Match' },
+  BALANCE:  { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',     icon: 'warn',   label: 'Balance' },
+  ORPHAN:   { cls: 'border-amber-500/30 bg-amber-500/10 text-amber-500',     icon: 'warn',   label: 'Orphan' },
+  MISMATCH: { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',     icon: 'warn',   label: 'Mismatch' },
+  BOTH:     { cls: 'border-adm-red/30 bg-adm-red/10 text-adm-red',           icon: 'double', label: 'Both' },
+};
+
+const StatusBadge = ({ value }: { value: AccountStatusRowStatus }) => {
+  const meta = STATUS_BADGE[value];
   return (
     <span
-      className={`inline-flex items-center rounded border px-2 py-0.5 font-mono text-[9px] font-semibold ${tone}`}
+      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${meta.cls}`}
     >
-      {value}
+      {meta.icon === 'ok' ? (
+        <Check size={10} />
+      ) : meta.icon === 'double' ? (
+        <>
+          <AlertTriangle size={10} />
+          <AlertTriangle size={10} className="-ml-1.5" />
+        </>
+      ) : (
+        <AlertTriangle size={10} />
+      )}
+      {meta.label}
     </span>
   );
 };
 
-const num = (s: string) => {
-  const n = Number(String(s).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
+// Sort priority for status column — BREAK rows first (BOTH worst), MATCH last.
+const STATUS_RANK: Record<AccountStatusRowStatus, number> = {
+  BOTH: 0,
+  BALANCE: 1,
+  MISMATCH: 2,
+  ORPHAN: 3,
+  MATCH: 4,
 };
 
-// One formula row: scope badge + short name + COA-code equation on the left;
-// net Δ on the right (Δ=0 → green pass, Δ≠0 → red break + link to that scope's case).
-const FormulaRow = ({
-  check,
-  prevScope,
-  caseNo,
-  onCase,
-}: {
-  check: InvariantCheck;
-  prevScope: Scope | undefined;
-  caseNo: string | null;
-  onCase: () => void;
-}) => {
-  const comp = FORMULA_COMPONENTS[check.invariantCode];
-  if (!comp) return null;
-  const scope = SCOPE_META[comp.scope];
-  const fail = check.status === 'FAIL';
-  return (
-    <div
-      className={`flex items-start justify-between gap-4 rounded-lg border border-adm-border bg-adm-bg px-3.5 py-3 ${
-        prevScope && prevScope !== comp.scope ? 'mt-1.5' : ''
-      }`}
-    >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${scope.tone}`}
-          >
-            {scope.label}
-          </span>
-          <span className="text-[13px] text-adm-t1">{comp.name}</span>
-        </div>
-        <div className="mt-1.5 leading-relaxed">
-          <span className="font-mono text-[12px] text-adm-t2">{comp.lhsCodes}</span>{' '}
-          <span className="font-mono text-[12px] font-semibold text-adm-t1">{check.lhsValue}</span>
-          {comp.rhsTerm ? (
-            <>
-              <span className="px-1.5 font-mono text-[12px] text-adm-t3">↔</span>
-              <span className="font-mono text-[12px] text-adm-t2">{comp.rhsTerm}</span>{' '}
-              <span className="font-mono text-[12px] font-semibold text-adm-t1">{check.rhsValue}</span>
-            </>
-          ) : (
-            <span className="px-1.5 font-mono text-[12px] text-adm-t3">→ 0</span>
-          )}
-        </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1.5" style={{ minWidth: 120 }}>
-        {fail ? (
-          <span className="font-mono text-[15px] font-semibold text-adm-red">Δ {check.delta}</span>
-        ) : (
-          <span className="flex items-center gap-1 font-mono text-[14px] text-adm-green">
-            <Check size={13} /> {check.delta}
-          </span>
-        )}
-        <StatusPill value={check.status} />
-        {fail && caseNo && (
-          <button
-            type="button"
-            onClick={onCase}
-            className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
-          >
-            {caseNo} <ArrowRight size={11} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// One metric tile in the run-health strip.
-const Metric = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div className="rounded-md border border-adm-border bg-adm-card px-3 py-2">
-    <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">{label}</div>
-    <div className="mt-0.5 text-[15px] font-semibold text-adm-t1">{children}</div>
-  </div>
-);
+type SortKey = 'status' | 'delta' | 'asset';
+type SortDir = 'asc' | 'desc';
 
 /* ── Page Component ─────────────────────────────────────────── */
 
@@ -235,8 +201,9 @@ const ReconciliationRunsDetailPage = () => {
   const navigate = useNavigate();
   const [run, setRun] = useState<ReconRunDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  // Selected asset tab; null falls back to the first asset with a break (else the first asset).
-  const [activeCcy, setActiveCcy] = useState<string | null>(null);
+  const [onlyBreaks, setOnlyBreaks] = useState(true); // cockpit default: show problems first
+  const [sortKey, setSortKey] = useState<SortKey>('status');
+  const [sortDir, setSortDir] = useState<SortDir>('asc'); // status asc = breaks first
 
   const fetchRun = async () => {
     if (!runNo) return;
@@ -260,10 +227,43 @@ const ReconciliationRunsDetailPage = () => {
   };
 
   useEffect(() => {
-    setActiveCcy(null);
     if (runNo) void fetchRun();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runNo]);
+
+  // Sort + filter the account table BEFORE the early returns so hook order is
+  // stable across re-renders (avoids the React-hooks lint rule).
+  const visibleRows = useMemo(() => {
+    if (!run?.accountStatusTable) return [] as AccountStatusRow[];
+    const filtered = onlyBreaks
+      ? run.accountStatusTable.filter((r) => r.status !== 'MATCH')
+      : [...run.accountStatusTable];
+    const dirMul = sortDir === 'asc' ? 1 : -1;
+    filtered.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'status') {
+        cmp = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+      } else if (sortKey === 'asset') {
+        cmp = a.asset.localeCompare(b.asset);
+      } else {
+        // delta: compare by |bigint| desc by default; we apply dirMul below
+        const absA = a.delta.replace(/^-/, '');
+        const absB = b.delta.replace(/^-/, '');
+        // string-compare with length first (works for non-negative big numbers)
+        cmp = absA.length === absB.length ? absA.localeCompare(absB) : absA.length - absB.length;
+        // For delta the natural "interesting" order is biggest first → invert default
+        cmp = -cmp;
+      }
+      if (cmp !== 0) return cmp * dirMul;
+      // tiebreaker — bigger |delta| first, then walletRef for stable order
+      const ad = a.delta.replace(/^-/, '');
+      const bd = b.delta.replace(/^-/, '');
+      const tcmp = ad.length === bd.length ? bd.localeCompare(ad) : bd.length - ad.length;
+      if (tcmp !== 0) return tcmp;
+      return a.walletRef.localeCompare(b.walletRef);
+    });
+    return filtered;
+  }, [run, onlyBreaks, sortKey, sortDir]);
 
   if (loading && !run) {
     return (
@@ -276,45 +276,31 @@ const ReconciliationRunsDetailPage = () => {
 
   if (!run) return null;
 
-  const checks = run.invariantChecks ?? [];
-  const redesign = isRedesignRun(run.layer);
+  const isWallet = (run.engineVersion ?? '') === 'WALLET_V1';
+  const summary: RunDetailSummary = run.summary ?? {
+    accountsChecked: 0,
+    matchCount: 0,
+    breakCount: 0,
+    balanceBreakCount: 0,
+    orphanCount: 0,
+    mismatchCount: 0,
+  };
+  const accountTable = run.accountStatusTable ?? [];
 
-  // Currencies present in this run's checks (redesign only).
-  const currencies = redesign ? [...new Set(checks.map((c) => c.currency ?? '—'))].sort() : [];
-
-  // Run-health roll-up.
-  let passCount = 0;
-  let failCount = 0;
-  let worstChk: InvariantCheck | null = null;
-  for (const c of checks) {
-    if (c.status === 'FAIL') {
-      failCount += 1;
-      if (!worstChk || Math.abs(num(c.delta)) > Math.abs(num(worstChk.delta))) worstChk = c;
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
-      passCount += 1;
+      setSortKey(key);
+      setSortDir(key === 'status' ? 'asc' : 'desc'); // status: breaks first; others: largest first
     }
-  }
-  const ledgerOk = checks
-    .filter((c) => c.invariantCode === '式1' || c.invariantCode === '式3')
-    .every((c) => c.status === 'PASS');
-  const isBreak = failCount > 0;
+  };
 
-  // Active tab defaults to the first asset with a break, else the first asset.
-  const firstBreakCcy = currencies.find((ccy) =>
-    checks.some((c) => (c.currency ?? '—') === ccy && c.status === 'FAIL'),
-  );
-  const activeCurrency = activeCcy ?? firstBreakCcy ?? currencies[0] ?? null;
-
-  // The active asset's five formulas, ordered Client → Firm → Ledger-wide.
-  const activeRows = activeCurrency
-    ? checks
-        .filter((c) => (c.currency ?? '—') === activeCurrency)
-        .sort(
-          (a, b) =>
-            FORMULA_DISPLAY_ORDER.indexOf(a.invariantCode) -
-            FORMULA_DISPLAY_ORDER.indexOf(b.invariantCode),
-        )
-    : [];
+  const onRowClick = (row: AccountStatusRow) => {
+    if (row.status === 'MATCH') return; // MATCH rows: no-op (read-only)
+    if (!row.caseNo) return;
+    navigate(`/admin/reconciliation/cases/${encodeURIComponent(row.caseNo)}`);
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -344,9 +330,9 @@ const ReconciliationRunsDetailPage = () => {
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Layer
+                  Engine
                 </span>
-                <span className="font-mono text-adm-t1">{run.layer}</span>
+                <span className="font-mono text-adm-t1">{run.engineVersion ?? run.layer}</span>
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
@@ -391,183 +377,293 @@ const ReconciliationRunsDetailPage = () => {
             <InfoField label="Closed Cases" value={String(run.closedCount)} mono />
           </DetailCard>
 
-          {/* 3. Health — redesign: verdict strip + asset tabs + per-formula list, OR I1–I5 table (legacy) */}
-          {redesign ? (
-            <DetailCard title="Reconciliation Health" columns={1}>
-              {checks.length === 0 ? (
-                <p className="py-6 text-center font-mono text-[11px] text-adm-t3">
-                  No formula checks recorded for this run.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-5">
-                  {/* ── Verdict + metric strip ── */}
+          {/* 3. Overview — 5-number cockpit summary */}
+          {isWallet ? (
+            <DetailCard title="Overview" columns={1}>
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {/* Accounts checked — the headline number. */}
+                  <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
+                    <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                      Accounts Checked
+                    </div>
+                    <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
+                      {summary.accountsChecked}
+                    </div>
+                  </div>
+                  {/* Match pill */}
+                  <div className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4">
+                    <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
+                      <Check size={11} /> Match
+                    </div>
+                    <div className="mt-1 text-[28px] font-bold leading-tight text-adm-green">
+                      {summary.matchCount}
+                    </div>
+                  </div>
+                  {/* Break pill + 3 sub-counters */}
                   <div
-                    className={`rounded-lg border p-4 ${isBreak ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-green/30 bg-adm-green/5'}`}
+                    className={`rounded-lg border p-4 ${summary.breakCount > 0 ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg'}`}
                   >
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-semibold ${isBreak ? 'bg-adm-red/15 text-adm-red' : 'bg-adm-green/15 text-adm-green'}`}
-                      >
-                        {isBreak ? <AlertTriangle size={14} /> : <Check size={14} />}
-                        {isBreak ? 'Break' : 'Balanced'}
+                    <div
+                      className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t3'}`}
+                    >
+                      <AlertTriangle size={11} /> Break
+                    </div>
+                    <div
+                      className={`mt-1 text-[28px] font-bold leading-tight ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t1'}`}
+                    >
+                      {summary.breakCount}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-adm-t2">
+                      <span>
+                        Balance: <span className="font-semibold text-adm-t1">{summary.balanceBreakCount}</span>
                       </span>
-                      <span className="font-mono text-[11px] text-adm-t3">
-                        {currencies.length} currencies · 3 scopes · {checks.length} formula checks
+                      <span>
+                        Orphan: <span className="font-semibold text-adm-t1">{summary.orphanCount}</span>
+                      </span>
+                      <span>
+                        Mismatch: <span className="font-semibold text-adm-t1">{summary.mismatchCount}</span>
                       </span>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <Metric label="Formulas">
-                        <span className="text-adm-green">{passCount}</span>
-                        <span className="text-adm-t3"> / </span>
-                        <span className="text-adm-red">{failCount}</span>
-                        <span className="ml-1 text-[10px] font-normal text-adm-t3">pass / fail</span>
-                      </Metric>
-                      <Metric label="Open cases">{run.openedCount}</Metric>
-                      <Metric label="Worst Δ">
-                        {worstChk ? (
-                          <span className="flex items-baseline gap-1.5">
-                            <span className="font-mono text-adm-red">{worstChk.delta}</span>
-                            <span className="text-[10px] font-normal text-adm-t3">
-                              {worstChk.currency} · {(FORMULA_COMPONENTS[worstChk.invariantCode]?.scope ?? 'LEDGER').toLowerCase()}
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-adm-green">0</span>
-                        )}
-                      </Metric>
-                      <Metric label="Ledger integrity">
-                        {ledgerOk ? (
-                          <span className="inline-flex items-center gap-1 text-adm-green">
-                            <Check size={14} /> ok
-                          </span>
-                        ) : (
-                          <span className="text-adm-red">break</span>
-                        )}
-                      </Metric>
-                    </div>
-                  </div>
-
-                  {/* ── Asset tabs ── */}
-                  <div className="border-b border-adm-border pb-3">
-                    <div className="mb-2 font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                      Assets
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {currencies.map((ccy) => {
-                        const broke = checks.some(
-                          (c) => (c.currency ?? '—') === ccy && c.status === 'FAIL',
-                        );
-                        const isActive = ccy === activeCurrency;
-                        return (
-                          <button
-                            key={ccy}
-                            type="button"
-                            onClick={() => setActiveCcy(ccy)}
-                            className={`inline-flex items-center gap-2 rounded-md border px-3.5 py-1.5 font-mono text-[13px] transition-colors ${
-                              isActive
-                                ? 'border-adm-amber/50 bg-adm-amber/10 text-adm-amber'
-                                : 'border-adm-border text-adm-t2 hover:bg-adm-hover'
-                            }`}
-                          >
-                            {ccy}
-                            {broke && (
-                              <span className="h-1.5 w-1.5 rounded-full bg-adm-red" aria-label="break" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* ── Active asset · five formulas (Client → Firm → Ledger-wide) ── */}
-                  <div className="flex flex-col gap-2">
-                    {activeRows.map((c, i) => {
-                      const comp = FORMULA_COMPONENTS[c.invariantCode];
-                      const book = comp ? SCOPE_META[comp.scope].book : null;
-                      const kase = book
-                        ? run.cases?.find((k) => k.assetCode === activeCurrency && k.book === book)
-                        : undefined;
-                      return (
-                        <FormulaRow
-                          key={c.id}
-                          check={c}
-                          prevScope={
-                            i > 0 ? FORMULA_COMPONENTS[activeRows[i - 1].invariantCode]?.scope : undefined
-                          }
-                          caseNo={kase?.caseNo ?? null}
-                          onCase={() =>
-                            kase &&
-                            navigate(`/admin/reconciliation/cases/${encodeURIComponent(kase.caseNo)}`)
-                          }
-                        />
-                      );
-                    })}
                   </div>
                 </div>
-              )}
+
+                {/* Self-heal chip — only shown when this run auto-healed prior breaks. */}
+                {run.closedCount > 0 && (
+                  <div className="inline-flex w-fit items-center gap-2 rounded-md border border-adm-green/30 bg-adm-green/5 px-3 py-1.5 font-mono text-[11px] text-adm-green">
+                    <Check size={12} />
+                    Auto-healed {run.closedCount} case{run.closedCount === 1 ? '' : 's'} from previous runs
+                  </div>
+                )}
+              </div>
             </DetailCard>
           ) : (
-            <DetailCard title="Invariant Attestation (I1–I5)" columns={1}>
-              <div className="overflow-x-auto rounded-lg border border-adm-border">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-adm-border bg-adm-bg">
-                    <tr>
-                      {['Code', 'Currency', 'Severity', 'LHS', 'RHS', 'Δ', 'Status'].map((h) => (
-                        <th
-                          key={h}
-                          className={`px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 ${h === 'Δ' ? 'text-right' : 'text-left'}`}
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-adm-border">
-                    {checks.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
-                        >
-                          No invariant checks recorded for this run.
-                        </td>
-                      </tr>
-                    ) : (
-                      checks.map((check) => (
-                        <tr key={check.id} className="transition-colors hover:bg-adm-hover">
-                          <td className="px-3 py-2.5 font-mono text-[11px] font-semibold text-adm-t1">
-                            {check.invariantCode}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                            {check.currency || '—'}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <SeverityPill value={check.severity} />
-                          </td>
-                          <td className="px-3 py-2.5 text-[11px] text-adm-t2">
-                            <span className="text-adm-t3">{check.lhsLabel} = </span>
-                            <span className="font-mono text-adm-t1">{check.lhsValue}</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-[11px] text-adm-t2">
-                            <span className="text-adm-t3">{check.rhsLabel} = </span>
-                            <span className="font-mono text-adm-t1">{check.rhsValue}</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                            {check.delta}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <StatusPill value={check.status} />
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+            // Legacy V8_FORMULA run — show the lightest possible notice instead of
+            // the dead five-formula attestation table. We keep the run navigable
+            // (so historical V8 runs still open) but funnel operators to wallet
+            // runs for actionable detail.
+            <DetailCard title="Overview" columns={1}>
+              <div className="rounded-lg border border-adm-border bg-adm-bg p-4 text-[12px] text-adm-t2">
+                This is a legacy run from the V8 five-formula engine. The cockpit
+                view applies to WALLET_V1 runs only. Open a recent WALLET_V1 run
+                for the per-account status table.
               </div>
             </DetailCard>
           )}
 
-          {/* 4. Technical (LAST) */}
+          {/* 4. Account Status Table */}
+          {isWallet && (
+            <DetailCard title="Account Status" columns={1}>
+              <div className="flex flex-col gap-3">
+                {/* Filter + utilities row */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex rounded border border-adm-border bg-adm-bg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setOnlyBreaks(true)}
+                      className={[
+                        'rounded px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
+                        onlyBreaks
+                          ? 'bg-adm-amber text-adm-bg font-semibold'
+                          : 'text-adm-t3 hover:text-adm-t1',
+                      ].join(' ')}
+                    >
+                      Only Breaks
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOnlyBreaks(false)}
+                      className={[
+                        'rounded px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
+                        !onlyBreaks
+                          ? 'bg-adm-amber text-adm-bg font-semibold'
+                          : 'text-adm-t3 hover:text-adm-t1',
+                      ].join(' ')}
+                    >
+                      All
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/reconciliation/cases?runId=${encodeURIComponent(run.id)}`)}
+                    className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
+                  >
+                    View All Cases for this Run <ArrowRight size={11} />
+                  </button>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto rounded-lg border border-adm-border">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-adm-border bg-adm-bg">
+                      <tr>
+                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          Account
+                        </th>
+                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          Owner
+                        </th>
+                        <th
+                          className="cursor-pointer select-none px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
+                          onClick={() => toggleSort('asset')}
+                          title="Sort by asset"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Asset
+                            {sortKey === 'asset' && <ArrowUpDown size={10} />}
+                          </span>
+                        </th>
+                        <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          Internal
+                        </th>
+                        <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          External
+                        </th>
+                        <th
+                          className="cursor-pointer select-none px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
+                          onClick={() => toggleSort('delta')}
+                          title="Sort by |Δ|"
+                        >
+                          <span className="inline-flex items-center justify-end gap-1">
+                            Δ
+                            {sortKey === 'delta' && <ArrowUpDown size={10} />}
+                          </span>
+                        </th>
+                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          Flows
+                        </th>
+                        <th
+                          className="cursor-pointer select-none px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3 hover:text-adm-t1"
+                          onClick={() => toggleSort('status')}
+                          title="Sort by status"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Status
+                            {sortKey === 'status' && <ArrowUpDown size={10} />}
+                          </span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-adm-border">
+                      {visibleRows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={8}
+                            className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
+                          >
+                            {accountTable.length === 0
+                              ? 'No accounts in this run.'
+                              : 'No breaks. Switch to "All" to see matched accounts.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        visibleRows.map((row) => {
+                          const clickable = row.status !== 'MATCH' && !!row.caseNo;
+                          const deltaZero = isZeroAmount(row.delta);
+                          const shortRef = row.walletRef.slice(0, 8);
+                          return (
+                            <tr
+                              key={row.walletRef}
+                              onClick={() => clickable && onRowClick(row)}
+                              className={[
+                                'transition-colors',
+                                clickable ? 'cursor-pointer hover:bg-adm-hover' : 'cursor-default',
+                              ].join(' ')}
+                            >
+                              {/* Account */}
+                              <td className="px-3 py-2.5">
+                                <div className="font-mono text-[11px] font-semibold text-adm-t1">
+                                  {row.walletRole ?? '(unknown)'}
+                                </div>
+                                <div
+                                  className="font-mono text-[10px] text-adm-t3"
+                                  title={row.walletRef}
+                                >
+                                  {shortRef}…
+                                </div>
+                              </td>
+                              {/* Owner */}
+                              <td className="px-3 py-2.5">
+                                {row.ownerNo ? (
+                                  <div>
+                                    <div className="text-[12px] text-adm-t1">{row.ownerName ?? '—'}</div>
+                                    <div className="font-mono text-[10px] text-adm-t3">{row.ownerNo}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-adm-t3">—</span>
+                                )}
+                              </td>
+                              {/* Asset */}
+                              <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
+                                {row.asset}
+                              </td>
+                              {/* Internal */}
+                              <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                                {formatAmount(row.internal.balance)}
+                              </td>
+                              {/* External */}
+                              <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                                {formatAmount(row.external.balance)}
+                              </td>
+                              {/* Δ — muted gray when zero, bold red when non-zero */}
+                              <td
+                                className={[
+                                  'px-3 py-2.5 text-right font-mono text-[11px]',
+                                  deltaZero
+                                    ? 'text-adm-t3'
+                                    : 'font-bold text-adm-red',
+                                ].join(' ')}
+                              >
+                                {formatAmount(row.delta)}
+                              </td>
+                              {/* Flows */}
+                              <td className="px-3 py-2.5">
+                                <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+                                  <span className="text-adm-t1">
+                                    {row.flowMatched}/{row.flowTotal}
+                                  </span>
+                                  {row.flowOrphanInternal > 0 && (
+                                    <span
+                                      title="Internal-only flows (no external counterpart)"
+                                      className="rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-500"
+                                    >
+                                      OI {row.flowOrphanInternal}
+                                    </span>
+                                  )}
+                                  {row.flowOrphanExternal > 0 && (
+                                    <span
+                                      title="External-only flows (no internal counterpart)"
+                                      className="rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-500"
+                                    >
+                                      OE {row.flowOrphanExternal}
+                                    </span>
+                                  )}
+                                  {row.flowMismatch > 0 && (
+                                    <span
+                                      title="Matched pairs with amount mismatch"
+                                      className="rounded border border-adm-amber/30 bg-adm-amber/10 px-1 text-[9px] text-adm-amber"
+                                    >
+                                      MM {row.flowMismatch}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              {/* Status */}
+                              <td className="px-3 py-2.5">
+                                <StatusBadge value={row.status} />
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </DetailCard>
+          )}
+
+          {/* 5. Technical (LAST) */}
           <DetailCard title="Technical" columns={2}>
             <InfoField label="Trace ID" value={run.traceId} mono />
             <InfoField label="Run ID" value={run.id} mono />
@@ -579,7 +675,7 @@ const ReconciliationRunsDetailPage = () => {
           <SidebarGroup title="Identity">
             <SidebarKV label="Run No" value={run.runNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={run.status} />} />
-            <SidebarKV label="Layer" value={run.layer} mono />
+            <SidebarKV label="Engine" value={run.engineVersion ?? run.layer} mono />
             <SidebarKV label="Trigger" value={fmtTrigger(run.triggerType)} />
           </SidebarGroup>
 
