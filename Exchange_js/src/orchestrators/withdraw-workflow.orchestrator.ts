@@ -913,14 +913,18 @@ export class WithdrawWorkflowOrchestrator {
       );
     }
 
-    const walletRole =
-      suffix === 'CRYPTO' ? WalletRole.C_OUT : WalletRole.C_CMA;
+    // Realtime 1:1 model: crypto withdrawals source from the customer's own
+    // C_DEP wallet (CUSTOMER owner). Fiat path retains its legacy C_CMA pool
+    // until a separate redesign — only crypto is in scope of this change.
+    const isCrypto = suffix === 'CRYPTO';
+    const walletRole = isCrypto ? WalletRole.C_DEP : WalletRole.C_CMA;
 
     const sourceWallet = (await tx.wallet.findFirst({
       where: {
         walletRole,
         assetId: withdrawal.assetId,
-        ownerType: 'PLATFORM',
+        ownerType: isCrypto ? 'CUSTOMER' : 'PLATFORM',
+        ...(isCrypto ? { ownerId: withdrawal.ownerId } : {}),
         status: 'ACTIVE',
       },
       orderBy: { createdAt: 'asc' },

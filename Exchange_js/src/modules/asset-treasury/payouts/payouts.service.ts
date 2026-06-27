@@ -75,47 +75,39 @@ export class PayoutsService {
     private readonly walletBalance: WalletBalanceService,
   ) {}
 
-  /** 出资钱包 id 解析(用于 CLEARED 扣 mock 余额)：crypto=C_OUT；fiat=客户 C_VIBAN。 */
+  /** 出资钱包 id 解析(用于 CLEARED 扣 mock 余额)：crypto=客户 C_DEP；fiat=客户 C_VIBAN。
+   *  实时 1:1 模型下，客户的虚拟币直接从其自己的 C_DEP（充值地址）出，不再走平台 C_OUT 池。 */
   private async resolveSourceWalletId(
     type: string,
     assetId: string,
     ownerId: string | null,
     client: Prisma.TransactionClient,
   ): Promise<string | null> {
-    if (String(type).toUpperCase() === 'FIAT') {
-      if (!ownerId) return null;
-      const viban = await (client as any).wallet.findFirst({
-        where: { walletRole: 'C_VIBAN', assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
-        select: { id: true },
-      });
-      return viban?.id ?? null;
-    }
-    const out = await (client as any).wallet.findFirst({
-      where: { walletRole: 'C_OUT', assetId, ownerType: 'PLATFORM', status: 'ACTIVE' },
+    if (!ownerId) return null;
+    const role = String(type).toUpperCase() === 'FIAT' ? 'C_VIBAN' : 'C_DEP';
+    const wallet = await (client as any).wallet.findFirst({
+      where: { walletRole: role, assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
       select: { id: true },
     });
-    return out?.id ?? null;
+    return wallet?.id ?? null;
   }
 
-  /** 出资钱包解析：crypto=C_OUT(平台出站热钱包)；fiat=客户 C_VIBAN(CMA 不对外转账)。 */
+  /** 出资钱包解析：crypto=客户 C_DEP；fiat=客户 C_VIBAN。 */
   private async resolveSourceWallet(
     type: string,
     assetId: string,
     ownerId: string | null,
   ): Promise<{ fromAddress: string | null; fromIban: string | null }> {
-    if (String(type).toUpperCase() === 'FIAT') {
-      if (!ownerId) return { fromAddress: null, fromIban: null };
-      const viban = await (this.prisma as any).wallet.findFirst({
-        where: { walletRole: 'C_VIBAN', assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
-        select: { iban: true },
-      });
-      return { fromAddress: null, fromIban: viban?.iban ?? null };
-    }
-    const out = await (this.prisma as any).wallet.findFirst({
-      where: { walletRole: 'C_OUT', assetId, ownerType: 'PLATFORM', status: 'ACTIVE' },
-      select: { address: true },
+    if (!ownerId) return { fromAddress: null, fromIban: null };
+    const isFiat = String(type).toUpperCase() === 'FIAT';
+    const role = isFiat ? 'C_VIBAN' : 'C_DEP';
+    const wallet = await (this.prisma as any).wallet.findFirst({
+      where: { walletRole: role, assetId, ownerType: 'CUSTOMER', ownerId, status: 'ACTIVE' },
+      select: { iban: true, address: true },
     });
-    return { fromAddress: out?.address ?? null, fromIban: null };
+    return isFiat
+      ? { fromAddress: null, fromIban: wallet?.iban ?? null }
+      : { fromAddress: wallet?.address ?? null, fromIban: null };
   }
 
   private normalizeOptionalString(value?: string | null): string | null {

@@ -1,7 +1,12 @@
 import { WalletRole } from './dto/wallet.dto';
 
+// Realtime 1:1 mirror model: customer crypto withdrawals source funds directly
+// from the customer's own C_DEP wallet (the deposit address that received the
+// funds). The legacy C_MAIN/C_OUT platform pool was V7 collect-then-pay-out
+// and is no longer provisioned. The enum entries (C_MAIN/C_OUT in WalletRole)
+// stay defined so dead-code references compile until Phase C cleanup.
 export const CRYPTO_SYSTEM_WALLET_ROLES: WalletRole[] = [
-  WalletRole.C_MAIN, WalletRole.C_OUT, WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
+  WalletRole.F_LIQ, WalletRole.F_OPS, WalletRole.F_FEE,
 ];
 
 export const FIAT_SYSTEM_WALLET_ROLES: WalletRole[] = [
