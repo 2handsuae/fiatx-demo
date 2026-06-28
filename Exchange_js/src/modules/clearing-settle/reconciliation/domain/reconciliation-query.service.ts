@@ -216,15 +216,38 @@ export class ReconciliationQueryService {
       where: { status: effectiveStatus, assetCode: q.assetCode },
       orderBy: { createdAt: 'asc' }, // oldest first = highest aging; re-sorted below for resilience
     });
+
+    // Resolve walletRef (UUID) → walletNo (business key) so the cockpit
+    // never exposes raw IDs. XREF synthetic walletRefs (start with 'XREF:')
+    // aren't real wallet rows — leave walletNo null and surface caseType so
+    // the frontend can render them as cross-ref cases instead of pretending
+    // they're a wallet.
+    const realWalletRefs = Array.from(new Set(
+      rows.map((r: any) => r.walletRef).filter((w: string | null): w is string => !!w && !w.startsWith('XREF:'))
+    ));
+    const wallets = realWalletRefs.length
+      ? ((await (this.prisma as any).wallet.findMany({
+          where: { id: { in: realWalletRefs } },
+          select: { id: true, walletNo: true },
+        })) as Array<{ id: string; walletNo: string | null }>)
+      : [];
+    const walletNoById = new Map(wallets.map((w) => [w.id, w.walletNo]));
+
     const now = Date.now();
     const decorated = rows.map((r: any) => {
       const ref = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime();
       const aging = Number.isFinite(ref) ? Math.floor((now - ref) / 86_400_000) : 0;
+      const isXref = typeof r.walletRef === 'string' && r.walletRef.startsWith('XREF:');
       return {
         ...r,
         aging,
         firstSeenRunId: r.firstSeenRunId ?? null,
         lastUpdatedRunId: r.lastUpdatedRunId ?? null,
+        // New fields for the cockpit:
+        caseType: isXref ? 'CROSS_REF' : 'WALLET',
+        walletNo: isXref ? null : (walletNoById.get(r.walletRef) ?? null),
+        // For XREF cases — the underlying bank/chain reference (stripped of synthetic prefix).
+        externalRef: isXref ? (r.walletRef as string).replace(/^XREF:/, '') : null,
       };
     });
     decorated.sort((a, b) => b.aging - a.aging);

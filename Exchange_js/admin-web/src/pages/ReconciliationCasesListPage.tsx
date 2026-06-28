@@ -32,6 +32,10 @@ interface ReconCase {
   aging: number;
   firstSeenRunId: string | null;
   lastUpdatedRunId: string | null;
+  // Backend-augmented:
+  caseType: 'WALLET' | 'CROSS_REF';
+  walletNo: string | null;     // business key for real-wallet cases (null for XREF)
+  externalRef: string | null;  // underlying bank/chain ref for XREF cases (null for WALLET)
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
@@ -248,30 +252,46 @@ const ReconciliationCasesListPage = () => {
                       </span>
                     </td>
 
-                    {/* Wallet — short walletRef (full on hover); XREF rows show the synthetic key */}
+                    {/* Wallet — for real wallets show walletNo (business key, no UUIDs).
+                        For XREF cases (cross-wallet ref breaks) show a "Cross-ref" badge
+                        + the bank/chain ref instead — they're NOT a wallet, fitting them
+                        into this column with raw walletRef is misleading. */}
                     <td className="px-4 py-2.5">
-                      {kase.walletRef ? (
-                        <span
-                          className="font-mono text-[11px] text-adm-t1"
-                          title={kase.walletRef}
-                        >
-                          {kase.walletRef.startsWith('XREF:')
-                            ? kase.walletRef
-                            : `${shortId(kase.walletRef, 8)}…`}
+                      {kase.caseType === 'CROSS_REF' ? (
+                        <div className="flex flex-col">
+                          <span className="inline-flex w-fit items-center rounded border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase text-purple-400">
+                            Cross-ref
+                          </span>
+                          <span
+                            className="mt-0.5 font-mono text-[10px] text-adm-t3"
+                            title={kase.externalRef ?? undefined}
+                          >
+                            {kase.externalRef ?? '—'}
+                          </span>
+                        </div>
+                      ) : kase.walletNo ? (
+                        <span className="font-mono text-[11px] text-adm-t1">
+                          {kase.walletNo}
                         </span>
                       ) : (
                         <span className="font-mono text-[11px] text-adm-t3">—</span>
                       )}
                     </td>
 
-                    {/* COA — accounting bucket (e.g. E.FIRM_FEE / L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE) */}
+                    {/* COA — accounting bucket (e.g. E.FIRM_FEE / L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE).
+                        XREF cases have no real COA (they're a ref-level invariant, not an account state)
+                        so show "—" instead of the synthetic 'CROSS_REF' placeholder. */}
                     <td className="px-4 py-2.5">
-                      <span
-                        className="font-mono text-[10px] font-semibold text-adm-blue"
-                        title={kase.coaCode ?? undefined}
-                      >
-                        {kase.coaCode ?? '—'}
-                      </span>
+                      {kase.caseType === 'CROSS_REF' ? (
+                        <span className="font-mono text-[11px] text-adm-t3">—</span>
+                      ) : (
+                        <span
+                          className="font-mono text-[10px] font-semibold text-adm-blue"
+                          title={kase.coaCode ?? undefined}
+                        >
+                          {kase.coaCode ?? '—'}
+                        </span>
+                      )}
                     </td>
 
                     {/* Owner — ownerNo (name not on row; can drill into detail for full identity) */}
