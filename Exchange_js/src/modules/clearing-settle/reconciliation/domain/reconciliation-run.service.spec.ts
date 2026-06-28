@@ -19,4 +19,12 @@ describe('ReconciliationRunService', () => {
     expect(run.seq).toBe(2);
     expect(run.runNo).toBe('RUN-20260616-CRYPTO-2');
   });
+
+  describe('traceId format', () => {
+    it('mints UUID v4 traceId at run creation (no business-field embedding)', async () => {
+      const run = await svc.createRun({ layer: 'CLIENT', businessDate: '2026-06-28', triggerType: 'POST_FIX', mode: 'APPLY' });
+      expect(run.traceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(run.traceId).not.toMatch(/^V8:/);
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
@@ -22,7 +23,7 @@ export class ReconciliationRunService {
       data: {
         runNo, businessDate: input.businessDate, layer: input.layer, seq,
         triggerType: input.triggerType, mode: input.mode, status: 'RUNNING',
-        traceId: `V8:${input.layer}:${input.businessDate.replace(/-/g, '')}`,
+        traceId: randomUUID(),
         demoManifest: input.demoManifest ?? null,
       },
     });
