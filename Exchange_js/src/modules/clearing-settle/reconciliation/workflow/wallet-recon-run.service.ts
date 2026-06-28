@@ -163,6 +163,13 @@ export class WalletReconRunService {
         cutoff,
       });
 
+      // 2a'. Enrich UNKNOWN — when the checker can't classify (firm wallet
+      // whose flows landed only on aggregate FIRM_ASSET legs, or a fresh
+      // wallet with zero activity), look up walletRole + ownerType + ownerNo
+      // from the wallet table so the case row gets meaningful coaCode/book/
+      // owner instead of empty strings + 'CUSTOMER' book.
+      const enriched = await this.enrichIfUnknown(walletRef, balanceCheck);
+
       // 2b. Flow match
       const externalLines = await this.fetchExternalLinesForWallet(walletRef, bal.accountRef, cutoff);
       const matcherResult = await this.flowMatcher.matchFlows({
@@ -194,10 +201,10 @@ export class WalletReconRunService {
           businessDate,
           assetId,
           assetCode: currency,
-          book: balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER',
+          book: enriched.book,
           walletRef,
-          coaCode: balanceCheck.coaCode,
-          ownerNo: balanceCheck.ownerNo,
+          coaCode: enriched.coaCode,
+          ownerNo: enriched.ownerNo,
           delta: balanceCheck.delta,
           tbAmount: balanceCheck.internal.total,
           actualExternal: balanceCheck.external,
@@ -447,6 +454,54 @@ export class WalletReconRunService {
    * prior set. (Audit trail of which run found what is recoverable via
    * lineItem.foundByRunId joined back to ReconciliationRun.)
    */
+
+  /**
+   * When balanceChecker returns walletKind=UNKNOWN (firm wallet whose flows
+   * only landed on aggregate FIRM_ASSET legs, or a fresh wallet with no
+   * activity), it can't classify the wallet — coaCode comes back '' and
+   * ownerNo comes back null. Look up the wallet row and derive sensible
+   * defaults from walletRole + ownerType + ownerNo so case rows aren't
+   * written with empty strings.
+   */
+  private static readonly COA_BY_ROLE: Record<string, string> = {
+    F_OPS:   'E.FIRM_OPS',
+    F_SET:   'E.FIRM_SET',
+    F_LIQ:   'E.FIRM_LIQ',
+    F_FEE:   'E.FIRM_FEE',
+    C_DEP:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+    C_VIBAN: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+    C_CMA:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+  };
+
+  private async enrichIfUnknown(
+    walletRef: string,
+    balanceCheck: WalletBalanceCheckResult,
+  ): Promise<{ book: 'CUSTOMER' | 'FIRM'; coaCode: string; ownerNo: string | null }> {
+    if (balanceCheck.walletKind !== 'UNKNOWN') {
+      return {
+        book: balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER',
+        coaCode: balanceCheck.coaCode,
+        ownerNo: balanceCheck.ownerNo,
+      };
+    }
+    const wallet = (await (this.prisma as any).wallet.findUnique({
+      where: { id: walletRef },
+      select: { walletRole: true, ownerType: true, ownerNo: true },
+    })) as { walletRole: string | null; ownerType: string | null; ownerNo: string | null } | null;
+    if (!wallet) {
+      // Defensive: not a real wallet row (e.g. synthetic XREF) — fall back
+      // to raw balanceCheck values so the case still writes.
+      return { book: 'CUSTOMER', coaCode: balanceCheck.coaCode, ownerNo: balanceCheck.ownerNo };
+    }
+    const isFirm = wallet.ownerType !== 'CUSTOMER';
+    const role = wallet.walletRole ?? '';
+    return {
+      book: isFirm ? 'FIRM' : 'CUSTOMER',
+      coaCode: WalletReconRunService.COA_BY_ROLE[role] ?? balanceCheck.coaCode,
+      ownerNo: wallet.ownerNo ?? balanceCheck.ownerNo,
+    };
+  }
+
   protected async upsertCaseForWallet(input: {
     runId: string;
     businessDate: string;
