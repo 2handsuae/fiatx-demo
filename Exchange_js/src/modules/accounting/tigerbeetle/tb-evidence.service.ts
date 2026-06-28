@@ -305,8 +305,13 @@ export class TbEvidenceService {
     });
 
     let balance = 0;
+    const idVariantSet = new Set(idVariants);
     const items = rows.map((row: any) => {
-      const isCreditSide = row.creditTbAccountId === tbAccountId;
+      // Side detection must be tolerant to the same padding inconsistency that
+      // forced the WHERE clause above — strict equality on tbAccountId fails
+      // when the row was stored as 31-char but the caller passes 32-char (or
+      // vice versa), which silently flipped every leg to OUT.
+      const isCreditSide = idVariantSet.has(row.creditTbAccountId);
       // asset: debit = IN ; liability/equity: credit = IN
       const direction: 'IN' | 'OUT' = isAsset
         ? (isCreditSide ? 'OUT' : 'IN')
