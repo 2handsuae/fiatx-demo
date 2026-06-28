@@ -93,9 +93,9 @@ const accountTitle = (a: { code: number; assetCode: string }) =>
 const AccountStatementPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // mode: 'accounts' (default) or 'wallets'.
-  const initialMode: Mode = searchParams.get('wallet') ? 'wallets' : 'accounts';
-  const [mode, setMode] = useState<Mode>(initialMode);
+  // Wallets mode retired — page is account-only per design. URL `?wallet=…` is
+  // ignored; future deep links should resolve to a CLIENT_PAYABLE / FIRM_* account.
+  const mode = 'accounts' as Mode;
 
   // ── shared state ──
   const [error, setError] = useState<string | null>(null);
@@ -273,17 +273,6 @@ const AccountStatementPage = () => {
     });
   };
 
-  const setModeAndSync = (newMode: Mode) => {
-    setMode(newMode);
-    // Clear cross-mode selection so the right pane shows the "pick one" prompt.
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (newMode === 'accounts') next.delete('wallet');
-      else next.delete('account');
-      return next;
-    });
-  };
-
   const toggleCrossingOnly = (v: boolean) => {
     setCrossingOnly(v);
     setSearchParams((prev) => {
@@ -433,34 +422,6 @@ const AccountStatementPage = () => {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ════ LEFT panel ════ */}
         <div className="flex w-[300px] min-w-[300px] flex-col border-r border-adm-border">
-          {/* mode segmented control */}
-          <div className="shrink-0 border-b border-adm-border bg-adm-panel p-2">
-            <div className="flex rounded border border-adm-border bg-adm-bg p-0.5">
-              <button
-                onClick={() => setModeAndSync('accounts')}
-                className={[
-                  'flex-1 rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
-                  mode === 'accounts'
-                    ? 'bg-adm-amber text-adm-bg font-semibold'
-                    : 'text-adm-t3 hover:text-adm-t1',
-                ].join(' ')}
-              >
-                Accounts
-              </button>
-              <button
-                onClick={() => setModeAndSync('wallets')}
-                className={[
-                  'flex-1 rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
-                  mode === 'wallets'
-                    ? 'bg-adm-amber text-adm-bg font-semibold'
-                    : 'text-adm-t3 hover:text-adm-t1',
-                ].join(' ')}
-              >
-                Wallets
-              </button>
-            </div>
-          </div>
-
           {mode === 'accounts' ? (
             <>
               <div className="flex shrink-0 flex-col gap-2 border-b border-adm-border bg-adm-panel px-3 py-2">

@@ -281,11 +281,20 @@ export class TbEvidenceService {
     });
     const isAsset = reg ? isAssetCode(reg.code) : false;
 
+    // tb_transfer_evidence historically stored debit/creditTbAccountId in BOTH
+    // 32-char padded ("0886…") and 31-char unpadded ("886…") forms across rows.
+    // Match either form so a query with one variant doesn't silently drop the
+    // other. (Long term the writer should normalize to 32 chars + backfill.)
+    const padId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+    const padded = padId(tbAccountId);
+    const unpadded = padded.replace(/^0+/, '') || padded;
+    const idVariants = padded === unpadded ? [padded] : [padded, unpadded];
+
     const where: any = {
       transferType: 'POSTED',
       OR: [
-        { creditTbAccountId: tbAccountId },
-        { debitTbAccountId: tbAccountId },
+        ...idVariants.map((id) => ({ creditTbAccountId: id })),
+        ...idVariants.map((id) => ({ debitTbAccountId: id })),
       ],
     };
     if (opts.crossingOnly) where.isExternalCrossing = true;
