@@ -629,7 +629,7 @@ const ReconciliationRunsDetailPage = () => {
 
         {/* ── Sidebar (no Actions block — read-only) ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          <SidebarGroup title="Identity">
+          <SidebarGroup title="Identity Summary">
             <SidebarKV label="Run No" value={run.runNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={run.status} />} />
             <SidebarKV label="Layer" value={run.layer} />
