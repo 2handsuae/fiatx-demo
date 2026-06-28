@@ -25,7 +25,6 @@ import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink } from 'lucid
 import {
   DetailPageHeader,
   DetailCard,
-  InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -88,14 +87,17 @@ interface ReconCaseDetail {
   assetId: string;
   assetCode: string;
   layer: string;
-  book: string | null;
+  book: string;
   // Wallet-engine locators (T7 / T1)
   walletRef: string | null;
+  walletNo: string | null;            // NEW — resolved business key via wallets table
   coaCode: string | null;
   ownerNo: string | null;
   // T1 idempotency
   firstSeenRunId: string | null;
   lastUpdatedRunId: string | null;
+  openedByRunId: string | null;
+  linkedRunNo: string | null;         // NEW — resolved runNo for lastUpdatedRunId ?? openedByRunId
   resolvedAt: string | null;
   resolutionReason: string | null;
   severity: string | null;
@@ -109,10 +111,9 @@ interface ReconCaseDetail {
   actualExternal: string;
   deltaAmount: string;
   status: string;
-  openedByRunId: string | null;
   closedByRunId: string | null;
   lastObservedRunId: string | null;
-  slaDeadline: string | null;
+  slaDeadline: string | null;         // NEW — ISO timestamp or null
   traceId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -149,9 +150,6 @@ const deltaSign = (raw: string | null | undefined): '+' | '-' | '' => {
   if (isZeroAmount(raw)) return '';
   return String(raw).startsWith('-') ? '-' : '+';
 };
-
-const shortId = (id: string | null | undefined, n = 8): string =>
-  id ? id.slice(0, n) : '—';
 
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 
@@ -280,11 +278,8 @@ const ReconciliationCasesDetailPage = () => {
 
   if (!kase) return null;
 
-  // Linked-run identifier — getCase doesn't join the runs table (only stores
-  // UUIDs), so we display the short id and link to the runs *list* with a
-  // search hint rather than a deep link. A backend join (run.runNo on the
-  // case payload) is a follow-up — out of scope for T5 frontend-only.
-  const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
+  // Keep raw UUID for title-hover only — display uses the resolved runNo.
+  const linkedRunIdForHover = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
 
   // Δ display logic: zero → muted "balanced"; non-zero → bold red with sign.
   const deltaZero = isZeroAmount(kase.deltaAmount);
@@ -310,27 +305,36 @@ const ReconciliationCasesDetailPage = () => {
         {/* ── Main Body ── */}
         <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
           {/* 1. Hero — case identity strip */}
-          <div className="bg-adm-card px-6 py-5">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="font-mono text-[19px] font-bold text-adm-amber">{kase.caseNo}</div>
-              <StatusPill value={kase.status} size="md" />
-              {kase.severity && (
-                <span
-                  className={[
-                    'inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
-                    kase.severity === 'HIGH'   ? 'border-adm-red/30 bg-adm-red/10 text-adm-red'
-                    : kase.severity === 'MEDIUM' ? 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber'
-                    :                              'border-adm-border bg-adm-bg text-adm-t3',
-                  ].join(' ')}
-                >
-                  {kase.severity}
-                </span>
-              )}
+          <section className="bg-adm-card p-4">
+            <div className="font-mono text-[19px] font-bold text-adm-amber">{kase.caseNo}</div>
+            <div className="mt-3 grid grid-cols-[140px_1fr] gap-y-2 text-[13px]">
+              <div className="text-adm-t3">STATUS</div>
+              <div><StatusPill value={kase.status} size="md" /></div>
+              <div className="text-adm-t3">SEVERITY</div>
+              <div>
+                {kase.severity ? (
+                  <span
+                    className={[
+                      'inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
+                      kase.severity === 'HIGH'   ? 'border-adm-red/30 bg-adm-red/10 text-adm-red'
+                      : kase.severity === 'MEDIUM' ? 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber'
+                      :                              'border-adm-border bg-adm-bg text-adm-t3',
+                    ].join(' ')}
+                  >
+                    {kase.severity}
+                  </span>
+                ) : <span className="text-adm-t3">—</span>}
+              </div>
+              <div className="text-adm-t3">BOOK</div>
+              <div className="text-adm-t1">{kase.book}</div>
+              <div className="text-adm-t3">ASSET</div>
+              <div className="text-adm-t1">{kase.assetCode}</div>
+              <div className="text-adm-t3">Δ</div>
+              <div className={deltaZero ? 'text-adm-t2' : 'text-adm-red font-mono font-semibold'}>
+                {deltaZero ? formatAmount(kase.deltaAmount) : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`}
+              </div>
             </div>
-            <div className="mt-2 font-mono text-[11px] text-adm-t3">
-              Investigation-only · Disposition workflow (Close / Waive / Assign) deferred to Phase C
-            </div>
-          </div>
+          </section>
 
           {/* 2. Account Identity */}
           <DetailCard title="Account Identity" columns={1}>
@@ -344,7 +348,7 @@ const ReconciliationCasesDetailPage = () => {
                   className="mt-1 font-mono text-[15px] font-semibold text-adm-t1"
                   title={kase.walletRef ?? undefined}
                 >
-                  {kase.walletRef ? `${shortId(kase.walletRef, 8)}…` : '—'}
+                  {kase.walletNo ?? '—'}
                 </div>
                 <div className="mt-1 font-mono text-[10px] text-adm-t3">
                   {kase.coaCode ?? '—'}
@@ -372,8 +376,8 @@ const ReconciliationCasesDetailPage = () => {
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
                   Linked Run
                 </div>
-                <div className="mt-1 font-mono text-[13px] text-adm-t2" title={linkedRunId ?? undefined}>
-                  {linkedRunId ? `${shortId(linkedRunId, 8)}…` : '—'}
+                <div className="mt-1 font-mono text-[13px] text-adm-t2" title={linkedRunIdForHover ?? undefined}>
+                  {kase.linkedRunNo ?? '—'}
                 </div>
                 <div className="mt-1 font-mono text-[10px] text-adm-t3">
                   Business Date: <span className="text-adm-t1">{kase.businessDate}</span>
@@ -603,39 +607,24 @@ const ReconciliationCasesDetailPage = () => {
             )}
           </DetailCard>
 
-          {/* 7. Technical (LAST) */}
-          <DetailCard title="Technical" columns={2}>
-            <InfoField label="Trace ID" value={kase.traceId} mono />
-            <InfoField label="Case ID" value={kase.id} mono />
-            <InfoField label="Asset ID" value={kase.assetId} mono />
-            <InfoField label="First Seen Run" value={kase.firstSeenRunId} mono />
-            <InfoField label="Last Updated Run" value={kase.lastUpdatedRunId} mono />
-          </DetailCard>
         </div>
 
-        {/* ── Sidebar (no Actions block — read-only) ── */}
-        <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-          <SidebarGroup title="Identity">
+        {/* ── Sidebar (read-only — no Actions block) ── */}
+        <aside className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          <SidebarGroup title="Identity Summary">
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
-            <SidebarKV label="Severity" value={kase.severity ?? '—'} mono />
-            <SidebarKV label="Asset" value={kase.assetCode} mono />
-            <SidebarKV label="Business Date" value={kase.businessDate} mono />
-          </SidebarGroup>
-
-          <SidebarGroup title="Wallet">
-            <SidebarKV label="Ref" value={kase.walletRef ? `${shortId(kase.walletRef, 12)}…` : '—'} mono />
-            <SidebarKV label="Owner" value={kase.ownerNo ?? '—'} mono />
-            <SidebarKV label="COA" value={kase.coaCode ?? '—'} mono />
-            <SidebarKV label="Book" value={kase.book ?? '—'} mono />
+            <SidebarKV label="Book" value={kase.book} />
+            <SidebarKV label="Asset" value={kase.assetCode} />
+            <SidebarKV label="Δ" value={kase.deltaAmount} mono />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">
+            <SidebarKV label="SLA Deadline" value={kase.slaDeadline ?? '—'} mono />
             <SidebarKV label="Created" value={fmtTime(kase.createdAt)} mono />
             <SidebarKV label="Updated" value={fmtTime(kase.updatedAt)} mono />
-            <SidebarKV label="Resolved" value={fmtTime(kase.resolvedAt)} mono />
           </SidebarGroup>
-        </div>
+        </aside>
       </div>
     </div>
   );
