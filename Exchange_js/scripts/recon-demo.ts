@@ -161,24 +161,15 @@ interface WalletPlan {
 async function planWallets(
   prisma: PrismaService,
   balanceChecker: WalletBalanceCheckerService,
-  tbEvidence: TbEvidenceService,
+  _tbEvidence: TbEvidenceService,
   cutoff: Date,
 ): Promise<WalletPlan[]> {
-  // Resolve assets once — recon engine matches ExternalBalance.currency
-  // against Asset.code, not the human currency. AED.code='AED' but
-  // USDT.code='USDT-TRON'; without this remap USDT wallets get skipped.
-  const assets = (await (prisma as any).asset.findMany({
-    where: { status: 'ACTIVE' },
-    select: { code: true, currency: true },
-  })) as Array<{ code: string; currency: string }>;
-  const codeByCurrency = new Map<string, string>(assets.map((a) => [a.currency, a.code]));
-
-  // Single pass — enumerate every active wallet (full coverage). For each
-  // wallet: pull its crossing flows (may be empty), call the balance checker
-  // for internal total, and fall back to walletRole-based classification
-  // when the checker returns UNKNOWN (aggregate-only flow history but the
-  // wallet is still a real F_OPS / F_SET / F_LIQ account that operators
-  // need to see).
+  // Single source of truth so external and internal can NEVER drift:
+  //   closingBalance ← balanceChecker.internal.total
+  //                    (exact number the recon engine uses on the internal side)
+  //   statement_lines ← every POSTED isExternalCrossing flow on this wallet
+  //                    (exact rows the recon matcher pairs against)
+  // Result: pass mode delta = 0 by construction; no phantom differences.
   const COA_BY_ROLE: Record<string, string> = {
     F_OPS:   'E.FIRM_OPS',
     F_SET:   'E.FIRM_SET',
@@ -188,7 +179,6 @@ async function planWallets(
     C_VIBAN: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
     C_CMA:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
   };
-
   const allActiveWallets = (await (prisma as any).wallet.findMany({
     where: { status: 'ACTIVE' },
     select: {
@@ -212,10 +202,7 @@ async function planWallets(
     if (!currency) continue;
     const isFirm = w.ownerType !== 'CUSTOMER';
 
-    // Crossing flows landing on this wallet — drive the mirrored statement lines.
-    // POSTED only: PENDING transfers are pre-occupations (TB lock), not real
-    // money movement, so they wouldn't appear on a bank/chain statement. Aligns
-    // with what the Account Statement admin page shows (also POSTED-only).
+    // Lines source — the matcher's exact query, so 1:1 mirroring is guaranteed.
     const flows = (await (prisma as any).accountFlow.findMany({
       where: {
         walletRef: w.id,
@@ -228,7 +215,6 @@ async function planWallets(
         direction: true,
         amount: true,
         externalRef: true,
-        assetCode: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'asc' },
@@ -237,22 +223,11 @@ async function planWallets(
       direction: string;
       amount: Prisma.Decimal;
       externalRef: string | null;
-      assetCode: string;
       createdAt: Date;
     }>;
 
-    // Balance: derive from the WALLET'S OWN account-statement view (the
-    // same logic the admin Account Statement page renders). This is the
-    // user-facing source of truth — sums signed crossings with the same
-    // ownership filter + class-aware direction flip as the UI. UNKNOWN
-    // firm wallets (F_OPS/F_SET/F_LIQ) now get the correct net activity
-    // instead of 0, so the External Balance row matches what an operator
-    // sees on Account Statement.
-    const statement = await tbEvidence.getWalletStatement(w.id);
-    const internalTotal = BigInt(statement.currentBalance ?? 0);
-    // Still call balanceChecker for ownerNo/coaCode/walletKind on customer
-    // wallets; UNKNOWN cases fall back to walletRole lookup at case-write
-    // time via enrichIfUnknown.
+    // Balance source — the engine's own check, so demo's external closing
+    // always equals what the engine reads as internal. delta is structurally 0.
     const bal = await balanceChecker.checkBalance({
       walletRef: w.id,
       externalClosing: 0n,
@@ -263,16 +238,15 @@ async function planWallets(
       walletRef: w.id,
       walletKind: isFirm ? 'FIRM' : 'CUSTOMER',
       book: isFirm ? 'FIRM' : 'CLIENT',
-      currency: codeByCurrency.get(flows[0]?.assetCode ?? '') ?? currency,
-      internalTotal,
+      currency,
+      internalTotal: bal.internal.total,
       coaCode: bal.walletKind !== 'UNKNOWN' ? bal.coaCode : (COA_BY_ROLE[w.walletRole] ?? ''),
       ownerNo: bal.ownerNo ?? w.ownerNo,
       lines: flows.map((f) => ({
         direction: f.direction as 'IN' | 'OUT',
         amount: f.amount,
         externalRef: f.externalRef,
-        // Shift external timestamp 0–60 min BACKWARD (matcher fuzzy window).
-        // Forward shift could push past cutoff and break the engine query.
+        // Shift timestamp 0–60 min backward inside matcher fuzzy window.
         datetime: new Date(f.createdAt.getTime() - Math.floor(Math.random() * 60) * 60 * 1000),
         sourceFlowId: f.id,
       })),
