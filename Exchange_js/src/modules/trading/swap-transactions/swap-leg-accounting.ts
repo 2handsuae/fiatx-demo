@@ -23,6 +23,12 @@ export interface SwapSettleCtx {
   feeAmount: Prisma.Decimal;
   fromDecimals: number;
   toDecimals: number;
+  /**
+   * Per-leg attempt count for self-heal retries (Swap-6). Defaults to 1 when
+   * absent. Callers override via `{ ...ctx, attempt: N }` to produce distinct
+   * deterministic TB transfer IDs and externalRefs across attempts.
+   */
+  attempt?: number;
 }
 
 @Injectable()
@@ -239,6 +245,8 @@ export class SwapLegAccounting {
       feeAmount: new Prisma.Decimal(swap.feeAmount ?? 0),
       fromDecimals: fromAsset?.decimals ?? 8,
       toDecimals: toAsset?.decimals ?? 8,
+      // attempt is per-leg, not per-swap — callers override via `{ ...ctx, attempt: N }`.
+      attempt: 1,
     };
   }
 
@@ -251,10 +259,12 @@ export class SwapLegAccounting {
    */
   async initiateLegPending(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
     // Phase B: every swap leg is a real cross-wallet movement (per swap-leg-plan
-    // there are no pure-bookkeeping legs). externalRef = `${swapNo}:${legSeq}:pending`
+    // there are no pure-bookkeeping legs). externalRef = `${swapNo}:${legSeq}:${attempt}:pending`
     // serves as the cross-validation key — swaps don't broadcast on-chain, so the
-    // swap-internal reference IS sufficient for §8 recon.
-    const externalRef = `${ctx.swapNo}:${spec.legSeq}:pending`;
+    // swap-internal reference IS sufficient for §8 recon. The attempt segment lets
+    // the same swap+legSeq retain distinct refs across self-heal retries (Swap-6).
+    const attempt = ctx.attempt ?? 1;
+    const externalRef = `${ctx.swapNo}:${spec.legSeq}:${attempt}:pending`;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
@@ -285,13 +295,14 @@ export class SwapLegAccounting {
   async postLeg(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
     // Phase B: postPendingTransfer flips transferType on the existing evidence
     // row (no new row, no field rewrite). The walletRef/externalRef/crossing
-    // captured at initiateLegPending therefore survive POST untouched — and the
-    // swap-internal externalRef stays as `${swapNo}:${legSeq}:pending` (there is
-    // no real chain txHash to substitute in this codebase).
+    // captured at initiateLegPending therefore survive POST untouched. The
+    // pending ID is keyed by attempt (Swap-6) so retries reference distinct
+    // TB transfers from the original attempt.
+    const attempt = ctx.attempt ?? 1;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
-      const pendingId = deterministicTransferId('SWAP', ctx.swapNo, a.eventCode, 0);
+      const pendingId = deterministicTransferId('SWAP', ctx.swapNo, a.eventCode, attempt);
       await this.accounting.postPendingTransfer({
         pendingTransferId: pendingId,
         amount: amt,
@@ -305,10 +316,13 @@ export class SwapLegAccounting {
 
   async voidLeg(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
     // Phase B: same as POST — void flips transferType only, no new evidence row.
+    // Pending ID is keyed by attempt (Swap-6) so self-heal voids the right
+    // attempt's pending transfers without colliding with retries.
+    const attempt = ctx.attempt ?? 1;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
-      const pendingId = deterministicTransferId('SWAP', ctx.swapNo, a.eventCode, 0);
+      const pendingId = deterministicTransferId('SWAP', ctx.swapNo, a.eventCode, attempt);
       await this.accounting.voidPendingTransfer({
         pendingTransferId: pendingId,
         amount: amt,
