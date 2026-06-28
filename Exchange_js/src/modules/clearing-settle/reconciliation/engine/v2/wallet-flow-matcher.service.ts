@@ -100,6 +100,7 @@ export class WalletFlowMatcherService {
       where: {
         walletRef,
         isExternalCrossing: true,
+        transferType: 'POSTED', // PENDING transfers haven't externally crossed yet — same filter as balanceChecker
         createdAt: { lte: cutoff },
       },
       select: {

@@ -49,6 +49,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
+import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 
 type Mode = 'pass' | 'break' | 'reset';
 
@@ -160,6 +161,7 @@ interface WalletPlan {
 async function planWallets(
   prisma: PrismaService,
   balanceChecker: WalletBalanceCheckerService,
+  tbEvidence: TbEvidenceService,
   cutoff: Date,
 ): Promise<WalletPlan[]> {
   // Resolve assets once — recon engine matches ExternalBalance.currency
@@ -211,10 +213,14 @@ async function planWallets(
     const isFirm = w.ownerType !== 'CUSTOMER';
 
     // Crossing flows landing on this wallet — drive the mirrored statement lines.
+    // POSTED only: PENDING transfers are pre-occupations (TB lock), not real
+    // money movement, so they wouldn't appear on a bank/chain statement. Aligns
+    // with what the Account Statement admin page shows (also POSTED-only).
     const flows = (await (prisma as any).accountFlow.findMany({
       where: {
         walletRef: w.id,
         isExternalCrossing: true,
+        transferType: 'POSTED',
         createdAt: { lte: cutoff },
       },
       select: {
@@ -235,17 +241,23 @@ async function planWallets(
       createdAt: Date;
     }>;
 
-    // Balance: trust the engine's own checker — recon will run the SAME
-    // check, so anchoring closingBalance to it guarantees delta=0 in pass
-    // mode. UNKNOWN wallets (firm OPS/SET/LIQ whose flows landed only on
-    // aggregate FIRM_ASSET legs) return internal.total=0, which is the
-    // engine's view; mirror that to MATCH instead of fabricating a balance.
+    // Balance: derive from the WALLET'S OWN account-statement view (the
+    // same logic the admin Account Statement page renders). This is the
+    // user-facing source of truth — sums signed crossings with the same
+    // ownership filter + class-aware direction flip as the UI. UNKNOWN
+    // firm wallets (F_OPS/F_SET/F_LIQ) now get the correct net activity
+    // instead of 0, so the External Balance row matches what an operator
+    // sees on Account Statement.
+    const statement = await tbEvidence.getWalletStatement(w.id);
+    const internalTotal = BigInt(statement.currentBalance ?? 0);
+    // Still call balanceChecker for ownerNo/coaCode/walletKind on customer
+    // wallets; UNKNOWN cases fall back to walletRole lookup at case-write
+    // time via enrichIfUnknown.
     const bal = await balanceChecker.checkBalance({
       walletRef: w.id,
       externalClosing: 0n,
       cutoff,
     });
-    const internalTotal = bal.internal.total;
 
     plans.push({
       walletRef: w.id,
@@ -640,7 +652,8 @@ async function main() {
 
   // Phase 1 — build per-wallet plan from current account_flows.
   const balanceChecker = app.get(WalletBalanceCheckerService);
-  const plans = await planWallets(prisma, balanceChecker, cutoff);
+  const tbEvidence = app.get(TbEvidenceService);
+  const plans = await planWallets(prisma, balanceChecker, tbEvidence, cutoff);
   if (plans.length === 0) {
     console.error('No eligible wallets — seed business data (demo:all) first');
     await app.close();
