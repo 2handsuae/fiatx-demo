@@ -41,7 +41,7 @@ export class SwapWorkflowService {
     private readonly accountingService: AccountingService,
     private readonly auditLogsService: AuditLogsService,
     private readonly eventEmitter: EventEmitter2,
-    // Swap-10 removes this dep; coexists with the new workflow until Swap-9 cuts over.
+    // Dead since Swap-9 cut-over; Swap-10 removes this dep.
     private readonly swapSettlement: SwapSettlementService,
     private readonly swapLegAccounting: SwapLegAccounting,
     private readonly fundsFlow: FundsFlowService,
@@ -142,7 +142,8 @@ export class SwapWorkflowService {
 
         // Swap-9 cut-over: create ONLY leg1 + initiate its pending; subsequent
         // legs are chained by advanceLeg(legSeq+1) per the progressive build
-        // model (Swap-5). No more delegating to SwapSettlementService.start.
+        // model (Swap-5). One code path for all three leg-build sites — see
+        // createAndStartLeg helper.
         const ctx: SwapSettleCtx = {
           swapId: swap.id,
           swapNo,
@@ -161,35 +162,7 @@ export class SwapWorkflowService {
           toDecimals,
         };
         const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
-        const leg1Spec = legSpecs[0]!; // legSeq=1, structural invariant locked in Swap-8
-        const leg1AssetId = leg1Spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-        const leg1Amount = this.legPrimaryAmountDecimal(leg1Spec, ctx);
-        const leg1 = await this.fundsFlow.createSwapLeg(
-          {
-            swapTransactionId: swap.id,
-            legSeq: 1,
-            legAttempt: 1,
-            assetId: leg1AssetId,
-            amount: leg1Amount,
-            fromWalletId: null,
-            toWalletId: null,
-          },
-          'SYSTEM',
-          tx,
-        );
-        const leg1Ctx = { ...ctx, attempt: 1 };
-        await this.swapLegAccounting.initiateLegPending(leg1Ctx, leg1Spec, tx);
-        await this.fundsFlow.transitionSwapLeg(
-          (leg1 as any).id,
-          this.legStartAction(leg1Spec, ctx),
-          'SYSTEM',
-          tx,
-        );
-        await this.swapTransactionsService.recomputeProjections(
-          swap.id,
-          (n) => this.stageOf(n),
-          tx,
-        );
+        await this.createAndStartLeg(swap, legSpecs[0]!, ctx, 1, 1, 'SYSTEM', tx);
 
         return swap;
       });
@@ -264,44 +237,52 @@ export class SwapWorkflowService {
   }
 
   /**
-   * Create a fresh leg attempt (N+1) for the given legSeq, book pending, and
-   * transition into the leg's start state. Shared by Swap-6 self-heal retry and
-   * Swap-7 manual resume — they both need the same "create + initiate + start"
-   * trio; only operator and nextAttempt differ.
+   * Unified create + start leg helper. Single code path for the four leg-build sites:
+   *   - executeSwap leg1 build (legSeq=1, attempt=1, operator='SYSTEM')
+   *   - onLegCleared chain-next  (legSeq=N+1, attempt=1, operator='SYSTEM')
+   *   - onLegFailedSelfHeal retry (legSeq=N,  attempt=K+1, operator='SYSTEM')
+   *   - resumeLeg manual recovery (legSeq=N,  attempt=K+1, operator=ops)
+   * Atomic with the passed tx. Updates projections at the end (I2 — recompute
+   * is part of the leg-mutation boundary). Returns the created leg row.
    */
-  private async createAndInitiateNextAttempt(
+  private async createAndStartLeg(
     swap: any,
     spec: SwapLegSpec,
     ctx: SwapSettleCtx,
     legSeq: number,
-    nextAttempt: number,
+    attempt: number,
     operatorId: string,
-    client: any,
+    tx: any,
   ): Promise<any> {
     const assetIdForLeg = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
     const amount = this.legPrimaryAmountDecimal(spec, ctx);
-    const newLeg = await this.fundsFlow.createSwapLeg(
+    const leg = await this.fundsFlow.createSwapLeg(
       {
         swapTransactionId: swap.id,
         legSeq,
-        legAttempt: nextAttempt,
+        legAttempt: attempt,
         assetId: assetIdForLeg,
         amount,
         fromWalletId: null,
         toWalletId: null,
       },
       operatorId,
-      client,
+      tx,
     );
-    const nextCtx = { ...ctx, attempt: nextAttempt };
-    await this.swapLegAccounting.initiateLegPending(nextCtx, spec, client);
+    const legCtx = { ...ctx, attempt };
+    await this.swapLegAccounting.initiateLegPending(legCtx, spec, tx);
     await this.fundsFlow.transitionSwapLeg(
-      (newLeg as any).id,
+      (leg as any).id,
       this.legStartAction(spec, ctx),
       operatorId,
-      client,
+      tx,
     );
-    return newLeg;
+    await this.swapTransactionsService.recomputeProjections(
+      swap.id,
+      (n) => this.stageOf(n),
+      tx,
+    );
+    return leg;
   }
 
   /**
@@ -328,15 +309,8 @@ export class SwapWorkflowService {
 
     if (failedAttempt < SwapWorkflowService.MAX_LEG_ATTEMPTS) {
       const nextAttempt = failedAttempt + 1;
-      await this.createAndInitiateNextAttempt(
-        swap,
-        spec,
-        ctx,
-        legSeq,
-        nextAttempt,
-        'SYSTEM',
-        client,
-      );
+      // createAndStartLeg recomputes projections internally (I2).
+      await this.createAndStartLeg(swap, spec, ctx, legSeq, nextAttempt, 'SYSTEM', client);
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_LEG_RETRIED,
@@ -373,13 +347,13 @@ export class SwapWorkflowService {
         },
         client,
       );
+      // STUCK: no leg created, so recompute is not covered by the helper.
+      await this.swapTransactionsService.recomputeProjections(
+        swap.id,
+        (n) => this.stageOf(n),
+        client,
+      );
     }
-
-    await this.swapTransactionsService.recomputeProjections(
-      swap.id,
-      (n) => this.stageOf(n),
-      client,
-    );
     // NOTE: do NOT markStatus FAILED — self-heal keeps swap in PROCESSING.
   }
 
@@ -441,38 +415,17 @@ export class SwapWorkflowService {
         emit: true,
         payload: { swapId: swap.id, swapNo: swap.swapNo, ownerId: swap.ownerId },
       };
+      // SUCCESS: no leg created, so recompute is not covered by the helper.
+      await this.swapTransactionsService.recomputeProjections(
+        swap.id,
+        (n) => this.stageOf(n),
+        client,
+      );
     } else {
-      // Progressively create the next leg, book pending, transition into its start state.
+      // Progressively create the next leg. createAndStartLeg recomputes projections (I2).
       const nextSpec = allSpecs.find((s) => s.legSeq === legSeq + 1)!;
-      const nAssetId = nextSpec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-      const nAmount = this.legPrimaryAmountDecimal(nextSpec, ctx);
-      const newLeg = await this.fundsFlow.createSwapLeg(
-        {
-          swapTransactionId: swap.id,
-          legSeq: legSeq + 1,
-          legAttempt: 1,
-          assetId: nAssetId,
-          amount: nAmount,
-          fromWalletId: null,
-          toWalletId: null,
-        },
-        'SYSTEM',
-        client,
-      );
-      await this.swapLegAccounting.initiateLegPending(ctx, nextSpec, client);
-      await this.fundsFlow.transitionSwapLeg(
-        (newLeg as any).id,
-        this.legStartAction(nextSpec, ctx),
-        'SYSTEM',
-        client,
-      );
+      await this.createAndStartLeg(swap, nextSpec, ctx, legSeq + 1, 1, 'SYSTEM', client);
     }
-
-    await this.swapTransactionsService.recomputeProjections(
-      swap.id,
-      (n) => this.stageOf(n),
-      client,
-    );
 
     return emitInfo;
   }
@@ -594,15 +547,8 @@ export class SwapWorkflowService {
       const fromAttempt = target.attempt ?? 1;
       const resumedAttempt = fromAttempt + 1;
 
-      await this.createAndInitiateNextAttempt(
-        swap,
-        spec,
-        ctx,
-        legSeq,
-        resumedAttempt,
-        operatorId,
-        client,
-      );
+      // createAndStartLeg recomputes projections internally (I2).
+      await this.createAndStartLeg(swap, spec, ctx, legSeq, resumedAttempt, operatorId, client);
 
       await this.auditLogsService.recordSystem(
         {
@@ -618,12 +564,6 @@ export class SwapWorkflowService {
           metadata: { legSeq, resumedAttempt, fromAttempt },
           sourcePlatform: 'SYSTEM',
         },
-        client,
-      );
-
-      await this.swapTransactionsService.recomputeProjections(
-        swap.id,
-        (n) => this.stageOf(n),
         client,
       );
 
