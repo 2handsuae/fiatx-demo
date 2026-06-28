@@ -734,6 +734,8 @@ export class FundsFlowService {
     input: {
       swapTransactionId: string;
       legSeq: number;
+      /** Per-legSeq retry counter (self-heal). Defaults to 1 for the first attempt. */
+      legAttempt?: number;
       assetId: string;
       amount: Prisma.Decimal;
       fromWalletId?: string | null;
@@ -756,6 +758,7 @@ export class FundsFlowService {
               internalTransactionId: null,
               swapTransactionId: input.swapTransactionId,
               legSeq: input.legSeq,
+              attempt: input.legAttempt ?? 1,
               status: InternalFundStatus.CREATED,
               assetId: input.assetId,
               amount: input.amount,
