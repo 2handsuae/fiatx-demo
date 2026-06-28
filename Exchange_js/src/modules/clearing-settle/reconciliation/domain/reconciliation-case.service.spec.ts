@@ -58,4 +58,16 @@ describe('ReconciliationCaseService', () => {
       where: { businessDate: '2026-06-16', assetId: 'a-aed', book: 'FIRM' },
     });
   });
+
+  describe('traceId format', () => {
+    it('mints UUID v4 traceId at case creation (no business-field embedding)', async () => {
+      const kase = await svc.upsertOpen({
+        businessDate: '2026-06-28', assetId: 'a-usdt', assetCode: 'USDT', layer: 'CLIENT',
+        tbAmount: D('0'), inTransitAmount: D('0'), expectedExternal: D('0'), actualExternal: D('0'), deltaAmount: D('1'),
+        openedByRunId: 'r1',
+      });
+      expect(kase.traceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(kase.traceId).not.toMatch(/^V8:/);
+    });
+  });
 });

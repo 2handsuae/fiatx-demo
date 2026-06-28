@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
@@ -45,7 +46,7 @@ export class ReconciliationCaseService {
         tbAmount: input.tbAmount, inTransitAmount: input.inTransitAmount,
         expectedExternal: input.expectedExternal, actualExternal: input.actualExternal, deltaAmount: input.deltaAmount,
         status: 'OPEN', openedByRunId: input.openedByRunId, lastObservedRunId: input.openedByRunId,
-        slaDeadline: sla, traceId: `V8:${input.layer}:${input.businessDate.replace(/-/g, '')}`,
+        slaDeadline: sla, traceId: randomUUID(),
       },
     });
   }
