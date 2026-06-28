@@ -2,10 +2,11 @@
 //
 // T6 — Cases list = tracking view.
 //   - Default URL: ?status=OPEN&sort=aging.desc (server already sorts aging desc per T3).
-//   - Columns: Case ID | Account | Owner | Asset | Aging | Δ | First Run | Last Run | Status.
+//   - Columns: Case ID | Wallet | COA | Owner | Asset | Aging | Δ | First Run | Last Run | Status.
+//     (Wallet + COA were previously a single stacked "Account" column — split for clarity.)
 //   - Aging tiers visualise triage urgency (0-3 muted, 4-7 amber, 8+ red).
 //   - Row click → /admin/reconciliation/cases/{caseNo}.
-//   - V8 columns (book/layer/business-date) removed; per-wallet model surfaces account+owner instead.
+//   - V8 columns (book/layer/business-date) removed; per-wallet model surfaces wallet+coa+owner instead.
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
@@ -185,15 +186,16 @@ const ReconciliationCasesListPage = () => {
             <tr>
               {(
                 [
-                  ['Case ID', '160px', 'left'],
-                  ['Account', '160px', 'left'],
-                  ['Owner', '120px', 'left'],
+                  ['Case ID', '150px', 'left'],
+                  ['Wallet', '130px', 'left'],
+                  ['COA', '230px', 'left'],
+                  ['Owner', '110px', 'left'],
                   ['Asset', '80px', 'left'],
-                  ['Aging', '80px', 'right'],
-                  ['Δ', '140px', 'right'],
-                  ['First Run', '110px', 'left'],
-                  ['Last Run', '110px', 'left'],
-                  ['Status', '110px', 'left'],
+                  ['Aging', '70px', 'right'],
+                  ['Δ', '120px', 'right'],
+                  ['First Run', '100px', 'left'],
+                  ['Last Run', '100px', 'left'],
+                  ['Status', '100px', 'left'],
                 ] as [string, string, string][]
               ).map(([label, w, align]) => (
                 <th
@@ -209,14 +211,14 @@ const ReconciliationCasesListPage = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && cases.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No {statusFromUrl === 'ALL' ? '' : statusLabel(statusFromUrl).toLowerCase() + ' '}
                   reconciliation cases found.
                 </td>
@@ -246,19 +248,30 @@ const ReconciliationCasesListPage = () => {
                       </span>
                     </td>
 
-                    {/* Account — coaCode role + short walletRef; full ref on hover */}
+                    {/* Wallet — short walletRef (full on hover); XREF rows show the synthetic key */}
                     <td className="px-4 py-2.5">
-                      <div className="flex flex-col">
-                        <span className="font-mono text-[10px] font-semibold text-adm-blue">
-                          {kase.coaCode ?? '—'}
-                        </span>
+                      {kase.walletRef ? (
                         <span
-                          className="font-mono text-[9px] text-adm-t3"
-                          title={kase.walletRef ?? undefined}
+                          className="font-mono text-[11px] text-adm-t1"
+                          title={kase.walletRef}
                         >
-                          {kase.walletRef ? `${shortId(kase.walletRef, 8)}…` : '—'}
+                          {kase.walletRef.startsWith('XREF:')
+                            ? kase.walletRef
+                            : `${shortId(kase.walletRef, 8)}…`}
                         </span>
-                      </div>
+                      ) : (
+                        <span className="font-mono text-[11px] text-adm-t3">—</span>
+                      )}
+                    </td>
+
+                    {/* COA — accounting bucket (e.g. E.FIRM_FEE / L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE) */}
+                    <td className="px-4 py-2.5">
+                      <span
+                        className="font-mono text-[10px] font-semibold text-adm-blue"
+                        title={kase.coaCode ?? undefined}
+                      >
+                        {kase.coaCode ?? '—'}
+                      </span>
                     </td>
 
                     {/* Owner — ownerNo (name not on row; can drill into detail for full identity) */}
