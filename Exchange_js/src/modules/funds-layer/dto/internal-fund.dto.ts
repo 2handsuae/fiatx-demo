@@ -12,6 +12,7 @@ export enum InternalFundStatus {
   FAILED = 'FAILED',
   TIMEOUT = 'TIMEOUT',
   RETURNED = 'RETURNED',
+  NEEDS_REVIEW = 'NEEDS_REVIEW',
   CANCELLED = 'CANCELLED',
 }
 

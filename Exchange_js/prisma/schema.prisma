@@ -1108,6 +1108,7 @@ model InternalFund {
   swapTransactionId     String?
   withdrawTransactionId String?
   legSeq                Int?
+  attempt               Int                    @default(1)
   status                String
   assetId               String
   amount                Decimal
@@ -1239,6 +1240,8 @@ model SwapTransaction {
   ownerId          String
   ownerNo          String?
   status           String
+  currentStage     String?
+  needsReview      Boolean          @default(false)
   fromAssetId      String
   fromAssetCode    String?
   fromAmount       Decimal

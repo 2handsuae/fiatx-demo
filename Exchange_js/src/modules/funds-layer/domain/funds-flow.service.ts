@@ -58,6 +58,7 @@ const CRYPTO_TRANSITIONS: Record<
   [InternalFundStatus.FAILED]: {},
   [InternalFundStatus.TIMEOUT]: {},
   [InternalFundStatus.RETURNED]: {},
+  [InternalFundStatus.NEEDS_REVIEW]: {},
   [InternalFundStatus.CANCELLED]: {},
 };
 
@@ -86,6 +87,7 @@ export const FIAT_TRANSITIONS: Record<
   [InternalFundStatus.FAILED]: {},
   [InternalFundStatus.TIMEOUT]: {},
   [InternalFundStatus.RETURNED]: {},
+  [InternalFundStatus.NEEDS_REVIEW]: {},
   [InternalFundStatus.CANCELLED]: {},
 };
 
@@ -94,6 +96,7 @@ const TERMINAL_STATUSES = new Set<InternalFundStatus>([
   InternalFundStatus.FAILED,
   InternalFundStatus.TIMEOUT,
   InternalFundStatus.RETURNED,
+  InternalFundStatus.NEEDS_REVIEW,
   InternalFundStatus.CANCELLED,
 ]);
 
