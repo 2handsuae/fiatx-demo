@@ -32,6 +32,8 @@ interface ReconCase {
   aging: number;
   firstSeenRunId: string | null;
   lastUpdatedRunId: string | null;
+  firstSeenRunNo: string | null;    // business No (e.g. "RUN-0042")
+  lastUpdatedRunNo: string | null;  // business No
   walletNo: string | null;  // business key resolved server-side
 }
 
@@ -49,8 +51,6 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
 const PAGE_SIZE = 25;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
-
-const shortId = (id: string | null, n = 8) => (id ? id.slice(0, n) : null);
 
 // Aging tier → muted (0-3d) / amber (4-7d) / red (8d+). Greys out the column when
 // there's nothing urgent so the operator's eye jumps straight to red rows.
@@ -87,19 +87,21 @@ const ReconciliationCasesListPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   // URL is the source of truth; missing/empty status param means OPEN (server default).
   const statusFromUrl = searchParams.get('status') ?? 'OPEN';
+  const runNo = searchParams.get('runNo');
 
   const [cases, setCases] = useState<ReconCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const fetchCases = async (status: string) => {
+  const fetchCases = async (status: string, runNoFilter: string | null) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
       // Pass status explicitly (incl. OPEN) for clarity. `ALL` opts out per T3 contract.
       params.set('status', status);
+      if (runNoFilter) params.set('runNo', runNoFilter);
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases?${params.toString()}`,
       );
@@ -118,9 +120,9 @@ const ReconciliationCasesListPage = () => {
   };
 
   useEffect(() => {
-    void fetchCases(statusFromUrl);
+    void fetchCases(statusFromUrl, runNo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFromUrl]);
+  }, [statusFromUrl, runNo]);
 
   const handleStatusChange = (value: string) => {
     // Update URL → effect re-fetches. Keep sort param for shareable links even
@@ -147,7 +149,7 @@ const ReconciliationCasesListPage = () => {
         meta={`${cases.length} case${cases.length === 1 ? '' : 's'} · sorted by aging`}
       >
         <button
-          onClick={() => void fetchCases(statusFromUrl)}
+          onClick={() => void fetchCases(statusFromUrl, runNo)}
           className="inline-flex h-[30px] w-[30px] items-center justify-center rounded border border-adm-border bg-adm-bg text-adm-t2 transition-colors hover:bg-adm-hover"
           title="Refresh"
         >
@@ -230,12 +232,10 @@ const ReconciliationCasesListPage = () => {
                 const deltaNum = Number(kase.deltaAmount ?? '0');
                 const hasDelta = Number.isFinite(deltaNum) && deltaNum !== 0;
                 const deltaSign = deltaNum > 0 ? '+' : '';
-                const firstRunShort = shortId(kase.firstSeenRunId);
-                const lastRunShort = shortId(kase.lastUpdatedRunId);
                 const sameRun =
-                  kase.firstSeenRunId &&
-                  kase.lastUpdatedRunId &&
-                  kase.firstSeenRunId === kase.lastUpdatedRunId;
+                  kase.firstSeenRunNo &&
+                  kase.lastUpdatedRunNo &&
+                  kase.firstSeenRunNo === kase.lastUpdatedRunNo;
                 return (
                   <tr
                     key={kase.id}
@@ -303,22 +303,20 @@ const ReconciliationCasesListPage = () => {
 
                     {/* First Run */}
                     <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
-                      {firstRunShort ? (
-                        <span title={kase.firstSeenRunId ?? undefined}>{firstRunShort}…</span>
-                      ) : (
-                        <span className="text-adm-t3">—</span>
-                      )}
+                      <span title={kase.firstSeenRunId ?? undefined}>
+                        {kase.firstSeenRunNo ?? '—'}
+                      </span>
                     </td>
 
                     {/* Last Run — collapse to "(same)" when identical to First Run */}
                     <td className="px-4 py-2.5 font-mono text-[10px]">
-                      {!lastRunShort ? (
+                      {!kase.lastUpdatedRunNo ? (
                         <span className="text-adm-t3">—</span>
                       ) : sameRun ? (
                         <span className="italic text-adm-t3">(same)</span>
                       ) : (
                         <span className="text-adm-t2" title={kase.lastUpdatedRunId ?? undefined}>
-                          {lastRunShort}…
+                          {kase.lastUpdatedRunNo}
                         </span>
                       )}
                     </td>
