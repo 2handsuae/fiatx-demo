@@ -87,7 +87,7 @@ interface ReconCaseDetail {
   assetId: string;
   assetCode: string;
   layer: string;
-  book: string;
+  book: string | null;
   // Wallet-engine locators (T7 / T1)
   walletRef: string | null;
   walletNo: string | null;            // NEW — resolved business key via wallets table
@@ -326,7 +326,7 @@ const ReconciliationCasesDetailPage = () => {
                 ) : <span className="text-adm-t3">—</span>}
               </div>
               <div className="text-adm-t3">BOOK</div>
-              <div className="text-adm-t1">{kase.book}</div>
+              <div className="text-adm-t1">{kase.book ?? '—'}</div>
               <div className="text-adm-t3">ASSET</div>
               <div className="text-adm-t1">{kase.assetCode}</div>
               <div className="text-adm-t3">Δ</div>
@@ -614,13 +614,13 @@ const ReconciliationCasesDetailPage = () => {
           <SidebarGroup title="Identity Summary">
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
-            <SidebarKV label="Book" value={kase.book} />
+            <SidebarKV label="Book" value={kase.book ?? '—'} />
             <SidebarKV label="Asset" value={kase.assetCode} />
-            <SidebarKV label="Δ" value={kase.deltaAmount} mono />
+            <SidebarKV label="Δ" value={`${deltaZero ? '' : sign}${formatAmount(kase.deltaAmount)}`} mono />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">
-            <SidebarKV label="SLA Deadline" value={kase.slaDeadline ?? '—'} mono />
+            <SidebarKV label="SLA Deadline" value={kase.slaDeadline ? fmtTime(kase.slaDeadline) : '—'} mono />
             <SidebarKV label="Created" value={fmtTime(kase.createdAt)} mono />
             <SidebarKV label="Updated" value={fmtTime(kase.updatedAt)} mono />
           </SidebarGroup>
