@@ -216,55 +216,11 @@ describe('WalletReconRunService', () => {
     );
   });
 
-  it('cross-wallet same-ref invariant: two matches share ref with unequal amounts → cross_match_mismatch case', async () => {
-    const deps = makeDeps();
-    deps.prisma.reconciliationRun.create.mockResolvedValue({
-      id: 'run-5', runNo: 'RUN-WALLET-5', engineVersion: 'WALLET_V1',
-    });
-    // Two wallets with externalBalance rows
-    deps.prisma.externalBalance.findMany.mockResolvedValue([
-      { walletRef: 'w-cust', closingBalance: D(0), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-c' },
-      { walletRef: 'w-firm-fee', closingBalance: D(0), book: 'FIRM', currency: 'USDT', accountRef: 'acc-f' },
-    ]);
-    deps.balanceChecker.checkBalance.mockImplementation(async ({ walletRef }: any) => ({
-      pass: true, walletRef, walletKind: walletRef === 'w-cust' ? 'CUSTOMER' : 'FIRM',
-      coaCode: walletRef === 'w-cust' ? 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' : 'E.FIRM_FEE',
-      ownerNo: walletRef === 'w-cust' ? 'c-001' : 'FIRM_FEE_USDT',
-      internal: { total: 0n }, external: 0n, delta: 0n,
-    }));
-    // Each wallet has a matched flow with the SAME externalRef but different amounts.
-    deps.flowMatcher.matchFlows.mockImplementation(async ({ walletRef }: any) => {
-      if (walletRef === 'w-cust') {
-        return {
-          matched: [{ internalFlowId: 'flow-cust-1', externalLineId: 'ext-1', via: 'ref' }],
-          orphanInternal: [], orphanExternal: [], mismatch: [],
-        };
-      }
-      return {
-        matched: [{ internalFlowId: 'flow-firm-1', externalLineId: 'ext-2', via: 'ref' }],
-        orphanInternal: [], orphanExternal: [], mismatch: [],
-      };
-    });
-    // After matchers run, the orchestrator queries the matched flows for cross-wallet check.
-    deps.prisma.accountFlow.findMany.mockResolvedValue([
-      { id: 'flow-cust-1', walletRef: 'w-cust', externalRef: 'WDR123:fee', direction: 'OUT', amount: D(10) },
-      { id: 'flow-firm-1', walletRef: 'w-firm-fee', externalRef: 'WDR123:fee', direction: 'IN', amount: D(12) },
-    ]);
-
-    const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any);
-    (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
-    (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
-
-    const result = await svc.run({ cutoff });
-
-    expect(result.status).toBe('BREAK');
-    // The cross-ref case is one of the cases opened.
-    const calls = deps.prisma.reconciliationCase.create.mock.calls;
-    const crossCase = calls.find(([arg]: any[]) =>
-      arg?.data?.coaCode === 'CROSS_REF' || /cross.?match/i.test(arg?.data?.caseNo ?? ''),
-    );
-    expect(crossCase).toBeDefined();
-  });
+  // (removed) "cross-wallet same-ref invariant" test — feature retired. The
+  // old algorithm produced false-positive CROSS_REF cases by grouping flows
+  // naively per externalRef without netting same-wallet two-leg projections
+  // (e.g. WITHDRAW_NET_POST debit+credit both landing on the same C_CMA
+  // wallet). One case ↔ one wallet is the surviving invariant.
 
   // ── T2: (walletRef, businessDate) idempotent upsert + auto-heal ──────────
   describe('T2 idempotent upsert + auto-heal', () => {

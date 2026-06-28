@@ -141,13 +141,10 @@ export class WalletReconRunService {
     let orphanInternal = 0;
     let orphanExternal = 0;
     let mismatch = 0;
-    // For cross-wallet ref invariant: track matched (walletRef, internalFlowId)
-    // pairs across all wallets so step 3 can group by externalRef.
-    const matchedFlowIds: string[] = [];
-    // T2 auto-heal input: every walletRef (real wallet OR synthetic XREF key)
-    // touched by this run as "still breaking". After all wallets are processed,
-    // any OPEN case on this businessDate whose walletRef is NOT in this set is
-    // assumed to have recovered → auto-resolve.
+    // T2 auto-heal input: every real walletRef touched by this run as
+    // "still breaking". After all wallets are processed, any OPEN case on
+    // this businessDate whose walletRef is NOT in this set is assumed to
+    // have recovered → auto-resolve.
     const currentBreakingWallets = new Set<string>();
 
     for (const walletRef of walletRefs) {
@@ -180,7 +177,6 @@ export class WalletReconRunService {
       orphanInternal += matcherResult.orphanInternal.length;
       orphanExternal += matcherResult.orphanExternal.length;
       mismatch += matcherResult.mismatch.length;
-      matchedFlowIds.push(...matcherResult.matched.map((m) => m.internalFlowId));
 
       const flowHasBreak =
         matcherResult.orphanInternal.length > 0 ||
@@ -216,17 +212,7 @@ export class WalletReconRunService {
       }
     }
 
-    // ── 3. Cross-wallet same-ref invariant ──────────────────────────────────
-    const xrefResult = await this.checkCrossWalletRefInvariant({
-      runId: run.id,
-      matchedFlowIds,
-      businessDate,
-    });
-    casesCreated += xrefResult.created;
-    casesUpdated += xrefResult.updated;
-    for (const key of xrefResult.touchedKeys) currentBreakingWallets.add(key);
-
-    // ── 4. Auto-heal: any previously OPEN case whose wallet didn't break in
+    // ── 3. Auto-heal: any previously OPEN case whose wallet didn't break in
     // this run is presumed recovered → mark RESOLVED + AUTO_HEALED. Scoped to
     // engineVersion=WALLET_V1 via layer=WALLET so this never touches legacy
     // V8_FORMULA cases.
@@ -489,8 +475,9 @@ export class WalletReconRunService {
       select: { walletRole: true, ownerType: true, ownerNo: true },
     })) as { walletRole: string | null; ownerType: string | null; ownerNo: string | null } | null;
     if (!wallet) {
-      // Defensive: not a real wallet row (e.g. synthetic XREF) — fall back
-      // to raw balanceCheck values so the case still writes.
+      // Defensive: walletRef points at no wallet row — fall back to raw
+      // balanceCheck values so the case still writes (shouldn't happen in
+      // normal flow now that XREF synthetic refs are gone).
       return { book: 'CUSTOMER', coaCode: balanceCheck.coaCode, ownerNo: balanceCheck.ownerNo };
     }
     const isFirm = wallet.ownerType !== 'CUSTOMER';
@@ -569,8 +556,7 @@ export class WalletReconRunService {
       });
     } else {
       // Format: REC{YYYYMMDD}-{nnn}. Sequence counts ALL cases for the
-      // businessDate (wallet + XREF share the counter) — collision-safe across
-      // both code paths. Asset/wallet info is in the detail page.
+      // businessDate — collision-safe. Asset/wallet info is in the detail page.
       const priorToday = await (this.prisma as any).reconciliationCase.count({
         where: { businessDate: input.businessDate },
       });
@@ -705,153 +691,6 @@ export class WalletReconRunService {
       });
     }
     return stale.length;
-  }
-
-  // ── Cross-wallet same-externalRef invariant ───────────────────────────────
-  /**
-   * For each externalRef shared by ≥2 matched flows across wallets (e.g. a
-   * withdrawal fee posts a client OUT and a firm IN with the same ref),
-   * |amount(client OUT)| must equal |amount(firm IN)|. Mismatch → open a
-   * 'CROSS_REF' case (one per offending ref).
-   *
-   * T2: XREF cases follow the same (walletRef, businessDate) upsert idiom as
-   * wallet cases. The "walletRef" for an XREF case is synthetic — `XREF:<ref>`
-   * — so each distinct broken ref gets its own row and reruns are idempotent.
-   * Auto-heal sees these synthetic keys in `touchedKeys` so an XREF that
-   * recovered between runs gets resolved like any other.
-   *
-   * Returns counts split by create vs update + the touched synthetic walletRef
-   * keys so the caller can feed them into the auto-heal exclusion set.
-   */
-  private async checkCrossWalletRefInvariant(input: {
-    runId: string;
-    matchedFlowIds: string[];
-    businessDate: string;
-  }): Promise<{ created: number; updated: number; touchedKeys: string[] }> {
-    const touchedKeys: string[] = [];
-    if (input.matchedFlowIds.length < 2) return { created: 0, updated: 0, touchedKeys };
-    const flows = (await (this.prisma as any).accountFlow.findMany({
-      where: { id: { in: input.matchedFlowIds }, externalRef: { not: null } },
-      select: { id: true, walletRef: true, externalRef: true, direction: true, amount: true, assetCode: true },
-    })) as Array<{
-      id: string;
-      walletRef: string | null;
-      externalRef: string;
-      direction: string;
-      amount: Prisma.Decimal;
-      assetCode: string;
-    }>;
-
-    const byRef = new Map<string, typeof flows>();
-    for (const f of flows) {
-      const arr = byRef.get(f.externalRef) ?? [];
-      arr.push(f);
-      byRef.set(f.externalRef, arr as any);
-    }
-
-    let created = 0;
-    let updated = 0;
-    for (const [ref, group] of byRef) {
-      if (group.length < 2) continue;
-      // Compare absolute amounts; if any pair disagrees, open a case for this ref.
-      const amounts = group.map((g) => g.amount.abs());
-      const allEqual = amounts.every((a) => a.equals(amounts[0]));
-      if (allEqual) continue;
-      const first = group[0];
-      const assetId = await this.resolveAssetId(first.assetCode);
-      if (!assetId) continue;
-
-      const safeRef = ref.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24);
-      // Synthetic walletRef — namespaces XREF rows away from real-wallet rows
-      // and makes per-ref upsert work via the same (walletRef, businessDate)
-      // key everything else uses.
-      const syntheticWalletRef = `XREF:${safeRef}`;
-      touchedKeys.push(syntheticWalletRef);
-
-      // Compute severity from the *largest pairwise gap* between matched legs.
-      // A 1¢ XREF disagreement is LOW noise; a $10k disagreement is HIGH.
-      const maxAmount = amounts.reduce((m, a) => (a.greaterThan(m) ? a : m), new Prisma.Decimal(0));
-      const minAmount = amounts.reduce((m, a) => (a.lessThan(m) ? a : m), maxAmount);
-      const gap = maxAmount.minus(minAmount);
-      const gapBig = BigInt(gap.round().toString());
-      const severity = computeSeverity(gapBig);
-
-      const xrefExisting = await (this.prisma as any).reconciliationCase.findFirst({
-        where: {
-          walletRef: syntheticWalletRef,
-          businessDate: input.businessDate,
-          status: 'OPEN',
-        },
-        select: { id: true },
-      });
-      let caseId: string;
-      if (xrefExisting) {
-        await (this.prisma as any).reconciliationCase.update({
-          where: { id: xrefExisting.id },
-          data: {
-            severity,
-            lastUpdatedRunId: input.runId,
-            lastObservedRunId: input.runId,
-          },
-        });
-        await (this.prisma as any).reconciliationLineItem.deleteMany({
-          where: { caseId: xrefExisting.id },
-        });
-        caseId = xrefExisting.id;
-        updated += 1;
-      } else {
-        const priorToday = await (this.prisma as any).reconciliationCase.count({
-          where: { businessDate: input.businessDate },
-        });
-        const caseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
-        const createdRow = await (this.prisma as any).reconciliationCase.create({
-          data: {
-            caseNo,
-            businessDate: input.businessDate,
-            assetId,
-            assetCode: first.assetCode,
-            layer: RUN_LAYER,
-            book: 'XREF',
-            tbAmount: new Prisma.Decimal(0),
-            inTransitAmount: new Prisma.Decimal(0),
-            expectedExternal: new Prisma.Decimal(0),
-            actualExternal: new Prisma.Decimal(0),
-            deltaAmount: new Prisma.Decimal(0),
-            status: 'OPEN',
-            openedByRunId: input.runId,
-            lastObservedRunId: input.runId,
-            firstSeenRunId: input.runId,
-            lastUpdatedRunId: input.runId,
-            severity,
-            traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:cross_match_mismatch`,
-            walletRef: syntheticWalletRef,
-            coaCode: 'CROSS_REF',
-            ownerNo: null,
-          },
-        });
-        caseId = createdRow.id;
-        created += 1;
-      }
-      // Line items: one per leg in the group so operators see the divergent amounts.
-      let lineNo = 0;
-      for (const leg of group) {
-        lineNo += 1;
-        await (this.prisma as any).reconciliationLineItem.create({
-          data: {
-            caseId,
-            foundByRunId: input.runId,
-            lineNo,
-            matchStatus: 'AMOUNT_MISMATCH',
-            internalSourceId: leg.id,
-            internalAmount: leg.amount,
-            internalDirection: leg.direction,
-            walletRef: leg.walletRef,
-            externalRef: ref,
-          },
-        });
-      }
-    }
-    return { created, updated, touchedKeys };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
