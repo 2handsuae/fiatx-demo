@@ -121,6 +121,17 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
+  // Stub the two Swap-5 deps; Swap-4 tests exercise executeSwap which doesn't touch them.
+  const stubLegAccounting: any = {
+    ctxFromSwap: jest.fn(),
+    initiateLegPending: jest.fn(),
+    postLeg: jest.fn(),
+    voidLeg: jest.fn(),
+  };
+  const stubFundsFlow: any = {
+    createSwapLeg: jest.fn(),
+    transitionSwapLeg: jest.fn(),
+  };
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -130,6 +141,8 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.auditLogsService as any,
     mocks.eventEmitter as any,
     mocks.swapSettlement as any,
+    stubLegAccounting,
+    stubFundsFlow,
   );
 }
 
@@ -258,5 +271,279 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     await service.executeSwap('cust-1', 'q-1');
 
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ── advanceLeg tests (Swap-5) ────────────────────────────────────────────────
+
+import { InternalFundAction, InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
+import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
+
+// Build mocks specifically for advanceLeg path (extends the executeSwap mocks).
+function buildAdvanceLegMocks(opts: {
+  swapNo?: string;
+  fromIsFiat?: boolean;
+  legs: Array<{ legSeq: number; status: string; id?: string; attempt?: number }>;
+}) {
+  const swapNo = opts.swapNo ?? 'SWP0001';
+  const fromIsFiat = opts.fromIsFiat ?? false;
+
+  // Snapshot of active legs we'll mutate as the workflow chains the next leg.
+  const legState = opts.legs.map((l) => ({
+    id: l.id ?? `leg-${l.legSeq}-id`,
+    legSeq: l.legSeq,
+    attempt: l.attempt ?? 1,
+    status: l.status,
+    swapTransactionId: 'swap-1',
+  }));
+
+  const swapRow = {
+    id: 'swap-1',
+    swapNo,
+    status: 'PROCESSING',
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-1',
+    ownerNo: 'C0001',
+    traceId: null,
+    fromAssetId: fromIsFiat ? 'asset-aed' : 'asset-usdt',
+    toAssetId: fromIsFiat ? 'asset-usdt' : 'asset-aed',
+    fromAmount: new Prisma.Decimal('100'),
+    toAmount: new Prisma.Decimal('368'),
+    feeAmount: new Prisma.Decimal('1'),
+    fromAsset: fromIsFiat
+      ? { decimals: 2, currency: 'AED', type: 'FIAT' }
+      : { decimals: 6, currency: 'USDT', type: 'CRYPTO' },
+    toAsset: fromIsFiat
+      ? { decimals: 6, currency: 'USDT', type: 'CRYPTO' }
+      : { decimals: 2, currency: 'AED', type: 'FIAT' },
+  };
+
+  const swapTransactionsService = {
+    findByNoInternal: jest.fn(() => Promise.resolve(swapRow)),
+    activeLegsBySeq: jest.fn(() => Promise.resolve(legState.slice())),
+    markStatus: jest.fn(() => Promise.resolve()),
+    recomputeProjections: jest.fn(() => Promise.resolve()),
+    create: jest.fn(),
+    findOne: jest.fn(),
+  };
+
+  const fundsFlow = {
+    createSwapLeg: jest.fn((input: any) => {
+      // Mirror the side-effect: a new leg row gets created and is then findable.
+      const newLeg = {
+        id: `leg-${input.legSeq}-id`,
+        legSeq: input.legSeq,
+        attempt: input.legAttempt ?? 1,
+        status: 'CREATED',
+        swapTransactionId: 'swap-1',
+      };
+      legState.push(newLeg);
+      return Promise.resolve(newLeg);
+    }),
+    transitionSwapLeg: jest.fn(() =>
+      Promise.resolve({ leg: {}, prevStatus: 'CREATED', nextStatus: InternalFundStatus.CLEAR }),
+    ),
+  };
+
+  const legAccounting = {
+    ctxFromSwap: jest.fn((swap: any) => ({
+      swapId: swap.id,
+      swapNo: swap.swapNo,
+      ownerId: swap.ownerId,
+      fromIsFiat,
+      fromAssetId: swap.fromAssetId,
+      toAssetId: swap.toAssetId,
+      fromLedger: fromIsFiat ? 1 : 2,
+      toLedger: fromIsFiat ? 2 : 1,
+      fromCurrency: fromIsFiat ? 'AED' : 'USDT',
+      toCurrency: fromIsFiat ? 'USDT' : 'AED',
+      fromAmount: new Prisma.Decimal('100'),
+      grossToAmount: new Prisma.Decimal('368'),
+      feeAmount: new Prisma.Decimal('1'),
+      fromDecimals: fromIsFiat ? 2 : 6,
+      toDecimals: fromIsFiat ? 6 : 2,
+    })),
+    initiateLegPending: jest.fn(() => Promise.resolve()),
+    postLeg: jest.fn(() => Promise.resolve()),
+    voidLeg: jest.fn(() => Promise.resolve()),
+  };
+
+  const auditLogsService = {
+    recordByActor: jest.fn(() => Promise.resolve()),
+    recordSystem: jest.fn(() => Promise.resolve()),
+  };
+
+  const eventEmitter = { emit: jest.fn() };
+  const onboardingService = { assertTradingEligibility: jest.fn(() => Promise.resolve()) };
+  const swapQuoteService = { getActiveQuoteOrThrow: jest.fn(), consumeQuote: jest.fn() };
+  const accountingService = {
+    resolveTbAccountId: jest.fn(),
+    executePendingTransfer: jest.fn(),
+    postPendingTransfer: jest.fn(),
+    executeTransfer: jest.fn(),
+  };
+  const swapSettlement = { start: jest.fn() };
+
+  const txClient: any = {
+    internalFund: {
+      findFirst: jest.fn(({ where }: any) => {
+        // Match against the in-memory legState (covers newly chained legs)
+        const found = legState.find(
+          (l) =>
+            l.swapTransactionId === where.swapTransactionId &&
+            l.legSeq === where.legSeq &&
+            (where.attempt === undefined || l.attempt === where.attempt),
+        );
+        return Promise.resolve(found ?? null);
+      }),
+    },
+  };
+
+  const prisma: any = {
+    customerMain: { findUnique: jest.fn() },
+    $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+  };
+
+  return {
+    swapNo,
+    swapRow,
+    legState,
+    txClient,
+    prisma,
+    onboardingService,
+    swapQuoteService,
+    swapTransactionsService,
+    accountingService,
+    auditLogsService,
+    eventEmitter,
+    swapSettlement,
+    fundsFlow,
+    legAccounting,
+  };
+}
+
+function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
+  return new SwapWorkflowService(
+    mocks.prisma,
+    mocks.onboardingService as any,
+    mocks.swapQuoteService as any,
+    mocks.swapTransactionsService as any,
+    mocks.accountingService as any,
+    mocks.auditLogsService as any,
+    mocks.eventEmitter as any,
+    mocks.swapSettlement as any,
+    mocks.legAccounting as any,
+    mocks.fundsFlow as any,
+  );
+}
+
+describe('SwapWorkflowService.advanceLeg (Swap-5)', () => {
+  it('mid-leg CLEAR posts leg + chains next leg (no SUCCESS)', async () => {
+    // leg1 is currently CONFIRMED (mid-life, ready to CLEAR). legs 2/3/4 don't exist yet.
+    const mocks = buildAdvanceLegMocks({
+      legs: [{ legSeq: 1, status: InternalFundStatus.CONFIRMED }],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.advanceLeg('SWP0001', 1, InternalFundAction.CLEAR, 'ADMIN-1');
+
+    // leg1 already non-CREATED → no initiate for leg1; only the chained leg2 gets initiated.
+    expect(mocks.legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
+    const initiatedLegSeqs = (mocks.legAccounting.initiateLegPending as jest.Mock).mock.calls.map(
+      (c) => c[1].legSeq,
+    );
+    expect(initiatedLegSeqs).toContain(2);
+
+    // postLeg called for leg1 spec
+    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
+
+    // createSwapLeg called for leg2 with attempt=1
+    expect(mocks.fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
+    const createArg = (mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    expect(createArg.legSeq).toBe(2);
+    expect(createArg.legAttempt).toBe(1);
+    expect(createArg.swapTransactionId).toBe('swap-1');
+
+    // transitionSwapLeg called twice (leg1 → CLEAR, then leg2 start)
+    expect(mocks.fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(2);
+
+    // Audit SWAP_LEG_POSTED recorded
+    const posted = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a) => a.action === AuditActions.SWAP_LEG_POSTED);
+    expect(posted).toBeDefined();
+    expect(posted.metadata.legSeq).toBe(1);
+
+    // markStatus(SUCCESS) NOT called
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+
+    // recomputeProjections called
+    expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
+
+    // No SUCCESS event
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('last-leg CLEAR posts leg, marks SUCCESS, emits SWAP_SUCCEEDED', async () => {
+    // All 4 legs exist; leg1-3 are CLEAR, leg4 is CONFIRMED ready to CLEAR.
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, status: InternalFundStatus.CLEAR },
+        { legSeq: 2, status: InternalFundStatus.CLEAR },
+        { legSeq: 3, status: InternalFundStatus.CLEAR },
+        { legSeq: 4, status: InternalFundStatus.CONFIRMED },
+      ],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.advanceLeg('SWP0001', 4, InternalFundAction.CLEAR, 'ADMIN-1');
+
+    // postLeg called for leg4 spec
+    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(4);
+
+    // markStatus(SUCCESS) called
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe('SUCCESS');
+
+    // Both SWAP_LEG_POSTED + SWAP_SUCCEEDED audits recorded
+    const recorded = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls.map(
+      (c) => c[0].action,
+    );
+    expect(recorded).toContain(AuditActions.SWAP_LEG_POSTED);
+    expect(recorded).toContain(AuditActions.SWAP_SUCCEEDED);
+
+    // createSwapLeg NOT called (no next leg after 4)
+    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
+
+    // Post-commit SWAP_SUCCEEDED event emitted
+    expect(mocks.eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(mocks.eventEmitter.emit).toHaveBeenCalledWith(
+      DomainEventNames.SWAP_SUCCEEDED,
+      { swapId: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1' },
+    );
+  });
+
+  it('sequence guard rejects when prior leg is not CLEAR', async () => {
+    // leg1 is still SIGNING (not CLEAR); attempt to advance leg2 must fail.
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, status: InternalFundStatus.SIGNING },
+        { legSeq: 2, status: InternalFundStatus.CREATED },
+      ],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await expect(
+      svc.advanceLeg('SWP0001', 2, InternalFundAction.CLEAR, 'ADMIN-1'),
+    ).rejects.toThrow(/SWAP_SEQUENCE_VIOLATION/);
+
+    // Sanity: no accounting side-effects when the guard trips
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
   });
 });
