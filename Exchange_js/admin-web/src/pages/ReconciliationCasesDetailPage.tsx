@@ -616,7 +616,7 @@ const ReconciliationCasesDetailPage = () => {
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
             <SidebarKV label="Book" value={kase.book ?? '—'} />
             <SidebarKV label="Asset" value={kase.assetCode} />
-            <SidebarKV label="Δ" value={`${deltaZero ? '' : sign}${formatAmount(kase.deltaAmount)}`} mono />
+            <SidebarKV label="Δ" value={deltaZero ? formatAmount(kase.deltaAmount) : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`} mono />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">
