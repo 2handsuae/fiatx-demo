@@ -214,7 +214,7 @@ export class ReconciliationQueryService {
     // Resolve runNo → internal id upfront; unknown run = empty list.
     let runIdFilter: string | undefined;
     if (q.runNo) {
-      const run = await (this.prisma as any).reconciliationRun.findUnique({
+      const run = await this.prisma.reconciliationRun.findUnique({
         where: { runNo: q.runNo }, select: { id: true },
       });
       if (!run) return [];
