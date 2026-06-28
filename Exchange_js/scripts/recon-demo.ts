@@ -73,11 +73,28 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
 }
 
 // ── Manifest types ──────────────────────────────────────────────────────
+// Two-bucket model that mirrors the cockpit's three-tier status:
+//   HARD BREAK (Bucket 1) — external balance ≠ internal. Touch a line AND
+//     bump the wallet's closingBalance so a real bank-side miss/ghost/
+//     amount-error shows up the way it would in production.
+//       · ORPHAN_INTERNAL: bank漏报 — we have it, bank doesn't.
+//       · ORPHAN_EXTERNAL: 幽灵入账 — bank has it, we don't.
+//       · AMOUNT_MISMATCH: 金额差   — same ref, different amount.
+//   SOFT FLAG (Bucket 2) — external balance == internal, but line items
+//     don't line up. Pair-cancel scenarios.
+//       · PAIR_CANCEL_ORPHAN:    delete real (+X) + insert ghost (+X)
+//       · PAIR_CANCEL_MISMATCH:  one line +a, another line −a
+type InjectionType =
+  | 'ORPHAN_INTERNAL'
+  | 'ORPHAN_EXTERNAL'
+  | 'AMOUNT_MISMATCH'
+  | 'PAIR_CANCEL_ORPHAN'
+  | 'PAIR_CANCEL_MISMATCH';
+
 interface ManifestInjection {
-  type: 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL' | 'AMOUNT_MISMATCH' | 'BALANCE_BREAK';
+  type: InjectionType;
+  bucket: 'HARD_BREAK' | 'SOFT_FLAG';
   walletRef: string;
-  // Per-type detail blob — kept as plain JSON for cross-checking against
-  // reconciliation_line_items.
   detail: Record<string, unknown>;
 }
 
@@ -359,165 +376,270 @@ async function injectAnomalies(
 ): Promise<Manifest> {
   if (plans.length === 0) throw new Error('No eligible wallets — seed business data first');
   const cutoffDate = ymd(cutoff);
-  // Pick 4 wallets to host the 4 anomalies. We bias toward DIFFERENT
-  // (currency, book) tuples so each break opens its own Case row — the
-  // unique constraint on `reconciliation_cases` is [businessDate,
-  // assetId, book], so two wallets sharing a book collapse into one
-  // case (deltaAmount accumulates, walletRef is whichever wallet ran
-  // first). With distinct (currency, book), each manifest entry maps
-  // 1:1 to a fresh Case. If fewer than 4 distinct (currency, book)
-  // groups exist we fall through to repeats — the verifier handles
-  // the merge case too.
-  const bucketed = new Map<string, WalletPlan[]>();
-  for (const p of [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef))) {
-    const key = `${p.currency}|${p.book}`;
-    const arr = bucketed.get(key) ?? [];
-    arr.push(p);
-    bucketed.set(key, arr);
-  }
-  const bucketKeys = Array.from(bucketed.keys()).sort();
-  const picks: WalletPlan[] = [];
-  // Round-robin across buckets so the first 4 picks are maximally distinct.
-  let bucketCursor = 0;
-  while (picks.length < 4) {
-    if (bucketKeys.length === 0) break;
-    const key = bucketKeys[bucketCursor % bucketKeys.length];
-    const candidates = bucketed.get(key)!;
-    if (candidates.length > 0) {
-      picks.push(candidates.shift()!);
-    }
-    bucketCursor += 1;
-    // If a bucket is exhausted, prune it to avoid an infinite loop.
-    if (candidates.length === 0) {
-      bucketed.delete(key);
-      bucketKeys.splice(bucketKeys.indexOf(key), 1);
-      bucketCursor = bucketCursor % Math.max(bucketKeys.length, 1);
-    }
-    if (bucketKeys.length === 0 && picks.length < 4) {
-      // Refill from the original plans, allowing repeats so we always
-      // return 4 picks.
-      const fill = [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef));
-      while (picks.length < 4) picks.push(fill[picks.length % fill.length]);
-      break;
-    }
-  }
-  const [orphanIntPlan, orphanExtPlan, mismatchPlan, balanceBreakPlan] = picks;
 
+  // Pick CUSTOMER wallets only — that's where bank/chain mismatches
+  // actually happen in production (firm wallets are internal-only).
+  // Prefer wallets that already have ≥1 mirrored line so the inject
+  // operations have raw material to mutate.
+  const candidateWallets: WalletPlan[] = [];
+  for (const p of [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef))) {
+    if (p.walletKind !== 'CUSTOMER') continue;
+    if (p.lines.length === 0) continue;
+    candidateWallets.push(p);
+  }
+  if (candidateWallets.length < 5) {
+    throw new Error(
+      `Need ≥5 customer wallets with crossing flows for the 3 HARD + 2 SOFT injections; ` +
+      `got ${candidateWallets.length}. Seed more deposit/withdraw activity.`,
+    );
+  }
+  // Round-robin across (currency, ownerNo) tuples so picks are maximally
+  // diverse — avoids stacking 3 mutations on the same wallet.
+  const buckets = new Map<string, WalletPlan[]>();
+  for (const p of candidateWallets) {
+    const key = `${p.currency}|${p.ownerNo}`;
+    (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(p);
+  }
+  const bucketKeys = Array.from(buckets.keys()).sort();
+  const picks: WalletPlan[] = [];
+  let cursor = 0;
+  while (picks.length < 5) {
+    let advanced = false;
+    for (let i = 0; i < bucketKeys.length && picks.length < 5; i++) {
+      const key = bucketKeys[(cursor + i) % bucketKeys.length];
+      const arr = buckets.get(key)!;
+      if (arr.length > 0) {
+        picks.push(arr.shift()!);
+        advanced = true;
+      }
+    }
+    cursor += 1;
+    if (!advanced) break;
+  }
+  if (picks.length < 5) {
+    throw new Error(`Could only pick ${picks.length}/5 distinct customer wallets`);
+  }
+
+  const [hardOrphanIntPlan, hardOrphanExtPlan, hardMismatchPlan, softOrphanPlan, softMismatchPlan] = picks;
   const injections: ManifestInjection[] = [];
 
-  // ── 1. ORPHAN_INTERNAL ───────────────────────────────────────────────
-  //    Delete one external line for orphanIntPlan. The matcher should
-  //    see this wallet's flow with no external match → orphanInternal.
+  // Build a deterministic but realistic external ref (e.g. BANK-PO-… for fiat,
+  // 0x… for crypto). Seq incl. inj index so multiple ghosts don't collide.
+  let injSeq = 0;
+  const refFor = (currency: string, kind: string): string => {
+    injSeq += 1;
+    return /^(USDT|BTC|ETH|USDC)/i.test(currency)
+      ? `0xDEMO${kind}${injSeq.toString(16).padStart(2, '0')}USDT`
+      : `BANK-PO${cutoffDate.replace(/-/g, '')}-${kind}${String(injSeq).padStart(3, '0')}`;
+  };
+  // Realistic per-asset injection amount (~0.05 unit — fee-scale; visible on
+  // the cockpit without being a pebble in the running balance).
+  const injAmountFor = (currency: string): Prisma.Decimal =>
+    /^(USDT|BTC|ETH|USDC)/i.test(currency) ? D('50000') /* 0.05 USDT */ : D('5000') /* 0.05 AED */;
+
+  // Helper: shift the wallet's closingBalance by `delta` (signed) to keep
+  // it consistent with the line change. Direction sign convention:
+  //   customer wallet (credit-normal): IN means balance up, OUT down.
+  async function bumpClosing(plan: WalletPlan, delta: Prisma.Decimal): Promise<string> {
+    const source = sourceFor(plan.currency);
+    const eb = await (prisma as any).externalBalance.findUnique({
+      where: {
+        source_accountRef_cutoffDate: {
+          source, accountRef: plan.walletRef, cutoffDate,
+        },
+      },
+    });
+    if (!eb) throw new Error(`No external balance for wallet ${plan.walletRef}`);
+    const newClose = eb.closingBalance.plus(delta);
+    await (prisma as any).externalBalance.update({
+      where: { id: eb.id },
+      data: { closingBalance: newClose },
+    });
+    return eb.closingBalance.toString();
+  }
+
+  // ── Bucket 1: HARD BREAK — balance != external ──────────────────────
+
+  // 1A. ORPHAN_INTERNAL — bank missed reporting one credit/debit.
+  //     Delete a real mirrored line AND shrink external closingBalance
+  //     by that line's amount (bank's closing also won't reflect the
+  //     line it never saw).
   {
     const candidate = await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: orphanIntPlan.walletRef },
+      where: { subAccount: hardOrphanIntPlan.walletRef },
       orderBy: { datetime: 'asc' },
     });
-    if (!candidate) throw new Error(`No external line to delete for orphan-internal on wallet ${orphanIntPlan.walletRef}`);
+    if (!candidate) throw new Error(`No external line to delete on ${hardOrphanIntPlan.walletRef}`);
     await (prisma as any).externalStatementLine.delete({ where: { id: candidate.id } });
+    const signedDelta = candidate.direction === 'IN'
+      ? candidate.amount.negated()
+      : candidate.amount;
+    const prevClose = await bumpClosing(hardOrphanIntPlan, signedDelta);
     injections.push({
       type: 'ORPHAN_INTERNAL',
-      walletRef: orphanIntPlan.walletRef,
+      bucket: 'HARD_BREAK',
+      walletRef: hardOrphanIntPlan.walletRef,
       detail: {
         deletedExternalLineId: candidate.id,
         externalRef: candidate.externalRef,
         amount: candidate.amount.toString(),
         direction: candidate.direction,
+        prevClosingBalance: prevClose,
+        closingBalanceDelta: signedDelta.toString(),
       },
     });
   }
 
-  // ── 2. ORPHAN_EXTERNAL ───────────────────────────────────────────────
-  //    Insert a synthetic external line with no corresponding internal
-  //    flow. The matcher should bucket it as orphanExternal.
+  // 1B. ORPHAN_EXTERNAL — bank booked a phantom credit (fee/refund/test wire).
+  //     Insert a ghost line AND bump external closingBalance accordingly.
   {
-    const fakeRef = `DEMO-ORPHAN-EXT-${Math.floor(Math.random() * 1e8).toString(36)}`;
-    const fakeAmount = D('1000000');
-    const fakeDedupKey = `DEMO-INJECTION-${cutoffDate}-${orphanExtPlan.walletRef}-orphan-ext`;
+    const amount = injAmountFor(hardOrphanExtPlan.currency);
+    const fakeRef = refFor(hardOrphanExtPlan.currency, 'GHOST');
     const created = await (prisma as any).externalStatementLine.create({
       data: {
-        source: sourceFor(orphanExtPlan.currency),
-        accountRef: orphanExtPlan.walletRef,
-        subAccount: orphanExtPlan.walletRef,
-        book: orphanExtPlan.book,
-        currency: orphanExtPlan.currency,
+        source: sourceFor(hardOrphanExtPlan.currency),
+        accountRef: hardOrphanExtPlan.walletRef,
+        subAccount: hardOrphanExtPlan.walletRef,
+        book: hardOrphanExtPlan.book,
+        currency: hardOrphanExtPlan.currency,
         direction: 'IN',
-        amount: fakeAmount,
+        amount,
         externalRef: fakeRef,
         datetime: cutoff,
-        description: 'Demo synthetic orphan-external',
-        dedupKey: fakeDedupKey,
+        description: 'Demo phantom external credit (fee/refund/test wire)',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${hardOrphanExtPlan.walletRef}-hard-orphan-ext`,
       },
     });
+    const prevClose = await bumpClosing(hardOrphanExtPlan, amount); // IN → balance up
     injections.push({
       type: 'ORPHAN_EXTERNAL',
-      walletRef: orphanExtPlan.walletRef,
+      bucket: 'HARD_BREAK',
+      walletRef: hardOrphanExtPlan.walletRef,
       detail: {
         insertedExternalLineId: created.id,
         externalRef: fakeRef,
-        amount: fakeAmount.toString(),
+        amount: amount.toString(),
         direction: 'IN',
+        prevClosingBalance: prevClose,
+        closingBalanceDelta: amount.toString(),
       },
     });
   }
 
-  // ── 3. AMOUNT_MISMATCH ───────────────────────────────────────────────
-  //    Pick a mirrored line and bump its amount by 1 (smallest unit) so
-  //    the matcher catches it via the same-ref/diff-amount path.
+  // 1C. AMOUNT_MISMATCH — same ref, but bank booked a different number
+  //     (FX rounding / hidden fee). Shift external line amount AND
+  //     bump closing by the same delta so the balance check fires too.
   {
     const candidate = await (prisma as any).externalStatementLine.findFirst({
-      where: { subAccount: mismatchPlan.walletRef, externalRef: { not: null } },
+      where: { subAccount: hardMismatchPlan.walletRef, externalRef: { not: null } },
       orderBy: { datetime: 'asc' },
     });
-    if (!candidate) throw new Error(`No external line with externalRef on wallet ${mismatchPlan.walletRef} for amount-mismatch`);
-    const newAmount = candidate.amount.plus(D(1));
+    if (!candidate) throw new Error(`No external line with externalRef on ${hardMismatchPlan.walletRef}`);
+    const delta = injAmountFor(hardMismatchPlan.currency); // fee-scale shift
+    const newAmount = candidate.amount.plus(delta);
     await (prisma as any).externalStatementLine.update({
       where: { id: candidate.id },
       data: { amount: newAmount },
     });
+    const signedDelta = candidate.direction === 'IN' ? delta : delta.negated();
+    const prevClose = await bumpClosing(hardMismatchPlan, signedDelta);
     injections.push({
       type: 'AMOUNT_MISMATCH',
-      walletRef: mismatchPlan.walletRef,
+      bucket: 'HARD_BREAK',
+      walletRef: hardMismatchPlan.walletRef,
       detail: {
         externalLineId: candidate.id,
         externalRef: candidate.externalRef,
         internalAmount: candidate.amount.toString(),
         externalAmount: newAmount.toString(),
         direction: candidate.direction,
+        prevClosingBalance: prevClose,
+        closingBalanceDelta: signedDelta.toString(),
       },
     });
   }
 
-  // ── 4. BALANCE_BREAK ─────────────────────────────────────────────────
-  //    Bump the ExternalBalance.closingBalance by 1 (smallest unit). The
-  //    balance checker should detect delta = 1 and open a balance case.
+  // ── Bucket 2: SOFT FLAG — balance == external, but flow has anomalies ─
+
+  // 2A. PAIR_CANCEL_ORPHAN — delete one real line, insert a ghost of the
+  //     SAME direction + amount. Net external change = 0 (balance still
+  //     ties out), but matcher reports 1 orphan_internal + 1 orphan_ext.
   {
-    const cutoffDateStr = ymd(cutoff);
-    const source = sourceFor(balanceBreakPlan.currency);
-    const existing = await (prisma as any).externalBalance.findUnique({
-      where: {
-        source_accountRef_cutoffDate: {
-          source,
-          accountRef: balanceBreakPlan.walletRef,
-          cutoffDate: cutoffDateStr,
-        },
+    const real = await (prisma as any).externalStatementLine.findFirst({
+      where: { subAccount: softOrphanPlan.walletRef },
+      orderBy: { datetime: 'asc' },
+    });
+    if (!real) throw new Error(`No external line to pair-cancel on ${softOrphanPlan.walletRef}`);
+    await (prisma as any).externalStatementLine.delete({ where: { id: real.id } });
+    const fakeRef = refFor(softOrphanPlan.currency, 'PAIR');
+    const created = await (prisma as any).externalStatementLine.create({
+      data: {
+        source: sourceFor(softOrphanPlan.currency),
+        accountRef: softOrphanPlan.walletRef,
+        subAccount: softOrphanPlan.walletRef,
+        book: softOrphanPlan.book,
+        currency: softOrphanPlan.currency,
+        direction: real.direction,
+        amount: real.amount,
+        externalRef: fakeRef,
+        datetime: cutoff,
+        description: 'Demo pair-cancel — ghost replaces deleted real line',
+        dedupKey: `DEMO-INJ-${cutoffDate}-${softOrphanPlan.walletRef}-soft-pair-orphan`,
       },
     });
-    if (!existing) throw new Error(`No external balance for wallet ${balanceBreakPlan.walletRef}`);
-    const internalBal = existing.closingBalance.toString();
-    const newClose = existing.closingBalance.plus(D(1));
-    await (prisma as any).externalBalance.update({
-      where: { id: existing.id },
-      data: { closingBalance: newClose },
+    // closingBalance unchanged — net delta is 0 by construction.
+    injections.push({
+      type: 'PAIR_CANCEL_ORPHAN',
+      bucket: 'SOFT_FLAG',
+      walletRef: softOrphanPlan.walletRef,
+      detail: {
+        deletedExternalLineId: real.id,
+        deletedExternalRef: real.externalRef,
+        insertedExternalLineId: created.id,
+        insertedExternalRef: fakeRef,
+        amount: real.amount.toString(),
+        direction: real.direction,
+      },
+    });
+  }
+
+  // 2B. PAIR_CANCEL_MISMATCH — find two real lines, bump one by +Δ and
+  //     the other by −Δ. Sum unchanged (balance ties), but the matcher
+  //     reports 2 amount_mismatch anomalies.
+  {
+    const reals = await (prisma as any).externalStatementLine.findMany({
+      where: { subAccount: softMismatchPlan.walletRef, externalRef: { not: null } },
+      orderBy: { datetime: 'asc' },
+      take: 2,
+    });
+    if (reals.length < 2) {
+      throw new Error(`Need ≥2 external lines on ${softMismatchPlan.walletRef} for pair-cancel mismatch; got ${reals.length}`);
+    }
+    const [a, b] = reals;
+    const delta = injAmountFor(softMismatchPlan.currency);
+    // a gets +delta in the OUT direction means balance goes down by delta;
+    // b takes the opposite sign so net stays zero. Compute signed adjustments
+    // such that a.direction-signed + b.direction-signed sums to 0.
+    const aSign = a.direction === 'IN' ? 1 : -1;
+    const bSign = b.direction === 'IN' ? 1 : -1;
+    // We want aSign*+delta + bSign*+adjB = 0, so adjB = -(aSign/bSign)*delta.
+    const adjB = aSign === bSign ? delta.negated() : delta;
+    await (prisma as any).externalStatementLine.update({
+      where: { id: a.id }, data: { amount: a.amount.plus(delta) },
+    });
+    await (prisma as any).externalStatementLine.update({
+      where: { id: b.id }, data: { amount: b.amount.plus(adjB) },
     });
     injections.push({
-      type: 'BALANCE_BREAK',
-      walletRef: balanceBreakPlan.walletRef,
+      type: 'PAIR_CANCEL_MISMATCH',
+      bucket: 'SOFT_FLAG',
+      walletRef: softMismatchPlan.walletRef,
       detail: {
-        externalBalanceId: existing.id,
-        internalBalance: internalBal,
-        externalBalance: newClose.toString(),
-        delta: '1',
+        lineAId: a.id, lineAExternalRef: a.externalRef,
+        lineAOldAmount: a.amount.toString(), lineANewAmount: a.amount.plus(delta).toString(),
+        lineBId: b.id, lineBExternalRef: b.externalRef,
+        lineBOldAmount: b.amount.toString(), lineBNewAmount: b.amount.plus(adjB).toString(),
+        netDelta: '0',
       },
     });
   }
@@ -559,41 +681,57 @@ async function verifyManifest(
   for (const inj of manifest.injections) {
     let hit = false;
     if (inj.type === 'ORPHAN_INTERNAL') {
-      hit = lineItems.some(
+      // HARD: the deleted external line means matcher logs orphan_internal
+      // AND the wallet's case has deltaAmount != 0 from the closing bump.
+      const orphanHit = lineItems.some(
         (l) => l.matchStatus === 'ORPHAN_INTERNAL' && l.walletRef === inj.walletRef,
       );
+      const balHit = cases.some((c) => c.walletRef === inj.walletRef && !c.deltaAmount.equals(0));
+      hit = orphanHit && balHit;
     } else if (inj.type === 'ORPHAN_EXTERNAL') {
       const ref = inj.detail['externalRef'];
-      hit = lineItems.some(
+      const orphanHit = lineItems.some(
         (l) => l.matchStatus === 'ORPHAN_EXTERNAL'
           && l.walletRef === inj.walletRef
           && (ref ? l.externalRef === ref : true),
       );
+      const balHit = cases.some((c) => c.walletRef === inj.walletRef && !c.deltaAmount.equals(0));
+      hit = orphanHit && balHit;
     } else if (inj.type === 'AMOUNT_MISMATCH') {
       const ref = inj.detail['externalRef'];
-      hit = lineItems.some(
+      const mismatchHit = lineItems.some(
         (l) => l.matchStatus === 'AMOUNT_MISMATCH'
           && l.walletRef === inj.walletRef
           && (ref ? l.externalRef === ref : true),
       );
-    } else if (inj.type === 'BALANCE_BREAK') {
-      // BALANCE_BREAK manifests as a CASE row (no line_item). It either
-      // opens a fresh case with deltaAmount ≠ 0 + walletRef = injected,
-      // or merges into the wallet's book-mate case (unique constraint
-      // is [businessDate, assetId, book] so multiple wallets sharing a
-      // book collapse into one Case row — the deltaAmount accumulates
-      // and the first walletRef wins). Validate by looking for ANY case
-      // whose accumulated deltaAmount is non-zero AND covers a wallet
-      // in the same book as the injected wallet.
-      const expectedDelta = inj.detail['delta'] as string;
-      hit = cases.some(
-        (c) => !c.deltaAmount.equals(0)
-          && (c.walletRef === inj.walletRef
-              // book-mate fallback: same case absorbed the delta from
-              // a different wallet in the same book.
-              || c.deltaAmount.toString() === expectedDelta
-              || c.deltaAmount.abs().equals(new Prisma.Decimal(expectedDelta).abs())),
+      const balHit = cases.some((c) => c.walletRef === inj.walletRef && !c.deltaAmount.equals(0));
+      hit = mismatchHit && balHit;
+    } else if (inj.type === 'PAIR_CANCEL_ORPHAN') {
+      // SOFT: balance equal (delta=0), but matcher logs 1 orphan_internal + 1 orphan_external.
+      const oi = lineItems.some(
+        (l) => l.matchStatus === 'ORPHAN_INTERNAL' && l.walletRef === inj.walletRef,
       );
+      const oe = lineItems.some(
+        (l) => l.matchStatus === 'ORPHAN_EXTERNAL'
+          && l.walletRef === inj.walletRef
+          && l.externalRef === inj.detail['insertedExternalRef'],
+      );
+      const balOk = cases.some((c) => c.walletRef === inj.walletRef && c.deltaAmount.equals(0));
+      hit = oi && oe && balOk;
+    } else if (inj.type === 'PAIR_CANCEL_MISMATCH') {
+      // SOFT: balance equal (delta=0), but matcher logs 2 amount mismatches.
+      const refA = inj.detail['lineAExternalRef'];
+      const refB = inj.detail['lineBExternalRef'];
+      const mA = lineItems.some(
+        (l) => l.matchStatus === 'AMOUNT_MISMATCH'
+          && l.walletRef === inj.walletRef && l.externalRef === refA,
+      );
+      const mB = lineItems.some(
+        (l) => l.matchStatus === 'AMOUNT_MISMATCH'
+          && l.walletRef === inj.walletRef && l.externalRef === refB,
+      );
+      const balOk = cases.some((c) => c.walletRef === inj.walletRef && c.deltaAmount.equals(0));
+      hit = mA && mB && balOk;
     }
     if (hit) detected += 1;
     else missed.push(`${inj.type}@${inj.walletRef}`);
@@ -678,15 +816,19 @@ async function main() {
     }
   } else if (mode === 'break' && manifest) {
     const { detected, missed } = await verifyManifest(prisma, result.runId, manifest);
+    const hardCount = manifest.injections.filter((i) => i.bucket === 'HARD_BREAK').length;
+    const softCount = manifest.injections.filter((i) => i.bucket === 'SOFT_FLAG').length;
     const checks = [
       ['status==BREAK', result.status === 'BREAK'],
-      ['casesOpened>=2 (balance + flow)', result.casesOpened >= 2],
-      ['orphanInternal>=1', result.orphanInternal >= 1],
-      ['orphanExternal>=1', result.orphanExternal >= 1],
-      ['mismatch>=1', result.mismatch >= 1],
+      [`casesOpened==${manifest.injections.length} (3 HARD + 2 SOFT = 5 distinct wallets)`,
+        result.casesOpened === manifest.injections.length],
+      ['orphanInternal>=2 (1 hard + 1 from pair-cancel)', result.orphanInternal >= 2],
+      ['orphanExternal>=2 (1 hard + 1 from pair-cancel)', result.orphanExternal >= 2],
+      ['mismatch>=3 (1 hard + 2 from pair-cancel)', result.mismatch >= 3],
       [`manifest detected ${detected}/${manifest.injections.length}`, detected === manifest.injections.length],
     ] as const;
     console.log(`\n──── break-mode asserts ────`);
+    console.log(`  injection plan: ${hardCount} HARD BREAK + ${softCount} SOFT FLAG`);
     for (const [label, pass] of checks) {
       console.log(`  ${pass ? 'OK' : 'FAIL'}  ${label}`);
       if (!pass) ok = false;
