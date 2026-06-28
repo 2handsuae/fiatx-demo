@@ -4,7 +4,6 @@ import { SwapTransactionsService } from './swap-transactions.service';
 describe('SwapTransactionsService', () => {
   let service: SwapTransactionsService;
   let prisma: any;
-  let internalTransferService: any;
 
   beforeEach(() => {
     prisma = {
@@ -15,15 +14,11 @@ describe('SwapTransactionsService', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
-    internalTransferService = {
-      findFundsOrderBySource: jest.fn().mockResolvedValue([]),
-    };
 
     service = new SwapTransactionsService(
       prisma as any,
       {} as any,
       {} as any,
-      internalTransferService as any,
     );
   });
 
@@ -61,22 +56,27 @@ describe('SwapTransactionsService', () => {
     );
   });
 
-  it('findOne attaches fundsOrders from the 资金单 lookup (sourceType SWAP)', async () => {
+  it('findOne returns internalFunds (legs ordered by legSeq then attempt) and no legacy fundsOrders', async () => {
     prisma.swapTransaction.findUnique.mockResolvedValue({
       id: 'swap-2',
       swapNo: 'SWP0002',
     });
-    internalTransferService.findFundsOrderBySource.mockResolvedValue([
-      { internalTxNo: 'ITX-SWAP-FROM', type: 'SWAP', status: 'SUCCESS', legs: [] },
-      { internalTxNo: 'ITX-SWAP-TO', type: 'SWAP', status: 'SUCCESS', legs: [] },
+    prisma.internalFund.findMany.mockResolvedValue([
+      { id: 'leg-0', legSeq: 0, attempt: 1, status: 'CLEAR' },
+      { id: 'leg-1', legSeq: 1, attempt: 1, status: 'PENDING' },
     ]);
 
     const result = await service.findOne('swap-2');
 
-    expect(
-      internalTransferService.findFundsOrderBySource,
-    ).toHaveBeenCalledWith('SWAP', 'swap-2');
-    expect(result.fundsOrders).toHaveLength(2);
-    expect(result.fundsOrders[0].internalTxNo).toBe('ITX-SWAP-FROM');
+    expect(prisma.internalFund.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { swapTransactionId: 'swap-2' },
+        orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
+      }),
+    );
+    expect(result.fundsOrders).toBeUndefined();
+    expect(Array.isArray(result.internalFunds)).toBe(true);
+    expect(result.internalFunds).toHaveLength(2);
+    expect(result.internalFunds[0].id).toBe('leg-0');
   });
 });

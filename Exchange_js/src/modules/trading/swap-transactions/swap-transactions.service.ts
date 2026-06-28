@@ -8,7 +8,6 @@ import { SwapTransactionQueryDto } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
-import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -80,7 +79,6 @@ export class SwapTransactionsService {
     private readonly prisma: PrismaService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly binanceRateProvider: BinanceRateProvider,
-    private readonly internalTransferService: InternalTransferService,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -349,24 +347,18 @@ export class SwapTransactionsService {
     });
     if (!item) throw new NotFoundException('Swap transaction not found');
 
-    // Legacy enrich (old InternalTransaction-based settlement); empty for
-    // real-time swaps which hang InternalFund legs directly on the swap.
-    const fundsOrders =
-      await this.internalTransferService.findFundsOrderBySource(
-        'SWAP',
-        item.id,
-      );
-
-    // Real-time model: the swap's 4 InternalFund legs are hung directly on the
-    // swap via swapTransactionId. Surface them (ordered) so the detail page can
-    // list + link through to each fund order.
+    // Real-time model: the swap's InternalFund legs are hung directly on the
+    // swap via swapTransactionId. Surface them (ordered by legSeq then attempt)
+    // so the detail page can list + link through to each fund order, including
+    // failed-attempt history rows.
     const internalFunds = await (this.prisma as any).internalFund.findMany({
       where: { swapTransactionId: item.id },
-      orderBy: { legSeq: 'asc' },
+      orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
       select: {
         id: true,
         internalFundNo: true,
         legSeq: true,
+        attempt: true,
         status: true,
         amount: true,
         asset: { select: { currency: true, decimals: true } },
@@ -375,7 +367,45 @@ export class SwapTransactionsService {
       },
     });
 
-    return { ...item, fundsOrders, internalFunds };
+    return { ...item, internalFunds };
+  }
+
+  /** Active leg per legSeq = the row with the MAX attempt for that legSeq. */
+  async activeLegsBySeq(swapId: string, tx?: Prisma.TransactionClient) {
+    const client: any = tx ?? this.prisma;
+    const rows = await client.internalFund.findMany({
+      where: { swapTransactionId: swapId },
+      orderBy: [{ legSeq: 'asc' }, { attempt: 'desc' }],
+    });
+    const seen = new Set<number>();
+    const active: any[] = [];
+    for (const r of rows) {
+      const seq = r.legSeq ?? 0;
+      if (!seen.has(seq)) { seen.add(seq); active.push(r); }
+    }
+    return active; // one row per legSeq (max attempt)
+  }
+
+  /**
+   * Recompute the operator-facing projections from the active legs and persist them.
+   * currentStage = role of the lowest-legSeq active leg that is NOT yet CLEAR (null if all CLEAR);
+   * needsReview = any active leg is NEEDS_REVIEW. stageOf maps a legSeq → a display stage string.
+   */
+  async recomputeProjections(
+    swapId: string,
+    stageOf: (legSeq: number) => string,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const active = await this.activeLegsBySeq(swapId, tx);
+    const needsReview = active.some((l) => l.status === 'NEEDS_REVIEW');
+    const working = active
+      .filter((l) => l.status !== 'CLEAR')
+      .sort((a, b) => (a.legSeq ?? 0) - (b.legSeq ?? 0))[0];
+    const currentStage = working ? stageOf(working.legSeq) : null;
+    await (tx as any).swapTransaction.update({
+      where: { id: swapId },
+      data: { currentStage, needsReview },
+    });
   }
 
   async create(
