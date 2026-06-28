@@ -460,8 +460,6 @@ export class ReconciliationQueryService {
       select: { id: true, walletNo: true, walletRole: true, ownerNo: true, ownerType: true },
     })) as Array<{ id: string; walletNo: string | null; walletRole: string | null; ownerNo: string | null; ownerType: string }>;
     const walletById = new Map(wallets.map((w) => [w.id, w]));
-    // walletNo business-key map — XREF synthetic refs have no wallet row; they resolve to null.
-    const walletNoById = new Map(wallets.map((w) => [w.id, w.walletNo]));
 
     // Bulk-load customer names for customer-owned wallets.
     const customerNos = Array.from(
@@ -531,7 +529,7 @@ export class ReconciliationQueryService {
 
       rows.push({
         walletRef: bal.walletRef,
-        walletNo: walletNoById.get(bal.walletRef) ?? null,
+        walletNo: walletById.get(bal.walletRef)?.walletNo ?? null,
         walletRole: meta?.walletRole ?? null,
         ownerNo: meta?.ownerNo ?? bal.ownerNo ?? null,
         ownerName,
