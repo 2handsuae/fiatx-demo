@@ -236,6 +236,47 @@ export class SwapWorkflowService {
   }
 
   /**
+   * Create a fresh leg attempt (N+1) for the given legSeq, book pending, and
+   * transition into the leg's start state. Shared by Swap-6 self-heal retry and
+   * Swap-7 manual resume — they both need the same "create + initiate + start"
+   * trio; only operator and nextAttempt differ.
+   */
+  private async createAndInitiateNextAttempt(
+    swap: any,
+    spec: SwapLegSpec,
+    ctx: SwapSettleCtx,
+    legSeq: number,
+    nextAttempt: number,
+    operatorId: string,
+    client: any,
+  ): Promise<any> {
+    const assetIdForLeg = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+    const amount = this.legPrimaryAmountDecimal(spec, ctx);
+    const newLeg = await this.fundsFlow.createSwapLeg(
+      {
+        swapTransactionId: swap.id,
+        legSeq,
+        legAttempt: nextAttempt,
+        assetId: assetIdForLeg,
+        amount,
+        fromWalletId: null,
+        toWalletId: null,
+      },
+      operatorId,
+      client,
+    );
+    const nextCtx = { ...ctx, attempt: nextAttempt };
+    await this.swapLegAccounting.initiateLegPending(nextCtx, spec, client);
+    await this.fundsFlow.transitionSwapLeg(
+      (newLeg as any).id,
+      this.legStartAction(spec, ctx),
+      operatorId,
+      client,
+    );
+    return newLeg;
+  }
+
+  /**
    * Swap-6 self-heal: void this attempt's pending, then either retry (attempt+1)
    * or mark the leg NEEDS_REVIEW (after MAX_LEG_ATTEMPTS). Swap stays PROCESSING
    * — never markStatus FAILED. Mirrors `onLegCleared`'s shape; recomputes
@@ -259,26 +300,12 @@ export class SwapWorkflowService {
 
     if (failedAttempt < SwapWorkflowService.MAX_LEG_ATTEMPTS) {
       const nextAttempt = failedAttempt + 1;
-      const retryCtx = { ...ctx, attempt: nextAttempt };
-      const assetIdForLeg = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-      const amount = this.legPrimaryAmountDecimal(spec, ctx);
-      const newLeg = await this.fundsFlow.createSwapLeg(
-        {
-          swapTransactionId: swap.id,
-          legSeq,
-          legAttempt: nextAttempt,
-          assetId: assetIdForLeg,
-          amount,
-          fromWalletId: null,
-          toWalletId: null,
-        },
-        'SYSTEM',
-        client,
-      );
-      await this.swapLegAccounting.initiateLegPending(retryCtx, spec, client);
-      await this.fundsFlow.transitionSwapLeg(
-        (newLeg as any).id,
-        this.legStartAction(spec, ctx),
+      await this.createAndInitiateNextAttempt(
+        swap,
+        spec,
+        ctx,
+        legSeq,
+        nextAttempt,
         'SYSTEM',
         client,
       );
@@ -501,5 +528,78 @@ export class SwapWorkflowService {
     }
 
     return result;
+  }
+
+  /**
+   * Swap-7 manual recovery: after ops fixes the root cause for a STUCK leg
+   * (NEEDS_REVIEW), this creates a fresh attempt (current+1), books pending,
+   * and kicks off the leg's start transition. The previously-stuck attempt row
+   * stays as history. Swap remains PROCESSING throughout.
+   */
+  async resumeLeg(
+    swapNo: string,
+    legSeq: number,
+    operatorId: string,
+  ): Promise<{ swapId: string; legSeq: number; resumedAttempt: number }> {
+    return this.prisma.$transaction(async (client: any) => {
+      const swap = await this.swapTransactionsService.findByNoInternal(swapNo, client);
+      if (swap.status !== 'PROCESSING') {
+        throw new BadRequestException(
+          'SWAP_NOT_PROCESSING: cannot resume a leg on a non-PROCESSING swap',
+        );
+      }
+
+      const active = await this.swapTransactionsService.activeLegsBySeq(swap.id, client);
+      const target = active.find((l: any) => l.legSeq === legSeq);
+      if (!target) throw new NotFoundException(`Leg ${legSeq} not found for swap ${swapNo}`);
+      if (target.status !== InternalFundStatus.NEEDS_REVIEW) {
+        throw new BadRequestException(
+          `SWAP_LEG_NOT_STUCK: leg ${legSeq} is in ${target.status}, only NEEDS_REVIEW can be resumed`,
+        );
+      }
+
+      const ctx = this.swapLegAccounting.ctxFromSwap(swap);
+      const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+      const spec = allSpecs.find((s) => s.legSeq === legSeq);
+      if (!spec) throw new Error(`Spec not found for legSeq ${legSeq}`);
+
+      const fromAttempt = target.attempt ?? 1;
+      const resumedAttempt = fromAttempt + 1;
+
+      await this.createAndInitiateNextAttempt(
+        swap,
+        spec,
+        ctx,
+        legSeq,
+        resumedAttempt,
+        operatorId,
+        client,
+      );
+
+      await this.auditLogsService.recordSystem(
+        {
+          action: AuditActions.SWAP_LEG_RESUMED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo,
+          traceId: swap.traceId ?? swap.swapNo,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          reason: `Swap leg ${legSeq} manually resumed by ${operatorId} (attempt ${resumedAttempt})`,
+          metadata: { legSeq, resumedAttempt, fromAttempt },
+          sourcePlatform: 'SYSTEM',
+        },
+        client,
+      );
+
+      await this.swapTransactionsService.recomputeProjections(
+        swap.id,
+        (n) => this.stageOf(n),
+        client,
+      );
+
+      return { swapId: swap.id, legSeq, resumedAttempt };
+    });
   }
 }
