@@ -118,6 +118,19 @@ export class TbEvidenceService {
       where: { tbTransferId },
       data,
     });
+
+    // Phase B / T3: re-project so AccountFlow rows reflect the new transferType.
+    // Without this, account_flows stays PENDING after a POST/VOID and the
+    // wallet's Account Statement page (POSTED-only) silently drops the row.
+    // Same idiom as enrichForPost — the re-project is idempotent via upsert.
+    if (this.flowProjector) {
+      const updated = await (client as any).tbTransferEvidence.findUnique({
+        where: { tbTransferId },
+      });
+      if (updated) {
+        await this.flowProjector.persist(client as any, updated);
+      }
+    }
   }
 
   /**
