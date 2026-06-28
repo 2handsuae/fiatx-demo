@@ -222,6 +222,126 @@ describe('WalletReconRunService', () => {
   // (e.g. WITHDRAW_NET_POST debit+credit both landing on the same C_CMA
   // wallet). One case ↔ one wallet is the surviving invariant.
 
+  // ── traceId format and never-regenerate ──────────────────────────────────
+  describe('traceId format and inheritance rules', () => {
+    it('mints UUID v4 traceId at run creation', async () => {
+      const deps = makeDeps();
+      let capturedData: any;
+      deps.prisma.reconciliationRun.create.mockImplementation(async ({ data }: any) => {
+        capturedData = data;
+        return { id: 'run-tid-1', ...data };
+      });
+      deps.prisma.externalBalance.findMany.mockResolvedValue([]);
+
+      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any);
+      (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+
+      await svc.run({ cutoff });
+
+      expect(capturedData.traceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    });
+
+    it('mints UUID v4 traceId at case creation', async () => {
+      const deps = makeDeps();
+      deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-tid-2', runNo: 'RUN-TID-2', engineVersion: 'WALLET_V1' });
+      deps.prisma.externalBalance.findMany.mockResolvedValue([
+        { walletRef: 'w-tid-new', closingBalance: new Prisma.Decimal(1000), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-tid' },
+      ]);
+
+      let capturedCaseData: any;
+      deps.prisma.reconciliationCase.create.mockImplementation(async ({ data }: any) => {
+        capturedCaseData = data;
+        return { id: 'case-tid-1', ...data };
+      });
+
+      deps.balanceChecker.checkBalance.mockResolvedValue({
+        pass: false, walletRef: 'w-tid-new', walletKind: 'CUSTOMER',
+        coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'c-001',
+        internal: { total: 0n }, external: 1000n, delta: 100n,
+      });
+
+      const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any);
+      (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+      (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
+
+      await svc.run({ cutoff });
+
+      expect(capturedCaseData.traceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    });
+
+    it('does NOT overwrite traceId when updating an existing case', async () => {
+      // Use the shared-store harness so two sequential runs see the same case row.
+      const caseStore = new Map<string, any>();
+      let runSeq = 0;
+
+      function drive(breakDelta: bigint) {
+        runSeq += 1;
+        const runId = `run-tid-${runSeq}`;
+        const deps = makeDeps();
+        deps.prisma.reconciliationRun.create.mockResolvedValue({ id: runId, runNo: `RUN-TID-${runSeq}`, engineVersion: 'WALLET_V1' });
+        deps.prisma.externalBalance.findMany.mockResolvedValue([
+          { walletRef: 'w-tid-exist', closingBalance: new Prisma.Decimal(0), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-e' },
+        ]);
+        deps.balanceChecker.checkBalance.mockResolvedValue({
+          pass: false, walletRef: 'w-tid-exist', walletKind: 'CUSTOMER',
+          coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'c-001',
+          internal: { total: 0n }, external: breakDelta, delta: breakDelta,
+        });
+        deps.prisma.reconciliationCase.findFirst.mockImplementation(async ({ where }: any) => {
+          for (const row of caseStore.values()) {
+            if (row.walletRef === where.walletRef && row.businessDate === where.businessDate && row.status === where.status)
+              return { id: row.id };
+          }
+          return null;
+        });
+        deps.prisma.reconciliationCase.create.mockImplementation(async ({ data }: any) => {
+          const id = `case-${Math.random().toString(36).slice(2, 8)}`;
+          caseStore.set(id, { id, ...data });
+          return { id, ...data };
+        });
+        deps.prisma.reconciliationCase.update.mockImplementation(async ({ where, data }: any) => {
+          const row = caseStore.get(where.id);
+          if (row) Object.assign(row, data);
+          return row ?? { id: where.id, ...data };
+        });
+        deps.prisma.reconciliationCase.findMany.mockResolvedValue([]);
+
+        const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any);
+        (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+        (svc as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
+        return { svc, deps };
+      }
+
+      // 1st run: creates the case, traceId minted at creation.
+      await drive(100n).svc.run({ cutoff });
+      const originalTraceId = Array.from(caseStore.values())[0].traceId;
+      expect(originalTraceId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+      // 2nd run: same (walletRef, businessDate) → hits the update path.
+      const { deps: deps2 } = drive(200n);
+      // Capture what data was passed to reconciliationCase.update
+      let updateData: any;
+      deps2.prisma.reconciliationCase.update.mockImplementation(async ({ where, data }: any) => {
+        updateData = data;
+        const row = caseStore.get(where.id);
+        if (row) Object.assign(row, data);
+        return row ?? { id: where.id, ...data };
+      });
+      // Re-create svc with the overridden mock
+      const svc2 = new WalletReconRunService(deps2.prisma, deps2.balanceChecker as any, deps2.flowMatcher as any, deps2.tigerBeetle as any);
+      (svc2 as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+      (svc2 as any).resolveAssetId = jest.fn().mockResolvedValue('a-usdt');
+      await svc2.run({ cutoff });
+
+      // The update payload must NOT contain traceId.
+      expect(updateData).toBeDefined();
+      expect(updateData).not.toHaveProperty('traceId');
+      // And the stored case still has the original traceId.
+      const afterTraceId = Array.from(caseStore.values())[0].traceId;
+      expect(afterTraceId).toBe(originalTraceId);
+    });
+  });
+
   // ── T2: (walletRef, businessDate) idempotent upsert + auto-heal ──────────
   describe('T2 idempotent upsert + auto-heal', () => {
     /**

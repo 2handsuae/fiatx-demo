@@ -16,6 +16,7 @@
 // Out of scope for T7: Case SLA / resolution workflow, Reimbursement
 // re-creation, evidence-side line items beyond orphan/mismatch records.
 
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
@@ -265,7 +266,7 @@ export class WalletReconRunService {
         mode: 'APPLY',
         status: 'RUNNING',
         engineVersion: ENGINE_VERSION,
-        traceId: `WALLET_V1:${businessDate.replace(/-/g, '')}:${seq}`,
+        traceId: randomUUID(),
         demoManifest: manifest ? JSON.stringify(manifest) : null,
       },
     });
@@ -544,7 +545,6 @@ export class WalletReconRunService {
           // Bookkeeping. firstSeenRunId stays as-is (pin the original observer).
           lastUpdatedRunId: input.runId,
           lastObservedRunId: input.runId,
-          traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:${input.caseReason}`,
         },
       });
       caseId = existing.id;
@@ -581,7 +581,7 @@ export class WalletReconRunService {
           firstSeenRunId: input.runId,
           lastUpdatedRunId: input.runId,
           severity,
-          traceId: `WALLET_V1:${input.businessDate.replace(/-/g, '')}:${input.caseReason}`,
+          traceId: randomUUID(),
           walletRef: input.walletRef,
           coaCode: input.coaCode,
           ownerNo: input.ownerNo,
