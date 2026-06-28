@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { RefreshCw, User } from 'lucide-react';
+import { AlertTriangle, RefreshCw, User } from 'lucide-react';
 import {
   DetailPageHeader,
   DetailCard,
@@ -8,10 +8,8 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
-import {
-  LinkedRelationCard,
-  LinkedRelationEmpty,
-} from '../components/ui/LinkedRelationCard';
+import { AdminBadge } from '../components/ui/AdminBadge';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 
@@ -25,31 +23,11 @@ interface SwapAsset {
   decimals: number;
 }
 
-interface FundsOrderLeg {
-  internalFundNo: string;
-  status: string;
-  txHash: string | null;
-  confirmations: number | null;
-  blockNo: string | null;
-  nonce: string | null;
-  gasUsed: string | null;
-  effectiveGasPrice: string | null;
-  sentAt: string | null;
-  confirmedAt: string | null;
-}
-
-interface FundsOrderSummary {
-  id: string;
-  internalTxNo: string;
-  type: string;
-  status: string;
-  legs: FundsOrderLeg[];
-}
-
 interface InternalFundLeg {
   id: string;
   internalFundNo: string;
   legSeq: number | null;
+  attempt: number | null;
   status: string;
   amount: string;
   asset?: { currency: string; decimals: number } | null;
@@ -66,6 +44,8 @@ interface SwapTransactionDetailData {
   ownerId: string;
   ownerNo: string | null;
   status: string;
+  currentStage: string | null;
+  needsReview: boolean;
   fromAssetId: string;
   fromAssetCode: string | null;
   fromAmount: string;
@@ -90,7 +70,6 @@ interface SwapTransactionDetailData {
     customerNo: string;
   } | null;
   statusHistory: string | null;
-  fundsOrders?: FundsOrderSummary[];
   internalFunds?: InternalFundLeg[];
 }
 
@@ -112,6 +91,28 @@ const parseFx = (feeBreakdown: string | null): SwapFx | null => {
   }
 };
 
+/* ── Leg model ──────────────────────────────────────────────── */
+
+const LEG_STAGE: Record<number, string> = {
+  1: 'SELL',
+  2: 'SETTLE',
+  3: 'BUY',
+  4: 'FEE',
+};
+
+/**
+ * Actions allowed per current InternalFund status. Kept static (the backend
+ * is the source of truth for whether a transition is legal); the UI just
+ * shows the legacy happy-path verbs + FAIL.
+ */
+const ACTIONS_BY_STATUS: Record<string, string[]> = {
+  CREATED: ['SIGN', 'SUBMIT'],
+  SIGNING: ['BROADCAST'],
+  BROADCASTED: ['SEEN_IN_MEMPOOL'],
+  CONFIRMING: ['CONFIRM', 'FAIL'],
+  CONFIRMED: ['CLEAR'],
+};
+
 /* ── Page Component ─────────────────────────────────────────── */
 
 const SwapTransactionDetail = () => {
@@ -119,6 +120,7 @@ const SwapTransactionDetail = () => {
   const navigate = useNavigate();
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [legBusy, setLegBusy] = useState<number | null>(null);
 
   const fetchData = async () => {
     if (!id) return;
@@ -144,6 +146,55 @@ const SwapTransactionDetail = () => {
   useEffect(() => {
     if (id) void fetchData();
   }, [id]);
+
+  const advanceLeg = async (swapNo: string, legSeq: number, action: string) => {
+    setLegBusy(legSeq);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${swapNo}/legs/${legSeq}/advance`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        },
+      );
+      if (!res.ok) {
+        alert(await getApiErrorMessage(res, `Failed to advance leg ${legSeq}`));
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to advance leg', error);
+      alert('Failed to advance leg');
+    } finally {
+      setLegBusy(null);
+    }
+  };
+
+  const resumeLeg = async (swapNo: string, legSeq: number) => {
+    setLegBusy(legSeq);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${swapNo}/legs/${legSeq}/resume`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+      if (!res.ok) {
+        alert(await getApiErrorMessage(res, `Failed to resume leg ${legSeq}`));
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Failed to resume leg', error);
+      alert('Failed to resume leg');
+    } finally {
+      setLegBusy(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -173,6 +224,23 @@ const SwapTransactionDetail = () => {
     </button>
   ) : null;
 
+  /* Group internalFunds by legSeq, then sort attempts ascending. */
+  const legGroups: Array<{ legSeq: number; attempts: InternalFundLeg[] }> = (() => {
+    const map = new Map<number, InternalFundLeg[]>();
+    for (const f of data.internalFunds ?? []) {
+      const seq = f.legSeq ?? 0;
+      if (!map.has(seq)) map.set(seq, []);
+      map.get(seq)!.push(f);
+    }
+    const groups = Array.from(map.entries())
+      .map(([legSeq, attempts]) => ({
+        legSeq,
+        attempts: [...attempts].sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0)),
+      }))
+      .sort((a, b) => a.legSeq - b.legSeq);
+    return groups;
+  })();
+
   return (
     <div className="flex h-full flex-col">
       {/* ── Nav Header (back + refresh only) ── */}
@@ -189,7 +257,15 @@ const SwapTransactionDetail = () => {
         <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
           {/* 1. Hero */}
           <div className="bg-adm-card px-6 py-5">
-            <div className="font-mono text-[19px] font-bold text-adm-amber">{data.swapNo}</div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="font-mono text-[19px] font-bold text-adm-amber">{data.swapNo}</div>
+              {data.needsReview && (
+                <span className="inline-flex items-center gap-1 rounded border border-adm-red/35 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-adm-red">
+                  <AlertTriangle size={11} />
+                  Needs Review
+                </span>
+              )}
+            </div>
             <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
@@ -198,6 +274,12 @@ const SwapTransactionDetail = () => {
                 <span className="mt-1 inline-block">
                   <StatusPill value={data.status} size="md" />
                 </span>
+              </div>
+              <div>
+                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Current Stage
+                </span>
+                <span className="font-mono text-adm-t1">{data.currentStage ?? '—'}</span>
               </div>
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
@@ -285,37 +367,68 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
-          {/* 5. Linked Funds Orders — the swap's InternalFund legs (real-time model) */}
-          <DetailCard title="Linked Funds Orders" columns={1}>
-            {data.internalFunds && data.internalFunds.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {data.internalFunds.map((f) => {
-                  const routeLabel =
-                    f.fromWallet?.walletRole && f.toWallet?.walletRole
-                      ? `${f.fromWallet.walletRole} → ${f.toWallet.walletRole}`
-                      : null;
-                  const amountLabel = f.asset
-                    ? `${formatAssetAmount(f.amount, f.asset.decimals)} ${f.asset.currency}`
-                    : f.amount;
+          {/* 5. Legs (per-legSeq attempt history) */}
+          <DetailCard title="Settlement Legs" columns={1}>
+            {legGroups.length === 0 ? (
+              <div className="rounded border border-dashed border-adm-border bg-adm-bg px-4 py-3 font-mono text-[11px] text-adm-t3">
+                No legs created yet.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {legGroups.map(({ legSeq, attempts }) => {
+                  const stage = LEG_STAGE[legSeq] ?? `LEG${legSeq}`;
+                  const latestIdx = attempts.length - 1;
                   return (
-                    <LinkedRelationCard
-                      key={f.id}
-                      cap={f.legSeq != null ? `Leg ${f.legSeq}` : 'Funds Order'}
-                      identifier={f.internalFundNo}
-                      statusValue={f.status}
-                      meta={[routeLabel, amountLabel].filter(Boolean).join(' · ')}
-                      onClick={() =>
-                        navigate(`/admin/funds/internal-funds/${f.internalFundNo}`)
-                      }
-                    />
+                    <div
+                      key={legSeq}
+                      className="rounded border border-adm-border bg-adm-bg"
+                    >
+                      <div className="flex items-center justify-between border-b border-adm-border px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                            Leg {legSeq}
+                          </span>
+                          <span className="font-mono text-[12px] font-semibold text-adm-t1">
+                            {stage}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                          {attempts.length} attempt{attempts.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col divide-y divide-adm-border">
+                        {attempts.map((row, idx) => {
+                          const isLatest = idx === latestIdx;
+                          const amountLabel = row.asset
+                            ? `${formatAssetAmount(row.amount, row.asset.decimals)} ${row.asset.currency}`
+                            : row.amount;
+                          const routeLabel =
+                            row.fromWallet?.walletRole && row.toWallet?.walletRole
+                              ? `${row.fromWallet.walletRole} → ${row.toWallet.walletRole}`
+                              : null;
+                          return (
+                            <LegAttemptRow
+                              key={row.id}
+                              swapNo={data.swapNo}
+                              legSeq={legSeq}
+                              row={row}
+                              amountLabel={amountLabel}
+                              routeLabel={routeLabel}
+                              isLatest={isLatest}
+                              busy={legBusy === legSeq}
+                              onNavigate={() =>
+                                navigate(`/admin/funds/internal-funds/${row.internalFundNo}`)
+                              }
+                              onAdvance={advanceLeg}
+                              onResume={resumeLeg}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
-            ) : (
-              <LinkedRelationEmpty
-                cap="Funds Orders"
-                message="No funds orders for this swap yet"
-              />
             )}
           </DetailCard>
 
@@ -339,6 +452,17 @@ const SwapTransactionDetail = () => {
           <SidebarGroup title="Identity">
             <SidebarKV label="Swap No" value={data.swapNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
+            <SidebarKV
+              label="Current Stage"
+              value={data.currentStage ?? '—'}
+              mono
+            />
+            <SidebarKV
+              label="Needs Review"
+              value={
+                data.needsReview ? <AdminBadge value="NEEDS_REVIEW" /> : 'No'
+              }
+            />
             <SidebarKV label="Owner" value={ownerLink} />
             <SidebarKV label="Pair" value={`${data.fromAsset.code}/${data.toAsset.code}`} mono />
             <SidebarKV label="Net Received" value={netDisplay} mono />
@@ -354,6 +478,109 @@ const SwapTransactionDetail = () => {
           </SidebarGroup>
         </div>
       </div>
+    </div>
+  );
+};
+
+/* ── LegAttemptRow ──────────────────────────────────────────── */
+
+const LegAttemptRow = ({
+  swapNo,
+  legSeq,
+  row,
+  amountLabel,
+  routeLabel,
+  isLatest,
+  busy,
+  onNavigate,
+  onAdvance,
+  onResume,
+}: {
+  swapNo: string;
+  legSeq: number;
+  row: InternalFundLeg;
+  amountLabel: string;
+  routeLabel: string | null;
+  isLatest: boolean;
+  busy: boolean;
+  onNavigate: () => void;
+  onAdvance: (swapNo: string, legSeq: number, action: string) => void;
+  onResume: (swapNo: string, legSeq: number) => void;
+}) => {
+  const [selectedAction, setSelectedAction] = useState<string>('');
+  const status = row.status;
+  const validActions = ACTIONS_BY_STATUS[status] ?? [];
+  const attemptLabel = `Attempt ${row.attempt ?? 1}`;
+  const showResume = isLatest && status === 'NEEDS_REVIEW';
+  const showAdvance = isLatest && !showResume && validActions.length > 0;
+
+  return (
+    <div
+      className={`flex flex-col gap-2 px-3 py-2.5 ${
+        isLatest ? 'bg-adm-bg' : 'bg-adm-panel/40'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+            {attemptLabel}
+          </span>
+          <button
+            type="button"
+            onClick={onNavigate}
+            className="truncate font-mono text-[11px] font-semibold text-adm-amber hover:opacity-75"
+          >
+            {row.internalFundNo}
+          </button>
+          <AdminBadge value={status} />
+          {!isLatest && (
+            <span className="rounded border border-adm-border bg-adm-panel px-1.5 py-px font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+              History
+            </span>
+          )}
+        </div>
+        <span className="shrink-0 font-mono text-[11px] text-adm-t2">{amountLabel}</span>
+      </div>
+      {routeLabel && (
+        <div className="font-mono text-[10px] text-adm-t3">{routeLabel}</div>
+      )}
+      {showResume && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => onResume(swapNo, legSeq)}
+            disabled={busy}
+            className={adminButtonClass('repair')}
+          >
+            Resume Leg
+          </button>
+        </div>
+      )}
+      {showAdvance && (
+        <div className="flex items-center justify-end gap-2">
+          <select
+            value={selectedAction}
+            onChange={(e) => setSelectedAction(e.target.value)}
+            disabled={busy}
+            className="h-[28px] rounded border border-adm-border bg-adm-bg px-2 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber disabled:opacity-40"
+          >
+            <option value="">Select action…</option>
+            {validActions.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy || !selectedAction}
+            onClick={() => onAdvance(swapNo, legSeq, selectedAction)}
+            className={adminButtonClass('workflowPrimary')}
+          >
+            Advance
+          </button>
+        </div>
+      )}
     </div>
   );
 };

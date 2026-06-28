@@ -31,6 +31,8 @@ interface SwapTransactionListItem {
   ownerId: string;
   ownerNo: string | null;
   status: string;
+  currentStage: string | null;
+  needsReview: boolean;
   fromAsset: SwapAsset;
   fromAmount: string;
   toAsset: SwapAsset;
@@ -51,6 +53,7 @@ interface FilterState {
   ownerNo: string;
   startDate: string;
   endDate: string;
+  needsReviewOnly: boolean;
 }
 
 const PAGE_SIZE = 20;
@@ -75,6 +78,7 @@ const SwapTransactionList = () => {
     ownerNo: '',
     startDate: '',
     endDate: '',
+    needsReviewOnly: false,
   });
 
   const hasFilters = useMemo(
@@ -82,7 +86,8 @@ const SwapTransactionList = () => {
       !!filters.swapNo.trim() ||
       !!filters.ownerNo.trim() ||
       !!filters.startDate ||
-      !!filters.endDate,
+      !!filters.endDate ||
+      filters.needsReviewOnly,
     [filters],
   );
 
@@ -127,7 +132,13 @@ const SwapTransactionList = () => {
   };
 
   const handleReset = () => {
-    const empty: FilterState = { swapNo: '', ownerNo: '', startDate: '', endDate: '' };
+    const empty: FilterState = {
+      swapNo: '',
+      ownerNo: '',
+      startDate: '',
+      endDate: '',
+      needsReviewOnly: false,
+    };
     setFilters(empty);
     setPage(1);
     void fetchData(1, empty);
@@ -137,6 +148,14 @@ const SwapTransactionList = () => {
     setPage(p);
     void fetchData(p);
   };
+
+  // Backend has no `needsReview` query filter yet; apply client-side over the
+  // current page so operators can quickly isolate stuck swaps.
+  const visibleItems = useMemo(
+    () =>
+      filters.needsReviewOnly ? items.filter((it) => it.needsReview) : items,
+    [items, filters.needsReviewOnly],
+  );
 
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
@@ -194,6 +213,17 @@ const SwapTransactionList = () => {
         >
           Reset
         </button>
+        <label className="ml-2 inline-flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-adm-t2">
+          <input
+            type="checkbox"
+            checked={filters.needsReviewOnly}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, needsReviewOnly: e.target.checked }))
+            }
+            className="h-3.5 w-3.5 accent-adm-red"
+          />
+          Needs review only
+        </label>
       </div>
 
       {/* Table */}
@@ -210,6 +240,8 @@ const SwapTransactionList = () => {
                   ['Rate',        '120px'],
                   ['Spread',      '120px'],
                   ['Status',      '120px'],
+                  ['Stage',       '110px'],
+                  ['Review',      '80px'],
                   ['Created',     '150px'],
                 ] as [string, string][]
               ).map(([label, w]) => (
@@ -226,25 +258,25 @@ const SwapTransactionList = () => {
           <tbody>
             {error ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-red">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-red">
                   {error}
                 </td>
               </tr>
             ) : loading && items.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   <RefreshCw className="mx-auto mb-2 animate-spin text-adm-amber" size={20} />
                   Loading…
                 </td>
               </tr>
-            ) : items.length === 0 ? (
+            ) : visibleItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No swap transactions found.
                 </td>
               </tr>
             ) : (
-              items.map((item) => (
+              visibleItems.map((item) => (
                 <tr
                   key={item.id}
                   className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
@@ -278,6 +310,22 @@ const SwapTransactionList = () => {
                   </td>
                   <td className="px-4 py-2.5">
                     <StatusPill value={item.status} />
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2">
+                    {item.currentStage ?? '—'}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {item.needsReview ? (
+                      <span
+                        className="inline-flex items-center gap-1 font-mono text-[10px] font-semibold text-adm-red"
+                        title="Needs review"
+                      >
+                        <span className="h-2 w-2 rounded-full bg-adm-red" />
+                        Review
+                      </span>
+                    ) : (
+                      <span className="font-mono text-[10px] text-adm-t3">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
                     {fmt(item.createdAt)}
