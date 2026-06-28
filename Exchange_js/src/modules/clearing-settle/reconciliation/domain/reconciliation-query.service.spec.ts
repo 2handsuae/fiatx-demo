@@ -453,9 +453,12 @@ describe('listCases — T3 default OPEN + aging desc', () => {
   const mid = { id: 'c-mid', caseNo: 'MID', status: 'OPEN', firstSeenRunId: 'r2', lastUpdatedRunId: 'r4', createdAt: new Date(Date.now() - 2 * 86_400_000) };
   const nu  = { id: 'c-new', caseNo: 'NEW', status: 'OPEN', firstSeenRunId: 'r5', lastUpdatedRunId: 'r5', createdAt: new Date(Date.now() - 0 * 86_400_000) };
 
+  // Shared reconciliationRun mock for tests that don't assert on runNo resolution.
+  const noRunLookup = { reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) } };
+
   it('defaults to status=OPEN when status omitted', async () => {
     const findMany = jest.fn().mockResolvedValue([old, mid, nu]);
-    const prisma = { reconciliationCase: { findMany } };
+    const prisma = { reconciliationCase: { findMany }, ...noRunLookup };
     const svc = mkSvc(prisma);
     await svc.listCases({});
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -465,7 +468,7 @@ describe('listCases — T3 default OPEN + aging desc', () => {
 
   it("treats status='ALL' as no filter", async () => {
     const findMany = jest.fn().mockResolvedValue([]);
-    const prisma = { reconciliationCase: { findMany } };
+    const prisma = { reconciliationCase: { findMany }, ...noRunLookup };
     const svc = mkSvc(prisma);
     await svc.listCases({ status: 'ALL' });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -475,7 +478,7 @@ describe('listCases — T3 default OPEN + aging desc', () => {
 
   it('respects explicit status override', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
-    const prisma = { reconciliationCase: { findMany } };
+    const prisma = { reconciliationCase: { findMany }, ...noRunLookup };
     const svc = mkSvc(prisma);
     await svc.listCases({ status: 'RESOLVED' });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -486,7 +489,7 @@ describe('listCases — T3 default OPEN + aging desc', () => {
   it('sorts by aging desc and decorates rows with aging / firstSeenRunId / lastUpdatedRunId', async () => {
     // Return out of order; service should reorder by aging desc.
     const findMany = jest.fn().mockResolvedValue([mid, nu, old]);
-    const prisma = { reconciliationCase: { findMany } };
+    const prisma = { reconciliationCase: { findMany }, ...noRunLookup };
     const svc = mkSvc(prisma);
     const rows = await svc.listCases({});
     expect(rows.map((r: any) => r.caseNo)).toEqual(['OLD', 'MID', 'NEW']);
@@ -494,5 +497,29 @@ describe('listCases — T3 default OPEN + aging desc', () => {
     expect(rows[2].aging).toBeLessThanOrEqual(0);
     expect(rows[0].firstSeenRunId).toBe('r1');
     expect(rows[0].lastUpdatedRunId).toBe('r3');
+  });
+
+  it('joins firstSeenRunId/lastUpdatedRunId → runNo', async () => {
+    const caseRow = {
+      id: 'c-join',
+      caseNo: 'JOIN-001',
+      status: 'OPEN',
+      firstSeenRunId: 'ra',
+      lastUpdatedRunId: 'rb',
+      createdAt: new Date(),
+    };
+    const prisma = {
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseRow]) },
+      reconciliationRun: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'ra', runNo: 'REC-A' },
+          { id: 'rb', runNo: 'REC-B' },
+        ]),
+      },
+    };
+    const svc = mkSvc(prisma);
+    const result = await svc.listCases({});
+    expect((result[0] as any).firstSeenRunNo).toBe('REC-A');
+    expect((result[0] as any).lastUpdatedRunNo).toBe('REC-B');
   });
 });

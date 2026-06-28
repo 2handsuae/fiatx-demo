@@ -233,6 +233,19 @@ export class ReconciliationQueryService {
       : [];
     const walletNoById = new Map(wallets.map((w) => [w.id, w.walletNo]));
 
+    // Resolve firstSeenRunId / lastUpdatedRunId → runNo (business key).
+    const runIds = Array.from(new Set(
+      rows.flatMap((r: any) => [r.firstSeenRunId, r.lastUpdatedRunId])
+          .filter((id: string | null): id is string => !!id)
+    ));
+    const runs = runIds.length === 0
+      ? []
+      : ((await this.prisma.reconciliationRun.findMany({
+          where: { id: { in: runIds } },
+          select: { id: true, runNo: true },
+        })) as Array<{ id: string; runNo: string }>);
+    const runNoById = new Map(runs.map((r) => [r.id, r.runNo]));
+
     const now = Date.now();
     const decorated = rows.map((r: any) => {
       const ref = r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime();
@@ -242,6 +255,8 @@ export class ReconciliationQueryService {
         aging,
         firstSeenRunId: r.firstSeenRunId ?? null,
         lastUpdatedRunId: r.lastUpdatedRunId ?? null,
+        firstSeenRunNo: r.firstSeenRunId ? (runNoById.get(r.firstSeenRunId) ?? null) : null,
+        lastUpdatedRunNo: r.lastUpdatedRunId ? (runNoById.get(r.lastUpdatedRunId) ?? null) : null,
         walletNo: walletNoById.get(r.walletRef) ?? null,
       };
     });
