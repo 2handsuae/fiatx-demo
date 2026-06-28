@@ -546,4 +546,48 @@ describe('SwapWorkflowService.advanceLeg (Swap-5)', () => {
     expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
     expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
   });
+
+  it('TERMINAL_FAIL voids leg + marks swap FAILED + audits + recomputes (no throw)', async () => {
+    // leg1 is BROADCASTED; transition will return FAILED → terminal-fail branch.
+    const mocks = buildAdvanceLegMocks({
+      legs: [{ legSeq: 1, status: InternalFundStatus.BROADCASTED }],
+    });
+    // Override transitionSwapLeg to land in a terminal-fail status
+    (mocks.fundsFlow.transitionSwapLeg as jest.Mock).mockResolvedValueOnce({
+      leg: {},
+      prevStatus: InternalFundStatus.BROADCASTED,
+      nextStatus: InternalFundStatus.FAILED,
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    // Must resolve normally (no throw) — Prisma + TB commit together.
+    const result = await svc.advanceLeg('SWP0001', 1, InternalFundAction.FAIL, 'ADMIN-1');
+    expect(result.nextStatus).toBe(InternalFundStatus.FAILED);
+
+    // voidLeg called for leg1 spec
+    expect(mocks.legAccounting.voidLeg).toHaveBeenCalledTimes(1);
+    expect((mocks.legAccounting.voidLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
+
+    // markStatus(FAILED) called
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe('FAILED');
+
+    // Audit SWAP_FAILED recorded
+    const failed = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a) => a.action === AuditActions.SWAP_FAILED);
+    expect(failed).toBeDefined();
+    expect(failed.metadata.legSeq).toBe(1);
+    expect(failed.metadata.nextStatus).toBe(InternalFundStatus.FAILED);
+
+    // recomputeProjections called
+    expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
+
+    // postLeg NOT called (this is the fail branch)
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+
+    // No chained createSwapLeg, no SUCCESS event
+    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
 });

@@ -233,13 +233,106 @@ export class SwapWorkflowService {
   }
 
   /**
+   * Handle the CLEAR branch: post leg + audit, then either finalize SUCCESS or
+   * chain the next leg. Returns whether (and what) to emit post-commit so the
+   * caller fires SWAP_SUCCEEDED after the transaction commits.
+   */
+  private async onLegCleared(
+    swap: any,
+    spec: SwapLegSpec,
+    legSeq: number,
+    allSpecs: SwapLegSpec[],
+    ctx: SwapSettleCtx,
+    target: any,
+    client: any,
+  ): Promise<{ emit: boolean; payload?: { swapId: string; swapNo: string; ownerId: string } }> {
+    await this.swapLegAccounting.postLeg(ctx, spec, client);
+    await this.auditLogsService.recordSystem(
+      {
+        action: AuditActions.SWAP_LEG_POSTED,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: swap.id,
+        entityNo: swap.swapNo,
+        traceId: swap.traceId ?? swap.swapNo,
+        workflowType: AuditWorkflowTypes.SWAP,
+        entityOwnerType: swap.ownerType,
+        entityOwnerId: swap.ownerId,
+        reason: `Swap leg ${legSeq} posted`,
+        metadata: { legSeq, attempt: target.attempt ?? 1 },
+        sourcePlatform: 'SYSTEM',
+      },
+      client,
+    );
+
+    const isLast = !allSpecs.some((s) => s.legSeq === legSeq + 1);
+    let emitInfo: { emit: boolean; payload?: { swapId: string; swapNo: string; ownerId: string } } = {
+      emit: false,
+    };
+
+    if (isLast) {
+      await this.swapTransactionsService.markStatus(swap.id, 'SUCCESS', client);
+      await this.auditLogsService.recordSystem(
+        {
+          action: AuditActions.SWAP_SUCCEEDED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo,
+          traceId: swap.traceId ?? swap.swapNo,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          reason: 'Swap settlement completed — all legs cleared',
+          sourcePlatform: 'SYSTEM',
+        },
+        client,
+      );
+      emitInfo = {
+        emit: true,
+        payload: { swapId: swap.id, swapNo: swap.swapNo, ownerId: swap.ownerId },
+      };
+    } else {
+      // Progressively create the next leg, book pending, transition into its start state.
+      const nextSpec = allSpecs.find((s) => s.legSeq === legSeq + 1)!;
+      const nAssetId = nextSpec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+      const nAmount = this.legPrimaryAmountDecimal(nextSpec, ctx);
+      const newLeg = await this.fundsFlow.createSwapLeg(
+        {
+          swapTransactionId: swap.id,
+          legSeq: legSeq + 1,
+          legAttempt: 1,
+          assetId: nAssetId,
+          amount: nAmount,
+          fromWalletId: null,
+          toWalletId: null,
+        },
+        'SYSTEM',
+        client,
+      );
+      await this.swapLegAccounting.initiateLegPending(ctx, nextSpec, client);
+      await this.fundsFlow.transitionSwapLeg(
+        (newLeg as any).id,
+        this.legStartAction(nextSpec, ctx),
+        'SYSTEM',
+        client,
+      );
+    }
+
+    await this.swapTransactionsService.recomputeProjections(
+      swap.id,
+      (n) => this.stageOf(n),
+      client,
+    );
+
+    return emitInfo;
+  }
+
+  /**
    * Advance a specific leg of a PROCESSING swap. Per-leg sequence-guarded.
    *
    * - On first advance (target leg still CREATED) we book pending TB entries.
-   * - On CLEAR: post the leg's TB entries + audit SWAP_LEG_POSTED.
-   *   - If it's the last leg: mark swap SUCCESS, audit SWAP_SUCCEEDED, emit post-commit.
-   *   - Otherwise: progressively create the next leg (attempt=1) + initiate + transition into start.
-   * - On TERMINAL_FAIL: void this leg and throw — Swap-6 replaces this branch with self-heal.
+   * - On CLEAR: post the leg's TB entries + audit, then either chain next leg or finalize SUCCESS.
+   * - On TERMINAL_FAIL: void this leg + markStatus(FAILED) + audit + recompute (legacy-equivalent;
+   *   Swap-6 will replace this with the self-heal flow).
    *
    * NOTE: This method coexists with SwapSettlementService.advanceLeg until Swap-9
    * rewires the controller. Do not call this from production code yet.
@@ -249,11 +342,10 @@ export class SwapWorkflowService {
     legSeq: number,
     action: InternalFundAction,
     operatorId: string,
-  ): Promise<any> {
-    let emitSuccess = false;
-    let swapIdForEvent: string | undefined;
-    let swapNoForEvent: string | undefined;
-    let ownerIdForEvent: string | undefined;
+  ): Promise<{ swapId: string; legSeq: number; nextStatus: InternalFundStatus }> {
+    let emitInfo: { emit: boolean; payload?: { swapId: string; swapNo: string; ownerId: string } } = {
+      emit: false,
+    };
 
     const result = await this.prisma.$transaction(async (client: any) => {
       const swap = await this.swapTransactionsService.findByNoInternal(swapNo, client);
@@ -299,10 +391,17 @@ export class SwapWorkflowService {
       ]);
 
       if (nextStatus === InternalFundStatus.CLEAR) {
-        await this.swapLegAccounting.postLeg(ctx, spec, client);
+        emitInfo = await this.onLegCleared(swap, spec, legSeq, allSpecs, ctx, target, client);
+      } else if (TERMINAL_FAIL.has(nextStatus)) {
+        // Legacy-equivalent terminal-fail handling (Swap-6 replaces this with self-heal).
+        // Void TB pending + markStatus(FAILED) + audit + recompute; return normally so
+        // the Prisma + TB sides commit together (throwing here would roll back Prisma
+        // but leave the TB ledger void already committed → cross-store divergence).
+        await this.swapLegAccounting.voidLeg(ctx, spec, client);
+        await this.swapTransactionsService.markStatus(swap.id, 'FAILED', client);
         await this.auditLogsService.recordSystem(
           {
-            action: AuditActions.SWAP_LEG_POSTED,
+            action: AuditActions.SWAP_FAILED,
             entityType: AuditEntityTypes.SWAP_TRANSACTION,
             entityId: swap.id,
             entityNo: swap.swapNo,
@@ -310,75 +409,16 @@ export class SwapWorkflowService {
             workflowType: AuditWorkflowTypes.SWAP,
             entityOwnerType: swap.ownerType,
             entityOwnerId: swap.ownerId,
-            reason: `Swap leg ${legSeq} posted`,
-            metadata: { legSeq, attempt: target.attempt ?? 1 },
+            reason: `Swap settlement failed — leg ${legSeq} reached ${nextStatus}`,
+            metadata: { legSeq, attempt: target.attempt ?? 1, nextStatus },
             sourcePlatform: 'SYSTEM',
           },
           client,
         );
-
-        const isLast = !allSpecs.some((s) => s.legSeq === legSeq + 1);
-        if (isLast) {
-          await this.swapTransactionsService.markStatus(swap.id, 'SUCCESS', client);
-          await this.auditLogsService.recordSystem(
-            {
-              action: AuditActions.SWAP_SUCCEEDED,
-              entityType: AuditEntityTypes.SWAP_TRANSACTION,
-              entityId: swap.id,
-              entityNo: swap.swapNo,
-              traceId: swap.traceId ?? swap.swapNo,
-              workflowType: AuditWorkflowTypes.SWAP,
-              entityOwnerType: swap.ownerType,
-              entityOwnerId: swap.ownerId,
-              reason: 'Swap settlement completed — all legs cleared',
-              sourcePlatform: 'SYSTEM',
-            },
-            client,
-          );
-          emitSuccess = true;
-          swapIdForEvent = swap.id;
-          swapNoForEvent = swap.swapNo;
-          ownerIdForEvent = swap.ownerId;
-        } else {
-          // Progressively create the next leg, book pending, and transition into its start state.
-          const nextSpec = allSpecs.find((s) => s.legSeq === legSeq + 1)!;
-          const nAssetId = nextSpec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-          const nAmount = this.legPrimaryAmountDecimal(nextSpec, ctx);
-          await this.fundsFlow.createSwapLeg(
-            {
-              swapTransactionId: swap.id,
-              legSeq: legSeq + 1,
-              legAttempt: 1,
-              assetId: nAssetId,
-              amount: nAmount,
-              fromWalletId: null,
-              toWalletId: null,
-            },
-            'SYSTEM',
-            client,
-          );
-          await this.swapLegAccounting.initiateLegPending(ctx, nextSpec, client);
-          const newLeg = await client.internalFund.findFirst({
-            where: { swapTransactionId: swap.id, legSeq: legSeq + 1, attempt: 1 },
-          });
-          await this.fundsFlow.transitionSwapLeg(
-            newLeg.id,
-            this.legStartAction(nextSpec, ctx),
-            'SYSTEM',
-            client,
-          );
-        }
-
         await this.swapTransactionsService.recomputeProjections(
           swap.id,
           (n) => this.stageOf(n),
           client,
-        );
-      } else if (TERMINAL_FAIL.has(nextStatus)) {
-        // Swap-6 will replace this branch with self-heal (void + recreate, NEEDS_REVIEW after 3 tries).
-        await this.swapLegAccounting.voidLeg(ctx, spec, client);
-        throw new BadRequestException(
-          `SWAP_LEG_FAILED: leg ${legSeq} reached ${nextStatus} (self-heal lands in Swap-6)`,
         );
       }
       // Intermediate hops (SIGNING/BROADCASTED/CONFIRMING/CONFIRMED): just transition, no accounting.
@@ -386,12 +426,8 @@ export class SwapWorkflowService {
       return { swapId: swap.id, legSeq, nextStatus };
     });
 
-    if (emitSuccess) {
-      this.eventEmitter.emit(DomainEventNames.SWAP_SUCCEEDED, {
-        swapId: swapIdForEvent,
-        swapNo: swapNoForEvent,
-        ownerId: ownerIdForEvent,
-      });
+    if (emitInfo.emit && emitInfo.payload) {
+      this.eventEmitter.emit(DomainEventNames.SWAP_SUCCEEDED, emitInfo.payload);
     }
 
     return result;
