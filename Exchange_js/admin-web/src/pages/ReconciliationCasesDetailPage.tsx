@@ -227,9 +227,7 @@ const ReconciliationCasesDetailPage = () => {
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Refs to first row of each anomaly bucket — chip click scrolls to them.
   const tableRef = useRef<HTMLTableElement | null>(null);
-  const firstRowRefs = useRef<Partial<Record<FlowMatchType, HTMLTableRowElement | null>>>({});
 
   const fetchCase = async () => {
     if (!caseNo) return;
@@ -282,27 +280,11 @@ const ReconciliationCasesDetailPage = () => {
 
   if (!kase) return null;
 
-  const summary: FlowComparisonSummary = kase.flowSummary ?? {
-    matched: 0,
-    orphanInternal: 0,
-    orphanExternal: 0,
-    mismatch: 0,
-  };
-
   // Linked-run identifier — getCase doesn't join the runs table (only stores
   // UUIDs), so we display the short id and link to the runs *list* with a
   // search hint rather than a deep link. A backend join (run.runNo on the
   // case payload) is a follow-up — out of scope for T5 frontend-only.
   const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
-
-  const scrollToBucket = (t: FlowMatchType) => {
-    const row = firstRowRefs.current[t];
-    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  // Track which bucket each row is the first of, for chip scrolling.
-  const seenBuckets = new Set<FlowMatchType>();
-  firstRowRefs.current = {};
 
   // Δ display logic: zero → muted "balanced"; non-zero → bold red with sign.
   const deltaZero = isZeroAmount(kase.deltaAmount);
@@ -478,46 +460,7 @@ const ReconciliationCasesDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* 4. Anomaly Summary — 3 chips (click → scroll to first row).
-              These are the only three problem buckets that drive this case. */}
-          <DetailCard title="Anomaly Summary" columns={1}>
-            <div className="flex flex-wrap items-center gap-2">
-              {[
-                { key: 'ORPHAN_INTERNAL' as FlowMatchType, label: 'Internal only', count: summary.orphanInternal },
-                { key: 'ORPHAN_EXTERNAL' as FlowMatchType, label: 'External only', count: summary.orphanExternal },
-                { key: 'AMOUNT_MISMATCH' as FlowMatchType, label: 'Amount mismatch', count: summary.mismatch },
-              ].map((chip) => {
-                const isZero = chip.count === 0;
-                const tone = chip.key === 'AMOUNT_MISMATCH'
-                  ? 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber'
-                  : 'border-amber-500/30 bg-amber-500/10 text-amber-500';
-                const mutedTone = 'border-adm-border bg-adm-bg text-adm-t3';
-                return (
-                  <button
-                    key={chip.key}
-                    type="button"
-                    onClick={() => !isZero && scrollToBucket(chip.key)}
-                    disabled={isZero}
-                    className={[
-                      'inline-flex items-center gap-2 rounded border px-3 py-1.5 font-mono text-[11px] transition-colors',
-                      isZero ? mutedTone : `${tone} hover:opacity-80 cursor-pointer`,
-                    ].join(' ')}
-                    title={isZero ? 'No items in this bucket' : 'Scroll to first row'}
-                  >
-                    <span className={`text-[14px] font-bold ${isZero ? 'text-adm-t3' : ''}`}>
-                      {chip.count}
-                    </span>
-                    <span className="uppercase tracking-wider">{chip.label}</span>
-                  </button>
-                );
-              })}
-              <span className="ml-2 font-mono text-[10px] text-adm-t3">
-                Matched baseline (hidden below): <span className="text-adm-t1">{summary.matched}</span>
-              </span>
-            </div>
-          </DetailCard>
-
-          {/* 5. Problem Flows — only orphans + mismatches. Matched pairs are
+          {/* Problem Flows — only orphans + mismatches. Matched pairs are
               hidden — Case detail is "what went wrong", the audit baseline lives
               in Account Statement (linked at the bottom). */}
           <DetailCard
@@ -548,9 +491,6 @@ const ReconciliationCasesDetailPage = () => {
                     </tr>
                   ) : (
                     sortedFlows.map((row, idx) => {
-                      // Capture the first row of each bucket for chip-scroll.
-                      const isFirstOfBucket = !seenBuckets.has(row.matchType);
-                      if (isFirstOfBucket) seenBuckets.add(row.matchType);
                       const ext = row.externalLine;
                       const intl = row.internalFlow;
                       const isMismatch = row.matchType === 'AMOUNT_MISMATCH';
@@ -559,7 +499,6 @@ const ReconciliationCasesDetailPage = () => {
                       return (
                         <tr
                           key={`${row.matchType}-${ext?.id ?? '_'}-${intl?.id ?? '_'}-${idx}`}
-                          ref={isFirstOfBucket ? (el) => { firstRowRefs.current[row.matchType] = el; } : undefined}
                           className="align-top"
                         >
                           {/* EXTERNAL side */}
