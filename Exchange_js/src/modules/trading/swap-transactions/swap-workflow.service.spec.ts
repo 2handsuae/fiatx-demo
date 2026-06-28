@@ -1,9 +1,9 @@
 /**
  * swap-workflow.service.spec.ts
  *
- * Task 5: executeSwap creates a PROCESSING swap and delegates physical leg
- * creation to SwapSettlementService.start — no atomic 7-leg accounting,
- * no SWAP_SUCCEEDED emit at executeSwap return.
+ * SwapWorkflowService owns the entire swap journey: executeSwap (leg1 build),
+ * advanceLeg (post + chain + SUCCESS / self-heal), resumeLeg (recovery), with
+ * sell-first sequence guard. The legacy SwapSettlementService is gone.
  */
 import { SwapWorkflowService } from './swap-workflow.service';
 import { Prisma } from '@prisma/client';
@@ -86,10 +86,6 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     recomputeProjections: jest.fn(() => Promise.resolve()),
   };
 
-  const swapSettlement = {
-    start: jest.fn(() => Promise.resolve()),
-  };
-
   const auditLogsService = {
     recordByActor: jest.fn(() => Promise.resolve()),
     recordSystem: jest.fn(() => Promise.resolve()),
@@ -118,7 +114,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, swapSettlement, auditLogsService, eventEmitter, onboardingService, prisma };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, prisma };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
@@ -144,7 +140,6 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.accountingService as any,
     mocks.auditLogsService as any,
     mocks.eventEmitter as any,
-    mocks.swapSettlement as any,
     stubLegAccounting,
     stubFundsFlow,
   );
@@ -172,8 +167,7 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     // No atomic direct transfers — delegation only
     expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
 
-    // Swap-9 cut-over: leg1-only progressive create (NOT swapSettlement.start)
-    expect(mocks.swapSettlement.start).not.toHaveBeenCalled();
+    // Swap-9 cut-over: leg1-only progressive create (no more settlement service).
     expect((mocks as any).fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
     const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
     expect(createLegArg.legSeq).toBe(1);
@@ -405,8 +399,6 @@ function buildAdvanceLegMocks(opts: {
     postPendingTransfer: jest.fn(),
     executeTransfer: jest.fn(),
   };
-  const swapSettlement = { start: jest.fn() };
-
   const txClient: any = {
     internalFund: {
       findFirst: jest.fn(({ where }: any) => {
@@ -439,7 +431,6 @@ function buildAdvanceLegMocks(opts: {
     accountingService,
     auditLogsService,
     eventEmitter,
-    swapSettlement,
     fundsFlow,
     legAccounting,
   };
@@ -454,7 +445,6 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.accountingService as any,
     mocks.auditLogsService as any,
     mocks.eventEmitter as any,
-    mocks.swapSettlement as any,
     mocks.legAccounting as any,
     mocks.fundsFlow as any,
   );

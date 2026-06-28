@@ -31,7 +31,6 @@ import { PayinsService } from '../src/modules/asset-treasury/payins/payins.servi
 import { PayinAction, PayinType } from '../src/modules/asset-treasury/payins/dto/payin.dto';
 import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
-import { SwapSettlementService } from '../src/modules/trading/swap-transactions/swap-settlement.service';
 import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
@@ -110,7 +109,7 @@ export type DemoCtx = {
   depositWf: any;
   swapQuote: SwapQuoteService;
   swapWf: any;
-  swapSettlement: SwapSettlementService;
+  swapWorkflowSvc: SwapWorkflowService;
   withdrawQuote: WithdrawQuoteService;
   withdraws: WithdrawTransactionsService;
   withdrawWf: WithdrawWorkflowService;
@@ -134,7 +133,7 @@ export async function bootstrap(): Promise<DemoCtx> {
     depositWf: app.get(DepositWorkflowService),
     swapQuote: app.get(SwapQuoteService),
     swapWf: app.get(SwapWorkflowService),
-    swapSettlement: app.get(SwapSettlementService),
+    swapWorkflowSvc: app.get(SwapWorkflowService),
     withdrawQuote: app.get(WithdrawQuoteService),
     withdraws: app.get(WithdrawTransactionsService),
     withdrawWf: app.get(WithdrawWorkflowService),
@@ -289,7 +288,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<void> {
  *  advanceLeg with the next valid action per the per-asset-type state machine.
  *  CRYPTO: CREATED→SIGN→SIGNING→BROADCAST→BROADCASTED→SEEN_IN_MEMPOOL→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEAR.
  *  FIAT:   CREATED→SUBMIT→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEAR.
- *  Note: leg 1 was already pushed out of CREATED inside SwapSettlementService.start. */
+ *  Note: leg 1 was already pushed out of CREATED by SwapWorkflowService.executeSwap. */
 async function driveSwapLegToClear(ctx: DemoCtx, swapId: string, swapNo: string, legSeq: number): Promise<void> {
   for (let step = 0; step < 12; step++) {
     const leg: any = await ctx.prisma.internalFund.findFirst({
@@ -313,7 +312,7 @@ async function driveSwapLegToClear(ctx: DemoCtx, swapId: string, swapNo: string,
       else if (leg.status === 'CONFIRMED') action = InternalFundAction.CLEAR;
       else throw new Error(`${swapNo} leg ${legSeq} unexpected crypto status ${leg.status}`);
     }
-    await ctx.swapSettlement.advanceLeg(swapNo, legSeq, action, 'DEMO');
+    await ctx.swapWorkflowSvc.advanceLeg(swapNo, legSeq, action, 'DEMO');
     await sleep(40);
   }
   throw new Error(`${swapNo} leg ${legSeq} did not reach CLEAR after 12 steps`);

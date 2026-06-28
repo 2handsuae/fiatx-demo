@@ -16,7 +16,6 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SwapTransactionsService } from './swap-transactions.service';
-import { SwapSettlementService } from './swap-settlement.service';
 import { SwapLegAccounting, SwapSettleCtx } from './swap-leg-accounting';
 import { FundsFlowService } from '../../funds-layer/domain/funds-flow.service';
 import {
@@ -41,8 +40,6 @@ export class SwapWorkflowService {
     private readonly accountingService: AccountingService,
     private readonly auditLogsService: AuditLogsService,
     private readonly eventEmitter: EventEmitter2,
-    // Dead since Swap-9 cut-over; Swap-10 removes this dep.
-    private readonly swapSettlement: SwapSettlementService,
     private readonly swapLegAccounting: SwapLegAccounting,
     private readonly fundsFlow: FundsFlowService,
   ) {}
@@ -106,7 +103,7 @@ export class SwapWorkflowService {
           .toDecimalPlaces(toDecimals, Prisma.Decimal.ROUND_HALF_UP);
         const spreadAmount = marketValueOut.sub(toAmount);
 
-        // Create the swap row in PROCESSING status — legs will be posted by SwapSettlementService.
+        // Create the swap row in PROCESSING status; leg1 booked below, rest chained by advanceLeg.
         const swap = await this.swapTransactionsService.create({
           swapNo, quoteId: quote.id, quoteNo: quote.quoteNo,
           ownerType: 'CUSTOMER', ownerId, ownerNo: quote.ownerNo,
@@ -438,7 +435,7 @@ export class SwapWorkflowService {
    * - On TERMINAL_FAIL: void this leg + markStatus(FAILED) + audit + recompute (legacy-equivalent;
    *   Swap-6 will replace this with the self-heal flow).
    *
-   * NOTE: This method coexists with SwapSettlementService.advanceLeg until Swap-9
+   * NOTE: This is the canonical per-leg admin path; the legacy SwapSettlementService is gone.
    * rewires the controller. Do not call this from production code yet.
    */
   async advanceLeg(
