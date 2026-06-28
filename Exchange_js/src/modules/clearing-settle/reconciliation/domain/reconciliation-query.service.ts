@@ -210,10 +210,27 @@ export class ReconciliationQueryService {
    *   - decorate each row with aging (days since firstSeenAt|createdAt)
    *     and surface firstSeenRunId / lastUpdatedRunId for run-history drill-down
    */
-  async listCases(q: { status?: string; assetCode?: string }) {
+  async listCases(q: { status?: string; assetCode?: string; runNo?: string }) {
+    // Resolve runNo → internal id upfront; unknown run = empty list.
+    let runIdFilter: string | undefined;
+    if (q.runNo) {
+      const run = await (this.prisma as any).reconciliationRun.findUnique({
+        where: { runNo: q.runNo }, select: { id: true },
+      });
+      if (!run) return [];
+      runIdFilter = run.id;
+    }
+
     const effectiveStatus = q.status === undefined ? 'OPEN' : q.status === 'ALL' ? undefined : q.status;
+    const where: any = { status: effectiveStatus, assetCode: q.assetCode };
+    if (runIdFilter) {
+      where.OR = [
+        { firstSeenRunId: runIdFilter },
+        { lastUpdatedRunId: runIdFilter },
+      ];
+    }
     const rows = await this.prisma.reconciliationCase.findMany({
-      where: { status: effectiveStatus, assetCode: q.assetCode },
+      where,
       orderBy: { createdAt: 'asc' }, // oldest first = highest aging; re-sorted below for resilience
     });
 

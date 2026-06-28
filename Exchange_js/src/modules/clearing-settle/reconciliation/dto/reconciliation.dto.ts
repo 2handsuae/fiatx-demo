@@ -9,6 +9,7 @@ export class ReconCaseQueryDto {
   // out of the default and see every status.
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
+  @IsOptional() @IsString() runNo?: string;  // filter to cases touched by a specific run
 }
 export class ReconExternalBalanceQueryDto {
   @IsOptional() @IsString() cutoffDate?: string;

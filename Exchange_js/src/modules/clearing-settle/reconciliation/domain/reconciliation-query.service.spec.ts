@@ -598,3 +598,72 @@ describe('listCases — T3 default OPEN + aging desc', () => {
     expect((result[0] as any).lastUpdatedRunNo).toBe('REC-B');
   });
 });
+
+describe('listCases with runNo filter', () => {
+  // Fixture: 2 runs, 3 cases
+  //   case-a-only:  firstSeenRunId='run-a', lastUpdatedRunId='run-a'
+  //   case-b-only:  firstSeenRunId='run-b', lastUpdatedRunId='run-b'
+  //   case-both:    firstSeenRunId='run-a', lastUpdatedRunId='run-b'
+  const caseAOnly = {
+    id: 'ca', caseNo: 'CASE-A', status: 'OPEN',
+    firstSeenRunId: 'run-a', lastUpdatedRunId: 'run-a',
+    createdAt: new Date(),
+  };
+  const caseBOnly = {
+    id: 'cb', caseNo: 'CASE-B', status: 'OPEN',
+    firstSeenRunId: 'run-b', lastUpdatedRunId: 'run-b',
+    createdAt: new Date(),
+  };
+  const caseBoth = {
+    id: 'cc', caseNo: 'CASE-BOTH', status: 'OPEN',
+    firstSeenRunId: 'run-a', lastUpdatedRunId: 'run-b',
+    createdAt: new Date(),
+  };
+
+  function mkPrismaRunNo(allCases: any[], runRow: { id: string; runNo: string } | null) {
+    return {
+      reconciliationCase: {
+        // Simulate Prisma's OR filter: when where.OR is present, only return rows
+        // that match firstSeenRunId OR lastUpdatedRunId against the filter run id.
+        findMany: jest.fn().mockImplementation(({ where }: any) => {
+          if (where?.OR) {
+            const ids = where.OR.flatMap((clause: any) =>
+              Object.values(clause) as string[]
+            );
+            return Promise.resolve(
+              allCases.filter((c: any) =>
+                ids.includes(c.firstSeenRunId) || ids.includes(c.lastUpdatedRunId)
+              )
+            );
+          }
+          return Promise.resolve(allCases);
+        }),
+      },
+      reconciliationRun: {
+        // findUnique: resolves runNo → run row (used by new runNo filter)
+        findUnique: jest.fn().mockResolvedValue(runRow),
+        // findMany: resolves run ids → runNo for decoration (existing path)
+        findMany: jest.fn().mockResolvedValue(
+          runRow ? [runRow] : [],
+        ),
+      },
+    } as any;
+  }
+
+  it('filters by runNo (matching firstSeenRunId OR lastUpdatedRunId)', async () => {
+    const prisma = mkPrismaRunNo([caseAOnly, caseBOnly, caseBoth], { id: 'run-a', runNo: 'REC-A' });
+    const svc = mkSvc(prisma);
+    const result = await svc.listCases({ runNo: 'REC-A' });
+    expect(result.length).toBe(2); // case-a-only and case-both
+    expect(result.every((c: any) =>
+      c.firstSeenRunNo === 'REC-A' || c.lastUpdatedRunNo === 'REC-A'
+    )).toBe(true);
+  });
+
+  it('returns empty list when runNo does not exist', async () => {
+    const prisma = mkPrismaRunNo([], null);
+    const svc = mkSvc(prisma);
+    const result = await svc.listCases({ runNo: 'REC-DOES-NOT-EXIST' });
+    expect(result).toEqual([]);
+  });
+});
