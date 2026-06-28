@@ -20,7 +20,6 @@ import { RefreshCw, Check, AlertTriangle, ArrowRight, ArrowUpDown } from 'lucide
 import {
   DetailPageHeader,
   DetailCard,
-  InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
@@ -60,6 +59,7 @@ type AccountStatusRowStatus = 'MATCH' | 'FLOW_REVIEW' | 'BREAK';
 
 interface AccountStatusRow {
   walletRef: string;
+  walletNo: string | null;      // business key; null for XREF synthetic rows
   walletRole?: string | null;
   ownerNo?: string | null;
   ownerName?: string | null;
@@ -448,7 +448,7 @@ const ReconciliationRunsDetailPage = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => navigate(`/admin/reconciliation/cases?runId=${encodeURIComponent(run.id)}`)}
+                    onClick={() => navigate(`/admin/reconciliation/cases?runNo=${encodeURIComponent(run.runNo)}`)}
                     className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
                   >
                     View All Cases for this Run <ArrowRight size={11} />
@@ -523,7 +523,7 @@ const ReconciliationRunsDetailPage = () => {
                         visibleRows.map((row) => {
                           const clickable = row.status !== 'MATCH' && !!row.caseNo;
                           const deltaZero = isZeroAmount(row.delta);
-                          const shortRef = row.walletRef.slice(0, 8);
+                          const displayWallet = row.walletNo ?? row.walletRef.slice(0, 8);
                           return (
                             <tr
                               key={row.walletRef}
@@ -542,7 +542,7 @@ const ReconciliationRunsDetailPage = () => {
                                   className="font-mono text-[10px] text-adm-t3"
                                   title={row.walletRef}
                                 >
-                                  {shortRef}…
+                                  {displayWallet}
                                 </div>
                               </td>
                               {/* Owner */}
@@ -625,11 +625,6 @@ const ReconciliationRunsDetailPage = () => {
               </div>
           </DetailCard>
 
-          {/* 5. Technical (LAST) */}
-          <DetailCard title="Technical" columns={2}>
-            <InfoField label="Trace ID" value={run.traceId} mono />
-            <InfoField label="Run ID" value={run.id} mono />
-          </DetailCard>
         </div>
 
         {/* ── Sidebar (no Actions block — read-only) ── */}
@@ -637,6 +632,7 @@ const ReconciliationRunsDetailPage = () => {
           <SidebarGroup title="Identity">
             <SidebarKV label="Run No" value={run.runNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={run.status} />} />
+            <SidebarKV label="Layer" value={run.layer} />
             <SidebarKV label="Trigger" value={fmtTrigger(run.triggerType)} />
           </SidebarGroup>
 
