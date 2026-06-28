@@ -368,7 +368,13 @@ export class SwapWorkflowService {
     target: any,
     client: any,
   ): Promise<{ emit: boolean; payload?: { swapId: string; swapNo: string; ownerId: string } }> {
-    await this.swapLegAccounting.postLeg(ctx, spec, client);
+    // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt
+    // so post/void hit the right transfer (matches initiateLegPending's id).
+    await this.swapLegAccounting.postLeg(
+      { ...ctx, attempt: target.attempt ?? 1 },
+      spec,
+      client,
+    );
     await this.auditLogsService.recordSystem(
       {
         action: AuditActions.SWAP_LEG_POSTED,

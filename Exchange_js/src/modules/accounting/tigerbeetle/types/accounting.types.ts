@@ -61,6 +61,12 @@ export interface ExecutePendingTransferParams {
   timeout: number;
   evidence: EvidenceParams;
   tx?: any;
+  /**
+   * 4th arg to deterministicTransferId, used to distinguish retries of the same
+   * (sourceType, sourceNo, eventCode) — e.g. swap leg attempts. Defaults to 0
+   * for callers that never retry (deposit/withdraw single-shot legs).
+   */
+  legIndex?: number;
 }
 
 export interface PostOrVoidPendingTransferParams {

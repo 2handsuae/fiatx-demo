@@ -155,7 +155,7 @@ export class AccountingService {
       params.evidence.sourceType,
       params.evidence.sourceNo,
       params.evidence.eventCode,
-      0,
+      params.legIndex ?? 0,
     );
 
     const errors = await this.tbService.createTransfers([{

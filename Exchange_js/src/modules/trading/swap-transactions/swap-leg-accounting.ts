@@ -286,6 +286,9 @@ export class SwapLegAccounting {
           isExternalCrossing: true,
         }),
         tx: client,
+        // Self-heal: keep TB pending id aligned with post/void's deterministicTransferId
+        // (`attempt` as the 4th arg). Without this, retried legs collide on attempt=0.
+        legIndex: attempt,
       });
     }
   }
