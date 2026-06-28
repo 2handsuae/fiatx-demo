@@ -344,6 +344,9 @@ function buildAdvanceLegMocks(opts: {
     transitionSwapLeg: jest.fn(() =>
       Promise.resolve({ leg: {}, prevStatus: 'CREATED', nextStatus: InternalFundStatus.CLEAR }),
     ),
+    // Swap-6: canonical entrypoint for the STUCK branch — workflow no longer
+    // writes InternalFund directly (CLAUDE.md rule 5).
+    markLegNeedsReview: jest.fn(() => Promise.resolve({})),
   };
 
   const legAccounting = {
@@ -397,9 +400,6 @@ function buildAdvanceLegMocks(opts: {
         );
         return Promise.resolve(found ?? null);
       }),
-      // Swap-6: STUCK branch sets NEEDS_REVIEW via direct update (no transition
-      // action maps to NEEDS_REVIEW). Capture the call so tests can assert on it.
-      update: jest.fn(() => Promise.resolve({})),
     },
   };
 
@@ -617,7 +617,7 @@ describe('SwapWorkflowService.advanceLeg self-heal (Swap-6)', () => {
       failedStatus: InternalFundStatus.FAILED,
     });
 
-    // No SWAP_FAILED audit, no markStatus('FAILED'), no STUCK update.
+    // No SWAP_FAILED audit, no markStatus('FAILED'), no STUCK call.
     const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c) => c[0])
       .find((a) => a.action === AuditActions.SWAP_FAILED);
@@ -625,7 +625,7 @@ describe('SwapWorkflowService.advanceLeg self-heal (Swap-6)', () => {
     const markStatusFailedCalls = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls
       .filter((c) => c[1] === 'FAILED');
     expect(markStatusFailedCalls).toHaveLength(0);
-    expect(mocks.txClient.internalFund.update).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.markLegNeedsReview).not.toHaveBeenCalled();
 
     // recomputeProjections + no SUCCESS event.
     expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
@@ -635,7 +635,7 @@ describe('SwapWorkflowService.advanceLeg self-heal (Swap-6)', () => {
     expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
   });
 
-  it('attempt 3 fails → voids attempt 3, sets leg NEEDS_REVIEW via direct update, audits STUCK, swap stays PROCESSING', async () => {
+  it('attempt 3 fails → voids attempt 3, delegates to fundsFlow.markLegNeedsReview, audits STUCK, swap stays PROCESSING', async () => {
     // leg1 is BROADCASTED on attempt 3; transition will return TIMEOUT.
     const mocks = buildAdvanceLegMocks({
       legs: [{ legSeq: 1, status: InternalFundStatus.BROADCASTED, attempt: 3 }],
@@ -654,13 +654,13 @@ describe('SwapWorkflowService.advanceLeg self-heal (Swap-6)', () => {
     expect(mocks.legAccounting.voidLeg).toHaveBeenCalledTimes(1);
     expect((mocks.legAccounting.voidLeg as jest.Mock).mock.calls[0][0].attempt).toBe(3);
 
-    // internalFund.update called on the target leg with NEEDS_REVIEW.
-    expect(mocks.txClient.internalFund.update).toHaveBeenCalledTimes(1);
-    const updateArg = (mocks.txClient.internalFund.update as jest.Mock).mock.calls[0][0];
-    expect(updateArg.where).toEqual({ id: 'leg-1-id' });
-    expect(updateArg.data.status).toBe(InternalFundStatus.NEEDS_REVIEW);
-    expect(updateArg.data.completedAt).toBeInstanceOf(Date);
-    expect(typeof updateArg.data.statusHistory).toBe('string');
+    // STUCK branch delegates to FundsFlowService.markLegNeedsReview(target.id, 3, 'SYSTEM', client).
+    expect(mocks.fundsFlow.markLegNeedsReview).toHaveBeenCalledTimes(1);
+    const stuckCall = (mocks.fundsFlow.markLegNeedsReview as jest.Mock).mock.calls[0];
+    expect(stuckCall[0]).toBe('leg-1-id');
+    expect(stuckCall[1]).toBe(3);
+    expect(stuckCall[2]).toBe('SYSTEM');
+    expect(stuckCall[3]).toBe(mocks.txClient);
 
     // Audit SWAP_LEG_STUCK with correct metadata.
     const stuck = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls

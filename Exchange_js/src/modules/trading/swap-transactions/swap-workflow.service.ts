@@ -30,6 +30,9 @@ import { DomainEventNames } from '../../../common/events/domain-events.constants
 export class SwapWorkflowService {
   private readonly logger = new Logger(SwapWorkflowService.name);
 
+  /** Swap-6 self-heal cap: at most N attempts per legSeq before STUCK. */
+  private static readonly MAX_LEG_ATTEMPTS = 3;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly onboardingService: OnboardingService,
@@ -233,26 +236,96 @@ export class SwapWorkflowService {
   }
 
   /**
-   * Append a NEEDS_REVIEW entry to a leg's statusHistory JSON string. Used by
-   * the Swap-6 self-heal STUCK branch (no action transitions INTO NEEDS_REVIEW,
-   * so we update the row directly and carry the history append ourselves).
+   * Swap-6 self-heal: void this attempt's pending, then either retry (attempt+1)
+   * or mark the leg NEEDS_REVIEW (after MAX_LEG_ATTEMPTS). Swap stays PROCESSING
+   * — never markStatus FAILED. Mirrors `onLegCleared`'s shape; recomputes
+   * projections at the end of the branch.
    */
-  private appendNeedsReviewHistory(prev: string | null | undefined, attempt: number): string {
-    const entries = (() => {
-      try {
-        const a = JSON.parse(prev || '[]');
-        return Array.isArray(a) ? a : [];
-      } catch {
-        return [];
-      }
-    })();
-    entries.push({
-      status: 'NEEDS_REVIEW',
-      operatorId: 'SYSTEM',
-      occurredAt: new Date().toISOString(),
-      reason: `Stuck after attempt ${attempt} — awaiting manual resume`,
-    });
-    return JSON.stringify(entries);
+  private async onLegFailedSelfHeal(
+    swap: any,
+    spec: SwapLegSpec,
+    legSeq: number,
+    ctx: SwapSettleCtx,
+    target: any,
+    nextStatus: InternalFundStatus,
+    client: any,
+  ): Promise<void> {
+    const failedAttempt = target.attempt ?? 1;
+    await this.swapLegAccounting.voidLeg(
+      { ...ctx, attempt: failedAttempt },
+      spec,
+      client,
+    );
+
+    if (failedAttempt < SwapWorkflowService.MAX_LEG_ATTEMPTS) {
+      const nextAttempt = failedAttempt + 1;
+      const retryCtx = { ...ctx, attempt: nextAttempt };
+      const assetIdForLeg = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+      const amount = this.legPrimaryAmountDecimal(spec, ctx);
+      const newLeg = await this.fundsFlow.createSwapLeg(
+        {
+          swapTransactionId: swap.id,
+          legSeq,
+          legAttempt: nextAttempt,
+          assetId: assetIdForLeg,
+          amount,
+          fromWalletId: null,
+          toWalletId: null,
+        },
+        'SYSTEM',
+        client,
+      );
+      await this.swapLegAccounting.initiateLegPending(retryCtx, spec, client);
+      await this.fundsFlow.transitionSwapLeg(
+        (newLeg as any).id,
+        this.legStartAction(spec, ctx),
+        'SYSTEM',
+        client,
+      );
+      await this.auditLogsService.recordSystem(
+        {
+          action: AuditActions.SWAP_LEG_RETRIED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo,
+          traceId: swap.traceId ?? swap.swapNo,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          reason: `Swap leg ${legSeq} failed (attempt ${failedAttempt}/${SwapWorkflowService.MAX_LEG_ATTEMPTS}); retry attempt ${nextAttempt} created`,
+          metadata: { legSeq, failedAttempt, nextAttempt, failedStatus: nextStatus },
+          sourcePlatform: 'SYSTEM',
+        },
+        client,
+      );
+    } else {
+      // attempts == MAX_LEG_ATTEMPTS → STUCK: delegate to FundsFlowService so the
+      // workflow stays out of the InternalFund table (CLAUDE.md rule 5).
+      await this.fundsFlow.markLegNeedsReview(target.id, failedAttempt, 'SYSTEM', client);
+      await this.auditLogsService.recordSystem(
+        {
+          action: AuditActions.SWAP_LEG_STUCK,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo,
+          traceId: swap.traceId ?? swap.swapNo,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          reason: `Swap leg ${legSeq} stuck after ${failedAttempt} failed attempts; awaiting manual resume`,
+          metadata: { legSeq, attempts: failedAttempt, lastFailedStatus: nextStatus },
+          sourcePlatform: 'SYSTEM',
+        },
+        client,
+      );
+    }
+
+    await this.swapTransactionsService.recomputeProjections(
+      swap.id,
+      (n) => this.stageOf(n),
+      client,
+    );
+    // NOTE: do NOT markStatus FAILED — self-heal keeps swap in PROCESSING.
   }
 
   /**
@@ -416,94 +489,7 @@ export class SwapWorkflowService {
       if (nextStatus === InternalFundStatus.CLEAR) {
         emitInfo = await this.onLegCleared(swap, spec, legSeq, allSpecs, ctx, target, client);
       } else if (TERMINAL_FAIL.has(nextStatus)) {
-        // Swap-6 self-heal: void this attempt's pending; if attempts < 3 create
-        // attempt+1 + initiate + start; else mark this leg NEEDS_REVIEW (swap
-        // stays PROCESSING — manual resume re-drives the workflow).
-        const failedAttempt = target.attempt ?? 1;
-        await this.swapLegAccounting.voidLeg(
-          { ...ctx, attempt: failedAttempt },
-          spec,
-          client,
-        );
-        if (failedAttempt < 3) {
-          const nextAttempt = failedAttempt + 1;
-          const assetIdForLeg = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-          const amount = this.legPrimaryAmountDecimal(spec, ctx);
-          const newLeg = await this.fundsFlow.createSwapLeg(
-            {
-              swapTransactionId: swap.id,
-              legSeq,
-              legAttempt: nextAttempt,
-              assetId: assetIdForLeg,
-              amount,
-              fromWalletId: null,
-              toWalletId: null,
-            },
-            'SYSTEM',
-            client,
-          );
-          await this.swapLegAccounting.initiateLegPending(
-            { ...ctx, attempt: nextAttempt },
-            spec,
-            client,
-          );
-          await this.fundsFlow.transitionSwapLeg(
-            (newLeg as any).id,
-            this.legStartAction(spec, ctx),
-            'SYSTEM',
-            client,
-          );
-          await this.auditLogsService.recordSystem(
-            {
-              action: AuditActions.SWAP_LEG_RETRIED,
-              entityType: AuditEntityTypes.SWAP_TRANSACTION,
-              entityId: swap.id,
-              entityNo: swap.swapNo,
-              traceId: swap.traceId ?? swap.swapNo,
-              workflowType: AuditWorkflowTypes.SWAP,
-              entityOwnerType: swap.ownerType,
-              entityOwnerId: swap.ownerId,
-              reason: `Swap leg ${legSeq} failed (attempt ${failedAttempt}/${3}); retry attempt ${nextAttempt} created`,
-              metadata: { legSeq, failedAttempt, nextAttempt, failedStatus: nextStatus },
-              sourcePlatform: 'SYSTEM',
-            },
-            client,
-          );
-        } else {
-          // attempts == 3 → STUCK: set the (already terminal) target leg to
-          // NEEDS_REVIEW via direct update (no transition action maps to
-          // NEEDS_REVIEW). Swap stays PROCESSING for manual resume to drive.
-          await (client as any).internalFund.update({
-            where: { id: target.id },
-            data: {
-              status: InternalFundStatus.NEEDS_REVIEW,
-              completedAt: new Date(),
-              statusHistory: this.appendNeedsReviewHistory(target.statusHistory, failedAttempt),
-            },
-          });
-          await this.auditLogsService.recordSystem(
-            {
-              action: AuditActions.SWAP_LEG_STUCK,
-              entityType: AuditEntityTypes.SWAP_TRANSACTION,
-              entityId: swap.id,
-              entityNo: swap.swapNo,
-              traceId: swap.traceId ?? swap.swapNo,
-              workflowType: AuditWorkflowTypes.SWAP,
-              entityOwnerType: swap.ownerType,
-              entityOwnerId: swap.ownerId,
-              reason: `Swap leg ${legSeq} stuck after ${failedAttempt} failed attempts; awaiting manual resume`,
-              metadata: { legSeq, attempts: failedAttempt, lastFailedStatus: nextStatus },
-              sourcePlatform: 'SYSTEM',
-            },
-            client,
-          );
-        }
-        await this.swapTransactionsService.recomputeProjections(
-          swap.id,
-          (n) => this.stageOf(n),
-          client,
-        );
-        // NOTE: do NOT markStatus FAILED — self-heal keeps swap in PROCESSING.
+        await this.onLegFailedSelfHeal(swap, spec, legSeq, ctx, target, nextStatus, client);
       }
       // Intermediate hops (SIGNING/BROADCASTED/CONFIRMING/CONFIRMED): just transition, no accounting.
 

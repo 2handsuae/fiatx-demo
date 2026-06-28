@@ -863,6 +863,42 @@ export class FundsFlowService {
   }
 
   /**
+   * Swap-6 self-heal STUCK branch: mark a leg NEEDS_REVIEW after N failed
+   * retries. The transition map has no action that lands in NEEDS_REVIEW, so
+   * the workflow can't get here through `transitionSwapLeg` — this is the
+   * canonical entrypoint that owns the direct status write, statusHistory
+   * append, and completedAt set. Mirrors `transitionSwapLeg` / `createSwapLeg`
+   * — no workflow knows the InternalFund row schema.
+   */
+  async markLegNeedsReview(
+    id: string,
+    attempt: number,
+    operatorId = 'SYSTEM',
+    tx?: TxClient,
+  ) {
+    const exec = async (client: TxClient) => {
+      const leg = await (client as any).internalFund.findUnique({ where: { id } });
+      if (!leg) throw new NotFoundException('Internal fund leg not found');
+      const reason = `Stuck after attempt ${attempt} — awaiting manual resume`;
+      return (client as any).internalFund.update({
+        where: { id },
+        data: {
+          status: InternalFundStatus.NEEDS_REVIEW,
+          completedAt: new Date(),
+          statusHistory: this.appendStatusHistory(
+            leg.statusHistory,
+            InternalFundStatus.NEEDS_REVIEW,
+            operatorId,
+            reason,
+          ),
+        },
+      });
+    };
+    if (tx) return exec(tx);
+    return (this.prisma as any).$transaction((c: TxClient) => exec(c));
+  }
+
+  /**
    * Create the fee leg for a withdrawal. Hangs directly on the withdraw
    * transaction (no InternalTransaction parent) — mirrors createSwapLeg.
    * The fee leg is a REPRESENTATION that follows the withdrawal lifecycle:
