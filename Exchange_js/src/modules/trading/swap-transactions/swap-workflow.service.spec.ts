@@ -83,6 +83,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode,
     })),
     findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'PROCESSING' })),
+    recomputeProjections: jest.fn(() => Promise.resolve()),
   };
 
   const swapSettlement = {
@@ -121,17 +122,20 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
-  // Stub the two Swap-5 deps; Swap-4 tests exercise executeSwap which doesn't touch them.
+  // Swap-9 cut-over: executeSwap now drives leg1-only via these two deps.
   const stubLegAccounting: any = {
     ctxFromSwap: jest.fn(),
-    initiateLegPending: jest.fn(),
-    postLeg: jest.fn(),
-    voidLeg: jest.fn(),
+    initiateLegPending: jest.fn(() => Promise.resolve()),
+    postLeg: jest.fn(() => Promise.resolve()),
+    voidLeg: jest.fn(() => Promise.resolve()),
   };
   const stubFundsFlow: any = {
-    createSwapLeg: jest.fn(),
-    transitionSwapLeg: jest.fn(),
+    createSwapLeg: jest.fn(() => Promise.resolve({ id: 'leg-1' })),
+    transitionSwapLeg: jest.fn(() => Promise.resolve({ nextStatus: 'SUBMITTING' })),
   };
+  // expose so tests can assert on them
+  (mocks as any).legAccounting = stubLegAccounting;
+  (mocks as any).fundsFlow = stubFundsFlow;
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -168,20 +172,34 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     // No atomic direct transfers — delegation only
     expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
 
-    // SwapSettlementService.start called once with the swap ctx
-    expect(mocks.swapSettlement.start).toHaveBeenCalledTimes(1);
+    // Swap-9 cut-over: leg1-only progressive create (NOT swapSettlement.start)
+    expect(mocks.swapSettlement.start).not.toHaveBeenCalled();
+    expect((mocks as any).fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
+    const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    expect(createLegArg.legSeq).toBe(1);
+    expect(createLegArg.legAttempt).toBe(1);
+    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
+    expect((mocks as any).fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(1);
 
     // No SWAP_SUCCEEDED domain event at executeSwap return (swap is still PROCESSING)
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
   });
 
-  it('passes correct SwapSettleCtx to start() — CASE A (USDT→AED, fromIsFiat=false)', async () => {
+  it('passes correct SwapSettleCtx (leg1 amount + asset) — CASE A (USDT→AED, fromIsFiat=false)', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
     await service.executeSwap('cust-1', 'q-1');
 
-    const [ctx] = (mocks.swapSettlement.start as jest.Mock).mock.calls[0];
+    // CASE A: USDT (CRYPTO) → AED (FIAT); fromIsFiat=false, so leg1 is "to" side (FIAT receive)
+    // per the sell-first plan locked in Swap-8. Verify createSwapLeg's assetId/amount.
+    const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    expect(createLegArg.swapTransactionId).toBe('swap-1');
+    expect(createLegArg.legSeq).toBe(1);
+    expect(createLegArg.legAttempt).toBe(1);
+    // initiateLegPending called with leg1 ctx (attempt=1) — verify ctx fields propagate
+    const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
+    const ctx = initiateArg[0];
     expect(ctx.swapId).toBe('swap-1');
     expect(ctx.swapNo).toMatch(/^SWP/);
     expect(ctx.ownerId).toBe('cust-1');
@@ -190,18 +208,19 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     expect(ctx.toCurrency).toBe('AED');
     expect(ctx.fromDecimals).toBe(6);
     expect(ctx.toDecimals).toBe(2);
-    // grossToAmount = amountOut from quote
     expect(ctx.grossToAmount.equals(new Prisma.Decimal('0.05'))).toBe(true);
     expect(ctx.feeAmount.equals(new Prisma.Decimal('0.01'))).toBe(true);
+    expect(ctx.attempt).toBe(1);
   });
 
-  it('passes correct SwapSettleCtx to start() — CASE B (AED→USDT, fromIsFiat=true)', async () => {
+  it('passes correct SwapSettleCtx (leg1 amount + asset) — CASE B (AED→USDT, fromIsFiat=true)', async () => {
     const mocks = buildMocks(reverseQuote());
     const service = makeService(mocks);
 
     await service.executeSwap('cust-1', 'q-1');
 
-    const [ctx] = (mocks.swapSettlement.start as jest.Mock).mock.calls[0];
+    const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
+    const ctx = initiateArg[0];
     expect(ctx.fromIsFiat).toBe(true);    // AED is FIAT
     expect(ctx.fromCurrency).toBe('AED');
     expect(ctx.toCurrency).toBe('USDT');

@@ -15,7 +15,7 @@ import { RequirePermissions } from 'src/modules/identity/access-control/require-
 import { buildPermissionCode } from 'src/modules/identity/access-control/permission-code.util';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
-import { SwapSettlementService } from './swap-settlement.service';
+import { SwapWorkflowService } from './swap-workflow.service';
 import {
   AdvanceSwapLegDto,
   CreateSwapTransactionDto,
@@ -32,7 +32,7 @@ export class SwapTransactionsController {
   constructor(
     private readonly swapTransactionsService: SwapTransactionsService,
     private readonly swapQuoteService: SwapQuoteService,
-    private readonly swapSettlement: SwapSettlementService,
+    private readonly swapWorkflow: SwapWorkflowService,
   ) {}
 
   @Post()
@@ -70,7 +70,7 @@ export class SwapTransactionsController {
     @Body() dto: AdvanceSwapLegDto,
     @Req() req: any,
   ) {
-    return this.swapSettlement.advanceLeg(
+    return this.swapWorkflow.advanceLeg(
       swapNo,
       Number(legSeq),
       dto.action,
@@ -78,11 +78,18 @@ export class SwapTransactionsController {
     );
   }
 
-  @Post(':swapNo/reverse')
-  @ApiOperation({ summary: 'Reverse (compensate) a FAILED swap' })
-  @RequirePermissions(buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/reverse'))
-  reverseSwap(@Param('swapNo') swapNo: string, @Req() req: any) {
-    return this.swapSettlement.reverseSwap(swapNo, req.user?.userNo || req.user?.sub || 'ADMIN');
+  @Post(':swapNo/legs/:legSeq/resume')
+  @ApiOperation({ summary: 'Resume a NEEDS_REVIEW (stuck) swap leg by creating a fresh attempt' })
+  @RequirePermissions(
+    buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume'),
+  )
+  resumeSwapLeg(
+    @Param('swapNo') swapNo: string,
+    @Param('legSeq') legSeq: string,
+    @Req() req: any,
+  ) {
+    const op = req.user?.userNo || req.user?.sub || 'ADMIN';
+    return this.swapWorkflow.resumeLeg(swapNo, Number(legSeq), op);
   }
 
   @Get(':id')

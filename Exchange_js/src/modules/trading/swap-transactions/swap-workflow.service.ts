@@ -140,26 +140,54 @@ export class SwapWorkflowService {
           tx,
         );
 
-        // Delegate physical leg creation + leg1 pending to SwapSettlementService,
-        // atomically within the same transaction so legs are created with the swap row.
-        await this.swapSettlement.start(
+        // Swap-9 cut-over: create ONLY leg1 + initiate its pending; subsequent
+        // legs are chained by advanceLeg(legSeq+1) per the progressive build
+        // model (Swap-5). No more delegating to SwapSettlementService.start.
+        const ctx: SwapSettleCtx = {
+          swapId: swap.id,
+          swapNo,
+          ownerId,
+          fromIsFiat: fromAsset?.type === 'FIAT',
+          fromAssetId: quote.fromAssetId,
+          toAssetId: quote.toAssetId,
+          fromLedger,
+          toLedger,
+          fromCurrency,
+          toCurrency,
+          fromAmount,
+          grossToAmount: toAmount,
+          feeAmount,
+          fromDecimals,
+          toDecimals,
+        };
+        const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+        const leg1Spec = legSpecs[0]!; // legSeq=1, structural invariant locked in Swap-8
+        const leg1AssetId = leg1Spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+        const leg1Amount = this.legPrimaryAmountDecimal(leg1Spec, ctx);
+        const leg1 = await this.fundsFlow.createSwapLeg(
           {
-            swapId: swap.id,
-            swapNo,
-            ownerId,
-            fromIsFiat: fromAsset?.type === 'FIAT',
-            fromAssetId: quote.fromAssetId,
-            toAssetId: quote.toAssetId,
-            fromLedger,
-            toLedger,
-            fromCurrency,
-            toCurrency,
-            fromAmount,
-            grossToAmount: toAmount,
-            feeAmount,
-            fromDecimals,
-            toDecimals,
+            swapTransactionId: swap.id,
+            legSeq: 1,
+            legAttempt: 1,
+            assetId: leg1AssetId,
+            amount: leg1Amount,
+            fromWalletId: null,
+            toWalletId: null,
           },
+          'SYSTEM',
+          tx,
+        );
+        const leg1Ctx = { ...ctx, attempt: 1 };
+        await this.swapLegAccounting.initiateLegPending(leg1Ctx, leg1Spec, tx);
+        await this.fundsFlow.transitionSwapLeg(
+          (leg1 as any).id,
+          this.legStartAction(leg1Spec, ctx),
+          'SYSTEM',
+          tx,
+        );
+        await this.swapTransactionsService.recomputeProjections(
+          swap.id,
+          (n) => this.stageOf(n),
           tx,
         );
 

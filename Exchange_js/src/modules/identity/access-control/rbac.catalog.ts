@@ -288,7 +288,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/swap-transactions/:id', 'Get swap transaction detail', ['TRADING_SWAP_READ']),
   route('PATCH', '/admin/swap-transactions/:id/status', 'Update swap transaction status', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
-  route('POST', '/admin/swap-transactions/:swapNo/reverse', 'Reverse a failed swap', ['TRADING_SWAP_WRITE']),
+  route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
 
   // Payins
   route('GET', '/treasury/payins', 'List payins', ['PAYIN_READ']),
