@@ -804,3 +804,90 @@ describe('SwapWorkflowService.resumeLeg (Swap-7)', () => {
     expect(mocks.swapTransactionsService.recomputeProjections).not.toHaveBeenCalled();
   });
 });
+
+// ── sell-first invariant tests (Swap-8) ──────────────────────────────────────
+//
+// Documents the BUSINESS RULE (not just the generic sequence guard from Swap-5):
+// the customer SELL leg (leg1) must clear before any other leg may proceed —
+// so the company has the customer's funds before paying out. This is the
+// structural guarantee behind self-heal: a buy leg failure can never leave the
+// customer's money missing because the sell leg already CLEARed.
+
+describe('SwapWorkflowService.advanceLeg — sell-first invariant (Swap-8)', () => {
+  it('buy leg (leg3) cannot advance while sell leg (leg1) is still CREATED', async () => {
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, attempt: 1, status: InternalFundStatus.CREATED },
+        { legSeq: 3, attempt: 1, status: InternalFundStatus.CREATED },
+      ],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await expect(
+      svc.advanceLeg('SWP0001', 3, InternalFundAction.CLEAR, 'ADMIN-OP'),
+    ).rejects.toThrow(/SWAP_SEQUENCE_VIOLATION/);
+
+    // No side effects when sell-first guard trips.
+    expect(mocks.legAccounting.voidLeg).not.toHaveBeenCalled();
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalled();
+    expect(mocks.auditLogsService.recordByActor).not.toHaveBeenCalled();
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('buy leg (leg3) cannot advance while sell leg (leg1) is NEEDS_REVIEW (stuck)', async () => {
+    // Critical safety case: even when sell leg is STUCK on attempt 3, the buy leg
+    // is BLOCKED — so the company never pays out before receiving customer funds.
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, attempt: 3, status: InternalFundStatus.NEEDS_REVIEW },
+        { legSeq: 3, attempt: 1, status: InternalFundStatus.CREATED },
+      ],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await expect(
+      svc.advanceLeg('SWP0001', 3, InternalFundAction.CLEAR, 'ADMIN-OP'),
+    ).rejects.toThrow(/SWAP_SEQUENCE_VIOLATION/);
+
+    // No side effects.
+    expect(mocks.legAccounting.voidLeg).not.toHaveBeenCalled();
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalled();
+    expect(mocks.auditLogsService.recordByActor).not.toHaveBeenCalled();
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('buy leg (leg3) may advance once sell leg (leg1) is CLEAR', async () => {
+    // Both prior legs CLEAR → guard PASSES, leg3 posts normally.
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, attempt: 1, status: InternalFundStatus.CLEAR },
+        { legSeq: 2, attempt: 1, status: InternalFundStatus.CLEAR },
+        { legSeq: 3, attempt: 1, status: InternalFundStatus.CREATED },
+      ],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await expect(
+      svc.advanceLeg('SWP0001', 3, InternalFundAction.CLEAR, 'ADMIN-OP'),
+    ).resolves.toBeDefined();
+
+    // postLeg called for leg3 spec.
+    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(3);
+
+    // SWAP_LEG_POSTED audit recorded.
+    const posted = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a) => a.action === AuditActions.SWAP_LEG_POSTED);
+    expect(posted).toBeDefined();
+    expect(posted.metadata.legSeq).toBe(3);
+  });
+});
