@@ -296,6 +296,8 @@ describe('getCase — flowComparison (T3)', () => {
   const kase = {
     id: 'case-x', caseNo: 'REC-20260627-AED-W-002',
     walletRef: 'walletX', businessDate: '2026-06-27', lineItems: [],
+    openedByRunId: 'run-fc', lastUpdatedRunId: null,
+    slaDeadline: null, book: null,
   };
   // Hand-built source datasets covering all 4 match types.
   const externalLines = [
@@ -315,6 +317,8 @@ describe('getCase — flowComparison (T3)', () => {
       externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-X' }]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
       accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }) },
     };
     const flowMatcher = {
       matchFlows: jest.fn().mockResolvedValue({
@@ -363,6 +367,8 @@ describe('getCase — flowComparison (T3)', () => {
       externalBalance: { findMany: jest.fn() },
       externalStatementLine: { findMany: jest.fn() },
       accountFlow: { findMany: jest.fn() },
+      wallet: { findUnique: jest.fn() },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }) },
     };
     const flowMatcher = { matchFlows: jest.fn() };
     const svc = mkSvc(prisma, { flowMatcher });
@@ -443,6 +449,75 @@ describe('getRun — walletNo on accountStatusTable rows', () => {
     const result: any = await svc.getRun('RUN-XREF-CASE');
     const xrefRow = result.accountStatusTable.find((r: any) => r.walletRef.startsWith('XREF:'));
     expect(xrefRow?.walletNo).toBeNull();
+  });
+});
+
+describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
+  const run = { id: 'ra', runNo: 'REC-A' };
+  const wallet = { id: 'W1', walletNo: 'WAL-001' };
+
+  function mkKase(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'case-id-1',
+      caseNo: 'CASE-001',
+      walletRef: 'W1',
+      lastUpdatedRunId: 'ra',
+      openedByRunId: 'ra',
+      slaDeadline: new Date('2026-07-01'),
+      book: 'CLIENT',
+      businessDate: '2026-06-28',
+      lineItems: [],
+      ...overrides,
+    };
+  }
+
+  function mkPrismaCase(kaseOverrides: Record<string, unknown> = {}, walletRow: any = wallet) {
+    return {
+      reconciliationCase: {
+        findUnique: jest.fn().mockResolvedValue(mkKase(kaseOverrides)),
+      },
+      wallet: {
+        findUnique: jest.fn().mockResolvedValue(walletRow),
+      },
+      reconciliationRun: {
+        findUnique: jest.fn().mockResolvedValue(run),
+      },
+      // buildFlowComparison path (walletRef is a real wallet, not XREF):
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  it('returns walletNo + linkedRunNo + slaDeadline + book', async () => {
+    const prisma = mkPrismaCase();
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('CASE-001');
+    expect(result.walletNo).toBe('WAL-001');
+    expect(result.linkedRunNo).toBe('REC-A');
+    expect(result.slaDeadline).toBeTruthy();
+    expect(result.book).toBe('CLIENT');
+  });
+
+  it('falls back to openedByRunId when lastUpdatedRunId is null', async () => {
+    const prisma = mkPrismaCase({ caseNo: 'CASE-002', lastUpdatedRunId: null });
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('CASE-002');
+    expect(result.linkedRunNo).toBe('REC-A');
+  });
+
+  it('returns null walletNo for XREF synthetic walletRef', async () => {
+    const prisma = {
+      reconciliationCase: {
+        findUnique: jest.fn().mockResolvedValue(mkKase({ caseNo: 'CASE-XREF', walletRef: 'XREF:synthetic-id-1' })),
+      },
+      wallet: { findUnique: jest.fn() },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
+    } as any;
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('CASE-XREF');
+    expect(result.walletNo).toBeNull();
+    expect((prisma.wallet.findUnique as jest.Mock).mock.calls).toHaveLength(0);
   });
 });
 

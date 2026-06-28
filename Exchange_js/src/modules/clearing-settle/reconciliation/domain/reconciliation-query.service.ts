@@ -286,7 +286,28 @@ export class ReconciliationQueryService {
       flowSummary = built.summary;
     }
 
-    return { ...kase, flowComparison, flowSummary };
+    const walletRow = kase.walletRef && !kase.walletRef.startsWith('XREF:')
+      ? await (this.prisma as any).wallet.findUnique({
+          where: { id: kase.walletRef },
+          select: { walletNo: true },
+        })
+      : null;
+
+    const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
+    const linkedRunRow = linkedRunId
+      ? await this.prisma.reconciliationRun.findUnique({
+          where: { id: linkedRunId },
+          select: { runNo: true },
+        })
+      : null;
+
+    return {
+      ...kase,
+      walletNo: walletRow?.walletNo ?? null,
+      linkedRunNo: linkedRunRow?.runNo ?? null,
+      flowComparison,
+      flowSummary,
+    };
   }
 
   listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {
