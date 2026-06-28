@@ -372,6 +372,80 @@ describe('getCase — flowComparison (T3)', () => {
   });
 });
 
+describe('getRun — walletNo on accountStatusTable rows', () => {
+  // Minimal run + wallet fixture to test walletNo resolution on AccountStatusRow.
+  const run = {
+    id: 'run-wno',
+    runNo: 'RUN-2026-0628-001',
+    businessDate: '2026-06-28',
+    layer: 'WALLET',
+    demoManifest: null,
+    invariantChecks: [],
+  };
+
+  function mkPrismaWalletNo(walletRef: string, walletNo: string | null) {
+    return {
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
+      externalBalance: {
+        findMany: jest.fn().mockResolvedValue([
+          { walletRef, closingBalance: new Prisma.Decimal(100), currency: 'AED', coaCode: 'L.CLIENT_PAYABLE', ownerNo: 'CU-X' },
+        ]),
+      },
+      reconciliationLineItem: { findMany: jest.fn().mockResolvedValue([]) },
+      wallet: {
+        findMany: jest.fn().mockResolvedValue(
+          walletNo !== null
+            ? [{ id: walletRef, walletNo, walletRole: 'C_DEP', ownerNo: 'CU-X', ownerType: 'CUSTOMER' }]
+            : [],
+        ),
+      },
+      customerMain: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+  }
+
+  it('returns walletNo for each accountStatusRow when wallet exists', async () => {
+    const prisma = mkPrismaWalletNo('W1', 'WAL-001');
+    const balanceChecker = {
+      checkBalance: jest.fn().mockResolvedValue({
+        pass: true, walletRef: 'W1', walletKind: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE',
+        ownerNo: 'CU-X', internal: { total: 100n }, external: 100n, delta: 0n,
+      }),
+    };
+    const svc = mkSvc(prisma, { balanceChecker });
+    const result: any = await svc.getRun('RUN-2026-0628-001');
+    expect(result.accountStatusTable[0].walletNo).toBe('WAL-001');
+  });
+
+  it('returns null walletNo for XREF synthetic walletRefs (retired wallets)', async () => {
+    // XREF walletRefs exist in externalBalance but have no row in wallets table.
+    const xref = 'XREF:synthetic-id-1';
+    const run2 = { ...run, runNo: 'RUN-XREF-CASE', id: 'run-xref' };
+    const prisma = {
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run2) },
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
+      externalBalance: {
+        findMany: jest.fn().mockResolvedValue([
+          { walletRef: xref, closingBalance: new Prisma.Decimal(50), currency: 'AED', coaCode: null, ownerNo: null },
+        ]),
+      },
+      reconciliationLineItem: { findMany: jest.fn().mockResolvedValue([]) },
+      wallet: { findMany: jest.fn().mockResolvedValue([]) }, // no wallet row for XREF
+      customerMain: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const balanceChecker = {
+      checkBalance: jest.fn().mockResolvedValue({
+        pass: true, walletRef: xref, walletKind: 'CUSTOMER', coaCode: '',
+        ownerNo: null, internal: { total: 50n }, external: 50n, delta: 0n,
+      }),
+    };
+    const svc = mkSvc(prisma, { balanceChecker });
+    const result: any = await svc.getRun('RUN-XREF-CASE');
+    const xrefRow = result.accountStatusTable.find((r: any) => r.walletRef.startsWith('XREF:'));
+    expect(xrefRow?.walletNo).toBeNull();
+  });
+});
+
 describe('listCases — T3 default OPEN + aging desc', () => {
   // T3 cockpit default: omitting status filters to OPEN; aging derived from
   // createdAt; sort by aging desc so the oldest break floats to the top.

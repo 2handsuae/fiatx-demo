@@ -36,6 +36,7 @@ export type AccountStatusRowStatus =
 
 export interface AccountStatusRow {
   walletRef: string;
+  walletNo: string | null;          // business key (e.g. 'WAL-001'); null for XREF synthetic refs
   walletRole?: string | null;       // 'C_DEP' | 'C_VIBAN' | 'F_FEE' | ... — from wallets lookup
   ownerNo?: string | null;          // customer / firm owner number
   ownerName?: string | null;        // first+last name or company name (null for firm)
