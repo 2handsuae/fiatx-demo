@@ -412,13 +412,16 @@ const ReconciliationCasesDetailPage = () => {
                   {formatAmount(kase.tbAmount)}
                 </div>
               </div>
-              {/* External */}
+              {/* External — actual closing balance from the external statement
+                  (post-injection in demo break mode). expectedExternal is the
+                  pre-injection mirror snapshot and would falsely equal internal
+                  whenever the break is on a single wallet's external balance. */}
               <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
                   External
                 </div>
                 <div className="mt-1 font-mono text-[20px] font-bold leading-tight text-adm-t1">
-                  {formatAmount(kase.expectedExternal)}
+                  {formatAmount(kase.actualExternal)}
                 </div>
               </div>
               {/* Δ — muted green/check when balanced, bold red with sign when not. */}

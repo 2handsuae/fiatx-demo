@@ -432,10 +432,14 @@ async function injectAnomalies(
       ? `0xDEMO${kind}${injSeq.toString(16).padStart(2, '0')}USDT`
       : `BANK-PO${cutoffDate.replace(/-/g, '')}-${kind}${String(injSeq).padStart(3, '0')}`;
   };
-  // Realistic per-asset injection amount (~0.05 unit — fee-scale; visible on
-  // the cockpit without being a pebble in the running balance).
+  // Per-asset injection amount calibrated for visible-on-cockpit AND
+  // realistic-bank-mismatch magnitudes. Fees / FX rounding errors in
+  // production are typically 1-50 of the base unit, not micro-cents.
+  // 6-decimal currencies: 5,000,000 minor = 5.0 unit (clear 1st-digit diff).
   const injAmountFor = (currency: string): Prisma.Decimal =>
-    /^(USDT|BTC|ETH|USDC)/i.test(currency) ? D('50000') /* 0.05 USDT */ : D('5000') /* 0.05 AED */;
+    /^(USDT|BTC|ETH|USDC)/i.test(currency)
+      ? D('5000000')  /* 5 USDT — fee-scale ghost/mismatch */
+      : D('5000000'); /* 5 AED  — fee-scale ghost/mismatch */
 
   // Helper: shift the wallet's closingBalance by `delta` (signed) to keep
   // it consistent with the line change. Direction sign convention:
