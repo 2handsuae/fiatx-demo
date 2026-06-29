@@ -352,15 +352,20 @@ export class ReconciliationQueryService {
     }));
   }
 
-  async getExternalBalance(statementId: string) {
-    // Keyed by statementId (business key STMT-{date}-{source}-{accountSlug}); the UUID id is not URL-exposed.
-    const balance = await this.prisma.externalBalance.findFirst({ where: { statementId } });
-    if (!balance) throw new NotFoundException(`External balance ${statementId} not found`);
-    // Lines carry no FK to the balance; join on the same dimensions (source + account + currency)
-    // AND scope to the balance's business day (cutoffDate) — otherwise multi-day history bleeds
-    // into one statement and the roll-forward self-check (opening + Σnet = closing) is wrong.
-    const dayLo = new Date(`${balance.cutoffDate}T00:00:00.000Z`);
-    const dayHi = new Date(`${balance.cutoffDate}T23:59:59.999Z`);
+  async getExternalBalanceByWallet(walletNo: string, cutoffDate: string) {
+    const wallet = await this.prisma.wallet.findFirst({
+      where: { walletNo },
+      select: { id: true, walletNo: true, walletRole: true },
+    });
+    if (!wallet) throw new NotFoundException(`no external balance for ${walletNo} on ${cutoffDate}`);
+
+    const balance = await this.prisma.externalBalance.findFirst({
+      where: { walletRef: wallet.id, cutoffDate },
+    });
+    if (!balance) throw new NotFoundException(`no external balance for ${walletNo} on ${cutoffDate}`);
+
+    const dayLo = new Date(`${cutoffDate}T00:00:00.000Z`);
+    const dayHi = new Date(`${cutoffDate}T23:59:59.999Z`);
     const lines = await this.prisma.externalStatementLine.findMany({
       where: {
         source: balance.source,
@@ -370,7 +375,13 @@ export class ReconciliationQueryService {
       },
       orderBy: { datetime: 'asc' },
     });
-    return { ...balance, lines };
+
+    return {
+      ...balance,
+      walletNo: wallet.walletNo,
+      walletRole: wallet.walletRole,
+      lines,
+    };
   }
 
   /**

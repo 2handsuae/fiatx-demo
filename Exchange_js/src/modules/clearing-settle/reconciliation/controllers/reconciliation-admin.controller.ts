@@ -61,8 +61,14 @@ export class ReconciliationAdminController {
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/external-balances'))
   listExternalBalances(@Query() q: ReconExternalBalanceQueryDto) { return this.query.listExternalBalances(q); }
 
-  @Get('external-balances/:statementId')
-  @ApiOperation({ summary: 'External balance detail (header fields + its statement lines)' })
-  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/external-balances/:statementId'))
-  getExternalBalance(@Param('statementId') statementId: string) { return this.query.getExternalBalance(statementId); }
+  @Get('external-balances/:walletNo')
+  @ApiOperation({ summary: 'External balance detail by walletNo + date (header fields + statement lines)' })
+  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/external-balances/:walletNo'))
+  getExternalBalanceByWallet(
+    @Param('walletNo') walletNo: string,
+    @Query('date') date: string,
+  ) {
+    if (!date) throw new BadRequestException('date query param is required (YYYY-MM-DD)');
+    return this.query.getExternalBalanceByWallet(walletNo, date);
+  }
 }

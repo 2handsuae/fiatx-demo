@@ -153,18 +153,20 @@ describe('listRuns — single engine surface', () => {
   });
 });
 
-describe('getExternalBalance — statement lines scoped to the balance business day', () => {
+describe('getExternalBalanceByWallet — statement lines scoped to the balance business day', () => {
   it('filters lines by the balance cutoffDate day window (no multi-day bleed)', async () => {
+    const wallet = { id: 'W1', walletNo: 'WA-ZAND-001', walletRole: 'C_VIBAN' };
     const balance = {
-      id: 'b1', statementId: 'STMT-20260622-ZAND-C-CMA-AED-0001',
+      id: 'b1', walletRef: 'W1',
       source: 'ZAND', accountRef: 'C_CMA-AED-0001', currency: 'AED', cutoffDate: '2026-06-22',
     };
     const prisma = {
+      wallet: { findFirst: jest.fn().mockResolvedValue(wallet) },
       externalBalance: { findFirst: jest.fn().mockResolvedValue(balance) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = mkSvc(prisma);
-    await svc.getExternalBalance(balance.statementId);
+    await svc.getExternalBalanceByWallet('WA-ZAND-001', '2026-06-22');
     expect(prisma.externalStatementLine.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -633,6 +635,55 @@ describe('listExternalBalances — wallet join', () => {
     expect(xref.walletRole).toBeNull();
     // wallet.findMany should not be called because all walletRefs are XREF
     expect((prisma.wallet.findMany as jest.Mock).mock.calls).toHaveLength(0);
+  });
+});
+
+describe('getExternalBalanceByWallet', () => {
+  it('returns balance + lines when walletNo + date match', async () => {
+    const wallet = { id: 'W1', walletNo: 'WA-001', walletRole: 'C_VIBAN' };
+    const balance = {
+      id: 'b1', walletRef: 'W1', cutoffDate: '2026-06-28',
+      source: 'ZAND', accountRef: 'ACC-1', currency: 'AED',
+    };
+    const lines = [
+      { id: 'l1', direction: 'IN', amount: '100' },
+      { id: 'l2', direction: 'OUT', amount: '50' },
+    ];
+    const prisma = {
+      wallet: { findFirst: jest.fn().mockResolvedValue(wallet) },
+      externalBalance: { findFirst: jest.fn().mockResolvedValue(balance) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(lines) },
+    };
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getExternalBalanceByWallet('WA-001', '2026-06-28');
+    expect(result.walletNo).toBe('WA-001');
+    expect(result.walletRole).toBe('C_VIBAN');
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0]).toHaveProperty('direction');
+    expect(result.lines[0]).toHaveProperty('amount');
+  });
+
+  it('throws 404 when walletNo not found in wallets table', async () => {
+    const prisma = {
+      wallet: { findFirst: jest.fn().mockResolvedValue(null) },
+      externalBalance: { findFirst: jest.fn() },
+      externalStatementLine: { findMany: jest.fn() },
+    };
+    const svc = mkSvc(prisma);
+    await expect(svc.getExternalBalanceByWallet('WA-DOES-NOT-EXIST', '2026-06-28'))
+      .rejects.toThrow(/no external balance for WA-DOES-NOT-EXIST/);
+  });
+
+  it('throws 404 when no externalBalance row for that walletRef + date', async () => {
+    const wallet = { id: 'W1', walletNo: 'WA-001', walletRole: 'C_VIBAN' };
+    const prisma = {
+      wallet: { findFirst: jest.fn().mockResolvedValue(wallet) },
+      externalBalance: { findFirst: jest.fn().mockResolvedValue(null) },
+      externalStatementLine: { findMany: jest.fn() },
+    };
+    const svc = mkSvc(prisma);
+    await expect(svc.getExternalBalanceByWallet('WA-001', '2099-01-01'))
+      .rejects.toThrow(/no external balance for WA-001/);
   });
 });
 
