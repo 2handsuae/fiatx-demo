@@ -5,9 +5,6 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 // internal-identity pre-gate (mirrors scripts/verify-realtime-coa.ts).
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { BalanceSnapshotService } from './engine/balance-snapshot.service';
-import { InvariantCheckerService } from './engine/invariant-checker.service';
-import { CreditNetService } from './engine/credit-net.service';
-import { FormulaCheckerService } from './engine/formula-checker.service';
 import { SubledgerInputsService } from './engine/subledger-inputs.service';
 import { InTransitService } from './engine/in-transit.service';
 import { BalanceReconService } from './engine/balance-recon.service';
@@ -20,14 +17,9 @@ import { AnomalyClassifierService } from './engine/anomaly-classifier.service';
 import { DrilldownMatchService } from './engine/drilldown-match.service';
 import { MockExternalAdapter } from './adapters/mock-external.adapter';
 import { EXTERNAL_BALANCE_PROVIDER, EXTERNAL_TX_PROVIDER } from './adapters/external-data.provider';
-import { ReconciliationRunService } from './domain/reconciliation-run.service';
-import { ReconciliationCaseService } from './domain/reconciliation-case.service';
 import { ReconciliationRecordService } from './domain/reconciliation-record.service';
 import { ReconciliationRedesignRecordService } from './domain/reconciliation-redesign-record.service';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
-import { ReconciliationRunWorkflowService } from './workflow/reconciliation-run-workflow.service';
-import { FormulaReconService } from './workflow/formula-recon.service';
-import { RedesignReconRunService } from './workflow/redesign-recon-run.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
 import { WalletFlowMatcherService } from './engine/v2/wallet-flow-matcher.service';
@@ -38,20 +30,19 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule],
   controllers: [ReconciliationAdminController],
   providers: [
-    BalanceSnapshotService, InvariantCheckerService, InTransitService, BalanceReconService,
-    CreditNetService, FormulaCheckerService, SubledgerInputsService, FormulaReconService,
+    BalanceSnapshotService, InTransitService, BalanceReconService,
+    SubledgerInputsService,
     MatchEngineService, ClassifierService, InternalActionsService,
     LegProjectionService, MatchEngineV2Service, AnomalyClassifierService, DrilldownMatchService,
     MockExternalAdapter,
     { provide: EXTERNAL_BALANCE_PROVIDER, useExisting: MockExternalAdapter },
     { provide: EXTERNAL_TX_PROVIDER, useExisting: MockExternalAdapter },
-    ReconciliationRunService, ReconciliationCaseService, ReconciliationRecordService,
+    ReconciliationRecordService,
     ReconciliationRedesignRecordService, ReconciliationQueryService,
-    ReconciliationRunWorkflowService, ReconciliationSweepService, RedesignReconRunService,
-    // Phase B / T7 — per-wallet engine. WalletReconRunService is injected into RedesignReconRunService
-    // by the T9 (2026-06-26) re-routing shim (DI by type token; provider order doesn't matter to Nest).
+    ReconciliationSweepService,
+    // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,
   ],
-  exports: [ReconciliationRunWorkflowService, RedesignReconRunService, WalletReconRunService],
+  exports: [WalletReconRunService],
 })
 export class ReconciliationModule {}
