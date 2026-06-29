@@ -29,13 +29,6 @@ export class ReconciliationAdminController {
     return this.walletReconRun.run({ cutoff });
   }
 
-  @Get('redesign/latest')
-  @ApiOperation({ summary: 'Latest redesign reconciliation run (5-formula result + cases + 4-bucket line items)' })
-  @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/runs'))
-  getRedesignLatest(@Query() q: ReconRunQueryDto) {
-    return this.query.getLatestRedesignRun(q.businessDate);
-  }
-
   @Get('demo/compare')
   @ApiOperation({ summary: 'Demo compare: injected break manifest vs engine-detected case line-items' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/reconciliation/runs'))

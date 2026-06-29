@@ -2006,29 +2006,10 @@ model ReconciliationRun {
   completedAt     DateTime?
   createdAt       DateTime @default(now())
   demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
-  invariantChecks ReconciliationInvariantCheck[]
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
   @@index([businessDate, layer])
   @@map("reconciliation_runs")
-}
-
-model ReconciliationInvariantCheck {
-  id            String  @id @default(uuid())
-  runId         String
-  invariantCode String  // I1 | I2 | I3 | I4 | I5
-  currency      String
-  lhsLabel      String
-  lhsValue      Decimal
-  rhsLabel      String
-  rhsValue      Decimal
-  delta         Decimal
-  status        String  // PASS | FAIL
-  severity      String  // ATTESTATION | SAFEGUARDING | BUSINESS | ACCOUNT_ACTUAL
-  createdAt     DateTime @default(now())
-  run           ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  @@index([runId])
-  @@map("reconciliation_invariant_checks")
 }
 
 model ReconciliationCase {

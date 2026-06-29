@@ -194,7 +194,6 @@ describe('getRun — accountStatusTable (T3)', () => {
     businessDate: '2026-06-27',
     layer: 'WALLET',
     demoManifest: null,
-    invariantChecks: [],
   };
   const cases = [
     { id: 'case-1', caseNo: 'REC20260627-001', assetCode: 'AED', book: 'CUSTOMER', status: 'OPEN', deltaAmount: new Prisma.Decimal(0), walletRef: 'walletB' },
@@ -386,7 +385,6 @@ describe('getRun — walletNo on accountStatusTable rows', () => {
     businessDate: '2026-06-28',
     layer: 'WALLET',
     demoManifest: null,
-    invariantChecks: [],
   };
 
   function mkPrismaWalletNo(walletRef: string, walletNo: string | null) {

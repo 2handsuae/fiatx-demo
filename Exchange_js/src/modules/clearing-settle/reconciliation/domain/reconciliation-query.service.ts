@@ -171,7 +171,7 @@ export class ReconciliationQueryService {
    */
   async getRun(runNo: string) {
     const run = await this.prisma.reconciliationRun.findUnique({
-      where: { runNo }, include: { invariantChecks: true },
+      where: { runNo },
     });
     if (!run) throw new NotFoundException(`Run ${runNo} not found`);
     const cases = await this.prisma.reconciliationCase.findMany({
@@ -395,39 +395,6 @@ export class ReconciliationQueryService {
       detected,
       reconciliation,
     };
-  }
-
-  /**
-   * 对账重构（redesign，layer=REDESIGN）最新一次 run 的完整结果（G6）：
-   *   run 行 + 五公式 checks（按币种分组 式1..式5）+ cases（含 bucketed line items）。
-   * 给 admin Run detail 展示五公式 checklist + 四桶下钻。无 redesign run 时返回 null（前端显示空态）。
-   * @param businessDate 可选，限定业务日；不传取全局最新。
-   */
-  async getLatestRedesignRun(businessDate?: string) {
-    const run = await this.prisma.reconciliationRun.findFirst({
-      where: { layer: 'REDESIGN', businessDate },
-      orderBy: [{ businessDate: 'desc' }, { seq: 'desc' }],
-      include: { invariantChecks: true },
-    });
-    if (!run) return null;
-
-    // 用 lastObservedRunId（本 run 最近触达的 case），不用 openedByRunId：
-    // ReconciliationCase 按 (businessDate, assetId, book) 唯一，跨旧 I1-I5 路径与本 redesign 路径共享，
-    // 老 case 的 openedByRunId 指向旧 run；upsertOpen 把 lastObservedRunId 刷成当前 run。
-    // 现按 book 拆 case：一个币种可同时有 CLIENT case 与 FIRM case，各持本 book 的账外式 + 桶 line items。
-    const cases = await this.prisma.reconciliationCase.findMany({
-      where: { lastObservedRunId: run.id },
-      orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
-      include: { lineItems: { where: { foundByRunId: run.id }, orderBy: { lineNo: 'asc' } } },
-    });
-
-    // 五公式按币种分组（式1..式5），便于前端逐币种渲染 checklist。
-    const formulasByCurrency: Record<string, typeof run.invariantChecks> = {};
-    for (const chk of run.invariantChecks) {
-      (formulasByCurrency[chk.currency] ??= []).push(chk);
-    }
-
-    return { run, formulasByCurrency, cases };
   }
 
   // ─── T3 builders ───────────────────────────────────────────────────────────
