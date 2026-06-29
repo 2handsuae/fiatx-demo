@@ -164,6 +164,7 @@ describe('getExternalBalanceByWallet — statement lines scoped to the balance b
       wallet: { findFirst: jest.fn().mockResolvedValue(wallet) },
       externalBalance: { findFirst: jest.fn().mockResolvedValue(balance) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      asset: { findFirst: jest.fn().mockResolvedValue({ decimals: 2 }) },
     };
     const svc = mkSvc(prisma);
     await svc.getExternalBalanceByWallet('WA-ZAND-001', '2026-06-22');
@@ -612,11 +613,17 @@ describe('listExternalBalances — wallet join', () => {
           { id: 'W1', walletNo: 'WA-001', walletRole: 'C_VIBAN' },
         ]),
       },
+      asset: {
+        findMany: jest.fn().mockResolvedValue([
+          { code: 'AED', decimals: 2 },
+        ]),
+      },
     };
     const svc = mkSvc(prisma);
     const result = await svc.listExternalBalances({ cutoffDate: '2026-06-28' });
     expect(result[0].walletNo).toBe('WA-001');
     expect(result[0].walletRole).toBe('C_VIBAN');
+    expect(result[0].decimals).toBe(2);
   });
 
   it('returns null walletNo/walletRole for XREF synthetic walletRefs', async () => {
@@ -627,12 +634,18 @@ describe('listExternalBalances — wallet join', () => {
         ]),
       },
       wallet: { findMany: jest.fn().mockResolvedValue([]) },
+      asset: {
+        findMany: jest.fn().mockResolvedValue([
+          { code: 'AED', decimals: 2 },
+        ]),
+      },
     };
     const svc = mkSvc(prisma);
     const result = await svc.listExternalBalances({ cutoffDate: '2026-06-28' });
     const xref = result.find((r: any) => (r.walletRef as string).startsWith('XREF:'))!;
     expect(xref.walletNo).toBeNull();
     expect(xref.walletRole).toBeNull();
+    expect(xref.decimals).toBe(2);
     // wallet.findMany should not be called because all walletRefs are XREF
     expect((prisma.wallet.findMany as jest.Mock).mock.calls).toHaveLength(0);
   });
@@ -653,11 +666,13 @@ describe('getExternalBalanceByWallet', () => {
       wallet: { findFirst: jest.fn().mockResolvedValue(wallet) },
       externalBalance: { findFirst: jest.fn().mockResolvedValue(balance) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue(lines) },
+      asset: { findFirst: jest.fn().mockResolvedValue({ decimals: 2 }) },
     };
     const svc = mkSvc(prisma);
     const result: any = await svc.getExternalBalanceByWallet('WA-001', '2026-06-28');
     expect(result.walletNo).toBe('WA-001');
     expect(result.walletRole).toBe('C_VIBAN');
+    expect(result.decimals).toBe(2);
     expect(result.lines).toHaveLength(2);
     expect(result.lines[0]).toHaveProperty('direction');
     expect(result.lines[0]).toHaveProperty('amount');

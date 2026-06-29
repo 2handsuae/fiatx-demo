@@ -345,10 +345,21 @@ export class ReconciliationQueryService {
         });
     const walletById = new Map(wallets.map(w => [w.id, w]));
 
+    // Asset decimals lookup (currency → decimals via asset.code)
+    const currencies = Array.from(new Set(rows.map(r => r.currency)));
+    const assets = currencies.length === 0
+      ? []
+      : await this.prisma.asset.findMany({
+          where: { code: { in: currencies } },
+          select: { code: true, decimals: true },
+        });
+    const decimalsByCode = new Map(assets.map(a => [a.code, a.decimals]));
+
     return rows.map(r => ({
       ...r,
       walletNo: r.walletRef ? (walletById.get(r.walletRef)?.walletNo ?? null) : null,
       walletRole: r.walletRef ? (walletById.get(r.walletRef)?.walletRole ?? null) : null,
+      decimals: decimalsByCode.get(r.currency) ?? 0,
     }));
   }
 
@@ -376,10 +387,16 @@ export class ReconciliationQueryService {
       orderBy: { datetime: 'asc' },
     });
 
+    const asset = await this.prisma.asset.findFirst({
+      where: { code: balance.currency },
+      select: { decimals: true },
+    });
+
     return {
       ...balance,
       walletNo: wallet.walletNo,
       walletRole: wallet.walletRole,
+      decimals: asset?.decimals ?? 0,
       lines,
     };
   }
