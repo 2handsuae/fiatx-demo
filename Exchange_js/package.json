@@ -34,7 +34,7 @@
     "db:migrate:local": "bash scripts/apply-local-migrations.sh",
     "db:base:sync": "ts-node prisma/seed.ts --mode=base",
     "db:biz:init": "ts-node prisma/seed.ts --mode=business",
-    "db:seed:business": "ts-node prisma/seed.ts --mode=business",
+    "db:seed:business": "ts-node prisma/seed.ts --mode=business && npm run verify:demo-data",
     "db:biz:reset": "ts-node scripts/reset-business-data.ts",
     "db:reset:business": "bash scripts/reset-business-complete.sh",
     "runtime:diagnose": "bash scripts/runtime-diagnose.sh",
