@@ -5,7 +5,7 @@
 //   2. Per-wallet balance + flow checks (T6 + flow matcher)
 //   3. Cross-wallet same-externalRef invariant (e.g. WITHDRAW_FEE_POST +
 //      WITHDRAW_FEE_FIRM must have equal amounts)
-//   4. Summarize → ReconciliationRun row (engineVersion='WALLET_V1').
+//   4. Summarize → ReconciliationRun row (layer='WALLET').
 
 import { Prisma } from '@prisma/client';
 import { WalletReconRunService } from './wallet-recon-run.service';
@@ -90,7 +90,7 @@ describe('WalletReconRunService', () => {
   it('internal balanced + no wallets to check → run.status=PASS, walletsChecked=0', async () => {
     const deps = makeDeps();
     deps.prisma.reconciliationRun.create.mockResolvedValue({
-      id: 'run-1', runNo: 'RUN-WALLET-1', engineVersion: 'WALLET_V1',
+      id: 'run-1', runNo: 'RUN-WALLET-1',
     });
     deps.prisma.externalBalance.findMany.mockResolvedValue([]); // no wallets
 
@@ -105,7 +105,7 @@ describe('WalletReconRunService', () => {
     expect(result.casesOpened).toBe(0);
     expect(deps.prisma.reconciliationRun.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ engineVersion: 'WALLET_V1' }),
+        data: expect.objectContaining({ layer: 'WALLET' }),
       }),
     );
   });
@@ -113,7 +113,7 @@ describe('WalletReconRunService', () => {
   it('internal NOT balanced → status=INTERNAL_BREAK, no per-wallet processing', async () => {
     const deps = makeDeps();
     deps.prisma.reconciliationRun.create.mockResolvedValue({
-      id: 'run-2', runNo: 'RUN-WALLET-2', engineVersion: 'WALLET_V1',
+      id: 'run-2', runNo: 'RUN-WALLET-2',
     });
 
     const svc = new WalletReconRunService(deps.prisma, deps.balanceChecker as any, deps.flowMatcher as any, deps.tigerBeetle as any);
@@ -133,7 +133,7 @@ describe('WalletReconRunService', () => {
   it('one wallet balance mismatch → 1 case opened, status=BREAK', async () => {
     const deps = makeDeps();
     deps.prisma.reconciliationRun.create.mockResolvedValue({
-      id: 'run-3', runNo: 'RUN-WALLET-3', engineVersion: 'WALLET_V1',
+      id: 'run-3', runNo: 'RUN-WALLET-3',
     });
     deps.prisma.externalBalance.findMany.mockResolvedValue([
       { walletRef: 'w-cust-1', closingBalance: D(1000), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-1' },
@@ -176,7 +176,7 @@ describe('WalletReconRunService', () => {
   it('wallet has flow orphan_internal → case opened with line items', async () => {
     const deps = makeDeps();
     deps.prisma.reconciliationRun.create.mockResolvedValue({
-      id: 'run-4', runNo: 'RUN-WALLET-4', engineVersion: 'WALLET_V1',
+      id: 'run-4', runNo: 'RUN-WALLET-4',
     });
     deps.prisma.externalBalance.findMany.mockResolvedValue([
       { walletRef: 'w-cust-2', closingBalance: D(0), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-2' },
@@ -243,7 +243,7 @@ describe('WalletReconRunService', () => {
 
     it('mints UUID v4 traceId at case creation', async () => {
       const deps = makeDeps();
-      deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-tid-2', runNo: 'RUN-TID-2', engineVersion: 'WALLET_V1' });
+      deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-tid-2', runNo: 'RUN-TID-2' });
       deps.prisma.externalBalance.findMany.mockResolvedValue([
         { walletRef: 'w-tid-new', closingBalance: new Prisma.Decimal(1000), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-tid' },
       ]);
@@ -278,7 +278,7 @@ describe('WalletReconRunService', () => {
         runSeq += 1;
         const runId = `run-tid-${runSeq}`;
         const deps = makeDeps();
-        deps.prisma.reconciliationRun.create.mockResolvedValue({ id: runId, runNo: `RUN-TID-${runSeq}`, engineVersion: 'WALLET_V1' });
+        deps.prisma.reconciliationRun.create.mockResolvedValue({ id: runId, runNo: `RUN-TID-${runSeq}` });
         deps.prisma.externalBalance.findMany.mockResolvedValue([
           { walletRef: 'w-tid-exist', closingBalance: new Prisma.Decimal(0), book: 'CLIENT', currency: 'USDT', accountRef: 'acc-e' },
         ]);
@@ -372,7 +372,7 @@ describe('WalletReconRunService', () => {
 
         const deps = makeDeps();
         deps.prisma.reconciliationRun.create.mockResolvedValue({
-          id: runId, runNo: `RUN-WALLET-${runSeq}`, engineVersion: 'WALLET_V1',
+          id: runId, runNo: `RUN-WALLET-${runSeq}`,
         });
 
         // External balances → drives which wallets the engine iterates.

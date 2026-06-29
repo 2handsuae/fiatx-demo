@@ -11,7 +11,6 @@
 //   3. Cross-wallet same-externalRef invariant — e.g. WITHDRAW_FEE_POST
 //      (client OUT) and WITHDRAW_FEE_FIRM (firm IN) share ref WDRxxx:fee;
 //      |amount(client OUT)| must equal |amount(firm IN)|. Mismatch → case.
-//   4. Stamp ReconciliationRun.engineVersion='WALLET_V1'.
 //
 // Out of scope for T7: Case SLA / resolution workflow, Reimbursement
 // re-creation, evidence-side line items beyond orphan/mismatch records.
@@ -36,7 +35,6 @@ import {
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
 
 const RUN_LAYER = 'WALLET';
-const ENGINE_VERSION = 'WALLET_V1';
 
 // T2: severity thresholds (absolute delta in minor-unit ints; hard-coded this
 // version, configurable later per plan §Deferred). Used to triage cases in the
@@ -215,8 +213,7 @@ export class WalletReconRunService {
 
     // ── 3. Auto-heal: any previously OPEN case whose wallet didn't break in
     // this run is presumed recovered → mark RESOLVED + AUTO_HEALED. Scoped to
-    // engineVersion=WALLET_V1 via layer=WALLET so this never touches legacy
-    // V8_FORMULA cases.
+    // layer=WALLET so this never touches legacy V8 cases.
     const closedCount = await this.autoHealCases({
       runId: run.id,
       businessDate,
@@ -253,8 +250,8 @@ export class WalletReconRunService {
       where: { businessDate, layer: RUN_LAYER },
     });
     const seq = prior + 1;
-    // Format: RUN{YYYYMMDD}-{seq} — single engine (WALLET_V1), so no engine
-    // tag in the no. Sequence scoped to layer=WALLET per day.
+    // Format: RUN{YYYYMMDD}-{seq} — single engine, so no engine tag in the
+    // no. Sequence scoped to layer=WALLET per day.
     const runNo = `RUN${businessDate.replace(/-/g, '')}-${seq}`;
     return (this.prisma as any).reconciliationRun.create({
       data: {
@@ -265,7 +262,6 @@ export class WalletReconRunService {
         triggerType: 'MANUAL',
         mode: 'APPLY',
         status: 'RUNNING',
-        engineVersion: ENGINE_VERSION,
         traceId: randomUUID(),
         demoManifest: manifest ? JSON.stringify(manifest) : null,
       },

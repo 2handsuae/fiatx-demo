@@ -2006,14 +2006,10 @@ model ReconciliationRun {
   completedAt     DateTime?
   createdAt       DateTime @default(now())
   demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
-  // Engine version stamp — historical runs (credit-net five-formula) default to V8_FORMULA;
-  // Phase B per-wallet engine (T7) will stamp new runs with WALLET_V1.
-  engineVersion   String   @default("V8_FORMULA")
   invariantChecks ReconciliationInvariantCheck[]
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
   @@index([businessDate, layer])
-  @@index([engineVersion])
   @@map("reconciliation_runs")
 }
 

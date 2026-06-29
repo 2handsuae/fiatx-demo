@@ -136,7 +136,7 @@ describe('pairManifest — amount-keyed pairing', () => {
 });
 
 describe('listRuns — single engine surface', () => {
-  // Single engine now (WALLET_V1). No engineVersion filter.
+  // Single engine now. No engineVersion filter.
   function mkPrisma(rows: any[]) {
     return {
       reconciliationRun: {

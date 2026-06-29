@@ -20,7 +20,7 @@ export class ReconciliationAdminController {
   ) {}
 
   @Post('runs/wallet')
-  @ApiOperation({ summary: 'Trigger a per-wallet reconciliation run (engineVersion=WALLET_V1)' })
+  @ApiOperation({ summary: 'Trigger a per-wallet reconciliation run' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/reconciliation/runs/wallet'))
   async createWalletRun(@Body() dto: { cutoff: string }) {
     if (!dto?.cutoff) throw new BadRequestException('cutoff is required (ISO timestamp)');
