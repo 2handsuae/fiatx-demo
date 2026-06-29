@@ -31,22 +31,6 @@ import {
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-// Kept for backwards-compat with the legacy V8 run shape (we no longer render
-// the table, but the field still arrives in the response).
-interface InvariantCheck {
-  id: string;
-  invariantCode: string;
-  currency: string | null;
-  lhsLabel: string;
-  lhsValue: string;
-  rhsLabel: string;
-  rhsValue: string;
-  delta: string;
-  status: string;
-  severity: string;
-  createdAt: string;
-}
-
 interface ReconCaseLink {
   caseNo: string;
   assetCode: string;
@@ -107,7 +91,6 @@ interface ReconRunDetail {
   completedAt: string | null;
   createdAt: string;
   hasDemoManifest: boolean;
-  invariantChecks: InvariantCheck[];
   cases?: ReconCaseLink[];
   accountStatusTable?: AccountStatusRow[];
   summary?: RunDetailSummary;
