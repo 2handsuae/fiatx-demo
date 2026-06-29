@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { StatusPill } from '../components/ui/StatusPill';
 
 interface ExternalBalanceRow {
   id: string;
@@ -18,6 +19,26 @@ interface ExternalBalanceRow {
   walletRef: string | null;
   walletNo: string | null;
   walletRole: string | null;
+}
+
+interface StatementLine {
+  id: string;
+  datetime: string;
+  direction: 'IN' | 'OUT';
+  amount: string;
+  externalRef: string | null;
+  channelRef: string | null;
+  balanceAfter: string | null;
+  description: string | null;
+  raw: string | null;
+}
+
+interface ExternalBalanceDetail extends ExternalBalanceRow {
+  walletRef: string | null;
+  ownerNo: string | null;
+  asOfAt: string | null;
+  ingestedAt: string | null;
+  lines: StatementLine[];
 }
 
 const SOURCE_LABELS: Record<string, { groupLabel: string; subLabel: string }> = {
@@ -46,6 +67,10 @@ const ReconciliationExternalBalancesPage = () => {
   const [rows, setRows] = useState<ExternalBalanceRow[]>([]);
   const [loadingList, setLoadingList] = useState(true);
 
+  const [detail, setDetail] = useState<ExternalBalanceDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
   const fetchList = async (d: string) => {
     setLoadingList(true);
     try {
@@ -63,6 +88,34 @@ const ReconciliationExternalBalancesPage = () => {
   };
 
   useEffect(() => { void fetchList(date); }, [date]);
+
+  const fetchDetail = async (walletNo: string, d: string) => {
+    setLoadingDetail(true);
+    setExpanded(new Set());
+    try {
+      const url = new URL(`${import.meta.env.VITE_API_URL}/admin/reconciliation/external-balances/${encodeURIComponent(walletNo)}`);
+      url.searchParams.set('date', d);
+      const res = await adminFetch(url.toString());
+      if (res.ok) setDetail((await res.json()) as ExternalBalanceDetail);
+      else { setDetail(null); alert(await getApiErrorMessage(res, 'Failed to load wallet statement')); }
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      console.error(e);
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedWallet) void fetchDetail(selectedWallet, date);
+    else setDetail(null);
+  }, [selectedWallet, date]);
+
+  const toggleExpand = (id: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
   // Group rows by source's groupLabel (CRYPTO/FIAT/OTHER)
   const grouped = useMemo(() => {
@@ -154,14 +207,125 @@ const ReconciliationExternalBalancesPage = () => {
           )}
         </aside>
 
-        {/* DETAIL — Task B2 fills this */}
-        <main className="flex-1 overflow-y-auto">
+        {/* DETAIL */}
+        <main className="flex-1 overflow-y-auto divide-y divide-adm-border">
           {!selectedWallet ? (
             <div className="flex h-full items-center justify-center text-[13px] text-adm-t3">
               Select a wallet from the left to view its statement
             </div>
-          ) : (
-            <div className="px-6 py-12 text-center text-[13px] text-adm-t3">Detail pane — wired in Task B2</div>
+          ) : loadingDetail && !detail ? (
+            <div className="flex h-full flex-col items-center justify-center">
+              <RefreshCw className="mb-3 animate-spin text-adm-amber" size={28} />
+              <p className="text-[12px] text-adm-t3">Loading statement…</p>
+            </div>
+          ) : !detail ? null : (
+            <>
+              {/* Notice strip */}
+              <div className="border-b border-adm-border bg-adm-panel px-6 py-2 text-[11px] text-adm-t2">
+                {detail.lineCount ?? detail.lines.length} lines · ingested {detail.ingestedAt ? new Date(detail.ingestedAt).toLocaleString() : '—'}
+                {detail.status && <span className="ml-3"><StatusPill value={detail.status} /></span>}
+              </div>
+
+              {/* Hero */}
+              <section className="bg-adm-card p-6">
+                <div className="font-mono text-[19px] font-bold text-adm-amber">{detail.walletNo ?? '—'}</div>
+                <div className="mt-4 grid grid-cols-[120px_1fr] gap-y-2 text-[13px]">
+                  <div className="text-adm-t3">SOURCE</div><div className="text-adm-t1">{detail.source}</div>
+                  <div className="text-adm-t3">BOOK</div>
+                  <div>
+                    {detail.book ? (
+                      <span className={`inline-flex rounded border px-2 py-0.5 font-mono text-[10px] uppercase ${BOOK_BADGE[detail.book] ?? 'border-adm-border bg-adm-bg text-adm-t2'}`}>{detail.book}</span>
+                    ) : '—'}
+                  </div>
+                  <div className="text-adm-t3">ROLE</div><div className="font-mono text-adm-t1">{detail.walletRole ?? '—'}</div>
+                  <div className="text-adm-t3">CCY</div><div className="font-mono text-adm-t1">{detail.currency}</div>
+                  <div className="text-adm-t3">OWNER</div><div className="font-mono text-adm-t1">{detail.ownerNo ?? '—'}</div>
+                </div>
+                <div className="mt-5 border-t border-adm-border pt-4">
+                  <div className="text-[11px] uppercase tracking-wider text-adm-t3">CLOSING</div>
+                  <div className={`mt-1 font-mono text-[24px] font-semibold ${Number(detail.closingBalance) < 0 ? 'text-adm-red' : 'text-adm-t1'}`}>{fmtAmount(detail.closingBalance)}</div>
+                </div>
+              </section>
+
+              {/* Roll-Forward Check */}
+              {(() => {
+                const opening = Number(detail.openingBalance ?? 0);
+                const closing = Number(detail.closingBalance);
+                const net = detail.lines.reduce((s, l) => s + (l.direction === 'IN' ? Number(l.amount) : -Number(l.amount)), 0);
+                const drift = opening + net - closing;
+                const continuous = Math.abs(drift) < 0.000001;
+                const empty = detail.lines.length === 0;
+                return (
+                  <section className="p-6">
+                    <div className="text-[11px] uppercase tracking-wider text-adm-t3">Roll-Forward Check</div>
+                    <div className="mt-2 font-mono text-[13px] text-adm-t1">
+                      {fmtAmount(opening)} + {fmtAmount(net)} net {continuous ? '=' : '≠'} {fmtAmount(closing)}
+                    </div>
+                    <div className={`mt-2 text-[12px] ${empty ? 'text-adm-t3' : continuous ? 'text-adm-green' : 'text-adm-red'}`}>
+                      {empty ? '⚠️ Empty statement — opening/closing only' :
+                       continuous ? `✅ continuous · drift = 0` :
+                       `❌ drift = ${fmtAmount(drift)} · contact ${detail.source}`}
+                    </div>
+                  </section>
+                );
+              })()}
+
+              {/* Statement Lines */}
+              <section className="p-6">
+                <div className="text-[11px] uppercase tracking-wider text-adm-t3 mb-3">Statement Lines ({detail.lines.length})</div>
+                {detail.lines.length === 0 ? (
+                  <div className="text-[12px] text-adm-t3">No lines recorded for this wallet on {detail.cutoffDate}</div>
+                ) : (
+                  <table className="w-full border-collapse text-[11px]">
+                    <thead>
+                      <tr className="bg-adm-bg text-adm-t3">
+                        <th className="px-2 py-1.5 text-left font-mono uppercase tracking-wider">Time</th>
+                        <th className="px-2 py-1.5 text-left font-mono uppercase tracking-wider">Dir</th>
+                        <th className="px-2 py-1.5 text-right font-mono uppercase tracking-wider">Amount</th>
+                        <th className="px-2 py-1.5 text-left font-mono uppercase tracking-wider">External Ref</th>
+                        <th className="px-2 py-1.5 text-left font-mono uppercase tracking-wider">Channel Ref</th>
+                        <th className="px-2 py-1.5 text-left font-mono uppercase tracking-wider">Description</th>
+                        <th className="px-2 py-1.5 text-right font-mono uppercase tracking-wider">Balance After</th>
+                        <th className="w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.lines.map((l) => [
+                        <tr key={l.id} className="border-b border-adm-border hover:bg-adm-hover cursor-pointer" onClick={() => toggleExpand(l.id)}>
+                          <td className="px-2 py-2 font-mono text-adm-t2">{new Date(l.datetime).toLocaleTimeString()}</td>
+                          <td className="px-2 py-2">
+                            <span className={`inline-flex rounded px-1.5 py-0 font-mono text-[10px] font-semibold ${l.direction === 'IN' ? 'bg-adm-green/15 text-adm-green' : 'bg-adm-red/15 text-adm-red'}`}>{l.direction}</span>
+                          </td>
+                          <td className={`px-2 py-2 text-right font-mono ${l.direction === 'OUT' ? 'text-adm-red' : 'text-adm-t1'}`}>{fmtAmount(l.amount)}</td>
+                          <td className="px-2 py-2 font-mono text-adm-t2">{l.externalRef ?? '—'}</td>
+                          <td className="px-2 py-2 font-mono text-adm-t3">{l.channelRef ?? '—'}</td>
+                          <td className="px-2 py-2 text-adm-t2">{l.description ?? '—'}</td>
+                          <td className="px-2 py-2 text-right font-mono text-adm-t2">{l.balanceAfter ? fmtAmount(l.balanceAfter) : '—'}</td>
+                          <td className="px-2 py-2 text-adm-t3">{expanded.has(l.id) ? '▾' : '▸'}</td>
+                        </tr>,
+                        expanded.has(l.id) && l.raw ? (
+                          <tr key={`${l.id}-raw`} className="bg-adm-bg">
+                            <td colSpan={8} className="px-4 py-2">
+                              <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[10px] text-adm-t2">{(() => { try { return JSON.stringify(JSON.parse(l.raw), null, 2); } catch { return l.raw; } })()}</pre>
+                            </td>
+                          </tr>
+                        ) : null,
+                      ])}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+
+              {/* Cross-ref footer */}
+              <section className="p-6">
+                <a
+                  href={`/admin/ledger/account-statement?wallet=${encodeURIComponent(detail.walletRef ?? '')}&crossingOnly=true`}
+                  className="text-[12px] text-adm-amber hover:underline"
+                >
+                  View in Internal Book →
+                </a>
+              </section>
+            </>
           )}
         </main>
       </div>
