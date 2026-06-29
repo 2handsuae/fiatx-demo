@@ -347,8 +347,8 @@ export class ReconciliationQueryService {
 
     return rows.map(r => ({
       ...r,
-      walletNo: walletById.get(r.walletRef ?? '')?.walletNo ?? null,
-      walletRole: walletById.get(r.walletRef ?? '')?.walletRole ?? null,
+      walletNo: r.walletRef ? (walletById.get(r.walletRef)?.walletNo ?? null) : null,
+      walletRole: r.walletRef ? (walletById.get(r.walletRef)?.walletRole ?? null) : null,
     }));
   }
 
