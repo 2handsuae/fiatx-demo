@@ -269,17 +269,28 @@ async function planWallets(
 
     // Step 2 — resolve tbAccountId → code, drop aggregate legs (code 1/50)
     // and keep only rows posting to the wallet's "owned" TB accounts.
-    const tbAccountIds = Array.from(new Set(rawFlows.map((f) => f.tbAccountId)));
+    //
+    // tb_account_registry stores tbAccountId in 32-char padded form
+    // ('0886e84...'), but account_flows.tbAccountId can be either 32-char
+    // padded or 31-char unpadded ('886e84...') depending on the writer.
+    // Pad both sides to 32 chars before joining so F_SET / F_FEE / etc.
+    // flows don't silently drop on a string mismatch.
+    const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+    const tbAccountIds = Array.from(
+      new Set(rawFlows.map((f) => padTbId(f.tbAccountId))),
+    );
     const regs = tbAccountIds.length
       ? (await (prisma as any).tbAccountRegistry.findMany({
           where: { tbAccountId: { in: tbAccountIds } },
           select: { tbAccountId: true, code: true },
         })) as Array<{ tbAccountId: string; code: number }>
       : [];
-    const codeById = new Map<string, number>(regs.map((r) => [r.tbAccountId, r.code]));
+    const codeById = new Map<string, number>(
+      regs.map((r) => [padTbId(r.tbAccountId), r.code]),
+    );
 
     const flows = rawFlows.filter((f) => {
-      const code = codeById.get(f.tbAccountId);
+      const code = codeById.get(padTbId(f.tbAccountId));
       return code !== undefined && ownedCodes.has(code);
     });
 

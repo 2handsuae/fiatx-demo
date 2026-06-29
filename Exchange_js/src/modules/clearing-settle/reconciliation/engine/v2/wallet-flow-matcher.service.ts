@@ -143,17 +143,27 @@ export class WalletFlowMatcherService {
     // bogus orphanInternal entries against an external statement that only
     // mirrors owned-account activity. This must match the slice used by
     // WalletBalanceChecker and scripts/recon-demo.ts:planWallets step 2.
-    const tbAccountIds = Array.from(new Set(rawInternal.map((f) => f.tbAccountId)));
+    // tb_account_registry stores tbAccountId in 32-char padded form;
+    // account_flows.tbAccountId can be 31-char unpadded. Pad both sides to
+    // 32 chars before the join. Without this, F_SET / F_FEE / etc. flows
+    // silently drop and surface as bogus orphan{Internal,External} on the
+    // engine side — exactly the bug planWallets in recon-demo had.
+    const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+    const tbAccountIds = Array.from(
+      new Set(rawInternal.map((f) => padTbId(f.tbAccountId))),
+    );
     const regs = tbAccountIds.length
       ? ((await (this.prisma as any).tbAccountRegistry.findMany({
           where: { tbAccountId: { in: tbAccountIds } },
           select: { tbAccountId: true, code: true },
         })) as Array<{ tbAccountId: string; code: number }>)
       : [];
-    const codeById = new Map<string, number>(regs.map((r) => [r.tbAccountId, r.code]));
+    const codeById = new Map<string, number>(
+      regs.map((r) => [padTbId(r.tbAccountId), r.code]),
+    );
     const internal: InternalFlowRow[] = rawInternal
       .filter((f) => {
-        const code = codeById.get(f.tbAccountId);
+        const code = codeById.get(padTbId(f.tbAccountId));
         return code !== undefined && OWNED_CODES.has(code);
       })
       .map(({ tbAccountId: _drop, ...rest }) => rest);
