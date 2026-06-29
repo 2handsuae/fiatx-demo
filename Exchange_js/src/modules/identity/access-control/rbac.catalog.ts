@@ -332,7 +332,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/reconciliation/cases', 'View Recon Cases', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/cases/:caseNo', 'View Recon Case Detail', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/external-balances', 'View External Balances', ['RECON_EXTERNAL_BALANCE_READ']),
-  route('GET', '/admin/reconciliation/external-balances/:statementId', 'View External Balance Detail', ['RECON_EXTERNAL_BALANCE_READ']),
+  route('GET', '/admin/reconciliation/external-balances/:walletNo', 'View External Balance Detail', ['RECON_EXTERNAL_BALANCE_READ']),
 
   // TB Ledger
   route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
