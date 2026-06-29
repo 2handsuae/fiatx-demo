@@ -48,6 +48,25 @@ import { FundsFlowService } from '../../funds-layer/domain/funds-flow.service';
 import { InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 
+/**
+ * R4: Thrown when a withdrawal's source wallet does not satisfy the
+ * "customer-owned source" invariant:
+ *   FIAT  → walletRole = C_VIBAN, ownerType = CUSTOMER, ownerId = withdrawal.ownerId
+ *   CRYPTO → walletRole = C_DEP,  ownerType = CUSTOMER, ownerId = withdrawal.ownerId
+ *
+ * Surfaces the seed/data gap explicitly instead of silently attaching the
+ * customer's outflow to a platform pool wallet (the previous behaviour for
+ * FIAT withdrawals — see git blame on this file for the C_CMA regression).
+ * Extends BadRequestException so it serialises to a 400 over HTTP without any
+ * additional handler wiring.
+ */
+export class IllegalSourceWalletError extends BadRequestException {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IllegalSourceWalletError';
+  }
+}
+
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(WithdrawWorkflowService.name);
@@ -800,10 +819,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
     if (Number(w.feeAmount) > 0) {
       // From = the CUSTOMER's own wallet (C_DEP for crypto / C_VIBAN for fiat).
       // System-wide invariant C_VIBAN → F_FEE: the withdrawal fee is debited from
-      // the per-customer wallet, NOT the platform pool. We therefore resolve the
-      // customer wallet separately here — distinct from the withdrawal's bound
-      // fromWalletId (which is the principal source: C_CMA pool for fiat) used by
-      // the payout above. See fee-accrual.service.ts INVARIANT.
+      // the per-customer wallet, NOT the platform pool. Post-R4 fix, the
+      // withdrawal's bound fromWalletId resolves to the SAME customer wallet
+      // (FIAT→C_VIBAN, CRYPTO→C_DEP) — this lookup is now redundant in steady
+      // state but kept as the canonical resolution path until the orchestrator
+      // contract is refactored.
       const customerSourceRole = w.asset?.type === 'CRYPTO' ? 'C_DEP' : 'C_VIBAN';
       const customerSourceWallet = await this.withdrawService.findCustomerWallet(
         w.ownerId,
@@ -1133,10 +1153,19 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   /**
    * Bind the withdrawal's source wallet (fromWalletId/No/Address/Iban) if not
-   * already bound. Crypto withdrawals source from the customer's own C_DEP
-   * wallet (CUSTOMER owner); fiat sources from the platform C_CMA pool
-   * (PLATFORM owner). Returns the (possibly re-read) withdrawal with the binding
-   * applied. Idempotent: a no-op when fromWalletId is already set.
+   * already bound. R4 invariant: the source is ALWAYS a customer-owned wallet
+   * — never the platform pool — regardless of asset type:
+   *   FIAT  → walletRole = C_VIBAN, ownerType = CUSTOMER
+   *   CRYPTO → walletRole = C_DEP,  ownerType = CUSTOMER
+   *
+   * Previously the FIAT branch resolved to walletRole = C_CMA + ownerType =
+   * PLATFORM, which silently attached the customer's outflow to the platform
+   * pool wallet (3/3 FIAT withdrawals in the demo seed were misrouted).
+   *
+   * Returns the (possibly re-read) withdrawal with the binding applied.
+   * Idempotent: a no-op when fromWalletId is already set. Throws
+   * IllegalSourceWalletError when the customer has no active wallet of the
+   * required role for this asset.
    */
   private async ensureSourceWalletBound(w: any): Promise<any> {
     if (w.fromWalletId) {
@@ -1150,14 +1179,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     const isCrypto = w.asset?.type === 'CRYPTO';
-    const walletRole = isCrypto ? WalletRole.C_DEP : WalletRole.C_CMA;
+    const walletRole = isCrypto ? WalletRole.C_DEP : WalletRole.C_VIBAN;
 
     const sourceWallet = await (this.prisma as any).wallet.findFirst({
       where: {
         walletRole,
         assetId: w.assetId,
-        ownerType: isCrypto ? 'CUSTOMER' : 'PLATFORM',
-        ...(isCrypto ? { ownerId: w.ownerId } : {}),
+        ownerType: 'CUSTOMER',
+        ownerId: w.ownerId,
         status: 'ACTIVE',
       },
       orderBy: { createdAt: 'asc' },
@@ -1165,8 +1194,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
     });
 
     if (!sourceWallet) {
-      throw new BadRequestException(
-        `Source wallet with role ${walletRole} not found for withdrawal ${w.id}`,
+      throw new IllegalSourceWalletError(
+        `Withdrawal ${w.id}: customer ${w.ownerId} has no active ${walletRole} ` +
+        `wallet for asset ${w.assetId} (${w.asset.currency}). R4 requires the ` +
+        `source wallet to be customer-owned (FIAT→C_VIBAN, CRYPTO→C_DEP).`,
       );
     }
 

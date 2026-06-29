@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { WithdrawWorkflowService } from './withdraw-workflow.service';
+import { WithdrawWorkflowService, IllegalSourceWalletError } from './withdraw-workflow.service';
 import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
@@ -235,5 +235,176 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
     await expect(
       (workflow as any).assertWithdrawSettled(baseWithdrawal, 100n),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// R4: ensureSourceWalletBound — customer-owned source wallets only
+//
+// The fromWalletId of a customer withdrawal MUST be the customer's own wallet:
+//   FIAT → walletRole = C_VIBAN, ownerType = CUSTOMER, ownerId = withdrawal.ownerId
+//   CRYPTO → walletRole = C_DEP, ownerType = CUSTOMER, ownerId = withdrawal.ownerId
+//
+// Previously the FIAT branch hardcoded walletRole = C_CMA + ownerType = PLATFORM,
+// which silently attached the customer's outflow to the platform pool wallet
+// (3 of 3 FIAT withdrawals were misrouted in the demo seed). This regression
+// suite locks the corrected behaviour.
+// ─────────────────────────────────────────────────────────────
+
+describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
+  let workflow: WithdrawWorkflowService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      wallet: { findFirst: jest.fn() },
+      withdrawTransaction: { update: jest.fn().mockResolvedValue(undefined) },
+    };
+
+    workflow = new WithdrawWorkflowService(
+      prisma as any,
+      {} as any, // eventEmitter
+      {} as any, // withdrawService
+      {} as any, // withdrawQuoteService
+      {} as any, // auditLogsService
+      {} as any, // accountingService
+      {} as any, // payoutsService
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // fundsFlowService
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+    );
+  });
+
+  it('FIAT withdrawal binds fromWalletId to the customer C_VIBAN (NOT platform C_CMA)', async () => {
+    const customerViban = {
+      id: 'wallet-viban-1',
+      walletNo: 'WA-VIBAN-1',
+      address: null,
+      iban: 'AE07 0331 2345 6789',
+    };
+    prisma.wallet.findFirst.mockResolvedValue(customerViban);
+
+    const fiatWithdrawal = {
+      id: 'wd-fiat-1',
+      ownerId: 'cust-1',
+      assetId: 'asset-aed',
+      fromWalletId: null,
+      asset: { currency: 'AED', type: 'FIAT' },
+    };
+
+    const result = await (workflow as any).ensureSourceWalletBound(fiatWithdrawal);
+
+    // R4 contract: walletRole = C_VIBAN, ownerType = CUSTOMER (NOT PLATFORM/C_CMA).
+    expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          walletRole: 'C_VIBAN',
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          assetId: 'asset-aed',
+          status: 'ACTIVE',
+        }),
+      }),
+    );
+    expect(result.fromWalletId).toBe('wallet-viban-1');
+    expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'wd-fiat-1' },
+        data: expect.objectContaining({ fromWalletId: 'wallet-viban-1' }),
+      }),
+    );
+  });
+
+  it('CRYPTO withdrawal still binds fromWalletId to the customer C_DEP (unchanged path)', async () => {
+    const customerDep = {
+      id: 'wallet-cdep-1',
+      walletNo: 'WA-CDEP-1',
+      address: '0xabc',
+      iban: null,
+    };
+    prisma.wallet.findFirst.mockResolvedValue(customerDep);
+
+    const cryptoWithdrawal = {
+      id: 'wd-crypto-1',
+      ownerId: 'cust-2',
+      assetId: 'asset-usdt',
+      fromWalletId: null,
+      asset: { currency: 'USDT', type: 'CRYPTO' },
+    };
+
+    const result = await (workflow as any).ensureSourceWalletBound(cryptoWithdrawal);
+
+    expect(prisma.wallet.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          walletRole: 'C_DEP',
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-2',
+          assetId: 'asset-usdt',
+          status: 'ACTIVE',
+        }),
+      }),
+    );
+    expect(result.fromWalletId).toBe('wallet-cdep-1');
+  });
+
+  it('throws IllegalSourceWalletError when the customer has no active C_VIBAN (FIAT)', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(null);
+
+    const fiatWithdrawal = {
+      id: 'wd-fiat-noviban',
+      withdrawNo: 'WD-NO-VIBAN',
+      ownerId: 'cust-orphan',
+      assetId: 'asset-aed',
+      fromWalletId: null,
+      asset: { currency: 'AED', type: 'FIAT' },
+    };
+
+    await expect(
+      (workflow as any).ensureSourceWalletBound(fiatWithdrawal),
+    ).rejects.toBeInstanceOf(IllegalSourceWalletError);
+    await expect(
+      (workflow as any).ensureSourceWalletBound(fiatWithdrawal),
+    ).rejects.toThrow(/C_VIBAN/);
+    // No update is attempted when the precondition fails.
+    expect(prisma.withdrawTransaction.update).not.toHaveBeenCalled();
+  });
+
+  it('throws IllegalSourceWalletError when the customer has no active C_DEP (CRYPTO)', async () => {
+    prisma.wallet.findFirst.mockResolvedValue(null);
+
+    const cryptoWithdrawal = {
+      id: 'wd-crypto-nocdep',
+      withdrawNo: 'WD-NO-CDEP',
+      ownerId: 'cust-orphan',
+      assetId: 'asset-usdt',
+      fromWalletId: null,
+      asset: { currency: 'USDT', type: 'CRYPTO' },
+    };
+
+    await expect(
+      (workflow as any).ensureSourceWalletBound(cryptoWithdrawal),
+    ).rejects.toBeInstanceOf(IllegalSourceWalletError);
+    await expect(
+      (workflow as any).ensureSourceWalletBound(cryptoWithdrawal),
+    ).rejects.toThrow(/C_DEP/);
+  });
+
+  it('is a no-op when fromWalletId is already set (idempotent)', async () => {
+    const alreadyBound = {
+      id: 'wd-bound',
+      ownerId: 'cust-3',
+      assetId: 'asset-aed',
+      fromWalletId: 'pre-existing-wallet-id',
+      asset: { currency: 'AED', type: 'FIAT' },
+    };
+
+    const result = await (workflow as any).ensureSourceWalletBound(alreadyBound);
+
+    expect(result).toBe(alreadyBound);
+    expect(prisma.wallet.findFirst).not.toHaveBeenCalled();
+    expect(prisma.withdrawTransaction.update).not.toHaveBeenCalled();
   });
 });
