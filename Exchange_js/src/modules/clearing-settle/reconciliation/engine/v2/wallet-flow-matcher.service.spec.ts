@@ -10,6 +10,13 @@ import { WalletFlowMatcherService } from './wallet-flow-matcher.service';
 
 const D = (n: string | number) => new Prisma.Decimal(n);
 
+// Default tbAccountId every flow falls back to when the fixture doesn't set
+// one. The registry mock maps it to code=100 (CLIENT_PAYABLE) so flows pass
+// the matcher's owned-code filter unless a fixture overrides tbAccountId to
+// 'tb-aggregate' (mapped to code=1 / CLIENT_ASSET — aggregate leg, excluded).
+const DEFAULT_TB_OWNED = 'tb-owned';
+const DEFAULT_TB_AGGREGATE = 'tb-aggregate';
+
 function makePrismaMock(flows: any[]) {
   return {
     accountFlow: {
@@ -21,8 +28,21 @@ function makePrismaMock(flows: any[]) {
           return true;
         }).map((f) => ({
           ...f,
+          tbAccountId: f.tbAccountId ?? DEFAULT_TB_OWNED,
           amount: new Prisma.Decimal(f.amount),
         }));
+      }),
+    },
+    tbAccountRegistry: {
+      findMany: jest.fn(async ({ where }: any) => {
+        const ids: string[] = where.tbAccountId?.in ?? [];
+        const rows: Array<{ tbAccountId: string; code: number }> = [];
+        for (const id of ids) {
+          if (id === DEFAULT_TB_OWNED) rows.push({ tbAccountId: id, code: 100 });   // CLIENT_PAYABLE (owned)
+          else if (id === DEFAULT_TB_AGGREGATE) rows.push({ tbAccountId: id, code: 1 }); // CLIENT_ASSET (aggregate)
+          // any other id → no registry row → matcher should skip the flow
+        }
+        return rows;
       }),
     },
   };
@@ -192,6 +212,64 @@ describe('WalletFlowMatcherService', () => {
     expect(result.matched).toHaveLength(0);
     expect(result.orphanInternal).toHaveLength(1);
     expect(result.orphanExternal).toHaveLength(1);
+  });
+
+  it('excludes flows landing on aggregate codes (1/50) — same slice as balanceChecker', async () => {
+    // Aggregate leg (e.g. CLIENT_ASSET=1 / FIRM_ASSET=50) shares the walletRef
+    // for traceability but does not belong to the wallet's external statement.
+    // The matcher must drop these before matching, otherwise pass mode produces
+    // bogus orphanInternal entries that the recon engine cannot reconcile.
+    const prisma = makePrismaMock([
+      {
+        id: 'flow-agg',
+        walletRef: 'w-cust',
+        direction: 'IN',
+        amount: 1000,
+        externalRef: '0xaggregate',
+        isExternalCrossing: true,
+        eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        createdAt: new Date('2026-06-26T10:00:00Z'),
+        tbAccountId: DEFAULT_TB_AGGREGATE, // → registry code=1 (CLIENT_ASSET)
+      },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any);
+    const result = await svc.matchFlows({
+      walletRef: 'w-cust',
+      externalLines: [],
+      cutoff,
+    });
+    // Aggregate-code flow must not surface as orphan_internal — the external
+    // statement only mirrors owned-account activity (PAYABLE/SUSPENSE/firm-equity).
+    expect(result.orphanInternal).toHaveLength(0);
+    expect(result.matched).toHaveLength(0);
+  });
+
+  it('excludes flows whose tbAccountId is not in the registry (defensive)', async () => {
+    // If TB registry can't classify the leg (orphan account / stale data /
+    // leading-zero padding mismatch between flows and registry), the matcher
+    // must skip the flow rather than treat it as evidence. Same defensive
+    // rule WalletBalanceChecker applies (`if (!reg) continue;`).
+    const prisma = makePrismaMock([
+      {
+        id: 'flow-unknown',
+        walletRef: 'w-cust',
+        direction: 'IN',
+        amount: 1000,
+        externalRef: '0xunknown',
+        isExternalCrossing: true,
+        eventCode: 'WITHDRAW_FEE_POST',
+        createdAt: new Date('2026-06-26T10:00:00Z'),
+        tbAccountId: 'tb-not-in-registry',
+      },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any);
+    const result = await svc.matchFlows({
+      walletRef: 'w-cust',
+      externalLines: [],
+      cutoff,
+    });
+    expect(result.orphanInternal).toHaveLength(0);
+    expect(result.matched).toHaveLength(0);
   });
 
   it('excludes flows where isExternalCrossing=false (internal reclasses)', async () => {

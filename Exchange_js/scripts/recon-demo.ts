@@ -181,20 +181,33 @@ async function planWallets(
   cutoff: Date,
 ): Promise<WalletPlan[]> {
   // Single source of truth so external and internal can NEVER drift:
-  //   closingBalance ← balanceChecker.internal.total
-  //                    (exact number the recon engine uses on the internal side)
-  //   statement_lines ← every POSTED isExternalCrossing flow on this wallet
-  //                    (exact rows the recon matcher pairs against)
-  // Result: pass mode delta = 0 by construction; no phantom differences.
-  const COA_BY_ROLE: Record<string, string> = {
-    F_OPS:   'E.FIRM_OPS',
-    F_SET:   'E.FIRM_SET',
-    F_LIQ:   'E.FIRM_LIQ',
-    F_FEE:   'E.FIRM_FEE',
-    C_DEP:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-    C_VIBAN: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-    C_CMA:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-  };
+  //   closingBalance     ← balanceChecker.internal.total = TB net for this wallet
+  //   statement_lines    ← every POSTED account_flow row landing on this wallet
+  //                        AND on one of the wallet's "owned" TB account codes
+  //                        (CUSTOMER → CLIENT_PAYABLE/DEPOSIT_SUSPENSE;
+  //                         FIRM     → FIRM_OPS/SET/FEE/LIQ).
+  //                        Aggregate codes (CLIENT_ASSET=1 / FIRM_ASSET=50)
+  //                        are filtered out — matches WalletBalanceChecker.
+  //
+  // Direction semantic (verified empirically against Alice's CU2601019430
+  // CLIENT_PAYABLE postings — image-1 evidence):
+  //   account_flows.direction='IN'  ⇒ external statement IN  (balance UP)
+  //   account_flows.direction='OUT' ⇒ external statement OUT (balance DOWN)
+  // The TB accounts in scope (CLIENT_PAYABLE/SUSPENSE = LIABILITY,
+  // FIRM_OPS/SET/FEE/LIQ = EQUITY) are ALL credit-normal right-side-of-BS
+  // accounts → same single rule for both books, no role/event override.
+  //
+  // The isExternalCrossing filter is INTENTIONALLY NOT applied:
+  //   Internal-only postings (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE) are part of
+  //   the wallet's TB net balance. Filtering them out makes
+  //   Σ(IN − OUT) ≠ TB net. Empirical check on Alice's payable:
+  //     with-filter   net = −1050  (wrong)
+  //     no-filter     net = +1950  (matches TB net = image-1 closing)
+  //
+  // Result: closing = opening(0) + Σ(IN − OUT) = TB net, by construction,
+  // for every wallet.
+  const FIRM_CODES = new Set<number>([200, 201, 202, 203]);
+  const CUSTOMER_CODES = new Set<number>([100, 101]);
   const allActiveWallets = (await (prisma as any).wallet.findMany({
     where: { status: 'ACTIVE' },
     select: {
@@ -216,18 +229,29 @@ async function planWallets(
   for (const w of allActiveWallets) {
     const currency = w.asset?.code ?? w.asset?.currency ?? null;
     if (!currency) continue;
+    // C_CMA is a platform fiat pool needed by demo:withdraw as the source
+    // wallet, but the user wants it hidden from External Balances UI. The
+    // wallet still exists in DB; we just don't mirror it into external_*.
+    if (w.walletRole === 'C_CMA') continue;
     const isFirm = w.ownerType !== 'CUSTOMER';
+    const ownedCodes = isFirm ? FIRM_CODES : CUSTOMER_CODES;
 
-    // Lines source — the matcher's exact query, so 1:1 mirroring is guaranteed.
-    const flows = (await (prisma as any).accountFlow.findMany({
+    // Step 1 — pull every POSTED *crossing* account_flow on this walletRef up
+    // to cutoff. isExternalCrossing=true is the demarcation between what an
+    // external system (Zand for fiat / HexTrust for crypto) actually observes
+    // vs internal book-to-book movements (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE)
+    // that the bank/custodian never sees. Including the latter would put
+    // phantom rows on the customer's external statement.
+    const rawFlows = (await (prisma as any).accountFlow.findMany({
       where: {
         walletRef: w.id,
-        isExternalCrossing: true,
         transferType: 'POSTED',
+        isExternalCrossing: true,
         createdAt: { lte: cutoff },
       },
       select: {
         id: true,
+        tbAccountId: true,
         direction: true,
         amount: true,
         externalRef: true,
@@ -236,14 +260,31 @@ async function planWallets(
       orderBy: { createdAt: 'asc' },
     })) as Array<{
       id: string;
+      tbAccountId: string;
       direction: string;
       amount: Prisma.Decimal;
       externalRef: string | null;
       createdAt: Date;
     }>;
 
-    // Balance source — the engine's own check, so demo's external closing
-    // always equals what the engine reads as internal. delta is structurally 0.
+    // Step 2 — resolve tbAccountId → code, drop aggregate legs (code 1/50)
+    // and keep only rows posting to the wallet's "owned" TB accounts.
+    const tbAccountIds = Array.from(new Set(rawFlows.map((f) => f.tbAccountId)));
+    const regs = tbAccountIds.length
+      ? (await (prisma as any).tbAccountRegistry.findMany({
+          where: { tbAccountId: { in: tbAccountIds } },
+          select: { tbAccountId: true, code: true },
+        })) as Array<{ tbAccountId: string; code: number }>
+      : [];
+    const codeById = new Map<string, number>(regs.map((r) => [r.tbAccountId, r.code]));
+
+    const flows = rawFlows.filter((f) => {
+      const code = codeById.get(f.tbAccountId);
+      return code !== undefined && ownedCodes.has(code);
+    });
+
+    // Step 3 — balance from the engine's own check. closingBalance below
+    // will equal bal.internal.total ⇒ drift is structurally 0.
     const bal = await balanceChecker.checkBalance({
       walletRef: w.id,
       externalClosing: 0n,
@@ -256,14 +297,15 @@ async function planWallets(
       book: isFirm ? 'FIRM' : 'CLIENT',
       currency,
       internalTotal: bal.internal.total,
-      coaCode: bal.walletKind !== 'UNKNOWN' ? bal.coaCode : (COA_BY_ROLE[w.walletRole] ?? ''),
+      coaCode: bal.coaCode,
       ownerNo: bal.ownerNo ?? w.ownerNo,
       lines: flows.map((f) => ({
         direction: f.direction as 'IN' | 'OUT',
         amount: f.amount,
         externalRef: f.externalRef,
-        // Shift timestamp 0–60 min backward inside matcher fuzzy window.
-        datetime: new Date(f.createdAt.getTime() - Math.floor(Math.random() * 60) * 60 * 1000),
+        // Use the real posting time — no random shift. Operators expect the
+        // external statement timestamp to match the internal ledger event.
+        datetime: f.createdAt,
         sourceFlowId: f.id,
       })),
     });
@@ -282,17 +324,21 @@ async function writeMirror(
   let balances = 0;
   let lines = 0;
   for (const p of plans) {
-    // External balance = internal balance (mirror).
-    // accountRef is a stable derived key (so the upsert composite unique
-    // constraint behaves); we use the walletRef itself.
+    // External balance = the wallet's TB net balance (bal.internal.total).
+    // Because each line is a 1:1 projection of a credit/debit posting on the
+    // wallet's owned TB accounts (planWallets step 2), and direction is taken
+    // raw from account_flows.direction, opening(0) + Σ(IN − OUT) = TB net by
+    // construction. The accountRef key is a stable derived key (so the upsert
+    // composite unique constraint behaves); we use the walletRef itself.
     const accountRef = p.walletRef;
     const source = sourceFor(p.currency);
+    const closingBalance = D(p.internalTotal.toString());
     await (prisma as any).externalBalance.upsert({
       where: { source_accountRef_cutoffDate: { source, accountRef, cutoffDate } },
       update: {
         currency: p.currency,
         book: p.book,
-        closingBalance: D(p.internalTotal.toString()),
+        closingBalance,
         openingBalance: D(0),
         asOfAt: cutoff,
         status: 'INGESTED',
@@ -307,7 +353,7 @@ async function writeMirror(
         currency: p.currency,
         book: p.book,
         cutoffDate,
-        closingBalance: D(p.internalTotal.toString()),
+        closingBalance,
         openingBalance: D(0),
         asOfAt: cutoff,
         status: 'INGESTED',
@@ -565,8 +611,21 @@ async function injectAnomalies(
   // ── Bucket 2: SOFT FLAG — balance == external, but flow has anomalies ─
 
   // 2A. PAIR_CANCEL_ORPHAN — delete one real line, insert a ghost of the
-  //     SAME direction + amount. Net external change = 0 (balance still
-  //     ties out), but matcher reports 1 orphan_internal + 1 orphan_ext.
+  //     SAME direction with amount = real.amount + ε. The external CLOSING
+  //     balance is NOT touched: it was already set to the internal TB net
+  //     in the pass-mirror phase, and internal hasn't moved, so leaving it
+  //     alone keeps the balance check at delta=0 (SOFT-flag bucket).
+  //
+  //     Why the ε shift instead of an exact replica: the matcher's Pass 2
+  //     fuzzy step pairs flows on (amount + direction + ±60min). With an
+  //     identical amount the ghost would fuzzy-pair with the deleted real's
+  //     internal twin and the anomaly would vanish. Shifting by 1 minor
+  //     unit makes Decimal.equals(ghost.amount, real.amount) false → fuzzy
+  //     skips → real's internal twin surfaces as orphan_internal AND the
+  //     ghost surfaces as orphan_external, exactly as the SOFT_FLAG bucket
+  //     promises. The 1-unit running-balance drift on the line-by-line
+  //     `balanceAfter` column is intentional and is the cockpit signal an
+  //     operator uses to spot the wash.
   {
     const real = await (prisma as any).externalStatementLine.findFirst({
       where: { subAccount: softOrphanPlan.walletRef },
@@ -575,6 +634,8 @@ async function injectAnomalies(
     if (!real) throw new Error(`No external line to pair-cancel on ${softOrphanPlan.walletRef}`);
     await (prisma as any).externalStatementLine.delete({ where: { id: real.id } });
     const fakeRef = refFor(softOrphanPlan.currency, 'PAIR');
+    const eps = D('1');
+    const ghostAmount = real.amount.plus(eps);
     const created = await (prisma as any).externalStatementLine.create({
       data: {
         source: sourceFor(softOrphanPlan.currency),
@@ -583,14 +644,15 @@ async function injectAnomalies(
         book: softOrphanPlan.book,
         currency: softOrphanPlan.currency,
         direction: real.direction,
-        amount: real.amount,
+        amount: ghostAmount,
         externalRef: fakeRef,
         datetime: cutoff,
-        description: 'Demo pair-cancel — ghost replaces deleted real line',
+        description: 'Demo pair-cancel — ghost (amount shifted by ε) replaces deleted real line',
         dedupKey: `DEMO-INJ-${cutoffDate}-${softOrphanPlan.walletRef}-soft-pair-orphan`,
       },
     });
-    // closingBalance unchanged — net delta is 0 by construction.
+    // closingBalance untouched — external balance was set to internal TB net
+    // in the pass-mirror phase, and internal hasn't moved → delta stays 0.
     injections.push({
       type: 'PAIR_CANCEL_ORPHAN',
       bucket: 'SOFT_FLAG',
@@ -600,7 +662,8 @@ async function injectAnomalies(
         deletedExternalRef: real.externalRef,
         insertedExternalLineId: created.id,
         insertedExternalRef: fakeRef,
-        amount: real.amount.toString(),
+        deletedAmount: real.amount.toString(),
+        insertedAmount: ghostAmount.toString(),
         direction: real.direction,
       },
     });
@@ -648,6 +711,48 @@ async function injectAnomalies(
   }
 
   return { cutoff: cutoff.toISOString(), injections };
+}
+
+// ── Phase 3.5: populate balanceAfter on every line via running-balance pass.
+// For each (source, accountRef, currency) tuple owning a balance row on
+// `cutoff`, fetch lines for that day in datetime ASC order, start from
+// openingBalance, accumulate IN(+) / OUT(−), write balanceAfter per line.
+// Runs in both pass and break modes so demo lines always carry a running
+// balance for the External Balances detail page roll-forward column.
+async function populateBalanceAfter(prisma: PrismaService, cutoff: Date): Promise<number> {
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const balances = (await (prisma as any).externalBalance.findMany({
+    where: { cutoffDate },
+    select: { source: true, accountRef: true, currency: true, openingBalance: true },
+  })) as Array<{ source: string; accountRef: string; currency: string; openingBalance: Prisma.Decimal | null }>;
+
+  const dayLo = new Date(`${cutoffDate}T00:00:00.000Z`);
+  const dayHi = new Date(`${cutoffDate}T23:59:59.999Z`);
+  let updated = 0;
+
+  for (const b of balances) {
+    const lines = (await (prisma as any).externalStatementLine.findMany({
+      where: {
+        source: b.source,
+        accountRef: b.accountRef,
+        currency: b.currency,
+        datetime: { gte: dayLo, lte: dayHi },
+      },
+      orderBy: { datetime: 'asc' },
+      select: { id: true, direction: true, amount: true },
+    })) as Array<{ id: string; direction: string; amount: Prisma.Decimal }>;
+
+    let running = new Prisma.Decimal(b.openingBalance ?? 0);
+    for (const l of lines) {
+      running = l.direction === 'IN' ? running.plus(l.amount) : running.minus(l.amount);
+      await (prisma as any).externalStatementLine.update({
+        where: { id: l.id },
+        data: { balanceAfter: running },
+      });
+      updated += 1;
+    }
+  }
+  return updated;
 }
 
 // ── Phase 4: read back the run + match each manifest injection against
@@ -793,6 +898,10 @@ async function main() {
       console.log(`  [${inj.type}] walletRef=${inj.walletRef}  ${JSON.stringify(inj.detail)}`);
     }
   }
+
+  // Phase 3.5 — populate balanceAfter on every line (running balance from opening).
+  const balanceAfterCount = await populateBalanceAfter(prisma, cutoff);
+  console.log(`balanceAfter populated on ${balanceAfterCount} line(s)`);
 
   // Phase 4 — run the engine.
   const engine = app.get(WalletReconRunService);

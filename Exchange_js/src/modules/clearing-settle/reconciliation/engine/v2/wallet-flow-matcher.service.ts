@@ -12,11 +12,19 @@
 //   2. Fallback: same amount + same direction + |Δt| ≤ timeWindowMinutes.
 //      Match in flow-creation order; once consumed, an external line is gone.
 //
-// Inclusion filter
-//   Only flows with isExternalCrossing=true participate. Internal reclasses
-//   (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE) live entirely inside the ledger — the
-//   external statement is not expected to mention them and they would
-//   otherwise show up as bogus orphans.
+// Inclusion filter (must match WalletBalanceCheckerService — the matcher
+// compares evidence against the SAME slice of account_flows that the
+// balance checker uses to compute internal.total; any drift creates
+// phantom orphans that won't show up in the balance delta):
+//   (a) isExternalCrossing=true — internal reclasses (e.g.
+//       DEPOSIT_SUSPENSE_TO_PAYABLE) live entirely inside the ledger; the
+//       external statement is not expected to mention them.
+//   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 202, 203} — drop
+//       aggregate legs (CLIENT_ASSET=1 / FIRM_ASSET=50) and any row whose
+//       tbAccountId isn't in the registry. Aggregate legs share walletRef
+//       purely for traceability; they belong to the aggregate book, not
+//       this wallet, so they should not be matched 1:1 against an external
+//       statement line. (Mirrors WalletBalanceChecker step 3.)
 //
 // Returns four disjoint buckets:
 //   - matched          (internalFlowId, externalLineId, via)
@@ -27,6 +35,21 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../core/prisma/prisma.service';
+import { TB_ACCOUNT_CODES } from '../../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+
+// Same set used by WalletBalanceChecker — flows must land on a wallet-owned
+// L (customer) or E (firm) account to count as evidence. Aggregate A codes
+// (1 / 50) and unknown-registry rows are excluded; both surface as bogus
+// orphans against an external statement that only mirrors owned-account
+// activity (see scripts/recon-demo.ts planWallets step 2).
+const OWNED_CODES: ReadonlySet<number> = new Set<number>([
+  TB_ACCOUNT_CODES.CLIENT_PAYABLE,    // 100
+  TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,  // 101
+  TB_ACCOUNT_CODES.FIRM_OPS,          // 200
+  TB_ACCOUNT_CODES.FIRM_SET,          // 201
+  TB_ACCOUNT_CODES.FIRM_FEE,          // 202
+  TB_ACCOUNT_CODES.FIRM_LIQ,          // 203
+]);
 
 export interface ExternalStatementLineInput {
   id: string;
@@ -96,7 +119,7 @@ export class WalletFlowMatcherService {
     const { walletRef, externalLines, cutoff } = input;
     const windowMs = (input.timeWindowMinutes ?? 60) * 60 * 1000;
 
-    const internal = (await (this.prisma as any).accountFlow.findMany({
+    const rawInternal = (await (this.prisma as any).accountFlow.findMany({
       where: {
         walletRef,
         isExternalCrossing: true,
@@ -105,13 +128,35 @@ export class WalletFlowMatcherService {
       },
       select: {
         id: true,
+        tbAccountId: true,
         direction: true,
         amount: true,
         externalRef: true,
         eventCode: true,
         createdAt: true,
       },
-    })) as InternalFlowRow[];
+    })) as Array<InternalFlowRow & { tbAccountId: string }>;
+
+    // Filter (b): resolve tbAccountId → code via registry, keep only flows on
+    // wallet-owned L/E accounts. Drops aggregate legs (code 1/50) and any row
+    // whose tbAccountId isn't in the registry — both would otherwise create
+    // bogus orphanInternal entries against an external statement that only
+    // mirrors owned-account activity. This must match the slice used by
+    // WalletBalanceChecker and scripts/recon-demo.ts:planWallets step 2.
+    const tbAccountIds = Array.from(new Set(rawInternal.map((f) => f.tbAccountId)));
+    const regs = tbAccountIds.length
+      ? ((await (this.prisma as any).tbAccountRegistry.findMany({
+          where: { tbAccountId: { in: tbAccountIds } },
+          select: { tbAccountId: true, code: true },
+        })) as Array<{ tbAccountId: string; code: number }>)
+      : [];
+    const codeById = new Map<string, number>(regs.map((r) => [r.tbAccountId, r.code]));
+    const internal: InternalFlowRow[] = rawInternal
+      .filter((f) => {
+        const code = codeById.get(f.tbAccountId);
+        return code !== undefined && OWNED_CODES.has(code);
+      })
+      .map(({ tbAccountId: _drop, ...rest }) => rest);
 
     const matched: MatchedPair[] = [];
     const mismatch: AmountMismatch[] = [];
