@@ -151,6 +151,8 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
     }
 
     // System wallets (ownerType PLATFORM), one per role — fiat vs crypto pool sets.
+    // C_CMA is provisioned (required by demo:withdraw fiat source pool); we hide
+    // it from External Balances UI via a planWallets filter in recon-demo.ts.
     const systemRoles = isFiat ? FIAT_SYSTEM_WALLET_ROLES : CRYPTO_SYSTEM_WALLET_ROLES;
     for (const role of systemRoles) {
       const owner = { ownerType: 'PLATFORM' as const, ownerNo: 'PLATFORM' };
@@ -602,7 +604,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 
 const SEED_FIRM_CAPITAL: Record<string, string> = {
-  AED: '1000000',
+  AED: '100000',
   USDT: '100000',
 };
 

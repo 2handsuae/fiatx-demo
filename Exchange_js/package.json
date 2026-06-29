@@ -23,7 +23,7 @@
     "main:up": "bash scripts/stack.sh up main",
     "main:down": "bash scripts/stack.sh down main",
     "main:reset:base": "bash scripts/on-stack.sh main db:biz:reset && bash scripts/on-stack.sh main db:base:sync",
-    "main:reset:biz": "bash scripts/on-stack.sh main db:biz:reset && bash scripts/on-stack.sh main db:biz:init && bash scripts/on-stack.sh main demo:setup",
+    "main:reset:biz": "bash scripts/reset-main-biz.sh",
     "main:deposit": "bash scripts/on-stack.sh main demo:deposit",
     "main:swap": "bash scripts/on-stack.sh main demo:swap",
     "main:withdraw": "bash scripts/on-stack.sh main demo:withdraw",
