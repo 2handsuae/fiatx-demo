@@ -104,6 +104,12 @@ async function scanR2(prisma: PrismaClient): Promise<void> {
     if (!reg) continue; // tbAccountId not in registry — aggregate or phantom, skip
     if (reg.code === 1 || reg.code === 50) continue; // aggregate, owner-free
 
+    // Firm-side owner 口径不统一：wallets 表 firm wallet = 'PLATFORM'，
+    // tb_account_registry firm-side 账户 = 'SYSTEM'。两个都是 firm 内部账户，
+    // 业务上同一概念。projector 已统一对待，scanner 同步以保持一致。
+    const FIRM_SIDE = new Set(['PLATFORM', 'SYSTEM']);
+    if (FIRM_SIDE.has(w.ownerType ?? '') && FIRM_SIDE.has(reg.ownerType ?? '')) continue;
+
     // Per-owner account — owner must match.
     if (w.ownerType !== reg.ownerType || (w.ownerNo ?? null) !== (reg.ownerNo ?? null)) {
       violations.push({

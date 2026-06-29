@@ -231,6 +231,15 @@ export class AccountFlowProjectorService {
     const regOwnerType = registry.ownerType ?? null;
     const regOwnerNo = registry.ownerNo ?? null;
 
+    // Firm-side owner口径不统一：wallets 表把 firm wallet 标 'PLATFORM'，
+    // tb_account_registry 把 firm-side 账户标 'SYSTEM'。两者业务上是同一回事
+    // (都是 firm 内部账户，不属于客户)。统一对待，避免在合法的 firm-leg 上
+    // 误抛 R2。客户腿仍严卡 (ownerType=CUSTOMER + ownerNo 必须一致)。
+    const FIRM_SIDE = new Set(['PLATFORM', 'SYSTEM']);
+    const bothFirmSide =
+      FIRM_SIDE.has(walletOwnerType ?? '') && FIRM_SIDE.has(regOwnerType ?? '');
+    if (bothFirmSide) return;
+
     if (walletOwnerType !== regOwnerType || walletOwnerNo !== regOwnerNo) {
       throw new WalletRefMismatchError(
         `R2: walletRef=${walletRef} (owner=${walletOwnerType}/${walletOwnerNo ?? 'NULL'}) ` +
