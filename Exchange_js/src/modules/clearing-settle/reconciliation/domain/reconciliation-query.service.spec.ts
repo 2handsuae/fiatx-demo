@@ -597,6 +597,45 @@ describe('listCases — T3 default OPEN + aging desc', () => {
   });
 });
 
+describe('listExternalBalances — wallet join', () => {
+  it('joins walletRef → walletNo + walletRole on each row', async () => {
+    const prisma = {
+      externalBalance: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'eb1', walletRef: 'W1', cutoffDate: '2026-06-28', book: 'CLIENT', source: 'ZAND', currency: 'AED', accountRef: 'ACC-1' },
+        ]),
+      },
+      wallet: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'W1', walletNo: 'WA-001', walletRole: 'C_VIBAN' },
+        ]),
+      },
+    };
+    const svc = mkSvc(prisma);
+    const result = await svc.listExternalBalances({ cutoffDate: '2026-06-28' });
+    expect(result[0].walletNo).toBe('WA-001');
+    expect(result[0].walletRole).toBe('C_VIBAN');
+  });
+
+  it('returns null walletNo/walletRole for XREF synthetic walletRefs', async () => {
+    const prisma = {
+      externalBalance: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'eb2', walletRef: 'XREF:synthetic-1', cutoffDate: '2026-06-28', book: 'CLIENT', source: 'ZAND', currency: 'AED', accountRef: 'ACC-2' },
+        ]),
+      },
+      wallet: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const svc = mkSvc(prisma);
+    const result = await svc.listExternalBalances({ cutoffDate: '2026-06-28' });
+    const xref = result.find((r: any) => (r.walletRef as string).startsWith('XREF:'))!;
+    expect(xref.walletNo).toBeNull();
+    expect(xref.walletRole).toBeNull();
+    // wallet.findMany should not be called because all walletRefs are XREF
+    expect((prisma.wallet.findMany as jest.Mock).mock.calls).toHaveLength(0);
+  });
+});
+
 describe('listCases with runNo filter', () => {
   // Fixture: 2 runs, 3 cases
   //   case-a-only:  firstSeenRunId='run-a', lastUpdatedRunId='run-a'

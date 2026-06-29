@@ -327,11 +327,29 @@ export class ReconciliationQueryService {
     };
   }
 
-  listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {
-    return this.prisma.externalBalance.findMany({
+  async listExternalBalances(q: { cutoffDate?: string; book?: string; source?: string; currency?: string }) {
+    const rows = await this.prisma.externalBalance.findMany({
       where: { cutoffDate: q.cutoffDate, book: q.book, source: q.source, currency: q.currency },
       orderBy: [{ book: 'asc' }, { source: 'asc' }, { currency: 'asc' }, { accountRef: 'asc' }],
     });
+
+    // walletRef → walletNo + walletRole join (mirrors buildAccountStatusTable pattern)
+    const realWalletRefs = Array.from(new Set(
+      rows.map(r => r.walletRef).filter((w): w is string => !!w && !w.startsWith('XREF:')),
+    ));
+    const wallets = realWalletRefs.length === 0
+      ? []
+      : await this.prisma.wallet.findMany({
+          where: { id: { in: realWalletRefs } },
+          select: { id: true, walletNo: true, walletRole: true },
+        });
+    const walletById = new Map(wallets.map(w => [w.id, w]));
+
+    return rows.map(r => ({
+      ...r,
+      walletNo: walletById.get(r.walletRef ?? '')?.walletNo ?? null,
+      walletRole: walletById.get(r.walletRef ?? '')?.walletRole ?? null,
+    }));
   }
 
   async getExternalBalance(statementId: string) {
