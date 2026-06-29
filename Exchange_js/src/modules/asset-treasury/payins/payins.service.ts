@@ -24,6 +24,7 @@ import {
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { WalletBalanceService } from '../wallets/wallet-balance.service';
+import { PayoutFinalizationIncompleteError } from '../payouts/errors';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -456,6 +457,27 @@ export class PayinsService {
       throw new BadRequestException(
         `Invalid transition: Cannot perform action '${action}' on payin ${id} with status '${currentStatus}' (Type: ${type})`,
       );
+    }
+
+    // ── R3 invariant guard ──
+    // Payin CLEARED rows must carry a referenceNo; CRYPTO must additionally
+    // carry a txHash. Both should have been populated upstream (creation /
+    // CONFIRM step). Throw before mutating state if either is missing.
+    if (nextStatus === PayinStatus.CLEARED) {
+      const refNo = String(payin.referenceNo || '').trim();
+      if (!refNo) {
+        throw new PayoutFinalizationIncompleteError(
+          `Payin ${payin.payinNo || id} cannot be CLEARED: referenceNo is required`,
+        );
+      }
+      if (type === PayinType.CRYPTO) {
+        const tx = String(payin.txHash || '').trim();
+        if (!tx) {
+          throw new PayoutFinalizationIncompleteError(
+            `CRYPTO payin ${payin.payinNo || id} cannot be CLEARED: txHash is required`,
+          );
+        }
+      }
     }
 
     this.logger.log(

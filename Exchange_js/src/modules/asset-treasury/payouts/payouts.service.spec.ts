@@ -183,11 +183,14 @@ describe('PayoutsService', () => {
   it('should allow system CLEAR action', async () => {
     prisma.payout.findUnique.mockResolvedValue({
       id: 'PO_clear_2',
+      payoutNo: 'POCLEAR2',
       withdrawId: 'WD_2',
       type: PayoutType.FIAT,
       status: PayoutStatus.CONFIRMED,
       statusHistory: '[]',
       sentAt: new Date(),
+      // R3 invariant: CLEARED rows must carry referenceNo (FIAT) — pre-populated by CONFIRM upstream.
+      referenceNo: 'BANK-POCLEAR2',
     });
     prisma.payout.update.mockResolvedValue({
       id: 'PO_clear_2',
@@ -708,6 +711,7 @@ describe('PayoutsService', () => {
   it('mock-balance: payout CLEARED debits the resolved source wallet by amount', async () => {
     prisma.payout.findUnique.mockResolvedValue({
       id: 'PO_BAL_1',
+      payoutNo: 'POBAL1',
       withdrawId: 'WD_BAL_1',
       type: PayoutType.CRYPTO,
       status: PayoutStatus.CONFIRMED,
@@ -716,6 +720,9 @@ describe('PayoutsService', () => {
       amount: '300',
       statusHistory: '[]',
       sentAt: new Date(),
+      // R3 invariant: CLEARED rows must carry referenceNo + (CRYPTO) txHash — pre-populated by CONFIRM upstream.
+      referenceNo: '0xbal1ref',
+      txHash: '0xbal1tx',
     });
     prisma.payout.update.mockResolvedValue({
       id: 'PO_BAL_1',
@@ -763,6 +770,125 @@ describe('PayoutsService', () => {
         data: expect.objectContaining({
           gasUsed: expect.any(String),
           effectiveGasPrice: expect.any(String),
+        }),
+      }),
+    );
+  });
+
+  // ── R3 invariant: CLEARED rows must carry referenceNo + (CRYPTO) txHash ──
+
+  it('R3: FIAT payout CLEAR throws when referenceNo is missing', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_r3_fiat_1',
+      payoutNo: 'POR3F1',
+      withdrawId: 'WD_r3_fiat_1',
+      type: PayoutType.FIAT,
+      status: PayoutStatus.CONFIRMED,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      referenceNo: null,
+      txHash: null,
+    });
+
+    await expect(
+      service.updateStatus(
+        'PO_r3_fiat_1',
+        { action: PayoutAction.CLEAR },
+        'SYSTEM',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'R3_FINALIZATION_INCOMPLETE',
+      }),
+    });
+    expect(prisma.payout.update).not.toHaveBeenCalled();
+  });
+
+  it('R3: CRYPTO payout CLEAR throws when txHash is missing', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_r3_crypto_1',
+      payoutNo: 'POR3C1',
+      withdrawId: 'WD_r3_crypto_1',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMED,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      referenceNo: '0xpreserved',
+      txHash: null,
+    });
+
+    await expect(
+      service.updateStatus(
+        'PO_r3_crypto_1',
+        { action: PayoutAction.CLEAR },
+        'SYSTEM',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'R3_FINALIZATION_INCOMPLETE',
+      }),
+    });
+    expect(prisma.payout.update).not.toHaveBeenCalled();
+  });
+
+  it('R3: CLEAR passes when CRYPTO payout has both referenceNo and txHash', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_r3_crypto_ok',
+      payoutNo: 'POR3COK',
+      withdrawId: 'WD_r3_crypto_ok',
+      ownerId: 'CU_1',
+      assetId: 'asset-usdt',
+      amount: '100',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMED,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      referenceNo: '0xabc',
+      txHash: '0xabc',
+    });
+    prisma.wallet.findFirst.mockResolvedValue({ id: 'w-dep' });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_r3_crypto_ok',
+      status: PayoutStatus.CLEARED,
+    });
+
+    const updated = await service.updateStatus(
+      'PO_r3_crypto_ok',
+      { action: PayoutAction.CLEAR },
+      'SYSTEM',
+    );
+    expect(updated.status).toBe(PayoutStatus.CLEARED);
+  });
+
+  it('R3: CRYPTO payout CONFIRM auto-fills txHash when missing (mirror of FIAT CONFIRM ref fallback)', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'PO_r3_crypto_confirm',
+      payoutNo: 'POR3CCONF',
+      withdrawId: 'WD_r3_crypto_confirm',
+      assetId: 'asset-usdt',
+      type: PayoutType.CRYPTO,
+      status: PayoutStatus.CONFIRMING,
+      statusHistory: '[]',
+      sentAt: new Date(),
+      txHash: null,
+      gasUsed: null,
+      effectiveGasPrice: null,
+    });
+    prisma.payout.update.mockResolvedValue({
+      id: 'PO_r3_crypto_confirm',
+      status: PayoutStatus.CONFIRMED,
+    });
+
+    await service.updateStatus(
+      'PO_r3_crypto_confirm',
+      { action: PayoutAction.CONFIRM },
+      'SYSTEM',
+    );
+
+    expect(prisma.payout.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          txHash: expect.stringMatching(/^0x/),
         }),
       }),
     );

@@ -86,6 +86,8 @@ describe('PayinsService', () => {
         statusHistory: '[]',
         depositId: 'd1',
         assetId: 'a1',
+        referenceNo: 'REF-PRE-CLEARED',
+        txHash: '0xpre',
       };
       ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue(
         mockPayin,
@@ -104,6 +106,64 @@ describe('PayinsService', () => {
         .calls[0];
       expect(walletId).toBe('w-dep');
       expect(delta.toString()).toBe('1000');
+    });
+
+    // ── R3 invariant: payin CLEARED rows must carry referenceNo + (CRYPTO) txHash ──
+
+    it('R3: FIAT payin CLEAR throws when referenceNo is missing', async () => {
+      const mockPayin = {
+        id: 'p-r3-fiat',
+        payinNo: 'PIR3F',
+        type: 'fiat',
+        status: PayinStatus.CONFIRMED,
+        toWalletId: 'w-viban',
+        amount: { toString: () => '500' },
+        statusHistory: '[]',
+        depositId: 'd-r3-f',
+        assetId: 'a-aed',
+        referenceNo: null,
+        txHash: null,
+      };
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue(
+        mockPayin,
+      );
+
+      await expect(
+        service.updateStatus('p-r3-fiat', PayinAction.CLEAR),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'R3_FINALIZATION_INCOMPLETE',
+        }),
+      });
+      expect((prisma as any).payin.update).not.toHaveBeenCalled();
+    });
+
+    it('R3: CRYPTO payin CLEAR throws when txHash is missing', async () => {
+      const mockPayin = {
+        id: 'p-r3-crypto',
+        payinNo: 'PIR3C',
+        type: 'crypto',
+        status: PayinStatus.CONFIRMED,
+        toWalletId: 'w-dep',
+        amount: { toString: () => '50' },
+        statusHistory: '[]',
+        depositId: 'd-r3-c',
+        assetId: 'a-usdt',
+        referenceNo: 'REF-OK',
+        txHash: null,
+      };
+      ((prisma as any).payin.findUnique as jest.Mock).mockResolvedValue(
+        mockPayin,
+      );
+
+      await expect(
+        service.updateStatus('p-r3-crypto', PayinAction.CLEAR),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'R3_FINALIZATION_INCOMPLETE',
+        }),
+      });
+      expect((prisma as any).payin.update).not.toHaveBeenCalled();
     });
 
     it('should transition FIAT DETECTED -> CONFIRMED via confirm', async () => {
