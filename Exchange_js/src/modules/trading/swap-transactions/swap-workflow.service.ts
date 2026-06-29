@@ -25,6 +25,67 @@ import {
 import { InternalFundAction, InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 
+/**
+ * Thrown when a swap leg's (fromWalletId, toWalletId) pair fails R1 invariants:
+ *   - Customer-side leg requires the customer wallet to resolve.
+ *   - Firm-only leg requires both platform wallets to resolve.
+ * Carries swapNo + legSeq + roles so operators can locate the seed/data gap.
+ */
+export class InvalidInternalFundError extends BadRequestException {
+  constructor(message: string) {
+    super({ code: 'INVALID_INTERNAL_FUND', message });
+    this.name = 'InvalidInternalFundError';
+  }
+}
+
+/**
+ * R1 validation: enforce the InternalFund.fromWalletId / toWalletId contract
+ * for a swap leg. Customer-side leg requires the customer-role wallet to
+ * resolve; firm-only leg requires both firm wallets to resolve. Throws
+ * InvalidInternalFundError on miss so we never persist a {from:NULL, to:NULL}
+ * SWAP InternalFund row.
+ */
+export function assertInternalFundLegRules(
+  spec: { legSeq: number; fromRole: string; toRole: string },
+  fromWalletId: string | null,
+  toWalletId: string | null,
+  swapNo: string,
+): void {
+  const isCustomerRole = (r: string) => r.startsWith('C_');
+  const fromIsCustomer = isCustomerRole(spec.fromRole);
+  const toIsCustomer = isCustomerRole(spec.toRole);
+  const hasCustomerLeg = fromIsCustomer || toIsCustomer;
+
+  if (hasCustomerLeg) {
+    // Customer-side leg: the customer-role wallet must resolve.
+    const customerSideResolved = fromIsCustomer ? !!fromWalletId : !!toWalletId;
+    if (!customerSideResolved) {
+      throw new InvalidInternalFundError(
+        `swap ${swapNo} leg ${spec.legSeq}: customer wallet for role ` +
+          `${fromIsCustomer ? spec.fromRole : spec.toRole} did not resolve`,
+      );
+    }
+    // The firm side should also resolve in practice — surface gaps now.
+    const firmSideResolved = fromIsCustomer ? !!toWalletId : !!fromWalletId;
+    if (!firmSideResolved) {
+      throw new InvalidInternalFundError(
+        `swap ${swapNo} leg ${spec.legSeq}: firm wallet for role ` +
+          `${fromIsCustomer ? spec.toRole : spec.fromRole} did not resolve`,
+      );
+    }
+    return;
+  }
+
+  // Firm-only leg: both sides must be firm wallets.
+  if (!fromWalletId || !toWalletId) {
+    throw new InvalidInternalFundError(
+      `swap ${swapNo} leg ${spec.legSeq}: firm-only leg requires both ` +
+        `${spec.fromRole} and ${spec.toRole} to resolve — got from=` +
+        `${fromWalletId ?? 'NULL'} to=${toWalletId ?? 'NULL'}`,
+    );
+  }
+}
+
 @Injectable()
 export class SwapWorkflowService {
   private readonly logger = new Logger(SwapWorkflowService.name);
@@ -253,6 +314,11 @@ export class SwapWorkflowService {
   ): Promise<any> {
     const assetIdForLeg = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
     const amount = this.legPrimaryAmountDecimal(spec, ctx);
+    // R1: resolve the leg's from/to wallets per role + assert invariants
+    // before we persist the InternalFund row. Throws InvalidInternalFundError
+    // if a customer/firm wallet for the leg's roles is missing.
+    const { fromWalletId, toWalletId } = await this.swapLegAccounting.resolveLegWallets(spec, ctx);
+    assertInternalFundLegRules(spec, fromWalletId, toWalletId, ctx.swapNo);
     const leg = await this.fundsFlow.createSwapLeg(
       {
         swapTransactionId: swap.id,
@@ -260,8 +326,8 @@ export class SwapWorkflowService {
         legAttempt: attempt,
         assetId: assetIdForLeg,
         amount,
-        fromWalletId: null,
-        toWalletId: null,
+        fromWalletId,
+        toWalletId,
       },
       operatorId,
       tx,

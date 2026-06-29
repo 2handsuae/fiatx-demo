@@ -215,6 +215,38 @@ export class SwapLegAccounting {
     return { debitWalletRef, creditWalletRef };
   }
 
+  // ── R1: per-leg from/to wallet resolution (workflow IF columns) ──
+  //
+  // The InternalFund row for a swap leg has two FK columns — fromWalletId,
+  // toWalletId — that must be populated per R1 (verify-demo-data):
+  //   • Customer-side leg (fromRole or toRole starts with 'C_'):
+  //       at least one side is the customer's wallet; the firm side is the
+  //       platform wallet for the leg's asset. Both sides are filled in
+  //       practice — `fromRole→toRole` are both on the same asset.
+  //   • Firm-only leg (no C_ role): both sides are platform wallets.
+  //
+  // Each leg lives on a single asset (`spec.side === 'from' ? fromAssetId :
+  // toAssetId`). fromRole and toRole both resolve against that asset.
+
+  /**
+   * Resolve the (fromWalletId, toWalletId) pair for the InternalFund row of a
+   * swap leg. Each leg lives on a single asset (fromRole and toRole both
+   * resolve against `spec.side === 'from' ? fromAssetId : toAssetId`).
+   * Customer roles (C_DEP/C_VIBAN) resolve to the customer's wallet for
+   * ctx.ownerId; firm roles (F_OPS/F_SET/F_FEE/F_LIQ) resolve to the
+   * platform wallet. Best-effort — returns null on miss so the caller can
+   * apply R1 validation and throw a structured error.
+   */
+  async resolveLegWallets(
+    spec: SwapLegSpec,
+    ctx: SwapSettleCtx,
+  ): Promise<{ fromWalletId: string | null; toWalletId: string | null }> {
+    const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+    const fromWalletId = await this.resolveWallet(assetId, spec.fromRole, ctx.ownerId);
+    const toWalletId = await this.resolveWallet(assetId, spec.toRole, ctx.ownerId);
+    return { fromWalletId, toWalletId };
+  }
+
   // ── Reconstruct ctx from swap row ──
 
   ctxFromSwap(swap: any): SwapSettleCtx {

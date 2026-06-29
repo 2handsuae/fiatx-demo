@@ -124,6 +124,12 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     initiateLegPending: jest.fn(() => Promise.resolve()),
     postLeg: jest.fn(() => Promise.resolve()),
     voidLeg: jest.fn(() => Promise.resolve()),
+    // R1: workflow now resolves the leg's from/to wallets before createSwapLeg.
+    // Default stub returns both filled — tests asserting invariant violations
+    // override per-call via mockResolvedValueOnce.
+    resolveLegWallets: jest.fn(() =>
+      Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' }),
+    ),
   };
   const stubFundsFlow: any = {
     createSwapLeg: jest.fn(() => Promise.resolve({ id: 'leg-1' })),
@@ -383,6 +389,10 @@ function buildAdvanceLegMocks(opts: {
     initiateLegPending: jest.fn(() => Promise.resolve()),
     postLeg: jest.fn(() => Promise.resolve()),
     voidLeg: jest.fn(() => Promise.resolve()),
+    // R1: workflow now resolves the leg's from/to wallets before createSwapLeg.
+    resolveLegWallets: jest.fn(() =>
+      Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' }),
+    ),
   };
 
   const auditLogsService = {
@@ -739,8 +749,10 @@ describe('SwapWorkflowService.resumeLeg (Swap-7)', () => {
     expect(createArg.swapTransactionId).toBe('swap-1');
     expect(createArg.legSeq).toBe(2);
     expect(createArg.legAttempt).toBe(4);
-    expect(createArg.fromWalletId).toBeNull();
-    expect(createArg.toWalletId).toBeNull();
+    // R1: workflow now populates fromWalletId/toWalletId from resolveLegWallets
+    // (stub returns 'w-from' / 'w-to') instead of the old null/null defaults.
+    expect(createArg.fromWalletId).toBe('w-from');
+    expect(createArg.toWalletId).toBe('w-to');
     expect((mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][1]).toBe('ADMIN-OP');
 
     // initiateLegPending called with ctx carrying attempt=4 and leg2 spec.
@@ -898,5 +910,152 @@ describe('SwapWorkflowService.advanceLeg — sell-first invariant (Swap-8)', () 
       .find((a) => a.action === AuditActions.SWAP_LEG_POSTED);
     expect(posted).toBeDefined();
     expect(posted.metadata.legSeq).toBe(3);
+  });
+});
+
+// ── R1: InternalFund.from/toWalletId per leg type (Task 4) ───────────────────
+//
+// SwapWorkflow must populate InternalFund.fromWalletId / toWalletId per leg
+// based on the leg spec's fromRole / toRole (resolved by SwapLegAccounting
+// against the leg's asset). Customer-side leg requires the customer wallet to
+// resolve; firm-only leg requires both firm wallets. Missing wallets throw
+// InvalidInternalFundError instead of persisting {from:NULL, to:NULL} rows.
+
+import {
+  assertInternalFundLegRules,
+  InvalidInternalFundError,
+} from './swap-workflow.service';
+
+describe('assertInternalFundLegRules (R1 invariant)', () => {
+  it('customer-side leg passes when customer + firm wallets both resolve', () => {
+    // Leg1 of CRYPTO→FIAT: C_DEP → F_OPS (customer-side, side='from').
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 1, fromRole: 'C_DEP', toRole: 'F_OPS' },
+        'cust-dep-wallet',
+        'firm-ops-wallet',
+        'SWP0001',
+      ),
+    ).not.toThrow();
+  });
+
+  it('customer-side leg throws when customer-side wallet is NULL', () => {
+    // SWAP_BUY_CLIENT (leg3 of CRYPTO→FIAT): F_SET → C_VIBAN, to-side customer.
+    // If customer C_VIBAN doesn't resolve, the leg is unsafe to persist.
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 3, fromRole: 'F_SET', toRole: 'C_VIBAN' },
+        'firm-set-wallet',
+        null,
+        'SWP0001',
+      ),
+    ).toThrow(InvalidInternalFundError);
+  });
+
+  it('customer-side leg throws when firm-side wallet is NULL', () => {
+    // SWAP_FEE_CLIENT (leg4): C_VIBAN → F_FEE. If F_FEE missing, throw.
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 4, fromRole: 'C_VIBAN', toRole: 'F_FEE' },
+        'cust-viban-wallet',
+        null,
+        'SWP0001',
+      ),
+    ).toThrow(InvalidInternalFundError);
+  });
+
+  it('customer-side leg throws when BOTH wallets are NULL (the R1 baseline bug)', () => {
+    // This is the bug being fixed: SWAP IFs were persisted with both NULL.
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 1, fromRole: 'C_DEP', toRole: 'F_OPS' },
+        null,
+        null,
+        'SWP0001',
+      ),
+    ).toThrow(InvalidInternalFundError);
+  });
+
+  it('firm-only leg passes when both firm wallets resolve', () => {
+    // Leg2 of CRYPTO→FIAT: F_OPS → F_SET (firm-only, side='to').
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 2, fromRole: 'F_OPS', toRole: 'F_SET' },
+        'firm-ops-wallet',
+        'firm-set-wallet',
+        'SWP0001',
+      ),
+    ).not.toThrow();
+  });
+
+  it('firm-only leg throws when either firm wallet is NULL', () => {
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 2, fromRole: 'F_OPS', toRole: 'F_SET' },
+        'firm-ops-wallet',
+        null,
+        'SWP0001',
+      ),
+    ).toThrow(InvalidInternalFundError);
+
+    expect(() =>
+      assertInternalFundLegRules(
+        { legSeq: 2, fromRole: 'F_OPS', toRole: 'F_SET' },
+        null,
+        'firm-set-wallet',
+        'SWP0001',
+      ),
+    ).toThrow(InvalidInternalFundError);
+  });
+});
+
+describe('SwapWorkflowService — R1: createSwapLeg receives resolved wallets', () => {
+  it('executeSwap leg1: passes resolved fromWalletId/toWalletId to createSwapLeg', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+
+    await service.executeSwap('cust-1', 'q-1');
+
+    expect((mocks as any).legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
+    const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    expect(createLegArg.fromWalletId).toBe('w-from');
+    expect(createLegArg.toWalletId).toBe('w-to');
+  });
+
+  it('executeSwap throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
+    const mocks = buildMocks(makeQuote());
+    // CRYPTO→FIAT leg1 spec = C_DEP→F_OPS, side='from'. Customer-side is fromRole=C_DEP.
+    (mocks as any).legAccounting = (mocks as any).legAccounting;
+    // We need to override the stub before makeService captures it.
+    const service = makeService(mocks);
+    ((mocks as any).legAccounting.resolveLegWallets as jest.Mock).mockResolvedValueOnce({
+      fromWalletId: null,
+      toWalletId: 'firm-ops-wallet',
+    });
+
+    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(
+      InvalidInternalFundError,
+    );
+
+    // createSwapLeg must NOT be called when R1 assert fails.
+    expect((mocks as any).fundsFlow.createSwapLeg).not.toHaveBeenCalled();
+  });
+
+  it('advanceLeg chained leg (createAndStartLeg): also resolves wallets + asserts R1', async () => {
+    // leg1 currently CONFIRMED → on CLEAR it posts + creates leg2.
+    const mocks = buildAdvanceLegMocks({
+      legs: [{ legSeq: 1, status: InternalFundStatus.CONFIRMED }],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.advanceLeg('SWP0001', 1, InternalFundAction.CLEAR, 'ADMIN-1');
+
+    // resolveLegWallets called for the chained leg2 (createAndStartLeg path).
+    expect(mocks.legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
+    expect((mocks.legAccounting.resolveLegWallets as jest.Mock).mock.calls[0][0].legSeq).toBe(2);
+
+    const createLegArg = (mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    expect(createLegArg.fromWalletId).toBe('w-from');
+    expect(createLegArg.toWalletId).toBe('w-to');
   });
 });
