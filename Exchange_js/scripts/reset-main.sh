@@ -19,6 +19,18 @@ db_file="$(resolve_db_file)"
 echo "[main] stopping services before business reset"
 bash "${SCRIPT_DIR}/stack-stop.sh" main >/dev/null 2>&1 || true
 
+# Wipe TigerBeetle data file alongside the SQLite reset. Without this,
+# TB keeps every transfer ever written (including from old/deleted code
+# paths), so its account balances drift from the freshly-seeded dev.db.
+# The wallet engine's internal-identity check reads TB directly and
+# reports CLIENT_ASSET ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE breaks that
+# don't actually exist in the current business data. stack-up.sh
+# re-formats a fresh TB file when missing.
+if [ -n "${TB_DATA_FILE:-}" ] && [ -f "${TB_DATA_FILE}" ]; then
+  echo "[main] wiping TigerBeetle data file: ${TB_DATA_FILE}"
+  rm -f "${TB_DATA_FILE}"
+fi
+
 mkdir -p "$(dirname "${db_file}")"
 
 echo "[main] applying pending migrations: ${db_file}"
