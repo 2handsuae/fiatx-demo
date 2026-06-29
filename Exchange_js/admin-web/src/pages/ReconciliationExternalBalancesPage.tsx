@@ -131,7 +131,7 @@ const ReconciliationExternalBalancesPage = () => {
                         isSelected ? 'border-l-2 border-l-adm-amber bg-adm-card' : 'hover:bg-adm-hover'
                       } ${!r.walletNo ? 'cursor-not-allowed opacity-60' : ''}`}
                     >
-                      <div className="font-mono text-[12px] text-adm-t1">{r.walletNo ?? r.walletRef?.slice(0, 8) + '…'}</div>
+                      <div className="font-mono text-[12px] text-adm-t1">{r.walletNo ?? (r.walletRef ? r.walletRef.slice(0, 8) + '…' : '—')}</div>
                       <div className="mt-1 flex items-center gap-2">
                         {r.book && (
                           <span className={`inline-flex rounded border px-1.5 py-0 font-mono text-[9px] uppercase ${BOOK_BADGE[r.book] ?? 'border-adm-border bg-adm-bg text-adm-t2'}`}>
