@@ -19,6 +19,7 @@ interface ExternalBalanceRow {
   walletRef: string | null;
   walletNo: string | null;
   walletRole: string | null;
+  decimals: number;
 }
 
 interface StatementLine {
@@ -50,11 +51,13 @@ const BOOK_BADGE: Record<string, string> = {
   FIRM: 'border-adm-green/30 bg-adm-green/10 text-adm-green',
 };
 
-const fmtAmount = (v: string | number | null) => {
+const fmtAmount = (v: string | number | null, decimals?: number) => {
   if (v === null || v === undefined) return '—';
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  const dec = decimals ?? 2;
+  const scale = Math.pow(10, dec);
+  return (n / scale).toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
 };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -192,7 +195,7 @@ const ReconciliationExternalBalancesPage = () => {
                         )}
                         <span className="font-mono text-[11px] text-adm-t2">{r.currency}</span>
                         <span className={`ml-auto font-mono text-[11px] ${Number(r.closingBalance) < 0 ? 'text-adm-red' : 'text-adm-t1'}`}>
-                          {fmtAmount(r.closingBalance)}
+                          {fmtAmount(r.closingBalance, r.decimals)}
                         </span>
                       </div>
                     </button>
@@ -242,7 +245,7 @@ const ReconciliationExternalBalancesPage = () => {
                 </div>
                 <div className="mt-5 border-t border-adm-border pt-4">
                   <div className="text-[11px] uppercase tracking-wider text-adm-t3">CLOSING</div>
-                  <div className={`mt-1 font-mono text-[24px] font-semibold ${Number(detail.closingBalance) < 0 ? 'text-adm-red' : 'text-adm-t1'}`}>{fmtAmount(detail.closingBalance)}</div>
+                  <div className={`mt-1 font-mono text-[24px] font-semibold ${Number(detail.closingBalance) < 0 ? 'text-adm-red' : 'text-adm-t1'}`}>{fmtAmount(detail.closingBalance, detail.decimals)}</div>
                 </div>
               </section>
 
@@ -258,12 +261,12 @@ const ReconciliationExternalBalancesPage = () => {
                   <section className="p-6">
                     <div className="text-[11px] uppercase tracking-wider text-adm-t3">Roll-Forward Check</div>
                     <div className="mt-2 font-mono text-[13px] text-adm-t1">
-                      {fmtAmount(opening)} + {fmtAmount(net)} net {continuous ? '=' : '≠'} {fmtAmount(closing)}
+                      {fmtAmount(opening, detail.decimals)} + {fmtAmount(net, detail.decimals)} net {continuous ? '=' : '≠'} {fmtAmount(closing, detail.decimals)}
                     </div>
                     <div className={`mt-2 text-[12px] ${empty ? 'text-adm-t3' : continuous ? 'text-adm-green' : 'text-adm-red'}`}>
                       {empty ? '⚠️ Empty statement — opening/closing only' :
                        continuous ? `✅ continuous · drift = 0` :
-                       `❌ drift = ${fmtAmount(drift)} · contact ${detail.source}`}
+                       `❌ drift = ${fmtAmount(drift, detail.decimals)} · contact ${detail.source}`}
                     </div>
                   </section>
                 );
@@ -295,11 +298,11 @@ const ReconciliationExternalBalancesPage = () => {
                           <td className="px-2 py-2">
                             <span className={`inline-flex rounded px-1.5 py-0 font-mono text-[10px] font-semibold ${l.direction === 'IN' ? 'bg-adm-green/15 text-adm-green' : 'bg-adm-red/15 text-adm-red'}`}>{l.direction}</span>
                           </td>
-                          <td className={`px-2 py-2 text-right font-mono ${l.direction === 'OUT' ? 'text-adm-red' : 'text-adm-t1'}`}>{fmtAmount(l.amount)}</td>
+                          <td className={`px-2 py-2 text-right font-mono ${l.direction === 'OUT' ? 'text-adm-red' : 'text-adm-t1'}`}>{fmtAmount(l.amount, detail.decimals)}</td>
                           <td className="px-2 py-2 font-mono text-adm-t2">{l.externalRef ?? '—'}</td>
                           <td className="px-2 py-2 font-mono text-adm-t3">{l.channelRef ?? '—'}</td>
                           <td className="px-2 py-2 text-adm-t2">{l.description ?? '—'}</td>
-                          <td className="px-2 py-2 text-right font-mono text-adm-t2">{l.balanceAfter ? fmtAmount(l.balanceAfter) : '—'}</td>
+                          <td className="px-2 py-2 text-right font-mono text-adm-t2">{l.balanceAfter ? fmtAmount(l.balanceAfter, detail.decimals) : '—'}</td>
                           <td className="px-2 py-2 text-adm-t3">{expanded.has(l.id) ? '▾' : '▸'}</td>
                         </tr>,
                         expanded.has(l.id) && l.raw ? (
