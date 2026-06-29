@@ -34,7 +34,6 @@ interface StatementLine {
 }
 
 interface ExternalBalanceDetail extends ExternalBalanceRow {
-  walletRef: string | null;
   ownerNo: string | null;
   asOfAt: string | null;
   ingestedAt: string | null;
@@ -319,11 +318,14 @@ const ReconciliationExternalBalancesPage = () => {
               {/* Cross-ref footer */}
               <section className="p-6">
                 <a
-                  href={`/admin/ledger/account-statement?wallet=${encodeURIComponent(detail.walletRef ?? '')}&crossingOnly=true`}
+                  href="/admin/ledger/account-statement?crossingOnly=true"
                   className="text-[12px] text-adm-amber hover:underline"
                 >
                   View in Internal Book →
                 </a>
+                <p className="mt-1 text-[10px] text-adm-t3">
+                  Opens the internal account statement filtered to cross-account transfers. Wallet pre-selection deferred — see design doc §11.
+                </p>
               </section>
             </>
           )}
