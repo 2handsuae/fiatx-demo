@@ -124,10 +124,9 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 async function clearWalletDemo(prisma: PrismaService): Promise<{
   runs: number; cases: number; lineItems: number; balances: number; lines: number;
 }> {
-  // Wipe all WALLET_V1 footprint (runs/cases/line_items + all external
+  // Wipe all wallet-engine footprint (runs/cases/line_items + all external
   // statement rows). Demo:all business data is not touched.
   const runs = (await (prisma as any).reconciliationRun.findMany({
-    where: { engineVersion: 'WALLET_V1' },
     select: { id: true },
   })) as Array<{ id: string }>;
   const runIds = runs.map((r) => r.id);

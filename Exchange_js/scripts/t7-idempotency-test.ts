@@ -64,8 +64,8 @@ async function main() {
   console.log(`Cases where last>first (upsert path advanced lastUpdatedRunId): ${advancing.length}/${cases.length}`);
 
   // Total runs since the initial break
-  const totalRuns = await (prisma as any).reconciliationRun.count({ where: { engineVersion: 'WALLET_V1' } });
-  console.log(`Total WALLET_V1 runs in DB: ${totalRuns} (initial break + 3 idempotency runs = expect 4)`);
+  const totalRuns = await (prisma as any).reconciliationRun.count();
+  console.log(`Total recon runs in DB: ${totalRuns} (initial break + 3 idempotency runs = expect 4)`);
 
   console.log(`\nRun IDs from idempotency test: [${runIds.map((r) => r.slice(0, 8)).join(', ')}]`);
 

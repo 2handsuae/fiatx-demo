@@ -44,9 +44,8 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'internalTransaction',
   'reimbursementObligation',
 
-  // ── V8 reconciliation (children before parents) ────────────────────
+  // ── Wallet reconciliation (children before parents) ────────────────
   'reconciliationLineItem',
-  'reconciliationInvariantCheck',
   'reconciliationCase',
   'reconciliationRun',
   // External ingest (no FK; standalone demo data — must be cleared too).
