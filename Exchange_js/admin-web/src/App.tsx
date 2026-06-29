@@ -21,8 +21,7 @@ const ReconciliationRunsListPage = lazy(() => import('./pages/ReconciliationRuns
 const ReconciliationRunsDetailPage = lazy(() => import('./pages/ReconciliationRunsDetailPage'));
 const ReconciliationCasesListPage = lazy(() => import('./pages/ReconciliationCasesListPage'));
 const ReconciliationCasesDetailPage = lazy(() => import('./pages/ReconciliationCasesDetailPage'));
-const ReconciliationExternalBalancesListPage = lazy(() => import('./pages/ReconciliationExternalBalancesListPage'));
-const ReconciliationExternalBalancesDetailPage = lazy(() => import('./pages/ReconciliationExternalBalancesDetailPage'));
+const ReconciliationExternalBalancesPage = lazy(() => import('./pages/ReconciliationExternalBalancesPage'));
 const ReconciliationDemoComparePage = lazy(() => import('./pages/ReconciliationDemoComparePage'));
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail'));
 const LiquidityProviderList = lazy(() => import('./pages/LiquidityProviderList'));
@@ -284,14 +283,8 @@ function App() {
             />
             <Route
               path="reconciliation/external-balances"
-              element={withPermission(<ReconciliationExternalBalancesListPage />, [
+              element={withPermission(<ReconciliationExternalBalancesPage />, [
                 PERMISSIONS.RECON_EXTERNAL_BALANCE_READ,
-              ])}
-            />
-            <Route
-              path="reconciliation/external-balances/:statementId"
-              element={withPermission(<ReconciliationExternalBalancesDetailPage />, [
-                PERMISSIONS.RECON_EXTERNAL_BALANCE_DETAIL_READ,
               ])}
             />
             <Route
@@ -735,8 +728,7 @@ function App() {
             <Route path="reconciliation/runs/:runNo" element={withPermission(<ReconciliationRunsDetailPage />, [PERMISSIONS.RECON_RUN_DETAIL_READ])} />
             <Route path="reconciliation/cases" element={withPermission(<ReconciliationCasesListPage />, [PERMISSIONS.RECON_CASE_READ])} />
             <Route path="reconciliation/cases/:caseNo" element={withPermission(<ReconciliationCasesDetailPage />, [PERMISSIONS.RECON_CASE_DETAIL_READ])} />
-            <Route path="reconciliation/external-balances" element={withPermission(<ReconciliationExternalBalancesListPage />, [PERMISSIONS.RECON_EXTERNAL_BALANCE_READ])} />
-            <Route path="reconciliation/external-balances/:statementId" element={withPermission(<ReconciliationExternalBalancesDetailPage />, [PERMISSIONS.RECON_EXTERNAL_BALANCE_DETAIL_READ])} />
+            <Route path="reconciliation/external-balances" element={withPermission(<ReconciliationExternalBalancesPage />, [PERMISSIONS.RECON_EXTERNAL_BALANCE_READ])} />
             <Route path="reconciliation/demo-compare/:runNo" element={withPermission(<ReconciliationDemoComparePage />, [PERMISSIONS.RECON_RUN_READ])} />
 
             {/* ledger */}
