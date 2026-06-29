@@ -416,7 +416,17 @@ async function driveWithdraw(ctx: DemoCtx, c: any, asset: any, amount: number, t
       : [PayoutAction.SUBMIT, PayoutAction.CONFIRM, PayoutAction.CLEAR];
     for (const action of seq) {
       const op = action === PayoutAction.CLEAR ? 'SYSTEM' : SIM;
-      await ctx.payouts.updateStatus(wdp.payoutId, { action } as any, op);
+      // R3 invariant: FIAT CLEAR must carry referenceNo (BANK-PO号);
+      // CRYPTO CLEAR's txHash is auto-filled at CONFIRM. Demo provides a
+      // synthetic reference matching the BANK-PO<random> pattern so the
+      // payout.markCleared service guard passes.
+      const payload: any = { action };
+      if (action === PayoutAction.CLEAR && !isCrypto) {
+        // Look up payoutNo at the point of CLEAR; wdp may not carry it.
+        const pNow: any = await ctx.prisma.payout.findUnique({ where: { id: wdp.payoutId } });
+        payload.referenceNo = `BANK-${pNow?.payoutNo ?? 'PO' + Date.now()}`;
+      }
+      await ctx.payouts.updateStatus(wdp.payoutId, payload, op);
       await sleep(80);
     }
     await waitFor(`${wd.withdrawNo} SUCCESS`, async () => {

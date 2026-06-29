@@ -488,6 +488,16 @@ export class PayoutsService {
           const seed = item.payoutNo || item.id || 'unknown';
           dto.txHash = `0x${String(seed).replace(/[^a-zA-Z0-9]/g, '').padEnd(40, '0').slice(0, 40).toLowerCase()}`;
         }
+        // R3 spec: "CRYPTO referenceNo: 同 txHash". Mirror txHash into
+        // referenceNo so the CLEARED guard (which requires referenceNo even
+        // for CRYPTO) finds a value. Without this, CRYPTO payouts confirm
+        // OK but blow up at CLEAR with "referenceNo is required".
+        const effRefForCrypto =
+          this.normalizeOptionalString(referenceNo) ||
+          this.normalizeOptionalString(item.referenceNo) ||
+          this.normalizeOptionalString(dto.txHash) ||
+          this.normalizeOptionalString(item.txHash);
+        if (effRefForCrypto) dto.referenceNo = effRefForCrypto;
       }
 
       const updateData: any = { status: nextStatus };
