@@ -17,8 +17,6 @@ import { AnomalyClassifierService } from './engine/anomaly-classifier.service';
 import { DrilldownMatchService } from './engine/drilldown-match.service';
 import { MockExternalAdapter } from './adapters/mock-external.adapter';
 import { EXTERNAL_BALANCE_PROVIDER, EXTERNAL_TX_PROVIDER } from './adapters/external-data.provider';
-import { ReconciliationRecordService } from './domain/reconciliation-record.service';
-import { ReconciliationRedesignRecordService } from './domain/reconciliation-redesign-record.service';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
@@ -37,8 +35,7 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
     MockExternalAdapter,
     { provide: EXTERNAL_BALANCE_PROVIDER, useExisting: MockExternalAdapter },
     { provide: EXTERNAL_TX_PROVIDER, useExisting: MockExternalAdapter },
-    ReconciliationRecordService,
-    ReconciliationRedesignRecordService, ReconciliationQueryService,
+    ReconciliationQueryService,
     ReconciliationSweepService,
     // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,
