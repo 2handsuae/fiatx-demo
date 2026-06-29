@@ -48,6 +48,12 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'reconciliationLineItem',
   'reconciliationCase',
   'reconciliationRun',
+  // account_flows: projection of tb_transfer_evidence into wallet-level
+  // rows. Has no FK constraint (text columns only), so safe to truncate
+  // anywhere in the FK chain — but must be cleared, otherwise old rows
+  // with walletRef pointing to freshly-deleted wallets create R2
+  // dangling-walletRef violations in the new seed run.
+  'accountFlow',
   // External ingest (no FK; standalone demo data — must be cleared too).
   'externalStatementLine',
   'externalBalance',

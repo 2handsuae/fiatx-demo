@@ -31,6 +31,29 @@ if [ -n "${TB_DATA_FILE:-}" ] && [ -f "${TB_DATA_FILE}" ]; then
   rm -f "${TB_DATA_FILE}"
 fi
 
+# Format + start a fresh TigerBeetle so seed.business.ts's seedCapitalInjection
+# (and any other TB-touching seed step) can connect. Without this, seed hangs
+# on TB connect (infinite ConnectionRefused retry).
+if [ -n "${TB_DATA_FILE:-}" ] && [ -n "${TB_ADDRESS:-}" ]; then
+  mkdir -p "$(dirname "${TB_DATA_FILE}")"
+  if [ ! -f "${TB_DATA_FILE}" ]; then
+    echo "[main] formatting new TigerBeetle data file..."
+    tigerbeetle format --cluster=0 --replica=0 --replica-count=1 "${TB_DATA_FILE}"
+  fi
+  echo "[main] starting TigerBeetle at ${TB_ADDRESS}"
+  tigerbeetle start --development --addresses="${TB_ADDRESS}" "${TB_DATA_FILE}" \
+    > "${TB_LOG:-/tmp/tb-reset.log}" 2>&1 &
+  echo $! > "${TB_PID_FILE:-/tmp/tb-reset.pid}"
+  # Wait for TB to bind the port (max 10s)
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if lsof -ti:"${TB_PORT:-3003}" >/dev/null 2>&1; then
+      echo "[main] TigerBeetle ready on ${TB_ADDRESS}"
+      break
+    fi
+    sleep 1
+  done
+fi
+
 mkdir -p "$(dirname "${db_file}")"
 
 echo "[main] applying pending migrations: ${db_file}"
