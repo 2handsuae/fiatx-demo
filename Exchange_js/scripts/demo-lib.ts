@@ -20,7 +20,7 @@ if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
-import { fakeChainTxHash } from '../src/common/utils/fake-external-refs.util';
+import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
@@ -240,7 +240,7 @@ async function driveDeposit(ctx: DemoCtx, c: any, asset: any, walletId: string, 
     txHash: type === PayinType.CRYPTO ? fakeChainTxHash(walletId) : undefined,
     fromAddress: type === PayinType.CRYPTO ? `Tsender${idx}` : undefined,
     fromIban: type === PayinType.FIAT ? `AE00SENDER${idx}` : undefined,
-    referenceNo: `REF-${SIM}-${idx}-${asset.currency}`,
+    referenceNo: fakeBankRef(walletId, new Date()),
   } as any);
 
   const dep: any = await waitFor(`deposit for payin ${payin.payinNo}`, () => ctx.deposits.findByPayinId(payin.id));
