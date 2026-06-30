@@ -28,6 +28,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { fakeChainTxHash } from '../../../common/utils/fake-external-refs.util';
 
 @ApiTags('Withdraw Transactions')
 @ApiBearerAuth()
@@ -141,7 +142,7 @@ export class WithdrawTransactionsController {
     @Body() body: { txHash?: string },
   ) {
     this.assertAdmin(req);
-    const txHash = body.txHash || `0xSIM${Date.now().toString(16)}`;
+    const txHash = body.txHash ?? fakeChainTxHash(`sim:${id ?? Date.now()}`);
     await (this.prisma as any).withdrawTransaction.update({
       where: { id },
       data: { txHash },

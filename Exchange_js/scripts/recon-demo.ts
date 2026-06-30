@@ -45,6 +45,7 @@ if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
 import { writeFileSync } from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
+import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
@@ -485,8 +486,8 @@ async function injectAnomalies(
   const refFor = (currency: string, kind: string): string => {
     injSeq += 1;
     return /^(USDT|BTC|ETH|USDC)/i.test(currency)
-      ? `0xDEMO${kind}${injSeq.toString(16).padStart(2, '0')}USDT`
-      : `BANK-PO${cutoffDate.replace(/-/g, '')}-${kind}${String(injSeq).padStart(3, '0')}`;
+      ? fakeChainTxHash(`${kind}${injSeq}`)
+      : fakeBankRef(`${kind}${injSeq}`, cutoffDate);
   };
   // Per-asset injection amount calibrated for visible-on-cockpit AND
   // realistic-bank-mismatch magnitudes. Fees / FX rounding errors in
