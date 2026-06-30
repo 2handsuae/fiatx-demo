@@ -645,9 +645,10 @@ const AccountStatementPage = () => {
                       <tr className="border-b border-adm-border">
                         <th className={th} style={{ width: 140 }}>Date</th>
                         <th className={th} style={{ width: 90 }}>Type</th>
-                        <th className={th} style={{ width: 140 }}>Reference</th>
+                        <th className={th} style={{ width: 140 }}>Source No</th>
+                        <th className={th} style={{ width: 160 }}>External Ref</th>
                         <th className={th} style={{ width: 160 }}>Event</th>
-                        <th className={th} style={{ width: 70 }}>Crossing</th>
+                        <th className={th} style={{ width: 70 }}>EXT</th>
                         <th className={`${th} text-right`} style={{ width: 120 }}>In (+)</th>
                         <th className={`${th} text-right`} style={{ width: 120 }}>Out (−)</th>
                         <th className={`${th} text-right`} style={{ width: 130 }}>Balance</th>
@@ -663,12 +664,20 @@ const AccountStatementPage = () => {
                           <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[140px]" title={row.sourceNo}>
                             {row.sourceNo}
                           </td>
+                          <td
+                            className={`px-3 py-2 font-mono text-[11px] truncate max-w-[160px] ${
+                              row.externalRef ? 'text-adm-amber' : 'text-adm-t3'
+                            }`}
+                            title={row.externalRef ?? ''}
+                          >
+                            {row.externalRef ?? '—'}
+                          </td>
                           <td className="px-3 py-2 font-mono text-[10px] text-adm-t3">{row.eventCode}</td>
                           <td className="px-3 py-2 font-mono text-[10px]">
                             {row.isExternalCrossing ? (
-                              <span className="text-adm-amber" title={row.externalRef ?? ''}>EXT</span>
+                              <span className="text-adm-amber">EXT</span>
                             ) : (
-                              <span className="text-adm-t3">—</span>
+                              <span className="text-adm-t3">INT</span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-[11px] tabular-nums text-adm-green font-semibold">
