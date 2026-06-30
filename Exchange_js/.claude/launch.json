@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "admin-main",
+      "runtimeExecutable": "echo",
+      "runtimeArgs": ["admin already running on 3001"],
+      "port": 3001
+    },
+    {
       "name": "admin-branch",
       "runtimeExecutable": "bash",
       "runtimeArgs": ["scripts/dev-start-all.sh"],

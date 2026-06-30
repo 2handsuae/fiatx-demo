@@ -213,9 +213,20 @@ const DashboardLayout = () => {
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
+        // TEMP: moved from Funds & Settlement (hidden) — see DashboardLayout edit 2026-06-29
+        {
+          path: '/admin/funds/internal-funds',
+          label: 'Internal Funds',
+          icon: <Activity size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_FUNDS_READ],
+        },
       ],
     },
-    // ─── Funds & Settlement ───────────────────────────────────────
+    // ─── Funds & Settlement (TEMP HIDDEN 2026-06-29) ──────────────
+    // Internal Funds moved up under Trading (see above). The rest of
+    // this group is hidden from sidebar nav while routes remain mounted
+    // so deep links still work. Un-comment to restore.
+    /*
     {
       label: 'Funds & Settlement',
       icon: <Layers size={12} />,
@@ -252,6 +263,7 @@ const DashboardLayout = () => {
         },
       ],
     },
+    */
     // ─── Custody ──────────────────────────────────────────────────
     {
       label: 'Custody',
