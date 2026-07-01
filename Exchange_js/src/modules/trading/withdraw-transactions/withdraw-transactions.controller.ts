@@ -13,9 +13,6 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { PrismaService } from '../../../core/prisma/prisma.service';
-import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import {
   WithdrawTransactionQueryDto,
   AdminUpdateWithdrawTransactionStatusDto,
@@ -28,7 +25,6 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
-import { fakeChainTxHash } from '../../../common/utils/fake-external-refs.util';
 
 @ApiTags('Withdraw Transactions')
 @ApiBearerAuth()
@@ -37,8 +33,6 @@ import { fakeChainTxHash } from '../../../common/utils/fake-external-refs.util';
 export class WithdrawTransactionsController {
   constructor(
     private readonly service: WithdrawTransactionsService,
-    private readonly prisma: PrismaService,
-    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private assertAdmin(req: any) {
@@ -134,24 +128,4 @@ export class WithdrawTransactionsController {
     return { message: `Travel Rule simulated: ${result}`, withdrawId: id, travelRuleStatus: result };
   }
 
-  @Post(':id/simulate/payout-confirmed')
-  @ApiOperation({ summary: '[DEV] Simulate payout confirmed event' })
-  async simulatePayoutConfirmed(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() body: { txHash?: string },
-  ) {
-    this.assertAdmin(req);
-    const txHash = body.txHash ?? fakeChainTxHash(`sim:${id ?? Date.now()}`);
-    await (this.prisma as any).withdrawTransaction.update({
-      where: { id },
-      data: { txHash },
-    });
-    this.eventEmitter.emit(DomainEventNames.PAYOUT_STATUS_CONFIRMED, {
-      payoutId: id,
-      withdrawId: id,
-      txHash,
-    });
-    return { message: 'Payout confirmed simulated', withdrawId: id, txHash };
-  }
 }

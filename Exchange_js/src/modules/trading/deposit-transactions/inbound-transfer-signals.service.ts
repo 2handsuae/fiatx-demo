@@ -15,12 +15,12 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
+import { DepositTransactionsService } from './deposit-transactions.service';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
-  PayinAction,
-  PayinStatus,
-  PayinType,
-} from '../../asset-treasury/payins/dto/payin.dto';
-import { PayinsService } from '../../asset-treasury/payins/payins.service';
+  FundsOrderAction,
+  FundsOrderStatus,
+} from '../../funds-orders/dto/funds-order.dto';
 import {
   InboundTransferScanMode,
   CreateInboundTransferSignalDto,
@@ -31,7 +31,6 @@ import {
   SimulationRiskLevel,
   SimulationRiskReason,
 } from './dto/inbound-transfer-signal.dto';
-import { DepositTransactionStatus } from './dto/deposit-transaction.dto';
 import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 
 export interface ScanSummaryRecord {
@@ -61,7 +60,8 @@ export class InboundTransferSignalsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly payinsService: PayinsService,
+    private readonly depositService: DepositTransactionsService,
+    private readonly fundsOrderService: FundsOrderService,
     private readonly onboardingService: OnboardingService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
@@ -385,157 +385,172 @@ export class InboundTransferSignalsService {
     wallet: any,
     mode: InboundTransferScanMode = InboundTransferScanMode.QUICK_DEMO,
   ) {
-    let payin = await this.resolveExistingPayin(signal);
-    const createdPayin = !payin;
+    const existing = await this.resolveExistingDeposit(signal);
+    const createdDeposit = !existing;
 
-    if (!payin) {
-      payin = await this.payinsService.createDetected({
+    let deposit: any;
+    let fundsOrder: any;
+    if (existing) {
+      deposit = existing.deposit;
+      fundsOrder = existing.fundsOrder;
+    } else {
+      const detected = await this.depositService.detected({
         assetId: signal.assetId,
         toWalletId: signal.walletId,
-        type:
-          signal.channelType === InboundTransferChannelType.CRYPTO
-            ? PayinType.CRYPTO
-            : PayinType.FIAT,
         amount: signal.amount.toString(),
         txHash: signal.txHash || undefined,
         fromAddress: signal.fromAddress || undefined,
         fromIban: signal.fromIban || undefined,
         referenceNo: signal.referenceNo || undefined,
         providerTxnId: signal.id,
-        receivedAt: signal.submittedAt || new Date(),
-        reason: 'Inbound transfer signal matched into payin',
       });
+      deposit = detected.deposit;
+      fundsOrder = detected.fundsOrder;
     }
 
-    const settledPayin =
-      mode === InboundTransferScanMode.INTERACTIVE
-        ? payin
-        : await this.advancePayin(payin.id, signal.channelType);
-    const deposit = await this.findDepositForPayin(settledPayin.id);
+    // QUICK_DEMO advances the funds_order to CLEARED (crypto needs the two-hop
+    // OBSERVE_CONFIRMING → CONFIRM; fiat is CONFIRMED-at-birth and auto-driven by
+    // the workflow's funds_order.status.changed handler). INTERACTIVE stops at the
+    // freshly-created funds_order so an operator can drive it manually.
+    if (mode !== InboundTransferScanMode.INTERACTIVE && fundsOrder) {
+      fundsOrder = await this.advanceFundsOrder(fundsOrder.id, signal.channelType);
+    }
+    // Re-read the deposit after driving so its status reflects the workflow.
+    deposit = await this.findDeposit(deposit.id);
 
     await (this.prisma as any).inboundTransferSignal.update({
       where: { id: signal.id },
       data: {
-        linkedPayinId: settledPayin.id,
         status: InboundTransferSignalStatus.PAYIN_CREATED,
         lastScannedAt: new Date(),
         scanResult: deposit
-          ? `Matched to payin ${settledPayin.payinNo} and deposit ${deposit.depositNo}`
-          : `Matched to payin ${settledPayin.payinNo}`,
+          ? `Matched to funds order ${fundsOrder?.fundsOrderNo} and deposit ${deposit.depositNo}`
+          : `Matched to funds order ${fundsOrder?.fundsOrderNo}`,
       },
     });
 
     await this.recordSignalAudit({
       action: AuditActions.INBOUND_SIGNAL_MATCHED,
       signal,
-      reason: createdPayin
-        ? 'Inbound transfer signal created new payin'
-        : 'Inbound transfer signal reused existing payin',
+      reason: createdDeposit
+        ? 'Inbound transfer signal created new deposit'
+        : 'Inbound transfer signal reused existing deposit',
       metadata: {
         signalId: signal.id,
         walletId: signal.walletId,
         assetId: signal.assetId,
         ownerId: signal.ownerId,
-        payinId: settledPayin.id,
+        fundsOrderId: fundsOrder?.id || null,
         depositId: deposit?.id || null,
       },
       sourcePlatform: 'CUSTOMER_API',
     });
 
-    if (String(settledPayin.status || '').toUpperCase() === PayinStatus.FAILED) {
-      throw new BadRequestException(`Payin ${settledPayin.id} is FAILED`);
+    if (
+      String(fundsOrder?.status || '').toUpperCase() === FundsOrderStatus.FAILED
+    ) {
+      throw new BadRequestException(`Funds order ${fundsOrder.id} is FAILED`);
     }
 
     return {
-      createdPayin,
-      payinId: settledPayin.id,
-      payinNo: settledPayin.payinNo || null,
-      payinStatus: settledPayin.status || null,
+      createdPayin: createdDeposit,
+      payinId: fundsOrder?.id || null,
+      payinNo: fundsOrder?.fundsOrderNo || null,
+      payinStatus: fundsOrder?.status || null,
       depositId: deposit?.id || null,
       depositNo: deposit?.depositNo || null,
       depositStatus: deposit?.status || null,
     };
   }
 
-  private async resolveExistingPayin(signal: any) {
-    if (signal.linkedPayinId) {
-      const linked = await (this.prisma as any).payin.findUnique({
-        where: { id: signal.linkedPayinId },
-      });
-      if (linked) return linked;
-    }
-
-    const byProviderTxnId = await (this.prisma as any).payin.findFirst({
-      where: { providerTxnId: signal.id },
+  /**
+   * Dedup a re-scanned signal to its already-created deposit (+ payin funds_order).
+   * A funds_order carries the signal id in providerTxnId (set on detected()), so
+   * that is the primary key; fall back to wallet + txHash / referenceNo for signals
+   * created before providerTxnId was recorded.
+   */
+  private async resolveExistingDeposit(
+    signal: any,
+  ): Promise<{ deposit: any; fundsOrder: any } | null> {
+    const byProviderTxnId = await (this.prisma as any).fundsOrder.findFirst({
+      where: { providerTxnId: signal.id, depositTransactionId: { not: null } },
       orderBy: { createdAt: 'desc' },
     });
-    if (byProviderTxnId) return byProviderTxnId;
-
-    if (signal.channelType === InboundTransferChannelType.CRYPTO && signal.txHash) {
-      return (this.prisma as any).payin.findFirst({
-        where: {
-          assetId: signal.assetId,
-          toWalletId: signal.walletId,
-          txHash: signal.txHash,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+    if (byProviderTxnId) {
+      return this.hydrateDepositFundsOrder(byProviderTxnId);
     }
 
-    if (signal.channelType === InboundTransferChannelType.FIAT && signal.referenceNo) {
-      return (this.prisma as any).payin.findFirst({
-        where: {
-          assetId: signal.assetId,
-          toWalletId: signal.walletId,
-          referenceNo: signal.referenceNo,
-        },
+    const walletMatch =
+      signal.channelType === InboundTransferChannelType.CRYPTO && signal.txHash
+        ? { toWalletId: signal.walletId, txHash: signal.txHash }
+        : signal.channelType === InboundTransferChannelType.FIAT &&
+            signal.referenceNo
+          ? { toWalletId: signal.walletId, referenceNo: signal.referenceNo }
+          : null;
+    if (walletMatch) {
+      const byWallet = await (this.prisma as any).fundsOrder.findFirst({
+        where: { ...walletMatch, depositTransactionId: { not: null } },
         orderBy: { createdAt: 'desc' },
       });
+      if (byWallet) return this.hydrateDepositFundsOrder(byWallet);
     }
 
     return null;
   }
 
-  private async advancePayin(payinId: string, channelType: InboundTransferChannelType) {
-    let current = await (this.prisma as any).payin.findUnique({
-      where: { id: payinId },
-    });
+  private async hydrateDepositFundsOrder(fundsOrder: any) {
+    const deposit = await this.findDeposit(fundsOrder.depositTransactionId);
+    return { deposit, fundsOrder };
+  }
+
+  /**
+   * Drive a payin funds_order to CLEARED. Crypto is born SUBMITTED and needs
+   * OBSERVE_CONFIRMING → CONFIRM; fiat is born CONFIRMED. In both cases the
+   * workflow's funds_order.status.changed handler carries the order the rest of the
+   * way (CONFIRMED → CLEAR), so we advance only as far as the inbound scan owns.
+   */
+  private async advanceFundsOrder(
+    fundsOrderId: string,
+    channelType: InboundTransferChannelType,
+  ) {
+    let current = await this.fundsOrderService.findById(fundsOrderId);
     if (!current) {
-      throw new NotFoundException(`Payin not found: ${payinId}`);
+      throw new NotFoundException(`Funds order not found: ${fundsOrderId}`);
     }
 
-    if (current.status === PayinStatus.DETECTED) {
-      if (channelType === InboundTransferChannelType.CRYPTO) {
-        await this.payinsService.updateStatus(payinId, PayinAction.BLOCK);
-      } else {
-        await this.payinsService.updateStatus(payinId, PayinAction.CONFIRM);
-      }
-      current = await (this.prisma as any).payin.findUnique({ where: { id: payinId } });
+    if (
+      channelType === InboundTransferChannelType.CRYPTO &&
+      current.status === FundsOrderStatus.SUBMITTED
+    ) {
+      await this.fundsOrderService.advance(
+        fundsOrderId,
+        FundsOrderAction.OBSERVE_CONFIRMING,
+        'SYSTEM',
+      );
+      current = await this.fundsOrderService.findById(fundsOrderId);
     }
 
-    if (current?.status === PayinStatus.CONFIRMING) {
-      await this.payinsService.updateStatus(payinId, PayinAction.CONFIRM);
-      current = await (this.prisma as any).payin.findUnique({ where: { id: payinId } });
-    }
-
-    if (current?.status === PayinStatus.CONFIRMED) {
-      const deposit = await this.findDepositForPayin(payinId);
-      if (deposit?.status === DepositTransactionStatus.COMPLIANCE_PENDING) {
-        await this.payinsService.updateStatus(payinId, PayinAction.CLEAR);
-        current = await (this.prisma as any).payin.findUnique({ where: { id: payinId } });
-      }
+    if (current?.status === FundsOrderStatus.CONFIRMING) {
+      await this.fundsOrderService.advance(
+        fundsOrderId,
+        FundsOrderAction.CONFIRM,
+        'SYSTEM',
+      );
+      current = await this.fundsOrderService.findById(fundsOrderId);
     }
 
     if (!current) {
-      throw new NotFoundException(`Payin not found after update: ${payinId}`);
+      throw new NotFoundException(
+        `Funds order not found after update: ${fundsOrderId}`,
+      );
     }
 
     return current;
   }
 
-  private async findDepositForPayin(payinId: string) {
+  private async findDeposit(depositId: string) {
     return (this.prisma as any).depositTransaction.findUnique({
-      where: { payinId },
+      where: { id: depositId },
     });
   }
 

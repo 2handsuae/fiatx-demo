@@ -6,7 +6,6 @@ import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
-import { PayoutsModule } from '../../asset-treasury/payouts/payouts.module';
 import { WithdrawalFeeLevelModule } from '../withdrawal-fee-level/withdrawal-fee-level.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
@@ -19,7 +18,6 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
     PrismaModule,
     forwardRef(() => OnboardingModule),
     TigerBeetleModule,
-    forwardRef(() => PayoutsModule),
     WithdrawalFeeLevelModule,
     ApprovalsModule,
     PricingCenterModule,

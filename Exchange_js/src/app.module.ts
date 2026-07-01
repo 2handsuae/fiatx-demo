@@ -13,7 +13,6 @@ import { AssetsModule } from './modules/asset-treasury/assets/assets.module';
 import { LiquidityConfigModule } from './modules/counterparty/liquidity-config/liquidity-config.module';
 import { WalletsModule } from './modules/asset-treasury/wallets/wallets.module';
 import { WithdrawalAddressesModule } from './modules/asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
-import { PayinsModule } from './modules/asset-treasury/payins/payins.module';
 import { DepositTransactionsModule } from './modules/trading/deposit-transactions/deposit-transactions.module';
 import { TigerBeetleModule } from './modules/accounting/tigerbeetle/tigerbeetle.module';
 import { WorkflowsModule } from './orchestrators/workflows.module';
@@ -24,7 +23,6 @@ import { WithdrawTransactionsModule } from './modules/trading/withdraw-transacti
 import { PricingCenterModule } from './modules/trading/pricing-center/pricing-center.module';
 import { WithdrawalFeeLevelModule } from './modules/trading/withdrawal-fee-level/withdrawal-fee-level.module';
 import { SwapFeeLevelModule } from './modules/trading/swap-fee-level/swap-fee-level.module';
-import { PayoutsModule } from './modules/asset-treasury/payouts/payouts.module';
 import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { ReconciliationModule } from './modules/clearing-settle/reconciliation/reconciliation.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
@@ -69,7 +67,6 @@ import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
     LiquidityConfigModule,
     WalletsModule,
     WithdrawalAddressesModule,
-    PayinsModule,
     DepositTransactionsModule,
     TigerBeetleModule,
     WorkflowsModule,
@@ -80,7 +77,6 @@ import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
     PricingCenterModule,
     WithdrawalFeeLevelModule,
     SwapFeeLevelModule,
-    PayoutsModule,
     OutstandingsModule,
     ReconciliationModule,
     AuditLogsModule,

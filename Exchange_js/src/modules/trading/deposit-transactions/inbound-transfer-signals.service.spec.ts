@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
-import { PayinsService } from '../../asset-treasury/payins/payins.service';
+import { DepositTransactionsService } from './deposit-transactions.service';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import {
@@ -10,13 +11,17 @@ import {
   SimulationRiskLevel,
   SimulationRiskReason,
 } from './dto/inbound-transfer-signal.dto';
-import { PayinAction, PayinStatus } from '../../asset-treasury/payins/dto/payin.dto';
+import {
+  FundsOrderAction,
+  FundsOrderStatus,
+} from '../../funds-orders/dto/funds-order.dto';
 
 describe('InboundTransferSignalsService', () => {
   let service: InboundTransferSignalsService;
   let prisma: any;
   let onboardingService: any;
-  let payinsService: any;
+  let depositService: any;
+  let fundsOrderService: any;
 
   beforeEach(async () => {
     prisma = {
@@ -30,8 +35,7 @@ describe('InboundTransferSignalsService', () => {
       wallet: {
         findUnique: jest.fn(),
       },
-      payin: {
-        findUnique: jest.fn(),
+      fundsOrder: {
         findFirst: jest.fn(),
       },
       depositTransaction: {
@@ -58,9 +62,13 @@ describe('InboundTransferSignalsService', () => {
       assertTradingEligibility: jest.fn(),
     };
 
-    payinsService = {
-      createDetected: jest.fn(),
-      updateStatus: jest.fn(),
+    depositService = {
+      detected: jest.fn(),
+    };
+
+    fundsOrderService = {
+      findById: jest.fn(),
+      advance: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -68,7 +76,8 @@ describe('InboundTransferSignalsService', () => {
         InboundTransferSignalsService,
         { provide: PrismaService, useValue: prisma },
         { provide: OnboardingService, useValue: onboardingService },
-        { provide: PayinsService, useValue: payinsService },
+        { provide: DepositTransactionsService, useValue: depositService },
+        { provide: FundsOrderService, useValue: fundsOrderService },
         {
           provide: AuditLogsService,
           useValue: {
@@ -328,7 +337,7 @@ describe('InboundTransferSignalsService', () => {
     );
   });
 
-  it('should create and advance a crypto payin to deposit compliance pending during scan', async () => {
+  it('should create and advance a crypto funds order to deposit compliance pending during scan', async () => {
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -354,19 +363,21 @@ describe('InboundTransferSignalsService', () => {
         submittedAt: new Date(),
       },
     ]);
-    prisma.payin.findFirst
+    // no existing deposit funds_order → dedup misses on both providerTxnId + wallet lookups
+    prisma.fundsOrder.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
-    payinsService.createDetected.mockResolvedValue({
-      id: 'payin-1',
-      payinNo: 'PI0001',
-      status: PayinStatus.DETECTED,
+    depositService.detected.mockResolvedValue({
+      deposit: { id: 'dep-1', depositNo: 'DEP0001', status: 'PAYIN_PENDING' },
+      fundsOrder: { id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.SUBMITTED },
     });
-    prisma.payin.findUnique
-      .mockResolvedValueOnce({ id: 'payin-1', status: PayinStatus.DETECTED })
-      .mockResolvedValueOnce({ id: 'payin-1', status: PayinStatus.CONFIRMING })
-      .mockResolvedValueOnce({ id: 'payin-1', status: PayinStatus.CLEARED });
-    payinsService.updateStatus.mockResolvedValue({ status: PayinStatus.CLEARED });
+    // crypto drive: SUBMITTED → (OBSERVE_CONFIRMING) → CONFIRMING → (CONFIRM) → CONFIRMED,
+    // then the workflow handler drives CONFIRMED → CLEARED off-band.
+    fundsOrderService.findById
+      .mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.SUBMITTED })
+      .mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.CONFIRMING })
+      .mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO0001', status: FundsOrderStatus.CONFIRMED });
+    fundsOrderService.advance.mockResolvedValue({});
     prisma.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-1',
       depositNo: 'DEP0001',
@@ -383,23 +394,25 @@ describe('InboundTransferSignalsService', () => {
     expect(result.records).toEqual([
       expect.objectContaining({
         signalId: 'sig-1',
-        payinId: 'payin-1',
+        payinId: 'fo-1',
         depositId: 'dep-1',
       }),
     ]);
-    expect(payinsService.updateStatus).toHaveBeenNthCalledWith(
+    expect(fundsOrderService.advance).toHaveBeenNthCalledWith(
       1,
-      'payin-1',
-      PayinAction.BLOCK,
+      'fo-1',
+      FundsOrderAction.OBSERVE_CONFIRMING,
+      'SYSTEM',
     );
-    expect(payinsService.updateStatus).toHaveBeenNthCalledWith(
+    expect(fundsOrderService.advance).toHaveBeenNthCalledWith(
       2,
-      'payin-1',
-      PayinAction.CONFIRM,
+      'fo-1',
+      FundsOrderAction.CONFIRM,
+      'SYSTEM',
     );
   });
 
-  it('should reuse an existing payin on repeated scan without creating duplicates', async () => {
+  it('should reuse an existing deposit funds order on repeated scan without creating duplicates', async () => {
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -425,15 +438,18 @@ describe('InboundTransferSignalsService', () => {
         submittedAt: new Date(),
       },
     ]);
-    prisma.payin.findFirst.mockResolvedValueOnce({
-      id: 'payin-existing',
-      payinNo: 'PI0009',
-      status: PayinStatus.CLEARED,
+    // dedup hit on providerTxnId → existing deposit funds_order, already CLEARED
+    prisma.fundsOrder.findFirst.mockResolvedValueOnce({
+      id: 'fo-existing',
+      fundsOrderNo: 'FO0009',
+      status: FundsOrderStatus.CLEARED,
+      depositTransactionId: 'dep-existing',
     });
-    prisma.payin.findUnique.mockResolvedValue({
-      id: 'payin-existing',
-      payinNo: 'PI0009',
-      status: PayinStatus.CLEARED,
+    // fiat CLEARED order needs no drive; findById returns it unchanged
+    fundsOrderService.findById.mockResolvedValue({
+      id: 'fo-existing',
+      fundsOrderNo: 'FO0009',
+      status: FundsOrderStatus.CLEARED,
     });
     prisma.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-existing',
@@ -446,11 +462,12 @@ describe('InboundTransferSignalsService', () => {
 
     expect(result.createdPayinCount).toBe(0);
     expect(result.reusedPayinCount).toBe(1);
-    expect(payinsService.createDetected).not.toHaveBeenCalled();
+    expect(depositService.detected).not.toHaveBeenCalled();
+    expect(fundsOrderService.advance).not.toHaveBeenCalled();
     expect(result.depositIds).toEqual(['dep-existing']);
   });
 
-  it('should stop at DETECTED payin and PAYIN_PENDING deposit during interactive scan', async () => {
+  it('should stop at SUBMITTED funds order and PAYIN_PENDING deposit during interactive scan', async () => {
     prisma.wallet.findUnique.mockResolvedValue({
       id: 'wallet-1',
       ownerType: 'CUSTOMER',
@@ -476,11 +493,10 @@ describe('InboundTransferSignalsService', () => {
         submittedAt: new Date(),
       },
     ]);
-    prisma.payin.findFirst.mockResolvedValueOnce(null);
-    payinsService.createDetected.mockResolvedValue({
-      id: 'payin-interactive-1',
-      payinNo: 'PI-INTERACTIVE-1',
-      status: PayinStatus.DETECTED,
+    prisma.fundsOrder.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    depositService.detected.mockResolvedValue({
+      deposit: { id: 'dep-interactive-1', depositNo: 'DEP-INTERACTIVE-1', status: 'PAYIN_PENDING' },
+      fundsOrder: { id: 'fo-interactive-1', fundsOrderNo: 'FO-INTERACTIVE-1', status: FundsOrderStatus.SUBMITTED },
     });
     prisma.depositTransaction.findUnique.mockResolvedValue({
       id: 'dep-interactive-1',
@@ -494,11 +510,11 @@ describe('InboundTransferSignalsService', () => {
       mode: InboundTransferScanMode.INTERACTIVE,
     });
 
-    expect(payinsService.updateStatus).not.toHaveBeenCalled();
+    expect(fundsOrderService.advance).not.toHaveBeenCalled();
     expect(result.records).toEqual([
       expect.objectContaining({
-        payinId: 'payin-interactive-1',
-        payinStatus: PayinStatus.DETECTED,
+        payinId: 'fo-interactive-1',
+        payinStatus: FundsOrderStatus.SUBMITTED,
         depositId: 'dep-interactive-1',
         depositStatus: 'PAYIN_PENDING',
       }),

@@ -28,16 +28,18 @@ import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constant
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { DepositTransactionsService } from '../src/modules/trading/deposit-transactions/deposit-transactions.service';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
-import { PayinsService } from '../src/modules/asset-treasury/payins/payins.service';
-import { PayinType } from '../src/modules/asset-treasury/payins/dto/payin.dto';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
+
+// Deposit channel discriminator (crypto vs fiat) — the legacy PayinType enum is gone;
+// the funds_order path only needs this literal to pick refs + the crypto drive.
+const PayinType = { CRYPTO: 'CRYPTO', FIAT: 'FIAT' } as const;
+type PayinType = (typeof PayinType)[keyof typeof PayinType];
 import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
-import { PayoutsService } from '../src/modules/asset-treasury/payouts/payouts.service';
 import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 
@@ -105,7 +107,6 @@ export type DemoCtx = {
   app: INestApplicationContext;
   prisma: any;
   accounting: AccountingService;
-  payins: PayinsService;
   fundsOrders: FundsOrderService;
   deposits: DepositTransactionsService;
   depositWf: any;
@@ -115,7 +116,6 @@ export type DemoCtx = {
   withdrawQuote: WithdrawQuoteService;
   withdraws: WithdrawTransactionsService;
   withdrawWf: WithdrawWorkflowService;
-  payouts: PayoutsService;
   usdt: any;
   aed: any;
 };
@@ -130,7 +130,6 @@ export async function bootstrap(): Promise<DemoCtx> {
     app,
     prisma,
     accounting: app.get(AccountingService),
-    payins: app.get(PayinsService),
     fundsOrders: app.get(FundsOrderService),
     deposits: app.get(DepositTransactionsService),
     depositWf: app.get(DepositWorkflowService),
@@ -140,7 +139,6 @@ export async function bootstrap(): Promise<DemoCtx> {
     withdrawQuote: app.get(WithdrawQuoteService),
     withdraws: app.get(WithdrawTransactionsService),
     withdrawWf: app.get(WithdrawWorkflowService),
-    payouts: app.get(PayoutsService),
     usdt,
     aed,
   };
