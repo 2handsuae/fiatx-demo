@@ -300,7 +300,7 @@ export class AuditLogsService {
       PAYOUT: { model: 'payout', field: 'payoutNo' },
       PAYIN: { model: 'payin', field: 'payinNo' },
       INTERNAL_TRANSACTION: { model: 'internalTransaction', field: 'internalTxNo' },
-      INTERNAL_FUND: { model: 'internalFund', field: 'internalFundNo' },
+      INTERNAL_FUND: { model: 'fundsOrder', field: 'fundsOrderNo' },
       REIMBURSEMENT_OBLIGATION: {
         model: 'reimbursementObligation',
         field: 'obligationNo',
@@ -1980,15 +1980,15 @@ export class AuditLogsService {
     const internalTransactionIds = this.toSortedUniqueStrings(
       internalTransactions.map((item: any) => item.id),
     );
-    const internalFunds = internalTransactionIds.length && db.internalFund?.findMany
-      ? await db.internalFund.findMany({
+    const internalFunds = internalTransactionIds.length && db.fundsOrder?.findMany
+      ? await db.fundsOrder.findMany({
           where: {
             internalTransactionId: { in: internalTransactionIds },
           },
           orderBy: [{ internalTransactionId: 'asc' }, { createdAt: 'asc' }],
           select: {
             id: true,
-            internalFundNo: true,
+            fundsOrderNo: true,
             internalTransactionId: true,
             status: true,
             assetId: true,

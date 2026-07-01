@@ -9,7 +9,7 @@ describe('InternalActionsService', () => {
 
   beforeEach(() => {
     prisma = {
-      internalFund: { findMany: jest.fn().mockResolvedValue([]) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       payin: { findMany: jest.fn().mockResolvedValue([]) },
       payout: { findMany: jest.fn().mockResolvedValue([]) },
     };
@@ -17,8 +17,8 @@ describe('InternalActionsService', () => {
   });
 
   it('collects internal_fund as IN keyed by txHash', async () => {
-    prisma.internalFund.findMany.mockResolvedValue([
-      { id: 'f1', internalFundNo: 'IF-1', amount: new Prisma.Decimal('60.76'), txHash: '0xFUND1', referenceNo: null },
+    prisma.fundsOrder.findMany.mockResolvedValue([
+      { id: 'f1', fundsOrderNo: 'IF-1', amount: new Prisma.Decimal('60.76'), txHash: '0xFUND1', referenceNo: null },
     ]);
     const out = await svc.collect('asset-usdt', businessDate, cutoff);
     expect(out).toHaveLength(1);
@@ -27,8 +27,8 @@ describe('InternalActionsService', () => {
   });
 
   it('collects fiat internal_fund as IN keyed by referenceNo (no txHash)', async () => {
-    prisma.internalFund.findMany.mockResolvedValue([
-      { id: 'f2', internalFundNo: 'IFD-FIAT-1', amount: new Prisma.Decimal('333.58'), txHash: null, referenceNo: 'BANK-IFD-FIAT-1' },
+    prisma.fundsOrder.findMany.mockResolvedValue([
+      { id: 'f2', fundsOrderNo: 'IFD-FIAT-1', amount: new Prisma.Decimal('333.58'), txHash: null, referenceNo: 'BANK-IFD-FIAT-1' },
     ]);
     const out = await svc.collect('asset-aed', businessDate, cutoff);
     expect(out).toHaveLength(1);
@@ -70,7 +70,7 @@ describe('InternalActionsService', () => {
       expect.objectContaining({ where: expect.objectContaining({ status: 'CLEARED', createdAt: { gte: start, lt: cutoff } }) }),
     );
     // internal_fund 必须有外部物理键 txHash 或 referenceNo（无任何键的纯账内转账不进账实对账）
-    expect(prisma.internalFund.findMany).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           status: 'CLEAR',

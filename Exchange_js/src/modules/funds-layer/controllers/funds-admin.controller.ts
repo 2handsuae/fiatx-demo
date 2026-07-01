@@ -24,12 +24,12 @@ export class FundsAdminController {
     return this.fundsFlow.findAllForAdmin(query as any);
   }
 
-  @Get(':internalFundNo')
+  @Get(':fundsOrderNo')
   @ApiOperation({ summary: 'Get funds flow detail' })
   @RequirePermissions(
-    buildPermissionCode('GET', '/admin/funds-layer/funds/:internalFundNo'),
+    buildPermissionCode('GET', '/admin/funds-layer/funds/:fundsOrderNo'),
   )
-  findOne(@Param('internalFundNo') internalFundNo: string) {
-    return this.fundsFlow.findOneByNoForAdmin(internalFundNo);
+  findOne(@Param('fundsOrderNo') fundsOrderNo: string) {
+    return this.fundsFlow.findOneByNoForAdmin(fundsOrderNo);
   }
 }

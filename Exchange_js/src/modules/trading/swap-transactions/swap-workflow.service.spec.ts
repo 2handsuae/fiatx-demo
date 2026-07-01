@@ -410,7 +410,7 @@ function buildAdvanceLegMocks(opts: {
     executeTransfer: jest.fn(),
   };
   const txClient: any = {
-    internalFund: {
+    fundsOrder: {
       findFirst: jest.fn(({ where }: any) => {
         // Match against the in-memory legState (covers newly chained legs)
         const found = legState.find(

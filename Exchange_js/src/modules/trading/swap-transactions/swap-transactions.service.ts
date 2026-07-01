@@ -351,12 +351,12 @@ export class SwapTransactionsService {
     // swap via swapTransactionId. Surface them (ordered by legSeq then attempt)
     // so the detail page can list + link through to each fund order, including
     // failed-attempt history rows.
-    const internalFunds = await (this.prisma as any).internalFund.findMany({
+    const internalFunds = await (this.prisma as any).fundsOrder.findMany({
       where: { swapTransactionId: item.id },
       orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
       select: {
         id: true,
-        internalFundNo: true,
+        fundsOrderNo: true,
         legSeq: true,
         attempt: true,
         status: true,
@@ -373,7 +373,7 @@ export class SwapTransactionsService {
   /** Active leg per legSeq = the row with the MAX attempt for that legSeq. */
   async activeLegsBySeq(swapId: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;
-    const rows = await client.internalFund.findMany({
+    const rows = await client.fundsOrder.findMany({
       where: { swapTransactionId: swapId },
       orderBy: [{ legSeq: 'asc' }, { attempt: 'desc' }],
     });

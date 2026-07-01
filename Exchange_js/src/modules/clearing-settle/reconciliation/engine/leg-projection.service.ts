@@ -99,18 +99,18 @@ export class LegProjectionService {
     }
 
     // ③ InternalFund(CLEAR) → 2 腿：(fromWallet, OUT) + (toWallet, IN)，共享 txHash/referenceNo
-    const funds = await this.prisma.internalFund.findMany({
+    const funds = await this.prisma.fundsOrder.findMany({
       where: { assetId, status: 'CLEAR', createdAt: { gte: start, lt: cutoff } },
       select: {
-        id: true, internalFundNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true,
+        id: true, fundsOrderNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true,
         fromWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
         toWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
       },
     });
     for (const f of funds) {
-      legs.push(this.makeLeg('INTERNALFUND', f.id, f.internalFundNo, f.amount, 'OUT', currency,
+      legs.push(this.makeLeg('INTERNALFUND', f.id, f.fundsOrderNo, f.amount, 'OUT', currency,
         f.txHash, f.referenceNo, f.createdAt, f.fromWallet));
-      legs.push(this.makeLeg('INTERNALFUND', f.id, f.internalFundNo, f.amount, 'IN', currency,
+      legs.push(this.makeLeg('INTERNALFUND', f.id, f.fundsOrderNo, f.amount, 'IN', currency,
         f.txHash, f.referenceNo, f.createdAt, f.toWallet));
     }
 

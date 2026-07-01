@@ -35,6 +35,7 @@ import { ClientRiskAssessmentModule } from './modules/identity/client-risk-asses
 import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
+import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
     MaterialRefreshModule,
     ProfileBannersModule,
     FundsLayerModule,
+    FundsOrdersModule,
   ],
   controllers: [],
   providers: [],

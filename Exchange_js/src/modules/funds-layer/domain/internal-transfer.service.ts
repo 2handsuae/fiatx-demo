@@ -381,7 +381,7 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
             select: {
               id: true,
               status: true,
-              internalFundNo: true,
+              fundsOrderNo: true,
             },
           },
         },
@@ -462,7 +462,7 @@ export class InternalTransferService extends FundsFlowAggregatorPort {
         funds: {
           orderBy: { createdAt: 'asc' },
           select: {
-            internalFundNo: true,
+            fundsOrderNo: true,
             status: true,
             txHash: true,
             confirmations: true,

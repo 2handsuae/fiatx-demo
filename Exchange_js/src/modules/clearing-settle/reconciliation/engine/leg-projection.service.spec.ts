@@ -14,7 +14,7 @@ describe('LegProjectionService', () => {
     prisma = {
       payin: { findMany: jest.fn().mockResolvedValue([]) },
       payout: { findMany: jest.fn().mockResolvedValue([]) },
-      internalFund: { findMany: jest.fn().mockResolvedValue([]) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       wallet: { findMany: jest.fn().mockResolvedValue([]) },
     };
     svc = new LegProjectionService(prisma);
@@ -41,7 +41,7 @@ describe('LegProjectionService', () => {
     it('queries InternalFund CLEAR only, windowed', async () => {
       await svc.project('asset-aed', 'AED', businessDate, cutoff);
       const start = new Date('2026-06-16T00:00:00.000Z');
-      expect(prisma.internalFund.findMany).toHaveBeenCalledWith(
+      expect(prisma.fundsOrder.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ status: 'CLEAR', createdAt: { gte: start, lt: cutoff } }),
         }),
@@ -124,9 +124,9 @@ describe('LegProjectionService', () => {
 
   describe('InternalFund → 2 legs (OUT from + IN to), same external_ref', () => {
     it('projects two legs sharing txHash, opposite directions', async () => {
-      prisma.internalFund.findMany.mockResolvedValue([
+      prisma.fundsOrder.findMany.mockResolvedValue([
         {
-          id: 'f1', internalFundNo: 'IF-1', amount: new Prisma.Decimal('60.76'),
+          id: 'f1', fundsOrderNo: 'IF-1', amount: new Prisma.Decimal('60.76'),
           txHash: '0xFUND1', referenceNo: null,
           fromWallet: { id: 'wfrom', vaultId: 'vault-from', iban: null },
           toWallet: { id: 'wto', vaultId: 'vault-to', iban: null },
@@ -143,9 +143,9 @@ describe('LegProjectionService', () => {
     });
 
     it('fiat internal_fund: both legs rolled to CMA, external_ref=referenceNo', async () => {
-      prisma.internalFund.findMany.mockResolvedValue([
+      prisma.fundsOrder.findMany.mockResolvedValue([
         {
-          id: 'f2', internalFundNo: 'IFD-FIAT-1', amount: new Prisma.Decimal('333.58'),
+          id: 'f2', fundsOrderNo: 'IFD-FIAT-1', amount: new Prisma.Decimal('333.58'),
           txHash: null, referenceNo: 'BANK-IFD-FIAT-1',
           fromWallet: { id: 'a', vaultId: null, iban: 'AE333' },
           toWallet: { id: 'b', vaultId: null, iban: 'AE444' },
@@ -163,9 +163,9 @@ describe('LegProjectionService', () => {
     });
 
     it('fiat internal_fund firm→firm: each firm leg → own account (NOT rolled to CMA)', async () => {
-      prisma.internalFund.findMany.mockResolvedValue([
+      prisma.fundsOrder.findMany.mockResolvedValue([
         {
-          id: 'f3', internalFundNo: 'IFD-FIRM-1', amount: new Prisma.Decimal('42.03'),
+          id: 'f3', fundsOrderNo: 'IFD-FIRM-1', amount: new Prisma.Decimal('42.03'),
           txHash: null, referenceNo: 'BANK-IFD-FIRM-1',
           fromWallet: { id: 'fops', vaultId: null, iban: null, walletRole: 'F_OPS' },
           toWallet: { id: 'ffee', vaultId: null, iban: null, walletRole: 'F_FEE' },
@@ -182,9 +182,9 @@ describe('LegProjectionService', () => {
     });
 
     it('fiat internal_fund firm→client: firm leg → own account, client (C_VIBAN) leg → CMA', async () => {
-      prisma.internalFund.findMany.mockResolvedValue([
+      prisma.fundsOrder.findMany.mockResolvedValue([
         {
-          id: 'f4', internalFundNo: 'IFD-MIX-1', amount: new Prisma.Decimal('3630.47'),
+          id: 'f4', fundsOrderNo: 'IFD-MIX-1', amount: new Prisma.Decimal('3630.47'),
           txHash: null, referenceNo: 'BANK-IFD-MIX-1',
           fromWallet: { id: 'fset', vaultId: null, iban: null, walletRole: 'F_SET' },
           toWallet: { id: 'cviban', vaultId: null, iban: 'AE555', walletRole: 'C_VIBAN' },
@@ -200,9 +200,9 @@ describe('LegProjectionService', () => {
     });
 
     it('crypto internal_fund FIRM leg: role account (F_*-USDT-0001), NOT wallet UUID/vault', async () => {
-      prisma.internalFund.findMany.mockResolvedValue([
+      prisma.fundsOrder.findMany.mockResolvedValue([
         {
-          id: 'f5', internalFundNo: 'IFD-CRYPTO-FIRM', amount: new Prisma.Decimal('4.36'),
+          id: 'f5', fundsOrderNo: 'IFD-CRYPTO-FIRM', amount: new Prisma.Decimal('4.36'),
           txHash: '0xFEEFUND', referenceNo: null,
           fromWallet: { id: 'fops-uuid', vaultId: null, iban: null, walletRole: 'F_OPS' },
           toWallet: { id: 'ffee-uuid', vaultId: null, iban: null, walletRole: 'F_FEE' },
@@ -214,9 +214,9 @@ describe('LegProjectionService', () => {
     });
 
     it('crypto internal_fund client pool with no vaultId → role-key fallback (no wallet UUID exposed)', async () => {
-      prisma.internalFund.findMany.mockResolvedValue([
+      prisma.fundsOrder.findMany.mockResolvedValue([
         {
-          id: 'f6', internalFundNo: 'IFD-CMAIN', amount: new Prisma.Decimal('48'),
+          id: 'f6', fundsOrderNo: 'IFD-CMAIN', amount: new Prisma.Decimal('48'),
           txHash: '0xCMAIN', referenceNo: null,
           fromWallet: { id: 'cmain-uuid', vaultId: null, iban: null, walletRole: 'C_MAIN' },
           toWallet: { id: 'cdep-uuid', vaultId: 'vault-dep-x', iban: null, walletRole: 'C_DEP' },
@@ -236,8 +236,8 @@ describe('LegProjectionService', () => {
       { id: 'o', payoutNo: 'PO', amount: new Prisma.Decimal('2'), txHash: '0xB', referenceNo: null, ownerId: 'c' },
     ]);
     prisma.wallet.findMany.mockResolvedValue([{ id: 'wv', ownerId: 'c', vaultId: 'v2', iban: null }]);
-    prisma.internalFund.findMany.mockResolvedValue([
-      { id: 'f', internalFundNo: 'IF', amount: new Prisma.Decimal('3'), txHash: '0xC', referenceNo: null, fromWallet: { vaultId: 'vf', iban: null }, toWallet: { vaultId: 'vt', iban: null } },
+    prisma.fundsOrder.findMany.mockResolvedValue([
+      { id: 'f', fundsOrderNo: 'IF', amount: new Prisma.Decimal('3'), txHash: '0xC', referenceNo: null, fromWallet: { vaultId: 'vf', iban: null }, toWallet: { vaultId: 'vt', iban: null } },
     ]);
     const legs = await svc.project('asset-usdt', 'USDT', businessDate, cutoff);
     // 1 payin + 1 payout + 2 internalfund = 4

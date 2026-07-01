@@ -10,7 +10,7 @@ describe('SwapTransactionsService', () => {
       swapTransaction: {
         findUnique: jest.fn(),
       },
-      internalFund: {
+      fundsOrder: {
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
@@ -61,14 +61,14 @@ describe('SwapTransactionsService', () => {
       id: 'swap-2',
       swapNo: 'SWP0002',
     });
-    prisma.internalFund.findMany.mockResolvedValue([
+    prisma.fundsOrder.findMany.mockResolvedValue([
       { id: 'leg-0', legSeq: 0, attempt: 1, status: 'CLEAR' },
       { id: 'leg-1', legSeq: 1, attempt: 1, status: 'PENDING' },
     ]);
 
     const result = await service.findOne('swap-2');
 
-    expect(prisma.internalFund.findMany).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { swapTransactionId: 'swap-2' },
         orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],

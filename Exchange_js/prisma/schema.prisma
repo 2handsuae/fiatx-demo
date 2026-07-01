@@ -758,7 +758,7 @@ model Asset {
   wallets                        Wallet[]
   withdrawTransactions           WithdrawTransaction[]
   internalTransactions           InternalTransaction[]
-  internalFunds                  InternalFund[]
+  fundsOrders                    FundsOrder[]
   reconciliationCases            ReconciliationCase[]
   withdrawalAddresses            WithdrawalAddress[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
@@ -895,8 +895,8 @@ model Wallet {
   payinsFrom                               Payin[]                         @relation("PayinFromWallet")
   internalTransactionsFrom                 InternalTransaction[]           @relation("InternalTxFromWallet")
   internalTransactionsTo                   InternalTransaction[]           @relation("InternalTxToWallet")
-  internalFundsFrom                        InternalFund[]                  @relation("InternalFundFromWallet")
-  internalFundsTo                          InternalFund[]                  @relation("InternalFundToWallet")
+  fundsOrdersFrom                          FundsOrder[]                    @relation("FundsOrderFromWallet")
+  fundsOrdersTo                            FundsOrder[]                    @relation("FundsOrderToWallet")
   regulatoryGateItems                      RegulatoryGateItem[]            @relation("RegulatoryGateWallet")
   asset                                    Asset                           @relation(fields: [assetId], references: [id])
   inboundTransferSignals                   InboundTransferSignal[]
@@ -1028,6 +1028,7 @@ model DepositTransaction {
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
   customer             CustomerMain      @relation(fields: [ownerId], references: [id])
+  fundsOrders          FundsOrder[]      @relation("DepositFundsOrders")
 
   @@index([depositNo])
   @@index([ownerType, ownerId])
@@ -1083,7 +1084,6 @@ model InternalTransaction {
   approvalCase               ApprovalCase?                 @relation("InternalTransactionApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
   fromWallet                 Wallet?                       @relation("InternalTxFromWallet", fields: [fromWalletId], references: [id])
   toWallet                   Wallet?                       @relation("InternalTxToWallet", fields: [toWalletId], references: [id])
-  funds                      InternalFund[]
   auditLogs                  InternalTransactionAuditLog[]
   settlementBatch            SettlementBatch?              @relation("SettlementBatchTransfers", fields: [settlementBatchId], references: [id], onDelete: SetNull)
   settledOutstandings        Outstanding[]                 @relation("OutstandingSettledByTransfer")
@@ -1101,13 +1101,13 @@ model InternalTransaction {
   @@map("internal_transactions")
 }
 
-model InternalFund {
+model FundsOrder {
   id                    String                 @id @default(uuid())
-  internalFundNo        String                 @unique
-  internalTransactionId String?
+  fundsOrderNo          String                 @unique
+  depositTransactionId  String?
   swapTransactionId     String?
   withdrawTransactionId String?
-  legSeq                Int?
+  legSeq                Int                    @default(1)
   attempt               Int                    @default(1)
   status                String
   assetId               String
@@ -1134,23 +1134,24 @@ model InternalFund {
   statusHistory         String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
-  internalTransaction   InternalTransaction?   @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
-  swapTransaction       SwapTransaction?       @relation("SwapInternalFunds", fields: [swapTransactionId], references: [id], onDelete: Cascade)
-  withdrawTransaction   WithdrawTransaction?   @relation("WithdrawInternalFunds", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
+  deposit               DepositTransaction?    @relation("DepositFundsOrders", fields: [depositTransactionId], references: [id], onDelete: SetNull)
+  swapTransaction       SwapTransaction?       @relation("SwapFundsOrders", fields: [swapTransactionId], references: [id], onDelete: Cascade)
+  withdrawTransaction   WithdrawTransaction?   @relation("WithdrawFundsOrders", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
-  fromWallet            Wallet?                @relation("InternalFundFromWallet", fields: [fromWalletId], references: [id])
-  toWallet              Wallet?                @relation("InternalFundToWallet", fields: [toWalletId], references: [id])
+  fromWallet            Wallet?                @relation("FundsOrderFromWallet", fields: [fromWalletId], references: [id])
+  toWallet              Wallet?                @relation("FundsOrderToWallet", fields: [toWalletId], references: [id])
   auditLogs             InternalFundAuditLog[]
   closedOutstandings    Outstanding[]
   closedFeeAccruals     FeeAccrual[]           @relation("FeeAccrualClosedByFund")
 
-  @@index([internalTransactionId])
-  @@index([swapTransactionId])
+  @@unique([swapTransactionId, legSeq, attempt])
+  @@index([depositTransactionId])
+  @@index([swapTransactionId, legSeq])
   @@index([withdrawTransactionId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
-  @@map("internal_funds")
+  @@map("funds_orders")
 }
 
 model InternalTransactionAuditLog {
@@ -1175,7 +1176,7 @@ model InternalFundAuditLog {
   newStatus      String
   reason         String?
   createdAt      DateTime     @default(now())
-  internalFund   InternalFund @relation(fields: [internalFundId], references: [id], onDelete: Cascade)
+  internalFund   FundsOrder   @relation(fields: [internalFundId], references: [id], onDelete: Cascade)
 
   @@index([internalFundId])
   @@map("internal_fund_audit_logs")
@@ -1271,7 +1272,7 @@ model SwapTransaction {
   quote            SwapQuote?    @relation(fields: [quoteId], references: [id])
   customer         CustomerMain? @relation(fields: [ownerId], references: [id])
   outstandings     Outstanding[]
-  internalFunds    InternalFund[] @relation("SwapInternalFunds")
+  fundsOrders      FundsOrder[]   @relation("SwapFundsOrders")
 
   @@index([swapNo])
   @@index([ownerType, ownerId])
@@ -1311,7 +1312,7 @@ model Outstanding {
   swapTransaction               SwapTransaction?           @relation(fields: [swapTransactionId], references: [id])
   settlementBatch               SettlementBatch?           @relation(fields: [settlementBatchId], references: [id], onDelete: SetNull)
   settledByTransfer             InternalTransaction?       @relation("OutstandingSettledByTransfer", fields: [settledByTransferId], references: [id], onDelete: SetNull)
-  closedByInternalFund          InternalFund?              @relation(fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
+  closedByInternalFund          FundsOrder?                @relation(fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId, direction])
   @@index([status])
@@ -1379,7 +1380,7 @@ model FeeAccrual {
   asset                  Asset                @relation(fields: [assetId], references: [id])
   settlementBatch        SettlementBatch?     @relation(fields: [settlementBatchId], references: [id], onDelete: SetNull)
   settledByTransfer      InternalTransaction? @relation("FeeAccrualSettledByTransfer", fields: [settledByTransferId], references: [id], onDelete: SetNull)
-  closedByInternalFund   InternalFund?        @relation("FeeAccrualClosedByFund", fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
+  closedByInternalFund   FundsOrder?          @relation("FeeAccrualClosedByFund", fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
 
   @@unique([sourceType, sourceId, feeKind])
   @@index([status])
@@ -1450,7 +1451,7 @@ model WithdrawTransaction {
   statusHistory        String?
   updatedAt            DateTime              @updatedAt
   payout               Payout?               @relation("WithdrawToPayout")
-  internalFunds        InternalFund[]        @relation("WithdrawInternalFunds")
+  fundsOrders          FundsOrder[]          @relation("WithdrawFundsOrders")
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain          @relation(fields: [ownerId], references: [id])

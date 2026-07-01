@@ -7,7 +7,7 @@ export class FundsQueryDto {
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) take?: number;
   @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() txHash?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() internalFundNo?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() fundsOrderNo?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() assetId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() type?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() startDate?: string;

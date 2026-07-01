@@ -422,10 +422,10 @@ export class WithdrawTransactionsService {
         role: 'principal',
       });
     }
-    for (const f of item.internalFunds ?? []) {
+    for (const f of item.fundsOrders ?? []) {
       orders.push({
         kind: 'INTERNAL_FUND',
-        no: f.internalFundNo,
+        no: f.fundsOrderNo,
         id: f.id,
         status: f.status,
         amount: String(f.amount),
@@ -442,7 +442,7 @@ export class WithdrawTransactionsService {
         asset: true,
         customer: true,
         payout: true,
-        internalFunds: { include: { asset: true } },
+        fundsOrders: { include: { asset: true } },
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');

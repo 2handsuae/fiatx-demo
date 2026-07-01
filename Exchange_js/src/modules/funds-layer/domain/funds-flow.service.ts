@@ -194,8 +194,8 @@ export class FundsFlowService {
     };
     if (maybe?.code !== 'P2002') return false;
     const target = maybe.meta?.target;
-    if (Array.isArray(target)) return target.includes('internalFundNo');
-    if (typeof target === 'string') return target.includes('internalFundNo');
+    if (Array.isArray(target)) return target.includes('fundsOrderNo');
+    if (typeof target === 'string') return target.includes('fundsOrderNo');
     return false;
   }
 
@@ -238,7 +238,7 @@ export class FundsFlowService {
       newStatus: string;
       operatorId: string;
     }> = [];
-    const confirmedFunds = await (client as any).internalFund.findMany({
+    const confirmedFunds = await (client as any).fundsOrder.findMany({
       where: {
         internalTransactionId: internalTransaction.id,
         status: InternalFundStatus.CONFIRMED,
@@ -256,7 +256,7 @@ export class FundsFlowService {
 
     for (const fund of confirmedFunds) {
       const reason = 'Auto clear after internal transaction success';
-      await (client as any).internalFund.update({
+      await (client as any).fundsOrder.update({
         where: { id: fund.id },
         data: {
           status: InternalFundStatus.CLEAR,
@@ -320,7 +320,7 @@ export class FundsFlowService {
         throw new NotFoundException('Internal transaction not found');
       }
 
-      const existing = await (client as any).internalFund.findFirst({
+      const existing = await (client as any).fundsOrder.findFirst({
         where: { internalTransactionId: input.internalTransactionId },
       });
       if (existing) return existing;
@@ -330,13 +330,13 @@ export class FundsFlowService {
         attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
         attempt += 1
       ) {
-        const internalFundNo = generateReferenceNo('IFD');
+        const fundsOrderNo = generateReferenceNo('IFD');
         const status = input.status ?? InternalFundStatus.CREATED;
 
         try {
-          const created = await (client as any).internalFund.create({
+          const created = await (client as any).fundsOrder.create({
             data: {
-              internalFundNo,
+              fundsOrderNo,
               internalTransactionId: input.internalTransactionId,
               status,
               assetId: internalTx.assetId,
@@ -383,7 +383,7 @@ export class FundsFlowService {
               action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
-              entityNo: created.internalFundNo,
+              entityNo: created.fundsOrderNo,
               reason: 'Initial creation',
               ...this.buildDepositWorkflowAuditContext(
                 created.internalTransaction,
@@ -408,7 +408,7 @@ export class FundsFlowService {
       }
 
       throw new InternalServerErrorException(
-        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+        `Failed to generate unique fundsOrderNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
       );
     };
 
@@ -441,11 +441,11 @@ export class FundsFlowService {
         attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
         attempt += 1
       ) {
-        const internalFundNo = generateReferenceNo('IFD');
+        const fundsOrderNo = generateReferenceNo('IFD');
         try {
-          const created = await (client as any).internalFund.create({
+          const created = await (client as any).fundsOrder.create({
             data: {
-              internalFundNo,
+              fundsOrderNo,
               internalTransactionId: input.internalTransactionId,
               status,
               assetId: internalTx.assetId,
@@ -463,7 +463,7 @@ export class FundsFlowService {
               action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
-              entityNo: created.internalFundNo,
+              entityNo: created.fundsOrderNo,
               reason: 'Fund leg created',
               sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
             },
@@ -481,7 +481,7 @@ export class FundsFlowService {
         }
       }
       throw new InternalServerErrorException(
-        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+        `Failed to generate unique fundsOrderNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
       );
     };
     if (tx) return execute(tx);
@@ -529,7 +529,7 @@ export class FundsFlowService {
         newStatus: string;
         operatorId: string;
       }> = [];
-      const item = await (client as any).internalFund.findUnique({
+      const item = await (client as any).fundsOrder.findUnique({
         where: { id },
         include: internalFundDetailInclude,
       });
@@ -585,7 +585,7 @@ export class FundsFlowService {
           !effectiveReferenceNo &&
           !item.referenceNo
         ) {
-          effectiveReferenceNo = `BANK-${item.internalFundNo}`;
+          effectiveReferenceNo = `BANK-${item.fundsOrderNo}`;
         }
       }
 
@@ -627,7 +627,7 @@ export class FundsFlowService {
         reason || `Action: ${action}`,
       );
 
-      const updated = await (client as any).internalFund.update({
+      const updated = await (client as any).fundsOrder.update({
         where: { id },
         data: updateData,
       });
@@ -650,7 +650,7 @@ export class FundsFlowService {
           metadata: JSON.stringify({ from: currentStatus }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: updated.id,
-          entityNo: updated.internalFundNo,
+          entityNo: updated.fundsOrderNo,
           reason: reason || `Action: ${action}`,
           ...this.buildDepositWorkflowAuditContext(item.internalTransaction),
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
@@ -696,7 +696,7 @@ export class FundsFlowService {
               eventPayload.newStatus === InternalFundStatus.CLEAR,
           )
         ) {
-          settledFund = await (client as any).internalFund.findUnique({
+          settledFund = await (client as any).fundsOrder.findUnique({
             where: { id },
             include: internalFundDetailInclude,
           });
@@ -750,11 +750,11 @@ export class FundsFlowService {
         attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
         attempt += 1
       ) {
-        const internalFundNo = generateReferenceNo('IFD');
+        const fundsOrderNo = generateReferenceNo('IFD');
         try {
-          const created = await (client as any).internalFund.create({
+          const created = await (client as any).fundsOrder.create({
             data: {
-              internalFundNo,
+              fundsOrderNo,
               internalTransactionId: null,
               swapTransactionId: input.swapTransactionId,
               legSeq: input.legSeq,
@@ -779,7 +779,7 @@ export class FundsFlowService {
               action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
-              entityNo: created.internalFundNo,
+              entityNo: created.fundsOrderNo,
               reason: `Swap leg ${input.legSeq} created`,
               sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
             },
@@ -797,7 +797,7 @@ export class FundsFlowService {
         }
       }
       throw new InternalServerErrorException(
-        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+        `Failed to generate unique fundsOrderNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
       );
     };
     if (tx) return exec(tx);
@@ -811,7 +811,7 @@ export class FundsFlowService {
     tx?: TxClient,
   ) {
     const exec = async (client: TxClient) => {
-      const leg = await (client as any).internalFund.findUnique({
+      const leg = await (client as any).fundsOrder.findUnique({
         where: { id },
         include: { asset: true },
       });
@@ -824,7 +824,7 @@ export class FundsFlowService {
           `Invalid action ${action} for status ${cur}`,
         );
       }
-      const updated = await (client as any).internalFund.update({
+      const updated = await (client as any).fundsOrder.update({
         where: { id },
         data: {
           status: next,
@@ -845,7 +845,7 @@ export class FundsFlowService {
           metadata: JSON.stringify({ from: cur }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: id,
-          entityNo: leg.internalFundNo,
+          entityNo: leg.fundsOrderNo,
           reason: `Swap leg ${cur}->${next}`,
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
@@ -877,10 +877,10 @@ export class FundsFlowService {
     tx?: TxClient,
   ) {
     const exec = async (client: TxClient) => {
-      const leg = await (client as any).internalFund.findUnique({ where: { id } });
+      const leg = await (client as any).fundsOrder.findUnique({ where: { id } });
       if (!leg) throw new NotFoundException('Internal fund leg not found');
       const reason = `Stuck after attempt ${attempt} — awaiting manual resume`;
-      return (client as any).internalFund.update({
+      return (client as any).fundsOrder.update({
         where: { id },
         data: {
           status: InternalFundStatus.NEEDS_REVIEW,
@@ -927,11 +927,11 @@ export class FundsFlowService {
         attempt <= FundsFlowService.MAX_NO_GENERATION_RETRIES;
         attempt += 1
       ) {
-        const internalFundNo = generateReferenceNo('IFD');
+        const fundsOrderNo = generateReferenceNo('IFD');
         try {
-          const created = await (client as any).internalFund.create({
+          const created = await (client as any).fundsOrder.create({
             data: {
-              internalFundNo,
+              fundsOrderNo,
               internalTransactionId: null,
               swapTransactionId: null,
               withdrawTransactionId: input.withdrawTransactionId,
@@ -959,7 +959,7 @@ export class FundsFlowService {
               action: AuditActions.CREATED,
               entityType: AuditEntityTypes.INTERNAL_FUND,
               entityId: created.id,
-              entityNo: created.internalFundNo,
+              entityNo: created.fundsOrderNo,
               reason: 'Withdrawal fee fund created',
               sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
             },
@@ -977,7 +977,7 @@ export class FundsFlowService {
         }
       }
       throw new InternalServerErrorException(
-        `Failed to generate unique internalFundNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
+        `Failed to generate unique fundsOrderNo after ${FundsFlowService.MAX_NO_GENERATION_RETRIES} attempts`,
       );
     };
     if (tx) return exec(tx);
@@ -998,12 +998,12 @@ export class FundsFlowService {
     tx?: TxClient,
   ) {
     const exec = async (client: TxClient) => {
-      const fund = await (client as any).internalFund.findFirst({
+      const fund = await (client as any).fundsOrder.findFirst({
         where: { withdrawTransactionId },
       });
       if (!fund) return null;
       if (fund.status === status) return fund;
-      const updated = await (client as any).internalFund.update({
+      const updated = await (client as any).fundsOrder.update({
         where: { id: fund.id },
         data: {
           status,
@@ -1024,7 +1024,7 @@ export class FundsFlowService {
           metadata: JSON.stringify({ from: fund.status }) as any,
           entityType: AuditEntityTypes.INTERNAL_FUND,
           entityId: fund.id,
-          entityNo: fund.internalFundNo,
+          entityNo: fund.fundsOrderNo,
           reason,
           sourcePlatform: operatorId === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
         },
@@ -1048,7 +1048,7 @@ export class FundsFlowService {
       internalTransactionId,
       status,
       txHash,
-      internalFundNo,
+      fundsOrderNo,
       assetId,
       type,
       startDate,
@@ -1060,7 +1060,7 @@ export class FundsFlowService {
       where.internalTransactionId = internalTransactionId;
     if (status) where.status = status;
     if (txHash) where.txHash = { contains: txHash };
-    if (internalFundNo) where.internalFundNo = { contains: internalFundNo };
+    if (fundsOrderNo) where.fundsOrderNo = { contains: fundsOrderNo };
     if (assetId) where.assetId = assetId;
     if (type) where.asset = { type };
     if (startDate || endDate) {
@@ -1070,7 +1070,7 @@ export class FundsFlowService {
     }
 
     const [items, total] = await Promise.all([
-      (this.prisma as any).internalFund.findMany({
+      (this.prisma as any).fundsOrder.findMany({
         where,
         skip: Number(skip),
         take: Number(take),
@@ -1087,15 +1087,15 @@ export class FundsFlowService {
           },
         },
       }),
-      (this.prisma as any).internalFund.count({ where }),
+      (this.prisma as any).fundsOrder.count({ where }),
     ]);
 
     return { items, total };
   }
 
-  async findOneByNoForAdmin(internalFundNo: string) {
-    const item = await (this.prisma as any).internalFund.findUnique({
-      where: { internalFundNo },
+  async findOneByNoForAdmin(fundsOrderNo: string) {
+    const item = await (this.prisma as any).fundsOrder.findUnique({
+      where: { fundsOrderNo },
       include: {
         asset: true,
         fromWallet: true,
@@ -1137,7 +1137,7 @@ export class FundsFlowService {
   }
 
   async findOneForAdmin(id: string) {
-    const item = await (this.prisma as any).internalFund.findUnique({
+    const item = await (this.prisma as any).fundsOrder.findUnique({
       where: { id },
       include: {
         asset: true,

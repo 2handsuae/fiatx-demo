@@ -444,7 +444,7 @@ export class FeeAccrualService {
       include: {
         settlementBatch: { select: { id: true, batchNo: true } },
         settledByTransfer: { select: { id: true, internalTxNo: true } },
-        closedByInternalFund: { select: { id: true, internalFundNo: true } },
+        closedByInternalFund: { select: { id: true, fundsOrderNo: true } },
       },
     });
     if (!row) return null;

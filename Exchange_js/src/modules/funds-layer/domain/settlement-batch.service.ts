@@ -273,7 +273,7 @@ export class SettlementBatchService {
       where: { batchNo },
       include: {
         transfers: {
-          include: { asset: true, funds: { select: { id: true, internalFundNo: true, status: true } } },
+          include: { asset: true, funds: { select: { id: true, fundsOrderNo: true, status: true } } },
           orderBy: { createdAt: 'asc' },
         },
       },

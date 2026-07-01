@@ -6,7 +6,7 @@ describe('InTransitService', () => {
   let svc: InTransitService;
   beforeEach(() => {
     prisma = {
-      internalFund: { findMany: jest.fn().mockResolvedValue([]) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
       payin: { findMany: jest.fn().mockResolvedValue([]) },
       withdrawTransaction: { findMany: jest.fn().mockResolvedValue([]) },
     };
@@ -14,7 +14,7 @@ describe('InTransitService', () => {
   });
 
   it('crypto: FUND_OUT CREATED adds to external adjustment', async () => {
-    prisma.internalFund.findMany.mockResolvedValue([
+    prisma.fundsOrder.findMany.mockResolvedValue([
       { amount: new Prisma.Decimal('243.20'), status: 'CREATED' },
     ]);
     const adj = await svc.computeCrypto('USDT', 'asset-usdt', new Date('2026-06-17T00:00:00Z'));

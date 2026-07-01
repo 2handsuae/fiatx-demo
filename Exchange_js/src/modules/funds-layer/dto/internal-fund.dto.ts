@@ -61,7 +61,7 @@ export class InternalFundQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  internalFundNo?: string;
+  fundsOrderNo?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

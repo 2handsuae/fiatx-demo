@@ -31,7 +31,7 @@ export class InTransitService {
     for (const w of wds) adj = adj.plus(new Prisma.Decimal(w.netAmount));
 
     // ③ 内部转账在途（internal_fund CREATED 未 CLEAR）→ 外部 +=
-    const funds = await this.prisma.internalFund.findMany({
+    const funds = await this.prisma.fundsOrder.findMany({
       where: { assetId, status: { in: [...FUNDS_FLOW_IN_TRANSIT] }, createdAt: { lt: cutoff } },
       select: { amount: true },
     });
@@ -48,7 +48,7 @@ export class InTransitService {
       select: { netAmount: true },
     });
     for (const w of wds) adj = adj.plus(new Prisma.Decimal(w.netAmount));
-    const funds = await this.prisma.internalFund.findMany({
+    const funds = await this.prisma.fundsOrder.findMany({
       where: { assetId, status: { in: [...FUNDS_FLOW_IN_TRANSIT] }, createdAt: { lt: cutoff } },
       select: { amount: true },
     });

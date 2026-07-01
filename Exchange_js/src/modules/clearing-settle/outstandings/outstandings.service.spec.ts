@@ -276,7 +276,7 @@ describe('OutstandingsService', () => {
       select: { internalTxNo: true, pathLabel: true, status: true },
     });
     expect(arg.include.closedByInternalFund).toEqual({
-      select: { internalFundNo: true, status: true },
+      select: { fundsOrderNo: true, status: true },
     });
     expect(arg.include.asset).toBe(true);
     expect(arg.include.swapTransaction).toBeDefined();

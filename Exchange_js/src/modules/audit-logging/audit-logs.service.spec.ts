@@ -81,7 +81,7 @@ describe('AuditLogsService', () => {
       internalTransaction: {
         findMany: jest.fn(),
       },
-      internalFund: {
+      fundsOrder: {
         findMany: jest.fn(),
       },
     };
@@ -1034,10 +1034,10 @@ describe('AuditLogsService', () => {
         completedAt: new Date('2026-03-24T08:06:10.000Z'),
       },
     ]);
-    prisma.internalFund.findMany.mockResolvedValue([
+    prisma.fundsOrder.findMany.mockResolvedValue([
       {
         id: 'ifd-1',
-        internalFundNo: 'IFD2603240001',
+        fundsOrderNo: 'IFD2603240001',
         internalTransactionId: 'itx-1',
         status: 'CLEAR',
         assetId: 'asset-1',

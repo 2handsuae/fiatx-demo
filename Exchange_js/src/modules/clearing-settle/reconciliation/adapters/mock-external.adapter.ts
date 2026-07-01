@@ -31,7 +31,7 @@ export class MockExternalAdapter implements ExternalBalanceProvider, ExternalTxP
     // 不含 firm 自有资金。direction-aware 匹配（区分 IN/OUT）是 documented follow-up，此处不扩范围。
     const start = new Date(`${businessDate}T00:00:00.000Z`);
     const end = new Date(start.getTime() + 86400000);
-    const funds = await this.prisma.internalFund.findMany({
+    const funds = await this.prisma.fundsOrder.findMany({
       where: {
         assetId,
         status: 'CLEAR',

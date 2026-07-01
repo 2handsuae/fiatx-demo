@@ -14,17 +14,17 @@ export class InternalActionsService {
     // ① internal_fund（已 CLEAR 且有外部物理键）→ 有真实链上/银行对应 → IN
     //    （match key = txHash || referenceNo：crypto 走 txHash，fiat 走银行 referenceNo）。
     //    无任何键的纯账内转账无外部物理腿，不进账实(I5)对账。
-    const funds = await this.prisma.internalFund.findMany({
+    const funds = await this.prisma.fundsOrder.findMany({
       where: {
         assetId,
         status: 'CLEAR',
         createdAt: { gte: start, lt: cutoff },
         OR: [{ txHash: { not: null } }, { referenceNo: { not: null } }],
       },
-      select: { id: true, internalFundNo: true, amount: true, txHash: true, referenceNo: true },
+      select: { id: true, fundsOrderNo: true, amount: true, txHash: true, referenceNo: true },
     });
     for (const f of funds) out.push({
-      sourceType: 'INTERNAL_FUND', sourceId: f.id, sourceNo: f.internalFundNo,
+      sourceType: 'INTERNAL_FUND', sourceId: f.id, sourceNo: f.fundsOrderNo,
       amount: new Prisma.Decimal(f.amount), direction: 'IN', txHash: f.txHash, referenceNo: f.referenceNo,
     });
 

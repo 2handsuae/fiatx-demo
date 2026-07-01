@@ -23,7 +23,7 @@ describe('FundsFlowService', () => {
 
   beforeEach(async () => {
     prisma = {
-      internalFund: {
+      fundsOrder: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -68,7 +68,7 @@ describe('FundsFlowService', () => {
   });
 
   it('manual CLEAR debits fromWallet and credits toWallet by amount', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-clr',
       status: InternalFundStatus.CONFIRMED,
       statusHistory: '[]',
@@ -85,7 +85,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'FIAT' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-clr',
       status: InternalFundStatus.CLEAR,
     });
@@ -110,7 +110,7 @@ describe('FundsFlowService', () => {
   });
 
   it('auto-clear (CONFIRMED + tx SUCCESS) moves each cleared leg balance from→to', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-auto',
       status: InternalFundStatus.CONFIRMING,
       statusHistory: '[]',
@@ -127,12 +127,12 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-auto',
       status: InternalFundStatus.CONFIRMED,
     });
     aggregator.syncStatusFromFunds.mockResolvedValue({ status: 'SUCCESS' });
-    prisma.internalFund.findMany.mockResolvedValue([
+    prisma.fundsOrder.findMany.mockResolvedValue([
       {
         id: 'ifd-auto',
         statusHistory: '[]',
@@ -159,7 +159,7 @@ describe('FundsFlowService', () => {
   });
 
   it('advances to SIGNING on SIGN from CREATED and emits fundsflow.status.changed', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-1',
       status: InternalFundStatus.CREATED,
       statusHistory: '[]',
@@ -173,7 +173,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-1',
       status: InternalFundStatus.SIGNING,
     });
@@ -207,7 +207,7 @@ describe('FundsFlowService', () => {
   });
 
   it('rejects an illegal transition (CONFIRM from CREATED)', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-2',
       status: InternalFundStatus.CREATED,
       statusHistory: '[]',
@@ -230,11 +230,11 @@ describe('FundsFlowService', () => {
       ),
     ).rejects.toThrow(/Invalid action/);
 
-    expect(prisma.internalFund.update).not.toHaveBeenCalled();
+    expect(prisma.fundsOrder.update).not.toHaveBeenCalled();
   });
 
   it('auto clears confirmed funds after transaction reaches SUCCESS', async () => {
-    prisma.internalFund.findUnique
+    prisma.fundsOrder.findUnique
       .mockResolvedValueOnce({
         id: 'ifd-confirm-1',
         status: InternalFundStatus.CONFIRMING,
@@ -264,7 +264,7 @@ describe('FundsFlowService', () => {
         },
         asset: { type: 'CRYPTO' },
       });
-    prisma.internalFund.update
+    prisma.fundsOrder.update
       .mockResolvedValueOnce({
         id: 'ifd-confirm-1',
         status: InternalFundStatus.CONFIRMED,
@@ -273,7 +273,7 @@ describe('FundsFlowService', () => {
         id: 'ifd-cleared',
         status: InternalFundStatus.CLEAR,
       });
-    prisma.internalFund.findMany.mockResolvedValue([
+    prisma.fundsOrder.findMany.mockResolvedValue([
       { id: 'ifd-confirm-1', statusHistory: '[]' },
     ]);
     aggregator.syncStatusFromFunds.mockResolvedValue({
@@ -288,7 +288,7 @@ describe('FundsFlowService', () => {
     );
 
     expect(result.status).toBe(InternalFundStatus.CLEAR);
-    expect(prisma.internalFund.findMany).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           internalTransactionId: 'itx-success-1',
@@ -319,7 +319,7 @@ describe('FundsFlowService', () => {
   });
 
   it('rejects any action from a terminal status (CLEAR)', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-terminal',
       status: InternalFundStatus.CLEAR,
       statusHistory: '[]',
@@ -342,25 +342,25 @@ describe('FundsFlowService', () => {
       ),
     ).rejects.toThrow(/Invalid action/);
 
-    expect(prisma.internalFund.update).not.toHaveBeenCalled();
+    expect(prisma.fundsOrder.update).not.toHaveBeenCalled();
   });
 
-  it('findOneByNoForAdmin returns fund by internalFundNo', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+  it('findOneByNoForAdmin returns fund by fundsOrderNo', async () => {
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'f1',
-      internalFundNo: 'IFD123',
+      fundsOrderNo: 'IFD123',
     });
 
     const r = await service.findOneByNoForAdmin('IFD123');
 
     expect(r).toBeDefined();
-    expect(prisma.internalFund.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { internalFundNo: 'IFD123' } }),
+    expect(prisma.fundsOrder.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { fundsOrderNo: 'IFD123' } }),
     );
   });
 
   it('findOneByNoForAdmin throws NotFound when missing', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue(null);
+    prisma.fundsOrder.findUnique.mockResolvedValue(null);
 
     await expect(service.findOneByNoForAdmin('NOPE')).rejects.toThrow();
   });
@@ -383,7 +383,7 @@ describe('FundsFlowService', () => {
       referenceNo: 'ITR-1',
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.findFirst.mockResolvedValue({
+    prisma.fundsOrder.findFirst.mockResolvedValue({
       id: 'ifd-existing',
       internalTransactionId: 'itx-3',
     });
@@ -394,18 +394,18 @@ describe('FundsFlowService', () => {
     );
 
     expect(result.id).toBe('ifd-existing');
-    expect(prisma.internalFund.create).not.toHaveBeenCalled();
+    expect(prisma.fundsOrder.create).not.toHaveBeenCalled();
   });
 
   // ── admin list/detail query contract (FundUX) ────────────────────────────
 
   it('findAllForAdmin type=CRYPTO → where.asset.type 关联筛选, list include 不带 from/toWallet', async () => {
-    prisma.internalFund.findMany.mockResolvedValue([]);
-    prisma.internalFund.count.mockResolvedValue(0);
+    prisma.fundsOrder.findMany.mockResolvedValue([]);
+    prisma.fundsOrder.count.mockResolvedValue(0);
 
     await service.findAllForAdmin({ type: 'CRYPTO' } as any);
 
-    const arg = prisma.internalFund.findMany.mock.calls[0][0];
+    const arg = prisma.fundsOrder.findMany.mock.calls[0][0];
     expect(arg.where).toEqual(
       expect.objectContaining({ asset: { type: 'CRYPTO' } }),
     );
@@ -414,14 +414,14 @@ describe('FundsFlowService', () => {
   });
 
   it('findOneByNoForAdmin internalTransaction select 含 type（Linked Transfer 卡片）', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-sel',
-      internalFundNo: 'IFDSEL',
+      fundsOrderNo: 'IFDSEL',
     });
 
     await service.findOneByNoForAdmin('IFDSEL');
 
-    const arg = prisma.internalFund.findUnique.mock.calls[0][0];
+    const arg = prisma.fundsOrder.findUnique.mock.calls[0][0];
     expect(arg.include.internalTransaction.select).toEqual(
       expect.objectContaining({ type: true }),
     );
@@ -430,7 +430,7 @@ describe('FundsFlowService', () => {
   // ── REORG (shallow reorg, crypto only) ───────────────────────────────────
 
   it('REORG: crypto CONFIRMING → update receives status BROADCASTED', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-reorg',
       status: InternalFundStatus.CONFIRMING,
       statusHistory: '[]',
@@ -444,7 +444,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-reorg',
       status: InternalFundStatus.BROADCASTED,
     });
@@ -458,7 +458,7 @@ describe('FundsFlowService', () => {
       'ADMIN',
     );
 
-    expect(prisma.internalFund.update).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: InternalFundStatus.BROADCASTED,
@@ -470,7 +470,7 @@ describe('FundsFlowService', () => {
   // ── mock chain receipt fallback (sim/dev, crypto only) ───────────────────
 
   it('crypto BROADCAST without txHash → mock txHash 兜底写入', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-tx',
       status: InternalFundStatus.SIGNING,
       statusHistory: '[]',
@@ -485,7 +485,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-tx',
       status: InternalFundStatus.BROADCASTED,
     });
@@ -499,12 +499,12 @@ describe('FundsFlowService', () => {
       'ADMIN',
     );
 
-    const arg = prisma.internalFund.update.mock.calls[0][0];
+    const arg = prisma.fundsOrder.update.mock.calls[0][0];
     expect(arg.data.txHash).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
   it('crypto CONFIRM without gas → mock gasUsed/effectiveGasPrice 兜底写入', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-gas',
       status: InternalFundStatus.CONFIRMING,
       statusHistory: '[]',
@@ -520,7 +520,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-gas',
       status: InternalFundStatus.CONFIRMED,
     });
@@ -534,15 +534,15 @@ describe('FundsFlowService', () => {
       'ADMIN',
     );
 
-    const arg = prisma.internalFund.update.mock.calls[0][0];
+    const arg = prisma.fundsOrder.update.mock.calls[0][0];
     expect(arg.data.gasUsed).toEqual(expect.any(String));
     expect(arg.data.effectiveGasPrice).toEqual(expect.any(String));
   });
 
   it('fiat SUBMIT without referenceNo → mock bank referenceNo 兜底写入 (BANK-<no>)', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-fiat-sub',
-      internalFundNo: 'IFD-FIAT-SUB',
+      fundsOrderNo: 'IFD-FIAT-SUB',
       status: InternalFundStatus.CREATED,
       statusHistory: '[]',
       txHash: null,
@@ -557,7 +557,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'FIAT' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-fiat-sub',
       status: InternalFundStatus.CONFIRMING,
     });
@@ -571,16 +571,16 @@ describe('FundsFlowService', () => {
       'ADMIN',
     );
 
-    const arg = prisma.internalFund.update.mock.calls[0][0];
+    const arg = prisma.fundsOrder.update.mock.calls[0][0];
     expect(arg.data.referenceNo).toBe('BANK-IFD-FIAT-SUB');
     // 不碰 crypto txHash 逻辑：fiat SUBMIT 不应伪造 txHash
     expect(arg.data.txHash).toBeUndefined();
   });
 
   it('fiat SUBMIT with incoming referenceNo → 不覆盖，用传入值', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-fiat-sub2',
-      internalFundNo: 'IFD-FIAT-SUB2',
+      fundsOrderNo: 'IFD-FIAT-SUB2',
       status: InternalFundStatus.CREATED,
       statusHistory: '[]',
       txHash: null,
@@ -595,7 +595,7 @@ describe('FundsFlowService', () => {
       },
       asset: { type: 'FIAT' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-fiat-sub2',
       status: InternalFundStatus.CONFIRMING,
     });
@@ -609,12 +609,12 @@ describe('FundsFlowService', () => {
       'ADMIN',
     );
 
-    const arg = prisma.internalFund.update.mock.calls[0][0];
+    const arg = prisma.fundsOrder.update.mock.calls[0][0];
     expect(arg.data.referenceNo).toBe('REF-FROM-BANK-API');
   });
 
   it('REORG: fiat CONFIRMING 仍非法（银行轨无重组）', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-reorg-f',
       status: InternalFundStatus.CONFIRMING,
       statusHistory: '[]',
@@ -646,7 +646,7 @@ describe('createLeg', () => {
 
   beforeEach(async () => {
     prisma = {
-      internalFund: {
+      fundsOrder: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -685,8 +685,8 @@ describe('createLeg', () => {
       id: 't-1',
       assetId: 'a-1',
     });
-    prisma.internalFund.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({ id: 'new-fund-1', internalFundNo: data.internalFundNo, ...data }),
+    prisma.fundsOrder.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'new-fund-1', fundsOrderNo: data.fundsOrderNo, ...data }),
     );
 
     const result = await service.createLeg(
@@ -699,7 +699,7 @@ describe('createLeg', () => {
       'SYSTEM',
     );
 
-    expect(prisma.internalFund.create).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           fromWalletId: 'w-from',
@@ -712,9 +712,9 @@ describe('createLeg', () => {
     );
     expect(result).toBeDefined();
     // No findFirst short-circuit
-    expect(prisma.internalFund.findFirst).not.toHaveBeenCalled();
+    expect(prisma.fundsOrder.findFirst).not.toHaveBeenCalled();
     // Default CREATED status → completedAt must be null (not a terminal status)
-    expect(prisma.internalFund.create).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ completedAt: null }),
       }),
@@ -729,7 +729,7 @@ describe('swap legs', () => {
 
   beforeEach(async () => {
     prisma = {
-      internalFund: {
+      fundsOrder: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -764,8 +764,8 @@ describe('swap legs', () => {
   });
 
   it('createSwapLeg: internalFund.create called with swapTransactionId, legSeq, internalTransactionId: null, status: CREATED', async () => {
-    prisma.internalFund.create.mockImplementation(({ data }: any) =>
-      Promise.resolve({ id: 'swap-leg-1', internalFundNo: data.internalFundNo, ...data }),
+    prisma.fundsOrder.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'swap-leg-1', fundsOrderNo: data.fundsOrderNo, ...data }),
     );
 
     await service.createSwapLeg({
@@ -777,7 +777,7 @@ describe('swap legs', () => {
       toWalletId: 'w-to',
     });
 
-    expect(prisma.internalFund.create).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           swapTransactionId: 'swap-tx-1',
@@ -790,23 +790,23 @@ describe('swap legs', () => {
   });
 
   it('transitionSwapLeg: crypto leg CREATED + action SIGN → update called with status SIGNING; returns nextStatus===SIGNING', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'swap-leg-2',
-      internalFundNo: 'IFD-SWAP-2',
+      fundsOrderNo: 'IFD-SWAP-2',
       status: InternalFundStatus.CREATED,
       statusHistory: '[]',
       confirmedAt: null,
       completedAt: null,
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'swap-leg-2',
       status: InternalFundStatus.SIGNING,
     });
 
     const result = await service.transitionSwapLeg('swap-leg-2', InternalFundAction.SIGN);
 
-    expect(prisma.internalFund.update).toHaveBeenCalledWith(
+    expect(prisma.fundsOrder.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: InternalFundStatus.SIGNING }),
       }),
@@ -815,9 +815,9 @@ describe('swap legs', () => {
   });
 
   it('transitionSwapLeg: illegal transition (CREATED + CONFIRM on crypto) → throws BadRequestException', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'swap-leg-3',
-      internalFundNo: 'IFD-SWAP-3',
+      fundsOrderNo: 'IFD-SWAP-3',
       status: InternalFundStatus.CREATED,
       statusHistory: '[]',
       confirmedAt: null,
@@ -829,7 +829,7 @@ describe('swap legs', () => {
       service.transitionSwapLeg('swap-leg-3', InternalFundAction.CONFIRM),
     ).rejects.toThrow(/Invalid action/);
 
-    expect(prisma.internalFund.update).not.toHaveBeenCalled();
+    expect(prisma.fundsOrder.update).not.toHaveBeenCalled();
   });
 });
 
@@ -864,7 +864,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
 
   beforeEach(async () => {
     prisma = {
-      internalFund: {
+      fundsOrder: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -906,10 +906,10 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
       id: 't-1',
       assetId: 'a-1',
     });
-    prisma.internalFund.create.mockImplementation(({ data }: any) =>
+    prisma.fundsOrder.create.mockImplementation(({ data }: any) =>
       Promise.resolve({
         id: 'new-fund-1',
-        internalFundNo: data.internalFundNo,
+        fundsOrderNo: data.fundsOrderNo,
         ...data,
       }),
     );
@@ -949,11 +949,11 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
       referenceNo: 'ITR-1',
       asset: { type: 'CRYPTO' },
     });
-    prisma.internalFund.findFirst.mockResolvedValue(null);
-    prisma.internalFund.create.mockImplementation(({ data }: any) =>
+    prisma.fundsOrder.findFirst.mockResolvedValue(null);
+    prisma.fundsOrder.create.mockImplementation(({ data }: any) =>
       Promise.resolve({
         id: 'new-fund-2',
-        internalFundNo: data.internalFundNo,
+        fundsOrderNo: data.fundsOrderNo,
         internalTransaction: {
           id: 'itx-create',
           internalTxNo: 'ITX-CREATE',
@@ -978,7 +978,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
   });
 
   it('emits CLEARED short name + metadata.from=CONFIRMED on auto-clear', async () => {
-    prisma.internalFund.findUnique
+    prisma.fundsOrder.findUnique
       .mockResolvedValueOnce({
         id: 'ifd-ac',
         status: InternalFundStatus.CONFIRMING,
@@ -1008,7 +1008,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
         },
         asset: { type: 'CRYPTO' },
       });
-    prisma.internalFund.update
+    prisma.fundsOrder.update
       .mockResolvedValueOnce({
         id: 'ifd-ac',
         status: InternalFundStatus.CONFIRMED,
@@ -1017,7 +1017,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
         id: 'ifd-ac-cleared',
         status: InternalFundStatus.CLEAR,
       });
-    prisma.internalFund.findMany.mockResolvedValue([
+    prisma.fundsOrder.findMany.mockResolvedValue([
       {
         id: 'ifd-ac',
         statusHistory: '[]',
@@ -1048,7 +1048,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
   });
 
   it('emits short name + metadata.from for state machine transitions (CONFIRMING → CONFIRMED)', async () => {
-    prisma.internalFund.findUnique.mockResolvedValue({
+    prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'ifd-tr',
       status: InternalFundStatus.CONFIRMING,
       statusHistory: '[]',
@@ -1062,7 +1062,7 @@ describe('Spec #4: INTERNAL_FUND short-name audit actions', () => {
       },
       asset: { type: 'FIAT' },
     });
-    prisma.internalFund.update.mockResolvedValue({
+    prisma.fundsOrder.update.mockResolvedValue({
       id: 'ifd-tr',
       status: InternalFundStatus.CONFIRMED,
     });

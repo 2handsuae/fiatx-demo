@@ -261,7 +261,7 @@ describe('InternalTransferService', () => {
         internalTransaction: {
           findMany: jest.fn().mockResolvedValue([
             { id: 'itx-1', internalTxNo: 'ITX-1', type: 'DEPOSIT_AGG', status: 'SUCCESS',
-              funds: [{ internalFundNo: 'IF-1', status: 'CONFIRMED' }] },
+              funds: [{ fundsOrderNo: 'IF-1', status: 'CONFIRMED' }] },
           ]),
         },
       } as any;
@@ -274,7 +274,7 @@ describe('InternalTransferService', () => {
       );
       expect(result).toEqual([
         { id: 'itx-1', internalTxNo: 'ITX-1', type: 'DEPOSIT_AGG', status: 'SUCCESS',
-          legs: [{ internalFundNo: 'IF-1', status: 'CONFIRMED' }] },
+          legs: [{ fundsOrderNo: 'IF-1', status: 'CONFIRMED' }] },
       ]);
     });
 
