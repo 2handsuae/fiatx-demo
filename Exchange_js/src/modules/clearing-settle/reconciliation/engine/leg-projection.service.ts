@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { FundsOrderSourceRepo } from '../data-source/funds-order-source.repo';
+import { FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
 
 /**
  * 内部"账户腿"（read-time 投影，只取终态）。spec 2026-06-20 §4.1。
@@ -54,7 +56,10 @@ type WalletRef =
 
 @Injectable()
 export class LegProjectionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly source: FundsOrderSourceRepo,
+  ) {}
 
   /**
    * 把当日终态的真实内部资金单投影成账户腿。
@@ -73,12 +78,8 @@ export class LegProjectionService {
     const legs: InternalLeg[] = [];
 
     // ① Payin(CLEARED) → 1 IN 腿（toWallet→account；fiat 滚 CMA）
-    const payins = await this.prisma.payin.findMany({
-      where: { assetId, status: 'CLEARED', createdAt: { gte: start, lt: cutoff } },
-      select: {
-        id: true, payinNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true,
-        toWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
-      },
+    const payins = await this.source.findPayins({
+      assetId, status: FundsOrderStatus.CLEARED, createdAt: { gte: start, lt: cutoff },
     });
     for (const p of payins) {
       legs.push(this.makeLeg('PAYIN', p.id, p.payinNo, p.amount, 'IN', currency,
@@ -88,24 +89,16 @@ export class LegProjectionService {
     // ② Payout(终态 CLEARED) → 1 OUT 腿（srcWallet = 客户被借记钱包；payoutRef/txHash || referenceNo）
     //    CLEARED 即已物理出账 → 不带 createdAt 窗口（与 in-transit/spec 一致）。
     //    Payout 无 fromWallet 关系 → 经 ownerId 反查客户钱包（与假对账单生成器 ownerToViban/Vault 同源）。
-    const payouts = await this.prisma.payout.findMany({
-      where: { assetId, status: 'CLEARED' },
-      select: { id: true, payoutNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true, ownerId: true },
-    });
+    const payouts = await this.source.findPayouts({ assetId, status: FundsOrderStatus.CLEARED });
     const ownerWallet = await this.buildOwnerWalletMap(assetId, currency, payouts);
     for (const po of payouts) {
       legs.push(this.makeLeg('PAYOUT', po.id, po.payoutNo, po.amount, 'OUT', currency,
         po.txHash, po.referenceNo, po.createdAt, po.ownerId ? ownerWallet.get(po.ownerId) : null));
     }
 
-    // ③ InternalFund(CLEAR) → 2 腿：(fromWallet, OUT) + (toWallet, IN)，共享 txHash/referenceNo
-    const funds = await this.prisma.fundsOrder.findMany({
-      where: { assetId, status: 'CLEAR', createdAt: { gte: start, lt: cutoff } },
-      select: {
-        id: true, fundsOrderNo: true, amount: true, txHash: true, referenceNo: true, createdAt: true,
-        fromWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
-        toWallet: { select: { id: true, vaultId: true, iban: true, walletRole: true } },
-      },
+    // ③ InternalFund(CLEARED) → 2 腿：(fromWallet, OUT) + (toWallet, IN)，共享 txHash/referenceNo
+    const funds = await this.source.findInternals({
+      assetId, status: FundsOrderStatus.CLEARED, createdAt: { gte: start, lt: cutoff },
     });
     for (const f of funds) {
       legs.push(this.makeLeg('INTERNALFUND', f.id, f.fundsOrderNo, f.amount, 'OUT', currency,

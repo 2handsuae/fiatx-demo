@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { FundsOrderSourceRepo } from '../data-source/funds-order-source.repo';
 import {
   PAYIN_IN_TRANSIT, WITHDRAW_IN_TRANSIT_STATUS, FUNDS_FLOW_IN_TRANSIT,
 } from '../constants/reconciliation.constants';
@@ -10,16 +11,18 @@ const D0 = () => new Prisma.Decimal(0);
 /** in-transit 调整：已知时序差，会自己平，从外部余额里扣/加。返回应施加到"外部"侧的净调整。 */
 @Injectable()
 export class InTransitService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly source: FundsOrderSourceRepo,
+  ) {}
 
   /** crypto：① 入金在途(外部−) ② 出金在途(外部+) ③ 内部转账在途(外部+) */
   async computeCrypto(currency: string, assetId: string, cutoff: Date): Promise<Prisma.Decimal> {
     let adj = D0();
 
     // ① 入金已确认未记账（payin 在途且未进 deposit STEP_1）→ 外部 −=
-    const payins = await this.prisma.payin.findMany({
-      where: { assetId, status: { in: [...PAYIN_IN_TRANSIT] }, createdAt: { lt: cutoff } },
-      select: { amount: true },
+    const payins = await this.source.findPayinsInTransit({
+      assetId, statuses: PAYIN_IN_TRANSIT, cutoff,
     });
     for (const p of payins) adj = adj.minus(new Prisma.Decimal(p.amount));
 
@@ -30,10 +33,9 @@ export class InTransitService {
     });
     for (const w of wds) adj = adj.plus(new Prisma.Decimal(w.netAmount));
 
-    // ③ 内部转账在途（internal_fund CREATED 未 CLEAR）→ 外部 +=
-    const funds = await this.prisma.fundsOrder.findMany({
-      where: { assetId, status: { in: [...FUNDS_FLOW_IN_TRANSIT] }, createdAt: { lt: cutoff } },
-      select: { amount: true },
+    // ③ 内部转账在途（funds_order 未终态）→ 外部 +=
+    const funds = await this.source.findInternalsInTransit({
+      assetId, statuses: FUNDS_FLOW_IN_TRANSIT, cutoff,
     });
     for (const f of funds) adj = adj.plus(new Prisma.Decimal(f.amount));
 
@@ -48,9 +50,8 @@ export class InTransitService {
       select: { netAmount: true },
     });
     for (const w of wds) adj = adj.plus(new Prisma.Decimal(w.netAmount));
-    const funds = await this.prisma.fundsOrder.findMany({
-      where: { assetId, status: { in: [...FUNDS_FLOW_IN_TRANSIT] }, createdAt: { lt: cutoff } },
-      select: { amount: true },
+    const funds = await this.source.findInternalsInTransit({
+      assetId, statuses: FUNDS_FLOW_IN_TRANSIT, cutoff,
     });
     for (const f of funds) adj = adj.plus(new Prisma.Decimal(f.amount));
     return adj;

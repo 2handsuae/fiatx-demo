@@ -16,6 +16,7 @@ import { MatchEngineV2Service } from './engine/match-engine-v2.service';
 import { AnomalyClassifierService } from './engine/anomaly-classifier.service';
 import { DrilldownMatchService } from './engine/drilldown-match.service';
 import { MockExternalAdapter } from './adapters/mock-external.adapter';
+import { FundsOrderSourceRepo } from './data-source/funds-order-source.repo';
 import { EXTERNAL_BALANCE_PROVIDER, EXTERNAL_TX_PROVIDER } from './adapters/external-data.provider';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
@@ -33,6 +34,7 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
     MatchEngineService, ClassifierService, InternalActionsService,
     LegProjectionService, MatchEngineV2Service, AnomalyClassifierService, DrilldownMatchService,
     MockExternalAdapter,
+    FundsOrderSourceRepo,
     { provide: EXTERNAL_BALANCE_PROVIDER, useExisting: MockExternalAdapter },
     { provide: EXTERNAL_TX_PROVIDER, useExisting: MockExternalAdapter },
     ReconciliationQueryService,

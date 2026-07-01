@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { FundsOrderSourceRepo } from '../data-source/funds-order-source.repo';
 
 /**
  * 五公式右侧子账输入抓取器（spec 2026-06-20 §3）。薄 DB-reader：把 Outstanding / swap / external_balances
@@ -11,21 +12,19 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
  */
 @Injectable()
 export class SubledgerInputsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly source: FundsOrderSourceRepo,
+  ) {}
 
   /**
    * 式2 RHS：仅 OPEN(未 SETTLED) 的 Outstanding，(ΣIN − ΣOUT)，本币种、createdAt < cutoff。
    * ★ 某腿实物结算 → status='SETTLED' → 退出求和（与客户块同步减）。
    */
   async openOutstandingNet(currency: string, cutoff: Date): Promise<Prisma.Decimal> {
-    const rows = await this.prisma.outstanding.findMany({
-      where: {
-        assetCode: currency,
-        status: { not: 'SETTLED' },
-        createdAt: { lt: cutoff },
-      },
-      select: { direction: true, amount: true },
-    });
+    // 数据源换 funds_orders：在途(未终态) funds_orders 等价 OPEN Outstanding。
+    // {direction, amount} shape 不变 → 下面的净额求和逐字保持。
+    const rows = await this.source.findOpenOutstandings(currency, cutoff);
     let net = new Prisma.Decimal(0);
     for (const r of rows) {
       const amt = new Prisma.Decimal(r.amount);
@@ -78,15 +77,9 @@ export class SubledgerInputsService {
    * 不含 swap 费(已 netted 进 Outstanding 的 net)。
    */
   async unsettledWithdrawFee(currency: string, cutoff: Date): Promise<Prisma.Decimal> {
-    const rows = await this.prisma.feeAccrual.findMany({
-      where: {
-        asset: { is: { currency } },     // FeeAccrual.assetCode is nullable → filter by asset relation
-        category: 'WITHDRAW_FEE',
-        status: { not: 'SETTLED' },
-        createdAt: { lt: cutoff },
-      },
-      select: { amount: true },
-    });
+    // 数据源换 funds_orders：在途出金费腿(withdraw legSeq>1 未终态)等价未去混同提现费。
+    // {amount} shape 不变 → 下面的 reduce sum 逐字保持。
+    const rows = await this.source.findFeeAccruals(currency, cutoff);
     return rows.reduce((s, r) => s.plus(new Prisma.Decimal(r.amount)), new Prisma.Decimal(0));
   }
 

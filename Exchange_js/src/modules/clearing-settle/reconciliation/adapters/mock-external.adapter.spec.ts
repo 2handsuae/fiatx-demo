@@ -3,10 +3,13 @@ import { MockExternalAdapter } from './mock-external.adapter';
 
 describe('MockExternalAdapter', () => {
   let prisma: any;
+  let source: any;
   let adapter: MockExternalAdapter;
   beforeEach(() => {
     prisma = { wallet: { findMany: jest.fn() } };
-    adapter = new MockExternalAdapter(prisma);
+    // C4: txsForDate reads funds_orders via FundsOrderSourceRepo; balanceAt still reads prisma.wallet.
+    source = { findInternals: jest.fn().mockResolvedValue([]) };
+    adapter = new MockExternalAdapter(prisma, source);
   });
 
   it('balanceAt sums wallet.mockBalance for the asset', async () => {

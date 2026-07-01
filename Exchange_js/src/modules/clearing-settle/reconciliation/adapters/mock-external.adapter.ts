@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
+import { FundsOrderSourceRepo } from '../data-source/funds-order-source.repo';
+import { FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
 import { ExternalBalanceProvider, ExternalTxProvider } from './external-data.provider';
 import { ExternalTx } from '../engine/match-engine.service';
 
@@ -10,7 +12,10 @@ import { ExternalTx } from '../engine/match-engine.service';
  */
 @Injectable()
 export class MockExternalAdapter implements ExternalBalanceProvider, ExternalTxProvider {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly source: FundsOrderSourceRepo,
+  ) {}
 
   async balanceAt(currency: string, assetId: string, _cutoff: Date): Promise<Prisma.Decimal> {
     // 客户/公司边界：客户资产对账只 sum 客户钱包（walletRole C_*）。
@@ -31,14 +36,11 @@ export class MockExternalAdapter implements ExternalBalanceProvider, ExternalTxP
     // 不含 firm 自有资金。direction-aware 匹配（区分 IN/OUT）是 documented follow-up，此处不扩范围。
     const start = new Date(`${businessDate}T00:00:00.000Z`);
     const end = new Date(start.getTime() + 86400000);
-    const funds = await this.prisma.fundsOrder.findMany({
-      where: {
-        assetId,
-        status: 'CLEAR',
-        txHash: { not: null },
-        createdAt: { gte: start, lt: end },
-      },
-      select: { id: true, txHash: true, amount: true },
+    const funds = await this.source.findInternals({
+      assetId,
+      status: FundsOrderStatus.CLEARED,
+      createdAt: { gte: start, lt: end },
+      requireTxHash: true,
     });
     return funds.map(f => ({
       source: 'HEXTRUST',
