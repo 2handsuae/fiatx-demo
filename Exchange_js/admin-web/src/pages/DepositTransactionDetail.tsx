@@ -298,7 +298,7 @@ const DepositTransactionDetail = () => {
                     identifier={o.no}
                     statusValue={normalizeRailDisplayStatus(o.status)}
                     meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
-                    onClick={() => navigate(`/admin/trading/payins/${o.id}`)}
+                    onClick={() => navigate(`/admin/funds-orders/${o.no}`)}
                   />
                 ))}
               </div>

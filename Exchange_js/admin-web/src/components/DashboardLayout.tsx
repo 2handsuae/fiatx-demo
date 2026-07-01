@@ -17,7 +17,6 @@ import {
   Zap,
   Activity,
   Briefcase,
-  LogIn,
   Coins,
   Layers,
   Handshake,
@@ -190,18 +189,6 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.SWAP_TRANSACTIONS_READ],
         },
         {
-          path: '/admin/trading/payins',
-          label: 'Payin Records',
-          icon: <LogIn size={13} />,
-          requiredPermissions: [PERMISSIONS.PAYINS_READ],
-        },
-        {
-          path: '/admin/trading/payouts',
-          label: 'Payout Records',
-          icon: <LogOut size={13} />,
-          requiredPermissions: [PERMISSIONS.PAYOUTS_READ],
-        },
-        {
           path: '/admin/trading/withdraw-quotes',
           label: 'Withdraw Quotes',
           icon: <FileText size={13} />,
@@ -213,12 +200,13 @@ const DashboardLayout = () => {
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
         },
-        // TEMP: moved from Funds & Settlement (hidden) — see DashboardLayout edit 2026-06-29
+        // Unified funds-orders surface (Round 2 / C6) — replaces the legacy
+        // Payin Records / Payout Records / Internal Funds entries.
         {
-          path: '/admin/funds/internal-funds',
-          label: 'Internal Funds',
+          path: '/admin/funds-orders',
+          label: 'Funds Orders · 资金单',
           icon: <Activity size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_FUNDS_READ],
+          requiredPermissions: [PERMISSIONS.FUNDS_ORDERS_READ],
         },
       ],
     },

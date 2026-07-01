@@ -25,7 +25,7 @@ interface SwapAsset {
 
 interface InternalFundLeg {
   id: string;
-  internalFundNo: string;
+  fundsOrderNo: string;
   legSeq: number | null;
   attempt: number | null;
   status: string;
@@ -417,7 +417,7 @@ const SwapTransactionDetail = () => {
                               isLatest={isLatest}
                               busy={legBusy === legSeq}
                               onNavigate={() =>
-                                navigate(`/admin/funds/internal-funds/${row.internalFundNo}`)
+                                navigate(`/admin/funds-orders/${row.fundsOrderNo}`)
                               }
                               onAdvance={advanceLeg}
                               onResume={resumeLeg}
@@ -530,7 +530,7 @@ const LegAttemptRow = ({
             onClick={onNavigate}
             className="truncate font-mono text-[11px] font-semibold text-adm-amber hover:opacity-75"
           >
-            {row.internalFundNo}
+            {row.fundsOrderNo}
           </button>
           <AdminBadge value={status} />
           {!isLatest && (

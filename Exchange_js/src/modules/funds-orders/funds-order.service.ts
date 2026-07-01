@@ -145,4 +145,97 @@ export class FundsOrderService {
       orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
     });
   }
+
+  /* ── Admin read surface (C6) ────────────────────────────────────
+     Unified funds-orders admin list + detail. A funds_order's "parent"
+     is whichever of the three FKs is non-null: deposit (IN payin),
+     withdraw (OUT payout + fee leg), or swap (leg). The parent bucket
+     is a virtual filter derived from that FK, not a stored column.     */
+
+  private parentFkWhere(parent?: 'deposit' | 'withdraw' | 'swap' | 'all') {
+    switch (parent) {
+      case 'deposit':
+        return { depositTransactionId: { not: null } };
+      case 'withdraw':
+        return { withdrawTransactionId: { not: null } };
+      case 'swap':
+        return { swapTransactionId: { not: null } };
+      default:
+        return {};
+    }
+  }
+
+  async findAllForAdmin(filter: {
+    parent?: 'deposit' | 'withdraw' | 'swap' | 'all';
+    status?: string;
+    assetId?: string;
+    fundsOrderNo?: string;
+    txHash?: string;
+    skip?: number;
+    take?: number;
+  }) {
+    const { parent, status, assetId, fundsOrderNo, txHash } = filter;
+    const skip = Number(filter.skip ?? 0);
+    const take = Number(filter.take ?? 20);
+
+    const where: Prisma.FundsOrderWhereInput = {
+      ...this.parentFkWhere(parent),
+      ...(status && { status }),
+      ...(assetId && { assetId }),
+      ...(fundsOrderNo && { fundsOrderNo: { contains: fundsOrderNo } }),
+      ...(txHash && { txHash: { contains: txHash } }),
+    };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.fundsOrder.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          asset: true,
+          deposit: { select: { depositNo: true } },
+          withdrawTransaction: { select: { withdrawNo: true } },
+          swapTransaction: { select: { swapNo: true } },
+        },
+      }),
+      this.prisma.fundsOrder.count({ where }),
+    ]);
+
+    const items = rows.map((row) => ({
+      ...row,
+      // Surface the parent business no (never the raw parent id) for display.
+      depositNo: row.deposit?.depositNo ?? null,
+      withdrawNo: row.withdrawTransaction?.withdrawNo ?? null,
+      swapNo: row.swapTransaction?.swapNo ?? null,
+    }));
+
+    return { items, total };
+  }
+
+  async findOneByNoForAdmin(fundsOrderNo: string) {
+    const item = await this.prisma.fundsOrder.findUnique({
+      where: { fundsOrderNo },
+      include: {
+        asset: true,
+        fromWallet: true,
+        toWallet: true,
+        deposit: { select: { id: true, depositNo: true, status: true } },
+        withdrawTransaction: {
+          select: { id: true, withdrawNo: true, status: true },
+        },
+        swapTransaction: { select: { id: true, swapNo: true, status: true } },
+        auditLogs: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+    if (!item) {
+      throw new NotFoundException(`FundsOrder ${fundsOrderNo} not found`);
+    }
+    return {
+      ...item,
+      depositNo: item.deposit?.depositNo ?? null,
+      withdrawNo: item.withdrawTransaction?.withdrawNo ?? null,
+      swapNo: item.swapTransaction?.swapNo ?? null,
+    };
+  }
 }

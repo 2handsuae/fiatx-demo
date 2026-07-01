@@ -110,10 +110,7 @@ export const PERMISSIONS = {
 
   WALLETS_READ: 'api.get.wallets',
   WALLET_DETAIL_READ: 'api.get.wallets_id',
-  PAYINS_READ: 'api.get.treasury_payins',
-  PAYIN_DETAIL_READ: 'api.get.treasury_payins_id',
-  PAYOUTS_READ: 'api.get.payouts',
-  PAYOUT_DETAIL_READ: 'api.get.payouts_id',
+  // PAYINS_* / PAYOUTS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
   INTERNAL_FUNDS_READ: 'api.get.admin_internal_funds',
   INTERNAL_FUND_DETAIL_READ: 'api.get.admin_internal_funds_id',
   REIMBURSEMENT_OBLIGATIONS_READ: 'api.get.admin_reimbursement_obligations',
@@ -145,9 +142,10 @@ export const PERMISSIONS = {
     'api.get.admin_funds_layer_settlements_batchno',
   FUNDS_LAYER_SETTLEMENT_RUN:
     'api.post.admin_funds_layer_settlements_run',
-  FUNDS_LAYER_FUNDS_READ: 'api.get.admin_funds_layer_funds',
-  FUNDS_LAYER_FUND_DETAIL_READ:
-    'api.get.admin_funds_layer_funds_internalfundno',
+  // Unified funds-orders admin surface (Round 2 / C6) — replaces the legacy
+  // payins / payouts / internal-funds read permissions.
+  FUNDS_ORDERS_READ: 'api.get.admin_funds_orders',
+  FUNDS_ORDER_DETAIL_READ: 'api.get.admin_funds_orders_fundsorderno',
 
 
   TB_ACCOUNTS_READ: 'api.get.admin_tb_accounts',

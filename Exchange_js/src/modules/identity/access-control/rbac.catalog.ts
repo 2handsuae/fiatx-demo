@@ -290,23 +290,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
 
-  // Payins
-  route('GET', '/treasury/payins', 'List payins', ['PAYIN_READ']),
-  route('GET', '/treasury/payins/:id', 'Get payin detail', ['PAYIN_READ']),
-  route('PATCH', '/treasury/payins/:id/status', 'Update payin status', ['PAYIN_WRITE']),
-  route(
-    'POST',
-    '/admin/treasury/payins/:id/mock-event',
-    'Apply payin simulation event',
-    ['PAYIN_WRITE'],
-  ),
-
-  // Payouts
-  route('GET', '/payouts', 'List payouts', ['PAYOUT_READ']),
-  route('POST', '/payouts', 'Create payout', ['PAYOUT_WRITE']),
-  route('POST', '/payouts/mock', 'Mock payout', ['PAYOUT_WRITE']),
-  route('GET', '/payouts/:id', 'Get payout detail', ['PAYOUT_READ']),
-  route('PATCH', '/payouts/:id/status', 'Update payout status', ['PAYOUT_WRITE']),
+  // Payins / Payouts routes removed in Round 2 (C3) — the payin/payout
+  // services were deleted and their admin surface folded into the unified
+  // funds-orders read surface (see "Funds Orders" below).
 
   // Wallet / treasury
   route('POST', '/wallets', 'Create wallet', ['WALLET_WRITE']),
@@ -591,12 +577,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/funds-layer/transfers/:internalTxNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
   route('POST', '/admin/funds-layer/transfers/:internalTxNo/simulate', 'Simulate funds flow step (DEV)', ['INTERNAL_TRANSFER_WRITE']),
   route('POST', '/admin/funds-layer/fund-return', 'Trigger FUND_RETURN repair', ['INTERNAL_TRANSFER_WRITE']),
-  route('GET', '/admin/funds-layer/settlements', 'List settlement batches', ['SETTLEMENT_READ']),
-  route('GET', '/admin/funds-layer/settlements/:batchNo', 'Get settlement batch detail', ['SETTLEMENT_READ']),
-  route('POST', '/admin/funds-layer/settlements/run', 'Trigger EOD settlement run (DEV)', ['SETTLEMENT_WRITE']),
-  route('POST', '/admin/funds-layer/settlements/settle', 'Trigger manual crypto settlement', ['SETTLEMENT_WRITE']),
-  route('GET', '/admin/funds-layer/funds', 'List funds flows', ['INTERNAL_FUND_READ']),
-  route('GET', '/admin/funds-layer/funds/:fundsOrderNo', 'Get funds flow detail', ['INTERNAL_FUND_READ']),
+  // Settlement + legacy funds-layer/funds routes removed in Round 2 (C5/C6):
+  // the delayed-settlement machinery was dropped and the funds read surface
+  // moved to the unified /admin/funds-orders controller below.
+
+  // Funds Orders (Round 2 — unified deposit/withdraw/swap funds read surface)
+  route('GET', '/admin/funds-orders', 'List funds orders', ['INTERNAL_FUND_READ']),
+  route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['INTERNAL_FUND_READ']),
 
 ];
 

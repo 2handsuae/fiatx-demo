@@ -27,12 +27,8 @@ const LiquidityConfigCreate = lazy(() => import('./pages/LiquidityConfigCreate')
 const LiquidityConfigEdit = lazy(() => import('./pages/LiquidityConfigEdit'));
 const CustodianWalletList = lazy(() => import('./pages/CustodianWalletList'));
 const CustodianWalletDetail = lazy(() => import('./pages/CustodianWalletDetail'));
-const PayinList = lazy(() => import('./pages/PayinList'));
-const PayinDetail = lazy(() => import('./pages/PayinDetail'));
-const PayoutList = lazy(() => import('./pages/PayoutList'));
-const PayoutDetail = lazy(() => import('./pages/PayoutDetail'));
-const InternalFundListPage = lazy(() => import('./pages/funds-layer/InternalFundListPage'));
-const InternalFundDetailPage = lazy(() => import('./pages/funds-layer/InternalFundDetailPage'));
+const FundsOrderList = lazy(() => import('./pages/FundsOrderList'));
+const FundsOrderDetail = lazy(() => import('./pages/FundsOrderDetail'));
 const AssetList = lazy(() => import('./pages/AssetList'));
 const AssetCreate = lazy(() => import('./pages/AssetCreate'));
 const AssetEdit = lazy(() => import('./pages/AssetEdit'));
@@ -540,22 +536,6 @@ function App() {
               element={withPermission(<CustodianWalletDetail />, [PERMISSIONS.WALLET_DETAIL_READ])}
             />
             <Route
-              path="treasury/payins"
-              element={withPermission(<PayinList />, [PERMISSIONS.PAYINS_READ])}
-            />
-            <Route
-              path="treasury/payins/:id"
-              element={withPermission(<PayinDetail />, [PERMISSIONS.PAYIN_DETAIL_READ])}
-            />
-            <Route
-              path="treasury/payouts"
-              element={withPermission(<PayoutList />, [PERMISSIONS.PAYOUTS_READ])}
-            />
-            <Route
-              path="treasury/payouts/:id"
-              element={withPermission(<PayoutDetail />, [PERMISSIONS.PAYOUT_DETAIL_READ])}
-            />
-            <Route
               path="system/liquidity-providers"
               element={withPermission(<LiquidityProviderList />, [PERMISSIONS.LIQUIDITY_PROVIDERS_READ])}
             />
@@ -657,19 +637,15 @@ function App() {
             <Route path="trading/withdrawals/:id" element={withPermission(<WithdrawTransactionDetail />, [PERMISSIONS.WITHDRAW_TRANSACTION_DETAIL_READ])} />
             <Route path="trading/swaps" element={withPermission(<SwapTransactionList />, [PERMISSIONS.SWAP_TRANSACTIONS_READ])} />
             <Route path="trading/swaps/:id" element={withPermission(<SwapTransactionDetail />, [PERMISSIONS.SWAP_TRANSACTION_DETAIL_READ])} />
-            <Route path="trading/payins" element={withPermission(<PayinList />, [PERMISSIONS.PAYINS_READ])} />
-            <Route path="trading/payins/:id" element={withPermission(<PayinDetail />, [PERMISSIONS.PAYIN_DETAIL_READ])} />
-            <Route path="trading/payouts" element={withPermission(<PayoutList />, [PERMISSIONS.PAYOUTS_READ])} />
-            <Route path="trading/payouts/:id" element={withPermission(<PayoutDetail />, [PERMISSIONS.PAYOUT_DETAIL_READ])} />
             <Route path="trading/withdraw-quotes" element={withPermission(<WithdrawQuoteList />, [PERMISSIONS.WITHDRAW_QUOTES_READ])} />
             <Route path="trading/withdraw-quotes/:id" element={withPermission(<WithdrawQuoteDetail />, [PERMISSIONS.WITHDRAW_QUOTES_DETAIL_READ])} />
             <Route path="trading/swap-quotes" element={withPermission(<SwapQuoteList />, [PERMISSIONS.SWAP_QUOTES_READ])} />
             <Route path="trading/swap-quotes/:id" element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])} />
             <Route path="trading/swap-quotes/:business/:id" element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])} />
 
-            {/* funds */}
-            <Route path="funds/internal-funds" element={withPermission(<InternalFundListPage />, [PERMISSIONS.FUNDS_LAYER_FUNDS_READ])} />
-            <Route path="funds/internal-funds/:internalFundNo" element={withPermission(<InternalFundDetailPage />, [PERMISSIONS.FUNDS_LAYER_FUND_DETAIL_READ])} />
+            {/* funds — unified funds-orders surface (Round 2 / C6) */}
+            <Route path="funds-orders" element={withPermission(<FundsOrderList />, [PERMISSIONS.FUNDS_ORDERS_READ])} />
+            <Route path="funds-orders/:fundsOrderNo" element={withPermission(<FundsOrderDetail />, [PERMISSIONS.FUNDS_ORDER_DETAIL_READ])} />
 
             {/* custody */}
             <Route path="custody/wallets" element={withPermission(<CustodianWalletList />, [PERMISSIONS.WALLETS_READ])} />

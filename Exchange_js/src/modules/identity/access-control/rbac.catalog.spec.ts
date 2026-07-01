@@ -60,14 +60,36 @@ describe('rbac.catalog', () => {
     expect(permissionCodes.has(buildPermissionCode('POST', '/deposit-transactions'))).toBe(false);
   });
 
-  it('should register payin simulation rail route in RBAC catalog', () => {
+  it('should retire payin/payout routes and expose the unified funds-orders read surface (Round 2 / C6)', () => {
     const permissionCodes = new Set(
       RBAC_PERMISSION_DEFINITIONS.map((item) => item.code),
     );
 
+    // Legacy payin/payout admin routes were dropped when their backends were
+    // deleted (C3) and folded into the unified funds-orders surface.
     expect(
       permissionCodes.has(
         buildPermissionCode('POST', '/admin/treasury/payins/:id/mock-event'),
+      ),
+    ).toBe(false);
+    expect(
+      permissionCodes.has(buildPermissionCode('GET', '/treasury/payins')),
+    ).toBe(false);
+    expect(
+      permissionCodes.has(buildPermissionCode('GET', '/payouts')),
+    ).toBe(false);
+    // Legacy funds-layer/funds read route replaced by /admin/funds-orders.
+    expect(
+      permissionCodes.has(buildPermissionCode('GET', '/admin/funds-layer/funds')),
+    ).toBe(false);
+
+    // The unified funds-orders read surface is registered.
+    expect(
+      permissionCodes.has(buildPermissionCode('GET', '/admin/funds-orders')),
+    ).toBe(true);
+    expect(
+      permissionCodes.has(
+        buildPermissionCode('GET', '/admin/funds-orders/:fundsOrderNo'),
       ),
     ).toBe(true);
   });

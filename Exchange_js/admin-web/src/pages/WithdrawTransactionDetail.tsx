@@ -333,11 +333,7 @@ const WithdrawTransactionDetail = () => {
                     identifier={o.no}
                     statusValue={o.status}
                     meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
-                    onClick={() =>
-                      o.kind === 'PAYOUT'
-                        ? navigate(`/admin/trading/payouts/${o.id}`)
-                        : navigate(`/admin/funds/internal-funds/${o.no}`)
-                    }
+                    onClick={() => navigate(`/admin/funds-orders/${o.no}`)}
                   />
                 ))}
               </div>
