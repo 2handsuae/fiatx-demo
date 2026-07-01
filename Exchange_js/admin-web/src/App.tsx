@@ -13,10 +13,6 @@ const PlatformMemberDetailPage = lazy(() => import('./pages/PlatformMemberDetail
 const CustomerManagement = lazy(() => import('./pages/CustomerManagement'));
 const SwapQuoteList = lazy(() => import('./pages/SwapQuoteList'));
 const SwapQuoteDetail = lazy(() => import('./pages/SwapQuoteDetail'));
-const SwapOutstandingList = lazy(() => import('./pages/SwapOutstandingList'));
-const SwapOutstandingDetail = lazy(() => import('./pages/SwapOutstandingDetail'));
-const FeeAccrualList = lazy(() => import('./pages/FeeAccrualList'));
-const FeeAccrualDetail = lazy(() => import('./pages/FeeAccrualDetail'));
 const ReconciliationRunsListPage = lazy(() => import('./pages/ReconciliationRunsListPage'));
 const ReconciliationRunsDetailPage = lazy(() => import('./pages/ReconciliationRunsDetailPage'));
 const ReconciliationCasesListPage = lazy(() => import('./pages/ReconciliationCasesListPage'));
@@ -37,10 +33,6 @@ const PayoutList = lazy(() => import('./pages/PayoutList'));
 const PayoutDetail = lazy(() => import('./pages/PayoutDetail'));
 const InternalFundListPage = lazy(() => import('./pages/funds-layer/InternalFundListPage'));
 const InternalFundDetailPage = lazy(() => import('./pages/funds-layer/InternalFundDetailPage'));
-const InternalTransferListPage = lazy(() => import('./pages/funds-layer/InternalTransferListPage'));
-const InternalTransferDetailPage = lazy(() => import('./pages/funds-layer/InternalTransferDetailPage'));
-const SettlementListPage = lazy(() => import('./pages/funds-layer/SettlementListPage'));
-const SettlementDetailPage = lazy(() => import('./pages/funds-layer/SettlementDetailPage'));
 const AssetList = lazy(() => import('./pages/AssetList'));
 const AssetCreate = lazy(() => import('./pages/AssetCreate'));
 const AssetEdit = lazy(() => import('./pages/AssetEdit'));
@@ -292,22 +284,6 @@ function App() {
               element={withPermission(<ReconciliationDemoComparePage />, [
                 PERMISSIONS.RECON_RUN_READ,
               ])}
-            />
-            <Route
-              path="reconciliation/outstandings"
-              element={withPermission(<SwapOutstandingList />, [PERMISSIONS.OUTSTANDINGS_READ])}
-            />
-            <Route
-              path="reconciliation/outstandings/:id"
-              element={withPermission(<SwapOutstandingDetail />, [PERMISSIONS.OUTSTANDING_DETAIL_READ])}
-            />
-            <Route
-              path="reconciliation/fee-accruals"
-              element={withPermission(<FeeAccrualList />, [PERMISSIONS.FEE_ACCRUALS_READ])}
-            />
-            <Route
-              path="reconciliation/fee-accruals/:id"
-              element={withPermission(<FeeAccrualDetail />, [PERMISSIONS.FEE_ACCRUAL_DETAIL_READ])}
             />
             <Route
               path="compliance/sumsub-events"
@@ -692,16 +668,8 @@ function App() {
             <Route path="trading/swap-quotes/:business/:id" element={withPermission(<SwapQuoteDetail />, [PERMISSIONS.SWAP_QUOTES_DETAIL_READ])} />
 
             {/* funds */}
-            <Route path="funds/transfers" element={withPermission(<InternalTransferListPage />, [PERMISSIONS.FUNDS_LAYER_TRANSFERS_READ])} />
-            <Route path="funds/transfers/:internalTxNo" element={withPermission(<InternalTransferDetailPage />, [PERMISSIONS.FUNDS_LAYER_TRANSFER_DETAIL_READ])} />
             <Route path="funds/internal-funds" element={withPermission(<InternalFundListPage />, [PERMISSIONS.FUNDS_LAYER_FUNDS_READ])} />
             <Route path="funds/internal-funds/:internalFundNo" element={withPermission(<InternalFundDetailPage />, [PERMISSIONS.FUNDS_LAYER_FUND_DETAIL_READ])} />
-            <Route path="funds/settlements" element={withPermission(<SettlementListPage />, [PERMISSIONS.FUNDS_LAYER_SETTLEMENTS_READ])} />
-            <Route path="funds/settlements/:batchNo" element={withPermission(<SettlementDetailPage />, [PERMISSIONS.FUNDS_LAYER_SETTLEMENT_DETAIL_READ])} />
-            <Route path="funds/outstandings" element={withPermission(<SwapOutstandingList />, [PERMISSIONS.OUTSTANDINGS_READ])} />
-            <Route path="funds/outstandings/:id" element={withPermission(<SwapOutstandingDetail />, [PERMISSIONS.OUTSTANDING_DETAIL_READ])} />
-            <Route path="funds/fee-accruals" element={withPermission(<FeeAccrualList />, [PERMISSIONS.FEE_ACCRUALS_READ])} />
-            <Route path="funds/fee-accruals/:id" element={withPermission(<FeeAccrualDetail />, [PERMISSIONS.FEE_ACCRUAL_DETAIL_READ])} />
 
             {/* custody */}
             <Route path="custody/wallets" element={withPermission(<CustodianWalletList />, [PERMISSIONS.WALLETS_READ])} />

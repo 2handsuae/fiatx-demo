@@ -291,7 +291,6 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
 import { InternalFundAction } from '../../funds-layer/dto/internal-fund.dto';
 import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
-import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { mapLegAction } from './swap-workflow.service';
 
 // Build mocks for advanceLeg + handleFundsOrderChanged (extends executeSwap mocks).
@@ -583,12 +582,10 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CLEARED chaining', () 
     // No next leg created.
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
 
-    // Post-commit SWAP_SUCCEEDED event.
-    expect(mocks.eventEmitter.emit).toHaveBeenCalledTimes(1);
-    expect(mocks.eventEmitter.emit).toHaveBeenCalledWith(
-      DomainEventNames.SWAP_SUCCEEDED,
-      { swapId: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1' },
-    );
+    // C5b: the cross-workflow SWAP_SUCCEEDED event was removed (its only
+    // subscriber, FiatSettlementWorkflow, is deleted). Swap still marks
+    // SUCCESS + audits SWAP_SUCCEEDED, but emits nothing.
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
   });
 
   it('no-op when the swap is already SUCCESS (idempotent replay)', async () => {

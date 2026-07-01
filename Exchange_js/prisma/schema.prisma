@@ -419,7 +419,6 @@ model ApprovalCase {
   latestForCustomerRiskApproval  CustomerMain?                  @relation("CustomerLatestRiskApproval")
   riskAssessments                ClientRiskAssessment[]         @relation("ClientRiskAssessmentApprovalCase")
   linkedRegulatoryGates          RegulatoryGateItem[]           @relation("RegulatoryGateLinkedApproval")
-  internalTransactionForApproval InternalTransaction?           @relation("InternalTransactionApprovalCase")
   tierUpgradeCaseApproval        TierUpgradeCase?               @relation("TierUpgradeCaseApproval")
 
   @@index([actionType, entityRef, status])
@@ -749,11 +748,8 @@ model Asset {
   swapQuoteFroms                 SwapQuote[]                     @relation("SwapQuoteFromAsset")
   swapQuoteTos                   SwapQuote[]                     @relation("SwapQuoteToAsset")
   withdrawPricingQuotes          WithdrawPricingQuote[]
-  outstandings                   Outstanding[]
-  feeAccruals                    FeeAccrual[]
   wallets                        Wallet[]
   withdrawTransactions           WithdrawTransaction[]
-  internalTransactions           InternalTransaction[]
   fundsOrders                    FundsOrder[]
   reconciliationCases            ReconciliationCase[]
   withdrawalAddresses            WithdrawalAddress[]
@@ -845,8 +841,6 @@ model Wallet {
   vaultId                                  String?
   depositTransactions                      DepositTransaction[]
   depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")
-  internalTransactionsFrom                 InternalTransaction[]           @relation("InternalTxFromWallet")
-  internalTransactionsTo                   InternalTransaction[]           @relation("InternalTxToWallet")
   fundsOrdersFrom                          FundsOrder[]                    @relation("FundsOrderFromWallet")
   fundsOrdersTo                            FundsOrder[]                    @relation("FundsOrderToWallet")
   regulatoryGateItems                      RegulatoryGateItem[]            @relation("RegulatoryGateWallet")
@@ -985,69 +979,6 @@ model DepositTransaction {
   @@map("deposit_transactions")
 }
 
-model InternalTransaction {
-  id                         String                        @id @default(uuid())
-  internalTxNo               String                        @unique
-  type                       String
-  purpose                    String?
-  initiationMode             String?
-  status                     String
-  approvalStatus             String                        @default("APPROVED")
-  approvalCaseId             String?                       @unique
-  makerUserId                String?
-  checkerUserId              String?
-  checkedAt                  DateTime?
-  reviewReason               String?
-  sourceType                 String
-  sourceId                   String
-  sourceNo                   String?
-  ownerType                  String
-  ownerId                    String
-  ownerNo                    String?
-  assetId                    String
-  amount                     Decimal
-  feeAmount                  Decimal                       @default(0)
-  netAmount                  Decimal
-  fromWalletId               String?
-  fromAddress                String?
-  fromIban                   String?
-  toWalletId                 String?
-  toAddress                  String?
-  toIban                     String?
-  referenceNo                String?
-  pathLabel                  String?
-  accountingClass            String?
-  medium                     String?
-  triggerSource              String?
-  traceId                    String?
-  statusHistory              String?
-  createdAt                  DateTime                      @default(now())
-  completedAt                DateTime?
-  updatedAt                  DateTime                      @updatedAt
-  settlementBatchId          String?
-  grossInAmount              Decimal?
-  grossOutAmount             Decimal?
-  asset                      Asset                         @relation(fields: [assetId], references: [id])
-  approvalCase               ApprovalCase?                 @relation("InternalTransactionApprovalCase", fields: [approvalCaseId], references: [id], onDelete: SetNull)
-  fromWallet                 Wallet?                       @relation("InternalTxFromWallet", fields: [fromWalletId], references: [id])
-  toWallet                   Wallet?                       @relation("InternalTxToWallet", fields: [toWalletId], references: [id])
-  auditLogs                  InternalTransactionAuditLog[]
-  settlementBatch            SettlementBatch?              @relation("SettlementBatchTransfers", fields: [settlementBatchId], references: [id], onDelete: SetNull)
-  settledOutstandings        Outstanding[]                 @relation("OutstandingSettledByTransfer")
-  feeAccrualsSettled         FeeAccrual[]                  @relation("FeeAccrualSettledByTransfer")
-
-  @@unique([sourceType, sourceId, type])
-  @@index([status])
-  @@index([approvalStatus])
-  @@index([approvalCaseId])
-  @@index([createdAt])
-  @@index([assetId])
-  @@index([pathLabel])
-  @@index([traceId])
-  @@index([settlementBatchId])
-  @@map("internal_transactions")
-}
-
 model FundsOrder {
   id                    String                 @id @default(uuid())
   fundsOrderNo          String                 @unique
@@ -1088,8 +1019,6 @@ model FundsOrder {
   fromWallet            Wallet?                @relation("FundsOrderFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("FundsOrderToWallet", fields: [toWalletId], references: [id])
   auditLogs             InternalFundAuditLog[]
-  closedOutstandings    Outstanding[]
-  closedFeeAccruals     FeeAccrual[]           @relation("FeeAccrualClosedByFund")
 
   @@unique([swapTransactionId, legSeq, attempt])
   @@index([depositTransactionId])
@@ -1099,20 +1028,6 @@ model FundsOrder {
   @@index([txHash])
   @@index([createdAt])
   @@map("funds_orders")
-}
-
-model InternalTransactionAuditLog {
-  id                    String              @id @default(uuid())
-  internalTransactionId String
-  operatorId            String
-  oldStatus             String
-  newStatus             String
-  reason                String?
-  createdAt             DateTime            @default(now())
-  internalTransaction   InternalTransaction @relation(fields: [internalTransactionId], references: [id], onDelete: Cascade)
-
-  @@index([internalTransactionId])
-  @@map("internal_transaction_audit_logs")
 }
 
 model InternalFundAuditLog {
@@ -1218,7 +1133,6 @@ model SwapTransaction {
   toAsset          Asset         @relation("SwapToAsset", fields: [toAssetId], references: [id])
   quote            SwapQuote?    @relation(fields: [quoteId], references: [id])
   customer         CustomerMain? @relation(fields: [ownerId], references: [id])
-  outstandings     Outstanding[]
   fundsOrders      FundsOrder[]   @relation("SwapFundsOrders")
 
   @@index([swapNo])
@@ -1230,114 +1144,6 @@ model SwapTransaction {
   @@index([createdAt])
   @@map("swap_transactions")
 }
-
-model Outstanding {
-  id                            String                     @id @default(uuid())
-  outstandingNo                 String?                    @unique
-  sourceType                    String
-  sourceId                      String
-  sourceNo                      String?
-  ownerType                     String
-  ownerId                       String
-  ownerNo                       String?
-  direction                     String
-  assetId                       String
-  assetCode                     String?
-  amount                        Decimal
-  // status now includes 'SETTLED' (set by V7 EOD settlement batch closeout).
-  status                        String                     @default("OPEN")
-  swapTransactionId             String?
-  settlementBatchId             String?
-  settledByTransferId           String?
-  lockedAt                      DateTime?
-  closedAt                      DateTime?
-  closedByInternalFundId        String?
-  originTraceId                 String?
-  createdAt                     DateTime                   @default(now())
-  updatedAt                     DateTime                   @updatedAt
-  asset                         Asset                      @relation(fields: [assetId], references: [id])
-  swapTransaction               SwapTransaction?           @relation(fields: [swapTransactionId], references: [id])
-  settlementBatch               SettlementBatch?           @relation(fields: [settlementBatchId], references: [id], onDelete: SetNull)
-  settledByTransfer             InternalTransaction?       @relation("OutstandingSettledByTransfer", fields: [settledByTransferId], references: [id], onDelete: SetNull)
-  closedByInternalFund          FundsOrder?                @relation(fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
-
-  @@unique([sourceType, sourceId, direction])
-  @@index([status])
-  @@index([ownerType, ownerId])
-  @@index([sourceType, sourceId])
-  @@index([createdAt])
-  @@index([assetId])
-  @@index([swapTransactionId])
-  @@index([settlementBatchId])
-  @@index([settledByTransferId])
-  @@index([closedByInternalFundId])
-  @@map("outstandings")
-}
-
-model SettlementBatch {
-  id                       String                @id @default(uuid())
-  batchNo                  String                @unique
-  settlementType           String                @default("EOD")
-  cutoffAt                 DateTime
-  status                   String                @default("CREATED")
-  requestId                String?               @unique
-  totalAssetCount          Int                   @default(0)
-  settledAssetCount        Int                   @default(0)
-  totalOutstandingCount    Int                   @default(0)
-  settledOutstandingCount  Int                   @default(0)
-  createdAt                DateTime              @default(now())
-  updatedAt                DateTime              @updatedAt
-  completedAt              DateTime?
-  category                 String                @default("PRINCIPAL")
-  totalFeeAccrualCount     Int                   @default(0)
-  settledFeeAccrualCount   Int                   @default(0)
-  traceId                  String?
-  transfers                InternalTransaction[]        @relation("SettlementBatchTransfers")
-  outstandings             Outstanding[]
-  feeAccruals              FeeAccrual[]
-
-  @@index([status])
-  @@index([settlementType])
-  @@map("settlement_batches")
-}
-
-model FeeAccrual {
-  id                     String               @id @default(uuid())
-  feeAccrualNo           String?              @unique
-  sourceType             String
-  sourceId               String
-  sourceNo               String?
-  ownerType              String
-  ownerId                String
-  ownerNo                String?
-  feeKind                String
-  category               String
-  assetId                String
-  assetCode              String?
-  amount                 Decimal
-  status                 String               @default("ACCRUED")
-  settlementBatchId      String?
-  settledByTransferId    String?
-  lockedAt               DateTime?
-  closedAt               DateTime?
-  closedByInternalFundId String?
-  originTraceId          String?
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
-  asset                  Asset                @relation(fields: [assetId], references: [id])
-  settlementBatch        SettlementBatch?     @relation(fields: [settlementBatchId], references: [id], onDelete: SetNull)
-  settledByTransfer      InternalTransaction? @relation("FeeAccrualSettledByTransfer", fields: [settledByTransferId], references: [id], onDelete: SetNull)
-  closedByInternalFund   FundsOrder?          @relation("FeeAccrualClosedByFund", fields: [closedByInternalFundId], references: [id], onDelete: SetNull)
-
-  @@unique([sourceType, sourceId, feeKind])
-  @@index([status])
-  @@index([sourceType, sourceId])
-  @@index([assetId])
-  @@index([settlementBatchId])
-  @@index([settledByTransferId])
-  @@map("fee_accruals")
-}
-
 
 model WithdrawTransaction {
   id                   String                @id @default(uuid())

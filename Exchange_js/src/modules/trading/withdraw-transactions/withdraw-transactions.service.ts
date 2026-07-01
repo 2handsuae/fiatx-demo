@@ -16,7 +16,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
@@ -97,7 +96,6 @@ export class WithdrawTransactionsService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
-    private readonly internalTransferService: InternalTransferService,
   ) {}
 
   private createAccountingContext(withdrawal: {

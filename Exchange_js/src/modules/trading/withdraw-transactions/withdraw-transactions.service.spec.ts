@@ -12,7 +12,6 @@ import {
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 
@@ -85,12 +84,6 @@ describe('WithdrawTransactionsService', () => {
             executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
             executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(2) }),
             voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
-          },
-        },
-        {
-          provide: InternalTransferService,
-          useValue: {
-            findFundsOrderBySource: jest.fn().mockResolvedValue([]),
           },
         },
       ],
@@ -532,31 +525,6 @@ describe('WithdrawTransactionsService', () => {
     expect(result.preKytStatus).toBe('PASS');
     expect(result.kytStatus).toBe('PENDING');
     expect(result.travelRuleStatus).toBe('ACCEPTED');
-  });
-
-  it('findOne attaches fundsOrders from the 资金单 lookup (sourceType WITHDRAW)', async () => {
-    const internalTransferService = module.get<InternalTransferService>(InternalTransferService);
-    prisma.withdrawTransaction.findUnique.mockResolvedValue({
-      id: 'wd-funds-1',
-      withdrawNo: 'WD9001',
-      status: WithdrawTransactionStatus.SUCCESS,
-      asset: { type: 'CRYPTO' },
-      customer: null,
-      payout: null,
-    });
-    prisma.auditLogEvent.findMany.mockResolvedValue([]);
-    (internalTransferService.findFundsOrderBySource as jest.Mock).mockResolvedValue([
-      { id: 'itx-1', internalTxNo: 'ITX-001', type: 'WITHDRAW', status: 'SUCCESS', legs: [] },
-    ]);
-
-    const result = await service.findOne('wd-funds-1');
-
-    expect(internalTransferService.findFundsOrderBySource).toHaveBeenCalledWith(
-      'WITHDRAW',
-      'wd-funds-1',
-    );
-    expect(result.fundsOrders).toHaveLength(1);
-    expect(result.fundsOrders[0].internalTxNo).toBe('ITX-001');
   });
 
   describe('approval-gate transitions', () => {

@@ -548,22 +548,11 @@ export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
     ok(`COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_FEE+FIRM_LIQ)`, firmAsset === firmEquity, `${firmAsset} == ${firmEquity}`);
   }
 
-  // 3. No Outstanding rows created (real-time model has no deferred settlement)
-  const outstandingCount = await ctx.prisma.outstanding.count({ where: { ownerId: { in: ids } } });
-  ok('no Outstanding rows created for demo customers', outstandingCount === 0, `count=${outstandingCount}`);
-
-  // 4. No Outstanding rows in ACCRUED/OPEN state (real-time model posts fees to TB immediately)
-  //    FiatFeeCollectionWorkflowService (legacy, not yet decommissioned) still creates FeeAccrual
-  //    rows for fiat withdrawals and immediately LOCKS them via settle(). We assert none are
-  //    left in the initial ACCRUED state (unprocessed leak) — LOCKED/SETTLED are acceptable.
-  const feeAccrualUnprocessed = await ctx.prisma.feeAccrual.count({
-    where: { ownerId: { in: ids }, status: 'ACCRUED' },
-  });
-  const feeAccrualTotal = await ctx.prisma.feeAccrual.count({ where: { ownerId: { in: ids } } });
-  ok('no unprocessed FeeAccrual rows (ACCRUED) for demo customers', feeAccrualUnprocessed === 0, `total=${feeAccrualTotal} unprocessed=${feeAccrualUnprocessed}`);
-  if (feeAccrualTotal > 0) {
-    console.log(`  · note: ${feeAccrualTotal} FeeAccrual row(s) exist (legacy fiat-withdraw flow, all LOCKED/SETTLED — not unprocessed leaks)`);
-  }
+  // 3./4. (removed C5b) The Outstanding + FeeAccrual tables — which these checks
+  //    asserted stayed empty/unleaked under the real-time model — were dropped
+  //    with the rest of the V7/V8 deferred-settlement residue. The "no deferred
+  //    settlement rows" invariant is now structurally guaranteed by the schema
+  //    (the tables no longer exist), so the runtime assertions are obsolete.
 
   console.log(`\n  asserts: ${n - fails.length}/${n} PASS`);
   if (fails.length) console.log(`  FAIL: ${fails.join('; ')}`);

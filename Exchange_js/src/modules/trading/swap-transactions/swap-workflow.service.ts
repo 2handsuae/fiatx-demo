@@ -471,10 +471,6 @@ export class SwapWorkflowService {
       `Swap ${swapId} funds order ${event.fundsOrderNo} (leg ${event.legSeq} attempt ${event.attempt}) → ${newStatus}`,
     );
 
-    let emitInfo: { emit: boolean; payload?: { swapId: string; swapNo: string; ownerId: string } } = {
-      emit: false,
-    };
-
     await this.prisma.$transaction(async (client: any) => {
       const swap = await this.swapTransactionsService.findByIdInternal(swapId, client);
       if (!swap || swap.status !== 'PROCESSING') {
@@ -487,21 +483,16 @@ export class SwapWorkflowService {
       if (!spec) throw new Error(`Spec not found for legSeq ${event.legSeq}`);
 
       if (newStatus === FundsOrderStatus.CLEARED) {
-        emitInfo = await this.onLegCleared(swap, spec, event, ctx, client);
+        await this.onLegCleared(swap, spec, event, ctx, client);
       } else {
         await this.onLegFailedSelfHeal(swap, spec, event, ctx, client);
       }
     });
-
-    if (emitInfo.emit && emitInfo.payload) {
-      this.eventEmitter.emit(DomainEventNames.SWAP_SUCCEEDED, emitInfo.payload);
-    }
   }
 
   /**
    * Handle the CLEARED branch: POST the leg's TB entries + audit SWAP_LEG_POSTED,
-   * then either finalize SUCCESS (last leg) or chain the next leg. Returns
-   * whether to emit SWAP_SUCCEEDED post-commit.
+   * then either finalize SUCCESS (last leg) or chain the next leg.
    */
   private async onLegCleared(
     swap: any,
@@ -509,7 +500,7 @@ export class SwapWorkflowService {
     event: FundsOrderStatusChangedEvent,
     ctx: SwapSettleCtx,
     client: any,
-  ): Promise<{ emit: boolean; payload?: { swapId: string; swapNo: string; ownerId: string } }> {
+  ): Promise<void> {
     const legSeq = event.legSeq;
     // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt so
     // post hits the right transfer (matches initiateLegPending's id).
@@ -559,17 +550,13 @@ export class SwapWorkflowService {
         (n) => this.stageOf(n),
         client,
       );
-      return {
-        emit: true,
-        payload: { swapId: swap.id, swapNo: swap.swapNo, ownerId: swap.ownerId },
-      };
+      return;
     }
 
     // Progressively create the next leg (CREATED). createLeg recomputes projections (I2).
     const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
     const nextSpec = allSpecs.find((s) => s.legSeq === legSeq + 1)!;
     await this.createLeg(swap, nextSpec, ctx, legSeq + 1, 1, swap.traceId ?? undefined, client);
-    return { emit: false };
   }
 
   /**

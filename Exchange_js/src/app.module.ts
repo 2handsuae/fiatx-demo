@@ -23,7 +23,6 @@ import { WithdrawTransactionsModule } from './modules/trading/withdraw-transacti
 import { PricingCenterModule } from './modules/trading/pricing-center/pricing-center.module';
 import { WithdrawalFeeLevelModule } from './modules/trading/withdrawal-fee-level/withdrawal-fee-level.module';
 import { SwapFeeLevelModule } from './modules/trading/swap-fee-level/swap-fee-level.module';
-import { OutstandingsModule } from './modules/clearing-settle/outstandings/outstandings.module';
 import { ReconciliationModule } from './modules/clearing-settle/reconciliation/reconciliation.module';
 import { OnboardingModule } from './modules/identity/onboarding/onboarding.module';
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
@@ -77,7 +76,6 @@ import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
     PricingCenterModule,
     WithdrawalFeeLevelModule,
     SwapFeeLevelModule,
-    OutstandingsModule,
     ReconciliationModule,
     AuditLogsModule,
     GovernanceModule,

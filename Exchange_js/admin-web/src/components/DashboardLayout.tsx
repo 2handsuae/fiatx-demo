@@ -222,48 +222,6 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Funds & Settlement (TEMP HIDDEN 2026-06-29) ──────────────
-    // Internal Funds moved up under Trading (see above). The rest of
-    // this group is hidden from sidebar nav while routes remain mounted
-    // so deep links still work. Un-comment to restore.
-    /*
-    {
-      label: 'Funds & Settlement',
-      icon: <Layers size={12} />,
-      children: [
-        {
-          path: '/admin/funds/transfers',
-          label: 'Internal Transfers',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_TRANSFERS_READ],
-        },
-        {
-          path: '/admin/funds/internal-funds',
-          label: 'Internal Funds',
-          icon: <Activity size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_FUNDS_READ],
-        },
-        {
-          path: '/admin/funds/settlements',
-          label: 'Settlement Batches',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_LAYER_SETTLEMENTS_READ],
-        },
-        {
-          path: '/admin/funds/outstandings',
-          label: 'Swap Outstandings',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.OUTSTANDINGS_READ],
-        },
-        {
-          path: '/admin/funds/fee-accruals',
-          label: 'Fee Accruals',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.FEE_ACCRUALS_READ],
-        },
-      ],
-    },
-    */
     // ─── Custody ──────────────────────────────────────────────────
     {
       label: 'Custody',

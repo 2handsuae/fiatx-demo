@@ -38,34 +38,20 @@ export class SubledgerInputsService {
    * 每笔 swap：from 币 +fromAmount、to 币 −mid，mid = toAmount(gross) + spreadAmount。
    * ★ 两腿都 SETTLED 的 swap 已整笔清桥 → 退出求和（与桥块同步减）。
    */
-  async unsweptSwapBridgeContribution(currency: string, cutoff: Date): Promise<Prisma.Decimal> {
-    const swaps = await this.prisma.swapTransaction.findMany({
-      where: {
-        createdAt: { lt: cutoff },
-        OR: [{ fromAssetCode: currency }, { toAssetCode: currency }],
-      },
-      select: {
-        fromAssetCode: true, fromAmount: true,
-        toAssetCode: true, toAmount: true, spreadAmount: true,
-        outstandings: { select: { status: true } },
-      },
-    });
-    let contrib = new Prisma.Decimal(0);
-    for (const s of swaps) {
-      // 未清桥 = 不是「两腿都 SETTLED」。无 outstanding 腿的 swap 视为已结算/不入桥（保守，不贡献）。
-      const legs = s.outstandings;
-      const bothSettled = legs.length > 0 && legs.every((l) => l.status === 'SETTLED');
-      if (bothSettled || legs.length === 0) continue;
-
-      if (s.fromAssetCode === currency) {
-        contrib = contrib.plus(new Prisma.Decimal(s.fromAmount)); // from 腿 +fromAmount
-      }
-      if (s.toAssetCode === currency) {
-        const mid = new Prisma.Decimal(s.toAmount).plus(s.spreadAmount ?? 0); // mid = gross + spread
-        contrib = contrib.minus(mid); // to 腿 −mid
-      }
-    }
-    return contrib;
+  async unsweptSwapBridgeContribution(_currency: string, _cutoff: Date): Promise<Prisma.Decimal> {
+    // C5b: the legacy Outstanding table — which used to carry the swap's
+    // "both legs SETTLED?" flag that gated this bridge term — is dropped. That
+    // table has been empty since the real-time 1:1 migration, so every swap
+    // already hit the `legs.length === 0 → continue` branch and this method
+    // returned 0 for all inputs. In the real-time model a swap settles
+    // synchronously (SwapWorkflow marks SUCCESS + posts TB in one commit), so
+    // there is no "unswept bridge" in-flight at any later cutoff — the term is
+    // structurally 0. Returning 0 here is exactly behaviour-preserving.
+    //
+    // NOTE (recon owners): if 式3 ever needs a non-zero swap-bridge term, it
+    // must be re-derived from funds_orders leg statuses — do NOT resurrect the
+    // Outstanding table.
+    return new Prisma.Decimal(0);
   }
 
   /**
