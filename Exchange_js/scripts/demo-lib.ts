@@ -34,7 +34,6 @@ import { FundsOrderService } from '../src/modules/funds-orders/funds-order.servi
 import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
-import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
@@ -291,38 +290,43 @@ export async function runDeposits(ctx: DemoCtx): Promise<void> {
 
 // ── stage 3: swaps (4-leg two-phase orchestration; auto-advance to SUCCESS) ──
 
-/** Drive ONE swap leg from its current state to CLEAR by repeatedly calling
- *  advanceLeg with the next valid action per the per-asset-type state machine.
- *  CRYPTO: CREATED→SIGN→SIGNING→BROADCAST→BROADCASTED→SEEN_IN_MEMPOOL→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEAR.
- *  FIAT:   CREATED→SUBMIT→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEAR.
- *  Note: leg 1 was already pushed out of CREATED by SwapWorkflowService.executeSwap. */
+/** Drive ONE swap leg from its current state to CLEARED by repeatedly advancing
+ *  the leg's funds_order through the per-asset-type state machine (spec §5.3).
+ *  CRYPTO: CREATED→SUBMIT→SUBMITTED→OBSERVE_CONFIRMING→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEARED.
+ *  FIAT:   CREATED→SUBMIT→SUBMITTED→CONFIRM→CONFIRMED→CLEAR→CLEARED.
+ *  Each leg's funds_order is created in CREATED (leg 1 by executeSwap, legs 2-4
+ *  chained by the handler on the prior leg's CLEARED). Drives via advanceLeg —
+ *  the real controller path (sell-first guard + funds_order.advance). */
 async function driveSwapLegToClear(ctx: DemoCtx, swapId: string, swapNo: string, legSeq: number): Promise<void> {
-  for (let step = 0; step < 12; step++) {
-    const leg: any = await ctx.prisma.internalFund.findFirst({
-      where: { swapTransactionId: swapId, legSeq },
-      include: { asset: true },
-    });
+  // Legs 2-4 are chained by the (async) handler once the prior leg CLEARs — wait
+  // for this leg's funds_order to materialise before driving it.
+  await waitFor(`${swapNo} leg ${legSeq} created`, async () => {
+    const [leg] = await ctx.fundsOrders.findByParent({ swapTransactionId: swapId }, { legSeq });
+    return leg ?? null;
+  }, 8000);
+
+  for (let step = 0; step < 8; step++) {
+    const [leg] = await ctx.fundsOrders.findByParent({ swapTransactionId: swapId }, { legSeq });
     if (!leg) throw new Error(`${swapNo} leg ${legSeq} not found`);
-    if (leg.status === 'CLEAR') return;
-    const isFiat = (leg.asset?.type || '').toUpperCase() === 'FIAT';
-    let action: InternalFundAction;
+    if (leg.status === 'CLEARED') return;
+    const isFiat = ((leg as any).asset?.type || '').toUpperCase() === 'FIAT';
+    let action: FundsOrderAction;
     if (isFiat) {
-      if (leg.status === 'CREATED') action = InternalFundAction.SUBMIT;
-      else if (leg.status === 'CONFIRMING') action = InternalFundAction.CONFIRM;
-      else if (leg.status === 'CONFIRMED') action = InternalFundAction.CLEAR;
+      if (leg.status === 'CREATED') action = FundsOrderAction.SUBMIT;
+      else if (leg.status === 'SUBMITTED') action = FundsOrderAction.CONFIRM;
+      else if (leg.status === 'CONFIRMED') action = FundsOrderAction.CLEAR;
       else throw new Error(`${swapNo} leg ${legSeq} unexpected fiat status ${leg.status}`);
     } else {
-      if (leg.status === 'CREATED') action = InternalFundAction.SIGN;
-      else if (leg.status === 'SIGNING') action = InternalFundAction.BROADCAST;
-      else if (leg.status === 'BROADCASTED') action = InternalFundAction.SEEN_IN_MEMPOOL;
-      else if (leg.status === 'CONFIRMING') action = InternalFundAction.CONFIRM;
-      else if (leg.status === 'CONFIRMED') action = InternalFundAction.CLEAR;
+      if (leg.status === 'CREATED') action = FundsOrderAction.SUBMIT;
+      else if (leg.status === 'SUBMITTED') action = FundsOrderAction.OBSERVE_CONFIRMING;
+      else if (leg.status === 'CONFIRMING') action = FundsOrderAction.CONFIRM;
+      else if (leg.status === 'CONFIRMED') action = FundsOrderAction.CLEAR;
       else throw new Error(`${swapNo} leg ${legSeq} unexpected crypto status ${leg.status}`);
     }
-    await ctx.swapWorkflowSvc.advanceLeg(swapNo, legSeq, action, 'DEMO');
+    await ctx.fundsOrders.advance(leg.id, action, 'DEMO');
     await sleep(40);
   }
-  throw new Error(`${swapNo} leg ${legSeq} did not reach CLEAR after 12 steps`);
+  throw new Error(`${swapNo} leg ${legSeq} did not reach CLEARED after 8 steps`);
 }
 
 /** Drive an entire PROCESSING swap (all 4 legs) to SUCCESS. */

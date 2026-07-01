@@ -1,12 +1,18 @@
 /**
  * swap-workflow.service.spec.ts
  *
- * SwapWorkflowService owns the entire swap journey: executeSwap (leg1 build),
- * advanceLeg (post + chain + SUCCESS / self-heal), resumeLeg (recovery), with
- * sell-first sequence guard. The legacy SwapSettlementService is gone.
+ * SwapWorkflowService owns the swap journey, now event-driven on funds_order:
+ *   executeSwap        → creates the swap (PROCESSING) + leg1 funds_order (CREATED)
+ *                        + books leg1 pending TB.
+ *   advanceLeg         → thin sync wrapper: resolve active leg → funds_order.advance
+ *                        (sell-first guard preserved).
+ *   handleFundsOrderChanged → on CLEARED: post + chain next / finalize SUCCESS;
+ *                        on FAILED/TIMEOUT: Swap-6 self-heal (retry ≤3 else STUCK).
+ *   resumeLeg          → manual recovery (fresh attempt, clears needsReview).
  */
 import { SwapWorkflowService } from './swap-workflow.service';
 import { Prisma } from '@prisma/client';
+import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -118,26 +124,27 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
-  // Swap-9 cut-over: executeSwap now drives leg1-only via these two deps.
+  // C2c cut-over: executeSwap drives leg1-only via SwapLegAccounting + FundsOrderService.
   const stubLegAccounting: any = {
     ctxFromSwap: jest.fn(),
     initiateLegPending: jest.fn(() => Promise.resolve()),
     postLeg: jest.fn(() => Promise.resolve()),
     voidLeg: jest.fn(() => Promise.resolve()),
-    // R1: workflow now resolves the leg's from/to wallets before createSwapLeg.
+    // R1: workflow resolves the leg's from/to wallets before funds_order.create.
     // Default stub returns both filled — tests asserting invariant violations
     // override per-call via mockResolvedValueOnce.
     resolveLegWallets: jest.fn(() =>
       Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' }),
     ),
   };
-  const stubFundsFlow: any = {
-    createSwapLeg: jest.fn(() => Promise.resolve({ id: 'leg-1' })),
-    transitionSwapLeg: jest.fn(() => Promise.resolve({ nextStatus: 'SUBMITTING' })),
+  const stubFundsOrders: any = {
+    create: jest.fn(() => Promise.resolve({ id: 'fo-1', legSeq: 1, attempt: 1, status: 'CREATED' })),
+    advance: jest.fn(() => Promise.resolve({ id: 'fo-1', status: FundsOrderStatus.SUBMITTED })),
+    findByParent: jest.fn(() => Promise.resolve([])),
   };
   // expose so tests can assert on them
   (mocks as any).legAccounting = stubLegAccounting;
-  (mocks as any).fundsFlow = stubFundsFlow;
+  (mocks as any).fundsOrders = stubFundsOrders;
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -147,14 +154,14 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.auditLogsService as any,
     mocks.eventEmitter as any,
     stubLegAccounting,
-    stubFundsFlow,
+    stubFundsOrders,
   );
 }
 
-// ── Core behavior ────────────────────────────────────────────────────────────
+// ── executeSwap ──────────────────────────────────────────────────────────────
 
-describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
-  it('creates swap with status PROCESSING (no atomic TB legs, no SUCCESS)', async () => {
+describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', () => {
+  it('creates swap PROCESSING (no atomic TB legs, no SUCCESS) + leg1 funds_order CREATED', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
@@ -173,31 +180,27 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     // No atomic direct transfers — delegation only
     expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
 
-    // Swap-9 cut-over: leg1-only progressive create (no more settlement service).
-    expect((mocks as any).fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
-    const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    // leg1-only progressive create via FundsOrderService (funds_order CREATED).
+    expect((mocks as any).fundsOrders.create).toHaveBeenCalledTimes(1);
+    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
+    expect(createLegArg.swapTransactionId).toBe('swap-1');
     expect(createLegArg.legSeq).toBe(1);
-    expect(createLegArg.legAttempt).toBe(1);
+    expect(createLegArg.attempt).toBe(1);
+    expect(createLegArg.initialStatus).toBe(FundsOrderStatus.CREATED);
+    // leg1 pending booked; leg is NOT auto-advanced (driver submits it).
     expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    expect((mocks as any).fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(1);
+    expect((mocks as any).fundsOrders.advance).not.toHaveBeenCalled();
 
     // No SWAP_SUCCEEDED domain event at executeSwap return (swap is still PROCESSING)
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
   });
 
-  it('passes correct SwapSettleCtx (leg1 amount + asset) — CASE A (USDT→AED, fromIsFiat=false)', async () => {
+  it('passes correct SwapSettleCtx (leg1 pending) — CASE A (USDT→AED, fromIsFiat=false)', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
     await service.executeSwap('cust-1', 'q-1');
 
-    // CASE A: USDT (CRYPTO) → AED (FIAT); fromIsFiat=false, so leg1 is "to" side (FIAT receive)
-    // per the sell-first plan locked in Swap-8. Verify createSwapLeg's assetId/amount.
-    const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
-    expect(createLegArg.swapTransactionId).toBe('swap-1');
-    expect(createLegArg.legSeq).toBe(1);
-    expect(createLegArg.legAttempt).toBe(1);
-    // initiateLegPending called with leg1 ctx (attempt=1) — verify ctx fields propagate
     const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
     const ctx = initiateArg[0];
     expect(ctx.swapId).toBe('swap-1');
@@ -213,7 +216,7 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     expect(ctx.attempt).toBe(1);
   });
 
-  it('passes correct SwapSettleCtx (leg1 amount + asset) — CASE B (AED→USDT, fromIsFiat=true)', async () => {
+  it('passes correct SwapSettleCtx (leg1 pending) — CASE B (AED→USDT, fromIsFiat=true)', async () => {
     const mocks = buildMocks(reverseQuote());
     const service = makeService(mocks);
 
@@ -236,13 +239,9 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
 
     await service.executeSwap('cust-1', 'q-1');
 
-    // L1 eligibility checked
     expect(mocks.onboardingService.assertTradingEligibility).toHaveBeenCalledWith('cust-1', 'SWAP');
-
-    // Quote consumed
     expect(mocks.swapQuoteService.consumeQuote).toHaveBeenCalledTimes(1);
 
-    // SWAP_CREATED audit fired
     const createdAudit = (mocks.auditLogsService.recordByActor as jest.Mock).mock.calls
       .map((c: any[]) => c[0])
       .find((a: any) => a.action === 'SWAP_CREATED');
@@ -263,6 +262,10 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
       .map((c: any[]) => c[0])
       .find((a: any) => a.action === 'SWAP_CREATED');
     expect(auditArg?.traceId).toBe(TRACE);
+
+    // traceId propagates onto the leg1 funds_order too.
+    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
+    expect(createLegArg.traceId).toBe(TRACE);
   });
 
   it('emits SWAP_FAILED audit when create throws, re-throws error', async () => {
@@ -279,27 +282,19 @@ describe('SwapWorkflowService — Task 5: PROCESSING + delegation', () => {
     expect(failAudit).toBeDefined();
     expect(failAudit.traceId).toBe(TRACE);
 
-    // No SWAP_SUCCEEDED event
-    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
-  });
-
-  it('does NOT emit SWAP_SUCCEEDED — settlement service owns that', async () => {
-    const mocks = buildMocks(makeQuote());
-    const service = makeService(mocks);
-
-    await service.executeSwap('cust-1', 'q-1');
-
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
   });
 });
 
-// ── advanceLeg tests (Swap-5) ────────────────────────────────────────────────
+// ── advanceLeg (thin wrapper) ────────────────────────────────────────────────
 
-import { InternalFundAction, InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
+import { InternalFundAction } from '../../funds-layer/dto/internal-fund.dto';
+import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { mapLegAction } from './swap-workflow.service';
 
-// Build mocks specifically for advanceLeg path (extends the executeSwap mocks).
+// Build mocks for advanceLeg + handleFundsOrderChanged (extends executeSwap mocks).
 function buildAdvanceLegMocks(opts: {
   swapNo?: string;
   fromIsFiat?: boolean;
@@ -308,9 +303,9 @@ function buildAdvanceLegMocks(opts: {
   const swapNo = opts.swapNo ?? 'SWP0001';
   const fromIsFiat = opts.fromIsFiat ?? false;
 
-  // Snapshot of active legs we'll mutate as the workflow chains the next leg.
+  // Snapshot of active legs (one row per legSeq = max attempt).
   const legState = opts.legs.map((l) => ({
-    id: l.id ?? `leg-${l.legSeq}-id`,
+    id: l.id ?? `fo-${l.legSeq}-id`,
     legSeq: l.legSeq,
     attempt: l.attempt ?? 1,
     status: l.status,
@@ -340,32 +335,35 @@ function buildAdvanceLegMocks(opts: {
 
   const swapTransactionsService = {
     findByNoInternal: jest.fn(() => Promise.resolve(swapRow)),
+    findByIdInternal: jest.fn(() => Promise.resolve(swapRow)),
     activeLegsBySeq: jest.fn(() => Promise.resolve(legState.slice())),
     markStatus: jest.fn(() => Promise.resolve()),
+    setNeedsReview: jest.fn(() => Promise.resolve()),
     recomputeProjections: jest.fn(() => Promise.resolve()),
     create: jest.fn(),
     findOne: jest.fn(),
   };
 
-  const fundsFlow = {
-    createSwapLeg: jest.fn((input: any) => {
-      // Mirror the side-effect: a new leg row gets created and is then findable.
+  const fundsOrders = {
+    // create: mirror the side-effect — a new leg row gets appended to legState.
+    create: jest.fn((input: any) => {
       const newLeg = {
-        id: `leg-${input.legSeq}-id`,
+        id: `fo-${input.legSeq}-a${input.attempt}-id`,
         legSeq: input.legSeq,
-        attempt: input.legAttempt ?? 1,
+        attempt: input.attempt ?? 1,
         status: 'CREATED',
         swapTransactionId: 'swap-1',
       };
       legState.push(newLeg);
       return Promise.resolve(newLeg);
     }),
-    transitionSwapLeg: jest.fn(() =>
-      Promise.resolve({ leg: {}, prevStatus: 'CREATED', nextStatus: InternalFundStatus.CLEAR }),
-    ),
-    // Swap-6: canonical entrypoint for the STUCK branch — workflow no longer
-    // writes InternalFund directly (CLAUDE.md rule 5).
-    markLegNeedsReview: jest.fn(() => Promise.resolve({})),
+    // advance: flip the target row's status (default CLEARED for happy-path).
+    advance: jest.fn((id: string) => {
+      const row = legState.find((l) => l.id === id);
+      if (row) row.status = FundsOrderStatus.CLEARED;
+      return Promise.resolve(row ?? { id, status: FundsOrderStatus.CLEARED });
+    }),
+    findByParent: jest.fn(() => Promise.resolve(legState.slice())),
   };
 
   const legAccounting = {
@@ -389,7 +387,6 @@ function buildAdvanceLegMocks(opts: {
     initiateLegPending: jest.fn(() => Promise.resolve()),
     postLeg: jest.fn(() => Promise.resolve()),
     voidLeg: jest.fn(() => Promise.resolve()),
-    // R1: workflow now resolves the leg's from/to wallets before createSwapLeg.
     resolveLegWallets: jest.fn(() =>
       Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' }),
     ),
@@ -409,20 +406,7 @@ function buildAdvanceLegMocks(opts: {
     postPendingTransfer: jest.fn(),
     executeTransfer: jest.fn(),
   };
-  const txClient: any = {
-    fundsOrder: {
-      findFirst: jest.fn(({ where }: any) => {
-        // Match against the in-memory legState (covers newly chained legs)
-        const found = legState.find(
-          (l) =>
-            l.swapTransactionId === where.swapTransactionId &&
-            l.legSeq === where.legSeq &&
-            (where.attempt === undefined || l.attempt === where.attempt),
-        );
-        return Promise.resolve(found ?? null);
-      }),
-    },
-  };
+  const txClient: any = { __tx: true };
 
   const prisma: any = {
     customerMain: { findUnique: jest.fn() },
@@ -441,7 +425,7 @@ function buildAdvanceLegMocks(opts: {
     accountingService,
     auditLogsService,
     eventEmitter,
-    fundsFlow,
+    fundsOrders,
     legAccounting,
   };
 }
@@ -456,104 +440,32 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.auditLogsService as any,
     mocks.eventEmitter as any,
     mocks.legAccounting as any,
-    mocks.fundsFlow as any,
+    mocks.fundsOrders as any,
   );
 }
 
-describe('SwapWorkflowService.advanceLeg (Swap-5)', () => {
-  it('mid-leg CLEAR posts leg + chains next leg (no SUCCESS)', async () => {
-    // leg1 is currently CONFIRMED (mid-life, ready to CLEAR). legs 2/3/4 don't exist yet.
+describe('SwapWorkflowService.advanceLeg (thin wrapper)', () => {
+  it('resolves the active leg and delegates to funds_order.advance with the mapped action', async () => {
     const mocks = buildAdvanceLegMocks({
-      legs: [{ legSeq: 1, status: InternalFundStatus.CONFIRMED }],
+      legs: [{ legSeq: 1, status: FundsOrderStatus.CONFIRMED }],
     });
     const svc = makeAdvanceLegService(mocks);
 
-    await svc.advanceLeg('SWP0001', 1, InternalFundAction.CLEAR, 'ADMIN-1');
+    const res = await svc.advanceLeg('SWP0001', 1, InternalFundAction.CLEAR, 'ADMIN-1');
 
-    // leg1 already non-CREATED → no initiate for leg1; only the chained leg2 gets initiated.
-    expect(mocks.legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    const initiatedLegSeqs = (mocks.legAccounting.initiateLegPending as jest.Mock).mock.calls.map(
-      (c) => c[1].legSeq,
-    );
-    expect(initiatedLegSeqs).toContain(2);
-
-    // postLeg called for leg1 spec
-    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
-    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
-
-    // createSwapLeg called for leg2 with attempt=1
-    expect(mocks.fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
-    const createArg = (mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
-    expect(createArg.legSeq).toBe(2);
-    expect(createArg.legAttempt).toBe(1);
-    expect(createArg.swapTransactionId).toBe('swap-1');
-
-    // transitionSwapLeg called twice (leg1 → CLEAR, then leg2 start)
-    expect(mocks.fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(2);
-
-    // Audit SWAP_LEG_POSTED recorded
-    const posted = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_POSTED);
-    expect(posted).toBeDefined();
-    expect(posted.metadata.legSeq).toBe(1);
-
-    // markStatus(SUCCESS) NOT called
-    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
-
-    // recomputeProjections called
-    expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
-
-    // No SUCCESS event
-    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(1);
+    const [foId, action, operator] = (mocks.fundsOrders.advance as jest.Mock).mock.calls[0];
+    expect(foId).toBe('fo-1-id');
+    expect(action).toBe(FundsOrderAction.CLEAR);
+    expect(operator).toBe('ADMIN-1');
+    expect(res.nextStatus).toBe(FundsOrderStatus.CLEARED);
   });
 
-  it('last-leg CLEAR posts leg, marks SUCCESS, emits SWAP_SUCCEEDED', async () => {
-    // All 4 legs exist; leg1-3 are CLEAR, leg4 is CONFIRMED ready to CLEAR.
+  it('sequence guard rejects when a prior leg is not CLEARED', async () => {
     const mocks = buildAdvanceLegMocks({
       legs: [
-        { legSeq: 1, status: InternalFundStatus.CLEAR },
-        { legSeq: 2, status: InternalFundStatus.CLEAR },
-        { legSeq: 3, status: InternalFundStatus.CLEAR },
-        { legSeq: 4, status: InternalFundStatus.CONFIRMED },
-      ],
-    });
-    const svc = makeAdvanceLegService(mocks);
-
-    await svc.advanceLeg('SWP0001', 4, InternalFundAction.CLEAR, 'ADMIN-1');
-
-    // postLeg called for leg4 spec
-    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
-    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(4);
-
-    // markStatus(SUCCESS) called
-    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
-    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe('SUCCESS');
-
-    // Both SWAP_LEG_POSTED + SWAP_SUCCEEDED audits recorded
-    const recorded = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls.map(
-      (c) => c[0].action,
-    );
-    expect(recorded).toContain(AuditActions.SWAP_LEG_POSTED);
-    expect(recorded).toContain(AuditActions.SWAP_SUCCEEDED);
-
-    // createSwapLeg NOT called (no next leg after 4)
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-
-    // Post-commit SWAP_SUCCEEDED event emitted
-    expect(mocks.eventEmitter.emit).toHaveBeenCalledTimes(1);
-    expect(mocks.eventEmitter.emit).toHaveBeenCalledWith(
-      DomainEventNames.SWAP_SUCCEEDED,
-      { swapId: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1' },
-    );
-  });
-
-  it('sequence guard rejects when prior leg is not CLEAR', async () => {
-    // leg1 is still SIGNING (not CLEAR); attempt to advance leg2 must fail.
-    const mocks = buildAdvanceLegMocks({
-      legs: [
-        { legSeq: 1, status: InternalFundStatus.SIGNING },
-        { legSeq: 2, status: InternalFundStatus.CREATED },
+        { legSeq: 1, status: FundsOrderStatus.SUBMITTED },
+        { legSeq: 2, status: FundsOrderStatus.CREATED },
       ],
     });
     const svc = makeAdvanceLegService(mocks);
@@ -562,364 +474,305 @@ describe('SwapWorkflowService.advanceLeg (Swap-5)', () => {
       svc.advanceLeg('SWP0001', 2, InternalFundAction.CLEAR, 'ADMIN-1'),
     ).rejects.toThrow(/SWAP_SEQUENCE_VIOLATION/);
 
-    // Sanity: no accounting side-effects when the guard trips
-    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.advance).not.toHaveBeenCalled();
   });
 
-});
-
-// ── advanceLeg self-heal tests (Swap-6) ──────────────────────────────────────
-
-describe('SwapWorkflowService.advanceLeg self-heal (Swap-6)', () => {
-  it('attempt 1 fails → voids attempt 1, creates attempt 2, initiates+starts, audits RETRIED, swap stays PROCESSING', async () => {
-    // leg1 is BROADCASTED on attempt 1; transition will return FAILED.
-    const mocks = buildAdvanceLegMocks({
-      legs: [{ legSeq: 1, status: InternalFundStatus.BROADCASTED, attempt: 1 }],
-    });
-    (mocks.fundsFlow.transitionSwapLeg as jest.Mock).mockResolvedValueOnce({
-      leg: {},
-      prevStatus: InternalFundStatus.BROADCASTED,
-      nextStatus: InternalFundStatus.FAILED,
-    });
-    // Pin the new attempt-2 leg row that createSwapLeg returns.
-    (mocks.fundsFlow.createSwapLeg as jest.Mock).mockResolvedValueOnce({
-      id: 'leg-1-attempt-2-id',
-      legSeq: 1,
-      attempt: 2,
-      status: 'CREATED',
-      swapTransactionId: 'swap-1',
+  it('rejects when the swap is not PROCESSING', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.CONFIRMED }] });
+    (mocks.swapTransactionsService.findByNoInternal as jest.Mock).mockResolvedValueOnce({
+      ...mocks.swapRow,
+      status: 'SUCCESS',
     });
     const svc = makeAdvanceLegService(mocks);
 
-    // Resolves normally — self-heal commits Prisma + TB together.
-    const result = await svc.advanceLeg('SWP0001', 1, InternalFundAction.FAIL, 'ADMIN-1');
-    expect(result.nextStatus).toBe(InternalFundStatus.FAILED);
+    await expect(
+      svc.advanceLeg('SWP0001', 1, InternalFundAction.CLEAR, 'ADMIN-1'),
+    ).rejects.toThrow(/not in PROCESSING/);
+    expect(mocks.fundsOrders.advance).not.toHaveBeenCalled();
+  });
+});
+
+// ── handleFundsOrderChanged: chaining + SUCCESS ──────────────────────────────
+
+describe('SwapWorkflowService.handleFundsOrderChanged — CLEARED chaining', () => {
+  const evt = (over: Partial<any>) => ({
+    fundsOrderId: 'fo-x',
+    fundsOrderNo: 'FO0001',
+    parent: { swapTransactionId: 'swap-1' },
+    legSeq: 1,
+    attempt: 1,
+    oldStatus: 'CONFIRMED',
+    newStatus: FundsOrderStatus.CLEARED,
+    ...over,
+  });
+
+  it('ignores events not parented to a swap', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.CLEARED }] });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ parent: { withdrawTransactionId: 'wd-1' } }) as any);
+
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('ignores intermediate hops (SUBMITTED/CONFIRMING/CONFIRMED)', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.SUBMITTED }] });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.SUBMITTED }) as any);
+    await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.CONFIRMING }) as any);
+    await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.CONFIRMED }) as any);
+
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('mid-leg CLEARED posts leg + chains the next leg (no SUCCESS)', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.CLEARED }] });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ legSeq: 1, attempt: 1 }) as any);
+
+    // postLeg called for leg1 with attempt=1.
+    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][0].attempt).toBe(1);
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
+
+    // next leg (leg2) created in CREATED with attempt=1.
+    expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
+    const createArg = (mocks.fundsOrders.create as jest.Mock).mock.calls[0][0];
+    expect(createArg.legSeq).toBe(2);
+    expect(createArg.attempt).toBe(1);
+    expect(createArg.initialStatus).toBe(FundsOrderStatus.CREATED);
+
+    // SWAP_LEG_POSTED audit; markStatus NOT called; no SUCCESS event.
+    const posted = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0]).find((a) => a.action === AuditActions.SWAP_LEG_POSTED);
+    expect(posted).toBeDefined();
+    expect(posted.metadata.legSeq).toBe(1);
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('last-leg (legSeq 4) CLEARED posts leg, marks SUCCESS, emits SWAP_SUCCEEDED', async () => {
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, status: FundsOrderStatus.CLEARED },
+        { legSeq: 2, status: FundsOrderStatus.CLEARED },
+        { legSeq: 3, status: FundsOrderStatus.CLEARED },
+        { legSeq: 4, status: FundsOrderStatus.CLEARED },
+      ],
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ legSeq: 4, attempt: 1 }) as any);
+
+    // postLeg for leg4.
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(4);
+
+    // markStatus(SUCCESS).
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe('SUCCESS');
+
+    // SWAP_LEG_POSTED + SWAP_SUCCEEDED audits.
+    const recorded = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls.map((c) => c[0].action);
+    expect(recorded).toContain(AuditActions.SWAP_LEG_POSTED);
+    expect(recorded).toContain(AuditActions.SWAP_SUCCEEDED);
+
+    // No next leg created.
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+
+    // Post-commit SWAP_SUCCEEDED event.
+    expect(mocks.eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(mocks.eventEmitter.emit).toHaveBeenCalledWith(
+      DomainEventNames.SWAP_SUCCEEDED,
+      { swapId: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1' },
+    );
+  });
+
+  it('no-op when the swap is already SUCCESS (idempotent replay)', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 4, status: FundsOrderStatus.CLEARED }] });
+    (mocks.swapTransactionsService.findByIdInternal as jest.Mock).mockResolvedValueOnce({
+      ...mocks.swapRow,
+      status: 'SUCCESS',
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ legSeq: 4 }) as any);
+
+    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ── handleFundsOrderChanged: self-heal (Swap-6) ──────────────────────────────
+
+describe('SwapWorkflowService.handleFundsOrderChanged — self-heal', () => {
+  const failEvt = (over: Partial<any>) => ({
+    fundsOrderId: 'fo-x',
+    fundsOrderNo: 'FO0001',
+    parent: { swapTransactionId: 'swap-1' },
+    legSeq: 1,
+    attempt: 1,
+    oldStatus: 'SUBMITTED',
+    newStatus: FundsOrderStatus.FAILED,
+    ...over,
+  });
+
+  it('attempt 1 FAILED → voids attempt 1, rebuilds attempt 2, audits RETRIED, swap stays PROCESSING', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.FAILED, attempt: 1 }] });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(failEvt({ legSeq: 1, attempt: 1, newStatus: FundsOrderStatus.FAILED }) as any);
 
     // voidLeg called with ctx carrying attempt=1 (the failed attempt).
     expect(mocks.legAccounting.voidLeg).toHaveBeenCalledTimes(1);
-    const voidCall = (mocks.legAccounting.voidLeg as jest.Mock).mock.calls[0];
-    expect(voidCall[0].attempt).toBe(1);
-    expect(voidCall[1].legSeq).toBe(1);
+    expect((mocks.legAccounting.voidLeg as jest.Mock).mock.calls[0][0].attempt).toBe(1);
+    expect((mocks.legAccounting.voidLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
 
-    // createSwapLeg called with legSeq=1 + legAttempt=2 for the retry.
-    expect(mocks.fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
-    const createArg = (mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
-    expect(createArg.swapTransactionId).toBe('swap-1');
+    // create called with legSeq=1 + attempt=2 for the retry.
+    expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
+    const createArg = (mocks.fundsOrders.create as jest.Mock).mock.calls[0][0];
     expect(createArg.legSeq).toBe(1);
-    expect(createArg.legAttempt).toBe(2);
+    expect(createArg.attempt).toBe(2);
+    expect(createArg.initialStatus).toBe(FundsOrderStatus.CREATED);
 
-    // initiateLegPending called with ctx carrying attempt=2 (the retry).
-    expect(mocks.legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    const initCall = (mocks.legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
-    expect(initCall[0].attempt).toBe(2);
-    expect(initCall[1].legSeq).toBe(1);
+    // initiateLegPending with ctx carrying attempt=2 (the retry).
+    expect((mocks.legAccounting.initiateLegPending as jest.Mock).mock.calls[0][0].attempt).toBe(2);
 
-    // transitionSwapLeg called twice: original FAIL (mocked) + retry start on the new leg row.
-    expect(mocks.fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(2);
-    const startCall = (mocks.fundsFlow.transitionSwapLeg as jest.Mock).mock.calls[1];
-    expect(startCall[0]).toBe('leg-1-attempt-2-id');
-    // legStartAction: CRYPTO 'from' side (USDT) + side='from' on leg1 → SIGN.
-    expect(startCall[1]).toBe(InternalFundAction.SIGN);
-
-    // Audit SWAP_LEG_RETRIED with correct metadata.
+    // SWAP_LEG_RETRIED audit with correct metadata.
     const retried = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_RETRIED);
+      .map((c) => c[0]).find((a) => a.action === AuditActions.SWAP_LEG_RETRIED);
     expect(retried).toBeDefined();
     expect(retried.metadata).toEqual({
-      legSeq: 1,
-      failedAttempt: 1,
-      nextAttempt: 2,
-      failedStatus: InternalFundStatus.FAILED,
+      legSeq: 1, failedAttempt: 1, nextAttempt: 2, failedStatus: FundsOrderStatus.FAILED,
     });
 
-    // No SWAP_FAILED audit, no markStatus('FAILED'), no STUCK call.
-    const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_FAILED);
-    expect(failedAudit).toBeUndefined();
-    const markStatusFailedCalls = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls
-      .filter((c) => c[1] === 'FAILED');
-    expect(markStatusFailedCalls).toHaveLength(0);
-    expect(mocks.fundsFlow.markLegNeedsReview).not.toHaveBeenCalled();
-
-    // recomputeProjections + no SUCCESS event.
-    expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
+    // No STUCK, no markStatus(FAILED), no SUCCESS event.
+    expect(mocks.swapTransactionsService.setNeedsReview).not.toHaveBeenCalled();
+    const markFailed = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls.filter((c) => c[1] === 'FAILED');
+    expect(markFailed).toHaveLength(0);
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
-
-    // postLeg NOT called (fail branch).
+    // postLeg NOT called on the fail branch.
     expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
   });
 
-  it('attempt 3 fails → voids attempt 3, delegates to fundsFlow.markLegNeedsReview, audits STUCK, swap stays PROCESSING', async () => {
-    // leg1 is BROADCASTED on attempt 3; transition will return TIMEOUT.
-    const mocks = buildAdvanceLegMocks({
-      legs: [{ legSeq: 1, status: InternalFundStatus.BROADCASTED, attempt: 3 }],
-    });
-    (mocks.fundsFlow.transitionSwapLeg as jest.Mock).mockResolvedValueOnce({
-      leg: {},
-      prevStatus: InternalFundStatus.BROADCASTED,
-      nextStatus: InternalFundStatus.TIMEOUT,
-    });
+  it('attempt 3 TIMEOUT → voids attempt 3, sets swap.needsReview, audits STUCK, no retry', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.TIMEOUT, attempt: 3 }] });
     const svc = makeAdvanceLegService(mocks);
 
-    const result = await svc.advanceLeg('SWP0001', 1, InternalFundAction.FAIL, 'ADMIN-1');
-    expect(result.nextStatus).toBe(InternalFundStatus.TIMEOUT);
+    await svc.handleFundsOrderChanged(failEvt({ legSeq: 1, attempt: 3, newStatus: FundsOrderStatus.TIMEOUT }) as any);
 
-    // voidLeg called with ctx carrying attempt=3.
-    expect(mocks.legAccounting.voidLeg).toHaveBeenCalledTimes(1);
+    // voidLeg with attempt=3.
     expect((mocks.legAccounting.voidLeg as jest.Mock).mock.calls[0][0].attempt).toBe(3);
 
-    // STUCK branch delegates to FundsFlowService.markLegNeedsReview(target.id, 3, 'SYSTEM', client).
-    expect(mocks.fundsFlow.markLegNeedsReview).toHaveBeenCalledTimes(1);
-    const stuckCall = (mocks.fundsFlow.markLegNeedsReview as jest.Mock).mock.calls[0];
-    expect(stuckCall[0]).toBe('leg-1-id');
-    expect(stuckCall[1]).toBe(3);
-    expect(stuckCall[2]).toBe('SYSTEM');
-    expect(stuckCall[3]).toBe(mocks.txClient);
+    // STUCK → setNeedsReview(swapId, true).
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledTimes(1);
+    expect((mocks.swapTransactionsService.setNeedsReview as jest.Mock).mock.calls[0][0]).toBe('swap-1');
+    expect((mocks.swapTransactionsService.setNeedsReview as jest.Mock).mock.calls[0][1]).toBe(true);
 
-    // Audit SWAP_LEG_STUCK with correct metadata.
+    // SWAP_LEG_STUCK audit with correct metadata.
     const stuck = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_STUCK);
+      .map((c) => c[0]).find((a) => a.action === AuditActions.SWAP_LEG_STUCK);
     expect(stuck).toBeDefined();
-    expect(stuck.metadata).toEqual({
-      legSeq: 1,
-      attempts: 3,
-      lastFailedStatus: InternalFundStatus.TIMEOUT,
-    });
+    expect(stuck.metadata).toEqual({ legSeq: 1, attempts: 3, lastFailedStatus: FundsOrderStatus.TIMEOUT });
 
-    // createSwapLeg NOT called — no retry on attempt 3.
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-
-    // No SWAP_FAILED audit, no markStatus('FAILED'), no SWAP_LEG_RETRIED.
-    const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_FAILED);
-    expect(failedAudit).toBeUndefined();
-    const retriedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_RETRIED);
-    expect(retriedAudit).toBeUndefined();
-    const markStatusFailedCalls = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls
-      .filter((c) => c[1] === 'FAILED');
-    expect(markStatusFailedCalls).toHaveLength(0);
-
-    // recomputeProjections + no SUCCESS event.
-    expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
+    // No retry, no RETRIED audit, no markStatus(FAILED), no SUCCESS event.
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    const retried = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0]).find((a) => a.action === AuditActions.SWAP_LEG_RETRIED);
+    expect(retried).toBeUndefined();
+    const markFailed = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls.filter((c) => c[1] === 'FAILED');
+    expect(markFailed).toHaveLength(0);
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
-
-    // postLeg NOT called.
-    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
-
-    // transitionSwapLeg called exactly once (the original FAIL, no retry start).
-    expect(mocks.fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(1);
   });
 });
 
-// ── resumeLeg tests (Swap-7) ─────────────────────────────────────────────────
+// ── resumeLeg (Swap-7) ───────────────────────────────────────────────────────
 
-describe('SwapWorkflowService.resumeLeg (Swap-7)', () => {
-  it('resumes a stuck leg by creating a fresh attempt', async () => {
-    // leg1 CLEAR, leg2 NEEDS_REVIEW on attempt 3 → resume should create attempt 4.
+describe('SwapWorkflowService.resumeLeg', () => {
+  it('resumes a failed leg by creating a fresh attempt + clears needsReview', async () => {
     const mocks = buildAdvanceLegMocks({
       legs: [
-        { legSeq: 1, status: InternalFundStatus.CLEAR, attempt: 1 },
-        { legSeq: 2, status: InternalFundStatus.NEEDS_REVIEW, attempt: 3 },
+        { legSeq: 1, status: FundsOrderStatus.CLEARED, attempt: 1 },
+        { legSeq: 2, status: FundsOrderStatus.TIMEOUT, attempt: 3 },
       ],
-    });
-    (mocks.fundsFlow.createSwapLeg as jest.Mock).mockResolvedValueOnce({
-      id: 'leg-2-attempt-4-id',
-      legSeq: 2,
-      attempt: 4,
-      status: 'CREATED',
-      swapTransactionId: 'swap-1',
     });
     const svc = makeAdvanceLegService(mocks);
 
     const result = await svc.resumeLeg('SWP0001', 2, 'ADMIN-OP');
     expect(result).toEqual({ swapId: 'swap-1', legSeq: 2, resumedAttempt: 4 });
 
-    // createSwapLeg called once with leg2 / legAttempt=4.
-    expect(mocks.fundsFlow.createSwapLeg).toHaveBeenCalledTimes(1);
-    const createArg = (mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
-    expect(createArg.swapTransactionId).toBe('swap-1');
+    // create called once with leg2 / attempt=4 + resolved wallets.
+    expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
+    const createArg = (mocks.fundsOrders.create as jest.Mock).mock.calls[0][0];
     expect(createArg.legSeq).toBe(2);
-    expect(createArg.legAttempt).toBe(4);
-    // R1: workflow now populates fromWalletId/toWalletId from resolveLegWallets
-    // (stub returns 'w-from' / 'w-to') instead of the old null/null defaults.
+    expect(createArg.attempt).toBe(4);
     expect(createArg.fromWalletId).toBe('w-from');
     expect(createArg.toWalletId).toBe('w-to');
-    expect((mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][1]).toBe('ADMIN-OP');
 
-    // initiateLegPending called with ctx carrying attempt=4 and leg2 spec.
-    expect(mocks.legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    const initCall = (mocks.legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
-    expect(initCall[0].attempt).toBe(4);
-    expect(initCall[1].legSeq).toBe(2);
+    // initiateLegPending with ctx attempt=4.
+    expect((mocks.legAccounting.initiateLegPending as jest.Mock).mock.calls[0][0].attempt).toBe(4);
 
-    // transitionSwapLeg called on the new leg id, with leg2 start action, operator ADMIN-OP, tx client.
-    expect(mocks.fundsFlow.transitionSwapLeg).toHaveBeenCalledTimes(1);
-    const transCall = (mocks.fundsFlow.transitionSwapLeg as jest.Mock).mock.calls[0];
-    expect(transCall[0]).toBe('leg-2-attempt-4-id');
-    expect(transCall[2]).toBe('ADMIN-OP');
-    expect(transCall[3]).toBe(mocks.txClient);
+    // needsReview cleared.
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('swap-1', false, expect.anything());
 
-    // Audit SWAP_LEG_RESUMED with correct metadata.
+    // SWAP_LEG_RESUMED audit.
     const resumed = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_RESUMED);
+      .map((c) => c[0]).find((a) => a.action === AuditActions.SWAP_LEG_RESUMED);
     expect(resumed).toBeDefined();
     expect(resumed.metadata).toEqual({ legSeq: 2, resumedAttempt: 4, fromAttempt: 3 });
-
-    // recomputeProjections called.
-    expect(mocks.swapTransactionsService.recomputeProjections).toHaveBeenCalledTimes(1);
 
     // Swap stays PROCESSING — markStatus NOT called.
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
   });
 
-  it('rejects when target leg is NOT NEEDS_REVIEW', async () => {
-    // leg2 is CLEAR — not stuck — should reject.
+  it('rejects when the target leg is NOT a failed leg', async () => {
     const mocks = buildAdvanceLegMocks({
       legs: [
-        { legSeq: 1, status: InternalFundStatus.CLEAR, attempt: 1 },
-        { legSeq: 2, status: InternalFundStatus.CLEAR, attempt: 1 },
+        { legSeq: 1, status: FundsOrderStatus.CLEARED, attempt: 1 },
+        { legSeq: 2, status: FundsOrderStatus.CLEARED, attempt: 1 },
       ],
     });
     const svc = makeAdvanceLegService(mocks);
 
     await expect(svc.resumeLeg('SWP0001', 2, 'ADMIN-OP')).rejects.toThrow(/SWAP_LEG_NOT_STUCK/);
-
-    // No side effects.
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
-    const resumed = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_RESUMED);
-    expect(resumed).toBeUndefined();
-    expect(mocks.swapTransactionsService.recomputeProjections).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
   });
 
   it('rejects when no leg exists for the requested legSeq', async () => {
-    // Only legSeq=1 is active — request for legSeq=2 must 404.
-    const mocks = buildAdvanceLegMocks({
-      legs: [{ legSeq: 1, status: InternalFundStatus.CLEAR, attempt: 1 }],
-    });
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.CLEARED, attempt: 1 }] });
     const svc = makeAdvanceLegService(mocks);
 
     await expect(svc.resumeLeg('SWP0001', 2, 'ADMIN-OP')).rejects.toThrow(/Leg 2 not found/);
-
-    // No side effects.
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
-    const resumed = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_RESUMED);
-    expect(resumed).toBeUndefined();
-    expect(mocks.swapTransactionsService.recomputeProjections).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
   });
 });
 
-// ── sell-first invariant tests (Swap-8) ──────────────────────────────────────
-//
-// Documents the BUSINESS RULE (not just the generic sequence guard from Swap-5):
-// the customer SELL leg (leg1) must clear before any other leg may proceed —
-// so the company has the customer's funds before paying out. This is the
-// structural guarantee behind self-heal: a buy leg failure can never leave the
-// customer's money missing because the sell leg already CLEARed.
+// ── mapLegAction (legacy InternalFundAction → FundsOrderAction) ───────────────
 
-describe('SwapWorkflowService.advanceLeg — sell-first invariant (Swap-8)', () => {
-  it('buy leg (leg3) cannot advance while sell leg (leg1) is still CREATED', async () => {
-    const mocks = buildAdvanceLegMocks({
-      legs: [
-        { legSeq: 1, attempt: 1, status: InternalFundStatus.CREATED },
-        { legSeq: 3, attempt: 1, status: InternalFundStatus.CREATED },
-      ],
-    });
-    const svc = makeAdvanceLegService(mocks);
-
-    await expect(
-      svc.advanceLeg('SWP0001', 3, InternalFundAction.CLEAR, 'ADMIN-OP'),
-    ).rejects.toThrow(/SWAP_SEQUENCE_VIOLATION/);
-
-    // No side effects when sell-first guard trips.
-    expect(mocks.legAccounting.voidLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalled();
-    expect(mocks.auditLogsService.recordByActor).not.toHaveBeenCalled();
-    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+describe('mapLegAction', () => {
+  it('collapses SIGN + BROADCAST to SUBMIT (spec §3)', () => {
+    expect(mapLegAction(InternalFundAction.SIGN)).toBe(FundsOrderAction.SUBMIT);
+    expect(mapLegAction(InternalFundAction.BROADCAST)).toBe(FundsOrderAction.SUBMIT);
+    expect(mapLegAction(InternalFundAction.SUBMIT)).toBe(FundsOrderAction.SUBMIT);
   });
 
-  it('buy leg (leg3) cannot advance while sell leg (leg1) is NEEDS_REVIEW (stuck)', async () => {
-    // Critical safety case: even when sell leg is STUCK on attempt 3, the buy leg
-    // is BLOCKED — so the company never pays out before receiving customer funds.
-    const mocks = buildAdvanceLegMocks({
-      legs: [
-        { legSeq: 1, attempt: 3, status: InternalFundStatus.NEEDS_REVIEW },
-        { legSeq: 3, attempt: 1, status: InternalFundStatus.CREATED },
-      ],
-    });
-    const svc = makeAdvanceLegService(mocks);
-
-    await expect(
-      svc.advanceLeg('SWP0001', 3, InternalFundAction.CLEAR, 'ADMIN-OP'),
-    ).rejects.toThrow(/SWAP_SEQUENCE_VIOLATION/);
-
-    // No side effects.
-    expect(mocks.legAccounting.voidLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
-    expect(mocks.legAccounting.initiateLegPending).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.fundsFlow.transitionSwapLeg).not.toHaveBeenCalled();
-    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalled();
-    expect(mocks.auditLogsService.recordByActor).not.toHaveBeenCalled();
-    expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  it('maps SEEN_IN_MEMPOOL → OBSERVE_CONFIRMING, CONFIRM → CONFIRM, CLEAR → CLEAR', () => {
+    expect(mapLegAction(InternalFundAction.SEEN_IN_MEMPOOL)).toBe(FundsOrderAction.OBSERVE_CONFIRMING);
+    expect(mapLegAction(InternalFundAction.CONFIRM)).toBe(FundsOrderAction.CONFIRM);
+    expect(mapLegAction(InternalFundAction.CLEAR)).toBe(FundsOrderAction.CLEAR);
   });
 
-  it('buy leg (leg3) may advance once sell leg (leg1) is CLEAR', async () => {
-    // Both prior legs CLEAR → guard PASSES, leg3 posts normally.
-    const mocks = buildAdvanceLegMocks({
-      legs: [
-        { legSeq: 1, attempt: 1, status: InternalFundStatus.CLEAR },
-        { legSeq: 2, attempt: 1, status: InternalFundStatus.CLEAR },
-        { legSeq: 3, attempt: 1, status: InternalFundStatus.CREATED },
-      ],
-    });
-    const svc = makeAdvanceLegService(mocks);
-
-    await expect(
-      svc.advanceLeg('SWP0001', 3, InternalFundAction.CLEAR, 'ADMIN-OP'),
-    ).resolves.toBeDefined();
-
-    // postLeg called for leg3 spec.
-    expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
-    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(3);
-
-    // SWAP_LEG_POSTED audit recorded.
-    const posted = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
-      .map((c) => c[0])
-      .find((a) => a.action === AuditActions.SWAP_LEG_POSTED);
-    expect(posted).toBeDefined();
-    expect(posted.metadata.legSeq).toBe(3);
+  it('maps FAIL → FAIL, TIMEOUT → TIMEOUT', () => {
+    expect(mapLegAction(InternalFundAction.FAIL)).toBe(FundsOrderAction.FAIL);
+    expect(mapLegAction(InternalFundAction.TIMEOUT)).toBe(FundsOrderAction.TIMEOUT);
   });
 });
 
-// ── R1: InternalFund.from/toWalletId per leg type (Task 4) ───────────────────
-//
-// SwapWorkflow must populate InternalFund.fromWalletId / toWalletId per leg
-// based on the leg spec's fromRole / toRole (resolved by SwapLegAccounting
-// against the leg's asset). Customer-side leg requires the customer wallet to
-// resolve; firm-only leg requires both firm wallets. Missing wallets throw
-// InvalidInternalFundError instead of persisting {from:NULL, to:NULL} rows.
+// ── R1: funds_order.from/toWalletId per leg type ─────────────────────────────
 
 import {
   assertInternalFundLegRules,
@@ -928,7 +781,6 @@ import {
 
 describe('assertInternalFundLegRules (R1 invariant)', () => {
   it('customer-side leg passes when customer + firm wallets both resolve', () => {
-    // Leg1 of CRYPTO→FIAT: C_DEP → F_OPS (customer-side, side='from').
     expect(() =>
       assertInternalFundLegRules(
         { legSeq: 1, fromRole: 'C_DEP', toRole: 'F_OPS' },
@@ -940,8 +792,6 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 
   it('customer-side leg throws when customer-side wallet is NULL', () => {
-    // SWAP_BUY_CLIENT (leg3 of CRYPTO→FIAT): F_SET → C_VIBAN, to-side customer.
-    // If customer C_VIBAN doesn't resolve, the leg is unsafe to persist.
     expect(() =>
       assertInternalFundLegRules(
         { legSeq: 3, fromRole: 'F_SET', toRole: 'C_VIBAN' },
@@ -953,7 +803,6 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 
   it('customer-side leg throws when firm-side wallet is NULL', () => {
-    // SWAP_FEE_CLIENT (leg4): C_VIBAN → F_FEE. If F_FEE missing, throw.
     expect(() =>
       assertInternalFundLegRules(
         { legSeq: 4, fromRole: 'C_VIBAN', toRole: 'F_FEE' },
@@ -965,7 +814,6 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 
   it('customer-side leg throws when BOTH wallets are NULL (the R1 baseline bug)', () => {
-    // This is the bug being fixed: SWAP IFs were persisted with both NULL.
     expect(() =>
       assertInternalFundLegRules(
         { legSeq: 1, fromRole: 'C_DEP', toRole: 'F_OPS' },
@@ -977,7 +825,6 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 
   it('firm-only leg passes when both firm wallets resolve', () => {
-    // Leg2 of CRYPTO→FIAT: F_OPS → F_SET (firm-only, side='to').
     expect(() =>
       assertInternalFundLegRules(
         { legSeq: 2, fromRole: 'F_OPS', toRole: 'F_SET' },
@@ -1009,24 +856,21 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 });
 
-describe('SwapWorkflowService — R1: createSwapLeg receives resolved wallets', () => {
-  it('executeSwap leg1: passes resolved fromWalletId/toWalletId to createSwapLeg', async () => {
+describe('SwapWorkflowService — R1: create receives resolved wallets', () => {
+  it('executeSwap leg1: passes resolved fromWalletId/toWalletId to funds_order.create', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
     await service.executeSwap('cust-1', 'q-1');
 
     expect((mocks as any).legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
-    const createLegArg = ((mocks as any).fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
+    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
     expect(createLegArg.fromWalletId).toBe('w-from');
     expect(createLegArg.toWalletId).toBe('w-to');
   });
 
   it('executeSwap throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
     const mocks = buildMocks(makeQuote());
-    // CRYPTO→FIAT leg1 spec = C_DEP→F_OPS, side='from'. Customer-side is fromRole=C_DEP.
-    (mocks as any).legAccounting = (mocks as any).legAccounting;
-    // We need to override the stub before makeService captures it.
     const service = makeService(mocks);
     ((mocks as any).legAccounting.resolveLegWallets as jest.Mock).mockResolvedValueOnce({
       fromWalletId: null,
@@ -1037,25 +881,7 @@ describe('SwapWorkflowService — R1: createSwapLeg receives resolved wallets', 
       InvalidInternalFundError,
     );
 
-    // createSwapLeg must NOT be called when R1 assert fails.
-    expect((mocks as any).fundsFlow.createSwapLeg).not.toHaveBeenCalled();
-  });
-
-  it('advanceLeg chained leg (createAndStartLeg): also resolves wallets + asserts R1', async () => {
-    // leg1 currently CONFIRMED → on CLEAR it posts + creates leg2.
-    const mocks = buildAdvanceLegMocks({
-      legs: [{ legSeq: 1, status: InternalFundStatus.CONFIRMED }],
-    });
-    const svc = makeAdvanceLegService(mocks);
-
-    await svc.advanceLeg('SWP0001', 1, InternalFundAction.CLEAR, 'ADMIN-1');
-
-    // resolveLegWallets called for the chained leg2 (createAndStartLeg path).
-    expect(mocks.legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
-    expect((mocks.legAccounting.resolveLegWallets as jest.Mock).mock.calls[0][0].legSeq).toBe(2);
-
-    const createLegArg = (mocks.fundsFlow.createSwapLeg as jest.Mock).mock.calls[0][0];
-    expect(createLegArg.fromWalletId).toBe('w-from');
-    expect(createLegArg.toWalletId).toBe('w-to');
+    // create must NOT be called when R1 assert fails.
+    expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
   });
 });

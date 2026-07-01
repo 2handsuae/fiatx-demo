@@ -390,12 +390,16 @@ async handleFundsOrderChanged(event) {
 | newStatus | 动作 |
 |---|---|
 | SUBMITTED / CONFIRMING / CONFIRMED | no-op |
-| CLEARED | audit SWAP_LEG_CLEARED → 判 leg<4? 建下一 leg(初始 CREATED):swap 全完 → audit SWAP_SUCCEEDED + swapService.updateStatus(SUCCESS) + 解 TB 锁 |
-| FAILED / TIMEOUT | Self-heal:attempt<3? 建 (legSeq, attempt+1) 新行 + audit SWAP_LEG_RETRIED:打 swap.needsReview=true + audit SWAP_LEG_STUCK |
+| CLEARED | `SwapLegAccounting.postLeg`(该腿 attempt)POST TB → audit SWAP_LEG_POSTED → 判 leg<4? 建下一 leg(初始 CREATED):swap 全完 → audit SWAP_SUCCEEDED + swapService.markStatus(SUCCESS) + 解 TB 锁 |
+| FAILED / TIMEOUT | Self-heal(`voidLeg` 该 attempt):attempt<3? 建 (legSeq, attempt+1) 新行 + audit SWAP_LEG_RETRIED:swapService.setNeedsReview(true) + audit SWAP_LEG_STUCK(失败腿保持 terminal,STUCK 为 swap 级标志) |
+
+> **C2c 实现说明(已落地)**:CLEARED 复用既有审计动作 `SWAP_LEG_POSTED`(非 `SWAP_LEG_CLEARED`)—与 legacy `onLegCleared` 一致。funds_order 状态机无 `NEEDS_REVIEW`,故 STUCK 记在 `swap.needsReview`(setNeedsReview 独占,recomputeProjections 不再派生它);resume 清标志。`advanceLeg(swapNo, legSeq, action)` 保留为同步入口,薄封装:解析活跃 funds_order → `mapLegAction(InternalFundAction → FundsOrderAction)`(SIGN+BROADCAST→SUBMIT)→ `fundsOrderService.advance`。链腿 + 自愈 + TB post 全在 `@OnEvent(FUNDS_ORDER_STATUS_CHANGED) handleFundsOrderChanged` 内。
 
 ### 跨主体 event(全部清除)
 
 `SWAP_SUCCEEDED` / `INTERNALTRANSFER_COMPLETED` / `FUNDSFLOW_STATUS_CHANGED` 全删。本次 refactor 后跨主体 event = 0。
+
+> **C2c 保留说明**:`SWAP_SUCCEEDED` emit 暂留(唯一订阅者 `FiatSettlementWorkflowService.onSwapSucceeded` 已 neuter,为 no-op)。emit + 订阅者由 C5 一并删除,避免 tsc 断裂。
 
 ### funds-flow.service.ts 整个文件删
 

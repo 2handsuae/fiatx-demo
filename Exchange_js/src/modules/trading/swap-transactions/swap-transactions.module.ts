@@ -11,6 +11,7 @@ import { SwapFeeLevelModule } from '../swap-fee-level/swap-fee-level.module';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
+import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
     TigerBeetleModule,
     AuditLogsModule,
     FundsLayerModule,
+    FundsOrdersModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],

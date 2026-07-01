@@ -309,6 +309,15 @@ export class SwapTransactionsService {
     });
   }
 
+  /** Load a swap by id with the asset relations ctxFromSwap needs. Nullable. */
+  async findByIdInternal(id: string, tx?: Prisma.TransactionClient) {
+    const client: any = tx ?? this.prisma;
+    return client.swapTransaction.findUnique({
+      where: { id },
+      include: { fromAsset: true, toAsset: true },
+    });
+  }
+
   async markStatus(swapId: string, status: string, tx: Prisma.TransactionClient) {
     let statusHistory: any[] = [];
     try {
@@ -387,9 +396,13 @@ export class SwapTransactionsService {
   }
 
   /**
-   * Recompute the operator-facing projections from the active legs and persist them.
-   * currentStage = role of the lowest-legSeq active leg that is NOT yet CLEAR (null if all CLEAR);
-   * needsReview = any active leg is NEEDS_REVIEW. stageOf maps a legSeq → a display stage string.
+   * Recompute the currentStage projection from the active legs and persist it.
+   * currentStage = stage of the lowest-legSeq active leg that is NOT yet CLEARED
+   * (null when all legs CLEARED). stageOf maps a legSeq → a display stage string.
+   *
+   * needsReview is NOT derived here — funds_orders have no NEEDS_REVIEW status
+   * (the STUCK state is a swap-level flag). It is owned solely by
+   * setNeedsReview (raised on SWAP_LEG_STUCK, cleared on resume/SUCCESS).
    */
   async recomputeProjections(
     swapId: string,
@@ -397,14 +410,22 @@ export class SwapTransactionsService {
     tx: Prisma.TransactionClient,
   ): Promise<void> {
     const active = await this.activeLegsBySeq(swapId, tx);
-    const needsReview = active.some((l) => l.status === 'NEEDS_REVIEW');
     const working = active
-      .filter((l) => l.status !== 'CLEAR')
+      .filter((l) => l.status !== 'CLEARED')
       .sort((a, b) => (a.legSeq ?? 0) - (b.legSeq ?? 0))[0];
     const currentStage = working ? stageOf(working.legSeq) : null;
     await (tx as any).swapTransaction.update({
       where: { id: swapId },
-      data: { currentStage, needsReview },
+      data: { currentStage },
+    });
+  }
+
+  /** Raise/lower the swap-level STUCK flag (SWAP_LEG_STUCK ↔ resume). */
+  async setNeedsReview(swapId: string, needsReview: boolean, tx?: Prisma.TransactionClient) {
+    const client: any = tx ?? this.prisma;
+    return client.swapTransaction.update({
+      where: { id: swapId },
+      data: { needsReview },
     });
   }
 
