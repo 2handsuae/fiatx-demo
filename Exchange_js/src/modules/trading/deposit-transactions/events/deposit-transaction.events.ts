@@ -9,6 +9,5 @@ export class DepositStatusChangedEvent {
     public readonly ownerId: string,
     public readonly assetId: string,
     public readonly amount: string,
-    public readonly payinId?: string | null,
   ) {}
 }

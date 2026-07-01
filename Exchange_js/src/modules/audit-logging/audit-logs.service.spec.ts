@@ -31,18 +31,11 @@ describe('AuditLogsService', () => {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       },
-      payin: {
-        findUnique: jest.fn(),
-      },
       depositTransaction: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
       },
       withdrawTransaction: {
-        findUnique: jest.fn(),
-        findMany: jest.fn(),
-      },
-      payout: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
       },
@@ -257,18 +250,15 @@ describe('AuditLogsService', () => {
 
 
 
-  it('should derive deposit trace and workflow context for payin events', async () => {
-    prisma.payin.findUnique.mockResolvedValue({
-      id: 'payin-1',
-      payinNo: 'PI2603010001',
-      depositId: 'dep-1',
+  it('should derive deposit trace and workflow context from the deposit transaction', async () => {
+    // Payin is no longer a standalone entity (funds_orders 三合一); the deposit
+    // carries its own traceId and is the sole anchor for DEPOSIT-workflow audit rows.
+    prisma.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-1',
+      depositNo: 'DEP2603010001',
+      ownerId: 'cust-1',
+      traceId: null,
       customer: { customerNo: 'CU2603010001' },
-      deposit: {
-        id: 'dep-1',
-        depositNo: 'DEP2603010001',
-        ownerId: 'cust-1',
-        customer: { customerNo: 'CU2603010001' },
-      },
     });
     prisma.auditLogEvent.findUnique.mockResolvedValue(null);
     prisma.auditLogEvent.create.mockImplementation(({ data }: any) =>
@@ -286,17 +276,17 @@ describe('AuditLogsService', () => {
     );
 
     const result = await service.recordSystem({
-      action: AuditActions.PAYIN_CREATED,
-      entityType: AuditEntityTypes.PAYIN,
-      entityId: 'payin-1',
-      entityNo: 'PI2603010001',
+      action: AuditActions.DEPOSIT_CREATED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: 'dep-1',
+      entityNo: 'DEP2603010001',
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: 'cust-1',
       workflowType: 'DEPOSIT',
       reason: 'Initial simulation',
     });
 
-    expect(result.traceId).toBe('DEPOSIT:payin-1');
+    expect(result.traceId).toBe('DEPOSIT:dep-1');
     expect(result.workflowType).toBe('DEPOSIT');
   });
 
@@ -854,17 +844,6 @@ describe('AuditLogsService', () => {
       {
         id: 'dep-1',
         depositNo: 'DEP2603240001',
-        payin: {
-          id: 'payin-1',
-          payinNo: 'PI2603240001',
-          status: 'CLEARED',
-          type: 'CRYPTO',
-          txHash: '0xabc',
-          referenceNo: null,
-          statusHistory: '[]',
-          receivedAt: new Date('2026-03-24T08:00:00.000Z'),
-          confirmedAt: new Date('2026-03-24T08:01:00.000Z'),
-        },
         customer: {
           id: 'cust-1',
           customerNo: 'CU2603240001',
@@ -1084,7 +1063,7 @@ describe('AuditLogsService', () => {
       expect(snapshots.depositEvidenceChain).toEqual([
         expect.objectContaining({
           depositId: 'dep-1',
-          payinId: 'payin-1',
+          payinId: null,
           decisionRecordIds: ['dr-1'],
           kytCaseIds: ['kyt-1'],
           travelRuleCaseIds: ['tr-1'],
@@ -1482,8 +1461,6 @@ describe('AuditLogsService', () => {
       {
         id: 'withdraw-1',
         withdrawNo: 'WD2603270001',
-        payoutId: 'payout-1',
-        payoutNo: 'PO2603270001',
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
         ownerNo: 'CU2603270001',
@@ -1509,40 +1486,6 @@ describe('AuditLogsService', () => {
           lastName: 'Lovelace',
           email: 'ada@example.com',
           riskRating: 'LOW',
-        },
-        payout: {
-          id: 'payout-1',
-          payoutNo: 'PO2603270001',
-          status: 'CLEAR',
-          amount: '100.00',
-          referenceNo: 'BANKREF-1',
-          txHash: '0xwithdraw',
-          asset: {
-            id: 'asset-btc',
-            code: 'BTC',
-            type: 'CRYPTO',
-            network: 'BTC',
-            decimals: 8,
-          },
-        },
-      },
-    ]);
-    prisma.payout.findMany.mockResolvedValue([
-      {
-        id: 'payout-1',
-        payoutNo: 'PO2603270001',
-        status: 'CLEAR',
-        amount: '100.00',
-        txHash: '0xwithdraw',
-        referenceNo: 'BANKREF-1',
-        createdAt: new Date('2026-03-27T09:55:00.000Z'),
-        completedAt: new Date('2026-03-27T10:05:00.000Z'),
-        asset: {
-          id: 'asset-btc',
-          code: 'BTC',
-          type: 'CRYPTO',
-          network: 'BTC',
-          decimals: 8,
         },
       },
     ]);
@@ -1770,7 +1713,7 @@ describe('AuditLogsService', () => {
       expect(snapshots.withdrawEvidenceChain).toEqual([
         expect.objectContaining({
           withdrawId: 'withdraw-1',
-          payoutId: 'payout-1',
+          payoutId: null,
           decisionRecordIds: ['dr-final-1', 'dr-pre-1'],
           preKytCaseIds: ['kyt-pre-1'],
           mainKytCaseIds: ['kyt-main-1'],
@@ -1861,40 +1804,21 @@ describe('AuditLogsService', () => {
   });
 
   describe('buildDepositTraceId fallback ordering', () => {
-    it('prefers deposit.traceId, then payin.traceId, then legacy DEPOSIT:<id>, else null', () => {
+    it('prefers deposit.traceId, then legacy DEPOSIT:<deposit.id>, else null', () => {
       const svc: any = service;
 
       // 1) deposit.traceId wins
       expect(
-        svc.buildDepositTraceId(
-          { id: 'p1', traceId: 'PAYIN_T' },
-          { id: 'd1', payinId: 'p1', traceId: 'DEPOSIT_T' },
-        ),
+        svc.buildDepositTraceId({ id: 'd1', traceId: 'DEPOSIT_T' }),
       ).toBe('DEPOSIT_T');
 
-      // 2) no deposit.traceId — fall to payin.traceId
+      // 2) no deposit.traceId — legacy DEPOSIT:<deposit.id>
       expect(
-        svc.buildDepositTraceId(
-          { id: 'p1', traceId: 'PAYIN_T' },
-          { id: 'd1', payinId: 'p1', traceId: null },
-        ),
-      ).toBe('PAYIN_T');
+        svc.buildDepositTraceId({ id: 'd1', traceId: null }),
+      ).toBe('DEPOSIT:d1');
 
-      // 3) neither traceId — legacy DEPOSIT:<payinId> (payin.id wins over deposit.payinId)
-      expect(
-        svc.buildDepositTraceId(
-          { id: 'p1', traceId: null },
-          { id: 'd1', payinId: 'p1', traceId: null },
-        ),
-      ).toBe('DEPOSIT:p1');
-
-      // 4) only deposit.payinId
-      expect(
-        svc.buildDepositTraceId(null, { id: 'd1', payinId: 'p9', traceId: null }),
-      ).toBe('DEPOSIT:p9');
-
-      // 5) totally empty — null
-      expect(svc.buildDepositTraceId(null, null)).toBeNull();
+      // 3) totally empty — null
+      expect(svc.buildDepositTraceId(null)).toBeNull();
     });
   });
 

@@ -142,7 +142,7 @@ export class DepositTransactionsService {
         asset: true,
         wallet: true,
         fromWallet: true,
-        payin: true,
+        fundsOrders: true,
         customer: {
           select: {
             customerNo: true,
@@ -165,15 +165,17 @@ export class DepositTransactionsService {
     }
 
     // Unified fund-order list for the detail page's "Linked Funds Orders".
-    // A deposit's fund order is its Payin (principal in); no fee (deposits free).
-    const linkedFundOrders = deposit.payin
+    // A deposit's fund order is its payin funds_order (principal in); no fee
+    // (deposits are free). The payin IS a funds_order now (三合一).
+    const payinOrder = (deposit.fundsOrders ?? [])[0] ?? null;
+    const linkedFundOrders = payinOrder
       ? [
           {
             kind: 'PAYIN' as const,
-            no: deposit.payin.payinNo,
-            id: deposit.payin.id,
-            status: deposit.payin.status,
-            amount: String(deposit.payin.amount),
+            no: payinOrder.fundsOrderNo,
+            id: payinOrder.id,
+            status: payinOrder.status,
+            amount: String(payinOrder.amount),
             role: 'principal' as const,
           },
         ]
@@ -183,9 +185,9 @@ export class DepositTransactionsService {
       ...item,
       ownerNo,
       type: this.deriveDepositType(deposit.asset?.type),
-      payinNo: deposit.payin?.payinNo,
-      payinStatus: deposit.payin?.status || null,
-      payinType: deposit.payin?.type || null,
+      payinNo: payinOrder?.fundsOrderNo,
+      payinStatus: payinOrder?.status || null,
+      payinType: null,
       toWalletNo: deposit.wallet?.walletNo,
       fromWalletNo: deposit.fromWallet?.walletNo,
       linkedFundOrders,
@@ -272,7 +274,6 @@ export class DepositTransactionsService {
         updated.ownerId,
         updated.assetId,
         updated.amount.toString(),
-        updated.payinId,
       ),
     );
 
@@ -388,60 +389,6 @@ export class DepositTransactionsService {
       select: { complianceStatus: true },
     });
     return customer?.complianceStatus || 'UNKNOWN';
-  }
-
-  async createFromPayin(
-    amount: string,
-    assetId: string,
-    toWalletId: string,
-    txHash?: string,
-    fromAddress?: string,
-    payinId?: string,
-    traceId?: string,
-  ) {
-    const wallet = await (this.prisma as any).wallet.findUnique({
-      where: { id: toWalletId },
-    });
-    if (!wallet) throw new NotFoundException('Wallet not found');
-
-    const depositNo = generateReferenceNo('DEP');
-    const resolvedTraceId = traceId ?? randomUUID();
-    const created = await (this.prisma as any).depositTransaction.create({
-      data: {
-        depositNo,
-        traceId: resolvedTraceId,
-        ownerType: wallet.ownerType,
-        ownerId: wallet.ownerId || 'UNKNOWN',
-        status: DepositTransactionStatus.PAYIN_PENDING,
-        statusHistory: JSON.stringify([
-          {
-            status: DepositTransactionStatus.PAYIN_PENDING,
-            timestamp: new Date().toISOString(),
-            operatorId: 'SYSTEM',
-            reason: 'Created from Payin',
-          },
-        ]),
-        assetId,
-        toWalletId,
-        payinId,
-        amount: new Prisma.Decimal(amount),
-        netAmount: new Prisma.Decimal(amount),
-        feeAmount: new Prisma.Decimal(0),
-        txHash,
-        fromAddress,
-        toAddress: wallet.address,
-        toIban: wallet.iban,
-      },
-    });
-
-    return created;
-  }
-
-  async findByPayinId(payinId: string) {
-    return (this.prisma as any).depositTransaction.findUnique({
-      where: { payinId },
-      include: { asset: true },
-    });
   }
 
   /**

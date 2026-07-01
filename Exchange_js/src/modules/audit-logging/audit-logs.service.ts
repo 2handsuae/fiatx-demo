@@ -297,8 +297,6 @@ export class AuditLogsService {
       WITHDRAW_TRANSACTION: { model: 'withdrawTransaction', field: 'withdrawNo' },
       DEPOSIT_TRANSACTION: { model: 'depositTransaction', field: 'depositNo' },
       SWAP_TRANSACTION: { model: 'swapTransaction', field: 'swapNo' },
-      PAYOUT: { model: 'payout', field: 'payoutNo' },
-      PAYIN: { model: 'payin', field: 'payinNo' },
       INTERNAL_TRANSACTION: { model: 'internalTransaction', field: 'internalTxNo' },
       INTERNAL_FUND: { model: 'fundsOrder', field: 'fundsOrderNo' },
       REIMBURSEMENT_OBLIGATION: {
@@ -335,16 +333,11 @@ export class AuditLogsService {
   }
 
   private buildDepositTraceId(
-    payin?: { id?: string | null; traceId?: string | null } | null,
-    deposit?: { id?: string | null; traceId?: string | null; payinId?: string | null } | null,
+    deposit?: { id?: string | null; traceId?: string | null } | null,
   ): string | null {
     const depositTrace = this.normalizeOptionalString(deposit?.traceId);
     if (depositTrace) return depositTrace;
-    const payinTrace = this.normalizeOptionalString(payin?.traceId);
-    if (payinTrace) return payinTrace;
-    const rootId =
-      this.normalizeOptionalString(payin?.id) ||
-      this.normalizeOptionalString(deposit?.payinId);
+    const rootId = this.normalizeOptionalString(deposit?.id);
     return rootId ? `${AuditWorkflowTypes.DEPOSIT}:${rootId}` : null;
   }
 
@@ -378,12 +371,10 @@ export class AuditLogsService {
     const entityType = this.normalizeEntityType(input.entityType);
     const shouldResolveWithdraw =
       explicitWorkflowType === AuditWorkflowTypes.WITHDRAW ||
-      entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
-      entityType === AuditEntityTypes.PAYOUT;
+      entityType === AuditEntityTypes.WITHDRAW_TRANSACTION;
     const shouldResolveDeposit =
       explicitWorkflowType === AuditWorkflowTypes.DEPOSIT ||
-      entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
-      entityType === AuditEntityTypes.PAYIN;
+      entityType === AuditEntityTypes.DEPOSIT_TRANSACTION;
     const shouldResolveSwap =
       explicitWorkflowType === AuditWorkflowTypes.SWAP ||
       entityType === AuditEntityTypes.SWAP_TRANSACTION ||
@@ -407,7 +398,6 @@ export class AuditLogsService {
 
     if (shouldResolveWithdraw) {
       let withdraw: any = null;
-      let payout: any = null;
 
       if (
         (entityType === AuditEntityTypes.WITHDRAW_TRANSACTION ||
@@ -421,69 +411,24 @@ export class AuditLogsService {
             id: true,
             withdrawNo: true,
             ownerId: true,
-            payoutId: true,
-            payoutNo: true,
+            traceId: true,
             customer: {
               select: {
                 customerNo: true,
               },
             },
-            payout: {
-              select: {
-                id: true,
-                payoutNo: true,
-                ownerId: true,
-              },
-            },
           },
         });
       }
 
-      if (
-        !payout &&
-        entityType === AuditEntityTypes.PAYOUT &&
-        input.entityId &&
-        db?.payout?.findUnique
-      ) {
-        payout = await db.payout.findUnique({
-          where: { id: input.entityId },
-          select: {
-            id: true,
-            payoutNo: true,
-            ownerId: true,
-            withdraw: {
-              select: {
-                id: true,
-                withdrawNo: true,
-                ownerId: true,
-                customer: {
-                  select: {
-                    customerNo: true,
-                  },
-                },
-              },
-            },
-          },
-        });
-        if (payout?.withdraw) {
-          withdraw = payout.withdraw;
-        }
-      }
-
-      const withdrawId =
-        this.normalizeOptionalString(withdraw?.id) ||
-        this.normalizeOptionalString(payout?.withdraw?.id) ||
-        this.normalizeOptionalString(payout?.id) ||
-        null;
+      const withdrawId = this.normalizeOptionalString(withdraw?.id) || null;
       const resolvedEntityOwnerNo =
-        entityOwnerNo ||
-        withdraw?.customer?.customerNo ||
-        payout?.withdraw?.customer?.customerNo ||
-        null;
+        entityOwnerNo || withdraw?.customer?.customerNo || null;
 
       return {
         traceId:
           this.normalizeOptionalString(input.traceId) ||
+          this.normalizeOptionalString(withdraw?.traceId) ||
           (withdrawId ? `${AuditWorkflowTypes.WITHDRAW}:${withdrawId}` : null),
         workflowType: AuditWorkflowTypes.WITHDRAW,
         entityOwnerNo: resolvedEntityOwnerNo,
@@ -630,7 +575,6 @@ export class AuditLogsService {
     }
 
     let deposit: any = null;
-    let payin: any = null;
 
     if (
       (entityType === AuditEntityTypes.DEPOSIT_TRANSACTION ||
@@ -644,65 +588,23 @@ export class AuditLogsService {
           id: true,
           depositNo: true,
           ownerId: true,
-          payinId: true,
+          traceId: true,
           customer: {
             select: {
               customerNo: true,
             },
           },
-          payin: {
-            select: {
-              id: true,
-              payinNo: true,
-            },
-          },
         },
       });
-      payin = deposit?.payin || null;
-    }
-
-    if (!payin && entityType === AuditEntityTypes.PAYIN && input.entityId && db?.payin?.findUnique) {
-      payin = await db.payin.findUnique({
-        where: { id: input.entityId },
-        select: {
-          id: true,
-          payinNo: true,
-          depositId: true,
-          ownerId: true,
-          customer: {
-            select: {
-              customerNo: true,
-            },
-          },
-          deposit: {
-            select: {
-              id: true,
-              depositNo: true,
-              ownerId: true,
-              customer: {
-                select: {
-                  customerNo: true,
-                },
-              },
-            },
-          },
-        },
-      });
-      if (payin?.deposit) {
-        deposit = payin.deposit;
-      }
     }
 
     const resolvedEntityOwnerNo =
-      entityOwnerNo ||
-      deposit?.customer?.customerNo ||
-      payin?.customer?.customerNo ||
-      null;
+      entityOwnerNo || deposit?.customer?.customerNo || null;
 
     return {
       traceId:
         this.normalizeOptionalString(input.traceId) ||
-        this.buildDepositTraceId(payin, deposit),
+        this.buildDepositTraceId(deposit),
       workflowType: AuditWorkflowTypes.DEPOSIT,
       entityOwnerNo: resolvedEntityOwnerNo,
     };
@@ -1536,8 +1438,8 @@ export class AuditLogsService {
       return {
         depositId,
         depositNo: deposit.depositNo || null,
-        payinId: deposit.payin?.id || null,
-        payinNo: deposit.payin?.payinNo || null,
+        payinId: null,
+        payinNo: null,
         decisionRecordIds: this.toSortedUniqueStrings([
           ...depositDecisionRecords.map((item) => item.id),
           ...depositAlerts.flatMap((item) => item.decisionRecordIds || []),
@@ -1632,7 +1534,6 @@ export class AuditLogsService {
 
   private buildWithdrawEvidenceChain(params: {
     withdrawTransactions: any[];
-    payouts: any[];
     preKytCases: any[];
     mainKytCases: any[];
     travelRuleCases: any[];
@@ -1644,7 +1545,6 @@ export class AuditLogsService {
   }): WithdrawEvidenceChainItem[] {
     const {
       withdrawTransactions,
-      payouts,
       preKytCases,
       mainKytCases,
       travelRuleCases,
@@ -1657,8 +1557,6 @@ export class AuditLogsService {
 
     return withdrawTransactions.map((withdraw) => {
       const withdrawId = String(withdraw.id);
-      const payoutId = this.normalizeOptionalString(withdraw.payoutId);
-      const linkedPayout = payouts.find((item) => String(item.id) === payoutId);
       const withdrawDecisionRecords = riskDecisionRecords.filter(
         (item) => String(item.subjectId) === withdrawId,
       );
@@ -1678,11 +1576,8 @@ export class AuditLogsService {
       return {
         withdrawId,
         withdrawNo: withdraw.withdrawNo || null,
-        payoutId: payoutId || linkedPayout?.id || null,
-        payoutNo:
-          this.normalizeOptionalString(withdraw.payoutNo) ||
-          this.normalizeOptionalString(linkedPayout?.payoutNo) ||
-          null,
+        payoutId: null,
+        payoutNo: null,
         decisionRecordIds: this.toSortedUniqueStrings([
           ...withdrawDecisionRecords.map((item) => item.id),
           ...withdrawAlerts.flatMap((item) => item.decisionRecordIds || []),
@@ -1756,19 +1651,6 @@ export class AuditLogsService {
         where: { id: { in: workflowIds } },
         orderBy: { depositNo: 'asc' },
         include: {
-          payin: {
-            select: {
-              id: true,
-              payinNo: true,
-              status: true,
-              type: true,
-              txHash: true,
-              referenceNo: true,
-              statusHistory: true,
-              receivedAt: true,
-              confirmedAt: true,
-            },
-          },
           customer: {
             select: {
               id: true,
@@ -2113,31 +1995,14 @@ export class AuditLogsService {
             riskRating: true,
           },
         },
-        payout: {
-          include: {
-            asset: {
-              select: {
-                id: true,
-                code: true,
-                type: true,
-                network: true,
-                decimals: true,
-              },
-            },
-          },
-        },
       },
     });
 
-    const payoutIds = this.toSortedUniqueStrings(
-      withdrawTransactions.map((item: any) => item.payoutId),
-    );
     const withdrawIds = this.toSortedUniqueStrings(
       withdrawTransactions.map((item: any) => item.id),
     );
 
     const [
-      payouts,
       kytCases,
       travelRuleCases,
       riskDecisionRecords,
@@ -2146,23 +2011,6 @@ export class AuditLogsService {
       journals,
       clearings,
     ] = await Promise.all([
-      payoutIds.length && db?.payout?.findMany
-        ? db.payout.findMany({
-            where: { id: { in: payoutIds } },
-            orderBy: { payoutNo: 'asc' },
-            include: {
-              asset: {
-                select: {
-                  id: true,
-                  code: true,
-                  type: true,
-                  network: true,
-                  decimals: true,
-                },
-              },
-            },
-          })
-        : Promise.resolve([]),
       db.kytCase?.findMany
         ? db.kytCase.findMany({
             where: {
@@ -2379,7 +2227,6 @@ export class AuditLogsService {
 
     const withdrawEvidenceChain = this.buildWithdrawEvidenceChain({
       withdrawTransactions,
-      payouts,
       preKytCases,
       mainKytCases,
       travelRuleCases,
@@ -2392,7 +2239,10 @@ export class AuditLogsService {
 
     return {
       withdrawTransactions,
-      payouts,
+      // Payout is no longer a standalone entity (funds_orders三合一); the withdraw's
+      // principal now lives in funds_orders. Kept as an empty array to preserve the
+      // evidence-package snapshot shape.
+      payouts: [],
       preKytCases,
       mainKytCases,
       travelRuleCases,

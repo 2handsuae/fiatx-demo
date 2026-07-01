@@ -346,28 +346,6 @@ describe('DepositTransactionsService', () => {
     });
   });
 
-  describe('findByPayinId', () => {
-    it('should find deposit by payinId', async () => {
-      const mockDeposit = { id: 'dep-1', payinId: 'payin-1' };
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockDeposit);
-
-      const result = await service.findByPayinId('payin-1');
-
-      expect(result).toEqual(mockDeposit);
-      expect((prisma as any).depositTransaction.findUnique).toHaveBeenCalledWith({
-        where: { payinId: 'payin-1' },
-        include: { asset: true },
-      });
-    });
-
-    it('should return null if no deposit found', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(null);
-
-      const result = await service.findByPayinId('nonexistent');
-      expect(result).toBeNull();
-    });
-  });
-
   describe('initializeComplianceGates', () => {
     it('CRYPTO asset → travelRuleRequired true, travelRuleStatus PENDING', async () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({

@@ -60,7 +60,7 @@ describe('DepositWorkflowService', () => {
         'dep-1',
         DepositTransactionStatus.PAYIN_PENDING,
         DepositTransactionStatus.COMPLIANCE_PENDING,
-        'CUSTOMER', 'cust-1', 'asset-1', '100', 'payin-1',
+        'CUSTOMER', 'cust-1', 'asset-1', '100',
       );
 
       await service.handleDepositStatusChanged(event);
@@ -76,7 +76,7 @@ describe('DepositWorkflowService', () => {
         'dep-1',
         DepositTransactionStatus.PAYIN_PENDING,
         DepositTransactionStatus.COMPLIANCE_PENDING,
-        'CUSTOMER', 'cust-1', 'asset-1', '100', 'payin-1',
+        'CUSTOMER', 'cust-1', 'asset-1', '100',
       );
 
       await service.handleDepositStatusChanged(event);
@@ -98,7 +98,7 @@ describe('DepositWorkflowService', () => {
         'dep-1',
         DepositTransactionStatus.PAYIN_PENDING,
         DepositTransactionStatus.COMPLIANCE_PENDING,
-        'CUSTOMER', 'cust-1', 'asset-1', '100', 'payin-1',
+        'CUSTOMER', 'cust-1', 'asset-1', '100',
       );
 
       await service.handleDepositStatusChanged(event);
@@ -117,7 +117,7 @@ describe('DepositWorkflowService', () => {
         'dep-1',
         DepositTransactionStatus.COMPLIANCE_PENDING,
         DepositTransactionStatus.SUCCESS,
-        'CUSTOMER', 'cust-1', 'asset-1', '100', 'payin-1',
+        'CUSTOMER', 'cust-1', 'asset-1', '100',
       );
 
       await service.handleDepositStatusChanged(event);

@@ -103,20 +103,6 @@ export class InboundTransferSignalsService {
               walletRole: true,
             },
           },
-          payin: {
-            select: {
-              id: true,
-              payinNo: true,
-              status: true,
-              deposit: {
-                select: {
-                  id: true,
-                  depositNo: true,
-                  status: true,
-                },
-              },
-            },
-          },
         },
       }),
       (this.prisma as any).inboundTransferSignal.count({ where }),
@@ -180,14 +166,6 @@ export class InboundTransferSignalsService {
             walletRole: true,
           },
         },
-        payin: {
-          select: {
-            id: true,
-            payinNo: true,
-            status: true,
-            deposit: { select: { id: true, depositNo: true, status: true } },
-          },
-        },
       },
     });
     if (existing) return existing;
@@ -241,14 +219,6 @@ export class InboundTransferSignalsService {
               walletNo: true,
               type: true,
               walletRole: true,
-            },
-          },
-          payin: {
-            select: {
-              id: true,
-              payinNo: true,
-              status: true,
-              deposit: { select: { id: true, depositNo: true, status: true } },
             },
           },
         },

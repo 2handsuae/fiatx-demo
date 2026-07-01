@@ -265,8 +265,6 @@ model CustomerMain {
   depositTransactions       DepositTransaction[]
   swapTransactions          SwapTransaction[]
   withdrawTransactions      WithdrawTransaction[]
-  payouts                   Payout[]
-  payins                    Payin[]
   inboundTransferSignals    InboundTransferSignal[]
   corporateProfile          CorporateProfile?
   uboProfiles               UboProfile[]
@@ -745,9 +743,7 @@ model Asset {
   fromConfigs                    LiquidityConfiguration[]        @relation("FromAsset")
   toConfigs                      LiquidityConfiguration[]        @relation("ToAsset")
   feeConfigs                     LiquidityConfiguration[]        @relation("FeeAsset")
-  payins                         Payin[]
   inboundTransferSignals         InboundTransferSignal[]
-  payouts                        Payout[]
   swapFromTransactions           SwapTransaction[]               @relation("SwapFromAsset")
   swapToTransactions             SwapTransaction[]               @relation("SwapToAsset")
   swapQuoteFroms                 SwapQuote[]                     @relation("SwapQuoteFromAsset")
@@ -767,48 +763,6 @@ model Asset {
 
   @@unique([type, currency, network])
   @@map("assets")
-}
-
-model Payin {
-  id                     String                  @id @default(uuid())
-  payinNo                String                  @unique @default("TEMP")
-  depositId              String?
-  type                   String                  @default("crypto")
-  status                 String
-  toWalletId             String?
-  assetId                String
-  amount                 Decimal
-  toAddress              String?
-  toIban                 String?
-  fromWalletId           String?
-  fromAddress            String?
-  fromIban               String?
-  txHash                 String?
-  confirmations          Int                     @default(0)
-  referenceNo            String?
-  providerTxnId          String?
-  receivedAt             DateTime?
-  confirmedAt            DateTime?
-  statusHistory          String?
-  traceId                String?
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
-  ownerId                String? // Added to support relation to CustomerMain
-  deposit                DepositTransaction?     @relation("PayinToDeposit")
-  toWallet               Wallet?                 @relation("PayinToWallet", fields: [toWalletId], references: [id])
-  fromWallet             Wallet?                 @relation("PayinFromWallet", fields: [fromWalletId], references: [id])
-  asset                  Asset                   @relation(fields: [assetId], references: [id])
-  customer               CustomerMain?           @relation(fields: [ownerId], references: [id])
-  inboundTransferSignals InboundTransferSignal[]
-
-  @@unique([txHash, assetId, toAddress])
-  @@index([depositId])
-  @@index([status])
-  @@index([assetId])
-  @@index([receivedAt])
-  @@index([providerTxnId])
-  @@index([txHash])
-  @@map("payins")
 }
 
 model LiquidityConfiguration {
@@ -891,8 +845,6 @@ model Wallet {
   vaultId                                  String?
   depositTransactions                      DepositTransaction[]
   depositTransactionsFrom                  DepositTransaction[]            @relation("DepositFromWallet")
-  payins                                   Payin[]                         @relation("PayinToWallet")
-  payinsFrom                               Payin[]                         @relation("PayinFromWallet")
   internalTransactionsFrom                 InternalTransaction[]           @relation("InternalTxFromWallet")
   internalTransactionsTo                   InternalTransaction[]           @relation("InternalTxToWallet")
   fundsOrdersFrom                          FundsOrder[]                    @relation("FundsOrderFromWallet")
@@ -968,7 +920,6 @@ model InboundTransferSignal {
   simulationRiskReason String?
   status               String       @default("PENDING_SCAN")
   dedupeKey            String       @unique
-  linkedPayinId        String?
   submittedAt          DateTime     @default(now())
   lastScannedAt        DateTime?
   scanResult           String?
@@ -977,11 +928,9 @@ model InboundTransferSignal {
   customer             CustomerMain @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   wallet               Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
   asset                Asset        @relation(fields: [assetId], references: [id])
-  payin                Payin?       @relation(fields: [linkedPayinId], references: [id], onDelete: SetNull)
 
   @@index([ownerId, walletId, status])
   @@index([walletId, submittedAt])
-  @@index([linkedPayinId])
   @@index([txHash])
   @@index([referenceNo])
   @@map("inbound_transfer_signals")
@@ -995,7 +944,6 @@ model DepositTransaction {
   status               String
   assetId              String
   toWalletId           String
-  payinId              String?           @unique
   amount               Decimal
   netAmount            Decimal           @default(0)
   feeAmount            Decimal           @default(0)
@@ -1023,7 +971,6 @@ model DepositTransaction {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   completedAt          DateTime?
-  payin                Payin?            @relation("PayinToDeposit", fields: [payinId], references: [id])
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
@@ -1395,8 +1342,6 @@ model FeeAccrual {
 model WithdrawTransaction {
   id                   String                @id @default(uuid())
   withdrawNo           String                @unique
-  payoutId             String?               @unique
-  payoutNo             String?
   ownerType            String
   ownerId              String
   ownerNo              String?
@@ -1446,18 +1391,15 @@ model WithdrawTransaction {
   pricingQuoteId       String?               @unique
   createdAt            DateTime              @default(now())
   approvedAt           DateTime?
-  payoutRequestedAt    DateTime?
   completedAt          DateTime?
   statusHistory        String?
   updatedAt            DateTime              @updatedAt
-  payout               Payout?               @relation("WithdrawToPayout")
   fundsOrders          FundsOrder[]          @relation("WithdrawFundsOrders")
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain          @relation(fields: [ownerId], references: [id])
 
   @@index([withdrawNo])
-  @@index([payoutId])
   @@index([ownerId])
   @@index([status])
   @@index([assetId])
@@ -1468,42 +1410,6 @@ model WithdrawTransaction {
   @@index([parentId])
   @@index([createdAt])
   @@map("withdraw_transactions")
-}
-
-model Payout {
-  id            String              @id
-  payoutNo      String              @unique @default("TEMP")
-  withdrawId    String              @unique
-  ownerId       String? // Added to support relation to CustomerMain
-  type          String
-  status        String              @default("PENDING")
-  amount        Decimal
-  assetId       String
-  toWalletId    String?
-  toAddress     String?
-  toIban        String?
-  fromAddress   String?
-  fromIban      String?
-  txHash        String?
-  confirmations Int                 @default(0)
-  referenceNo   String?
-  providerTxnId String?
-  gasUsed           String?
-  effectiveGasPrice String?
-  createdAt     DateTime            @default(now())
-  sentAt        DateTime?
-  updatedAt     DateTime            @updatedAt
-  completedAt   DateTime?
-  statusHistory String?
-  withdraw      WithdrawTransaction @relation("WithdrawToPayout", fields: [withdrawId], references: [id])
-  asset         Asset               @relation(fields: [assetId], references: [id])
-  customer      CustomerMain?       @relation(fields: [ownerId], references: [id])
-
-  @@index([withdrawId])
-  @@index([status])
-  @@index([assetId])
-  @@index([createdAt])
-  @@map("payouts")
 }
 
 model SumsubWebhookEvent {

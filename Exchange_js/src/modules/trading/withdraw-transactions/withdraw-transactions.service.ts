@@ -399,9 +399,11 @@ export class WithdrawTransactionsService {
   }
 
   /**
-   * Unified fund-order list for the detail page's "Linked Funds Orders":
-   * the Payout (principal) + the fee InternalFund. Both carry the business key
-   * (`no`) for display; `id` is only for the payout's detail route.
+   * Unified fund-order list for the detail page's "Linked Funds Orders".
+   * A withdrawal's funds_orders are the payout principal (legSeq=1) plus any
+   * fee legs (legSeq>1). Both are funds_orders now (三合一); the principal is
+   * flagged PAYOUT for display, the fee legs INTERNAL_FUND. Each carries the
+   * business key (`no`); `id` is only for the detail route.
    */
   private buildLinkedFundOrders(item: any) {
     const orders: Array<{
@@ -412,24 +414,15 @@ export class WithdrawTransactionsService {
       amount: string;
       role: 'principal' | 'fee';
     }> = [];
-    if (item.payout) {
-      orders.push({
-        kind: 'PAYOUT',
-        no: item.payout.payoutNo,
-        id: item.payout.id,
-        status: item.payout.status,
-        amount: String(item.payout.amount),
-        role: 'principal',
-      });
-    }
     for (const f of item.fundsOrders ?? []) {
+      const isPrincipal = (f.legSeq ?? 1) === 1;
       orders.push({
-        kind: 'INTERNAL_FUND',
+        kind: isPrincipal ? 'PAYOUT' : 'INTERNAL_FUND',
         no: f.fundsOrderNo,
         id: f.id,
         status: f.status,
         amount: String(f.amount),
-        role: 'fee',
+        role: isPrincipal ? 'principal' : 'fee',
       });
     }
     return orders;
@@ -441,7 +434,6 @@ export class WithdrawTransactionsService {
       include: {
         asset: true,
         customer: true,
-        payout: true,
         fundsOrders: { include: { asset: true } },
       },
     });
@@ -524,10 +516,6 @@ export class WithdrawTransactionsService {
             !item.approvedAt
               ? new Date()
               : item.approvedAt,
-          payoutRequestedAt:
-            nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING
-              ? new Date()
-              : item.payoutRequestedAt,
           completedAt: [
             WithdrawTransactionStatus.SUCCESS,
             WithdrawTransactionStatus.FAILED,
@@ -727,13 +715,6 @@ export class WithdrawTransactionsService {
     });
 
     return updated;
-  }
-
-  async linkPayout(withdrawId: string, payoutId: string, payoutNo: string) {
-    await (this.prisma as any).withdrawTransaction.update({
-      where: { id: withdrawId },
-      data: { payoutId, payoutNo },
-    });
   }
 
   async saveValuationSnapshot(
