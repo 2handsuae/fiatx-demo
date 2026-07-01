@@ -40,7 +40,7 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'tbEvidenceBacklog',
   'internalFundAuditLog',
   'internalTransactionAuditLog',
-  'internalFund',
+  'fundsOrder',
   'internalTransaction',
   'reimbursementObligation',
 
