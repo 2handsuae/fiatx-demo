@@ -5,15 +5,13 @@ import {
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
-import { InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
-import { PayoutStatus } from '../../asset-treasury/payouts/dto/payout.dto';
+import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 
 describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   let workflow: WithdrawWorkflowService;
   let withdrawService: any;
   let auditLogsService: any;
   let accountingService: any;
-  let fundsFlowService: any;
 
   const declinedWithdrawal = {
     id: 'wd-decline-1',
@@ -40,9 +38,6 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
     accountingService = {
       voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     };
-    fundsFlowService = {
-      setWithdrawFeeFundStatus: jest.fn().mockResolvedValue(undefined),
-    };
 
     workflow = new WithdrawWorkflowService(
       {} as any, // prisma
@@ -51,16 +46,15 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // withdrawQuoteService
       auditLogsService as any,
       accountingService as any,
-      {} as any, // payoutsService
+      {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      fundsFlowService as any,
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
     );
   });
 
-  it('releases both pending locks, cancels the fee fund, and audits WITHDRAW_LOCK_RELEASED on decline', async () => {
+  it('releases both pending locks and audits WITHDRAW_LOCK_RELEASED on decline', async () => {
     await workflow.onLargeValueApprovalDecided({
       decision: 'DECLINED',
       entityRef: declinedWithdrawal.id,
@@ -68,15 +62,8 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       decisionReason: 'risk',
     });
 
-    // Voids both pending transfers (net + fee).
+    // THE P6 FIX: voids both pending transfers (net + fee).
     expect(accountingService.voidPendingTransferBestEffort).toHaveBeenCalledTimes(2);
-
-    // Cancels the fee InternalFund.
-    expect(fundsFlowService.setWithdrawFeeFundStatus).toHaveBeenCalledWith(
-      declinedWithdrawal.id,
-      InternalFundStatus.CANCELLED,
-      expect.any(String),
-    );
 
     // Writes the lock-released audit.
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
@@ -85,12 +72,11 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   });
 });
 
-describe('WithdrawWorkflowService — releaseLock on payout failure (P6)', () => {
+describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', () => {
   let workflow: WithdrawWorkflowService;
   let withdrawService: any;
   let auditLogsService: any;
   let accountingService: any;
-  let fundsFlowService: any;
 
   const payoutPendingWithdrawal = {
     id: 'wd-payout-fail-1',
@@ -117,9 +103,6 @@ describe('WithdrawWorkflowService — releaseLock on payout failure (P6)', () =>
     accountingService = {
       voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     };
-    fundsFlowService = {
-      setWithdrawFeeFundStatus: jest.fn().mockResolvedValue(undefined),
-    };
 
     workflow = new WithdrawWorkflowService(
       {} as any, // prisma
@@ -128,20 +111,24 @@ describe('WithdrawWorkflowService — releaseLock on payout failure (P6)', () =>
       {} as any, // withdrawQuoteService
       auditLogsService as any,
       accountingService as any,
-      {} as any, // payoutsService
+      {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      fundsFlowService as any,
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
     );
   });
 
-  it('voids both pending locks, cancels the fee fund, audits release, and fails the withdrawal on EVT_PAYOUT_FAILED', async () => {
-    await workflow.onPayoutFailed({
-      withdrawId: payoutPendingWithdrawal.id,
-      payoutId: 'po-1',
-      status: PayoutStatus.FAILED,
+  it('voids both pending locks, audits release, and fails the withdrawal when the payout leg FAILS', async () => {
+    // Payout principal leg (legSeq 1) transitions to FAILED → funds_order event.
+    await workflow.handleFundsOrderChanged({
+      fundsOrderId: 'fo-payout-1',
+      fundsOrderNo: 'FO-PAYOUT-1',
+      parent: { withdrawTransactionId: payoutPendingWithdrawal.id },
+      legSeq: 1,
+      attempt: 1,
+      oldStatus: FundsOrderStatus.SUBMITTED,
+      newStatus: FundsOrderStatus.FAILED,
     });
 
     // Transitions the withdrawal toward FAILED.
@@ -154,14 +141,10 @@ describe('WithdrawWorkflowService — releaseLock on payout failure (P6)', () =>
     // THE P6 FIX: voids both pending transfers (net + fee).
     expect(accountingService.voidPendingTransferBestEffort).toHaveBeenCalledTimes(2);
 
-    // Cancels the fee InternalFund.
-    expect(fundsFlowService.setWithdrawFeeFundStatus).toHaveBeenCalledWith(
-      payoutPendingWithdrawal.id,
-      InternalFundStatus.CANCELLED,
-      expect.any(String),
+    // Writes the payout-failed + lock-released audits.
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.WITHDRAW_PAYOUT_FAILED }),
     );
-
-    // Writes the lock-released audit.
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
     );
@@ -171,14 +154,10 @@ describe('WithdrawWorkflowService — releaseLock on payout failure (P6)', () =>
 describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invariant)', () => {
   let workflow: WithdrawWorkflowService;
   let prisma: any;
-  let payoutsService: any;
 
   beforeEach(() => {
     prisma = {
       tbTransferEvidence: { findMany: jest.fn() },
-    };
-    payoutsService = {
-      findOne: jest.fn(),
     };
 
     workflow = new WithdrawWorkflowService(
@@ -188,10 +167,9 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // withdrawQuoteService
       {} as any, // auditLogsService
       {} as any, // accountingService
-      payoutsService as any, // payoutsService
+      {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      {} as any, // fundsFlowService
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
     );
@@ -200,12 +178,10 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
   const baseWithdrawal = {
     id: 'wd-settle-1',
     withdrawNo: 'WD9200',
-    payoutId: 'po-settle-1',
     tbPendingNetId: '101',
   };
 
   it('throws when firm-fee evidence (WITHDRAW_FEE_FIRM) is missing', async () => {
-    payoutsService.findOne.mockResolvedValue({ status: PayoutStatus.CONFIRMED });
     prisma.tbTransferEvidence.findMany.mockResolvedValue([
       { eventCode: 'WITHDRAW_NET_POST' },
       { eventCode: 'WITHDRAW_FEE_POST' },
@@ -216,16 +192,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
     ).rejects.toThrow(/WITHDRAW_FEE_FIRM/);
   });
 
-  it('throws when the payout is not confirmed', async () => {
-    payoutsService.findOne.mockResolvedValue({ status: 'CONFIRMING' });
-
-    await expect(
-      (workflow as any).assertWithdrawSettled(baseWithdrawal, 100n),
-    ).rejects.toThrow(/payout/);
-  });
-
-  it('resolves when payout is confirmed and all settlement evidence is present', async () => {
-    payoutsService.findOne.mockResolvedValue({ status: PayoutStatus.CONFIRMED });
+  it('resolves when all settlement evidence (NET + FEE + FEE_FIRM) is present', async () => {
     prisma.tbTransferEvidence.findMany.mockResolvedValue([
       { eventCode: 'WITHDRAW_NET_POST' },
       { eventCode: 'WITHDRAW_FEE_POST' },
@@ -268,10 +235,9 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // withdrawQuoteService
       {} as any, // auditLogsService
       {} as any, // accountingService
-      {} as any, // payoutsService
+      {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      {} as any, // fundsFlowService
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
     );

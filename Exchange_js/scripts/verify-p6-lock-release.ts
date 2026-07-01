@@ -13,7 +13,7 @@
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
 import { Prisma } from '@prisma/client';
 import { bootstrap, ensureSetup, resolveDemoCustomers, waitFor, sleep } from './demo-lib';
-import { PayoutAction } from '../src/modules/asset-treasury/payouts/dto/payout.dto';
+import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 
@@ -87,7 +87,9 @@ async function main() {
 
     const wdp: any = await waitFor(`${wd.withdrawNo} PAYOUT_PENDING`, async () => {
       const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-      return w.status === 'PAYOUT_PENDING' && w.payoutId ? w : null;
+      if (w.status !== 'PAYOUT_PENDING') return null;
+      const [payoutLeg] = await ctx.fundsOrders.findByParent({ withdrawTransactionId: wd.id }, { legSeq: 1 });
+      return payoutLeg ? w : null;
     }, 8000);
 
     const pendingLocked = await readPending();
@@ -98,22 +100,24 @@ async function main() {
     console.log(`[P6] at PAYOUT_PENDING: debits_pending = ${pendingLocked} (delta ${lockedDelta}, expected lock ${expectedLock})`);
     check(lockedDelta === expectedLock, `balance LOCKED at PAYOUT_PENDING: delta ${lockedDelta} == net+fee ${expectedLock}`);
 
-    // 3) FAIL the payout → EVT_PAYOUT_FAILED → workflow.compensatePayout → releaseLock.
-    await ctx.payouts.updateStatus(wdp.payoutId, { action: PayoutAction.SUBMIT } as any, 'P6_VERIFY');
+    // 3) FAIL the payout principal leg (funds_order legSeq 1) → funds_order.status.changed
+    //    (FAILED) → withdraw workflow onPayoutLegFailed → releaseLock.
+    const [payoutLeg]: any = await ctx.fundsOrders.findByParent({ withdrawTransactionId: wd.id }, { legSeq: 1 });
+    await ctx.fundsOrders.advance(payoutLeg.id, FundsOrderAction.SUBMIT, 'P6_VERIFY');
     await sleep(80);
-    await ctx.payouts.updateStatus(wdp.payoutId, { action: PayoutAction.FAIL } as any, 'P6_VERIFY');
+    await ctx.fundsOrders.advance(payoutLeg.id, FundsOrderAction.FAIL, 'P6_VERIFY');
 
     // 4) Withdrawal must reach FAILED.
     const wFailed: any = await waitFor(`${wd.withdrawNo} FAILED`, async () => {
       const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
       return w.status === 'FAILED' ? w : null;
     }, 8000).catch(() => null);
-    check(!!wFailed, `withdrawal transitioned to FAILED after payout failure`);
+    check(!!wFailed, `withdrawal transitioned to FAILED after payout leg failure`);
 
     // 5) THE FIX: the lock must be released — debits_pending back to baseline.
     await sleep(150);
     const pendingAfter = await readPending();
-    console.log(`[P6] after payout FAIL: debits_pending = ${pendingAfter} (baseline ${pendingBaseline})`);
+    console.log(`[P6] after payout leg FAIL: debits_pending = ${pendingAfter} (baseline ${pendingBaseline})`);
     check(pendingAfter === pendingBaseline, `balance LOCK RELEASED: debits_pending ${pendingAfter} back to baseline ${pendingBaseline}`);
 
     // 6) Audit evidence WITHDRAW_LOCK_RELEASED written.
@@ -122,15 +126,9 @@ async function main() {
     });
     check(!!releaseAudit, `audit WITHDRAW_LOCK_RELEASED recorded for ${wd.withdrawNo}`);
 
-    // 7) Fee InternalFund (if any) cancelled.
-    const feeFund = await ctx.prisma.internalFund.findFirst({
-      where: { withdrawTransactionId: wd.id },
-    });
-    if (feeFund) {
-      check(feeFund.status === 'CANCELLED', `fee InternalFund ${feeFund.internalFundNo} → CANCELLED (was ${feeFund.status})`);
-    } else {
-      console.log(`  (no fee InternalFund for ${wd.withdrawNo} — fee was 0)`);
-    }
+    // 7) Payout principal leg (funds_order legSeq 1) reached its terminal FAILED state.
+    const failedLeg = await ctx.prisma.fundsOrder.findUnique({ where: { id: payoutLeg.id } });
+    check(failedLeg?.status === 'FAILED', `payout funds_order ${failedLeg?.fundsOrderNo} → FAILED (was ${failedLeg?.status})`);
 
     console.log('');
     if (failures > 0) {

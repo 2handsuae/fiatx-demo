@@ -3,8 +3,10 @@
  *
  * Real-time 1:1 T5: Asserts that:
  * (a) WithdrawWorkflowService.createWithdrawal locks fee pending into CLIENT_ASSET (not FEE_INCOME / FEE_RECEIVABLE)
- * (b) withdraw-workflow handlePayoutConfirmed posts fee leg with creditCode = CLIENT_ASSET,
- *     then executes firm-side collect DR FIRM_ASSET / CR FIRM_FEE
+ * (b) the funds_order-driven per-leg handlers post the net leg (onPayoutLegConfirmed)
+ *     and the fee leg (onFeeLegConfirmed) with creditCode = CLIENT_ASSET, then execute
+ *     firm-side collect DR FIRM_ASSET / CR FIRM_FEE — mirroring the legacy
+ *     handlePayoutConfirmed / finalizeWithdrawal, now split across legSeq 1 + 2.
  */
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -150,7 +152,7 @@ function buildServiceMocks() {
 }
 
 // Build a WithdrawWorkflowService wired with the create-path deps from
-// buildServiceMocks. The remaining downstream deps (payouts/approvals/etc.)
+// buildServiceMocks. The remaining downstream deps (fundsOrders/approvals/etc.)
 // are inert stubs — createWithdrawal does not touch them.
 function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
   return new WithdrawWorkflowService(
@@ -160,10 +162,9 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
     mocks.withdrawQuoteService as any,
     mocks.auditLogsService as any,
     mocks.accountingService as any,
-    {} as any, // payoutsService
+    {} as any, // fundsOrders
     {} as any, // approvalsService
     {} as any, // binanceRateProvider
-    {} as any, // fundsFlowService
     {} as any, // systemWalletResolver
     {} as any, // tbEvidenceService
   );
@@ -252,25 +253,15 @@ function buildWorkflowMocks() {
   const withdrawService = {
     findOneInternal: jest.fn(() => Promise.resolve(fullRecord)),
     updateStatus: jest.fn(() => Promise.resolve({ ...fullRecord, status: 'SUCCESS' })),
-    linkPayout: jest.fn(() => Promise.resolve({})),
   };
 
-  const payoutsService = {
-    updateStatus: jest.fn(() => Promise.resolve({})),
-    findOne: jest.fn(() =>
-      Promise.resolve({
-        id: 'payout-1',
-        payoutNo: 'PO0001',
-        // 乙 SUCCESS invariant: assertWithdrawSettled requires CONFIRMED/CLEARED.
-        status: 'CONFIRMED',
-        withdrawId: 'wd-1',
-      }),
-    ),
+  // FundsOrderService: the per-leg confirm handlers CLEAR each leg via advance().
+  const fundsOrders = {
+    advance: jest.fn(() => Promise.resolve({})),
+    findByParent: jest.fn(() => Promise.resolve([])),
   };
   const approvalsService = { completeApproval: jest.fn(() => Promise.resolve({})) };
   const binanceRateProvider = {};
-  // FundsFlowService is downstream of finalize (sets fee fund CLEAR).
-  const fundsFlowService = { setWithdrawFeeFundStatus: jest.fn(() => Promise.resolve()) };
   // Phase B: resolves the platform F_FEE wallet for creditWalletRef on FIRM rows.
   const systemWalletResolver = { resolve: jest.fn(() => Promise.resolve({ id: 'wallet-f-fee-1' })) };
   // Phase B: post-promote enrichment — promotes a LOCK row's eventCode/walletRef/externalRef
@@ -295,38 +286,40 @@ function buildWorkflowMocks() {
     accountingService,
     auditLogsService,
     withdrawService,
-    payoutsService,
+    fundsOrders,
     approvalsService,
     binanceRateProvider,
-    fundsFlowService,
     systemWalletResolver,
     tbEvidenceService,
     prisma,
   };
 }
 
+function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
+  return new WithdrawWorkflowService(
+    mocks.prisma as any, // prisma
+    { emit: jest.fn() } as any, // eventEmitter
+    mocks.withdrawService as any,
+    {} as any, // withdrawQuoteService
+    mocks.auditLogsService as any,
+    mocks.accountingService as any,
+    mocks.fundsOrders as any,
+    mocks.approvalsService as any,
+    mocks.binanceRateProvider as any,
+    mocks.systemWalletResolver as any,
+    mocks.tbEvidenceService as any,
+  );
+}
+
 describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () => {
   it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→FIRM_FEE', async () => {
     const mocks = buildWorkflowMocks();
-    const service = new WithdrawWorkflowService(
-      mocks.prisma as any, // prisma
-      { emit: jest.fn() } as any, // eventEmitter
-      mocks.withdrawService as any,
-      {} as any, // withdrawQuoteService
-      mocks.auditLogsService as any,
-      mocks.accountingService as any,
-      mocks.payoutsService as any,
-      mocks.approvalsService as any,
-      mocks.binanceRateProvider as any,
-      mocks.fundsFlowService as any,
-      mocks.systemWalletResolver as any,
-      mocks.tbEvidenceService as any,
-    );
+    const service = makeWorkflowForLegs(mocks);
 
-    await (service as any).handlePayoutConfirmed({
-      withdrawId: 'wd-1',
-      payoutId: 'payout-1',
-    });
+    // funds_order-driven: payout leg (legSeq 1) CONFIRMED posts NET; fee leg
+    // (legSeq 2) CONFIRMED posts FEE + FEE_FIRM.
+    await (service as any).onPayoutLegConfirmed('wd-1', 'fo-net-1');
+    await (service as any).onFeeLegConfirmed('wd-1', 'fo-fee-1');
 
     const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
 
@@ -349,6 +342,9 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
     const firmCall = execCalls[0][0];
     expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
     expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE]);
+
+    // Each leg CLEARs its own funds order.
+    expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -379,20 +375,26 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
       {} as any, // withdrawQuoteService
       m.auditLogsService as any,
       m.accountingService as any,
-      m.payoutsService as any,
+      m.fundsOrders as any,
       m.approvalsService as any,
       m.binanceRateProvider as any,
-      m.fundsFlowService as any,
       m.systemWalletResolver as any,
       m.tbEvidenceService as any,
     );
   }
 
-  it('finalize: POST rows carry walletRef + externalRef + crossing=true', async () => {
+  // Drive both funds-order legs (payout principal + fee) to CONFIRMED, mirroring
+  // the legacy single-shot finalizeWithdrawal now split across legSeq 1 + 2.
+  async function confirmBothLegs(service: WithdrawWorkflowService) {
+    await (service as any).onPayoutLegConfirmed('wd-1', 'fo-net-1');
+    await (service as any).onFeeLegConfirmed('wd-1', 'fo-fee-1');
+  }
+
+  it('POST rows carry walletRef + externalRef + crossing=true', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
-    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+    await confirmBothLegs(service);
 
     const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
     expect(postCalls.length).toBe(2);
@@ -416,11 +418,11 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     });
   });
 
-  it('finalize: FEE_FIRM debits aggregate (null wallet) and credits F_FEE wallet, shares externalRef with FEE_POST', async () => {
+  it('FEE_FIRM debits aggregate (null wallet) and credits F_FEE wallet, shares externalRef with FEE_POST', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
-    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+    await confirmBothLegs(service);
 
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
     const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;
@@ -441,7 +443,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     expect(mocks.systemWalletResolver.resolve).toHaveBeenCalledWith('asset-usdt', 'F_FEE');
   });
 
-  it('finalize: falls back to referenceNo when txHash is null on withdrawal', async () => {
+  it('falls back to referenceNo when txHash is null on withdrawal', async () => {
     const mocks = buildPhaseBMocks();
     const recordWithRefNo = makeWithdrawRecord({
       fromWalletId: 'wallet-c-out-1',
@@ -451,38 +453,18 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     mocks.withdrawService.findOneInternal = jest.fn(() => Promise.resolve(recordWithRefNo));
     const service = makeService(mocks);
 
-    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+    await confirmBothLegs(service);
 
     const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
     const netEv = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
     expect(netEv.externalRef).toBe('BANK-REF-XYZ');
   });
 
-  it('finalize: falls back to payout.txHash when withdrawal has neither txHash nor referenceNo', async () => {
-    const mocks = buildPhaseBMocks();
-    const recordWithoutRef = makeWithdrawRecord({
-      fromWalletId: 'wallet-c-out-1',
-      txHash: null,
-      referenceNo: null,
-    });
-    mocks.withdrawService.findOneInternal = jest.fn(() => Promise.resolve(recordWithoutRef));
-    (mocks.payoutsService.findOne as any) = jest.fn(() => Promise.resolve({
-      id: 'payout-1', txHash: '0xpayoutfallback', referenceNo: null, status: 'CONFIRMED',
-    }));
-    const service = makeService(mocks);
-
-    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
-
-    const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
-    const netEv = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
-    expect(netEv.externalRef).toBe('0xpayoutfallback');
-  });
-
-  it('finalize: enrichForPost promotes LOCK rows to POST eventCode + walletRef + externalRef + crossing=true', async () => {
+  it('enrichForPost promotes LOCK rows to POST eventCode + walletRef + externalRef + crossing=true', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
-    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+    await confirmBothLegs(service);
 
     const enrichCalls = mocks.tbEvidenceService.enrichForPost.mock.calls as any[][];
     // Two enrich calls — one for net pending hex id, one for fee pending hex id.
@@ -509,12 +491,12 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     });
   });
 
-  it('finalize: F_FEE wallet miss returns null creditWalletRef but evidence still posts (best-effort)', async () => {
+  it('F_FEE wallet miss returns null creditWalletRef but evidence still posts (best-effort)', async () => {
     const mocks = buildPhaseBMocks();
     mocks.systemWalletResolver.resolve = jest.fn(() => Promise.reject(new Error('SYSTEM_WALLET_NOT_FOUND')));
     const service = makeService(mocks);
 
-    await (service as any).handlePayoutConfirmed({ withdrawId: 'wd-1', payoutId: 'payout-1' });
+    await confirmBothLegs(service);
 
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
     const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;

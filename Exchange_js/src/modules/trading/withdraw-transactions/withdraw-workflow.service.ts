@@ -1,11 +1,9 @@
 import {
   BadRequestException,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
-  forwardRef,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
@@ -33,9 +31,6 @@ import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.co
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { bigintToHex, hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
-import { PayoutsService } from '../../asset-treasury/payouts/payouts.service';
-import { PayoutAction, PayoutStatus } from '../../asset-treasury/payouts/dto/payout.dto';
-import { PayoutEvents } from '../../asset-treasury/payouts/constants/payout-events.constant';
 import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
@@ -44,9 +39,37 @@ import {
   shouldRequireApproval,
   SYSTEM_APPROVAL_ACTOR,
 } from './constants/withdraw-approval.constant';
-import { FundsFlowService } from '../../funds-layer/domain/funds-flow.service';
-import { InternalFundStatus } from '../../funds-layer/dto/internal-fund.dto';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import {
+  FundsOrderAction,
+  FundsOrderStatus,
+} from '../../funds-orders/dto/funds-order.dto';
+
+/**
+ * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
+ * every create/advance. The withdraw workflow filters on
+ * `parent.withdrawTransactionId` to react to its own payout / fee legs only.
+ */
+interface FundsOrderStatusChangedEvent {
+  fundsOrderId: string;
+  fundsOrderNo: string;
+  parent: {
+    depositTransactionId?: string;
+    withdrawTransactionId?: string;
+    swapTransactionId?: string;
+  };
+  legSeq: number;
+  attempt: number;
+  oldStatus: string | null;
+  newStatus: string;
+  traceId?: string;
+}
+
+// legSeq convention for a withdrawal's funds orders (spec §2):
+//   1 = payout principal (net) leg, 2 = fee leg.
+const PAYOUT_LEG_SEQ = 1;
+const FEE_LEG_SEQ = 2;
 
 /**
  * R4: Thrown when a withdrawal's source wallet does not satisfy the
@@ -84,11 +107,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly withdrawQuoteService: WithdrawQuoteService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
-    @Inject(forwardRef(() => PayoutsService))
-    private readonly payoutsService: PayoutsService,
+    private readonly fundsOrders: FundsOrderService,
     private readonly approvalsService: ApprovalsService,
     private readonly binanceRateProvider: BinanceRateProvider,
-    private readonly fundsFlowService: FundsFlowService,
     private readonly systemWalletResolver: SystemWalletResolver,
     private readonly tbEvidenceService: TbEvidenceService,
   ) {}
@@ -587,9 +608,16 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }
 
   // The single terminal-unlock primitive: voids the customer's TB pending locks
-  // (net + fee), cancels the fee InternalFund, and audits the release. Reused by
-  // all terminal-unlock outcomes; `reason` parameterizes the audit + fund-cancel
-  // reason and the CRITICAL log context.
+  // (net + fee) and audits the release. Reused by all terminal-unlock outcomes
+  // (approval declined, payout FAILED/TIMEOUT); `reason` parameterizes the audit
+  // and the CRITICAL log context.
+  //
+  // THE P6 FIX (do not weaken): before this existed, a failed payout only flipped
+  // status + audited and never voided the pending locks → the customer's balance
+  // stayed locked forever. Voiding both TB pending transfers here returns net+fee
+  // to the customer's available balance. The fee funds_order (legSeq 2) is a pure
+  // representation — no ledger of its own — so it needs no cancel here; the TB
+  // void is the whole restitution.
   private async releaseLock(
     w: {
       id: string;
@@ -624,14 +652,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
         this.logger.error(`CRITICAL: failed to void fee pending transfer for withdrawal ${w.id} (${reason}) — funds may stay locked`);
       }
     }
-
-    // Fee fund order follows the withdrawal: pending voided → CANCELLED.
-    // No-op when the withdrawal has no fee fund (fee was 0).
-    await this.fundsFlowService.setWithdrawFeeFundStatus(
-      w.id,
-      InternalFundStatus.CANCELLED,
-      reason,
-    );
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_LOCK_RELEASED,
@@ -673,21 +693,42 @@ export class WithdrawWorkflowService implements OnModuleInit {
     await this.checkScreenPass(event.withdrawId);
   }
 
-  @OnEvent(DomainEventNames.PAYOUT_STATUS_CONFIRMED)
-  async handlePayoutConfirmed(event: {
-    payoutId: string;
-    withdrawId: string;
-    txHash: string;
-  }) {
-    this.logger.log(`Payout confirmed for withdrawal ${event.withdrawId}`);
-    await this.finalizeWithdrawal(event.withdrawId);
+  /**
+   * Unified funds-order listener (spec §5.2) — replaces the legacy
+   * @OnEvent(PAYOUT_STATUS_CONFIRMED) + @OnEvent(EVT_PAYOUT_FAILED/TIMEOUT/RETURNED)
+   * handlers. Reacts only to funds orders parented to a withdrawal (payout
+   * principal leg = legSeq 1, fee leg = legSeq 2).
+   *
+   *   CONFIRMED (leg 1) → POST net pending → advance(CLEAR)
+   *   CONFIRMED (leg 2) → POST fee pending + firm-fee collect → advance(CLEAR)
+   *   CLEARED   (any)   → when ALL legs CLEARED, settle withdraw SUCCESS
+   *   FAILED / TIMEOUT (leg 1) → withdraw FAILED + releaseLock (P6 restitution)
+   */
+  @OnEvent(DomainEventNames.FUNDS_ORDER_STATUS_CHANGED)
+  async handleFundsOrderChanged(event: FundsOrderStatusChangedEvent) {
+    if (!event.parent.withdrawTransactionId) return; // only payout / fee legs
+    const withdrawId = event.parent.withdrawTransactionId;
+    this.logger.log(
+      `Withdrawal ${withdrawId} funds order ${event.fundsOrderNo} (leg ${event.legSeq}) → ${event.newStatus}`,
+    );
 
-    // L3: Post-Tx Archive — fire-and-forget txHash archival (crypto only)
-    const w = await this.withdrawService.findOneInternal(event.withdrawId);
-    if (w.asset?.type !== 'FIAT' && w.txHash) {
-      this.archivePostKyt(w).catch(err =>
-        this.logger.warn(`Post-KYT archive failed for ${event.withdrawId}: ${(err as Error).message}`),
-      );
+    switch (event.newStatus) {
+      case FundsOrderStatus.CONFIRMED:
+        if (event.legSeq === PAYOUT_LEG_SEQ) {
+          await this.onPayoutLegConfirmed(withdrawId, event.fundsOrderId);
+        } else if (event.legSeq === FEE_LEG_SEQ) {
+          await this.onFeeLegConfirmed(withdrawId, event.fundsOrderId);
+        }
+        break;
+      case FundsOrderStatus.CLEARED:
+        await this.onLegCleared(withdrawId);
+        break;
+      case FundsOrderStatus.FAILED:
+      case FundsOrderStatus.TIMEOUT:
+        if (event.legSeq === PAYOUT_LEG_SEQ) {
+          await this.onPayoutLegFailed(withdrawId, event.fundsOrderId, event.newStatus);
+        }
+        break;
     }
   }
 
@@ -797,33 +838,32 @@ export class WithdrawWorkflowService implements OnModuleInit {
       sourcePlatform: 'SYSTEM',
     });
 
-    // Auto-create payout record and link back to withdrawal
-    const payoutType = w.asset?.type === 'CRYPTO' ? 'CRYPTO' : 'FIAT';
-    const payout = await this.payoutsService.create({
-      withdrawId: w.id,
-      type: payoutType as any,
-      amount: Number(w.netAmount),
+    // Real-time 1:1 model: at PAYOUT_PENDING the withdrawal materialises its fund
+    // orders — the payout principal leg (legSeq 1) and, when a fee is charged, the
+    // fee leg (legSeq 2). Created HERE (not at request) so a withdrawal rejected
+    // during compliance/approval never spawns fund orders. Both TB pending locks
+    // (net + fee) already exist from create-time; these funds orders are the
+    // outbound representation, CLEARed as each leg confirms + posts.
+    const payoutLeg = await this.fundsOrders.create({
+      withdrawTransactionId: w.id,
+      legSeq: PAYOUT_LEG_SEQ,
+      initialStatus: FundsOrderStatus.CREATED,
       assetId: w.assetId,
-      toWalletId: w.toWalletId || undefined,
-      toAddress: w.toAddress || undefined,
-      toIban: w.toIban || undefined,
-    }, 'SYSTEM');
+      amount: String(w.netAmount),
+      netAmount: String(w.netAmount),
+      fromWalletId: w.fromWalletId ?? null,
+      fromAddress: w.fromAddress ?? null,
+      fromIban: w.fromIban ?? null,
+      toWalletId: w.toWalletId ?? null,
+      toAddress: w.toAddress ?? null,
+      toIban: w.toIban ?? null,
+      traceId: w.traceId || undefined,
+    });
 
-    await this.withdrawService.linkPayout(w.id, payout.id, payout.payoutNo);
-
-    // Real-time 1:1 model: at PAYOUT_PENDING the withdrawal materialises its two
-    // fund orders — the Payout (principal, above) and the fee InternalFund
-    // (below). Created HERE (not at request) so a withdrawal rejected during
-    // compliance/approval never spawns fund orders. The fee TB lock stays at
-    // request; this fund order is the representation, set CLEAR on finalize.
     if (Number(w.feeAmount) > 0) {
       // From = the CUSTOMER's own wallet (C_DEP for crypto / C_VIBAN for fiat).
       // System-wide invariant C_VIBAN → F_FEE: the withdrawal fee is debited from
-      // the per-customer wallet, NOT the platform pool. Post-R4 fix, the
-      // withdrawal's bound fromWalletId resolves to the SAME customer wallet
-      // (FIAT→C_VIBAN, CRYPTO→C_DEP) — this lookup is now redundant in steady
-      // state but kept as the canonical resolution path until the orchestrator
-      // contract is refactored.
+      // the per-customer wallet, NOT the platform pool.
       const customerSourceRole = w.asset?.type === 'CRYPTO' ? 'C_DEP' : 'C_VIBAN';
       const customerSourceWallet = await this.withdrawService.findCustomerWallet(
         w.ownerId,
@@ -832,24 +872,40 @@ export class WithdrawWorkflowService implements OnModuleInit {
       );
       // To = firm's FIRM_FEE wallet for this asset.
       const feeWallet = await this.systemWalletResolver.resolve(w.assetId, 'F_FEE');
-      await this.fundsFlowService.createWithdrawFeeFund(
-        {
-          withdrawTransactionId: w.id,
-          assetId: w.assetId,
-          amount: new Prisma.Decimal(w.feeAmount),
-          fromWalletId: customerSourceWallet?.id ?? null,
-          fromAddress: customerSourceWallet?.address ?? null,
-          fromIban: customerSourceWallet?.iban ?? null,
-          toWalletId: feeWallet?.id ?? null,
-          toAddress: feeWallet?.address ?? null,
-          toIban: feeWallet?.iban ?? null,
-        },
-        'WITHDRAW_WORKFLOW',
-      );
+      await this.fundsOrders.create({
+        withdrawTransactionId: w.id,
+        legSeq: FEE_LEG_SEQ,
+        initialStatus: FundsOrderStatus.CREATED,
+        assetId: w.assetId,
+        amount: String(w.feeAmount),
+        netAmount: String(w.feeAmount),
+        fromWalletId: customerSourceWallet?.id ?? null,
+        fromAddress: customerSourceWallet?.address ?? null,
+        fromIban: customerSourceWallet?.iban ?? null,
+        toWalletId: feeWallet?.id ?? null,
+        toAddress: feeWallet?.address ?? null,
+        toIban: feeWallet?.iban ?? null,
+        traceId: w.traceId || undefined,
+      });
     }
 
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_PAYOUT_INITIATED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `Payout initiated — principal leg ${payoutLeg.fundsOrderNo}` +
+        (Number(w.feeAmount) > 0 ? ' + fee leg' : ''),
+      sourcePlatform: 'SYSTEM',
+    });
+
     this.logger.log(
-      `Withdrawal ${withdrawId} now PAYOUT_PENDING — payout ${payout.payoutNo} + fee fund created`,
+      `Withdrawal ${withdrawId} now PAYOUT_PENDING — payout leg ${payoutLeg.fundsOrderNo}` +
+        (Number(w.feeAmount) > 0 ? ' + fee leg created' : ''),
     );
   }
 
@@ -874,94 +930,51 @@ export class WithdrawWorkflowService implements OnModuleInit {
     this.logger.log(`Post-broadcast KYT recorded for withdrawal ${withdrawId}: ${kytStatus}`);
   }
 
-  // ── Finalization: TB POST on chain confirmation ──
+  // ── Finalization: per-leg TB POST driven by funds_order.status.changed ──
 
   /**
-   * 乙 SUCCESS invariant. A withdrawal may only become SUCCESS when its WHOLE
-   * settlement is on the books: the principal payout is externally confirmed AND
-   * (when a fee was charged) the fee is collected on BOTH sides — the customer-side
-   * FEE_POST and the firm-side FEE_FIRM legs. Throws otherwise (fail-closed → the
-   * withdrawal stays PAYOUT_PENDING for operator repair via reCloseoutPayout).
+   * Phase B per-physical-wallet recon reference pair, shared across POST_NET,
+   * POST_FEE and FEE_FIRM evidence so the recon engine can match a withdrawal's
+   * legs by wallet + external ref.
+   *   walletRef    = the customer's source wallet (vIBAN / C_OUT) bound at payout.
+   *   externalRef  = the real-world crossing identifier (chain txHash / bank ref)
+   *                  looked up on the withdrawal (payouts no longer exist).
    */
-  private async assertWithdrawSettled(w: any, feeBigint: bigint): Promise<void> {
-    if (w.payoutId) {
-      const payout = await this.payoutsService.findOne(w.payoutId);
-      const settled =
-        payout &&
-        (payout.status === PayoutStatus.CONFIRMED || payout.status === PayoutStatus.CLEARED);
-      if (!settled) {
-        throw new Error(
-          `Withdraw ${w.withdrawNo} cannot settle SUCCESS: payout ${w.payoutId} status ` +
-          `'${payout?.status ?? 'MISSING'}' (need CONFIRMED or CLEARED).`,
-        );
-      }
-    }
-    const required: string[] = [];
-    if (w.tbPendingNetId) required.push('WITHDRAW_NET_POST');
-    if (feeBigint > 0n) required.push('WITHDRAW_FEE_POST', 'WITHDRAW_FEE_FIRM');
-    if (required.length > 0) {
-      const rows = await (this.prisma as any).tbTransferEvidence.findMany({
-        where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo },
-        select: { eventCode: true },
-      });
-      const codes = new Set(rows.map((r: any) => r.eventCode));
-      const missing = required.filter((c) => !codes.has(c));
-      if (missing.length > 0) {
-        throw new Error(
-          `Withdraw ${w.withdrawNo} cannot settle SUCCESS: settlement incomplete, ` +
-          `missing TB legs [${missing.join(', ')}] — fee not fully collected.`,
-        );
-      }
-    }
+  private recognitionRefs(w: any): { walletRef: string | null; externalRef: string | null } {
+    return {
+      walletRef: w.fromWalletId ?? null,
+      externalRef: w.txHash ?? w.referenceNo ?? null,
+    };
   }
 
-  private async finalizeWithdrawal(withdrawId: string) {
+  /**
+   * Payout principal leg CONFIRMED (legSeq 1) — the external payout was observed
+   * confirmed. Audit WITHDRAW_PAYOUT_CONFIRMED, POST the net pending transfer
+   * (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1), then CLEAR the leg. SUCCESS is
+   * settled later once ALL legs are CLEARED (onLegCleared).
+   */
+  private async onPayoutLegConfirmed(withdrawId: string, fundsOrderId: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
-
     if (w.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
-      this.logger.warn(`Cannot finalize withdrawal ${withdrawId}: status is ${w.status}`);
+      this.logger.warn(`Cannot post net for withdrawal ${withdrawId}: status is ${w.status}`);
       return;
     }
 
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_PAYOUT_CONFIRMED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: 'Payout principal leg externally confirmed',
+      sourcePlatform: 'SYSTEM',
+    });
+
     const decimals = w.asset?.decimals ?? 8;
-    const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
-
-    // 乙 SUCCESS invariant — pre-flight (fail-closed): when a fee is owed, the firm-fee
-    // ledger MUST resolve BEFORE we POST anything. Aborting here keeps the settlement
-    // atomic (no partial post) — the customer is never charged a fee the firm can't book.
-    if (feeBigint > 0n) {
-      const feeLedger = w.asset?.currency
-        ? TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS]
-        : undefined;
-      if (!feeLedger) {
-        throw new Error(
-          `Withdraw ${w.withdrawNo}: cannot collect firm fee — no TB ledger for ` +
-          `'${w.asset?.currency ?? 'UNKNOWN'}'. Refusing to settle SUCCESS with an uncollected fee.`,
-        );
-      }
-    }
-
-    // Phase B per-physical-wallet recon: pre-compute once for use across POST_NET,
-    // POST_FEE, and FEE_FIRM evidence.
-    //   walletRef     = the customer's source wallet (vIBAN / C_OUT) bound by the
-    //                   orchestrator before finalize.
-    //   externalRef   = the real-world identifier of the external crossing —
-    //                   blockchain txHash or bank reference. Looked up on the
-    //                   withdrawal first; falls back to the linked payout's txHash.
-    //   Crucially, FEE_POST and FEE_FIRM share the SAME externalRef so the recon
-    //   engine can match "client OUT ↔ firm IN" as a cross-wallet same-ref pair.
-    const walletRef: string | null = w.fromWalletId ?? null;
-    let externalRef: string | null = w.txHash ?? w.referenceNo ?? null;
-    if (!externalRef && w.payoutId) {
-      try {
-        const payout = await this.payoutsService.findOne(w.payoutId);
-        externalRef = payout?.txHash ?? payout?.referenceNo ?? null;
-      } catch (err) {
-        this.logger.warn(
-          `Could not look up payout ${w.payoutId} for externalRef on ${withdrawId}: ${(err as Error).message}`,
-        );
-      }
-    }
+    const { walletRef, externalRef } = this.recognitionRefs(w);
 
     // POST pending transfer #1: net amount (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
     if (w.tbPendingNetId) {
@@ -1003,8 +1016,41 @@ export class WithdrawWorkflowService implements OnModuleInit {
       });
     }
 
+    await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
+    this.logger.log(`Withdrawal ${withdrawId} payout leg posted (NET) → CLEARED`);
+  }
+
+  /**
+   * Fee leg CONFIRMED (legSeq 2). POST the client-side fee pending transfer
+   * (CLIENT_PAYABLE → CLIENT_ASSET) AND collect the firm-side fee (FIRM_ASSET →
+   * FIRM_FEE), then CLEAR the leg. Fail-closed: aborts BEFORE any post if the
+   * firm-fee ledger cannot resolve — the leg stays CONFIRMED for operator repair,
+   * so the customer is never charged a fee the firm can't book.
+   */
+  private async onFeeLegConfirmed(withdrawId: string, fundsOrderId: string) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    const decimals = w.asset?.decimals ?? 8;
+    const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
+    if (feeBigint <= 0n) {
+      // Nothing to post — CLEAR the (unexpected) zero-fee leg and return.
+      await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
+      return;
+    }
+
+    const ledger = w.asset?.currency
+      ? TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS]
+      : undefined;
+    if (!ledger) {
+      throw new Error(
+        `Withdraw ${w.withdrawNo}: cannot collect firm fee — no TB ledger for ` +
+        `'${w.asset?.currency ?? 'UNKNOWN'}'. Refusing to post fee leg.`,
+      );
+    }
+
+    const { walletRef, externalRef } = this.recognitionRefs(w);
+
     // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
-    if (w.tbPendingFeeId && feeBigint > 0n) {
+    if (w.tbPendingFeeId) {
       const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
       await this.accountingService.postPendingTransfer({
         pendingTransferId: pendingFeeBigint,
@@ -1040,59 +1086,106 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     // Firm-side fee collect: DR FIRM_ASSET / CR FIRM_FEE (direct transfer, same ledger as asset)
-    if (feeBigint > 0n) {
-      const ledger = TB_LEDGERS[w.asset!.currency as keyof typeof TB_LEDGERS];
-      const firmAssetId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_ASSET,
-        ledger,
-        ownerType: 'SYSTEM',
-      });
-      const firmFeeId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_FEE,
-        ledger,
-        ownerType: 'SYSTEM',
-      });
+    const firmAssetId = await this.accountingService.resolveTbAccountId({
+      code: TB_ACCOUNT_CODES.FIRM_ASSET,
+      ledger,
+      ownerType: 'SYSTEM',
+    });
+    const firmFeeId = await this.accountingService.resolveTbAccountId({
+      code: TB_ACCOUNT_CODES.FIRM_FEE,
+      ledger,
+      ownerType: 'SYSTEM',
+    });
 
-      // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
-      // FIRM_FEE is the platform's F_FEE wallet for this asset.
-      const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
+    // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
+    // FIRM_FEE is the platform's F_FEE wallet for this asset.
+    const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
 
-      await this.accountingService.executeTransfer({
-        debitAccountId: firmAssetId,
-        creditAccountId: firmFeeId,
-        amount: feeBigint,
-        ledger,
-        code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
-        evidence: {
-          sourceType: 'WITHDRAWAL',
-          sourceNo: w.withdrawNo,
-          eventCode: 'WITHDRAW_FEE_FIRM',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
-          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
-          assetCurrency: w.asset!.currency,
-          traceId: w.traceId || w.id,
-          actorType: 'SYSTEM',
-          actorId: 'WITHDRAW_WORKFLOW',
-          memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
-          // Phase B firm-side fee leg of the cross-wallet same-ref pair.
-          // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
-          // creditWalletRef points at the platform's F_FEE wallet so recon can
-          // tie this row to the matching FEE_POST row by externalRef.
-          debitWalletRef: null,
-          creditWalletRef: firmFeeWalletRef,
-          externalRef,
-          isExternalCrossing: true,
-        },
+    await this.accountingService.executeTransfer({
+      debitAccountId: firmAssetId,
+      creditAccountId: firmFeeId,
+      amount: feeBigint,
+      ledger,
+      code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
+      evidence: {
+        sourceType: 'WITHDRAWAL',
+        sourceNo: w.withdrawNo,
+        eventCode: 'WITHDRAW_FEE_FIRM',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+        assetCurrency: w.asset!.currency,
+        traceId: w.traceId || w.id,
+        actorType: 'SYSTEM',
+        actorId: 'WITHDRAW_WORKFLOW',
+        memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
+        // Phase B firm-side fee leg of the cross-wallet same-ref pair.
+        // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
+        // creditWalletRef points at the platform's F_FEE wallet so recon can
+        // tie this row to the matching FEE_POST row by externalRef.
+        debitWalletRef: null,
+        creditWalletRef: firmFeeWalletRef,
+        externalRef,
+        isExternalCrossing: true,
+      },
+    });
+
+    await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
+    this.logger.log(`Withdrawal ${withdrawId} fee leg posted (FEE_POST + FEE_FIRM) → CLEARED`);
+  }
+
+  /**
+   * 乙 SUCCESS invariant. A withdrawal may only become SUCCESS when its WHOLE
+   * settlement is on the books: the customer-side NET_POST AND (when a fee was
+   * charged) FEE_POST + FEE_FIRM. Throws otherwise (fail-closed → the withdrawal
+   * stays PAYOUT_PENDING for operator repair). The payout-status check is gone
+   * (payouts no longer exist) — "all legs CLEARED" (asserted by the caller) plus
+   * this TB-evidence check together prove the whole settlement crossed.
+   */
+  private async assertWithdrawSettled(w: any, feeBigint: bigint): Promise<void> {
+    const required: string[] = [];
+    if (w.tbPendingNetId) required.push('WITHDRAW_NET_POST');
+    if (feeBigint > 0n) required.push('WITHDRAW_FEE_POST', 'WITHDRAW_FEE_FIRM');
+    if (required.length > 0) {
+      const rows = await (this.prisma as any).tbTransferEvidence.findMany({
+        where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo },
+        select: { eventCode: true },
       });
+      const codes = new Set(rows.map((r: any) => r.eventCode));
+      const missing = required.filter((c) => !codes.has(c));
+      if (missing.length > 0) {
+        throw new Error(
+          `Withdraw ${w.withdrawNo} cannot settle SUCCESS: settlement incomplete, ` +
+          `missing TB legs [${missing.join(', ')}] — fee not fully collected.`,
+        );
+      }
+    }
+  }
+
+  /**
+   * A leg reached CLEARED. When ALL of the withdrawal's funds orders are CLEARED
+   * (payout principal + fee when charged), the whole settlement is on the books:
+   * audit WITHDRAW_ACCOUNTING_POSTED, assert settled (fail-closed), flip the
+   * withdrawal to SUCCESS, audit WITHDRAW_SUCCESS. No-op until every leg CLEARs.
+   */
+  private async onLegCleared(withdrawId: string) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
+      // Already SUCCESS (idempotent replay) or terminal-failed — nothing to do.
+      return;
     }
 
-    // Fee fund order follows the withdrawal: fee posted → CLEAR.
-    // No-op when the withdrawal has no fee fund (fee was 0).
-    await this.fundsFlowService.setWithdrawFeeFundStatus(
-      w.id,
-      InternalFundStatus.CLEAR,
-      'Withdrawal finalized: fee posted',
-    );
+    const legs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, {});
+    if (legs.length === 0) return;
+    const allCleared = legs.every((l: any) => l.status === FundsOrderStatus.CLEARED);
+    if (!allCleared) {
+      this.logger.debug(
+        `Withdrawal ${withdrawId}: ${legs.filter((l: any) => l.status === FundsOrderStatus.CLEARED).length}/${legs.length} legs CLEARED — awaiting the rest`,
+      );
+      return;
+    }
+
+    const decimals = w.asset?.decimals ?? 8;
+    const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_ACCOUNTING_POSTED,
@@ -1134,19 +1227,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
       sourcePlatform: 'SYSTEM',
     });
 
-    // Clear the linked payout (internal accounting settled)
-    if (w.payoutId) {
-      try {
-        await this.payoutsService.updateStatus(w.payoutId, {
-          action: PayoutAction.CLEAR,
-          reason: 'Internal accounting completed after chain confirmation',
-        }, 'SYSTEM');
-      } catch (err) {
-        this.logger.warn(`Payout CLEAR failed for ${w.payoutId}: ${(err as Error).message}`);
-      }
+    // L3: Post-Tx Archive — fire-and-forget txHash archival (crypto only)
+    if (w.asset?.type !== 'FIAT' && w.txHash) {
+      this.archivePostKyt(w).catch(err =>
+        this.logger.warn(`Post-KYT archive failed for ${withdrawId}: ${(err as Error).message}`),
+      );
     }
 
-    this.logger.log(`Withdrawal ${withdrawId} finalized: TB posted, status SUCCESS`);
+    this.logger.log(`Withdrawal ${withdrawId} finalized: all legs CLEARED, status SUCCESS`);
   }
 
   // ── Source-wallet binding (absorbed from the deleted orchestrator) ──
@@ -1220,167 +1308,54 @@ export class WithdrawWorkflowService implements OnModuleInit {
     };
   }
 
-  // ── Payout-failure compensation (P6 fix — absorbed from the deleted orchestrator) ──
-
-  @OnEvent(PayoutEvents.EVT_PAYOUT_FAILED)
-  async onPayoutFailed(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
-    await this.compensatePayout(
-      payload.withdrawId,
-      WithdrawTransactionAction.FAIL,
-      WithdrawTransactionStatus.FAILED,
-      `Payout ${payload.payoutId} failed`,
-    );
-  }
-
-  @OnEvent(PayoutEvents.EVT_PAYOUT_TIMEOUT)
-  async onPayoutTimeout(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
-    await this.compensatePayout(
-      payload.withdrawId,
-      WithdrawTransactionAction.FAIL,
-      WithdrawTransactionStatus.FAILED,
-      `Payout ${payload.payoutId} timed out`,
-    );
-  }
-
-  @OnEvent(PayoutEvents.EVT_PAYOUT_RETURNED)
-  async onPayoutReturned(payload: { withdrawId: string; payoutId: string; status?: PayoutStatus }) {
-    await this.compensatePayout(
-      payload.withdrawId,
-      WithdrawTransactionAction.RETURN,
-      WithdrawTransactionStatus.RETURNED,
-      `Payout ${payload.payoutId} returned`,
-    );
-  }
+  // ── Payout-failure compensation (P6 fix) ──
 
   /**
-   * Terminal payout-failure compensation. Transitions the withdrawal to its
-   * terminal status (FAILED / RETURNED) and — THE P6 FIX — releases the
-   * customer's TB pending locks (net + fee) + cancels the fee fund via
-   * releaseLock. The old orchestrator only flipped the status and audited,
-   * leaving the customer's balance locked forever on payout failure.
+   * Payout principal leg FAILED / TIMEOUT (legSeq 1). Transitions the withdrawal
+   * to FAILED and — THE P6 FIX (do not weaken) — releases the customer's TB
+   * pending locks (net + fee) via releaseLock so the balance is returned. Before
+   * this path existed a failed payout only flipped status + audited, leaving the
+   * customer's balance locked forever.
    *
-   * Idempotent: if the withdrawal is already at the target terminal status we
-   * still run releaseLock (its void is best-effort/safe on replay) but do not
-   * double-transition.
+   * Audits WITHDRAW_PAYOUT_FAILED. Idempotent: if the withdrawal is already
+   * FAILED we still run releaseLock (its void is best-effort/safe on replay) but
+   * do not double-transition.
    */
-  private async compensatePayout(
+  private async onPayoutLegFailed(
     withdrawId: string,
-    action: WithdrawTransactionAction,
-    targetStatus: WithdrawTransactionStatus,
-    reason: string,
+    fundsOrderId: string,
+    newStatus: string,
   ) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
+    const reason = `Payout funds order ${fundsOrderId} ${newStatus}`;
 
-    if (w.status !== targetStatus) {
+    if (w.status !== WithdrawTransactionStatus.FAILED) {
       await this.withdrawService.updateStatus(
         w.id,
-        { action, reason },
+        { action: WithdrawTransactionAction.FAIL, reason },
         this.systemCtx,
       );
     } else {
       this.logger.warn(
-        `Withdrawal ${withdrawId} already ${targetStatus} — releasing lock idempotently without re-transition`,
+        `Withdrawal ${withdrawId} already FAILED — releasing lock idempotently without re-transition`,
       );
     }
 
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_PAYOUT_FAILED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason,
+      sourcePlatform: 'SYSTEM',
+    });
+
+    // P6: void the customer's pending net+fee TB lock so the balance is returned.
     await this.releaseLock(w, reason);
-  }
-
-  // ── Repair entrypoints (absorbed from the deleted orchestrator) ──
-
-  /**
-   * Re-run the success closeout for a CONFIRMED payout whose withdrawal is still
-   * PAYOUT_PENDING (operator repair). Re-runs finalizeWithdrawal. No-op when
-   * already settled (CLEARED payout + SUCCESS withdraw).
-   */
-  async reCloseoutPayout(payoutId: string) {
-    const payout = await this.prisma.payout.findUnique({
-      where: { id: payoutId },
-      select: { id: true, withdrawId: true, status: true },
-    });
-    if (!payout) {
-      throw new BadRequestException(`Payout ${payoutId} not found`);
-    }
-
-    const withdrawal = await this.withdrawService.findOneInternal(payout.withdrawId);
-
-    // Already settled — idempotent no-op.
-    if (
-      payout.status === PayoutStatus.CLEARED &&
-      withdrawal.status === WithdrawTransactionStatus.SUCCESS
-    ) {
-      return { repairApplied: false, withdrawStatus: withdrawal.status, payoutStatus: payout.status };
-    }
-
-    if (
-      payout.status !== PayoutStatus.CONFIRMED ||
-      withdrawal.status !== WithdrawTransactionStatus.PAYOUT_PENDING
-    ) {
-      throw new BadRequestException({
-        code: 'PAYOUT_RECLOSEOUT_NOT_APPLICABLE',
-        message:
-          'Re-closeout is only available for CONFIRMED payout linked to PAYOUT_PENDING withdraw.',
-        details: {
-          payoutId,
-          payoutStatus: payout.status,
-          withdrawId: payout.withdrawId,
-          withdrawStatus: withdrawal.status,
-        },
-      });
-    }
-
-    await this.finalizeWithdrawal(payout.withdrawId);
-
-    const refreshed = await this.withdrawService.findOneInternal(payout.withdrawId);
-    return { repairApplied: true, withdrawStatus: refreshed.status, payoutStatus: payout.status };
-  }
-
-  /**
-   * Re-run the failure compensation for a terminal (FAILED/TIMEOUT/RETURNED)
-   * payout (operator repair). Re-runs compensatePayout (status flip +
-   * releaseLock). No-op when the withdrawal is already at its terminal status.
-   */
-  async reCompensatePayout(payoutId: string) {
-    const payout = await this.prisma.payout.findUnique({
-      where: { id: payoutId },
-      select: { id: true, withdrawId: true, status: true },
-    });
-    if (!payout) {
-      throw new BadRequestException(`Payout ${payoutId} not found`);
-    }
-
-    const payoutStatus = payout.status as PayoutStatus;
-    if (
-      payoutStatus !== PayoutStatus.FAILED &&
-      payoutStatus !== PayoutStatus.TIMEOUT &&
-      payoutStatus !== PayoutStatus.RETURNED
-    ) {
-      throw new BadRequestException({
-        code: 'PAYOUT_RECOMPENSATE_NOT_APPLICABLE',
-        message:
-          'Re-compensate is only available for FAILED, TIMEOUT, or RETURNED payout.',
-        details: { payoutId, payoutStatus: payout.status },
-      });
-    }
-
-    const targetStatus =
-      payoutStatus === PayoutStatus.RETURNED
-        ? WithdrawTransactionStatus.RETURNED
-        : WithdrawTransactionStatus.FAILED;
-    const action =
-      payoutStatus === PayoutStatus.RETURNED
-        ? WithdrawTransactionAction.RETURN
-        : WithdrawTransactionAction.FAIL;
-
-    await this.compensatePayout(
-      payout.withdrawId,
-      action,
-      targetStatus,
-      `Re-compensate payout ${payoutId} (${payoutStatus})`,
-    );
-
-    const refreshed = await this.withdrawService.findOneInternal(payout.withdrawId);
-    return { repairApplied: true, withdrawStatus: refreshed.status, payoutStatus: payout.status };
   }
 
   // ── L3: Post-Tx Archive — fire-and-forget ──

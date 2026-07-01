@@ -114,10 +114,9 @@ describe('WithdrawTransactionsService', () => {
       withdrawQuoteService as any,
       auditLogsService as any,
       accountingService as any,
-      {} as any, // payoutsService
+      {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      {} as any, // fundsFlowService
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
     );

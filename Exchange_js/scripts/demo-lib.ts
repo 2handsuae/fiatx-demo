@@ -39,7 +39,6 @@ import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-leve
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
 import { PayoutsService } from '../src/modules/asset-treasury/payouts/payouts.service';
-import { PayoutAction } from '../src/modules/asset-treasury/payouts/dto/payout.dto';
 import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 
@@ -413,43 +412,38 @@ async function driveWithdraw(ctx: DemoCtx, c: any, asset: any, amount: number, t
   await ctx.withdraws.updateKytStatus(wd.id, 'PASSED', null, 5, 1);
   if (isCrypto) await ctx.withdraws.updateTravelRuleStatus(wd.id, 'PASSED', null);
 
-  try {
-    const wdp: any = await waitFor(`${wd.withdrawNo} PAYOUT_PENDING`, async () => {
-      const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-      return w.status === 'PAYOUT_PENDING' && w.payoutId ? w : null;
-    }, 8000);
-    // Drive payout to CLEARED. CLEAR is gated to system closeout (operatorId='SYSTEM').
-    const seq = isCrypto
-      ? [PayoutAction.SIGN, PayoutAction.BROADCAST, PayoutAction.SEEN_IN_MEMPOOL, PayoutAction.CONFIRM, PayoutAction.CLEAR]
-      : [PayoutAction.SUBMIT, PayoutAction.CONFIRM, PayoutAction.CLEAR];
-    for (const action of seq) {
-      const op = action === PayoutAction.CLEAR ? 'SYSTEM' : SIM;
-      // R3 invariant: FIAT CLEAR must carry referenceNo (BANK-PO号);
-      // CRYPTO CLEAR's txHash is auto-filled at CONFIRM. Demo provides a
-      // synthetic reference matching the BANK-PO<random> pattern so the
-      // payout.markCleared service guard passes.
-      const payload: any = { action };
-      if (action === PayoutAction.CLEAR && !isCrypto) {
-        // Look up payoutNo at the point of CLEAR; wdp may not carry it.
-        const pNow: any = await ctx.prisma.payout.findUnique({ where: { id: wdp.payoutId } });
-        payload.referenceNo = `BANK-${pNow?.payoutNo ?? 'PO' + Date.now()}`;
-      }
-      await ctx.payouts.updateStatus(wdp.payoutId, payload, op);
-      await sleep(80);
-    }
-    await waitFor(`${wd.withdrawNo} SUCCESS`, async () => {
-      const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-      return w.status === 'SUCCESS' ? w : null;
-    }, 8000);
-  } catch (e: any) {
-    // A redundant CLEAR on an already-CLEARED payout (system auto-closeout fired on
-    // CONFIRM) throws "Invalid action CLEAR"; that is success, not a failure.
+  // At PAYOUT_PENDING the workflow has materialised the payout principal funds
+  // order (legSeq 1) and, when a fee was charged, the fee funds order (legSeq 2).
+  await waitFor(`${wd.withdrawNo} PAYOUT_PENDING`, async () => {
     const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-    const po = w.payoutId ? await ctx.prisma.payout.findUnique({ where: { id: w.payoutId } }) : null;
-    if (!(w.status === 'SUCCESS' && po?.status === 'CLEARED')) {
-      throw new Error(`${wd.withdrawNo} not SUCCESS: withdraw=${w.status} payout=${po?.status ?? 'n/a'} (${e.message})`);
+    if (w.status !== 'PAYOUT_PENDING') return null;
+    const [payoutLeg] = await ctx.fundsOrders.findByParent({ withdrawTransactionId: wd.id }, { legSeq: 1 });
+    return payoutLeg ? w : null;
+  }, 8000);
+
+  // Drive each leg (principal + fee) CREATED → CONFIRMED per its asset type. The
+  // withdraw workflow's funds_order handler POSTs the TB leg + CLEARs it on
+  // CONFIRMED, and flips the withdrawal to SUCCESS once ALL legs are CLEARED.
+  const legs: any[] = await ctx.fundsOrders.findByParent({ withdrawTransactionId: wd.id }, {});
+  for (const leg of legs.sort((a, b) => a.legSeq - b.legSeq)) {
+    const legIsCrypto = (leg.asset?.type || '').toUpperCase() !== 'FIAT';
+    const seq = legIsCrypto
+      ? [FundsOrderAction.SUBMIT, FundsOrderAction.OBSERVE_CONFIRMING, FundsOrderAction.CONFIRM]
+      : [FundsOrderAction.SUBMIT, FundsOrderAction.CONFIRM];
+    for (const action of seq) {
+      await ctx.fundsOrders.advance(leg.id, action, SIM);
+      await sleep(60);
     }
   }
+
+  await waitFor(`${wd.withdrawNo} SUCCESS`, async () => {
+    const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
+    if (w.status === 'SUCCESS') return w;
+    if (['FAILED', 'RETURNED', 'REJECTED'].includes(w.status)) {
+      throw new Error(`${wd.withdrawNo} terminal ${w.status} (expected SUCCESS)`);
+    }
+    return null;
+  }, 8000);
   return wd;
 }
 
@@ -514,11 +508,26 @@ export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
     ['deposits SUCCESS', 'depositTransaction', 'SUCCESS'],
     ['swaps SUCCESS', 'swapTransaction', 'SUCCESS'],
     ['withdrawals SUCCESS', 'withdrawTransaction', 'SUCCESS'],
-    ['payouts CLEARED', 'payout', 'CLEARED'],
   ] as const) {
     const total = await ctx.prisma[model].count({ where: { ownerId: { in: ids } } });
     const bad = await ctx.prisma[model].count({ where: { ownerId: { in: ids }, status: { not: good } } });
     ok(`all demo ${label}`, total > 0 && bad === 0, `${total - bad}/${total} ${good}`);
+  }
+
+  // Withdraw payout principal legs (funds_orders legSeq=1) all CLEARED. Payouts
+  // are no longer a separate table — the payout is the withdrawal's legSeq-1
+  // funds order, driven CREATED → CLEARED alongside the withdrawal.
+  {
+    const wdIds = (
+      await ctx.prisma.withdrawTransaction.findMany({ where: { ownerId: { in: ids } }, select: { id: true } })
+    ).map((w: any) => w.id);
+    const total = await ctx.prisma.fundsOrder.count({
+      where: { withdrawTransactionId: { in: wdIds }, legSeq: 1 },
+    });
+    const bad = await ctx.prisma.fundsOrder.count({
+      where: { withdrawTransactionId: { in: wdIds }, legSeq: 1, status: { not: 'CLEARED' } },
+    });
+    ok('all demo payout legs CLEARED', total > 0 && bad === 0, `${total - bad}/${total} CLEARED`);
   }
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
