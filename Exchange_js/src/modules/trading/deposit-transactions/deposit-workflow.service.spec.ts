@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
-import { PayinsService } from '../../asset-treasury/payins/payins.service';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
@@ -16,7 +16,7 @@ describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
   let depositService: Record<string, jest.Mock>;
   let auditLogsService: Record<string, jest.Mock>;
-  let payinsService: Record<string, jest.Mock>;
+  let fundsOrders: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     depositService = {
@@ -26,23 +26,22 @@ describe('DepositWorkflowService', () => {
       findOne: jest.fn(),
       updateKytStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
-      findByPayinId: jest.fn(),
-      createFromPayin: jest.fn(),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
     };
-    payinsService = {
-      findOne: jest.fn(),
-      updateStatus: jest.fn(),
-      linkDeposit: jest.fn(),
+    fundsOrders = {
+      findById: jest.fn(),
+      findByParent: jest.fn().mockResolvedValue([]),
+      advance: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DepositWorkflowService,
         { provide: DepositTransactionsService, useValue: depositService },
-        { provide: PayinsService, useValue: payinsService },
+        { provide: FundsOrderService, useValue: fundsOrders },
         { provide: AuditLogsService, useValue: auditLogsService },
         { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
       ],
@@ -231,38 +230,48 @@ describe('DepositWorkflowService', () => {
     });
   });
 
-  describe('orchestratePayinDetected — traceId inheritance', () => {
-    it('passes payin.traceId to createFromPayin so deposit inherits it', async () => {
-      const captured: any[] = [];
-      payinsService.findOne.mockResolvedValue({
-        id: 'p3',
-        amount: { toString: () => '100' },
-        assetId: 'a1',
-        toWalletId: 'w1',
-        txHash: null,
-        fromAddress: null,
-        traceId: 'TRACE-FROM-PAYIN',
+  describe('handleFundsOrderChanged — filter + routing', () => {
+    it('ignores funds orders that are not payins (no depositTransactionId)', async () => {
+      await service.handleFundsOrderChanged({
+        fundsOrderId: 'fo-w1',
+        fundsOrderNo: 'FO-W1',
+        parent: { withdrawTransactionId: 'wd-1' },
+        legSeq: 1,
+        attempt: 1,
+        oldStatus: 'CONFIRMED',
+        newStatus: 'CLEARED',
       });
-      depositService.findByPayinId.mockResolvedValue(null);
-      depositService.createFromPayin.mockImplementation((...args: any[]) => {
-        captured.push(args);
-        return Promise.resolve({
-          id: 'd3',
-          depositNo: 'DEP3',
-          payinId: 'p3',
-          ownerType: 'CUSTOMER',
-          ownerId: 'cust-1',
-          traceId: args[6],
-        });
+
+      expect(depositService.findOne).not.toHaveBeenCalled();
+      expect(fundsOrders.findById).not.toHaveBeenCalled();
+    });
+
+    it('routes a CONFIRMED payin funds order to onPayinConfirmed', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DEP001',
+        status: DepositTransactionStatus.PAYIN_PENDING,
+        ownerType: 'FIRM', // skip TB posting, focus on routing + CLEAR
+        ownerId: 'firm-1',
+        traceId: null,
       });
-      payinsService.linkDeposit.mockResolvedValue({});
+      fundsOrders.findById.mockResolvedValue({ id: 'fo-1', fundsOrderNo: 'FO001', status: 'CONFIRMED' });
+      depositService.updateStatus.mockResolvedValue({});
 
-      await (service as any).orchestratePayinDetected('p3');
+      await service.handleFundsOrderChanged({
+        fundsOrderId: 'fo-1',
+        fundsOrderNo: 'FO001',
+        parent: { depositTransactionId: 'dep-1' },
+        legSeq: 1,
+        attempt: 1,
+        oldStatus: 'CONFIRMING',
+        newStatus: 'CONFIRMED',
+      });
 
-      expect(captured).toHaveLength(1);
-      // Signature after this task: createFromPayin(amount, assetId, toWalletId, txHash?, fromAddress?, payinId?, traceId?)
-      // 7th positional arg is the inherited traceId.
-      expect(captured[0][6]).toBe('TRACE-FROM-PAYIN');
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-1', {
+        action: DepositTransactionAction.PAYIN_CONFIRMED,
+      });
+      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'SYSTEM');
     });
   });
 
@@ -274,13 +283,12 @@ describe('DepositWorkflowService', () => {
         resolveTbAccountId: jest.fn(),
         executeTransfer: jest.fn().mockResolvedValue(undefined),
       };
-      depositService.findPayinByDepositId = jest.fn();
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
-          { provide: PayinsService, useValue: payinsService },
+          { provide: FundsOrderService, useValue: fundsOrders },
           { provide: AuditLogsService, useValue: auditLogsService },
           { provide: AccountingService, useValue: accountingService },
         ],
@@ -296,22 +304,23 @@ describe('DepositWorkflowService', () => {
       ownerType: 'CUSTOMER',
       amount: '100.50',
       traceId: 'trace-acc-1',
-      payinId: 'payin-acc-1',
       asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
     };
 
+    // The payin funds_order pins the receiving wallet + external ref; passed as arg 3.
+    const cryptoFundsOrder = {
+      id: 'fo-acc-1',
+      toWalletId: 'wallet-acc-1',
+      txHash: '0xdeadbeef',
+      referenceNo: null,
+    };
+
     it('STEP_1: debits CLIENT_ASSET/SYSTEM and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
-      payinsService.findOne.mockResolvedValue({
-        id: 'payin-acc-1',
-        toWalletId: 'wallet-acc-1',
-        txHash: '0xdeadbeef',
-        referenceNo: null,
-      });
       accountingService.resolveTbAccountId
         .mockResolvedValueOnce('tb-client-asset-id')   // debit: CLIENT_ASSET SYSTEM
         .mockResolvedValueOnce('tb-suspense-id');       // credit: DEPOSIT_SUSPENSE CUSTOMER
 
-      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1');
+      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1', cryptoFundsOrder);
 
       // First resolve call: CLIENT_ASSET / SYSTEM (no ownerUuid)
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
@@ -346,18 +355,18 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('STEP_1: falls back to payin.referenceNo when txHash is null', async () => {
-      payinsService.findOne.mockResolvedValue({
-        id: 'payin-acc-1',
+    it('STEP_1: falls back to funds order referenceNo when txHash is null', async () => {
+      const fiatRefFundsOrder = {
+        id: 'fo-acc-1',
         toWalletId: 'wallet-acc-1',
         txHash: null,
         referenceNo: 'BANK-REF-XYZ',
-      });
+      };
       accountingService.resolveTbAccountId
         .mockResolvedValueOnce('tb-client-asset-id')
         .mockResolvedValueOnce('tb-suspense-id');
 
-      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1');
+      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1', fiatRefFundsOrder);
 
       expect(accountingService.executeTransfer).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -379,7 +388,12 @@ describe('DepositWorkflowService', () => {
         .mockResolvedValueOnce('tb-client-asset-fiat-id')
         .mockResolvedValueOnce('tb-suspense-fiat-id');
 
-      await (service as any).executeDepositAccounting(fiatDeposit, 'STEP_1');
+      await (service as any).executeDepositAccounting(fiatDeposit, 'STEP_1', {
+        id: 'fo-fiat-1',
+        toWalletId: 'wallet-fiat-1',
+        txHash: null,
+        referenceNo: 'BANK-REF-FIAT',
+      });
 
       // Debit must still be CLIENT_ASSET/SYSTEM — NOT CLIENT_BANK or CLIENT_CUSTODY
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
@@ -396,17 +410,11 @@ describe('DepositWorkflowService', () => {
     });
 
     it('STEP_2: debits DEPOSIT_SUSPENSE/CUSTOMER and credits CLIENT_PAYABLE/CUSTOMER with DEPOSIT_SUSPENSE_TO_PAYABLE code', async () => {
-      payinsService.findOne.mockResolvedValue({
-        id: 'payin-acc-1',
-        toWalletId: 'wallet-acc-1',
-        txHash: '0xdeadbeef',
-        referenceNo: null,
-      });
       accountingService.resolveTbAccountId
         .mockResolvedValueOnce('tb-suspense-id')    // debit: DEPOSIT_SUSPENSE CUSTOMER
         .mockResolvedValueOnce('tb-payable-id');    // credit: CLIENT_PAYABLE CUSTOMER
 
-      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_2');
+      await (service as any).executeDepositAccounting(baseDeposit, 'STEP_2', cryptoFundsOrder);
 
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
         code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,

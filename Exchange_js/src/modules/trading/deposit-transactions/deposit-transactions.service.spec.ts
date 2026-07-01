@@ -8,6 +8,8 @@ import {
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InternalTransferService } from '../../funds-layer/domain/internal-transfer.service';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
@@ -49,6 +51,21 @@ describe('DepositTransactionsService', () => {
           provide: InternalTransferService,
           useValue: {
             findFundsOrderBySource: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: FundsOrderService,
+          useValue: {
+            create: jest.fn(),
+            advance: jest.fn(),
+            findById: jest.fn(),
+            findByParent: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: AuditLogsService,
+          useValue: {
+            recordSystem: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

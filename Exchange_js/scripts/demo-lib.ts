@@ -29,7 +29,9 @@ import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-l
 import { DepositTransactionsService } from '../src/modules/trading/deposit-transactions/deposit-transactions.service';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
 import { PayinsService } from '../src/modules/asset-treasury/payins/payins.service';
-import { PayinAction, PayinType } from '../src/modules/asset-treasury/payins/dto/payin.dto';
+import { PayinType } from '../src/modules/asset-treasury/payins/dto/payin.dto';
+import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
+import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
 import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
@@ -106,6 +108,7 @@ export type DemoCtx = {
   prisma: any;
   accounting: AccountingService;
   payins: PayinsService;
+  fundsOrders: FundsOrderService;
   deposits: DepositTransactionsService;
   depositWf: any;
   swapQuote: SwapQuoteService;
@@ -130,6 +133,7 @@ export async function bootstrap(): Promise<DemoCtx> {
     prisma,
     accounting: app.get(AccountingService),
     payins: app.get(PayinsService),
+    fundsOrders: app.get(FundsOrderService),
     deposits: app.get(DepositTransactionsService),
     depositWf: app.get(DepositWorkflowService),
     swapQuote: app.get(SwapQuoteService),
@@ -230,30 +234,33 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
 
 // ── stage 2: deposits ────────────────────────────────────────────────────────
 async function driveDeposit(ctx: DemoCtx, c: any, asset: any, walletId: string, amount: string, type: PayinType): Promise<any> {
-  // idempotent: skip if this wallet already has a CLEARED payin
-  const existing = await ctx.prisma.payin.findFirst({ where: { toWalletId: walletId, status: 'CLEARED' } });
-  if (existing) return existing;
+  // idempotent: skip if this wallet already has a CLEARED payin funds_order
+  const existingFo = await ctx.prisma.fundsOrder.findFirst({
+    where: { toWalletId: walletId, depositTransactionId: { not: null }, status: 'CLEARED' },
+  });
+  if (existingFo) {
+    return ctx.deposits.findOne(existingFo.depositTransactionId);
+  }
 
   const idx = customerIdx(c.email);
-  const payin: any = await ctx.payins.createDetected({
-    assetId: asset.id, toWalletId: walletId, type, amount,
+  // detected() creates the deposit + its payin funds_order (crypto → SUBMITTED,
+  // fiat → CONFIRMED). The CONFIRMED-at-birth event auto-drives onPayinConfirmed
+  // for fiat, so only crypto needs the OBSERVE_CONFIRMING → CONFIRM advance.
+  const { deposit: dep, fundsOrder: fo }: any = await ctx.deposits.detected({
+    assetId: asset.id, toWalletId: walletId, amount,
     txHash: type === PayinType.CRYPTO ? fakeChainTxHash(walletId) : undefined,
     fromAddress: type === PayinType.CRYPTO ? `Tsender${idx}` : undefined,
     fromIban: type === PayinType.FIAT ? `AE00SENDER${idx}` : undefined,
     referenceNo: fakeBankRef(walletId, new Date()),
-  } as any);
-
-  const dep: any = await waitFor(`deposit for payin ${payin.payinNo}`, () => ctx.deposits.findByPayinId(payin.id));
+  });
 
   if (type === PayinType.CRYPTO) {
-    await ctx.payins.updateStatus(payin.id, PayinAction.BLOCK);
-    await ctx.payins.updateStatus(payin.id, PayinAction.CONFIRM);
-  } else {
-    await ctx.payins.updateStatus(payin.id, PayinAction.CONFIRM);
+    await ctx.fundsOrders.advance(fo.id, FundsOrderAction.OBSERVE_CONFIRMING, 'SYSTEM');
+    await ctx.fundsOrders.advance(fo.id, FundsOrderAction.CONFIRM, 'SYSTEM');
   }
-  await waitFor(`payin ${payin.payinNo} CLEARED`, async () => {
-    const p: any = await ctx.payins.findOne(payin.id);
-    return p.status === 'CLEARED' ? p : null;
+  await waitFor(`funds order ${fo.fundsOrderNo} CLEARED`, async () => {
+    const f: any = await ctx.prisma.fundsOrder.findUnique({ where: { id: fo.id } });
+    return f?.status === 'CLEARED' ? f : null;
   });
   await waitFor(`deposit ${dep.depositNo} COMPLIANCE_PENDING`, async () => {
     const d: any = await ctx.deposits.findOne(dep.id);

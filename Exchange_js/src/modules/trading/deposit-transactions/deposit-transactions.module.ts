@@ -7,9 +7,10 @@ import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
+import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 
 @Module({
-  imports: [forwardRef(() => PayinsModule), forwardRef(() => OnboardingModule), TigerBeetleModule, FundsLayerModule],
+  imports: [forwardRef(() => PayinsModule), forwardRef(() => OnboardingModule), TigerBeetleModule, FundsLayerModule, FundsOrdersModule],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,

@@ -16,6 +16,13 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import { randomUUID } from 'crypto';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -45,6 +52,8 @@ export class DepositTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly fundsOrders: FundsOrderService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -433,6 +442,115 @@ export class DepositTransactionsService {
       where: { payinId },
       include: { asset: true },
     });
+  }
+
+  /**
+   * Inbound detection entry (funds_order-driven, replaces the legacy payin.created
+   * → orchestratePayinDetected path). Creates the deposit row (PAYIN_PENDING) and
+   * its payin funds_order (crypto → SUBMITTED, fiat → CONFIRMED), then records the
+   * DEPOSIT_CREATED business audit. DepositWorkflowService reacts to the funds_order's
+   * status.changed events (the funds_order IS the payin now).
+   *
+   * The funds_order is created after the deposit row is persisted so the CONFIRMED-at-
+   * birth event (fiat) reaches DepositWorkflowService.onPayinConfirmed with a visible
+   * deposit row.
+   */
+  async detected(input: {
+    assetId: string;
+    toWalletId: string;
+    amount: string;
+    txHash?: string | null;
+    fromAddress?: string | null;
+    fromIban?: string | null;
+    referenceNo?: string | null;
+    providerTxnId?: string | null;
+    traceId?: string;
+  }) {
+    const wallet = await (this.prisma as any).wallet.findUnique({
+      where: { id: input.toWalletId },
+      include: { asset: true },
+    });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+    if (wallet.assetId !== input.assetId) {
+      throw new BadRequestException('Wallet asset does not match deposit asset');
+    }
+
+    const isCrypto =
+      String(wallet.asset?.type || '').toUpperCase() === 'CRYPTO';
+    const resolvedTraceId = input.traceId ?? randomUUID();
+    const depositNo = generateReferenceNo('DEP');
+
+    const deposit = await (this.prisma as any).depositTransaction.create({
+      data: {
+        depositNo,
+        traceId: resolvedTraceId,
+        ownerType: wallet.ownerType,
+        ownerId: wallet.ownerId || 'UNKNOWN',
+        status: DepositTransactionStatus.PAYIN_PENDING,
+        statusHistory: JSON.stringify([
+          {
+            status: DepositTransactionStatus.PAYIN_PENDING,
+            timestamp: new Date().toISOString(),
+            operatorId: 'SYSTEM',
+            reason: 'Inbound transfer detected',
+          },
+        ]),
+        assetId: input.assetId,
+        toWalletId: input.toWalletId,
+        amount: new Prisma.Decimal(input.amount),
+        netAmount: new Prisma.Decimal(input.amount),
+        feeAmount: new Prisma.Decimal(0),
+        txHash: input.txHash ?? undefined,
+        referenceNo: input.referenceNo ?? undefined,
+        fromAddress: input.fromAddress ?? undefined,
+        fromIban: input.fromIban ?? undefined,
+        toAddress: wallet.address,
+        toIban: wallet.iban,
+      },
+    });
+
+    // Payin funds_order. Emitting CONFIRMED-at-birth (fiat) fires the workflow
+    // handler synchronously; the deposit row above is already committed.
+    const fundsOrder = await this.fundsOrders.create({
+      depositTransactionId: deposit.id,
+      assetId: input.assetId,
+      amount: input.amount,
+      toWalletId: input.toWalletId,
+      toAddress: wallet.address ?? undefined,
+      toIban: wallet.iban ?? undefined,
+      fromAddress: input.fromAddress ?? undefined,
+      fromIban: input.fromIban ?? undefined,
+      txHash: input.txHash ?? undefined,
+      referenceNo: input.referenceNo ?? undefined,
+      providerTxnId: input.providerTxnId ?? undefined,
+      initialStatus: isCrypto
+        ? FundsOrderStatus.SUBMITTED
+        : FundsOrderStatus.CONFIRMED,
+      traceId: resolvedTraceId,
+    });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_CREATED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: resolvedTraceId,
+      workflowType: 'DEPOSIT',
+      reason: 'Deposit created from inbound transfer detection',
+      metadata: {
+        fundsOrderId: fundsOrder.id,
+        fundsOrderNo: fundsOrder.fundsOrderNo,
+        amount: input.amount,
+        assetCurrency: input.assetId,
+        txHash: input.txHash ?? null,
+        referenceNo: input.referenceNo ?? null,
+      },
+      sourcePlatform: 'SYSTEM',
+    });
+
+    return { deposit, fundsOrder };
   }
 
   async createRandom(): Promise<any> {

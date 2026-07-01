@@ -86,6 +86,15 @@ export const DOMAIN_EVENTS = {
     subscribers: ['FiatSettlementWorkflowService'],
     payload: '{ swapId: string, swapNo: string, ownerId: string }',
   },
+
+  // ── Funds Order (unified — Round 2) ──
+  FUNDS_ORDER_STATUS_CHANGED: {
+    name: 'funds_order.status.changed',
+    emitter: 'FundsOrderService',
+    subscribers: ['DepositWorkflowService', 'WithdrawWorkflowService', 'SwapWorkflowService'],
+    payload:
+      '{ fundsOrderId, fundsOrderNo, parent: {depositTransactionId?, withdrawTransactionId?, swapTransactionId?}, legSeq, attempt, oldStatus, newStatus, traceId? }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -106,4 +115,6 @@ export const DomainEventNames = {
   INTERNALTRANSFER_COMPLETED: DOMAIN_EVENTS.INTERNALTRANSFER_COMPLETED.name,
   // Swap
   SWAP_SUCCEEDED: DOMAIN_EVENTS.SWAP_SUCCEEDED.name,
+  // Funds Order (unified — Round 2)
+  FUNDS_ORDER_STATUS_CHANGED: DOMAIN_EVENTS.FUNDS_ORDER_STATUS_CHANGED.name,
 } as const;

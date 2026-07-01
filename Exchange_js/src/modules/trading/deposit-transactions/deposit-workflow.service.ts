@@ -1,17 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { PayinStatusChangedEvent, PayinCreatedEvent } from '../../asset-treasury/payins/events/payin.events';
-import {
-  PayinStatus,
-  PayinAction,
-} from '../../asset-treasury/payins/dto/payin.dto';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
   DepositTransactionAction,
   DepositTransactionStatus,
   DepositOwnerType,
 } from './dto/deposit-transaction.dto';
-import { PayinsService } from '../../asset-treasury/payins/payins.service';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -23,6 +17,27 @@ import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import {
+  FundsOrderAction,
+  FundsOrderStatus,
+} from '../../funds-orders/dto/funds-order.dto';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
+
+interface FundsOrderStatusChangedEvent {
+  fundsOrderId: string;
+  fundsOrderNo: string;
+  parent: {
+    depositTransactionId?: string;
+    withdrawTransactionId?: string;
+    swapTransactionId?: string;
+  };
+  legSeq: number;
+  attempt: number;
+  oldStatus: string | null;
+  newStatus: string;
+  traceId?: string;
+}
 
 @Injectable()
 export class DepositWorkflowService implements OnModuleInit {
@@ -34,7 +49,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
   constructor(
     private readonly depositService: DepositTransactionsService,
-    private readonly payinsService: PayinsService,
+    private readonly fundsOrders: FundsOrderService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
   ) {}
@@ -43,30 +58,21 @@ export class DepositWorkflowService implements OnModuleInit {
     this.logger.log('DepositWorkflowService initialized and listening for events.');
   }
 
-  @OnEvent('payin.created')
-  async handlePayinCreated(event: PayinCreatedEvent) {
-    const { payinId, status } = event;
-    this.logger.log(`Orchestrating new PayIn ${payinId} with status ${status}`);
+  @OnEvent(DomainEventNames.FUNDS_ORDER_STATUS_CHANGED)
+  async handleFundsOrderChanged(event: FundsOrderStatusChangedEvent) {
+    if (!event.parent.depositTransactionId) return; // only payin funds orders
+    const depositId = event.parent.depositTransactionId;
+    this.logger.log(
+      `Deposit ${depositId} funds order ${event.fundsOrderNo} → ${event.newStatus}`,
+    );
 
-    if (status === PayinStatus.DETECTED) {
-      await this.orchestratePayinDetected(payinId);
-    }
-  }
-
-  @OnEvent('payin.status.changed')
-  async handlePayinStatusChanged(event: PayinStatusChangedEvent) {
-    const { payinId, newStatus } = event;
-    this.logger.log(`Orchestrating PayIn ${payinId} transition to ${newStatus}`);
-
-    switch (newStatus) {
-      case PayinStatus.DETECTED:
-        await this.orchestratePayinDetected(payinId);
+    switch (event.newStatus) {
+      case FundsOrderStatus.CONFIRMED:
+        await this.onPayinConfirmed(depositId, event.fundsOrderId);
         break;
-      case PayinStatus.FAILED:
-        await this.orchestratePayinFailed(payinId);
-        break;
-      case PayinStatus.CONFIRMED:
-        await this.orchestratePayinConfirmed(payinId);
+      case FundsOrderStatus.FAILED:
+      case FundsOrderStatus.TIMEOUT:
+        await this.onPayinFailed(depositId, event.fundsOrderId);
         break;
     }
   }
@@ -237,7 +243,11 @@ export class DepositWorkflowService implements OnModuleInit {
 
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
       try {
-        await this.executeDepositAccounting(deposit, 'STEP_2');
+        const [payinFundsOrder] = await this.fundsOrders.findByParent(
+          { depositTransactionId: deposit.id },
+          { legSeq: 1 },
+        );
+        await this.executeDepositAccounting(deposit, 'STEP_2', payinFundsOrder);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.logger.error(`TB Step 2 failed for deposit ${depositId}: ${error.message}`);
@@ -332,44 +342,8 @@ export class DepositWorkflowService implements OnModuleInit {
     return updated;
   }
 
-  private async orchestratePayinDetected(payinId: string) {
-    let deposit = await this.depositService.findByPayinId(payinId);
-    if (!deposit) {
-      const payin = await this.payinsService.findOne(payinId);
-      deposit = await this.depositService.createFromPayin(
-        payin.amount.toString(),
-        payin.assetId,
-        payin.toWalletId,
-        payin.txHash || undefined,
-        payin.fromAddress || undefined,
-        payin.id,
-        payin.traceId || undefined,
-      );
-      await this.payinsService.linkDeposit(payinId, deposit.id);
-
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CREATED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
-        traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT',
-        reason: 'Deposit created from payin detection',
-        metadata: {
-          payinId: payin.id,
-          amount: payin.amount.toString(),
-          assetCurrency: payin.assetId,
-          txHash: payin.txHash || null,
-        },
-        sourcePlatform: 'SYSTEM',
-      });
-    }
-  }
-
-  private async orchestratePayinFailed(payinId: string) {
-    const deposit = await this.depositService.findByPayinId(payinId);
+  private async onPayinFailed(depositId: string, fundsOrderId: string) {
+    const deposit = await this.depositService.findOne(depositId);
     if (
       deposit &&
       deposit.status !== DepositTransactionStatus.FAILED &&
@@ -379,20 +353,34 @@ export class DepositWorkflowService implements OnModuleInit {
       const oldStatus = deposit.status;
       const updated = await this.depositService.updateStatus(deposit.id, {
         action: DepositTransactionAction.FAIL,
-        reason: 'PayIn failed',
+        reason: 'Payin funds order failed',
       });
 
-      await this.recordStateTransitionAudit(updated, oldStatus, updated.status, 'PayIn failed');
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_PAYIN_FAILED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'Payin funds order failed',
+        metadata: { fundsOrderId },
+        sourcePlatform: 'SYSTEM',
+      });
+
+      await this.recordStateTransitionAudit(updated, oldStatus, updated.status, 'Payin funds order failed');
     }
   }
 
-  private async orchestratePayinConfirmed(payinId: string) {
-    const deposit = await this.depositService.findByPayinId(payinId);
+  private async onPayinConfirmed(depositId: string, fundsOrderId: string) {
+    const deposit = await this.depositService.findOne(depositId);
     if (!deposit) return;
 
-    const payin = await this.payinsService.findOne(payinId);
-    if (payin.status === PayinStatus.CLEARED) {
-      this.logger.debug(`PayIn ${payinId} already CLEARED. Skipping.`);
+    const fundsOrder = await this.fundsOrders.findById(fundsOrderId);
+    if (fundsOrder && fundsOrder.status === FundsOrderStatus.CLEARED) {
+      this.logger.debug(`Funds order ${fundsOrderId} already CLEARED. Skipping.`);
       return;
     }
 
@@ -401,9 +389,24 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
+    // ── DEPOSIT_PAYIN_CONFIRMED — record before posting/state change ──
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_PAYIN_CONFIRMED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Payin funds order confirmed',
+      metadata: { fundsOrderId, fundsOrderNo: fundsOrder?.fundsOrderNo ?? null },
+      sourcePlatform: 'SYSTEM',
+    });
+
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
       try {
-        await this.executeDepositAccounting(deposit, 'STEP_1');
+        await this.executeDepositAccounting(deposit, 'STEP_1', fundsOrder);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.logger.error(`TB Step 1 failed for deposit ${deposit.id}: ${error.message}`);
@@ -425,7 +428,7 @@ export class DepositWorkflowService implements OnModuleInit {
       }
     }
 
-    const updated = await this.depositService.updateStatus(deposit.id, {
+    await this.depositService.updateStatus(deposit.id, {
       action: DepositTransactionAction.PAYIN_CONFIRMED,
     });
 
@@ -442,12 +445,16 @@ export class DepositWorkflowService implements OnModuleInit {
       sourcePlatform: 'SYSTEM',
     });
 
-    await this.payinsService.updateStatus(payinId, PayinAction.CLEAR);
+    await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
 
-    this.logger.log(`Deposit ${deposit.id} now COMPLIANCE_PENDING. Payin ${payinId} CLEARED.`);
+    this.logger.log(`Deposit ${deposit.id} now COMPLIANCE_PENDING. Funds order ${fundsOrderId} CLEARED.`);
   }
 
-  private async executeDepositAccounting(deposit: any, step: 'STEP_1' | 'STEP_2') {
+  private async executeDepositAccounting(
+    deposit: any,
+    step: 'STEP_1' | 'STEP_2',
+    fundsOrder?: any,
+  ) {
     const asset = deposit.asset;
     if (!asset) {
       throw new Error(`Deposit ${deposit.id} has no associated asset`);
@@ -459,12 +466,13 @@ export class DepositWorkflowService implements OnModuleInit {
     const ledger = asset.tbLedgerId;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
-    // Phase B per-physical-wallet recon: every deposit traces back to a payin which
-    // pins the specific wallet that received the funds. Cheap indexed lookup.
-    const payin = deposit.payinId
-      ? await this.payinsService.findOne(deposit.payinId)
-      : null;
-    const walletRef: string | null = payin?.toWalletId ?? null;
+    // Phase B per-physical-wallet recon: the deposit's payin funds_order pins the
+    // specific wallet that received the funds, plus its external ref (crypto txHash
+    // / bank referenceNo). Falls back to the deposit's own refs when not passed.
+    const walletRef: string | null =
+      fundsOrder?.toWalletId ?? deposit.toWalletId ?? null;
+    const externalRef: string | null =
+      fundsOrder?.txHash ?? fundsOrder?.referenceNo ?? deposit.txHash ?? deposit.referenceNo ?? null;
 
     if (step === 'STEP_1') {
       // Real-time 1:1: debit the aggregate CLIENT_ASSET (SYSTEM), credit DEPOSIT_SUSPENSE (CUSTOMER)
@@ -501,7 +509,7 @@ export class DepositWorkflowService implements OnModuleInit {
           // SUSPENSE legs reference the specific wallet that received the on-chain / bank inbound.
           debitWalletRef: walletRef,
           creditWalletRef: walletRef,
-          externalRef: payin?.txHash ?? payin?.referenceNo ?? null,
+          externalRef,
           isExternalCrossing: true,
         },
       });
