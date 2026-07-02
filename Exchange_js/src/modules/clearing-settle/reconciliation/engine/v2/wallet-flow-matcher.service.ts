@@ -11,6 +11,16 @@
 //      If same ref but amount differs → 'mismatch' (do NOT also count as orphan).
 //   2. Fallback: same amount + same direction + |Δt| ≤ timeWindowMinutes.
 //      Match in flow-creation order; once consumed, an external line is gone.
+//   3. In-transit (Round 3): external lines still orphaned after Pass 1/2
+//      are paired against the wallet's non-terminal funds orders (order not
+//      yet settled into account_flows, so it has no internal evidence yet).
+//      Candidates are sorted by createdAt ascending for determinism, then
+//      matched in two sub-passes: (a) externalRef equality against the
+//      order's txHash/referenceNo/providerTxnId, (b) amount + direction +
+//      72h window fallback when neither side carries a usable ref. This does
+//      NOT resolve the external line as evidence-matched — it explains the
+//      pending gap so downstream bucket classification can treat it as
+//      "explained by an in-flight order" rather than a hard break.
 //
 // Inclusion filter (must match WalletBalanceCheckerService — the matcher
 // compares evidence against the SAME slice of account_flows that the
@@ -26,16 +36,20 @@
 //       this wallet, so they should not be matched 1:1 against an external
 //       statement line. (Mirrors WalletBalanceChecker step 3.)
 //
-// Returns four disjoint buckets:
+// Returns five disjoint buckets:
 //   - matched          (internalFlowId, externalLineId, via)
 //   - orphanInternal   (internal evidence with no external line)
-//   - orphanExternal   (external line with no internal evidence)
+//   - orphanExternal   (external line with no internal evidence, and no
+//                        non-terminal funds order explains it either)
 //   - mismatch         (same ref, different amount — wallet shows a real break)
+//   - inTransit        (external line explained by a non-terminal funds
+//                        order — Pass 3, see above)
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../core/prisma/prisma.service';
 import { TB_ACCOUNT_CODES } from '../../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { FundsOrderService } from '../../../../funds-orders/funds-order.service';
 
 // Same set used by WalletBalanceChecker — flows must land on a wallet-owned
 // L (customer) or E (firm) account to count as evidence. Aggregate A codes
@@ -95,11 +109,22 @@ export interface AmountMismatch {
   ref: string;
 }
 
+export interface InTransitMatch {
+  externalLineId: string;
+  fundsOrderId: string;
+  fundsOrderNo: string;
+  orderStatus: string;
+  amount: string;
+  direction: 'IN' | 'OUT';
+  externalRef: string | null;
+}
+
 export interface MatcherResult {
   matched: MatchedPair[];
   orphanInternal: OrphanInternal[];
   orphanExternal: OrphanExternal[];
   mismatch: AmountMismatch[];
+  inTransit: InTransitMatch[];
 }
 
 interface InternalFlowRow {
@@ -113,7 +138,10 @@ interface InternalFlowRow {
 
 @Injectable()
 export class WalletFlowMatcherService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fundsOrders: FundsOrderService,
+  ) {}
 
   async matchFlows(input: MatcherInput): Promise<MatcherResult> {
     const { walletRef, externalLines, cutoff } = input;
@@ -228,6 +256,41 @@ export class WalletFlowMatcherService {
       }
     }
 
+    // ── Pass 3: 在途匹配（剩余孤儿外部行 ↔ 非终态资金单）──────────────
+    const inTransit: InTransitMatch[] = [];
+    const leftovers = externalLines.filter((e) => !usedExternal.has(e.id));
+    if (leftovers.length > 0) {
+      const candidates = (await this.fundsOrders.findNonTerminalByWallet(walletRef))
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const usedOrders = new Set<string>();
+      const H72 = 72 * 60 * 60 * 1000;
+      const refsOf = (c: (typeof candidates)[number]) => [c.txHash, c.referenceNo, c.providerTxnId].filter(Boolean);
+      const amountOk = (ext: ExternalStatementLineInput, c: (typeof candidates)[number]) =>
+        ext.amount.equals(c.netAmount) || ext.amount.equals(c.amount);
+      const take = (ext: ExternalStatementLineInput, c: (typeof candidates)[number]) => {
+        usedOrders.add(c.id); usedExternal.add(ext.id);
+        inTransit.push({ externalLineId: ext.id, fundsOrderId: c.id, fundsOrderNo: c.fundsOrderNo,
+          orderStatus: c.status, amount: ext.amount.toString(),
+          direction: ext.direction as 'IN' | 'OUT', externalRef: ext.externalRef });
+      };
+      // 子轮 A：单号精确
+      for (const ext of leftovers) {
+        if (usedExternal.has(ext.id) || !ext.externalRef) continue;
+        const hit = candidates.find((c) => !usedOrders.has(c.id) && c.direction === ext.direction
+          && refsOf(c).includes(ext.externalRef!) && amountOk(ext, c));
+        if (hit) take(ext, hit);
+      }
+      // 子轮 B：双方无单号可对时的金额+方向+时窗兜底
+      for (const ext of leftovers) {
+        if (usedExternal.has(ext.id)) continue;
+        const hit = candidates.find((c) => !usedOrders.has(c.id) && c.direction === ext.direction
+          && amountOk(ext, c)
+          && Math.abs(ext.datetime.getTime() - c.createdAt.getTime()) <= H72
+          && (ext.externalRef == null || refsOf(c).length === 0));
+        if (hit) take(ext, hit);
+      }
+    }
+
     // ── Orphans ─────────────────────────────────────────────────────────────
     const orphanInternal: OrphanInternal[] = internal
       .filter((f) => !usedInternal.has(f.id))
@@ -247,6 +310,6 @@ export class WalletFlowMatcherService {
         externalRef: e.externalRef,
       }));
 
-    return { matched, orphanInternal, orphanExternal, mismatch };
+    return { matched, orphanInternal, orphanExternal, mismatch, inTransit };
   }
 }

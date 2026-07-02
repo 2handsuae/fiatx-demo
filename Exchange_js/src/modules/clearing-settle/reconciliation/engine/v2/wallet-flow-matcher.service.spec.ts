@@ -35,11 +35,14 @@ function makePrismaMock(flows: any[]) {
     },
     tbAccountRegistry: {
       findMany: jest.fn(async ({ where }: any) => {
+        // Service queries with 32-char padded ids (padTbId); match against
+        // the padded form here too, same as the real registry join.
+        const pad = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
         const ids: string[] = where.tbAccountId?.in ?? [];
         const rows: Array<{ tbAccountId: string; code: number }> = [];
         for (const id of ids) {
-          if (id === DEFAULT_TB_OWNED) rows.push({ tbAccountId: id, code: 100 });   // CLIENT_PAYABLE (owned)
-          else if (id === DEFAULT_TB_AGGREGATE) rows.push({ tbAccountId: id, code: 1 }); // CLIENT_ASSET (aggregate)
+          if (id === pad(DEFAULT_TB_OWNED)) rows.push({ tbAccountId: id, code: 100 });   // CLIENT_PAYABLE (owned)
+          else if (id === pad(DEFAULT_TB_AGGREGATE)) rows.push({ tbAccountId: id, code: 1 }); // CLIENT_ASSET (aggregate)
           // any other id → no registry row → matcher should skip the flow
         }
         return rows;
@@ -47,6 +50,18 @@ function makePrismaMock(flows: any[]) {
     },
   };
 }
+
+// Local test factory for external statement lines (Pass 3 fixtures).
+function extLine(direction: 'IN' | 'OUT', amount: number, externalRef: string | null, datetime = new Date('2026-06-26T10:00:00Z')) {
+  return { id: `ext-${externalRef ?? amount}-${datetime.getTime()}`, direction, amount: D(amount), externalRef, datetime };
+}
+
+// Default FundsOrderService stub for pre-Pass-3 tests: no non-terminal
+// orders on the wallet, so leftover external lines stay orphanExternal —
+// matches those tests' original (pre-Round-3) expectations.
+const noOrdersFundsOrderService: any = {
+  findNonTerminalByWallet: jest.fn().mockResolvedValue([]),
+};
 
 describe('WalletFlowMatcherService', () => {
   const cutoff = new Date('2026-06-26T23:59:59Z');
@@ -64,7 +79,7 @@ describe('WalletFlowMatcherService', () => {
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [
@@ -92,7 +107,7 @@ describe('WalletFlowMatcherService', () => {
         createdAt: new Date('2026-06-26T11:00:00Z'),
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [],
@@ -111,7 +126,7 @@ describe('WalletFlowMatcherService', () => {
 
   it('no internal + external line → orphan_external', async () => {
     const prisma = makePrismaMock([]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [
@@ -141,7 +156,7 @@ describe('WalletFlowMatcherService', () => {
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [
@@ -173,7 +188,7 @@ describe('WalletFlowMatcherService', () => {
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [
@@ -199,7 +214,7 @@ describe('WalletFlowMatcherService', () => {
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [
@@ -232,7 +247,7 @@ describe('WalletFlowMatcherService', () => {
         tbAccountId: DEFAULT_TB_AGGREGATE, // → registry code=1 (CLIENT_ASSET)
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [],
@@ -262,7 +277,7 @@ describe('WalletFlowMatcherService', () => {
         tbAccountId: 'tb-not-in-registry',
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [],
@@ -286,7 +301,7 @@ describe('WalletFlowMatcherService', () => {
         createdAt: new Date('2026-06-26T11:00:00Z'),
       },
     ]);
-    const svc = new WalletFlowMatcherService(prisma as any);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
       externalLines: [],
@@ -296,5 +311,69 @@ describe('WalletFlowMatcherService', () => {
     // crossed external so external statement is not expected to know about it.
     expect(result.orphanInternal).toHaveLength(0);
     expect(result.matched).toHaveLength(0);
+  });
+
+  // ── Pass 3: in-transit matching (orphan external ↔ non-terminal funds order) ──
+  describe('third pass: in-transit matching', () => {
+    const now = new Date('2026-06-26T10:00:00Z');
+
+    function makeMatcherWithFundsOrders(fundsOrderService: any) {
+      const prisma = makePrismaMock([]); // no internal flows → external lines fall straight to leftovers
+      return new WalletFlowMatcherService(prisma as any, fundsOrderService);
+    }
+
+    it('third pass: unmatched external line pairs with non-terminal funds order → inTransit', async () => {
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo1', fundsOrderNo: 'FO-9', status: 'CONFIRMING', direction: 'IN',
+            amount: D(100), netAmount: D(100),
+            txHash: '0xabc', referenceNo: null, providerTxnId: null, createdAt: now,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now });
+      expect(res.inTransit).toHaveLength(1);
+      expect(res.inTransit[0].fundsOrderNo).toBe('FO-9');
+      expect(res.orphanExternal).toHaveLength(0);
+    });
+
+    it('third pass: no candidate → stays orphanExternal', async () => {
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now });
+      expect(res.orphanExternal).toHaveLength(1);
+      expect(res.inTransit).toHaveLength(0);
+    });
+
+    it('third pass determinism: 两张同额无单号候选单，按 createdAt 升序取第一', async () => {
+      const earlier = new Date('2026-06-26T08:00:00Z');
+      const later = new Date('2026-06-26T09:00:00Z');
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-later', fundsOrderNo: 'FO-LATER', status: 'CONFIRMING', direction: 'IN',
+            amount: D(200), netAmount: D(200),
+            txHash: null, referenceNo: null, providerTxnId: null, createdAt: later,
+          },
+          {
+            id: 'fo-earlier', fundsOrderNo: 'FO-EARLIER', status: 'CONFIRMING', direction: 'IN',
+            amount: D(200), netAmount: D(200),
+            txHash: null, referenceNo: null, providerTxnId: null, createdAt: earlier,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const res = await matcher.matchFlows({
+        walletRef: 'W1',
+        externalLines: [extLine('IN', 200, null, now)],
+        cutoff: now,
+      });
+      expect(res.inTransit).toHaveLength(1);
+      expect(res.inTransit[0].fundsOrderNo).toBe('FO-EARLIER');
+    });
   });
 });

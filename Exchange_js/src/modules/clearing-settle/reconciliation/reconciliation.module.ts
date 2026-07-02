@@ -4,6 +4,9 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 // Phase B / T7: WalletReconRunService needs TigerBeetleService for the
 // internal-identity pre-gate (mirrors scripts/verify-realtime-coa.ts).
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
+// Phase B / Round 3: WalletFlowMatcherService needs FundsOrderService for
+// the in-transit third pass (orphan external line ↔ non-terminal funds order).
+import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { BalanceSnapshotService } from './engine/balance-snapshot.service';
 import { SubledgerInputsService } from './engine/subledger-inputs.service';
 import { InTransitService } from './engine/in-transit.service';
@@ -26,7 +29,7 @@ import { ReconciliationSweepService } from './sweep/reconciliation-sweep.service
 import { ReconciliationAdminController } from './controllers/reconciliation-admin.controller';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule],
+  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule],
   controllers: [ReconciliationAdminController],
   providers: [
     BalanceSnapshotService, InTransitService, BalanceReconService,
