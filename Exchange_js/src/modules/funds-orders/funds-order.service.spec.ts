@@ -90,4 +90,43 @@ describe('FundsOrderService', () => {
     });
     await expect(service.advance('fo1', FundsOrderAction.CLEAR, 'SYSTEM')).rejects.toThrow(/terminal|invalid transition/i);
   });
+
+  describe('advanceByNo', () => {
+    it('rejects swap-leg funds orders (must use swap endpoint)', async () => {
+      prisma.fundsOrder.findUnique.mockResolvedValue({
+        id: 'fo-swap', fundsOrderNo: 'FO-SWAP', status: 'CREATED',
+        depositTransactionId: null, withdrawTransactionId: null, swapTransactionId: 's1',
+        legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'CRYPTO' },
+      });
+      await expect(service.advanceByNo('FO-SWAP', FundsOrderAction.SUBMIT, 'ADMIN'))
+        .rejects.toThrow(/swap-transactions/i);
+    });
+
+    it('advances a withdraw funds order via advance()', async () => {
+      prisma.fundsOrder.findUnique
+        .mockResolvedValueOnce({
+          id: 'fo-wd', fundsOrderNo: 'FO-WD', status: 'CREATED',
+          depositTransactionId: null, withdrawTransactionId: 'w1', swapTransactionId: null,
+          legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'CRYPTO' },
+        })  // advanceByNo's lookup
+        .mockResolvedValueOnce({
+          id: 'fo-wd', status: 'CREATED',
+          depositTransactionId: null, withdrawTransactionId: 'w1', swapTransactionId: null,
+          legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'CRYPTO' },
+        }); // advance()'s internal FOR UPDATE lookup
+      prisma.fundsOrder.update.mockResolvedValue({
+        id: 'fo-wd', fundsOrderNo: 'FO-WD', status: 'SUBMITTED',
+        depositTransactionId: null, withdrawTransactionId: 'w1', swapTransactionId: null,
+        legSeq: 1, attempt: 1,
+      });
+      const result = await service.advanceByNo('FO-WD', FundsOrderAction.SUBMIT, 'ADMIN');
+      expect(result.status).toBe('SUBMITTED');
+    });
+
+    it('throws NotFound for unknown fundsOrderNo', async () => {
+      prisma.fundsOrder.findUnique.mockResolvedValue(null);
+      await expect(service.advanceByNo('NOPE', FundsOrderAction.SUBMIT, 'ADMIN'))
+        .rejects.toThrow(/not found/i);
+    });
+  });
 });

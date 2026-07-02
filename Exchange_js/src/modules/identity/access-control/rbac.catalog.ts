@@ -584,6 +584,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Funds Orders (Round 2 — unified deposit/withdraw/swap funds read surface)
   route('GET', '/admin/funds-orders', 'List funds orders', ['INTERNAL_FUND_READ']),
   route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['INTERNAL_FUND_READ']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/advance', 'Advance funds order (sim/ops)', ['INTERNAL_FUND_READ']),
 
 ];
 

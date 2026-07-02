@@ -121,6 +121,23 @@ export class FundsOrderService {
     return updated;
   }
 
+  /**
+   * Advance by business no — admin/simulation entry.
+   * swap legs are rejected here and must go through the swap controller's
+   * advanceLeg (which enforces the sell-first sequence guard). deposit/withdraw
+   * route through the standard advance() (transition-map validated).
+   */
+  async advanceByNo(fundsOrderNo: string, action: FundsOrderAction, operatorId: string) {
+    const row = await this.prisma.fundsOrder.findUnique({ where: { fundsOrderNo } });
+    if (!row) throw new NotFoundException(`FundsOrder ${fundsOrderNo} not found`);
+    if (row.swapTransactionId) {
+      throw new BadRequestException(
+        'Swap-leg funds orders advance via /admin/swap-transactions/:swapNo/legs/:legSeq/advance',
+      );
+    }
+    return this.advance(row.id, action, operatorId);
+  }
+
   async findById(id: string, tx?: Tx) {
     const client: any = tx ?? this.prisma;
     return client.fundsOrder.findUnique({ where: { id }, include: { asset: true } });

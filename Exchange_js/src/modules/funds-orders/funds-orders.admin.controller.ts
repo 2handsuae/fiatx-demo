@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
+  Post,
   Query,
+  Req,
   UseGuards,
   UsePipes,
   ValidationPipe,
@@ -12,8 +15,15 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
 import { RequirePermissions } from '../identity/access-control/require-permissions.decorator';
 import { buildPermissionCode } from '../identity/access-control/permission-code.util';
+import { AuditLogsService } from '../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditWorkflowTypes,
+} from '../audit-logging/constants/audit-actions.constant';
 import { FundsOrderService } from './funds-order.service';
 import { FundsOrdersAdminQueryDto } from './dto/funds-orders-admin-query.dto';
+import { AdvanceFundsOrderDto } from './dto/advance-funds-order.dto';
 
 /**
  * Unified funds-orders admin read surface (C6).
@@ -29,7 +39,10 @@ import { FundsOrdersAdminQueryDto } from './dto/funds-orders-admin-query.dto';
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @ApiBearerAuth()
 export class FundsOrdersAdminController {
-  constructor(private readonly fundsOrders: FundsOrderService) {}
+  constructor(
+    private readonly fundsOrders: FundsOrderService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List funds orders (deposit/withdraw/swap)' })
@@ -46,5 +59,44 @@ export class FundsOrdersAdminController {
   )
   findOne(@Param('fundsOrderNo') fundsOrderNo: string) {
     return this.fundsOrders.findOneByNoForAdmin(fundsOrderNo);
+  }
+
+  @Post(':fundsOrderNo/advance')
+  @ApiOperation({ summary: 'Advance a funds order (simulation/ops)' })
+  @RequirePermissions(
+    buildPermissionCode('POST', '/admin/funds-orders/:fundsOrderNo/advance'),
+  )
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async advance(
+    @Param('fundsOrderNo') fundsOrderNo: string,
+    @Body() dto: AdvanceFundsOrderDto,
+    @Req() req: any,
+  ) {
+    const before = await this.fundsOrders.findOneByNoForAdmin(fundsOrderNo);
+    const actorNo = req.user?.userNo || req.user?.sub || 'ADMIN';
+    const updated = await this.fundsOrders.advanceByNo(
+      fundsOrderNo,
+      dto.action,
+      actorNo,
+    );
+    await this.auditLogs.recordByActor(
+      {
+        action: AuditActions.FUNDS_ORDER_ADVANCED,
+        entityType: AuditEntityTypes.INTERNAL_FUND,
+        entityId: updated.id,
+        entityNo: fundsOrderNo,
+        workflowType: AuditWorkflowTypes.DEPOSIT,
+        reason: `Sim advance ${dto.action}: ${before.status} → ${updated.status}`,
+        metadata: {
+          fundsOrderNo,
+          action: dto.action,
+          fromStatus: before.status,
+          toStatus: updated.status,
+        },
+        sourcePlatform: 'ADMIN',
+      },
+      { actorType: 'ADMIN', actorId: actorNo, actorNo, actorRole: 'ADMIN' },
+    );
+    return updated;
   }
 }
