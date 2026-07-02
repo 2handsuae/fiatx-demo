@@ -1,8 +1,10 @@
 import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { FundsOrderService } from './funds-order.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { FundsOrderAction, FundsOrderStatus } from './dto/funds-order.dto';
+import { TERMINAL_STATUSES } from './constants/funds-order-transitions.constant';
 
 describe('FundsOrderService', () => {
   let service: FundsOrderService;
@@ -127,6 +129,32 @@ describe('FundsOrderService', () => {
       prisma.fundsOrder.findUnique.mockResolvedValue(null);
       await expect(service.advanceByNo('NOPE', FundsOrderAction.SUBMIT, 'ADMIN'))
         .rejects.toThrow(/not found/i);
+    });
+  });
+
+  describe('findNonTerminalByWallet', () => {
+    it('returns only non-terminal orders touching the wallet, with direction', async () => {
+      const rows = [
+        { id: '1', fundsOrderNo: 'FO-1', status: 'CONFIRMING', fromWalletId: 'W1', toWalletId: 'W2', amount: new Prisma.Decimal(100), netAmount: new Prisma.Decimal(100), txHash: '0xa', referenceNo: null, providerTxnId: null, createdAt: new Date() },
+      ];
+      prisma.fundsOrder.findMany = jest.fn().mockResolvedValue(rows);
+      const out = await service.findNonTerminalByWallet('W1');
+      expect(prisma.fundsOrder.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          status: { notIn: Array.from(TERMINAL_STATUSES) },
+          OR: [{ fromWalletId: 'W1' }, { toWalletId: 'W1' }],
+        }),
+      }));
+      expect(out[0].direction).toBe('OUT'); // fromWalletId === W1
+    });
+
+    it('marks direction IN when toWalletId matches the queried wallet', async () => {
+      const rows = [
+        { id: '2', fundsOrderNo: 'FO-2', status: 'SUBMITTED', fromWalletId: 'W2', toWalletId: 'W1', amount: new Prisma.Decimal(50), netAmount: new Prisma.Decimal(50), txHash: null, referenceNo: 'REF-2', providerTxnId: null, createdAt: new Date() },
+      ];
+      prisma.fundsOrder.findMany = jest.fn().mockResolvedValue(rows);
+      const out = await service.findNonTerminalByWallet('W1');
+      expect(out[0].direction).toBe('IN');
     });
   });
 });

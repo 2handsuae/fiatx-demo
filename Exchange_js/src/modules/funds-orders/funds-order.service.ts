@@ -163,6 +163,25 @@ export class FundsOrderService {
     });
   }
 
+  /** Round3 对账在途匹配专用：某钱包上全部非终态资金单（含相对方向）。 */
+  async findNonTerminalByWallet(walletId: string) {
+    const rows = await this.prisma.fundsOrder.findMany({
+      where: {
+        status: { notIn: Array.from(TERMINAL_STATUSES) },
+        OR: [{ fromWalletId: walletId }, { toWalletId: walletId }],
+      },
+      select: {
+        id: true, fundsOrderNo: true, status: true, amount: true, netAmount: true,
+        txHash: true, referenceNo: true, providerTxnId: true,
+        fromWalletId: true, toWalletId: true, createdAt: true,
+      },
+    });
+    return rows.map((r) => ({
+      ...r,
+      direction: (r.fromWalletId === walletId ? 'OUT' : 'IN') as 'IN' | 'OUT',
+    }));
+  }
+
   /* ── Admin read surface (C6) ────────────────────────────────────
      Unified funds-orders admin list + detail. A funds_order's "parent"
      is whichever of the three FKs is non-null: deposit (IN payin),
