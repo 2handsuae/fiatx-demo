@@ -460,10 +460,13 @@ export class SwapWorkflowService {
     if (!event.parent.swapTransactionId) return; // only swap legs
     const { newStatus } = event;
     if (
-      newStatus !== FundsOrderStatus.CLEARED &&
+      newStatus !== FundsOrderStatus.CONFIRMED &&
       !SwapWorkflowService.TERMINAL_FAIL.has(newStatus)
     ) {
-      return; // intermediate hop — nothing to post
+      // CONFIRMED is the finalize trigger (workflow posts TB + auto-CLEARs the
+      // leg + chains the next). CLEARED re-fires here from that auto-CLEAR and
+      // is a deliberate no-op. Other intermediate hops: nothing to do.
+      return;
     }
 
     const swapId = event.parent.swapTransactionId;
@@ -482,8 +485,8 @@ export class SwapWorkflowService {
       const spec = allSpecs.find((s) => s.legSeq === event.legSeq);
       if (!spec) throw new Error(`Spec not found for legSeq ${event.legSeq}`);
 
-      if (newStatus === FundsOrderStatus.CLEARED) {
-        await this.onLegCleared(swap, spec, event, ctx, client);
+      if (newStatus === FundsOrderStatus.CONFIRMED) {
+        await this.onLegConfirmed(swap, spec, event, ctx, client);
       } else {
         await this.onLegFailedSelfHeal(swap, spec, event, ctx, client);
       }
@@ -491,10 +494,14 @@ export class SwapWorkflowService {
   }
 
   /**
-   * Handle the CLEARED branch: POST the leg's TB entries + audit SWAP_LEG_POSTED,
-   * then either finalize SUCCESS (last leg) or chain the next leg.
+   * Handle the CONFIRMED trigger: POST the leg's TB entries + audit
+   * SWAP_LEG_POSTED, auto-advance the leg funds_order to CLEARED (terminal —
+   * mirrors deposit/withdraw where CONFIRM finalizes internally, so manual
+   * simulation only needs to reach CONFIRMED), then either finalize SUCCESS
+   * (last leg) or chain the next leg. The CLEARED event this advance emits
+   * re-enters handleFundsOrderChanged and is a no-op (guarded out).
    */
-  private async onLegCleared(
+  private async onLegConfirmed(
     swap: any,
     spec: SwapLegSpec,
     event: FundsOrderStatusChangedEvent,
@@ -507,6 +514,14 @@ export class SwapWorkflowService {
     await this.swapLegAccounting.postLeg(
       { ...ctx, attempt: event.attempt },
       spec,
+      client,
+    );
+    // Auto-CLEAR the leg funds_order now that accounting is posted (CONFIRMED →
+    // CLEARED). Terminal; the re-emitted CLEARED event is guarded out above.
+    await this.fundsOrders.advance(
+      event.fundsOrderId,
+      FundsOrderAction.CLEAR,
+      'SYSTEM',
       client,
     );
     await this.auditLogsService.recordSystem(

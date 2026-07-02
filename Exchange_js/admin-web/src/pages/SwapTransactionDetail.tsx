@@ -100,19 +100,6 @@ const LEG_STAGE: Record<number, string> = {
   4: 'FEE',
 };
 
-/**
- * Actions allowed per current InternalFund status. Kept static (the backend
- * is the source of truth for whether a transition is legal); the UI just
- * shows the legacy happy-path verbs + FAIL.
- */
-const ACTIONS_BY_STATUS: Record<string, string[]> = {
-  CREATED: ['SIGN', 'SUBMIT'],
-  SIGNING: ['BROADCAST'],
-  BROADCASTED: ['SEEN_IN_MEMPOOL'],
-  CONFIRMING: ['CONFIRM', 'FAIL'],
-  CONFIRMED: ['CLEAR'],
-};
-
 /* ── Page Component ─────────────────────────────────────────── */
 
 const SwapTransactionDetail = () => {
@@ -146,31 +133,6 @@ const SwapTransactionDetail = () => {
   useEffect(() => {
     if (id) void fetchData();
   }, [id]);
-
-  const advanceLeg = async (swapNo: string, legSeq: number, action: string) => {
-    setLegBusy(legSeq);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${swapNo}/legs/${legSeq}/advance`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action }),
-        },
-      );
-      if (!res.ok) {
-        alert(await getApiErrorMessage(res, `Failed to advance leg ${legSeq}`));
-        return;
-      }
-      await fetchData();
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      console.error('Failed to advance leg', error);
-      alert('Failed to advance leg');
-    } finally {
-      setLegBusy(null);
-    }
-  };
 
   const resumeLeg = async (swapNo: string, legSeq: number) => {
     setLegBusy(legSeq);
@@ -419,7 +381,6 @@ const SwapTransactionDetail = () => {
                               onNavigate={() =>
                                 navigate(`/admin/funds-orders/${row.fundsOrderNo}`)
                               }
-                              onAdvance={advanceLeg}
                               onResume={resumeLeg}
                             />
                           );
@@ -493,7 +454,6 @@ const LegAttemptRow = ({
   isLatest,
   busy,
   onNavigate,
-  onAdvance,
   onResume,
 }: {
   swapNo: string;
@@ -504,15 +464,14 @@ const LegAttemptRow = ({
   isLatest: boolean;
   busy: boolean;
   onNavigate: () => void;
-  onAdvance: (swapNo: string, legSeq: number, action: string) => void;
   onResume: (swapNo: string, legSeq: number) => void;
 }) => {
-  const [selectedAction, setSelectedAction] = useState<string>('');
   const status = row.status;
-  const validActions = ACTIONS_BY_STATUS[status] ?? [];
   const attemptLabel = `Attempt ${row.attempt ?? 1}`;
   const showResume = isLatest && status === 'NEEDS_REVIEW';
-  const showAdvance = isLatest && !showResume && validActions.length > 0;
+  // Routine leg-state advance was removed here — funds-order state is now driven
+  // from the funds-order detail page's ⚡ simulation panel. Resume (stuck-leg
+  // recovery) stays; the fundsOrderNo link navigates to that panel.
 
   return (
     <div
@@ -553,31 +512,6 @@ const LegAttemptRow = ({
             className={adminButtonClass('repair')}
           >
             Resume Leg
-          </button>
-        </div>
-      )}
-      {showAdvance && (
-        <div className="flex items-center justify-end gap-2">
-          <select
-            value={selectedAction}
-            onChange={(e) => setSelectedAction(e.target.value)}
-            disabled={busy}
-            className="h-[28px] rounded border border-adm-border bg-adm-bg px-2 font-mono text-[11px] text-adm-t1 outline-none focus:border-adm-amber disabled:opacity-40"
-          >
-            <option value="">Select action…</option>
-            {validActions.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            disabled={busy || !selectedAction}
-            onClick={() => onAdvance(swapNo, legSeq, selectedAction)}
-            className={adminButtonClass('workflowPrimary')}
-          >
-            Advance
           </button>
         </div>
       )}

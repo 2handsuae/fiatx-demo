@@ -303,28 +303,35 @@ async function driveSwapLegToClear(ctx: DemoCtx, swapId: string, swapNo: string,
     return leg ?? null;
   }, 8000);
 
+  // Phase 1: drive CREATED → … → CONFIRMED. CONFIRMED is the finalize trigger —
+  // the swap workflow (async @OnEvent) then posts TB, auto-CLEARs this leg, and
+  // chains the next. We never issue CLEAR (mirrors the sim panel, which has no
+  // CLEAR button).
   for (let step = 0; step < 8; step++) {
     const [leg] = await ctx.fundsOrders.findByParent({ swapTransactionId: swapId }, { legSeq });
     if (!leg) throw new Error(`${swapNo} leg ${legSeq} not found`);
-    if (leg.status === 'CLEARED') return;
+    if (leg.status === 'CLEARED' || leg.status === 'CONFIRMED') break;
     const isFiat = ((leg as any).asset?.type || '').toUpperCase() === 'FIAT';
     let action: FundsOrderAction;
     if (isFiat) {
       if (leg.status === 'CREATED') action = FundsOrderAction.SUBMIT;
       else if (leg.status === 'SUBMITTED') action = FundsOrderAction.CONFIRM;
-      else if (leg.status === 'CONFIRMED') action = FundsOrderAction.CLEAR;
       else throw new Error(`${swapNo} leg ${legSeq} unexpected fiat status ${leg.status}`);
     } else {
       if (leg.status === 'CREATED') action = FundsOrderAction.SUBMIT;
       else if (leg.status === 'SUBMITTED') action = FundsOrderAction.OBSERVE_CONFIRMING;
       else if (leg.status === 'CONFIRMING') action = FundsOrderAction.CONFIRM;
-      else if (leg.status === 'CONFIRMED') action = FundsOrderAction.CLEAR;
       else throw new Error(`${swapNo} leg ${legSeq} unexpected crypto status ${leg.status}`);
     }
     await ctx.fundsOrders.advance(leg.id, action, 'DEMO');
     await sleep(40);
   }
-  throw new Error(`${swapNo} leg ${legSeq} did not reach CLEARED after 8 steps`);
+
+  // Phase 2: wait for the async workflow to auto-CLEAR this leg (post TB + chain).
+  await waitFor(`${swapNo} leg ${legSeq} CLEARED`, async () => {
+    const [leg] = await ctx.fundsOrders.findByParent({ swapTransactionId: swapId }, { legSeq });
+    return leg?.status === 'CLEARED' ? leg : null;
+  }, 8000);
 }
 
 /** Drive an entire PROCESSING swap (all 4 legs) to SUCCESS. */

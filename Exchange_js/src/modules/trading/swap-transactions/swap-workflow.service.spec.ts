@@ -493,15 +493,15 @@ describe('SwapWorkflowService.advanceLeg (thin wrapper)', () => {
 
 // ── handleFundsOrderChanged: chaining + SUCCESS ──────────────────────────────
 
-describe('SwapWorkflowService.handleFundsOrderChanged — CLEARED chaining', () => {
+describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', () => {
   const evt = (over: Partial<any>) => ({
     fundsOrderId: 'fo-x',
     fundsOrderNo: 'FO0001',
     parent: { swapTransactionId: 'swap-1' },
     legSeq: 1,
     attempt: 1,
-    oldStatus: 'CONFIRMED',
-    newStatus: FundsOrderStatus.CLEARED,
+    oldStatus: 'CONFIRMING',
+    newStatus: FundsOrderStatus.CONFIRMED,
     ...over,
   });
 
@@ -515,20 +515,21 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CLEARED chaining', () 
     expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('ignores intermediate hops (SUBMITTED/CONFIRMING/CONFIRMED)', async () => {
+  it('ignores intermediate hops (SUBMITTED/CONFIRMING) and the CLEARED re-emit', async () => {
     const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.SUBMITTED }] });
     const svc = makeAdvanceLegService(mocks);
 
     await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.SUBMITTED }) as any);
     await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.CONFIRMING }) as any);
-    await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.CONFIRMED }) as any);
+    // CLEARED re-fires from the workflow's own auto-CLEAR — must be a no-op.
+    await svc.handleFundsOrderChanged(evt({ newStatus: FundsOrderStatus.CLEARED }) as any);
 
     expect(mocks.legAccounting.postLeg).not.toHaveBeenCalled();
     expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('mid-leg CLEARED posts leg + chains the next leg (no SUCCESS)', async () => {
-    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.CLEARED }] });
+  it('mid-leg CONFIRMED posts leg + auto-CLEARs + chains the next leg (no SUCCESS)', async () => {
+    const mocks = buildAdvanceLegMocks({ legs: [{ legSeq: 1, status: FundsOrderStatus.CONFIRMED }] });
     const svc = makeAdvanceLegService(mocks);
 
     await svc.handleFundsOrderChanged(evt({ legSeq: 1, attempt: 1 }) as any);
@@ -537,6 +538,10 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CLEARED chaining', () 
     expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
     expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][0].attempt).toBe(1);
     expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
+
+    // leg auto-advanced to CLEARED (CONFIRMED → CLEAR).
+    expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(1);
+    expect((mocks.fundsOrders.advance as jest.Mock).mock.calls[0][1]).toBe(FundsOrderAction.CLEAR);
 
     // next leg (leg2) created in CREATED with attempt=1.
     expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
@@ -554,13 +559,13 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CLEARED chaining', () 
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
   });
 
-  it('last-leg (legSeq 4) CLEARED posts leg, marks SUCCESS, emits SWAP_SUCCEEDED', async () => {
+  it('last-leg (legSeq 4) CONFIRMED posts leg, marks SUCCESS', async () => {
     const mocks = buildAdvanceLegMocks({
       legs: [
         { legSeq: 1, status: FundsOrderStatus.CLEARED },
         { legSeq: 2, status: FundsOrderStatus.CLEARED },
         { legSeq: 3, status: FundsOrderStatus.CLEARED },
-        { legSeq: 4, status: FundsOrderStatus.CLEARED },
+        { legSeq: 4, status: FundsOrderStatus.CONFIRMED },
       ],
     });
     const svc = makeAdvanceLegService(mocks);
