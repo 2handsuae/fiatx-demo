@@ -290,7 +290,8 @@ export class WalletFlowMatcherService {
         if (usedExternal.has(ext.id)) continue;
         const hit = candidates.find((c) => !usedOrders.has(c.id) && c.direction === ext.direction
           && amountOk(ext, c)
-          && Math.abs(ext.datetime.getTime() - c.createdAt.getTime()) <= H72);
+          && Math.abs(ext.datetime.getTime() - c.createdAt.getTime()) <= H72
+          && (ext.externalRef == null || refsOf(c).length === 0));
         if (hit) take(ext, hit);
       }
     }
