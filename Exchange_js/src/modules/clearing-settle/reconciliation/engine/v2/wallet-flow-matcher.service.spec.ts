@@ -349,6 +349,53 @@ describe('WalletFlowMatcherService', () => {
       expect(res.inTransit).toHaveLength(0);
     });
 
+    it('third pass: ref conflict blocks fallback — 双方都有单号但不一致时禁止兜底配对', async () => {
+      // External line carries '0xabc' but the only candidate carries '0xdef'.
+      // Same amount + direction + within 72h — sub-pass B must still refuse:
+      // when BOTH sides carry refs and they disagree, pairing them would
+      // cross-wire two different real-world transfers.
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-conflict', fundsOrderNo: 'FO-CONFLICT', status: 'CONFIRMING', direction: 'IN',
+            amount: D(100), netAmount: D(100),
+            txHash: '0xdef', referenceNo: null, providerTxnId: null, createdAt: now,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now });
+      expect(res.inTransit).toHaveLength(0);
+      expect(res.orphanExternal).toHaveLength(1);
+    });
+
+    it('third pass: sub-pass A beats earlier refless candidate — 单号精确优先于 createdAt 顺序', async () => {
+      // Earlier candidate has no refs at all; later candidate's txHash exactly
+      // matches the external line's ref. Sub-pass A (ref-exact) runs before
+      // sub-pass B (fallback), so the later ref-exact candidate must win even
+      // though the refless one sorts first by createdAt.
+      const earlier = new Date('2026-06-26T08:00:00Z');
+      const later = new Date('2026-06-26T09:00:00Z');
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-refless', fundsOrderNo: 'FO-REFLESS', status: 'CONFIRMING', direction: 'IN',
+            amount: D(300), netAmount: D(300),
+            txHash: null, referenceNo: null, providerTxnId: null, createdAt: earlier,
+          },
+          {
+            id: 'fo-refhit', fundsOrderNo: 'FO-REFHIT', status: 'CONFIRMING', direction: 'IN',
+            amount: D(300), netAmount: D(300),
+            txHash: '0xhit', referenceNo: null, providerTxnId: null, createdAt: later,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now });
+      expect(res.inTransit).toHaveLength(1);
+      expect(res.inTransit[0].fundsOrderNo).toBe('FO-REFHIT');
+    });
+
     it('third pass determinism: 两张同额无单号候选单，按 createdAt 升序取第一', async () => {
       const earlier = new Date('2026-06-26T08:00:00Z');
       const later = new Date('2026-06-26T09:00:00Z');

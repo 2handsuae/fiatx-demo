@@ -21,6 +21,11 @@
 //      NOT resolve the external line as evidence-matched — it explains the
 //      pending gap so downstream bucket classification can treat it as
 //      "explained by an in-flight order" rather than a hard break.
+//      Note: in sub-pass (a), a ref hit whose amount does NOT match is
+//      intentionally not reported as 'mismatch' — an unsettled order is a
+//      pending intent, not hard ledger evidence, so unlike Pass 1 the line
+//      simply stays in orphanExternal. This semantic difference from Pass 1's
+//      mismatch bucket is deliberate.
 //
 // Inclusion filter (must match WalletBalanceCheckerService — the matcher
 // compares evidence against the SAME slice of account_flows that the
@@ -261,7 +266,7 @@ export class WalletFlowMatcherService {
     const leftovers = externalLines.filter((e) => !usedExternal.has(e.id));
     if (leftovers.length > 0) {
       const candidates = (await this.fundsOrders.findNonTerminalByWallet(walletRef))
-        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
       const usedOrders = new Set<string>();
       const H72 = 72 * 60 * 60 * 1000;
       const refsOf = (c: (typeof candidates)[number]) => [c.txHash, c.referenceNo, c.providerTxnId].filter(Boolean);
