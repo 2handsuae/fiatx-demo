@@ -27,7 +27,6 @@ import {
   Sun,
   Moon,
   Database,
-  Gauge,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -242,12 +241,13 @@ const DashboardLayout = () => {
           icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
-        {
-          path: '/admin/assets/transaction-limits',
-          label: 'Transaction Limits',
-          icon: <Gauge size={13} />,
-          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
-        },
+        // Hidden from sidebar 2026-07-02 (route stays live for direct links)
+        // {
+        //   path: '/admin/assets/transaction-limits',
+        //   label: 'Transaction Limits',
+        //   icon: <Gauge size={13} />,
+        //   requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
+        // },
       ],
     },
     // ─── Pricing ──────────────────────────────────────────────────
