@@ -19,8 +19,6 @@ import {
   Briefcase,
   Coins,
   Layers,
-  Handshake,
-  Building2,
   ShieldCheck,
   Shield,
   UserCheck,
@@ -358,67 +356,69 @@ const DashboardLayout = () => {
       ],
     },
     // ─── Governance Registries ────────────────────────────────────
-    {
-      label: 'Governance Registries',
-      icon: <Library size={12} />,
-      children: [
-        {
-          path: '/admin/registries/shareholding-versions',
-          label: 'Shareholding Registry',
-          icon: <Building2 size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
-        },
-        {
-          path: '/admin/registries/appointments',
-          label: 'Appointments',
-          icon: <UserCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
-        },
-        {
-          path: '/admin/registries/trainings',
-          label: 'Trainings',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
-        },
-        {
-          path: '/admin/registries/conflicts',
-          label: 'Conflicts',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
-        },
-        {
-          path: '/admin/registries/wind-down-materials',
-          label: 'Wind-down Materials',
-          icon: <FileText size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
-        },
-        {
-          path: '/admin/registries/regulatory-gates',
-          label: 'Regulatory Gates',
-          icon: <ShieldCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
-        },
-      ],
-    },
+    // Hidden from sidebar 2026-07-02 (routes stay live for direct links)
+    // {
+    //   label: 'Governance Registries',
+    //   icon: <Library size={12} />,
+    //   children: [
+    //     {
+    //       path: '/admin/registries/shareholding-versions',
+    //       label: 'Shareholding Registry',
+    //       icon: <Building2 size={13} />,
+    //       requiredPermissions: [PERMISSIONS.GOV_SHAREHOLDING_REGISTRY_READ],
+    //     },
+    //     {
+    //       path: '/admin/registries/appointments',
+    //       label: 'Appointments',
+    //       icon: <UserCheck size={13} />,
+    //       requiredPermissions: [PERMISSIONS.GOV_APPOINTMENTS_READ],
+    //     },
+    //     {
+    //       path: '/admin/registries/trainings',
+    //       label: 'Trainings',
+    //       icon: <ClipboardList size={13} />,
+    //       requiredPermissions: [PERMISSIONS.GOV_TRAININGS_READ],
+    //     },
+    //     {
+    //       path: '/admin/registries/conflicts',
+    //       label: 'Conflicts',
+    //       icon: <Shield size={13} />,
+    //       requiredPermissions: [PERMISSIONS.GOV_CONFLICTS_READ],
+    //     },
+    //     {
+    //       path: '/admin/registries/wind-down-materials',
+    //       label: 'Wind-down Materials',
+    //       icon: <FileText size={13} />,
+    //       requiredPermissions: [PERMISSIONS.GOV_WIND_DOWN_MATERIALS_READ],
+    //     },
+    //     {
+    //       path: '/admin/registries/regulatory-gates',
+    //       label: 'Regulatory Gates',
+    //       icon: <ShieldCheck size={13} />,
+    //       requiredPermissions: [PERMISSIONS.GOV_REGULATORY_GATES_READ],
+    //     },
+    //   ],
+    // },
     // ─── Counterparty ─────────────────────────────────────────────
-    {
-      label: 'Counterparty',
-      icon: <Handshake size={12} />,
-      children: [
-        {
-          path: '/admin/counterparty/liquidity-providers',
-          label: 'Liquidity Providers',
-          icon: <Building2 size={13} />,
-          requiredPermissions: [PERMISSIONS.LIQUIDITY_PROVIDERS_READ],
-        },
-        {
-          path: '/admin/counterparty/liquidity-config',
-          label: 'LP Liquidity Config',
-          icon: <ShieldCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.LIQUIDITY_CONFIG_READ],
-        },
-      ],
-    },
+    // Hidden from sidebar 2026-07-02 (routes stay live for direct links)
+    // {
+    //   label: 'Counterparty',
+    //   icon: <Handshake size={12} />,
+    //   children: [
+    //     {
+    //       path: '/admin/counterparty/liquidity-providers',
+    //       label: 'Liquidity Providers',
+    //       icon: <Building2 size={13} />,
+    //       requiredPermissions: [PERMISSIONS.LIQUIDITY_PROVIDERS_READ],
+    //     },
+    //     {
+    //       path: '/admin/counterparty/liquidity-config',
+    //       label: 'LP Liquidity Config',
+    //       icon: <ShieldCheck size={13} />,
+    //       requiredPermissions: [PERMISSIONS.LIQUIDITY_CONFIG_READ],
+    //     },
+    //   ],
+    // },
   ];
 
   const visibleMenuItems = useMemo(() => {
