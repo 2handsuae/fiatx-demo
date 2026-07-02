@@ -26,6 +26,8 @@ import {
   formatFundsOrderStatusBilingual,
   getFundsOrderStatusTone,
 } from '../utils/fundsOrderStatusMap';
+import { useSimulationMode } from '../utils/simulationMode';
+import { getFundsOrderSimActions } from '../utils/fundsOrderSimActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -90,6 +92,7 @@ interface FundsOrderDetail {
   asset: FoAsset | null;
   fromWallet: FoWallet | null;
   toWallet: FoWallet | null;
+  swapTransactionId?: string | null;
   deposit?: FoParent | null;
   withdrawTransaction?: FoParent | null;
   swapTransaction?: FoParent | null;
@@ -179,6 +182,8 @@ const FundsOrderDetail = () => {
   const [data, setData] = useState<FundsOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const { enabled: simEnabled } = useSimulationMode();
+  const [simSubmitting, setSimSubmitting] = useState(false);
 
   const fetchData = async () => {
     if (!fundsOrderNo) return;
@@ -211,6 +216,48 @@ const FundsOrderDetail = () => {
     copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleSimAction = async (a: {
+    key: string;
+    fundsOrderAction: string;
+    swapAction: string;
+    destructive: boolean;
+    labelZh: string;
+  }) => {
+    if (!data) return;
+    if (
+      a.destructive &&
+      !window.confirm(
+        `确定执行「${a.labelZh}」? 这会把资金单打到失败终态并触发退款/解锁。`,
+      )
+    ) {
+      return;
+    }
+    setSimSubmitting(true);
+    try {
+      const isSwap = !!data.swapTransactionId;
+      const url = isSwap
+        ? `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${data.swapNo}/legs/${data.legSeq}/advance`
+        : `${import.meta.env.VITE_API_URL}/admin/funds-orders/${data.fundsOrderNo}/advance`;
+      const action = isSwap ? a.swapAction : a.fundsOrderAction;
+      const response = await adminFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!response.ok) {
+        alert(await getApiErrorMessage(response, 'Simulation failed'));
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Sim failed', error);
+      alert('Simulation request failed');
+    } finally {
+      setSimSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -339,6 +386,50 @@ const FundsOrderDetail = () => {
               </>
             )}
           </DetailCard>
+
+          {/* 2.5 Simulation panel (dev/ops only — gated by simulation mode) */}
+          {simEnabled && (
+            <div className="bg-adm-card px-6 py-5">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="mb-2 text-sm font-semibold text-amber-800">
+                  ⚡ 模拟操作 / Simulation
+                </div>
+                {(() => {
+                  const actions = getFundsOrderSimActions(
+                    data.status,
+                    (data.asset?.type || 'CRYPTO').toUpperCase() as
+                      | 'CRYPTO'
+                      | 'FIAT',
+                  );
+                  if (actions.length === 0) {
+                    return (
+                      <div className="text-sm text-gray-500">
+                        终态或无可用动作 / No actions available
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      {actions.map((a) => (
+                        <button
+                          key={a.key}
+                          disabled={simSubmitting}
+                          onClick={() => handleSimAction(a)}
+                          className={`rounded px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${
+                            a.destructive
+                              ? 'bg-red-500 hover:bg-red-600'
+                              : 'bg-blue-500 hover:bg-blue-600'
+                          }`}
+                        >
+                          {a.labelZh} / {a.labelEn.replace('⚡ ', '')}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
 
           {/* 3a. Chain Execution (crypto only) */}
           {!isFiat && (
