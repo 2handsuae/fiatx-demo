@@ -33,6 +33,13 @@ import {
   ASSET_TB_CODES,
 } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
+import { computeBucket, ReconBucket } from '../engine/v2/bucket-classifier';
+import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditBusinessWorkflowTypes,
+} from '../../../audit-logging/constants/audit-actions.constant';
 
 const RUN_LAYER = 'WALLET';
 
@@ -91,6 +98,7 @@ export class WalletReconRunService {
     private readonly balanceChecker: WalletBalanceCheckerService,
     private readonly flowMatcher: WalletFlowMatcherService,
     private readonly tigerBeetle: TigerBeetleService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
   async run(input: WalletReconRunInput): Promise<WalletReconRunResult> {
@@ -111,6 +119,7 @@ export class WalletReconRunService {
         casesOpened: 0,
         casesReObserved: 0,
         casesAutoHealed: 0,
+        bucketCounts: { matched: 0, inTransit: 0, softFlag: 0, break: 0 },
       });
       return {
         runId: run.id,
@@ -126,14 +135,19 @@ export class WalletReconRunService {
     }
 
     // ── 2. List wallets to check ────────────────────────────────────────────
+    // Round3: no longer filter out walletRef=null heads — those are
+    // "unattributed" external accounts (no internal wallet claims them) and
+    // must surface as BREAK cases instead of being silently skipped.
     const cutoffDate = this.toBusinessDate(cutoff);
     const externalBalances = (await (this.prisma as any).externalBalance.findMany({
-      where: { cutoffDate, walletRef: { not: null } },
+      where: { cutoffDate },
       select: { walletRef: true, closingBalance: true, book: true, currency: true, accountRef: true },
     })) as ExternalBalanceRow[];
 
+    const attributedBalances = externalBalances.filter((b) => b.walletRef !== null);
+    const unattributedBalances = externalBalances.filter((b) => b.walletRef === null);
     const walletRefs = Array.from(
-      new Set(externalBalances.map((b) => b.walletRef).filter((r): r is string => !!r)),
+      new Set(attributedBalances.map((b) => b.walletRef).filter((r): r is string => !!r)),
     );
     let casesCreated = 0;
     let casesUpdated = 0;
@@ -141,13 +155,18 @@ export class WalletReconRunService {
     let orphanExternal = 0;
     let mismatch = 0;
     // T2 auto-heal input: every real walletRef touched by this run as
-    // "still breaking". After all wallets are processed, any OPEN case on
-    // this businessDate whose walletRef is NOT in this set is assumed to
-    // have recovered → auto-resolve.
+    // "still breaking" (includes unattributed accountRef "wallets"). After
+    // all wallets are processed, any OPEN case whose walletRef is NOT in
+    // this set is assumed to have recovered → auto-resolve.
     const currentBreakingWallets = new Set<string>();
+    // Round3: per-wallet snapshot rows — written for EVERY processed wallet
+    // (all four buckets, matched included) so the run-detail page has a
+    // single source of truth to render from (T6 reads this table only).
+    const snapshotRows: Array<Record<string, unknown>> = [];
+    const bucketCounts = { matched: 0, inTransit: 0, softFlag: 0, break: 0 };
 
     for (const walletRef of walletRefs) {
-      const bal = externalBalances.find((b) => b.walletRef === walletRef)!;
+      const bal = attributedBalances.find((b) => b.walletRef === walletRef)!;
       const currency = bal.currency;
       const assetId = await this.resolveAssetId(currency);
       if (!assetId) continue;
@@ -177,21 +196,34 @@ export class WalletReconRunService {
       orphanExternal += matcherResult.orphanExternal.length;
       mismatch += matcherResult.mismatch.length;
 
-      const flowHasBreak =
-        matcherResult.orphanInternal.length > 0 ||
-        matcherResult.orphanExternal.length > 0 ||
-        matcherResult.mismatch.length > 0;
+      // Round3: five-bucket classification — replaces the old binary
+      // (balance-pass && no-flow-break) gate. In-transit flows explain part
+      // of the delta before we decide whether the residual is a real break.
+      const inTransitSigned = matcherResult.inTransit.reduce(
+        (s, it) => s + (it.direction === 'IN' ? BigInt(it.amount) : -BigInt(it.amount)),
+        0n,
+      );
+      const anomalyCount = matcherResult.orphanInternal.length + matcherResult.orphanExternal.length + matcherResult.mismatch.length;
+      const bucket = computeBucket({
+        delta: balanceCheck.delta,
+        inTransitSigned,
+        inTransitCount: matcherResult.inTransit.length,
+        anomalyCount,
+      });
+      this.bumpBucketCount(bucketCounts, bucket);
 
-      // T2: one wallet-level Case per breaking wallet — upsert by (walletRef,
-      // businessDate). Whether the break is balance, flow, or both, we land on
-      // the same Case row; line items reflect the current run's findings.
-      if (!balanceCheck.pass || flowHasBreak) {
-        const caseReason = !balanceCheck.pass && flowHasBreak
+      let caseNo: string | null = null;
+      // T2/Round3: one wallet-level Case per non-MATCHED wallet — upsert by
+      // walletRef (cross-day unique, see upsertCaseForWallet). Whether the
+      // break is balance, flow, or in-transit residual, we land on the same
+      // Case row; line items reflect the current run's findings.
+      if (bucket !== 'MATCHED') {
+        const caseReason = !balanceCheck.pass && anomalyCount > 0
           ? 'wallet_balance_and_flow_break'
           : !balanceCheck.pass
             ? 'wallet_balance_mismatch'
             : 'wallet_flow_break';
-        const { created } = await this.upsertCaseForWallet({
+        const { created, caseNo: openedCaseNo } = await this.upsertCaseForWallet({
           runId: run.id,
           businessDate,
           assetId,
@@ -203,19 +235,111 @@ export class WalletReconRunService {
           delta: balanceCheck.delta,
           tbAmount: balanceCheck.internal.total,
           actualExternal: balanceCheck.external,
+          inTransitSigned,
+          bucket,
           matcherResult,
           caseReason,
         });
-        if (created) casesCreated += 1; else casesUpdated += 1;
+        if (created) {
+          casesCreated += 1;
+          await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket, delta: balanceCheck.delta, caseNo: openedCaseNo });
+        } else {
+          casesUpdated += 1;
+        }
         currentBreakingWallets.add(walletRef);
+        caseNo = openedCaseNo;
       }
+
+      snapshotRows.push({
+        runId: run.id,
+        walletRef,
+        assetCode: currency,
+        book: enriched.book,
+        coaCode: enriched.coaCode,
+        ownerNo: enriched.ownerNo,
+        bucket,
+        internalTotal: new Prisma.Decimal(balanceCheck.internal.total.toString()),
+        externalClosing: new Prisma.Decimal(balanceCheck.external.toString()),
+        deltaAmount: new Prisma.Decimal(balanceCheck.delta.toString()),
+        inTransitAmount: new Prisma.Decimal(inTransitSigned.toString()),
+        matchedCount: matcherResult.matched.length,
+        orphanInternal: matcherResult.orphanInternal.length,
+        orphanExternal: matcherResult.orphanExternal.length,
+        mismatchCount: matcherResult.mismatch.length,
+        inTransitCount: matcherResult.inTransit.length,
+        caseNo,
+      });
     }
 
-    // ── 3. Auto-heal: any previously OPEN case whose wallet didn't break in
+    // ── 2c. Unattributed external heads (walletRef=null) — no internal face
+    // to compare against, so neither engine runs. Always BREAK; case keyed
+    // on accountRef standing in for walletRef.
+    for (const bal of unattributedBalances) {
+      const currency = bal.currency;
+      const assetId = await this.resolveAssetId(currency);
+      if (!assetId) continue;
+      const closing = BigInt(bal.closingBalance.toString());
+      const walletRef = bal.accountRef;
+
+      const { created, caseNo } = await this.upsertCaseForWallet({
+        runId: run.id,
+        businessDate,
+        assetId,
+        assetCode: currency,
+        book: 'FIRM',
+        walletRef,
+        coaCode: null,
+        ownerNo: null,
+        delta: closing,
+        tbAmount: 0n,
+        actualExternal: closing,
+        inTransitSigned: 0n,
+        bucket: 'BREAK',
+        matcherResult: { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [], inTransit: [] },
+        caseReason: 'unattributed_external_account',
+      });
+      if (created) {
+        casesCreated += 1;
+        await this.auditCaseOpened({ traceId: run.traceId ?? null, walletRef, bucket: 'BREAK', delta: closing, caseNo });
+      } else {
+        casesUpdated += 1;
+      }
+      currentBreakingWallets.add(walletRef);
+      this.bumpBucketCount(bucketCounts, 'BREAK');
+
+      snapshotRows.push({
+        runId: run.id,
+        walletRef,
+        assetCode: currency,
+        book: 'FIRM',
+        coaCode: null,
+        ownerNo: null,
+        bucket: 'BREAK',
+        internalTotal: new Prisma.Decimal(0),
+        externalClosing: new Prisma.Decimal(closing.toString()),
+        deltaAmount: new Prisma.Decimal(closing.toString()),
+        inTransitAmount: new Prisma.Decimal(0),
+        matchedCount: 0,
+        orphanInternal: 0,
+        orphanExternal: 0,
+        mismatchCount: 0,
+        inTransitCount: 0,
+        caseNo,
+      });
+    }
+
+    // ── 3. Persist per-wallet snapshot rows — single write, all buckets.
+    if (snapshotRows.length > 0) {
+      await (this.prisma as any).reconciliationRunWallet.createMany({ data: snapshotRows });
+    }
+
+    // ── 4. Auto-heal: any previously OPEN case whose wallet didn't break in
     // this run is presumed recovered → mark RESOLVED + AUTO_HEALED. Scoped to
-    // layer=WALLET so this never touches legacy V8 cases.
+    // layer=WALLET so this never touches legacy V8 cases. Cross-day: no
+    // longer scoped to businessDate (T5 Step③).
     const closedCount = await this.autoHealCases({
       runId: run.id,
+      traceId: run.traceId ?? null,
       businessDate,
       currentBreakingWallets,
     });
@@ -223,18 +347,31 @@ export class WalletReconRunService {
     // ── 5. Summarize ────────────────────────────────────────────────────────
     const totalOpenAfter = casesCreated + casesUpdated;
     const status: WalletReconRunResult['status'] = totalOpenAfter > 0 ? 'BREAK' : 'PASS';
+    const walletsChecked = walletRefs.length + unattributedBalances.length;
     await this.finishRun(run.id, {
       status,
-      walletsChecked: walletRefs.length,
+      walletsChecked,
       casesOpened: casesCreated,
       casesReObserved: casesUpdated,
       casesAutoHealed: closedCount,
+      bucketCounts,
+    });
+
+    await this.auditRunCompleted({
+      runId: run.id,
+      traceId: run.traceId ?? null,
+      status,
+      walletsChecked,
+      casesOpened: casesCreated,
+      casesReObserved: casesUpdated,
+      casesAutoHealed: closedCount,
+      bucketCounts,
     });
 
     return {
       runId: run.id,
       status,
-      walletsChecked: walletRefs.length,
+      walletsChecked,
       casesOpened: casesCreated,
       casesReObserved: casesUpdated,
       casesAutoHealed: closedCount,
@@ -242,6 +379,16 @@ export class WalletReconRunService {
       orphanExternal,
       mismatch,
     };
+  }
+
+  private bumpBucketCount(
+    counts: { matched: number; inTransit: number; softFlag: number; break: number },
+    bucket: ReconBucket,
+  ): void {
+    if (bucket === 'MATCHED') counts.matched += 1;
+    else if (bucket === 'IN_TRANSIT') counts.inTransit += 1;
+    else if (bucket === 'SOFT_FLAG') counts.softFlag += 1;
+    else counts.break += 1;
   }
 
   // ── run row helpers ────────────────────────────────────────────────────────
@@ -276,11 +423,15 @@ export class WalletReconRunService {
       casesOpened: number;
       casesReObserved: number;
       casesAutoHealed: number;
+      bucketCounts: { matched: number; inTransit: number; softFlag: number; break: number };
     },
   ): Promise<void> {
     // T2: populate ReconciliationRun summary counters so the UI cockpit can
     // render meaningful totals (the old single-counter `openedCount` lumped
     // create+update together; here we split them and surface auto-heal).
+    // Round3: also persist the five-bucket wallet counts (walletCount/
+    // matchedCount/inTransitCount/softFlagCount/breakCount) — the run-detail
+    // page (T6) reads these instead of recomputing from line items.
     await (this.prisma as any).reconciliationRun.update({
       where: { id: runId },
       data: {
@@ -290,6 +441,11 @@ export class WalletReconRunService {
         reObservedCount: data.casesReObserved,
         closedCount: data.casesAutoHealed,
         completedAt: new Date(),
+        walletCount: data.walletsChecked,
+        matchedCount: data.bucketCounts.matched,
+        inTransitCount: data.bucketCounts.inTransit,
+        softFlagCount: data.bucketCounts.softFlag,
+        breakCount: data.bucketCounts.break,
       },
     });
   }
@@ -493,32 +649,37 @@ export class WalletReconRunService {
     assetCode: string;
     book: 'CUSTOMER' | 'FIRM';
     walletRef: string;
-    coaCode: string;
+    coaCode: string | null;
     ownerNo: string | null;
     delta: bigint;
     tbAmount: bigint;
     actualExternal: bigint;
+    inTransitSigned: bigint;
+    bucket: ReconBucket;
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>;
     caseReason: string;
-  }): Promise<{ caseId: string; created: boolean }> {
+  }): Promise<{ caseId: string; caseNo: string; created: boolean }> {
     const deltaDecimal = new Prisma.Decimal(input.delta.toString());
     const tbDecimal = new Prisma.Decimal(input.tbAmount.toString());
     const externalDecimal = new Prisma.Decimal(input.actualExternal.toString());
+    const inTransitDecimal = new Prisma.Decimal(input.inTransitSigned.toString());
     const expectedDecimal = externalDecimal.minus(deltaDecimal);
     const severity = computeSeverity(input.delta);
 
-    // Idempotency probe: T1 composite index (walletRef, businessDate, status)
-    // makes this O(log n) per wallet.
+    // Idempotency probe: cross-day unique — (walletRef, status:OPEN) only.
+    // Round3 T5 Step③: businessDate intentionally dropped from the probe so
+    // an OPEN case persists across reruns on later days (re-observation
+    // refreshes the same row instead of forking a new one per day).
     const existing = await (this.prisma as any).reconciliationCase.findFirst({
       where: {
         walletRef: input.walletRef,
-        businessDate: input.businessDate,
         status: 'OPEN',
       },
-      select: { id: true },
+      select: { id: true, caseNo: true },
     });
 
     let caseId: string;
+    let caseNo: string;
     let created: boolean;
     if (existing) {
       await (this.prisma as any).reconciliationCase.update({
@@ -526,11 +687,12 @@ export class WalletReconRunService {
         data: {
           // Snapshot fields → reflect THIS run's measurement, not history.
           tbAmount: tbDecimal,
-          inTransitAmount: new Prisma.Decimal(0),
+          inTransitAmount: inTransitDecimal,
           expectedExternal: expectedDecimal,
           actualExternal: externalDecimal,
           deltaAmount: deltaDecimal,
           severity,
+          bucket: input.bucket,
           // Locator fields can drift if a wallet's owner/coa changes
           // mid-stream; keep them current for the cockpit.
           assetId: input.assetId,
@@ -544,6 +706,7 @@ export class WalletReconRunService {
         },
       });
       caseId = existing.id;
+      caseNo = existing.caseNo;
       created = false;
       // Replace line items: drop prior + insert current. ON DELETE CASCADE
       // is set on the FK so this is atomic to the lineItems table.
@@ -556,17 +719,17 @@ export class WalletReconRunService {
       const priorToday = await (this.prisma as any).reconciliationCase.count({
         where: { businessDate: input.businessDate },
       });
-      const caseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
+      const newCaseNo = `REC${input.businessDate.replace(/-/g, '')}-${String(priorToday + 1).padStart(3, '0')}`;
       const createdRow = await (this.prisma as any).reconciliationCase.create({
         data: {
-          caseNo,
+          caseNo: newCaseNo,
           businessDate: input.businessDate,
           assetId: input.assetId,
           assetCode: input.assetCode,
           layer: RUN_LAYER,
           book: input.book,
           tbAmount: tbDecimal,
-          inTransitAmount: new Prisma.Decimal(0),
+          inTransitAmount: inTransitDecimal,
           expectedExternal: expectedDecimal,
           actualExternal: externalDecimal,
           deltaAmount: deltaDecimal,
@@ -577,6 +740,7 @@ export class WalletReconRunService {
           firstSeenRunId: input.runId,
           lastUpdatedRunId: input.runId,
           severity,
+          bucket: input.bucket,
           traceId: randomUUID(),
           walletRef: input.walletRef,
           coaCode: input.coaCode,
@@ -584,11 +748,12 @@ export class WalletReconRunService {
         },
       });
       caseId = createdRow.id;
+      caseNo = newCaseNo;
       created = true;
     }
 
     await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult);
-    return { caseId, created };
+    return { caseId, caseNo, created };
   }
 
   private async writeLineItems(
@@ -647,6 +812,25 @@ export class WalletReconRunService {
         },
       });
     }
+    for (const it of matcherResult.inTransit) {
+      lineNo += 1;
+      await (this.prisma as any).reconciliationLineItem.create({
+        data: {
+          caseId,
+          foundByRunId: runId,
+          lineNo,
+          matchStatus: 'IN_TRANSIT',
+          internalSourceType: 'FUNDS_ORDER',
+          internalSourceId: it.fundsOrderId,
+          internalSourceNo: it.fundsOrderNo,
+          externalTxId: it.externalLineId,
+          externalAmount: new Prisma.Decimal(it.amount),
+          externalDirection: it.direction,
+          walletRef,
+          externalRef: it.externalRef,
+        },
+      });
+    }
   }
 
   /**
@@ -659,18 +843,20 @@ export class WalletReconRunService {
    */
   protected async autoHealCases(input: {
     runId: string;
+    traceId: string | null;
     businessDate: string;
     currentBreakingWallets: Set<string>;
   }): Promise<number> {
+    // Round3 T5 Step③: cross-day — no longer scoped to businessDate. An OPEN
+    // case from any prior day heals the moment its wallet stops breaking.
     const stale = (await (this.prisma as any).reconciliationCase.findMany({
       where: {
         status: 'OPEN',
-        businessDate: input.businessDate,
         layer: RUN_LAYER,
         walletRef: { notIn: Array.from(input.currentBreakingWallets) },
       },
-      select: { id: true },
-    })) as Array<{ id: string }>;
+      select: { id: true, caseNo: true, walletRef: true },
+    })) as Array<{ id: string; caseNo: string; walletRef: string }>;
 
     if (stale.length === 0) return 0;
     const now = new Date();
@@ -685,8 +871,67 @@ export class WalletReconRunService {
           closedByRunId: input.runId,
         },
       });
+      await this.auditCaseAutoHealed({ traceId: input.traceId, walletRef: c.walletRef, caseNo: c.caseNo });
     }
     return stale.length;
+  }
+
+  // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
+  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string }): Promise<void> {
+    await this.auditLogs.recordSystem({
+      action: AuditEntityTypes.RECONCILIATION_BREAK,
+      entityType: AuditEntityTypes.RECONCILIATION_CASE,
+      entityNo: input.caseNo,
+      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
+      traceId: input.traceId ?? undefined,
+      metadata: {
+        walletRef: input.walletRef,
+        bucket: input.bucket,
+        deltaAmount: input.delta.toString(),
+        caseNo: input.caseNo,
+      },
+    });
+  }
+
+  private async auditCaseAutoHealed(input: { traceId: string | null; walletRef: string; caseNo: string }): Promise<void> {
+    await this.auditLogs.recordSystem({
+      action: AuditActions.SYSTEM_RECON_CASE_AUTO_HEALED,
+      entityType: AuditEntityTypes.RECONCILIATION_CASE,
+      entityNo: input.caseNo,
+      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
+      traceId: input.traceId ?? undefined,
+      metadata: { walletRef: input.walletRef, caseNo: input.caseNo },
+    });
+  }
+
+  private async auditRunCompleted(input: {
+    runId: string;
+    traceId: string | null;
+    status: WalletReconRunResult['status'];
+    walletsChecked: number;
+    casesOpened: number;
+    casesReObserved: number;
+    casesAutoHealed: number;
+    bucketCounts: { matched: number; inTransit: number; softFlag: number; break: number };
+  }): Promise<void> {
+    await this.auditLogs.recordSystem({
+      action: AuditActions.SYSTEM_RECON_RUN_COMPLETED,
+      entityType: AuditEntityTypes.RECONCILIATION_RUN_V8,
+      entityId: input.runId,
+      workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
+      traceId: input.traceId ?? undefined,
+      metadata: {
+        status: input.status,
+        walletsChecked: input.walletsChecked,
+        matchedCount: input.bucketCounts.matched,
+        inTransitCount: input.bucketCounts.inTransit,
+        softFlagCount: input.bucketCounts.softFlag,
+        breakCount: input.bucketCounts.break,
+        casesOpened: input.casesOpened,
+        casesReObserved: input.casesReObserved,
+        casesAutoHealed: input.casesAutoHealed,
+      },
+    });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

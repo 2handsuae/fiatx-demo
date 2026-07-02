@@ -9,7 +9,7 @@ export type ReconBucket = 'MATCHED' | 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
 
 export function computeBucket(input: {
   delta: bigint;            // external − internal(POSTED)
-  inTransitSigned: bigint;  // Σ(在途 IN 为正 / OUT 为负)
+  inTransitSigned: bigint;  // Σ(在途 IN 为正 / OUT 为负)——inTransitSigned 与 inTransitCount 必须来自同一 inTransit 行集
   inTransitCount: number;
   anomalyCount: number;     // OI + OE + MM（不含在途行）
 }): ReconBucket {

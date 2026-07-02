@@ -1718,11 +1718,11 @@ model ReconciliationRun {
   startedAt       DateTime @default(now())
   completedAt     DateTime?
   createdAt       DateTime @default(now())
-  walletCount     Int      @default(0)
-  matchedCount    Int      @default(0)
-  inTransitCount  Int      @default(0)
-  softFlagCount   Int      @default(0)
-  breakCount      Int      @default(0)
+  walletCount     Int      @default(0) // 五桶：钱包数
+  matchedCount    Int      @default(0) // 五桶：钱包数
+  inTransitCount  Int      @default(0) // 五桶：钱包数
+  softFlagCount   Int      @default(0) // 五桶：钱包数
+  breakCount      Int      @default(0) // 五桶：钱包数
   demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
