@@ -138,12 +138,13 @@ const DashboardLayout = () => {
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
         },
-        {
-          path: '/admin/customers/refresh-cycles',
-          label: 'Refresh Cycles',
-          icon: <History size={13} />,
-          requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
-        },
+        // Hidden from sidebar 2026-07-02 (route stays live for direct links)
+        // {
+        //   path: '/admin/customers/refresh-cycles',
+        //   label: 'Refresh Cycles',
+        //   icon: <History size={13} />,
+        //   requiredPermissions: [PERMISSIONS.CUSTOMERS_READ],
+        // },
       ],
     },
     // ─── Compliance ───────────────────────────────────────────────
@@ -157,12 +158,13 @@ const DashboardLayout = () => {
           icon: <Zap size={13} />,
           requiredPermissions: [PERMISSIONS.SUMSUB_EVENTS_READ],
         },
-        {
-          path: '/admin/compliance/risk-assessments',
-          label: 'Risk Assessments',
-          icon: <Shield size={13} />,
-          requiredPermissions: [PERMISSIONS.RISK_ASSESSMENTS_READ],
-        },
+        // Hidden from sidebar 2026-07-02 (route stays live for direct links)
+        // {
+        //   path: '/admin/compliance/risk-assessments',
+        //   label: 'Risk Assessments',
+        //   icon: <Shield size={13} />,
+        //   requiredPermissions: [PERMISSIONS.RISK_ASSESSMENTS_READ],
+        // },
       ],
     },
     // ─── Trading ──────────────────────────────────────────────────
