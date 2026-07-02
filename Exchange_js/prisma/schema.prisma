@@ -1718,9 +1718,15 @@ model ReconciliationRun {
   startedAt       DateTime @default(now())
   completedAt     DateTime?
   createdAt       DateTime @default(now())
+  walletCount     Int      @default(0)
+  matchedCount    Int      @default(0)
+  inTransitCount  Int      @default(0)
+  softFlagCount   Int      @default(0)
+  breakCount      Int      @default(0)
   demoManifest    String?  // demo-only: JSON answer-key of injected breaks (null for real/pass runs)
   cases           ReconciliationCase[] @relation("CaseOpenedByRun")
   lineItems       ReconciliationLineItem[]
+  runWallets      ReconciliationRunWallet[]
   @@index([businessDate, layer])
   @@map("reconciliation_runs")
 }
@@ -1760,6 +1766,7 @@ model ReconciliationCase {
   resolvedAt                DateTime?
   resolutionReason          String?  // 'AUTO_HEALED' | 'MANUAL_RESOLVED' | 'WAIVED'
   severity                  String?  // 'HIGH' | 'MEDIUM' | 'LOW'
+  bucket                    String?  // IN_TRANSIT | SOFT_FLAG | BREAK（Round3 起必填；历史行 null）
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
   openedByRun               ReconciliationRun @relation("CaseOpenedByRun", fields: [openedByRunId], references: [id])
@@ -1812,6 +1819,32 @@ model ReconciliationLineItem {
   @@index([externalRef])
   @@index([walletRef])
   @@map("reconciliation_line_items")
+}
+
+model ReconciliationRunWallet {
+  id               String   @id @default(uuid())
+  runId            String
+  walletRef        String
+  assetCode        String
+  book             String   // CUSTOMER | FIRM
+  coaCode          String?
+  ownerNo          String?
+  bucket           String   // MATCHED | IN_TRANSIT | SOFT_FLAG | BREAK
+  internalTotal    Decimal  @default(0)
+  externalClosing  Decimal  @default(0)
+  deltaAmount      Decimal  @default(0)
+  inTransitAmount  Decimal  @default(0) // 签名和：IN 为正 OUT 为负
+  matchedCount     Int      @default(0)
+  orphanInternal   Int      @default(0)
+  orphanExternal   Int      @default(0)
+  mismatchCount    Int      @default(0)
+  inTransitCount   Int      @default(0)
+  caseNo           String?
+  createdAt        DateTime @default(now())
+  run              ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@unique([runId, walletRef])
+  @@index([runId])
+  @@map("reconciliation_run_wallets")
 }
 
 // 外部余额头表（每外部账户每 cutoff 一行）。对账式4/5 直接用 closing_balance，不靠明细加总。见 spec 2026-06-20 §2.1。
