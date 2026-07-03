@@ -1468,6 +1468,7 @@ model TbTransferEvidence {
   creditWalletRef    String?
   externalRef        String?
   isExternalCrossing Boolean  @default(false)
+  effectiveDate String  @default("") // 业务归属日 YYYY-MM-DD（UTC）；default 仅为 SQLite ALTER 所需，写入方必须显式设置
   createdAt    DateTime @default(now())
 
   @@index([sourceType, sourceNo])
@@ -1501,6 +1502,7 @@ model AccountFlow {
   sourceNo             String
   transferType         String   // 'POSTED' | 'PENDING' | 'POST_PENDING' | 'VOID_PENDING'
   assetCode            String
+  effectiveDate        String   @default("") // 业务归属日 YYYY-MM-DD（UTC）；default 仅为 SQLite ALTER 所需，写入方必须显式设置
   createdAt            DateTime
 
   @@unique([tbTransferId, tbAccountId])
