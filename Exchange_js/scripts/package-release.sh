@@ -1,57 +1,40 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────
-# package-release.sh — build a self-contained release zip.
+# package-release.sh — 产出可移植 Docker 交付包 Exchange-demo-<时间戳>.zip
 #
-# Produces Exchange_js-release-<timestamp>.zip containing:
-#   - a clean export of all git-tracked source (no node_modules/.git/.env)
-#   - .env.example (tracked)
-#   - SETUP.md (tracked)
-#   - prisma/dev.db  ← a freshly built, base + governance-seeded database
+# 对面拿到后：装好 Docker Desktop → 解压 → docker compose up --build
+# 用 `git archive HEAD:Exchange_js` 只取已提交源码，天然排除：
+#   node_modules / .git / .env(真密钥) / worktree / doc-final(内部文档)
+# 因此包里无密钥、无平台绑定的依赖、无内部资料，几十 MB。
 #
-# The recipient can either run the included DB as-is, or recreate it with
-# `npm run db:setup`. See SETUP.md.
-#
-#   npm run package:release
+#   npm run package:release      # 或双击仓库根的「打包.command」
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+APP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"   # = Exchange_js/
 cd "${APP_DIR}"
 
-command -v git >/dev/null  || { echo "git not found" >&2; exit 1; }
-command -v zip >/dev/null  || { echo "zip not found" >&2; exit 1; }
+command -v git >/dev/null || { echo "git not found" >&2; exit 1; }
+command -v zip >/dev/null || { echo "zip not found" >&2; exit 1; }
 
-STAMP="$(date +%Y%m%d%H%M%S)"
-RELEASE_NAME="Exchange_js-release-${STAMP}"
+STAMP="${RELEASE_STAMP:-$(date +%Y%m%d%H%M%S)}"
+NAME="Exchange-demo-${STAMP}"
 STAGE="$(mktemp -d)"
-OUT_DIR="${STAGE}/${RELEASE_NAME}"
+OUT="${STAGE}/${NAME}"
 trap 'rm -rf "${STAGE}"' EXIT
-mkdir -p "${OUT_DIR}"
+mkdir -p "${OUT}"
 
-echo "[package] exporting tracked source (git archive HEAD)"
-git archive --format=tar HEAD | tar -x -C "${OUT_DIR}"
+echo "[package] git archive 已提交源码（Exchange_js 为包根，export-ignore 生效）"
+git archive --format=tar "HEAD:Exchange_js" | tar -x -C "${OUT}"
 
-echo "[package] building fresh seeded database into the package"
-PKG_DB="${OUT_DIR}/prisma/dev.db"
-rm -f "${PKG_DB}" "${PKG_DB}-journal" "${PKG_DB}-wal" "${PKG_DB}-shm"
-export DATABASE_URL="file:${PKG_DB}"
-export GOVERNANCE_DEMO_ENABLED=true
+# 双保险：包里绝不能有真 .env（git archive 本就不含 gitignore 的 .env，这里再兜一次）
+find "${OUT}" -name '.env' ! -name '.env.example' -type f -delete 2>/dev/null || true
 
-# Build against the repo's installed node_modules / prisma, writing to PKG_DB.
-npx prisma migrate deploy --schema "${APP_DIR}/prisma/schema.prisma"
-npm run db:base:sync
-# Drop WAL side-files so the packaged DB is a single self-contained file.
-rm -f "${PKG_DB}-journal" "${PKG_DB}-wal" "${PKG_DB}-shm"
+echo "[package] 压 zip"
+( cd "${STAGE}" && zip -rq "${APP_DIR}/${NAME}.zip" "${NAME}" )
 
-# Guard: the package must NOT contain a real .env (secrets) — only the example.
-rm -f "${OUT_DIR}/.env"
-
-echo "[package] zipping"
-( cd "${STAGE}" && zip -rq "${APP_DIR}/${RELEASE_NAME}.zip" "${RELEASE_NAME}" )
-
-DB_BYTES="$(wc -c < "${PKG_DB}" | tr -d ' ')"
-echo "[package] done."
-echo "  archive : ${APP_DIR}/${RELEASE_NAME}.zip"
-echo "  db      : prisma/dev.db (${DB_BYTES} bytes; base seeded)"
-echo "  recipient: unzip, npm install, copy .env.example -> .env, npm run start:dev"
+SIZE="$(du -h "${APP_DIR}/${NAME}.zip" | cut -f1)"
+echo "[package] 完成 ✅"
+echo "  产物：${APP_DIR}/${NAME}.zip  (${SIZE})"
+echo "  对面：解压 → docker compose up --build → 浏览器 http://localhost:18081 (admin@fiatx.com/123456)"
