@@ -21,6 +21,7 @@
 |---|---|---|
 | [_template.md](_template.md) | 新建文件的结构模板 | — |
 | [v1-governance-audit.md](v1-governance-audit.md) | 审批引擎 / 审计日志 / RBAC / admin 生命周期 / 凭证安全 | 2026-07-04 |
+| [v2-customer-compliance.md](v2-customer-compliance.md) | Onboarding / CRA / 材料时效 / Tier 升级 / 冻结 / 三轴状态 / Sumsub 翻译层 | 2026-07-04 |
 | [v3-financial-config.md](v3-financial-config.md) | 资产 / 托管钱包 / COA 账本账户 / 提现地址 / 金额闸门 | 2026-07-03 |
 | [v4-deposit.md](v4-deposit.md) | 充值双链路（crypto/fiat）/ 合规三层门 / 异常分支现状 / funds_orders 充值切片 | 2026-07-03 |
 | [v5-withdraw.md](v5-withdraw.md) | 提现双链路（共用工作流）/ 大额审批门 / 三层合规 / 费率治理 / funds_order 2 腿 | 2026-07-03 |
@@ -32,7 +33,7 @@
 | 版本 | 领域 | 真相文件 |
 |---|---|---|
 | V1 | 审批引擎 / 审计 / RBAC / admin 生命周期 | ✅ v1-governance-audit.md |
-| V2 | 客户三轴状态 / 合规门 | `identity-compliance.md`（待建，随需）|
+| V2 | 客户管理 / 合规底座 / 三轴状态 | ✅ v2-customer-compliance.md |
 | V3 | 资产 / 钱包 / COA / 提现地址 / 金额闸门 | ✅ v3-financial-config.md |
 | V4 | 充值 | ✅ v4-deposit.md |
 | V5 | 提现 | ✅ v5-withdraw.md |
