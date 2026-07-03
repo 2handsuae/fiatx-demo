@@ -1,0 +1,58 @@
+# 一键起演示：docker compose up --build
+# 端口：后端 3000 / 管理台 3001 / 客户端 3002 / 账本端 3003
+# ⚠️ 重跑干净一次：docker compose down -v 再 up（清账本端数据卷，避免 format 冲突）
+services:
+  # 账本端首次格式化（一次性；数据落 named volume）
+  tb-format:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.3
+    volumes: [ "tb-data:/data" ]
+    command: format --cluster=0 --replica=0 --replica-count=1 /data/0_0.tigerbeetle
+    restart: "no"
+
+  # 账本端（余额真相；tag 必须匹配代码里的 tigerbeetle-node 版本）
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.17.3
+    depends_on:
+      tb-format:
+        condition: service_completed_successfully
+    volumes: [ "tb-data:/data" ]
+    command: start --addresses=0.0.0.0:3003 /data/0_0.tigerbeetle
+    ports: [ "3003:3003" ]
+
+  # 后端：构建 → migrate → seed 底座 → 起服务 → seed 演示数据
+  backend:
+    build:
+      context: .
+    depends_on: [ tigerbeetle ]
+    environment:
+      API_PORT: "3000"
+      DATABASE_URL: "file:/app/prisma/dev.db"
+      TB_ADDRESS: "tigerbeetle:3003"
+      ADMIN_URL: "http://localhost:3001"
+      CLIENT_URL: "http://localhost:3002"
+      SUMSUB_MOCK_MODE: "true"
+      GOVERNANCE_DEMO_ENABLED: "true"
+      MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      MFA_ISSUER: "Exchange Admin (Demo)"
+    ports: [ "3000:3000" ]
+
+  # 管理台（静态 + nginx）
+  admin:
+    build:
+      context: ./admin-web
+      args:
+        VITE_API_URL: "http://localhost:3000"
+    depends_on: [ backend ]
+    ports: [ "3001:80" ]
+
+  # 客户端（静态 + nginx）
+  client:
+    build:
+      context: ./client-web
+      args:
+        VITE_API_URL: "http://localhost:3000"
+    depends_on: [ backend ]
+    ports: [ "3002:80" ]
+
+volumes:
+  tb-data:
