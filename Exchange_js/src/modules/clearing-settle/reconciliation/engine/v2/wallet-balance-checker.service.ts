@@ -32,6 +32,7 @@ import {
   TB_ACCOUNT_CODES,
   TB_CODE_TO_COA,
 } from '../../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { effectiveCutoffFilter } from './effective-cutoff';
 
 const CUSTOMER_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.CLIENT_PAYABLE,    // 100
@@ -97,7 +98,7 @@ export class WalletBalanceCheckerService {
       where: {
         walletRef,
         transferType: 'POSTED',
-        createdAt: { lte: cutoff },
+        ...effectiveCutoffFilter(cutoff),
       },
       select: { tbAccountId: true, direction: true, amount: true },
     })) as FlowRow[];

@@ -24,7 +24,15 @@ function makePrismaMock(flows: any[]) {
         return flows.filter((f) => {
           if (where.walletRef && f.walletRef !== where.walletRef) return false;
           if (where.isExternalCrossing !== undefined && (f.isExternalCrossing ?? false) !== where.isExternalCrossing) return false;
-          if (where.createdAt?.lte && f.createdAt > where.createdAt.lte) return false;
+          const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
+          if (where.OR) {
+            const pass = where.OR.some((cond: any) =>
+              cond.effectiveDate?.lt !== undefined
+                ? eff(f) < cond.effectiveDate.lt
+                : eff(f) === cond.effectiveDate && (!cond.createdAt?.lte || f.createdAt <= cond.createdAt.lte),
+            );
+            if (!pass) return false;
+          }
           return true;
         }).map((f) => ({
           ...f,
@@ -311,6 +319,25 @@ describe('WalletFlowMatcherService', () => {
     // crossed external so external statement is not expected to know about it.
     expect(result.orphanInternal).toHaveLength(0);
     expect(result.matched).toHaveLength(0);
+  });
+
+  it('back-valued internal flow (effectiveDate < cutoff day) enters the candidate pool', async () => {
+    const prisma = makePrismaMock([
+      {
+        id: 'flow-bv',
+        walletRef: 'w-cust',
+        direction: 'IN',
+        amount: 700,
+        externalRef: '0xbv',
+        isExternalCrossing: true,
+        eventCode: 'DEPOSIT_CONFIRMED',
+        createdAt: new Date('2026-06-27T09:00:00Z'), // 物理写入在 cutoff 之后
+        effectiveDate: '2026-06-25',                  // 生效日回填到截止日之前 → 必须进池
+      },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+    const result = await svc.matchFlows({ walletRef: 'w-cust', externalLines: [], cutoff });
+    expect(result.orphanInternal).toHaveLength(1);
   });
 
   // ── Pass 3: in-transit matching (orphan external ↔ non-terminal funds order) ──

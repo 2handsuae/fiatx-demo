@@ -34,6 +34,7 @@ function makePrismaMock(opts: {
     walletRef: string;
     createdAt: Date;
     transferType?: string;
+    effectiveDate?: string;
   }>;
   registry: Record<string, any>;
 }) {
@@ -43,7 +44,15 @@ function makePrismaMock(opts: {
         return opts.flows.filter((f) => {
           if (where.walletRef && f.walletRef !== where.walletRef) return false;
           if (where.transferType && (f.transferType ?? 'POSTED') !== where.transferType) return false;
-          if (where.createdAt?.lte && f.createdAt > where.createdAt.lte) return false;
+          const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
+          if (where.OR) {
+            const pass = where.OR.some((cond: any) =>
+              cond.effectiveDate?.lt !== undefined
+                ? eff(f) < cond.effectiveDate.lt
+                : eff(f) === cond.effectiveDate && (!cond.createdAt?.lte || f.createdAt <= cond.createdAt.lte),
+            );
+            if (!pass) return false;
+          }
           return true;
         }).map((f) => ({
           ...f,
@@ -223,5 +232,20 @@ describe('WalletBalanceCheckerService', () => {
     });
     expect(result.pass).toBe(true);
     expect(result.internal.payable).toBe(500n);
+  });
+
+  it('back-valued flow (effectiveDate < cutoff day) is included even when createdAt is after cutoff', async () => {
+    const prisma = makePrismaMock({
+      flows: [
+        { tbAccountId: 'acct-pay', direction: 'IN', amount: 500, walletRef: 'c-vault-1', createdAt: new Date('2026-06-26T01:00:00Z') },
+        // 平账回填：物理写入晚于截止时刻，但生效日在截止日之前 → 必须被吸收
+        { tbAccountId: 'acct-pay', direction: 'IN', amount: 300, walletRef: 'c-vault-1', createdAt: new Date('2026-06-27T09:00:00Z'), effectiveDate: '2026-06-25' },
+      ],
+      registry: REG_CUSTOMER,
+    });
+    const svc = new WalletBalanceCheckerService(prisma as any);
+    const result = await svc.checkBalance({ walletRef: 'c-vault-1', externalClosing: 800n, cutoff });
+    expect(result.pass).toBe(true);
+    expect(result.internal.payable).toBe(800n);
   });
 });

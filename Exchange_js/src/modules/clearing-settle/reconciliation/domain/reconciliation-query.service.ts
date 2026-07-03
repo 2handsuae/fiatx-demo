@@ -5,6 +5,7 @@ import {
   WalletFlowMatcherService,
   ExternalStatementLineInput,
 } from '../engine/v2/wallet-flow-matcher.service';
+import { effectiveCutoffFilter } from '../engine/v2/effective-cutoff';
 import {
   AccountStatusRow,
   CaseExplain,
@@ -667,7 +668,7 @@ export class ReconciliationQueryService {
       where: {
         walletRef: kase.walletRef,
         isExternalCrossing: true,
-        createdAt: { lte: cutoff },
+        ...effectiveCutoffFilter(cutoff),
       },
       select: {
         id: true,

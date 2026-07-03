@@ -55,6 +55,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../core/prisma/prisma.service';
 import { TB_ACCOUNT_CODES } from '../../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { FundsOrderService } from '../../../../funds-orders/funds-order.service';
+import { effectiveCutoffFilter } from './effective-cutoff';
 
 // Same set used by WalletBalanceChecker — flows must land on a wallet-owned
 // L (customer) or E (firm) account to count as evidence. Aggregate A codes
@@ -157,7 +158,7 @@ export class WalletFlowMatcherService {
         walletRef,
         isExternalCrossing: true,
         transferType: 'POSTED', // PENDING transfers haven't externally crossed yet — same filter as balanceChecker
-        createdAt: { lte: cutoff },
+        ...effectiveCutoffFilter(cutoff),
       },
       select: {
         id: true,
