@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 export class ReconRunQueryDto {
   @IsOptional() @IsString() businessDate?: string;
   @IsOptional() @IsString() layer?: string;
@@ -10,6 +10,8 @@ export class ReconCaseQueryDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() assetCode?: string;
   @IsOptional() @IsString() runNo?: string;  // filter to cases touched by a specific run
+  // T6: filter by five-bucket classification (Round3) — IN_TRANSIT | SOFT_FLAG | BREAK.
+  @IsOptional() @IsIn(['IN_TRANSIT', 'SOFT_FLAG', 'BREAK']) bucket?: string;
 }
 export class ReconExternalBalanceQueryDto {
   @IsOptional() @IsString() cutoffDate?: string;
@@ -25,15 +27,11 @@ export class ReconExternalBalanceQueryDto {
 // All numeric fields are serialised as strings to dodge JSON BigInt issues.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Three-tier per industry "balance first" convention. Balance drives the
-// account's headline status; flows are a secondary fraud/omission probe
-// catching the "fake match" case (orphans that nett to zero).
-export type AccountStatusRowStatus =
-  | 'MATCH'         // balance OK AND flows OK — green, done
-  | 'FLOW_REVIEW'   // balance OK BUT flow line-items have orphan/mismatch
-                    // (the "fake match" probe — net happens to balance,
-                    //  but underlying flows broken)
-  | 'BREAK';        // balance != external — red, hard break
+// Round3 five-bucket classification (T4 bucket-classifier). MATCHED doesn't
+// open a Case; the other three do. Replaces the old three-tier
+// MATCH/FLOW_REVIEW/BREAK status (T6 — getRun now reads the run-wallet
+// snapshot table instead of recomputing via the balance checker).
+export type ReconWalletBucket = 'MATCHED' | 'IN_TRANSIT' | 'SOFT_FLAG' | 'BREAK';
 
 export interface AccountStatusRow {
   walletRef: string;
@@ -42,37 +40,78 @@ export interface AccountStatusRow {
   ownerNo?: string | null;          // customer / firm owner number
   ownerName?: string | null;        // first+last name or company name (null for firm)
   asset: string;                    // 'AED' | 'USDT-TRON'
-  coaCode: string;                  // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_FEE' | ...
+  book: string;                     // CUSTOMER | FIRM
+  coaCode: string | null;           // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_FEE' | ...
   internal: { balance: string };
   external: { balance: string };
-  delta: string;                    // external − internal (string of bigint)
+  delta: string;                    // external − internal
+  inTransitAmount: string;          // signed sum of in-transit lines (IN +, OUT −)
   flowMatched: number;
   flowTotal: number;
   flowOrphanInternal: number;
   flowOrphanExternal: number;
   flowMismatch: number;
-  status: AccountStatusRowStatus;
-  caseId?: string | null;           // null for MATCH rows
-  caseNo?: string | null;           // human-readable case key (null for MATCH)
+  inTransitCount: number;
+  bucket: ReconWalletBucket;
+  caseId?: string | null;           // null for MATCHED rows
+  caseNo?: string | null;           // human-readable case key (null for MATCHED)
 }
 
 export interface RunDetailSummary {
-  accountsChecked: number;
-  // Three-tier counts (cockpit Overview uses these three):
-  matchCount: number;        // status=MATCH       — balance OK + flows OK
-  flowReviewCount: number;   // status=FLOW_REVIEW — balance OK + flow anomaly (fake-match probe)
-  breakCount: number;        // status=BREAK       — balance != external (hard break)
-  // Backwards-compat per-anomaly tallies (independent of status):
-  balanceBreakCount: number; // # accounts with delta != 0
-  orphanCount: number;       // # accounts with any flow orphan (internal or external)
-  mismatchCount: number;     // # accounts with any flow amount mismatch
+  // Round3 five-bucket wallet counts, taken straight from the run row
+  // (ReconciliationRun.walletCount/matchedCount/inTransitCount/softFlagCount/
+  // breakCount) — no per-wallet recompute.
+  walletCount: number;
+  matchedCount: number;
+  inTransitCount: number;
+  softFlagCount: number;
+  breakCount: number;
+  // Case lifecycle triple (from the run row): opened/re-observed/closed this run.
+  openedCount: number;
+  reObservedCount: number;
+  closedCount: number;
+}
+
+export interface ReconRunDetail {
+  accountStatusTable: AccountStatusRow[];
+  summary: RunDetailSummary;
+  // T6: true when this run predates the reconciliation_run_wallets snapshot
+  // table (no snapshot rows exist) — accountStatusTable is empty and the UI
+  // should show a "legacy run, no per-wallet detail" notice instead of an
+  // empty-state "all clear".
+  legacy?: boolean;
+  [key: string]: unknown;
+}
+
+// T6: case-level residual explanation — how delta decomposes into the
+// in-transit-explained portion vs what's left over (the bucket-classifier's
+// residual = delta − inTransitSigned; see engine/v2/bucket-classifier.ts).
+export interface CaseExplain {
+  internalTotal: string;
+  externalClosing: string;
+  delta: string;
+  inTransitSigned: string;
+  residual: string;
+}
+
+// T6: observation history — when this case was first/last seen, how many
+// times it's been re-observed across reruns, and (if resolved) which run
+// closed it.
+export interface CaseObservation {
+  firstSeenRunNo: string | null;
+  firstSeenAt: string | null;       // ISO — firstSeenRun.startedAt
+  lastObservedRunNo: string | null;
+  reObservedCount: number;
+  closedByRunNo: string | null;     // null unless status=RESOLVED
+  ageDays: number | null;           // null unless status=OPEN
 }
 
 export type FlowComparisonMatchType =
   | 'MATCHED'
   | 'ORPHAN_EXTERNAL'
   | 'ORPHAN_INTERNAL'
-  | 'AMOUNT_MISMATCH';
+  | 'AMOUNT_MISMATCH'
+  | 'IN_TRANSIT';        // T6: sourced from the case's persisted IN_TRANSIT line items
 
 export interface FlowComparisonExternalSide {
   id?: string;
@@ -99,6 +138,7 @@ export interface FlowComparisonRow {
   internalFlow: FlowComparisonInternalSide | null;
   matchType: FlowComparisonMatchType;
   deltaAmount?: string;             // only for AMOUNT_MISMATCH
+  fundsOrderNo?: string | null;     // only for IN_TRANSIT — the explaining funds order
 }
 
 export interface FlowComparisonSummary {

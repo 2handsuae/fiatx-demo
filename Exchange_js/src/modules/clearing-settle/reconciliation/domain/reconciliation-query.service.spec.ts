@@ -186,120 +186,15 @@ describe('getExternalBalanceByWallet — statement lines scoped to the balance b
 
 // ─── T3 ──────────────────────────────────────────────────────────────────────
 
-describe('getRun — accountStatusTable (T3)', () => {
-  // Two-wallet fixture: walletA (CUSTOMER) balances cleanly and has no Case;
-  // walletB (CUSTOMER) is on this run's Case with one ORPHAN_EXTERNAL line item
-  // and a delta=0 (the orphan didn't move the balance). Expected statuses are
-  // MATCH and ORPHAN respectively.
-  const run = {
-    id: 'run-w1',
-    runNo: 'RUN20260627-1',
-    businessDate: '2026-06-27',
-    layer: 'WALLET',
-    demoManifest: null,
-  };
-  const cases = [
-    { id: 'case-1', caseNo: 'REC20260627-001', assetCode: 'AED', book: 'CUSTOMER', status: 'OPEN', deltaAmount: new Prisma.Decimal(0), walletRef: 'walletB' },
-  ];
-
-  function mkPrisma() {
-    return {
-      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
-      reconciliationCase: { findMany: jest.fn().mockResolvedValue(cases) },
-      externalBalance: {
-        findMany: jest.fn().mockResolvedValue([
-          { walletRef: 'walletA', closingBalance: new Prisma.Decimal(1000), currency: 'AED', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'CU-1' },
-          { walletRef: 'walletB', closingBalance: new Prisma.Decimal(500),  currency: 'AED', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'CU-2' },
-        ]),
-      },
-      reconciliationLineItem: {
-        findMany: jest.fn().mockResolvedValue([
-          { caseId: 'case-1', matchStatus: 'ORPHAN_EXTERNAL' },
-        ]),
-      },
-      wallet: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'walletA', walletRole: 'C_DEP', ownerNo: 'CU-1', ownerType: 'CUSTOMER' },
-          { id: 'walletB', walletRole: 'C_DEP', ownerNo: 'CU-2', ownerType: 'CUSTOMER' },
-        ]),
-      },
-      customerMain: {
-        findMany: jest.fn().mockResolvedValue([
-          { customerNo: 'CU-1', firstName: 'Alice', lastName: 'Anders', companyName: null },
-          { customerNo: 'CU-2', firstName: null,    lastName: null,    companyName: 'Acme Co' },
-        ]),
-      },
-    };
-  }
-
-  it('returns N rows with required fields; MATCH rows have caseId=null; BREAK rows have caseId', async () => {
-    const prisma = mkPrisma();
-    // Balance checker returns clean delta=0 for walletA, delta=0 for walletB
-    // (orphan didn't move the balance — pure flow break).
-    const balanceChecker = {
-      checkBalance: jest.fn().mockImplementation(({ walletRef, externalClosing }: any) => Promise.resolve({
-        pass: true, walletRef, walletKind: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-        ownerNo: walletRef === 'walletA' ? 'CU-1' : 'CU-2',
-        internal: { total: externalClosing }, external: externalClosing, delta: 0n,
-      })),
-    };
-    const svc = mkSvc(prisma, { balanceChecker });
-    const result: any = await svc.getRun(run.runNo);
-    expect(result.accountStatusTable).toHaveLength(2);
-
-    const a = result.accountStatusTable.find((r: any) => r.walletRef === 'walletA');
-    expect(a.status).toBe('MATCH');
-    expect(a.caseId).toBeNull();
-    expect(a.caseNo).toBeNull();
-    expect(a.ownerName).toBe('Alice Anders');
-    expect(a.walletRole).toBe('C_DEP');
-    expect(a.asset).toBe('AED');
-    expect(a.delta).toBe('0');
-
-    const b = result.accountStatusTable.find((r: any) => r.walletRef === 'walletB');
-    // delta=0 + only an external orphan → FLOW_REVIEW (fake-match probe: net balances
-    // but underlying line-items broken). Old engine called this 'ORPHAN'.
-    expect(b.status).toBe('FLOW_REVIEW');
-    expect(b.caseId).toBe('case-1');
-    expect(b.caseNo).toBe('REC20260627-001');
-    expect(b.flowOrphanExternal).toBe(1);
-    expect(b.flowOrphanInternal).toBe(0);
-    expect(b.flowMismatch).toBe(0);
-    expect(b.ownerName).toBe('Acme Co');
-
-    expect(result.summary.accountsChecked).toBe(2);
-    expect(result.summary.matchCount).toBe(1);
-    expect(result.summary.flowReviewCount).toBe(1);
-    expect(result.summary.breakCount).toBe(0);
-    expect(result.summary.orphanCount).toBe(1); // per-anomaly axis (any orphan line item)
-  });
-
-  it('marks BREAK when delta != 0 (industry "balance first": flow state irrelevant for headline)', async () => {
-    const prisma = mkPrisma();
-    prisma.reconciliationCase.findMany = jest.fn().mockResolvedValue([]); // no cases → no line items
-    prisma.reconciliationLineItem.findMany = jest.fn().mockResolvedValue([]);
-    const balanceChecker = {
-      checkBalance: jest.fn().mockImplementation(({ walletRef, externalClosing }: any) => Promise.resolve({
-        pass: walletRef !== 'walletA', walletRef, walletKind: 'CUSTOMER', coaCode: '',
-        ownerNo: null, internal: { total: externalClosing }, external: externalClosing,
-        delta: walletRef === 'walletA' ? 50n : 0n,
-      })),
-    };
-    const svc = mkSvc(prisma, { balanceChecker });
-    const result: any = await svc.getRun(run.runNo);
-    const a = result.accountStatusTable.find((r: any) => r.walletRef === 'walletA');
-    expect(a.status).toBe('BREAK');
-    expect(result.summary.breakCount).toBe(1);
-    expect(result.summary.balanceBreakCount).toBe(1); // alias axis
-  });
-});
-
 describe('getCase — flowComparison (T3)', () => {
   const kase = {
     id: 'case-x', caseNo: 'REC-20260627-AED-W-002',
     walletRef: 'walletX', businessDate: '2026-06-27', lineItems: [],
     openedByRunId: 'run-fc', lastUpdatedRunId: null,
     slaDeadline: null, book: null,
+    status: 'OPEN', bucket: 'BREAK', createdAt: new Date('2026-06-27T00:00:00Z'),
+    tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(0),
+    firstSeenRunId: null, lastObservedRunId: null, closedByRunId: null,
   };
   // Hand-built source datasets covering all 4 match types.
   const externalLines = [
@@ -380,73 +275,59 @@ describe('getCase — flowComparison (T3)', () => {
   });
 });
 
-describe('getRun — walletNo on accountStatusTable rows', () => {
-  // Minimal run + wallet fixture to test walletNo resolution on AccountStatusRow.
+describe('getRun — walletNo on accountStatusTable rows (T6 snapshot source)', () => {
+  // Minimal run + snapshot-row fixture to test walletNo resolution on AccountStatusRow.
   const run = {
     id: 'run-wno',
     runNo: 'RUN-2026-0628-001',
     businessDate: '2026-06-28',
     layer: 'WALLET',
     demoManifest: null,
+    walletCount: 1, matchedCount: 1, inTransitCount: 0, softFlagCount: 0, breakCount: 0,
+    openedCount: 0, reObservedCount: 0, closedCount: 0,
   };
+
+  function mkSnapshotRow(walletRef: string) {
+    return {
+      walletRef, assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE', ownerNo: 'CU-X', bucket: 'MATCHED',
+      internalTotal: new Prisma.Decimal(100), externalClosing: new Prisma.Decimal(100), deltaAmount: new Prisma.Decimal(0),
+      inTransitAmount: new Prisma.Decimal(0), matchedCount: 1, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0,
+      inTransitCount: 0, caseNo: null,
+    };
+  }
 
   function mkPrismaWalletNo(walletRef: string, walletNo: string | null) {
     return {
       reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
       reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
-      externalBalance: {
-        findMany: jest.fn().mockResolvedValue([
-          { walletRef, closingBalance: new Prisma.Decimal(100), currency: 'AED', coaCode: 'L.CLIENT_PAYABLE', ownerNo: 'CU-X' },
-        ]),
-      },
-      reconciliationLineItem: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue([mkSnapshotRow(walletRef)]) },
       wallet: {
         findMany: jest.fn().mockResolvedValue(
           walletNo !== null
-            ? [{ id: walletRef, walletNo, walletRole: 'C_DEP', ownerNo: 'CU-X', ownerType: 'CUSTOMER' }]
+            ? [{ id: walletRef, walletNo, walletRole: 'C_DEP' }]
             : [],
         ),
       },
-      customerMain: { findMany: jest.fn().mockResolvedValue([]) },
     };
   }
 
   it('returns walletNo for each accountStatusRow when wallet exists', async () => {
     const prisma = mkPrismaWalletNo('W1', 'WAL-001');
-    const balanceChecker = {
-      checkBalance: jest.fn().mockResolvedValue({
-        pass: true, walletRef: 'W1', walletKind: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE',
-        ownerNo: 'CU-X', internal: { total: 100n }, external: 100n, delta: 0n,
-      }),
-    };
-    const svc = mkSvc(prisma, { balanceChecker });
+    const svc = mkSvc(prisma);
     const result: any = await svc.getRun('RUN-2026-0628-001');
     expect(result.accountStatusTable[0].walletNo).toBe('WAL-001');
   });
 
   it('returns null walletNo for XREF synthetic walletRefs (retired wallets)', async () => {
-    // XREF walletRefs exist in externalBalance but have no row in wallets table.
     const xref = 'XREF:synthetic-id-1';
     const run2 = { ...run, runNo: 'RUN-XREF-CASE', id: 'run-xref' };
     const prisma = {
       reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run2) },
       reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
-      externalBalance: {
-        findMany: jest.fn().mockResolvedValue([
-          { walletRef: xref, closingBalance: new Prisma.Decimal(50), currency: 'AED', coaCode: null, ownerNo: null },
-        ]),
-      },
-      reconciliationLineItem: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue([mkSnapshotRow(xref)]) },
       wallet: { findMany: jest.fn().mockResolvedValue([]) }, // no wallet row for XREF
-      customerMain: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const balanceChecker = {
-      checkBalance: jest.fn().mockResolvedValue({
-        pass: true, walletRef: xref, walletKind: 'CUSTOMER', coaCode: '',
-        ownerNo: null, internal: { total: 50n }, external: 50n, delta: 0n,
-      }),
-    };
-    const svc = mkSvc(prisma, { balanceChecker });
+    const svc = mkSvc(prisma);
     const result: any = await svc.getRun('RUN-XREF-CASE');
     const xrefRow = result.accountStatusTable.find((r: any) => r.walletRef.startsWith('XREF:'));
     expect(xrefRow?.walletNo).toBeNull();
@@ -468,6 +349,9 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       book: 'CLIENT',
       businessDate: '2026-06-28',
       lineItems: [],
+      status: 'OPEN', bucket: 'BREAK', createdAt: new Date('2026-06-28T00:00:00Z'),
+      tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(0),
+      firstSeenRunId: null, lastObservedRunId: null, closedByRunId: null,
       ...overrides,
     };
   }
@@ -768,5 +652,211 @@ describe('listCases with runNo filter', () => {
     const svc = mkSvc(prisma);
     const result = await svc.listCases({ runNo: 'REC-DOES-NOT-EXIST' });
     expect(result).toEqual([]);
+  });
+});
+
+// ─── T6 ──────────────────────────────────────────────────────────────────────
+
+describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
+  const run = {
+    id: 'run-snap-1',
+    runNo: 'RUN20260703-1',
+    businessDate: '2026-07-03',
+    layer: 'WALLET',
+    demoManifest: null,
+    walletCount: 2,
+    matchedCount: 1,
+    inTransitCount: 0,
+    softFlagCount: 1,
+    breakCount: 0,
+    openedCount: 1,
+    reObservedCount: 0,
+    closedCount: 0,
+  };
+
+  it('getRun：从 reconciliationRunWallet 快照表读钱包表，不再调 balanceChecker/matcher；summary 直接用 run 行的四桶计数+三元组', async () => {
+    const snapshotRows = [
+      {
+        walletRef: 'walletA', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+        ownerNo: 'CU-1', bucket: 'MATCHED',
+        internalTotal: new Prisma.Decimal(1000), externalClosing: new Prisma.Decimal(1000), deltaAmount: new Prisma.Decimal(0),
+        inTransitAmount: new Prisma.Decimal(0), matchedCount: 2, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0,
+        inTransitCount: 0, caseNo: null,
+      },
+      {
+        walletRef: 'walletB', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+        ownerNo: 'CU-2', bucket: 'SOFT_FLAG',
+        internalTotal: new Prisma.Decimal(500), externalClosing: new Prisma.Decimal(500), deltaAmount: new Prisma.Decimal(0),
+        inTransitAmount: new Prisma.Decimal(0), matchedCount: 0, orphanInternal: 0, orphanExternal: 1, mismatchCount: 0,
+        inTransitCount: 0, caseNo: 'REC20260703-001',
+      },
+    ];
+    const balanceChecker = { checkBalance: jest.fn() };
+    const flowMatcher = { matchFlows: jest.fn() };
+    const prisma: any = {
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue(snapshotRows) },
+      wallet: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const svc = mkSvc(prisma, { balanceChecker, flowMatcher });
+    const result: any = await svc.getRun(run.runNo);
+
+    expect(prisma.reconciliationRunWallet.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ runId: run.id }) }),
+    );
+    expect(balanceChecker.checkBalance).not.toHaveBeenCalled();
+    expect(flowMatcher.matchFlows).not.toHaveBeenCalled();
+
+    expect(result.accountStatusTable).toHaveLength(2);
+    const a = result.accountStatusTable.find((r: any) => r.walletRef === 'walletA');
+    expect(a.bucket).toBe('MATCHED');
+    expect(a.caseNo).toBeNull();
+    const b = result.accountStatusTable.find((r: any) => r.walletRef === 'walletB');
+    expect(b.bucket).toBe('SOFT_FLAG');
+    expect(b.caseNo).toBe('REC20260703-001');
+    expect(b.inTransitAmount).toBeDefined();
+
+    expect(result.summary.walletCount).toBe(2);
+    expect(result.summary.matchedCount).toBe(1);
+    expect(result.summary.inTransitCount).toBe(0);
+    expect(result.summary.softFlagCount).toBe(1);
+    expect(result.summary.breakCount).toBe(0);
+    expect(result.summary.openedCount).toBe(1);
+    expect(result.summary.reObservedCount).toBe(0);
+    expect(result.summary.closedCount).toBe(0);
+  });
+
+  it('getRun：旧 run（无快照行，legacy）返回空钱包表 + legacy:true 标记', async () => {
+    const legacyRun = { ...run, runNo: 'RUN-LEGACY-1', id: 'run-legacy' };
+    const prisma: any = {
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue(legacyRun) },
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getRun('RUN-LEGACY-1');
+    expect(result.legacy).toBe(true);
+    expect(result.accountStatusTable).toEqual([]);
+  });
+});
+
+describe('getCase — explain / observation / bucket (T6)', () => {
+  const firstSeenRun = { id: 'run-first', runNo: 'RUN20260630-1', startedAt: new Date('2026-06-30T08:00:00Z') };
+  const lastObservedRun = { id: 'run-last', runNo: 'RUN20260703-2', startedAt: new Date('2026-07-03T08:00:00Z'), completedAt: new Date('2026-07-03T08:05:00Z'), businessDate: '2026-07-03' };
+
+  function mkKase(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'case-explain-1',
+      caseNo: 'REC20260630-005',
+      walletRef: 'walletX',
+      businessDate: '2026-06-30', // frozen at first-seen day — must NOT drive cutoff (T5 leftover fix)
+      status: 'OPEN',
+      bucket: 'IN_TRANSIT',
+      tbAmount: new Prisma.Decimal(1000),
+      actualExternal: new Prisma.Decimal(1200),
+      deltaAmount: new Prisma.Decimal(200),
+      firstSeenRunId: 'run-first',
+      lastObservedRunId: 'run-last',
+      lastUpdatedRunId: 'run-last',
+      closedByRunId: null,
+      createdAt: new Date('2026-06-30T08:00:00Z'),
+      lineItems: [
+        {
+          id: 'li-1', matchStatus: 'IN_TRANSIT', externalDirection: 'IN',
+          externalAmount: new Prisma.Decimal(200), internalSourceNo: 'FO-2026-000123',
+          foundByRunId: 'run-last',
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  function mkPrismaCase(kaseOverrides: Record<string, unknown> = {}) {
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(mkKase(kaseOverrides)) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationRun: {
+        findUnique: jest.fn().mockImplementation(({ where }: any) => {
+          if (where.id === 'run-first') return Promise.resolve(firstSeenRun);
+          if (where.id === 'run-last') return Promise.resolve(lastObservedRun);
+          return Promise.resolve(null);
+        }),
+      },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  it('返回体含 explain{internalTotal,externalClosing,delta,inTransitSigned,residual} 与 observation{firstSeenRunNo,firstSeenAt,lastObservedRunNo,reObservedCount,closedByRunNo,ageDays} 与 bucket；IN_TRANSIT line item 带 fundsOrderNo', async () => {
+    const prisma = mkPrismaCase();
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('REC20260630-005');
+
+    expect(result.bucket).toBe('IN_TRANSIT');
+
+    expect(result.explain.internalTotal).toBe('1000');
+    expect(result.explain.externalClosing).toBe('1200');
+    expect(result.explain.delta).toBe('200');
+    expect(result.explain.inTransitSigned).toBe('200'); // one IN_TRANSIT line, direction IN → +200
+    expect(result.explain.residual).toBe('0'); // 200 - 200
+
+    expect(result.observation.firstSeenRunNo).toBe('RUN20260630-1');
+    expect(result.observation.firstSeenAt).toBeTruthy();
+    expect(result.observation.lastObservedRunNo).toBe('RUN20260703-2');
+    expect(result.observation.closedByRunNo).toBeNull(); // status=OPEN
+    expect(result.observation.ageDays).toBeGreaterThanOrEqual(0);
+
+    const inTransitRow = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    expect(inTransitRow).toBeDefined();
+    expect(inTransitRow.fundsOrderNo).toBe('FO-2026-000123');
+  });
+
+  it('observation.closedByRunNo 在 status=RESOLVED 时解析 closedByRunId', async () => {
+    const closedRun = { id: 'run-closed', runNo: 'RUN20260703-3' };
+    const prisma = mkPrismaCase({ status: 'RESOLVED', closedByRunId: 'run-closed' });
+    prisma.reconciliationRun.findUnique = jest.fn().mockImplementation(({ where }: any) => {
+      if (where.id === 'run-first') return Promise.resolve(firstSeenRun);
+      if (where.id === 'run-last') return Promise.resolve(lastObservedRun);
+      if (where.id === 'run-closed') return Promise.resolve(closedRun);
+      return Promise.resolve(null);
+    });
+    const svc = mkSvc(prisma);
+    const result: any = await svc.getCase('REC20260630-005');
+    expect(result.observation.closedByRunNo).toBe('RUN20260703-3');
+    expect(result.observation.ageDays).toBeNull(); // not OPEN → no aging
+  });
+
+  it('buildFlowComparison cutoff 来自 lastObservedRunId 关联 run 的 completedAt/businessDate，而非 case.businessDate（跨日复用不读过期数据）', async () => {
+    const prisma = mkPrismaCase();
+    const svc = mkSvc(prisma);
+    await svc.getCase('REC20260630-005');
+    // case.businessDate = '2026-06-30' (frozen at first-seen); lastObservedRun.businessDate = '2026-07-03'.
+    // The cutoff passed to externalStatementLine/accountFlow lookups must reflect 2026-07-03, not 2026-06-30.
+    const extCall = (prisma.externalStatementLine.findMany as jest.Mock).mock.calls[0][0];
+    expect(extCall.where.datetime.lte.toISOString().slice(0, 10)).toBe('2026-07-03');
+  });
+});
+
+describe('listCases — bucket filter (T6)', () => {
+  it('q.bucket 过滤生效', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const prisma = { reconciliationCase: { findMany }, reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) } };
+    const svc = mkSvc(prisma);
+    await svc.listCases({ bucket: 'IN_TRANSIT' } as any);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ bucket: 'IN_TRANSIT' }),
+    }));
+  });
+
+  it('未传 bucket 时不加筛选条件（undefined 等价不筛）', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const prisma = { reconciliationCase: { findMany }, reconciliationRun: { findMany: jest.fn().mockResolvedValue([]) } };
+    const svc = mkSvc(prisma);
+    await svc.listCases({});
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ bucket: undefined }),
+    }));
   });
 });

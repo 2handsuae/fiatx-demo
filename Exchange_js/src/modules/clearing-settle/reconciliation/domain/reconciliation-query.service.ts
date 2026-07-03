@@ -8,9 +8,11 @@ import {
 } from '../engine/v2/wallet-flow-matcher.service';
 import {
   AccountStatusRow,
-  AccountStatusRowStatus,
+  CaseExplain,
+  CaseObservation,
   FlowComparisonRow,
   FlowComparisonSummary,
+  ReconRunDetail,
   RunDetailSummary,
 } from '../dto/reconciliation.dto';
 
@@ -121,32 +123,6 @@ export function pairManifest(
   return { matched, missed, extra };
 }
 
-// ─── T3 helpers ──────────────────────────────────────────────────────────────
-
-/**
- * Three-tier status per industry "balance first" convention:
- *   delta != 0                          → BREAK         (red — hard break, investigate)
- *   delta == 0 & flow has anomalies     → FLOW_REVIEW   (amber — "fake match" probe;
- *                                                        balance happens to nett, but
- *                                                        line-items orphan/mismatch)
- *   delta == 0 & flow clean             → MATCH         (green — done)
- *
- * Why FLOW_REVIEW is a distinct tier: balance can match by coincidence (one
- * wrong-amount debit cancelled by one wrong-amount credit). Flagging this as
- * a softer "review" — not a hard break — catches fraud/omissions without
- * inflating the BREAK count operations triages first.
- */
-function deriveAccountStatus(
-  deltaIsZero: boolean,
-  orphanInternal: number,
-  orphanExternal: number,
-  mismatch: number,
-): AccountStatusRowStatus {
-  if (!deltaIsZero) return 'BREAK';
-  const flowAnomaly = orphanInternal + orphanExternal + mismatch > 0;
-  return flowAnomaly ? 'FLOW_REVIEW' : 'MATCH';
-}
-
 @Injectable()
 export class ReconciliationQueryService {
   constructor(
@@ -165,9 +141,12 @@ export class ReconciliationQueryService {
     });
   }
   /**
-   * Run detail. Builds the per-wallet status table from ExternalBalance + a
-   * fresh balance-checker pass + this run's Cases (so the UI cockpit can
-   * render the dashboard without N round-trips).
+   * Run detail (T6). Reads the per-wallet status table straight from the
+   * reconciliation_run_wallets snapshot rows the orchestrator wrote at run
+   * time (T5) — no balanceChecker/matcher recompute. Runs from before the
+   * snapshot table existed have zero snapshot rows; those are flagged
+   * `legacy: true` so the UI can show a "no per-wallet detail" notice
+   * instead of a misleading empty "all clear" table.
    */
   async getRun(runNo: string) {
     const run = await this.prisma.reconciliationRun.findUnique({
@@ -188,18 +167,86 @@ export class ReconciliationQueryService {
       },
     });
 
-    const { rows: accountStatusTable, summary } = await this.buildAccountStatusTable(
-      run.businessDate,
-      cases as any,
-    );
+    const runWallets = (await (this.prisma as any).reconciliationRunWallet.findMany({
+      where: { runId: run.id },
+      orderBy: [{ assetCode: 'asc' }, { book: 'asc' }],
+    })) as Array<{
+      walletRef: string;
+      assetCode: string;
+      book: string;
+      coaCode: string | null;
+      ownerNo: string | null;
+      bucket: string;
+      internalTotal: Prisma.Decimal;
+      externalClosing: Prisma.Decimal;
+      deltaAmount: Prisma.Decimal;
+      inTransitAmount: Prisma.Decimal;
+      matchedCount: number;
+      orphanInternal: number;
+      orphanExternal: number;
+      mismatchCount: number;
+      inTransitCount: number;
+      caseNo: string | null;
+    }>;
 
-    return {
+    const legacy = runWallets.length === 0;
+
+    // walletRef → walletNo/walletRole join (mirrors the pattern used by
+    // listExternalBalances / listCases); XREF synthetic refs never resolve.
+    const realWalletRefs = Array.from(new Set(
+      runWallets.map((w) => w.walletRef).filter((w) => !w.startsWith('XREF:')),
+    ));
+    const wallets = realWalletRefs.length
+      ? ((await (this.prisma as any).wallet.findMany({
+          where: { id: { in: realWalletRefs } },
+          select: { id: true, walletNo: true, walletRole: true },
+        })) as Array<{ id: string; walletNo: string | null; walletRole: string | null }>)
+      : [];
+    const walletById = new Map(wallets.map((w) => [w.id, w]));
+
+    const accountStatusTable: AccountStatusRow[] = legacy ? [] : runWallets.map((w) => ({
+      walletRef: w.walletRef,
+      walletNo: walletById.get(w.walletRef)?.walletNo ?? null,
+      walletRole: walletById.get(w.walletRef)?.walletRole ?? null,
+      asset: w.assetCode,
+      book: w.book,
+      coaCode: w.coaCode,
+      ownerNo: w.ownerNo,
+      internal: { balance: w.internalTotal.toString() },
+      external: { balance: w.externalClosing.toString() },
+      delta: w.deltaAmount.toString(),
+      inTransitAmount: w.inTransitAmount.toString(),
+      flowMatched: w.matchedCount,
+      flowTotal: w.matchedCount + w.orphanInternal + w.orphanExternal + w.mismatchCount,
+      flowOrphanInternal: w.orphanInternal,
+      flowOrphanExternal: w.orphanExternal,
+      flowMismatch: w.mismatchCount,
+      inTransitCount: w.inTransitCount,
+      bucket: w.bucket as AccountStatusRow['bucket'],
+      caseId: null,
+      caseNo: w.caseNo,
+    }));
+
+    const summary: RunDetailSummary = {
+      walletCount: run.walletCount,
+      matchedCount: run.matchedCount,
+      inTransitCount: run.inTransitCount,
+      softFlagCount: run.softFlagCount,
+      breakCount: run.breakCount,
+      openedCount: run.openedCount,
+      reObservedCount: run.reObservedCount,
+      closedCount: run.closedCount,
+    };
+
+    const result: ReconRunDetail = {
       ...run,
       hasDemoManifest: run.demoManifest !== null,
       cases,
       accountStatusTable,
       summary,
+      legacy,
     };
+    return result;
   }
 
   /**
@@ -210,7 +257,7 @@ export class ReconciliationQueryService {
    *   - decorate each row with aging (days since firstSeenAt|createdAt)
    *     and surface firstSeenRunId / lastUpdatedRunId for run-history drill-down
    */
-  async listCases(q: { status?: string; assetCode?: string; runNo?: string }) {
+  async listCases(q: { status?: string; assetCode?: string; runNo?: string; bucket?: string }) {
     // Resolve runNo → internal id upfront; unknown run = empty list.
     let runIdFilter: string | undefined;
     if (q.runNo) {
@@ -222,7 +269,7 @@ export class ReconciliationQueryService {
     }
 
     const effectiveStatus = q.status === undefined ? 'OPEN' : q.status === 'ALL' ? undefined : q.status;
-    const where: any = { status: effectiveStatus, assetCode: q.assetCode };
+    const where: any = { status: effectiveStatus, assetCode: q.assetCode, bucket: q.bucket };
     if (runIdFilter) {
       where.OR = [
         { firstSeenRunId: runIdFilter },
@@ -282,12 +329,25 @@ export class ReconciliationQueryService {
   }
 
   /**
-   * Case detail (T3). Per-wallet WALLET_V1 cases get a fresh `flowComparison`:
-   * re-run the wallet-flow-matcher against the source datasets (external lines
-   * + internal account_flows) so the UI shows BOTH sides of every comparison
-   * row — matched pairs, orphans, mismatches. Legacy non-wallet cases return
-   * flowComparison=[] and summary all-zero (the old lineItems include is left
-   * untouched).
+   * Case detail (T3 + T6). Per-wallet WALLET_V1 cases get a fresh
+   * `flowComparison`: re-run the wallet-flow-matcher against the source
+   * datasets (external lines + internal account_flows) so the UI shows BOTH
+   * sides of every comparison row — matched pairs, orphans, mismatches.
+   * Legacy non-wallet cases return flowComparison=[] and summary all-zero
+   * (the old lineItems include is left untouched).
+   *
+   * T6 additions:
+   *   - explain: residual decomposition (delta = inTransitSigned + residual)
+   *   - observation: first/last-seen run history + re-observation count +
+   *     close run + aging (mirrors the bucket-classifier's residual math —
+   *     see engine/v2/bucket-classifier.ts)
+   *   - bucket surfaced straight from the case row
+   *   - IN_TRANSIT line items appended to flowComparison with fundsOrderNo
+   *   - buildFlowComparison's cutoff now reads the lastObservedRunId run's
+   *     businessDate instead of the case's own (frozen-at-first-seen)
+   *     businessDate — a case re-observed on a later day must compare
+   *     against that day's data, not the day it was first opened (T5 §2.5
+   *     made cases cross-day; this closes the resulting cutoff drift).
    */
   async getCase(caseNo: string) {
     const kase = await (this.prisma as any).reconciliationCase.findUnique({
@@ -295,12 +355,60 @@ export class ReconciliationQueryService {
     });
     if (!kase) throw new NotFoundException(`Case ${caseNo} not found`);
 
+    // Resolve the run history references up front — lastObservedRun's
+    // businessDate also drives buildFlowComparison's cutoff below.
+    const [firstSeenRun, lastObservedRun, closedByRun] = await Promise.all([
+      kase.firstSeenRunId
+        ? this.prisma.reconciliationRun.findUnique({
+            where: { id: kase.firstSeenRunId },
+            select: { runNo: true, startedAt: true },
+          })
+        : Promise.resolve(null),
+      kase.lastObservedRunId
+        ? this.prisma.reconciliationRun.findUnique({
+            where: { id: kase.lastObservedRunId },
+            select: { runNo: true, businessDate: true, completedAt: true },
+          })
+        : Promise.resolve(null),
+      kase.status === 'RESOLVED' && kase.closedByRunId
+        ? this.prisma.reconciliationRun.findUnique({
+            where: { id: kase.closedByRunId },
+            select: { runNo: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
     let flowComparison: FlowComparisonRow[] = [];
     let flowSummary: FlowComparisonSummary = { matched: 0, orphanInternal: 0, orphanExternal: 0, mismatch: 0 };
     if (kase.walletRef && !kase.walletRef.startsWith('XREF:')) {
-      const built = await this.buildFlowComparison(kase);
+      // Cutoff = the businessDate of the run that most recently observed this
+      // case, not kase.businessDate (frozen at first-seen under cross-day reuse).
+      const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
+      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate });
       flowComparison = built.rows;
       flowSummary = built.summary;
+    }
+
+    // T6: append persisted IN_TRANSIT line items — these aren't reconstructed
+    // by buildFlowComparison's live matcher re-run (that only replays
+    // matched/orphan/mismatch); IN_TRANSIT is sourced straight from the
+    // case's own lineItems, which T5 already writes with internalSourceNo =
+    // the explaining funds order's business number.
+    const inTransitLineItems = (kase.lineItems ?? []).filter((li: any) => li.matchStatus === 'IN_TRANSIT');
+    for (const li of inTransitLineItems) {
+      flowComparison.push({
+        externalLine: {
+          id: li.externalTxId ?? undefined,
+          externalRef: li.externalRef ?? null,
+          amount: li.externalAmount != null ? li.externalAmount.toString() : '0',
+          direction: (li.externalDirection ?? 'IN') as 'IN' | 'OUT',
+          timestamp: li.externalTimestamp ? li.externalTimestamp.toISOString() : new Date(0).toISOString(),
+          description: null,
+        },
+        internalFlow: null,
+        matchType: 'IN_TRANSIT',
+        fundsOrderNo: li.internalSourceNo ?? null,
+      });
     }
 
     const walletRow = kase.walletRef && !kase.walletRef.startsWith('XREF:')
@@ -318,12 +426,52 @@ export class ReconciliationQueryService {
         })
       : null;
 
+    // explain: delta = inTransitSigned + residual (bucket-classifier's
+    // residual formula — see engine/v2/bucket-classifier.ts).
+    const inTransitSigned = inTransitLineItems.reduce(
+      (sum: Prisma.Decimal, li: any) => {
+        const amt = li.externalAmount ?? new Prisma.Decimal(0);
+        return li.externalDirection === 'OUT' ? sum.minus(amt) : sum.plus(amt);
+      },
+      new Prisma.Decimal(0),
+    );
+    const delta = kase.deltaAmount as Prisma.Decimal;
+    const explain: CaseExplain = {
+      internalTotal: (kase.tbAmount as Prisma.Decimal).toString(),
+      externalClosing: (kase.actualExternal as Prisma.Decimal).toString(),
+      delta: delta.toString(),
+      inTransitSigned: inTransitSigned.toString(),
+      residual: delta.minus(inTransitSigned).toString(),
+    };
+
+    // reObservedCount: distinct foundByRunId among this case's line items,
+    // minus the first observation (opening the case doesn't count as a
+    // re-observation).
+    const distinctFoundByRuns = new Set((kase.lineItems ?? []).map((li: any) => li.foundByRunId));
+    const reObservedCount = Math.max(0, distinctFoundByRuns.size - 1);
+
+    const ageDays = kase.status === 'OPEN'
+      ? Math.floor((Date.now() - new Date(kase.createdAt).getTime()) / 86_400_000)
+      : null;
+
+    const observation: CaseObservation = {
+      firstSeenRunNo: firstSeenRun?.runNo ?? null,
+      firstSeenAt: firstSeenRun?.startedAt ? firstSeenRun.startedAt.toISOString() : null,
+      lastObservedRunNo: lastObservedRun?.runNo ?? null,
+      reObservedCount,
+      closedByRunNo: closedByRun?.runNo ?? null,
+      ageDays,
+    };
+
     return {
       ...kase,
       walletNo: walletRow?.walletNo ?? null,
       linkedRunNo: linkedRunRow?.runNo ?? null,
+      bucket: kase.bucket ?? null,
       flowComparison,
       flowSummary,
+      explain,
+      observation,
     };
   }
 
@@ -446,189 +594,6 @@ export class ReconciliationQueryService {
   // ─── T3 builders ───────────────────────────────────────────────────────────
 
   /**
-   * Build the per-wallet status table for the cockpit Run detail page.
-   * Source datasets:
-   *   - ExternalBalance @ businessDate (one row per wallet checked)
-   *   - this run's Cases (already includes wallet-level findings)
-   *   - wallets table (walletRole + ownerNo metadata)
-   *   - customer_main table (display name)
-   *
-   * For MATCH rows we still need to run the balance checker (the run already
-   * did, but the result isn't persisted per-wallet — only the absence of a Case
-   * implies pass). We accept the second pass: recon detail isn't hot.
-   *
-   * If a wallet has a Case from this run, its caseId + line-item counts come
-   * straight from the Case + its lineItems (avoiding a second matcher pass).
-   */
-  private async buildAccountStatusTable(
-    businessDate: string,
-    cases: Array<{
-      id: string;
-      caseNo: string;
-      assetCode: string;
-      book: string | null;
-      status: string;
-      deltaAmount: Prisma.Decimal;
-      walletRef: string | null;
-    }>,
-  ): Promise<{ rows: AccountStatusRow[]; summary: RunDetailSummary }> {
-    const balances = (await (this.prisma as any).externalBalance.findMany({
-      where: { cutoffDate: businessDate, walletRef: { not: null } },
-      select: {
-        walletRef: true,
-        closingBalance: true,
-        currency: true,
-        coaCode: true,
-        ownerNo: true,
-      },
-    })) as Array<{
-      walletRef: string;
-      closingBalance: Prisma.Decimal;
-      currency: string;
-      coaCode: string | null;
-      ownerNo: string | null;
-    }>;
-
-    if (balances.length === 0) {
-      return {
-        rows: [],
-        summary: { accountsChecked: 0, matchCount: 0, flowReviewCount: 0, breakCount: 0, balanceBreakCount: 0, orphanCount: 0, mismatchCount: 0 },
-      };
-    }
-
-    // Index this run's wallet-keyed cases for O(1) lookup; XREF synthetic
-    // walletRefs (start with "XREF:") aren't real wallets and don't belong in
-    // this table — keep them out.
-    const caseByWalletRef = new Map<string, (typeof cases)[number] & { lineItems?: any[] }>();
-    for (const c of cases) {
-      if (!c.walletRef || c.walletRef.startsWith('XREF:')) continue;
-      caseByWalletRef.set(c.walletRef, c);
-    }
-    // Bulk-load line items for those cases (avoid N round-trips).
-    const caseIds = Array.from(caseByWalletRef.values()).map((c) => c.id);
-    const allLineItems = caseIds.length
-      ? ((await (this.prisma as any).reconciliationLineItem.findMany({
-          where: { caseId: { in: caseIds } },
-          select: { caseId: true, matchStatus: true },
-        })) as Array<{ caseId: string; matchStatus: string }>)
-      : [];
-    const lineItemsByCase = new Map<string, Array<{ matchStatus: string }>>();
-    for (const li of allLineItems) {
-      const arr = lineItemsByCase.get(li.caseId) ?? [];
-      arr.push(li);
-      lineItemsByCase.set(li.caseId, arr);
-    }
-
-    // Bulk-load wallet metadata.
-    const walletRefs = Array.from(new Set(balances.map((b) => b.walletRef)));
-    const wallets = (await (this.prisma as any).wallet.findMany({
-      where: { id: { in: walletRefs } },
-      select: { id: true, walletNo: true, walletRole: true, ownerNo: true, ownerType: true },
-    })) as Array<{ id: string; walletNo: string | null; walletRole: string | null; ownerNo: string | null; ownerType: string }>;
-    const walletById = new Map(wallets.map((w) => [w.id, w]));
-
-    // Bulk-load customer names for customer-owned wallets.
-    const customerNos = Array.from(
-      new Set(
-        wallets
-          .filter((w) => w.ownerType === 'CUSTOMER' && w.ownerNo)
-          .map((w) => w.ownerNo as string),
-      ),
-    );
-    const customers = customerNos.length
-      ? ((await (this.prisma as any).customerMain.findMany({
-          where: { customerNo: { in: customerNos } },
-          select: { customerNo: true, firstName: true, lastName: true, companyName: true },
-        })) as Array<{ customerNo: string; firstName: string | null; lastName: string | null; companyName: string | null }>)
-      : [];
-    const nameByCustomerNo = new Map(
-      customers.map((c) => [
-        c.customerNo,
-        c.companyName ?? ([c.firstName, c.lastName].filter(Boolean).join(' ') || null),
-      ]),
-    );
-
-    // Use the cutoff = end-of-businessDate (UTC) for the balance check. This
-    // is what WalletReconRunService passes when it runs the recon — keeps
-    // recomputed deltas consistent with the original run.
-    const cutoff = new Date(`${businessDate}T23:59:59.999Z`);
-
-    const rows: AccountStatusRow[] = [];
-    // Three-tier counts (cockpit Overview):
-    let matchCount = 0;
-    let flowReviewCount = 0;
-    let breakCount = 0;
-    // Per-anomaly account tallies (backward-compat — separate axis from status):
-    let balanceBreakCount = 0;
-    let orphanCount = 0;
-    let mismatchCount = 0;
-
-    for (const bal of balances) {
-      const externalBig = BigInt(bal.closingBalance.toString());
-      const check = await this.walletBalanceChecker.checkBalance({
-        walletRef: bal.walletRef,
-        externalClosing: externalBig,
-        cutoff,
-      });
-      const meta = walletById.get(bal.walletRef);
-      const ownerName = meta?.ownerType === 'CUSTOMER' && meta.ownerNo
-        ? nameByCustomerNo.get(meta.ownerNo) ?? null
-        : null;
-
-      const kase = caseByWalletRef.get(bal.walletRef);
-      const items = kase ? lineItemsByCase.get(kase.id) ?? [] : [];
-      let oi = 0, oe = 0, mm = 0;
-      for (const li of items) {
-        if (li.matchStatus === 'ORPHAN_INTERNAL') oi += 1;
-        else if (li.matchStatus === 'ORPHAN_EXTERNAL') oe += 1;
-        else if (li.matchStatus === 'AMOUNT_MISMATCH') mm += 1;
-      }
-      const flowTotal = oi + oe + mm;
-      const matched = 0; // line items only encode anomalies; matched pairs not persisted
-      const status = deriveAccountStatus(check.delta === 0n, oi, oe, mm);
-      if (status === 'MATCH') matchCount += 1;
-      else if (status === 'FLOW_REVIEW') flowReviewCount += 1;
-      else if (status === 'BREAK') breakCount += 1;
-      if (check.delta !== 0n) balanceBreakCount += 1;
-      if (oi > 0 || oe > 0) orphanCount += 1;
-      if (mm > 0) mismatchCount += 1;
-
-      rows.push({
-        walletRef: bal.walletRef,
-        walletNo: walletById.get(bal.walletRef)?.walletNo ?? null,
-        walletRole: meta?.walletRole ?? null,
-        ownerNo: meta?.ownerNo ?? bal.ownerNo ?? null,
-        ownerName,
-        asset: bal.currency,
-        coaCode: bal.coaCode ?? check.coaCode,
-        internal: { balance: check.internal.total.toString() },
-        external: { balance: check.external.toString() },
-        delta: check.delta.toString(),
-        flowMatched: matched,
-        flowTotal,
-        flowOrphanInternal: oi,
-        flowOrphanExternal: oe,
-        flowMismatch: mm,
-        status,
-        caseId: kase?.id ?? null,
-        caseNo: kase?.caseNo ?? null,
-      });
-    }
-
-    const summary: RunDetailSummary = {
-      accountsChecked: rows.length,
-      matchCount,
-      flowReviewCount,
-      breakCount,
-      balanceBreakCount,
-      orphanCount,
-      mismatchCount,
-    };
-
-    return { rows, summary };
-  }
-
-  /**
    * Build the per-case flow comparison rows for the cockpit Case detail page.
    * Two-pass reconstruction:
    *   1. matched pairs → recompute via WalletFlowMatcherService (re-run the
@@ -644,7 +609,12 @@ export class ReconciliationQueryService {
   private async buildFlowComparison(
     kase: { walletRef: string; businessDate: string },
   ): Promise<{ rows: FlowComparisonRow[]; summary: FlowComparisonSummary }> {
-    // End-of-businessDate cutoff — same as the engine uses.
+    // T6: cutoff comes from kase.businessDate here, but the CALLER (getCase)
+    // now passes the businessDate of the case's lastObservedRunId run — not
+    // the case's own frozen businessDate (which stays pinned to the
+    // first-seen day under cross-day case reuse, T5 §2.5). Using the stale
+    // first-seen day here would compare against day-old external/internal
+    // data after a case has been re-observed on a later day.
     const cutoff = new Date(`${kase.businessDate}T23:59:59.999Z`);
 
     // 1. Source datasets.
