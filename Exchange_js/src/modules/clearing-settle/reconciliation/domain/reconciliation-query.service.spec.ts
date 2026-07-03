@@ -784,6 +784,10 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+      // T4 push-disposition: getCase batch-looks up in-transit funds orders'
+      // status to badge "已推进·待重对账". No matching row here → status null,
+      // fundsOrderNo still comes from li.internalSourceNo (asserted below).
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
     } as any;
   }
 
