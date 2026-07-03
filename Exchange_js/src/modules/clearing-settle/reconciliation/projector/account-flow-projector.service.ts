@@ -24,6 +24,7 @@ export interface EvidenceLike {
   assetCode: string;
   transferType: string;
   createdAt: Date | string;
+  effectiveDate: string;
   debitWalletRef?: string | null;
   creditWalletRef?: string | null;
   externalRef?: string | null;
@@ -44,6 +45,7 @@ export interface AccountFlowRow {
   transferType: string;
   assetCode: string;
   createdAt: Date;
+  effectiveDate: string;
 }
 
 // Narrow client surface — accepts both PrismaClient and Prisma.TransactionClient.
@@ -112,6 +114,7 @@ export class AccountFlowProjectorService {
       transferType: evidence.transferType,
       assetCode: evidence.assetCode,
       createdAt,
+      effectiveDate: evidence.effectiveDate,
     };
 
     const rows: AccountFlowRow[] = [];
@@ -176,6 +179,7 @@ export class AccountFlowProjectorService {
           sourceNo: row.sourceNo,
           transferType: row.transferType,
           assetCode: row.assetCode,
+          effectiveDate: row.effectiveDate,
           // createdAt intentionally NOT updated — preserves the original
           // evidence timestamp across re-projections (LOCK→POST etc.).
         },

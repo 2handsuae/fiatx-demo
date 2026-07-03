@@ -4,6 +4,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { COA_TO_TB_CODE, isAssetCode } from './constants/tb-account-codes.constant';
 import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
+import { toBusinessDate } from './utils/business-date.util';
 
 interface WriteEvidenceParams {
   tbTransferId: string;
@@ -48,6 +49,7 @@ export class TbEvidenceService {
   async writeEvidence(params: WriteEvidenceParams, tx?: Prisma.TransactionClient): Promise<void> {
     const client = tx ?? this.prisma;
     try {
+      const now = new Date();
       const evidenceData = {
         tbTransferId: params.tbTransferId,
         sourceType: params.sourceType,
@@ -69,7 +71,8 @@ export class TbEvidenceService {
         creditWalletRef: params.creditWalletRef ?? null,
         externalRef: params.externalRef ?? null,
         isExternalCrossing: params.isExternalCrossing ?? false,
-        createdAt: new Date(),
+        createdAt: now,
+        effectiveDate: toBusinessDate(now),
       };
       await (client as any).tbTransferEvidence.create({ data: evidenceData });
 

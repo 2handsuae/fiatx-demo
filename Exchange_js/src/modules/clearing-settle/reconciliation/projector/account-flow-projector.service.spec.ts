@@ -36,6 +36,7 @@ describe('AccountFlowProjectorService', () => {
     externalRef: '0xdeadbeef',
     isExternalCrossing: true,
     createdAt: new Date('2026-06-26T12:00:00Z'),
+    effectiveDate: '2026-06-26',
   };
 
   describe('projectEvidence (pure)', () => {
@@ -68,6 +69,7 @@ describe('AccountFlowProjectorService', () => {
         expect(r.createdAt).toEqual(new Date('2026-06-26T12:00:00Z'));
         expect(r.isExternalCrossing).toBe(true);
         expect(Number(r.amount)).toBe(100);
+        expect(r.effectiveDate).toBe('2026-06-26');
       }
     });
 
@@ -213,6 +215,7 @@ describe('AccountFlowProjectorService', () => {
       externalRef: null,
       isExternalCrossing: false,
       createdAt: new Date('2026-06-29T10:00:00Z'),
+      effectiveDate: '2026-06-26',
     };
 
     it('throws WalletRefMismatchError when walletRef is not in wallets table (orphan)', async () => {

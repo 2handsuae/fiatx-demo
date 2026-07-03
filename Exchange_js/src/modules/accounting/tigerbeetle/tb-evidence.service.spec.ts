@@ -151,6 +151,15 @@ describe('TbEvidenceService', () => {
       await expect(svc.writeEvidence(params)).resolves.toBeUndefined();
       expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalled();
     });
+
+    it('stamps effectiveDate = UTC date of the same instant as createdAt', async () => {
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue(params);
+
+      await service.writeEvidence(params);
+
+      const data = mockPrisma.tbTransferEvidence.create.mock.calls[0][0].data;
+      expect(data.effectiveDate).toBe(data.createdAt.toISOString().slice(0, 10));
+    });
   });
 
   describe('enrichForPost — Phase B / T3 re-projection', () => {
