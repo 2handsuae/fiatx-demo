@@ -3,8 +3,8 @@
 FROM node:20-bookworm-slim
 WORKDIR /app
 
-# netcat: 探测 TigerBeetle / backend 端口就绪（无 /health 端点，用端口探测）
-RUN apt-get update && apt-get install -y --no-install-recommends netcat-openbsd \
+# netcat: 探测端口就绪；openssl/ca-certificates: Prisma 引擎必需（slim 镜像默认缺，否则 schema engine 报错）
+RUN apt-get update && apt-get install -y --no-install-recommends netcat-openbsd openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
