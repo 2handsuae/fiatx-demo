@@ -52,8 +52,12 @@ npm run runtime:diagnose           # 诊断迁移漂移
 | 审计日志写法 | `doc-final/rules/audit-logging.md` |
 | 前端管理台 | `doc-final/rules/frontend-admin.md` |
 | 前端客户端 | `doc-final/rules/frontend-client.md` |
+| **某功能代码现状** | `doc-final/reference/truth/`（真相文档；改代码必须同步）|
+| **技术债/死码/待决策** | `doc-final/BACKLOG.md`（唯一登记处；说"以后做"必须记一行）|
 
 需要了解版本路线图与架构决策 → `doc-final/reference/roadmap.md`、`doc-final/reference/v7-funds-layer-baseline.md`
+
+> **四类文档分工**：`rules/`=怎么写（约束）｜ `truth/`=现在什么样（现状，跟代码走）｜ `roadmap`=接下来做什么（计划）｜ `BACKLOG.md`=欠的账（技术债）。改代码同步 truth/，别写进 roadmap。
 
 ---
 
