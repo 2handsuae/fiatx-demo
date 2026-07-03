@@ -41,6 +41,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { triggerWalletReconRun } from '../utils/reconRunTrigger';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -80,6 +81,8 @@ interface FlowComparisonRow {
   matchType: FlowMatchType;
   deltaAmount?: string;
   fundsOrderNo?: string | null;   // NEW — only for IN_TRANSIT rows
+  fundsOrderStatus?: string | null; // T4 — funds order status for IN_TRANSIT rows;
+                                    // CLEARED here (case still OPEN) = "已推进·待重对账"
 }
 
 interface FlowComparisonSummary {
@@ -286,6 +289,7 @@ const ReconciliationCasesDetailPage = () => {
   // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
   // not grouped sections). Toggled by the "Show matched" button below the table.
   const [showMatched, setShowMatched] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -307,6 +311,19 @@ const ReconciliationCasesDetailPage = () => {
       console.error('Failed to fetch reconciliation case', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 一键重新对账 / Re-reconcile — fire a fresh wallet run at now; on success
+  // refresh this case (a re-observation may flip it to RESOLVED if the pushed
+  // funds order now nets the delta to zero).
+  const handleReReconcile = async () => {
+    setReconciling(true);
+    try {
+      const ok = await triggerWalletReconRun();
+      if (ok) await fetchCase();
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -616,15 +633,25 @@ const ReconciliationCasesDetailPage = () => {
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
                             {ext?.externalRef ?? '—'}
                           </td>
-                          {/* Internal source — IN_TRANSIT links to the funds order (read-only) */}
+                          {/* Internal source — IN_TRANSIT links to the funds order.
+                              When that funds order is already CLEARED but this case
+                              is still OPEN, badge "已推进·待重对账": a rerun will close
+                              the case (use the Re-reconcile action in the sidebar). */}
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
                             {isInTransit && row.fundsOrderNo ? (
-                              <Link
-                                to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
-                                className="text-adm-blue hover:underline"
-                              >
-                                {row.fundsOrderNo}
-                              </Link>
+                              <span className="inline-flex flex-wrap items-center gap-1.5">
+                                <Link
+                                  to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
+                                  className="text-adm-blue hover:underline"
+                                >
+                                  {row.fundsOrderNo}
+                                </Link>
+                                {kase.status === 'OPEN' && row.fundsOrderStatus === 'CLEARED' && (
+                                  <span className="inline-flex items-center gap-1 rounded border border-adm-blue/30 bg-adm-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-adm-blue">
+                                    <Check size={9} /> 已推进·待重对账 / Pushed · re-reconcile
+                                  </span>
+                                )}
+                              </span>
                             ) : intl ? (
                               `${intl.eventCode} · ${intl.sourceType}/${intl.sourceNo}`
                             ) : (
@@ -674,8 +701,22 @@ const ReconciliationCasesDetailPage = () => {
 
         </div>
 
-        {/* ── Sidebar (read-only — no Actions block) ── */}
+        {/* ── Sidebar ── */}
         <aside className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* ACTIONS — 一键重新对账 / Re-reconcile (fires a fresh wallet run so a
+              pushed-then-CLEARED funds order gets re-observed and this case closed). */}
+          <SidebarGroup title="Actions">
+            <button
+              type="button"
+              disabled={reconciling}
+              onClick={handleReReconcile}
+              className="flex w-full items-center justify-center gap-1.5 rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
+              重新对账 / Re-reconcile
+            </button>
+          </SidebarGroup>
+
           <SidebarGroup title="Identity Summary">
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />

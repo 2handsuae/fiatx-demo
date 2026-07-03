@@ -139,6 +139,9 @@ export interface FlowComparisonRow {
   matchType: FlowComparisonMatchType;
   deltaAmount?: string;             // only for AMOUNT_MISMATCH
   fundsOrderNo?: string | null;     // only for IN_TRANSIT — the explaining funds order
+  fundsOrderStatus?: string | null; // T4: current status of the explaining funds order
+                                    // (IN_TRANSIT only) — CLEARED here + case OPEN means
+                                    // "已推进·待重对账": a rerun will close the case.
 }
 
 export interface FlowComparisonSummary {

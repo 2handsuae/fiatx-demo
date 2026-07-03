@@ -28,6 +28,8 @@ export interface EvidenceParams {
   creditWalletRef?: string | null;
   externalRef?: string | null;
   isExternalCrossing?: boolean;
+  // 平账推单回填口：不传=写入当天；仅资金单推单链路（deposit STEP_1/2 + withdraw FEE_FIRM）传入（YYYY-MM-DD）
+  effectiveDate?: string;
 }
 
 export interface ExecuteTransferParams {

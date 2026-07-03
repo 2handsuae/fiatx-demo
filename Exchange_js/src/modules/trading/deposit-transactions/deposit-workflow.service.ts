@@ -37,6 +37,7 @@ interface FundsOrderStatusChangedEvent {
   oldStatus: string | null;
   newStatus: string;
   traceId?: string;
+  effectiveDate?: string; // 平账推单回填的业务归属日；普通实时流转恒为 undefined
 }
 
 @Injectable()
@@ -68,7 +69,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     switch (event.newStatus) {
       case FundsOrderStatus.CONFIRMED:
-        await this.onPayinConfirmed(depositId, event.fundsOrderId);
+        await this.onPayinConfirmed(depositId, event.fundsOrderId, event.effectiveDate);
         break;
       case FundsOrderStatus.FAILED:
       case FundsOrderStatus.TIMEOUT:
@@ -374,7 +375,7 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
-  private async onPayinConfirmed(depositId: string, fundsOrderId: string) {
+  private async onPayinConfirmed(depositId: string, fundsOrderId: string, effectiveDate?: string) {
     const deposit = await this.depositService.findOne(depositId);
     if (!deposit) return;
 
@@ -406,7 +407,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
     if (deposit.ownerType === DepositOwnerType.CUSTOMER) {
       try {
-        await this.executeDepositAccounting(deposit, 'STEP_1', fundsOrder);
+        await this.executeDepositAccounting(deposit, 'STEP_1', fundsOrder, effectiveDate);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this.logger.error(`TB Step 1 failed for deposit ${deposit.id}: ${error.message}`);
@@ -454,6 +455,7 @@ export class DepositWorkflowService implements OnModuleInit {
     deposit: any,
     step: 'STEP_1' | 'STEP_2',
     fundsOrder?: any,
+    effectiveDate?: string,
   ) {
     const asset = deposit.asset;
     if (!asset) {
@@ -511,6 +513,7 @@ export class DepositWorkflowService implements OnModuleInit {
           creditWalletRef: walletRef,
           externalRef,
           isExternalCrossing: true,
+          ...(effectiveDate && { effectiveDate }),
         },
       });
 
@@ -552,6 +555,7 @@ export class DepositWorkflowService implements OnModuleInit {
           creditWalletRef: walletRef,
           externalRef: null,
           isExternalCrossing: false,
+          ...(effectiveDate && { effectiveDate }),
         },
       });
 

@@ -160,6 +160,16 @@ describe('TbEvidenceService', () => {
       const data = mockPrisma.tbTransferEvidence.create.mock.calls[0][0].data;
       expect(data.effectiveDate).toBe(data.createdAt.toISOString().slice(0, 10));
     });
+
+    it('honors an explicit effectiveDate (back-value funnel) while createdAt stays now', async () => {
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue(params);
+
+      await service.writeEvidence({ ...params, effectiveDate: '2026-06-30' } as any);
+
+      const data = mockPrisma.tbTransferEvidence.create.mock.calls[0][0].data;
+      expect(data.effectiveDate).toBe('2026-06-30');
+      expect(data.createdAt.toISOString().slice(0, 10)).not.toBe('2026-06-30');
+    });
   });
 
   describe('enrichForPost — Phase B / T3 re-projection', () => {
@@ -196,6 +206,26 @@ describe('TbEvidenceService', () => {
 
       expect(mockPrisma.tbTransferEvidence.update).not.toHaveBeenCalled();
       expect(projector.persist).not.toHaveBeenCalled();
+    });
+
+    it('enrichForPost with effectiveDate back-values the promoted evidence row', async () => {
+      mockPrisma.tbTransferEvidence.update = jest.fn().mockResolvedValue({});
+      mockPrisma.tbTransferEvidence.findUnique.mockResolvedValue({ tbTransferId: 'tid-1', effectiveDate: '2026-06-30' });
+
+      await service.enrichForPost('tid-1', { eventCode: 'X', effectiveDate: '2026-06-30' } as any);
+
+      const patch = mockPrisma.tbTransferEvidence.update.mock.calls[0][0].data;
+      expect(patch.effectiveDate).toBe('2026-06-30');
+    });
+
+    it('enrichForPost without effectiveDate never touches the date (existing behavior)', async () => {
+      mockPrisma.tbTransferEvidence.update = jest.fn().mockResolvedValue({});
+      mockPrisma.tbTransferEvidence.findUnique.mockResolvedValue({ tbTransferId: 'tid-1' });
+
+      await service.enrichForPost('tid-1', { eventCode: 'X' });
+
+      const patch = mockPrisma.tbTransferEvidence.update.mock.calls[0][0].data;
+      expect('effectiveDate' in patch).toBe(false);
     });
   });
 

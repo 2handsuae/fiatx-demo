@@ -581,6 +581,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/funds-orders', 'List funds orders', ['INTERNAL_FUND_READ']),
   route('GET', '/admin/funds-orders/:fundsOrderNo', 'Get funds order detail', ['INTERNAL_FUND_READ']),
   route('POST', '/admin/funds-orders/:fundsOrderNo/advance', 'Advance funds order (sim/ops)', ['INTERNAL_FUND_READ']),
+  // Recon disposition (平账·推单) — sync from external receipt / manual confirm with evidence.
+  route('POST', '/admin/funds-orders/:fundsOrderNo/push/sync', 'Push order — sync from external receipt (recon disposition)', ['INTERNAL_FUND_READ']),
+  route('POST', '/admin/funds-orders/:fundsOrderNo/push/manual', 'Push order — manual confirm with evidence (recon disposition)', ['INTERNAL_FUND_READ']),
 
 ];
 

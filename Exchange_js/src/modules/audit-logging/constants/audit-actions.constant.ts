@@ -422,6 +422,9 @@ export const AuditActions = {
   // Wallet-recon orchestrator Round3 (T5)
   SYSTEM_RECON_RUN_COMPLETED: 'SYSTEM_RECON_RUN_COMPLETED',
   SYSTEM_RECON_CASE_AUTO_HEALED: 'SYSTEM_RECON_CASE_AUTO_HEALED',
+  // ── Reconciliation disposition: push-order（平账·推单）──
+  RECON_PUSH_ORDER_SYNCED: 'RECON_PUSH_ORDER_SYNCED',
+  RECON_PUSH_ORDER_MANUAL: 'RECON_PUSH_ORDER_MANUAL',
 } as const;
 
 export const AuditGovernanceActions = {

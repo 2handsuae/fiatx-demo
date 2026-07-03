@@ -31,6 +31,7 @@ interface WriteEvidenceParams {
   creditWalletRef?: string | null;
   externalRef?: string | null;
   isExternalCrossing?: boolean;
+  effectiveDate?: string; // 平账回填口：不传=写入当天；仅资金单推单链路传入（YYYY-MM-DD）
 }
 
 @Injectable()
@@ -72,7 +73,7 @@ export class TbEvidenceService {
         externalRef: params.externalRef ?? null,
         isExternalCrossing: params.isExternalCrossing ?? false,
         createdAt: now,
-        effectiveDate: toBusinessDate(now),
+        effectiveDate: params.effectiveDate ?? toBusinessDate(now),
       };
       await (client as any).tbTransferEvidence.create({ data: evidenceData });
 
@@ -153,6 +154,7 @@ export class TbEvidenceService {
       creditWalletRef?: string | null;
       externalRef?: string | null;
       isExternalCrossing?: boolean;
+      effectiveDate?: string; // 平账回填口：不传=写入当天；仅资金单推单链路传入（YYYY-MM-DD）
     },
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
@@ -164,6 +166,7 @@ export class TbEvidenceService {
     if (fields.creditWalletRef !== undefined) data.creditWalletRef = fields.creditWalletRef;
     if (fields.externalRef !== undefined) data.externalRef = fields.externalRef;
     if (fields.isExternalCrossing !== undefined) data.isExternalCrossing = fields.isExternalCrossing;
+    if (fields.effectiveDate !== undefined) data.effectiveDate = fields.effectiveDate;
     if (Object.keys(data).length === 0) return;
     await (client as any).tbTransferEvidence.update({
       where: { tbTransferId },

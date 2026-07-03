@@ -32,6 +32,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { triggerWalletReconRun } from '../utils/reconRunTrigger';
 
 /* ── Types (mirrors ReconRunDetail / AccountStatusRow / RunDetailSummary
    in src/modules/clearing-settle/reconciliation/dto/reconciliation.dto.ts) ── */
@@ -186,6 +187,7 @@ const ReconciliationRunsDetailPage = () => {
   const [bucketFilter, setBucketFilter] = useState<ReconBucket | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortDir, setSortDir] = useState<SortDir>('asc'); // status asc = breaks first
+  const [reconciling, setReconciling] = useState(false);
 
   const fetchRun = async () => {
     if (!runNo) return;
@@ -205,6 +207,20 @@ const ReconciliationRunsDetailPage = () => {
       console.error('Failed to fetch reconciliation run', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 一键重新对账 / Re-reconcile — fire a fresh wallet run at now, then navigate
+  // to the runs list (the freshest run sorts first there). This page is pinned to
+  // a stale runNo, so re-fetching it would just reload old data; the list is the
+  // right landing spot to see the run just created.
+  const handleReReconcile = async () => {
+    setReconciling(true);
+    try {
+      const ok = await triggerWalletReconRun();
+      if (ok) navigate('/admin/reconciliation/runs');
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -633,8 +649,22 @@ const ReconciliationRunsDetailPage = () => {
 
         </div>
 
-        {/* ── Sidebar (no Actions block — read-only) ── */}
+        {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* ACTIONS — 一键重新对账 / Re-reconcile (fires a fresh wallet run so
+              pushed-then-CLEARED funds orders get re-observed and cases closed). */}
+          <SidebarGroup title="Actions">
+            <button
+              type="button"
+              disabled={reconciling}
+              onClick={handleReReconcile}
+              className="flex w-full items-center justify-center gap-1.5 rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={reconciling ? 'animate-spin' : ''} />
+              重新对账 / Re-reconcile
+            </button>
+          </SidebarGroup>
+
           <SidebarGroup title="Identity Summary">
             <SidebarKV label="Run No" value={run.runNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={run.status} />} />

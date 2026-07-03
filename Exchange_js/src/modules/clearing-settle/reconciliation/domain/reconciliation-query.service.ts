@@ -394,7 +394,27 @@ export class ReconciliationQueryService {
     // case's own lineItems, which T5 already writes with internalSourceNo =
     // the explaining funds order's business number.
     const inTransitLineItems = (kase.lineItems ?? []).filter((li: any) => li.matchStatus === 'IN_TRANSIT');
+
+    // T4 (push disposition): decorate each in-transit row with the explaining
+    // funds order's current status so the cockpit can badge "已推进·待重对账"
+    // (funds order已 CLEARED but the case is still OPEN — a rerun will close it).
+    // ONE batched `in` query keyed on the collected fundsOrderNos — no N+1.
+    const inTransitFundsOrderNos = Array.from(new Set(
+      inTransitLineItems
+        .map((li: any) => li.internalSourceNo)
+        .filter((no: string | null): no is string => !!no),
+    ));
+    const fundsOrderStatusByNo = new Map<string, string>();
+    if (inTransitFundsOrderNos.length > 0) {
+      const fundsOrders = (await (this.prisma as any).fundsOrder.findMany({
+        where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
+        select: { fundsOrderNo: true, status: true },
+      })) as Array<{ fundsOrderNo: string; status: string }>;
+      for (const fo of fundsOrders) fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
+    }
+
     for (const li of inTransitLineItems) {
+      const fundsOrderNo = li.internalSourceNo ?? null;
       flowComparison.push({
         externalLine: {
           id: li.externalTxId ?? undefined,
@@ -406,7 +426,8 @@ export class ReconciliationQueryService {
         },
         internalFlow: null,
         matchType: 'IN_TRANSIT',
-        fundsOrderNo: li.internalSourceNo ?? null,
+        fundsOrderNo,
+        fundsOrderStatus: fundsOrderNo ? (fundsOrderStatusByNo.get(fundsOrderNo) ?? null) : null,
       });
     }
 

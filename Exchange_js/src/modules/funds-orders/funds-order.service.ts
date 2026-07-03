@@ -82,7 +82,7 @@ export class FundsOrderService {
     return row;
   }
 
-  async advance(id: string, action: FundsOrderAction, operatorId: string, tx?: Tx) {
+  async advance(id: string, action: FundsOrderAction, operatorId: string, tx?: Tx, opts?: { effectiveDate?: string }) {
     const run = async (client: any) => {
       const row = await client.fundsOrder.findUnique({ where: { id }, include: { asset: true } });
       if (!row) throw new NotFoundException(`FundsOrder ${id} not found`);
@@ -117,6 +117,7 @@ export class FundsOrderService {
       oldStatus,
       newStatus,
       traceId: undefined,
+      effectiveDate: opts?.effectiveDate,
     });
     return updated;
   }
@@ -141,6 +142,13 @@ export class FundsOrderService {
   async findById(id: string, tx?: Tx) {
     const client: any = tx ?? this.prisma;
     return client.fundsOrder.findUnique({ where: { id }, include: { asset: true } });
+  }
+
+  /** Thin business-key finder — raw row (+ asset) by fundsOrderNo. Recon push-order
+   *  orchestrator needs id/status/FKs/wallets/referenceNo/amount/createdAt on the row. */
+  async findByNo(fundsOrderNo: string, tx?: Tx) {
+    const client: any = tx ?? this.prisma;
+    return client.fundsOrder.findUnique({ where: { fundsOrderNo }, include: { asset: true } });
   }
 
   async findByParent(

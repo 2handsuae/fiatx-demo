@@ -185,6 +185,13 @@ const FundsOrderDetail = () => {
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState(false);
 
+  // 平账·推单处置（Task 4）——与 ⚡模拟面板独立，不受 simEnabled 门控。
+  const [pushSubmitting, setPushSubmitting] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualReceiptRef, setManualReceiptRef] = useState('');
+  const [manualExternalDate, setManualExternalDate] = useState('');
+  const [manualReason, setManualReason] = useState('');
+
   const fetchData = async () => {
     if (!fundsOrderNo) return;
     setLoading(true);
@@ -260,6 +267,74 @@ const FundsOrderDetail = () => {
     }
   };
 
+  // 推单·同步状态：查唯一外部回执自动推进至终态。MISS 时后端 message
+  // （"未找到唯一回执（N 条候选）…"）原样透出，提示改走人工确认。
+  const handleSyncPush = async () => {
+    if (!data) return;
+    setPushSubmitting(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/funds-orders/${data.fundsOrderNo}/push/sync`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        alert(await getApiErrorMessage(response, 'Sync push failed'));
+        return;
+      }
+      // Success: silent refetch (repo convention — no success alert). The order
+      // reaches a terminal state, canPush flips false, and this Actions button
+      // disappears on its own.
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Sync push failed', error);
+      alert('Sync push request failed');
+    } finally {
+      setPushSubmitting(false);
+    }
+  };
+
+  // 推单·人工确认：证据三件套（回执号 + 外部实际动账日 + 原因）强推至终态。
+  const handleManualPush = async () => {
+    if (!data) return;
+    if (!manualReceiptRef.trim() || !manualExternalDate.trim() || !manualReason.trim()) {
+      alert('All three fields are required / 三项证据均为必填');
+      return;
+    }
+    setPushSubmitting(true);
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/funds-orders/${data.fundsOrderNo}/push/manual`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            receiptRef: manualReceiptRef.trim(),
+            externalDate: manualExternalDate,
+            reason: manualReason.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        alert(await getApiErrorMessage(response, 'Manual push failed'));
+        return;
+      }
+      // Success: close modal, reset fields, silent refetch (repo convention —
+      // no success alert). The order goes terminal and the Actions block hides.
+      setManualOpen(false);
+      setManualReceiptRef('');
+      setManualExternalDate('');
+      setManualReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      console.error('Manual push failed', error);
+      alert('Manual push request failed');
+    } finally {
+      setPushSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center">
@@ -274,6 +349,14 @@ const FundsOrderDetail = () => {
   const assetType = data.asset?.type?.toUpperCase() ?? null;
   const isFiat = assetType === 'FIAT';
   const parent = resolveParent(data);
+
+  // 平账·推单处置门控（Task 4）：swap 腿走 Swap 详情页逐腿推进（顺序守卫），
+  // 本区不渲染；终态无可推进。两条件与后端 loadPushable 拒绝语义一致。
+  const isSwapLeg = !!data.swapTransactionId || !!data.swapNo;
+  const isTerminalStatus = ['CLEARED', 'FAILED', 'TIMEOUT'].includes(
+    String(data.status || '').toUpperCase(),
+  );
+  const canPush = !isSwapLeg && !isTerminalStatus;
 
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
@@ -509,6 +592,35 @@ const FundsOrderDetail = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* ACTIONS — 平账·推单处置 (real ops action, not simulation). Shown only
+              for a non-swap, non-terminal leg; drives the order to CLEARED so the
+              next reconciliation run closes its open case. Manual Confirm opens the
+              page-level evidence modal. Buttons live here per frontend-admin.md
+              (actions belong in the sidebar Actions block, not the main body). */}
+          {canPush && (
+            <SidebarGroup title="Actions">
+              <button
+                type="button"
+                disabled={pushSubmitting}
+                onClick={handleSyncPush}
+                className="flex w-full items-center justify-center rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
+              >
+                同步状态 / Sync
+              </button>
+              <button
+                type="button"
+                disabled={pushSubmitting}
+                onClick={() => setManualOpen(true)}
+                className="mt-2 flex w-full items-center justify-center rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[12px] font-semibold text-adm-t2 transition-colors hover:border-adm-t3 disabled:opacity-50"
+              >
+                人工确认 / Manual Confirm
+              </button>
+              <p className="mt-2 text-[10px] leading-relaxed text-adm-t3">
+                推至终态以便重对账关单。同步：查唯一回执自动推进；人工：凭证据三件套强推。
+              </p>
+            </SidebarGroup>
+          )}
+
           {/* IDENTITY SUMMARY */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Funds Order No" value={data.fundsOrderNo} mono />
@@ -560,6 +672,83 @@ const FundsOrderDetail = () => {
           </SidebarGroup>
         </div>
       </div>
+
+      {/* ── 人工确认弹层 / Manual Confirm modal ── 三输入全必填，POST /push/manual */}
+      {manualOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !pushSubmitting && setManualOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-adm-border bg-adm-panel p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1 font-mono text-[13px] font-semibold text-adm-t1">
+              人工确认推单 / Manual Confirm Push
+            </div>
+            <p className="mb-4 text-[11px] leading-relaxed text-adm-t3">
+              Force this order to CLEARED with operator-supplied evidence. All three
+              fields are required. / 凭证据三件套强推至终态，三项均为必填。
+            </p>
+
+            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-adm-t3">
+              回执号 / Receipt Ref
+            </label>
+            <input
+              type="text"
+              value={manualReceiptRef}
+              onChange={(e) => setManualReceiptRef(e.target.value)}
+              placeholder="e.g. bank wire reference / on-chain tx hash"
+              className="mb-3 w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[12px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-blue focus:outline-none"
+            />
+
+            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-adm-t3">
+              外部实际动账日 / Effective Date
+            </label>
+            <input
+              type="date"
+              value={manualExternalDate}
+              onChange={(e) => setManualExternalDate(e.target.value)}
+              className="mb-3 w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[12px] text-adm-t1 focus:border-adm-blue focus:outline-none"
+            />
+
+            <label className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-adm-t3">
+              原因 / Reason
+            </label>
+            <textarea
+              value={manualReason}
+              onChange={(e) => setManualReason(e.target.value)}
+              rows={3}
+              placeholder="Why is a manual confirm needed? / 为何需要人工确认"
+              className="mb-4 w-full rounded border border-adm-border bg-adm-bg px-3 py-2 text-[12px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-blue focus:outline-none"
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={pushSubmitting}
+                onClick={() => setManualOpen(false)}
+                className="rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[12px] text-adm-t2 transition-colors hover:border-adm-t3 disabled:opacity-50"
+              >
+                取消 / Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  pushSubmitting ||
+                  !manualReceiptRef.trim() ||
+                  !manualExternalDate.trim() ||
+                  !manualReason.trim()
+                }
+                onClick={handleManualPush}
+                className="rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-1.5 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
+              >
+                确认强推 / Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

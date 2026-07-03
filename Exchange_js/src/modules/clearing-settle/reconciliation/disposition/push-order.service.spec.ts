@@ -1,0 +1,207 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { PushOrderService } from './push-order.service';
+import { FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
+
+// Real funds-order row shape (columns per prisma schema): deposit/withdraw FK derives
+// direction, fromWalletId/toWalletId is the physical wallet, referenceNo is the external ref.
+const makeOrder = (over: any = {}) => ({
+  id: 'id-1',
+  fundsOrderNo: 'FO-1',
+  status: FundsOrderStatus.CONFIRMING,
+  depositTransactionId: 'dep-1',
+  withdrawTransactionId: null,
+  swapTransactionId: null,
+  fromWalletId: null,
+  toWalletId: 'w-1',
+  amount: 100,
+  referenceNo: '0xabc',
+  createdAt: new Date('2026-06-29T00:00:00Z'),
+  ...over,
+});
+
+function build(opts: { order?: any; lookup?: any } = {}) {
+  const order = opts.order ?? makeOrder();
+  // advance() walks CONFIRMING → CONFIRMED → CLEARED as the orchestrator retries HAPPY_ACTIONS.
+  const statuses = [FundsOrderStatus.CONFIRMED, FundsOrderStatus.CLEARED];
+  let i = 0;
+  let currentStatus = order.status; // shared row status; advance() moves it, findById() reads it
+  const fundsOrders = {
+    findByNo: jest.fn(async () => order),
+    findById: jest.fn(async () => ({ ...order, status: currentStatus })),
+    advance: jest.fn(async () => {
+      currentStatus = statuses[i++] ?? FundsOrderStatus.CLEARED;
+      return { ...order, status: currentStatus };
+    }),
+  } as any;
+  const lookup = {
+    findUniqueReceipt: jest.fn(
+      async () => opts.lookup ?? ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' }),
+    ),
+  } as any;
+  const audit = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn() } as any;
+  return { svc: new PushOrderService(fundsOrders, lookup, audit), fundsOrders, lookup, audit };
+}
+
+describe('PushOrderService', () => {
+  it('sync: unique receipt → advances to CLEARED with back-valued effectiveDate on every step', async () => {
+    const { svc, fundsOrders } = build();
+    const res = await svc.syncPush('FO-1', 'admin-1');
+    expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);
+    expect(fundsOrders.advance).toHaveBeenCalled();
+    for (const call of fundsOrders.advance.mock.calls) {
+      // advance(id, action, operatorId, tx, opts) — opts is arg index 4
+      expect(call[4]).toEqual({ effectiveDate: '2026-06-30' });
+    }
+  });
+
+  it('sync: maps deposit → IN direction + toWalletId when locating a receipt', async () => {
+    const { svc, lookup } = build();
+    await svc.syncPush('FO-1', 'admin-1');
+    const view = lookup.findUniqueReceipt.mock.calls[0][0];
+    expect(view.direction).toBe('IN');
+    expect(view.walletId).toBe('w-1');
+    expect(view.externalRefs).toEqual(['0xabc']);
+  });
+
+  it('sync: coalesces txHash + referenceNo + providerTxnId into externalRefs (aligns with matcher refsOf)', async () => {
+    // On-chain order: txHash present, referenceNo null, providerTxnId present → both non-null refs
+    // must reach the lookup so tier-1 can match a statement line keyed by txHash.
+    const order = makeOrder({ txHash: '0xTX', referenceNo: null, providerTxnId: 'PSP-9' });
+    const { svc, lookup } = build({ order });
+    await svc.syncPush('FO-1', 'admin-1');
+    const view = lookup.findUniqueReceipt.mock.calls[0][0];
+    expect(view.externalRefs).toEqual(['0xTX', 'PSP-9']);
+  });
+
+  it('sync: maps withdraw → OUT direction + fromWalletId', async () => {
+    const order = makeOrder({
+      depositTransactionId: null,
+      withdrawTransactionId: 'wd-1',
+      fromWalletId: 'wout-9',
+      toWalletId: null,
+    });
+    const { svc, lookup } = build({ order });
+    await svc.syncPush('FO-1', 'admin-1');
+    const view = lookup.findUniqueReceipt.mock.calls[0][0];
+    expect(view.direction).toBe('OUT');
+    expect(view.walletId).toBe('wout-9');
+  });
+
+  it('sync: records a RECON_PUSH_ORDER_SYNCED audit via recordByActor', async () => {
+    const { svc, audit } = build();
+    await svc.syncPush('FO-1', 'admin-1');
+    expect(audit.recordByActor).toHaveBeenCalledTimes(1);
+    const [input, actor] = audit.recordByActor.mock.calls[0];
+    expect(input.action).toBe('RECON_PUSH_ORDER_SYNCED');
+    expect(input.entityType).toBe('INTERNAL_FUND');
+    expect(input.entityNo).toBe('FO-1');
+    expect(input.metadata.manualConfirm).toBe(false);
+    expect(actor.actorId).toBe('admin-1');
+    expect(actor.actorType).toBe('ADMIN');
+  });
+
+  it('sync: MISS → no advance, reports candidate count', async () => {
+    const { svc, fundsOrders } = build({ lookup: { kind: 'MISS', candidates: 3 } });
+    await expect(svc.syncPush('FO-1', 'admin-1')).rejects.toThrow(/3/);
+    expect(fundsOrders.advance).not.toHaveBeenCalled();
+  });
+
+  it('manual: validates evidence dates (future / before order creation rejected)', async () => {
+    const { svc } = build();
+    await expect(
+      svc.manualPush('FO-1', 'admin-1', { receiptRef: 'R-1', externalDate: '2099-01-01', reason: 'x' }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      svc.manualPush('FO-1', 'admin-1', { receiptRef: 'R-1', externalDate: '2026-06-01', reason: 'x' }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('manual: missing evidence triple rejected', async () => {
+    const { svc } = build();
+    await expect(
+      svc.manualPush('FO-1', 'admin-1', { receiptRef: '  ', externalDate: '2026-06-30', reason: 'x' }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      svc.manualPush('FO-1', 'admin-1', { receiptRef: 'R-1', externalDate: '2026-06-30', reason: '' }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('manual: valid evidence → advances with operator-supplied effectiveDate + manual audit flag', async () => {
+    const { svc, fundsOrders, audit } = build();
+    const res = await svc.manualPush('FO-1', 'admin-1', {
+      receiptRef: 'R-1',
+      externalDate: '2026-06-30',
+      reason: '银行后台已见到账',
+    });
+    expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);
+    expect(fundsOrders.advance.mock.calls[0][4]).toEqual({ effectiveDate: '2026-06-30' });
+    const [input] = audit.recordByActor.mock.calls[0];
+    expect(input.action).toBe('RECON_PUSH_ORDER_MANUAL');
+    expect(input.metadata.manualConfirm).toBe(true);
+    expect(input.metadata.receiptRef).toBe('R-1');
+  });
+
+  it('rejects swap-leg and terminal orders', async () => {
+    const { svc: s1 } = build({ order: makeOrder({ swapTransactionId: 'swap-1' }) });
+    await expect(s1.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
+    const { svc: s2 } = build({ order: makeOrder({ status: FundsOrderStatus.CLEARED }) });
+    await expect(s2.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
+  });
+
+  it('driveToCleared rethrows non-transition advance errors (e.g. row deleted) — not masked as "无合法推进动作"', async () => {
+    // M-1: a narrowed catch only continues on "Invalid transition"; a NotFound (row vanished mid-drive)
+    // must propagate verbatim, not be swallowed into the generic "no legal advance" BadRequest.
+    const order = makeOrder();
+    const fundsOrders = {
+      findByNo: jest.fn(async () => order),
+      findById: jest.fn(async () => order), // still CONFIRMING — not the concurrent-CLEARED case
+      advance: jest.fn(async () => {
+        throw new NotFoundException(`FundsOrder ${order.id} not found`);
+      }),
+    } as any;
+    const lookup = {
+      findUniqueReceipt: jest.fn(async () => ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' })),
+    } as any;
+    const audit = { recordByActor: jest.fn(async () => ({})) } as any;
+    const svc = new PushOrderService(fundsOrders, lookup, audit);
+    await expect(svc.syncPush('FO-1', 'admin-1')).rejects.toThrow(NotFoundException);
+  });
+
+  it('tolerates a concurrent workflow handler driving the order to CLEARED (loop loses the CLEAR race)', async () => {
+    // Terminal-state guard (funds-order.service.ts:91) throws "already terminal (CLEARED) — invalid
+    // transition" (LOWERCASE "invalid transition"). If a deposit/withdraw @OnEvent handler self-drives
+    // CONFIRMED→CLEARED first, the loop's own advance(CLEAR) hits already-terminal. That must be treated
+    // as SUCCESS (order is CLEARED) and audit must STILL be written — not rethrown after money moved.
+    const order = makeOrder();
+    let rowStatus = FundsOrderStatus.CONFIRMING;
+    let advanceCalls = 0;
+    const fundsOrders = {
+      findByNo: jest.fn(async () => order),
+      // findById reflects what the concurrent handler already did to the shared row.
+      findById: jest.fn(async () => ({ ...order, status: rowStatus })),
+      advance: jest.fn(async () => {
+        advanceCalls += 1;
+        if (advanceCalls === 1) {
+          // loop's CONFIRM succeeds; but BEFORE returning, the concurrent handler drives it to CLEARED.
+          rowStatus = FundsOrderStatus.CLEARED;
+          return { ...order, status: FundsOrderStatus.CONFIRMED };
+        }
+        // loop's next attempt (CLEAR) loses the race → already-terminal guard (lowercase message).
+        throw new BadRequestException(
+          `FundsOrder ${order.id} already terminal (CLEARED) — invalid transition`,
+        );
+      }),
+    } as any;
+    const lookup = {
+      findUniqueReceipt: jest.fn(async () => ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' })),
+    } as any;
+    const audit = { recordByActor: jest.fn(async () => ({})) } as any;
+    const svc = new PushOrderService(fundsOrders, lookup, audit);
+
+    const res = await svc.syncPush('FO-1', 'admin-1');
+    expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);
+    // The compliance-critical assertion: audit is written even though the loop lost the CLEAR race.
+    expect(audit.recordByActor).toHaveBeenCalledTimes(1);
+    expect(audit.recordByActor.mock.calls[0][0].metadata.toStatus).toBe(FundsOrderStatus.CLEARED);
+  });
+});

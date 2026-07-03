@@ -484,7 +484,7 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [ ] **资金单合并可行性评估** — payin/payout/internalfund 状态机近乎同构，可合表合服务；Phase C 决策，未做
 - [ ] **`case.observation.reObservedCount` 恒为 0** — T5 的 line items 是 delete-then-insert（每次 run 清空重写），`foundByRunId` 只剩最近一次 run 的值，distinct 数恒为 1；正确修法需 `ReconciliationCase` 加专用计数列（`upsertCaseForWallet` 的 existing 分支 +1）或改变 line item 累积策略；代码内已加 KNOWN LIMITATION 注释（`reconciliation-query.service.ts`），Round3 未修（超出改造范围）
 - [ ] **`admin-web/src/rbac/permissions.ts` 孤儿权限常量** — `OUTSTANDINGS_READ`/`OUTSTANDING_DETAIL_READ`/`FEE_ACCRUALS_READ`/`FEE_ACCRUAL_DETAIL_READ` 对应后端路由已随 Phase C 删除，前端常量未同步清理（Round3 范围限定 backend-only，pre-existing debt）
-- [ ] **推单/补单/冲正/豁免/偿付等平账处置动作** — Round3 只做检测侧驾驶舱，处置侧动作字典已在脑暴阶段定稿（7 原子动作），留待下一轮实现
+- [~] **推单/补单/冲正/豁免/偿付等平账处置动作** — 7 原子动作字典脑暴定稿；**动作①推单（push-order）已交付**（分支 `settle-opt`，见下方「推单处置动作」）；其余 6 动作（补单/冲正/冲销/豁免/偿付/…）留待后续轮次
 - [~] **effective date（结算日期字段）** — 准备字段已交付（双表双写 + 引擎等价保真切换 + `recon:rerun` 工具，见下方「effectiveDate 平账准备字段」）；处置侧回填口子留待平账期
 
 **effectiveDate 平账准备字段（2026-07-03，分支 `feat/recon-round3-cockpit`，4 任务）：**
@@ -497,6 +497,19 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - 处置侧回填口子（operator 手动补账 UI/动作）留待平账期，与推单/补单/冲正等处置动作同期实现。
 
 设计文档：`superpowers/specs/2026-07-03-effective-date-prep-design.md` + `superpowers/plans/2026-07-03-effective-date-prep-plan.md`。
+
+**推单处置动作（push-order，2026-07-03，分支 `settle-opt`，5 任务）— 7 平账处置动作的第 1 个：**
+
+- [x] **两腿推进编排** — `PushOrderService`：同步腿（机器查已摄入外部对账单行找唯一回执）+ 人工腿（operator 强推·三件套证据），复用同一条状态机 advance 路径（`FundsOrderService.advance`，逐步 SUBMITTED→…→CLEARED，不跳步不造新迁移）；铁律不破——推单不直写 TB，全经状态机事件链记账 ✅
+- [x] **回填生效日透传链（三层）** — 回填值经 状态机 advance → 工作流监听器 → `AccountingService.executeTransfer`（`EvidenceParams.effectiveDate`）→ `writeEvidence`/`enrichForPost` 流到库；三处记账入口全补 `effectiveDate?`（不传=写当天，默认零变化）✅
+- [x] **同步唯一回执匹配（两档严格度）** — tier-1 参考号三字段 `[txHash,referenceNo,providerTxnId]` membership（对齐对账 matcher `refsOf`）；tier-2 钱包+方向+金额+时间窗要素精配；恰好 1 条才 HIT，0/多条降级人工，同步永不猜 ✅
+- [x] **双端点 + 审计 + RBAC** — `POST /admin/funds-orders/:no/push/sync` + `…/push/manual`；审计 `RECON_PUSH_ORDER_SYNCED`/`RECON_PUSH_ORDER_MANUAL`（DI，`AuditActions` 字典，人工腿带 `manualConfirm`+三件套）✅
+- [x] **前端两按钮 + 徽记 + 一键重对账** — 资金单详情页侧栏 Actions 同步/人工两按钮（与 ⚡模拟面板分区）；case 在途行"已推进·待重对账"派生徽记（`kase.status===OPEN && fundsOrderStatus===CLEARED`，零新增存储）；case/run 页"重新对账"按钮打 `POST /admin/reconciliation/runs/wallet {cutoff:now}` ✅
+- 金闸门：`recon:demo` 九场景 pre/post 结论行逐字一致（`GOLDEN_GATE_OK`，检测侧零回归）；tsc 0 / jest 净新增失败 0。
+- e2e：同步腿（effectiveDate=昨天回填、审计三段）、人工腿（CLEARED+审计三件套+manualConfirm）、失败路径（0 候选/未来日/早于创建日均 400 且状态不变）、重对账端点均 curl+sqlite 实证 ✅
+- **⚠️ 合成 demo 数据 heal 边界（诚实记录）**：`recon:demo` 场景1 在途单挂在已 SUCCESS deposit 上、本身无待记账链（demo 设计不触发 TB 记账），故推单驱到 CLEARED 不产生新记账、重对账时桶 IN_TRANSIT→BREAK 而非 delta→0/AUTO_HEALED；DB 内 deposit/withdraw 全已 SUCCESS 无未记账真实单可挂，Option A 在本 demo 数据上不可低成本达成。"回填→记账→对账吸收 delta 归 0"完整闭环由 effectiveDate 准备字段 e2e 已单独证过（上条）；推单侧证到"回填生效日经漏斗盖进记账"这一环，最后"记账吸收"依赖真实首次记账。前端点击流因本环境浏览器不可达改以数据契约头验替代（getCase 徽记字段 + 重对账端点均实证）。详见 spec §7.1。
+
+设计文档：`superpowers/specs/2026-07-03-push-order-disposition-design.md` + `superpowers/plans/2026-07-03-push-order-disposition-plan.md`。
 
 ---
 
