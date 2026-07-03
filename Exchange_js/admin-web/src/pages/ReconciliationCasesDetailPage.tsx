@@ -515,9 +515,9 @@ const ReconciliationCasesDetailPage = () => {
           </DetailCard>
 
           {/* 3. Account Identity — collapsed to a single line (Round3 slim):
-              wallet/owner/COA/asset·book. Linked Run and Lifecycle timestamps
-              dropped — run refs live in the Observation bar below, and
-              First/Last-seen duplicate the sidebar Created/Updated fields. */}
+              wallet/owner/COA/asset·book. The old run-linkage and lifecycle
+              subcards were dropped — run refs live in the Observation bar
+              below, and those timestamps duplicate the sidebar Created/Updated fields. */}
           <DetailCard title="账户身份 / Account Identity" columns={1}>
             <div className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[12px]">
               <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1" title={kase.walletRef ?? undefined}>{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
