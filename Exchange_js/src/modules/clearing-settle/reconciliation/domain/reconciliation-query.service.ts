@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/prisma/prisma.service';
-import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker.service';
 import {
   WalletFlowMatcherService,
   ExternalStatementLineInput,
@@ -127,7 +126,6 @@ export function pairManifest(
 export class ReconciliationQueryService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly walletBalanceChecker: WalletBalanceCheckerService,
     private readonly walletFlowMatcher: WalletFlowMatcherService,
   ) {}
 
@@ -447,6 +445,14 @@ export class ReconciliationQueryService {
     // reObservedCount: distinct foundByRunId among this case's line items,
     // minus the first observation (opening the case doesn't count as a
     // re-observation).
+    // KNOWN LIMITATION: this is currently always 0 — T5's line items are
+    // delete-then-insert on every rerun (see writeLineItems, called from
+    // upsertCaseForWallet in wallet-recon-run.service.ts), so foundByRunId
+    // only ever holds the most recent run's id and the distinct count is
+    // always 1. A correct fix needs either a dedicated counter column on
+    // ReconciliationCase (incremented in upsertCaseForWallet's `existing`
+    // branch) or a change to the line-item accumulation strategy — both are
+    // out of scope for T6 and left for a follow-up task.
     const distinctFoundByRuns = new Set((kase.lineItems ?? []).map((li: any) => li.foundByRunId));
     const reObservedCount = Math.max(0, distinctFoundByRuns.size - 1);
 
@@ -481,7 +487,7 @@ export class ReconciliationQueryService {
       orderBy: [{ book: 'asc' }, { source: 'asc' }, { currency: 'asc' }, { accountRef: 'asc' }],
     });
 
-    // walletRef → walletNo + walletRole join (mirrors buildAccountStatusTable pattern)
+    // walletRef → walletNo + walletRole join (mirrors getRun's runWallets join pattern)
     const realWalletRefs = Array.from(new Set(
       rows.map(r => r.walletRef).filter((w): w is string => !!w && !w.startsWith('XREF:')),
     ));

@@ -1,24 +1,21 @@
 import { Prisma } from '@prisma/client';
 import { pairManifest, ReconciliationQueryService } from './reconciliation-query.service';
 
-// Helper: build the query service with mocks for the engine dependencies the
-// constructor now requires (T3). Tests can override either by passing their own.
+// Helper: build the query service with a mock for the flow-matcher dependency
+// the constructor requires (T3). Tests can override it by passing their own.
+// T6: walletBalanceChecker was dropped from the constructor — getRun no
+// longer recomputes via the balance checker (it reads the run-wallet
+// snapshot table instead), and no other method in this service used it.
 function mkSvc(
   prisma: any,
-  opts: { balanceChecker?: any; flowMatcher?: any } = {},
+  opts: { flowMatcher?: any } = {},
 ) {
-  const balanceChecker = opts.balanceChecker ?? {
-    checkBalance: jest.fn().mockResolvedValue({
-      pass: true, walletRef: '', walletKind: 'CUSTOMER', coaCode: '',
-      ownerNo: null, internal: { total: 0n }, external: 0n, delta: 0n,
-    }),
-  };
   const flowMatcher = opts.flowMatcher ?? {
     matchFlows: jest.fn().mockResolvedValue({
       matched: [], orphanInternal: [], orphanExternal: [], mismatch: [],
     }),
   };
-  return new ReconciliationQueryService(prisma, balanceChecker, flowMatcher);
+  return new ReconciliationQueryService(prisma, flowMatcher);
 }
 
 // Helpers to build test fixtures concisely.
@@ -691,7 +688,9 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
         inTransitCount: 0, caseNo: 'REC20260703-001',
       },
     ];
-    const balanceChecker = { checkBalance: jest.fn() };
+    // T6: walletBalanceChecker is no longer a constructor dependency (getRun
+    // reads the snapshot table, not a recompute) — only flowMatcher remains
+    // to verify against.
     const flowMatcher = { matchFlows: jest.fn() };
     const prisma: any = {
       reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
@@ -699,13 +698,12 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
       reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue(snapshotRows) },
       wallet: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const svc = mkSvc(prisma, { balanceChecker, flowMatcher });
+    const svc = mkSvc(prisma, { flowMatcher });
     const result: any = await svc.getRun(run.runNo);
 
     expect(prisma.reconciliationRunWallet.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ runId: run.id }) }),
     );
-    expect(balanceChecker.checkBalance).not.toHaveBeenCalled();
     expect(flowMatcher.matchFlows).not.toHaveBeenCalled();
 
     expect(result.accountStatusTable).toHaveLength(2);
