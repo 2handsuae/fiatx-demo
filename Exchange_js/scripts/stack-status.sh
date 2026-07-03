@@ -3,37 +3,44 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./stack-common.sh
-source "${SCRIPT_DIR}/stack-common.sh"
+source "${SCRIPT_DIR}/stack-common.sh"   # provides ROOT_DIR
 
-print_stack_row() {
-  local stack="$1"
-  load_stack_config "${stack}"
-
-  local branch
-  if [[ -d "${WT_DIR}" ]]; then
-    branch="$(stack_branch)"
+port_state() {
+  local port="$1"
+  local pid
+  pid="$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${pid}" ]]; then
+    echo "up:${pid}"
   else
-    branch="(missing worktree)"
+    echo "down"
   fi
-
-  local backend_state admin_state client_state
-  backend_state="$(service_state "${BACKEND_PORT}" "${BACKEND_PID_FILE}")"
-  admin_state="$(service_state "${ADMIN_PORT}" "${ADMIN_PID_FILE}")"
-  client_state="$(service_state "${CLIENT_PORT}" "${CLIENT_PID_FILE}")"
-
-  printf "%-8s %-28s %-15s %-15s %-15s %s\n" \
-    "${stack}" \
-    "${branch}" \
-    "${BACKEND_PORT}:${backend_state}" \
-    "${ADMIN_PORT}:${admin_state}" \
-    "${CLIENT_PORT}:${client_state}" \
-    "${BACKEND_URL} | ${ADMIN_URL} | ${CLIENT_URL}"
 }
 
-printf "%-8s %-28s %-15s %-15s %-15s %s\n" "stack" "branch" "backend" "admin" "client" "urls"
-printf "%s\n" "----------------------------------------------------------------------------------------------------------------------------------------"
-print_stack_row main
-print_stack_row codex
-print_stack_row claude
-print_stack_row trae
-print_stack_row audit-evidence
+print_row() {
+  local label="$1" branch="$2" be="$3" ad="$4" cl="$5"
+  printf "%-26s %-26s %-14s %-14s %-14s\n" \
+    "${label}" "${branch}" \
+    "${be}:$(port_state "${be}")" \
+    "${ad}:$(port_state "${ad}")" \
+    "${cl}:$(port_state "${cl}")"
+}
+
+printf "%-26s %-26s %-14s %-14s %-14s\n" "stack" "branch" "backend" "admin" "client"
+printf "%s\n" "------------------------------------------------------------------------------------------------------"
+
+# main stack — canonical, runs from the primary worktree on fixed ports 3000-3002.
+main_branch="$(git -C "${ROOT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '(unknown)')"
+print_row "main" "${main_branch}" 3000 3001 3002
+
+# per-worktree 'self' stacks — one row per worktree that has been booted
+# (i.e. has an allocated .stackports). Ports are auto-assigned; base+0/1/2.
+for wt in "${ROOT_DIR}"/.claude/worktrees/*/; do
+  [[ -d "${wt}" ]] || continue
+  pf="${wt%/}/.stackports"
+  [[ -f "${pf}" ]] || continue
+  base="$(head -n 1 "${pf}" 2>/dev/null | tr -dc '0-9')"
+  [[ -n "${base}" ]] || continue
+  name="$(basename "${wt%/}")"
+  branch="$(git -C "${wt%/}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '(unknown)')"
+  print_row "${name}" "${branch}" "${base}" "$(( base + 1 ))" "$(( base + 2 ))"
+done

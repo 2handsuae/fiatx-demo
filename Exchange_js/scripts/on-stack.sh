@@ -8,9 +8,8 @@
 # with the inline env assignments stripped (so the target env wins).
 #
 # Usage:
-#   bash scripts/on-stack.sh <main|branch|codex|claude|trae> <npm-script> [args...]
-#   npm run on:main  -- recon:demo
-#   npm run on:stack -- main db:biz:init
+#   bash scripts/on-stack.sh <main|self> <npm-script> [args...]   # self = current worktree
+#   bash scripts/on-stack.sh main recon:demo
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +18,7 @@ APP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/stack-common.sh"   # provides load_stack_config + default_database_url
 
 if [[ $# -lt 2 ]]; then
-  echo "Usage: on-stack.sh <main|branch|codex|claude|trae> <npm-script> [args...]" >&2
+  echo "Usage: on-stack.sh <main|self> <npm-script> [args...]" >&2
   echo "  e.g. on-stack.sh main recon:demo" >&2
   exit 1
 fi
@@ -29,7 +28,7 @@ script="$1"; shift
 
 # Canonical per-stack config (sets TB_ADDRESS, ports, paths). Reuses the single source of truth.
 load_stack_config "${stack}"
-db_url="$(default_database_url "${stack}")"
+db_url="$(default_database_url "${STACK}")"
 
 # Pull the npm script body from package.json (script name passed as argv, not interpolated).
 body="$(node -e 'const s=require(process.argv[1]).scripts||{}; const c=s[process.argv[2]]; if(c==null){console.error("on-stack: no such npm script: "+process.argv[2]);process.exit(2);} process.stdout.write(c);' "${APP_DIR}/package.json" "${script}")"

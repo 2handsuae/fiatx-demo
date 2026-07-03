@@ -41,7 +41,52 @@ CLIENT_PID_FILE=""
 TB_PID_FILE=""
 
 usage_stack_name() {
-  echo "Usage: $0 <main|codex|claude|trae|audit-evidence>" >&2
+  echo "Usage: $0 <main|self>" >&2
+}
+
+# Auto-allocate a stable 4-port block for a per-worktree ("self") stack.
+# The chosen base port is persisted in <wt_dir>/.stackports (gitignored) so the
+# assignment stays stable across restarts. We skip ports reserved by main and by
+# sibling worktrees, then probe for a block with no live listener. Written for
+# bash 3.2 (macOS default) — no associative arrays.
+allocate_worktree_ports() {
+  local wt_dir="$1"
+  local pf="${wt_dir}/.stackports"
+  local base off busy f b
+
+  if [[ -f "${pf}" ]]; then
+    base="$(head -n 1 "${pf}" 2>/dev/null | tr -dc '0-9')"
+    if [[ -n "${base}" ]]; then
+      echo "${base}"
+      return 0
+    fi
+  fi
+
+  local reserved=" 3000 "
+  for f in "${ROOT_DIR}"/.claude/worktrees/*/.stackports; do
+    [[ -f "${f}" ]] || continue
+    b="$(head -n 1 "${f}" 2>/dev/null | tr -dc '0-9')"
+    [[ -n "${b}" ]] && reserved="${reserved}${b} "
+  done
+
+  for (( base=3100; base<=3990; base+=10 )); do
+    case "${reserved}" in *" ${base} "*) continue ;; esac
+    busy=0
+    for off in 0 1 2 3; do
+      if lsof -nP -iTCP:"$(( base + off ))" -sTCP:LISTEN >/dev/null 2>&1; then
+        busy=1
+        break
+      fi
+    done
+    [[ "${busy}" -eq 1 ]] && continue
+    mkdir -p "${wt_dir}"
+    echo "${base}" >"${pf}"
+    echo "${base}"
+    return 0
+  done
+
+  echo "[stack] ERROR: no free port block in 3100-3990 for worktree ${wt_dir}" >&2
+  return 1
 }
 
 load_stack_config() {
@@ -66,60 +111,27 @@ load_stack_config() {
       TB_PORT="3003"
       TB_DATA_FILE="/tmp/exchange_js_main/0_0.tigerbeetle"
       ;;
-    codex)
-      STACK="codex"
-      WT_DIR="${ROOT_DIR}/.wt/codex"
+    self)
+      # Per-worktree auto stack. Each worktree under .claude/worktrees/ gets its
+      # own port block + its own DB/TB scope so many sessions run in parallel
+      # without colliding. Run this from inside the worktree you want to boot.
+      if [[ "${CURRENT_WT_DIR}" == "${ROOT_DIR}" ]]; then
+        # 'self' from the main worktree is just the canonical main stack.
+        load_stack_config main
+        return $?
+      fi
+      local wt_name base
+      wt_name="$(sanitize_db_scope "$(basename "${CURRENT_WT_DIR}")")"
+      STACK="wt_${wt_name}"
+      WT_DIR="${CURRENT_WT_DIR}"
       APP_DIR="${WT_DIR}/Exchange_js"
-      BACKEND_PORT="3100"
-      ADMIN_PORT="3101"
-      CLIENT_PORT="3102"
-      BRANCH_RULE="codex/*"
-      TB_PORT="3103"
-      TB_DATA_FILE="/tmp/exchange_js_codex/0_0.tigerbeetle"
-      ;;
-    claude)
-      STACK="claude"
-      WT_DIR="${ROOT_DIR}/.wt/claude"
-      APP_DIR="${WT_DIR}/Exchange_js"
-      BACKEND_PORT="3200"
-      ADMIN_PORT="3201"
-      CLIENT_PORT="3202"
-      BRANCH_RULE="claude/*"
-      TB_PORT="3203"
-      TB_DATA_FILE="/tmp/exchange_js_claude/0_0.tigerbeetle"
-      ;;
-    trae)
-      STACK="trae"
-      WT_DIR="${ROOT_DIR}/.wt/trae"
-      APP_DIR="${WT_DIR}/Exchange_js"
-      BACKEND_PORT="3300"
-      ADMIN_PORT="3301"
-      CLIENT_PORT="3302"
-      BRANCH_RULE="trae/*"
-      TB_PORT="3303"
-      TB_DATA_FILE="/tmp/exchange_js_trae/0_0.tigerbeetle"
-      ;;
-    branch)
-      STACK="branch"
-      WT_DIR="${ROOT_DIR}/.wt/branch"
-      APP_DIR="${WT_DIR}/Exchange_js"
-      BACKEND_PORT="3500"
-      ADMIN_PORT="3501"
-      CLIENT_PORT="3502"
-      BRANCH_RULE="branch"
-      TB_PORT="3503"
-      TB_DATA_FILE="/tmp/exchange_js_branch/0_0.tigerbeetle"
-      ;;
-    audit-evidence)
-      STACK="audit-evidence"
-      WT_DIR="${ROOT_DIR}/.wt/codex/branch"
-      APP_DIR="${WT_DIR}/Exchange_js"
-      BACKEND_PORT="3500"
-      ADMIN_PORT="3501"
-      CLIENT_PORT="3502"
-      BRANCH_RULE="codex/branch"
-      TB_PORT="3503"
-      TB_DATA_FILE="/tmp/exchange_js_branch/0_0.tigerbeetle"
+      BRANCH_RULE="*"
+      base="$(allocate_worktree_ports "${WT_DIR}")" || return 1
+      BACKEND_PORT="${base}"
+      ADMIN_PORT="$(( base + 1 ))"
+      CLIENT_PORT="$(( base + 2 ))"
+      TB_PORT="$(( base + 3 ))"
+      TB_DATA_FILE="/tmp/exchange_js_${STACK}/0_0.tigerbeetle"
       ;;
     *)
       usage_stack_name

@@ -2,8 +2,8 @@
 # scripts/dev-tigerbeetle.sh — TigerBeetle dev lifecycle helper
 set -euo pipefail
 
-TB_DATA="/tmp/exchange_js_branch/0_0.tigerbeetle"
-TB_ADDR="127.0.0.1:3503"
+TB_DATA="/tmp/exchange_js_main/0_0.tigerbeetle"
+TB_ADDR="127.0.0.1:3003"
 ACTION="${1:-help}"
 
 case "$ACTION" in
