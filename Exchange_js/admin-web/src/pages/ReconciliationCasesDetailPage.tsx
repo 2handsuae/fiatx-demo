@@ -1,6 +1,8 @@
 // admin-web/src/pages/ReconciliationCasesDetailPage.tsx
 //
-// T5 "Investigation cockpit" — read-only Case detail for the WALLET_V1 engine.
+// T8 "Investigation cockpit" — read-only Case detail for the WALLET_V1 engine.
+// Round3 layout 乙 (confirmed in brainstorm): bucket badge + explain 5-cell +
+// observation history + single mixed-bucket flow table (no grouped sections).
 //
 // Replaces the V8 five-formula book/asset/vintage view (kept off-screen — the
 // new wallet engine never populates `book` LHS labels). The cockpit answers
@@ -10,17 +12,21 @@
 //
 // Layout (top → bottom):
 //   1. Nav header (back + refresh)
-//   2. Account Identity card — wallet, owner, asset, COA, linked run, status
-//   3. Balance Comparison — 3-number side-by-side (Internal / External / Δ)
-//   4. Anomaly Summary chips — 3 chips with bucketed counts (scroll-to-row)
-//   5. Flow Comparison — single table, dual-column EXTERNAL ‖ INTERNAL ‖ Match
-//   6. Bottom — "View in Account Statement" deep link
-//   7. Technical (trace + ids)
+//   2. Hero — caseNo + bucket badge + severity badge
+//   3. Account Identity card — wallet, owner, asset, COA, linked run, status
+//   4. 差额解释 / Delta Explained — 5 cells: Internal / External / Δ /
+//      In-transit / Residual (residual is the core investigation signal)
+//   5. 观察历史 / Observation — first/last-seen run history one-liner
+//   6. 流水下钻 / Flow Drilldown — single mixed table sorted by severity
+//      (mismatch/orphan → in-transit → matched, matched collapsed by default)
+//   7. Bottom — "View in Account Statement" deep link
+//   8. Sidebar (identity + lifecycle)
 //
 // Disposition workflow (Close / Waive / Assign) is deferred to Phase C — this
-// page is investigation-only this release.
+// page is investigation-only this release. Funds-order deep link (in-transit
+// rows) is read-only this release too — no advance/sync/confirm actions.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, Check, AlertTriangle, ArrowRight, ExternalLink } from 'lucide-react';
 import {
   DetailPageHeader,
@@ -28,6 +34,7 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
+import { BUCKET_LABELS, formatBucketBilingual, type ReconBucket } from '../utils/reconBucketMap';
 import {
   AdminSessionError,
   adminFetch,
@@ -44,7 +51,7 @@ interface CaseLineItem {
   matchStatus: string;
 }
 
-type FlowMatchType = 'MATCHED' | 'ORPHAN_EXTERNAL' | 'ORPHAN_INTERNAL' | 'AMOUNT_MISMATCH';
+type FlowMatchType = 'MATCHED' | 'ORPHAN_EXTERNAL' | 'ORPHAN_INTERNAL' | 'AMOUNT_MISMATCH' | 'IN_TRANSIT';
 
 interface FlowExternalSide {
   id?: string;
@@ -71,6 +78,7 @@ interface FlowComparisonRow {
   internalFlow: FlowInternalSide | null;
   matchType: FlowMatchType;
   deltaAmount?: string;
+  fundsOrderNo?: string | null;   // NEW — only for IN_TRANSIT rows
 }
 
 interface FlowComparisonSummary {
@@ -78,6 +86,24 @@ interface FlowComparisonSummary {
   orphanInternal: number;
   orphanExternal: number;
   mismatch: number;
+}
+
+// T6 additions — delta decomposition + observation history.
+interface CaseExplain {
+  internalTotal: string;
+  externalClosing: string;
+  delta: string;
+  inTransitSigned: string;
+  residual: string;
+}
+
+interface CaseObservation {
+  firstSeenRunNo: string | null;
+  firstSeenAt: string | null;
+  lastObservedRunNo: string | null;
+  reObservedCount: number;
+  closedByRunNo: string | null;
+  ageDays: number | null;
 }
 
 interface ReconCaseDetail {
@@ -121,6 +147,10 @@ interface ReconCaseDetail {
   // T3 additions
   flowComparison?: FlowComparisonRow[];
   flowSummary?: FlowComparisonSummary;
+  // T6 additions (Round3) — historical cases may have bucket=null.
+  bucket?: ReconBucket | null;
+  explain?: CaseExplain;
+  observation?: CaseObservation;
 }
 
 /* ── Constants & helpers ────────────────────────────────────── */
@@ -164,13 +194,15 @@ const shortTimestamp = (iso: string): string => {
   return `${mm}-${dd} ${hh}:${mi}`;
 };
 
-// Sort priority for flow rows: matched (audit baseline) → orphans → mismatches.
-// Within each bucket, by timestamp asc (best-available side).
+// Sort priority for the single mixed-bucket flow table (layout 乙): break-class
+// rows (mismatch/orphan) first, then in-transit, then matched last (collapsed
+// by default). Within each bucket, by timestamp asc (best-available side).
 const MATCH_RANK: Record<FlowMatchType, number> = {
-  MATCHED: 0,
+  AMOUNT_MISMATCH: 0,
   ORPHAN_INTERNAL: 1,
-  ORPHAN_EXTERNAL: 2,
-  AMOUNT_MISMATCH: 3,
+  ORPHAN_EXTERNAL: 1,
+  IN_TRANSIT: 2,
+  MATCHED: 3,
 };
 
 const rowTimestamp = (r: FlowComparisonRow): number => {
@@ -178,42 +210,67 @@ const rowTimestamp = (r: FlowComparisonRow): number => {
   return t ? new Date(t).getTime() : 0;
 };
 
-// Style maps for the Match/Diff cell.
+// adm-* tone tokens — shared shape with reconBucketMap's tone names, mirrors
+// ReconciliationRunsDetailPage's local TONE_CLASSES (not exported from the
+// shared util) so the two cockpit pages stay visually consistent.
+const TONE_CLASSES: Record<'green' | 'blue' | 'amber' | 'red', { border: string; bg: string; text: string }> = {
+  green: { border: 'border-adm-green/30', bg: 'bg-adm-green/10', text: 'text-adm-green' },
+  blue:  { border: 'border-adm-blue/30',  bg: 'bg-adm-blue/10',  text: 'text-adm-blue' },
+  amber: { border: 'border-adm-amber/30', bg: 'bg-adm-amber/10', text: 'text-adm-amber' },
+  red:   { border: 'border-adm-red/30',   bg: 'bg-adm-red/10',   text: 'text-adm-red' },
+};
+
+// Style + bilingual label maps for the type badge cell.
 const MATCH_TONE: Record<FlowMatchType, string> = {
-  MATCHED:         'border-adm-green/30 bg-adm-green/10 text-adm-green',
-  ORPHAN_INTERNAL: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
-  ORPHAN_EXTERNAL: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
-  AMOUNT_MISMATCH: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber',
+  MATCHED:         `${TONE_CLASSES.green.border} ${TONE_CLASSES.green.bg} ${TONE_CLASSES.green.text}`,
+  IN_TRANSIT:      `${TONE_CLASSES.blue.border} ${TONE_CLASSES.blue.bg} ${TONE_CLASSES.blue.text}`,
+  ORPHAN_INTERNAL: `${TONE_CLASSES.amber.border} ${TONE_CLASSES.amber.bg} ${TONE_CLASSES.amber.text}`,
+  ORPHAN_EXTERNAL: `${TONE_CLASSES.amber.border} ${TONE_CLASSES.amber.bg} ${TONE_CLASSES.amber.text}`,
+  AMOUNT_MISMATCH: `${TONE_CLASSES.red.border} ${TONE_CLASSES.red.bg} ${TONE_CLASSES.red.text}`,
 };
 
 const MATCH_LABEL: Record<FlowMatchType, string> = {
-  MATCHED:         'matched',
-  ORPHAN_INTERNAL: 'Internal only',
-  ORPHAN_EXTERNAL: 'External only',
-  AMOUNT_MISMATCH: 'Amount mismatch',
+  MATCHED:         'Matched / 已匹配',
+  IN_TRANSIT:      'In-transit / 在途',
+  ORPHAN_INTERNAL: 'Internal only / 我有外无',
+  ORPHAN_EXTERNAL: 'External only / 外有我无',
+  AMOUNT_MISMATCH: 'Mismatch / 金额不符',
 };
 
 const MatchChip = ({ row }: { row: FlowComparisonRow }) => {
   const tone = MATCH_TONE[row.matchType];
-  if (row.matchType === 'MATCHED') {
-    return (
-      <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${tone}`}>
-        <Check size={10} /> matched
-      </span>
-    );
-  }
-  if (row.matchType === 'AMOUNT_MISMATCH') {
-    const sign = deltaSign(row.deltaAmount);
-    return (
-      <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${tone}`}>
-        <AlertTriangle size={10} /> {MATCH_LABEL.AMOUNT_MISMATCH} {sign && `(${sign}${formatAmount(row.deltaAmount)})`}
-      </span>
-    );
-  }
   return (
     <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${tone}`}>
-      <AlertTriangle size={10} /> {MATCH_LABEL[row.matchType]}
+      {row.matchType === 'MATCHED' ? <Check size={10} /> : <AlertTriangle size={10} />}
+      {MATCH_LABEL[row.matchType]}
     </span>
+  );
+};
+
+// 观察历史 / Observation — one text line summarizing this case's run history.
+// Any null runNo (historical case, pre-T6 data) renders as "—" rather than
+// throwing. OPEN cases aged 2+ days get a red "仍 OPEN·已挂 N 天" tail.
+const ObservationBar = ({ kase }: { kase: ReconCaseDetail }) => {
+  const obs = kase.observation;
+  const runOrDash = (v: string | null | undefined) => v ?? '—';
+  if (!obs) {
+    return <div className="font-mono text-[12px] text-adm-t3">No observation history available.</div>;
+  }
+  const isAged = kase.status === 'OPEN' && (obs.ageDays ?? 0) >= 2;
+  return (
+    <div className="font-mono text-[12px] text-adm-t2">
+      首见 <span className="text-adm-t1">{runOrDash(obs.firstSeenRunNo)}</span>
+      {' → '}复观察 ×{obs.reObservedCount}（最后 <span className="text-adm-t1">{runOrDash(obs.lastObservedRunNo)}</span>）
+      {kase.status === 'RESOLVED' ? (
+        <>
+          {' → '}已关闭 by <span className="text-adm-green">{runOrDash(obs.closedByRunNo)}</span>
+        </>
+      ) : isAged ? (
+        <span className="text-adm-red font-semibold">{' → '}仍 OPEN·已挂 {obs.ageDays} 天</span>
+      ) : (
+        <>{' → '}仍 OPEN</>
+      )}
+    </div>
   );
 };
 
@@ -224,6 +281,9 @@ const ReconciliationCasesDetailPage = () => {
   const navigate = useNavigate();
   const [kase, setKase] = useState<ReconCaseDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // MATCHED rows are collapsed by default (layout 乙 — single mixed table,
+  // not grouped sections). Toggled by the "Show matched" button below the table.
+  const [showMatched, setShowMatched] = useState(false);
 
   const tableRef = useRef<HTMLTableElement | null>(null);
 
@@ -253,19 +313,20 @@ const ReconciliationCasesDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseNo]);
 
-  // Investigation surface: only problematic rows (orphans + mismatches). MATCHED
-  // pairs are noise here — Case detail is the "what went wrong" screen, not the
-  // ledger audit baseline. Sort orphan internal → orphan external → mismatch,
-  // then by timestamp asc. Hook called BEFORE early returns so hook order stays
-  // stable across renders.
+  // Single mixed-bucket table (layout 乙): mismatch/orphan rows first, then
+  // in-transit, then matched (hidden unless expanded via showMatched). Within
+  // each bucket, sort by timestamp asc. Hook called BEFORE early returns so
+  // hook order stays stable across renders.
   const sortedFlows = useMemo<FlowComparisonRow[]>(() => {
-    const rows = (kase?.flowComparison ?? []).filter((r) => r.matchType !== 'MATCHED');
+    const rows = (kase?.flowComparison ?? []).filter((r) => showMatched || r.matchType !== 'MATCHED');
     return rows.sort((a, b) => {
       const r = MATCH_RANK[a.matchType] - MATCH_RANK[b.matchType];
       if (r !== 0) return r;
       return rowTimestamp(a) - rowTimestamp(b);
     });
-  }, [kase]);
+  }, [kase, showMatched]);
+
+  const matchedCount = kase?.flowComparison?.filter((r) => r.matchType === 'MATCHED').length ?? 0;
 
   if (loading && !kase) {
     return (
@@ -306,25 +367,37 @@ const ReconciliationCasesDetailPage = () => {
         <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
           {/* 1. Hero — case identity strip */}
           <section className="bg-adm-card p-4">
-            <div className="font-mono text-[19px] font-bold text-adm-amber">{kase.caseNo}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[19px] font-bold text-adm-amber">{kase.caseNo}</span>
+              {kase.bucket && (
+                <span
+                  className={[
+                    'inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
+                    TONE_CLASSES[BUCKET_LABELS[kase.bucket].tone].border,
+                    TONE_CLASSES[BUCKET_LABELS[kase.bucket].tone].bg,
+                    TONE_CLASSES[BUCKET_LABELS[kase.bucket].tone].text,
+                  ].join(' ')}
+                >
+                  {kase.bucket === 'MATCHED' ? <Check size={10} /> : <AlertTriangle size={10} />}
+                  {formatBucketBilingual(kase.bucket)}
+                </span>
+              )}
+              {kase.severity && (
+                <span
+                  className={[
+                    'inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
+                    kase.severity === 'HIGH'   ? 'border-adm-red/30 bg-adm-red/10 text-adm-red'
+                    : kase.severity === 'MEDIUM' ? 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber'
+                    :                              'border-adm-border bg-adm-bg text-adm-t3',
+                  ].join(' ')}
+                >
+                  {kase.severity}
+                </span>
+              )}
+            </div>
             <div className="mt-3 grid grid-cols-[140px_1fr] gap-y-2 text-[13px]">
               <div className="text-adm-t3">STATUS</div>
               <div><StatusPill value={kase.status} size="md" /></div>
-              <div className="text-adm-t3">SEVERITY</div>
-              <div>
-                {kase.severity ? (
-                  <span
-                    className={[
-                      'inline-flex items-center rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
-                      kase.severity === 'HIGH'   ? 'border-adm-red/30 bg-adm-red/10 text-adm-red'
-                      : kase.severity === 'MEDIUM' ? 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber'
-                      :                              'border-adm-border bg-adm-bg text-adm-t3',
-                    ].join(' ')}
-                  >
-                    {kase.severity}
-                  </span>
-                ) : <span className="text-adm-t3">—</span>}
-              </div>
               <div className="text-adm-t3">BOOK</div>
               <div className="text-adm-t1">{kase.book ?? '—'}</div>
               <div className="text-adm-t3">ASSET</div>
@@ -404,16 +477,21 @@ const ReconciliationCasesDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* 3. Balance Comparison — 3 big numbers (Internal / External / Δ) */}
-          <DetailCard title={`Balance Comparison (${kase.assetCode})`} columns={1}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* 3. 差额解释 / Delta Explained — five cells. Replaces the old 3-cell
+              Balance Comparison card (Internal/External/Δ were a subset of
+              this same story) so there's a single balance-explanation surface,
+              not two overlapping ones. residual is the core investigation
+              signal — zero means the delta is fully explained by in-transit
+              funds orders; non-zero is what still needs digging. */}
+          <DetailCard title={`差额解释 / Delta Explained (${kase.assetCode})`} columns={1}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
               {/* Internal */}
               <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Internal
+                  内部 / Internal
                 </div>
-                <div className="mt-1 font-mono text-[20px] font-bold leading-tight text-adm-t1">
-                  {formatAmount(kase.tbAmount)}
+                <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-t1">
+                  {formatAmount(kase.explain?.internalTotal ?? kase.tbAmount)}
                 </div>
               </div>
               {/* External — actual closing balance from the external statement
@@ -422,10 +500,10 @@ const ReconciliationCasesDetailPage = () => {
                   whenever the break is on a single wallet's external balance. */}
               <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  External
+                  外部 / External
                 </div>
-                <div className="mt-1 font-mono text-[20px] font-bold leading-tight text-adm-t1">
-                  {formatAmount(kase.actualExternal)}
+                <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-t1">
+                  {formatAmount(kase.explain?.externalClosing ?? kase.actualExternal)}
                 </div>
               </div>
               {/* Δ — muted green/check when balanced, bold red with sign when not. */}
@@ -443,11 +521,11 @@ const ReconciliationCasesDetailPage = () => {
                     deltaZero ? 'text-adm-green' : 'text-adm-red',
                   ].join(' ')}
                 >
-                  Δ (external − internal)
+                  Δ
                 </div>
                 <div
                   className={[
-                    'mt-1 font-mono text-[20px] font-bold leading-tight',
+                    'mt-1 font-mono text-[18px] font-bold leading-tight',
                     deltaZero ? 'text-adm-t3' : 'text-adm-red',
                   ].join(' ')}
                 >
@@ -455,45 +533,101 @@ const ReconciliationCasesDetailPage = () => {
                     ? `${formatAmount(kase.deltaAmount)}`
                     : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`}
                 </div>
+              </div>
+              {/* 在途解释 / In-transit explained — blue, the portion of Δ
+                  covered by non-terminal funds orders. */}
+              <div className="rounded-lg border border-adm-blue/30 bg-adm-blue/5 p-4">
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-blue">
+                  在途解释 / In-transit
+                </div>
+                <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-blue">
+                  {kase.explain ? formatAmount(kase.explain.inTransitSigned) : '—'}
+                </div>
+              </div>
+              {/* 未解释残差 / Residual — the core investigation signal. Red
+                  highlight when non-zero (still needs digging); muted green
+                  check when zero (delta fully explained by in-transit). */}
+              <div
+                className={[
+                  'rounded-lg border p-4',
+                  kase.explain && isZeroAmount(kase.explain.residual)
+                    ? 'border-adm-green/30 bg-adm-green/5'
+                    : 'border-adm-red/30 bg-adm-red/5',
+                ].join(' ')}
+              >
+                <div
+                  className={[
+                    'font-mono text-[9px] uppercase tracking-wider',
+                    kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-green' : 'text-adm-red',
+                  ].join(' ')}
+                >
+                  未解释残差 / Residual
+                </div>
+                <div
+                  className={[
+                    'mt-1 font-mono text-[18px] font-bold leading-tight',
+                    kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-t3' : 'text-adm-red',
+                  ].join(' ')}
+                >
+                  {kase.explain ? formatAmount(kase.explain.residual) : '—'}
+                </div>
                 <div
                   className={[
                     'mt-1 inline-flex items-center gap-1 font-mono text-[10px]',
-                    deltaZero ? 'text-adm-green' : 'text-adm-red',
+                    kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-green' : 'text-adm-red',
                   ].join(' ')}
                 >
-                  {deltaZero ? <><Check size={10} /> balanced</> : <><AlertTriangle size={10} /> imbalance</>}
+                  {!kase.explain ? null : isZeroAmount(kase.explain.residual)
+                    ? <><Check size={10} /> 已解释 / explained</>
+                    : <><AlertTriangle size={10} /> 待排查 / unexplained</>}
                 </div>
               </div>
             </div>
           </DetailCard>
 
-          {/* Problem Flows — only orphans + mismatches. Matched pairs are
-              hidden — Case detail is "what went wrong", the audit baseline lives
-              in Account Statement (linked at the bottom). */}
+          {/* 4. 观察历史 / Observation — first/last seen, re-observed count,
+              closed-by, and (for OPEN cases) how long the case has been open. */}
+          <DetailCard title="观察历史 / Observation" columns={1}>
+            <ObservationBar kase={kase} />
+          </DetailCard>
+
+          {/* 6. 流水下钻 / Flow Drilldown — single mixed table (layout 乙,
+              confirmed in brainstorm). No grouped sections — orphans,
+              mismatches, and in-transit rows sit in one table sorted by
+              severity, with MATCHED rows collapsed behind a toggle below. */}
           <DetailCard
-            title={`Problem Flows · ${sortedFlows.length} row${sortedFlows.length === 1 ? '' : 's'}`}
+            title={`流水下钻 / Flow Drilldown · ${sortedFlows.length} row${sortedFlows.length === 1 ? '' : 's'}`}
             columns={1}
           >
             <div className="overflow-x-auto rounded-lg border border-adm-border">
               <table ref={tableRef} className="w-full text-left text-sm">
                 <thead className="border-b border-adm-border bg-adm-bg">
                   <tr>
-                    <th className="w-[42%] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      External
+                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      类型 / Type
                     </th>
-                    <th className="w-[42%] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Internal
+                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      方向 / Dir
                     </th>
-                    <th className="w-[16%] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-                      Match / Diff
+                    <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      金额 / Amount
+                    </th>
+                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      外部单号 / External Ref
+                    </th>
+                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      内部源 / Internal Source
+                    </th>
+                    <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                      时间 / Time
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-adm-border">
                   {sortedFlows.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3">
-                        No problem flows for this case. (Matched pairs are hidden — open Account Statement for the full ledger.)
+                      <td colSpan={6} className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3">
+                        No flow rows for this case.
                       </td>
                     </tr>
                   ) : (
@@ -501,83 +635,62 @@ const ReconciliationCasesDetailPage = () => {
                       const ext = row.externalLine;
                       const intl = row.internalFlow;
                       const isMismatch = row.matchType === 'AMOUNT_MISMATCH';
-                      const isOrphanExt = row.matchType === 'ORPHAN_EXTERNAL';
-                      const isOrphanInt = row.matchType === 'ORPHAN_INTERNAL';
+                      const isInTransit = row.matchType === 'IN_TRANSIT';
+                      const direction = ext?.direction ?? intl?.direction ?? null;
+                      const timestamp = ext?.timestamp ?? intl?.timestamp ?? null;
                       return (
                         <tr
                           key={`${row.matchType}-${ext?.id ?? '_'}-${intl?.id ?? '_'}-${idx}`}
                           className="align-top"
                         >
-                          {/* EXTERNAL side */}
-                          <td className="px-3 py-3 font-mono text-[11px]">
-                            {ext ? (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-adm-t3">{shortTimestamp(ext.timestamp)}</span>
-                                  <span
-                                    className={`rounded border px-1 text-[9px] font-semibold ${
-                                      ext.direction === 'IN'
-                                        ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
-                                        : 'border-adm-red/30 bg-adm-red/10 text-adm-red'
-                                    }`}
-                                  >
-                                    {ext.direction}
-                                  </span>
-                                  <span className={isMismatch ? 'font-bold text-adm-red' : 'text-adm-t1'}>
-                                    {formatAmount(ext.amount)}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-adm-t3">
-                                  ref: <span className="text-adm-t2">{ext.externalRef ?? '—'}</span>
-                                </div>
-                                {ext.description && (
-                                  <div className="text-[10px] text-adm-t3 truncate" title={ext.description}>
-                                    {ext.description}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-adm-t3">—</span>
-                            )}
-                          </td>
-                          {/* INTERNAL side */}
-                          <td className="px-3 py-3 font-mono text-[11px]">
-                            {intl ? (
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-adm-t3">{shortTimestamp(intl.timestamp)}</span>
-                                  <span
-                                    className={`rounded border px-1 text-[9px] font-semibold ${
-                                      intl.direction === 'IN'
-                                        ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
-                                        : 'border-adm-red/30 bg-adm-red/10 text-adm-red'
-                                    }`}
-                                  >
-                                    {intl.direction}
-                                  </span>
-                                  <span className={isMismatch ? 'font-bold text-adm-red' : 'text-adm-t1'}>
-                                    {formatAmount(intl.amount)}
-                                  </span>
-                                </div>
-                                <div className="text-[10px] text-adm-t3">
-                                  ref: <span className="text-adm-t2">{intl.externalRef ?? '—'}</span>
-                                </div>
-                                <div className="text-[10px] text-adm-t3">
-                                  {intl.eventCode} · {intl.sourceType}/{intl.sourceNo}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-adm-t3">—</span>
-                            )}
-                          </td>
-                          {/* Match / Diff */}
+                          {/* Type badge */}
                           <td className="px-3 py-3">
                             <MatchChip row={row} />
-                            {(isOrphanExt || isOrphanInt) && (
-                              <div className="mt-1 font-mono text-[9px] text-adm-t3">
-                                {isOrphanExt ? 'No internal counterpart' : 'No external counterpart'}
-                              </div>
+                          </td>
+                          {/* Direction */}
+                          <td className="px-3 py-3 font-mono text-[11px]">
+                            {direction ? (
+                              <span
+                                className={`rounded border px-1 text-[9px] font-semibold ${
+                                  direction === 'IN'
+                                    ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
+                                    : 'border-adm-red/30 bg-adm-red/10 text-adm-red'
+                                }`}
+                              >
+                                {direction}
+                              </span>
+                            ) : (
+                              <span className="text-adm-t3">—</span>
                             )}
+                          </td>
+                          {/* Amount — mismatch shows both sides "internal ≠ external" */}
+                          <td className={`px-3 py-3 text-right font-mono text-[11px] ${isMismatch ? 'font-bold text-adm-red' : 'text-adm-t1'}`}>
+                            {isMismatch
+                              ? `${formatAmount(intl?.amount)} ≠ ${formatAmount(ext?.amount)}`
+                              : formatAmount(ext?.amount ?? intl?.amount)}
+                          </td>
+                          {/* External ref */}
+                          <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
+                            {ext?.externalRef ?? '—'}
+                          </td>
+                          {/* Internal source — IN_TRANSIT links to the funds order (read-only) */}
+                          <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
+                            {isInTransit && row.fundsOrderNo ? (
+                              <Link
+                                to={`/admin/funds-orders/${encodeURIComponent(row.fundsOrderNo)}`}
+                                className="text-adm-blue hover:underline"
+                              >
+                                {row.fundsOrderNo}
+                              </Link>
+                            ) : intl ? (
+                              `${intl.eventCode} · ${intl.sourceType}/${intl.sourceNo}`
+                            ) : (
+                              <span className="text-adm-t3">—</span>
+                            )}
+                          </td>
+                          {/* Time */}
+                          <td className="px-3 py-3 font-mono text-[11px] text-adm-t3">
+                            {timestamp ? shortTimestamp(timestamp) : '—'}
                           </td>
                         </tr>
                       );
@@ -586,6 +699,15 @@ const ReconciliationCasesDetailPage = () => {
                 </tbody>
               </table>
             </div>
+            {matchedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowMatched((v) => !v)}
+                className="mt-3 inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
+              >
+                {showMatched ? `隐藏已匹配 ${matchedCount} 行 / Hide matched` : `显示已匹配 ${matchedCount} 行 / Show matched`}
+              </button>
+            )}
           </DetailCard>
 
           {/* 6. Bottom utility — deep link to Account Statement */}
