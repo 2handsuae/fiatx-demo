@@ -30,51 +30,44 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ---
 
-## V1 — 审计底座
+## V1 — 审计底座（审批 / 审计 / RBAC / Admin 生命周期）
 
-> 建立平台治理基础：审计日志、审批引擎、admin 生命周期管理、角色管理、凭证安全。所有后续版本的操作可信性依赖本版本。
-> 注意：SUPER_ADMIN 是演示角色，正式上线后系统中不存在该角色。
+> 平台治理底座：审批引擎 + 审计日志 + RBAC + admin 生命周期 + 凭证安全。所有后续版本操作可信性依赖它。
+> 📖 **实现真相** → [`reference/truth/v1-governance-audit.md`](truth/v1-governance-audit.md)
+> ⚠️ SUPER_ADMIN 是演示角色（代码硬编码 bypass），正式上线前须移除。
 
-### MVP（10 workflows）
+### MVP（领导定义的基础必须，10 工作流全 ✅）
 
-- [x] Admin Invite（管理员入职审批，含 SoD 冲突校验；审批通过后管理员点击邀请链接设置密码完成账号激活） — **业务必须**：管理员入职的标准化流程，没有邀请流程就没法加人 ✅ 2026-05-05
-- [x] Admin First Login（首次登录仪式：身份确认 → 强制 MFA 绑定 → 绑定验证 → 安全须知确认 → 登录完成；无审批门，但有完整状态机和审计打点；含前端 i18n 全英文化、MFA 弹窗重设计、token 过期 UX 处理、登录审计 workflow 串联——ADMIN_LOGIN_SUCCESS 与 MFA_LOGIN_VERIFIED 共享 traceId） — **VARA**：TIR Rulebook III.A Authentication — MFA 是管理访问的强制要求，首次绑定必须有受控流程和审计证据 ✅ 2026-05-06
-- [x] Admin Role Binding Change（角色变更审批，含 SoD 冲突校验 + SoD Rules tab；已完成 3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务，路由 `/admin/iam/role-change-requests`，旧 Change Ticket 路径已清理） — **VARA**：TIR Rulebook III.B Access Control — RBAC 治理 + 最小权限原则 + 职责分离 ✅ 2026-05-05
-- [x] Admin Account Suspension（账号停用审批；执行时 JWT Strategy 校验拦截 SUSPENDED 用户。**生产环境需改造为 token blacklist 方案实现即时 session 撤销**） ✅ 2026-05-05
-- [x] Admin Account Reactivation（账号恢复审批；3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务，Suspension 的配对恢复路径） — **业务必须**：Suspension 的配对恢复路径，没有它则停用等于永久删除 ✅ 2026-05-06
-- [x] Admin Password Reset（自助忘记密码 + CISO 代操作双路径；自助路径：邮箱→MFA 验证→重置链接；CISO 路径：详情页发起→重置链接展示在成员详情页；token 15min 有效期 + SHA-256 hash + 速率限制；反枚举设计；重置密码页面匹配 Admin 暗色主题；薄 workflow 层审计打点，`workflowType: ADMIN_CREDENTIAL_MGMT`） — **VARA**：TIR Rulebook III.A Authentication — 凭证生命周期管理，泄露时必须能即时重置 ✅ 2026-05-06
-- [x] Admin MFA Reset（CISO/TECH_OFFICER 在后台发起 `POST /admin/iam/users/:id/reset-mfa`；RBAC 权限 `IAM_CREDENTIAL_RESET`；重置后目标用户重走首登四步流程；薄 workflow 层审计打点，`workflowType: ADMIN_CREDENTIAL_MGMT`；无审批门） — **VARA**：TIR Rulebook III.A Authentication — MFA 是管理访问的强制要求，设备丢失时必须有受控恢复路径 ✅ 2026-05-06
-- [x] Role Definition CRUD（自定义创建角色 / 修改角色权限集；3-Layer 架构：薄审批处理器 + 工作流编排器 + 领域服务；Action Bucket Catalog 提供用户可理解的能力抽象——4 域 13 bucket（Auth 1 forcedOn + IAM 6 + Approval Center 3 含 1 restricted CISO-only + Audit Center 3）；前端 Create/Modify Modal bucket 勾选式权限组装；手动审计录入 API 已移除——日志仅限系统写入） — **业务必须**：组织扩大后需自定义角色；上线后无 SUPER_ADMIN，优先级高 ✅ 2026-05-10
-- [x] Audit Evidence Export（审计证据包导出审批；已完成 3-Layer 架构重构：薄审批处理器 + 工作流编排器 + 领域服务，路由迁移至 `/admin/audit/evidence-packages`） — **VARA**：CRM Rulebook III.A Record Keeping — 审计记录必须可导出可验证，保留不少于 8 年 ✅ 2026-05-05
-- [x] Approval Policy Management（审批策略管理：V1 白名单过滤展示 6 种审批类型；**多步骤审批链配置**：`stepsConfig` JSON 列取代扁平 `checkerRoles`，每步支持多角色 OR 关系（任一角色可审批该步）；回退链 stepsConfig→checkerRoles→DEFAULT；修改需走 APPROVAL_POLICY_CHANGE 审批（CISO 审批通过后自动 upsert 生效）；APPROVAL_POLICY_CHANGE 自身 checker 硬编码不可修改；3-Layer 架构：Domain Service + 薄审批处理器 + 工作流编排器；前端步骤编辑器含 Add/Remove Step + 角色切换 + current→proposed 步骤对比；修复 5 个 BLOCKER：approve/reject 步骤跳跃、resolveDecisionRole 角色范围、cancel/expire 硬编码 stepNo:1；含 backfill 迁移脚本；workflowType: APPROVAL_POLICY） — **VARA + 业务**：CRM Rulebook II.B Internal Controls + Company Rulebook III Governance — 审批链本身的治理必须自洽且防篡改 ✅ 2026-05-07
+- [x] Admin Invite — 入职审批 + SoD 冲突校验 + 邀请链接设密激活 ｜来源:业务 ｜配对:Admin 删除(ADV) ✅2026-05-05
+- [x] Admin First Login — 首登四步(身份确认→强制 MFA 绑定→验证→安全须知)，状态机+审计 ｜VARA TIR III.A ✅2026-05-06
+- [x] Admin Role Binding Change — 角色变更审批 + SoD + 3 层；旧 Change Ticket 已清 ｜VARA TIR III.B ✅2026-05-05
+- [x] Admin Account Suspension — 停用审批；JWT 拦截 SUSPENDED(非即时，生产需 token blacklist) ｜来源:业务 ｜配对:恢复 ✅2026-05-05
+- [x] Admin Account Reactivation — 恢复审批，3 层 ｜来源:业务 ｜配对:停用 ✅2026-05-06
+- [x] Admin Password Reset — 自助(邮箱→MFA→链接)+CISO 代操作；15min token+SHA-256+速率限制+反枚举 ｜VARA TIR III.A ✅2026-05-06
+- [x] Admin MFA Reset — CISO/TECH_OFFICER 发起，IAM_CREDENTIAL_RESET，重走首登 ｜VARA TIR III.A ✅2026-05-06
+- [x] Role Definition CRUD — 自定义角色 + Action Bucket Catalog(现 9 域 23 bucket) ｜来源:业务 ✅2026-05-10
+- [x] Audit Evidence Export — 证据包导出审批(approval-backed)+manifest+SHA-256 digest ｜VARA CRM III.A ✅2026-05-05
+- [x] Approval Policy Management — 多步骤审批链(stepsConfig 每步多角色 OR)+自审防篡改 ｜VARA CRM II.B ✅2026-05-07
 
-> \#5/6/7 共享 `workflowType: ADMIN_CREDENTIAL_MGMT`。
+> #5/6/7 共享 `workflowType: ADMIN_CREDENTIAL_MGMT`。
 
-### ADVANCED（8 workflows）
+### ADVANCED（全部未做）
 
-- [ ] Admin Account Deletion（管理员账号删除审批） — **VARA**：TIR Rulebook III.B.2 Access Control + Company Rulebook Offboarding — 离职人员必须完全撤销访问，Suspension 只是临时措施
-- [ ] Audit Evidence Package Deletion（证据包删除审批） — **业务必须**：证据包生命周期管理，保留期满后需受控删除
-- [ ] Emergency Break-Glass（紧急权限绕过：请求 → 增强验证 → 时限 elevated access → 自动收回 → 事后 review） — **VARA**：TIR Rulebook V.A Business Continuity — 紧急情况下维持关键系统操作能力；上线后无 SUPER_ADMIN，优先级高
-- [ ] Approval 超时预警 / 通知（到期前 N 小时通知审批人；仍无响应则升级到上级角色） — **业务必须**：防止审批静默过期导致业务卡死
-- [ ] Periodic Access Review（权限快照导出 + 标记休眠账号 / 过度权限 / SoD 违规；CISO 季度审查签字用） — **VARA**：TIR Rulebook III.B.4 Access Control — 定期审查"谁有什么权限"，VARA 审计必查项
-- [ ] API Key Emergency Rotation（外部集成密钥泄露时紧急轮换：撤销 → 生成新 key → 更新配置 → 验证连通性；`workflowType: SYSTEM_CREDENTIAL_MGMT`） — **VARA + 业务**：TIR Rulebook Schedule 1 Cryptographic Key Governance — 密钥泄露时必须能立即轮换
-- [ ] API Key Scheduled Rotation（非紧急定期轮换，如 90 天周期，cron 触发，同上机制） — **VARA**：TIR Rulebook Schedule 1 — 密钥定期轮换策略
-- [ ] Audit Log Archival（过期日志迁移冷存储：压缩 → 迁移 → 完整性验证 → 清理热存储） — **VARA**：CRM Rulebook III.A Record Keeping — 8 年保留期的长期存储落地方案
+- [ ] ⚖️ Admin Account Deletion — 离职完全撤销访问(Suspension 只是临时) ｜VARA TIR III.B.2 ｜配对:Invite(MVP)
+- [ ] Audit Evidence Package Deletion — 证据包保留期满受控删除 ｜来源:业务
+- [ ] ⚖️ Emergency Break-Glass — 紧急权限绕过+时限 elevated+自动收回+事后 review ｜VARA TIR V.A ｜上线无 SUPER_ADMIN 后优先级高
+- [ ] Approval 超时预警/通知 — 到期前 N 小时通知+升级(现只算 timeoutAt 无预警) ｜来源:业务 ｜依赖通知本体
+- [ ] ⚖️ Periodic Access Review — 权限快照+休眠/过度权限/SoD 违规标记，CISO 季审 ｜VARA TIR III.B.4
+- [ ] ⚖️ API Key Emergency/Scheduled Rotation — 密钥泄露紧急轮换 + 90 天定期 ｜VARA TIR Schedule 1
+- [ ] ⚖️ Audit Log Archival — 过期日志冷存储(有 markArchivedBefore 骨架，retention 脚本坏) ｜VARA CRM III.A
 
-### Supporting Features（非 workflow，无独立状态机）
+### Supporting Features（非 workflow）
 
-- **Audit event write** — 每次状态变更 append-only 写入审计日志（MVP）
-- **Audit log query & trace** — 按 subjectNo / actorNo / traceId / 时间范围检索（MVP）
-- **Approval engine (maker-checker)** — 审批引擎核心：pending → approved / rejected；被其他 workflow 调用，非独立业务流程（MVP）
-- **Permission check (authz)** — 每次 API 调用运行时权限校验（MVP）
-- **SoD rule config** — 角色互斥表硬编码常量 + Admin UI SoD Rules tab（MVP）
-- **Notification send** — 事件驱动通知服务，邮件 + webhook（MVP）
-- **Notification retry** — 发送失败 3 次退避重试（MVP）
-- **审计 SubjectNo 移除** — 移除 `audit_log_subject_nos` 关联表及 SubjectNo 逻辑，简化审计模型；审批处理器 `hasDedicatedAuditService` 简化 ✅ 2026-05-19
-- **Approval delegation config** — 审批人预配置委托人（ADVANCED）
-- **Login anomaly detection** — 异常登录监控告警（ADVANCED）
+- **审批引擎(maker-checker)** ✅ ｜ **审计 write/query** ✅ ｜ **RBAC 权限校验** ✅ ｜ **SoD 互斥(3 对硬编码)** ✅ ｜ **审计 SubjectNo 移除** ✅2026-05-19
+- ⚠️ **通知 send/retry** — roadmap 原标 ✅，**实为 STUB**（只 WebSocket gateway，无 email/webhook/retry；见 truth + BACKLOG）
+- **Approval delegation / Login anomaly detection** — ADVANCED 未做
 
----
+> 现状/锚点见 [truth/v1-governance-audit.md](truth/v1-governance-audit.md)；技术债(通知 stub / subjectNos 漂移 / retention 脚本 / SUPER_ADMIN bypass)见 [BACKLOG.md](../BACKLOG.md)。
 
 ## V2 — 客户管理 + 合规底座
 

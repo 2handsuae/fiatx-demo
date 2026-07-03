@@ -61,6 +61,14 @@ Last Updated: 2026-07-03
 - [ ] **资本注入 evidence 待核**：CAPITAL_INJECTION seed transfer 在，FIRM_ASSET 流水是否有对应 evidence/account_flow 行待确认（roadmap 记为欠，agent 称已有——需查 seed 是否走 writeEvidence）｜来源: 2026-07-04 V8 体检
 - [ ] **资金单合并可行性评估**：payin/payout/internalfund 状态机近同构（已从待决策移来核实——Round 2 已合表 funds_orders，权限已统一 FUNDS_ORDERS_*，此项其实已完成大半，剩 InternalFund 枚举命名债）｜来源: 2026-07-04 V8 体检复核
 
+## 技术债 — V1 审计底座
+
+- [ ] 🔴 **通知 send/retry = STUB**：`core/notifications/` 只有 WebSocket `NotificationsGateway`，无 email/webhook/失败重试实现——roadmap 标 Notification send/retry ✅ MVP 为过度声明；这是 V4-V6 各版本"通知未接"的根因（本体没做，不是没调）｜来源: 2026-07-04 V1 体检
+- [ ] 🔴 **subjectNos 合约漂移 + 幻影字段**：`rules/audit-logging.md` Query Contract 要求 detail 返回 `subjectNos[]`，但代码 `mapEvent()` 不返回、DTO 无字段、query 无 subjectNo 过滤（表 2026-05-19 已删）；代码仍有 `item.subjectNos` 幻影访问恒 undefined。需二选一：改文档承认已删 or 补 subjectNos 返回｜来源: 2026-07-04 V1 体检（与 2026-07-03 体检重复项收口）
+- [ ] **audit-retention-job.ts 死脚本**：`scripts/audit-retention-job.ts:33-45` 仍 select/access 已删列 `module`/`triggerType`，脚本会坏/返 undefined｜来源: 2026-07-04 V1 体检
+- [ ] **SUPER_ADMIN 硬编码 bypass**：`access-control.service.ts` 对 SUPER_ADMIN 跳过 SoD + 直给全权限；roadmap 定性演示角色，**上线前须移除此 bypass**｜来源: 2026-07-04 V1 体检
+- [ ] traceId 共享待核：首登 `ADMIN_LOGIN_SUCCESS`(authTraceId) 与 `MFA_LOGIN_VERIFIED`(loginTraceId) 是否共享同一 traceId 存疑（roadmap 称共享，agent 存疑）｜来源: 2026-07-04 V1 体检
+
 ## 技术债 — 平账处置（推单）
 
 - [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
