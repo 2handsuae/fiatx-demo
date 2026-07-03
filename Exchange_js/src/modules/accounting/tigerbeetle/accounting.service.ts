@@ -145,6 +145,8 @@ export class AccountingService {
       creditWalletRef: params.evidence.creditWalletRef ?? null,
       externalRef: params.evidence.externalRef ?? null,
       isExternalCrossing: params.evidence.isExternalCrossing ?? false,
+      // 平账回填口透传：不传=writeEvidence 写当天；仅资金单推单链路带值
+      effectiveDate: params.evidence.effectiveDate,
     }, params.tx);
 
     return { tbTransferId: transferId };
@@ -212,6 +214,8 @@ export class AccountingService {
       creditWalletRef: params.evidence.creditWalletRef ?? null,
       externalRef: params.evidence.externalRef ?? null,
       isExternalCrossing: params.evidence.isExternalCrossing ?? false,
+      // 平账回填口透传：不传=writeEvidence 写当天；仅资金单推单链路带值
+      effectiveDate: params.evidence.effectiveDate,
     }, params.tx);
 
     return { tbTransferId: transferId };

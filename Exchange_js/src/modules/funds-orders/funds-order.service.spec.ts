@@ -85,6 +85,34 @@ describe('FundsOrderService', () => {
     );
   });
 
+  it('advance forwards opts.effectiveDate into the status.changed event payload', async () => {
+    prisma.fundsOrder.findUnique.mockResolvedValue({
+      id: 'fo1', status: 'CONFIRMING', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'CRYPTO' },
+    });
+    prisma.fundsOrder.update.mockResolvedValue({
+      id: 'fo1', status: 'CONFIRMED', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 1, attempt: 1,
+    });
+    await service.advance('fo1', FundsOrderAction.CONFIRM, 'op-1', undefined, { effectiveDate: '2026-06-30' });
+    const payload = emitter.emit.mock.calls.find(([name]) => name === 'funds_order.status.changed')![1];
+    expect(payload.effectiveDate).toBe('2026-06-30');
+  });
+
+  it('advance without opts emits payload with undefined effectiveDate (unchanged)', async () => {
+    prisma.fundsOrder.findUnique.mockResolvedValue({
+      id: 'fo1', status: 'CONFIRMING', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'CRYPTO' },
+    });
+    prisma.fundsOrder.update.mockResolvedValue({
+      id: 'fo1', status: 'CONFIRMED', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 1, attempt: 1,
+    });
+    await service.advance('fo1', FundsOrderAction.CONFIRM, 'op-1');
+    const payload = emitter.emit.mock.calls.find(([name]) => name === 'funds_order.status.changed')![1];
+    expect(payload.effectiveDate).toBeUndefined();
+  });
+
   it('advance rejects when already terminal', async () => {
     prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'fo1', status: 'CLEARED', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,

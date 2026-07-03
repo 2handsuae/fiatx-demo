@@ -47,6 +47,7 @@ interface FundsOrderStatusChangedEvent {
   oldStatus: string | null;
   newStatus: string;
   traceId?: string;
+  effectiveDate?: string; // 平账推单回填的业务归属日；普通实时流转恒为 undefined（swap 腿本阶段不接线）
 }
 
 /**

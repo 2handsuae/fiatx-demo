@@ -64,6 +64,7 @@ interface FundsOrderStatusChangedEvent {
   oldStatus: string | null;
   newStatus: string;
   traceId?: string;
+  effectiveDate?: string; // 平账推单回填的业务归属日；普通实时流转恒为 undefined
 }
 
 // legSeq convention for a withdrawal's funds orders (spec §2):
@@ -715,9 +716,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     switch (event.newStatus) {
       case FundsOrderStatus.CONFIRMED:
         if (event.legSeq === PAYOUT_LEG_SEQ) {
-          await this.onPayoutLegConfirmed(withdrawId, event.fundsOrderId);
+          await this.onPayoutLegConfirmed(withdrawId, event.fundsOrderId, event.effectiveDate);
         } else if (event.legSeq === FEE_LEG_SEQ) {
-          await this.onFeeLegConfirmed(withdrawId, event.fundsOrderId);
+          await this.onFeeLegConfirmed(withdrawId, event.fundsOrderId, event.effectiveDate);
         }
         break;
       case FundsOrderStatus.CLEARED:
@@ -953,7 +954,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1), then CLEAR the leg. SUCCESS is
    * settled later once ALL legs are CLEARED (onLegCleared).
    */
-  private async onPayoutLegConfirmed(withdrawId: string, fundsOrderId: string) {
+  private async onPayoutLegConfirmed(withdrawId: string, fundsOrderId: string, effectiveDate?: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
     if (w.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
       this.logger.warn(`Cannot post net for withdrawal ${withdrawId}: status is ${w.status}`);
@@ -1013,6 +1014,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         creditWalletRef: walletRef,
         externalRef,
         isExternalCrossing: true,
+        ...(effectiveDate && { effectiveDate }),
       });
     }
 
@@ -1027,7 +1029,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * firm-fee ledger cannot resolve — the leg stays CONFIRMED for operator repair,
    * so the customer is never charged a fee the firm can't book.
    */
-  private async onFeeLegConfirmed(withdrawId: string, fundsOrderId: string) {
+  private async onFeeLegConfirmed(withdrawId: string, fundsOrderId: string, effectiveDate?: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
     const decimals = w.asset?.decimals ?? 8;
     const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
@@ -1082,6 +1084,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         creditWalletRef: walletRef,
         externalRef,
         isExternalCrossing: true,
+        ...(effectiveDate && { effectiveDate }),
       });
     }
 
@@ -1126,6 +1129,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         creditWalletRef: firmFeeWalletRef,
         externalRef,
         isExternalCrossing: true,
+        ...(effectiveDate && { effectiveDate }),
       },
     });
 
