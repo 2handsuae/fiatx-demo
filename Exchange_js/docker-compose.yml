@@ -5,6 +5,9 @@ services:
   # 账本端首次格式化（一次性；数据落 named volume）
   tb-format:
     image: ghcr.io/tigerbeetle/tigerbeetle:0.17.3
+    # Docker 25+ 默认用 seccomp 封了 io_uring，TigerBeetle 无 epoll 兜底，必须放行
+    security_opt:
+      - "seccomp=unconfined"
     volumes: [ "tb-data:/data" ]
     command: format --cluster=0 --replica=0 --replica-count=1 /data/0_0.tigerbeetle
     restart: "no"
@@ -12,6 +15,8 @@ services:
   # 账本端（余额真相；tag 必须匹配代码里的 tigerbeetle-node 版本）
   tigerbeetle:
     image: ghcr.io/tigerbeetle/tigerbeetle:0.17.3
+    security_opt:
+      - "seccomp=unconfined"
     depends_on:
       tb-format:
         condition: service_completed_successfully
