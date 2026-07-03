@@ -24,9 +24,14 @@ function build(opts: { order?: any; lookup?: any } = {}) {
   // advance() walks CONFIRMING → CONFIRMED → CLEARED as the orchestrator retries HAPPY_ACTIONS.
   const statuses = [FundsOrderStatus.CONFIRMED, FundsOrderStatus.CLEARED];
   let i = 0;
+  let currentStatus = order.status; // shared row status; advance() moves it, findById() reads it
   const fundsOrders = {
     findByNo: jest.fn(async () => order),
-    advance: jest.fn(async () => ({ ...order, status: statuses[i++] ?? FundsOrderStatus.CLEARED })),
+    findById: jest.fn(async () => ({ ...order, status: currentStatus })),
+    advance: jest.fn(async () => {
+      currentStatus = statuses[i++] ?? FundsOrderStatus.CLEARED;
+      return { ...order, status: currentStatus };
+    }),
   } as any;
   const lookup = {
     findUniqueReceipt: jest.fn(
@@ -149,6 +154,7 @@ describe('PushOrderService', () => {
     const order = makeOrder();
     const fundsOrders = {
       findByNo: jest.fn(async () => order),
+      findById: jest.fn(async () => order), // still CONFIRMING — not the concurrent-CLEARED case
       advance: jest.fn(async () => {
         throw new NotFoundException(`FundsOrder ${order.id} not found`);
       }),
@@ -159,5 +165,43 @@ describe('PushOrderService', () => {
     const audit = { recordByActor: jest.fn(async () => ({})) } as any;
     const svc = new PushOrderService(fundsOrders, lookup, audit);
     await expect(svc.syncPush('FO-1', 'admin-1')).rejects.toThrow(NotFoundException);
+  });
+
+  it('tolerates a concurrent workflow handler driving the order to CLEARED (loop loses the CLEAR race)', async () => {
+    // Terminal-state guard (funds-order.service.ts:91) throws "already terminal (CLEARED) — invalid
+    // transition" (LOWERCASE "invalid transition"). If a deposit/withdraw @OnEvent handler self-drives
+    // CONFIRMED→CLEARED first, the loop's own advance(CLEAR) hits already-terminal. That must be treated
+    // as SUCCESS (order is CLEARED) and audit must STILL be written — not rethrown after money moved.
+    const order = makeOrder();
+    let rowStatus = FundsOrderStatus.CONFIRMING;
+    let advanceCalls = 0;
+    const fundsOrders = {
+      findByNo: jest.fn(async () => order),
+      // findById reflects what the concurrent handler already did to the shared row.
+      findById: jest.fn(async () => ({ ...order, status: rowStatus })),
+      advance: jest.fn(async () => {
+        advanceCalls += 1;
+        if (advanceCalls === 1) {
+          // loop's CONFIRM succeeds; but BEFORE returning, the concurrent handler drives it to CLEARED.
+          rowStatus = FundsOrderStatus.CLEARED;
+          return { ...order, status: FundsOrderStatus.CONFIRMED };
+        }
+        // loop's next attempt (CLEAR) loses the race → already-terminal guard (lowercase message).
+        throw new BadRequestException(
+          `FundsOrder ${order.id} already terminal (CLEARED) — invalid transition`,
+        );
+      }),
+    } as any;
+    const lookup = {
+      findUniqueReceipt: jest.fn(async () => ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' })),
+    } as any;
+    const audit = { recordByActor: jest.fn(async () => ({})) } as any;
+    const svc = new PushOrderService(fundsOrders, lookup, audit);
+
+    const res = await svc.syncPush('FO-1', 'admin-1');
+    expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);
+    // The compliance-critical assertion: audit is written even though the loop lost the CLEAR race.
+    expect(audit.recordByActor).toHaveBeenCalledTimes(1);
+    expect(audit.recordByActor.mock.calls[0][0].metadata.toStatus).toBe(FundsOrderStatus.CLEARED);
   });
 });

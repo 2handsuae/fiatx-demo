@@ -120,10 +120,32 @@ export class PushOrderService {
     };
   }
 
-  /** 沿状态机既有合法迁移逐步推到 CLEARED；每步透传回填生效日，不跳步不造新迁移。 */
+  /**
+   * 沿状态机既有合法迁移逐步推到 CLEARED；每步透传回填生效日，不跳步不造新迁移。
+   *
+   * 并发容忍：deposit/withdraw 的 @OnEvent handler（onPayinConfirmed / onLegCleared 等）也会自驱
+   * CONFIRMED→CLEARED。本循环与其抢同一张单——handler 可能已经/正在把它推进甚至推到 CLEARED。
+   * 故：(a) 每轮先 findById 看真实态，已 CLEARED 即判成功收尾（并发 handler 已完成）；落到其它终态
+   * （FAILED/TIMEOUT）则推进出意外，抛错。(b) advance 撞"非法迁移"或"already terminal (CLEARED)"
+   * （funds-order.service.ts:91 抛小写 "invalid transition"）都 continue，下一轮 findById 会正常判成功。
+   * 铁律不变：只调 advance，不直写账本。
+   */
   private async driveToCleared(order: any, operatorId: string, effectiveDate: string) {
     let current = order;
     for (let i = 0; i < MAX_STEPS && current.status !== FundsOrderStatus.CLEARED; i++) {
+      // (1) 先看真实态：并发 handler 可能已把它推到 CLEARED（成功）或其它终态（意外）。
+      const fresh = await this.fundsOrders.findById(current.id);
+      if (fresh?.status === FundsOrderStatus.CLEARED) {
+        current = fresh;
+        break;
+      }
+      if (fresh && TERMINAL.has(fresh.status)) {
+        throw new BadRequestException(
+          `FundsOrder ${order.fundsOrderNo} 推进出意外：并发已落终态 ${fresh.status}（非 CLEARED）`,
+        );
+      }
+      if (fresh) current = fresh;
+
       let advanced: any = null;
       for (const action of HAPPY_ACTIONS) {
         try {
@@ -132,17 +154,25 @@ export class PushOrderService {
           });
           break;
         } catch (e) {
-          // 只对"非法迁移"试下一个动作；NotFound（行被删）/已终态/其它意外必须原样冒出，
-          // 不许被伪装成"无合法推进动作"。advance() 非法迁移抛 BadRequest("Invalid transition: …")。
-          if (e instanceof BadRequestException && /Invalid transition/.test(e.message)) continue;
+          // (2) 大小写不敏感：既覆盖 "Invalid transition: …"（该 action 对当前态非法，试下一个），
+          // 也覆盖 "already terminal (CLEARED) — invalid transition"（并发 handler 已抢先推到终态）。
+          // 后者下一轮开头的 findById 会发现已 CLEARED 而正常 break。其余错误（NotFound 等）原样冒出。
+          if (e instanceof BadRequestException && /invalid transition/i.test(e.message)) continue;
           throw e;
         }
       }
       if (!advanced) {
+        // (3) 抛"无合法推进动作"前再确认一次：并发 handler 可能刚把它推到 CLEARED（loser 分支防误报）。
+        const recheck = await this.fundsOrders.findById(current.id);
+        if (recheck?.status === FundsOrderStatus.CLEARED) {
+          current = recheck;
+          break;
+        }
         throw new BadRequestException(`FundsOrder ${order.fundsOrderNo} 在 ${current.status} 无合法推进动作`);
       }
       current = advanced;
     }
+    // (4) 收尾闸门不变。
     if (current.status !== FundsOrderStatus.CLEARED) {
       throw new BadRequestException(`推进未达终态（止于 ${current.status}）`);
     }
