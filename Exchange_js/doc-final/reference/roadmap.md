@@ -25,7 +25,7 @@ V4 / V5 / V6 / V7
   └→ V8（对账依赖已有交易数据）
 V1–V8
   └→ V9（合规报送依赖所有业务数据）
-V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺口补充亦由此触发）
+V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时1:1 取代删除；现管公司自有资金/流动性，全部 ADVANCED 未做
 ```
 
 ---
@@ -249,97 +249,34 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 
 ---
 
-## V7 — 内部转账流程
+## V7 — 财资运营（Treasury Ops）
 
-> 平台内部资产物理移动的通用治理。**所有内部转账都是真实的链上交易（虚拟币）或银行指令（法币），不存在纯 TB 内划拨路径。** 所有路径共享同一通用内部转账工作流，差异仅在触发条件、审批门级别和记账类别（A 类零 TB / B 类 drain）。
+> 管**公司自有资金与流动性**（客户的钱由 V4-V6 管，实时1:1 safeguarding）。
+> ⚠️ **旧 V7「内部转账 / 延迟结算」整套已废弃**：随实时1:1 重构，通用内部转账工作流 / EOD 轧差结算 / 充值归集 cron / 手续费归集 / 法币交割 / Outstanding / SettlementBatch / FeeAccrual / 白名单 全部删除（C5b）。每笔交易现**自己就地记账**（V4 两步 / V5 payout+fee / V6 四腿）。资金单（funds_orders）是**跨版本共享原语**（V4 起在用），归 `truth/funds-orders.md`（待建），不属于本版本。
+> **前置**：V3（账户模型）。
+> 📖 无独立 truth（无活体 V7 业务）；旧延迟结算设计仅作历史存档 → `reference/v7-funds-layer-baseline.md`（只读追溯，勿当现状）。
 
-**前置：** V3（账户模型）+ V6（swap 产生 Outstanding / FEE_RECEIVABLE）
+### MVP
 
-**关键决策与最终落地**（详见 `reference/v7-funds-layer-baseline.md` + `superpowers/specs/2026-06-08-v7-fiat-swap-settlement-design.md` + `superpowers/specs/2026-06-08-v7-fiat-fee-collection-design.md`）：
-- 链上 gas → HexTrust gas station 打包自担，**不进客户托管 TB**；钱包热/冷分层 → HexTrust 管，平台不编排。
-- 银行费 → 年付固定 OpEx、不按笔，**不进 V7 交易记账**。
-- **法币侧落地客户资产隔离模型**：客户级 `C_VIBAN`（入/出金）+ 平台 `F_SET`(结算中转) / `F_LIQ`(流动性) / `F_FEE`(手续费) / `F_OPS`(运营) / `C_CMA`(法币主账号，查询用)。`C_VIBAN→F_FEE` 可直连单跳；`VIBAN↔F_LIQ` 经 `F_SET` 中转两跳。
-- **法币结算 = per-swap 即时**（隔离禁止跨客户池级轧差），**crypto 结算 = EOD 轧差**；两套引擎共享 SettlementBatch / Outstanding / funds-flow 原语。**法币结算 Model A（2026-06-09）**：IN 交割只把 **net** 经 `F_LIQ→F_SET→VIBAN` 交到 VIBAN；服务费在**公司侧** `F_LIQ→F_FEE` 确认，永不进客户 VIBAN。**记账仍 gross**（swap 成交时记入 TRADE_CLEARING+FEE_RECEIVABLE，结算 drain 按余额驱动，与转账金额解耦）。见 `superpowers/specs/2026-06-09-fiat-net-settlement-model-a-design.md`。
-- **法币归集（VA→集中账户）删除** —— 由银行自理，平台不编排。
-- **Outstanding 仅 swap 产生**；**偿付义务（Reimbursement）移出 → V8 对账**。
-- **两本账记账体系（2026-06-10）已落地** —— 取代上文 drain/FEE_RECEIVABLE 口径（`FEE_RECEIVABLE` 已删）。内容：① COA 重定为客户账本（safeguarding：`CLIENT_BANK`/`CLIENT_CUSTODY`/`CLIENT_PAYABLE`/`DEPOSIT_SUSPENSE`/`TRADE_CLEARING`）+ 公司账本（`FIRM_TREASURY`/`FX_POSITION` + E 段 `PAID_IN_CAPITAL`/`RETAINED_EARNINGS` + R 段四收入科目），seed 注入资本（AED 1,000,000 / USDT 100,000）；② T1 收入确认 —— swap 费/点差成交即记 `FEE_INCOME`/`SPREAD_INCOME`，提现费两阶段 pending→post；③ 物理资金流 CLEAR 时 TB **mirror 镜像**（客户池↔`FIRM_TREASURY`，`SETTLE_*`/`FEE_DECOMMINGLE`）取代 drain，公司内部倒手（`F_LIQ→F_FEE`）TB no-op；④ EOD `FxEodService` 清桥（`TRADE_CLEARING`→`FX_POSITION`，扣除 open swap 贡献）+ 每日重估（`FX_UNREALIZED_PNL`）+ LP 平盘（`FX_REALIZED_PNL`，浮动回转）+ I1/I2 对账不变量；⑤ 三桶损益：费收入 / 点差收入 / FX 盈亏（浮动+已实现）；⑥ `scripts/verify-two-book.ts` 全链验收（充值→兑换→法币结算→EOD→提现→平盘→终局守恒，41/41 PASS）。见 `superpowers/specs/2026-06-10-two-book-accounting-design.md`。
+- 无。原 MVP（通用内部转账 / 充值归集 / EOD 结算 / 法币交割 / 手续费归集）已被实时1:1 吸收进 V4-V6 或删除。
 
----
+### ADVANCED（全部未做，平台跑起量、自有资金进出多了才痛）
 
-### 内部转账白名单（最终实现）
+**流动性管理（最先痛）：**
+- [ ] LP 调拨治理 — LP-IN 补货 / LP-OUT 回吐（Maker + CFO/MLRO 审批）；客户换出多了库存见底须找 LP 平盘 ｜来源:业务
+- [ ] 公司自有流动性再平衡 — FIRM 各钱包 Main↔Liquidity 库存调拨 ｜来源:业务
+- [ ] 跨网络库存再平衡 — 同资产跨链（如 USDT-ERC20↔TRC20，可能走 OTC）｜来源:业务
 
-所有内部转账必须属于以下预定义白名单对（`TRANSFER_PATH_WHITELIST`），白名单以外的 from-to 立即拒绝，不创建 funds flow。
+**储备与收入：**
+- [ ] ⚖️ 储备金注资 / 穿底补救 — 公司外部→客户池，补足 safeguarding 缺口 ｜VARA(客户资产 1:1 保障)
+- [ ] 收入提取 — FIRM_FEE → 公司运营 / 银行账户 ｜来源:业务
 
-| 标签 | From → To | 介质 | 记账类 | 触发 | 状态 |
-|---|---|---|---|---|---|
-| 充值归集 (AGGREGATE) | C_DEP → C_MAIN | 链上 | A（零 TB） | 每小时 Cron / 超阈值 | ✅ crypto |
-| 出金预归集 (FUND_OUT) | C_MAIN → C_OUT | 链上 | A（零 TB） | V5 提现 Payout 前 | ✅ V5 已 wire |
-| 出金退回 (FUND_RETURN) | C_OUT → C_MAIN | 链上 | A（零 TB） | 提现取消/失败 | ✅ repair 入口 |
-| 兑换卖出交割 (INTERNAL_OUT) | C_MAIN → F_OPS | 链上 | B（mirror POOL_TO_FIRM） | EOD 轧差 | ✅ crypto |
-| 兑换买入交割 (INTERNAL_IN) | F_OPS → C_MAIN | 链上 | B（mirror FIRM_TO_POOL） | EOD 轧差 | ✅ crypto |
-| 手续费归集 (FEE_COLLECT) | C_MAIN → F_FEE | 链上 | B（mirror POOL_TO_FIRM） | EOD | ✅ crypto |
-| 法币卖出交割 (FIAT_SETTLE_OUT) | C_VIBAN → F_SET → F_OPS | 银行 | B（mirror POOL_TO_FIRM） | swap 成交即时 | ✅ fiat |
-| 法币买入交割 (FIAT_SETTLE_IN) | F_OPS → F_SET → C_VIBAN(net) | 银行 | B（mirror FIRM_TO_POOL） | swap 成交即时 | ✅ fiat |
-| 法币手续费 (FIAT_WITHDRAW_FEE_COLLECT) | C_VIBAN → F_FEE | 银行 | B（mirror POOL_TO_FIRM） | 提现成功 | ✅ fiat |
-| 兑换费/点差 (FIAT_SWAP_FEE_COLLECT) | F_OPS → F_FEE | 银行 | B（公司内倒手 TB no-op） | swap 结算后 | ✅ fiat |
-| ~~法币归集~~ | ~~客户 VA → 集中账户~~ | 银行 | — | — | ❌ 删除（银行自理） |
+**异常与配置治理：**
+- [ ] 异常资金处置 — 孤儿/无主资金归位 / 冻结·制裁资产隔离 / 错账冲正 ｜来源:业务+VARA
+- [ ] 内部转账阈值配置治理 — 归集/审批线/dust 阈值出硬编码（Maker+Checker）｜来源:业务 ｜与 V3 金额闸门矩阵一并
 
-> LP-IN/OUT、热/冷分层、Gas Reserve 移出 MVP（见 ADVANCED）。法币交割是 **2 跳**（经 F_SET），建模为 1 InternalTransaction + 2 顺序 InternalFund；法币费归集是 **1 跳**（1 transfer + 1 fund）。
->
-> **⚠️ 钱包路由对齐（2026-06-21，以 live code 为准）**：本 V7 节**上方决策记录（Model A / 两本账条目）与下方交付清单中，凡结算/费用路由出现的 `F_LIQ` 一律以 `F_OPS` 为准**——`F_LIQ` 已退出所有结算/费用路径（仍是 `FIRM_TREASURY` 名下流动性钱包）。即：crypto 本金 `C_MAIN↔F_OPS`、法币本金 `C_VIBAN↔F_SET↔F_OPS`、swap 费 `F_OPS→F_FEE`、提现费 `C_VIBAN/C_MAIN→F_FEE`。源：`internal-transfer-paths.constant.ts`。
-> **结算批 6 型 `settlementType`**（`settlement-type.constant.ts`，强类型防呆）：`{FIAT|CRYPTO}_{PRINCIPAL|WITHDRAW|SWAP}` = 本金 / 提现费 / 兑换费；兑换费 accrual 再拆 `feeKind = SERVICE_FEE + SPREAD`。物理 CLEAR 时 TB 走 **mirror**（客户池↔FIRM_TREASURY）非 drain（见上方 2026-06-10 两本账条目）。
-
----
-
-### MVP（核心工作流）
-
-- [x] **通用内部转账工作流** — 白名单校验 → 创建 funds flow → 发起链上/银行指令 → 确认后记账（A 零 TB；B drain `TRADE_CLEARING`/`FEE_RECEIVABLE ↔ CUSTODY/BANK`）→ COMPLETED。crypto `InternalTransferWorkflowService`；fiat `FiatSettlementWorkflowService` + `FiatFeeCollectionWorkflowService`。✅ 2026-06-08
-- [x] **充值归集（crypto）** — 每小时 `@Cron` sweep 扫客户充值地址 → C_MAIN；阈值（`AGGREGATION_THRESHOLD=100`）+ dust（`<1`）跳过；A 类直接 funds flow，无 Outstanding/fee。✅ 2026-06-04 ｜ 法币归集 ❌ 删除（银行自理）
-- [x] **EOD 兑换结算编排（crypto）** — 23:59 `@Cron` 按资产轧差 `TRADE_CLEARING` → SettlementBatch → INTERNAL_OUT/IN funds flow → Outstanding `SETTLED`（`closedByInternalFundId`），幂等重跑。✅ 2026-06-04
-- [x] **法币 swap 交割（fiat）** — per-swap 即时：swap 提交后 emit `SWAP_SUCCEEDED` → 两跳 `C_VIBAN↔F_SET↔F_LIQ`（1 transfer + 2 顺序 fund，**IN 交 net — Model A 2026-06-09**）→ transfer SUCCESS 时 drain `TRADE_CLEARING↔BANK`。`FIAT_TRANSITIONS` 状态机。✅ 2026-06-08（live 验收 PASS）
-- [x] **手续费归集（crypto）** — 每日 `@Cron` drain `FEE_RECEIVABLE`（swap 费+点差+提现费）→ C_MAIN→F_OPS（全额 drain）。✅ 2026-06-04
-- [x] **法币手续费归集（fiat）** — per-event：**Model A（2026-06-09）**—swap 服务费 + 点差均**公司侧** `F_LIQ→F_FEE`（服务费不再走 `C_VIBAN→F_FEE`，避免穿过隔离 VIBAN）；提现费仍 `C_VIBAN→F_FEE`（确从客户 VIBAN 扣）；**按指定金额** drain `FEE_RECEIVABLE→BANK`。swap 费随结算 ride-along，提现费监听 `WithdrawEvents.EVT_WITHDRAWAL_SUCCESS__FIAT`。✅ 2026-06-08（live 验收 PASS）
-
-**遗留缺口（happy path 已交付，欠韧性/治理）：**
-- [ ] **fiat 兜底 cron** — 法币结算/费用纯事件驱动，OPEN 法币 outstanding 为持久工作项但无低频 cron 漏单兜底（设计留接口未接）
-- [ ] **repair surface 偏薄** — 仅 crypto `fund-return-repair`；法币结算/费用单 FAILED/TIMEOUT/RETURNED 无 admin 重试/修复入口
-- [ ] **内部转账审批门** — 当前所有内部转账自动 `APPROVED`，无按金额人工审批门（原列「按金额判审批门」未做）
-- [ ] **异常/FAILED 分支处理** — funds-flow FAILED/RETURNED 状态可达但无消化工作流（银行退回追偿 → V8）
-
-> **偿付义务（Reimbursement）已移出 V7，并入 V8 对账（决策 2026-06-03）**：偿付义务是「纠正动作」，其主要发现源是对账（detective control）；event-driven 失败（提现退回、银行 bounce）只是已知子集。故 `ReimbursementObligation` 实体 + 状态机 + 审批门由 V8 差异处理工作流统一拥有，两类触发源（对账差异 / event-driven 失败）共用同一出口。`ReimbursementObligation` 表已在 V7 Phase 0 解耦预备（owedTo/sourceType/approvalCaseId 字段就位），V8 直接复用。FUND_RETURN（提现退回的资金侧 Outbound→Main）已由 V7 funds-layer 交付，不受影响。
-
-> FUND_OUT（出金预归集）由 V5 提现工作流触发（`withdraw-workflow.service` 调 `fundTransferWorkflow.fundOut`，非阻塞）✅；FUND_RETURN 经 admin repair 入口触发 ✅。两者不单列工作流。
-
-### ADVANCED（推后交付）
-
-- [ ] LP 调拨治理工作流（LP-IN / LP-OUT 路径独立审批门：Maker 提案 + CFO / MLRO 签批 → 触发对应通用转账实例）
-- [ ] 内部转账阈值配置变更工作流（Maker 提案修改归集阈值 / 审批金额线 / dust 阈值 → Checker 审批 → 生效；全程审计）—— 现 `AGGREGATION_THRESHOLD`/`DUST_THRESHOLD` 硬编码常量
-- [ ] ~~偿付义务工作流（完整版）~~ → **移入 V8 对账**（费用多收退还 / 运营错误补偿 / 充值反转退回 / 促销补贴 等，主要由对账差异处理触发）
-- [ ] 异常处置工作流 —— 孤儿充值归位 / 冻结·制裁资产隔离 / 错账冲正
-- [ ] 储备金注资 / 穿底补救工作流（公司外部 → 客户池，补足储备）
-- [ ] 公司自有流动性调拨（Main ↔ Liquidity 库存再平衡）
-- [ ] 跨网络库存再平衡（同资产跨链，可能需 OTC）
-
-### Supporting Features（非 workflow，无独立状态机）
-
-- **funds flow（资金单）执行引擎** ✅ — 链上 `CRYPTO_TRANSITIONS`（签名→广播→确认→CLEAR）+ 银行 `FIAT_TRANSITIONS`（SUBMIT→CONFIRM→CLEAR），按 `asset.type` 选；费/确认数留痕。`createLeg` 支持单 transfer 多 fund（法币两跳）
-- **Transaction（结算单）轧差引擎** ✅ — `SettlementBatchService`，按资产净额，N:1 关联，幂等重算
-- **Outstanding 结算关闭** ✅ — V6 建、V7 消费：OPEN → LOCKED → SETTLED，挂 `closedByInternalFundId`
-- **FEE_RECEIVABLE drain 记账** ✅ — crypto 全额 drain（`applyAccounting`）+ fiat **按指定金额** drain（`drainFeeReceivableAmount`，截断对齐计提，FIAT 对手账户 BANK）
-- **白名单校验 guard** ✅ — `assertWhitelisted`（单跳）+ `assertRoute`（法币多跳）；非白名单立即拒绝
-- **Cron sweep 适配器** ✅ crypto — 充值归集（每小时）/ EOD 结算（23:59）/ 手续费归集（每日）`@Cron`；**fiat 无 cron，纯事件驱动**（兜底 cron 待接）
-- **幂等键** ✅ — EOD/归集：`sourceType+sourceId` 去重，已 SETTLED 跳过
-- **repair surface** ⚠️ 仅 crypto — `fund-return-repair` 入口；法币失败修复入口待补
-- **fee_accrual 实体 + 状态机** ✅ — ACCRUED → LOCKED → SETTLED；per-batch（EOD 聚合）+ per-transfer（fiat 即时）两种结算路径；Admin 列表/详情页
-- **traceId 全链审计** ✅ — payin / swap_quote / settlement_batch UUID + outstanding / fee_accrual originTraceId 跨实体串联
-
-### 不单做工作流（主流程内嵌 / 运维 / 已外包）
-
-- **链上 gas** → HexTrust gas station 自担，不进 TB，固定 P&L
-- **钱包热 / 冷分层** → HexTrust 管，平台不编排
-- **银行转账费** → 年付固定 OpEx，不进交易记账
-- **链上重组 / 超时** → FAILED + repair surface，不自动重广播
-- **银行退回（bounced）** → 通用内部转账 FAILED 分支 / 偿付义务
+> **边界决策（仍有效）**：链上 gas → HexTrust gas station 自担（不进 TB，固定 P&L）；钱包热/冷分层 + 托管扫钱 → HexTrust 管，平台不编排；银行费 → 年付固定 OpEx。
+> **别双重登记**：偿付义务（Reimbursement）+ 储备证明（Proof of Reserves）已归 V8 对账。
 
 ---
 

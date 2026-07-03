@@ -35,7 +35,7 @@
 | V4 | 充值 | ✅ v4-deposit.md |
 | V5 | 提现 | ✅ v5-withdraw.md |
 | V6 | 兑换 | ✅ v6-swap.md |
-| V7 | 内部转账 / 资金层 | 并入 funds-orders.md（待建）|
+| V7 | 财资运营（Treasury Ops）| 无独立 truth（旧内部转账/延迟结算已删；共享原语归 funds-orders.md；财资运营全未做）|
 | V8 | 对账 | `v8-recon.md`（待建，Round3 记忆最新鲜，建议尽早）|
 | 跨版本 | 8 码 COA + 记账不变量 | `accounting-coa.md`（待抽出）|
 | 跨版本 | 资金单状态机全集 | `funds-orders.md`（待抽出）|
