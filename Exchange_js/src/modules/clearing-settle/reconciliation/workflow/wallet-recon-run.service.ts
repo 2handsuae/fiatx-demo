@@ -579,8 +579,9 @@ export class WalletReconRunService {
 
   // ── Case + line items (T2 wallet-keyed upsert) ────────────────────────────
   /**
-   * T2: upsert one Case per (walletRef, businessDate). If a status=OPEN case
-   * already exists for the wallet on this date, refresh its snapshot fields
+   * T5 (Round3 §2.5): upsert one Case per walletRef — cross-day, not scoped
+   * to businessDate. If a status=OPEN case already exists for the wallet
+   * (from any prior day), refresh its snapshot fields
    * (delta / amounts / lastUpdatedRunId / severity) and replace its line items
    * with the current run's findings — do NOT bump firstSeenRunId. If absent,
    * create a fresh case with firstSeenRunId=lastUpdatedRunId=runId.
@@ -834,9 +835,10 @@ export class WalletReconRunService {
   }
 
   /**
-   * T2 auto-heal: at the end of the run, any OPEN case for THIS businessDate
-   * whose walletRef is NOT in `currentBreakingWallets` is presumed to have
-   * recovered (no break detected this run on that wallet). Close it.
+   * T5 auto-heal (Round3 §2.5): at the end of the run, any OPEN case for this
+   * wallet — regardless of which day it was first opened on — whose walletRef
+   * is NOT in `currentBreakingWallets` is presumed to have recovered (no
+   * break detected this run on that wallet). Close it.
    *
    * Scoped to layer=WALLET so we never touch legacy V8_FORMULA cases that
    * sit alongside Phase B rows.
