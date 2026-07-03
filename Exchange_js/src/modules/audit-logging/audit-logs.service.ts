@@ -73,8 +73,6 @@ export interface DepositEvidenceChainItem {
   alertIds: string[];
   caseIds: string[];
   journalIds: string[];
-  internalTransactionIds: string[];
-  internalFundIds: string[];
 }
 
 export interface DepositEvidenceSnapshots {
@@ -85,8 +83,6 @@ export interface DepositEvidenceSnapshots {
   alerts: any[];
   cases: any[];
   journals: any[];
-  internalTransactions: any[];
-  internalFunds: any[];
   depositEvidenceChain: DepositEvidenceChainItem[];
 }
 
@@ -99,7 +95,6 @@ export interface SwapEvidenceChainItem {
   alertIds: string[];
   caseIds: string[];
   journalIds: string[];
-  outstandingIds: string[];
 }
 
 export interface SwapEvidenceSnapshots {
@@ -109,7 +104,6 @@ export interface SwapEvidenceSnapshots {
   swapAlerts: any[];
   swapCases: any[];
   swapJournals: any[];
-  swapOutstandings: any[];
   swapEvidenceChain: SwapEvidenceChainItem[];
 }
 
@@ -297,12 +291,7 @@ export class AuditLogsService {
       WITHDRAW_TRANSACTION: { model: 'withdrawTransaction', field: 'withdrawNo' },
       DEPOSIT_TRANSACTION: { model: 'depositTransaction', field: 'depositNo' },
       SWAP_TRANSACTION: { model: 'swapTransaction', field: 'swapNo' },
-      INTERNAL_TRANSACTION: { model: 'internalTransaction', field: 'internalTxNo' },
       INTERNAL_FUND: { model: 'fundsOrder', field: 'fundsOrderNo' },
-      REIMBURSEMENT_OBLIGATION: {
-        model: 'reimbursementObligation',
-        field: 'obligationNo',
-      },
       SWAP_QUOTE: { model: 'swapQuote', field: 'quoteNo' },
       KYT_CASE: { model: 'kytCase', field: 'caseNo' },
       TRAVEL_RULE_CASE: { model: 'travelRuleCase', field: 'caseNo' },
@@ -1386,8 +1375,6 @@ export class AuditLogsService {
     alerts: any[];
     cases: any[];
     journals: any[];
-    internalTransactions: any[];
-    internalFunds: any[];
   }): DepositEvidenceChainItem[] {
     const {
       deposits,
@@ -1397,16 +1384,7 @@ export class AuditLogsService {
       alerts,
       cases,
       journals,
-      internalTransactions,
-      internalFunds,
     } = params;
-
-    const fundsByInternalTxId = new Map<string, any[]>();
-    for (const fund of internalFunds) {
-      const current = fundsByInternalTxId.get(fund.internalTransactionId) || [];
-      current.push(fund);
-      fundsByInternalTxId.set(fund.internalTransactionId, current);
-    }
 
     return deposits.map((deposit) => {
       const depositId = String(deposit.id);
@@ -1428,13 +1406,6 @@ export class AuditLogsService {
       const depositJournals = journals.filter(
         (item) => String(item.sourceId) === depositId,
       );
-      const depositInternalTxs = internalTransactions.filter(
-        (item) => String(item.sourceId) === depositId,
-      );
-      const depositInternalFunds = depositInternalTxs.flatMap(
-        (item) => fundsByInternalTxId.get(String(item.id)) || [],
-      );
-
       return {
         depositId,
         depositNo: deposit.depositNo || null,
@@ -1456,12 +1427,6 @@ export class AuditLogsService {
         journalIds: this.toSortedUniqueStrings(
           depositJournals.map((item) => item.id),
         ),
-        internalTransactionIds: this.toSortedUniqueStrings(
-          depositInternalTxs.map((item) => item.id),
-        ),
-        internalFundIds: this.toSortedUniqueStrings(
-          depositInternalFunds.map((item) => item.id),
-        ),
       };
     });
   }
@@ -1473,7 +1438,6 @@ export class AuditLogsService {
     alerts: any[];
     cases: any[];
     journals: any[];
-    outstandings: any[];
   }): SwapEvidenceChainItem[] {
     const {
       swapTransactions,
@@ -1482,7 +1446,6 @@ export class AuditLogsService {
       alerts,
       cases,
       journals,
-      outstandings,
     } = params;
 
     return swapTransactions.map((swap) => {
@@ -1503,10 +1466,6 @@ export class AuditLogsService {
       const swapJournals = journals.filter(
         (item) => String(item.sourceId) === swapId,
       );
-      const swapOutstandings = outstandings.filter(
-        (item) => String(item.sourceId) === swapId,
-      );
-
       return {
         swapId,
         swapNo: swap.swapNo || null,
@@ -1524,9 +1483,6 @@ export class AuditLogsService {
         caseIds: this.toSortedUniqueStrings(swapCases.map((item) => item.id)),
         journalIds: this.toSortedUniqueStrings(
           swapJournals.map((item) => item.id),
-        ),
-        outstandingIds: this.toSortedUniqueStrings(
-          swapOutstandings.map((item) => item.id),
         ),
       };
     });
@@ -1640,13 +1596,11 @@ export class AuditLogsService {
         alerts: [],
         cases: [],
         journals: [],
-        internalTransactions: [],
-        internalFunds: [],
         depositEvidenceChain: [],
       };
     }
 
-    const [deposits, kytCases, travelRuleCases, riskDecisionRecords, alerts, cases, journals, internalTransactions] = await Promise.all([
+    const [deposits, kytCases, travelRuleCases, riskDecisionRecords, alerts, cases, journals] = await Promise.all([
       db.depositTransaction.findMany({
         where: { id: { in: workflowIds } },
         orderBy: { depositNo: 'asc' },
@@ -1827,67 +1781,7 @@ export class AuditLogsService {
             },
           })
         : Promise.resolve([]),
-      db.internalTransaction?.findMany
-        ? db.internalTransaction.findMany({
-            where: {
-              sourceType: 'DEPOSIT',
-              sourceId: { in: workflowIds },
-              type: 'DEP_TO_MASTER',
-            },
-            orderBy: [{ sourceId: 'asc' }, { createdAt: 'asc' }],
-            select: {
-              id: true,
-              internalTxNo: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-              type: true,
-              status: true,
-              approvalStatus: true,
-              assetId: true,
-              amount: true,
-              feeAmount: true,
-              netAmount: true,
-              fromWalletId: true,
-              toWalletId: true,
-              referenceNo: true,
-              createdAt: true,
-              updatedAt: true,
-              completedAt: true,
-            },
-          })
-        : Promise.resolve([]),
     ]);
-
-    const internalTransactionIds = this.toSortedUniqueStrings(
-      internalTransactions.map((item: any) => item.id),
-    );
-    const internalFunds = internalTransactionIds.length && db.fundsOrder?.findMany
-      ? await db.fundsOrder.findMany({
-          where: {
-            internalTransactionId: { in: internalTransactionIds },
-          },
-          orderBy: [{ internalTransactionId: 'asc' }, { createdAt: 'asc' }],
-          select: {
-            id: true,
-            fundsOrderNo: true,
-            internalTransactionId: true,
-            status: true,
-            assetId: true,
-            amount: true,
-            feeAmount: true,
-            netAmount: true,
-            fromWalletId: true,
-            toWalletId: true,
-            referenceNo: true,
-            txHash: true,
-            createdAt: true,
-            updatedAt: true,
-            confirmedAt: true,
-            completedAt: true,
-          },
-        })
-      : [];
 
     const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
       ...row,
@@ -1918,8 +1812,6 @@ export class AuditLogsService {
       alerts: mappedAlerts,
       cases: mappedCases,
       journals,
-      internalTransactions,
-      internalFunds,
     });
 
     return {
@@ -1930,8 +1822,6 @@ export class AuditLogsService {
       alerts: mappedAlerts,
       cases: mappedCases,
       journals,
-      internalTransactions,
-      internalFunds,
       depositEvidenceChain,
     };
   }
@@ -2277,7 +2167,6 @@ export class AuditLogsService {
         swapAlerts: [],
         swapCases: [],
         swapJournals: [],
-        swapOutstandings: [],
         swapEvidenceChain: [],
       };
     }
@@ -2393,7 +2282,6 @@ export class AuditLogsService {
         swapAlerts: [],
         swapCases: [],
         swapJournals: [],
-        swapOutstandings: [],
         swapEvidenceChain: [],
       };
     }
@@ -2403,7 +2291,6 @@ export class AuditLogsService {
       alerts,
       cases,
       journals,
-      outstandings,
     ] = await Promise.all([
       db.workflowDecisionRecord?.findMany
         ? db.workflowDecisionRecord.findMany({
@@ -2522,30 +2409,6 @@ export class AuditLogsService {
             },
           })
         : Promise.resolve([]),
-      db.outstanding?.findMany
-        ? db.outstanding.findMany({
-            where: {
-              sourceType: 'SWAP',
-              sourceId: { in: swapIds },
-            },
-            orderBy: [{ sourceId: 'asc' }, { direction: 'asc' }],
-            select: {
-              id: true,
-              outstandingNo: true,
-              sourceType: true,
-              sourceId: true,
-              sourceNo: true,
-              direction: true,
-              assetId: true,
-              assetCode: true,
-              amount: true,
-              status: true,
-              createdAt: true,
-              updatedAt: true,
-              closedAt: true,
-            },
-          })
-        : Promise.resolve([]),
     ]);
 
     const mappedRiskDecisionRecords = riskDecisionRecords.map((row: any) => ({
@@ -2576,7 +2439,6 @@ export class AuditLogsService {
       alerts: mappedAlerts,
       cases: mappedCases,
       journals,
-      outstandings,
     });
 
     return {
@@ -2586,7 +2448,6 @@ export class AuditLogsService {
       swapAlerts: mappedAlerts,
       swapCases: mappedCases,
       swapJournals: journals,
-      swapOutstandings: outstandings,
       swapEvidenceChain,
     };
   }

@@ -38,7 +38,6 @@
     "db:biz:reset": "ts-node scripts/reset-business-data.ts",
     "db:reset:business": "bash scripts/reset-business-complete.sh",
     "runtime:diagnose": "bash scripts/runtime-diagnose.sh",
-    "governance:demo:seed": "ts-node scripts/governance-demo-seed.ts",
     "check:asset:decimals": "bash scripts/check-asset-amount-format.sh",
     "audit:retention:dry": "ts-node scripts/audit-retention-job.ts --dry-run",
     "audit:retention:apply": "ts-node scripts/audit-retention-job.ts --apply",
@@ -46,6 +45,7 @@
     "recon:demo:pass": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass",
     "recon:demo:break": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break",
     "recon:demo:reset": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset",
+    "recon:rerun": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-rerun.ts",
     "demo:setup": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-setup.ts",
     "demo:deposit": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-deposit.ts",
     "demo:swap": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-swap.ts",
@@ -63,8 +63,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:setup": "bash scripts/db-setup.sh",
-    "package:release": "bash scripts/package-release.sh",
-    "db:seed:demo": "ts-node scripts/governance-demo-seed.ts"
+    "package:release": "bash scripts/package-release.sh"
   },
   "keywords": [],
   "author": "",

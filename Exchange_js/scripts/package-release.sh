@@ -41,15 +41,6 @@ export GOVERNANCE_DEMO_ENABLED=true
 # Build against the repo's installed node_modules / prisma, writing to PKG_DB.
 npx prisma migrate deploy --schema "${APP_DIR}/prisma/schema.prisma"
 npm run db:base:sync
-# Governance demo is HTTP-driven (needs a running backend on API_URL). Best-effort:
-# if a backend is reachable it gets baked in, otherwise the package ships with
-# base data only and the recipient runs `npm run db:seed:demo` after startup.
-GOV_INCLUDED="no"
-if npm run governance:demo:seed >/dev/null 2>&1; then
-  GOV_INCLUDED="yes"
-else
-  echo "[package] NOTE: governance demo seed skipped (no backend reachable) — base data only"
-fi
 # Drop WAL side-files so the packaged DB is a single self-contained file.
 rm -f "${PKG_DB}-journal" "${PKG_DB}-wal" "${PKG_DB}-shm"
 
@@ -62,5 +53,5 @@ echo "[package] zipping"
 DB_BYTES="$(wc -c < "${PKG_DB}" | tr -d ' ')"
 echo "[package] done."
 echo "  archive : ${APP_DIR}/${RELEASE_NAME}.zip"
-echo "  db      : prisma/dev.db (${DB_BYTES} bytes; base seeded, governance demo: ${GOV_INCLUDED})"
+echo "  db      : prisma/dev.db (${DB_BYTES} bytes; base seeded)"
 echo "  recipient: unzip, npm install, copy .env.example -> .env, npm run start:dev"

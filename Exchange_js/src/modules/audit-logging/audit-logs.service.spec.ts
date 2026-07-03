@@ -68,15 +68,6 @@ describe('AuditLogsService', () => {
       clearing: {
         findMany: jest.fn(),
       },
-      outstanding: {
-        findMany: jest.fn(),
-      },
-      internalTransaction: {
-        findMany: jest.fn(),
-      },
-      fundsOrder: {
-        findMany: jest.fn(),
-      },
     };
 
     service = new AuditLogsService(prisma);
@@ -991,49 +982,6 @@ describe('AuditLogsService', () => {
         updatedAt: new Date('2026-03-24T08:05:30.000Z'),
       },
     ]);
-    prisma.internalTransaction.findMany.mockResolvedValue([
-      {
-        id: 'itx-1',
-        internalTxNo: 'ITX2603240001',
-        sourceType: 'DEPOSIT',
-        sourceId: 'dep-1',
-        sourceNo: 'DEP2603240001',
-        type: 'DEP_TO_MASTER',
-        status: 'SUCCESS',
-        approvalStatus: 'APPROVED',
-        assetId: 'asset-1',
-        amount: '100.00',
-        feeAmount: '0',
-        netAmount: '100.00',
-        fromWalletId: 'wallet-dep',
-        toWalletId: 'wallet-master',
-        referenceNo: 'DEP2603240001',
-        createdAt: new Date('2026-03-24T08:06:00.000Z'),
-        updatedAt: new Date('2026-03-24T08:06:00.000Z'),
-        completedAt: new Date('2026-03-24T08:06:10.000Z'),
-      },
-    ]);
-    prisma.fundsOrder.findMany.mockResolvedValue([
-      {
-        id: 'ifd-1',
-        fundsOrderNo: 'IFD2603240001',
-        internalTransactionId: 'itx-1',
-        status: 'CLEAR',
-        assetId: 'asset-1',
-        amount: '100.00',
-        feeAmount: '0',
-        netAmount: '100.00',
-        fromWalletId: 'wallet-dep',
-        toWalletId: 'wallet-master',
-        referenceNo: 'DEP2603240001',
-        txHash: '0xinternal',
-        createdAt: new Date('2026-03-24T08:06:20.000Z'),
-        updatedAt: new Date('2026-03-24T08:06:20.000Z'),
-        confirmedAt: new Date('2026-03-24T08:06:15.000Z'),
-        completedAt: new Date('2026-03-24T08:06:20.000Z'),
-      },
-    ]);
-
     try {
       const artifacts = await service.buildEvidencePackageArtifacts(
         {
@@ -1055,8 +1003,6 @@ describe('AuditLogsService', () => {
           alerts: expect.any(Array),
           cases: expect.any(Array),
           journals: expect.any(Array),
-          internalTransactions: expect.any(Array),
-          internalFunds: expect.any(Array),
           depositEvidenceChain: expect.any(Array),
         }),
       );
@@ -1070,8 +1016,6 @@ describe('AuditLogsService', () => {
           alertIds: ['alert-1'],
           caseIds: ['case-1'],
           journalIds: ['journal-1', 'journal-2'],
-          internalTransactionIds: ['itx-1'],
-          internalFundIds: ['ifd-1'],
         }),
       ]);
 
@@ -1344,39 +1288,6 @@ describe('AuditLogsService', () => {
         updatedAt: new Date('2026-03-26T11:02:10.000Z'),
       },
     ]);
-    prisma.outstanding.findMany.mockResolvedValue([
-      {
-        id: 'os-swap-1',
-        outstandingNo: 'OUT2603260001',
-        sourceType: 'SWAP',
-        sourceId: 'swap-1',
-        sourceNo: 'SWP2603260001',
-        direction: 'OUT',
-        assetId: 'asset-usdt',
-        assetCode: 'USDT',
-        amount: '1000.00',
-        status: 'OPEN',
-        createdAt: new Date('2026-03-26T11:02:15.000Z'),
-        updatedAt: new Date('2026-03-26T11:02:15.000Z'),
-        closedAt: null,
-      },
-      {
-        id: 'os-swap-2',
-        outstandingNo: 'OUT2603260002',
-        sourceType: 'SWAP',
-        sourceId: 'swap-1',
-        sourceNo: 'SWP2603260001',
-        direction: 'IN',
-        assetId: 'asset-btc',
-        assetCode: 'BTC',
-        amount: '0.00995000',
-        status: 'OPEN',
-        createdAt: new Date('2026-03-26T11:02:15.000Z'),
-        updatedAt: new Date('2026-03-26T11:02:15.000Z'),
-        closedAt: null,
-      },
-    ]);
-
     try {
       const artifacts = await service.buildEvidencePackageArtifacts(
         {
@@ -1403,7 +1314,6 @@ describe('AuditLogsService', () => {
           swapAlerts: expect.any(Array),
           swapCases: expect.any(Array),
           swapJournals: expect.any(Array),
-          swapOutstandings: expect.any(Array),
           swapEvidenceChain: expect.any(Array),
         }),
       );
@@ -1416,7 +1326,6 @@ describe('AuditLogsService', () => {
           alertIds: ['alert-swap-1'],
           caseIds: ['case-swap-1'],
           journalIds: ['journal-swap-1', 'journal-swap-2'],
-          outstandingIds: ['os-swap-1', 'os-swap-2'],
         }),
       ]);
       expect(snapshots.swapQuotes).toEqual([

@@ -25,10 +25,6 @@ export const PERMISSIONS = {
   SWAP_TRANSACTIONS_READ: 'api.get.admin_swap_transactions',
   SWAP_TRANSACTION_DETAIL_READ: 'api.get.admin_swap_transactions_id',
 
-  OUTSTANDINGS_READ: 'api.get.admin_reconciliation_outstandings',
-  OUTSTANDING_DETAIL_READ: 'api.get.admin_reconciliation_outstandings_id',
-  FEE_ACCRUALS_READ: 'api.get.admin_reconciliation_fee_accruals',
-  FEE_ACCRUAL_DETAIL_READ: 'api.get.admin_reconciliation_fee_accruals_id',
   RECON_RUN_READ: 'api.get.admin_reconciliation_runs',
   RECON_RUN_DETAIL_READ: 'api.get.admin_reconciliation_runs_runno',
   RECON_CASE_READ: 'api.get.admin_reconciliation_cases',
@@ -110,9 +106,7 @@ export const PERMISSIONS = {
 
   WALLETS_READ: 'api.get.wallets',
   WALLET_DETAIL_READ: 'api.get.wallets_id',
-  // PAYINS_* / PAYOUTS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
-  INTERNAL_FUNDS_READ: 'api.get.admin_internal_funds',
-  INTERNAL_FUND_DETAIL_READ: 'api.get.admin_internal_funds_id',
+  // PAYINS_* / PAYOUTS_* / INTERNAL_FUNDS_* removed in Round 2 (C6) — merged into FUNDS_ORDERS_*.
   REIMBURSEMENT_OBLIGATIONS_READ: 'api.get.admin_reimbursement_obligations',
   INTERNAL_COLLECTIONS_RECONCILE:
     'api.post.admin_internal_transactions_collection_wallets_walletid_reconcile',
@@ -130,18 +124,6 @@ export const PERMISSIONS = {
   DEPOSIT_TRANSACTION_DETAIL_READ: 'api.get.deposit_transactions_id',
   WITHDRAW_TRANSACTIONS_READ: 'api.get.withdraw_transactions',
   WITHDRAW_TRANSACTION_DETAIL_READ: 'api.get.withdraw_transactions_id',
-  INTERNAL_TRANSACTIONS_READ: 'api.get.admin_internal_transactions',
-  INTERNAL_TRANSACTION_DETAIL_READ: 'api.get.admin_internal_transactions_id',
-  FUNDS_LAYER_TRANSFERS_READ: 'api.get.admin_funds_layer_transfers',
-  FUNDS_LAYER_TRANSFER_DETAIL_READ:
-    'api.get.admin_funds_layer_transfers_internaltxno',
-  FUNDS_LAYER_TRANSFER_SIMULATE:
-    'api.post.admin_funds_layer_transfers_internaltxno_simulate',
-  FUNDS_LAYER_SETTLEMENTS_READ: 'api.get.admin_funds_layer_settlements',
-  FUNDS_LAYER_SETTLEMENT_DETAIL_READ:
-    'api.get.admin_funds_layer_settlements_batchno',
-  FUNDS_LAYER_SETTLEMENT_RUN:
-    'api.post.admin_funds_layer_settlements_run',
   // Unified funds-orders admin surface (Round 2 / C6) — replaces the legacy
   // payins / payouts / internal-funds read permissions.
   FUNDS_ORDERS_READ: 'api.get.admin_funds_orders',
