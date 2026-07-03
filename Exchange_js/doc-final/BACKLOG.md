@@ -36,7 +36,8 @@ Last Updated: 2026-07-03
 ## 技术债 — 平账处置（推单）
 
 - [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
-- [ ] **推单/sim-advance 端点用 INTERNAL_FUND_READ 读权限门控变更操作**：/admin/funds-orders/:no/push/sync|manual + :no/advance 都是变更/动钱操作却挂 _READ → 读权限 operator 也能推单结算。应新增 INTERNAL_FUND_DISPOSE(写/处置)权限统一门控三端点（需 db:base:sync + 重启）｜来源: 2026-07-03 推单 T3 code-review M-2 ｜下期专门 RBAC 轮
+- [ ] **推单/sim-advance 端点用 INTERNAL_FUND_READ 读权限门控变更操作**：/admin/funds-orders/:no/push/sync|manual + :no/advance 都是变更/动钱操作却挂 _READ → 读权限 operator 也能推单结算。应新增**写/处置权限**统一门控三端点（需 db:base:sync + 重启）｜来源: 2026-07-03 推单 T3 code-review M-2 ｜下期专门 RBAC 轮（与下条命名债一并做）
+- [ ] **funds-orders 域 RBAC 权限 + 审计实体仍用 rename 前旧名 `INTERNAL_FUND`**：Round 2 表 `internal_funds`→`funds_orders`（2026-07-02）后，权限 `INTERNAL_FUND_READ`（rbac.catalog.ts:44/581-586 整个 funds-orders 域唯一权限）+ 审计实体 `AuditEntityTypes.INTERNAL_FUND`（audit-actions.constant.ts:58，Spec#4 短名）均未跟随重命名 → 域叫 funds order、门禁/实体叫 internal fund，不一致。应统一改 `FUNDS_ORDER_READ` / 新增 `FUNDS_ORDER_DISPOSE` + 审计实体 `FUNDS_ORDER`（rbac catalog union 类型 + 全部 route + AuditEntityTypes + 引用点 + db:base:sync；审计实体改名要评估历史 audit_log_events 旧值兼容）｜来源: 2026-07-03 用户审阅推单 BACKLOG 发现 ｜下期 RBAC 轮同做
 - [ ] **缺"真实卡单"demo 场景演完整 heal 闭环**：推单机制全证（状态驱动+回填生效日+审计+重对账触发+穿透链三层），但「推真实卡单→记账→重对账吸收→case AUTO_HEALED」端到端未在 demo 演出——recon:demo 6 充值/5 提现全 SUCCESS、scenario-1 是挂已 SUCCESS deposit 的状态壳，推之不产生新记账（onPayinConfirmed 见非 PAYIN_PENDING 正确跳过）。需新增 demo 场景：充值走到 PAYIN_PENDING 就停、造真实在途单，端到端演 delta→0 自愈（代码正确性已追码核实，此为可演示性/测试债）｜来源: 2026-07-03 推单 T5 e2e Option B ｜用户选"先合并 demo 另起"，下期独立小活
 
 ## 待决策（等业主拍板）
