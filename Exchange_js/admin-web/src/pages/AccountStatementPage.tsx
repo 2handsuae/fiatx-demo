@@ -50,6 +50,7 @@ interface StatementRow {
   isExternalCrossing: boolean;
   externalRef: string | null;
   createdAt: string;
+  effectiveDate: string;
 }
 
 interface AccountStatementResult {
@@ -644,6 +645,7 @@ const AccountStatementPage = () => {
                     <thead className="sticky top-0 z-10 bg-adm-panel">
                       <tr className="border-b border-adm-border">
                         <th className={th} style={{ width: 140 }}>Date</th>
+                        <th className={th} style={{ width: 120 }}>Effective</th>
                         <th className={th} style={{ width: 90 }}>Type</th>
                         <th className={th} style={{ width: 140 }}>Source No</th>
                         <th className={th} style={{ width: 160 }}>External Ref</th>
@@ -659,6 +661,9 @@ const AccountStatementPage = () => {
                         <tr key={`${row.tbTransferId}-${row.tbAccountId ?? ''}-${idx}`} className="border-b border-adm-border transition-colors hover:bg-adm-hover">
                           <td className="px-3 py-2 font-mono text-[11px] text-adm-t3 whitespace-nowrap">
                             {formatDate(row.createdAt)}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 whitespace-nowrap tabular-nums">
+                            {row.effectiveDate}
                           </td>
                           <td className="px-3 py-2"><AdminBadge value={row.sourceType} /></td>
                           <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[140px]" title={row.sourceNo}>

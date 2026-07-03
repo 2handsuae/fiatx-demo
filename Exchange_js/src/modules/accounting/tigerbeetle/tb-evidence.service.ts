@@ -334,6 +334,7 @@ export class TbEvidenceService {
         isExternalCrossing: row.isExternalCrossing === true,
         externalRef: row.externalRef ?? null,
         createdAt: row.createdAt,
+        effectiveDate: row.effectiveDate,
       };
     });
 
@@ -467,6 +468,7 @@ export class TbEvidenceService {
         isExternalCrossing: row.isExternalCrossing === true,
         externalRef: row.externalRef ?? null,
         createdAt: row.createdAt,
+        effectiveDate: row.effectiveDate,
       };
     });
 

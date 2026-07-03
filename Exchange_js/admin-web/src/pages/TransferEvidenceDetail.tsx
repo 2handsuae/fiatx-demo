@@ -31,6 +31,7 @@ interface TransferEvidenceData {
   debitTbAccountId: string | null;
   creditTbAccountId: string | null;
   createdAt: string;
+  effectiveDate: string;
 }
 
 /* ── Layout primitives ──────────────────────────────────────── */
@@ -322,6 +323,7 @@ export default function TransferEvidenceDetail() {
 
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Created" value={formatDate(detail.createdAt)} mono />
+            <SidebarKV label="Effective" value={detail.effectiveDate} mono />
           </SidebarGroup>
 
         </div>

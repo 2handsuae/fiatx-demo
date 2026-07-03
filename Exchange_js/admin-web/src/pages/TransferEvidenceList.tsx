@@ -31,6 +31,7 @@ interface TransferEvidenceRow {
   memo: string | null;
   pendingId: string | null;
   createdAt: string;
+  effectiveDate: string;
 }
 
 interface FilterState {
@@ -296,19 +297,20 @@ const TransferEvidenceList = () => {
               <th className={th} style={{ width: 90 }}>Asset</th>
               <th className={th} style={{ width: 100 }}>Type</th>
               <th className={th} style={{ width: 160 }}>Created</th>
+              <th className={th} style={{ width: 120 }}>Effective</th>
             </tr>
           </thead>
           <tbody>
             {loading && items.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={11} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={11} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No transfers found.
                 </td>
               </tr>
@@ -359,6 +361,9 @@ const TransferEvidenceList = () => {
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t3 whitespace-nowrap">
                   {formatDate(row.createdAt)}
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 whitespace-nowrap tabular-nums">
+                  {row.effectiveDate}
                 </td>
               </tr>
             ))}
