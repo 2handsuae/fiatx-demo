@@ -35,6 +35,7 @@ import {
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
 import { BUCKET_LABELS, formatBucketBilingual, type ReconBucket } from '../utils/reconBucketMap';
+import { buildCaseConclusion } from '../utils/caseConclusion';
 import {
   AdminSessionError,
   adminFetch,
@@ -339,9 +340,6 @@ const ReconciliationCasesDetailPage = () => {
 
   if (!kase) return null;
 
-  // Keep raw UUID for title-hover only — display uses the resolved runNo.
-  const linkedRunIdForHover = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
-
   // Δ display logic: zero → muted "balanced"; non-zero → bold red with sign.
   const deltaZero = isZeroAmount(kase.deltaAmount);
   const sign = deltaSign(kase.deltaAmount);
@@ -394,90 +392,21 @@ const ReconciliationCasesDetailPage = () => {
                   {kase.severity}
                 </span>
               )}
+              <StatusPill value={kase.status} size="md" />
             </div>
-            <div className="mt-3 grid grid-cols-[140px_1fr] gap-y-2 text-[13px]">
-              <div className="text-adm-t3">STATUS</div>
-              <div><StatusPill value={kase.status} size="md" /></div>
-              <div className="text-adm-t3">BOOK</div>
-              <div className="text-adm-t1">{kase.book ?? '—'}</div>
-              <div className="text-adm-t3">ASSET</div>
-              <div className="text-adm-t1">{kase.assetCode}</div>
-              <div className="text-adm-t3">Δ</div>
-              <div className={deltaZero ? 'text-adm-t2' : 'text-adm-red font-mono font-semibold'}>
-                {deltaZero ? formatAmount(kase.deltaAmount) : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`}
-              </div>
-            </div>
+            {(() => {
+              const c = buildCaseConclusion({ ...kase, bucket: kase.bucket ?? null }, (v) => formatAmount(v));
+              if (!c) return null;
+              const toneCls =
+                c.tone === 'red' ? 'text-adm-red'
+                : c.tone === 'blue' ? 'text-adm-blue'
+                : c.tone === 'amber' ? 'text-adm-amber'
+                : 'text-adm-t2';
+              return <div className={`mt-2 font-mono text-[12px] ${toneCls}`}>{c.text}</div>;
+            })()}
           </section>
 
-          {/* 2. Account Identity */}
-          <DetailCard title="Account Identity" columns={1}>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {/* Wallet — primary identifier */}
-              <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Wallet
-                </div>
-                <div
-                  className="mt-1 font-mono text-[15px] font-semibold text-adm-t1"
-                  title={kase.walletRef ?? undefined}
-                >
-                  {kase.walletNo ?? '—'}
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-adm-t3">
-                  {kase.coaCode ?? '—'}
-                </div>
-              </div>
-              {/* Owner */}
-              <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Owner
-                </div>
-                <div className="mt-1 font-mono text-[13px] text-adm-t1">
-                  {kase.ownerNo ?? '—'}
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-adm-t3">
-                  Asset: <span className="text-adm-t1">{kase.assetCode}</span>
-                  {kase.book && (
-                    <>
-                      {' · '}Book: <span className="text-adm-t1">{kase.book}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              {/* Linked Run */}
-              <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Linked Run
-                </div>
-                <div className="mt-1 font-mono text-[13px] text-adm-t2" title={linkedRunIdForHover ?? undefined}>
-                  {kase.linkedRunNo ?? '—'}
-                </div>
-                <div className="mt-1 font-mono text-[10px] text-adm-t3">
-                  Business Date: <span className="text-adm-t1">{kase.businessDate}</span>
-                </div>
-              </div>
-              {/* Lifecycle */}
-              <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Lifecycle
-                </div>
-                <div className="mt-1 font-mono text-[11px] text-adm-t2">
-                  First seen: <span className="text-adm-t1">{fmtTime(kase.createdAt) ?? '—'}</span>
-                </div>
-                <div className="font-mono text-[11px] text-adm-t2">
-                  Last update: <span className="text-adm-t1">{fmtTime(kase.updatedAt) ?? '—'}</span>
-                </div>
-                {kase.resolvedAt && (
-                  <div className="mt-1 font-mono text-[11px] text-adm-green">
-                    Resolved: {fmtTime(kase.resolvedAt)}
-                    {kase.resolutionReason && ` (${kase.resolutionReason})`}
-                  </div>
-                )}
-              </div>
-            </div>
-          </DetailCard>
-
-          {/* 3. 差额解释 / Delta Explained — five cells. Replaces the old 3-cell
+          {/* 2. 差额解释 / Delta Explained — five cells. Replaces the old 3-cell
               Balance Comparison card (Internal/External/Δ were a subset of
               this same story) so there's a single balance-explanation surface,
               not two overlapping ones. residual is the core investigation
@@ -582,6 +511,19 @@ const ReconciliationCasesDetailPage = () => {
                     : <><AlertTriangle size={10} /> 待排查 / unexplained</>}
                 </div>
               </div>
+            </div>
+          </DetailCard>
+
+          {/* 3. Account Identity — collapsed to a single line (Round3 slim):
+              wallet/owner/COA/asset·book. Linked Run and Lifecycle timestamps
+              dropped — run refs live in the Observation bar below, and
+              First/Last-seen duplicate the sidebar Created/Updated fields. */}
+          <DetailCard title="账户身份 / Account Identity" columns={1}>
+            <div className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[12px]">
+              <span><span className="text-adm-t3">钱包 </span><span className="text-adm-t1" title={kase.walletRef ?? undefined}>{kase.walletNo ?? (kase.walletRef ? kase.walletRef.slice(0, 12) : '—')}</span></span>
+              <span><span className="text-adm-t3">客户 </span><span className="text-adm-t1">{kase.ownerNo ?? '—'}</span></span>
+              <span><span className="text-adm-t3">科目 </span><span className="text-adm-t1">{kase.coaCode ?? '—'}</span></span>
+              <span><span className="text-adm-t3">币种 </span><span className="text-adm-t1">{kase.assetCode}{kase.book ? ` · ${kase.book}` : ''}</span></span>
             </div>
           </DetailCard>
 
@@ -736,8 +678,7 @@ const ReconciliationCasesDetailPage = () => {
           <SidebarGroup title="Identity Summary">
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
-            <SidebarKV label="Book" value={kase.book ?? '—'} />
-            <SidebarKV label="Asset" value={kase.assetCode} />
+            <SidebarKV label="Bucket" value={kase.bucket ? formatBucketBilingual(kase.bucket) : '—'} />
             <SidebarKV label="Δ" value={deltaZero ? formatAmount(kase.deltaAmount) : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`} mono />
           </SidebarGroup>
 
