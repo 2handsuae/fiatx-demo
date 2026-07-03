@@ -14,7 +14,7 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 - **激活就绪检查两项**：① 系统账本账户齐全 ② ≥1 个 ACTIVE 钱包
 - **PROVISIONING 期可编辑运营字段**（限额/开关/描述），身份字段锁定
 - **客户端守卫双侧**：前端只列 ACTIVE 资产；后端钱包创建 API 拒绝非 ACTIVE 资产
-- **锚点**：`assets.service.ts` ｜ `asset-activation-workflow.service.ts:130-164`（就绪检查）｜ `AssetEdit.tsx:86-109`（字段锁定）
+- **锚点**：`assets.service.ts` ｜ `asset-activation-workflow.service.ts → checkReadiness()`（就绪检查）｜ `AssetEdit.tsx`（PROVISIONING 期字段锁定守卫）
 - ⚠️ **已知残留**：`contractAddress` 字段前端已移除但 schema/DTO 仍保留（无害，见 BACKLOG）
 
 ## 2. 托管钱包（Wallet）
@@ -30,7 +30,7 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 | `C_MAIN` / `C_OUT` | — | — | 旧平台归集 / 出金池 | **已退役**，不再 provision，仅枚举残留 |
 
 - 双入口：Admin 建系统钱包 / Client 建客户地址，按 `ownerType + walletRole` 策略区分
-- **锚点**：`wallet-role-policies.constant.ts` ｜ `system-wallet.util.ts:5-6`（C_MAIN/C_OUT 退役声明）
+- **锚点**：`wallet-role-policies.constant.ts` ｜ `system-wallet.util.ts`（C_MAIN/C_OUT 退役注释 + `CRYPTO_SYSTEM_WALLET_ROLES`）
 
 ## 3. 账本账户（COA，TigerBeetle）
 
@@ -47,18 +47,18 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 - **映射**：`TbAccountRegistry` 按 `(code, ledger, ownerType, ownerUuid)` 四元组唯一
 - **手动建账**：`POST /admin/tb/accounts`（系统 6 类 + 客户 2 类）
 - **flags**：仅 `CLIENT_PAYABLE` 设 `debits_must_not_exceed_credits`（客户应付不可透支），其余默认
-- **锚点**：`tb-account-codes.constant.ts` ｜ `asset-provisioning.service.ts:32-50` ｜ `deposit-workflow.service.ts:478-529`（客户账户懒解析）
+- **锚点**：`tb-account-codes.constant.ts` ｜ `asset-provisioning.service.ts → provision()` ｜ `deposit-workflow.service.ts → executeDepositAccounting()`（客户账户懒解析）
 - ⚠️ **已知薄弱点**：账户创建失败无 backlog 重试（仅转账凭证有 `TbEvidenceBacklog`）；`asset.provisioned` 事件 + `TbAccountBacklog` 已不存在（旧 roadmap 记载已过期）
 
 ## 4. 提现地址（WithdrawalAddress）
 
 - **状态机**：`PENDING_ACTIVATION →(24h)→ ACTIVE`；冷却期内客户可取消 → `CANCELLED`；ACTIVE 可被管理员 `SUSPENDED`
-- **冷却常量**：`COOLING_PERIOD_HOURS = 24`（`withdrawal-address.service.ts:8`）
+- **冷却常量**：`COOLING_PERIOD_HOURS = 24`（`withdrawal-address.service.ts`）
 - **激活双机制**：cron 每 5 分钟扫 + 客户查询前懒激活
 - **管理员后门**：`POST :addressNo/skip-cooling`（带审计）
 - **字段**：crypto = `address` / `network`；bank = `beneficiaryName` / `bankName` / `iban` / `swiftBic`
 - **注册时** 经 `TravelRuleAdapter` 做地址归因（VASP attribution）
-- **锚点**：`withdrawal-address.service.ts` ｜ `withdrawal-address-sweep.service.ts:15`
+- **锚点**：`withdrawal-address.service.ts` ｜ `withdrawal-address-sweep.service.ts → handleCoolingExpiry() @Cron`
 - ⚠️ **已知缺口**：提现创建流程**不校验**地址是否 ACTIVE/已注册——前端过滤 ACTIVE、后端裸奔，绕过前端可用任意地址提现（安全守卫卡片 task_20678a2c，见 BACKLOG）
 
 ## 5. 金额闸门（现状）
@@ -67,5 +67,5 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 - **审批**：`OPS_OFFICER` 单步 48h（2026-06-01 起，原 MLRO+SMO 两步已简化）
 - ⚠️ **执行侧零接入**：充值/提现/兑换**均不读此表**；admin 侧边栏入口已隐藏（commit 84cfffb，路由直链仍可达）
 - **现役唯一金额闸门**：提现毛额 ≥ 200,000 AED 触发 SMO 审批（**硬编码**阈值，withdraw 模块）
-- **锚点**：`governance/transaction-limits/` ｜ `approval.constants.ts:327-336`
+- **锚点**：`governance/transaction-limits/` ｜ `approval.constants.ts → TRANSACTION_LIMIT_CREATION/CHANGE`
 - ⚠️ **待收口**：三条金额线（tier 限额 / 大额审批 20 万 / TR 阈值 3,500）建议合并为"金额闸门矩阵"统一接入 L1，见 roadmap V3 ADVANCED + BACKLOG 待决策

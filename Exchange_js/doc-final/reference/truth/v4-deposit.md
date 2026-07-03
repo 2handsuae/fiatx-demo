@@ -12,7 +12,7 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 
 - **虚拟币状态机**：`SUBMITTED → CONFIRMING → CONFIRMED → CLEARED`
 - **法币状态机**：出生即 `CONFIRMED`（跳过 CONFIRMING），→ `CLEARED`
-- **锚点**：`funds-order-transitions.constant.ts:42-55` ｜ `deposit-transactions.service.ts:473-475`（法币出生态）
+- **锚点**：`funds-order-transitions.constant.ts → CRYPTO_IN_TRANSITIONS` ｜ `deposit-transactions.service.ts → detected()`（法币出生态 initialStatus）
 
 ## 2. 充值订单（DepositTransaction）状态机
 
@@ -29,13 +29,13 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 - **TB 两步借贷**（实时 1:1 后新 COA，旧 CUSTODY/BANK 已改）：Step1 `CLIENT_ASSET(1) → DEPOSIT_SUSPENSE(101)`；Step2 `DEPOSIT_SUSPENSE(101) → CLIENT_PAYABLE(100)`
 - **L1 时点**：在**信号创建时**即调 `onboardingService.assertTradingEligibility(customerId, 'DEPOSIT')`（比"生成 Deposit 后"更前置）
 - **L2 收敛**：`kytStatus === 'PASSED'` 且 `travelRuleStatus ∈ {PASSED, NOT_REQUIRED}` 才自动审批
-- **锚点**：`deposit-workflow.service.ts:173-210`（自动审批）｜ `:479-556`（两步记账）｜ `inbound-transfer-signals.service.ts:118`（L1）
+- **锚点**：`deposit-workflow.service.ts → checkAutoApproval()`（自动审批）｜ `→ executeDepositAccounting()`（两步记账）｜ `inbound-transfer-signals.service.ts → createForCustomer()`（L1）
 
 ## 4. 合规门字段与分发
 
 - **字段**：Deposit 表 `kytStatus`（PENDING→PASSED/FAILED）+ `travelRuleRequired` + `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），法币 TR 初值 NOT_REQUIRED
 - **分发**：KYT/TR 模拟端点 `POST /admin/sumsub/simulate/kyt-check` + `tr-check` 走 Sumsub ingest 同一管道；真实 Sumsub webhook 对 Deposit-KYT/TR 的消费链路**未见部署**（当前靠模拟端点驱动）
-- **锚点**：`admin-sumsub-simulation.controller.ts:325-419` ｜ `sumsub-ingestion.service.ts:115-127`
+- **锚点**：`admin-sumsub-simulation.controller.ts → simulateKytCheck()/simulateTrCheck()` ｜ `sumsub-ingestion.service.ts → dispatch()`
 
 ## 5. 异常分支现状（骨架已铺，闭环缺失）
 
@@ -52,7 +52,7 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 
 - 🔴 **半截桥风险**：`adminReject`/`adminFreeze` 端点已上线，但 deposit 模块**零回退分录代码**（全仓 grep reverse/void/rollback 为空）——已过 Step1 的充值被拒 → 钱永久滞留 DEPOSIT_SUSPENSE。临时守卫卡片 task_16af8187（见 BACKLOG）。
 - **CONFISCATE** 走 PATCH default 分支直改状态，绕过 workflow 与记账。
-- **锚点**：`deposit-workflow.service.ts:92-129`（L1 冻结）｜ `deposit-transactions.controller.ts:100-128`（PATCH 守卫，仅 SUCCESS 被拦）｜ `deposit-transactions.service.ts:212-221`
+- **锚点**：`deposit-workflow.service.ts → runGate0()`（L1 冻结）｜ `deposit-transactions.controller.ts → updateStatus()`（PATCH 路由，仅 SUCCESS 被拦）｜ `deposit-transactions.service.ts → updateStatus()`（`DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫）
 
 ## 6. 支撑项（均 ✅ 存活）
 
