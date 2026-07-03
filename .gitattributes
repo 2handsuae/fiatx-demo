@@ -1,0 +1,3 @@
+# 交付包（git archive）排除项 —— 本机/工具专属，对面用不上
+.claude/ export-ignore
+.gitattributes export-ignore
