@@ -307,10 +307,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/custodian-wallets/:walletNo/retry', 'Retry failed custodian wallet creation', ['WALLET_WRITE']),
 
   // Reconciliation
-  route('GET', '/admin/reconciliation/outstandings', 'List outstandings', ['RECON_OUTSTANDING_READ']),
-  route('GET', '/admin/reconciliation/outstandings/:id', 'Get outstanding detail', ['RECON_OUTSTANDING_READ']),
-  route('GET', '/admin/reconciliation/fee-accruals', 'List fee accruals', ['RECON_OUTSTANDING_READ']),
-  route('GET', '/admin/reconciliation/fee-accruals/:id', 'Get fee accrual detail with siblings', ['RECON_OUTSTANDING_READ']),
   route('GET', '/admin/reconciliation/demo/compare', 'Demo compare: injected breaks vs detected line-items', ['RECON_RUN_READ']),
   route('GET', '/admin/reconciliation/runs', 'View Recon Runs', ['RECON_RUN_READ']),
   route('GET', '/admin/reconciliation/runs/:runNo', 'View Recon Run Detail', ['RECON_RUN_READ']),

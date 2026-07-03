@@ -12,12 +12,6 @@ export const LAYER_ASSET_CODE: Record<string, string> = {
   FIAT: 'A.CLIENT_BANK',
 };
 
-// in-transit 真实状态枚举（spec §3.2，已核验）
-export const PAYIN_IN_TRANSIT = ['DETECTED', 'CONFIRMING', 'CONFIRMED'] as const;
-export const PAYOUT_IN_TRANSIT = ['BROADCASTED', 'CONFIRMING'] as const;
-export const WITHDRAW_IN_TRANSIT_STATUS = 'PAYOUT_PENDING';
-export const FUNDS_FLOW_IN_TRANSIT = ['CREATED'] as const; // internal_funds 未 CLEAR
-
 // match 容差
 export const AMOUNT_TOLERANCE = '0.000001';
 

@@ -7,20 +7,6 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 // Phase B / Round 3: WalletFlowMatcherService needs FundsOrderService for
 // the in-transit third pass (orphan external line ↔ non-terminal funds order).
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
-import { BalanceSnapshotService } from './engine/balance-snapshot.service';
-import { SubledgerInputsService } from './engine/subledger-inputs.service';
-import { InTransitService } from './engine/in-transit.service';
-import { BalanceReconService } from './engine/balance-recon.service';
-import { MatchEngineService } from './engine/match-engine.service';
-import { ClassifierService } from './engine/classifier.service';
-import { InternalActionsService } from './engine/internal-actions.service';
-import { LegProjectionService } from './engine/leg-projection.service';
-import { MatchEngineV2Service } from './engine/match-engine-v2.service';
-import { AnomalyClassifierService } from './engine/anomaly-classifier.service';
-import { DrilldownMatchService } from './engine/drilldown-match.service';
-import { MockExternalAdapter } from './adapters/mock-external.adapter';
-import { FundsOrderSourceRepo } from './data-source/funds-order-source.repo';
-import { EXTERNAL_BALANCE_PROVIDER, EXTERNAL_TX_PROVIDER } from './adapters/external-data.provider';
 import { ReconciliationQueryService } from './domain/reconciliation-query.service';
 import { WalletReconRunService } from './workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.service';
@@ -32,14 +18,6 @@ import { ReconciliationAdminController } from './controllers/reconciliation-admi
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule],
   controllers: [ReconciliationAdminController],
   providers: [
-    BalanceSnapshotService, InTransitService, BalanceReconService,
-    SubledgerInputsService,
-    MatchEngineService, ClassifierService, InternalActionsService,
-    LegProjectionService, MatchEngineV2Service, AnomalyClassifierService, DrilldownMatchService,
-    MockExternalAdapter,
-    FundsOrderSourceRepo,
-    { provide: EXTERNAL_BALANCE_PROVIDER, useExisting: MockExternalAdapter },
-    { provide: EXTERNAL_TX_PROVIDER, useExisting: MockExternalAdapter },
     ReconciliationQueryService,
     ReconciliationSweepService,
     // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
