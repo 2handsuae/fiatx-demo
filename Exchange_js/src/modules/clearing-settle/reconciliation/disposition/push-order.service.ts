@@ -103,7 +103,8 @@ export class PushOrderService {
   /**
    * 真实资金单行 → 归一化回执视图。direction 由 deposit/withdraw FK 派生（swap 已在
    * loadPushable 拒绝）；IN 用贷记钱包 toWalletId、OUT 用借记钱包 fromWalletId
-   * （与 findNonTerminalByWallet 的方向约定一致）；externalRef 取 referenceNo。
+   * （与 findNonTerminalByWallet 的方向约定一致）；externalRefs 取三字段
+   * [txHash, referenceNo, providerTxnId].filter(Boolean)，与对账 matcher refsOf 同源。
    */
   private toView(order: any): PushableOrderView {
     const direction: 'IN' | 'OUT' = order.withdrawTransactionId ? 'OUT' : 'IN';

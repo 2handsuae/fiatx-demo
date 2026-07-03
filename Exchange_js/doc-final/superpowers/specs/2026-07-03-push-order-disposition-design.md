@@ -44,8 +44,16 @@ operator 清完一批 → run/case 页点一次【重新对账】（跑今天）
 
 - **不改历史账，只给新账定生效日**：`writeEvidence()` 增加**可选参数 `effectiveDate`**——不传 = 现状（写当天）；仅资金单状态机的推单链路传入回填值。投影器照常复制（EvidenceLike 已带该字段，零改动）。
 - 校验三条：①不能是未来 ②不能早于该资金单 `createdAt` 业务日 ③合法 `YYYY-MM-DD`。
-- **铁律不破**：平账永不直写 TB/账本；回填值经 状态机→writeEvidence 唯一漏斗流下。
+- **铁律不破**：平账永不直写 TB/账本；回填值经 状态机→记账服务→writeEvidence 漏斗流下。
 - **已回填生效日不可再改**：生效日只在记账诞生时定一次；定错走将来的"冲正"动作，不开修改接口。
+
+### 3.1 落地增量（实现期回写——回填不止一个漏斗，是一条透传链）
+
+原设计只点了 `writeEvidence()` 一个口子，落地发现回填值要穿过**三层**才到库，缺一层则回填断在半路（表现为"推单 effectiveDate 回参数对了、库里 evidence 却仍是当天"）。三层全部补齐 `effectiveDate?`（不传 = 写当天，行为零变化）：
+
+1. **`AccountingService.executeTransfer` — 隐藏的中间漏斗（T2 落地补）**：deposit/withdraw 记账不直接调 `writeEvidence`，而是走 `executeTransfer({ evidence: EvidenceParams })`。故 `EvidenceParams`（`accounting.types.ts`）加 `effectiveDate?`，`executeTransfer` 两处 `writeEvidence` 调用透传（`accounting.service.ts` — 双分录各一）。这是 T2 事件链穿透的真正落点：状态机 advance → 工作流监听器 → `executeTransfer` → `writeEvidence`，回填值必须在 `EvidenceParams` 边界带上，只补 `writeEvidence` 签名不够。
+2. **`enrichForPost` — 第二个记账入口（不只 `writeEvidence`）**：withdraw 的 pending net/fee 记账走 `TbEvidenceService.enrichForPost(...)`（re-project 补全 pending 凭证），非 `writeEvidence`。故 `enrichForPost` 同样加 `effectiveDate?`（`tb-evidence.service.ts` — 存在即写）。原 §3"writeEvidence 唯一漏斗"措辞不准，实为**两个记账入口 × executeTransfer 一个中间层**。
+3. **同步匹配 tier-1 用三字段 `externalRefs`（对齐 matcher，非单 `referenceNo`）**：§4 tier-1"参考号精配"落地为 `[txHash, referenceNo, providerTxnId].filter(Boolean)` 的 membership 匹配（`push-order.service.ts::toView`），与对账 matcher 的 `refsOf` 同源——链上回执是 `txHash`、法币是 `referenceNo`/`providerTxnId`，单取 `referenceNo` 会漏掉链上单。
 
 ## 4. 同步匹配规则（"唯一"判据，严格度递减两档）
 
@@ -73,8 +81,19 @@ operator 清完一批 → run/case 页点一次【重新对账】（跑今天）
 - [ ] e2e：人工确认腿同上，审计含三件套+人工标记
 - [ ] 同步 0 条/多条候选 → 不动状态机、如实报数
 - [ ] 校验拒绝：未来日期/早于单子创建日
-- [ ] 金闸门：`recon:demo` 九场景 pre/post 一致（不碰检测侧逻辑）
-- [ ] tsc 0 / jest 净新增失败 0
+- [x] 金闸门：`recon:demo` 九场景 pre/post 结论行逐字一致（score 9/9、两条恒等式、status==BREAK、manifest 9/9 零差异 → `GOLDEN_GATE_OK`）
+- [x] tsc 0 / jest 净新增失败 0（基线 = asset-treasury/wallets 4 失败；T4 getCase 批量查询漏了测试桩致 recon-query spec +3 回归，已补 `fundsOrder.findMany` 桩收回，净新 0）
+
+### 7.1 e2e 落地结果（实现期回写——含合成 demo 数据的 heal 边界，诚实记录）
+
+**两腿状态驱动 + 回填 + 审计 + 重对账触发，全部 EMPIRICALLY 证过**（self 栈 3100，curl+sqlite）：
+- **同步腿**：给在途单播种"生效日=昨天"的唯一匹配对账单行 → `POST …/push/sync` → `finalStatus=CLEARED, effectiveDate=2026-07-02, matchedLineId=<seeded>`；审计 `RECON_PUSH_ORDER_SYNCED`（actor+matchedLineId+effectiveDate+from/to）。
+- **人工腿**：`POST …/push/manual`（回执号+动账日+原因）→ CLEARED；审计 `RECON_PUSH_ORDER_MANUAL` 带**三件套**（receiptRef/externalDate/reason）+ `manualConfirm=true`。
+- **失败路径**：sync 0 候选 → 400"未找到唯一回执（0 条候选）"、状态不变；manual 未来日 → 400"不能是未来"、早于创建日 → 400"不能早于单子创建日"，均不动状态机。
+- **重对账**：`POST /admin/reconciliation/runs/wallet {cutoff:now}` → 201，case 批量 re-observe。
+
+**⚠️ 合成 demo 数据 heal 边界（Option B 诚实记录，非代码缺陷）**：`recon:demo` 场景1 的在途单是**挂在一张已 SUCCESS（已记账）的 deposit 上的状态壳**——单本身无待记账链（demo 设计"不触发 TB 记账"，靠 `bumpClosing` 人造 +101 外部差）。故推单驱到 CLEARED 后，deposit 工作流监听器见 deposit 已 SUCCESS→**不重复记账**（正确），无新 evidence/flow 行产生；重对账时该单已终态、不再被在途匹配器认领 → 桶 IN_TRANSIT→BREAK（残差 101 无真实内部记账吸收），**delta 不归 0、case 不 AUTO_HEALED**。DB 内 6 笔 deposit / 5 笔 withdraw 全已 SUCCESS，无未记账真实单可挂，Option A（真实 deposit 流造在途单）在本 demo 数据上不可低成本达成。**effectiveDate 回填→记账→被对账吸收使 delta 归 0** 的完整闭环由 T1 准备字段 e2e 已单独证过（roadmap「effectiveDate」条：注入"生效日=昨天"补账 → delta 79200000→0）。推单侧对该闭环的贡献 = 把回填生效日经状态机漏斗**盖进记账**（已证透传链三层齐全），最后一环"记账吸收"依赖被推单落一笔真实首次记账，合成壳单无此记账故止于状态/审计验证。
+- **前端点击流**：本环境 Chrome 扩展未连、preview MCP 无法与 self 栈共占 3101 → 浏览器渲染点击流未跑（T4 已验按钮渲染）；改以数据契约头验替代并证实：`GET …/cases/:no` 返回 `flowComparison[].fundsOrderStatus`，推单后该值 SUBMITTED→CLEARED 且 case 仍 OPEN——恰是徽记 JSX 渲染条件 `kase.status==='OPEN' && row.fundsOrderStatus==='CLEARED'`（`ReconciliationCasesDetailPage.tsx`），"重新对账"按钮打的 `POST …/runs/wallet {cutoff}` 端点 201 可用。
 
 ## 8. 明确不做（本期）
 
