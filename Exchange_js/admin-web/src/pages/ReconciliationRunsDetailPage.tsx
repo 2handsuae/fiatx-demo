@@ -1,19 +1,22 @@
 // admin-web/src/pages/ReconciliationRunsDetailPage.tsx
 //
-// "Driver cockpit" — Run detail. Single engine (per-wallet); engine column
-// removed because there's no other engine to compare against.
+// Round3 cockpit — Run detail. Layout 甲 (confirmed in brainstorm): verdict
+// banner → five-bucket Health Check → Case Flow triple → snapshot detail table.
 //
-// Headline status follows the industry "balance first" convention with a
-// fake-match probe on top:
-//   • MATCH       — balance OK AND flows OK             (green)
-//   • FLOW_REVIEW — balance OK BUT flow line-items off  (amber — Soft Flag)
-//   • BREAK       — balance != external                 (red — Hard Break)
+// Five-bucket classification (T4 bucket-classifier; replaces the old
+// MATCH/FLOW_REVIEW/BREAK three-tier status):
+//   • MATCHED    — balance OK AND flows OK                        (green)
+//   • IN_TRANSIT — delta fully explained by non-terminal funds_order (blue)
+//   • SOFT_FLAG  — balance OK but flow line-items have orphan/mismatch (amber)
+//   • BREAK      — residual delta unexplained after in-transit netting (red)
 //
 // Layout (top → bottom):
-//   1. Header + Hero
-//   2. Overview — 4 equal tiles: Accounts / Match / Hard Break / Soft Flag
-//   3. Account Status table — one row per wallet; click any non-MATCH row to its case
-//   4. Technical (trace + run id)
+//   1. Nav header (back + refresh)
+//   2. Verdict banner
+//   3. Health Check — five bucket cards (click to filter the table below)
+//   4. Case Flow — opened / re-observed / closed this run (click → cases list)
+//   5. Account Status snapshot table — one row per wallet; click any non-MATCHED row to its case
+//   6. Sidebar (identity + lifecycle)
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, Check, AlertTriangle, ArrowRight, ArrowUpDown } from 'lucide-react';
@@ -23,13 +26,15 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
+import { BUCKET_LABELS, type ReconBucket } from '../utils/reconBucketMap';
 import {
   AdminSessionError,
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
 
-/* ── Types ──────────────────────────────────────────────────── */
+/* ── Types (mirrors ReconRunDetail / AccountStatusRow / RunDetailSummary
+   in src/modules/clearing-settle/reconciliation/dto/reconciliation.dto.ts) ── */
 
 interface ReconCaseLink {
   caseNo: string;
@@ -39,38 +44,38 @@ interface ReconCaseLink {
   deltaAmount: string;
 }
 
-type AccountStatusRowStatus = 'MATCH' | 'FLOW_REVIEW' | 'BREAK';
-
 interface AccountStatusRow {
   walletRef: string;
   walletNo: string | null;      // business key; null for XREF synthetic rows
   walletRole?: string | null;
   ownerNo?: string | null;
-  ownerName?: string | null;
   asset: string;
-  coaCode: string;
+  book: string;
+  coaCode: string | null;
   internal: { balance: string };
   external: { balance: string };
   delta: string;
+  inTransitAmount: string;
   flowMatched: number;
   flowTotal: number;
   flowOrphanInternal: number;
   flowOrphanExternal: number;
   flowMismatch: number;
-  status: AccountStatusRowStatus;
+  inTransitCount: number;
+  bucket: ReconBucket;
   caseId?: string | null;
   caseNo?: string | null;
 }
 
 interface RunDetailSummary {
-  accountsChecked: number;
-  matchCount: number;
-  flowReviewCount: number;
+  walletCount: number;
+  matchedCount: number;
+  inTransitCount: number;
+  softFlagCount: number;
   breakCount: number;
-  // Kept on the wire for compat with non-cockpit callers; not rendered here.
-  balanceBreakCount: number;
-  orphanCount: number;
-  mismatchCount: number;
+  openedCount: number;
+  reObservedCount: number;
+  closedCount: number;
 }
 
 interface ReconRunDetail {
@@ -91,9 +96,10 @@ interface ReconRunDetail {
   completedAt: string | null;
   createdAt: string;
   hasDemoManifest: boolean;
+  legacy: boolean;
   cases?: ReconCaseLink[];
-  accountStatusTable?: AccountStatusRow[];
-  summary?: RunDetailSummary;
+  accountStatusTable: AccountStatusRow[];
+  summary: RunDetailSummary;
 }
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -132,33 +138,38 @@ const isZeroAmount = (raw: string): boolean => {
   return s === '' || /^0+$/.test(s);
 };
 
-// Status badge for the AccountStatusRow.status enum — distinct from StatusPill
-// because the cockpit needs three semantic colours that don't map to the
-// trading-status palette. MATCH=green, FLOW_REVIEW=amber (SOFT FLAG), BREAK=red (HARD BREAK).
-const STATUS_BADGE: Record<AccountStatusRowStatus, { cls: string; icon: 'ok' | 'warn'; label: string }> = {
-  MATCH:       { cls: 'border-adm-green/30 bg-adm-green/10 text-adm-green', icon: 'ok',   label: 'Match' },
-  FLOW_REVIEW: { cls: 'border-adm-amber/30 bg-adm-amber/10 text-adm-amber', icon: 'warn', label: 'Soft flag' },
-  BREAK:       { cls: 'border-adm-red/30 bg-adm-red/10 text-adm-red',       icon: 'warn', label: 'Hard break' },
+// adm-* tone tokens for the four bucket tones (BUCKET_LABELS[].tone), shared
+// by the Health Check cards and the table's status badge — single mapping so
+// card colour and badge colour never drift apart.
+const TONE_CLASSES: Record<'green' | 'blue' | 'amber' | 'red', { border: string; bg: string; text: string }> = {
+  green: { border: 'border-adm-green/30', bg: 'bg-adm-green/10', text: 'text-adm-green' },
+  blue:  { border: 'border-adm-blue/30',  bg: 'bg-adm-blue/10',  text: 'text-adm-blue' },
+  amber: { border: 'border-adm-amber/30', bg: 'bg-adm-amber/10', text: 'text-adm-amber' },
+  red:   { border: 'border-adm-red/30',   bg: 'bg-adm-red/10',   text: 'text-adm-red' },
 };
 
-const StatusBadge = ({ value }: { value: AccountStatusRowStatus }) => {
-  const meta = STATUS_BADGE[value];
+// Status badge for the AccountStatusRow.bucket enum (Round3 five-bucket
+// classification). Labels sourced from BUCKET_LABELS (single source of truth).
+const StatusBadge = ({ value }: { value: ReconBucket }) => {
+  const label = BUCKET_LABELS[value];
+  const tone = TONE_CLASSES[label.tone];
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${meta.cls}`}
+      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase ${tone.border} ${tone.bg} ${tone.text}`}
     >
-      {meta.icon === 'ok' ? <Check size={10} /> : <AlertTriangle size={10} />}
-      {meta.label}
+      {value === 'MATCHED' ? <Check size={10} /> : <AlertTriangle size={10} />}
+      {label.en} / {label.zh}
     </span>
   );
 };
 
-// Sort priority for status column — BREAK first (hard, act now),
-// FLOW_REVIEW next (investigate), MATCH last (done).
-const STATUS_RANK: Record<AccountStatusRowStatus, number> = {
+// Sort priority for status column — BREAK first (hard, act now), SOFT_FLAG
+// and IN_TRANSIT next (investigate), MATCHED last (done).
+const STATUS_RANK: Record<ReconBucket, number> = {
   BREAK: 0,
-  FLOW_REVIEW: 1,
-  MATCH: 2,
+  SOFT_FLAG: 1,
+  IN_TRANSIT: 2,
+  MATCHED: 3,
 };
 
 type SortKey = 'status' | 'delta' | 'asset';
@@ -171,7 +182,8 @@ const ReconciliationRunsDetailPage = () => {
   const navigate = useNavigate();
   const [run, setRun] = useState<ReconRunDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [onlyBreaks, setOnlyBreaks] = useState(true); // cockpit default: show problems first
+  // Set by clicking a Health Check bucket card; null = no filter (all buckets).
+  const [bucketFilter, setBucketFilter] = useState<ReconBucket | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('status');
   const [sortDir, setSortDir] = useState<SortDir>('asc'); // status asc = breaks first
 
@@ -202,17 +214,18 @@ const ReconciliationRunsDetailPage = () => {
   }, [runNo]);
 
   // Sort + filter the account table BEFORE the early returns so hook order is
-  // stable across re-renders (avoids the React-hooks lint rule).
+  // stable across re-renders (avoids the React-hooks lint rule). Filtering is
+  // purely local — clicking a Health Check card sets bucketFilter, no refetch.
   const visibleRows = useMemo(() => {
     if (!run?.accountStatusTable) return [] as AccountStatusRow[];
-    const filtered = onlyBreaks
-      ? run.accountStatusTable.filter((r) => r.status !== 'MATCH')
+    const filtered = bucketFilter
+      ? run.accountStatusTable.filter((r) => r.bucket === bucketFilter)
       : [...run.accountStatusTable];
     const dirMul = sortDir === 'asc' ? 1 : -1;
     filtered.sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'status') {
-        cmp = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+        cmp = STATUS_RANK[a.bucket] - STATUS_RANK[b.bucket];
       } else if (sortKey === 'asset') {
         cmp = a.asset.localeCompare(b.asset);
       } else {
@@ -233,7 +246,7 @@ const ReconciliationRunsDetailPage = () => {
       return a.walletRef.localeCompare(b.walletRef);
     });
     return filtered;
-  }, [run, onlyBreaks, sortKey, sortDir]);
+  }, [run, bucketFilter, sortKey, sortDir]);
 
   if (loading && !run) {
     return (
@@ -247,15 +260,17 @@ const ReconciliationRunsDetailPage = () => {
   if (!run) return null;
 
   const summary: RunDetailSummary = run.summary ?? {
-    accountsChecked: 0,
-    matchCount: 0,
-    flowReviewCount: 0,
+    walletCount: 0,
+    matchedCount: 0,
+    inTransitCount: 0,
+    softFlagCount: 0,
     breakCount: 0,
-    balanceBreakCount: 0,
-    orphanCount: 0,
-    mismatchCount: 0,
+    openedCount: 0,
+    reObservedCount: 0,
+    closedCount: 0,
   };
   const accountTable = run.accountStatusTable ?? [];
+  const needsAttention = summary.softFlagCount + summary.breakCount;
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -267,9 +282,13 @@ const ReconciliationRunsDetailPage = () => {
   };
 
   const onRowClick = (row: AccountStatusRow) => {
-    if (row.status === 'MATCH') return; // MATCH rows: no-op (read-only)
+    if (row.bucket === 'MATCHED') return; // MATCHED rows: no-op (read-only)
     if (!row.caseNo) return;
     navigate(`/admin/reconciliation/cases/${encodeURIComponent(row.caseNo)}`);
+  };
+
+  const goToCasesForRun = () => {
+    navigate(`/admin/reconciliation/cases?runNo=${encodeURIComponent(run.runNo)}`);
   };
 
   return (
@@ -286,152 +305,168 @@ const ReconciliationRunsDetailPage = () => {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ── Main Body ── */}
         <div className="flex-1 divide-y divide-adm-border overflow-y-auto">
-          {/* 1. Hero */}
+          {/* 1. Verdict banner — plain-language conclusion, not a status pill wall. */}
           <div className="bg-adm-card px-6 py-5">
-            <div className="font-mono text-[19px] font-bold text-adm-amber">{run.runNo}</div>
-            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
-              <div>
-                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Status
-                </span>
-                <span className="mt-1 inline-block">
-                  <StatusPill value={run.status} size="md" />
-                </span>
-              </div>
-              <div>
-                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Business Date
-                </span>
-                <span className="font-mono text-adm-t1">{run.businessDate}</span>
-              </div>
-              <div>
-                <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  Invariant Status
-                </span>
-                <span className="mt-1 inline-block">
-                  <StatusPill value={run.invariantStatus} size="md" />
-                </span>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="font-mono text-[13px] text-adm-t3">
+                {run.runNo} · {run.businessDate}
               </div>
               {run.hasDemoManifest && (
-                <div>
-                  <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                    Demo
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(`/admin/reconciliation/demo-compare/${encodeURIComponent(run.runNo)}`)
-                    }
-                    className="mt-1 inline-flex items-center gap-1 rounded border border-adm-amber/40 bg-adm-amber/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-adm-amber transition-colors hover:bg-adm-amber/20"
-                  >
-                    Demo 对比 <ArrowRight size={11} />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(`/admin/reconciliation/demo-compare/${encodeURIComponent(run.runNo)}`)
+                  }
+                  className="inline-flex items-center gap-1 rounded border border-adm-amber/40 bg-adm-amber/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-adm-amber transition-colors hover:bg-adm-amber/20"
+                >
+                  Demo 对比 <ArrowRight size={11} />
+                </button>
               )}
             </div>
+            {run.legacy ? (
+              <div className="mt-3 rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">
+                历史 run 无快照数据（Round3 前） / Legacy run – no snapshot data
+              </div>
+            ) : (
+              <div
+                className={[
+                  'mt-3 rounded-md border px-4 py-3 text-[14px] font-semibold',
+                  run.invariantStatus === 'PASS'
+                    ? 'border-adm-green/30 bg-adm-green/10 text-adm-green'
+                    : 'border-adm-red/30 bg-adm-red/10 text-adm-red',
+                ].join(' ')}
+              >
+                {run.invariantStatus === 'PASS' ? '对平 / PASS' : '不平 / BREAK'} — {summary.walletCount} 个钱包，
+                {summary.matchedCount} 个平，{summary.inTransitCount} 笔在途，{needsAttention} 个需要处理
+              </div>
+            )}
           </div>
 
-          {/* 2. Overview — four equal cards (Accounts / Match / HARD BREAK / SOFT FLAG).
-              HARD BREAK = balance != external; SOFT FLAG = balance OK but flow
-              line-items have orphan/mismatch (the "fake match" probe). */}
-          <DetailCard title="Overview" columns={1}>
-            <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-                  {/* Accounts checked — the headline scope. */}
-                <div className="rounded-lg border border-adm-border bg-adm-bg p-4">
-                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                    Accounts Checked
-                  </div>
-                  <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
-                    {summary.accountsChecked}
-                  </div>
+          {/* 2. Health Check — five bucket cards. Click to filter the table below
+              (local filter, no refetch). Total card clears the filter. */}
+          <DetailCard title="本次体检 / Health Check" columns={1}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
+              {/* Total — clears filter */}
+              <button
+                type="button"
+                onClick={() => setBucketFilter(null)}
+                className={[
+                  'rounded-lg border p-4 text-left transition-colors',
+                  bucketFilter === null
+                    ? 'border-adm-t1 bg-adm-bg'
+                    : 'border-adm-border bg-adm-bg hover:border-adm-t3',
+                ].join(' ')}
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  总钱包 / Total
                 </div>
-                {/* Match */}
-                <div className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4">
-                  <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
-                    <Check size={11} /> Match
-                  </div>
-                  <div className="mt-1 text-[28px] font-bold leading-tight text-adm-green">
-                    {summary.matchCount}
-                  </div>
+                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
+                  {summary.walletCount}
                 </div>
-                {/* HARD BREAK — balance != external */}
-                <div
-                  className={`rounded-lg border p-4 ${summary.breakCount > 0 ? 'border-adm-red/30 bg-adm-red/5' : 'border-adm-border bg-adm-bg'}`}
-                >
-                  <div
-                    className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t3'}`}
-                  >
-                    <AlertTriangle size={11} /> Hard Break
-                  </div>
-                  <div
-                    className={`mt-1 text-[28px] font-bold leading-tight ${summary.breakCount > 0 ? 'text-adm-red' : 'text-adm-t1'}`}
-                  >
-                    {summary.breakCount}
-                  </div>
-                </div>
-                {/* SOFT FLAG — balance OK but flow line-items off */}
-                <div
-                  className={`rounded-lg border p-4 ${summary.flowReviewCount > 0 ? 'border-adm-amber/30 bg-adm-amber/5' : 'border-adm-border bg-adm-bg'}`}
-                  title="Balance matched, but flow line-items have orphan/mismatch — fake-match probe"
-                >
-                  <div
-                    className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t3'}`}
-                  >
-                    <AlertTriangle size={11} /> Soft Flag
-                  </div>
-                  <div
-                    className={`mt-1 text-[28px] font-bold leading-tight ${summary.flowReviewCount > 0 ? 'text-adm-amber' : 'text-adm-t1'}`}
-                  >
-                    {summary.flowReviewCount}
-                  </div>
-                </div>
-              </div>
+              </button>
 
-              {/* Self-heal chip — only shown when this run auto-healed prior breaks. */}
-              {run.closedCount > 0 && (
-                <div className="inline-flex w-fit items-center gap-2 rounded-md border border-adm-green/30 bg-adm-green/5 px-3 py-1.5 font-mono text-[11px] text-adm-green">
-                  <Check size={12} />
-                  Auto-healed {run.closedCount} case{run.closedCount === 1 ? '' : 's'} from previous runs
-                </div>
-              )}
+              {(['MATCHED', 'IN_TRANSIT', 'SOFT_FLAG', 'BREAK'] as const).map((bucket) => {
+                const label = BUCKET_LABELS[bucket];
+                const tone = TONE_CLASSES[label.tone];
+                const count =
+                  bucket === 'MATCHED' ? summary.matchedCount :
+                  bucket === 'IN_TRANSIT' ? summary.inTransitCount :
+                  bucket === 'SOFT_FLAG' ? summary.softFlagCount :
+                  summary.breakCount;
+                const active = bucketFilter === bucket;
+                const hasCount = count > 0;
+                return (
+                  <button
+                    type="button"
+                    key={bucket}
+                    onClick={() => setBucketFilter(bucket)}
+                    className={[
+                      'rounded-lg border p-4 text-left transition-colors',
+                      active
+                        ? `${tone.border} ${tone.bg}`
+                        : hasCount
+                          ? `${tone.border} bg-adm-bg`
+                          : 'border-adm-border bg-adm-bg hover:border-adm-t3',
+                    ].join(' ')}
+                  >
+                    <div
+                      className={`flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider ${hasCount ? tone.text : 'text-adm-t3'}`}
+                    >
+                      {bucket === 'MATCHED' ? <Check size={11} /> : <AlertTriangle size={11} />}
+                      {label.en} / {label.zh}
+                    </div>
+                    <div
+                      className={`mt-1 text-[28px] font-bold leading-tight ${hasCount ? tone.text : 'text-adm-t1'}`}
+                    >
+                      {count}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </DetailCard>
 
-          {/* 4. Account Status Table */}
+          {/* 3. Case Flow — opened / re-observed / closed this run. Own row below
+              Health Check (layout 甲, confirmed in brainstorm — not side-by-side). */}
+          <DetailCard title="工单流转 / Case Flow" columns={1}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={goToCasesForRun}
+                className="rounded-lg border border-adm-border bg-adm-bg p-4 text-left transition-colors hover:border-adm-t3"
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  新开 / Opened
+                </div>
+                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
+                  {summary.openedCount}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={goToCasesForRun}
+                className="rounded-lg border border-adm-border bg-adm-bg p-4 text-left transition-colors hover:border-adm-t3"
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  复观察 / Re-observed
+                </div>
+                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-t1">
+                  {summary.reObservedCount}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={goToCasesForRun}
+                className="rounded-lg border border-adm-green/30 bg-adm-green/5 p-4 text-left transition-colors hover:bg-adm-green/10"
+              >
+                <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-adm-green">
+                  <Check size={11} /> 本次关闭 / Closed
+                </div>
+                <div className="mt-1 text-[28px] font-bold leading-tight text-adm-green">
+                  {summary.closedCount}
+                </div>
+              </button>
+            </div>
+          </DetailCard>
+
+          {/* 4. Account Status snapshot table */}
           <DetailCard title="Account Status" columns={1}>
+            {run.legacy ? (
+              <div className="rounded-md border border-adm-border bg-adm-bg px-4 py-3 font-mono text-[13px] text-adm-t2">
+                历史 run 无快照数据（Round3 前） / Legacy run – no snapshot data
+              </div>
+            ) : (
               <div className="flex flex-col gap-3">
-                {/* Filter + utilities row */}
+                {/* Utilities row */}
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex rounded border border-adm-border bg-adm-bg p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setOnlyBreaks(true)}
-                      className={[
-                        'rounded px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
-                        onlyBreaks
-                          ? 'bg-adm-amber text-adm-bg font-semibold'
-                          : 'text-adm-t3 hover:text-adm-t1',
-                      ].join(' ')}
-                    >
-                      Only Breaks
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setOnlyBreaks(false)}
-                      className={[
-                        'rounded px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
-                        !onlyBreaks
-                          ? 'bg-adm-amber text-adm-bg font-semibold'
-                          : 'text-adm-t3 hover:text-adm-t1',
-                      ].join(' ')}
-                    >
-                      All
-                    </button>
+                  <div className="font-mono text-[11px] text-adm-t3">
+                    {bucketFilter
+                      ? `Filtered: ${BUCKET_LABELS[bucketFilter].en} / ${BUCKET_LABELS[bucketFilter].zh}`
+                      : `All buckets (${accountTable.length})`}
                   </div>
                   <button
                     type="button"
-                    onClick={() => navigate(`/admin/reconciliation/cases?runNo=${encodeURIComponent(run.runNo)}`)}
+                    onClick={goToCasesForRun}
                     className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-blue hover:underline"
                   >
                     View All Cases for this Run <ArrowRight size={11} />
@@ -475,6 +510,9 @@ const ReconciliationRunsDetailPage = () => {
                             {sortKey === 'delta' && <ArrowUpDown size={10} />}
                           </span>
                         </th>
+                        <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          在途 / In-transit
+                        </th>
                         <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
                           Flows
                         </th>
@@ -488,25 +526,36 @@ const ReconciliationRunsDetailPage = () => {
                             {sortKey === 'status' && <ArrowUpDown size={10} />}
                           </span>
                         </th>
+                        <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+                          Case
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-adm-border">
                       {visibleRows.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={8}
+                            colSpan={9}
                             className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
                           >
                             {accountTable.length === 0
                               ? 'No accounts in this run.'
-                              : 'No breaks. Switch to "All" to see matched accounts.'}
+                              : 'No rows match this filter.'}
                           </td>
                         </tr>
                       ) : (
                         visibleRows.map((row) => {
-                          const clickable = row.status !== 'MATCH' && !!row.caseNo;
+                          const clickable = row.bucket !== 'MATCHED' && !!row.caseNo;
                           const deltaZero = isZeroAmount(row.delta);
+                          const inTransitZero = isZeroAmount(row.inTransitAmount);
                           const displayWallet = row.walletNo ?? row.walletRef.slice(0, 8);
+                          const flowParts = [
+                            `✓${row.flowMatched}`,
+                            row.flowOrphanInternal > 0 ? `OI${row.flowOrphanInternal}` : '',
+                            row.flowOrphanExternal > 0 ? `OE${row.flowOrphanExternal}` : '',
+                            row.flowMismatch > 0 ? `MM${row.flowMismatch}` : '',
+                            row.inTransitCount > 0 ? `⧖${row.inTransitCount}` : '',
+                          ].filter(Boolean).join(' ');
                           return (
                             <tr
                               key={row.walletRef}
@@ -528,16 +577,9 @@ const ReconciliationRunsDetailPage = () => {
                                   {displayWallet}
                                 </div>
                               </td>
-                              {/* Owner */}
-                              <td className="px-3 py-2.5">
-                                {row.ownerNo ? (
-                                  <div>
-                                    <div className="text-[12px] text-adm-t1">{row.ownerName ?? '—'}</div>
-                                    <div className="font-mono text-[10px] text-adm-t3">{row.ownerNo}</div>
-                                  </div>
-                                ) : (
-                                  <span className="text-adm-t3">—</span>
-                                )}
+                              {/* Owner — ownerNo if present, else book */}
+                              <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
+                                {row.ownerNo ?? row.book}
                               </td>
                               {/* Asset */}
                               <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
@@ -562,41 +604,21 @@ const ReconciliationRunsDetailPage = () => {
                               >
                                 {formatAmount(row.delta)}
                               </td>
+                              {/* In-transit — em dash when zero */}
+                              <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
+                                {inTransitZero ? '—' : formatAmount(row.inTransitAmount)}
+                              </td>
                               {/* Flows */}
-                              <td className="px-3 py-2.5">
-                                <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
-                                  <span className="text-adm-t1">
-                                    {row.flowMatched}/{row.flowTotal}
-                                  </span>
-                                  {row.flowOrphanInternal > 0 && (
-                                    <span
-                                      title="Internal-only flows (no external counterpart)"
-                                      className="rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-500"
-                                    >
-                                      OI {row.flowOrphanInternal}
-                                    </span>
-                                  )}
-                                  {row.flowOrphanExternal > 0 && (
-                                    <span
-                                      title="External-only flows (no internal counterpart)"
-                                      className="rounded border border-amber-500/30 bg-amber-500/10 px-1 text-[9px] text-amber-500"
-                                    >
-                                      OE {row.flowOrphanExternal}
-                                    </span>
-                                  )}
-                                  {row.flowMismatch > 0 && (
-                                    <span
-                                      title="Matched pairs with amount mismatch"
-                                      className="rounded border border-adm-amber/30 bg-adm-amber/10 px-1 text-[9px] text-adm-amber"
-                                    >
-                                      MM {row.flowMismatch}
-                                    </span>
-                                  )}
-                                </div>
+                              <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t1">
+                                {flowParts}
                               </td>
                               {/* Status */}
                               <td className="px-3 py-2.5">
-                                <StatusBadge value={row.status} />
+                                <StatusBadge value={row.bucket} />
+                              </td>
+                              {/* Case */}
+                              <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t1">
+                                {row.caseNo ?? '—'}
                               </td>
                             </tr>
                           );
@@ -606,6 +628,7 @@ const ReconciliationRunsDetailPage = () => {
                   </table>
                 </div>
               </div>
+            )}
           </DetailCard>
 
         </div>
