@@ -24,6 +24,7 @@
 | [v4-deposit.md](v4-deposit.md) | 充值双链路（crypto/fiat）/ 合规三层门 / 异常分支现状 / funds_orders 充值切片 | 2026-07-03 |
 | [v5-withdraw.md](v5-withdraw.md) | 提现双链路（共用工作流）/ 大额审批门 / 三层合规 / 费率治理 / funds_order 2 腿 | 2026-07-03 |
 | [v6-swap.md](v6-swap.md) | 兑换报价 + 4 腿成交 / 仅 L1 合规 / 费率治理 / FAILED-REVERSED 死枚举 | 2026-07-04 |
+| [v8-recon.md](v8-recon.md) | 逐钱包 1:1 对账 / 五桶 / Run-Case 驾驶舱 / effectiveDate / 推单处置 / 止于 Case OPEN | 2026-07-04 |
 
 ## 版本 → 文件映射
 
@@ -36,7 +37,7 @@
 | V5 | 提现 | ✅ v5-withdraw.md |
 | V6 | 兑换 | ✅ v6-swap.md |
 | V7 | 财资运营（Treasury Ops）| 无独立 truth（旧内部转账/延迟结算已删；共享原语归 funds-orders.md；财资运营全未做）|
-| V8 | 对账 | `v8-recon.md`（待建，Round3 记忆最新鲜，建议尽早）|
+| V8 | 对账 | ✅ v8-recon.md |
 | 跨版本 | 8 码 COA + 记账不变量 | `accounting-coa.md`（待抽出）|
 | 跨版本 | 资金单状态机全集 | `funds-orders.md`（待抽出）|
 

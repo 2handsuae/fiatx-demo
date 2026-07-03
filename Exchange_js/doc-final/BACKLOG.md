@@ -53,6 +53,14 @@ Last Updated: 2026-07-03
 - [ ] 架构命名漂移：roadmap 写"SwapSettlementService"该类不存在，实为 SwapWorkflowService+SwapLegAccounting+SwapTransactionsService（文档订正即可，非代码债）｜来源: 2026-07-04 V6 体检
 > 注：swap 腿 InternalFund 命名债已并入下方「平账处置」的 funds-orders 域 RBAC 命名债条目，不重复登记。
 
+## 技术债 — V8 对账
+
+- [ ] 🐛 **`reObservedCount` 恒为 0**：line item 每 run delete-then-insert，`foundByRunId` distinct 恒 1 → 观察历史"复观察次数"永远 0；正确修法需 `reconciliation_cases` 加专用计数列（`upsertCaseForWallet` existing 分支 +1）；代码已加 KNOWN LIMITATION 注释（`reconciliation-query.service.ts`）｜来源: 2026-07-04 V8 体检（Round3 遗留）
+- [ ] **Reimbursement 三处残留未清**（表已 drop）：`schema.prisma` `reconciliation_case.reimbursementObligationId` 孤立外键列 + `reset-business-data.ts:45` 引用 + `permissions.ts:110` `REIMBURSEMENT_OBLIGATIONS_READ` 孤儿权限（53f711c 清死权限时漏网）｜来源: 2026-07-04 V8 体检
+- [ ] **FIRM Treasury snapshot 历史残留**：旧 Run 历史数据余额标记行误入交易下钻（Phase B 后新 run 不产生，历史数据未清）｜来源: 2026-07-04 V8 体检（Round3 遗留）
+- [ ] **资本注入 evidence 待核**：CAPITAL_INJECTION seed transfer 在，FIRM_ASSET 流水是否有对应 evidence/account_flow 行待确认（roadmap 记为欠，agent 称已有——需查 seed 是否走 writeEvidence）｜来源: 2026-07-04 V8 体检
+- [ ] **资金单合并可行性评估**：payin/payout/internalfund 状态机近同构（已从待决策移来核实——Round 2 已合表 funds_orders，权限已统一 FUNDS_ORDERS_*，此项其实已完成大半，剩 InternalFund 枚举命名债）｜来源: 2026-07-04 V8 体检复核
+
 ## 技术债 — 平账处置（推单）
 
 - [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
