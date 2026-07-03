@@ -26,7 +26,10 @@ trap 'rm -rf "${STAGE}"' EXIT
 mkdir -p "${OUT}"
 
 echo "[package] git archive 已提交源码（Exchange_js 为包根，export-ignore 生效）"
-git archive --format=tar "HEAD:Exchange_js" | tar -x -C "${OUT}"
+# 从仓库顶层跑 archive：在子目录里对 HEAD:Exchange_js 归档会触发 git 的
+# "current working directory is untracked"，用 -C 顶层规避。
+TOPLEVEL="$(git rev-parse --show-toplevel)"
+git -C "${TOPLEVEL}" archive --format=tar "HEAD:Exchange_js" | tar -x -C "${OUT}"
 
 # 双保险：包里绝不能有真 .env（git archive 本就不含 gitignore 的 .env，这里再兜一次）
 find "${OUT}" -name '.env' ! -name '.env.example' -type f -delete 2>/dev/null || true
