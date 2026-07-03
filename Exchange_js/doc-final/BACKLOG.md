@@ -42,6 +42,17 @@ Last Updated: 2026-07-03
 - [ ] 前后端 FROZEN 漂移：前端 `Withdraw.tsx` tipping-off 过滤引用 FROZEN，但后端 withdraw 枚举无此态（映射本身正常）｜来源: 2026-07-03 V5 体检
 - [ ] 模拟端点缺 `simulate/payout-confirmed`：只有 kyt-phase1/2 + travel-rule，payout 确认改走 funds_order advance（非缺失，记录以免误判）｜来源: 2026-07-03 V5 体检
 
+## 技术债 — V6 兑换
+
+- [ ] **FAILED/REVERSED 死枚举**：`SwapTransactionStatus` 定义 FAILED/REVERSED 但全代码无 `markStatus` 设置（只调 SUCCESS）→ 不可达；控制器只有 advance/resume，**无 reverse 端点**（roadmap 曾标 ✅2026-06-26 整笔冲正实为过度声明）。需求要么补 reverse+FAILED 状态机，要么删死枚举 ｜来源: 2026-07-04 V6 体检
+- [ ] 无自动 FAILED 状态机：腿失败走自愈→STUCK(needsReview)+手动 resume，swap 留 PROCESSING，无终态失败（设计 deferred）｜来源: 2026-07-04 V6 体检
+- [ ] Sumsub TM 真实集成未做（大额兑换合规）｜来源: 2026-07-04 V6 体检
+- [ ] Quote TTL 无 cron sweep：仅懒过期（查询时 markExpired）｜来源: 2026-07-04 V6 体检
+- [ ] 兑换成功通知未接（SUCCESS 时不调 Notification）｜来源: 2026-07-04 V6 体检
+- [ ] TB 记账失败无专用 repair surface（仅 resume 重试，无修复 UI/端点）｜来源: 2026-07-04 V6 体检
+- [ ] 架构命名漂移：roadmap 写"SwapSettlementService"该类不存在，实为 SwapWorkflowService+SwapLegAccounting+SwapTransactionsService（文档订正即可，非代码债）｜来源: 2026-07-04 V6 体检
+> 注：swap 腿 InternalFund 命名债已并入下方「平账处置」的 funds-orders 域 RBAC 命名债条目，不重复登记。
+
 ## 技术债 — 平账处置（推单）
 
 - [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
