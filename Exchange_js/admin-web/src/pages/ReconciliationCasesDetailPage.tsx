@@ -265,6 +265,7 @@ const ObservationBar = ({ kase }: { kase: ReconCaseDetail }) => {
       {kase.status === 'RESOLVED' ? (
         <>
           {' → '}已关闭 by <span className="text-adm-green">{runOrDash(obs.closedByRunNo)}</span>
+          {kase.resolutionReason && <span className="text-adm-t3">{'（'}{kase.resolutionReason}{'）'}</span>}
         </>
       ) : isAged ? (
         <span className="text-adm-red font-semibold">{' → '}仍 OPEN·已挂 {obs.ageDays} 天</span>
