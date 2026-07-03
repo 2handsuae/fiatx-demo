@@ -485,7 +485,18 @@ V6 → V7（EOD 兑换结算触发 INTERNAL-IN/OUT 真实资产交割；LP 缺�
 - [ ] **`case.observation.reObservedCount` 恒为 0** — T5 的 line items 是 delete-then-insert（每次 run 清空重写），`foundByRunId` 只剩最近一次 run 的值，distinct 数恒为 1；正确修法需 `ReconciliationCase` 加专用计数列（`upsertCaseForWallet` 的 existing 分支 +1）或改变 line item 累积策略；代码内已加 KNOWN LIMITATION 注释（`reconciliation-query.service.ts`），Round3 未修（超出改造范围）
 - [ ] **`admin-web/src/rbac/permissions.ts` 孤儿权限常量** — `OUTSTANDINGS_READ`/`OUTSTANDING_DETAIL_READ`/`FEE_ACCRUALS_READ`/`FEE_ACCRUAL_DETAIL_READ` 对应后端路由已随 Phase C 删除，前端常量未同步清理（Round3 范围限定 backend-only，pre-existing debt）
 - [ ] **推单/补单/冲正/豁免/偿付等平账处置动作** — Round3 只做检测侧驾驶舱，处置侧动作字典已在脑暴阶段定稿（7 原子动作），留待下一轮实现
-- [ ] **effective date（结算日期字段）** — 按结算日切片取数 + 回填机制，Round3 明确排除，独立一期
+- [~] **effective date（结算日期字段）** — 准备字段已交付（双表双写 + 引擎等价保真切换 + `recon:rerun` 工具，见下方「effectiveDate 平账准备字段」）；处置侧回填口子留待平账期
+
+**effectiveDate 平账准备字段（2026-07-03，分支 `feat/recon-round3-cockpit`，4 任务）：**
+
+- [x] **双表加列 + 存量回填** — `tb_transfer_evidence` / `account_flows` 各加 `effectiveDate`（生效日/结算日）列；迁移把存量行回填为 `date(createdAt)`，满足 `effectiveDate == date(createdAt)` 不变式，保证切换前后逐笔等价 ✅
+- [x] **写入侧打生效日** — `writeEvidence` 唯一写入漏斗打 `effectiveDate`，投影器复制到 `account_flows`，新流水默认生效日=写入日 ✅
+- [x] **引擎等价保真切换** — 3 处读取点（balance-checker / flow-matcher / query）从 `createdAt ≤ cutoff` 换成复合过滤式 `effectiveCutoffFilter`：生效日<截止日全进（回填的账落这段）、生效日=截止日仍按物理时刻卡（保持现行为逐笔等价）✅
+- [x] **`recon:rerun` 离线重跑工具** — `scripts/recon-rerun.ts` 不经 HTTP/登录直接触发一次 per-wallet 对账 run，平账回填后重跑验证用；env 锁定 main 栈（`npm run recon:rerun`，可加 `--cutoff=`）✅
+- 金闸门：九场景 pre/post 判定行逐字一致（18 行零差异，等价保真已证）；回填吸收 e2e：给一个 BREAK 钱包注入「生效日=昨天、createdAt=现在」的补账，delta 79200000→0、桶 BREAK→SOFT_FLAG（余额差被昨天生效的补账全额吸收，残留流水孤儿落 SOFT_FLAG 属预期），删数据后复原回 BREAK ✅
+- 处置侧回填口子（operator 手动补账 UI/动作）留待平账期，与推单/补单/冲正等处置动作同期实现。
+
+设计文档：`superpowers/specs/2026-07-03-effective-date-prep-design.md` + `superpowers/plans/2026-07-03-effective-date-prep-plan.md`。
 
 ---
 
