@@ -268,8 +268,13 @@ export interface StuckSwapResult {
  *
  * swap 4 腿模型（SELL/SETTLE/BUY/FEE，见 swap-leg-plan.constant）：腿在平台 F_ 钱包间与客户
  * 钱包间搬钱。leg3 是 BUY 腿——USDT→AED 时 fromRole=F_SET（平台 AED 结算钱包），AED→USDT 时
- * fromRole=F_OPS（平台 USDT 运营钱包）。故**卡腿的 fromWalletId 是平台钱包（book=FIRM）**，
+ * fromRole=F_OPS（平台 USDT 运营钱包）。两向的**卡腿 fromWalletId 都是平台钱包（book=FIRM）**，
  * 不是客户钱包——这跟提现主腿（客户钱包 book=CLIENT）本质不同。
+ *
+ * ⚠️ 但本夹具**仅支持 to-asset 精度 ≤ 2 的方向（即 →AED，如 USDT→AED）**：recon 在途匹配器要
+ *   卡腿金额（=grossTo）为整数主单位，而 grossTo 按 to-asset 精度舍入——to-USDT（6-8 位）几乎
+ *   凑不出整数（见 step 0 的方向性硬 guard）。USDT→AED 的 leg3（F_SET）已是 FIRM 钱包，FIRM
+ *   卡单场景完整覆盖；AED→USDT 的 F_OPS 卡单既非必需也不可达。
  *
  * 卡腿在其 fromWalletId 上方向为 OUT（findNonTerminalByWallet：fromWalletId===walletRef → OUT）。
  * 该腿 POST 未做（handler 只在 CONFIRMED 才 postLeg），故这条 OUT 的 code-201/200 记账没落地；
@@ -284,8 +289,9 @@ export interface StuckSwapResult {
  *
  * ⚠️ swap push-heal 不在范围（BACKLOG「swap 腿推单」）——本夹具只演 DETECTION（recon 落 IN_TRANSIT）。
  *
- * `opts.amount` 是 fromAmount 下限（USDT）——因 recon 在途匹配器要求整数主单位金额，夹具会实时探
- *   汇率并从该下限起向上微调到能整出 grossTo 的最小整数 fromAmount（见 step 0；精确名义额非要点）。
+ * `opts.amount` 是 fromAmount 下限——因 recon 在途匹配器要求整数主单位金额，夹具会实时探汇率并从
+ *   该下限起向上微调到能整出 grossTo 的最小整数 fromAmount（见 step 0；精确名义额非要点）。`toAsset`
+ *   须精度 ≤ 2（否则 step 0 当场响亮报错），故实际方向恒为 →AED。
  *
  * 返回 { swapNo, stuckLegNo, walletRef, externalRef, stuckLegId } 供 manifest/断言。
  */
@@ -304,24 +310,41 @@ export async function createStuckSwap(
     } as any);
 
   // ── 0. 汇率无关地挑一个能整出 grossTo 的 fromAmount ───────────────────────────────
-  //   卡腿（leg3）金额 = grossTo（= round(fromAmount × rateAllIn, 2)），而 recon 在途匹配器
-  //   要求整数主单位金额（BigInt(line.amount) + amountOk 对齐主单位）。grossTo 常是小数，故
-  //   这里先用 `amount` 探一次实时 rateAllIn（费率随 ensureSetup 变，不能硬编码），再从 `amount`
-  //   起向上找最小的整数 fromAmount 使 grossTo 为整数。避免"魔法常数绑死某一档费率"的脆弱。
-  const probe: any = await mkQuote(new Prisma.Decimal(amount));
+  //   卡腿（leg3）金额 = grossTo。引擎实际算 grossAmountOut = round(amount × quotedRate,
+  //   toAsset.decimals, ROUND_HALF_UP)（pricing-engine.service.ts:220-224，feeDecimals=
+  //   to-asset 精度；rateAllIn == quotedRate 见 swap-quote.service.ts:182）。而 recon 在途匹配器
+  //   要求**整数主单位金额**（编排器 BigInt(line.amount) 不容小数点 + amountOk 按主单位比对）。
+  //
+  //   ⚠️ 方向性硬约束（实测确认）：能否凑出整数 grossTo 取决于 **to-asset 的精度**。
+  //     to-AED（2 位）：整数 fromAmount 命中整 AED 很密（每 ~10 个就有一个），可用。
+  //     to-USDT（6-8 位）：整 USDT 需 amount×rate 落在 5e-7 内命中整数——8 位有效数字的分数汇率
+  //       下几乎不可能（实测 [100,200000) 整 AED 输入零命中）。故本夹具**只支持 to-asset 精度 ≤ 2**
+  //       的方向（即 →AED）。这不缩小演示价值：USDT→AED 的 leg3 钱包（F_SET）已是平台 FIRM 钱包，
+  //       FIRM-钱包卡单场景完整覆盖；AED→USDT 的 leg3（F_OPS）也是 FIRM 钱包但既非必需也不可达。
+  //     引擎"在途行小数金额崩/主-最小单位混用"的根因缺陷已单列 backlog（不在本夹具范围修）。
+  const toDp: number = toAsset.decimals ?? 8;
+  if (toDp > 2) {
+    throw new Error(
+      `createStuckSwap: to-asset ${toAsset.currency} has ${toDp} decimals — recon in-transit ` +
+        `matcher needs an integer major-unit grossTo (BigInt(line.amount)), which is unreachable ` +
+        `for a >2-decimal to-asset. Use a direction whose to-asset settles in ≤2 decimals (→AED).`,
+    );
+  }
+  const probe: any = await mkQuote(new Prisma.Decimal(amount)); // 探实时 rateAllIn（费率随 ensureSetup 变）
   const rateAllIn = new Prisma.Decimal(probe.rateAllIn);
   const grossOf = (fromAmt: Prisma.Decimal) =>
-    fromAmt.mul(rateAllIn).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    fromAmt.mul(rateAllIn).toDecimalPlaces(toDp, Prisma.Decimal.ROUND_HALF_UP);
   const start = parseInt(new Prisma.Decimal(amount).toFixed(0), 10);
+  const WINDOW = 400; // to-AED 2 位命中很密，400 足够
   let chosenFrom = -1;
-  for (let a = start; a < start + 400; a++) {
+  for (let a = start; a < start + WINDOW; a++) {
     const g = grossOf(new Prisma.Decimal(a));
     if (g.equals(g.trunc())) { chosenFrom = a; break; }
   }
   if (chosenFrom < 0) {
     throw new Error(
-      `createStuckSwap: no integer fromAmount in [${start}, ${start + 400}) yields a whole ` +
-        `${toAsset.currency} grossTo at rate ${rateAllIn} — cannot build an integer-amount stuck leg`,
+      `createStuckSwap: no integer fromAmount in [${start}, ${start + WINDOW}) yields a whole ` +
+        `${toAsset.currency} grossTo at rate ${rateAllIn} (dp=${toDp}) — cannot build an integer-amount stuck leg`,
     );
   }
 
@@ -396,6 +419,11 @@ export async function createStuckSwap(
   }
 
   // ── 4. 外部镜像：该平台钱包上 leg3 是 OUT，走共享 injectStuckExternalMirror（book=FIRM）──
+  //   ⚠️ cutoff 耦合（同 createStuckWithdraw，但此处更紧）：statement line datetime = 卡腿创建
+  //     时刻（stuck.createdAt），matcher fetchExternalLinesForWallet 过滤 datetime ≤ cutoff，
+  //     且 recon 只核 cutoffDate==toBusinessDate(cutoff) 的 ExternalBalance。故调用方传入的 cutoff
+  //     必须 ≥ 卡腿创建时刻**且**与之同一业务日。swap 卡腿在推完 leg1/2 之后才由 handler 建成，
+  //     创建更晚、时间窗更紧——demo:in-transit / recon:demo 用"当下"cutoff 紧接夹具运行，天然满足。
   const externalRef = `${DEMO_STUCK_SWAP_REF_PREFIX}${swap.swapNo}`;
   await injectStuckExternalMirror(ctx, {
     walletRef,
