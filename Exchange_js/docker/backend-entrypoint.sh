@@ -12,6 +12,16 @@ echo "[entrypoint] 等待账本端 TigerBeetle ${TB_ADDRESS} ..."
 for _ in $(seq 1 60); do nc -z "$TB_HOST" "$TB_PORT" 2>/dev/null && break; sleep 1; done
 sleep 2
 
+# TigerBeetle 客户端只认 IP（会拒绝 Docker 服务名/主机名 → Invalid replica address），
+# 把服务名解析成容器 IP 再喂给客户端；seed / 后端 / demo 后续都用这个 export 后的值。
+TB_IP="$(getent hosts "$TB_HOST" | awk '{print $1}' | head -1)"
+if [ -n "$TB_IP" ]; then
+  export TB_ADDRESS="${TB_IP}:${TB_PORT}"
+  echo "[entrypoint] 账本端 ${TB_HOST} 解析为 IP → ${TB_ADDRESS}"
+else
+  echo "[entrypoint] ⚠ 解析 ${TB_HOST} 失败，沿用 ${TB_ADDRESS}"
+fi
+
 echo "[entrypoint] prisma migrate deploy（建表）"
 npx prisma migrate deploy --schema ./prisma/schema.prisma
 
