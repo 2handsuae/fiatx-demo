@@ -535,7 +535,7 @@ const ReconciliationRunsDetailPage = () => {
                       {visibleRows.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={9}
+                            colSpan={10}
                             className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
                           >
                             {accountTable.length === 0
