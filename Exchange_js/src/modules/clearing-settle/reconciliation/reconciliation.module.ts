@@ -13,15 +13,22 @@ import { WalletBalanceCheckerService } from './engine/v2/wallet-balance-checker.
 import { WalletFlowMatcherService } from './engine/v2/wallet-flow-matcher.service';
 import { ReconciliationSweepService } from './sweep/reconciliation-sweep.service';
 import { ReconciliationAdminController } from './controllers/reconciliation-admin.controller';
+// Recon disposition (平账·推单) — orchestrates funds-order advance() with a back-value.
+// Deps (FundsOrdersModule + AuditLogsModule) are already imported above.
+import { ReceiptLookupService } from './disposition/receipt-lookup.service';
+import { PushOrderService } from './disposition/push-order.service';
+import { PushOrderController } from './disposition/push-order.controller';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule],
-  controllers: [ReconciliationAdminController],
+  controllers: [ReconciliationAdminController, PushOrderController],
   providers: [
     ReconciliationQueryService,
     ReconciliationSweepService,
     // Phase B / T7 — per-wallet engine (sole live recon path; V8 chain removed in Phase C/A.1).
     WalletBalanceCheckerService, WalletFlowMatcherService, WalletReconRunService,
+    // Recon disposition: push-order orchestration + receipt lookup.
+    ReceiptLookupService, PushOrderService,
   ],
   exports: [WalletReconRunService],
 })

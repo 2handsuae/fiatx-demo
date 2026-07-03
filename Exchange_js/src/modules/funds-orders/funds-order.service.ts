@@ -144,6 +144,13 @@ export class FundsOrderService {
     return client.fundsOrder.findUnique({ where: { id }, include: { asset: true } });
   }
 
+  /** Thin business-key finder — raw row (+ asset) by fundsOrderNo. Recon push-order
+   *  orchestrator needs id/status/FKs/wallets/referenceNo/amount/createdAt on the row. */
+  async findByNo(fundsOrderNo: string, tx?: Tx) {
+    const client: any = tx ?? this.prisma;
+    return client.fundsOrder.findUnique({ where: { fundsOrderNo }, include: { asset: true } });
+  }
+
   async findByParent(
     parent: { depositTransactionId?: string; withdrawTransactionId?: string; swapTransactionId?: string },
     filter?: { legSeq?: number; attempt?: number; status?: FundsOrderStatus },
