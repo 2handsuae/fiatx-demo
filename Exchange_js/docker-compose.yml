@@ -1,7 +1,8 @@
 # 一键起演示：docker compose up --build
-# 宿主端口（错开 +100，避开常用 3000-3003，可与本机开发栈同时开）：
-#   后端 3100 / 管理台 3101 / 客户端 3102（账本端不暴露宿主，走容器内网）
-# ⚠️ 重跑干净一次：docker compose down -v 再 up（清账本端数据卷）
+# 宿主端口用 18080 段（实测空闲、极少撞车），且可配置：
+#   想改端口 → 在本目录建 .env 写 DEMO_API_PORT= / DEMO_ADMIN_PORT= / DEMO_CLIENT_PORT=
+# 默认访问：管理台 http://localhost:18081 / 客户端 http://localhost:18082
+# ⚠️ 重跑干净一次：docker compose down -v 再 up（清账本端数据卷 + 残留转发）
 services:
   # 账本端首次格式化（一次性；数据落 named volume）
   tb-format:
@@ -23,7 +24,7 @@ services:
         condition: service_completed_successfully
     volumes: [ "tb-data:/data" ]
     command: start --addresses=0.0.0.0:3003 /data/0_0.tigerbeetle
-    # 不暴露宿主端口：后端经容器内网 tigerbeetle:3003 直连，少一个撞点
+    # 不暴露宿主端口：后端经容器内网 tigerbeetle:3003 直连
     expose: [ "3003" ]
 
   # 后端：构建 → migrate → seed 底座 → 起服务 → seed 演示数据
@@ -35,31 +36,31 @@ services:
       API_PORT: "3000"
       DATABASE_URL: "file:/app/prisma/dev.db"
       TB_ADDRESS: "tigerbeetle:3003"
-      ADMIN_URL: "http://localhost:3101"
-      CLIENT_URL: "http://localhost:3102"
+      ADMIN_URL: "http://localhost:${DEMO_ADMIN_PORT:-18081}"
+      CLIENT_URL: "http://localhost:${DEMO_CLIENT_PORT:-18082}"
       SUMSUB_MOCK_MODE: "true"
       GOVERNANCE_DEMO_ENABLED: "true"
       MFA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       MFA_ISSUER: "Exchange Admin (Demo)"
-    ports: [ "3100:3000" ]
+    ports: [ "${DEMO_API_PORT:-18080}:3000" ]
 
   # 管理台（静态 + nginx）
   admin:
     build:
       context: ./admin-web
       args:
-        VITE_API_URL: "http://localhost:3100"
+        VITE_API_URL: "http://localhost:${DEMO_API_PORT:-18080}"
     depends_on: [ backend ]
-    ports: [ "3101:80" ]
+    ports: [ "${DEMO_ADMIN_PORT:-18081}:80" ]
 
   # 客户端（静态 + nginx）
   client:
     build:
       context: ./client-web
       args:
-        VITE_API_URL: "http://localhost:3100"
+        VITE_API_URL: "http://localhost:${DEMO_API_PORT:-18080}"
     depends_on: [ backend ]
-    ports: [ "3102:80" ]
+    ports: [ "${DEMO_CLIENT_PORT:-18082}:80" ]
 
 volumes:
   tb-data:
