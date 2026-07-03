@@ -33,6 +33,10 @@ Last Updated: 2026-07-03
 - [ ] `contractAddress` 字段 schema/DTO 残留（前端已移除）｜来源: 2026-07-03 V3 体检
 - [ ] 资本注入流水缺 evidence 行（`FIRM_ASSET` 流水缺资本那笔）｜来源: V8 redesign 遗留
 
+## 技术债 — 平账处置（推单）
+
+- [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
+
 ## 待决策（等业主拍板）
 
 - [ ] **限额执行接入 vs 明示退役**：表和审批管道已建，执行侧零消费 ｜来源: 2026-07-03 V3 体检
