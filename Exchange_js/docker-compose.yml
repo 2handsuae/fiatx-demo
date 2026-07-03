@@ -31,6 +31,9 @@ services:
   backend:
     build:
       context: .
+    # TB 客户端(tigerbeetle-node)也用 io_uring，后端容器同样需放行 seccomp
+    security_opt:
+      - "seccomp=unconfined"
     depends_on: [ tigerbeetle ]
     environment:
       API_PORT: "3000"
