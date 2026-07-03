@@ -879,7 +879,7 @@ export class WalletReconRunService {
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
   private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string }): Promise<void> {
     await this.auditLogs.recordSystem({
-      action: AuditEntityTypes.RECONCILIATION_BREAK,
+      action: AuditActions.RECON_CASE_OPENED,
       entityType: AuditEntityTypes.RECONCILIATION_CASE,
       entityNo: input.caseNo,
       workflowType: AuditBusinessWorkflowTypes.V8_RECONCILIATION,
