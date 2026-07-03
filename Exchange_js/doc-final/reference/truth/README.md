@@ -22,6 +22,7 @@
 | [_template.md](_template.md) | 新建文件的结构模板 | — |
 | [v3-financial-config.md](v3-financial-config.md) | 资产 / 托管钱包 / COA 账本账户 / 提现地址 / 金额闸门 | 2026-07-03 |
 | [v4-deposit.md](v4-deposit.md) | 充值双链路（crypto/fiat）/ 合规三层门 / 异常分支现状 / funds_orders 充值切片 | 2026-07-03 |
+| [v5-withdraw.md](v5-withdraw.md) | 提现双链路（共用工作流）/ 大额审批门 / 三层合规 / 费率治理 / funds_order 2 腿 | 2026-07-03 |
 
 ## 版本 → 文件映射
 
@@ -31,7 +32,7 @@
 | V2 | 客户三轴状态 / 合规门 | `identity-compliance.md`（待建，随需）|
 | V3 | 资产 / 钱包 / COA / 提现地址 / 金额闸门 | ✅ v3-financial-config.md |
 | V4 | 充值 | ✅ v4-deposit.md |
-| V5 | 提现 | `v5-withdraw.md`（待 V5 体检后建）|
+| V5 | 提现 | ✅ v5-withdraw.md |
 | V6 | 兑换 | `v6-swap.md`（待 V6 体检后建）|
 | V7 | 内部转账 / 资金层 | 并入 funds-orders.md（待建）|
 | V8 | 对账 | `v8-recon.md`（待建，Round3 记忆最新鲜，建议尽早）|
