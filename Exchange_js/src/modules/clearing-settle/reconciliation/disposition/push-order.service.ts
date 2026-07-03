@@ -113,7 +113,8 @@ export class PushOrderService {
       walletId,
       direction,
       amount: order.amount,
-      externalRef: order.referenceNo ?? null,
+      // 与对账 matcher wallet-flow-matcher.service.ts refsOf 同源：链上回执是 txHash，法币是自有号。
+      externalRefs: [order.txHash, order.referenceNo, order.providerTxnId].filter(Boolean) as string[],
       createdAt: order.createdAt,
     };
   }
@@ -129,8 +130,11 @@ export class PushOrderService {
             effectiveDate,
           });
           break;
-        } catch {
-          /* 该 action 对当前态非法，试下一个 */
+        } catch (e) {
+          // 只对"非法迁移"试下一个动作；NotFound（行被删）/已终态/其它意外必须原样冒出，
+          // 不许被伪装成"无合法推进动作"。advance() 非法迁移抛 BadRequest("Invalid transition: …")。
+          if (e instanceof BadRequestException && /Invalid transition/.test(e.message)) continue;
+          throw e;
         }
       }
       if (!advanced) {

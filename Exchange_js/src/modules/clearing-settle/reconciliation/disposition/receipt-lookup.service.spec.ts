@@ -16,7 +16,9 @@ function makePrisma(opts: { balances?: any[]; lines?: any[] }) {
       findMany: jest.fn(async ({ where }: any) =>
         (opts.lines ?? []).filter(
           (l: any) =>
-            (where.externalRef === undefined || l.externalRef === where.externalRef) &&
+            // tier-1 uses `externalRef: { in: [...] }`; tier-2 omits externalRef + filters by direction.
+            (where.externalRef === undefined ||
+              (where.externalRef.in?.includes(l.externalRef) ?? false)) &&
             (where.direction === undefined || l.direction === where.direction),
         ),
       ),
@@ -29,7 +31,7 @@ const order = {
   walletId: 'w-1',
   direction: 'IN' as const,
   amount: 100,
-  externalRef: '0xabc',
+  externalRefs: ['0xabc'],
   createdAt: new Date('2026-06-29T00:00:00Z'),
 };
 
@@ -41,6 +43,20 @@ describe('ReceiptLookupService', () => {
     });
     const res = await new ReceiptLookupService(prisma).findUniqueReceipt(order as any);
     expect(res).toEqual({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' });
+  });
+
+  it('tier-1 matches on txHash (referenceNo null) — aligns with matcher refsOf(txHash/referenceNo/providerTxnId)', async () => {
+    // On-chain deposit/withdraw: the external receipt ref is the txHash, carried in externalRefs
+    // (order.referenceNo is null). This is the I-1 gap: a txHash-only order must still tier-1 HIT.
+    // The matching line's amount+direction deliberately DO NOT match, so the only path to HIT is
+    // tier-1 ref membership — proving txHash participates (scalar externalRef impl would MISS here).
+    const chainOrder = { ...order, externalRefs: ['0xTXHASH'] };
+    const prisma = makePrisma({
+      balances: [{ source: 'CHAIN', accountRef: 'acc-1' }],
+      lines: [line({ id: 'chain-1', externalRef: '0xTXHASH', amount: 777, direction: 'OUT' })],
+    });
+    const res = await new ReceiptLookupService(prisma).findUniqueReceipt(chainOrder as any);
+    expect(res).toEqual({ kind: 'HIT', lineId: 'chain-1', effectiveDate: '2026-06-30' });
   });
 
   it('zero candidates → MISS with count 0', async () => {
@@ -68,7 +84,7 @@ describe('ReceiptLookupService', () => {
   });
 
   it('multiple tier-2 candidates → MISS with count, never guesses', async () => {
-    const noRef = { ...order, externalRef: null };
+    const noRef = { ...order, externalRefs: [] };
     const prisma = makePrisma({
       balances: [{ source: 'CHAIN', accountRef: 'acc-1' }],
       lines: [line({ id: 'a', amount: 100 }), line({ id: 'b', amount: 100 })],
@@ -78,7 +94,7 @@ describe('ReceiptLookupService', () => {
   });
 
   it('tier-2 unique element match → HIT with businessDate', async () => {
-    const noRef = { ...order, externalRef: null };
+    const noRef = { ...order, externalRefs: [] };
     const prisma = makePrisma({
       balances: [{ source: 'CHAIN', accountRef: 'acc-1' }],
       lines: [

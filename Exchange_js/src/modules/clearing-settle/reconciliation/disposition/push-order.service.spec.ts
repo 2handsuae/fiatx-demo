@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PushOrderService } from './push-order.service';
 import { FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
 
@@ -55,7 +55,17 @@ describe('PushOrderService', () => {
     const view = lookup.findUniqueReceipt.mock.calls[0][0];
     expect(view.direction).toBe('IN');
     expect(view.walletId).toBe('w-1');
-    expect(view.externalRef).toBe('0xabc');
+    expect(view.externalRefs).toEqual(['0xabc']);
+  });
+
+  it('sync: coalesces txHash + referenceNo + providerTxnId into externalRefs (aligns with matcher refsOf)', async () => {
+    // On-chain order: txHash present, referenceNo null, providerTxnId present → both non-null refs
+    // must reach the lookup so tier-1 can match a statement line keyed by txHash.
+    const order = makeOrder({ txHash: '0xTX', referenceNo: null, providerTxnId: 'PSP-9' });
+    const { svc, lookup } = build({ order });
+    await svc.syncPush('FO-1', 'admin-1');
+    const view = lookup.findUniqueReceipt.mock.calls[0][0];
+    expect(view.externalRefs).toEqual(['0xTX', 'PSP-9']);
   });
 
   it('sync: maps withdraw → OUT direction + fromWalletId', async () => {
@@ -131,5 +141,23 @@ describe('PushOrderService', () => {
     await expect(s1.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
     const { svc: s2 } = build({ order: makeOrder({ status: FundsOrderStatus.CLEARED }) });
     await expect(s2.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
+  });
+
+  it('driveToCleared rethrows non-transition advance errors (e.g. row deleted) — not masked as "无合法推进动作"', async () => {
+    // M-1: a narrowed catch only continues on "Invalid transition"; a NotFound (row vanished mid-drive)
+    // must propagate verbatim, not be swallowed into the generic "no legal advance" BadRequest.
+    const order = makeOrder();
+    const fundsOrders = {
+      findByNo: jest.fn(async () => order),
+      advance: jest.fn(async () => {
+        throw new NotFoundException(`FundsOrder ${order.id} not found`);
+      }),
+    } as any;
+    const lookup = {
+      findUniqueReceipt: jest.fn(async () => ({ kind: 'HIT', lineId: 'ext-1', effectiveDate: '2026-06-30' })),
+    } as any;
+    const audit = { recordByActor: jest.fn(async () => ({})) } as any;
+    const svc = new PushOrderService(fundsOrders, lookup, audit);
+    await expect(svc.syncPush('FO-1', 'admin-1')).rejects.toThrow(NotFoundException);
   });
 });
