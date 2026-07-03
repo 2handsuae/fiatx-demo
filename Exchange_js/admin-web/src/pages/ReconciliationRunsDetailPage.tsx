@@ -210,9 +210,10 @@ const ReconciliationRunsDetailPage = () => {
     }
   };
 
-  // 一键重新对账 / Re-reconcile — fire a fresh wallet run at now, then jump to it
-  // (a new run is created; this page is pinned to one run, so navigate to the
-  // freshly-created run rather than re-fetching the stale one).
+  // 一键重新对账 / Re-reconcile — fire a fresh wallet run at now, then navigate
+  // to the runs list (the freshest run sorts first there). This page is pinned to
+  // a stale runNo, so re-fetching it would just reload old data; the list is the
+  // right landing spot to see the run just created.
   const handleReReconcile = async () => {
     setReconciling(true);
     try {

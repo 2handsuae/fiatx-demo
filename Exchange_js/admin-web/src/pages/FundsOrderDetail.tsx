@@ -281,12 +281,9 @@ const FundsOrderDetail = () => {
         alert(await getApiErrorMessage(response, 'Sync push failed'));
         return;
       }
-      const result: { finalStatus?: string; effectiveDate?: string } = await response.json();
-      alert(
-        `Sync push done / 同步推进完成\n` +
-          `Final status: ${result.finalStatus ?? '—'}\n` +
-          `Effective date: ${result.effectiveDate ?? '—'}`,
-      );
+      // Success: silent refetch (repo convention — no success alert). The order
+      // reaches a terminal state, canPush flips false, and this Actions button
+      // disappears on its own.
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -322,12 +319,8 @@ const FundsOrderDetail = () => {
         alert(await getApiErrorMessage(response, 'Manual push failed'));
         return;
       }
-      const result: { finalStatus?: string; effectiveDate?: string } = await response.json();
-      alert(
-        `Manual confirm done / 人工确认完成\n` +
-          `Final status: ${result.finalStatus ?? '—'}\n` +
-          `Effective date: ${result.effectiveDate ?? '—'}`,
-      );
+      // Success: close modal, reset fields, silent refetch (repo convention —
+      // no success alert). The order goes terminal and the Actions block hides.
       setManualOpen(false);
       setManualReceiptRef('');
       setManualExternalDate('');
@@ -477,46 +470,6 @@ const FundsOrderDetail = () => {
             )}
           </DetailCard>
 
-          {/* 2.4 平账·推单处置 / Reconciliation Push-Order — a REAL ops action
-              (not simulation): drive a stuck non-terminal funds order to CLEARED
-              so the next reconciliation run can close its case. Rendered only for
-              a non-swap, non-terminal leg; NOT gated by simulation mode. */}
-          {canPush && (
-            <div className="bg-adm-card px-6 py-5">
-              <div className="rounded-lg border border-adm-blue/30 bg-adm-blue/5 p-4">
-                <div className="mb-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-adm-blue">
-                  平账推单 / Reconciliation Push-Order
-                </div>
-                <p className="mb-3 text-[12px] leading-relaxed text-adm-t2">
-                  Drive this stuck order to its terminal state so the next
-                  reconciliation run closes the open case. Sync auto-advances when a
-                  unique external receipt is found; Manual Confirm force-advances with
-                  operator-supplied evidence.
-                  <br />
-                  同步：查到唯一外部回执即自动推进；人工确认：凭证据三件套强推（审计留痕）。
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={pushSubmitting}
-                    onClick={handleSyncPush}
-                    className="rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-1.5 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
-                  >
-                    同步状态 / Sync
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pushSubmitting}
-                    onClick={() => setManualOpen(true)}
-                    className="rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[12px] font-semibold text-adm-t2 transition-colors hover:border-adm-t3 disabled:opacity-50"
-                  >
-                    人工确认 / Manual Confirm
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* 2.5 Simulation panel (dev/ops only — gated by simulation mode) */}
           {simEnabled && (
             <div className="bg-adm-card px-6 py-5">
@@ -639,6 +592,35 @@ const FundsOrderDetail = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* ACTIONS — 平账·推单处置 (real ops action, not simulation). Shown only
+              for a non-swap, non-terminal leg; drives the order to CLEARED so the
+              next reconciliation run closes its open case. Manual Confirm opens the
+              page-level evidence modal. Buttons live here per frontend-admin.md
+              (actions belong in the sidebar Actions block, not the main body). */}
+          {canPush && (
+            <SidebarGroup title="Actions">
+              <button
+                type="button"
+                disabled={pushSubmitting}
+                onClick={handleSyncPush}
+                className="flex w-full items-center justify-center rounded border border-adm-blue/40 bg-adm-blue/10 px-3 py-2 font-mono text-[12px] font-semibold text-adm-blue transition-colors hover:bg-adm-blue/20 disabled:opacity-50"
+              >
+                同步状态 / Sync
+              </button>
+              <button
+                type="button"
+                disabled={pushSubmitting}
+                onClick={() => setManualOpen(true)}
+                className="mt-2 flex w-full items-center justify-center rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[12px] font-semibold text-adm-t2 transition-colors hover:border-adm-t3 disabled:opacity-50"
+              >
+                人工确认 / Manual Confirm
+              </button>
+              <p className="mt-2 text-[10px] leading-relaxed text-adm-t3">
+                推至终态以便重对账关单。同步：查唯一回执自动推进；人工：凭证据三件套强推。
+              </p>
+            </SidebarGroup>
+          )}
+
           {/* IDENTITY SUMMARY */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Funds Order No" value={data.fundsOrderNo} mono />
