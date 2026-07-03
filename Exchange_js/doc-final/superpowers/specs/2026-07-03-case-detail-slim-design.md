@@ -36,7 +36,7 @@
 
 | 优先级 | 条件 | 模板 | 配色 |
 |---|---|---|---|
-| 1 | caseReason='unattributed_external_account' | `外部账户 {walletRef} 无法归属任何钱包，余额 {actualExternal} 待认领` | 红 |
+| 1 | walletNo=null 且 coaCode=null（无主头前端判据——后端 caseReason 未持久化、API 不返回，本期不动后端） | `外部账户 {walletRef} 无法归属任何钱包，余额 {actualExternal} 待认领` | 红 |
 | 2 | bucket=BREAK 且 explain.inTransitSigned=0 | `外部比内部{少/多} {abs(Δ)} {币种}，无在途解释 → 全额待排查` | 红 |
 | 3 | bucket=BREAK 且 explain.inTransitSigned≠0 | `差额 {Δ} 中 {inTransitSigned} 由在途解释，残差 {residual} 待排查` | 红 |
 | 4 | bucket=IN_TRANSIT | `差额 {Δ} 已被在途单全额解释，等待外部确认后自愈` | 蓝 |
