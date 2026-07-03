@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS, Prisma/SQLite, bcrypt, SHA-256, JWT (scoped tokens), otplib (TOTP), React (admin-web)
 
-**Spec:** `docs/superpowers/specs/2026-05-06-admin-password-reset-design.md`
+**Spec:** `doc-final/superpowers/specs/2026-05-06-admin-password-reset-design.md`
 
 ---
 

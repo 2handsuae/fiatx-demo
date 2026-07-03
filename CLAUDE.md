@@ -70,6 +70,19 @@ npm run runtime:diagnose           # 诊断迁移漂移
 
 ---
 
+## 文档单一真相源（禁止散落）
+
+项目文档只有**一个根**：`Exchange_js/doc-final/`（读法地图见 `doc-final/README.md`）。禁止在别处另立文档目录（壳层 `重做版/doc-final/`、`Exchange_js/docs/` 已于 2026-07-03 收编删除）。分两层：
+
+- **🟢 活真相层**（平时改代码看）：`rules/` ｜ `reference/(+truth/)` ｜ `glossary/` ｜ `ui-contract/` ｜ `BACKLOG.md`
+- **🗄️ 历史/设计存档层**（追溯设计才翻，**只读**）：`superpowers/`（`specs/` ｜ `plans/` ｜ `product-docs/`）
+
+**spec/plan 写入铁律**：brainstorming / writing-plans 产出一律写入
+`Exchange_js/doc-final/superpowers/{specs,plans}/YYYY-MM-DD-<topic>[-design].md`。
+⚠️ superpowers 技能**默认**写 `docs/superpowers/specs/`——**本项目覆盖此默认**；且新会话务必在 `Exchange_js/` 目录下运行，**勿从仓库根 `重做版/` 跑 spec 生成**（这是文档跑偏散落的根因）。
+
+---
+
 ## 5 条不可违反规则
 
 1. 有持久状态、operator 可见操作 → **必须** 写 `AuditLogsService`（DI 注入，禁止 `new`）

@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS, Prisma (SQLite), React, Tailwind CSS (`adm-*` tokens)
 
-**Spec:** `docs/superpowers/specs/2026-05-07-multi-step-approval-policy-design.md`
+**Spec:** `doc-final/superpowers/specs/2026-05-07-multi-step-approval-policy-design.md`
 
 ---
 

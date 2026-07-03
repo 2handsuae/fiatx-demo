@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS, Prisma, TigerBeetle, React, Tailwind CSS
 
-**Spec:** `docs/superpowers/specs/2026-05-18-deposit-frontend-v4-alignment-design.md`
+**Spec:** `doc-final/superpowers/specs/2026-05-18-deposit-frontend-v4-alignment-design.md`
 
 ---
 

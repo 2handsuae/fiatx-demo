@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS, Prisma, `AuditLogsService`, JWT (`@nestjs/jwt`), Jest
 
-**Spec:** `docs/superpowers/specs/2026-05-19-self-service-password-reset-audit-design.md`
+**Spec:** `doc-final/superpowers/specs/2026-05-19-self-service-password-reset-audit-design.md`
 
 ---
 
