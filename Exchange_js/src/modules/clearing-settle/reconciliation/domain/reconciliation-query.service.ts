@@ -383,7 +383,7 @@ export class ReconciliationQueryService {
       // Cutoff = the businessDate of the run that most recently observed this
       // case, not kase.businessDate (frozen at first-seen under cross-day reuse).
       const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
-      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate });
+      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
       flowComparison = built.rows;
       flowSummary = built.summary;
     }
@@ -635,7 +635,7 @@ export class ReconciliationQueryService {
    * populated; orphan rows have one side null.
    */
   private async buildFlowComparison(
-    kase: { walletRef: string; businessDate: string },
+    kase: { walletRef: string; businessDate: string; assetCode: string },
   ): Promise<{ rows: FlowComparisonRow[]; summary: FlowComparisonSummary }> {
     // T6: cutoff comes from kase.businessDate here, but the CALLER (getCase)
     // now passes the businessDate of the case's lastObservedRunId run — not
@@ -714,16 +714,21 @@ export class ReconciliationQueryService {
     const intById = new Map(internalRows.map((r) => [r.id, r]));
 
     // 2. Re-pair via the matcher (uses the same precedence as the engine).
-    // decimals=0 → toMinor is identity here, so this display re-pairing keeps
-    // reporting amounts exactly as before the canonical-minor change (no
-    // behavior change to the Case-detail flow-comparison view). The proper
-    // asset.decimals wiring for this display path is owned by Task B
-    // (展示层收齐); until then 0 preserves current rendering.
+    // Pass this case's real asset.decimals so Pass 3 can convert its funds_order
+    // (元) candidates to 分 and correctly claim in-transit external lines. With
+    // decimals=0 the funds_order 元 would never scale to match a 分 external
+    // line, so this display re-run would drop every in-transit pairing and show
+    // the line as a hard orphan. Same source as the run service: asset table by
+    // currency code (never hardcoded).
+    const assetForDecimals = (await (this.prisma as any).asset.findUnique({
+      where: { code: kase.assetCode },
+      select: { decimals: true },
+    })) as { decimals: number } | null;
     const matcher = await this.walletFlowMatcher.matchFlows({
       walletRef: kase.walletRef,
       externalLines,
       cutoff,
-      decimals: 0, // TODO(canonical-minor Task B): pass this case's asset.decimals
+      decimals: assetForDecimals?.decimals ?? 0,
     });
 
     const rows: FlowComparisonRow[] = [];
