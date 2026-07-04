@@ -27,9 +27,9 @@ import { WalletReconRunService } from '../src/modules/clearing-settle/reconcilia
 import { PushOrderService } from '../src/modules/clearing-settle/reconciliation/disposition/push-order.service';
 import { FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 
-// 卡单参数（与 Task 1/2 临时驱动实测一致）：提现走法币 AED 500；swap 走 USDT→AED（to-asset
-// 精度 ≤ 2 是夹具硬约束，见 createStuckSwap 注释），amount 是 fromAmount 下限、夹具自调到能整出
-// 整数 grossTo 的最小整数。
+// 卡单参数：提现走法币 AED 500；swap 走 USDT→AED，amount 即 fromAmount（直接用）。
+// canon2 后外部镜像入库一律洗成分（× 10^decimals），故 to-asset 精度不再受限、两向皆可造，
+// amount 也无需再凑整数 grossTo（旧「≤2 硬约束 / amount 是下限、夹具自调」体操已随 T2 撤除）。
 const STUCK_WD_AMOUNT = '500';
 const STUCK_SWAP_FROM_AMOUNT = '300';
 
@@ -164,7 +164,7 @@ async function main() {
     console.log('  ① stuck withdraw:', JSON.stringify(wd));
 
     // ② swap 在途：USDT→AED，leg3（BUY，平台 F_SET AED 钱包）停在 CREATED（非终态）→ 平台钱包
-    //    OUT 在途（book=FIRM）。amount 是 fromAmount 下限，夹具自调到能整出整数 grossTo。
+    //    OUT 在途（book=FIRM）。amount 即 fromAmount 直接用（外部镜像洗成分后 grossTo 不必凑整）。
     const swap = await createStuckSwap(ctx, {
       customer, fromAsset: ctx.usdt, toAsset: ctx.aed, amount: STUCK_SWAP_FROM_AMOUNT, cutoff,
     });
