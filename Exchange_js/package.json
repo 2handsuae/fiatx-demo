@@ -46,6 +46,7 @@
     "recon:demo:break": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break",
     "recon:demo:reset": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset",
     "recon:rerun": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/recon-rerun.ts",
+    "demo:in-transit": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-in-transit.ts",
     "demo:setup": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-setup.ts",
     "demo:deposit": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-deposit.ts",
     "demo:swap": "DATABASE_URL=\"file:/tmp/exchange_js_main/dev.db\" TB_ADDRESS=127.0.0.1:3003 ts-node -r tsconfig-paths/register scripts/demo-swap.ts",
