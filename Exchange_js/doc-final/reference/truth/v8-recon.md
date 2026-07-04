@@ -1,6 +1,6 @@
 # V8 对账流程 — 当前实现真相
 
-Last Verified: 2026-07-04（核对方式：三路 subagent 走查 + 主线抽验 effectiveDate 透传/资本注入/reimbursement 残留）
+Last Verified: 2026-07-04（核对方式：三路 subagent 走查 + 主线抽验 effectiveDate 透传/资本注入/reimbursement 残留；canon2 补单位契约 §2.5 + heal e2e 实证）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 > ⚠️ 历史：V8 经 I1-I5 → credit-net 五公式 → Phase B 三轮重构；**旧 credit-net 五公式引擎已 Phase C 物理删**（11 文件全 0 引用）。本文只写现行 Phase B。
@@ -25,6 +25,28 @@ Last Verified: 2026-07-04（核对方式：三路 subagent 走查 + 主线抽验
 - `external_balances`（头）+ `external_statement_lines`（行）：外部数据归一化两表
 - `account_flows`（**AccountFlow 投影**）：2 行/transfer + `walletRef`/`externalRef`/`isExternalCrossing` + **`effectiveDate`**（生效日/结算日）
 - 锚点：prisma schema `reconciliation_*` ｜ `account-flow-projector.service.ts`
+
+## 2.5 单位契约（canonical minor · 2026-07-04 canon2）
+
+顶层原则（业主拍板）：**内部所有数据按「分」（最小单位，整数）计｜外部对账单入库一律洗成分｜前端展示时才按 `asset.decimals` 转成「元」（插小数点）**。展示是前端问题，不是存储问题。当前各列真实 scale：
+
+| 表 / 列 | scale | 说明 |
+|---|---|---|
+| `account_flows.amount`（账本真相 / TB 投影） | **分** | 8000 元充值 → flow 800000（AED decimals=2）|
+| `external_statement_lines.amount` / `external_balances.closing_balance`（外部归一化两表） | **分** | 入库契约=分；`recon-demo.ts writeMirror` 贴 account_flow（分）；demo 夹具 `injectStuckExternalMirror` 入库时 `× 10^decimals` 洗成分 |
+| `funds_orders.amount` / 整个业务层（充值/提现/兑换/报价/手续费）| **元** | 本轮**未搬**（乙第二步，见 BACKLOG）——业务层仍存元 |
+
+**recon 读入边界换算（本轮唯一换算点，因业务层还存元）**：
+- **matcher**（`wallet-flow-matcher.service.ts`）：Pass1/2 = account_flow（分）vs 外部行（分）**不换算**；Pass3 = 外部行（分，`extMinor=BigInt(toFixed(0))` 直取）vs funds_order（元）**只把 funds_order 元→分**（`toMinor = d.mul(10^decimals)`，decimals 来自 asset 表）→ 在途金额产出为分。
+- **push 回执**（`receipt-lookup.service.ts`）档2：funds_order 元 `toMinor` → 与外部行（分）BigInt 相等比；decimals 按币种查 asset 表，查不到宁可 MISS。
+- **balanceChecker**：全程分（account_flows 分 vs external closing 分）。
+
+**展示层 分→元**（`asset.decimals`，bigint-safe 字符串插点，非浮点）：
+- 后端 `reconciliation-query.service.ts` 给 Run/Case 每行/每 case 带 `decimals`（`getRun` 的 `accountStatusTable[].decimals`、`getCase` 的 `decimals`，均来自 asset 表）。
+- 前端 `ReconciliationRunsDetailPage.tsx` / `ReconciliationCasesDetailPage.tsx` / `ReconciliationExternalBalancesPage.tsx` 的 `formatAmount(raw, decimals)` 把分串转元（AED 2 位、USDT 6 位）。
+- ⚠️ 展示换算完成后可撤除的边界换算 = §上述 matcher/receipt 的 funds_order 元→分——**待业务层整层迁分后**（BACKLOG）撤。
+
+**heal 闭环实证**（`demo:in-transit --verify`）：外部镜像洗成分后，卡腿推单 POST（`WITHDRAW_NET_POST`，OUT→客户 PAYABLE[100]、IN→聚合 CLIENT_ASSET[1]，balanceChecker 只认 owned=100/101 故内部下移净额）→ 重对账 **delta=0**（外部 closing 与内部账本同一分口径归位）、卡腿脱离 IN_TRANSIT。（case 自愈到 RESOLVED 需钱包零异常达 MATCHED；复用 demo 钱包有历史内部单腿故落 SOFT_FLAG，见单测 `wallet-recon-run.service.spec.ts`。）
 
 ## 3. 关键流程
 

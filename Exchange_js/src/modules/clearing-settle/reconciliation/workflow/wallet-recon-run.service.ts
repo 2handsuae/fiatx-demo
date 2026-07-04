@@ -150,10 +150,12 @@ export class WalletReconRunService {
       new Set(attributedBalances.map((b) => b.walletRef).filter((r): r is string => !!r)),
     );
 
-    // Canonical-minor: batch-load asset.decimals for every currency in this
-    // run so the flow matcher can convert external-line / funds-order amounts
-    // 元→分 at its boundary (its in-transit output must be minor to compare
-    // against balanceCheck.delta, which is already minor). One query, keyed by
+    // Canonical-minor (T1): batch-load asset.decimals for every currency in this
+    // run so the flow matcher can convert amounts 元→分 at its boundary. Only the
+    // funds_order side needs converting — external_statement_lines are ALREADY 分
+    // (contract, §2.5) so the matcher takes them straight; funds_orders still store
+    // 元 this round, so ONLY they get ×10^decimals. The in-transit output is minor,
+    // to compare against balanceCheck.delta (already minor). One query, keyed by
     // currency=asset.code. (Same pattern as reconciliation-query.service.ts.)
     const runCurrencies = Array.from(new Set(attributedBalances.map((b) => b.currency)));
     const assetsForDecimals = runCurrencies.length === 0

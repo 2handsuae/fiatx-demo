@@ -16,7 +16,7 @@
 // 不重复——与 demo-swap.ts / demo-deposit.ts 一致。
 
 import { Prisma } from '@prisma/client';
-import { bootstrap, ensureSetup, resolveDemoCustomers, DemoCtx } from './demo-lib';
+import { bootstrap, ensureSetup, resolveDemoCustomers, waitFor, DemoCtx } from './demo-lib';
 import {
   createStuckWithdraw,
   createStuckSwap,
@@ -27,10 +27,40 @@ import { WalletReconRunService } from '../src/modules/clearing-settle/reconcilia
 import { PushOrderService } from '../src/modules/clearing-settle/reconciliation/disposition/push-order.service';
 import { FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 
-// 卡单参数：提现走法币 AED 500；swap 走 USDT→AED，amount 即 fromAmount（直接用）。
+// 卡单参数：提现走法币 AED（~500）；swap 走 USDT→AED，amount 即 fromAmount。
 // canon2 后外部镜像入库一律洗成分（× 10^decimals），故 to-asset 精度不再受限、两向皆可造，
 // amount 也无需再凑整数 grossTo（旧「≤2 硬约束 / amount 是下限、夹具自调」体操已随 T2 撤除）。
-const STUCK_WD_AMOUNT = '500';
+//
+// ⚠️ 金额必须**与该钱包历史 POSTED 净额不撞**（实测踩坑，canon2 T6 修）：demo 客户钱包跨轮复用，每次
+//   --verify 把卡腿推单 POST 后会在该钱包留一条 WITHDRAW_NET_POST 的 POSTED account_flow（净额×100 分）。
+//   reset 只清非终态腿+recon 表，**清不掉已 POST 的历史流水**（其父 withdraw 常被删、flow 成孤儿留存）。
+//   若金额与某条历史 POSTED 净额相等，匹配器 Pass2（金额+方向+60min 模糊）会拿历史流水**抢配**本轮外部
+//   镜像行 → 该行被吃掉、进不了 Pass3 → 卡腿认不成在途 → 落 BREAK（而非 IN_TRANSIT）。故这里查该客户钱包
+//   已存在的 WITHDRAW_NET_POST 净额集合，挑一个**不在集合里**的 amount（净额=amount−2，服务费 Tier 1 FLAT
+//   2 AED；区间锁 [500,999] 留足 fee/limit 余量）——本轮外部行只可能与本轮 POST 配对，与任何历史额不撞。
+//   （单纯用时间抖动不够：同一分钟/同一秒内连跑两次仍会撞同额，故按实际历史集合避让最稳。）
+async function pickCollisionFreeWdAmount(ctx: DemoCtx, customer: any, asset: any): Promise<string> {
+  const wallets = (await ctx.prisma.wallet.findMany({
+    where: { ownerId: customer.id, assetId: asset.id },
+    select: { id: true },
+  })) as Array<{ id: string }>;
+  const walletIds = wallets.map((w) => w.id);
+  const used = new Set<string>();
+  if (walletIds.length > 0) {
+    const flows = (await (ctx.prisma as any).accountFlow.findMany({
+      where: { walletRef: { in: walletIds }, eventCode: 'WITHDRAW_NET_POST', transferType: 'POSTED' },
+      select: { amount: true },
+    })) as Array<{ amount: Prisma.Decimal }>;
+    for (const f of flows) used.add(new Prisma.Decimal(f.amount).toFixed(0)); // 分
+  }
+  const pow = new Prisma.Decimal(10).pow(asset.decimals);
+  for (let amt = 500; amt <= 999; amt++) {
+    const netMinor = new Prisma.Decimal(amt - 2).mul(pow).toFixed(0); // 净额=amount−2（FLAT fee），元→分
+    if (!used.has(netMinor)) return String(amt);
+  }
+  // 500 个候选全被占用（几乎不可能）——退回一个带毫秒抖动的值，至少不必然撞。
+  return String(500 + (Date.now() % 490));
+}
 const STUCK_SWAP_FROM_AMOUNT = '300';
 
 /**
@@ -69,24 +99,30 @@ async function latestWalletRow(ctx: DemoCtx, runId: string, walletRef: string): 
 }
 
 /**
- * --verify 自检（MVP 范围 + 一个 heal 增量信号；完整 heal-to-delta-0 e2e 是 Task 5）：
+ * --verify 自检（完整 heal 闭环 delta→0；canon2 T6）：
  *   1. 触发一次 recon（in-process 调 WalletReconRunService.run）。
  *   2. 断言提现钱包 + swap 钱包都落 IN_TRANSIT（残差 = delta − inTransitSigned = 0）。← 核心 DETECTION 断言
  *   3. 把提现的卡腿 in-process 推单（PushOrderService.syncPush，键 external statement line）→ 断言 CLEARED。
  *      （swap 腿推单不在范围——BACKLOG「swap 腿推单」；swap 只演 DETECTION。）
- *   4. 再跑一次 recon → 断言提现钱包**不再 IN_TRANSIT**（卡腿已终态、Pass3 不再认领它）。
+ *   4. 再跑一次 recon → 断言提现钱包 **heal 收敛：delta=0 且 inTransitCount=0 且脱离 IN_TRANSIT**。
+ *      ← 核心 HEAL 断言（整件事目标）。
  *
- * ⚠️ 为什么 step 4 不断言 delta→0（实测踩坑）：夹具的外部镜像 bump 用"裸 amount"（498，主单位量级）
- *   减在内部 POSTED 净额（最小单位，如 49800）上——这是为了让 DETECTION 时 delta 与 inTransitSigned
- *   都等于该裸数、抵消成残差 0（见 injectStuckExternalMirror 注释）。可一旦推单把腿真 POST 掉，账本
- *   按**真实最小单位**（49800）动账，而外部 closing 仍冻结在 fixture 时的 `internal − 498`，于是
- *   delta = 49800 − 498 = 49302 ≠ 0。要让 heal 收敛到 0，必须把外部镜像**按真实最小单位重摄入**——那正是
- *   Task 5（完整 heal 闭环）的活。故本 --verify 只断言"推单成功 + 卡腿脱离 IN_TRANSIT"，不强求 delta 归零。
+ * ✅ 为什么 step 4 现在能断言 delta→0（canon2 T2 修复后）：夹具外部镜像入库已洗成分
+ *   （closing = internalPosted − netAmount×10^decimals，见 injectStuckExternalMirror）。推单把腿真 POST
+ *   掉时账本按同一最小单位（如 49800 分）动账，于是 delta = closing − internal
+ *   = (internal−49800) − (internal−49800) = 0。DETECTION 期的裸元/分错配（旧 49302 残差）已随 T2 消除。
+ *
+ * ⚠️ 关于 case 状态：钱包 delta 归零（余额已平）是 heal 的硬信号；但 demo 客户钱包是**跨轮复用**的，
+ *   历史累积了多笔内部单腿（往轮 WITHDRAW_NET_POST 等），外部对账镜像每轮只喂一条行，故重对账时该钱包
+ *   仍有 orphanInternal>0 → 落 SOFT_FLAG（余额平但逐行证据不全）而非 MATCHED，其 case 不自动 RESOLVED。
+ *   case 自愈到 RESOLVED/AUTO_HEALED 需钱包干净（零异常达 MATCHED），已由单测
+ *   wallet-recon-run.service.spec.ts（"breaks in run A then recovers in run B → RESOLVED/AUTO_HEALED"）证明。
+ *   故本 e2e 断言 delta=0（真 heal 信号），并打印真实 case 状态，不在复用钱包上硬断言 AUTO_HEALED。
  * 全 in-process，不经 HTTP、不用登录。
  */
 async function runVerify(
   ctx: DemoCtx,
-  wd: { walletRef: string; fundsOrderNo: string },
+  wd: { walletRef: string; fundsOrderNo: string; withdrawNo: string },
   swap: { walletRef: string },
 ): Promise<boolean> {
   const recon = ctx.app.get(WalletReconRunService);
@@ -128,12 +164,39 @@ async function runVerify(
     check('提现卡腿推单 → CLEARED', false, `syncPush threw: ${e.message}`);
   }
 
-  // 4. 再 recon → 提现钱包**不再 IN_TRANSIT**（卡腿已终态、Pass3 不再认领；delta 归零属 Task 5 的重摄入，见上）。
+  // 4. 再 recon → heal 收敛：卡腿已 POST，外部 closing 与内部账本按同一分口径归位 → delta=0、
+  //    该腿不再被 Pass3 认领（inTransitCount=0）、脱离 IN_TRANSIT。← 核心 HEAL 断言。
+  //
+  // ⚠️ 必须先等净额 POST 落库再 recon（实测踩坑）：syncPush 只把腿驱到 CLEARED 就返回，真正的**净额 POST**
+  //   由 withdraw-workflow 的 @OnEvent(onPayoutLegConfirmed) 异步 handler 完成（写 WITHDRAW_NET_POST
+  //   account_flow：OUT→客户 PAYABLE[100]、IN→聚合 CLIENT_ASSET[1]；balanceChecker 只认 owned=100/101，
+  //   故内部净额下移 −净额）。若紧接着 recon，该 flow 可能还没 commit → 该轮读到旧内部余额 → delta 仍= −净额
+  //   → 误判 BREAK。故这里轮询到该腿的 WITHDRAW_NET_POST 落库再 recon，去竞态。
+  await waitFor(
+    `${wd.fundsOrderNo} 净额 POST 落库（WITHDRAW_NET_POST）`,
+    async () => {
+      const posted = await (ctx.prisma as any).accountFlow.count({
+        where: { walletRef: wd.walletRef, eventCode: 'WITHDRAW_NET_POST', sourceNo: wd.withdrawNo, transferType: 'POSTED' },
+      });
+      return posted > 0 ? posted : null;
+    },
+    8000,
+  );
   const cutoff2 = new Date();
   const r2 = await recon.run({ cutoff: cutoff2 });
   const wdRow2 = await latestWalletRow(ctx, r2.runId, wd.walletRef);
+  const delta2 = wdRow2 ? new Prisma.Decimal(wdRow2.deltaAmount).toString() : 'n/a';
+  check('提现钱包 heal 后 delta=0', wdRow2 != null && delta2 === '0',
+    wdRow2 ? `delta=${delta2}（推单 POST 后外部/内部按分归位）` : 'no row');
+  check('提现钱包 heal 后卡腿不再在途（inTransitCount=0）', wdRow2 != null && wdRow2.inTransitCount === 0,
+    wdRow2 ? `inTransitCount=${wdRow2.inTransitCount}` : 'no row');
   check('提现钱包 heal 后脱离 IN_TRANSIT', wdRow2 != null && wdRow2.bucket !== 'IN_TRANSIT',
-    wdRow2 ? `bucket=${wdRow2.bucket} delta=${wdRow2.deltaAmount}（delta≠0 因外部镜像未按最小单位重摄入 → Task 5）` : 'no row');
+    wdRow2 ? `bucket=${wdRow2.bucket}` : 'no row');
+  // case 状态如实打印（不硬断言 AUTO_HEALED——复用 demo 钱包有历史内部单腿 → SOFT_FLAG，见函数头注释）。
+  const wdCase = wdRow2?.caseNo
+    ? await (ctx.prisma as any).reconciliationCase.findFirst({ where: { caseNo: wdRow2.caseNo } })
+    : null;
+  console.log(`  ℹ 提现 case ${wdRow2?.caseNo ?? '(none)'}：status=${wdCase?.status ?? 'n/a'} resolution=${wdCase?.resolutionReason ?? '—'} bucket=${wdRow2?.bucket}（delta=${delta2}；余额已平，case 自愈到 RESOLVED 需钱包零异常，见单测）`);
 
   const ok = fails.length === 0;
   console.log(`\n  --verify: ${ok ? 'PASS' : 'FAIL'}${ok ? '' : ` — ${fails.join('; ')}`}`);
@@ -160,8 +223,10 @@ async function main() {
     console.log('\n═══ demo:in-transit — 造真实提现 + swap 在途单（Command 1）═══');
 
     // ① 提现在途：法币 AED，payout 主腿停在 SUBMITTED（非终态）→ 客户钱包 OUT 在途（book=CLIENT）。
-    const wd = await createStuckWithdraw(ctx, { customer, asset: ctx.aed, amount: STUCK_WD_AMOUNT, cutoff });
-    console.log('  ① stuck withdraw:', JSON.stringify(wd));
+    //    金额避开该钱包历史 POSTED 净额 → 本轮外部镜像行不会被历史流水在 Pass2 抢配（见 picker 注释）。
+    const wdAmount = await pickCollisionFreeWdAmount(ctx, customer, ctx.aed);
+    const wd = await createStuckWithdraw(ctx, { customer, asset: ctx.aed, amount: wdAmount, cutoff });
+    console.log(`  ① stuck withdraw (amount=${wdAmount}):`, JSON.stringify(wd));
 
     // ② swap 在途：USDT→AED，leg3（BUY，平台 F_SET AED 钱包）停在 CREATED（非终态）→ 平台钱包
     //    OUT 在途（book=FIRM）。amount 即 fromAmount 直接用（外部镜像洗成分后 grossTo 不必凑整）。
