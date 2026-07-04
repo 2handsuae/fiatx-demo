@@ -45,10 +45,15 @@ orphan/mismatch 是**计数**不跨 scale，故观测 bug 仅此一处，但根�
 ### 2.3 run 服务残差（`:202` 零改）
 匹配器输出既已是分，`inTransitSigned = Σ ±BigInt(it.amount)` 天然与 `balanceCheck.delta`（分）同单位，`:202` 一行不动。`residual = delta − inTransitSigned` 正确。
 
-### 2.4 不动的
+### 2.4 展示层统一按 asset.decimals 还原（canonical-minor 的另一半）
+canonical-minor 后引擎所有金额（delta/inTransit/tbAmount/case 金额）皆为**整数分**，展示层必须一致 **÷10^decimals（asset 表）** 还原成小数，否则多小数位资产（USDT 6-8 位）显示错。现状**不一致**，须收齐：
+- ✅ **External Balances 页**（`ReconciliationExternalBalancesPage.tsx:54` `fmtAmount(v, decimals)`）：已用 asset.decimals ÷10^dec，正确，不动。
+- ❌ **Cases/Runs 详情页**（`ReconciliationCasesDetailPage.tsx:165` `formatAmount(raw)`）：用**硬编码 `DEFAULT_DECIMALS`** 补小数点，不看资产实际 decimals → 改用后端已提供的 asset.decimals。后端 getCase 已查（`reconciliation-query.service.ts:568-575` `decimals: asset?.decimals`），前端接上即可；Runs 详情页同款排查。
+- 单位存储不动：external 行/余额/account_flows 存储 scale 不迁移（丙 不做）。
+
+### 2.5 不动的
 - 余额核对器：已分，不动。
-- 查询/展示层：已按 asset.decimals 分→元展示，引擎统一到分后展示口径不变，不动。
-- 存储：external 行/余额/account_flows 存储 scale 不动（丙 不做）。
+- 存储：external 行（元）/余额（分）/account_flows（分）存储 scale 不动（丙 不做）——只引擎读入换算 + 展示还原。
 
 ## 3. 联动 demo 夹具（本 spec 落地后 demo-realdata 才能收口）
 
@@ -63,7 +68,8 @@ orphan/mismatch 是**计数**不跨 scale，故观测 bug 仅此一处，但根�
 - [ ] e2e：`demo:in-transit`（夹具改分镜像后）→ recon IN_TRANSIT 残差 0 → push sync CLEARED → 重对账 **delta=0、case AUTO_HEALED**（**这是整件事的目标**）
 - [ ] 金闸门：`recon:demo:break` 九场景 9/9 DETECTED + 两恒等式，改前改后一致（in-transit 场景 1 由真夹具供）
 - [ ] createStuckSwap 撤 `toAsset.decimals>2` 限制后，AED→USDT 方向也能造在途（可选验证）
-- [ ] 后端 tsc 0 / jest 净新增失败 0（匹配器既有 spec 跟进换算：fixture 金额若断言分值需同步）
+- [ ] 展示一致：Cases/Runs 详情页金额改用 asset.decimals 还原（非硬编码 DEFAULT_DECIMALS）；preview 截图确认多小数位资产（USDT）与 2 位资产（AED）金额都显示正确小数
+- [ ] 后端 tsc 0 / admin-web tsc 0 / jest 净新增失败 0（匹配器既有 spec 跟进换算：fixture 金额若断言分值需同步）
 
 ## 5. 明确不做
 
