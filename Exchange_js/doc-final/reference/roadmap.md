@@ -51,20 +51,38 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 > #5/6/7 共享 `workflowType: ADMIN_CREDENTIAL_MGMT`。
 
-### ADVANCED（全部未做）
+### ADVANCED（VARA 治理缺口，全部未做）
+
+> 📖 **调研留底** → `superpowers/specs/2026-07-04-v1-governance-audit-research.md`
+> ⚠️ **据 2026-07-04 深度调研提级**：`⚖️P0` 标记项原误置"可缓"，实为牌照级/上线前必须（VARA 硬性），是主要合规风险；非上线前把它们当"进阶功能"搁置，VARA 审计视为合规缺陷。
+
+**P0（VARA 牌照级，上线前必须——原清单优先级错位）：**
+
+- [ ] ⚖️P0 审计日志 8 年留存 + 归档 — 冷存储+完整性验证 ｜CRM Rule I.F.2(≥8 年，涉国安无限期)；⚠️现 `audit-retention-job.ts` 还查已删列坏着(见 BACKLOG)
+- [ ] ⚖️P0 定期权限复审/复认 — 权限快照 + 休眠/过度权限/SoD 违规标记 + 季审签字 ｜Schedule 1 RC2 Std 8 + §D.2.d.ii(quarterly) + NIST AC-2/AC-6(7)
+- [ ] ⚖️P0 密钥生命周期治理 — API Key + 加密密钥(DEK/KEK) + admin 凭证 的生成/轮换/撤销/访问审计；**链上签名/托管密钥→HexTrust 治理，平台只留监督(勿实现)** ｜TIR §D + NIST SP 800-57 crypto period
+- [ ] ⚖️P0 审计日志 WORM/tamper-evidence + 实时安全告警 — 哈希链/完整性验证 + 安全事件实时告警 ｜Schedule 1 RC2 Std 13(⚠️通知本体 stub 是根因)
+- [ ] ⚖️P0 会话即时撤销/终止 — 停用/角色撤销即时会话失效(撤销列表/短 TTL+吊销)，至少特权账户 ｜NIST AC-12(现 JWT next-check 非即时)
+- [ ] ⚖️P0 SoD 互斥矩阵扩容 — 从 3 对 admin 扩到 VARA 枚举 sales/dealing/accounting/settlement/safekeeping ｜Company Rulebook §B.2
+- [ ] ⚖️P0 admin 生命周期通知补实 — create/modify/enable/disable/remove 自动审计+通知指定人(审计已有、通知因 stub 未落) ｜NIST AC-2(4)
+- [ ] ⚖️P0 API Key 紧急 + 定期轮换 — 泄露紧急轮换 + 定期轮换(NIST crypto period 递归控制) ｜TIR Schedule 1(原 ADVANCED，提级)
+
+**P1（VARA/行业，非上线阻断）：**
+
+- [ ] ⚖️P1 PAM 特权治理闭环 — 特权账户白名单强制 + 特权操作审计 + Break-Glass 紧急特权 ｜NIST AC-6(5)
+- [ ] P1 变更前强制安全测试门 — 上线前渗透/漏洞扫描 + 整改追踪门控 ｜Schedule 1 RC2 Std 11(依赖 CI/CD)
+- [ ] ⚖️ Emergency Break-Glass — 紧急权限绕过 + 时限 elevated + 自动收回 + 事后 review ｜TIR V.A ｜上线无 SUPER_ADMIN 后优先级高
+- [ ] Approval 超时预警/通知 — 到期前 N 小时通知 + 升级 ｜来源:业务 ｜依赖通知本体
+
+**P2（低频/退出路径）：**
 
 - [ ] ⚖️ Admin Account Deletion — 离职完全撤销访问(Suspension 只是临时) ｜VARA TIR III.B.2 ｜配对:Invite(MVP)
 - [ ] Audit Evidence Package Deletion — 证据包保留期满受控删除 ｜来源:业务
-- [ ] ⚖️ Emergency Break-Glass — 紧急权限绕过+时限 elevated+自动收回+事后 review ｜VARA TIR V.A ｜上线无 SUPER_ADMIN 后优先级高
-- [ ] Approval 超时预警/通知 — 到期前 N 小时通知+升级(现只算 timeoutAt 无预警) ｜来源:业务 ｜依赖通知本体
-- [ ] ⚖️ Periodic Access Review — 权限快照+休眠/过度权限/SoD 违规标记，CISO 季审 ｜VARA TIR III.B.4
-- [ ] ⚖️ API Key Emergency/Scheduled Rotation — 密钥泄露紧急轮换 + 90 天定期 ｜VARA TIR Schedule 1
-- [ ] ⚖️ Audit Log Archival — 过期日志冷存储(有 markArchivedBefore 骨架，retention 脚本坏) ｜VARA CRM III.A
 
 ### Supporting Features（非 workflow）
 
-- **审批引擎(maker-checker)** ✅ ｜ **审计 write/query** ✅ ｜ **RBAC 权限校验** ✅ ｜ **SoD 互斥(3 对硬编码)** ✅ ｜ **审计 SubjectNo 移除** ✅2026-05-19
-- ⚠️ **通知 send/retry** — roadmap 原标 ✅，**实为 STUB**（只 WebSocket gateway，无 email/webhook/retry；见 truth + BACKLOG）
+- **审批引擎(maker-checker)** ✅ ｜ **审计 write/query** ✅ ｜ **RBAC 权限校验** ✅ ｜ **SoD 互斥(3 对硬编码，⚠️应扩容见上 P0)** ✅ ｜ **审计 SubjectNo 移除** ✅2026-05-19
+- ⚠️ **通知 send/retry** — roadmap 原标 ✅，**实为 STUB**（只 WebSocket gateway，无 email/webhook/retry）——是"实时告警""生命周期通知""超时预警"三个 P0/P1 的共同前置，见 truth + BACKLOG
 - **Approval delegation / Login anomaly detection** — ADVANCED 未做
 
 > 现状/锚点见 [truth/v1-governance-audit.md](truth/v1-governance-audit.md)；技术债(通知 stub / subjectNos 漂移 / retention 脚本 / SUPER_ADMIN bypass)见 [BACKLOG.md](../BACKLOG.md)。
