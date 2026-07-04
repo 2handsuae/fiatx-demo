@@ -40,6 +40,7 @@
 | V6 | 兑换 | ✅ v6-swap.md |
 | V7 | 财资运营（Treasury Ops）| 无独立 truth（旧内部转账/延迟结算已删；共享原语归 funds-orders.md；财资运营全未做）|
 | V8 | 对账 | ✅ v8-recon.md |
+| V9 | 合规治理顶层（监管报送）| 无独立 truth（全未做；据 VARA 调研规划见 roadmap V9）|
 | 跨版本 | 8 码 COA + 记账不变量 | `accounting-coa.md`（待抽出）|
 | 跨版本 | 资金单状态机全集 | `funds-orders.md`（待抽出）|
 
