@@ -36,15 +36,15 @@ function ymd(d: Date): string {
  * upsert 该钱包的 ExternalBalance；再插一条同方向 statement line（银行/托管已过账该笔）。
  * 该钱包内部 POSTED 净额由 recon 引擎自己的 balanceChecker 算（与对账口径 0 漂移），外部
  * closing 相对内部按方向 bump 一个 `amount`：
- *   - OUT（钱出去了，外部先反映减少）：closing = internalPosted − amount，line.direction=OUT
- *   - IN （钱进来了，外部先反映增加）：closing = internalPosted + amount，line.direction=IN
- * 于是 recon：delta = external − internal = ±amount；在途 Pass3 认领该腿 → inTransitSigned = ±amount；
+ *   - OUT（钱出去了，外部先反映减少）：closing = internalPosted − bumpMinor，line.direction=OUT
+ *   - IN （钱进来了，外部先反映增加）：closing = internalPosted + bumpMinor，line.direction=IN
+ * 于是 recon：delta = external − internal = ±bumpMinor；在途 Pass3 认领该腿 → inTransitSigned = ±bumpMinor；
  *   残差 = delta − inTransitSigned = 0 且 inTransitCount>0 → IN_TRANSIT。
  *
- * ⚠️ 单位一致性（实测踩坑）：funds_orders.amount / statement_lines.amount 存"主单位"（如 498），
- *   account_flows / balanceChecker.delta 是"最小单位"（如 49800）。bump 当作与 line.amount 同值
- *   的裸数直接加减 closing——delta 因此等于该裸数（内部基数的绝对刻度被抵消）。故 closing 用
- *   `internalPosted ± 裸 amount`，不要按 decimals 放大，否则 delta≠inTransitSigned 落 BREAK。
+ * 单位契约：外部镜像（ExternalBalance.closingBalance / statement line.amount）入库一律洗成「分」
+ *   ——主单位 amount × 10^decimals（decimals 来自 asset 表，调用方传入），与 account_flows /
+ *   balanceChecker（皆分）、T1 后匹配器 extMinor 直取整的口径一致。funds_order 仍存元，由匹配器
+ *   Pass3 的 toMinor 单侧 ×10^decimals 换算——故此处 line.amount 存分即可被 amountOk 认领。
  *
  * `book` 只是 ExternalBalance / statement line 上的存储字段，不参与 delta 计算——钱包 kind 由
  * balanceChecker 从 account_flows 的 code 自证（CUSTOMER 100/101 vs FIRM 200-203）。仍按钱包
@@ -56,6 +56,7 @@ export async function injectStuckExternalMirror(
     walletRef: string;
     direction: 'IN' | 'OUT';
     amount: Prisma.Decimal; // 主单位（= 腿 netAmount/amount，与在途 Pass3 amountOk 对齐）
+    decimals: number;       // 该币种小数位（asset 表）——外部镜像元→分换算，禁硬编码
     currency: string;
     book: 'CLIENT' | 'FIRM';
     source: 'HEXTRUST' | 'ZAND';
@@ -67,14 +68,15 @@ export async function injectStuckExternalMirror(
     description: string;
   },
 ): Promise<void> {
-  const { walletRef, direction, amount, currency, book, source, externalRef, dedupKey, cutoff, ownerNo, datetime, description } = opts;
+  const { walletRef, direction, amount, decimals, currency, book, source, externalRef, dedupKey, cutoff, ownerNo, datetime, description } = opts;
 
-  // 内部 POSTED 净额（最小单位整数），bump 按方向加减裸 amount。
+  // 内部 POSTED 净额（最小单位整数）。外部 bump 先把主单位 amount 洗成分（×10^decimals，
+  // Prisma.Decimal 禁浮点），再按方向加减——两边都是分，delta = ±bumpMinor 与在途口径一致。
   const balanceChecker = ctx.app.get(WalletBalanceCheckerService);
   const bal = await balanceChecker.checkBalance({ walletRef, externalClosing: 0n, cutoff });
   const internalPosted = bal.internal.total as bigint;
-  const bump = BigInt(amount.toFixed(0)); // 裸 amount（与 line.amount 同值）
-  const closingMinor = direction === 'OUT' ? internalPosted - bump : internalPosted + bump;
+  const bumpMinor = BigInt(amount.mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0)); // 元→分
+  const closingMinor = direction === 'OUT' ? internalPosted - bumpMinor : internalPosted + bumpMinor;
 
   const cutoffDate = ymd(cutoff);
   await ctx.prisma.externalBalance.upsert({
@@ -98,7 +100,8 @@ export async function injectStuckExternalMirror(
     update: {},
     create: {
       source, accountRef: walletRef, subAccount: walletRef, book, currency,
-      direction, amount, externalRef, datetime, description, dedupKey,
+      direction, amount: new Prisma.Decimal(bumpMinor.toString()), // 分（与 account_flows/引擎口径一致）
+      externalRef, datetime, description, dedupKey,
     },
   });
 }
@@ -232,6 +235,7 @@ export async function createStuckWithdraw(
     walletRef,
     direction: 'OUT',
     amount: outAmount,
+    decimals: asset.decimals, // 该币种小数位（asset 表）——外部镜像元→分
     currency: asset.currency,
     book: 'CLIENT',
     source: sourceFor(asset.currency),
@@ -269,29 +273,25 @@ export interface StuckSwapResult {
  * swap 4 腿模型（SELL/SETTLE/BUY/FEE，见 swap-leg-plan.constant）：腿在平台 F_ 钱包间与客户
  * 钱包间搬钱。leg3 是 BUY 腿——USDT→AED 时 fromRole=F_SET（平台 AED 结算钱包），AED→USDT 时
  * fromRole=F_OPS（平台 USDT 运营钱包）。两向的**卡腿 fromWalletId 都是平台钱包（book=FIRM）**，
- * 不是客户钱包——这跟提现主腿（客户钱包 book=CLIENT）本质不同。
- *
- * ⚠️ 但本夹具**仅支持 to-asset 精度 ≤ 2 的方向（即 →AED，如 USDT→AED）**：recon 在途匹配器要
- *   卡腿金额（=grossTo）为整数主单位，而 grossTo 按 to-asset 精度舍入——to-USDT（6-8 位）几乎
- *   凑不出整数（见 step 0 的方向性硬 guard）。USDT→AED 的 leg3（F_SET）已是 FIRM 钱包，FIRM
- *   卡单场景完整覆盖；AED→USDT 的 F_OPS 卡单既非必需也不可达。
+ * 不是客户钱包——这跟提现主腿（客户钱包 book=CLIENT）本质不同。两向皆可造（T2 起）：外部镜像
+ * 入库洗成分（× 10^decimals），grossTo 是不是整数主单位不再要紧，故 to-USDT（6 位）方向也能造。
  *
  * 卡腿在其 fromWalletId 上方向为 OUT（findNonTerminalByWallet：fromWalletId===walletRef → OUT）。
  * 该腿 POST 未做（handler 只在 CONFIRMED 才 postLeg），故这条 OUT 的 code-201/200 记账没落地；
- * 但 leg2 已 CLEAR，把 grossTo 打进了该 F_ 钱包（IN）——所以内部 POSTED 净额此刻 = +grossTo。
- * 外部镜像按 OUT 把 closing 相对内部减 grossTo，插一条 OUT statement line（托管/银行已过账该腿）：
- *   delta = external − internal = −grossTo；在途 Pass3 认领 leg3（金额=grossTo，方向 OUT）→
- *   inTransitSigned = −grossTo；残差 0 且 inTransitCount>0 → IN_TRANSIT。
+ * 但 leg2 已 CLEAR，把 grossTo 打进了该 F_ 钱包（IN）——所以内部 POSTED 净额此刻 = +grossTo（分）。
+ * 外部镜像按 OUT 把 closing 相对内部减 grossTo（洗成分），插一条 OUT statement line（分，托管/银行
+ * 已过账该腿）：delta = external − internal = −grossTo(分)；在途 Pass3 认领 leg3（extMinor(line 分) ==
+ *   toMinor(腿 元)，方向 OUT）→ inTransitSigned = −grossTo(分)；残差 0 且 inTransitCount>0 → IN_TRANSIT。
  *
- * swap 腿 amountRef='grossTo'（leg3），netAmount==amount==grossTo（createLeg 里 net=amount）。
- * 在途 Pass3 amountOk 用 line.amount==腿.netAmount/amount 认领，故 line.amount = grossTo。
- * swap 腿全程无 txHash/referenceNo（advance 不写），在途 Pass3 走子轮B（金额+方向+72h 时窗）。
+ * swap 腿 amountRef='grossTo'（leg3），netAmount==amount==grossTo（createLeg 里 net=amount，存元）。
+ * 在途 Pass3 amountOk 按 extMinor(line.amount 分) == toMinor(腿.netAmount/amount 元) 认领，故
+ * line.amount 存分（= grossTo × 10^decimals）。swap 腿全程无 txHash/referenceNo（advance 不写），
+ * 在途 Pass3 走子轮B（金额+方向+72h 时窗）。
  *
  * ⚠️ swap push-heal 不在范围（BACKLOG「swap 腿推单」）——本夹具只演 DETECTION（recon 落 IN_TRANSIT）。
  *
- * `opts.amount` 是 fromAmount 下限——因 recon 在途匹配器要求整数主单位金额，夹具会实时探汇率并从
- *   该下限起向上微调到能整出 grossTo 的最小整数 fromAmount（见 step 0；精确名义额非要点）。`toAsset`
- *   须精度 ≤ 2（否则 step 0 当场响亮报错），故实际方向恒为 →AED。
+ * `opts.amount` 直接作为 fromAmount 建 quote（精确名义额非要点，任意值皆可——洗成分后不再要求
+ *   整数 grossTo）。
  *
  * 返回 { swapNo, stuckLegNo, walletRef, externalRef, stuckLegId } 供 manifest/断言。
  */
@@ -309,47 +309,10 @@ export async function createStuckSwap(
       amount: amt, customerId: c.id,
     } as any);
 
-  // ── 0. 汇率无关地挑一个能整出 grossTo 的 fromAmount ───────────────────────────────
-  //   卡腿（leg3）金额 = grossTo。引擎实际算 grossAmountOut = round(amount × quotedRate,
-  //   toAsset.decimals, ROUND_HALF_UP)（pricing-engine.service.ts:220-224，feeDecimals=
-  //   to-asset 精度；rateAllIn == quotedRate 见 swap-quote.service.ts:182）。而 recon 在途匹配器
-  //   要求**整数主单位金额**（编排器 BigInt(line.amount) 不容小数点 + amountOk 按主单位比对）。
-  //
-  //   ⚠️ 方向性硬约束（实测确认）：能否凑出整数 grossTo 取决于 **to-asset 的精度**。
-  //     to-AED（2 位）：整数 fromAmount 命中整 AED 很密（每 ~10 个就有一个），可用。
-  //     to-USDT（6-8 位）：整 USDT 需 amount×rate 落在 5e-7 内命中整数——8 位有效数字的分数汇率
-  //       下几乎不可能（实测 [100,200000) 整 AED 输入零命中）。故本夹具**只支持 to-asset 精度 ≤ 2**
-  //       的方向（即 →AED）。这不缩小演示价值：USDT→AED 的 leg3 钱包（F_SET）已是平台 FIRM 钱包，
-  //       FIRM-钱包卡单场景完整覆盖；AED→USDT 的 leg3（F_OPS）也是 FIRM 钱包但既非必需也不可达。
-  //     引擎"在途行小数金额崩/主-最小单位混用"的根因缺陷已单列 backlog（不在本夹具范围修）。
-  const toDp: number = toAsset.decimals ?? 8;
-  if (toDp > 2) {
-    throw new Error(
-      `createStuckSwap: to-asset ${toAsset.currency} has ${toDp} decimals — recon in-transit ` +
-        `matcher needs an integer major-unit grossTo (BigInt(line.amount)), which is unreachable ` +
-        `for a >2-decimal to-asset. Use a direction whose to-asset settles in ≤2 decimals (→AED).`,
-    );
-  }
-  const probe: any = await mkQuote(new Prisma.Decimal(amount)); // 探实时 rateAllIn（费率随 ensureSetup 变）
-  const rateAllIn = new Prisma.Decimal(probe.rateAllIn);
-  const grossOf = (fromAmt: Prisma.Decimal) =>
-    fromAmt.mul(rateAllIn).toDecimalPlaces(toDp, Prisma.Decimal.ROUND_HALF_UP);
-  const start = parseInt(new Prisma.Decimal(amount).toFixed(0), 10);
-  const WINDOW = 400; // to-AED 2 位命中很密，400 足够
-  let chosenFrom = -1;
-  for (let a = start; a < start + WINDOW; a++) {
-    const g = grossOf(new Prisma.Decimal(a));
-    if (g.equals(g.trunc())) { chosenFrom = a; break; }
-  }
-  if (chosenFrom < 0) {
-    throw new Error(
-      `createStuckSwap: no integer fromAmount in [${start}, ${start + WINDOW}) yields a whole ` +
-        `${toAsset.currency} grossTo at rate ${rateAllIn} (dp=${toDp}) — cannot build an integer-amount stuck leg`,
-    );
-  }
-
   // ── 1. 造 swap → PROCESSING（照 demo-lib.runSwaps：createQuote → executeSwap）────────
-  const quote: any = await mkQuote(new Prisma.Decimal(chosenFrom));
+  //   opts.amount 直接作 fromAmount——外部镜像入库洗成分（× 10^decimals，见 step 4），grossTo
+  //   是不是整数主单位不再要紧，故无需再搜整数 fromAmount，任意方向（含 to-USDT 6 位）皆可造。
+  const quote: any = await mkQuote(new Prisma.Decimal(amount));
   const swap: any = await ctx.swapWf.executeSwap(c.id, quote.id);
   await waitFor(`${swap.swapNo} PROCESSING`, async () => {
     const s: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });
@@ -402,21 +365,18 @@ export async function createStuckSwap(
   // leg3 资产币种：USDT→AED 时 leg3 是 AED（ZAND）；AED→USDT 时 leg3 是 USDT（HEXTRUST）。
   const legAsset: any = (stuck as any).asset;
   const legCurrency: string = legAsset?.currency ?? toAsset.currency;
-  const outAmount = new Prisma.Decimal(stuck.netAmount ?? stuck.amount); // swap 腿 amount==netAmount==grossTo
+  const outAmount = new Prisma.Decimal(stuck.netAmount ?? stuck.amount); // swap 腿 amount==netAmount==grossTo（元）
 
-  // ⚠️ 引擎约束（实测踩坑，与在途匹配器口径绑定）：编排器算 inTransitSigned 用
-  //   BigInt(line.amount)，要求 line.amount 是**整数字符串**；而在途 Pass3 amountOk 用
-  //   line.amount.equals(腿.amount) 认领，要求 line.amount == 腿的主单位金额。两者叠加 →
-  //   卡腿主单位金额必须是**整数**，否则 BigInt(小数) 抛错 / Decimal 不等 → 无法认领。
-  //   step 0 已按实时汇率把 fromAmount 调到能整出 grossTo，故此处正常恒成立；仅作防御性兜底
-  //   （万一 grossTo 计算与 quote.amountOut 口径偏差），炸响而非静默产 BREAK。
-  if (!outAmount.equals(outAmount.trunc())) {
-    throw new Error(
-      `stuck swap leg ${stuck.fundsOrderNo} amount ${outAmount} ${legCurrency} is fractional — ` +
-        `recon in-transit matcher needs an integer major-unit amount (BigInt(line.amount)); ` +
-        `step 0 should have adjusted fromAmount to avoid this (grossTo vs quote.amountOut drift?).`,
-    );
-  }
+  // 该币种小数位（外部镜像元→分换算，禁硬编码）：findByParent include:asset 一般已带 decimals；
+  // 若腿的 asset 关系缺失则就地按币种从 asset 表补查。
+  const legDecimals: number =
+    legAsset?.decimals ??
+    (await ctx.prisma.asset
+      .findFirst({ where: { currency: legCurrency }, select: { decimals: true } })
+      .then((a: { decimals: number } | null) => {
+        if (!a) throw new Error(`stuck swap leg ${stuck.fundsOrderNo}: asset ${legCurrency} not found — cannot resolve decimals`);
+        return a.decimals;
+      }));
 
   // ── 4. 外部镜像：该平台钱包上 leg3 是 OUT，走共享 injectStuckExternalMirror（book=FIRM）──
   //   ⚠️ cutoff 耦合（同 createStuckWithdraw，但此处更紧）：statement line datetime = 卡腿创建
@@ -429,6 +389,7 @@ export async function createStuckSwap(
     walletRef,
     direction: 'OUT',
     amount: outAmount,
+    decimals: legDecimals, // leg3 币种小数位（asset 表）——外部镜像元→分
     currency: legCurrency,
     book: 'FIRM', // 平台 F_ 钱包（F_SET / F_OPS），非客户钱包
     source: sourceFor(legCurrency),
