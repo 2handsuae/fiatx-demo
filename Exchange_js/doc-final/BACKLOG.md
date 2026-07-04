@@ -108,4 +108,11 @@ Last Updated: 2026-07-03
 - [ ] 提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检
 - [ ] 充值"已记账不可直转终态"守卫（回退分录未实现前，拦住对已入暂扣充值的拒绝）｜卡片 task_16af8187 ｜来源: 2026-07-03 V4 体检
 
+## 交付 / 可移植 Docker（2026-07-04 本会话新增）
+
+- [ ] **launch.json 治理（待决策）**：`.claude/launch.json` 全机器专属绝对路径 + 预览工具自动重生成 stale 配置（settle-opt/claude-admin 反复回填）；已经 `.gitattributes` export-ignore 不进交付包，但仍被 git 跟踪。待决策：gitignore 停止跟踪、交预览工具本地生成 ｜来源: 2026-07-04 可移植 Docker
+- [ ] **Docker `tb-format` 非幂等**：重跑演示需先 `docker compose down -v` 清账本端数据卷（否则 format 撞已存在文件报错）；可给 format 加 if-missing 守卫做到重跑免 down -v ｜来源: 2026-07-04 Docker 交付
+- [ ] **Docker Desktop Mac 4.42+ io_uring 风险留账**：新版 Mac 版可能 VM 级封 io_uring，`seccomp=unconfined` 也救不回 → 退 OrbStack（已写进 `READ-ME-FIRST.md`，此处备查）｜来源: 2026-07-04 Docker 交付
+- [ ] **泄露 dev `.env` 仍在 git 历史**：`.env` 已 `git rm --cached`（合 c80ce5e）+ 本地换新 MFA key 作废旧值；旧值仍留在历史（用户选不重写历史，属 demo key）。若确认该 key 曾用于任何真实用途，需重评是否 filter-repo 抹历史 ｜来源: 2026-07-04 一级审计
+
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
