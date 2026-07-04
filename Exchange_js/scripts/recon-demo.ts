@@ -159,11 +159,75 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // Legacy scenario-1 shell tag. Since canon2 T5, scenario 1 drives a REAL stuck
 // withdraw (via createStuckWithdraw) instead of a synthetic FundsOrder, so no
 // new DEMO-IT- rows are created — this prefix now only cleans rows left by the
-// pre-T5 shell. (The real stuck withdraw's funds_order + withdraw txn are NOT
-// cleaned by reset here; that clean reset is canon2 T6's job.)
+// pre-T5 shell. (The real stuck withdraw's funds_order + withdraw txn ARE
+// cleaned on reset via clearStuckFixtureWithdraws → reset && break is idempotent.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
 // Scenario 9's orphan external head/line use this fixed accountRef.
 const DEMO_ORPHAN_ACCOUNT_REF = 'DEMO-ORPHAN-ADDR';
+
+/**
+ * Delete the demo-fixture stuck WITHDRAWS scenario 1 leaves behind, so
+ * `recon:demo:reset && recon:demo:break` is idempotent (no accumulation of
+ * non-terminal payout legs → no Pass3 mis-claim → stable 9/9).
+ *
+ * Identification (union of two demo-only signals, run BEFORE the external-line
+ * blanket-delete so the tag path still has rows to read):
+ *   (a) tag reverse-lookup — the fixture writes external_ref =
+ *       `${DEMO_STUCK_WD_REF_PREFIX}${withdrawNo}`; strip the prefix to recover
+ *       the withdrawNo of the *current* cycle's stuck withdraw.
+ *   (b) non-terminal-leg — any withdraw_transaction carrying a non-terminal
+ *       funds_order leg. This catches ORPHANS whose external line was already
+ *       deleted by a prior reset / demo:in-transit cleanup (the tag path alone
+ *       misses these — exactly the pre-existing dirty state). In a demo DB this
+ *       is unambiguous: demo:all drives every withdraw to SUCCESS, so the only
+ *       non-terminal withdraws are fixture stuck ones.
+ *
+ * Deleting the withdraw_transaction CASCADE-removes its funds_order legs
+ * (funds_orders.withdrawTransactionId FK is ON DELETE CASCADE). Stuck payout
+ * legs are non-terminal → never POSTED → leave no account_flows / TB, so this
+ * is a clean delete (no ledger reversal needed).
+ *
+ * Scope: WITHDRAWS only. Stuck SWAPS (demo:in-transit only — recon:demo never
+ * creates them) have legs 1/2 already CLEARED (real TB postings + account_flows),
+ * so a correct teardown must reverse TB too → that belongs to a full
+ * db:reset:business, not this scoped demo reset. They don't affect recon:demo's
+ * 9/9 (leg3 has no external line post-reset, so Pass3 can't claim it).
+ */
+async function clearStuckFixtureWithdraws(prisma: PrismaService): Promise<number> {
+  const TERMINAL = ['CLEARED', 'FAILED', 'TIMEOUT'];
+  // (a) tag reverse-lookup — current cycle.
+  const stuckLines = (await (prisma as any).externalStatementLine.findMany({
+    where: { externalRef: { startsWith: DEMO_STUCK_WD_REF_PREFIX } },
+    select: { externalRef: true },
+  })) as Array<{ externalRef: string | null }>;
+  const taggedWithdrawNos = Array.from(
+    new Set(
+      stuckLines
+        .map((l) => l.externalRef?.slice(DEMO_STUCK_WD_REF_PREFIX.length))
+        .filter((n): n is string => !!n),
+    ),
+  );
+  // (b) non-terminal-leg — orphans + current cycle.
+  const withdrawIdsFromLegs = (await (prisma as any).fundsOrder.findMany({
+    where: { withdrawTransactionId: { not: null }, status: { notIn: TERMINAL } },
+    select: { withdrawTransactionId: true },
+    distinct: ['withdrawTransactionId'],
+  })) as Array<{ withdrawTransactionId: string | null }>;
+  const legWithdrawIds = withdrawIdsFromLegs
+    .map((r) => r.withdrawTransactionId)
+    .filter((id): id is string => !!id);
+
+  if (taggedWithdrawNos.length === 0 && legWithdrawIds.length === 0) return 0;
+  const { count } = await (prisma as any).withdrawTransaction.deleteMany({
+    where: {
+      OR: [
+        { withdrawNo: { in: taggedWithdrawNos } },
+        { id: { in: legWithdrawIds } },
+      ],
+    },
+  });
+  return count; // funds_order legs CASCADE-deleted with the parent withdraw.
+}
 
 async function clearWalletDemo(prisma: PrismaService): Promise<{
   runs: number; cases: number; lineItems: number; balances: number; lines: number; fundsOrders: number;
@@ -187,21 +251,27 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
   const deletedRuns = runIds.length
     ? (await (prisma as any).reconciliationRun.deleteMany({ where: { id: { in: runIds } } })).count
     : 0;
+  // Delete the fixture stuck withdraws (+ CASCADE their non-terminal legs)
+  // BEFORE the external-line blanket-delete, so the tag reverse-lookup still
+  // has its DEMO-STUCK-WD- external rows to read. This is what keeps
+  // reset && break idempotent (no leg accumulation → stable 9/9).
+  const deletedStuck = await clearStuckFixtureWithdraws(prisma);
   // externalStatementLine/externalBalance blanket-deletes already cover
   // scenario 9's orphan head (accountRef=DEMO-ORPHAN-ADDR) — no separate
   // filter needed, both tables are demo-only footprint.
   const deletedLines = (await (prisma as any).externalStatementLine.deleteMany({})).count;
   const deletedBalances = (await (prisma as any).externalBalance.deleteMany({})).count;
-  // Legacy pre-T5 scenario-1 shell cleanup: delete only DEMO-IT--tagged funds
-  // orders (never a real business funds order). Post-T5 scenario 1 uses a real
-  // stuck withdraw whose non-terminal payout leg is NOT tagged and NOT removed
-  // here — those accumulate across break runs until canon2 T6's clean reset.
-  const deletedFundsOrders = (await (prisma as any).fundsOrder.deleteMany({
+  // Legacy pre-T5 scenario-1 shell cleanup: delete any DEMO-IT--tagged funds
+  // orders left by the pre-T5 synthetic shell (never a real business funds
+  // order). Post-T5 scenario 1's real stuck withdraw is cleaned above via
+  // clearStuckFixtureWithdraws.
+  const deletedShellFundsOrders = (await (prisma as any).fundsOrder.deleteMany({
     where: { referenceNo: { startsWith: DEMO_IN_TRANSIT_REF_PREFIX } },
   })).count;
   return {
     runs: deletedRuns, cases: deletedCases, lineItems: deletedLineItems,
-    balances: deletedBalances, lines: deletedLines, fundsOrders: deletedFundsOrders,
+    balances: deletedBalances, lines: deletedLines,
+    fundsOrders: deletedShellFundsOrders + deletedStuck,
   };
 }
 
@@ -621,7 +691,12 @@ async function injectScenarios(
       where: { dedupKey: `${DEMO_STUCK_WD_REF_PREFIX}${stuck.withdrawNo}` },
       select: { amount: true },
     });
-    const inTransitMinor = line ? line.amount.toString() : stuck.amount; // 分（net × 10^decimals）
+    // No silent fallback: the fixture always writes this line (its dedupKey ==
+    // DEMO-STUCK-WD-<withdrawNo>). Missing it means the fixture broke — throw
+    // rather than fall back to stuck.amount, which is the GROSS main-unit ('500'),
+    // wrong both in scale and value vs the NET minor (49800) we need here.
+    if (!line) throw new Error(`scenario 1: fixture external line missing for ${stuck.withdrawNo}`);
+    const inTransitMinor = line.amount.toString(); // 分（net × 10^decimals）
     injections.push({
       scenarioId: 1,
       rootCause: 'IN_TRANSIT_TIMING',
