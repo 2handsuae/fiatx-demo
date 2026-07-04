@@ -51,6 +51,7 @@ interface AccountStatusRow {
   walletRole?: string | null;
   ownerNo?: string | null;
   asset: string;
+  decimals: number;             // T4 — asset.decimals; display scales 分→元 by 10^decimals
   book: string;
   coaCode: string | null;
   internal: { balance: string };
@@ -114,24 +115,23 @@ const TRIGGER_LABELS: Record<string, string> = {
 const fmtTrigger = (t: string) => TRIGGER_LABELS[t] || t;
 const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 
-// Decimals for amount rendering. Internal/external balances are bigints; this
-// matches AccountStatementPage's default of 6 decimals so the two pages tell
-// the same story for the same wallet. (FIAT shows trailing zeros — fine; the
-// cockpit is for operators, not customers.)
-const DEFAULT_DECIMALS = 6;
-const formatAmount = (raw: string): string => {
+// T4 (canon2): amounts arrive as integer base units (分); scale 分→元 by each
+// wallet's own asset decimals (getRun returns per-row `decimals` from the asset
+// table — a run spans multiple assets, AED=2/USDT=6). bigint-safe string padding
+// (no float) so USDT (6dp) shows every digit right; decimals=0 → no fraction.
+const formatAmount = (raw: string, decimals: number): string => {
   // Treat input as integer string of base units; do bigint-safe division.
   // Negative ok; locale comma grouping; min/max fraction = decimals.
   const s = String(raw ?? '0');
   let neg = false;
   let body = s;
   if (body.startsWith('-')) { neg = true; body = body.slice(1); }
-  const padded = body.padStart(DEFAULT_DECIMALS + 1, '0');
-  const intPart = padded.slice(0, padded.length - DEFAULT_DECIMALS) || '0';
-  const fracPart = padded.slice(padded.length - DEFAULT_DECIMALS);
+  const padded = body.padStart(decimals + 1, '0');
+  const intPart = padded.slice(0, padded.length - decimals) || '0';
+  const fracPart = decimals > 0 ? padded.slice(padded.length - decimals) : '';
   // Group thousands in the integer part.
   const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `${neg ? '-' : ''}${intGrouped}.${fracPart}`;
+  return `${neg ? '-' : ''}${intGrouped}${fracPart ? `.${fracPart}` : ''}`;
 };
 
 const isZeroAmount = (raw: string): boolean => {
@@ -603,11 +603,11 @@ const ReconciliationRunsDetailPage = () => {
                               </td>
                               {/* Internal */}
                               <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                                {formatAmount(row.internal.balance)}
+                                {formatAmount(row.internal.balance, row.decimals)}
                               </td>
                               {/* External */}
                               <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                                {formatAmount(row.external.balance)}
+                                {formatAmount(row.external.balance, row.decimals)}
                               </td>
                               {/* Δ — muted gray when zero, bold red when non-zero */}
                               <td
@@ -618,11 +618,11 @@ const ReconciliationRunsDetailPage = () => {
                                     : 'font-bold text-adm-red',
                                 ].join(' ')}
                               >
-                                {formatAmount(row.delta)}
+                                {formatAmount(row.delta, row.decimals)}
                               </td>
                               {/* In-transit — em dash when zero */}
                               <td className="px-3 py-2.5 text-right font-mono text-[11px] text-adm-t1">
-                                {inTransitZero ? '—' : formatAmount(row.inTransitAmount)}
+                                {inTransitZero ? '—' : formatAmount(row.inTransitAmount, row.decimals)}
                               </td>
                               {/* Flows */}
                               <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t1">

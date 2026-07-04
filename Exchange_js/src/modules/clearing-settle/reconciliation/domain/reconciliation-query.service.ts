@@ -203,11 +203,25 @@ export class ReconciliationQueryService {
       : [];
     const walletById = new Map(wallets.map((w) => [w.id, w]));
 
+    // T4 (canon2): asset decimals per row so the display layer can scale each
+    // wallet's amounts (分) back to 元 by its own asset's precision — a run
+    // spans multiple assets (AED=2, USDT=6). Same lookup as listExternalBalances:
+    // asset table by currency code, never hardcoded.
+    const runAssetCodes = Array.from(new Set(runWallets.map((w) => w.assetCode)));
+    const runAssets = runAssetCodes.length
+      ? ((await (this.prisma as any).asset.findMany({
+          where: { code: { in: runAssetCodes } },
+          select: { code: true, decimals: true },
+        })) as Array<{ code: string; decimals: number }>)
+      : [];
+    const decimalsByCode = new Map(runAssets.map((a) => [a.code, a.decimals]));
+
     const accountStatusTable: AccountStatusRow[] = legacy ? [] : runWallets.map((w) => ({
       walletRef: w.walletRef,
       walletNo: walletById.get(w.walletRef)?.walletNo ?? null,
       walletRole: walletById.get(w.walletRef)?.walletRole ?? null,
       asset: w.assetCode,
+      decimals: decimalsByCode.get(w.assetCode) ?? 0,
       book: w.book,
       coaCode: w.coaCode,
       ownerNo: w.ownerNo,
@@ -438,6 +452,14 @@ export class ReconciliationQueryService {
         })
       : null;
 
+    // T4 (canon2): the display layer scales every amount by 10^decimals to turn
+    // integer base units (分) back into 元. Same source as listExternalBalances
+    // and buildFlowComparison — asset table by currency code, never hardcoded.
+    const assetRow = (await (this.prisma as any).asset.findUnique({
+      where: { code: kase.assetCode },
+      select: { decimals: true },
+    })) as { decimals: number } | null;
+
     const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
     const linkedRunRow = linkedRunId
       ? await this.prisma.reconciliationRun.findUnique({
@@ -495,6 +517,7 @@ export class ReconciliationQueryService {
       ...kase,
       walletNo: walletRow?.walletNo ?? null,
       linkedRunNo: linkedRunRow?.runNo ?? null,
+      decimals: assetRow?.decimals ?? 0,
       bucket: kase.bucket ?? null,
       flowComparison,
       flowSummary,
