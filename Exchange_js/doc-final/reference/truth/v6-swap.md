@@ -22,6 +22,8 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 
 ## 2. 数据模型要点
 
+> 📖 资金单状态机 / 共享执行引擎 → [funds-orders.md](funds-orders.md)；记账口径 → [accounting-coa.md](accounting-coa.md)。
+
 - **swap 腿** = `swapTransactionId` 非空的 `funds_order`（+ `legSeq` 1-4，不走白名单）。⚠️ 代码仍用 `InternalFundAction` 旧名映射到 `FundsOrderAction`（命名债，见 BACKLOG）
 - **Quote**：`SwapQuoteStatus` = ACTIVE/USED/EXPIRED/CANCELLED；`SWAP_QUOTE_TTL_SECONDS = 30`；**懒过期**（查询时 markExpired，无 cron）
 - **SwapFeeLevel**：tier = `rateMarkupBps`（点差）+ `feeItems`（可选，**支持 spread-only** tier）

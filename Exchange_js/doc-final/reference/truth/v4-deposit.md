@@ -8,10 +8,9 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 
 ## 1. 充值资金单（funds_orders 充值切片）
 
-充值资金单 = `depositTransactionId` 非空的 `funds_order`（Payin 表已并入 funds_orders）。
+> 📖 资金单状态机 / 共享执行引擎 → [funds-orders.md](funds-orders.md)。本节只写充值切片。
 
-- **虚拟币状态机**：`SUBMITTED → CONFIRMING → CONFIRMED → CLEARED`
-- **法币状态机**：出生即 `CONFIRMED`（跳过 CONFIRMING），→ `CLEARED`
+充值资金单 = `depositTransactionId` 非空的 `funds_order`（Payin 表已并入）。虚拟币走 CRYPTO 状态机（含 CONFIRMING），法币出生即 `CONFIRMED`（跳过 CONFIRMING）→ CLEARED。
 - **锚点**：`funds-order-transitions.constant.ts → CRYPTO_IN_TRANSITIONS` ｜ `deposit-transactions.service.ts → detected()`（法币出生态 initialStatus）
 
 ## 2. 充值订单（DepositTransaction）状态机

@@ -24,6 +24,8 @@ PENDING_APPROVAL/COMPLIANCE/PAYOUT_PENDING → REJECTED / CANCELLED（→ releas
 
 ## 2. 数据模型要点
 
+> 📖 资金单状态机 / 共享执行引擎 → [funds-orders.md](funds-orders.md)；记账口径 → [accounting-coa.md](accounting-coa.md)。
+
 - **提现资金单** = `withdrawTransactionId` 非空的 `funds_order`（Payout/InternalFund 已并入 funds_orders）
 - **2 腿结构**：leg1 = 本金 payout（`PAYOUT_LEG_SEQ=1`，net 额）；leg2 = 手续费（`FEE_LEG_SEQ=2`，仅费>0 时创建，创建时机 = PAYOUT_PENDING 阶段）。无独立本金跟踪单。
 - **大额审批门阈值**：`WITHDRAW_APPROVAL_AED_THRESHOLD = 200000`（AED）——**现役唯一金额闸门**

@@ -27,6 +27,9 @@
 | [v5-withdraw.md](v5-withdraw.md) | 提现双链路（共用工作流）/ 大额审批门 / 三层合规 / 费率治理 / funds_order 2 腿 | 2026-07-03 |
 | [v6-swap.md](v6-swap.md) | 兑换报价 + 4 腿成交 / 仅 L1 合规 / 费率治理 / FAILED-REVERSED 死枚举 | 2026-07-04 |
 | [v8-recon.md](v8-recon.md) | 逐钱包 1:1 对账 / 五桶 / Run-Case 驾驶舱 / effectiveDate / 推单处置 / 止于 Case OPEN | 2026-07-04 |
+| [accounting-coa.md](accounting-coa.md) | **跨版本** 8 码 COA / TB 记账机制 / AccountFlow 投影 / 实时 1:1 不变量 | 2026-07-04 |
+| [funds-orders.md](funds-orders.md) | **跨版本** 资金单状态机 / 共享执行引擎 / 三视图投影 | 2026-07-04 |
+| [sumsub-ingestion.md](sumsub-ingestion.md) | **跨版本** Sumsub webhook 翻译层 / ingest-dispatch / retry / 模拟端点 | 2026-07-04 |
 
 ## 版本 → 文件映射
 
@@ -41,8 +44,9 @@
 | V7 | 财资运营（Treasury Ops）| 无独立 truth（旧内部转账/延迟结算已删；共享原语归 funds-orders.md；财资运营全未做）|
 | V8 | 对账 | ✅ v8-recon.md |
 | V9 | 合规治理顶层（监管报送）| 无独立 truth（全未做；据 VARA 调研规划见 roadmap V9）|
-| 跨版本 | 8 码 COA + 记账不变量 | `accounting-coa.md`（待抽出）|
-| 跨版本 | 资金单状态机全集 | `funds-orders.md`（待抽出）|
+| 跨版本 | 8 码 COA + 记账不变量 | ✅ accounting-coa.md |
+| 跨版本 | 资金单状态机全集 | ✅ funds-orders.md |
+| 跨版本 | Sumsub 合规信号翻译层 | ✅ sumsub-ingestion.md |
 
 ## 命名规则
 

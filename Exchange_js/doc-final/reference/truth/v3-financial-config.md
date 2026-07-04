@@ -32,22 +32,13 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 - 双入口：Admin 建系统钱包 / Client 建客户地址，按 `ownerType + walletRole` 策略区分
 - **锚点**：`wallet-role-policies.constant.ts` ｜ `system-wallet.util.ts`（C_MAIN/C_OUT 退役注释 + `CRYPTO_SYSTEM_WALLET_ROLES`）
 
-## 3. 账本账户（COA，TigerBeetle）
+## 3. 账本账户开设（COA provisioning）
 
-**TB 是余额唯一真相；Prisma 只留人类可读凭证与投影。** 8 码 COA：
+> 📖 **8 码 COA 定义 / TB 记账机制 / 不变量** → [accounting-coa.md](accounting-coa.md)（跨版本共享域）。本节只写 **V3 关注的"账户何时开设"**。
 
-| 码 | 账户 | 归属 | 何时开设 |
-|---|---|---|---|
-| 1 | `CLIENT_ASSET` | 客户池资产 | 资产创建**同事务** |
-| 50 | `FIRM_ASSET` | 公司资产 | 同上 |
-| 100 | `CLIENT_PAYABLE` | 客户应付（负债，flags=不可透支）| **首笔交易懒解析**，失败则该笔交易失败；兜底 `POST /admin/tb/accounts` |
-| 101 | `DEPOSIT_SUSPENSE` | 合规暂扣 | 同上（懒解析）|
-| 200 / 201 / 202 / 203 | `FIRM_OPS` / `FIRM_SET`（仅法币）/ `FIRM_FEE` / `FIRM_LIQ` | 公司侧 | 资产创建**同事务** |
-
-- **映射**：`TbAccountRegistry` 按 `(code, ledger, ownerType, ownerUuid)` 四元组唯一
-- **手动建账**：`POST /admin/tb/accounts`（系统 6 类 + 客户 2 类）
-- **flags**：仅 `CLIENT_PAYABLE` 设 `debits_must_not_exceed_credits`（客户应付不可透支），其余默认
-- **锚点**：`tb-account-codes.constant.ts` ｜ `asset-provisioning.service.ts → provision()` ｜ `deposit-workflow.service.ts → executeDepositAccounting()`（客户账户懒解析）
+- **系统级**（CLIENT_ASSET/FIRM_ASSET/FIRM_OPS/FIRM_FEE/FIRM_LIQ + 法币 FIRM_SET）：资产创建**同事务** provision
+- **客户级**（CLIENT_PAYABLE/DEPOSIT_SUSPENSE）：**首笔交易懒解析**，失败则该笔交易失败；兜底 `POST /admin/tb/accounts`
+- **锚点**：`asset-provisioning.service.ts → provision()` ｜ `deposit-workflow.service.ts → executeDepositAccounting()`（客户账户懒解析）
 - ⚠️ **已知薄弱点**：账户创建失败无 backlog 重试（仅转账凭证有 `TbEvidenceBacklog`）；`asset.provisioned` 事件 + `TbAccountBacklog` 已不存在（旧 roadmap 记载已过期）
 
 ## 4. 提现地址（WithdrawalAddress）
