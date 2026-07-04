@@ -83,6 +83,7 @@ export interface MatcherInput {
   walletRef: string;
   externalLines: ExternalStatementLineInput[];   // pre-filtered to this wallet by caller
   cutoff: Date;
+  decimals: number;                              // asset.decimals — 元→分 换算，在途金额产出为分
   timeWindowMinutes?: number;                    // default 60
 }
 
@@ -150,8 +151,16 @@ export class WalletFlowMatcherService {
   ) {}
 
   async matchFlows(input: MatcherInput): Promise<MatcherResult> {
-    const { walletRef, externalLines, cutoff } = input;
+    const { walletRef, externalLines, cutoff, decimals } = input;
     const windowMs = (input.timeWindowMinutes ?? 60) * 60 * 1000;
+
+    // Canonical-minor boundary: the balance checker operates in minor units
+    // (分, from account_flows + closing), but external statement lines and
+    // funds-order amounts arrive in major units (元). Convert 元→分 here so the
+    // in-transit amount reported to the run service is directly comparable to
+    // balanceCheck.delta. Prisma.Decimal (never JS float) — money precision.
+    const toMinor = (d: Prisma.Decimal): bigint =>
+      BigInt(d.mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0));
 
     const rawInternal = (await (this.prisma as any).accountFlow.findMany({
       where: {
@@ -272,11 +281,11 @@ export class WalletFlowMatcherService {
       const H72 = 72 * 60 * 60 * 1000;
       const refsOf = (c: (typeof candidates)[number]) => [c.txHash, c.referenceNo, c.providerTxnId].filter(Boolean);
       const amountOk = (ext: ExternalStatementLineInput, c: (typeof candidates)[number]) =>
-        ext.amount.equals(c.netAmount) || ext.amount.equals(c.amount);
+        toMinor(ext.amount) === toMinor(c.netAmount) || toMinor(ext.amount) === toMinor(c.amount);
       const take = (ext: ExternalStatementLineInput, c: (typeof candidates)[number]) => {
         usedOrders.add(c.id); usedExternal.add(ext.id);
         inTransit.push({ externalLineId: ext.id, fundsOrderId: c.id, fundsOrderNo: c.fundsOrderNo,
-          orderStatus: c.status, amount: ext.amount.toString(),
+          orderStatus: c.status, amount: toMinor(ext.amount).toString(),
           direction: ext.direction as 'IN' | 'OUT', externalRef: ext.externalRef });
       };
       // 子轮 A：单号精确

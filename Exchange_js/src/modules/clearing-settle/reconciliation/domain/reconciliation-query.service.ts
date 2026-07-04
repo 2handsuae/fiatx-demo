@@ -714,10 +714,16 @@ export class ReconciliationQueryService {
     const intById = new Map(internalRows.map((r) => [r.id, r]));
 
     // 2. Re-pair via the matcher (uses the same precedence as the engine).
+    // decimals=0 → toMinor is identity here, so this display re-pairing keeps
+    // reporting amounts exactly as before the canonical-minor change (no
+    // behavior change to the Case-detail flow-comparison view). The proper
+    // asset.decimals wiring for this display path is owned by Task B
+    // (展示层收齐); until then 0 preserves current rendering.
     const matcher = await this.walletFlowMatcher.matchFlows({
       walletRef: kase.walletRef,
       externalLines,
       cutoff,
+      decimals: 0, // TODO(canonical-minor Task B): pass this case's asset.decimals
     });
 
     const rows: FlowComparisonRow[] = [];
