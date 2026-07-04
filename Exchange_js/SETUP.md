@@ -2,6 +2,9 @@
 
 This package is a NestJS + Prisma (SQLite) backend with a React admin and client.
 
+> **只想一键跑起来看演示？** → 用 Docker，看 [`READ-ME-FIRST.md`](READ-ME-FIRST.md)（最省心，不用装 Node / TigerBeetle）。
+> 本文档面向**本地 native 开发**（直接在机器上跑，便于改代码调试）。
+
 ## Prerequisites
 
 - Node.js 20+
