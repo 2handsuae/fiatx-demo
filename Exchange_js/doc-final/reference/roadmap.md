@@ -139,7 +139,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️ 资产对外披露信息页 — 每资产公开摘要（符号/发行日/市值/流通量/合约审计/最大回撤）｜VARA BD I.B.1(c) ｜挂靠资产上线，下架联动摘除
 - [ ] ⚖️ 资产下架 — 在途订单清退 + 持仓清退 + 披露页摘除 + 审批 ｜来源:VARA(披露一致性)+行业(Coinbase/Kraken) ｜配对:资产上线(MVP)
 - [ ] ⚖️ 阈值参数配置治理 — 归集/dust/大额线/TR 阈值走 Maker-Checker，出硬编码 ｜VARA Company(职责分离，硬编码绕过四眼) ｜自 V7 移入
-- [ ] ⚖️(待核) 提现地址 hosted/unhosted 区分 — 非托管钱包风险标记 ｜CRM Rulebook(条款待人工复核) ｜TravelRuleAdapter 归因已有地基
+- [ ] ⚖️P1 提现地址所有权验证 + hosted/unhosted 分类打标记 — 登记时验证客户控制自托管钱包(验一次永久) + 分类 hosted/unhosted + 对手方 VASP 初次尽调 → 打标记供 V5 每笔消费；TravelRuleAdapter 归因已有地基 ｜CRM III.G.7 + FATF(2026-07-04 V5 调研确认，原"待核"已坐实) ｜**地址级一次性控制归 V3**；交易级(制裁重筛/TR 发送/差异化 EDD)在 V5
 - [ ] 提现地址停用归档 — 确认无在途提现→停用（8 年保留，不物理删）｜来源:领导 ｜配对:地址登记(MVP)
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
@@ -206,15 +206,28 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### ADVANCED（VARA gap + 异常分支）
 
-- [ ] ⚖️ 制裁地址/受益人拦截 — 命中 OFAC/SDN→强制取消→void 解锁→MLRO 审计→SAR ｜VARA CRM III.H ｜配对:L2 筛查
-- [ ] ⚖️ KYT 高风险 MLRO 审批门 — 高风险地址/受益人→挂起→MLRO 放行/拒绝(void)；后端需补 FROZEN 或等价挂起态 ｜VARA CRM
-- [ ] ⚖️ 大额提现增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO 门(阈值按 tradingTier) ｜VARA CRM III.B
-- [ ] 链上失败重试/加速 — stuck/failed→超时重试加速或取消(现仅 onPayoutLegFailed→FAILED+void，无重试) ｜来源:业务
-- [ ] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计 ｜来源:业务 ｜配对:V4 充值 bounce
-- [ ] 提现渠道暂停/恢复 — 指定链/token/法币渠道 Maker+Checker，在途处理策略明确 ｜来源:业务
-- [ ] 提现渠道切换/降级 — 主渠道故障切备用 + 审批 ｜来源:业务
-- [ ] 批量提现(机构) — CSV 批量→逐笔校验→统一审批→逐笔 Payout+汇总 ｜来源:业务(机构)
-- [ ] 提现专属限额变更 — request-record 审批(区别于 V3 通用限额) ｜来源:业务 ｜与金额闸门矩阵一并
+> 📖 **调研留底** → `superpowers/specs/2026-07-04-v5-withdraw-compliance-research.md`
+> ⚠️ **据 2026-07-04 深度调研重排**（10 findings 3:0 + 代码验证）：⚖️P0=牌照级必须；**纠正旧设想 3 处**——① 制裁是 BLOCK(冻结原地) 非"取消退回客户"；② L2「Travel Rule」现只是筛查状态位、缺发起方发送；③ 失败退回有硬 **24h SLA**(非"尽快")。
+
+**P0（VARA 牌照级，现有几乎空白）：**
+
+- [ ] ⚖️P0 Travel Rule 发起方**发送** — >AED 3,500 发起前向受益方 VASP 发送 originator(name+钱包地址+住址)+beneficiary(name+钱包地址) payload；⚠️现有 L2 只是筛查状态位、**无发送环节** ｜CRM III.G.2/4/5 + FATF R.16
+- [ ] ⚖️P0 对手方 VASP 尽调 — 新对手方 VASP 首次交易前风险尽调(核受监管+能收 TR)，pre-send gating；⚠️2026-02-24 VARA Circular **禁止向未受监管对手方转账** ｜CRM III.G.6
+- [ ] ⚖️P0 制裁命中→BLOCK/FROZEN — ⚠️纠偏:命中 BLOCK 须**冻结原地+拒绝各方访问+上报**，**非取消退回客户**(与 block 义务冲突)；后端需补 FROZEN 态 ｜CRM III.H + OFAC FAQ 646
+- [ ] ⚖️P0 失败/未授权提现→**24h 退回** — 未授权/偏离指示/VASP 触发错误→becoming aware 起 **24 小时内**退款或恢复账户 + 赔偿责任 ｜Transfer&Settlement II.C.2
+- [ ] ⚖️P0 KYT 高风险/可疑→MLRO→STR — 挂起→MLRO 门→goAML **立即上报**(联动 V9 STR) ｜CRM III.F.3.a
+
+**P1（VARA 强制但相对次级）：**
+
+- [ ] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须**立即追踪+查因+通知客户**，举证倒置(VASP 须自证无责) ｜Transfer&Settlement II.C.3
+- [ ] ⚖️P1 自托管钱包差异化 EDD/限额 — **消费 V3 打的自托管标记**，按金额应用 EDD/额度限制(所有权验证已在 V3 登记时做) ｜FATF/VARA III.G.7
+- [ ] ⚖️P1 大额提现增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO 门(阈值按 tradingTier) ｜CRM III.B
+- [ ] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce
+
+**P2（低频/治理）：**
+
+- [ ] 拆单/结构化提现监控 ｜CRM III.G.9
+- [ ] 提现渠道暂停/恢复 ｜ 提现渠道切换/降级 ｜ 批量提现(机构) ｜ 提现专属限额变更(并入金额闸门矩阵) ｜来源:业务
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
