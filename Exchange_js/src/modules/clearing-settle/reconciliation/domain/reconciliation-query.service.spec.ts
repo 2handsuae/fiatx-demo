@@ -213,6 +213,9 @@ describe('getCase — flowComparison (T3)', () => {
       accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
       wallet: { findUnique: jest.fn().mockResolvedValue(null) },
       reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }) },
+      // T4/T1: getCase (unconditional) + buildFlowComparison both look up
+      // asset.decimals by assetCode via findUnique. decimals=2 here.
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
     };
     const flowMatcher = {
       matchFlows: jest.fn().mockResolvedValue({
@@ -263,6 +266,9 @@ describe('getCase — flowComparison (T3)', () => {
       accountFlow: { findMany: jest.fn() },
       wallet: { findUnique: jest.fn() },
       reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }) },
+      // T4: getCase's asset.decimals lookup is unconditional — runs even for
+      // XREF cases (which skip buildFlowComparison). Must return, not undefined.
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
     };
     const flowMatcher = { matchFlows: jest.fn() };
     const svc = mkSvc(prisma, { flowMatcher });
@@ -305,6 +311,9 @@ describe('getRun — walletNo on accountStatusTable rows (T6 snapshot source)', 
             : [],
         ),
       },
+      // T4: getRun looks up asset.decimals per row (assetCode → decimals) to
+      // scale display amounts 分→元. Snapshot rows here are AED (decimals=2).
+      asset: { findMany: jest.fn().mockResolvedValue([{ code: 'AED', decimals: 2 }]) },
     };
   }
 
@@ -323,6 +332,9 @@ describe('getRun — walletNo on accountStatusTable rows (T6 snapshot source)', 
       reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
       reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue([mkSnapshotRow(xref)]) },
       wallet: { findMany: jest.fn().mockResolvedValue([]) }, // no wallet row for XREF
+      // T4: asset.decimals lookup (snapshot row is AED). Runs against assetCode,
+      // independent of the XREF walletRef so this still returns for the row.
+      asset: { findMany: jest.fn().mockResolvedValue([{ code: 'AED', decimals: 2 }]) },
     };
     const svc = mkSvc(prisma);
     const result: any = await svc.getRun('RUN-XREF-CASE');
@@ -368,6 +380,8 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
+      // T4/T1: asset.decimals lookup (getCase unconditional + buildFlowComparison).
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
     } as any;
   }
 
@@ -395,6 +409,8 @@ describe('getCase — walletNo / linkedRunNo / slaDeadline / book', () => {
       },
       wallet: { findUnique: jest.fn() },
       reconciliationRun: { findUnique: jest.fn().mockResolvedValue(run) },
+      // T4: getCase's asset.decimals lookup is unconditional (runs for XREF too).
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
     } as any;
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('CASE-XREF');
@@ -697,6 +713,8 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
       reconciliationCase: { findMany: jest.fn().mockResolvedValue([]) },
       reconciliationRunWallet: { findMany: jest.fn().mockResolvedValue(snapshotRows) },
       wallet: { findMany: jest.fn().mockResolvedValue([]) },
+      // T4: asset.decimals per row (both snapshot rows are AED).
+      asset: { findMany: jest.fn().mockResolvedValue([{ code: 'AED', decimals: 2 }]) },
     };
     const svc = mkSvc(prisma, { flowMatcher });
     const result: any = await svc.getRun(run.runNo);
@@ -788,6 +806,8 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       // status to badge "已推进·待重对账". No matching row here → status null,
       // fundsOrderNo still comes from li.internalSourceNo (asserted below).
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      // T4/T1: asset.decimals lookup (getCase unconditional + buildFlowComparison).
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
     } as any;
   }
 

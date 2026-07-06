@@ -41,6 +41,14 @@ function makeDeps(overrides: any = {}) {
     findMany: jest.fn().mockResolvedValue([]),
   };
   const tbAccountRegistry = { findMany: jest.fn().mockResolvedValue([]) };
+  // canonical-minor: run body batch-loads asset.decimals per currency
+  // (asset.findMany). Default → empty so decimalsByCurrency.get(...) ?? 0
+  // yields 0 (identity 元→分) for these fully-stubbed matcher tests.
+  // findFirst kept for resolveAssetId callers that aren't spied over.
+  const asset = {
+    findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null),
+  };
 
   const prisma: any = {
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
@@ -52,6 +60,7 @@ function makeDeps(overrides: any = {}) {
     externalStatementLine,
     accountFlow,
     tbAccountRegistry,
+    asset,
   };
 
   const balanceChecker = {

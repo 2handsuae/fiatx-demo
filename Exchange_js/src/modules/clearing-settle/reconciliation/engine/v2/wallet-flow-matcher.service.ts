@@ -83,6 +83,7 @@ export interface MatcherInput {
   walletRef: string;
   externalLines: ExternalStatementLineInput[];   // pre-filtered to this wallet by caller
   cutoff: Date;
+  decimals: number;                              // asset.decimals — 元→分 换算，在途金额产出为分
   timeWindowMinutes?: number;                    // default 60
 }
 
@@ -150,8 +151,24 @@ export class WalletFlowMatcherService {
   ) {}
 
   async matchFlows(input: MatcherInput): Promise<MatcherResult> {
-    const { walletRef, externalLines, cutoff } = input;
+    const { walletRef, externalLines, cutoff, decimals } = input;
     const windowMs = (input.timeWindowMinutes ?? 60) * 60 * 1000;
+
+    // Canonical-minor boundary (T1). The balance checker operates in minor
+    // units (分, from account_flows + closing). external_statement_lines are
+    // ALREADY in 分 (contract; the writer emits minor units) — they arrive as a
+    // Prisma.Decimal whose value is the integer 分, so take it straight, no
+    // scaling. funds_orders still store MAJOR units (元) this round, so ONLY the
+    // funds-order side needs 元→分 before it can be compared to a minor external
+    // line or to balanceCheck.delta. Prisma.Decimal (never JS float) — money
+    // precision; decimals comes from the caller (ultimately asset.decimals),
+    // never hardcoded.
+    // extMinor: external line is already 分 → integer BigInt, no ×10^decimals.
+    const extMinor = (d: Prisma.Decimal): bigint => BigInt(d.toFixed(0));
+    // toMinor: funds-order 元 → 分 (×10^decimals). Applied to c.netAmount /
+    // c.amount ONLY — never to an external line.
+    const toMinor = (d: Prisma.Decimal): bigint =>
+      BigInt(d.mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0));
 
     const rawInternal = (await (this.prisma as any).accountFlow.findMany({
       where: {
@@ -210,6 +227,10 @@ export class WalletFlowMatcherService {
     const usedExternal = new Set<string>();
 
     // ── Pass 1: ref-equality match ──────────────────────────────────────────
+    // Scale note (T1): external_statement_lines and account_flows are BOTH in
+    // 分 (external-line contract = minor; account_flow.amount = minor). So
+    // Pass 1/2 compare 分 vs 分 directly — NO 元→分 conversion here. Only Pass 3
+    // (external 分 vs funds_order 元) converts, and only the funds_order side.
     // Group external lines by ref for O(1) lookup; only non-null refs.
     const externalByRef = new Map<string, ExternalStatementLineInput[]>();
     for (const ext of externalLines) {
@@ -271,12 +292,13 @@ export class WalletFlowMatcherService {
       const usedOrders = new Set<string>();
       const H72 = 72 * 60 * 60 * 1000;
       const refsOf = (c: (typeof candidates)[number]) => [c.txHash, c.referenceNo, c.providerTxnId].filter(Boolean);
+      // ext 已是分(extMinor 直取整)，只有 funds_order 元→分(toMinor)。
       const amountOk = (ext: ExternalStatementLineInput, c: (typeof candidates)[number]) =>
-        ext.amount.equals(c.netAmount) || ext.amount.equals(c.amount);
+        extMinor(ext.amount) === toMinor(c.netAmount) || extMinor(ext.amount) === toMinor(c.amount);
       const take = (ext: ExternalStatementLineInput, c: (typeof candidates)[number]) => {
         usedOrders.add(c.id); usedExternal.add(ext.id);
         inTransit.push({ externalLineId: ext.id, fundsOrderId: c.id, fundsOrderNo: c.fundsOrderNo,
-          orderStatus: c.status, amount: ext.amount.toString(),
+          orderStatus: c.status, amount: extMinor(ext.amount).toString(),
           direction: ext.direction as 'IN' | 'OUT', externalRef: ext.externalRef });
       };
       // 子轮 A：单号精确

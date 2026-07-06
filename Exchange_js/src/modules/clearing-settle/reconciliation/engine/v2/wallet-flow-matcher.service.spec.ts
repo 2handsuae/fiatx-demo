@@ -94,6 +94,7 @@ describe('WalletFlowMatcherService', () => {
         { id: 'ext-1', direction: 'IN', amount: D(1000), externalRef: '0xabc', datetime: new Date('2026-06-26T10:00:30Z') },
       ],
       cutoff,
+      decimals: 0,
     });
     expect(result.matched).toHaveLength(1);
     expect(result.matched[0]).toEqual({ internalFlowId: 'flow-1', externalLineId: 'ext-1', via: 'ref' });
@@ -120,6 +121,7 @@ describe('WalletFlowMatcherService', () => {
       walletRef: 'w-cust',
       externalLines: [],
       cutoff,
+      decimals: 0,
     });
     expect(result.matched).toHaveLength(0);
     expect(result.orphanInternal).toHaveLength(1);
@@ -141,6 +143,7 @@ describe('WalletFlowMatcherService', () => {
         { id: 'ext-2', direction: 'IN', amount: D(2000), externalRef: '0xzzz', datetime: new Date('2026-06-26T12:00:00Z') },
       ],
       cutoff,
+      decimals: 0,
     });
     expect(result.orphanExternal).toHaveLength(1);
     expect(result.orphanExternal[0]).toMatchObject({
@@ -171,6 +174,7 @@ describe('WalletFlowMatcherService', () => {
         { id: 'ext-3', direction: 'IN', amount: D(101), externalRef: '0xsame', datetime: new Date('2026-06-26T10:00:30Z') },
       ],
       cutoff,
+      decimals: 0,
     });
     expect(result.matched).toHaveLength(0);
     expect(result.mismatch).toHaveLength(1);
@@ -203,6 +207,7 @@ describe('WalletFlowMatcherService', () => {
         { id: 'ext-4', direction: 'IN', amount: D(750), externalRef: null, datetime: new Date('2026-06-26T10:30:00Z') },
       ],
       cutoff,
+      decimals: 0,
       timeWindowMinutes: 60,
     });
     expect(result.matched).toHaveLength(1);
@@ -230,6 +235,7 @@ describe('WalletFlowMatcherService', () => {
         { id: 'ext-5', direction: 'IN', amount: D(750), externalRef: null, datetime: new Date('2026-06-26T12:00:00Z') },
       ],
       cutoff,
+      decimals: 0,
       timeWindowMinutes: 60,
     });
     expect(result.matched).toHaveLength(0);
@@ -260,6 +266,7 @@ describe('WalletFlowMatcherService', () => {
       walletRef: 'w-cust',
       externalLines: [],
       cutoff,
+      decimals: 0,
     });
     // Aggregate-code flow must not surface as orphan_internal — the external
     // statement only mirrors owned-account activity (PAYABLE/SUSPENSE/firm-equity).
@@ -290,6 +297,7 @@ describe('WalletFlowMatcherService', () => {
       walletRef: 'w-cust',
       externalLines: [],
       cutoff,
+      decimals: 0,
     });
     expect(result.orphanInternal).toHaveLength(0);
     expect(result.matched).toHaveLength(0);
@@ -314,6 +322,7 @@ describe('WalletFlowMatcherService', () => {
       walletRef: 'w-cust',
       externalLines: [],
       cutoff,
+      decimals: 0,
     });
     // The internal reclass must not show up as orphan_internal — it never
     // crossed external so external statement is not expected to know about it.
@@ -336,7 +345,7 @@ describe('WalletFlowMatcherService', () => {
       },
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
-    const result = await svc.matchFlows({ walletRef: 'w-cust', externalLines: [], cutoff });
+    const result = await svc.matchFlows({ walletRef: 'w-cust', externalLines: [], cutoff, decimals: 0 });
     expect(result.orphanInternal).toHaveLength(1);
   });
 
@@ -360,7 +369,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now });
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-9');
       expect(res.orphanExternal).toHaveLength(0);
@@ -371,7 +380,7 @@ describe('WalletFlowMatcherService', () => {
         findNonTerminalByWallet: jest.fn().mockResolvedValue([]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now });
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
       expect(res.orphanExternal).toHaveLength(1);
       expect(res.inTransit).toHaveLength(0);
     });
@@ -391,7 +400,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now });
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(0);
       expect(res.orphanExternal).toHaveLength(1);
     });
@@ -418,7 +427,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now });
+      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-REFHIT');
     });
@@ -445,9 +454,83 @@ describe('WalletFlowMatcherService', () => {
         walletRef: 'W1',
         externalLines: [extLine('IN', 200, null, now)],
         cutoff: now,
+        decimals: 0,
       });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-EARLIER');
+    });
+
+    // ── canonical-minor (T1): external line is ALREADY minor (分); ONLY the
+    //    funds-order (元) needs 元→分. The matcher must NOT re-scale the
+    //    external line. Regression guard for the Task A bug that套了两次 toMinor. ──
+
+    // 用例 A：AED decimals=2，外部行 49800(分) OUT，钱包有一张非终态 funds_order
+    // netAmount=498(元) 同方向 → 认领为在途，且 inTransit[0].amount === '49800'（分）。
+    // 旧写法(ext 再套 toMinor)会把 49800 ×100 = 4980000，amountOk 直接不成立 → 认领失败，此断言红。
+    it('用例A: ext 已是分(49800) + funds_order 498元 decimals=2 → 认领在途，amount==="49800"', async () => {
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-minor', fundsOrderNo: 'FO-MINOR', status: 'CONFIRMING', direction: 'OUT',
+            amount: D(498), netAmount: D(498), // 元
+            txHash: '0xr', referenceNo: null, providerTxnId: null, createdAt: now,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const result = await matcher.matchFlows({
+        walletRef: 'w',
+        externalLines: [extLine('OUT', 49800, '0xr')], // 分
+        cutoff, decimals: 2,
+      } as any);
+      expect(result.inTransit).toHaveLength(1);
+      expect(result.inTransit[0].fundsOrderNo).toBe('FO-MINOR');
+      expect(result.inTransit[0].amount).toBe('49800');
+    });
+
+    // 用例 B：USDT decimals=6，外部行 3000000(分) + funds_order amount=3(元)
+    // → 认领成功，amount==='3000000'（分）。旧写法会把 ext ×10^6 → 认领失败。
+    it('用例B: ext 已是分(3000000) + funds_order 3元 decimals=6(USDT) → 认领在途，amount==="3000000"', async () => {
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-usdt', fundsOrderNo: 'FO-USDT', status: 'CONFIRMING', direction: 'IN',
+            amount: D(3), netAmount: D(3), // 元
+            txHash: '0xu', referenceNo: null, providerTxnId: null, createdAt: now,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const result = await matcher.matchFlows({
+        walletRef: 'w',
+        externalLines: [extLine('IN', 3000000, '0xu')], // 分
+        cutoff, decimals: 6,
+      } as any);
+      expect(result.inTransit).toHaveLength(1);
+      expect(result.inTransit[0].fundsOrderNo).toBe('FO-USDT');
+      expect(result.inTransit[0].amount).toBe('3000000');
+    });
+
+    // funds_order 元含小数(AED 4380.56)→分(438056) 走 Prisma.Decimal 不炸 BigInt；
+    // 外部行同额已是分(438056)。只换 funds_order 一侧。
+    it('funds_order 元含小数 4380.56 → 分 438056(不炸 BigInt)，ext 438056(分)直用', async () => {
+      const fundsOrderService = {
+        findNonTerminalByWallet: jest.fn().mockResolvedValue([
+          {
+            id: 'fo-frac', fundsOrderNo: 'FO-FRAC', status: 'CONFIRMING', direction: 'OUT',
+            amount: D(4380.56), netAmount: D(4380.56), // 元
+            txHash: '0xr', referenceNo: null, providerTxnId: null, createdAt: now,
+          },
+        ]),
+      };
+      const matcher = makeMatcherWithFundsOrders(fundsOrderService);
+      const result = await matcher.matchFlows({
+        walletRef: 'w',
+        externalLines: [extLine('OUT', 438056, '0xr')], // 分
+        cutoff, decimals: 2,
+      } as any);
+      expect(result.inTransit).toHaveLength(1);
+      expect(result.inTransit[0].amount).toBe('438056');
     });
   });
 });

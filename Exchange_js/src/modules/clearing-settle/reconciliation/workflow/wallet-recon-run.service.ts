@@ -149,6 +149,25 @@ export class WalletReconRunService {
     const walletRefs = Array.from(
       new Set(attributedBalances.map((b) => b.walletRef).filter((r): r is string => !!r)),
     );
+
+    // Canonical-minor (T1): batch-load asset.decimals for every currency in this
+    // run so the flow matcher can convert amounts 元→分 at its boundary. Only the
+    // funds_order side needs converting — external_statement_lines are ALREADY 分
+    // (contract, §2.5) so the matcher takes them straight; funds_orders still store
+    // 元 this round, so ONLY they get ×10^decimals. The in-transit output is minor,
+    // to compare against balanceCheck.delta (already minor). One query, keyed by
+    // currency=asset.code. (Same pattern as reconciliation-query.service.ts.)
+    const runCurrencies = Array.from(new Set(attributedBalances.map((b) => b.currency)));
+    const assetsForDecimals = runCurrencies.length === 0
+      ? []
+      : ((await (this.prisma as any).asset.findMany({
+          where: { code: { in: runCurrencies } },
+          select: { code: true, decimals: true },
+        })) as Array<{ code: string; decimals: number }>);
+    const decimalsByCurrency = new Map<string, number>(
+      assetsForDecimals.map((a) => [a.code, a.decimals]),
+    );
+
     let casesCreated = 0;
     let casesUpdated = 0;
     let orphanInternal = 0;
@@ -191,6 +210,7 @@ export class WalletReconRunService {
         walletRef,
         externalLines,
         cutoff,
+        decimals: decimalsByCurrency.get(bal.currency) ?? 0,
       });
       orphanInternal += matcherResult.orphanInternal.length;
       orphanExternal += matcherResult.orphanExternal.length;

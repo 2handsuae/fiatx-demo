@@ -58,9 +58,29 @@ import { WalletReconRunService } from '../src/modules/clearing-settle/reconcilia
 import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
-import { FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
+import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
+import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
+import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
+// Scenario 1 去合成壳（canon2 T5）：复用 demo:in-transit 同一个共享夹具造真卡提现，
+// 金闸门的「在途检测」从此跑在真非终态资金单 + 分外部行上，与 demo:in-transit 同源。
+import { createStuckWithdraw, DEMO_STUCK_WD_REF_PREFIX } from './demo-fixtures';
+import { resolveDemoCustomers } from './demo-lib';
 
 type Mode = 'pass' | 'break' | 'reset';
+
+// Minimal ctx for the shared stuck-withdraw fixture (scenario 1). The fixture
+// (`createStuckWithdraw` / `injectStuckExternalMirror`) is duck-typed on `any`
+// but really needs exactly these handles — the same set demo-lib's DemoCtx
+// exposes. Built from the recon-demo app so scenario 1 drives a REAL withdraw
+// through the workflow (no synthetic funds_orders.create shell).
+interface StuckFixtureCtx {
+  app: import('@nestjs/common').INestApplicationContext;
+  prisma: PrismaService;
+  fundsOrders: FundsOrderService;
+  withdrawQuote: WithdrawQuoteService;
+  withdraws: WithdrawTransactionsService;
+  withdrawWf: WithdrawWorkflowService;
+}
 
 const D = (n: any) => new Prisma.Decimal(n);
 
@@ -136,12 +156,78 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
   return /^(USDT|BTC|ETH|USDC)/i.test(assetCode) ? 'HEXTRUST' : 'ZAND';
 }
 
-// Scenario 1 tags every demo-created FundsOrder's referenceNo with this
-// prefix so reset can find + delete exactly the rows this script created,
-// without touching any real business funds order.
+// Legacy scenario-1 shell tag. Since canon2 T5, scenario 1 drives a REAL stuck
+// withdraw (via createStuckWithdraw) instead of a synthetic FundsOrder, so no
+// new DEMO-IT- rows are created — this prefix now only cleans rows left by the
+// pre-T5 shell. (The real stuck withdraw's funds_order + withdraw txn ARE
+// cleaned on reset via clearStuckFixtureWithdraws → reset && break is idempotent.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
 // Scenario 9's orphan external head/line use this fixed accountRef.
 const DEMO_ORPHAN_ACCOUNT_REF = 'DEMO-ORPHAN-ADDR';
+
+/**
+ * Delete the demo-fixture stuck WITHDRAWS scenario 1 leaves behind, so
+ * `recon:demo:reset && recon:demo:break` is idempotent (no accumulation of
+ * non-terminal payout legs → no Pass3 mis-claim → stable 9/9).
+ *
+ * Identification (union of two demo-only signals, run BEFORE the external-line
+ * blanket-delete so the tag path still has rows to read):
+ *   (a) tag reverse-lookup — the fixture writes external_ref =
+ *       `${DEMO_STUCK_WD_REF_PREFIX}${withdrawNo}`; strip the prefix to recover
+ *       the withdrawNo of the *current* cycle's stuck withdraw.
+ *   (b) non-terminal-leg — any withdraw_transaction carrying a non-terminal
+ *       funds_order leg. This catches ORPHANS whose external line was already
+ *       deleted by a prior reset / demo:in-transit cleanup (the tag path alone
+ *       misses these — exactly the pre-existing dirty state). In a demo DB this
+ *       is unambiguous: demo:all drives every withdraw to SUCCESS, so the only
+ *       non-terminal withdraws are fixture stuck ones.
+ *
+ * Deleting the withdraw_transaction CASCADE-removes its funds_order legs
+ * (funds_orders.withdrawTransactionId FK is ON DELETE CASCADE). Stuck payout
+ * legs are non-terminal → never POSTED → leave no account_flows / TB, so this
+ * is a clean delete (no ledger reversal needed).
+ *
+ * Scope: WITHDRAWS only. Stuck SWAPS (demo:in-transit only — recon:demo never
+ * creates them) have legs 1/2 already CLEARED (real TB postings + account_flows),
+ * so a correct teardown must reverse TB too → that belongs to a full
+ * db:reset:business, not this scoped demo reset. They don't affect recon:demo's
+ * 9/9 (leg3 has no external line post-reset, so Pass3 can't claim it).
+ */
+async function clearStuckFixtureWithdraws(prisma: PrismaService): Promise<number> {
+  const TERMINAL = ['CLEARED', 'FAILED', 'TIMEOUT'];
+  // (a) tag reverse-lookup — current cycle.
+  const stuckLines = (await (prisma as any).externalStatementLine.findMany({
+    where: { externalRef: { startsWith: DEMO_STUCK_WD_REF_PREFIX } },
+    select: { externalRef: true },
+  })) as Array<{ externalRef: string | null }>;
+  const taggedWithdrawNos = Array.from(
+    new Set(
+      stuckLines
+        .map((l) => l.externalRef?.slice(DEMO_STUCK_WD_REF_PREFIX.length))
+        .filter((n): n is string => !!n),
+    ),
+  );
+  // (b) non-terminal-leg — orphans + current cycle.
+  const withdrawIdsFromLegs = (await (prisma as any).fundsOrder.findMany({
+    where: { withdrawTransactionId: { not: null }, status: { notIn: TERMINAL } },
+    select: { withdrawTransactionId: true },
+    distinct: ['withdrawTransactionId'],
+  })) as Array<{ withdrawTransactionId: string | null }>;
+  const legWithdrawIds = withdrawIdsFromLegs
+    .map((r) => r.withdrawTransactionId)
+    .filter((id): id is string => !!id);
+
+  if (taggedWithdrawNos.length === 0 && legWithdrawIds.length === 0) return 0;
+  const { count } = await (prisma as any).withdrawTransaction.deleteMany({
+    where: {
+      OR: [
+        { withdrawNo: { in: taggedWithdrawNos } },
+        { id: { in: legWithdrawIds } },
+      ],
+    },
+  });
+  return count; // funds_order legs CASCADE-deleted with the parent withdraw.
+}
 
 async function clearWalletDemo(prisma: PrismaService): Promise<{
   runs: number; cases: number; lineItems: number; balances: number; lines: number; fundsOrders: number;
@@ -165,19 +251,27 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
   const deletedRuns = runIds.length
     ? (await (prisma as any).reconciliationRun.deleteMany({ where: { id: { in: runIds } } })).count
     : 0;
+  // Delete the fixture stuck withdraws (+ CASCADE their non-terminal legs)
+  // BEFORE the external-line blanket-delete, so the tag reverse-lookup still
+  // has its DEMO-STUCK-WD- external rows to read. This is what keeps
+  // reset && break idempotent (no leg accumulation → stable 9/9).
+  const deletedStuck = await clearStuckFixtureWithdraws(prisma);
   // externalStatementLine/externalBalance blanket-deletes already cover
   // scenario 9's orphan head (accountRef=DEMO-ORPHAN-ADDR) — no separate
   // filter needed, both tables are demo-only footprint.
   const deletedLines = (await (prisma as any).externalStatementLine.deleteMany({})).count;
   const deletedBalances = (await (prisma as any).externalBalance.deleteMany({})).count;
-  // Scenario 1 — delete only the demo-tagged funds orders (referenceNo
-  // prefix), never a real business funds order.
-  const deletedFundsOrders = (await (prisma as any).fundsOrder.deleteMany({
+  // Legacy pre-T5 scenario-1 shell cleanup: delete any DEMO-IT--tagged funds
+  // orders left by the pre-T5 synthetic shell (never a real business funds
+  // order). Post-T5 scenario 1's real stuck withdraw is cleaned above via
+  // clearStuckFixtureWithdraws.
+  const deletedShellFundsOrders = (await (prisma as any).fundsOrder.deleteMany({
     where: { referenceNo: { startsWith: DEMO_IN_TRANSIT_REF_PREFIX } },
   })).count;
   return {
     runs: deletedRuns, cases: deletedCases, lineItems: deletedLineItems,
-    balances: deletedBalances, lines: deletedLines, fundsOrders: deletedFundsOrders,
+    balances: deletedBalances, lines: deletedLines,
+    fundsOrders: deletedShellFundsOrders + deletedStuck,
   };
 }
 
@@ -455,30 +549,58 @@ async function writeMirror(
 //
 // Each scenario lands on its own wallet (scenario 5+7 deliberately share one
 // FIRM wallet — see below) so cases stay disjoint and per-scenario checks
-// are independent. Wallet picks reuse the existing round-robin-by-
-// (currency, ownerNo) diversity logic, extended to 6 CUSTOMER wallets
-// (scenarios 2/3/4/6/8 + scenario 1's own wallet) plus 1 FIRM wallet
-// (scenarios 5+7).
+// are independent.
+//
+// Scenario 1 (canon2 T5) no longer synthesises a shell funds_order — it drives
+// a REAL stuck withdraw via the shared `createStuckWithdraw` fixture (same path
+// as demo:in-transit), which lands on a demo customer's C_VIBAN. That wallet is
+// determined by the fixture (not the round-robin), so we run it FIRST, then
+// exclude its walletRef from the CUSTOMER pool and round-robin the remaining
+// 5 wallets across scenarios 2/3/4/6/8. FIRM wallet (scenarios 5+7) unchanged.
 async function injectScenarios(
   prisma: PrismaService,
   plans: WalletPlan[],
   cutoff: Date,
-  fundsOrders: FundsOrderService,
+  ctx: StuckFixtureCtx,
 ): Promise<ManifestV2> {
   if (plans.length === 0) throw new Error('No eligible wallets — seed business data first');
   const cutoffDate = ymd(cutoff);
 
-  // ── CUSTOMER wallet picks (scenarios 2/3/4/6/8 + scenario 1) ───────────
+  // ── Scenario 1 FIRST — real stuck withdraw on a demo customer's C_VIBAN ──
+  // Runs before the round-robin so its (fixture-chosen) wallet can be excluded
+  // from the scenarios-2/3/4/6/8 pool. Uses the AED (fiat) leg, which parks at
+  // SUBMITTED (non-terminal, POST未做) → the customer C_VIBAN carries a −分
+  // external OUT line the matcher's Pass3 claims as in-transit. (writeMirror has
+  // already written this wallet's ExternalBalance closing=internalTotal + coaCode;
+  // the fixture's injectStuckExternalMirror upsert-updates only closing/line and
+  // leaves coaCode intact — and since the stuck leg is unposted, internalPosted ==
+  // internalTotal, so closing = internalTotal − bumpMinor lands the intended
+  // delta=−bumpMinor. See canon2 T5.)
+  const demoCustomers = await resolveDemoCustomers(prisma);
+  const s1Customer = demoCustomers[0]; // demo_alice — same customer demo:in-transit uses
+  const s1Asset = await (prisma as any).asset.findFirst({
+    where: { status: 'ACTIVE', type: 'FIAT', currency: 'AED' },
+  });
+  if (!s1Asset) throw new Error('scenario 1: AED active asset not seeded — run business seed first');
+  const stuck = await createStuckWithdraw(ctx, {
+    customer: s1Customer,
+    asset: s1Asset,
+    amount: '500',
+    cutoff,
+  });
+
+  // ── CUSTOMER wallet picks (scenarios 2/3/4/6/8) — exclude scenario 1's ──
   const candidateWallets: WalletPlan[] = [];
   for (const p of [...plans].sort((a, b) => a.walletRef.localeCompare(b.walletRef))) {
     if (p.walletKind !== 'CUSTOMER') continue;
     if (p.lines.length === 0) continue;
+    if (p.walletRef === stuck.walletRef) continue; // reserved for scenario 1
     candidateWallets.push(p);
   }
-  if (candidateWallets.length < 6) {
+  if (candidateWallets.length < 5) {
     throw new Error(
-      `Need ≥6 customer wallets with crossing flows for scenarios 1/2/3/4/6/8; ` +
-      `got ${candidateWallets.length}. Seed more deposit/withdraw activity.`,
+      `Need ≥5 customer wallets (besides scenario 1's) with crossing flows for ` +
+      `scenarios 2/3/4/6/8; got ${candidateWallets.length}. Seed more deposit/withdraw activity.`,
     );
   }
   // Round-robin across (currency, ownerNo) tuples so picks are maximally
@@ -491,9 +613,9 @@ async function injectScenarios(
   const bucketKeys = Array.from(buckets.keys()).sort();
   const picks: WalletPlan[] = [];
   let cursor = 0;
-  while (picks.length < 6) {
+  while (picks.length < 5) {
     let advanced = false;
-    for (let i = 0; i < bucketKeys.length && picks.length < 6; i++) {
+    for (let i = 0; i < bucketKeys.length && picks.length < 5; i++) {
       const key = bucketKeys[(cursor + i) % bucketKeys.length];
       const arr = buckets.get(key)!;
       if (arr.length > 0) {
@@ -504,10 +626,10 @@ async function injectScenarios(
     cursor += 1;
     if (!advanced) break;
   }
-  if (picks.length < 6) {
-    throw new Error(`Could only pick ${picks.length}/6 distinct customer wallets`);
+  if (picks.length < 5) {
+    throw new Error(`Could only pick ${picks.length}/5 distinct customer wallets (besides scenario 1's)`);
   }
-  const [s2Plan, s3Plan, s4Plan, s6Plan, s8Plan, s1Plan] = picks;
+  const [s2Plan, s3Plan, s4Plan, s6Plan, s8Plan] = picks;
 
   // ── FIRM wallet pick (scenarios 5+7 — shared wallet, hedged pair) ──────
   const firmCandidates = [...plans]
@@ -552,76 +674,43 @@ async function injectScenarios(
     return eb.closingBalance.toString();
   }
 
-  // ── Scenario 1 — 在途时序差 (IN_TRANSIT) ────────────────────────────────
-  // Build a REAL, state-machine-legal, non-terminal FundsOrder attached to
-  // an existing SUCCESS deposit transaction on s1Plan's wallet, then mirror
-  // it as an external confirmation line. This does NOT touch TigerBeetle:
-  // FundsOrderService.create() only writes the funds_orders row + emits
-  // `funds_order.status.changed`; the deposit/withdraw workflow listeners
-  // only react on newStatus ∈ {CONFIRMED, CLEARED, FAILED, TIMEOUT} — a
-  // freshly-created SUBMITTED order is a verified no-op for all three
-  // workflow listeners (deposit/withdraw/swap), so no TB posting fires.
-  // SUBMITTED also matches the real production entry state for a crypto
-  // payin funds order (see deposit-transactions.service.ts: `isCrypto ?
-  // SUBMITTED : CONFIRMED`), so this is state-machine-realistic, not a
-  // synthetic status.
+  // ── Scenario 1 — 在途时序差 (IN_TRANSIT) — REAL stuck withdraw ───────────
+  // The withdraw was already created above (before the round-robin) via the
+  // shared `createStuckWithdraw` fixture — a real withdraw driven through the
+  // workflow to a non-terminal payout leg (fiat SUBMITTED, POST未做). The
+  // fixture also wrote the −分 external OUT line + upsert-updated the wallet's
+  // ExternalBalance closing (= internalTotal − bumpMinor, coaCode preserved).
+  // So this block only records the manifest entry; no synthetic shell here.
+  //
+  // The matcher's Pass3 (子轮B: amount+direction+72h, refsOf(leg) empty) claims
+  // this leg → line item matchStatus=IN_TRANSIT, internalSourceNo=leg no. The
+  // in-transit amount is the external line's minor value (net × 10^decimals),
+  // read back for the manifest's display/answer key.
   {
-    const s1Amount = D('101');
-    const deposit = await (prisma as any).depositTransaction.findFirst({
-      where: { toWalletId: s1Plan.walletRef, status: 'SUCCESS' },
-      select: { id: true, assetId: true, toWalletId: true },
-      orderBy: { createdAt: 'asc' },
+    const line = await (prisma as any).externalStatementLine.findUnique({
+      where: { dedupKey: `${DEMO_STUCK_WD_REF_PREFIX}${stuck.withdrawNo}` },
+      select: { amount: true },
     });
-    if (!deposit) {
-      throw new Error(`No SUCCESS deposit transaction on wallet ${s1Plan.walletRef} for scenario 1`);
-    }
-    const txHash = refFor(s1Plan.currency, 'INTRANSIT');
-    const created = await fundsOrders.create({
-      depositTransactionId: deposit.id,
-      assetId: deposit.assetId,
-      amount: s1Amount.toString(),
-      netAmount: s1Amount.toString(),
-      toWalletId: s1Plan.walletRef,
-      txHash,
-      referenceNo: `${DEMO_IN_TRANSIT_REF_PREFIX}${s1Plan.walletRef.slice(0, 8)}`,
-      initialStatus: FundsOrderStatus.SUBMITTED,
-    });
-
-    // External mirror: bank/chain confirms the deposit before our own
-    // ledger posts it — a fresh statement line with the funds order's
-    // txHash as externalRef, IN direction, and the closing bumped by the
-    // same amount so residual = delta(+101) − inTransitSigned(+101) = 0.
-    await (prisma as any).externalStatementLine.create({
-      data: {
-        source: sourceFor(s1Plan.currency),
-        accountRef: s1Plan.walletRef,
-        subAccount: s1Plan.walletRef,
-        book: s1Plan.book,
-        currency: s1Plan.currency,
-        direction: 'IN',
-        amount: s1Amount,
-        externalRef: txHash,
-        datetime: cutoff,
-        description: 'Demo in-transit confirmation (external ahead of internal ledger)',
-        dedupKey: `DEMO-INJ-${cutoffDate}-${s1Plan.walletRef}-s1-in-transit`,
-      },
-    });
-    const prevClose = await bumpClosing(s1Plan, s1Amount);
+    // No silent fallback: the fixture always writes this line (its dedupKey ==
+    // DEMO-STUCK-WD-<withdrawNo>). Missing it means the fixture broke — throw
+    // rather than fall back to stuck.amount, which is the GROSS main-unit ('500'),
+    // wrong both in scale and value vs the NET minor (49800) we need here.
+    if (!line) throw new Error(`scenario 1: fixture external line missing for ${stuck.withdrawNo}`);
+    const inTransitMinor = line.amount.toString(); // 分（net × 10^decimals）
     injections.push({
       scenarioId: 1,
       rootCause: 'IN_TRANSIT_TIMING',
-      walletRef: s1Plan.walletRef,
+      walletRef: stuck.walletRef,
       expectedBucket: 'IN_TRANSIT',
       expectedLineType: 'IN_TRANSIT',
-      amount: s1Amount.toString(),
-      externalRef: txHash,
-      fundsOrderNo: created.fundsOrderNo,
+      amount: inTransitMinor,
+      externalRef: stuck.externalRef,
+      fundsOrderNo: stuck.fundsOrderNo,
       detail: {
-        depositTransactionId: deposit.id,
-        fundsOrderId: created.id,
-        fundsOrderStatus: created.status,
-        prevClosingBalance: prevClose,
-        closingBalanceDelta: s1Amount.toString(),
+        withdrawNo: stuck.withdrawNo,
+        fundsOrderId: stuck.fundsOrderId,
+        fundsOrderNo: stuck.fundsOrderNo,
+        note: 'real non-terminal payout leg (SUBMITTED) — external −分 OUT line claimed in-transit by Pass3',
       },
     });
   }
@@ -1160,10 +1249,29 @@ async function main() {
   console.log(`mirror written: external_balances=${written.balances}  external_statement_lines=${written.lines}`);
 
   // Phase 3 (break only) — inject 9 scenarios + write manifest.
+  //
+  // Scenario 1 now drives a REAL stuck withdraw whose external OUT line is
+  // stamped `datetime = leg.createdAt` — created *inside* injectScenarios, i.e.
+  // AFTER the top-of-main cutoff. The engine's fetchExternalLinesForWallet
+  // filters `datetime <= cutoff`, so we must run the engine on a cutoff that is
+  // ≥ every fixture line's timestamp. Re-capture `engineCutoff` right after
+  // injection (same business day → ExternalBalance cutoffDate still matches;
+  // scenario 2-9 lines are stamped at the earlier cutoff, still ≤ engineCutoff).
+  // This mirrors demo:in-transit + recon:rerun, where the recon cutoff is always
+  // captured later than the fixture.
+  let engineCutoff = cutoff;
   let manifest: ManifestV2 | null = null;
   if (mode === 'break') {
-    const fundsOrders = app.get(FundsOrderService);
-    manifest = await injectScenarios(prisma, plans, cutoff, fundsOrders);
+    const ctx: StuckFixtureCtx = {
+      app,
+      prisma,
+      fundsOrders: app.get(FundsOrderService),
+      withdrawQuote: app.get(WithdrawQuoteService),
+      withdraws: app.get(WithdrawTransactionsService),
+      withdrawWf: app.get(WithdrawWorkflowService),
+    };
+    manifest = await injectScenarios(prisma, plans, cutoff, ctx);
+    engineCutoff = new Date(); // ≥ every fixture line's datetime (see above)
     writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
     console.log(`manifest written to ${MANIFEST_PATH}  (${manifest.injections.length} scenarios)`);
     for (const inj of manifest.injections) {
@@ -1172,12 +1280,16 @@ async function main() {
   }
 
   // Phase 3.5 — populate balanceAfter on every line (running balance from opening).
+  // Keyed on cutoffDate = the day the ExternalBalance/lines were written (the
+  // early `cutoff`), so use that (not engineCutoff) — they share the same
+  // business day in the normal case; only a midnight-straddling injection would
+  // diverge, which the fixture already documents as out of scope.
   const balanceAfterCount = await populateBalanceAfter(prisma, cutoff);
   console.log(`balanceAfter populated on ${balanceAfterCount} line(s)`);
 
-  // Phase 4 — run the engine.
+  // Phase 4 — run the engine (on engineCutoff ≥ every fixture line's datetime).
   const engine = app.get(WalletReconRunService);
-  const result = await engine.run({ cutoff, manifest: manifest ?? undefined });
+  const result = await engine.run({ cutoff: engineCutoff, manifest: manifest ?? undefined });
   console.log(`\n──── engine result ────`);
   console.log(`runId=${result.runId}`);
   console.log(`status=${result.status}  walletsChecked=${result.walletsChecked}  casesOpened=${result.casesOpened}`);

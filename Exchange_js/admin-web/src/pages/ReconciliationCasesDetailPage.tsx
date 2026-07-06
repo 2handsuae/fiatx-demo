@@ -116,6 +116,7 @@ interface ReconCaseDetail {
   businessDate: string;
   assetId: string;
   assetCode: string;
+  decimals: number;                   // T4 — asset.decimals; display scales 分→元 by 10^decimals
   layer: string;
   book: string | null;
   // Wallet-engine locators (T7 / T1)
@@ -159,19 +160,20 @@ interface ReconCaseDetail {
 
 /* ── Constants & helpers ────────────────────────────────────── */
 
-// Same 6-decimal bigint formatter as the Run cockpit — keeps the two pages
-// telling the same story for the same wallet.
-const DEFAULT_DECIMALS = 6;
-const formatAmount = (raw: string | null | undefined): string => {
+// T4 (canon2): amounts arrive as integer base units (分); scale 分→元 by the
+// case asset's real decimals (getCase returns `decimals` from the asset table).
+// bigint-safe string padding — no float, so USDT (6dp) shows every digit right.
+// decimals=0 (asset lookup miss / integer asset) degrades to no fraction part.
+const formatAmount = (raw: string | null | undefined, decimals: number): string => {
   const s = String(raw ?? '0');
   let neg = false;
   let body = s;
   if (body.startsWith('-')) { neg = true; body = body.slice(1); }
-  const padded = body.padStart(DEFAULT_DECIMALS + 1, '0');
-  const intPart = padded.slice(0, padded.length - DEFAULT_DECIMALS) || '0';
-  const fracPart = padded.slice(padded.length - DEFAULT_DECIMALS);
+  const padded = body.padStart(decimals + 1, '0');
+  const intPart = padded.slice(0, padded.length - decimals) || '0';
+  const fracPart = decimals > 0 ? padded.slice(padded.length - decimals) : '';
   const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return `${neg ? '-' : ''}${intGrouped}.${fracPart}`;
+  return `${neg ? '-' : ''}${intGrouped}${fracPart ? `.${fracPart}` : ''}`;
 };
 
 const isZeroAmount = (raw: string | null | undefined): boolean => {
@@ -413,7 +415,7 @@ const ReconciliationCasesDetailPage = () => {
               <StatusPill value={kase.status} size="md" />
             </div>
             {(() => {
-              const c = buildCaseConclusion({ ...kase, bucket: kase.bucket ?? null }, (v) => formatAmount(v));
+              const c = buildCaseConclusion({ ...kase, bucket: kase.bucket ?? null }, (v) => formatAmount(v, kase.decimals));
               if (!c) return null;
               const toneCls =
                 c.tone === 'red' ? 'text-adm-red'
@@ -438,7 +440,7 @@ const ReconciliationCasesDetailPage = () => {
                   内部 / Internal
                 </div>
                 <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-t1">
-                  {formatAmount(kase.explain?.internalTotal ?? kase.tbAmount)}
+                  {formatAmount(kase.explain?.internalTotal ?? kase.tbAmount, kase.decimals)}
                 </div>
               </div>
               {/* External — actual closing balance from the external statement
@@ -450,7 +452,7 @@ const ReconciliationCasesDetailPage = () => {
                   外部 / External
                 </div>
                 <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-t1">
-                  {formatAmount(kase.explain?.externalClosing ?? kase.actualExternal)}
+                  {formatAmount(kase.explain?.externalClosing ?? kase.actualExternal, kase.decimals)}
                 </div>
               </div>
               {/* Δ — muted green/check when balanced, bold red with sign when not. */}
@@ -477,8 +479,8 @@ const ReconciliationCasesDetailPage = () => {
                   ].join(' ')}
                 >
                   {deltaZero
-                    ? `${formatAmount(kase.deltaAmount)}`
-                    : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`}
+                    ? `${formatAmount(kase.deltaAmount, kase.decimals)}`
+                    : `${sign}${formatAmount(kase.deltaAmount, kase.decimals).replace(/^-/, '')}`}
                 </div>
               </div>
               {/* 在途解释 / In-transit explained — blue, the portion of Δ
@@ -488,7 +490,7 @@ const ReconciliationCasesDetailPage = () => {
                   在途解释 / In-transit
                 </div>
                 <div className="mt-1 font-mono text-[18px] font-bold leading-tight text-adm-blue">
-                  {kase.explain ? formatAmount(kase.explain.inTransitSigned) : '—'}
+                  {kase.explain ? formatAmount(kase.explain.inTransitSigned, kase.decimals) : '—'}
                 </div>
               </div>
               {/* 未解释残差 / Residual — the core investigation signal. Red
@@ -516,7 +518,7 @@ const ReconciliationCasesDetailPage = () => {
                     kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-t3' : 'text-adm-red',
                   ].join(' ')}
                 >
-                  {kase.explain ? formatAmount(kase.explain.residual) : '—'}
+                  {kase.explain ? formatAmount(kase.explain.residual, kase.decimals) : '—'}
                 </div>
                 <div
                   className={[
@@ -626,8 +628,8 @@ const ReconciliationCasesDetailPage = () => {
                           {/* Amount — mismatch shows both sides "internal ≠ external" */}
                           <td className={`px-3 py-3 text-right font-mono text-[11px] ${isMismatch ? 'font-bold text-adm-red' : 'text-adm-t1'}`}>
                             {isMismatch
-                              ? `${formatAmount(intl?.amount)} ≠ ${formatAmount(ext?.amount)}`
-                              : formatAmount(ext?.amount ?? intl?.amount)}
+                              ? `${formatAmount(intl?.amount, kase.decimals)} ≠ ${formatAmount(ext?.amount, kase.decimals)}`
+                              : formatAmount(ext?.amount ?? intl?.amount, kase.decimals)}
                           </td>
                           {/* External ref */}
                           <td className="px-3 py-3 font-mono text-[11px] text-adm-t2">
@@ -721,7 +723,7 @@ const ReconciliationCasesDetailPage = () => {
             <SidebarKV label="Case No" value={kase.caseNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
             <SidebarKV label="Bucket" value={kase.bucket ? formatBucketBilingual(kase.bucket) : '—'} />
-            <SidebarKV label="Δ" value={deltaZero ? formatAmount(kase.deltaAmount) : `${sign}${formatAmount(kase.deltaAmount).replace(/^-/, '')}`} mono />
+            <SidebarKV label="Δ" value={deltaZero ? formatAmount(kase.deltaAmount, kase.decimals) : `${sign}${formatAmount(kase.deltaAmount, kase.decimals).replace(/^-/, '')}`} mono />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">

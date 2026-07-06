@@ -203,11 +203,25 @@ export class ReconciliationQueryService {
       : [];
     const walletById = new Map(wallets.map((w) => [w.id, w]));
 
+    // T4 (canon2): asset decimals per row so the display layer can scale each
+    // wallet's amounts (分) back to 元 by its own asset's precision — a run
+    // spans multiple assets (AED=2, USDT=6). Same lookup as listExternalBalances:
+    // asset table by currency code, never hardcoded.
+    const runAssetCodes = Array.from(new Set(runWallets.map((w) => w.assetCode)));
+    const runAssets = runAssetCodes.length
+      ? ((await (this.prisma as any).asset.findMany({
+          where: { code: { in: runAssetCodes } },
+          select: { code: true, decimals: true },
+        })) as Array<{ code: string; decimals: number }>)
+      : [];
+    const decimalsByCode = new Map(runAssets.map((a) => [a.code, a.decimals]));
+
     const accountStatusTable: AccountStatusRow[] = legacy ? [] : runWallets.map((w) => ({
       walletRef: w.walletRef,
       walletNo: walletById.get(w.walletRef)?.walletNo ?? null,
       walletRole: walletById.get(w.walletRef)?.walletRole ?? null,
       asset: w.assetCode,
+      decimals: decimalsByCode.get(w.assetCode) ?? 0,
       book: w.book,
       coaCode: w.coaCode,
       ownerNo: w.ownerNo,
@@ -383,7 +397,7 @@ export class ReconciliationQueryService {
       // Cutoff = the businessDate of the run that most recently observed this
       // case, not kase.businessDate (frozen at first-seen under cross-day reuse).
       const cutoffBusinessDate = lastObservedRun?.businessDate ?? kase.businessDate;
-      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate });
+      const built = await this.buildFlowComparison({ walletRef: kase.walletRef, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
       flowComparison = built.rows;
       flowSummary = built.summary;
     }
@@ -437,6 +451,14 @@ export class ReconciliationQueryService {
           select: { walletNo: true },
         })
       : null;
+
+    // T4 (canon2): the display layer scales every amount by 10^decimals to turn
+    // integer base units (分) back into 元. Same source as listExternalBalances
+    // and buildFlowComparison — asset table by currency code, never hardcoded.
+    const assetRow = (await (this.prisma as any).asset.findUnique({
+      where: { code: kase.assetCode },
+      select: { decimals: true },
+    })) as { decimals: number } | null;
 
     const linkedRunId = kase.lastUpdatedRunId ?? kase.openedByRunId ?? null;
     const linkedRunRow = linkedRunId
@@ -495,6 +517,7 @@ export class ReconciliationQueryService {
       ...kase,
       walletNo: walletRow?.walletNo ?? null,
       linkedRunNo: linkedRunRow?.runNo ?? null,
+      decimals: assetRow?.decimals ?? 0,
       bucket: kase.bucket ?? null,
       flowComparison,
       flowSummary,
@@ -635,7 +658,7 @@ export class ReconciliationQueryService {
    * populated; orphan rows have one side null.
    */
   private async buildFlowComparison(
-    kase: { walletRef: string; businessDate: string },
+    kase: { walletRef: string; businessDate: string; assetCode: string },
   ): Promise<{ rows: FlowComparisonRow[]; summary: FlowComparisonSummary }> {
     // T6: cutoff comes from kase.businessDate here, but the CALLER (getCase)
     // now passes the businessDate of the case's lastObservedRunId run — not
@@ -714,10 +737,21 @@ export class ReconciliationQueryService {
     const intById = new Map(internalRows.map((r) => [r.id, r]));
 
     // 2. Re-pair via the matcher (uses the same precedence as the engine).
+    // Pass this case's real asset.decimals so Pass 3 can convert its funds_order
+    // (元) candidates to 分 and correctly claim in-transit external lines. With
+    // decimals=0 the funds_order 元 would never scale to match a 分 external
+    // line, so this display re-run would drop every in-transit pairing and show
+    // the line as a hard orphan. Same source as the run service: asset table by
+    // currency code (never hardcoded).
+    const assetForDecimals = (await (this.prisma as any).asset.findUnique({
+      where: { code: kase.assetCode },
+      select: { decimals: true },
+    })) as { decimals: number } | null;
     const matcher = await this.walletFlowMatcher.matchFlows({
       walletRef: kase.walletRef,
       externalLines,
       cutoff,
+      decimals: assetForDecimals?.decimals ?? 0,
     });
 
     const rows: FlowComparisonRow[] = [];

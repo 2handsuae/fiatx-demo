@@ -40,6 +40,7 @@ export interface AccountStatusRow {
   ownerNo?: string | null;          // customer / firm owner number
   ownerName?: string | null;        // first+last name or company name (null for firm)
   asset: string;                    // 'AED' | 'USDT-TRON'
+  decimals: number;                 // asset.decimals — display layer scales 分→元 by 10^decimals
   book: string;                     // CUSTOMER | FIRM
   coaCode: string | null;           // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_FEE' | ...
   internal: { balance: string };

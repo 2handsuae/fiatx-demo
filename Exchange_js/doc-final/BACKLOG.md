@@ -60,6 +60,14 @@ Last Updated: 2026-07-03
 - [ ] **FIRM Treasury snapshot 历史残留**：旧 Run 历史数据余额标记行误入交易下钻（Phase B 后新 run 不产生，历史数据未清）｜来源: 2026-07-04 V8 体检（Round3 遗留）
 - [ ] **资本注入 evidence 待核**：CAPITAL_INJECTION seed transfer 在，FIRM_ASSET 流水是否有对应 evidence/account_flow 行待确认（roadmap 记为欠，agent 称已有——需查 seed 是否走 writeEvidence）｜来源: 2026-07-04 V8 体检
 - [ ] **资金单合并可行性评估**：payin/payout/internalfund 状态机近同构（已从待决策移来核实——Round 2 已合表 funds_orders，权限已统一 FUNDS_ORDERS_*，此项其实已完成大半，剩 InternalFund 枚举命名债）｜来源: 2026-07-04 V8 体检复核
+- [ ] **canonical-minor 展示层 re-pairing 未传 decimals**：`reconciliation-query.service.ts` `buildFlowComparison()` 的 `matchFlows` 调用暂传 `decimals: 0`（identity 换算，保持 Case 详情流水比对页现状不变），TODO 标记待 Task B 补该 case 资产 `asset.decimals`｜来源: 2026-07-04 canonical-minor Task A（Task B 收口）
+- [ ] **对账 Cases 列表页 Δ 显示的是原始「分」整数、未按 decimals 分→元**：`ReconciliationCasesListPage.tsx:297` 直接 `{kase.deltaAmount}` 渲染（仅用 `Number()` 判正负/零），USDT case 会把 3000000 分显示成 "3000000"。修法需后端 `listCases` 返回 `decimals`（同 getCase：按 assetCode 查 asset 表）+ 前端列表按行 `formatAmount(delta, decimals)`。同族的 DemoCompare 页 `AmountCell`（manifest 口径答案键，属另一比对面，暂不动）｜来源: 2026-07-04 canon2 T4 冰山排查（T4 只改两详情页，列表页超范围）
+- [ ] 🎯 **业务层（充值/提现/兑换/资金单/报价/手续费）存储 元→分 整层迁移**（乙的第二步）：当前 `funds_orders.amount` 及整个业务层仍存「元」，与"内部全分"原则不符；recon 读入边界（matcher Pass3 `wallet-flow-matcher.service.ts` + push 回执 `receipt-lookup.service.ts` 档2）为此做 funds_order 元→分 换算。整层搬分后**可撤除这两处边界换算**（改为分比分直取）。blast radius 巨大（quote/withdraw/deposit/swap 建单+校验+展示全链），须单独排期迁移+回填+双跑校验｜来源: 2026-07-04 canon2 scale 审计 + 业主"内部全分"原则（spec `2026-07-04-recon-engine-canonical-minor-design.md` §6）
+- [ ] **`formatAmount(raw, decimals)` 三处重复**：`ReconciliationCasesDetailPage.tsx` + `ReconciliationRunsDetailPage.tsx` 各有一份 bigint-safe 版（字符串插点），`ReconciliationExternalBalancesPage.tsx` 另有一个 `fmtAmount` float 版（`Number()/10^d`，大额/6 位币种有精度风险）。应抽到共享 util、统一到 bigint-safe 版并三处引用｜来源: 2026-07-04 canon2 T4 Minor
+- [ ] **金额精度断言（`.toFixed(0)` 元→分取整）跨 matcher + receipt-lookup 横切**：`wallet-flow-matcher.service.ts` `toMinor` 与 `receipt-lookup.service.ts` `orderMinor` 都用 `Prisma.Decimal.mul(10^decimals).toFixed(0)` 把 funds_order 元→分，靠 `.toFixed(0)` 舍入。两处口径必须始终一致（否则同一单在途认领与推单回执会错配）；元→分整层迁移后此横切消失。当前无守卫两处不漂移的测试｜来源: 2026-07-04 canon2 T3 M2
+- [ ] **`receipt-lookup.service.ts:77` `extMinor` 的 `String(a)` 死兜底分支**：`l.amount` 恒为 Prisma.Decimal（有 `.toFixed`），三元 `a?.toFixed ? a.toFixed(0) : String(a)` 的 else 永不命中。可删掉与匹配器 `extMinor = BigInt(d.toFixed(0))` 对齐（T3 M1）｜来源: 2026-07-04 canon2 T3 双审
+- [x] ~~**demo:in-transit heal 检测被历史 POSTED 流水在 Pass2 抢配**~~：**已修（2026-07-04 canon2 T6）**。demo 客户钱包跨轮复用，每次 --verify 推单 POST 留一条 `WITHDRAW_NET_POST` 分流水；reset 清不掉（父 withdraw 已删，flow 成孤儿）。固定金额时历史同额同向 POSTED 流水在 matcher Pass2（金额+方向+60min 模糊）抢配本轮外部镜像行 → 卡腿认不成在途 → 落 BREAK。修法：`demo-in-transit.ts` 建单前查该客户钱包已存在的 `WITHDRAW_NET_POST` 净额集合，挑一个不在集合里的 amount（避让历史）｜来源: 2026-07-04 canon2 T6 heal e2e 排查
+- [x] ~~**demo:in-transit --verify 推单后重对账早于异步 POST 落库（竞态）**~~：**已修（2026-07-04 canon2 T6）**。`syncPush` 只把腿驱到 CLEARED 就返回，真正净额 POST 由 `withdraw-workflow` 的 `@OnEvent(onPayoutLegConfirmed)` 异步 handler 完成；紧接着 recon 会读到旧余额 → delta≠0 误判。修法：`runVerify` step 4 先 `waitFor` 该腿 `WITHDRAW_NET_POST` 落库再 recon｜来源: 2026-07-04 canon2 T6 heal e2e 排查
 
 ## 技术债 — V1 审计底座
 
@@ -81,7 +89,7 @@ Last Updated: 2026-07-03
 - [ ] **swap 腿推单未支持**：通用推单按钮（`/admin/funds-orders/:no/push/sync|manual`）明确排除 swap 腿——`advanceByNo`/编排服务见 `swapTransactionId` 非空即拒（现有先卖后买顺序守卫防线），且回填 effectiveDate 需再穿透 swap 4 腿两阶段记账链（工作量≈deposit+withdraw 之和）。swap 腿卡单本期走 **Swap 详情页 `advanceLeg` 专用推进**（带顺序守卫），但该路径**暂无 effectiveDate 回填** → 推完历史那天快照修不平 ｜来源: 2026-07-03 推单 plan 落地发现（spec §2/§8）｜下期：swap workflow 记账链穿透 effectiveDate + 推单接 swap 腿
 - [ ] **推单/sim-advance 端点用 INTERNAL_FUND_READ 读权限门控变更操作**：/admin/funds-orders/:no/push/sync|manual + :no/advance 都是变更/动钱操作却挂 _READ → 读权限 operator 也能推单结算。应新增**写/处置权限**统一门控三端点（需 db:base:sync + 重启）｜来源: 2026-07-03 推单 T3 code-review M-2 ｜下期专门 RBAC 轮（与下条命名债一并做）
 - [ ] **funds-orders 域 RBAC 权限 + 审计实体仍用 rename 前旧名 `INTERNAL_FUND`**：Round 2 表 `internal_funds`→`funds_orders`（2026-07-02）后，权限 `INTERNAL_FUND_READ`（rbac.catalog.ts:44/581-586 整个 funds-orders 域唯一权限）+ 审计实体 `AuditEntityTypes.INTERNAL_FUND`（audit-actions.constant.ts:58，Spec#4 短名）均未跟随重命名 → 域叫 funds order、门禁/实体叫 internal fund，不一致。应统一改 `FUNDS_ORDER_READ` / 新增 `FUNDS_ORDER_DISPOSE` + 审计实体 `FUNDS_ORDER`（rbac catalog union 类型 + 全部 route + AuditEntityTypes + 引用点 + db:base:sync；审计实体改名要评估历史 audit_log_events 旧值兼容）｜来源: 2026-07-03 用户审阅推单 BACKLOG 发现 ｜下期 RBAC 轮同做
-- [ ] **缺"真实卡单"demo 场景演完整 heal 闭环**：推单机制全证（状态驱动+回填生效日+审计+重对账触发+穿透链三层），但「推真实卡单→记账→重对账吸收→case AUTO_HEALED」端到端未在 demo 演出——recon:demo 6 充值/5 提现全 SUCCESS、scenario-1 是挂已 SUCCESS deposit 的状态壳，推之不产生新记账（onPayinConfirmed 见非 PAYIN_PENDING 正确跳过）。需新增 demo 场景：充值走到 PAYIN_PENDING 就停、造真实在途单，端到端演 delta→0 自愈（代码正确性已追码核实，此为可演示性/测试债）｜来源: 2026-07-03 推单 T5 e2e Option B ｜用户选"先合并 demo 另起"，下期独立小活
+- [x] ~~**缺"真实卡单"demo 场景演完整 heal 闭环**~~：**已兑现（2026-07-04 canon2 T6）**。`demo:in-transit --verify`（真实卡提现，非状态壳）端到端实证：DETECTION 落 IN_TRANSIT 残差 0 → 推单 sync CLEARED → 等净额 POST 落库 → 重对账 **delta=0**、卡腿脱离 IN_TRANSIT（连跑无 reset 3 次幂等 PASS）。case 自愈到 RESOLVED/AUTO_HEALED 需钱包零异常达 MATCHED（复用 demo 钱包有历史内部单腿 → SOFT_FLAG），该路径由单测 `wallet-recon-run.service.spec.ts`（"breaks in run A then recovers in run B → RESOLVED/AUTO_HEALED"）证明｜来源: 2026-07-03 推单 T5 → 2026-07-04 canon2 T6 收口
 
 ## 待决策（等业主拍板）
 
@@ -114,5 +122,8 @@ Last Updated: 2026-07-03
 - [ ] **Docker `tb-format` 非幂等**：重跑演示需先 `docker compose down -v` 清账本端数据卷（否则 format 撞已存在文件报错）；可给 format 加 if-missing 守卫做到重跑免 down -v ｜来源: 2026-07-04 Docker 交付
 - [ ] **Docker Desktop Mac 4.42+ io_uring 风险留账**：新版 Mac 版可能 VM 级封 io_uring，`seccomp=unconfined` 也救不回 → 退 OrbStack（已写进 `READ-ME-FIRST.md`，此处备查）｜来源: 2026-07-04 Docker 交付
 - [ ] **泄露 dev `.env` 仍在 git 历史**：`.env` 已 `git rm --cached`（合 c80ce5e）+ 本地换新 MFA key 作废旧值；旧值仍留在历史（用户选不重写历史，属 demo key）。若确认该 key 曾用于任何真实用途，需重评是否 filter-repo 抹历史 ｜来源: 2026-07-04 一级审计
+## demo / 对账脚本（canon2 收尾）
+
+- [ ] **`recon-demo.ts` MANIFEST_PATH 写死 main tmp**：默认 `/tmp/exchange_js_main/recon-demo-manifest.json`（可 `RECON_DEMO_MANIFEST_PATH` 覆盖）；self 栈跑 `recon:demo:break` 时 manifest 落 main 栈 tmp、非本 worktree tmp。不影响评分（verifyManifest 读内存 manifest 对象、不回读文件），仅文件落点跨栈。修法：默认按 `DATABASE_URL` 派生 tmp 目录，或 on-stack 包装器注入 `RECON_DEMO_MANIFEST_PATH` ｜来源: 2026-07-04 canon2 T5 code-review（M2）
 
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
