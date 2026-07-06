@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-07-03
+Last Updated: 2026-07-04
 
 **三层分类**（按需求来源）：
 - **MVP** — 领导定义的基础必须（非常基础，未必行业惯例，但领导要）
@@ -9,7 +9,7 @@ Last Updated: 2026-07-03
 
 **每条标注**：`来源:`（领导/VARA 条款/行业）｜ `配对:`（正逆操作互链，防逆向遗忘）｜ 状态 `[x]`交付 `[~]`部分 `[ ]`待做 + 日期。
 **实现细节与当前真相** → `reference/truth/`（改代码同步那里，不改这里）｜ **技术债/死码/待决策** → `../BACKLOG.md`。
-> ⚠️ 三层分类 + truth 外置目前已应用于 **V3 / V4**；其余版本待同款重排（见 BACKLOG「文档漂移」）。
+> ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排已覆盖 **V1 / V5 / V6**（各带 `superpowers/specs/` 调研留底）。V7-V9 待同款重排（见 BACKLOG「文档漂移」）。
 
 ---
 
@@ -240,7 +240,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ## V6 — 兑换流程
 
-> 平台内兑换（crypto↔fiat 余额交换，**资金不出境、无外部对手方**）：报价 → L1 资格 → 消费 Quote → 4 腿实时记账 → SUCCESS。合规**仅 L1 同步闸门**（无 L2/大额门，因资金不出境）。
+> 平台内兑换（crypto↔fiat 余额交换，**资金不出境、无外部对手方**）：报价 → L1 资格 → 消费 Quote → 4 腿实时记账 → SUCCESS。现**仅 L1 同步闸门**——⚠️据 2026-07-04 调研，「因资金不出境免 L2」**过度泛化**：仅 Travel Rule 可豁免，**AML 交易监控 + 最优执行** 两根 P0 支柱不豁免（见 ADVANCED）。
 > **前置**：V2 + V3。
 > 📖 **实现真相** → [`reference/truth/v6-swap.md`](truth/v6-swap.md)（4 腿账户 / FAILED-REVERSED 死枚举 / 费率治理）
 
@@ -250,13 +250,37 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [x] 兑换成交 Happy Path — L1 资格→消费 Quote→PROCESSING→4 腿 per-leg two-phase(客户 CLIENT_PAYABLE↔CLIENT_ASSET + 公司 FIRM_ASSET↔FIRM_OPS/SET/FEE)→leg1 自动/leg2-4 admin advance→4 腿 CLEAR→SUCCESS ｜来源:领导+VARA CRM II.A ✅2026-06-01
 - [x] 兑换费率等级 创建/变更/绑定 — 3 独立工作流；创建/变更 OPS_OFFICER 单步、变更 request-record+configHash 冲突、绑定无门；tier=rateMarkupBps+feeItems(支持 spread-only) ｜来源:领导+VARA CRM II.C ✅2026-06-01
 
-### ADVANCED（VARA gap + 治理 + 失败终态）
+### ADVANCED（VARA gap + 异常分支）
 
-- [ ] swap 失败终态治理 — 接 reverse 端点(整笔冲正→REVERSED) + 自动 FAILED 状态机；现 FAILED/REVERSED 为**死枚举**、失败仅自愈→STUCK 留 PROCESSING ｜来源:业务 ｜配对:成交 Happy Path
-- [ ] ⚖️ 大额兑换增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO；⚠️设计立场:swap 资金不出境现仅 L1 eligibility，是否启用异步合规门待定 ｜VARA CRM III.B
-- [ ] 交易暂停/恢复 — 货币对/全局暂停，在途 Quote 强制 EXPIRED，Maker+Checker ｜来源:业务
-- [ ] 货币对上下线 — 新增(关联 TB Account+默认 SwapFeeLevel+审批)/下线(处理在途 Quote+归档) ｜来源:业务
-- [ ] 批量兑换(机构) — CSV 批量→逐笔校验→统一审批→逐笔成交 ｜来源:业务(机构)
+> 📖 **调研留底** → `superpowers/specs/2026-07-04-v6-swap-compliance-research.md`
+> ⚠️ **据 2026-07-04 深度调研重排**（103 agent/32 findings/3 视角对抗核验）：核心纠偏——「资金不出境→免 L2」**过度泛化**，只 Travel Rule 可豁免；**AML 交易监控 + 市场行为/最优执行** 两根 P0 支柱不因账本内而豁免。
+> ⚠️ **别误当合规洞**：`FAILED/REVERSED 死枚举`、`STUCK 部分成交一致性` 经对抗核验 **3:0 驳回**＝技术债（已在 BACKLOG），非监管缺口。
+
+**P0（VARA 牌照级，现有几乎空白）：**
+
+- [ ] ⚖️P0 兑换反洗钱交易监控 — 成交后 emit `SwapCompleted`→规则引擎(刚充就换/大额或拆单/来回对敲/画像不符/高风险PEP)→命中开 MLRO Case→STR 候选(联动 V9 goAML)；**本质盯客户行为模式非单笔**；先「只检测不阻断」(R.20 事后报即合规) ｜CRM III.F.1/III.E.5(a) + FATF R.10/R.20/2020 红旗
+- [ ] ⚖️P0 最优执行 best-execution gate — 平台自营做庄须**自证定价靠谱**：≥2 价源比对 + 偏离阈值拦截/降级 + 每笔 bestExec 证据留痕(≥8y)；⚠️**非限制利润**，管透明/一致/有据、点差多少是商业决策 ｜BD II.A.1/A.2(本金成交不豁免)/II.B.1
+- [ ] ⚖️P0 本金身份 + 利益冲突 + 定价方法 对外披露 — 告知客户「平台作对手方成交、含点差」+ 公开定价方法 + 冲突管理 ｜BD I.B.1.a/d + II.B.1
+
+**P1（VARA 强制但相对次级）：**
+
+- [ ] ⚖️P1 点差作「平台留存」双点披露 + 成交确认单 — 成交前显性标注留存额 + SUCCESS 后生成不可变确认单(现连成功通知都没接) ｜BD II.A.6
+- [ ] ⚖️P1 价格公允性书面政策 + 治理 — 点差上限/偏离容忍/peg 来源入 fee-level 式 Maker-Checker；**分档按规则(同档同价、禁手动看人改价)** ｜BD II.A.1/A.3/A.16
+- [ ] ⚖️P1 内部化订单流季度执行质量复核 — 100% 自成交须 ≥季度抽样 自家价 vs 外部可得价，出「调整 or 书面说明」 ｜BD II.A.13
+- [ ] ⚖️P1 陈旧价/极端行情保护 — 价源心跳+最大陈旧度拒单+第二源熔断+成交前重校验(顺带解决滑点) ｜BD II.A.4/A.12 + Tech I.H.1
+- [ ] ⚖️P1 兑换环节市场操纵监控 — 账本内也能 wash/自成交/套陈旧价，须监控+达阈报 FIU/VARA ｜Market Conduct VIII §I/§J
+- [ ] ⚖️P1 AED 3,500 累计阈值→re-CDD + 大额兑换审批门 — 单笔+滚动累计感知(与拆单共用计数器) ｜CRM III.E
+- [ ] ⚖️P1 高风险/PEP 大额兑换 EDD — L1 门读 riskRating→打 EDD 标记→校验 SOF/SOW 时效(客户层义务，不必逐笔硬闸) ｜CRM III.E.10
+- [ ] ⚖️P1 卡单重大事件 72h 上报判定 — STUCK 严重度分级→达档起 72h 计时 + VARA 通报草案 ｜Tech K.1 + I.H.1
+- [ ] ⚖️P1 卡单期间客户资金保护 SLA — leg1 已扣、买入腿卡→最长停留 SLA、超时强制修复 or 全额回滚释放 + 客户侧可见 ｜CRM I.E.4/I.E.1
+- [ ] ⚖️P1 本金交易 vs 自营禁令边界 — 出「仅即时轧平、禁投机」政策 + 存货敞口台账 ≥8y ｜Market Conduct VII.A.1/A.3 + BD II.B.1
+- [ ] swap 失败终态治理 — 接 reverse 端点(整笔冲正→REVERSED) + 自动 FAILED 状态机；现死枚举、失败仅自愈→STUCK 留 PROCESSING ｜来源:业务/技术债(**非合规洞**) ｜配对:成交 Happy Path
+
+**P2（低频 / 治理 / 辩护）：**
+
+- [ ] 拆单/结构化兑换聚合监控(既有客户非 occasional，列低) ｜CRM III.E.4(b)
+- [ ] ✅ **可保留辩护**：Travel Rule 不适用内部兑换(III.G 需对手方/transfer)——须存证依据 + 护栏(将来支持转出/跨客户则立即触发) ｜CRM III.G
+- [ ] 交易暂停/恢复 ｜ 货币对上下线(关联 TB Account+默认费率+审批) ｜ 批量兑换(机构 CSV) ｜来源:业务
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
@@ -265,6 +289,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 > **支撑项**（SwapQuoteService 拆分 / PricingCenterService 删除 −3500 行 / 4 腿声明式记账 / Client 兑换页 / Swap Quotes admin 页 / 审批策略 6 类简化 OPS_OFFICER / legacy swap config 已清）均已交付；现状见 [truth/v6-swap.md](truth/v6-swap.md)。**技术债**（Sumsub TM / repair surface / InternalFund 命名债）见 [BACKLOG.md](../BACKLOG.md)。
 > ⚠️ **措辞订正（2026-07-04 体检）**：① reverse 整笔冲正 / REVERSED / FAILED 实为**死枚举 + 无 reverse 端点**（原 2026-06-26 ✅ 过度声明，降为 ADVANCED 待做）；② 编排类名实为 `SwapWorkflowService`+`SwapLegAccounting`，**无 `SwapSettlementService`**；③ swap 腿 = funds_order（代码仍用 InternalFund 旧名，命名债）。
+> ⚠️ **合规边界订正（2026-07-04 调研）**：truth/v6-swap.md §11/§47「合规仅 L1＝设计决策非遗漏」**部分错误**——只 Travel Rule 该豁免，AML 监控/最优执行/EDD 不该豁免（详见 spec §四）。truth + BACKLOG 待同步（本轮仅动 roadmap + spec）。
 
 ---
 
