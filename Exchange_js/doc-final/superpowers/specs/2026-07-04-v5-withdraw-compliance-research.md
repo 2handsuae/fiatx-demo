@@ -70,3 +70,9 @@ Scope: 提现执行流 + 合规控制（Travel Rule 发起方义务、目的地�
 ## 主要源
 
 VARA: CRM Rulebook（III.G Travel Rule、III.H 制裁、III.E CDD、III.F STR）、BD Services Rulebook（I.A.1.c）、VA Transfer & Settlement Rulebook（II.C.2/C.3，VARA_EN_347_VER20250519.pdf）、Custody Rulebook（III.D.1.a.iii）。FATF: R.16/INR.15.7、Best Practices Travel Rule、Oct-2021 VA Guidance。OFAC: FAQ 646/36。Sumsub unhosted wallet verification。
+
+---
+
+## 2026-07-06 牌照订正（BD-only）
+
+用户确认：平台 VARA 牌照**仅 Broker-Dealer**、无 VA Transfer & Settlement 活动，链上转账由持牌托管 HexTrust 执行。本 spec 引用 Transfer&Settlement Rulebook 的两条（II.C.2 失败 24h 退回、II.C.3 追踪定因）**不能当平台直接义务**——硬时限直接约束执行转账的持牌方（HexTrust），平台义务=**合同传导 24h SLA + 监督跟踪 + 客户资产保护**（改锚 CRM I.E.4/I.E.1 + BD I.A.1.c）。roadmap V5 对应两条已同步改锚（2026-07-06）。§三表格中 II.C.2/C.3 两行按此解读；"关键纠偏 3（失败退回有硬 24h SLA）"限缩为"HexTrust 侧硬 24h，平台侧合同传导"。

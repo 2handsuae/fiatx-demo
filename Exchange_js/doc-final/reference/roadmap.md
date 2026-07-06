@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-07-04
+Last Updated: 2026-07-06
 
 **三层分类**（按需求来源）：
 - **MVP** — 领导定义的基础必须（非常基础，未必行业惯例，但领导要）
@@ -110,7 +110,8 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 **Individual 进阶：**
 - [ ] 客户资料变更 — 身份变更触发重验(低风险直接生效/高风险 Sumsub 重验) ｜VARA CRM II.A.3
 - [ ] 客户销户 — 余额清零+在途处理+AML 终审+KYC 归档 8 年+账号关闭 ｜VARA CRM IV.C
-- [ ] 客户协议版本管理 — T&C/费率表版本+Legal 审批+客户确认记录 ｜来源:业务
+- [ ] 客户协议版本管理 — T&C/费率表版本+Legal 审批+客户确认记录 ｜来源:业务 ｜⚠️2026-07-06 V6 复查:协议含费率表,变更须**提前 30 日历日**通知客户+单方变更权须明示写入协议(MC II.A.7/8)——生效闸在 V6 费率工作流,通知发送在本条
+- [ ] ⚖️ 投资者分类(Retail/Qualified/Institutional) — 客户级分类状态+证据留痕≥8y(Qualified 门槛:净资产≥AED 350 万或年收入≥AED 70 万,禁自我声明);升级走披露+同意+双重复核;V4-V6 交易门只读此字段 ｜Market Conduct IV.A.1 + VARA Circular 2026-01-08 ｜来源:2026-07-06 V6 复查分拣归 V2
 
 **Institutional（接入机构客户后 7 workflows，Corporate 现显式禁用）：**
 - [ ] Corporate Onboarding/KYB ｜ UBO 管理 ｜ 授权代表管理 ｜ 公司结构变更 ｜ 多用户企业访问 ｜ Corporate CRA ｜ Re-KYB — 均 VARA CRM II.B/III；CorporateProfile/UboProfile 表已 stub
@@ -139,6 +140,8 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️ 资产对外披露信息页 — 每资产公开摘要（符号/发行日/市值/流通量/合约审计/最大回撤）｜VARA BD I.B.1(c) ｜挂靠资产上线，下架联动摘除
 - [ ] ⚖️ 资产下架 — 在途订单清退 + 持仓清退 + 披露页摘除 + 审批 ｜来源:VARA(披露一致性)+行业(Coinbase/Kraken) ｜配对:资产上线(MVP)
 - [ ] ⚖️ 阈值参数配置治理 — 归集/dust/大额线/TR 阈值走 Maker-Checker，出硬编码 ｜VARA Company(职责分离，硬编码绕过四眼) ｜自 V7 移入
+- [ ] ⚖️P1 稳定币兑换对 CBUAE 牌照门 — AED↔支付型代币(USDT/USDC)兑换对**开通前**登记 CBUAE 授权/非异议注册状态,无则禁开该对——央行 2024 条例明文"含 VARA 持牌人",VARA 牌照不覆盖法币↔支付代币换汇 ｜CBUAE Payment Token Services Regulation(Circular 2/2024,条款原文待核) ｜来源:2026-07-06 V6 复查分拣归 V3
+- [ ] ⚖️P1 VA Standards 存续复审+币对急停 — 上线尽调只是"prior to"半句,"**at all times during**"要求在售币对存续符合:跌出标准(列禁/失监管认可)→暂停该币对报价成交+留痕;VA Standards 文本挂官网随修订更新;V6 报价引擎消费暂停标记 ｜Market Conduct VIII.A.2/A.3/A.4(n) ｜来源:2026-07-06 V6 复查分拣归 V3
 - [ ] ⚖️P1 提现地址所有权验证 + hosted/unhosted 分类打标记 — 登记时验证客户控制自托管钱包(验一次永久) + 分类 hosted/unhosted + 对手方 VASP 初次尽调 → 打标记供 V5 每笔消费；TravelRuleAdapter 归因已有地基 ｜CRM III.G.7 + FATF(2026-07-04 V5 调研确认，原"待核"已坐实) ｜**地址级一次性控制归 V3**；交易级(制裁重筛/TR 发送/差异化 EDD)在 V5
 - [ ] 提现地址停用归档 — 确认无在途提现→停用（8 年保留，不物理删）｜来源:领导 ｜配对:地址登记(MVP)
 
@@ -207,19 +210,19 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### ADVANCED（VARA gap + 异常分支）
 
 > 📖 **调研留底** → `superpowers/specs/2026-07-04-v5-withdraw-compliance-research.md`
-> ⚠️ **据 2026-07-04 深度调研重排**（10 findings 3:0 + 代码验证）：⚖️P0=牌照级必须；**纠正旧设想 3 处**——① 制裁是 BLOCK(冻结原地) 非"取消退回客户"；② L2「Travel Rule」现只是筛查状态位、缺发起方发送；③ 失败退回有硬 **24h SLA**(非"尽快")。
+> ⚠️ **据 2026-07-04 深度调研重排**（10 findings 3:0 + 代码验证）：⚖️P0=牌照级必须；**纠正旧设想 3 处**——① 制裁是 BLOCK(冻结原地) 非"取消退回客户"；② L2「Travel Rule」现只是筛查状态位、缺发起方发送；③ 失败退回有硬 **24h SLA**(非"尽快")——⚠️**2026-07-06 牌照订正**:平台仅 BD 牌照(无 T&S 活动),硬 24h 直接约束执行转账的持牌方(HexTrust),平台义务=合同传导+监督,下列两条 T&S 锚点已改锚。
 
 **P0（VARA 牌照级，现有几乎空白）：**
 
 - [ ] ⚖️P0 Travel Rule 发起方**发送** — >AED 3,500 发起前向受益方 VASP 发送 originator(name+钱包地址+住址)+beneficiary(name+钱包地址) payload；⚠️现有 L2 只是筛查状态位、**无发送环节** ｜CRM III.G.2/4/5 + FATF R.16
 - [ ] ⚖️P0 对手方 VASP 尽调 — 新对手方 VASP 首次交易前风险尽调(核受监管+能收 TR)，pre-send gating；⚠️2026-02-24 VARA Circular **禁止向未受监管对手方转账** ｜CRM III.G.6
 - [ ] ⚖️P0 制裁命中→BLOCK/FROZEN — ⚠️纠偏:命中 BLOCK 须**冻结原地+拒绝各方访问+上报**，**非取消退回客户**(与 block 义务冲突)；后端需补 FROZEN 态 ｜CRM III.H + OFAC FAQ 646
-- [ ] ⚖️P0 失败/未授权提现→**24h 退回** — 未授权/偏离指示/VASP 触发错误→becoming aware 起 **24 小时内**退款或恢复账户 + 赔偿责任 ｜Transfer&Settlement II.C.2
+- [ ] ⚖️P0 失败/未授权提现处置+退回 — 未授权/偏离指示→尽快退款或恢复账户；⚠️2026-07-06 牌照订正:平台仅 BD(无 T&S),II.C.2 硬 24h 约束的是执行转账的 HexTrust——平台侧=合同传导 24h SLA+监督跟踪 ｜CRM I.E.4(客户资产保护) + BD I.A.1.c ｜HexTrust 合同(原锚 T&S II.C.2 撤)
 - [ ] ⚖️P0 KYT 高风险/可疑→MLRO→STR — 挂起→MLRO 门→goAML **立即上报**(联动 V9 STR) ｜CRM III.F.3.a
 
 **P1（VARA 强制但相对次级）：**
 
-- [ ] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须**立即追踪+查因+通知客户**，举证倒置(VASP 须自证无责) ｜Transfer&Settlement II.C.3
+- [ ] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须追踪+查因+通知客户；⚠️2026-07-06 牌照订正:II.C.3 直接义务方是 HexTrust,平台侧=合同要求追踪+对客通知与留痕 ｜CRM I.E.1 + HexTrust 合同(原锚 T&S II.C.3 撤)
 - [ ] ⚖️P1 自托管钱包差异化 EDD/限额 — **消费 V3 打的自托管标记**，按金额应用 EDD/额度限制(所有权验证已在 V3 登记时做) ｜FATF/VARA III.G.7
 - [ ] ⚖️P1 大额提现增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO 门(阈值按 tradingTier) ｜CRM III.B
 - [ ] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce
@@ -255,6 +258,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 > 📖 **调研留底** → `superpowers/specs/2026-07-04-v6-swap-compliance-research.md`
 > ⚠️ **据 2026-07-04 深度调研重排**（103 agent/32 findings/3 视角对抗核验）：核心纠偏——「资金不出境→免 L2」**过度泛化**，只 Travel Rule 可豁免；**AML 交易监控 + 市场行为/最优执行** 两根 P0 支柱不因账本内而豁免。
 > ⚠️ **别误当合规洞**：`FAILED/REVERSED 死枚举`、`STUCK 部分成交一致性` 经对抗核验 **3:0 驳回**＝技术债（已在 BACKLOG），非监管缺口。
+> 🔄 **2026-07-06 遗漏复查追补**（64 agent/19 候选/16 存活/**0 新 P0**）：三根 P0 支柱经复查全站得住；按模块分拣 V6 净增 **6 条流程内小项**（下列标"2026-07-06 复查"），客户级归 V2(分类/协议)、资产级归 V3(CBUAE 门/VA Standards)、公司制度归 V9(员工 PA/内幕名单/返佣禁令)；**T&S 两候选因牌照事实(仅 BD、无 T&S)撤销**。留底见 spec 追补章。
 
 **P0（VARA 牌照级，现有几乎空白）：**
 
@@ -274,11 +278,17 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 卡单重大事件 72h 上报判定 — STUCK 严重度分级→达档起 72h 计时 + VARA 通报草案 ｜Tech K.1 + I.H.1
 - [ ] ⚖️P1 卡单期间客户资金保护 SLA — leg1 已扣、买入腿卡→最长停留 SLA、超时强制修复 or 全额回滚释放 + 客户侧可见 ｜CRM I.E.4/I.E.1
 - [ ] ⚖️P1 本金交易 vs 自营禁令边界 — 出「仅即时轧平、禁投机」政策 + 存货敞口台账 ≥8y ｜Market Conduct VII.A.1/A.3 + BD II.B.1
+- [ ] ⚖️P1 费率/点差变更 30 日历日生效闸 — markup/费率变更审批后强制生效日 ≥T+30 并触发全体客户通知(通知发送走 V2 协议管理);执行政策重大变更(换价源/调 best-ex 阈值/TTL)同触发通知——⚠️上 P0 best-ex gate 当天即触发本条 ｜MC II.A.7/8+II.B.1(e) + BD II.A.16 ｜来源:2026-07-06 复查
+- [ ] ⚖️P1 员工账户抢跑侦测规则 — P0① 监控引擎加一类规则:员工打标账户的兑换 vs 同向客户大单/markup·价源变更事件做 ±时间窗关联→合规 Case(员工 PA 审批制度本体在 V9) ｜VA&RA Regs 2023 VIII §C/§E/§J ｜来源:2026-07-06 复查
+- [ ] ⚖️P1 划账指令存证 — 客户接受报价=Client Money 划出指令:quoteId+操作时间戳+借记流水三绑定留痕 ≥8y;Client Money 违规须 1 日历日内报 VARA ｜CRM IV.B.10 ｜来源:2026-07-06 复查
+- [ ] ⚖️P1 卡单 3 日资金再隔离 — STUCK 超 **3 个日历日**(已收客户 AED、币未交付)→该笔自动划回客户资金桶重新隔离(与修复/回滚 SLA、72h 上报**并行不互替**) ｜CRM IV.B.6.b/B.7 ｜来源:2026-07-06 复查 ｜挂靠:卡单 SLA
+- [ ] ⚖️P1 成交记录法定字段集 — SwapCompleted 落不可变原始记录(金额/币对/时间戳/客户+customerNo/居住国快照/费用与点差总额/支付指令/报价快照),native 格式 ≥8y、VARA 索取即出 ｜CRM I.F.1-3 ｜来源:2026-07-06 复查
 - [ ] swap 失败终态治理 — 接 reverse 端点(整笔冲正→REVERSED) + 自动 FAILED 状态机；现死枚举、失败仅自愈→STUCK 留 PROCESSING ｜来源:业务/技术债(**非合规洞**) ｜配对:成交 Happy Path
 
 **P2（低频 / 治理 / 辩护）：**
 
 - [ ] 拆单/结构化兑换聚合监控(既有客户非 occasional，列低) ｜CRM III.E.4(b)
+- [ ] 兑换链路容量保障 — 报价→L1→4 腿记账容量基线+过载**明确拒单**(拒绝优于静默吞单) ｜BD II.A.15 ｜来源:2026-07-06 复查
 - [ ] ✅ **可保留辩护**：Travel Rule 不适用内部兑换(III.G 需对手方/transfer)——须存证依据 + 护栏(将来支持转出/跨客户则立即触发) ｜CRM III.G
 - [ ] 交易暂停/恢复 ｜ 货币对上下线(关联 TB Account+默认费率+审批) ｜ 批量兑换(机构 CSV) ｜来源:业务
 
@@ -408,6 +418,9 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### P2（低频 / 治理）
 
 - [ ] ⚖️ 🆕 **外部审计师任命/更换通知** — 委任/更换审计师 promptly 通知 VARA(名称+联系方式)；VARA 可强制改聘(通知制非批准制) ｜Company Rulebook Section G Rule 1
+- [ ] ⚖️ 🆕 **员工个人交易(PA dealing)制度** — 员工/董事开/改/平任何 VA 头寸须**事前书面批准**+每 6 个月强制申报持仓与交易史+冲突强制处置+入职告知书 ｜Market Conduct VI.B.1-5 ｜来源:2026-07-06 V6 复查分拣(V6 只留抢跑侦测规则)
+- [ ] ⚖️ 🆕 **内幕名单登记册** — 可接触内幕信息(调价计划/价源切换/上下币决策)人员登记+进出留痕+书面知悉确认+8 年留存随查随出 ｜Market Conduct VI.A.1-5 ｜来源:2026-07-06 V6 复查分拣
+- [ ] 🆕 **第三方执行返佣禁令政策** — 禁止与兑换成交量/点差收入挂钩的介绍人/affiliate 返佣;涉执行的第三方酬金协议过合规审查+登记留痕 ｜BD II.A.7 ｜来源:2026-07-06 V6 复查分拣
 - [ ] ⚖️ 🆕 **董事 fit & proper 审批+年检** — 每名董事须 VARA 批准为适格人+每年复核+失格即免职补任 ｜Company Rulebook I.B.1
 - [ ] ⚖️ 🆕 **控制权/股权变更审批** — 可能改变 Control 的动作→由拟取得方向 VARA 申请→**30 个工作日**审+新控制人/UBO 尽调+非 PEP/非制裁声明 ｜Company Rulebook VIII.C + I.A.5
 - [ ] 🆕 **违规营销整改/下架执行** — 收 VARA 针对营销的 cease-and-desist/整改令→限时下架+执行留痕+回报 ｜Marketing Regulations 2024 II.A.1

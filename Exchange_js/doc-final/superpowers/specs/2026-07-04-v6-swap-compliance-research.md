@@ -1,6 +1,6 @@
 # V6 兑换合规 — 深度调研留底（Swap / Conversion Compliance Research）
 
-Date: 2026-07-04 ｜ Status: 研究定稿（provenance 留底，用于重排 roadmap V6）
+Date: 2026-07-04（+ 2026-07-06 遗漏复查追补·模块分拣版）｜ Status: 研究定稿 + 遗漏复查（provenance 留底，已据此重排 roadmap V6；追补见文末）
 Method: workflow harness，103 agent 七维度并行调研 → 抓 VARA Broker-Dealer / Market Conduct / CRM / Transfer&Settlement / Technology&Information Rulebook + FATF R.10/16/20 原文 → 每条发现 3 视角对抗核验（条款真伪 / 缺口真伪 / 优先级）→ 综合；32 findings，对抗后 **24 条存活、8 条驳回**。多条头条结论逐字核到 VARA 官方 PDF（VARA_EN_226 / _190 / _123 / _169）。
 Scope: 平台内 crypto↔fiat 兑换执行流 + 合规控制（AML 交易监控、市场行为/最优执行、本金披露、大额/EDD、操作韧性）。**不含** 热钱包流动性（V7）、Sumsub 筛查执行细节。
 
@@ -101,3 +101,38 @@ Scope: 平台内 crypto↔fiat 兑换执行流 + 合规控制（AML 交易监控
 ## 主要源
 
 VARA: Broker-Dealer Services Rulebook（VARA_EN_226：II.A 最优执行全节、II.B 本金交易、I.B.1 披露）、Market Conduct Rulebook（VARA_EN_190：IV.A 零售定义、VII.A 自营禁令、VIII §I/§J 操纵）、Compliance & Risk Management Rulebook（VARA_EN_123：III.C/III.D/III.E/III.F/III.G）、Technology & Information Rulebook（VARA_EN_169：I.H BCDR、K.1 72h）。FATF: R.10/R.16/R.20、2020 Virtual Assets Red Flag Indicators。
+
+---
+
+# 2026-07-06 遗漏复查追补（fable-5 gap-audit · 模块分拣版）
+
+Method: 64 agent / 7 盲区猎手（员工冲突/BD II.A 逐条/客户协议/币对分类门/结算终局/法币腿/记录报送，每人拿已覆盖清单只找清单外义务）+ 每条候选 3 视角对抗（条款真伪/真未覆盖/归属 V6）；19 候选 → **16 存活、3 驳回**（2 verify agent 断线，对应条目仍 2 票定论）。
+
+**核心结论**：三根 P0 支柱全部经受住复查、**0 新 P0**；挖出的是一整层 P1 义务面。盲区规律（与 V9 复查"凡待核处皆漏"不同）：**只扫了 BD Rulebook 主干，漏了另外三本册子对兑换的适用**——Market Conduct Part VI（员工层）、CRM Part IV（Client Money）、以及联邦层 CBUAE。
+
+## 模块分拣（甲方裁决 2026-07-06：客户级→V2、资产级→V3、公司制度→V9、交易流内→V6）
+
+**留 V6 的 6 条流程内小项（全部已入 roadmap V6）：**
+| 大白话 | 义务 | 条款 |
+|---|---|---|
+| 改点差要等 30 天才生效 | markup/费率变更强制生效日 ≥T+30+通知客户；执行政策重大变更(换价源/调阈值)同触发——⚠️上 best-ex gate 当天即触发 | MC II.A.7/8+II.B.1(e) + BD II.A.16 |
+| 盯员工账户抓抢跑 | 监控引擎加一类规则：员工打标账户 vs 客户大单/调价事件时间关联 | Regs 2023 VIII §C/§E/§J |
+| 划客户钱要留"他同意了"的证据 | 报价接受=划出指令，quoteId+时间戳+流水三绑定 ≥8y；违规 1 日内报 VARA | CRM IV.B.10 |
+| 卡单超 3 天钱退回隔离池 | 收了 AED 币未交付超 3 个日历日→划回客户资金桶再隔离（与修复 SLA 并行不互替）| CRM IV.B.6.b/B.7 |
+| 每笔成交存"标准户口页" | 法定最低字段集(含居住国快照/费用总额)原始格式 ≥8y | CRM I.F.1-3 |
+| 系统忙不过来要明确拒单 | 兑换链路容量基线+过载拒绝新报价（拒绝优于静默吞单）| BD II.A.15 |
+
+**分拣出去的（已入各家 roadmap）：**
+- → **V2**：投资者分类 Retail/Qualified/Institutional（MC IV.A.1+Circular 2026-01-08，Qualified=净资产 350 万/年收入 70 万 AED、禁自我声明）；客户协议 30 天变更通知的通知侧（生效闸留 V6）
+- → **V3**：稳定币兑换对 CBUAE 牌照门（Circular 2/2024——**央行明文"含 VARA 持牌人"，AED↔USDT 兑换对开通前须 CBUAE 授权/非异议登记**，条款原文待核）；VA Standards "at all times" 存续复审+币对急停（MC VIII.A.2/3，V6 报价引擎只消费暂停标记）
+- → **V9**：员工 PA dealing 制度（MC VI.B，事前批准+半年申报）；内幕名单登记册（MC VI.A，2:1 存活、归属票裁 V9）；第三方执行返佣禁令政策（BD II.A.7）
+
+**因牌照事实撤销的 2 条（T&S 类）**：错误执行 24h 硬回滚（T&S II.C.2）、结算时点披露（T&S II.D）——甲方确认**平台仅 BD 牌照、无 VA Transfer & Settlement 活动**（转账执行方=HexTrust），T&S Rulebook 不能当平台直接义务。错误成交纠正的实质需求改由 CRM I.E 客户资产保护承接（无硬 24h 数字）；**同一事实连带订正了 V5 的两条 P0**（24h 退回/追踪定因，roadmap+V5 spec 已同步改锚 HexTrust 合同传导）。
+
+**对抗驳回 3 条**：客户协议版本留痕（已裁技术债换皮）、AED 锚定稳定币绝对禁入（条款支撑不足）、T&S 双回执（0:2，内部兑换不适用）。
+
+## caveat
+
+- CBUAE Circular 2/2024 为二手来源转述，未取到条款级原文——V3 落地前须核原文。
+- 内幕名单归属存争议（2:1，一票主张公司登记册归 V9）——已按归属票裁进 V9，义务本身三票均认。
+- 2 个 verify agent（employee-conflicts coverage / settlement-finality scope）API 断线，对应条目以 2 票定论。
