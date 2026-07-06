@@ -268,7 +268,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 价格公允性书面政策 + 治理 — 点差上限/偏离容忍/peg 来源入 fee-level 式 Maker-Checker；**分档按规则(同档同价、禁手动看人改价)** ｜BD II.A.1/A.3/A.16
 - [ ] ⚖️P1 内部化订单流季度执行质量复核 — 100% 自成交须 ≥季度抽样 自家价 vs 外部可得价，出「调整 or 书面说明」 ｜BD II.A.13
 - [ ] ⚖️P1 陈旧价/极端行情保护 — 价源心跳+最大陈旧度拒单+第二源熔断+成交前重校验(顺带解决滑点) ｜BD II.A.4/A.12 + Tech I.H.1
-- [ ] ⚖️P1 兑换环节市场操纵监控 — 账本内也能 wash/自成交/套陈旧价，须监控+达阈报 FIU/VARA ｜Market Conduct VIII §I/§J
+- [ ] ⚖️P1 兑换环节市场操纵监控 — 账本内也能 wash/自成交/套陈旧价，须监控+达阈报 FIU/VARA ｜VA & Related Activities Regulations 2023 Part VIII §I/§J（⚠️2026-07-06 纠正:原误标 Market Conduct）｜上报出口在 V9
 - [ ] ⚖️P1 AED 3,500 累计阈值→re-CDD + 大额兑换审批门 — 单笔+滚动累计感知(与拆单共用计数器) ｜CRM III.E
 - [ ] ⚖️P1 高风险/PEP 大额兑换 EDD — L1 门读 riskRating→打 EDD 标记→校验 SOF/SOW 时效(客户层义务，不必逐笔硬闸) ｜CRM III.E.10
 - [ ] ⚖️P1 卡单重大事件 72h 上报判定 — STUCK 严重度分级→达档起 72h 计时 + VARA 通报草案 ｜Tech K.1 + I.H.1
@@ -355,30 +355,67 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ## V9 — 合规治理顶层（Regulatory Governance）
 
-> V1-V8 交易层之上、**直接面向监管机构（VARA / UAE FIU）和客户**的合规治理义务。
-> **边界铁律**：Sumsub 承接**检测**（KYT/筛查/持续监控 → 告警）；V9 做 Sumsub 覆盖不到、**法定责任在 MLRO 身上不可外包**的申报/上报/裁决/配合。制裁命中后的冻结+SAR 是 STR① × V2 冻结的交叉点，不单列。
+> V1-V8 交易层之上、**直接面向监管机构（VARA / UAE FIU / EOCN / UAE Data Office 等）和客户**的合规治理义务。
+> **边界铁律**：Sumsub 承接**检测**（KYT/筛查/持续监控 → 告警）；V9 做 Sumsub 覆盖不到、**法定责任在持牌人/MLRO 身上不可外包**的申报/上报/裁决/配合。⚠️**制裁命中独立单列**（2026-07-06 复查纠正旧"不单列"错误：CNMR/PNMR 是 goAML 上与 STR **并列**的独立报文，STR 覆盖不了）。
 > **前置**：V1-V8。
-> 📖 无独立 truth（全未做）；本节 2026-07-04 据 VARA Rulebook 深度调研重排（9 条 3:0 验证），**取代旧 V9**（旧版误把 STR 挂 Sumsub 提交、72h 挂错场景，见文末纠偏）。
+> 📖 **调研留底** → `superpowers/specs/2026-07-04-v9-regulatory-governance-research.md`（含 2026-07-06 遗漏复查追补 17 条 + 产品大白话）。本节 2026-07-04 据 VARA Rulebook 深度调研重排（9 条 3:0），2026-07-06 fable-5 遗漏复查追补（24 条候选全 3:0 确认）。
 
 ### MVP（P0 · 牌照级 / 上线前必须——个人客户即适用，法定义务不可延后）
 
-- [ ] ⚖️ **STR/SAR 申报** — Sumsub 告警→案件落地(挂客户/交易)→MLRO 研判(scrutinize)→报/不报决策+依据留档→goAML 提交→回执+FIU 追问→事后处置(联动 V2 冻结/改风险评级)；**无固定天数(immediately/near-real-time 建模)**；MLRO 唯一责任人 ｜VARA CRM III.F.3(a)/III.F.4
-  - [ ] ⚖️ **tipping-off 防护门**(随 STR 同生) — STR 案所有对外/跨角色通信节点强制过防泄密门；泄密=联邦刑事罪(6 月监禁+AED 10-50 万) ｜III.F.3(d) + AML-CFT Law Art.25
+**A. 反洗钱 / 制裁报案（goAML 报文族，MLRO 不可外包）：**
+
+- [ ] ⚖️ **STR/SAR 申报** — Sumsub 告警→案件落地→MLRO 研判→报/不报决策+依据留档→goAML 提交→回执+FIU 追问→事后处置(联动 V2 冻结/改风险评级)；**无固定天数(immediately)**；MLRO 唯一责任人 ｜CRM III.F.3(a)/III.F.4
+  - [ ] ⚖️ **tipping-off 防护门**(随 STR 同生) — STR 案所有对外/跨角色通信强制过防泄密门；泄密=联邦刑事罪(6 月监禁+AED 10-50 万) ｜III.F.3(d) + AML-CFT Law Art.25
   - [ ] **goAML 注册**(上线前置) — 平台/MLRO 在 goAML 门户注册且保持 active，否则无法报任何 AML 事项 ｜CBUAE Rulebook 4.3
-- [ ] ⚖️ **VARA 重大变更/事件上报** — 变更类=**事前书面审批门**(发生前取 VARA 批准，非事后通知)；一般合规受损=**immediately 通知**+回执跟踪 ｜Company Rulebook VIII.A.1.a + Section H
-- [ ] ⚖️ **客户投诉处理** — 受理→确认(**≤1 周**)→调查→裁决(**≤4 周**，例外**≤8 周**且第 4 周出状态更新)→三段留档(投诉/措施/结果)；升级 MLRO/仲裁 ｜Market Conduct Rulebook III.A
-- [ ] ⚖️ **网络安全/BCDR 事件上报** — 材料性网安事件或触发 BCDR→**检测后 72h 内报 VARA**(含性质/范围/影响+缓解措施+是否已报他机关) ｜TIR Rulebook Section K + H
+- [ ] ⚖️ 🆕 **制裁确认命中 → CNMR 报文** — 命中制裁名单(本地恐怖/UN 综合)→**≤24h 冻结全部资产+停服+禁 tipping-off**→冻结后**5 个工作日**内经 goAML 交 CNMR(原 FFR)**抄送 EOCN+VARA**(STR 只到 FIU、覆盖不了)→冻结无限期至除名；漏报罚 AED 5 万起+刑责 ｜Cabinet Decision 74/2020 Art.21/22 + EOCN TFS Guidance(2025-07 FFR→CNMR)
+- [ ] ⚖️ 🆕 **制裁部分命中 → PNMR 报文** — 模糊同名排除不了→24h 暂停+10 工作日排除窗口→排除则恢复/否则拒绝交易+5 工作日交 PNMR→**挂起直至 EOCN 经 goAML 下指令**；**无需"怀疑"即触发，STR 状态机接不住** ｜Cabinet Decision 74/2020 Art.21/22
+- [ ] ⚖️ 🆕 **EOCN 名单订阅(NAS)+ 更新全库重筛** — 注册 EOCN 通知系统(与 goAML 注册并列的上线前置)→名单一更新即全库重筛→**24h 冻结时钟从 UNSC/内阁列名起算**(非从发现起) ｜EOCN TFS Guidance 步骤1/2 + Cabinet Decision 74 Art.1
+
+**B. 向 VARA 主动上报（出事 / 变更 / 自首）：**
+
+- [ ] ⚖️ **VARA 重大变更/合规受损上报** — 变更类=**事前书面审批门**(发生前取批准，非事后通知)；一般合规受损=**immediately 通知**+回执跟踪 ｜Company Rulebook VIII.A.1.a + Section H
+- [ ] ⚖️ **网络安全/BCDR 事件上报** — 材料性网安或触发 BCDR→**检测后 72h 内报 VARA**(性质/范围/影响+缓解+是否已报他机关) ｜TIR Rulebook Section K + H
+- [ ] ⚖️ 🆕 **个人数据泄露上报** — 泄露(含无网安的误发/供应商侧)→报 **UAE Data Office(非 VARA)** + 通知受影响客户(四要素)；Sumsub 等处理方须即报平台、责任在平台不可外包 ｜UAE PDPL(Federal Decree-Law 45/2021) Art.9 + VARA TIR II.A.1
+- [ ] ⚖️ 🆕 **数据泄露后 24h 再报 VARA** — 向 Data Office/客户发出泄露通知后**24h 内**再报 VARA(事件报告摘要+副本)——独立于 72h 网安线的第二只钟、起点更晚更紧 ｜VARA TIR Part II Section C + CRM I.1.4
+- [ ] ⚖️ 🆕 **审慎指标跌破即报** — NLA(≥1.2×月运营支出)**每日核对**、跌破→**immediately** 通知 VARA(缺口/原因/整改/时限四要素)+**每日更新直至 VARA 认可** ｜Company Rulebook VI.C/VI.F
+- [ ] ⚖️ 🆕 **外包商失效即报** — Material Outsourcing 协议重大违约(Sumsub 筛查中断/HexTrust 托管违约)→**immediately** 报 VARA ｜Company Rulebook IV.H.1
+
+**C. 应监管 / 应客户：**
+
 - [ ] ⚖️ **监管信息请求配合** — FIU/VARA 追加信息→**48h 硬性回复**；证据调取横跨 V1 审计 + V4-V8 交易/对账 ｜CRM Rulebook III.F.3(b)
+- [ ] ⚖️ **客户投诉处理** — 受理→确认(**≤1 周**)→调查→裁决(**≤4 周**，例外**≤8 周**且第 4 周出状态更新)→三段留档(投诉/措施/结果) ｜Market Conduct Rulebook III.A
+
+**D. 业务专属：**
+
 - [ ] ⚖️ **资产持续监控**(仅当自行上架/分销资产) — 资产不再合规→immediately 暂停分销；Issuer/资产材料性变更→immediately 重跑尽调 ｜BD Rulebook IV.E
+- [ ] ⚖️ 🆕 **营销内容发布前合规审批门** — App 内 banner/推送/活动页/KOL 稿出街前过合规 checklist(禁保证收益/禁 FOMO/强制风险声明)+合规官批准留痕；第三方营销须持牌方书面批准 ｜Marketing Regulations 2024 I.B.3.b + I.C.2/I.C.3(违规单次罚至 AED 1000 万)
 
 ### ADVANCED（P1 · VARA 强制但非上线阻断）
 
 - [ ] ⚖️ **MLRO/董事会季度合规报告** — 季度 cadence；含 AML/CFT 有效性评估 + 失效项指认 + 当季**匿名增强交易(AET)摘要** ｜CRM Rulebook III.A.2.f/g/h
+- [ ] ⚖️ 🆕 **制裁误冻结申诉/解冻除名** — 客户申诉误冻→法定 grievance 程序→经 EOCN/goAML 走解冻或除名执行(≠普通客户投诉) ｜EOCN TFS Guidance
+- [ ] ⚖️ 🆕 **市场违法双头上报** — 怀疑内幕/操纵/损害市场公平行为→按法定六字段报 **UAE FIU + VARA 双通道**+备查(触发/对象/报文均异于洗钱 STR) ｜VA & Related Activities Regulations 2023 Part VIII §J.2/J.3/J.4 ｜⚠️纠 V6 引用(误标 Market Conduct)
+- [ ] ⚖️ 🆕 **定期财务申报(月/季)** — 月:资产负债/损益/现金流/自有钱包地址/关联方交易；季:董事会纪要/财务合规声明/风险敞口 报 VARA ｜CRM Rulebook Section H Rule 1/2
+- [ ] ⚖️ 🆕 **年度审计申报** — 经审计年报+内控鉴证+高管合规评估+**首 100 名客户 onboarding 抽样**+集团结构 报 VARA ｜CRM Section H Rule 3 + Company G.1
+- [ ] ⚖️ 🆕 **关键人员(RI)更换事前审批** — 换法定负责人**先批后换**；突发离任才可事后 immediately 通知+接续方案；RI 年度适格复核留痕 ｜Company Rulebook I.C.2/3/4
+- [ ] ⚖️ 🆕 **营销激励事前 confirmation** — 注册奖/邀请返佣/充值送等**每场活动事前取 VARA compliance confirmation** 方可上线+持续遵守附加条件 ｜Marketing Regulations 2024 I.C.2.l
+- [ ] ⚖️ 🆕 **营销档案 8 年留存** — 全部营销物料(含 App 推送/活动页快照)+分发明细存 ≥8 年、随 VARA 查随出 ｜Marketing Regulations 2024 I.C.4
+- [ ] ⚖️ 🆕 **Material Outsourcing 事前通知+登记册** — 新签/改约重大外包(Sumsub/HexTrust)先通知 VARA、异议清零才生效+维护外包登记册 ｜Company Rulebook IV.H.3/H.4/F.6 + IV.C.2.b
+- [ ] ⚖️ 🆕 **吹哨人制度** — 建内部举报渠道(可匿名)+官网显著位置公示(与隐私/投诉政策并列)+年度有效性评估 ｜BD Services Rulebook I.B.1.b + I.A.2
+- [ ] ⚖️ 🆕 **VARA 现场检查配合** — 检查通知→按**通知载明期限**(非固定 48h)开放账簿/系统/场地+verification 回执；上线前置:客户协议预置"同意向 VARA 报送交易信息"条款 ｜VA & Related Activities Regulations 2023 Part IX.B
+- [ ] ⚖️ 🆕 **高危国家交易报文(HRC/HRCA)** — 涉 NAMLCFTC 高风险国家交易→**先扣住**→交 goAML 报文→**报后满 3 个工作日 FIU 不反对方可执行**(阻断型，需交易引擎 HOLD 态) ｜UAEFIU goAML Report Types + NAMLCFTC 名单
 
-### 跨版本基础设施（非独立工作流，服务上面所有 P0）
+### P2（低频 / 治理）
 
-- [ ] **统一 SLA 监控层** — 收拢所有法定时钟(48h 信息请求 / 72h 网安事件 / 1-4-8 周投诉 / 季度报告)成倒计时+告警引擎，给各 P0 工作流供时效
-- [ ] **合规日历** — goAML 注册状态 + 季度报告 + 各监管截止日追踪台账
+- [ ] ⚖️ 🆕 **外部审计师任命/更换通知** — 委任/更换审计师 promptly 通知 VARA(名称+联系方式)；VARA 可强制改聘(通知制非批准制) ｜Company Rulebook Section G Rule 1
+- [ ] ⚖️ 🆕 **董事 fit & proper 审批+年检** — 每名董事须 VARA 批准为适格人+每年复核+失格即免职补任 ｜Company Rulebook I.B.1
+- [ ] ⚖️ 🆕 **控制权/股权变更审批** — 可能改变 Control 的动作→由拟取得方向 VARA 申请→**30 个工作日**审+新控制人/UBO 尽调+非 PEP/非制裁声明 ｜Company Rulebook VIII.C + I.A.5
+- [ ] 🆕 **违规营销整改/下架执行** — 收 VARA 针对营销的 cease-and-desist/整改令→限时下架+执行留痕+回报 ｜Marketing Regulations 2024 II.A.1
 
-> **⚠️ 调研纠偏（2026-07-04，取代旧 V9 的错误）**：① "72h" 归属**网安/BCDR 事件**（旧版误挂"重大事件上报"）；② 材料性变更是**事前审批门**，非事后 72h 通知；③ STR 申报**无固定天数**（immediately，建模为即时计时器非倒计时）；④ **STR 申报是 MLRO 经 goAML 自报，Sumsub 报不了**（旧版"STR→Sumsub→goAML" 是错的——goAML 注册绑持牌实体、申报责任 MLRO 不可外包、tipping-off 决策是刑事红线）。
-> **待核**：VARA 是否有独立"季度 regulatory returns"（调研未锚定；季度义务主要即上方 MLRO 董事会报告，勿凭空造报表工作流）。
+### 跨版本基础设施（非独立工作流，服务上面所有 P0/P1）
+
+- [ ] **统一 SLA 监控层（"法定闹钟墙"）** — 收拢全部法定时钟成倒计时+升级告警：immediately(报案/自首) / 24h(制裁冻结·数据泄露报 VARA) / 48h(信息请求) / 72h(网安) / 3 工作日(高危国家阻断) / 5 工作日(制裁 CNMR/PNMR) / 10 工作日(部分命中排除) / 1-4-8 周(投诉) / 每日(NLA 核对) / 月·季·年(定期申报)
+- [ ] **合规日历** — goAML 注册 + EOCN NAS 订阅 + 月/季/年报到期 + 董事年审 + 各监管截止日追踪台账
+
+> **⚠️ 调研纠偏（2026-07-04）**：① "72h" 归属**网安/BCDR 事件**(旧版误挂"重大事件上报")；② 材料性变更是**事前审批门**非事后 72h 通知；③ STR **无固定天数**(immediately)；④ **STR 是 MLRO 经 goAML 自报，Sumsub 报不了**。
+> **⚠️ 复查纠偏（2026-07-06，fable-5 遗漏复查，24 条 3:0）**：⑤ **制裁命中必须独立单列**——旧"不单列/STR 交叉点"是错的，命中后只发 STR 会**漏发 CNMR/PNMR**，直接踩 Cabinet Decision 74 罚则；⑥ "定期 regulatory returns 待核"**已锚定**——CRM Section H 月/季/年申报确为硬性义务，不再待核；⑦ 追补 17 条独立义务(制裁报文族/数据泄露双钟/定期申报/审慎跌破/营销/外包/人员治理/市场违法/现场检查/高危国家)——规律=旧调研凡"不单列/待核/顺带一提"处皆为漏。

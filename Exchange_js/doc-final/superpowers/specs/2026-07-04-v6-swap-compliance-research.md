@@ -58,7 +58,7 @@ Scope: 平台内 crypto↔fiat 兑换执行流 + 合规控制（AML 交易监控
 - 价格公允性书面政策 + 治理（点差上限/偏离容忍/peg 来源入 Maker-Checker）｜BD II.A.1/A.3/A.16
 - 内部化订单流 ≥季度执行质量复核（自家价 vs 外部可得价，「调整 or 书面说明」）｜BD II.A.13
 - 陈旧价/极端行情保护（价源心跳+最大陈旧度拒单+第二源熔断+成交前重校验，顺带解决滑点）｜BD II.A.4/A.12 + Tech I.H.1
-- 兑换环节市场操纵监控（账本内也能 wash/自成交/套陈旧价，达阈报 FIU/VARA）｜Market Conduct VIII §I/§J
+- 兑换环节市场操纵监控（账本内也能 wash/自成交/套陈旧价，达阈报 FIU/VARA）｜VA & Related Activities Regulations 2023 Part VIII §I/§J（⚠️2026-07-06 V9 复查纠正:原误标 Market Conduct Rulebook）
 - AED 3,500 累计阈值 → re-CDD + 大额兑换审批门（单笔+滚动累计，与拆单共用计数器）｜CRM III.E
 - 高风险/PEP 大额兑换 EDD（L1 门读 riskRating→打 EDD 标记→校验 SOF/SOW 时效；客户层义务，不必逐笔硬闸）｜CRM III.E.10
 - 卡单重大事件 72h 上报判定（STUCK 严重度分级→达档起 72h 计时+VARA 通报草案）｜Tech K.1 + I.H.1
