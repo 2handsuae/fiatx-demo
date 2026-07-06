@@ -23,7 +23,7 @@ Scope: 提现执行流 + 合规控制（Travel Rule 发起方义务、目的地�
 ## 二、Travel Rule 发起方义务专节（全场最硬）
 
 ### 核心缺口 🔴 P0：取得+持有+**发送**，现缺"发送" `V5-2 3-0，代码确认`
-- III.G.2：**AED 3,500 阈值**，义务在"**发起转账前**"（pre-execution 阻塞）
+- III.G.2：**AED 3,500 阈值**（**单笔或关联交易累计**，非"按自然日"；见文末 2026-07-06 订正），义务在"**发起转账前**"（pre-execution 阻塞）
 - III.G.4/5 法定字段：发起人(name + 钱包地址/账号 + 住址)、受益人(name + 钱包地址/账号)
 - FATF R.16/INR.15.7(b)：originating VASP 须"immediately and securely 发给受益方 VASP"——与筛查**架构不同**的数据发送 payload；不满足则"must not execute"
 
@@ -53,7 +53,7 @@ Scope: 提现执行流 + 合规控制（Travel Rule 发起方义务、目的地�
 
 **原则**：**地址级一次性控制 → V3 登记**；**交易级每笔控制 → V5 执行**。
 - **V3 登记**（拿到钱包即可提前验，验一次永久有效）：分类 hosted/unhosted（已有归因）+ **所有权/控制权验证**（NEW）+ 对手方 VASP 初次尽调 + 打标记（已验证控制权/自托管需 EDD/托管所已尽调）
-- **V5 执行**（每笔）：**制裁重筛**（名单会变，不能缓存 V3 结果）+ **Travel Rule 发送**（每笔 >3500）+ 按 V3 标记应用 EDD/限额 + 大额门
+- **V5 执行**（每笔）：**制裁重筛**（名单会变，不能缓存 V3 结果）+ **Travel Rule 发送**（单笔或关联交易累计 >3500）+ 按 V3 标记应用 EDD/限额 + 大额门
 - 故调研 P1"自托管钱包 EDD/所有权验证"**拆两半**：所有权验证挪 V3，差异化 EDD/限额留 V5。
 
 ## 五、关键纠偏（研究推翻旧设想）
@@ -76,3 +76,21 @@ VARA: CRM Rulebook（III.G Travel Rule、III.H 制裁、III.E CDD、III.F STR）
 ## 2026-07-06 牌照订正（BD-only）
 
 用户确认：平台 VARA 牌照**仅 Broker-Dealer**、无 VA Transfer & Settlement 活动，链上转账由持牌托管 HexTrust 执行。本 spec 引用 Transfer&Settlement Rulebook 的两条（II.C.2 失败 24h 退回、II.C.3 追踪定因）**不能当平台直接义务**——硬时限直接约束执行转账的持牌方（HexTrust），平台义务=**合同传导 24h SLA + 监督跟踪 + 客户资产保护**（改锚 CRM I.E.4/I.E.1 + BD I.A.1.c）。roadmap V5 对应两条已同步改锚（2026-07-06）。§三表格中 II.C.2/C.3 两行按此解读；"关键纠偏 3（失败退回有硬 24h SLA）"限缩为"HexTrust 侧硬 24h，平台侧合同传导"。
+
+---
+
+## 2026-07-06 TR 阈值订正（甲方拍板 + 一手原文核对）
+
+**决策（甲方 2026-07-06）**：Travel Rule 发送**按 VARA 口径**——**>AED 3,500 才发** payload；阈值按**单笔或关联交易累计**达到，**不按自然日**。
+
+**一手原文核对（起因：agent 曾称"按日累计 daily aggregated"，深挖发现该措辞非原文）：**
+- VARA CRM III.G.2（rulebooks.vara.ae 直接核到）：*"Prior to initiating **any transfer** of Virtual Assets with an equivalent value **exceeding AED 3,500**, VASPs must **obtain and hold** required and accurate originator information…"*——">3,500 才 obtain-and-hold"，逐笔口径。
+- Cabinet Decision 134/2025（联邦实施条例）CDD 触发：*"occasional Transactions amounting to or exceeding AED 3,500, **whether carried out as a single Transaction or several Transactions that appear to be linked**"*——聚合口径是**关联交易**，非自然日。
+- CBUAE Art.29（电汇对应条款）：*"For cross-border wire transfers of **AED 3,500 or more**…shall verify the identity of the beneficiary, if…not previously verified."*
+
+**订正结论：**
+1. ❌ **撤回"按日累计（daily aggregated）"**——该措辞在 VARA/联邦一手原文中核不到（三处独立复核均为 "AED 3,500 or more" / linked transactions）；系 gap-audit agent 共享同一二手转述所致，对抗核验未能拦截（教训：3:0 一致 ≠ 源头可靠）。
+2. ✅ 正确口径 = **单笔或关联交易累计 ≥AED 3,500**；关联交易合并沿用已有 III.G.9 拆单监控，**不新增条目**。
+3. ⏸️ **"小额也发（FATF transmit-at-all）"未采纳**——Notabene 等引 FATF 严格读法主张任何金额都发，但 VARA CRM III.G.2 字面只要求 >3,500；甲方定**按 VARA**，故保留 >3,500 门槛。若未来 VARA/FATF 收紧再议。
+
+**caveat**：CBUAE 官网对抓取工具 403（其一手 PDF 未能直接读），CBUAE 两条系搜索提取+多源交叉；VARA rulebook 两条为直接抓取。
