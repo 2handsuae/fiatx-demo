@@ -148,6 +148,27 @@ describe('TbEvidenceService', () => {
       }));
     });
 
+    it('T3: threads class-aware balanceAfter into projector — asset=debits−credits, L/E=credits−debits', async () => {
+      const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
+      // Both legs resolve to the same TB account balance {debits 1500, credits 600}.
+      mockTbService.lookupAccounts.mockResolvedValue([{ debits_posted: 1500n, credits_posted: 600n }]);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await svc.writeEvidence({
+        ...params,
+        debitCode: 'A.CUSTODY', // asset → 1500 − 600 = 900
+        creditCode: 'L.CLIENT_CREDIT', // liability → 600 − 1500 = -900
+        // valid hex ids (hexToBigint would throw on non-hex → swallowed to null)
+        debitTbAccountId: '0a1',
+        creditTbAccountId: '0b2',
+      } as any);
+
+      const [, evidenceArg] = projector.persist.mock.calls[0];
+      expect(evidenceArg.debitBalanceAfter).toBe('900');
+      expect(evidenceArg.creditBalanceAfter).toBe('-900');
+    });
+
     it('Phase B / T3: writeEvidence with no projector (legacy DI) still succeeds', async () => {
       const svc = new TbEvidenceService(mockPrisma, mockTbService); // projector omitted
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
