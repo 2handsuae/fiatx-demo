@@ -4,8 +4,12 @@ import { TbEvidenceService } from './tb-evidence.service';
 describe('TbEvidenceService', () => {
   let service: TbEvidenceService;
   let mockPrisma: any;
+  let mockTbService: any;
 
   beforeEach(() => {
+    // T3: postedBalanceAfter calls tbService.lookupAccounts; return [] so it
+    // resolves to null (TB balance unavailable in unit tests — not asserted).
+    mockTbService = { lookupAccounts: jest.fn().mockResolvedValue([]) };
     mockPrisma = {
       tbTransferEvidence: {
         create: jest.fn(),
@@ -36,7 +40,7 @@ describe('TbEvidenceService', () => {
         findFirst: jest.fn(),
       },
     };
-    service = new TbEvidenceService(mockPrisma);
+    service = new TbEvidenceService(mockPrisma, mockTbService);
   });
 
   describe('writeEvidence', () => {
@@ -123,7 +127,7 @@ describe('TbEvidenceService', () => {
 
     it('Phase B / T3: when projector is wired, writeEvidence calls projector.persist on the same client (tx)', async () => {
       const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
-      const svc = new TbEvidenceService(mockPrisma, projector);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await svc.writeEvidence(
@@ -145,7 +149,7 @@ describe('TbEvidenceService', () => {
     });
 
     it('Phase B / T3: writeEvidence with no projector (legacy DI) still succeeds', async () => {
-      const svc = new TbEvidenceService(mockPrisma); // projector omitted
+      const svc = new TbEvidenceService(mockPrisma, mockTbService); // projector omitted
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await expect(svc.writeEvidence(params)).resolves.toBeUndefined();
@@ -182,7 +186,7 @@ describe('TbEvidenceService', () => {
         externalRef: '0xnew',
         isExternalCrossing: true,
       });
-      const svc = new TbEvidenceService(mockPrisma, projector);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
 
       await svc.enrichForPost('abc123', {
         eventCode: 'EVT_WITHDRAW_SUCCESS',
@@ -200,7 +204,7 @@ describe('TbEvidenceService', () => {
     it('no-op enrichForPost (empty fields) does not call projector', async () => {
       const projector = { persist: jest.fn() } as any;
       mockPrisma.tbTransferEvidence.update = jest.fn();
-      const svc = new TbEvidenceService(mockPrisma, projector);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
 
       await svc.enrichForPost('abc123', {});
 
