@@ -29,6 +29,8 @@ export interface EvidenceLike {
   creditWalletRef?: string | null;
   externalRef?: string | null;
   isExternalCrossing?: boolean | null;
+  debitBalanceAfter?: string | null;
+  creditBalanceAfter?: string | null;
 }
 
 export interface AccountFlowRow {
@@ -46,6 +48,7 @@ export interface AccountFlowRow {
   assetCode: string;
   createdAt: Date;
   effectiveDate: string;
+  balanceAfter: string | null;
 }
 
 // Narrow client surface — accepts both PrismaClient and Prisma.TransactionClient.
@@ -125,6 +128,7 @@ export class AccountFlowProjectorService {
         tbAccountId: evidence.debitTbAccountId,
         walletRef: evidence.debitWalletRef ?? null,
         direction: 'OUT',
+        balanceAfter: evidence.debitBalanceAfter ?? null,
       });
     }
 
@@ -134,6 +138,7 @@ export class AccountFlowProjectorService {
         tbAccountId: evidence.creditTbAccountId,
         walletRef: evidence.creditWalletRef ?? null,
         direction: 'IN',
+        balanceAfter: evidence.creditBalanceAfter ?? null,
       });
     }
 
@@ -180,6 +185,10 @@ export class AccountFlowProjectorService {
           transferType: row.transferType,
           assetCode: row.assetCode,
           effectiveDate: row.effectiveDate,
+          // balanceAfter only written when the (re)projection actually carries
+          // one — a POST re-projection with no balance must NOT null out the
+          // value an earlier LOCK/POST already stamped.
+          ...(row.balanceAfter != null ? { balanceAfter: row.balanceAfter } : {}),
           // createdAt intentionally NOT updated — preserves the original
           // evidence timestamp across re-projections (LOCK→POST etc.).
         },
