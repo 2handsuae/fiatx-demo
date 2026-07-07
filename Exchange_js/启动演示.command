@@ -10,6 +10,8 @@ echo "    客户端 http://localhost:18082"
 echo "    账号 admin@fiatx.com  密码 123456"
 echo "========================================"
 echo ""
+echo "  （清理上次运行的残留，确保干净启动…）"
+docker compose down -v >/dev/null 2>&1
 docker compose up --build
 echo ""
 echo "演示已停止。按回车关闭窗口。"
