@@ -143,6 +143,36 @@ export class TbAdminController {
     return evidence;
   }
 
+  @Get('account-flows')
+  @ApiOperation({ summary: 'List account_flows (raw per-account ledger rows)' })
+  findAccountFlows(
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+    @Query('tbAccountId') tbAccountId?: string,
+    @Query('walletRef') walletRef?: string,
+    @Query('direction') direction?: string,
+    @Query('assetCurrency') assetCurrency?: string,
+    @Query('sourceType') sourceType?: string,
+    @Query('transferType') transferType?: string,
+    @Query('effectiveFrom') effectiveFrom?: string,
+    @Query('effectiveTo') effectiveTo?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.tbEvidenceService.findAllFlows({
+      tbAccountId: tbAccountId || undefined,
+      walletRef: walletRef || undefined,
+      direction: direction || undefined,
+      assetCurrency: assetCurrency || undefined,
+      sourceType: sourceType || undefined,
+      transferType: transferType || undefined,
+      effectiveFrom: effectiveFrom || undefined,
+      effectiveTo: effectiveTo || undefined,
+      q: q || undefined,
+      skip: skip ? Number(skip) : 0,
+      take: take ? Number(take) : 50,
+    });
+  }
+
   @Get('account-statement')
   @ApiOperation({ summary: 'Get account statement — by tbAccountId | walletRef (new) | customerNo+asset (legacy → CLIENT_PAYABLE)' })
   async getAccountStatement(

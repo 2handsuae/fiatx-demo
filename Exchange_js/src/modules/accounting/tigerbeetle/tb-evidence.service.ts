@@ -302,6 +302,51 @@ export class TbEvidenceService {
     return { items, total };
   }
 
+  async findAllFlows(filters: {
+    tbAccountId?: string;
+    walletRef?: string;
+    direction?: string;       // 'IN' | 'OUT'
+    assetCurrency?: string;
+    sourceType?: string;
+    transferType?: string;
+    effectiveFrom?: string;   // YYYY-MM-DD
+    effectiveTo?: string;     // YYYY-MM-DD
+    q?: string;
+    skip?: number;
+    take?: number;
+  }) {
+    const where: any = {};
+    if (filters.tbAccountId) where.tbAccountId = filters.tbAccountId;
+    if (filters.walletRef) where.walletRef = filters.walletRef;
+    if (filters.direction) where.direction = filters.direction;
+    if (filters.assetCurrency) where.assetCode = filters.assetCurrency;
+    if (filters.sourceType) where.sourceType = filters.sourceType;
+    if (filters.transferType) where.transferType = filters.transferType;
+    if (filters.effectiveFrom || filters.effectiveTo) {
+      where.effectiveDate = {};
+      if (filters.effectiveFrom) where.effectiveDate.gte = filters.effectiveFrom;
+      if (filters.effectiveTo) where.effectiveDate.lte = filters.effectiveTo;
+    }
+    const q = filters.q?.trim();
+    if (q) {
+      where.OR = [
+        { tbTransferId: { contains: q } },
+        { tbAccountId: { contains: q } },
+        { walletRef: { contains: q } },
+        { sourceNo: { contains: q } },
+        { externalRef: { contains: q } },
+      ];
+    }
+    const [items, total] = await Promise.all([
+      (this.prisma as any).accountFlow.findMany({
+        where, orderBy: { createdAt: 'desc' },
+        skip: filters.skip ?? 0, take: filters.take ?? 50,
+      }),
+      (this.prisma as any).accountFlow.count({ where }),
+    ]);
+    return { items, total, singleAccount: !!filters.tbAccountId };
+  }
+
   async getAccountStatement(
     tbAccountId: string,
     opts: { crossingOnly?: boolean } = {},

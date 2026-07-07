@@ -21,8 +21,9 @@ describe('TbEvidenceService', () => {
         create: jest.fn(),
       },
       accountFlow: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         groupBy: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       tbAccountRegistry: {
         findUnique: jest.fn(),
@@ -578,6 +579,15 @@ describe('TbEvidenceService', () => {
         ownerType: 'SYSTEM',
         walletRole: 'FIRM_OPS',
       }));
+    });
+  });
+
+  describe('findAllFlows (Task 5)', () => {
+    it('findAllFlows filters by tbAccountId and returns items+total+singleAccount', async () => {
+      const res = await service.findAllFlows({ tbAccountId: 'a1', take: 10, skip: 0 });
+      expect(res).toHaveProperty('items');
+      expect(res).toHaveProperty('total');
+      expect(res.singleAccount).toBe(true);
     });
   });
 });
