@@ -72,7 +72,6 @@ const LedgerAccountDetail = lazy(() => import('./pages/LedgerAccountDetail'));
 const TransferEvidenceList = lazy(() => import('./pages/TransferEvidenceList'));
 const TransferEvidenceDetail = lazy(() => import('./pages/TransferEvidenceDetail'));
 const AccountFlowList = lazy(() => import('./pages/AccountFlowList'));
-const AccountStatementPage = lazy(() => import('./pages/AccountStatementPage'));
 const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList'));
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
@@ -682,7 +681,6 @@ function App() {
             <Route path="ledger/transfer-evidence" element={withPermission(<TransferEvidenceList />, [PERMISSIONS.TB_TRANSFERS_READ])} />
             <Route path="ledger/transfer-evidence/:tbTransferId" element={withPermission(<TransferEvidenceDetail />, [PERMISSIONS.TB_TRANSFER_DETAIL_READ])} />
             <Route path="ledger/flows" element={withPermission(<AccountFlowList />, [PERMISSIONS.TB_FLOWS_READ])} />
-            <Route path="ledger/account-statement" element={withPermission(<AccountStatementPage />, [PERMISSIONS.TB_ACCOUNTS_READ])} />
 
             {/* governance */}
             <Route path="governance/approvals" element={withPermission(<ApprovalsPage />, [PERMISSIONS.GOV_APPROVALS_READ])} />
