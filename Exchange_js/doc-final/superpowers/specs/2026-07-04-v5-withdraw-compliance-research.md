@@ -94,3 +94,29 @@ VARA: CRM Rulebook（III.G Travel Rule、III.H 制裁、III.E CDD、III.F STR）
 3. ⏸️ **"小额也发（FATF transmit-at-all）"未采纳**——Notabene 等引 FATF 严格读法主张任何金额都发，但 VARA CRM III.G.2 字面只要求 >3,500；甲方定**按 VARA**，故保留 >3,500 门槛。若未来 VARA/FATF 收紧再议。
 
 **caveat**：CBUAE 官网对抓取工具 403（其一手 PDF 未能直接读），CBUAE 两条系搜索提取+多源交叉；VARA rulebook 两条为直接抓取。
+
+---
+
+# 2026-07-06 遗漏复查追补（fable-5 gap-audit）
+
+Method: 51 agent / 6 盲区猎手(TR 边角/客户资金划出/提取权约束/费用披露/记录回执/筛查时点，只找清单外义务)+ 每条 3 视角对抗(条款真伪/真未覆盖/归属 V5，硬闸:引 T&S 当平台义务直接 REFUTED)；15 候选 → **11 存活、4 驳回**。
+
+**核心：0 新 P0**（TR 阈值那条是修正现有 P0，已单列「2026-07-06 TR 阈值订正」）；11 存活按模块分拣后 **9 留 V5(全 P1)、1 归 V2(对账单)**。盲区规律：V5 原研究只翻了 CRM Part III(AML)，**没翻 Part IV(客户资金)**——4 条 Client Money 义务整块空白。
+
+## 分拣结果
+
+**留 V5（9 条 P1，均已入 roadmap）**：① 划账授权+指令绑定存证(IV.B.10) ② payout 失败 1 日再隔离(IV.B.5.a) ③ Client Money 违规 1 日报 VARA(IV.F.1) ④ 提现暂停牌照级窄化(BD I.A.1.c/I.A.2) ⑤ 合规冻结 tipping-off 内外双轨(III.F.1/F.3.d+联邦法 Art.25) ⑥ 提现费率 30 日生效闸(MC II.A.7/8，与 V6 同源) ⑦ 提现记录字段集(CRM I.F.1，与 V6 同源) ⑧ Sunrise 分支(Circular §2.c+III.G.8) ⑨ Post-KYT 持续监控(III.F.5)
+
+**归 V2（1 条）**：客户资金月度对账单(CRM IV.D.2)——对账单本体客户级，V5 记录字段集供数。
+
+## 对抗驳回 4 条
+
+- **打款前制裁重筛**(0:3)：核验员读 truth/v5-withdraw.md 证实工作流=大额审批在前、筛完即时打款，"筛查过时"场景不存在。
+- **提现前费用拆解披露**(0:3)：引 BD II.A.6 是"买卖成交"语境，提现非成交，张冠李戴。
+- **TR payload 留存 / AML 证据链留存**(各 1:2)：与「记录字段集」重叠被吸收。
+
+## caveat（含方法论教训）
+
+- ⚠️ **Client Money(CRM Part IV) 条款号(IV.B.5/B.10/D.2/F.1)系 gap-audit agent 溯源，未逐条一手核**——本轮 TR "daily aggregated" 事件已证 **3:0 一致 ≠ 原文为真**（agent 会共享同一二手坏源、对抗核验拦不住）；动工前须对 rulebooks.vara.ae 一手复核 Part IV 条款号与文本。
+- 1 verify agent 曾在 TR 边角维度断线，对应条目仍多票定论。
+- 「关联交易累计」落地是真难点：TR 阈值需**事前**聚合，而 III.G.9 拆单监控偏**事后**侦测，二者非同一实现——留待实现阶段设计（本 spec 已记；属合规派生欠账，按项目规则不入 BACKLOG，活在 roadmap TR 条）。
