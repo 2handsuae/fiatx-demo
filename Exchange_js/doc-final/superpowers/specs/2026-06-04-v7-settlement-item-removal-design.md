@@ -3,7 +3,7 @@
 > 状态：设计定稿（已逐节评审通过，pre-implementation）
 > 日期：2026-06-04
 > 范围：funds-layer 的 B 类结算结构简化 + admin 资金单页面拆分
-> 关联：[[v7-funds-layer-baseline]]、roadmap V7
+> 关联：[[funds-orders]]、roadmap V7
 
 ---
 

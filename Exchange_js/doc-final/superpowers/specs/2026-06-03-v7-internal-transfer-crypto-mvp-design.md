@@ -3,7 +3,7 @@
 > 状态：设计已评审通过（pre-implementation）
 > 日期：2026-06-03
 > 范围：V7 内部转账 MVP，**本轮只做虚拟币（CRYPTO）**；法币（FIAT）连同 BANK_BOUNCE 偿付、per-VA spawn、CMA、FIAT 状态机另起一轮，待 Zand 答复后单独 brainstorm。
-> 关联基线：`doc-final/reference/v7-funds-layer-baseline.md`、`doc-final/reference/roadmap.md`（V7 节）
+> 关联基线：`doc-final/reference/truth/funds-orders.md`、`doc-final/reference/roadmap.md`（V7 节）
 
 ---
 

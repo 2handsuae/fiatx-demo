@@ -320,7 +320,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 > 管**公司自有资金与流动性**（客户的钱由 V4-V6 管，实时1:1 safeguarding）。
 > ⚠️ **旧 V7「内部转账 / 延迟结算」整套已废弃**：随实时1:1 重构，通用内部转账工作流 / EOD 轧差结算 / 充值归集 cron / 手续费归集 / 法币交割 / Outstanding / SettlementBatch / FeeAccrual / 白名单 全部删除（C5b）。每笔交易现**自己就地记账**（V4 两步 / V5 payout+fee / V6 四腿）。资金单（funds_orders）是**跨版本共享原语**（V4 起在用），归 `truth/funds-orders.md`（待建），不属于本版本。
 > **前置**：V3（账户模型）。
-> 📖 无独立 truth（无活体 V7 业务）；旧延迟结算设计仅作历史存档 → `reference/v7-funds-layer-baseline.md`（只读追溯，勿当现状）。
+> 📖 无独立 truth（无活体 V7 业务）；共享资金原语见 `truth/funds-orders.md`。旧「内部转账 / 延迟结算」设计已删，仅存于历史 spec（`superpowers/specs/2026-06-*-v7-*`，只读追溯，勿当现状）。
 
 ### MVP
 
