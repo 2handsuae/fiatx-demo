@@ -87,6 +87,7 @@ const AccountFlowList = () => {
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     tbAccountId: searchParams.get('tbAccountId')?.trim() ?? '',
+    walletRef: searchParams.get('walletRef')?.trim() ?? '',
   }));
   const [currencyOptions, setCurrencyOptions] = useState<string[]>([]);
   const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
