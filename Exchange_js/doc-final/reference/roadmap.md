@@ -9,7 +9,7 @@ Last Updated: 2026-07-06
 
 **每条标注**：`来源:`（领导/VARA 条款/行业）｜ `配对:`（正逆操作互链，防逆向遗忘）｜ 状态 `[x]`交付 `[~]`部分 `[ ]`待做 + 日期。
 **实现细节与当前真相** → `reference/truth/`（改代码同步那里，不改这里）｜ **技术债/死码/待决策** → `../BACKLOG.md`。
-> ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排已覆盖 **V1 / V5 / V6**（各带 `superpowers/specs/` 调研留底）。V7-V9 待同款重排（见 BACKLOG「文档漂移」）。
+> ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排 + `superpowers/specs/` 调研留底已覆盖 **V1 / V2 / V5 / V6 / V9**。V3/V4（有三层、无 spec）｜V7/V8（待同款重排）见 BACKLOG「文档漂移」。
 
 ---
 
@@ -92,6 +92,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 > 客户准入 + 合规管理：Onboarding + CRA + 材料时效 + Tier 升级 + 冻结。核心=客户主表三轴状态模型；`assertTradingEligibility` 是 V4-V6 交易资格门。**MVP 仅 Individual，Corporate 显式禁用**。
 > **前置**：V1（审批引擎）｜**被依赖**：V4-V6 交易门。
 > 📖 **实现真相** → [`reference/truth/v2-customer-compliance.md`](truth/v2-customer-compliance.md)
+> 📖 **调研留底** → `superpowers/specs/2026-07-06-v2-customer-compliance-research.md`（V2 首次深度审计）
 > ⚠️ 三轴状态模型 ✅2026-05-09（onboardingStatus/adminStatus/complianceStatus + restrictions JSON + investorTier/tradingTier/riskRating）。
 
 ### MVP（领导定义的基础必须）
@@ -106,6 +107,28 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [~] 客户冻结/解冻 — 自动冻结在(material/tier/制裁触发)，⚠️缺统一 workflow + MLRO 解冻审批门 + freeze API ｜VARA CRM IV.A ｜见 BACKLOG
 
 ### ADVANCED（全部未做）
+
+#### 🔄 2026-07-06 遗漏审计追补（fable-5 首次深度审计，69 agent/21 候选/对抗核验含读代码毙 2 伪缺口）
+
+> ⚠️ 3 个 P0 全卡在"客户资格门"（V4-V6 每笔交易的上游）；根因＝**过度信任 Sumsub 绿灯**。Client Money/联邦法条款号系 gap-audit 溯源，**动工前一手复核**（见 spec caveat）。
+
+**P0（VARA 牌照级 · 资格门窟窿）：**
+
+- [ ] ⚖️P0 底层 CDD 档案本地留存+随取 — 现只接 Sumsub 结论/标签；须把底层资料(证件影像/核验报告/命中详情)拉回**本地留副本、without delay 可调阅**(监管索档现在拿不出) ｜FATF R.17 + VARA III.E.6/III.I
+- [ ] ⚖️P0 高危国家客户准入门(地域因子) — 国籍/居住国命中 FATF/NAMLCFTC 高危名单→强制 EDD；黑名单辖区(伊朗/朝鲜 call-for-action)→拒入；**现 Sumsub 绿灯即自动放行(伊朗普通人漏放)** ｜Cabinet 134/2025 + FATF
+- [ ] ⚖️P0 CRA 补法定四维因子 — 现 6 规则全筛查结果驱动；须加**客户类型/地域/产品/渠道**四维(与上条同根：地域未进风险因子) ｜Cabinet 10/2019 Art.4.1→134/2025 + VARA III.E.2
+
+**P1（VARA 强制）：**
+
+- [ ] ⚖️P1 CDD 完不成/维持不了→强制退出+STR评估 — Material Refresh **无限期冻结＝违 III.E.8"不得 maintain"**；须合规强制终止关系闭环(挂销户)+"是否报 STR"决策留痕 ｜VARA III.E.8
+- [ ] ⚖️P1 触发式 re-CDD(存疑重核) — MLRO/ops 对已有身份信息存疑(举报/交易监控升级)→一键发起**整套 CDD 重核**(非只重跑风险分)，完成前拦交易 ｜VARA III.E.4(c)(d)
+- [ ] ⚖️P1 PEP 建立/继续须 MLRO+高管层双批 — 现仅 MLRO 单签；加第二把钥匙(Senior Management)，开户与"中途变 PEP"均适用 ｜VARA III.E.6(a)(vi) + FATF R.12
+- [ ] ⚖️P1 PEP 识别含家属/密切关联人(RCA) — 现仅"PEP"单标签；家属/关联人命中须同等全套措施，现落 red_other/green 错轨 ｜Cabinet 134/2025 + FATF R.12
+- [ ] ⚖️P1 Sumsub CDD 质量定期抽测 — 只复核客户、从不复核供应商；须定期抽样验证 Sumsub CDD 输出质量(最终责任不可转移) ｜VARA III.E.9
+- [ ] ⚖️P1 禁匿名/别名账户系统落地 — 账户↔法定身份唯一绑定+同人重复/别名去重+展示名≠真名禁止 ｜Cabinet 134/2025 + FATF R.10
+- [ ] ⚖️P1 未成年/行为能力准入门槛 — <18 拒入(阿联酋成年线 **2026-06-01 降至 18**，新生效易漏配)；CDD 已采 DOB→落硬闸 ｜Federal Decree-Law 25/2025
+- [ ] ⚖️P1 客户级冻结 tipping-off 内外双轨 — 客户级自动冻结(制裁/CRA/材料 BLOCKING)对客展示须内外分离(真实原因仅合规可见、客户端中性文案)；直显制裁·AML 原因=刑事罪；V5 提现双轨同源扩展 ｜VARA III.F.1 + 联邦 10/2025 Art.29 ｜⚠️核验 2 票(额度中断)
+- [ ] ⚠️待核 被拒申请人 CDD 材料 8 年留存 — REJECTED 终态申请人的 Sumsub 材料/拒绝记录留存禁清库(尤涉制裁/PEP 被拒)；⚠️**0 票核验**(fable-5 额度中断)，条款待一手复核 ｜VARA III.H.1(b)
 
 **Individual 进阶：**
 - [ ] 客户资料变更 — 身份变更触发重验(低风险直接生效/高风险 Sumsub 重验) ｜VARA CRM II.A.3
@@ -415,6 +438,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### ADVANCED（P1 · VARA 强制但非上线阻断）
 
 - [ ] ⚖️ **MLRO/董事会季度合规报告** — 季度 cadence；含 AML/CFT 有效性评估 + 失效项指认 + 当季**匿名增强交易(AET)摘要** ｜CRM Rulebook III.A.2.f/g/h
+- [ ] ⚖️ 🆕 **全行 AML/CFT 风险评估(EWRA/BRA)** — 公司整体风险评估(VA/技术/产品/渠道，≤3 月频率+重大变更即评)，结果**反哺 V2 CRA 方法论**与资源分配 ｜CRM III.D.1-4 ｜来源:2026-07-06 V2 审计分拣归 V9
 - [ ] ⚖️ 🆕 **制裁误冻结申诉/解冻除名** — 客户申诉误冻→法定 grievance 程序→经 EOCN/goAML 走解冻或除名执行(≠普通客户投诉) ｜EOCN TFS Guidance
 - [ ] ⚖️ 🆕 **市场违法双头上报** — 怀疑内幕/操纵/损害市场公平行为→按法定六字段报 **UAE FIU + VARA 双通道**+备查(触发/对象/报文均异于洗钱 STR) ｜VA & Related Activities Regulations 2023 Part VIII §J.2/J.3/J.4 ｜⚠️纠 V6 引用(误标 Market Conduct)
 - [ ] ⚖️ 🆕 **定期财务申报(月/季)** — 月:资产负债/损益/现金流/自有钱包地址/关联方交易；季:董事会纪要/财务合规声明/风险敞口 报 VARA ｜CRM Rulebook Section H Rule 1/2
