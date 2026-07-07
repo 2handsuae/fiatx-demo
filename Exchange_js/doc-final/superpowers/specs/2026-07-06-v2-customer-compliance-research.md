@@ -57,3 +57,16 @@ Method: workflow harness，69 agent / 6 盲区猎手（CDD 生命周期 / PEP / 
 - ⚠️ **fable-5 月度额度中断**：冻结/退场盲区核验不全（[17] 2 票、[19] 1 票但与 [0] 同主题已 3:0、[20] 0 票）。
 - ⚠️ **联邦法/Cabinet 条款号（10/2019→134/2025 承接）多系 gap-audit 溯源**，新条号"待逐字核"已标注；VARA CRM III.E 系列多条已一手核到 rulebooks.vara.ae。承接 V5 教训：**3:0 一致 ≠ 原文为真**，动工前须一手复核。
 - ✅ 本轮亮点：对抗核验含**读代码验证**，毙掉 2 条"代码其实已实现"的伪缺口——是对"3:0 共享坏源"风险的有效对冲。
+
+---
+
+## 2026-07-06 补核（额度中断两条，opus 一手补全）
+
+**[17] 客户级冻结 tipping-off → 降级 P2（读代码坐实"当前非活漏"）**
+- 一手读码：`customer-auth.service.ts:182-210` 冻结客户登录时 `complianceFreezeReason`(值含 `sanctions_hit_pending_investigation`，CRA:450 制裁路径设)**仅写入审计日志 metadata**，抛给客户的是中性 `CUSTOMER_ACCOUNT_FROZEN`+"联系客服"；`profile-banners.service.ts:45/58` 横幅文案亦中性("请联系合规团队"/"合规审查进行中"，不显制裁/AML/PEP 字样)；客户端控制器/DTO/client-web 全无 freeze reason 引用。
+- 结论：**当前代码 tipping-off 安全**，[17] 从 P1 活漏降为 **P2 设计硬化**（缺的是强制内外分离约定防未来回归，非现存泄露）。
+- ⚠️ **自我纠错留痕**：合成报告时我曾据半截 grep 误断"auth 响应活泄露 reason=刑事级"，读全代码后推翻——**又一例"grep 半截即断"教训，与 daily-aggregated 同类**；下断言前必读全代码/原文。
+
+**[20] 被拒申请人留存 → 窄化 + 纠条款**
+- 一手核 rulebooks.vara.ae：记录保存实为 **Part III.I**（gap-audit 引的 III.H＝"制裁"章，误引）；III.I.1.b 留 CDD records 含"results from the investigation and analysis of clients' activities"、III.I.2 留 **≥8 年**。但**原文仅"clients"、无 "prospective"/被拒申请人字样**。
+- 结论：站得住的是窄版——"被拒过程若触发了调查/分析（制裁/PEP 命中），那些记录属 III.I.1.b 须留 8y"；"全部被拒申请人材料留存"是推断，P2/medium 保留。条款订正 III.H.1(b)→III.I.1.b/III.I.2。

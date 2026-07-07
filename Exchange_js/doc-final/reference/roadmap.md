@@ -127,8 +127,8 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 Sumsub CDD 质量定期抽测 — 只复核客户、从不复核供应商；须定期抽样验证 Sumsub CDD 输出质量(最终责任不可转移) ｜VARA III.E.9
 - [ ] ⚖️P1 禁匿名/别名账户系统落地 — 账户↔法定身份唯一绑定+同人重复/别名去重+展示名≠真名禁止 ｜Cabinet 134/2025 + FATF R.10
 - [ ] ⚖️P1 未成年/行为能力准入门槛 — <18 拒入(阿联酋成年线 **2026-06-01 降至 18**，新生效易漏配)；CDD 已采 DOB→落硬闸 ｜Federal Decree-Law 25/2025
-- [ ] ⚖️P1 客户级冻结 tipping-off 内外双轨 — 客户级自动冻结(制裁/CRA/材料 BLOCKING)对客展示须内外分离(真实原因仅合规可见、客户端中性文案)；直显制裁·AML 原因=刑事罪；V5 提现双轨同源扩展 ｜VARA III.F.1 + 联邦 10/2025 Art.29 ｜⚠️核验 2 票(额度中断)
-- [ ] ⚠️待核 被拒申请人 CDD 材料 8 年留存 — REJECTED 终态申请人的 Sumsub 材料/拒绝记录留存禁清库(尤涉制裁/PEP 被拒)；⚠️**0 票核验**(fable-5 额度中断)，条款待一手复核 ｜VARA III.H.1(b)
+- [ ] P2 冻结 tipping-off 内外分离**硬化** — ✅**2026-07-06 补核(读代码):当前已中性、非活漏**——auth 登录返中性 `CUSTOMER_ACCOUNT_FROZEN`+"联系客服"、freeze reason(`sanctions_hit_pending_investigation` 等)**仅写审计日志**、profile-banner 文案中性。缺的只是**强制**内外分离约定(防未来新增客户面直显 reason 回归)，非当前泄露 ｜VARA III.F.1 + 联邦 10/2025 Art.29(替代 20/2018 Art.25)
+- [ ] P2 被拒申请人**调查记录**留存 8 年 — ✅**2026-07-06 补核**:被拒过程若触发调查/分析(制裁/PEP 命中)其记录属 CDD records 须留 ≥8y；⚠️"**全部**被拒申请人留存"是推断(III.I 原文仅"clients"、无 prospective 字样) ｜VARA III.I.1.b/III.I.2（gap-audit 误引 III.H＝制裁章，已纠）
 
 **Individual 进阶：**
 - [ ] 客户资料变更 — 身份变更触发重验(低风险直接生效/高风险 Sumsub 重验) ｜VARA CRM II.A.3
