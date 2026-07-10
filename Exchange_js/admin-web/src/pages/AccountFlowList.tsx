@@ -92,6 +92,9 @@ const AccountFlowList = () => {
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     tbAccountId: searchParams.get('tbAccountId')?.trim() ?? '',
+    // 兼容既有深链 ?walletRef=（对账 Case 详情页）：Wallet 列已移除，
+    // 把入参喂进搜索框 q（后端 q OR 含 walletRef contains），保持深链过滤不失效。
+    q: searchParams.get('walletRef')?.trim() ?? '',
   }));
   const [currencyOptions, setCurrencyOptions] = useState<string[]>([]);
   const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
