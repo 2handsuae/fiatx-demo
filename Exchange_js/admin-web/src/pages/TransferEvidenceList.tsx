@@ -31,6 +31,7 @@ interface TransferEvidenceRow {
   memo: string | null;
   pendingId: string | null;
   createdAt: string;
+  externalRef: string | null;
   effectiveDate: string;
 }
 
@@ -293,6 +294,7 @@ const TransferEvidenceList = () => {
               <th className={th} style={{ width: 120 }}>Event</th>
               <th className={th} style={{ width: 100 }}>Debit</th>
               <th className={th} style={{ width: 100 }}>Credit</th>
+              <th className={th} style={{ width: 150 }}>ReferenceNo</th>
               <th className={th} style={{ width: 120 }}>Amount</th>
               <th className={th} style={{ width: 90 }}>Asset</th>
               <th className={th} style={{ width: 100 }}>Type</th>
@@ -303,14 +305,14 @@ const TransferEvidenceList = () => {
           <tbody>
             {loading && items.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={12} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={12} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No transfers found.
                 </td>
               </tr>
@@ -349,6 +351,9 @@ const TransferEvidenceList = () => {
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-blue-400">
                   {row.creditCode}
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[150px]" title={row.externalRef ?? ''}>
+                  {row.externalRef || '—'}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t1 text-right tabular-nums font-semibold">
                   {row.amount}
