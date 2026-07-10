@@ -18,7 +18,7 @@ Scope: 账本（accounting / TigerBeetle ledger）域 admin **三张列表**（�
 | Flows Account name 列 | = `账户类型标签 · 币种`（如 `CLIENT_PAYABLE · USDT`），三页同口径 |
 | Flows Balance After | **恒显示**（去掉「仅单账户」门；余额是每行快照恒有意义） |
 | Wallet 展示 | Flows **移除** Wallet 列 + Wallet Ref 筛选框 |
-| 优化甲/乙/丙/丁 | **全要**（凭证账户标签化 + 凭证 ReferenceNo + 流水 customerNo 筛选 + 账户实时余额） |
+| 优化乙/丙/丁 | **要**（凭证 ReferenceNo + 流水 customerNo 筛选 + 账户实时余额）｜ **甲撤销**——前提「裸数字」不成立，凭证 Debit/Credit 已显 `A.CLIENT_ASSET`，业主 2026-07-10 选保持不变 |
 | Pending 排除 / 落账才进流水 | **本期不做** → 记 BACKLOG（见 §6） |
 
 ---
@@ -64,13 +64,15 @@ Scope: 账本（accounting / TigerBeetle ledger）域 admin **三张列表**（�
 
 ## 3. Transfer Evidence 列表（菜单「凭证」）
 
-现状列：`ID ｜ Source ｜ Source No ｜ Event ｜ Debit(裸code) ｜ Credit(裸code) ｜ Amount ｜ Asset ｜ Type ｜ Created ｜ Effective`。
+现状列：`ID ｜ Source ｜ Source No ｜ Event ｜ Debit ｜ Credit ｜ Amount ｜ Asset ｜ Type ｜ Created ｜ Effective`。
+
+> **前提更正（2026-07-10 核实真实数据）**：`debitCode`/`creditCode` 存的是 **COA 串**（`A.CLIENT_ASSET` / `L.DEPOSIT_SUSPENSE` / `E.FIRM_OPS`），**不是**裸数字 `100/101`——本来就可读。故 甲 原描述（"裸数字→标签化"）前提不成立。
 
 **改动两项：**
 
 | # | 动作 | 细节 |
 |---|---|---|
-| E1（甲） | **Debit / Credit 标签化** | 现显裸数字 `100`/`101`（operator 看不懂）→ 改显 `TB_CODE_LABELS[debitCode]` / `[creditCode]`（如 `CLIENT_ASSET`）。裸 code 值移到 hover title 保留。纯前端（label 常量已在 `ledger-account.constants.ts`）。 |
+| ~~E1（甲）~~ **撤销** | — | 前提「裸数字」不成立：凭证 Debit/Credit 已显 `A.CLIENT_ASSET`（带 `A./L./E.` 会计类别前缀，本就可读，前缀对读双向记账有用）。业主 2026-07-10 选**保持不变**，甲不做。 |
 | E2（乙） | **加 `ReferenceNo` 列** | = `externalRef`。插在 Credit / Amount 附近。凭证接口 `findMany` 无 `select`、已返回全字段（`externalRef` 已在 payload）→ **纯前端**：row interface 补 `externalRef` 字段 + 加列。 |
 
 ---
@@ -102,8 +104,8 @@ Scope: 账本（accounting / TigerBeetle ledger）域 admin **三张列表**（�
 - □ customerNo 筛选：输入某客户编号 → 只回该客户账户的流水；空集合返回 0 条不报错。
 
 **凭证列表**
-- □ Debit / Credit 显账户**标签**（非裸数字），裸 code 进 hover。
 - □ 新 `ReferenceNo` 列显 `externalRef`。
+- （甲已撤销：Debit/Credit 保持现状 `A.CLIENT_ASSET` 不动。）
 
 **回归**
 - □ 三列表行点击跳转、分页、三态（loading/空/错误）不回归。
