@@ -10,6 +10,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { TB_CODE_LABELS } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -17,10 +18,14 @@ interface AccountFlowRow {
   id: string;
   tbTransferId: string;
   tbAccountId: string;
-  walletRef: string | null;
   direction: 'IN' | 'OUT';
   amount: string;
   balanceAfter: string | null;
+  accountCode: number | null;
+  ownerType: string | null;
+  ownerNo: string | null;
+  ownerUuid: string | null;
+  externalRef: string | null;
   assetCode: string;
   eventCode: string;
   sourceType: string;
@@ -33,7 +38,7 @@ interface AccountFlowRow {
 interface FilterState {
   q: string;
   tbAccountId: string;
-  walletRef: string;
+  customerNo: string;
   direction: string;
   assetCode: string;
   sourceType: string;
@@ -47,7 +52,7 @@ interface FilterState {
 const DEFAULT_FILTERS: FilterState = {
   q: '',
   tbAccountId: '',
-  walletRef: '',
+  customerNo: '',
   direction: '',
   assetCode: '',
   sourceType: '',
@@ -87,7 +92,6 @@ const AccountFlowList = () => {
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     tbAccountId: searchParams.get('tbAccountId')?.trim() ?? '',
-    walletRef: searchParams.get('walletRef')?.trim() ?? '',
   }));
   const [currencyOptions, setCurrencyOptions] = useState<string[]>([]);
   const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
@@ -132,7 +136,7 @@ const AccountFlowList = () => {
       params.set('take', String(PAGE_SIZE));
       if (nextFilters.q.trim()) params.set('q', nextFilters.q.trim());
       if (nextFilters.tbAccountId.trim()) params.set('tbAccountId', nextFilters.tbAccountId.trim());
-      if (nextFilters.walletRef.trim()) params.set('walletRef', nextFilters.walletRef.trim());
+      if (nextFilters.customerNo.trim()) params.set('customerNo', nextFilters.customerNo.trim());
       if (nextFilters.direction) params.set('direction', nextFilters.direction);
       if (nextFilters.assetCode) params.set('assetCurrency', nextFilters.assetCode);
       if (nextFilters.sourceType) params.set('sourceType', nextFilters.sourceType);
@@ -172,7 +176,7 @@ const AccountFlowList = () => {
   const hasFilter =
     !!filters.q.trim() ||
     !!filters.tbAccountId.trim() ||
-    !!filters.walletRef.trim() ||
+    !!filters.customerNo.trim() ||
     !!filters.direction ||
     !!filters.assetCode ||
     !!filters.sourceType ||
@@ -194,13 +198,13 @@ const AccountFlowList = () => {
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
 
-  /* balanceAfter only meaningful when filtered to ONE account. */
-  const singleAccount = !!filters.tbAccountId.trim();
-
   /* ── Helpers ── */
 
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
+
+  const accountName = (code: number | null, asset: string): string =>
+    code == null ? '—' : `${TB_CODE_LABELS[code] ?? `CODE_${code}`} · ${asset}`;
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleString('en-US', {
@@ -258,9 +262,9 @@ const AccountFlowList = () => {
         />
         <input
           className={`${fi} w-40`}
-          placeholder="Wallet Ref"
-          value={filters.walletRef}
-          onChange={(e) => updateFilter('walletRef', e.target.value)}
+          placeholder="Customer No"
+          value={filters.customerNo}
+          onChange={(e) => updateFilter('customerNo', e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
         />
         <select
@@ -348,19 +352,21 @@ const AccountFlowList = () => {
           <thead className="sticky top-0 z-10 bg-adm-panel">
             <tr className="border-b border-adm-border">
               <th className={th} style={{ width: 150 }}>Account</th>
-              <th className={th} style={{ width: 130 }}>Wallet</th>
+              <th className={th} style={{ width: 150 }}>Account Name</th>
+              <th className={th} style={{ width: 120 }}>Customer No</th>
               <th className={th} style={{ width: 80 }}>Direction</th>
               <th className={th} style={{ width: 120, textAlign: 'right' }}>Amount</th>
               <th
                 className={th}
                 style={{ width: 130, textAlign: 'right' }}
-                title="选定账户后显示余额"
+                title="过账后当时余额"
               >
                 Balance After
               </th>
               <th className={th} style={{ width: 80 }}>Asset</th>
               <th className={th} style={{ width: 100 }}>Source</th>
               <th className={th} style={{ width: 140 }}>Source No</th>
+              <th className={th} style={{ width: 150 }}>ReferenceNo</th>
               <th className={th} style={{ width: 120 }}>Event</th>
               <th className={th} style={{ width: 100 }}>Type</th>
               <th className={th} style={{ width: 120 }}>Effective</th>
@@ -370,14 +376,14 @@ const AccountFlowList = () => {
           <tbody>
             {loading && items.length === 0 && (
               <tr>
-                <td colSpan={12} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={14} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={12} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={14} className="px-3 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No flows found.
                 </td>
               </tr>
@@ -397,8 +403,21 @@ const AccountFlowList = () => {
                     {row.tbAccountId.slice(0, 8)}…{row.tbAccountId.slice(-6)}
                   </button>
                 </td>
-                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[130px]" title={row.walletRef ?? ''}>
-                  {row.walletRef || '—'}
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[150px]" title={accountName(row.accountCode, row.assetCode)}>
+                  {accountName(row.accountCode, row.assetCode)}
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px]">
+                  {row.ownerNo && row.ownerUuid ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/admin/customers/${row.ownerUuid}`); }}
+                      className="text-adm-amber hover:underline"
+                      title="Open customer"
+                    >
+                      {row.ownerNo}
+                    </button>
+                  ) : (
+                    <span className="text-adm-t3">—</span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <span
@@ -411,7 +430,7 @@ const AccountFlowList = () => {
                   {formatMinorToMajor(row.amount, decimalsOf(row.assetCode))}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t1 text-right tabular-nums">
-                  {singleAccount && row.balanceAfter != null
+                  {row.balanceAfter != null
                     ? formatMinorToMajor(row.balanceAfter, decimalsOf(row.assetCode))
                     : '—'}
                 </td>
@@ -423,6 +442,9 @@ const AccountFlowList = () => {
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[140px]" title={row.sourceNo}>
                   {row.sourceNo}
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[150px]" title={row.externalRef ?? ''}>
+                  {row.externalRef || '—'}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t2">
                   {row.eventCode}
