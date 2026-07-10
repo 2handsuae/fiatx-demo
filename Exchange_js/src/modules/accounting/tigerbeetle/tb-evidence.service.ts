@@ -344,7 +344,30 @@ export class TbEvidenceService {
       }),
       (this.prisma as any).accountFlow.count({ where }),
     ]);
-    return { items, total, singleAccount: !!filters.tbAccountId };
+    return { items: await this.attachAccountIdentity(items), total, singleAccount: !!filters.tbAccountId };
+  }
+
+  /** 给流水行批量挂账户身份(code/owner)：单次 IN 查询，禁 N+1。
+   *  customerNo/ownerUuid 仅对 CUSTOMER 账户暴露，SYSTEM/LP 恒 null。 */
+  private async attachAccountIdentity(rows: any[]): Promise<any[]> {
+    const ids = [...new Set(rows.map((r) => r.tbAccountId).filter(Boolean))];
+    if (ids.length === 0) return rows;
+    const regs = await (this.prisma as any).tbAccountRegistry.findMany({
+      where: { tbAccountId: { in: ids } },
+      select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true, ownerUuid: true },
+    });
+    const map = new Map<string, any>(regs.map((r: any) => [r.tbAccountId, r]));
+    return rows.map((r) => {
+      const reg = map.get(r.tbAccountId);
+      const isCustomer = reg?.ownerType === 'CUSTOMER';
+      return {
+        ...r,
+        accountCode: reg?.code ?? null,
+        ownerType: reg?.ownerType ?? null,
+        ownerNo: isCustomer ? (reg?.ownerNo ?? null) : null,
+        ownerUuid: isCustomer ? (reg?.ownerUuid ?? null) : null,
+      };
+    });
   }
 
   async getAccountStatement(
