@@ -146,6 +146,7 @@ export class TbAdminController {
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('tbAccountId') tbAccountId?: string,
+    @Query('customerNo') customerNo?: string,
     @Query('walletRef') walletRef?: string,
     @Query('direction') direction?: string,
     @Query('assetCurrency') assetCurrency?: string,
@@ -157,6 +158,7 @@ export class TbAdminController {
   ) {
     return this.tbEvidenceService.findAllFlows({
       tbAccountId: tbAccountId || undefined,
+      customerNo: customerNo || undefined,
       walletRef: walletRef || undefined,
       direction: direction || undefined,
       assetCurrency: assetCurrency || undefined,

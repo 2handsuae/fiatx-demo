@@ -304,6 +304,7 @@ export class TbEvidenceService {
 
   async findAllFlows(filters: {
     tbAccountId?: string;
+    customerNo?: string;
     walletRef?: string;
     direction?: string;       // 'IN' | 'OUT'
     assetCurrency?: string;
@@ -326,6 +327,20 @@ export class TbEvidenceService {
       where.effectiveDate = {};
       if (filters.effectiveFrom) where.effectiveDate.gte = filters.effectiveFrom;
       if (filters.effectiveTo) where.effectiveDate.lte = filters.effectiveTo;
+    }
+    // customerNo：先查该客户的 tbAccountId 集合，再约束流水。与 tbAccountId 单值取交集。
+    if (filters.customerNo?.trim()) {
+      const regs = await (this.prisma as any).tbAccountRegistry.findMany({
+        where: { ownerType: 'CUSTOMER', ownerNo: filters.customerNo.trim() },
+        select: { tbAccountId: true },
+      });
+      const custIds: string[] = regs.map((r: any) => r.tbAccountId);
+      if (filters.tbAccountId) {
+        if (!custIds.includes(filters.tbAccountId)) where.tbAccountId = { in: [] };
+        // 命中则保留已设的单值 where.tbAccountId
+      } else {
+        where.tbAccountId = { in: custIds }; // 空集合 → Prisma in:[] 返回 0 行
+      }
     }
     const q = filters.q?.trim();
     if (q) {
