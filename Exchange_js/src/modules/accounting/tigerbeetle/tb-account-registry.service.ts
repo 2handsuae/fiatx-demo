@@ -2,6 +2,20 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { TigerBeetleService } from './tigerbeetle.service';
+import { hexToBigint } from './utils/tb-id.util';
+import { isAssetCode } from './constants/tb-account-codes.constant';
+
+/** class-aware posted 余额(分,字符串)。资产借正=debits−credits；负债/权益贷正=credits−debits。 */
+export function postedBalanceForCode(
+  acct: { debits_posted: bigint; credits_posted: bigint },
+  code: number,
+): string {
+  const net = isAssetCode(code)
+    ? acct.debits_posted - acct.credits_posted
+    : acct.credits_posted - acct.debits_posted;
+  return net.toString();
+}
 
 interface RegisterParams {
   tbAccountId: string;
@@ -24,7 +38,10 @@ interface ResolveParams {
 
 @Injectable()
 export class TbAccountRegistryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tbService: TigerBeetleService,
+  ) {}
 
   async register(params: RegisterParams, tx?: Prisma.TransactionClient) {
     const client = tx ?? this.prisma;
@@ -108,7 +125,8 @@ export class TbAccountRegistryService {
       (this.prisma as any).tbAccountRegistry.count({ where }),
     ]);
 
-    return { items: await this.attachOwnerNames(rows), total };
+    const named = await this.attachOwnerNames(rows);
+    return { items: await this.attachBalances(named), total };
   }
 
   /** CUSTOMER 行批量附 ownerName(单次 IN 查询,禁 N+1);SYSTEM 行恒 null。 */
@@ -130,5 +148,23 @@ export class TbAccountRegistryService {
       ...r,
       ownerName: r.ownerType === 'CUSTOMER' ? (names.get(r.ownerUuid) ?? null) : null,
     }));
+  }
+
+  /** 整页账户余额：一次 TB 批量 lookupAccounts，class-aware 算 posted 余额；
+   *  TB 不可用/账户缺失 → balance=null（前端显「—」），绝不阻断列表主体。 */
+  private async attachBalances(rows: any[]): Promise<any[]> {
+    if (rows.length === 0) return rows;
+    let byId = new Map<string, { debits_posted: bigint; credits_posted: bigint }>();
+    try {
+      const ids = rows.map((r) => hexToBigint(r.tbAccountId));
+      const accounts = await this.tbService.lookupAccounts(ids);
+      byId = new Map(accounts.map((a: any) => [a.id.toString(), a]));
+    } catch {
+      return rows.map((r) => ({ ...r, balance: null }));
+    }
+    return rows.map((r) => {
+      const acct = byId.get(hexToBigint(r.tbAccountId).toString());
+      return { ...r, balance: acct ? postedBalanceForCode(acct, r.code) : null };
+    });
   }
 }
