@@ -126,4 +126,8 @@ Last Updated: 2026-07-03
 
 - [ ] **`recon-demo.ts` MANIFEST_PATH 写死 main tmp**：默认 `/tmp/exchange_js_main/recon-demo-manifest.json`（可 `RECON_DEMO_MANIFEST_PATH` 覆盖）；self 栈跑 `recon:demo:break` 时 manifest 落 main 栈 tmp、非本 worktree tmp。不影响评分（verifyManifest 读内存 manifest 对象、不回读文件），仅文件落点跨栈。修法：默认按 `DATABASE_URL` 派生 tmp 目录，或 on-stack 包装器注入 `RECON_DEMO_MANIFEST_PATH` ｜来源: 2026-07-04 canon2 T5 code-review（M2）
 
+## 账本流水（2026-07-10 本会话新增）
+
+- [ ] **账本流水未排除 pending（「落账才进流水」，本期业主跳过）**：投影器 `account-flow-projector.persist()` 当前对 pending/lock 阶段的转账**也**写流水行（现存 4 条 `transferType=PENDING` 流水行）。目标口径=流水只体现**已落账 posted**：pending 阶段不进流水、`VOID_PENDING` 永不生成，凭证表照旧记 pending。落地=`persist` 在 post 那刻才写流水行（pending 跳过 persist）+ 一次性清历史 pending 流水行。业主 2026-07-10 明确本期跳过 ｜来源: 2026-07-10 账务三列表细化 brainstorm（spec `superpowers/specs/2026-07-10-ledger-lists-refinement-design.md` §6）
+
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
