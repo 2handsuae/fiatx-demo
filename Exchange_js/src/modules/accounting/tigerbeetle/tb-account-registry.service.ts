@@ -1,5 +1,5 @@
 // src/modules/accounting/tigerbeetle/tb-account-registry.service.ts
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { TigerBeetleService } from './tigerbeetle.service';
@@ -38,6 +38,8 @@ interface ResolveParams {
 
 @Injectable()
 export class TbAccountRegistryService {
+  private readonly logger = new Logger(TbAccountRegistryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tbService: TigerBeetleService,
@@ -159,7 +161,8 @@ export class TbAccountRegistryService {
       const ids = rows.map((r) => hexToBigint(r.tbAccountId));
       const accounts = await this.tbService.lookupAccounts(ids);
       byId = new Map(accounts.map((a: any) => [a.id.toString(), a]));
-    } catch {
+    } catch (e) {
+      this.logger.warn(`attachBalances: TB lookupAccounts failed, balances null for ${rows.length} account rows — ${e}`);
       return rows.map((r) => ({ ...r, balance: null }));
     }
     return rows.map((r) => {
