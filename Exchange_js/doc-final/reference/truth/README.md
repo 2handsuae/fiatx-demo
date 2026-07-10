@@ -28,7 +28,7 @@
 | [v6-swap.md](v6-swap.md) | 兑换报价 + 4 腿成交 / 仅 L1 合规 / 费率治理 / FAILED-REVERSED 死枚举 | 2026-07-04 |
 | [v8-recon.md](v8-recon.md) | 逐钱包 1:1 对账 / 五桶 / Run-Case 驾驶舱 / effectiveDate / 推单处置 / 止于 Case OPEN | 2026-07-04 |
 | [accounting-coa.md](accounting-coa.md) | **跨版本** 8 码 COA / TB 记账机制 / AccountFlow 投影 / 实时 1:1 不变量 | 2026-07-04 |
-| [funds-orders.md](funds-orders.md) | **跨版本** 资金单状态机 / 共享执行引擎 / 三视图投影 | 2026-07-04 |
+| [funds-orders.md](funds-orders.md) | **跨版本** 资金单状态机 / 共享执行引擎 / 三视图投影 | 2026-07-10 |
 | [sumsub-ingestion.md](sumsub-ingestion.md) | **跨版本** Sumsub webhook 翻译层 / ingest-dispatch / retry / 模拟端点 | 2026-07-04 |
 
 ## 版本 → 文件映射

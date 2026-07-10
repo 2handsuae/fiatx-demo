@@ -1,6 +1,6 @@
 # 资金单（funds_orders）— 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-07-04（核对方式：符号级 grep + V4-V8 体检交叉佐证）
+Last Verified: 2026-07-10（核对方式：符号级 grep + V4-V8 体检交叉佐证；§1 四套迁移表 + 出生态逐符号复核）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V4(充值)/V5(提现)/V6(兑换)/V8(对账) 引用——资金单状态机与执行引擎的唯一真相。各版本文档只描述"自己怎么用资金单"，状态机与共享 service 链到此。
 
@@ -12,11 +12,17 @@ Last Verified: 2026-07-04（核对方式：符号级 grep + V4-V8 体检交叉�
 
 ## 1. 状态机（`funds-order.dto.ts` + `funds-order-transitions.constant.ts`）
 
-- **状态** `FundsOrderStatus`：`CREATED → SUBMITTED → CONFIRMING → CONFIRMED → CLEARED`（happy）；终态旁支 `FAILED / TIMEOUT`
+- **状态** `FundsOrderStatus`：全集 `CREATED → SUBMITTED → CONFIRMING → CONFIRMED → CLEARED`（happy 并集）；终态旁支 `FAILED / TIMEOUT`。**注意各套迁移表只用其中一段**（出生态与旁支各异，见下）
 - **动作** `FundsOrderAction`：`SUBMIT / OBSERVE_CONFIRMING / CONFIRM / CLEAR / FAIL / TIMEOUT`（逐步推进，不跳步）
-- **crypto vs fiat**：`CRYPTO_TRANSITIONS`（签名→广播→确认→CLEAR，走 CONFIRMING）｜ `FIAT_TRANSITIONS`（银行 SUBMIT→CONFIRM→CLEAR，**跳过 CONFIRMING**），按 `asset.type` 选
 - **direction** `IN / OUT / INTERNAL`；**assetType** `CRYPTO / FIAT`
-- 锚点：`dto/funds-order.dto.ts → FundsOrderStatus/FundsOrderAction` ｜ `constants/funds-order-transitions.constant.ts → CRYPTO_TRANSITIONS/FIAT_TRANSITIONS`
+- **四套迁移表**（方向 × 资产各一套，出生态各异，`funds-order-transitions.constant.ts`）：
+  - `CRYPTO_IN_TRANSITIONS`（充值·虚拟币）：出生态 **SUBMITTED** → CONFIRMING → CONFIRMED → CLEARED（**无 CREATED 首段**；各步可 `FAIL`；**无 `TIMEOUT` 旁支**）
+  - `FIAT_IN_TRANSITIONS`（充值·法币）：出生态 **CONFIRMED** → CLEARED（**单跳**，无失败/超时旁支）
+  - `CRYPTO_OUT_TRANSITIONS`（提现/兑换腿·虚拟币）：出生态 **CREATED** → SUBMITTED → CONFIRMING → CONFIRMED → CLEARED（全 5 步，`FAIL`/`TIMEOUT` 旁支齐）
+  - `FIAT_OUT_TRANSITIONS`（提现·法币）：出生态 **CREATED** → SUBMITTED → CONFIRMED → CLEARED（**跳过 CONFIRMING**；`FAIL`/`TIMEOUT` 旁支）
+- **选表** `getTransitionMap(direction, assetType)`：`IN` → `CRYPTO_IN`/`FIAT_IN`；否则 → `CRYPTO_OUT`/`FIAT_OUT`。**`INTERNAL`（swap 腿）走 OUT 表**，按 assetType 选 crypto/fiat
+- **出生态来源**：充值 `deposit-transactions.service.ts → detected()` 定 `initialStatus`（crypto=SUBMITTED / fiat=CONFIRMED）｜ 提现本金+fee 腿、兑换 4 腿由 workflow `create()` 走默认 `initialStatus=CREATED`（`withdraw-workflow.service.ts` / `swap-workflow.service.ts`）
+- 锚点：`dto/funds-order.dto.ts → FundsOrderStatus/FundsOrderAction` ｜ `constants/funds-order-transitions.constant.ts → CRYPTO_IN_TRANSITIONS / FIAT_IN_TRANSITIONS / CRYPTO_OUT_TRANSITIONS / FIAT_OUT_TRANSITIONS + getTransitionMap()`
 
 ## 2. 数据模型要点
 
@@ -43,6 +49,6 @@ Last Verified: 2026-07-04（核对方式：符号级 grep + V4-V8 体检交叉�
 
 ## 5. 锚点汇总
 
-`funds-orders/`：`funds-order.service.ts`（执行引擎主）｜ `dto/funds-order.dto.ts`（状态/动作枚举）｜ `constants/funds-order-transitions.constant.ts`（crypto/fiat 状态机）｜ `funds-orders.admin.controller.ts`（admin + 推单）
+`funds-orders/`：`funds-order.service.ts`（执行引擎主）｜ `dto/funds-order.dto.ts`（状态/动作枚举）｜ `constants/funds-order-transitions.constant.ts`（四套方向×资产迁移表 + `getTransitionMap`）｜ `funds-orders.admin.controller.ts`（admin + 推单）
 消费方投影：`clearing-settle/reconciliation/data-source/funds-order-source.repo.ts`（三视图）
 记账口径：见 [accounting-coa.md](accounting-coa.md)
