@@ -144,6 +144,19 @@ export class FundsOrderService {
     return client.fundsOrder.findUnique({ where: { id }, include: { asset: true } });
   }
 
+  /**
+   * externalRef 消费方(账务 evidence / 对账 / admin)统一读取口:
+   * crypto → txHash,fiat → referenceNo。单一漏斗,订单域不再各自推导。
+   */
+  resolveExternalRef(row: {
+    asset?: { type?: string | null } | null;
+    txHash?: string | null;
+    referenceNo?: string | null;
+  }): string | null {
+    const assetType = (row.asset?.type ?? 'CRYPTO').toUpperCase();
+    return assetType === 'CRYPTO' ? row.txHash ?? null : row.referenceNo ?? null;
+  }
+
   /** Thin business-key finder — raw row (+ asset) by fundsOrderNo. Recon push-order
    *  orchestrator needs id/status/FKs/wallets/referenceNo/amount/createdAt on the row. */
   async findByNo(fundsOrderNo: string, tx?: Tx) {

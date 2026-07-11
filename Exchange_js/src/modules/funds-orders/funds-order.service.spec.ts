@@ -185,4 +185,30 @@ describe('FundsOrderService', () => {
       expect(out[0].direction).toBe('IN');
     });
   });
+
+  describe('resolveExternalRef', () => {
+    it('crypto → returns txHash', () => {
+      const ref = service.resolveExternalRef({
+        asset: { type: 'CRYPTO' }, txHash: '0xabc', referenceNo: 'ZB1',
+      } as any);
+      expect(ref).toBe('0xabc');
+    });
+
+    it('fiat → returns referenceNo', () => {
+      const ref = service.resolveExternalRef({
+        asset: { type: 'FIAT' }, txHash: '0xabc', referenceNo: 'ZB1',
+      } as any);
+      expect(ref).toBe('ZB1');
+    });
+
+    it('missing asset → defaults CRYPTO → txHash', () => {
+      const ref = service.resolveExternalRef({ txHash: '0xabc' } as any);
+      expect(ref).toBe('0xabc');
+    });
+
+    it('null column → null', () => {
+      const ref = service.resolveExternalRef({ asset: { type: 'FIAT' }, referenceNo: null } as any);
+      expect(ref).toBeNull();
+    });
+  });
 });
