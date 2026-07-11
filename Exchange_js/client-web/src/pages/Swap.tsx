@@ -737,7 +737,7 @@ const Swap = () => {
                           Please create a receiving account for {missingReceivingAccountCodes.join(', ')} before swapping.
                         </p>
                         <button
-                          onClick={() => navigate('/wallet')}
+                          onClick={() => navigate('/deposit')}
                           className="px-3 py-1.5 text-xs font-bold bg-fx-brass text-fx-obsidian rounded-lg hover:bg-fx-brass/90 transition-colors"
                         >
                           Create receiving account →
