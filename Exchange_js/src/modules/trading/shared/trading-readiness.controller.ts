@@ -23,7 +23,7 @@ export class TradingReadinessController {
     return { customerId: req.user.userId };
   }
 
-  @Get('trading-readiness')
+  @Get()
   @ApiOperation({ summary: 'Whether the customer has an active fiat withdrawal address (R1 gate)' })
   async readiness(@Request() req: any) {
     const { customerId } = this.extractCustomer(req);
