@@ -512,10 +512,15 @@ export class SwapWorkflowService {
     const legSeq = event.legSeq;
     // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt so
     // post hits the right transfer (matches initiateLegPending's id).
+    // 铸号已在 advance()→CONFIRMED 落到 leg funds_order(事件先于此提交)。读回真实号
+    // 传入 postLeg,由 enrichForPost 盖进 evidence + account_flows。
+    const legFo = await this.fundsOrders.findById(event.fundsOrderId);
+    const externalRef = legFo ? this.fundsOrders.resolveExternalRef(legFo) : null;
     await this.swapLegAccounting.postLeg(
       { ...ctx, attempt: event.attempt },
       spec,
       client,
+      externalRef,
     );
     // Auto-CLEAR the leg funds_order now that accounting is posted (CONFIRMED →
     // CLEARED). Terminal; the re-emitted CLEARED event is guarded out above.

@@ -5,7 +5,8 @@ import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-res
 import { buildSwapLegPlan, LegAccounting, SwapLegSpec } from '../../funds-layer/constants/swap-leg-plan.constant';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
-import { deterministicTransferId } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { deterministicTransferId, bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 
 export interface SwapSettleCtx {
   swapId: string;
@@ -36,6 +37,7 @@ export class SwapLegAccounting {
   constructor(
     private readonly accounting: AccountingService,
     private readonly wallets: SystemWalletResolver,
+    private readonly tbEvidence: TbEvidenceService,
   ) {}
 
   // ── Amount helpers ──
@@ -291,12 +293,9 @@ export class SwapLegAccounting {
    */
   async initiateLegPending(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
     // Phase B: every swap leg is a real cross-wallet movement (per swap-leg-plan
-    // there are no pure-bookkeeping legs). externalRef = `${swapNo}:${legSeq}:${attempt}:pending`
-    // serves as the cross-validation key — swaps don't broadcast on-chain, so the
-    // swap-internal reference IS sufficient for §8 recon. The attempt segment lets
-    // the same swap+legSeq retain distinct refs across self-heal retries (Swap-6).
+    // there are no pure-bookkeeping legs). externalRef 归 funds_order 所有,在腿达到
+    // CONFIRMED 时由 postLeg → enrichForPost 补写真实铸号;pending 行此刻不带 ref。
     const attempt = ctx.attempt ?? 1;
-    const externalRef = `${ctx.swapNo}:${spec.legSeq}:${attempt}:pending`;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
@@ -314,7 +313,6 @@ export class SwapLegAccounting {
         evidence: this.evidence(ctx, a, {
           debitWalletRef,
           creditWalletRef,
-          externalRef,
           isExternalCrossing: true,
         }),
         tx: client,
@@ -327,12 +325,12 @@ export class SwapLegAccounting {
 
   // ── postLeg: post all pending transfers for a leg ──
 
-  async postLeg(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
-    // Phase B: postPendingTransfer flips transferType on the existing evidence
-    // row (no new row, no field rewrite). The walletRef/externalRef/crossing
-    // captured at initiateLegPending therefore survive POST untouched. The
-    // pending ID is keyed by attempt (Swap-6) so retries reference distinct
-    // TB transfers from the original attempt.
+  async postLeg(
+    ctx: SwapSettleCtx,
+    spec: SwapLegSpec,
+    client: any,
+    externalRef?: string | null,
+  ): Promise<void> {
     const attempt = ctx.attempt ?? 1;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
@@ -344,6 +342,15 @@ export class SwapLegAccounting {
         evidence: this.evidence(ctx, a),
         tx: client,
       });
+      // postPendingTransfer 只翻转 transferType,不重写字段。用 enrichForPost 把
+      // funds_order 铸的真实 externalRef 盖进 POSTED evidence 并重投影 account_flows。
+      if (externalRef) {
+        await this.tbEvidence.enrichForPost(
+          bigintToHex(pendingId),
+          { externalRef, isExternalCrossing: true },
+          client,
+        );
+      }
     }
   }
 
