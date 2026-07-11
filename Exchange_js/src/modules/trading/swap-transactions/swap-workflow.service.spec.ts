@@ -363,6 +363,10 @@ function buildAdvanceLegMocks(opts: {
       return Promise.resolve(row ?? { id, status: FundsOrderStatus.CLEARED });
     }),
     findByParent: jest.fn(() => Promise.resolve(legState.slice())),
+    // onLegConfirmed reads the leg funds_order back to enrich POST evidence with
+    // the minted externalRef; return a truthy row + a stable ref for assertions.
+    findById: jest.fn(async () => ({ asset: { type: 'CRYPTO' }, txHash: '0xFAKESWAPREF', referenceNo: null })),
+    resolveExternalRef: jest.fn(() => '0xFAKESWAPREF'),
   };
 
   const legAccounting = {
@@ -538,6 +542,8 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
     expect(mocks.legAccounting.postLeg).toHaveBeenCalledTimes(1);
     expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][0].attempt).toBe(1);
     expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(1);
+    // 4th arg = the funds_order-minted externalRef resolved in onLegConfirmed.
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][3]).toBe('0xFAKESWAPREF');
 
     // leg auto-advanced to CLEARED (CONFIRMED → CLEAR).
     expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(1);
@@ -574,6 +580,8 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
 
     // postLeg for leg4.
     expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][1].legSeq).toBe(4);
+    // 4th arg = the funds_order-minted externalRef resolved in onLegConfirmed.
+    expect((mocks.legAccounting.postLeg as jest.Mock).mock.calls[0][3]).toBe('0xFAKESWAPREF');
 
     // markStatus(SUCCESS).
     expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
