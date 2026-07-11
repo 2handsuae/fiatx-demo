@@ -187,6 +187,14 @@ const DashboardLayout = () => {
           icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_TRANSACTIONS_READ],
         },
+        // Unified funds-orders surface (Round 2 / C6) — replaces the legacy
+        // Payin Records / Payout Records / Internal Funds entries.
+        {
+          path: '/admin/funds-orders',
+          label: 'Funds Orders',
+          icon: <Activity size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDS_ORDERS_READ],
+        },
         {
           path: '/admin/trading/withdraw-quotes',
           label: 'Withdraw Quotes',
@@ -198,14 +206,6 @@ const DashboardLayout = () => {
           label: 'Swap Quotes',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.SWAP_QUOTES_READ],
-        },
-        // Unified funds-orders surface (Round 2 / C6) — replaces the legacy
-        // Payin Records / Payout Records / Internal Funds entries.
-        {
-          path: '/admin/funds-orders',
-          label: 'Funds Orders · 资金单',
-          icon: <Activity size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_ORDERS_READ],
         },
       ],
     },
