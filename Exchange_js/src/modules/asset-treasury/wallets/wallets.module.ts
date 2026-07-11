@@ -13,9 +13,10 @@ import { CUSTODIAN_ADAPTER } from './custodian-adapter.interface';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { GovernanceModule } from '../../governance/governance.module';
+import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, GovernanceModule],
+  imports: [PrismaModule, AuditLogsModule, GovernanceModule, OnboardingModule],
   controllers: [WalletsController, CustodianWalletCreateController, CustomerDepositWalletController],
   providers: [
     WalletsService,

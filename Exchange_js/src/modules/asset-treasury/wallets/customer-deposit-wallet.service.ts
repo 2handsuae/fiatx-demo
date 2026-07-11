@@ -18,6 +18,7 @@ import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interface';
 import { WalletRole, WalletStatus } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
+import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class CustomerDepositWalletService {
     private readonly walletsService: WalletsService,
     @Inject(CUSTODIAN_ADAPTER)
     private readonly custodianAdapter: CustodianAdapter,
+    private readonly onboardingService: OnboardingService,
   ) {}
 
   async createOrReturn(customerId: string, assetId: string) {
@@ -55,6 +57,9 @@ export class CustomerDepositWalletService {
     if (asset.status !== 'ACTIVE') {
       throw new BadRequestException({ code: 'ASSET_NOT_ACTIVE', message: `Asset is in ${asset.status} status` });
     }
+
+    // Dependency chain ②: no active fiat withdrawal address → no receiving account
+    await this.onboardingService.assertTradingReady(customerId);
 
     const walletRole = asset.type === 'FIAT' ? WalletRole.C_VIBAN : WalletRole.C_DEP;
     const walletType = asset.type === 'FIAT' ? 'FIAT_BANK' : 'CRYPTO_ADDRESS';
