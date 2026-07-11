@@ -44,6 +44,13 @@ export class WithdrawalAddressWorkflowService {
       throw new BadRequestException({ code: 'ASSET_NOT_CRYPTO', message: 'Only crypto assets are supported' });
     }
 
+    if (!(await this.addressService.hasActiveFiatWithdrawalAddress(customerId))) {
+      throw new ForbiddenException({
+        code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
+        message: '需要先创建并激活一个法币提现地址才能登记提现地址',
+      });
+    }
+
     const traceId = crypto.randomUUID();
 
     const attribution = await this.trAdapter.attributeAddress(dto.address, asset.network ?? '');
