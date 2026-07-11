@@ -46,6 +46,9 @@ describe('CustomerDepositWalletService', () => {
         findUnique: jest.fn().mockResolvedValue(fiatAsset),
       },
       wallet: {
+        // Pre-transaction existing-wallet probe (decides whether to run the gate).
+        // Defaults to null → no existing wallet → creation path → gate runs.
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue({
           ...createdWalletRecord,
           status: 'ACTIVE',
@@ -113,5 +116,29 @@ describe('CustomerDepositWalletService', () => {
     expect(walletsService.createWalletRecord).toHaveBeenCalled();
     expect(custodianAdapter.createVault).toHaveBeenCalled();
     expect(result).toMatchObject({ id: 'wallet-1', walletNo: 'WA0001' });
+  });
+
+  it('should return the existing ACTIVE wallet WITHOUT running the gate when one already exists (fetch path)', async () => {
+    const existingWallet = {
+      ...createdWalletRecord,
+      status: 'ACTIVE',
+      asset: { code: 'USD', type: 'FIAT', decimals: 2 },
+    };
+    // An existing ACTIVE wallet is found by the pre-transaction probe.
+    prisma.wallet.findFirst.mockResolvedValue(existingWallet);
+    // The idempotent tx re-check also returns it (race-safe short-circuit).
+    prisma.$transaction.mockImplementation(async (cb: any) =>
+      cb({ wallet: { findFirst: jest.fn().mockResolvedValue(existingWallet) } }),
+    );
+    // Customer is NOT trading-ready: if the gate ran, it would throw.
+    onboardingService.assertTradingReady.mockRejectedValue(
+      new ForbiddenException({ code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS' }),
+    );
+
+    const result = await service.createOrReturn('cust-1', 'asset-1');
+
+    expect(result).toMatchObject({ id: 'wallet-1', walletNo: 'WA0001', status: 'ACTIVE' });
+    expect(onboardingService.assertTradingReady).not.toHaveBeenCalled();
+    expect(walletsService.createWalletRecord).not.toHaveBeenCalled();
   });
 });

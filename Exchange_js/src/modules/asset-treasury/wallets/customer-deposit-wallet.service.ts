@@ -58,11 +58,27 @@ export class CustomerDepositWalletService {
       throw new BadRequestException({ code: 'ASSET_NOT_ACTIVE', message: `Asset is in ${asset.status} status` });
     }
 
-    // Dependency chain ②: no active fiat withdrawal address → no receiving account
-    await this.onboardingService.assertTradingReady(customerId);
-
     const walletRole = asset.type === 'FIAT' ? WalletRole.C_VIBAN : WalletRole.C_DEP;
     const walletType = asset.type === 'FIAT' ? 'FIAT_BANK' : 'CRYPTO_ADDRESS';
+
+    // Dependency chain ②: gate CREATION only. createOrReturn is also the fetch path
+    // for an already-existing receiving account (the client Deposit page POSTs it to
+    // display the existing address), so an existing ACTIVE wallet must NOT be gated —
+    // otherwise a later withdrawal-address deactivation would 403 the customer out of
+    // viewing their own address. Cheap pre-tx probe decides whether the gate runs; the
+    // $transaction below still re-checks idempotently for race safety.
+    const existingActive = await this.prisma.wallet.findFirst({
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: customerId,
+        assetId,
+        walletRole,
+        status: WalletStatus.ACTIVE,
+      },
+    });
+    if (!existingActive) {
+      await this.onboardingService.assertTradingReady(customerId);
+    }
 
     // ── H5: Atomic check-then-create inside $transaction (prevents race condition) ──
     const txResult = await this.prisma.$transaction(async (tx) => {
