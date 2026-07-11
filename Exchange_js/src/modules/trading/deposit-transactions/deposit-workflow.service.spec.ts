@@ -38,6 +38,12 @@ describe('DepositWorkflowService', () => {
       findByParent: jest.fn().mockResolvedValue([]),
       advance: jest.fn().mockResolvedValue(undefined),
       create: jest.fn(),
+      // Faithful mirror of the real type-based resolver: CRYPTO → txHash, FIAT → referenceNo
+      // (default CRYPTO when asset.type is absent). NOT a txHash ?? referenceNo coalesce.
+      resolveExternalRef: jest.fn((row) =>
+        ((row?.asset?.type ?? 'CRYPTO').toUpperCase() === 'CRYPTO'
+          ? (row?.txHash ?? null)
+          : (row?.referenceNo ?? null))),
     };
     withdrawalAddresses = {
       hasActiveFiatWithdrawalAddress: jest.fn().mockResolvedValue(true),
@@ -408,10 +414,12 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('STEP_1: falls back to funds order referenceNo when txHash is null', async () => {
+    it('STEP_1: uses funds order referenceNo for a FIAT payin (type-based externalRef)', async () => {
       const fiatRefFundsOrder = {
         id: 'fo-acc-1',
         toWalletId: 'wallet-acc-1',
+        // FIAT payin funds order: type-based resolver reads referenceNo (not txHash).
+        asset: { type: 'FIAT' },
         txHash: null,
         referenceNo: 'BANK-REF-XYZ',
       };

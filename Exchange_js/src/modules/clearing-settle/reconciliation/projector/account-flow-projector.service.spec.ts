@@ -320,3 +320,20 @@ describe('AccountFlowProjectorService', () => {
     });
   });
 });
+
+describe('AccountFlowProjectorService balanceAfter', () => {
+  const svc = new AccountFlowProjectorService();
+  it('maps debit/credit balanceAfter onto the correct rows', () => {
+    const rows = svc.projectEvidence({
+      tbTransferId: 't1', sourceType: 'DEPOSIT', sourceNo: 'D1', eventCode: 'E',
+      debitTbAccountId: 'a_debit', creditTbAccountId: 'a_credit',
+      amount: '100', assetCode: 'AED', transferType: 'POSTED',
+      createdAt: new Date('2026-07-07T00:00:00Z'), effectiveDate: '2026-07-07',
+      debitBalanceAfter: '900', creditBalanceAfter: '1100',
+    } as any);
+    const debit = rows.find((r) => r.direction === 'OUT');
+    const credit = rows.find((r) => r.direction === 'IN');
+    expect(debit?.balanceAfter).toBe('900');
+    expect(credit?.balanceAfter).toBe('1100');
+  });
+});

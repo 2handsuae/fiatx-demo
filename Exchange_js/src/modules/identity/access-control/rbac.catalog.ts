@@ -52,8 +52,10 @@ export type PermissionGroup =
   | 'CLEARING_READ'
   | 'CLEARING_WRITE'
   | 'JOURNAL_READ'
-  | 'ACCOUNTING_CONFIG_READ'
-  | 'ACCOUNTING_CONFIG_WRITE'
+  | 'LEDGER_ACCOUNT_READ'
+  | 'LEDGER_EVIDENCE_READ'
+  | 'LEDGER_FLOW_READ'
+  | 'LEDGER_ACCOUNT_WRITE'
   | 'ASSET_CONFIG_READ'
   | 'ASSET_CONFIG_WRITE'
   | 'COUNTERPARTY_READ'
@@ -317,11 +319,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/reconciliation/external-balances/:walletNo', 'View External Balance Detail', ['RECON_EXTERNAL_BALANCE_READ']),
 
   // TB Ledger
-  route('GET', '/admin/tb/accounts', 'List TB account registry', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['ACCOUNTING_CONFIG_READ']),
-  route('POST', '/admin/tb/accounts', 'Create manual TB account', ['ACCOUNTING_CONFIG_WRITE']),
-  route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['ACCOUNTING_CONFIG_READ']),
-  route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['ACCOUNTING_CONFIG_READ']),
+  route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
+  route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['LEDGER_ACCOUNT_READ']),
+  route('POST', '/admin/tb/accounts', 'Create manual TB account', ['LEDGER_ACCOUNT_WRITE']),
+  route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['LEDGER_EVIDENCE_READ']),
+  route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['LEDGER_EVIDENCE_READ']),
+  route('GET', '/admin/tb/account-flows', 'List account flows', ['LEDGER_FLOW_READ']),
+  route('GET', '/admin/tb/wallets', 'List distinct wallets from account flows', ['LEDGER_FLOW_READ']),
 
   // Assets
   route('POST', '/assets', 'Create asset', ['ASSET_CONFIG_WRITE']),
@@ -732,18 +736,10 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     label: 'Accounting',
     icon: '📒',
     buckets: [
-      {
-        key: 'accounting.view_tb',
-        label: 'View TB records',
-        description: 'Browse TigerBeetle account registry and transfer evidence',
-        groups: ['ACCOUNTING_CONFIG_READ'],
-      },
-      {
-        key: 'accounting.manage_tb',
-        label: 'Create TB accounts',
-        description: 'Manually create TigerBeetle accounts for operational needs',
-        groups: ['ACCOUNTING_CONFIG_WRITE'],
-      },
+      { key: 'ledger.view_accounts', label: 'View ledger accounts', description: 'Browse TB account registry', groups: ['LEDGER_ACCOUNT_READ'] },
+      { key: 'ledger.view_evidence', label: 'View transfer evidence', description: 'Browse TB transfer evidence', groups: ['LEDGER_EVIDENCE_READ'] },
+      { key: 'ledger.view_flows', label: 'View account flows', description: 'Browse per-account flow rows', groups: ['LEDGER_FLOW_READ'] },
+      { key: 'ledger.manage_accounts', label: 'Create TB accounts', description: 'Manually create TB accounts', groups: ['LEDGER_ACCOUNT_WRITE'] },
     ],
   },
   {
@@ -837,7 +833,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRANSACTION_LIMIT_READ',
     'ASSET_CONFIG_READ',
     'WALLET_READ',
-    'ACCOUNTING_CONFIG_READ',
+    'LEDGER_ACCOUNT_READ',
+    'LEDGER_EVIDENCE_READ',
+    'LEDGER_FLOW_READ',
   ],
   TECH_OFFICER: [
     'BASE_ACCESS',
@@ -861,8 +859,10 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'TRANSACTION_LIMIT_WRITE',
     'ASSET_CONFIG_READ',
     'ASSET_CONFIG_WRITE',
-    'ACCOUNTING_CONFIG_READ',
-    'ACCOUNTING_CONFIG_WRITE',
+    'LEDGER_ACCOUNT_READ',
+    'LEDGER_EVIDENCE_READ',
+    'LEDGER_FLOW_READ',
+    'LEDGER_ACCOUNT_WRITE',
     'WALLET_READ',
     'WALLET_WRITE',
     'WITHDRAWAL_ADDRESS_READ',
@@ -879,7 +879,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'ASSET_CONFIG_READ',
     'WALLET_READ',
     'WALLET_WRITE',
-    'ACCOUNTING_CONFIG_READ',
+    'LEDGER_ACCOUNT_READ',
+    'LEDGER_EVIDENCE_READ',
+    'LEDGER_FLOW_READ',
     'TRANSACTION_LIMIT_READ',
     'TRANSACTION_LIMIT_WRITE',
     'WITHDRAWAL_FEE_LEVEL_READ',

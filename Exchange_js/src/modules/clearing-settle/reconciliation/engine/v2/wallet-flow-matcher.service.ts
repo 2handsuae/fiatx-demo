@@ -6,7 +6,7 @@
 // with a 1:1 evidence comparison.
 //
 // Match precedence
-//   1. externalRef equality (txHash / bank booking id / "SWPxxx:1:pending").
+//   1. externalRef equality (txHash / bank booking id).
 //      If amounts also equal → matched via 'ref'.
 //      If same ref but amount differs → 'mismatch' (do NOT also count as orphan).
 //   2. Fallback: same amount + same direction + |Δt| ≤ timeWindowMinutes.

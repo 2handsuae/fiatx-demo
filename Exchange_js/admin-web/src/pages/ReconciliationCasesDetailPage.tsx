@@ -364,9 +364,9 @@ const ReconciliationCasesDetailPage = () => {
   const deltaZero = isZeroAmount(kase.deltaAmount);
   const sign = deltaSign(kase.deltaAmount);
 
-  // Bottom deep link — AccountStatementPage detects wallets mode from `?wallet=` param.
+  // Bottom deep link — Account Flows prefills from the `?walletRef=` param.
   const accountStatementHref = kase.walletRef
-    ? `/admin/ledger/account-statement?wallet=${encodeURIComponent(kase.walletRef)}&crossingOnly=true`
+    ? `/admin/ledger/flows?walletRef=${encodeURIComponent(kase.walletRef)}`
     : null;
 
   return (
@@ -682,7 +682,7 @@ const ReconciliationCasesDetailPage = () => {
             )}
           </DetailCard>
 
-          {/* 6. Bottom utility — deep link to Account Statement */}
+          {/* 6. Bottom utility — deep link to Account Flows */}
           <DetailCard title="Related Views" columns={1}>
             {accountStatementHref ? (
               <button
@@ -691,7 +691,7 @@ const ReconciliationCasesDetailPage = () => {
                 className="inline-flex items-center gap-2 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-2 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
               >
                 <ExternalLink size={12} />
-                View this wallet's full flow in Account Statement
+                Flows / 流水
                 <ArrowRight size={11} />
               </button>
             ) : (

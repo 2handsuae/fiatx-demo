@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
+import { fakeChainTxHash, fakeBankRef } from '../../common/utils/fake-external-refs.util';
 import {
   CreateFundsOrderInput,
   FundsOrderAction,
@@ -69,6 +70,17 @@ export class FundsOrderService {
         statusHistory: JSON.stringify([{ toStatus: status, action: 'CREATE', at: new Date().toISOString() }]),
       },
     });
+    // FIAT_IN 充值出生态即 CONFIRMED(绕过 advance)——同一铸造器补号(幂等:
+    // 发起方已带 referenceNo 则为 no-op)。
+    if (row.status === FundsOrderStatus.CONFIRMED) {
+      const asset = await client.asset.findUnique({ where: { id: input.assetId } });
+      const assetType = (asset?.type ?? 'CRYPTO').toUpperCase() as FundsOrderAssetType;
+      const patch = this.buildExternalRefPatch(row, assetType);
+      if (patch) {
+        await client.fundsOrder.update({ where: { id: row.id }, data: patch });
+        Object.assign(row, patch);
+      }
+    }
     this.eventEmitter.emit('funds_order.status.changed', {
       fundsOrderId: row.id,
       fundsOrderNo: row.fundsOrderNo,
@@ -99,9 +111,11 @@ export class FundsOrderService {
       }
       const history = row.statusHistory ? JSON.parse(row.statusHistory) : [];
       history.push({ fromStatus: current, toStatus: next, action, operatorId, at: new Date().toISOString() });
+      const stampPatch =
+        next === FundsOrderStatus.CONFIRMED ? this.buildExternalRefPatch(row, assetType) : null;
       const updated = await client.fundsOrder.update({
         where: { id },
-        data: { status: next, statusHistory: JSON.stringify(history) },
+        data: { status: next, statusHistory: JSON.stringify(history), ...(stampPatch ?? {}) },
       });
       return { updated, oldStatus: current, newStatus: next };
     };
@@ -142,6 +156,37 @@ export class FundsOrderService {
   async findById(id: string, tx?: Tx) {
     const client: any = tx ?? this.prisma;
     return client.fundsOrder.findUnique({ where: { id }, include: { asset: true } });
+  }
+
+  /**
+   * externalRef 消费方(账务 evidence / 对账 / admin)统一读取口:
+   * crypto → txHash,fiat → referenceNo。单一漏斗,订单域不再各自推导。
+   */
+  resolveExternalRef(row: {
+    asset?: { type?: string | null } | null;
+    txHash?: string | null;
+    referenceNo?: string | null;
+  }): string | null {
+    const assetType = (row.asset?.type ?? 'CRYPTO').toUpperCase();
+    return assetType === 'CRYPTO' ? row.txHash ?? null : row.referenceNo ?? null;
+  }
+
+  /**
+   * 资金单首次到达 CONFIRMED 时,按资产类型铸造 externalRef,返回列补丁(无则 null)。
+   * 幂等:若对应列已有值(如虚拟币充值由发起方带入的 inbound txHash),保留不覆盖。
+   * 确定性种子 = fundsOrderNo → 外部对账镜像(writeMirror 复制 account_flows.externalRef)
+   * 构造性同值。方向无关:进/出/兑换腿同规则。
+   */
+  private buildExternalRefPatch(
+    row: { fundsOrderNo: string; txHash?: string | null; referenceNo?: string | null; createdAt?: Date },
+    assetType: FundsOrderAssetType,
+  ): { txHash: string } | { referenceNo: string } | null {
+    if (assetType === 'CRYPTO') {
+      if (row.txHash) return null;
+      return { txHash: fakeChainTxHash(row.fundsOrderNo) };
+    }
+    if (row.referenceNo) return null;
+    return { referenceNo: fakeBankRef(row.fundsOrderNo, row.createdAt ?? new Date()) };
   }
 
   /** Thin business-key finder — raw row (+ asset) by fundsOrderNo. Recon push-order

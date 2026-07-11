@@ -44,6 +44,7 @@ npm run runtime:diagnose           # 诊断迁移漂移
 **并行任务一律用工作树隔离，不在同一个文件夹里切分支。** 一句话：一会话 = 一 worktree = 一分支 = 一套自动分配的栈。
 
 - **建**：并行任务开独立工作树，**统一放 `.claude/worktrees/<名字>/`**（Claude Code 新会话默认就建在这，无需手动）。禁止再往 `.wt/` 之类其它位置建工作树。
+- **起分支服务铁律**：要为某分支起服务（验收/联调），**一律在它的 worktree 里 `bash scripts/stack.sh up`（self）**——绝不在主工作树 `git checkout -b` 起临时分支跑服务（会撞 `main` 分支守卫、被迫手搓，`.env`/node/dist 的坑全回来）。`stack.sh up` 会自动分端口、**每次 up 自愈 `.env`**、切 node20、重建后端。
 - **切**：会话切到那个 worktree，改它自己的文件——物理隔离，不碰别的 worktree。
 - **跑**：在该 worktree 里 `bash scripts/stack.sh up` 自动分一套端口 + 独立 DB，多个 worktree 可同时在线互不撞车。
 - **合**：任务干完，把该 worktree 的分支合回 `main`。
