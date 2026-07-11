@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Wallet, Building2, RefreshCw, Copy, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useTradingReadiness } from '../hooks/useTradingReadiness';
-import TradingGateModal from '../components/TradingGateModal';
 import {
   CustomerSessionError,
   customerFetch,
@@ -40,8 +38,6 @@ const DEPOSIT_ROLES = ['C_DEP', 'C_VIBAN'];
 
 const WalletManagement = () => {
   const { user } = useAuth();
-  const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
-  const [showTradingGate, setShowTradingGate] = useState(false);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
   const [wallets, setWallets] = useState<DepositWallet[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -94,10 +90,6 @@ const WalletManagement = () => {
   }, [user, fetchWallets, fetchAssets]);
 
   const handleCreateWallet = async (assetId: string) => {
-    if (!tradingReadinessLoading && !tradingReady) {
-      setShowTradingGate(true);
-      return;
-    }
     setCreating(assetId);
     try {
       const response = await customerFetch(
@@ -298,8 +290,6 @@ const WalletManagement = () => {
           )}
         </div>
       </div>
-
-      <TradingGateModal open={showTradingGate} onClose={() => setShowTradingGate(false)} />
     </div>
   );
 };

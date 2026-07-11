@@ -17,8 +17,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount, formatRate8, normalizeDecimals } from '../utils/number-format';
-import { useTradingReadiness } from '../hooks/useTradingReadiness';
-import TradingGateModal from '../components/TradingGateModal';
 import {
   CustomerSessionError,
   customerFetch,
@@ -132,8 +130,6 @@ interface AssetBalance {
 const Swap = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
-  const [showTradingGate, setShowTradingGate] = useState(false);
   const [activeTab, setActiveTab] = useState<'swap' | 'history'>('swap');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [balances, setBalances] = useState<AssetBalance[]>([]);
@@ -412,10 +408,6 @@ const Swap = () => {
 
   const handlePreview = async () => {
     if (!fromAssetId || !toAssetId || !fromAmount || Number(fromAmount) <= 0) return;
-    if (!tradingReadinessLoading && !tradingReady) {
-      setShowTradingGate(true);
-      return;
-    }
     if (missingReceivingAccountCodes.length > 0) return;
     setLoading(true);
     try {
@@ -1025,8 +1017,6 @@ const Swap = () => {
           </div>
         </div>
       )}
-
-      <TradingGateModal open={showTradingGate} onClose={() => setShowTradingGate(false)} />
     </div>
   );
 };
