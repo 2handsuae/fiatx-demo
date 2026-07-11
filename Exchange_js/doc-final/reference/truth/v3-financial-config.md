@@ -46,6 +46,7 @@ Last Verified: 2026-07-11（核对方式：三路 subagent 逐条 file:line 走�
 - **状态机**：`PENDING_ACTIVATION →(24h)→ ACTIVE`；冷却期内客户可取消 → `CANCELLED`；ACTIVE 可被管理员 `SUSPENDED`；ACTIVE 可被**客户自助软停用** → `DEACTIVATED`（终态，客户侧归档保留，非删除）
 - **首个法币（BANK）提现地址登记即 ACTIVE**（免 24h 冷却）；同客户后续 BANK 地址仍走标准 24h 冷却
 - **crypto 地址登记前置门（2026-07-11 起）**：`registerAddress`（crypto）要求客户已有 ≥1 个 ACTIVE 法币（BANK）提现地址，否则 `NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS`；`registerBankAccount`（fiat）**不设此门**（法币地址是所有业务的引导起点）。锚点 `withdrawal-address-workflow.service.ts → registerAddress()`（复用 `withdrawal-address.service.ts → hasActiveFiatWithdrawalAddress`）
+- **前端就绪门形态（2026-07-11，钱包页 UX）**：无 active 法币提现地址的已认证客户——① 访问订单页 `/deposit /withdraw /swap /wallet` 时 `AuthGuard` 渲染独立引导页 `TradingStartGuide`（**不重定向**，URL 停在订单页；单 CTA「Go to Wallet」→ `/withdrawal-addresses`）；② `/withdrawal-addresses`（侧栏标签"Wallet"页）顶部显示说明 banner + **禁用「Crypto Addresses」tab（锁图标）+ 强制「Bank Accounts」tab**，逼客户先加法币地址；加成功首个法币地址（即 ACTIVE）后 `refetch` 就绪态在页内即时解锁。⚠️ AuthGuard 路径匹配须**段边界**（`=== p || startsWith(p+'/')`），否则 `/withdraw` 前缀误吞其目的地 `/withdrawal-addresses` → 自循环渲染 null 白屏。锚点 `AuthGuard.tsx` ｜ `TradingStartGuide.tsx` ｜ `WithdrawalAddresses.tsx`（crypto tab disabled + 强制 bank）｜ `useTradingReadiness.ts`。（注：`/wallet` = WalletManagement "Deposit Wallets" 充值钱包页，与"Wallet"侧栏项`/withdrawal-addresses`是两个页面）
 - **冷却常量**：`COOLING_PERIOD_HOURS = 24`（`withdrawal-address.service.ts`）
 - **激活双机制**：cron 每 5 分钟扫 + 客户查询前懒激活
 - **管理员后门**：`POST :addressNo/skip-cooling`（带审计）
