@@ -1379,6 +1379,24 @@ export class OnboardingService {
         complianceFreezeCaseId: customer.complianceFreezeCaseId,
       });
     }
+
+    if (action !== 'DEPOSIT') {
+      await this.assertTradingReady(customerId);
+    }
+  }
+
+  async assertTradingReady(customerId: string): Promise<void> {
+    const n = await this.prisma.withdrawalAddress.count({
+      where: { customerId, status: 'ACTIVE', addressType: 'BANK' },
+    });
+    const ok = n > 0;
+    if (!ok) {
+      throw new ForbiddenException({
+        code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS',
+        message: '需要先创建并激活一个法币提现地址才能开展业务',
+        customerId,
+      });
+    }
   }
 
   async recomputeComplianceSnapshot(customerId: string, _journeyId?: string) {

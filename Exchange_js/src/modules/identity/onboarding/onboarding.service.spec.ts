@@ -70,6 +70,9 @@ describe('OnboardingService', () => {
     onboardingAuditLog: {
       create: jest.fn(),
     },
+    withdrawalAddress: {
+      count: jest.fn(),
+    },
   };
 
   const riskEngineMock: any = {
@@ -618,8 +621,44 @@ describe('OnboardingService', () => {
       complianceStatus: 'CLEAR',
       complianceFreezeCaseId: null,
     });
+    prismaMock.withdrawalAddress.count.mockResolvedValue(1);
 
     await expect(service.assertTradingEligibility('c1', 'SWAP')).resolves.toBeUndefined();
+  });
+
+  describe('assertTradingReady (fiat withdrawal address gate)', () => {
+    const approvedActiveClearCustomer = {
+      id: 'c1',
+      customerNo: 'CU1',
+      onboardingStatus: 'APPROVED',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'CLEAR',
+      complianceFreezeCaseId: null,
+    };
+
+    it('should throw NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS when not ready and action=SWAP', async () => {
+      prismaMock.customerMain.findUnique.mockResolvedValue(approvedActiveClearCustomer);
+      prismaMock.withdrawalAddress.count.mockResolvedValue(0);
+
+      await expect(service.assertTradingEligibility('c1', 'SWAP')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS' }),
+      });
+    });
+
+    it('should pass when an active fiat withdrawal address exists and action=SWAP', async () => {
+      prismaMock.customerMain.findUnique.mockResolvedValue(approvedActiveClearCustomer);
+      prismaMock.withdrawalAddress.count.mockResolvedValue(1);
+
+      await expect(service.assertTradingEligibility('c1', 'SWAP')).resolves.toBeUndefined();
+    });
+
+    it('should NOT throw for the fiat-address reason when not ready and action=DEPOSIT', async () => {
+      prismaMock.customerMain.findUnique.mockResolvedValue(approvedActiveClearCustomer);
+      prismaMock.withdrawalAddress.count.mockResolvedValue(0);
+
+      await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).resolves.toBeUndefined();
+      expect(prismaMock.withdrawalAddress.count).not.toHaveBeenCalled();
+    });
   });
 
   it('should block trading when compliance status is FROZEN', async () => {
