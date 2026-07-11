@@ -941,10 +941,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
    *   externalRef  = the real-world crossing identifier (chain txHash / bank ref)
    *                  looked up on the withdrawal (payouts no longer exist).
    */
-  private recognitionRefs(w: any): { walletRef: string | null; externalRef: string | null } {
+  // walletRef 仍取客户源钱包;externalRef 归 funds_order(CONFIRMED 时按类型铸)。
+  private recognitionRefs(w: any, fo: any): { walletRef: string | null; externalRef: string | null } {
     return {
       walletRef: w.fromWalletId ?? null,
-      externalRef: w.txHash ?? w.referenceNo ?? null,
+      externalRef: fo ? this.fundsOrders.resolveExternalRef(fo) : null,
     };
   }
 
@@ -975,7 +976,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     });
 
     const decimals = w.asset?.decimals ?? 8;
-    const { walletRef, externalRef } = this.recognitionRefs(w);
+    const fo = await this.fundsOrders.findById(fundsOrderId);
+    const { walletRef, externalRef } = this.recognitionRefs(w, fo);
 
     // POST pending transfer #1: net amount (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
     if (w.tbPendingNetId) {
@@ -1049,7 +1051,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       );
     }
 
-    const { walletRef, externalRef } = this.recognitionRefs(w);
+    const fo = await this.fundsOrders.findById(fundsOrderId);
+    const { walletRef, externalRef } = this.recognitionRefs(w, fo);
 
     // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
     if (w.tbPendingFeeId) {
