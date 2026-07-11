@@ -279,6 +279,19 @@ export class WithdrawalAddressService {
     return { items, total };
   }
 
+  async hasActiveFiatWithdrawalAddress(customerId: string): Promise<boolean> {
+    const n = await this.prisma.withdrawalAddress.count({
+      where: { customerId, status: 'ACTIVE', addressType: 'BANK' },
+    });
+    return n > 0;
+  }
+
+  async countActiveFiatAddresses(customerId: string): Promise<number> {
+    return this.prisma.withdrawalAddress.count({
+      where: { customerId, status: 'ACTIVE', addressType: 'BANK' },
+    });
+  }
+
   async findPendingExpired() {
     return this.prisma.withdrawalAddress.findMany({
       where: { status: 'PENDING_ACTIVATION', activatesAt: { lte: new Date() } },

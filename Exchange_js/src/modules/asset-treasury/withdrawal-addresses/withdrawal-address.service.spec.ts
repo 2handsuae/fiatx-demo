@@ -170,4 +170,32 @@ describe('WithdrawalAddressService', () => {
       expect(result.items[0].customer).toBeUndefined(); // 关联对象不泄给前端
     });
   });
+
+  describe('hasActiveFiatWithdrawalAddress', () => {
+    it('returns true when customer has ≥1 active BANK address', async () => {
+      prismaMock.withdrawalAddress.count.mockResolvedValue(1);
+      const result = await service.hasActiveFiatWithdrawalAddress('cust-1');
+      expect(result).toBe(true);
+      expect(prismaMock.withdrawalAddress.count).toHaveBeenCalledWith({
+        where: { customerId: 'cust-1', status: 'ACTIVE', addressType: 'BANK' },
+      });
+    });
+
+    it('returns false when customer has no active BANK address', async () => {
+      prismaMock.withdrawalAddress.count.mockResolvedValue(0);
+      const result = await service.hasActiveFiatWithdrawalAddress('cust-1');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('countActiveFiatAddresses', () => {
+    it('returns the count of active BANK addresses', async () => {
+      prismaMock.withdrawalAddress.count.mockResolvedValue(3);
+      const result = await service.countActiveFiatAddresses('cust-1');
+      expect(result).toBe(3);
+      expect(prismaMock.withdrawalAddress.count).toHaveBeenCalledWith({
+        where: { customerId: 'cust-1', status: 'ACTIVE', addressType: 'BANK' },
+      });
+    });
+  });
 });
