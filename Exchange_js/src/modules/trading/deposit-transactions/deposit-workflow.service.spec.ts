@@ -12,6 +12,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -185,6 +186,17 @@ describe('DepositWorkflowService', () => {
       expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-1');
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(fundsOrders.findByParent).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_HELD_NOT_TRADING_READY',
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: 'dep-1',
+          entityNo: 'DEP001',
+          entityOwnerType: 'CUSTOMER',
+          entityOwnerId: 'cust-1',
+          workflowType: 'DEPOSIT',
+        }),
+      );
     });
 
     it('does not approve when deposit is FROZEN (even if KYT+TR passed)', async () => {

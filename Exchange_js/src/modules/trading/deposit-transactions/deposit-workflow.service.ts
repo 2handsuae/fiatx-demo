@@ -211,6 +211,19 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.warn(
         `Auto-approval hold: deposit ${depositId} customer ${deposit.ownerId} not trading-ready (no active fiat withdrawal address) — staying in COMPLIANCE_PENDING`,
       );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_HELD_NOT_TRADING_READY,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'Deposit held: customer has no active fiat withdrawal address (not trading-ready)',
+        metadata: { depositNo: deposit.depositNo },
+        sourcePlatform: 'SYSTEM',
+      });
       return;
     }
 
