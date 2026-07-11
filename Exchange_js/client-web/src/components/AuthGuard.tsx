@@ -9,6 +9,7 @@ import {
   isCustomerWithdrawn,
 } from '../utils/customerOnboarding';
 import { useTradingReadiness } from '../hooks/useTradingReadiness';
+import TradingStartGuide from './TradingStartGuide';
 
 /* ────────────────────────────────────────────────────────────────
  *  AuthGuard — calm pending notice.
@@ -98,9 +99,10 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
       return <>{children}</>;
     }
 
-    // Trading-readiness gate: approved but no active fiat withdrawal address → guide to add one.
-    // Business paths blocked; /withdrawal-addresses (destination) intentionally NOT blocked (no redirect loop).
-    // Segment-boundary match: '/withdraw' must NOT catch '/withdrawal-addresses' (its own destination), or it self-loops to a blank page.
+    // Trading-readiness gate: approved but no active fiat withdrawal address → show the
+    // standalone guide page (its CTA routes to /withdrawal-addresses to add one).
+    // Business paths blocked; /withdrawal-addresses (the setup page) intentionally NOT blocked.
+    // Segment-boundary match: '/withdraw' must NOT catch '/withdrawal-addresses' (its own destination).
     const readinessBlockedPaths = ['/deposit', '/withdraw', '/swap', '/wallet'];
     if (
       !tradingReadinessLoading &&
@@ -109,7 +111,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
         (p) => location.pathname === p || location.pathname.startsWith(`${p}/`),
       )
     ) {
-      return <Navigate to="/withdrawal-addresses" replace />;
+      return <TradingStartGuide />;
     }
 
     return <>{children}</>;

@@ -18,7 +18,8 @@ Last Updated: 2026-04-21 | Scope: Wave 1–4 | Source: docs/constraints/frontend
 - Auth checks MUST live at route-guard or app-shell level — UI hiding alone is NOT a permission boundary.
 - Client session helpers MUST NOT be shared with or reused by `admin-web`.
 - The `AuthGuard` verification-overlay pattern is the canonical design for blocked-but-guided access.
-- Trading-readiness gating (approved but no ACTIVE fiat withdrawal address) MUST be enforced route-level in `AuthGuard` — a redirect to `/withdrawal-addresses` (the guided setup page) — NOT re-implemented as per-action modals on `/deposit`/`/withdraw`/`/swap`/`/wallet`. Path matching MUST be segment-bounded (`=== p || startsWith(p + '/')`) so `/withdraw` never catches `/withdrawal-addresses` (self-redirect loop → blank page). Reads `useTradingReadiness()`; fail-open while loading.
+- Trading-readiness gating (approved but no ACTIVE fiat withdrawal address) MUST be enforced route-level in `AuthGuard`: for the order pages (`/deposit`/`/withdraw`/`/swap`/`/wallet`) render the standalone `TradingStartGuide` page (its single CTA routes to `/withdrawal-addresses`, the Wallet page) — NOT per-action modals. Path matching MUST be segment-bounded (`=== p || startsWith(p + '/')`) so `/withdraw` never catches `/withdrawal-addresses` (the guide's own destination). Reads `useTradingReadiness()`; fail-open while loading.
+- On the Wallet page (`/withdrawal-addresses`) with no ACTIVE fiat withdrawal address: show a top banner and **disable the "Crypto Addresses" tab** (force the "Bank Accounts" tab active) — a fiat (bank) withdrawal address is the prerequisite for registering any crypto withdrawal address (backend also hard-gates via `NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS`).
 - Blocking surfaces MUST feel guided and calm, not punitive.
 - Verification completion MUST redirect to `/profile` when `onboardingStatus = APPROVED` and `operatingStatus = ACTIVE`.
 

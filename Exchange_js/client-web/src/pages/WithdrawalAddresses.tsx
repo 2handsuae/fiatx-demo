@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   RefreshCw,
   Landmark,
+  Lock,
 } from 'lucide-react';
 import {
   customerFetch,
@@ -123,7 +124,7 @@ function formatIban(iban: string): string {
  * ═══════════════════════════════════════════════════════════════ */
 
 export default function WithdrawalAddresses() {
-  const { tradingReady, refetch: refetchTradingReadiness } = useTradingReadiness();
+  const { tradingReady, loading: tradingReadinessLoading, refetch: refetchTradingReadiness } = useTradingReadiness();
   const [activeTab, setActiveTab] = useState<ActiveTab>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [fiatAssets, setFiatAssets] = useState<Asset[]>([]);
@@ -200,6 +201,13 @@ export default function WithdrawalAddresses() {
   }, []);
 
   useEffect(() => { void fetchAddresses(); }, [fetchAddresses]);
+
+  /* ─── Lock to Bank tab until a fiat withdrawal address exists ── */
+  // No active fiat address → the Crypto Addresses tab is disabled; force the Bank
+  // Accounts tab so the customer can only add the required fiat address first.
+  useEffect(() => {
+    if (!tradingReadinessLoading && !tradingReady) setActiveTab('bank');
+  }, [tradingReadinessLoading, tradingReady]);
 
   /* ─── Derived ────────────────────────────────────────────── */
   const visibleAddresses = addresses.filter(a => a.addressType !== 'BANK' && a.status !== 'CANCELLED');
@@ -426,15 +434,19 @@ export default function WithdrawalAddresses() {
         <div className="border-b border-fx-rule bg-fx-charcoal/50">
           <div className="flex overflow-x-auto px-6">
             <button
-              onClick={() => setActiveTab('crypto')}
+              onClick={() => { if (tradingReady) setActiveTab('crypto'); }}
+              disabled={!tradingReady}
+              title={!tradingReady ? 'Add a fiat withdrawal address first' : undefined}
               className={`px-6 py-4 text-sm font-bold transition-colors border-b-[3px] flex-1 sm:flex-none whitespace-nowrap ${
-                activeTab === 'crypto'
-                  ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
-                  : 'border-transparent text-fx-dust hover:text-fx-dune'
+                !tradingReady
+                  ? 'border-transparent text-fx-dust/40 cursor-not-allowed'
+                  : activeTab === 'crypto'
+                    ? 'border-fx-brass text-fx-brass bg-fx-ink/40'
+                    : 'border-transparent text-fx-dust hover:text-fx-dune'
               }`}
             >
               <div className="flex items-center justify-center gap-2">
-                <Wallet size={18} />
+                {!tradingReady ? <Lock size={16} /> : <Wallet size={18} />}
                 Crypto Addresses
               </div>
             </button>
