@@ -41,6 +41,20 @@ export class WalletQueryService {
     return agg?._sum?.mockBalance ?? '0';
   }
 
+  /** R4: does this customer have an ACTIVE receiving account (C_DEP/C_VIBAN) for this asset? */
+  async hasReceivingAccount(customerId: string, assetId: string): Promise<boolean> {
+    const n = await this.prisma.wallet.count({
+      where: {
+        ownerType: 'CUSTOMER',
+        ownerId: customerId,
+        assetId,
+        walletRole: { in: ['C_DEP', 'C_VIBAN'] },
+        status: 'ACTIVE',
+      },
+    });
+    return n > 0;
+  }
+
   async findBalance(id: string) {
     const wallet = await this.prisma.wallet.findUnique({
       where: { id },

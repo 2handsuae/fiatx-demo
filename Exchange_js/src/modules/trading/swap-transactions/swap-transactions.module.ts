@@ -12,6 +12,7 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
+import { WalletsModule } from '../../asset-treasury/wallets/wallets.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
     AuditLogsModule,
     FundsLayerModule,
     FundsOrdersModule,
+    WalletsModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],

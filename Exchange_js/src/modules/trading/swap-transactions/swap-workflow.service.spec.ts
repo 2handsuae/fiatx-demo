@@ -103,6 +103,10 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     assertTradingEligibility: jest.fn(() => Promise.resolve()),
   };
 
+  const walletQuery = {
+    hasReceivingAccount: jest.fn(() => Promise.resolve(true)),
+  };
+
   const prisma: any = {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
@@ -120,7 +124,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, prisma };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, prisma };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
@@ -155,6 +159,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.eventEmitter as any,
     stubLegAccounting,
     stubFundsOrders,
+    (mocks as any).walletQuery,
   );
 }
 
@@ -246,6 +251,49 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       .map((c: any[]) => c[0])
       .find((a: any) => a.action === 'SWAP_CREATED');
     expect(createdAudit).toBeDefined();
+  });
+
+  it('R4: rejects RECEIVING_ACCOUNT_REQUIRED when buy-side (toAsset) has no receiving account', async () => {
+    const mocks = buildMocks(makeQuote()); // USDT(from) → AED(to)
+    const service = makeService(mocks);
+    (mocks as any).walletQuery.hasReceivingAccount.mockImplementation(
+      (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-aed'),
+    );
+
+    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toMatchObject({
+      response: { code: 'RECEIVING_ACCOUNT_REQUIRED', assetCode: 'AED' },
+    });
+
+    // Swap must NOT proceed — no swap row, no leg1 funds_order.
+    expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
+    expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+  });
+
+  it('R4: rejects RECEIVING_ACCOUNT_REQUIRED when sell-side (fromAsset) has no receiving account', async () => {
+    const mocks = buildMocks(makeQuote()); // USDT(from) → AED(to)
+    const service = makeService(mocks);
+    (mocks as any).walletQuery.hasReceivingAccount.mockImplementation(
+      (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-usdt'),
+    );
+
+    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toMatchObject({
+      response: { code: 'RECEIVING_ACCOUNT_REQUIRED', assetCode: 'USDT' },
+    });
+
+    expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
+    expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+  });
+
+  it('R4: proceeds past the gate when both sides have an active receiving account', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+    // default stub already resolves true for both sides
+
+    await service.executeSwap('cust-1', 'q-1');
+
+    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-usdt');
+    expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-aed');
+    expect(mocks.swapTransactionsService.create).toHaveBeenCalledTimes(1);
   });
 
   it('inherits quote.traceId into create() call and SWAP_CREATED audit', async () => {
@@ -398,6 +446,7 @@ function buildAdvanceLegMocks(opts: {
 
   const eventEmitter = { emit: jest.fn() };
   const onboardingService = { assertTradingEligibility: jest.fn(() => Promise.resolve()) };
+  const walletQuery = { hasReceivingAccount: jest.fn(() => Promise.resolve(true)) };
   const swapQuoteService = { getActiveQuoteOrThrow: jest.fn(), consumeQuote: jest.fn() };
   const accountingService = {
     resolveTbAccountId: jest.fn(),
@@ -419,6 +468,7 @@ function buildAdvanceLegMocks(opts: {
     txClient,
     prisma,
     onboardingService,
+    walletQuery,
     swapQuoteService,
     swapTransactionsService,
     accountingService,
@@ -440,6 +490,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.eventEmitter as any,
     mocks.legAccounting as any,
     mocks.fundsOrders as any,
+    mocks.walletQuery as any,
   );
 }
 

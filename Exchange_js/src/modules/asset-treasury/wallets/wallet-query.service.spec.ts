@@ -260,6 +260,35 @@ describe('WalletQueryService', () => {
     });
   });
 
+  // ── hasReceivingAccount() (R4) ───────────────────────────────────────
+
+  describe('hasReceivingAccount()', () => {
+    it('returns true when the customer has an ACTIVE C_DEP wallet for the asset', async () => {
+      prismaMock.wallet.count.mockResolvedValue(1);
+
+      const result = await service.hasReceivingAccount('cust-1', 'asset-usdt');
+
+      expect(result).toBe(true);
+      expect(prismaMock.wallet.count).toHaveBeenCalledWith({
+        where: {
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          assetId: 'asset-usdt',
+          walletRole: { in: ['C_DEP', 'C_VIBAN'] },
+          status: 'ACTIVE',
+        },
+      });
+    });
+
+    it('returns false when no matching wallet exists', async () => {
+      prismaMock.wallet.count.mockResolvedValue(0);
+
+      const result = await service.hasReceivingAccount('cust-1', 'asset-aed');
+
+      expect(result).toBe(false);
+    });
+  });
+
   // ── owner enrichment ────────────────────────────────────────────────
 
   describe('owner enrichment', () => {

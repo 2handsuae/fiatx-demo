@@ -28,6 +28,7 @@ import {
   FundsOrderStatus,
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { WalletQueryService } from '../../asset-treasury/wallets/wallet-query.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -168,6 +169,7 @@ export class SwapWorkflowService {
     private readonly eventEmitter: EventEmitter2,
     private readonly swapLegAccounting: SwapLegAccounting,
     private readonly fundsOrders: FundsOrderService,
+    private readonly walletQuery: WalletQueryService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -201,6 +203,24 @@ export class SwapWorkflowService {
         // (quote.created + quote.used + swap.created + swap.succeeded) share a
         // single traceId. Legacy quotes with null traceId fall back to a fresh UUID.
         traceId = quote.traceId ?? randomUUID();
+
+        // R4: both the buy-side and sell-side asset must have an ACTIVE customer
+        // receiving account (C_DEP for crypto / C_VIBAN for fiat) before the swap
+        // can execute — pre-empts the mid-swap failure that swap-leg-accounting's
+        // resolveLegWallets would otherwise hit when a receiving wallet is missing.
+        for (const asset of [
+          { id: quote.fromAssetId, code: quote.fromAssetCode },
+          { id: quote.toAssetId, code: quote.toAssetCode },
+        ]) {
+          if (!(await this.walletQuery.hasReceivingAccount(ownerId, asset.id))) {
+            throw new BadRequestException({
+              code: 'RECEIVING_ACCOUNT_REQUIRED',
+              assetCode: asset.code,
+              message: `请先为 ${asset.code} 创建收款账户再兑换`,
+            });
+          }
+        }
+
         const fromAmount = new Prisma.Decimal(quote.amountIn);
         const toAmount = new Prisma.Decimal(quote.amountOut);
         const totals = this.parseTotals(quote.totalsJson);
