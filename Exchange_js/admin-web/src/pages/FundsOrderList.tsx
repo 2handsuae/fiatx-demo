@@ -2,10 +2,11 @@
 //
 // Unified funds-orders admin list (Round 2 / C6). Replaces the three legacy
 // surfaces (Payin Records, Payout Records, Internal Funds). One table with a
-// parent tab (全部 / 充值 / 提现 / 兑换) that drives the ?parent= filter.
+// Type filter (All / Deposit / Withdraw / Swap) in the filter bar driving the
+// ?parent= query. English-only surface.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search } from 'lucide-react';
+import { Copy, RefreshCw, Search } from 'lucide-react';
 import Pagination from '../components/common/Pagination';
 import {
   adminButtonClass,
@@ -19,13 +20,13 @@ import {
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
 import {
-  formatFundsOrderStatusBilingual,
+  formatFundsOrderStatusLabel,
   getFundsOrderStatusTone,
 } from '../utils/fundsOrderStatusMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-type ParentTab = 'all' | 'deposit' | 'withdraw' | 'swap';
+type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap';
 
 interface FundsOrderItem {
   fundsOrderNo: string;
@@ -37,6 +38,8 @@ interface FundsOrderItem {
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
+  txHash?: string | null;
+  referenceNo?: string | null;
 }
 
 /* ── Constants ──────────────────────────────────────────────── */
@@ -54,11 +57,11 @@ const FUNDS_ORDER_STATUSES = [
   'TIMEOUT',
 ];
 
-const TABS: Array<{ key: ParentTab; label: string }> = [
-  { key: 'all', label: '全部 · All' },
-  { key: 'deposit', label: '充值 · Deposit' },
-  { key: 'withdraw', label: '提现 · Withdraw' },
-  { key: 'swap', label: '兑换 · Swap' },
+const PARENT_TYPES: Array<{ key: ParentType; label: string }> = [
+  { key: 'all', label: 'All types' },
+  { key: 'deposit', label: 'Deposit' },
+  { key: 'withdraw', label: 'Withdraw' },
+  { key: 'swap', label: 'Swap' },
 ];
 
 /* ── Helpers ────────────────────────────────────────────────── */
@@ -73,12 +76,19 @@ const parentOf = (
   return { kind: '—', no: null };
 };
 
+// externalRef by asset type — mirrors backend FundsOrderService.resolveExternalRef
+// (crypto → txHash, fiat → referenceNo).
+const resolveExternalRef = (item: FundsOrderItem): string | null => {
+  const fiat = String(item.asset?.type || '').toUpperCase() === 'FIAT';
+  return (fiat ? item.referenceNo : item.txHash) || null;
+};
+
 /* ── Component ──────────────────────────────────────────────── */
 
 const FundsOrderList = () => {
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState<ParentTab>('all');
+  const [parentType, setParentType] = useState<ParentType>('all');
   const [status, setStatus] = useState('');
   const [fundsOrderNo, setFundsOrderNo] = useState('');
   const [items, setItems] = useState<FundsOrderItem[]>([]);
@@ -91,7 +101,7 @@ const FundsOrderList = () => {
 
   const fetchItems = async (
     page: number,
-    nextTab: ParentTab = tab,
+    nextType: ParentType = parentType,
     nextStatus: string = status,
     nextNo: string = fundsOrderNo,
   ) => {
@@ -102,7 +112,7 @@ const FundsOrderList = () => {
       const params = new URLSearchParams();
       params.set('skip', String((page - 1) * PAGE_SIZE));
       params.set('take', String(PAGE_SIZE));
-      if (nextTab !== 'all') params.set('parent', nextTab);
+      if (nextType !== 'all') params.set('parent', nextType);
       if (nextStatus.trim()) params.set('status', nextStatus.trim());
       if (nextNo.trim()) params.set('fundsOrderNo', nextNo.trim());
 
@@ -132,29 +142,25 @@ const FundsOrderList = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const switchTab = (next: ParentTab) => {
-    setTab(next);
-    void fetchItems(1, next);
-  };
-
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
-  const hasFilter = !!status || !!fundsOrderNo;
+  const hasFilter = !!status || !!fundsOrderNo || parentType !== 'all';
 
-  const handleSearch = () => void fetchItems(1, tab, status, fundsOrderNo);
+  const handleSearch = () => void fetchItems(1, parentType, status, fundsOrderNo);
 
   const handleReset = () => {
+    setParentType('all');
     setStatus('');
     setFundsOrderNo('');
-    void fetchItems(1, tab, '', '');
+    void fetchItems(1, 'all', '', '');
   };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Title bar ── */}
       <PageTitleBar
-        title="Funds Orders · 资金单"
+        title="Funds Orders"
         meta={`${total} order${total === 1 ? '' : 's'}`}
       >
         <button
@@ -166,26 +172,6 @@ const FundsOrderList = () => {
         </button>
       </PageTitleBar>
 
-      {/* ── Parent tabs ── */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-adm-border bg-adm-panel px-5 pt-2">
-        {TABS.map((t) => {
-          const active = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => switchTab(t.key)}
-              className={`rounded-t px-3 py-1.5 font-mono text-[11px] transition-colors ${
-                active
-                  ? 'border-b-2 border-adm-amber font-semibold text-adm-amber'
-                  : 'border-b-2 border-transparent text-adm-t3 hover:text-adm-t1'
-              }`}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* ── Filter bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-adm-border bg-adm-panel px-5 py-2">
         <input
@@ -195,6 +181,15 @@ const FundsOrderList = () => {
           placeholder="Funds Order No"
           className={`${fi} w-48`}
         />
+        <select
+          value={parentType}
+          onChange={(e) => setParentType(e.target.value as ParentType)}
+          className={`${fi} w-36`}
+        >
+          {PARENT_TYPES.map((t) => (
+            <option key={t.key} value={t.key}>{t.label}</option>
+          ))}
+        </select>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -235,6 +230,7 @@ const FundsOrderList = () => {
                   ['Funds Order No', '190px'],
                   ['Status',         '150px'],
                   ['Parent',         '190px'],
+                  ['External Ref',   '200px'],
                   ['Asset',          '90px'],
                   ['Amount',         '150px'],
                   ['Leg',            '60px'],
@@ -254,14 +250,14 @@ const FundsOrderList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No funds orders found.
                 </td>
               </tr>
@@ -269,6 +265,7 @@ const FundsOrderList = () => {
             {!loading &&
               items.map((item) => {
                 const parent = parentOf(item);
+                const externalRef = resolveExternalRef(item);
                 return (
                   <tr
                     key={item.fundsOrderNo}
@@ -282,12 +279,12 @@ const FundsOrderList = () => {
                       </span>
                     </td>
 
-                    {/* Status — bilingual, asset-type aware */}
+                    {/* Status — English, asset-type aware */}
                     <td className="px-4 py-2.5">
                       <span
                         className={`inline-block rounded border px-2 py-0.5 font-mono text-[10px] ${getFundsOrderStatusTone(item.status)}`}
                       >
-                        {formatFundsOrderStatusBilingual(item.status, item.asset?.type)}
+                        {formatFundsOrderStatusLabel(item.status, item.asset?.type, 'en')}
                       </span>
                     </td>
 
@@ -297,6 +294,34 @@ const FundsOrderList = () => {
                         <span className="font-mono text-[10px] text-adm-t2">
                           <span className="text-adm-t3">{parent.kind}</span>{' '}
                           {parent.no}
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[10px] text-adm-t3">—</span>
+                      )}
+                    </td>
+
+                    {/* External Ref — crypto txHash / fiat referenceNo */}
+                    <td className="px-4 py-2.5">
+                      {externalRef ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span
+                            className="font-mono text-[10px] text-adm-t2"
+                            title={externalRef}
+                          >
+                            {externalRef.length > 14
+                              ? `${externalRef.slice(0, 14)}…`
+                              : externalRef}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void navigator.clipboard?.writeText(externalRef);
+                            }}
+                            className="text-adm-t3 transition-colors hover:text-adm-amber"
+                            title="Copy"
+                          >
+                            <Copy size={11} />
+                          </button>
                         </span>
                       ) : (
                         <span className="font-mono text-[10px] text-adm-t3">—</span>
