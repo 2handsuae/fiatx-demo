@@ -256,9 +256,22 @@ function buildWorkflowMocks() {
   };
 
   // FundsOrderService: the per-leg confirm handlers CLEAR each leg via advance().
+  // externalRef now flows through the funds_order (findById → resolveExternalRef),
+  // not off the withdrawal record. findById mirrors the current withdrawal fixture
+  // (asset.type + txHash + referenceNo) so the type-based resolver yields the same
+  // ref the withdrawal carries. resolveExternalRef is a faithful copy of the real
+  // type-based logic: CRYPTO → txHash, FIAT → referenceNo (default CRYPTO).
   const fundsOrders = {
     advance: jest.fn(() => Promise.resolve({})),
     findByParent: jest.fn(() => Promise.resolve([])),
+    findById: jest.fn(async () => {
+      const w: any = await withdrawService.findOneInternal();
+      return { asset: w.asset, txHash: w.txHash ?? null, referenceNo: w.referenceNo ?? null };
+    }),
+    resolveExternalRef: jest.fn((row) =>
+      ((row?.asset?.type ?? 'CRYPTO').toUpperCase() === 'CRYPTO'
+        ? (row?.txHash ?? null)
+        : (row?.referenceNo ?? null))),
   };
   const approvalsService = { completeApproval: jest.fn(() => Promise.resolve({})) };
   const binanceRateProvider = {};
@@ -443,10 +456,13 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     expect(mocks.systemWalletResolver.resolve).toHaveBeenCalledWith('asset-usdt', 'F_FEE');
   });
 
-  it('falls back to referenceNo when txHash is null on withdrawal', async () => {
+  it('uses referenceNo for a FIAT withdrawal (type-based externalRef via funds_order)', async () => {
     const mocks = buildPhaseBMocks();
     const recordWithRefNo = makeWithdrawRecord({
       fromWalletId: 'wallet-c-out-1',
+      // FIAT withdrawal: type-based resolver reads referenceNo (not txHash).
+      // AED is the fiat currency with a real TB ledger (fee leg needs it).
+      asset: { currency: 'AED', decimals: 2, type: 'FIAT' },
       txHash: null,
       referenceNo: 'BANK-REF-XYZ',
     });
