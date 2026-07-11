@@ -8,6 +8,7 @@ import {
   isCustomerRejected,
   isCustomerWithdrawn,
 } from '../utils/customerOnboarding';
+import { useTradingReadiness } from '../hooks/useTradingReadiness';
 
 /* ────────────────────────────────────────────────────────────────
  *  AuthGuard — calm pending notice.
@@ -34,6 +35,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
   const { user, loading, isAuthenticated, error } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
 
   useEffect(() => {
     if (!loading && !isAuthenticated && !error) {
@@ -94,6 +96,17 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
         return <Navigate to="/profile" replace />;
       }
       return <>{children}</>;
+    }
+
+    // Trading-readiness gate: approved but no active fiat withdrawal address → guide to add one.
+    // Business paths blocked; /withdrawal-addresses (destination) intentionally NOT blocked (no redirect loop).
+    const readinessBlockedPaths = ['/deposit', '/withdraw', '/swap', '/wallet'];
+    if (
+      !tradingReadinessLoading &&
+      !tradingReady &&
+      readinessBlockedPaths.some((p) => location.pathname.startsWith(p))
+    ) {
+      return <Navigate to="/withdrawal-addresses" replace />;
     }
 
     return <>{children}</>;
