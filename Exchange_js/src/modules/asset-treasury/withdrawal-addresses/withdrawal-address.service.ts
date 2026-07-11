@@ -97,8 +97,6 @@ export class WithdrawalAddressService {
   }
 
   async createBankAccount(data: CreateBankAccountData, tx?: any) {
-    const db = tx ?? this.prisma;
-
     const ibanResult = validateIban(data.iban);
     if (!ibanResult.valid) {
       throw new BadRequestException({ code: 'INVALID_IBAN', message: ibanResult.reason });
@@ -112,48 +110,69 @@ export class WithdrawalAddressService {
     const cleanIban = data.iban.replace(/\s/g, '').toUpperCase();
     const cleanSwift = data.swiftBic.replace(/\s/g, '').toUpperCase();
 
-    const activeCount = await db.withdrawalAddress.count({
-      where: {
-        customerId: data.customerId,
-        assetId: data.assetId,
-        status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] },
-      },
-    });
-    if (activeCount >= MAX_ADDRESSES_PER_ASSET) {
-      throw new BadRequestException({ code: 'ADDRESS_LIMIT_REACHED', message: `Maximum ${MAX_ADDRESSES_PER_ASSET} bank accounts per asset` });
-    }
-
     const addressNo = generateReferenceNo('WAD');
-    const activatesAt = new Date(Date.now() + COOLING_PERIOD_HOURS * 60 * 60 * 1000);
 
-    try {
-      return await db.withdrawalAddress.create({
-        data: {
-          addressNo,
+    const run = async (db: any) => {
+      const activeCount = await db.withdrawalAddress.count({
+        where: {
           customerId: data.customerId,
-          customerNo: data.customerNo,
           assetId: data.assetId,
-          network: 'FIAT',
-          address: cleanIban,
-          addressType: 'BANK',
-          label: data.label,
-          beneficiaryName: data.beneficiaryName,
-          iban: cleanIban,
-          swiftBic: cleanSwift,
-          bankName: data.bankName,
-          ownershipDeclaredAt: data.ownershipDeclaredAt,
-          ownershipProofType: data.ownershipProofType,
-          activatesAt,
-          traceId: data.traceId,
+          status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] },
         },
-        include: { asset: true },
       });
-    } catch (error: any) {
-      if (error?.code === 'P2002') {
-        throw new ConflictException({ code: 'BANK_ACCOUNT_ALREADY_REGISTERED', message: 'This IBAN is already registered for this asset' });
+      if (activeCount >= MAX_ADDRESSES_PER_ASSET) {
+        throw new BadRequestException({ code: 'ADDRESS_LIMIT_REACHED', message: `Maximum ${MAX_ADDRESSES_PER_ASSET} bank accounts per asset` });
       }
-      throw error;
-    }
+
+      // First bank-type withdrawal address for this customer auto-activates (no theft risk: zero balance at registration).
+      const isFirst = await db.withdrawalAddress.count({
+        where: {
+          customerId: data.customerId,
+          addressType: 'BANK',
+          status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] },
+        },
+      }) === 0;
+
+      const now = new Date();
+      const status = isFirst ? 'ACTIVE' : 'PENDING_ACTIVATION';
+      const activatesAt = isFirst ? now : new Date(now.getTime() + COOLING_PERIOD_HOURS * 60 * 60 * 1000);
+      const activatedAt = isFirst ? now : null;
+
+      try {
+        return await db.withdrawalAddress.create({
+          data: {
+            addressNo,
+            customerId: data.customerId,
+            customerNo: data.customerNo,
+            assetId: data.assetId,
+            network: 'FIAT',
+            address: cleanIban,
+            addressType: 'BANK',
+            label: data.label,
+            beneficiaryName: data.beneficiaryName,
+            iban: cleanIban,
+            swiftBic: cleanSwift,
+            bankName: data.bankName,
+            ownershipDeclaredAt: data.ownershipDeclaredAt,
+            ownershipProofType: data.ownershipProofType,
+            status,
+            activatesAt,
+            activatedAt,
+            traceId: data.traceId,
+          },
+          include: { asset: true },
+        });
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          throw new ConflictException({ code: 'BANK_ACCOUNT_ALREADY_REGISTERED', message: 'This IBAN is already registered for this asset' });
+        }
+        throw error;
+      }
+    };
+
+    // isFirst-count + create must be atomic so two concurrent first-registrations can't both auto-activate.
+    if (tx) return run(tx);
+    return this.prisma.$transaction((txClient: any) => run(txClient));
   }
 
   async activate(addressNo: string, tx?: any) {

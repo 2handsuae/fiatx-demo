@@ -15,6 +15,7 @@ describe('WithdrawalAddressService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   const mockAsset = { id: 'asset-1', code: 'ETH', type: 'CRYPTO', network: 'ETH', status: 'ACTIVE', decimals: 18 };
@@ -71,6 +72,50 @@ describe('WithdrawalAddressService', () => {
         addressType: 'SELF_CUSTODY', traceId: 'trace-1',
         ownershipDeclaredAt: new Date(), ownershipProofType: 'DECLARATION',
       })).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('createBankAccount', () => {
+    const baseInput = {
+      customerId: 'cust-1', customerNo: 'CUS001',
+      assetId: 'asset-fiat-1',
+      iban: 'DE89370400440532013000',
+      swiftBic: 'DEUTDEFF',
+      bankName: 'Deutsche Bank',
+      beneficiaryName: 'Alice Happy',
+      ownershipDeclaredAt: new Date(), ownershipProofType: 'DECLARATION',
+      traceId: 'trace-1',
+    };
+
+    beforeEach(() => {
+      prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
+    });
+
+    it('first bank address (count→0) auto-activates: status ACTIVE', async () => {
+      prismaMock.withdrawalAddress.count.mockResolvedValue(0);
+      prismaMock.withdrawalAddress.create.mockImplementation(async ({ data }: any) => ({
+        id: 'wa-1', addressNo: data.addressNo, status: data.status,
+        activatesAt: data.activatesAt, activatedAt: data.activatedAt,
+      }));
+
+      const result = await service.createBankAccount(baseInput as any);
+
+      expect(result.status).toBe('ACTIVE');
+      expect(result.activatedAt).toBeInstanceOf(Date);
+      expect(prismaMock.withdrawalAddress.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('second bank address (count→1) keeps PENDING_ACTIVATION with 24h cooling', async () => {
+      prismaMock.withdrawalAddress.count.mockResolvedValue(1);
+      prismaMock.withdrawalAddress.create.mockImplementation(async ({ data }: any) => ({
+        id: 'wa-2', addressNo: data.addressNo, status: data.status,
+        activatesAt: data.activatesAt, activatedAt: data.activatedAt,
+      }));
+
+      const result = await service.createBankAccount(baseInput as any);
+
+      expect(result.status).toBe('PENDING_ACTIVATION');
+      expect(result.activatedAt).toBeNull();
     });
   });
 
