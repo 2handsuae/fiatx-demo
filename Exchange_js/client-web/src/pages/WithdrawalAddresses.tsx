@@ -12,12 +12,14 @@ import {
   ShieldCheck,
   ArrowLeft,
   RefreshCw,
+  Landmark,
 } from 'lucide-react';
 import {
   customerFetch,
   CustomerSessionError,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
+import { useTradingReadiness } from '../hooks/useTradingReadiness';
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -121,6 +123,7 @@ function formatIban(iban: string): string {
  * ═══════════════════════════════════════════════════════════════ */
 
 export default function WithdrawalAddresses() {
+  const { tradingReady, refetch: refetchTradingReadiness } = useTradingReadiness();
   const [activeTab, setActiveTab] = useState<ActiveTab>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [fiatAssets, setFiatAssets] = useState<Asset[]>([]);
@@ -201,7 +204,7 @@ export default function WithdrawalAddresses() {
   /* ─── Derived ────────────────────────────────────────────── */
   const visibleAddresses = addresses.filter(a => a.addressType !== 'BANK' && a.status !== 'CANCELLED');
   const activeCount = addresses.filter(a => a.addressType !== 'BANK' && ['PENDING_ACTIVATION', 'ACTIVE'].includes(a.status)).length;
-  const canAdd = activeCount < 3;
+  const canAdd = activeCount < 3 && tradingReady;
 
   // Bank tab derived
   const bankAddresses = addresses.filter(a => a.addressType === 'BANK' && a.status !== 'CANCELLED');
@@ -318,6 +321,7 @@ export default function WithdrawalAddresses() {
       setShowBankAddModal(false);
       resetBankForm();
       await fetchAddresses();
+      await refetchTradingReadiness();
     } catch (err: any) {
       if (err instanceof CustomerSessionError) return;
       setBankFormError(err.message || 'Unexpected error');
@@ -391,6 +395,31 @@ export default function WithdrawalAddresses() {
         <p className="text-fx-dune mt-1">Manage your withdrawal addresses and bank accounts</p>
       </div>
 
+      {/* ── First-run guided banner ────────────────────────── */}
+      {!tradingReady && (
+        <div className="rounded-2xl border border-fx-brass/25 bg-fx-brass/5 p-5 flex items-start gap-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-fx-brass/10 text-fx-brass">
+            <Landmark size={16} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-brass/70">
+              § Withdrawal address required
+            </div>
+            <h3 className="text-sm font-bold text-fx-sand mt-1">Add a fiat (bank) withdrawal address to start</h3>
+            <p className="text-xs text-fx-dune mt-1 leading-relaxed">
+              You need one before you can deposit, swap, or withdraw. It only takes a minute.
+            </p>
+          </div>
+          <button
+            onClick={() => { setActiveTab('bank'); openBankAddModal(); }}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-fx-brass text-fx-obsidian text-sm font-bold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all"
+          >
+            <Plus size={16} />
+            Add Bank Account
+          </button>
+        </div>
+      )}
+
       {/* ── Main Card ──────────────────────────────────────── */}
       <div className="bg-fx-ink/40 rounded-3xl border border-fx-rule shadow-sm overflow-hidden min-h-[500px]">
         {/* Tabs */}
@@ -444,7 +473,12 @@ export default function WithdrawalAddresses() {
               </button>
             </div>
 
-            {!canAdd && (
+            {!tradingReady ? (
+              <div className="rounded-xl border border-fx-brass/20 bg-fx-brass/5 px-4 py-2.5 text-xs text-fx-brass flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                Add a fiat withdrawal address first.
+              </div>
+            ) : !canAdd && (
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-xs text-amber-400 flex items-center gap-2">
                 <AlertCircle size={14} className="shrink-0" />
                 Maximum 3 active addresses reached. Suspend or wait for an address to be removed before adding a new one.
@@ -468,7 +502,8 @@ export default function WithdrawalAddresses() {
                 </p>
                 <button
                   onClick={openAddModal}
-                  className="px-6 py-3 bg-fx-brass text-fx-obsidian rounded-xl font-bold hover:shadow-lg hover:shadow-fx-brass/30 transition-all"
+                  disabled={!canAdd}
+                  className="px-6 py-3 bg-fx-brass text-fx-obsidian rounded-xl font-bold hover:shadow-lg hover:shadow-fx-brass/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Add Your First Address
                 </button>
