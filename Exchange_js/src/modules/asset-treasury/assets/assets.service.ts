@@ -145,6 +145,11 @@ export class AssetsService {
     return db.asset.findFirst({ where: { assetNo } });
   }
 
+  async findByCode(code: string, tx?: Prisma.TransactionClient): Promise<any | null> {
+    const db = tx ?? this.prisma;
+    return db.asset.findUnique({ where: { code } });
+  }
+
   async activateAsset(assetNo: string, tx?: Prisma.TransactionClient) {
     const db = tx ?? this.prisma;
     const asset = await db.asset.findFirst({ where: { assetNo } });

@@ -33,6 +33,7 @@ import { MaterialRefreshModule } from './modules/identity/material-refresh/mater
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
 import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
+import { TradingReadinessModule } from './modules/trading/shared/trading-readiness.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
     ProfileBannersModule,
     FundsLayerModule,
     FundsOrdersModule,
+    TradingReadinessModule,
   ],
   controllers: [],
   providers: [],
