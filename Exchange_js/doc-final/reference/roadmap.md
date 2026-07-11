@@ -9,7 +9,7 @@ Last Updated: 2026-07-06
 
 **每条标注**：`来源:`（领导/VARA 条款/行业）｜ `配对:`（正逆操作互链，防逆向遗忘）｜ 状态 `[x]`交付 `[~]`部分 `[ ]`待做 + 日期。
 **实现细节与当前真相** → `reference/truth/`（改代码同步那里，不改这里）｜ **技术债/死码/待决策** → `../BACKLOG.md`。
-> ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排 + `superpowers/specs/` 调研留底已覆盖 **V1 / V2 / V5 / V6 / V9**。V3/V4（有三层、无 spec）｜V7/V8（待同款重排）见 BACKLOG「文档漂移」。
+> ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排 + `superpowers/specs/` 调研留底已覆盖 **V1 / V2 / V5 / V6 / V8 / V9**。V3/V4（有三层、无 spec）｜V7（待同款重排）见 BACKLOG「文档漂移」。
 
 ---
 
@@ -168,6 +168,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 VA Standards 存续复审+币对急停 — 上线尽调只是"prior to"半句,"**at all times during**"要求在售币对存续符合:跌出标准(列禁/失监管认可)→暂停该币对报价成交+留痕;VA Standards 文本挂官网随修订更新;V6 报价引擎消费暂停标记 ｜Market Conduct VIII.A.2/A.3/A.4(n) ｜来源:2026-07-06 V6 复查分拣归 V3
 - [ ] ⚖️P1 提现地址所有权验证 + hosted/unhosted 分类打标记 — 登记时验证客户控制自托管钱包(验一次永久) + 分类 hosted/unhosted + 对手方 VASP 初次尽调 → 打标记供 V5 每笔消费；TravelRuleAdapter 归因已有地基 ｜CRM III.G.7 + FATF(2026-07-04 V5 调研确认，原"待核"已坐实) ｜**地址级一次性控制归 V3**；交易级(制裁重筛/TR 发送/差异化 EDD)在 V5
 - [ ] 提现地址停用归档 — 确认无在途提现→停用（8 年保留，不物理删）｜来源:领导 ｜配对:地址登记(MVP)
+- [ ] ⚖️P1 第三方银行客户资金确认函 — 存客户法币前须取银行书面确认(资金以 agent 身份持有/银行无抵销·扣押权/账户名可区分自有资金)；不出函则不许再存并撤出已存(IV.C.4 有牙齿) ｜CRM IV.C.3/C.4(一手核) ｜来源:2026-07-06 V8 审计分拣归 V3(账户配置门；V8 只消费"该账户已挂确认函证据")
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
@@ -374,6 +375,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 > 客户/公司资产对账：内部账本（TB / AccountFlow 投影）vs 外部数据（银行 / HexTrust / 链上）**逐物理钱包 1:1 直比** + 差异分五桶 + 平账处置。
 > **前置**：V3-V6（依赖完整交易与持仓数据）。
 > 📖 **实现真相** → [`reference/truth/v8-recon.md`](truth/v8-recon.md)（Phase B 引擎 / 五桶 / Run-Case 驾驶舱 / effectiveDate / 推单处置）
+> 📖 **调研留底** → `superpowers/specs/2026-07-06-v8-reconciliation-research.md`（首次遗漏审计）
 > ⚠️ 历史：经 I1-I5 → credit-net 五公式 → Phase B 三轮重构；旧 credit-net 五公式引擎已 **Phase C 物理删**（11 文件）。设计存档见 `superpowers/specs/2026-06-20 ~ 2026-07-03-*` 系列（只读追溯，勿当现状）。
 
 ### MVP（领导定义的基础必须）
@@ -388,12 +390,18 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### ADVANCED（差异处置闭环 + 监管报送，全 deferred）
 
-- [ ] ⚖️ 差异处理人工闭环 — Finance 人工核实/补录→RESOLVED + 24h SLA 升级 MLRO/CFO ｜VARA(差异上报) ｜现止于 Case OPEN
+- [ ] ⚖️P1 差异处理人工闭环 + **未平差异报 VARA** — Finance 人工核实/补录→RESOLVED + 24h SLA 升级 MLRO/CFO；**重大差异未纠正→末级终态生成 VARA 通报工单(REPORTED_TO_VARA)+审计打点**(现止于内部 RESOLVED、无对外出口) ｜CRM IV.E.5(Client Money)+V.D.2(Client VAs) 一手核 ｜三路 3:0
 - [ ] 其余 6 平账处置动作 — 补单/冲正/冲销/豁免/偿付/…(推单已做) ｜来源:业务
 - [ ] 偿付义务工作流(Reimbursement) — 从 V7 移入；OPEN→审批(CFO/MLRO)→REIMBURSED；表已 drop 留 hook；两触发源(对账差异/event 失败)共出口 ｜来源:业务+VARA
-- [ ] ⚖️ 季度 Proof of Reserves — HexTrust 钱包链上快照→Sum(客户负债)≤储备证明→VARA 季报 ｜VARA(储备证明)
+- [ ] ⚖️ Proof of Reserves（**改写：非单纯季度**）— 真实义务四件：储备资产**每日对账** + **≥每半年独立第三方审计** + 审计报告随**季报**交 VARA + **VARA 随时索取即须能出**(on-demand)；口径 Sum(客户 VA 负债)≤HexTrust 储备 ｜CRM V.C.1 + Company Rulebook 储备资产节 Rule 3(一手核) ｜⚠️2026-07-06 订正:原"季度"既漏半年审计、又把 on-demand 窄成定时任务
 - [ ] 对账报告导出 — 日期范围摘要(余额差/匹配率/未决 Case)，VARA 审计 / 半年独立审计输入 ｜VARA
 - [ ] LP 仓位对账 — 与 LP 对手方核对 LP-IN/OUT，依赖 LP API/文件 ｜来源:业务
+
+#### 🔄 2026-07-06 遗漏审计追补（fable-5 精简版；差异闭环/PoR 已就地改写、银行确认函→V3、枚举坑→BACKLOG）
+
+- [ ] ⚖️P1 对账流程利益冲突隔离 — 跑对账/重对账、执行平账动作(推单等)、RESOLVED 关 case 的角色须互斥、不得同时是能制造差异的资金操作方(≠V1 公司级 SoD，本条是对账域专条) ｜CRM IV.E.4(一手核)
+- [ ] ⚖️P1 对账底稿+外部原件 8 年原生留存 — run 结果/匹配明细 + **银行/HexTrust 原始对账单原件**按 native 格式存 ≥8y、随 VARA 索取即出(现归一化入库后原件无留存、DB 在 /tmp) ｜CRM I.F.1-3(一手核) ｜与 V5/V6 记录字段集同源
+- [ ] P2 成文对账政策 — 五桶阈值/差异分级/SLA/处置权限/升级路径写成受治理政策文档 + 定期复审 ｜CRM I.B.3/4
 
 > **设计前提（仍有效）**：① Gas 全由公司承担，客户资产不因 Gas 产生差异；② 实时1:1 双式记账保证客户资产与负债内部持平，对账退化为外部核对。
 > **技术债**（reObservedCount=0 bug / Reimbursement 三处残留 / FIRM treasury 历史残留 / 资本注入 evidence 待核）见 [BACKLOG.md](../BACKLOG.md)。
