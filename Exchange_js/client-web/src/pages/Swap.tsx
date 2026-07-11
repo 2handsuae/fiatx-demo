@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowRightLeft, 
   History, 
@@ -130,6 +131,7 @@ interface AssetBalance {
 
 const Swap = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
   const [showTradingGate, setShowTradingGate] = useState(false);
   const [activeTab, setActiveTab] = useState<'swap' | 'history'>('swap');
@@ -165,6 +167,10 @@ const Swap = () => {
   const [history, setHistory] = useState<SwapTransaction[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyStatus, setHistoryStatus] = useState('');
+
+  // Per-currency receiving-account precheck (R4 gate)
+  const [receivingAccountStatus, setReceivingAccountStatus] = useState<Record<string, boolean>>({});
+  const [receivingAccountChecked, setReceivingAccountChecked] = useState(false);
 
   useEffect(() => {
     fetchAssets();
@@ -314,6 +320,61 @@ const Swap = () => {
     };
   }, [fromAssetId, toAssetId, fromAmount, assets]);
 
+  useEffect(() => {
+    const from = assets.find(a => a.id === fromAssetId);
+    const to = assets.find(a => a.id === toAssetId);
+
+    if (!from || !to) {
+      setReceivingAccountStatus({});
+      setReceivingAccountChecked(false);
+      return;
+    }
+
+    let cancelled = false;
+    setReceivingAccountChecked(false);
+
+    const checkReceivingAccounts = async () => {
+      try {
+        const codes = Array.from(new Set([from.code, to.code]));
+        const params = new URLSearchParams({ assets: codes.join(',') });
+        const response = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/client/trading-readiness/receiving-accounts?${params.toString()}`,
+        );
+        if (cancelled) return;
+        if (response.ok) {
+          const data: Record<string, { hasReceivingAccount: boolean }> = await response.json();
+          const next: Record<string, boolean> = {};
+          for (const code of codes) {
+            next[code] = !!data[code]?.hasReceivingAccount;
+          }
+          setReceivingAccountStatus(next);
+        } else {
+          setReceivingAccountStatus({});
+        }
+      } catch (error) {
+        if (error instanceof CustomerSessionError) return;
+        if (cancelled) return;
+        console.error('Failed to check receiving accounts', error);
+        setReceivingAccountStatus({});
+      } finally {
+        if (!cancelled) setReceivingAccountChecked(true);
+      }
+    };
+
+    checkReceivingAccounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fromAssetId, toAssetId, assets]);
+
+  const missingReceivingAccountCodes = (() => {
+    const from = assets.find(a => a.id === fromAssetId);
+    const to = assets.find(a => a.id === toAssetId);
+    if (!from || !to || !receivingAccountChecked) return [];
+    return Array.from(new Set([from.code, to.code])).filter((code) => !receivingAccountStatus[code]);
+  })();
+
   const currentBalance = balances.find(b => b.assetId === fromAssetId)?.available || '0';
   const fromAsset = assets.find((a) => a.id === fromAssetId);
   const toAsset = assets.find((a) => a.id === toAssetId);
@@ -355,6 +416,7 @@ const Swap = () => {
       setShowTradingGate(true);
       return;
     }
+    if (missingReceivingAccountCodes.length > 0) return;
     setLoading(true);
     try {
       const response = await customerFetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes`, {
@@ -675,13 +737,42 @@ const Swap = () => {
                     ) : null}
                   </div>
 
+                  {missingReceivingAccountCodes.length > 0 && (
+                    <div className="flex items-start gap-3 p-4 bg-fx-brass/10 border border-fx-brass/30 rounded-2xl">
+                      <AlertTriangle size={18} className="text-fx-brass shrink-0 mt-0.5" />
+                      <div className="flex-1 space-y-2">
+                        <p className="text-xs font-medium text-fx-sand">
+                          Please create a receiving account for {missingReceivingAccountCodes.join(', ')} before swapping.
+                        </p>
+                        <button
+                          onClick={() => navigate('/wallet')}
+                          className="px-3 py-1.5 text-xs font-bold bg-fx-brass text-fx-obsidian rounded-lg hover:bg-fx-brass/90 transition-colors"
+                        >
+                          Create receiving account →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <button
                     onClick={handlePreview}
-                    disabled={loading || !fromAssetId || !toAssetId || !fromAmount || !!rateError || rateLoading}
+                    disabled={
+                      loading ||
+                      !fromAssetId ||
+                      !toAssetId ||
+                      !fromAmount ||
+                      !!rateError ||
+                      rateLoading ||
+                      missingReceivingAccountCodes.length > 0
+                    }
                     className="w-full py-5 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold text-lg transition-all shadow-xl shadow-fx-brass/20 disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
                   >
                     {loading ? <RefreshCw className="animate-spin" size={20} /> : <Zap size={20} />}
-                    {rateError && rateError.includes('Fiat') ? 'Unsupported Pair' : 'Swap Now'}
+                    {rateError && rateError.includes('Fiat')
+                      ? 'Unsupported Pair'
+                      : missingReceivingAccountCodes.length > 0
+                        ? 'Receiving Account Required'
+                        : 'Swap Now'}
                   </button>
                 </div>
               </div>
