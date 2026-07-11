@@ -74,6 +74,7 @@ function statusLabel(s: string): string {
     case 'ACTIVE':             return 'Active';
     case 'SUSPENDED':          return 'Suspended';
     case 'CANCELLED':          return 'Cancelled';
+    case 'DEACTIVATED':        return 'Deactivated';
     default:                   return s;
   }
 }
@@ -84,7 +85,23 @@ function statusColor(s: string): string {
     case 'ACTIVE':             return 'bg-fx-sage/15 text-fx-sage';
     case 'SUSPENDED':          return 'bg-rose-500/15 text-rose-400';
     case 'CANCELLED':          return 'bg-fx-dust/15 text-fx-dust';
+    case 'DEACTIVATED':        return 'bg-fx-dust/15 text-fx-dust';
     default:                   return 'bg-fx-dust/15 text-fx-dust';
+  }
+}
+
+function deactivateErrorMessage(code: string, fallback: string): string {
+  switch (code) {
+    case 'LAST_ACTIVE_FIAT_ADDRESS':
+      return 'This is your only active bank withdrawal address. Add and activate another one before deactivating this.';
+    case 'ADDRESS_HAS_INFLIGHT_WITHDRAWAL':
+      return "This address has a withdrawal in progress and can't be deactivated yet.";
+    case 'ADDRESS_NOT_ACTIVE':
+      return 'This address is no longer active and cannot be deactivated.';
+    case 'ADDRESS_NOT_FOUND':
+      return 'This address could not be found.';
+    default:
+      return fallback;
   }
 }
 
@@ -138,6 +155,11 @@ export default function WithdrawalAddresses() {
   const [bankFormError, setBankFormError] = useState('');
 
   const [copied, setCopied] = useState(false);
+
+  // deactivate
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [deactivateError, setDeactivateError] = useState('');
 
   /* ─── Load assets ────────────────────────────────────────── */
   useEffect(() => {
@@ -304,6 +326,60 @@ export default function WithdrawalAddresses() {
     }
   };
 
+  /* ─── Deactivate ─────────────────────────────────────────── */
+  const handleDeactivate = async () => {
+    const addr = detailAddr || bankDetailAddr;
+    if (!addr) return;
+
+    setDeactivateError('');
+    setDeactivating(true);
+    try {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}/deactivate`, {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        let code = '';
+        let message = 'Failed to deactivate address';
+        try {
+          const payload = await res.clone().json();
+          code = String(payload?.code || '');
+          message = String(payload?.message || message);
+        } catch {
+          // ignore parse failure, fall back to generic message
+        }
+        setDeactivateError(deactivateErrorMessage(code, message));
+        return;
+      }
+
+      // success — close modal(s), reset state, reload list
+      setConfirmDeactivate(false);
+      setDetailAddr(null);
+      setBankDetailAddr(null);
+      await fetchAddresses();
+    } catch (err: any) {
+      if (err instanceof CustomerSessionError) return;
+      setDeactivateError(err.message || 'Unexpected error');
+    } finally {
+      setDeactivating(false);
+    }
+  };
+
+  const resetDeactivateState = () => {
+    setConfirmDeactivate(false);
+    setDeactivateError('');
+  };
+
+  const closeDetail = () => {
+    setDetailAddr(null);
+    resetDeactivateState();
+  };
+
+  const closeBankDetail = () => {
+    setBankDetailAddr(null);
+    resetDeactivateState();
+  };
+
   /* ═══════════════════════════════════════════════════════════
    *  Render
    * ═══════════════════════════════════════════════════════════ */
@@ -402,7 +478,7 @@ export default function WithdrawalAddresses() {
                 {visibleAddresses.map(addr => (
                   <button
                     key={addr.addressNo}
-                    onClick={() => setDetailAddr(addr)}
+                    onClick={() => { resetDeactivateState(); setDetailAddr(addr); }}
                     className="w-full text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -492,7 +568,7 @@ export default function WithdrawalAddresses() {
                 {bankAddresses.map(addr => (
                   <button
                     key={addr.addressNo}
-                    onClick={() => setBankDetailAddr(addr)}
+                    onClick={() => { resetDeactivateState(); setBankDetailAddr(addr); }}
                     className="w-full text-left rounded-2xl border border-fx-rule bg-fx-charcoal/40 p-4 hover:border-fx-brass/40 hover:bg-fx-charcoal/60 transition-all group"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -679,7 +755,7 @@ export default function WithdrawalAddresses() {
             <div className="flex justify-between items-center p-5 border-b border-fx-rule">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setDetailAddr(null)}
+                  onClick={closeDetail}
                   className="p-1.5 hover:bg-fx-charcoal rounded-lg transition-colors text-fx-dust"
                 >
                   <ArrowLeft size={18} />
@@ -698,6 +774,13 @@ export default function WithdrawalAddresses() {
 
             {/* body */}
             <div className="p-5 space-y-5">
+              {deactivateError && (
+                <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  {deactivateError}
+                </div>
+              )}
+
               {/* Cooling Period Banner */}
               {detailAddr.status === 'PENDING_ACTIVATION' && (
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-center">
@@ -786,13 +869,48 @@ export default function WithdrawalAddresses() {
             </div>
 
             {/* footer */}
-            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl">
-              <button
-                onClick={() => setDetailAddr(null)}
-                className="w-full py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
-              >
-                Close
-              </button>
+            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl space-y-3">
+              {detailAddr.status === 'ACTIVE' && confirmDeactivate ? (
+                <>
+                  <p className="text-xs text-fx-dust text-center">
+                    Deactivate this address? You can't use it for withdrawals afterward.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setConfirmDeactivate(false)}
+                      disabled={deactivating}
+                      className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
+                    >
+                      Keep Address
+                    </button>
+                    <button
+                      onClick={handleDeactivate}
+                      disabled={deactivating}
+                      className="flex-1 py-3 bg-rose-500/90 text-white font-bold rounded-xl hover:bg-rose-500 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                      {deactivating && <RefreshCw size={16} className="animate-spin" />}
+                      {deactivating ? 'Deactivating...' : 'Confirm Deactivate'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex gap-3">
+                  <button
+                    onClick={closeDetail}
+                    className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
+                  >
+                    Close
+                  </button>
+                  {detailAddr.status === 'ACTIVE' && (
+                    <button
+                      onClick={() => setConfirmDeactivate(true)}
+                      className="flex-1 py-3 bg-fx-ink border border-rose-500/30 text-rose-400 font-bold rounded-xl hover:bg-rose-500/10 transition-colors"
+                    >
+                      Deactivate
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -953,7 +1071,7 @@ export default function WithdrawalAddresses() {
             <div className="flex justify-between items-center p-5 border-b border-fx-rule">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setBankDetailAddr(null)}
+                  onClick={closeBankDetail}
                   className="p-1.5 hover:bg-fx-charcoal rounded-lg transition-colors text-fx-dust"
                 >
                   <ArrowLeft size={18} />
@@ -972,6 +1090,13 @@ export default function WithdrawalAddresses() {
 
             {/* body */}
             <div className="p-5 space-y-5">
+              {deactivateError && (
+                <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  {deactivateError}
+                </div>
+              )}
+
               {/* Cooling Period Banner */}
               {bankDetailAddr.status === 'PENDING_ACTIVATION' && (
                 <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-center">
@@ -1046,13 +1171,48 @@ export default function WithdrawalAddresses() {
             </div>
 
             {/* footer */}
-            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl">
-              <button
-                onClick={() => setBankDetailAddr(null)}
-                className="w-full py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
-              >
-                Close
-              </button>
+            <div className="p-5 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl space-y-3">
+              {bankDetailAddr.status === 'ACTIVE' && confirmDeactivate ? (
+                <>
+                  <p className="text-xs text-fx-dust text-center">
+                    Deactivate this account? You can't use it for withdrawals afterward.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setConfirmDeactivate(false)}
+                      disabled={deactivating}
+                      className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-semibold rounded-xl hover:bg-fx-charcoal transition-colors disabled:opacity-60"
+                    >
+                      Keep Account
+                    </button>
+                    <button
+                      onClick={handleDeactivate}
+                      disabled={deactivating}
+                      className="flex-1 py-3 bg-rose-500/90 text-white font-bold rounded-xl hover:bg-rose-500 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                      {deactivating && <RefreshCw size={16} className="animate-spin" />}
+                      {deactivating ? 'Deactivating...' : 'Confirm Deactivate'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex gap-3">
+                  <button
+                    onClick={closeBankDetail}
+                    className="flex-1 py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
+                  >
+                    Close
+                  </button>
+                  {bankDetailAddr.status === 'ACTIVE' && (
+                    <button
+                      onClick={() => setConfirmDeactivate(true)}
+                      className="flex-1 py-3 bg-fx-ink border border-rose-500/30 text-rose-400 font-bold rounded-xl hover:bg-rose-500/10 transition-colors"
+                    >
+                      Deactivate
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
