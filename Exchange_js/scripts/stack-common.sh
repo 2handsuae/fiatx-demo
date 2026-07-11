@@ -237,6 +237,21 @@ ensure_dependencies() {
   fi
 }
 
+# Upsert KEY=VALUE into an env file: replace the line in place if the key exists,
+# else append. Creates the file if missing. BSD/GNU-portable (awk temp-file, no
+# `sed -i`). VALUE is written literally. Only clean values (ports/URLs/paths).
+upsert_env_key() {
+  local file="$1" key="$2" value="$3"
+  touch "${file}"
+  if grep -qE "^${key}=" "${file}"; then
+    awk -v k="${key}" -v line="${key}=${value}" \
+      '$0 ~ "^"k"=" {print line; next} {print}' "${file}" >"${file}.tmp" \
+      && mv "${file}.tmp" "${file}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >>"${file}"
+  fi
+}
+
 ensure_env_files() {
   local backend_env="${APP_DIR}/.env"
   local admin_env="${APP_DIR}/admin-web/.env"
@@ -244,35 +259,25 @@ ensure_env_files() {
   local default_db_url
   default_db_url="$(default_database_url "${STACK}")"
 
-  if [[ ! -f "${backend_env}" ]]; then
-    cat >"${backend_env}" <<ENV
-API_PORT=${BACKEND_PORT}
-ADMIN_PORT=${ADMIN_PORT}
-CLIENT_PORT=${CLIENT_PORT}
+  # 权威重写:每次 up 把 stack 管理键改成 load_stack_config 为「本栈」分到的端口/URL。
+  # 其它键(密钥、MFA_ISSUER、SUMSUB_MOCK_MODE …)一律保留。自愈脏/陈旧 .env,
+  # 令 worktree 前后端始终指向自己的栈(消除 vite 读 .env vs 注入 env 的优先级歧义)。
+  upsert_env_key "${backend_env}" "API_PORT"     "${BACKEND_PORT}"
+  upsert_env_key "${backend_env}" "ADMIN_PORT"   "${ADMIN_PORT}"
+  upsert_env_key "${backend_env}" "CLIENT_PORT"  "${CLIENT_PORT}"
+  upsert_env_key "${backend_env}" "API_URL"      "${BACKEND_URL}"
+  upsert_env_key "${backend_env}" "ADMIN_URL"    "${ADMIN_URL}"
+  upsert_env_key "${backend_env}" "CLIENT_URL"   "${CLIENT_URL}"
+  upsert_env_key "${backend_env}" "DATABASE_URL" "\"${default_db_url}\""
+  upsert_env_key "${backend_env}" "TB_ADDRESS"   "${TB_ADDRESS}"
+  # 演示开关:仅在缺失时补默认,不覆盖操作者已设的值。
+  grep -qE "^GOVERNANCE_DEMO_ENABLED=" "${backend_env}" \
+    || printf 'GOVERNANCE_DEMO_ENABLED=true\n' >>"${backend_env}"
 
-API_URL=${BACKEND_URL}
-ADMIN_URL=${ADMIN_URL}
-CLIENT_URL=${CLIENT_URL}
+  upsert_env_key "${admin_env}"  "VITE_API_URL" "${BACKEND_URL}"
+  upsert_env_key "${client_env}" "VITE_API_URL" "${BACKEND_URL}"
 
-DATABASE_URL="${default_db_url}"
-GOVERNANCE_DEMO_ENABLED=true
-ENV
-    echo "[${STACK}] created ${backend_env}"
-  fi
-
-  if [[ ! -f "${admin_env}" ]]; then
-    cat >"${admin_env}" <<ENV
-VITE_API_URL=${BACKEND_URL}
-ENV
-    echo "[${STACK}] created ${admin_env}"
-  fi
-
-  if [[ ! -f "${client_env}" ]]; then
-    cat >"${client_env}" <<ENV
-VITE_API_URL=${BACKEND_URL}
-ENV
-    echo "[${STACK}] created ${client_env}"
-  fi
+  echo "[${STACK}] env reconciled: API_PORT=${BACKEND_PORT} TB=${TB_ADDRESS} VITE_API_URL=${BACKEND_URL}"
 }
 
 resolve_db_file() {
