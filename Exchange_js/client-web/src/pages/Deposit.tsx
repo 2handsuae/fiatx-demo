@@ -4,6 +4,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
+import { useTradingReadiness } from '../hooks/useTradingReadiness';
+import TradingGateModal from '../components/TradingGateModal';
 import {
   CustomerSessionError,
   customerFetch,
@@ -117,6 +119,8 @@ const normalizeSimulationAssetType = (
 const Deposit = () => {
   const { user } = useAuth();
   const { enabled: simulationModeEnabled } = useSimulationMode();
+  const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
+  const [showTradingGate, setShowTradingGate] = useState(false);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
@@ -246,6 +250,10 @@ const Deposit = () => {
 
   const handleGenerate = async () => {
     if (!selectedAssetId || !user) return;
+    if (!tradingReadinessLoading && !tradingReady) {
+      setShowTradingGate(true);
+      return;
+    }
     setGenerating(true);
     try {
         const response = await customerFetch(
@@ -1143,6 +1151,8 @@ const Deposit = () => {
             </div>
         </div>
       )}
+
+      <TradingGateModal open={showTradingGate} onClose={() => setShowTradingGate(false)} />
     </div>
   );
 };

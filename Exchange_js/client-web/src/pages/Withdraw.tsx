@@ -3,6 +3,8 @@ import { Wallet, Building2, History, RefreshCw, Info, AlertTriangle, ArrowRight,
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
+import { useTradingReadiness } from '../hooks/useTradingReadiness';
+import TradingGateModal from '../components/TradingGateModal';
 import {
   CustomerSessionError,
   customerFetch,
@@ -81,6 +83,8 @@ interface WithdrawQuoteResult {
 const Withdraw = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
+  const [showTradingGate, setShowTradingGate] = useState(false);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [addresses, setAddresses] = useState<WithdrawalAddressItem[]>([]);
@@ -296,6 +300,10 @@ const Withdraw = () => {
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!tradingReadinessLoading && !tradingReady) {
+      setShowTradingGate(true);
+      return;
+    }
     const validationError = validateWithdrawRequest();
     if (validationError) {
         alert(validationError);
@@ -1089,6 +1097,8 @@ const Withdraw = () => {
           </div>
           );
       })()}
+
+      <TradingGateModal open={showTradingGate} onClose={() => setShowTradingGate(false)} />
     </div>
   );
 };
