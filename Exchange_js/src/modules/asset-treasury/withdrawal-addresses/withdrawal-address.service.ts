@@ -243,6 +243,42 @@ export class WithdrawalAddressService {
     });
   }
 
+  async deactivate(addressNo: string, customerId: string) {
+    const addr = await this.prisma.withdrawalAddress.findUnique({ where: { addressNo } });
+    if (!addr || addr.customerId !== customerId) {
+      throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Withdrawal address ${addressNo} not found` });
+    }
+    if (addr.status !== 'ACTIVE') {
+      throw new BadRequestException({ code: 'ADDRESS_NOT_ACTIVE', message: `Cannot deactivate address in ${addr.status} status` });
+    }
+    if (addr.addressType === 'BANK' && (await this.countActiveFiatAddresses(customerId)) <= 1) {
+      throw new BadRequestException({ code: 'LAST_ACTIVE_FIAT_ADDRESS', message: '这是最后一个可用法币提现地址，请先新增并激活一个再停用' });
+    }
+
+    // In-flight guard: WithdrawTransaction has no FK to WithdrawalAddress (customer
+    // create-flow takes raw toAddress/toIban strings — see CreateWithdrawTransactionDto).
+    // String-match against the payout leg's mirrored toIban/toAddress is the only
+    // real relation available today.
+    const inflight = await this.prisma.fundsOrder.count({
+      where: {
+        withdrawTransaction: { ownerType: 'CUSTOMER', ownerId: customerId },
+        status: { notIn: ['CLEARED', 'FAILED', 'TIMEOUT'] },
+        OR: [
+          ...(addr.iban ? [{ toIban: addr.iban }] : []),
+          ...(addr.address ? [{ toAddress: addr.address }] : []),
+        ],
+      },
+    });
+    if (inflight > 0) {
+      throw new BadRequestException({ code: 'ADDRESS_HAS_INFLIGHT_WITHDRAWAL', message: 'This address has an in-flight withdrawal and cannot be deactivated' });
+    }
+
+    return this.prisma.withdrawalAddress.update({
+      where: { id: addr.id },
+      data: { status: 'DEACTIVATED', deactivatedAt: new Date(), deactivatedBy: 'CUSTOMER' },
+    });
+  }
+
   async findByNo(addressNo: string) {
     const raw = await this.prisma.withdrawalAddress.findUnique({
       where: { addressNo },

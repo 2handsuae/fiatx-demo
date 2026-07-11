@@ -15,6 +15,9 @@ describe('WithdrawalAddressService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    fundsOrder: {
+      count: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -241,6 +244,76 @@ describe('WithdrawalAddressService', () => {
       expect(prismaMock.withdrawalAddress.count).toHaveBeenCalledWith({
         where: { customerId: 'cust-1', status: 'ACTIVE', addressType: 'BANK' },
       });
+    });
+  });
+
+  describe('deactivate', () => {
+    const activeBankAddr = {
+      id: 'wa-1', addressNo: 'WAD001', customerId: 'cust-1',
+      status: 'ACTIVE', addressType: 'BANK', iban: 'DE89370400440532013000', address: 'DE89370400440532013000',
+    };
+    const activeCryptoAddr = {
+      id: 'wa-2', addressNo: 'WAD002', customerId: 'cust-1',
+      status: 'ACTIVE', addressType: 'SELF_CUSTODY', iban: null, address: '0xabc123',
+    };
+
+    it('rejects deactivating the last active fiat (BANK) address', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue(activeBankAddr);
+      prismaMock.withdrawalAddress.count.mockResolvedValue(1); // countActiveFiatAddresses <= 1
+
+      await expect(service.deactivate('WAD001', 'cust-1')).rejects.toThrow(BadRequestException);
+      await expect(service.deactivate('WAD001', 'cust-1')).rejects.toMatchObject({
+        response: { code: 'LAST_ACTIVE_FIAT_ADDRESS' },
+      });
+      expect(prismaMock.withdrawalAddress.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects deactivating an address with an in-flight withdrawal', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue(activeCryptoAddr);
+      prismaMock.fundsOrder.count.mockResolvedValue(1);
+
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toThrow(BadRequestException);
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toMatchObject({
+        response: { code: 'ADDRESS_HAS_INFLIGHT_WITHDRAWAL' },
+      });
+      expect(prismaMock.withdrawalAddress.update).not.toHaveBeenCalled();
+    });
+
+    it('deactivates an ACTIVE non-last address with no in-flight withdrawal', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue(activeCryptoAddr);
+      prismaMock.fundsOrder.count.mockResolvedValue(0);
+      prismaMock.withdrawalAddress.update.mockResolvedValue({
+        id: 'wa-2', addressNo: 'WAD002', status: 'DEACTIVATED', deactivatedAt: new Date(), deactivatedBy: 'CUSTOMER',
+      });
+
+      const result = await service.deactivate('WAD002', 'cust-1');
+
+      expect(result.status).toBe('DEACTIVATED');
+      expect(result.deactivatedBy).toBe('CUSTOMER');
+      expect(prismaMock.withdrawalAddress.update).toHaveBeenCalledWith({
+        where: { id: 'wa-2' },
+        data: { status: 'DEACTIVATED', deactivatedAt: expect.any(Date), deactivatedBy: 'CUSTOMER' },
+      });
+    });
+
+    it('rejects deactivating a non-ACTIVE address', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({
+        ...activeCryptoAddr, status: 'PENDING_ACTIVATION',
+      });
+
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toThrow(BadRequestException);
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toMatchObject({
+        response: { code: 'ADDRESS_NOT_ACTIVE' },
+      });
+      expect(prismaMock.withdrawalAddress.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when address not found or not owned by customer', async () => {
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue(null);
+      await expect(service.deactivate('WAD999', 'cust-1')).rejects.toThrow(NotFoundException);
+
+      prismaMock.withdrawalAddress.findUnique.mockResolvedValue({ ...activeCryptoAddr, customerId: 'cust-OTHER' });
+      await expect(service.deactivate('WAD002', 'cust-1')).rejects.toThrow(NotFoundException);
     });
   });
 });
