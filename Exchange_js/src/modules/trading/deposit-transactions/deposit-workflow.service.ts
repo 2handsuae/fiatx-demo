@@ -473,8 +473,11 @@ export class DepositWorkflowService implements OnModuleInit {
     // / bank referenceNo). Falls back to the deposit's own refs when not passed.
     const walletRef: string | null =
       fundsOrder?.toWalletId ?? deposit.toWalletId ?? null;
-    const externalRef: string | null =
-      fundsOrder?.txHash ?? fundsOrder?.referenceNo ?? deposit.txHash ?? deposit.referenceNo ?? null;
+    // externalRef 归 funds_order 所有(CONFIRMED 时按资产类型铸)。STEP_1 是外部穿越腿,
+    // 读单一源,不再本地 coalesce。STEP_2(下方)是纯重分类,保持 externalRef:null。
+    const externalRef: string | null = fundsOrder
+      ? this.fundsOrders.resolveExternalRef(fundsOrder)
+      : null;
 
     if (step === 'STEP_1') {
       // Real-time 1:1: debit the aggregate CLIENT_ASSET (SYSTEM), credit DEPOSIT_SUSPENSE (CUSTOMER)
