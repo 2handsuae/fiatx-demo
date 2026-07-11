@@ -42,4 +42,19 @@ ensure_env_files >/dev/null 2>&1
 dup="$(grep -c '^API_PORT=' "${TMP}/.env")"
 [ "${dup}" = "1" ] && echo "  ✓ 幂等:API_PORT 仅一行" || { echo "  ✗ 幂等失败:API_PORT ${dup} 行"; fail=1; }
 
+# ── 场景2:main 端口(3000-3003)也正确重写 → 同函数对 main 栈安全(免起重栈) ──
+TMP2="$(mktemp -d)"; mkdir -p "${TMP2}/admin-web" "${TMP2}/client-web"
+printf 'API_PORT=9999\nTB_ADDRESS=127.0.0.1:9999\nGOVERNANCE_DEMO_ENABLED=false\n' >"${TMP2}/.env"
+APP_DIR="${TMP2}"; STACK="main"
+BACKEND_PORT=3000; ADMIN_PORT=3001; CLIENT_PORT=3002; TB_PORT=3003
+BACKEND_URL="http://localhost:3000"; ADMIN_URL="http://localhost:3001"; CLIENT_URL="http://localhost:3002"
+TB_ADDRESS="127.0.0.1:3003"
+default_database_url() { echo "file:/tmp/exchange_js_main/dev.db"; }
+ensure_env_files >/dev/null 2>&1
+assert "main:API_PORT 重写为 3000"                    '^API_PORT=3000$'                "${TMP2}/.env"
+assert "main:TB_ADDRESS 重写为 3003"                  '^TB_ADDRESS=127\.0\.0\.1:3003$' "${TMP2}/.env"
+assert "main:DATABASE_URL 指主库"                     '^DATABASE_URL="file:/tmp/exchange_js_main/dev.db"$' "${TMP2}/.env"
+assert "main:不覆盖操作者的 GOVERNANCE_DEMO_ENABLED=false" '^GOVERNANCE_DEMO_ENABLED=false$' "${TMP2}/.env"
+rm -rf "${TMP2}"
+
 [ "${fail}" = "0" ] && { echo "PASS"; exit 0; } || { echo "FAIL"; exit 1; }
