@@ -64,4 +64,11 @@ export class WithdrawalAddressController {
     const { customerId, customerNo } = this.extractCustomer(req);
     return this.workflowService.cancelAddress(addressNo, customerId, customerNo);
   }
+
+  @Post(':addressNo/deactivate')
+  @ApiOperation({ summary: 'Deactivate an active withdrawal address' })
+  async deactivate(@Request() req: any, @Param('addressNo') addressNo: string) {
+    const { customerId, customerNo } = this.extractCustomer(req);
+    return this.workflowService.deactivateAddress(addressNo, customerId, customerNo);
+  }
 }

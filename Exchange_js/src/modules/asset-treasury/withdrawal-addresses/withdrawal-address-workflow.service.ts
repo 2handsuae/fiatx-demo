@@ -132,7 +132,7 @@ export class WithdrawalAddressWorkflowService {
       workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
       traceId,
       result: AuditResult.SUCCESS,
-      metadata: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency },
+      metadata: { addressType: 'BANK', iban: maskedIban, bankName: dto.bankName, assetCurrency: asset.currency, skipCooling: address.status === 'ACTIVE' },
       sourcePlatform: 'CLIENT_API',
       entityOwnerId: customerId,
       entityOwnerNo: customerNo,
@@ -157,6 +157,29 @@ export class WithdrawalAddressWorkflowService {
       traceId: existing.traceId,
       result: AuditResult.SUCCESS,
       metadata: { cancelledByCustomerNo: customerNo },
+      sourcePlatform: 'CLIENT_API',
+      entityOwnerId: customerId,
+      entityOwnerNo: customerNo,
+    });
+
+    return result;
+  }
+
+  async deactivateAddress(addressNo: string, customerId: string, customerNo: string) {
+    const existing = await this.addressService.findByNo(addressNo);
+    if (!existing) throw new NotFoundException({ code: 'ADDRESS_NOT_FOUND', message: `Address ${addressNo} not found` });
+
+    const result = await this.addressService.deactivate(addressNo, customerId);
+
+    await this.auditLogsService.recordSystem({
+      action: AuditGovernanceActions.WITHDRAWAL_ADDRESS_REGISTRATION.ADDRESS_DEACTIVATED,
+      entityType: AuditEntityTypes.WITHDRAWAL_ADDRESS,
+      entityId: existing.id,
+      entityNo: addressNo,
+      workflowType: AuditBusinessWorkflowTypes.WITHDRAWAL_ADDRESS_REGISTRATION,
+      traceId: existing.traceId,
+      result: AuditResult.SUCCESS,
+      metadata: { deactivatedByCustomerNo: customerNo },
       sourcePlatform: 'CLIENT_API',
       entityOwnerId: customerId,
       entityOwnerNo: customerNo,
