@@ -23,6 +23,7 @@ import {
   FundsOrderStatus,
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -53,6 +54,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly fundsOrders: FundsOrderService,
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
+    private readonly withdrawalAddresses: WithdrawalAddressService,
   ) {}
 
   onModuleInit() {
@@ -200,6 +202,14 @@ export class DepositWorkflowService implements OnModuleInit {
     if (DepositWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) {
       this.logger.warn(
         `Auto-approval skip: deposit ${depositId} customer status=${complianceStatus}`,
+      );
+      return;
+    }
+
+    const ready = await this.withdrawalAddresses.hasActiveFiatWithdrawalAddress(deposit.ownerId);
+    if (!ready) {
+      this.logger.warn(
+        `Auto-approval hold: deposit ${depositId} customer ${deposit.ownerId} not trading-ready (no active fiat withdrawal address) — staying in COMPLIANCE_PENDING`,
       );
       return;
     }

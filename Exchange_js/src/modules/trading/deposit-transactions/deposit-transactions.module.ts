@@ -7,9 +7,10 @@ import { DepositWorkflowService } from './deposit-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
+import { WithdrawalAddressesModule } from '../../asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
 
 @Module({
-  imports: [forwardRef(() => OnboardingModule), TigerBeetleModule, FundsLayerModule, FundsOrdersModule],
+  imports: [forwardRef(() => OnboardingModule), TigerBeetleModule, FundsLayerModule, FundsOrdersModule, WithdrawalAddressesModule],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,

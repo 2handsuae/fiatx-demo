@@ -4,6 +4,7 @@ import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
+import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import {
   DepositTransactionStatus,
@@ -17,6 +18,7 @@ describe('DepositWorkflowService', () => {
   let depositService: Record<string, jest.Mock>;
   let auditLogsService: Record<string, jest.Mock>;
   let fundsOrders: Record<string, jest.Mock>;
+  let withdrawalAddresses: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     depositService = {
@@ -36,6 +38,9 @@ describe('DepositWorkflowService', () => {
       advance: jest.fn().mockResolvedValue(undefined),
       create: jest.fn(),
     };
+    withdrawalAddresses = {
+      hasActiveFiatWithdrawalAddress: jest.fn().mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,6 +49,7 @@ describe('DepositWorkflowService', () => {
         { provide: FundsOrderService, useValue: fundsOrders },
         { provide: AuditLogsService, useValue: auditLogsService },
         { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
+        { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
       ],
     }).compile();
 
@@ -144,11 +150,41 @@ describe('DepositWorkflowService', () => {
       });
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
       depositService.updateStatus.mockResolvedValue({});
+      withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
 
       await service.checkAutoApproval('dep-1');
 
       expect(depositService.findOne).toHaveBeenCalledWith('dep-1');
       expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-1');
+      expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-1');
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-1', {
+        action: DepositTransactionAction.APPROVE,
+      });
+    });
+
+    it('holds deposit in COMPLIANCE_PENDING when customer is not trading-ready (no active fiat address)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DEP001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        kytStatus: 'PASSED',
+        travelRuleStatus: 'PASSED',
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        assetId: 'asset-1',
+        amount: '100',
+        payinId: 'payin-1',
+        traceId: 'trace-1',
+        asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
+      });
+      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(false);
+
+      await service.checkAutoApproval('dep-1');
+
+      expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-1');
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(fundsOrders.findByParent).not.toHaveBeenCalled();
     });
 
     it('does not approve when deposit is FROZEN (even if KYT+TR passed)', async () => {
@@ -222,11 +258,15 @@ describe('DepositWorkflowService', () => {
       });
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
       depositService.updateStatus.mockResolvedValue({});
+      withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
 
       await service.checkAutoApproval('dep-fiat-1');
 
       expect(depositService.findOne).toHaveBeenCalledWith('dep-fiat-1');
       expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-fiat-1');
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-fiat-1', {
+        action: DepositTransactionAction.APPROVE,
+      });
     });
   });
 
@@ -291,6 +331,7 @@ describe('DepositWorkflowService', () => {
           { provide: FundsOrderService, useValue: fundsOrders },
           { provide: AuditLogsService, useValue: auditLogsService },
           { provide: AccountingService, useValue: accountingService },
+          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
         ],
       }).compile();
 
