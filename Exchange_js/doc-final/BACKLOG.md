@@ -15,6 +15,7 @@ Last Updated: 2026-07-03
 - [ ] 五公式旧对账链 provider 仍注册未删（BalanceRecon / MatchEngine / ClassifierService / InternalActionsService / LegProjection 等，模块注释自认 wallet-* 三件套才是 sole live path）｜来源: 2026-07-03 死码体检 ｜Phase C
 - [ ] 证据包防御死分支：`complianceAlert / complianceIncident / journal / clearing / kytCase / travelRuleCase` 模型均不存在，audit-logs.service 仍带可选链查询（`?.findMany` 优雅降级不炸，但恒空）｜来源: 2026-07-03 死码清理（超清单范围未动）｜Phase C
 - [ ] `reconciliation.constants.ts` 的 `L.TRADE_CLEARING` 常量（credit-net 旧引擎残留）｜来源: 2026-07-03 死码体检 ｜Phase C
+- [ ] **`/admin/pricing/policies*` 幽灵路由 + `CUSTOMER_RATE_READ/WRITE` 死权限组**：`rbac.catalog.ts` 注册 4 条 `/admin/pricing/policies*` + `/admin/pricing/simulator/swap`（挂 `CUSTOMER_RATE_READ`），但 pricing-center 模块只剩 engine（`PricingEngineService`/providers/types，**无 controller**）——PricingCenter admin surface 删除后路由残留、无人服务；`CUSTOMER_RATE_READ/WRITE` 除 catalog 外全仓 0 引用；活的定价 admin 面是 fee-levels（swap/withdrawal-fee-levels）。应删 5 条 route def + 2 个死权限组 ｜来源: 2026-07-11 权限包细化（用户疑老菜单，代码证实幽灵）
 - [x] ~~subledger-inputs.service + repo 两死方法 / governance-demo-seed / 10 个死权限常量 / REIMBURSEMENT_OBLIGATION 常量 / internalTransaction+outstanding 证据包死链~~ ｜已在 worktree 删除（−651 行，tsc/jest 全绿）待合 main
 
 ## 技术债 — V4 充值
