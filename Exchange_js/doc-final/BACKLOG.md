@@ -51,6 +51,8 @@ Last Updated: 2026-07-03
 - [ ] 兑换成功通知未接（SUCCESS 时不调 Notification）｜来源: 2026-07-04 V6 体检
 - [ ] TB 记账失败无专用 repair surface（仅 resume 重试，无修复 UI/端点）｜来源: 2026-07-04 V6 体检
 - [ ] 架构命名漂移：roadmap 写"SwapSettlementService"该类不存在，实为 SwapWorkflowService+SwapLegAccounting+SwapTransactionsService（文档订正即可，非代码债）｜来源: 2026-07-04 V6 体检
+- [x] ~~swap 腿 `${swapNo}:${legSeq}:${attempt}:pending` 合成 externalRef（非真实穿越号，与 `isExternalCrossing:true` 自相矛盾，对账 Pass1 永配不上真实外部行）~~ ｜已修：externalRef 生成/回写收口归 funds_order，postLeg→enrichForPost 补真实铸号（2026-07-11，spec/plan `2026-07-11-funds-order-externalref-consolidation`）
+- [ ] demo 播种铸号种子不一致：`client-web Deposit.tsx` 与 `demo-lib.ts` 用 `walletId` 作 `fakeChainTxHash/fakeBankRef` 种子，funds_order 收口后 canonical 种子是 `fundsOrderNo`（两侧各自成对、不影响匹配，仅种子来源未统一）｜来源: 2026-07-11 externalRef 收口
 > 注：swap 腿 InternalFund 命名债已并入下方「平账处置」的 funds-orders 域 RBAC 命名债条目，不重复登记。
 
 ## 技术债 — V8 对账

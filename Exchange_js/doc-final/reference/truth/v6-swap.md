@@ -1,6 +1,6 @@
 # V6 兑换流程 — 当前实现真相
 
-Last Verified: 2026-07-04（核对方式：三路 subagent 走查 + 主线裁决 reverse/FAILED/REVERSED 可达性 + SwapSettlementService 命名）
+Last Verified: 2026-07-11（核对方式：externalRef 收口体检——swap 腿真实转账/有真实 externalRef 纠偏 + demo:all/recon:demo 端到端佐证）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -8,7 +8,7 @@ Last Verified: 2026-07-04（核对方式：三路 subagent 走查 + 主线裁决
 
 ## 0. 一句话定位
 
-平台内兑换（crypto↔fiat 余额交换，**资金不出境、无外部对手方**）：报价 → L1 资格 → 消费 Quote → 4 腿实时记账 → SUCCESS。合规**仅 L1 同步 eligibility**（无 L2 KYT/TR、无大额审批门——与充值/提现的三层合规刻意不同，因资金不出境）。**不**管：内部转账、上链。
+平台内兑换（crypto↔fiat 余额交换）：报价 → L1 资格 → 消费 Quote → 4 腿实时记账 → SUCCESS。**"平台内"= 在我方掌控的账户体系内做真实转账**——每腿跨钱包移动、有真实 externalRef（crypto→txHash / fiat→referenceNo，由 funds_order 在 CONFIRMED 铸、postLeg→enrichForPost 盖进 evidence）；**非**"纯账面划拨/无外部穿越"（旧口径已纠）。合规**仅 L1 同步 eligibility**（无 L2 KYT/TR、无大额审批门——因**无第三方对手方**，与充值/提现的三层合规刻意不同）。**不**管：上链广播（模拟系统无真实外部 API）。
 
 ## 1. 状态机
 

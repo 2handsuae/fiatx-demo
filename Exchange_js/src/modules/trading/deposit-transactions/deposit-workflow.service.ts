@@ -469,8 +469,8 @@ export class DepositWorkflowService implements OnModuleInit {
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
     // Phase B per-physical-wallet recon: the deposit's payin funds_order pins the
-    // specific wallet that received the funds, plus its external ref (crypto txHash
-    // / bank referenceNo). Falls back to the deposit's own refs when not passed.
+    // specific wallet that received the funds. Falls back to the deposit's own
+    // toWalletId when the funds_order isn't passed.
     const walletRef: string | null =
       fundsOrder?.toWalletId ?? deposit.toWalletId ?? null;
     // externalRef 归 funds_order 所有(CONFIRMED 时按资产类型铸)。STEP_1 是外部穿越腿,

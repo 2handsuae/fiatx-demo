@@ -95,9 +95,9 @@ export class SwapLegAccounting {
    *
    * Phase B fields:
    *   debit/creditWalletRef → physical wallet on each side (resolved per TB code).
-   *   externalRef           → swap-internal reference `${swapNo}:${legSeq}:${phase}`.
-   *                           Swaps don't broadcast on-chain, so the swap-internal
-   *                           prefix IS the cross-validation key.
+   *   externalRef           → owned by the leg's funds_order (crypto→txHash /
+   *                           fiat→referenceNo, minted at CONFIRMED). Stamped onto
+   *                           the POSTED evidence by postLeg → enrichForPost, not here.
    *   isExternalCrossing    → true for all swap legs in this codebase (all are
    *                           genuine cross-wallet moves per swap-leg-plan).
    */
