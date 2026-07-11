@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-07-03
+Last Updated: 2026-07-11
 
 ---
 
@@ -41,6 +41,7 @@ Last Updated: 2026-07-03
 
 ## 技术债 — V5 提现
 
+- [ ] **提现报价审计未落地**：报价流程（`WithdrawQuoteService.createQuote/consumeQuote/cancelQuote`）零打点——常量 `WITHDRAW_PRICING_QUOTE_CREATED/_USED/_CANCELLED`（entityType `WITHDRAW_PRICING_QUOTE`）已定义但 `withdraw-quote.service.ts` 从不调用（grep 实证 0 命中，该文件无任何 audit 引用）；对比兑换 `SWAP_QUOTE_CREATED/USED/CANCELLED` 已在 `swap-quote.service.ts:249/319/364` 落地。应补打 QUOTE_CREATED/USED/CANCELLED（workflowType `WITHDRAW_QUOTE`），与兑换对齐 ｜来源: 2026-07-11 提现报价单文档 v2 §4.1.3
 - [ ] Sumsub KYT/TR 真实集成未做：仅模拟端点；`archivePostKyt()` 明确注释为 stub，待替换真实 PATCH /kyt/txns 调用 ｜来源: 2026-07-03 V5 体检
 - [ ] 热钱包余额校验无：Payout 前不查 Outbound Wallet 余额，不足不显式失败 ｜来源: 2026-07-03 V5 体检
 - [ ] 提现成功通知未接：SUCCESS 时不调 `NotificationsGateway`（基础设施在、workflow 没调）｜来源: 2026-07-03 V5 体检
@@ -48,6 +49,7 @@ Last Updated: 2026-07-03
 - [ ] 前后端 FROZEN 漂移：前端 `Withdraw.tsx` tipping-off 过滤引用 FROZEN，但后端 withdraw 枚举无此态（映射本身正常）｜来源: 2026-07-03 V5 体检
 - [ ] 模拟端点缺 `simulate/payout-confirmed`：只有 kyt-phase1/2 + travel-rule，payout 确认改走 funds_order advance（非缺失，记录以免误判）｜来源: 2026-07-03 V5 体检
 - [ ] 在途提现守卫（deactivate 的 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`）靠 `toIban/toAddress` 字符串匹配，`Withdraw.tsx` 手输地址模式下会漏配（无 addressNo FK 关联提现与地址）→ 假阴性可绕过守卫；正解需给 WithdrawTransaction 加 addressNo/addressId FK ｜来源: 2026-07-11 Task 6 spec 审
+- [ ] **旧 "L3: Post-Tx Archive" 命名与交易风控 L3 撞名**：`withdraw-workflow.service.ts:1237/1368` 的 `archivePostKyt()` 注释标 `// L3: Post-Tx Archive`；交易风控 spec（2026-07-12）把 **L3 定义为「行为监测」**，此 txHash 归档实为 L3 的数据上游（喂 Sumsub TM），落地时改名（如 "Post-Tx txHash 归档"），勿再叫 L3 ｜来源: 2026-07-12 交易风控三闸门 spec §1
 
 ## 技术债 — V6 兑换
 
@@ -101,6 +103,19 @@ Last Updated: 2026-07-03
 - [ ] **权限包目录三动词标准化 + 铺满 9 空域（本轮只出文档，代码待实现）**：定《权限与审计规范》以 View/Manage/Act 三动词为标准；现 `ACTION_BUCKET_CATALOG` 15 域仅 6 域有 bucket，`customer/compliance/trading/recon/pricing/config/gov_registry/counterparty/clearing` 9 域为空壳 → 自定义角色 UI 勾不到交易等能力；且缺 `funds`（资金单）域。代码活：按三动词补全各域 bucket + 新增 funds 域（含上条 FUNDS_ORDER_VIEW/ACT 拆分）+ Act 档对齐 SoD。中央规范以 `rbac.catalog.ts` 为唯一真相源、文档镜像防漂移 ｜来源: 2026-07-11 权限包集中化 brainstorm（甲·三动词，本轮文档 only）
 - [x] ~~**缺"真实卡单"demo 场景演完整 heal 闭环**~~：**已兑现（2026-07-04 canon2 T6）**。`demo:in-transit --verify`（真实卡提现，非状态壳）端到端实证：DETECTION 落 IN_TRANSIT 残差 0 → 推单 sync CLEARED → 等净额 POST 落库 → 重对账 **delta=0**、卡腿脱离 IN_TRANSIT（连跑无 reset 3 次幂等 PASS）。case 自愈到 RESOLVED/AUTO_HEALED 需钱包零异常达 MATCHED（复用 demo 钱包有历史内部单腿 → SOFT_FLAG），该路径由单测 `wallet-recon-run.service.spec.ts`（"breaks in run A then recovers in run B → RESOLVED/AUTO_HEALED"）证明｜来源: 2026-07-03 推单 T5 → 2026-07-04 canon2 T6 收口
 
+## 技术债 — 费率等级治理（2026-07-11 V3 PRD 需求，本轮只出文档、代码未实现）
+
+> 来源统一：`doc-final/superpowers/`（拟）+ 飞书《交易费率等级治理》V3（docx `KoqidVBVMoPIBoxOVVKltxn6g9c`）。现状已在代码：`isDefault`(EVERYONE)、binding 表(EXPLICIT)、cheapest 取最低费、configHash 冲突门、OPS_OFFICER 48h 审批。以下为 V3 新立需求。
+
+- [ ] **受众谓词引擎**：现状仅 `isDefault` + binding 表两种受众；V3 要求 level 挂 `{ requiredTags: string[], window?: [validFrom,validTo] }`，成交时 `(窗未设∨now∈窗)∧(requiredTags⊆客户标签)` 判命中。含 WINDOW（限时活动，超窗自动失效）+ TAG（VIP/新客/白名单）两型新增 ｜来源: 2026-07-11 费率 V3 §3.4/§5.2
+- [ ] **客户标签求值器 `effectiveTags(customerId, now)`**（依赖《客户管理》，未建）：返回 静态标签 ∪ 派生标签，供费率成交时消费。费率域只声明"要什么标签"，不定义"客户带什么标签" ｜来源: 2026-07-11 费率 V3 §5.3
+- [ ] **派生标签读时算（免定时器）**：如 `NEW_CUSTOMER = (now−起算日)≤newCustomerDays`（起算日=onboarding 完成/首次可交易日）；铁律=时间/行为衍生标签一律读时现算、**禁 cron 落标签再清**（防 staleness 错价）；到期通知走一次性定时、与价格判定解耦 ｜来源: 2026-07-11 费率 V3 §5.3
+- [ ] **binding 表退役 + 迁移**：删 `withdrawal_fee_level_bindings`/`swap_fee_level_bindings`，"指定客户"改由客户域**白名单静态标签**表达（现有 binding 迁为标签赋值，LEVEL_BOUND/UNBOUND 审计语义迁客户域）；须**等价保真**（迁移前后同客户取费一致，V3 §6.5）｜来源: 2026-07-11 费率 V3 §5.4
+- [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
+- [ ] **⚠待定：受众（requiredTags/window）变更口径**：现变更流只覆盖 `tiersJson`（configHash 保护费率本身）；受众字段变更是否也走 configHash + 审批链未定 ｜来源: 2026-07-11 费率 V3 §4.2
+- [ ] **费率变更 30 日历日生效闸 + 通知客户**：现即改即生效；与提现/兑换 backlog 的 30 日闸同源（MC II.A.7/8），费率治理统一落 ｜来源: 2026-07-11 费率 V3 §1.2
+- [ ] **待决策：cheapest 只减免不加价**：命中集合取最低费 → 更贵的级永不胜出；若将来要"VIP 必走 VIP（即便更贵）"或高风险客户加附加费，须改**优先级选级引擎**（V3 明确不做，留此账）｜来源: 2026-07-11 费率 V3 §5.5
+
 ## 待决策（等业主拍板）
 
 - [ ] **限额执行接入 vs 明示退役**：表和审批管道已建，执行侧零消费 ｜来源: 2026-07-03 V3 体检
@@ -108,6 +123,7 @@ Last Updated: 2026-07-03
 - [ ] **客户 TB 账户创建策略**：补事件驱动异步创建 or 认可懒加载 + 补文档 ｜来源: 2026-07-03 V3 体检
 - [ ] **InternalFundAuditLog 有读无写**：Round 2 后零写入方，详情页审计列表永远空——补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）
 - [ ] **资金单合并可行性**：payin/payout/internalfund 状态机近同构，可评估进一步合并 ｜来源: Round 2 遗留
+- [ ] **单笔金额级冻结原语（交易风控 L3 前置依赖）**：已终态充值/兑换订单命中行为监测（L3）需冻结"对应金额"，现仅有客户级整体冻结（V2 冻结流），无 TB 层单笔金额锁定/冻结子账户原语；交易风控 L3 落地前须先建（提现无此需求——钱已出只管人）。设计见 `superpowers/specs/2026-07-12-transaction-risk-gates-design.md` §5/§7 ｜来源: 2026-07-12 交易风控三闸门 spec（业主定 deferred，不纳入本 spec）
 
 ## 疑似幽灵按钮（红色，需查证）
 
