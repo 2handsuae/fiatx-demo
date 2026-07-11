@@ -1,6 +1,6 @@
 # 资金单（funds_orders）— 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-07-11（核对方式：externalRef 收口落地——生成/回写归 funds_order（§3）+ demo:all 8/8 / recon:demo pass·break / verify:coa 端到端佐证）
+Last Verified: 2026-07-12（核对方式：externalRef 收口（§3）+ admin 列表读面展示 External Ref（§3 末）落地；demo:all 8/8 / recon:demo pass·break / verify:coa 端到端佐证）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V4(充值)/V5(提现)/V6(兑换)/V8(对账) 引用——资金单状态机与执行引擎的唯一真相。各版本文档只描述"自己怎么用资金单"，状态机与共享 service 链到此。
 
@@ -39,7 +39,8 @@ Last Verified: 2026-07-11（核对方式：externalRef 收口落地——生成/
 - **externalRef 铸造/回写（funds_order 独占 owner）**：**首次到达 CONFIRMED** 由私有 `buildExternalRefPatch()` 按资产类型铸号落既有列——crypto→`txHash`(`fakeChainTxHash`) / fiat→`referenceNo`(`fakeBankRef`)，种子=`fundsOrderNo`、**幂等**（充值虚拟币沿用发起方 detected 带入的真实 txHash，不覆盖）；触发点在 `advance()`（`next===CONFIRMED`）+ `create()`（`FIAT_IN` 出生即 CONFIRMED）。消费方（账务/对账/前端）经 **`resolveExternalRef(row)`** 读（crypto→txHash / fiat→referenceNo），订单三域不再各自推导。swap 腿 pending 不带号，`postLeg → tbEvidence.enrichForPost` 在 CONFIRMED 补写真实号并重投影 account_flows（外部对账镜像 `writeMirror` 从 account_flows 复制 → 两侧构造性恒等）
 - **查询**：`findById`/`findByNo`/`findByParent`/`findAllForAdmin`；**`findNonTerminalByWallet(walletId)`** — V8 对账在途识别（非终态资金单 ↔ 孤儿外部行配对）
 - **CLEAR 时记账**：充值两步 / 提现 post+fee / swap 四腿两阶段——具体记账口径见 accounting-coa.md
-- 锚点：`funds-orders/funds-order.service.ts → create()/advance()/advanceByNo()/findNonTerminalByWallet()/resolveExternalRef()/buildExternalRefPatch()` ｜ 铸造器 `common/utils/fake-external-refs.util.ts → fakeChainTxHash()/fakeBankRef()` ｜ swap 补写 `swap-transactions/swap-leg-accounting.ts → postLeg()`(经 `tb-evidence.service.ts → enrichForPost()`) ｜ admin `funds-orders.admin.controller.ts`（列表/详情 + ⚡模拟推进 + 推单）
+- **admin 读面**：`admin-web/src/pages/FundsOrderList.tsx`（列表）用前端小解析器（镜像 `resolveExternalRef`：crypto→txHash / fiat→referenceNo）展示 **External Ref 列**，类型(parent)/状态走筛选栏下拉（原顶部类型 tab 已删）；`FundsOrderDetail.tsx`（详情，⚡模拟推进 + 推单处置）。列表页全英文，菜单在 Trading 组 Swap Transactions 下。
+- 锚点：`funds-orders/funds-order.service.ts → create()/advance()/advanceByNo()/findNonTerminalByWallet()/resolveExternalRef()/buildExternalRefPatch()` ｜ 铸造器 `common/utils/fake-external-refs.util.ts → fakeChainTxHash()/fakeBankRef()` ｜ swap 补写 `swap-transactions/swap-leg-accounting.ts → postLeg()`(经 `tb-evidence.service.ts → enrichForPost()`) ｜ admin 后端 `funds-orders.admin.controller.ts`（列表/详情 + ⚡模拟推进 + 推单）
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
 
