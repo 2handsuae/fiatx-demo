@@ -1505,6 +1505,7 @@ model AccountFlow {
   transferType         String   // 'POSTED' | 'PENDING' | 'POST_PENDING' | 'VOID_PENDING'
   assetCode            String
   effectiveDate        String   @default("") // 业务归属日 YYYY-MM-DD（UTC）；default 仅为 SQLite ALTER 所需，写入方必须显式设置
+  balanceAfter         Decimal? // 该账户在这笔过账后的类别感知余额（分）；历史行未回填为 null；仅单账户视图展示
   createdAt            DateTime
 
   @@unique([tbTransferId, tbAccountId])

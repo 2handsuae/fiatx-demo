@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, X } from 'lucide-react';
+import { Plus, RefreshCw, X, Copy } from 'lucide-react';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -34,6 +34,7 @@ interface LedgerAccountRow {
   status: string;
   description: string | null;
   flags: number;
+  balance: string | null;
   createdAt: string;
 }
 
@@ -72,6 +73,19 @@ const PAGE_SIZE = 50;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 
+/* bigint-safe 分→元（与 AccountFlowList.formatMinorToMajor 同源）。 */
+const formatMinorToMajor = (raw: string, decimals: number): string => {
+  const s = String(raw ?? '0');
+  let neg = false;
+  let body = s;
+  if (body.startsWith('-')) { neg = true; body = body.slice(1); }
+  const padded = body.padStart(decimals + 1, '0');
+  const intPart = padded.slice(0, padded.length - decimals) || '0';
+  const fracPart = decimals > 0 ? padded.slice(padded.length - decimals) : '';
+  const intGrouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${neg ? '-' : ''}${intGrouped}${fracPart ? `.${fracPart}` : ''}`;
+};
+
 const formatDate = (d: string) =>
   new Date(d).toLocaleString('en-US', {
     month: 'short',
@@ -98,6 +112,7 @@ const LedgerAccountList = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateForm>(EMPTY_FORM);
   const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -160,6 +175,9 @@ const LedgerAccountList = () => {
         (a: any) => a.tbLedgerId != null,
       );
       setAssets(provisioned.map((a: any) => ({ code: a.code, type: a.type })));
+      const dec: Record<string, number> = {};
+      for (const a of provisioned) if (typeof a.decimals === 'number') dec[String(a.currency ?? a.code)] = a.decimals;
+      setDecimalsMap(dec);
     } catch {
       /* ignore */
     }
@@ -248,6 +266,8 @@ const LedgerAccountList = () => {
   const th =
     'px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3';
 
+  const decimalsOf = (assetCode: string): number => decimalsMap[assetCode] ?? 2;
+
   /* ── Render ── */
 
   return (
@@ -333,11 +353,13 @@ const LedgerAccountList = () => {
           <thead className="sticky top-0 z-10 bg-adm-panel">
             <tr className="border-b border-adm-border">
               <th className={th}>Account</th>
+              <th className={th}>ID</th>
               <th className={th}>Code</th>
               <th className={th}>Ledger</th>
               <th className={th}>Owner</th>
               <th className={th}>Customer No</th>
               <th className={th}>Customer Name</th>
+              <th className={th} style={{ textAlign: 'right' }}>Balance</th>
               <th className={th}>Asset</th>
               <th className={th}>Status</th>
               <th className={th}>Created</th>
@@ -347,7 +369,7 @@ const LedgerAccountList = () => {
             {loading && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={11}
                   className="px-3 py-12 text-center font-mono text-[11px] text-adm-t3"
                 >
                   Loading…
@@ -357,7 +379,7 @@ const LedgerAccountList = () => {
             {!loading && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={11}
                   className="px-3 py-12 text-center font-mono text-[11px] text-adm-t3"
                 >
                   No accounts found.
@@ -381,6 +403,19 @@ const LedgerAccountList = () => {
                   >
                     {TB_CODE_LABELS[row.code] ?? 'CODE_' + row.code} · {row.assetCode}
                   </button>
+                </td>
+                {/* ID */}
+                <td className="px-3 py-2 font-mono text-[10px] text-adm-t2">
+                  <span className="inline-flex items-center gap-1" title={row.tbAccountId}>
+                    <span className="max-w-[220px] truncate">{row.tbAccountId}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(row.tbAccountId); }}
+                      className="text-adm-t3 hover:text-adm-t1"
+                      title="Copy ID"
+                    >
+                      <Copy size={10} />
+                    </button>
+                  </span>
                 </td>
                 {/* Code */}
                 <td className="px-3 py-2 font-mono text-adm-t2">{row.code}</td>
@@ -411,6 +446,10 @@ const LedgerAccountList = () => {
                   ) : (
                     <span className="text-adm-t3">—</span>
                   )}
+                </td>
+                {/* Balance */}
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t1 text-right tabular-nums">
+                  {row.balance != null ? formatMinorToMajor(row.balance, decimalsOf(row.assetCode)) : '—'}
                 </td>
                 {/* Asset */}
                 <td className="px-3 py-2 font-mono font-bold text-adm-t1">

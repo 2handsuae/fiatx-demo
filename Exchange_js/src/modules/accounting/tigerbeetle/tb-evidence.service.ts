@@ -5,6 +5,8 @@ import { Prisma } from '@prisma/client';
 import { COA_TO_TB_CODE, isAssetCode } from './constants/tb-account-codes.constant';
 import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
 import { toBusinessDate } from './utils/business-date.util';
+import { TigerBeetleService } from './tigerbeetle.service';
+import { hexToBigint } from './utils/tb-id.util';
 
 interface WriteEvidenceParams {
   tbTransferId: string;
@@ -40,12 +42,32 @@ export class TbEvidenceService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly tbService: TigerBeetleService,
     // Phase B / T3: project each evidence write into 2 AccountFlow rows so
     // per-wallet drill-down is a single indexed query. The projector is
     // optional — if not injected (unit tests with a partial DI surface) the
     // evidence write still succeeds.
     private readonly flowProjector?: AccountFlowProjectorService,
   ) {}
+
+  /** 过账后类别感知余额（分，字符串）。资产借正、负债/权益贷正。TB 不可用则返回 null。 */
+  private async postedBalanceAfter(
+    tbAccountId: string | null | undefined,
+    coaCode: string,
+  ): Promise<string | null> {
+    if (!tbAccountId) return null;
+    try {
+      const [a] = await this.tbService.lookupAccounts([hexToBigint(tbAccountId)]);
+      if (!a) return null;
+      const isAsset = coaCode.startsWith('A.');
+      const net = isAsset
+        ? a.debits_posted - a.credits_posted
+        : a.credits_posted - a.debits_posted;
+      return net.toString();
+    } catch {
+      return null;
+    }
+  }
 
   async writeEvidence(params: WriteEvidenceParams, tx?: Prisma.TransactionClient): Promise<void> {
     const client = tx ?? this.prisma;
@@ -76,6 +98,16 @@ export class TbEvidenceService {
         effectiveDate: params.effectiveDate ?? toBusinessDate(now),
       };
       await (client as any).tbTransferEvidence.create({ data: evidenceData });
+
+      // T3: capture class-aware posted balance for each leg (projector-only
+      // fields; NOT columns on the evidence row created above). The two lookups
+      // are independent → run them in parallel.
+      const [debitBalanceAfter, creditBalanceAfter] = await Promise.all([
+        this.postedBalanceAfter(params.debitTbAccountId ?? null, params.debitCode),
+        this.postedBalanceAfter(params.creditTbAccountId ?? null, params.creditCode),
+      ]);
+      (evidenceData as any).debitBalanceAfter = debitBalanceAfter;
+      (evidenceData as any).creditBalanceAfter = creditBalanceAfter;
 
       // Phase B / T3: project to AccountFlow on the same client (tx if given)
       // so the 2 flow rows commit atomically with the evidence row.
@@ -132,6 +164,12 @@ export class TbEvidenceService {
         where: { tbTransferId },
       });
       if (updated) {
+        const [debitBalanceAfter, creditBalanceAfter] = await Promise.all([
+          this.postedBalanceAfter(updated.debitTbAccountId, updated.debitCode),
+          this.postedBalanceAfter(updated.creditTbAccountId, updated.creditCode),
+        ]);
+        (updated as any).debitBalanceAfter = debitBalanceAfter;
+        (updated as any).creditBalanceAfter = creditBalanceAfter;
         await this.flowProjector.persist(client as any, updated);
       }
     }
@@ -181,6 +219,12 @@ export class TbEvidenceService {
         where: { tbTransferId },
       });
       if (updated) {
+        const [debitBalanceAfter, creditBalanceAfter] = await Promise.all([
+          this.postedBalanceAfter(updated.debitTbAccountId, updated.debitCode),
+          this.postedBalanceAfter(updated.creditTbAccountId, updated.creditCode),
+        ]);
+        (updated as any).debitBalanceAfter = debitBalanceAfter;
+        (updated as any).creditBalanceAfter = creditBalanceAfter;
         await this.flowProjector.persist(client as any, updated);
       }
     }
@@ -256,6 +300,89 @@ export class TbEvidenceService {
     ]);
 
     return { items, total };
+  }
+
+  async findAllFlows(filters: {
+    tbAccountId?: string;
+    customerNo?: string;
+    walletRef?: string;
+    direction?: string;       // 'IN' | 'OUT'
+    assetCurrency?: string;
+    sourceType?: string;
+    transferType?: string;
+    effectiveFrom?: string;   // YYYY-MM-DD
+    effectiveTo?: string;     // YYYY-MM-DD
+    q?: string;
+    skip?: number;
+    take?: number;
+  }) {
+    const where: any = {};
+    if (filters.tbAccountId) where.tbAccountId = filters.tbAccountId;
+    if (filters.walletRef) where.walletRef = filters.walletRef;
+    if (filters.direction) where.direction = filters.direction;
+    if (filters.assetCurrency) where.assetCode = filters.assetCurrency;
+    if (filters.sourceType) where.sourceType = filters.sourceType;
+    if (filters.transferType) where.transferType = filters.transferType;
+    if (filters.effectiveFrom || filters.effectiveTo) {
+      where.effectiveDate = {};
+      if (filters.effectiveFrom) where.effectiveDate.gte = filters.effectiveFrom;
+      if (filters.effectiveTo) where.effectiveDate.lte = filters.effectiveTo;
+    }
+    // customerNo：先查该客户的 tbAccountId 集合，再约束流水。与 tbAccountId 单值取交集。
+    if (filters.customerNo?.trim()) {
+      const regs = await (this.prisma as any).tbAccountRegistry.findMany({
+        where: { ownerType: 'CUSTOMER', ownerNo: filters.customerNo.trim() },
+        select: { tbAccountId: true },
+      });
+      const custIds: string[] = regs.map((r: any) => r.tbAccountId);
+      if (filters.tbAccountId) {
+        if (!custIds.includes(filters.tbAccountId)) where.tbAccountId = { in: [] };
+        // 命中则保留已设的单值 where.tbAccountId
+      } else {
+        where.tbAccountId = { in: custIds }; // 空集合 → Prisma in:[] 返回 0 行
+      }
+    }
+    const q = filters.q?.trim();
+    if (q) {
+      where.OR = [
+        { tbTransferId: { contains: q } },
+        { tbAccountId: { contains: q } },
+        { walletRef: { contains: q } },
+        { sourceNo: { contains: q } },
+        { externalRef: { contains: q } },
+      ];
+    }
+    const [items, total] = await Promise.all([
+      (this.prisma as any).accountFlow.findMany({
+        where, orderBy: { createdAt: 'desc' },
+        skip: filters.skip ?? 0, take: filters.take ?? 50,
+      }),
+      (this.prisma as any).accountFlow.count({ where }),
+    ]);
+    return { items: await this.attachAccountIdentity(items), total, singleAccount: !!filters.tbAccountId };
+  }
+
+  /** 给流水行批量挂账户身份(code/owner)：单次 IN 查询，禁 N+1。
+   *  customerNo/ownerUuid 仅对 CUSTOMER 账户暴露，SYSTEM/LP 恒 null。 */
+  private async attachAccountIdentity(rows: any[]): Promise<any[]> {
+    const ids = [...new Set(rows.map((r) => r.tbAccountId).filter(Boolean))];
+    if (ids.length === 0) return rows;
+    const regs = await (this.prisma as any).tbAccountRegistry.findMany({
+      where: { tbAccountId: { in: ids } },
+      select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true, ownerUuid: true },
+    });
+    const map = new Map<string, any>(regs.map((r: any) => [r.tbAccountId, r]));
+    return rows.map((r) => {
+      const reg = map.get(r.tbAccountId);
+      const isCustomer = reg?.ownerType === 'CUSTOMER';
+      return {
+        ...r,
+        accountCode: reg?.code ?? null,
+        ownerType: reg?.ownerType ?? null,
+        ownerNo: isCustomer ? (reg?.ownerNo ?? null) : null,
+        ownerUuid: isCustomer ? (reg?.ownerUuid ?? null) : null,
+      };
+    });
   }
 
   async getAccountStatement(

@@ -321,13 +321,13 @@ const ReconciliationExternalBalancesPage = () => {
               {/* Cross-ref footer */}
               <section className="p-6">
                 <a
-                  href="/admin/ledger/account-statement?crossingOnly=true"
+                  href="/admin/ledger/flows"
                   className="text-[12px] text-adm-amber hover:underline"
                 >
-                  View in Internal Book →
+                  View in Internal Book / 流水 →
                 </a>
                 <p className="mt-1 text-[10px] text-adm-t3">
-                  Opens the internal account statement filtered to cross-account transfers. Wallet pre-selection deferred — see design doc §11.
+                  Opens the internal account flows (raw per-account ledger rows).
                 </p>
               </section>
             </>

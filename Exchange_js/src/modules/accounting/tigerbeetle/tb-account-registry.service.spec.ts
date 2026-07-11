@@ -1,5 +1,5 @@
 // src/modules/accounting/tigerbeetle/tb-account-registry.service.spec.ts
-import { TbAccountRegistryService } from './tb-account-registry.service';
+import { TbAccountRegistryService, postedBalanceForCode } from './tb-account-registry.service';
 
 describe('TbAccountRegistryService', () => {
   let service: TbAccountRegistryService;
@@ -17,7 +17,8 @@ describe('TbAccountRegistryService', () => {
       },
       customerMain: { findMany: jest.fn() },
     };
-    service = new TbAccountRegistryService(mockPrisma);
+    const mockTbService: any = { lookupAccounts: jest.fn().mockResolvedValue([]) };
+    service = new TbAccountRegistryService(mockPrisma, mockTbService);
   });
 
   describe('register', () => {
@@ -129,5 +130,17 @@ describe('TbAccountRegistryService', () => {
         { ownerUuid: { in: ['u9'] } },
       ]);
     });
+  });
+});
+
+describe('postedBalanceForCode', () => {
+  it('asset code (1=CLIENT_ASSET): debits − credits', () => {
+    expect(postedBalanceForCode({ debits_posted: 500n, credits_posted: 200n }, 1)).toBe('300');
+  });
+  it('liability code (100=CLIENT_PAYABLE): credits − debits', () => {
+    expect(postedBalanceForCode({ debits_posted: 200n, credits_posted: 500n }, 100)).toBe('300');
+  });
+  it('equity code (200=FIRM_OPS): credits − debits', () => {
+    expect(postedBalanceForCode({ debits_posted: 0n, credits_posted: 700n }, 200)).toBe('700');
   });
 });

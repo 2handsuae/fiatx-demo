@@ -310,10 +310,10 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
         {
-          path: '/admin/ledger/account-statement',
-          label: 'Account Statement',
+          path: '/admin/ledger/flows',
+          label: 'Account Flows',
           icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+          requiredPermissions: [PERMISSIONS.TB_FLOWS_READ],
         },
       ],
     },

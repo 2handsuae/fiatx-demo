@@ -41,6 +41,7 @@
     "check:asset:decimals": "bash scripts/check-asset-amount-format.sh",
     "audit:retention:dry": "ts-node scripts/audit-retention-job.ts --dry-run",
     "audit:retention:apply": "ts-node scripts/audit-retention-job.ts --apply",
+    "backfill:account-flow-balance": "ts-node scripts/backfill-account-flow-balance.ts",
     "recon:demo": "DATABASE_URL=\"${DATABASE_URL:-file:./dev.db}\" TB_ADDRESS=\"${TB_ADDRESS:-127.0.0.1:3003}\" ts-node -r tsconfig-paths/register scripts/recon-demo.ts",
     "recon:demo:pass": "DATABASE_URL=\"${DATABASE_URL:-file:./dev.db}\" TB_ADDRESS=\"${TB_ADDRESS:-127.0.0.1:3003}\" ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass",
     "recon:demo:break": "DATABASE_URL=\"${DATABASE_URL:-file:./dev.db}\" TB_ADDRESS=\"${TB_ADDRESS:-127.0.0.1:3003}\" ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break",

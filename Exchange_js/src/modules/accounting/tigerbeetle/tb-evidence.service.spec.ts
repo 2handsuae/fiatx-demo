@@ -4,8 +4,12 @@ import { TbEvidenceService } from './tb-evidence.service';
 describe('TbEvidenceService', () => {
   let service: TbEvidenceService;
   let mockPrisma: any;
+  let mockTbService: any;
 
   beforeEach(() => {
+    // T3: postedBalanceAfter calls tbService.lookupAccounts; return [] so it
+    // resolves to null (TB balance unavailable in unit tests — not asserted).
+    mockTbService = { lookupAccounts: jest.fn().mockResolvedValue([]) };
     mockPrisma = {
       tbTransferEvidence: {
         create: jest.fn(),
@@ -17,8 +21,9 @@ describe('TbEvidenceService', () => {
         create: jest.fn(),
       },
       accountFlow: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         groupBy: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       tbAccountRegistry: {
         findUnique: jest.fn(),
@@ -36,7 +41,7 @@ describe('TbEvidenceService', () => {
         findFirst: jest.fn(),
       },
     };
-    service = new TbEvidenceService(mockPrisma);
+    service = new TbEvidenceService(mockPrisma, mockTbService);
   });
 
   describe('writeEvidence', () => {
@@ -123,7 +128,7 @@ describe('TbEvidenceService', () => {
 
     it('Phase B / T3: when projector is wired, writeEvidence calls projector.persist on the same client (tx)', async () => {
       const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
-      const svc = new TbEvidenceService(mockPrisma, projector);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await svc.writeEvidence(
@@ -144,8 +149,29 @@ describe('TbEvidenceService', () => {
       }));
     });
 
+    it('T3: threads class-aware balanceAfter into projector — asset=debits−credits, L/E=credits−debits', async () => {
+      const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
+      // Both legs resolve to the same TB account balance {debits 1500, credits 600}.
+      mockTbService.lookupAccounts.mockResolvedValue([{ debits_posted: 1500n, credits_posted: 600n }]);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await svc.writeEvidence({
+        ...params,
+        debitCode: 'A.CUSTODY', // asset → 1500 − 600 = 900
+        creditCode: 'L.CLIENT_CREDIT', // liability → 600 − 1500 = -900
+        // valid hex ids (hexToBigint would throw on non-hex → swallowed to null)
+        debitTbAccountId: '0a1',
+        creditTbAccountId: '0b2',
+      } as any);
+
+      const [, evidenceArg] = projector.persist.mock.calls[0];
+      expect(evidenceArg.debitBalanceAfter).toBe('900');
+      expect(evidenceArg.creditBalanceAfter).toBe('-900');
+    });
+
     it('Phase B / T3: writeEvidence with no projector (legacy DI) still succeeds', async () => {
-      const svc = new TbEvidenceService(mockPrisma); // projector omitted
+      const svc = new TbEvidenceService(mockPrisma, mockTbService); // projector omitted
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await expect(svc.writeEvidence(params)).resolves.toBeUndefined();
@@ -182,7 +208,7 @@ describe('TbEvidenceService', () => {
         externalRef: '0xnew',
         isExternalCrossing: true,
       });
-      const svc = new TbEvidenceService(mockPrisma, projector);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
 
       await svc.enrichForPost('abc123', {
         eventCode: 'EVT_WITHDRAW_SUCCESS',
@@ -200,7 +226,7 @@ describe('TbEvidenceService', () => {
     it('no-op enrichForPost (empty fields) does not call projector', async () => {
       const projector = { persist: jest.fn() } as any;
       mockPrisma.tbTransferEvidence.update = jest.fn();
-      const svc = new TbEvidenceService(mockPrisma, projector);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
 
       await svc.enrichForPost('abc123', {});
 
@@ -553,6 +579,15 @@ describe('TbEvidenceService', () => {
         ownerType: 'SYSTEM',
         walletRole: 'FIRM_OPS',
       }));
+    });
+  });
+
+  describe('findAllFlows (Task 5)', () => {
+    it('findAllFlows filters by tbAccountId and returns items+total+singleAccount', async () => {
+      const res = await service.findAllFlows({ tbAccountId: 'a1', take: 10, skip: 0 });
+      expect(res).toHaveProperty('items');
+      expect(res).toHaveProperty('total');
+      expect(res.singleAccount).toBe(true);
     });
   });
 });
