@@ -34,6 +34,7 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 - **报价**：`SwapQuoteService.createQuote()` → `resolveBestLevel()`（多 level 取最低费）+ `BinanceRateProvider.fetchRate()`（实时 + 3s 缓存 + AED 钉 3.6725）+ `PricingEngineService.buildSwapQuote()`（amountOut/spread/fee）→ 30s TTL
 - **L1 资格**：`SwapWorkflowService.executeSwap()` 内 `ensureCustomerCanTransact()` + `assertTradingEligibility(ownerId, 'SWAP')`（pre-creation 同步）
 - **R4 双边收款账户门**：`executeSwap()` 读到 quote 后（事务内，consume 前）逐一检查 buy/sell 两侧资产的 `WalletQueryService.hasReceivingAccount(ownerId, assetId)`（ACTIVE 的 C_DEP/C_VIBAN），任一缺失即 `RECEIVING_ACCOUNT_REQUIRED`（带 assetCode），先于 consumeQuote/建 swap 行/建 leg1 拦截，避免腿中段才在 `resolveLegWallets()` 撞见钱包缺失
+  - **前端逐币预检**（`Swap.tsx` + `GET /client/trading-readiness/receiving-accounts`）：选定 buy/sell 后即查两侧收款账户，缺失则禁提交并提示，CTA「Create receiving account」**跳 `/deposit`**（收款账户=充值地址，Deposit 页是自然落点；2026-07-11 起，原 `/wallet`）
 - **成交编排**：consume Quote → swap PROCESSING → `createLeg(leg1)` → per-leg two-phase → `onLegConfirmed()` 链式创建下一腿 → 第 4 腿 CLEAR → `markStatus('SUCCESS')`
 - **推进**：leg1 自动 initiate、**leg2-4 lazy**（admin `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` → `advanceLeg()`，带 **sell-first 顺序守卫**）；STUCK 后 `POST .../resume`（新 attempt 重试）
 - **4 腿账户**（`swap-leg-plan.constant.ts`，CRYPTO_TO_FIAT / FIAT_TO_CRYPTO 各一组）：客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE`；per-leg two-phase `initiateLegPending()→postLeg()`（成功）/ `voidLeg()`（失败 best-effort 补偿）。**无 clearing bridge / Outstanding / FEE_RECEIVABLE**（全仓 0 命中）
