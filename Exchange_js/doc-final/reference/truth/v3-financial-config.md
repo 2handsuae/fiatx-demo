@@ -1,6 +1,6 @@
 # V3 财务配置 — 当前实现真相
 
-Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走查 + 主线复核，见各节锚点）
+Last Verified: 2026-07-11（核对方式：三路 subagent 逐条 file:line 走查 + 主线复核，见各节锚点）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。历史沿革看 git/roadmap，计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -43,13 +43,15 @@ Last Verified: 2026-07-03（核对方式：三路 subagent 逐条 file:line 走�
 
 ## 4. 提现地址（WithdrawalAddress）
 
-- **状态机**：`PENDING_ACTIVATION →(24h)→ ACTIVE`；冷却期内客户可取消 → `CANCELLED`；ACTIVE 可被管理员 `SUSPENDED`
+- **状态机**：`PENDING_ACTIVATION →(24h)→ ACTIVE`；冷却期内客户可取消 → `CANCELLED`；ACTIVE 可被管理员 `SUSPENDED`；ACTIVE 可被**客户自助软停用** → `DEACTIVATED`（终态，客户侧归档保留，非删除）
+- **首个法币（BANK）提现地址登记即 ACTIVE**（免 24h 冷却）；同客户后续 BANK 地址仍走标准 24h 冷却
 - **冷却常量**：`COOLING_PERIOD_HOURS = 24`（`withdrawal-address.service.ts`）
 - **激活双机制**：cron 每 5 分钟扫 + 客户查询前懒激活
 - **管理员后门**：`POST :addressNo/skip-cooling`（带审计）
-- **字段**：crypto = `address` / `network`；bank = `beneficiaryName` / `bankName` / `iban` / `swiftBic`
+- **客户停用**：`POST /client/withdrawal-addresses/:addressNo/deactivate`，两道守卫——① 末位 ACTIVE 法币地址不可停用（`LAST_ACTIVE_FIAT_ADDRESS`）② 该地址有在途提现引用不可停用（`ADDRESS_HAS_INFLIGHT_WITHDRAWAL`）；成功写 `deactivatedAt`/`deactivatedBy` + 审计 `ADDRESS_DEACTIVATED`
+- **字段**：crypto = `address` / `network`；bank = `beneficiaryName` / `bankName` / `iban` / `swiftBic`；停用 = `deactivatedAt` / `deactivatedBy`
 - **注册时** 经 `TravelRuleAdapter` 做地址归因（VASP attribution）
-- **锚点**：`withdrawal-address.service.ts` ｜ `withdrawal-address-sweep.service.ts → handleCoolingExpiry() @Cron`
+- **锚点**：`withdrawal-address.service.ts → deactivate() / createBankAccount()`（首地址免冷却判定）｜ `withdrawal-address-sweep.service.ts → handleCoolingExpiry() @Cron`
 - ⚠️ **已知缺口**：提现创建流程**不校验**地址是否 ACTIVE/已注册——前端过滤 ACTIVE、后端裸奔，绕过前端可用任意地址提现（安全守卫卡片 task_20678a2c，见 BACKLOG）
 
 ## 5. 金额闸门（现状）

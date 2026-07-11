@@ -26,12 +26,14 @@ Last Updated: 2026-07-03
 - [ ] ERC-20 合约失败交易未过滤（合约执行失败仍建 Payin）｜来源: roadmap V4
 - [ ] KYT 超时转人工未做 ｜来源: roadmap V4
 - [ ] 区块重组自动回退未做（与"按链确认数配置"一起设计，该功能项在 roadmap V4 ADVANCED）｜来源: roadmap V4
+- [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
 
 ## 技术债 — V3 财务配置
 
 - [ ] TB 账户创建失败无 backlog 重试（仅转账凭证 `TbEvidenceBacklog` 有）｜来源: 2026-07-03 V3 体检
 - [ ] `contractAddress` 字段 schema/DTO 残留（前端已移除）｜来源: 2026-07-03 V3 体检
 - [ ] 资本注入流水缺 evidence 行（`FIRM_ASSET` 流水缺资本那笔）｜来源: V8 redesign 遗留
+- [ ] 法币就绪查询 where-clause 三处重复（`WithdrawalAddressService.hasActiveFiatWithdrawalAddress`/`countActiveFiatAddresses` + `onboarding.service.ts` 内联 `assertTradingReady`）→ 未来抽 cycle-free 共享查询层 ｜来源: 2026-07-11 交易起始前置门 Task 2 质量审
 
 ## 技术债 — V5 提现
 
@@ -41,6 +43,7 @@ Last Updated: 2026-07-03
 - [ ] TB 记账失败 repair surface 偏薄：靠 `assertWithdrawSettled()` fail-closed 卡在 PAYOUT_PENDING 等人工，无专用修复 UI/端点 ｜来源: 2026-07-03 V5 体检
 - [ ] 前后端 FROZEN 漂移：前端 `Withdraw.tsx` tipping-off 过滤引用 FROZEN，但后端 withdraw 枚举无此态（映射本身正常）｜来源: 2026-07-03 V5 体检
 - [ ] 模拟端点缺 `simulate/payout-confirmed`：只有 kyt-phase1/2 + travel-rule，payout 确认改走 funds_order advance（非缺失，记录以免误判）｜来源: 2026-07-03 V5 体检
+- [ ] 在途提现守卫（deactivate 的 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`）靠 `toIban/toAddress` 字符串匹配，`Withdraw.tsx` 手输地址模式下会漏配（无 addressNo FK 关联提现与地址）→ 假阴性可绕过守卫；正解需给 WithdrawTransaction 加 addressNo/addressId FK ｜来源: 2026-07-11 Task 6 spec 审
 
 ## 技术债 — V6 兑换
 
