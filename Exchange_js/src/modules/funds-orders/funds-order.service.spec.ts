@@ -5,6 +5,7 @@ import { FundsOrderService } from './funds-order.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { FundsOrderAction, FundsOrderStatus } from './dto/funds-order.dto';
 import { TERMINAL_STATUSES } from './constants/funds-order-transitions.constant';
+import { fakeChainTxHash, fakeBankRef } from '../../common/utils/fake-external-refs.util';
 
 describe('FundsOrderService', () => {
   let service: FundsOrderService;
@@ -209,6 +210,68 @@ describe('FundsOrderService', () => {
     it('null column → null', () => {
       const ref = service.resolveExternalRef({ asset: { type: 'FIAT' }, referenceNo: null } as any);
       expect(ref).toBeNull();
+    });
+  });
+
+  describe('stamp externalRef on reaching CONFIRMED', () => {
+    it('crypto OUT: CONFIRMING --CONFIRM--> CONFIRMED mints txHash', async () => {
+      const row = {
+        id: 'fo1', fundsOrderNo: 'FO-CRYPTO', status: 'CONFIRMING',
+        depositTransactionId: null, withdrawTransactionId: 'w1', swapTransactionId: null,
+        legSeq: 1, attempt: 1, statusHistory: null, txHash: null, referenceNo: null,
+        createdAt: new Date('2026-07-11T00:00:00Z'), asset: { type: 'CRYPTO' },
+      };
+      prisma.fundsOrder.findUnique.mockResolvedValue(row);
+      prisma.fundsOrder.update.mockImplementation(async ({ data }: any) => ({ ...row, ...data }));
+      await service.advance('fo1', FundsOrderAction.CONFIRM, 'SYSTEM');
+      const updateArg = prisma.fundsOrder.update.mock.calls[0][0];
+      expect(updateArg.data.status).toBe('CONFIRMED');
+      expect(updateArg.data.txHash).toBe(fakeChainTxHash('FO-CRYPTO'));
+      expect(updateArg.data.referenceNo).toBeUndefined();
+    });
+
+    it('fiat OUT: SUBMITTED --CONFIRM--> CONFIRMED mints referenceNo', async () => {
+      const row = {
+        id: 'fo2', fundsOrderNo: 'FO-FIAT', status: 'SUBMITTED',
+        depositTransactionId: null, withdrawTransactionId: 'w2', swapTransactionId: null,
+        legSeq: 1, attempt: 1, statusHistory: null, txHash: null, referenceNo: null,
+        createdAt: new Date('2026-07-11T00:00:00Z'), asset: { type: 'FIAT' },
+      };
+      prisma.fundsOrder.findUnique.mockResolvedValue(row);
+      prisma.fundsOrder.update.mockImplementation(async ({ data }: any) => ({ ...row, ...data }));
+      await service.advance('fo2', FundsOrderAction.CONFIRM, 'SYSTEM');
+      const updateArg = prisma.fundsOrder.update.mock.calls[0][0];
+      expect(updateArg.data.status).toBe('CONFIRMED');
+      expect(updateArg.data.referenceNo).toBe(fakeBankRef('FO-FIAT', row.createdAt));
+    });
+
+    it('idempotent: existing txHash (crypto deposit inbound) is NOT overwritten', async () => {
+      const row = {
+        id: 'fo3', fundsOrderNo: 'FO-DEP', status: 'CONFIRMING',
+        depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+        legSeq: 1, attempt: 1, statusHistory: null, txHash: '0xINBOUND', referenceNo: null,
+        createdAt: new Date('2026-07-11T00:00:00Z'), asset: { type: 'CRYPTO' },
+      };
+      prisma.fundsOrder.findUnique.mockResolvedValue(row);
+      prisma.fundsOrder.update.mockImplementation(async ({ data }: any) => ({ ...row, ...data }));
+      await service.advance('fo3', FundsOrderAction.CONFIRM, 'SYSTEM');
+      const updateArg = prisma.fundsOrder.update.mock.calls[0][0];
+      expect(updateArg.data.txHash).toBeUndefined(); // 保留旧值,不写
+    });
+
+    it('non-CONFIRMED transition does not mint', async () => {
+      const row = {
+        id: 'fo4', fundsOrderNo: 'FO-SUB', status: 'SUBMITTED',
+        depositTransactionId: null, withdrawTransactionId: 'w4', swapTransactionId: null,
+        legSeq: 1, attempt: 1, statusHistory: null, txHash: null, referenceNo: null,
+        createdAt: new Date('2026-07-11T00:00:00Z'), asset: { type: 'CRYPTO' },
+      };
+      prisma.fundsOrder.findUnique.mockResolvedValue(row);
+      prisma.fundsOrder.update.mockImplementation(async ({ data }: any) => ({ ...row, ...data }));
+      await service.advance('fo4', FundsOrderAction.OBSERVE_CONFIRMING, 'SYSTEM'); // → CONFIRMING
+      const updateArg = prisma.fundsOrder.update.mock.calls[0][0];
+      expect(updateArg.data.txHash).toBeUndefined();
+      expect(updateArg.data.referenceNo).toBeUndefined();
     });
   });
 });
