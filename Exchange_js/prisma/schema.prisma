@@ -885,6 +885,8 @@ model WithdrawalAddress {
   suspendedBy          String?
   suspendReason        String?
   cancelledAt          DateTime?
+  deactivatedAt        DateTime?
+  deactivatedBy        String?
 
   traceId              String
 
