@@ -938,8 +938,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * POST_FEE and FEE_FIRM evidence so the recon engine can match a withdrawal's
    * legs by wallet + external ref.
    *   walletRef    = the customer's source wallet (vIBAN / C_OUT) bound at payout.
-   *   externalRef  = the real-world crossing identifier (chain txHash / bank ref)
-   *                  looked up on the withdrawal (payouts no longer exist).
+   *   externalRef  = the real-world crossing identifier (chain txHash / bank ref),
+   *                  owned by the funds_order (read via resolveExternalRef).
    */
   // walletRef 仍取客户源钱包;externalRef 归 funds_order(CONFIRMED 时按类型铸)。
   private recognitionRefs(w: any, fo: any): { walletRef: string | null; externalRef: string | null } {

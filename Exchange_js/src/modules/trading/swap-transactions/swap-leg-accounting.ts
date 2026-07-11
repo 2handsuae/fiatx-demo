@@ -27,7 +27,8 @@ export interface SwapSettleCtx {
   /**
    * Per-leg attempt count for self-heal retries (Swap-6). Defaults to 1 when
    * absent. Callers override via `{ ...ctx, attempt: N }` to produce distinct
-   * deterministic TB transfer IDs and externalRefs across attempts.
+   * deterministic TB transfer IDs across attempts (each attempt is its own
+   * funds_order, so its externalRef is distinct via the fundsOrderNo seed).
    */
   attempt?: number;
 }
@@ -109,7 +110,6 @@ export class SwapLegAccounting {
       memoOverride?: string;
       debitWalletRef?: string | null;
       creditWalletRef?: string | null;
-      externalRef?: string | null;
       isExternalCrossing?: boolean;
     },
   ) {
@@ -127,7 +127,9 @@ export class SwapLegAccounting {
       // Phase B per-physical-wallet recon (forwarded by AccountingService to TbEvidenceService)
       debitWalletRef: extra?.debitWalletRef ?? null,
       creditWalletRef: extra?.creditWalletRef ?? null,
-      externalRef: extra?.externalRef ?? null,
+      // externalRef stays null on the base evidence — the funds_order-owned ref is
+      // stamped onto the POSTED row by postLeg → enrichForPost, never here.
+      externalRef: null,
       isExternalCrossing: extra?.isExternalCrossing ?? false,
     };
   }
