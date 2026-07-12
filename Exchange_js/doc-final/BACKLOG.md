@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-07-11
+Last Updated: 2026-07-12
 
 ---
 
@@ -159,5 +159,36 @@ Last Updated: 2026-07-11
 ## 对账（2026-07-06 V8 遗漏审计）
 
 - [ ] **对账钱包枚举由 external_balances 驱动、缺外部快照的客户钱包静默漏对** — `wallet-recon-run.service.ts` 的 run 钱包遍历以 external_balances 行为键；某客户钱包当天缺外部快照即被**静默跳过**、不进对账也不报异常，"full list" 完整性靠外部数据源自觉而非内部账户名册驱动。修法：以内部客户钱包名册为枚举源、外部缺行标 MISSING_EXTERNAL 而非跳过 ｜来源: 2026-07-06 V8 遗漏审计（对抗核验读代码逮到）
+
+## 对账应然设计 gap（2026-07-12 target design）
+
+> 来源统一：spec `superpowers/specs/2026-07-12-reconciliation-flow-target-design.md`（对账标准 6 步 × 平台落地）§8 gap 表 + §9 留空。检测主干（恒等预门 / 前 4 桶 / 逐钱包快照 / 在途推单+自愈 / 审计留痕）已对齐应然；以下为差距。VARA 派生欠账（重大差异通报 / ≥8 年留存 / 月账单）按台账规矩不入本文件，见 roadmap ⚖️ ADVANCED。
+
+**工程正确性**
+
+- [ ] **外部账单摄入生产管道未做**：银行/HexTrust/链账单的拉取+清洗入库无生产实现，`external_balances`/`external_statement_lines` 仅 demo 脚本注入、引擎只读 ｜来源: spec §2.2/§9
+- [ ] **外部未清洗成 canonical 同构模型**：外部存独立表、匹配时才取公共字段归一；应清洗成与 `account_flow` 同字段/同单位(分)/同方向语义的 canonical 流水模型（字段清单见 spec §2.3）｜来源: spec §2.2 决策2
+- [ ] **流水 match tag 结转未做**：行项每 run delete-then-insert 全量重配、无 `UNRECONCILED/MATCHED/开放` 状态；应 MATCHED 冻结踢出、只对未决+新增。上文「reObservedCount 恒为 0」是无持久行状态的同源症状 ｜来源: spec §0.5/§3.2
+- [ ] **余额字段用法未约束**：内部 `balanceAfter` 回填补账后不自动重算 → 陈旧；对账内部数字应从账本现算(TB/Σflows)、balanceAfter 仅交叉校验(断言 ==Σ流水)；外部收盘余额可直用 + 逐笔余额查账单缺行 ｜来源: spec §2.5
+- [ ] **effectiveDate 语义待核**：应 date(价值日) + 独立 createdAt(datetime) 两字段两用途；需核 `effectiveDate` 是否 date-only、截止边界卡点是否用 createdAt ｜来源: spec §2.4
+
+**防假 break**
+
+- [ ] **数据完整性闸 + HELD 态未做**：无"数据到齐才对"闸、无 `HELD`(待外部数据)态；即时轨道周末结算 / 账单延迟会被误判假 BREAK（结算轴 ≠ 上报轴）。与 2026-07-06「external_balances 驱动静默漏对」同源（该条=现状症状、HELD=应然解）：应以内部钱包名册枚举、缺外部数据标 HELD 而非跳过/硬对 ｜来源: spec §2.6
+- [ ] **恒等校验未左移**：仅日 run 预门 + 手动 `verify:coa` 脚本；应 CI / 每次记账后断言镜像恒等，从源头拦（日 run 是最后一道网、非唯一）｜来源: spec §1.3
+- [ ] **INTERNAL_BREAK run 详情误显示空表**：预门破时 `walletCount=0`/空表 → UI 显示成空/像干净(危险)；应专门呈现恒等破裂明细(按币种 资产合计/负债合计/差额) + "逐钱包未执行"提示；数据已被预门 breaks[] + 审计捕获，缺前端呈现 ｜来源: spec §1.4
+
+**治理闸**
+
+- [ ] **aging + SLA + 超期升级未做**：Case 止于 OPEN 仅自愈；应按账龄计时、超 SLA 升级 MLRO/CFO。in-transit 若结算信号永久丢失(webhook 漏)且无人推则**永不自愈=死结**，aging 是防死结的闸 ｜来源: spec §5/§6
+- [ ] **对账复核签核未做**：应干净 run 自动认证 + 人工平账动作走复核签核(maker-checker 推≠批，可按 severity 分级)；复核挂"人工干预动作"、非挂"run 变 pass"。与「平账处置」推单读权限门控债协同(那条=权限粒度、本条=两人复核)｜来源: spec §6
+- [ ] **真差异(BREAK)处置闭环未做**：7 平账动作只做推单，补单/冲正/冲销/豁免/偿付 deferred；SOFT_FLAG 里"真两侧对冲错"的调账同 deferred(matcher 调优部分不算)；Finance 人工核实→结案 deferred ｜来源: spec §9
+
+**⚠ 待决策（等业主拍板）**
+
+- [ ] 法币轨道是否即时到账（决定非营业日走 HELD 等账单 vs 结转收盘判 MATCHED）｜来源: spec §10
+- [ ] aging SLA 阈值（法币 ≥1 银行日 / 链按确认窗口）具体数值 ｜来源: spec §10
+- [ ] 人工平账 maker-checker 是否按 severity 分级审批人（v1 可扁平：一律一道复核）｜来源: spec §10
+- [ ] 恒等左移落点（CI 断言 / 每次记账后同步断言 / 高频轻量 cron）｜来源: spec §10
 
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
