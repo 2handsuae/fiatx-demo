@@ -4,14 +4,39 @@ import { SwapQuoteService } from './swap-quote.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { SwapFeeLevelService } from './swap-fee-level.service';
-import { SwapFeeLevelBindingService } from './swap-fee-level-binding.service';
 import { PricingEngineService } from '../pricing-center/pricing-engine.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
+import { CustomerTagService } from '../../identity/customer-tags/customer-tag.service';
+
+const defaultLevel = {
+  id: 'lvl-1',
+  levelCode: 'L1',
+  isDefault: true,
+  requiredTagsJson: '[]',
+  validFrom: null,
+  validTo: null,
+  tiersJson: JSON.stringify({
+    tiers: [{ id: 't1', name: 'T1', rateMarkupBps: 10, feeItems: [{ code: 'FEE', amount: '10' }] }],
+  }),
+};
+
+const vipLevel = {
+  id: 'lvl-vip',
+  levelCode: 'VIP',
+  isDefault: false,
+  requiredTagsJson: '["VIP"]',
+  validFrom: null,
+  validTo: null,
+  tiersJson: JSON.stringify({
+    tiers: [{ id: 't-vip', name: 'VIP Tier', rateMarkupBps: 5, feeItems: [{ code: 'FEE', amount: '2' }] }],
+  }),
+};
 
 describe('SwapQuoteService', () => {
   let service: SwapQuoteService;
   let prisma: PrismaService;
   let auditLogsService: AuditLogsService;
+  let customerTagService: CustomerTagService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -38,35 +63,23 @@ describe('SwapQuoteService', () => {
         {
           provide: SwapFeeLevelService,
           useValue: {
-            findActiveByPair: jest.fn().mockResolvedValue([
-              {
-                id: 'lvl-1',
-                levelCode: 'L1',
-                isDefault: true,
-                tiersJson: JSON.stringify({ tiers: [{ id: 't1', name: 'T1', rateMarkupBps: 10, feeItems: [] }] }),
-              },
-            ]),
+            findActiveByPair: jest.fn().mockResolvedValue([defaultLevel, vipLevel]),
           },
         },
         {
-          provide: SwapFeeLevelBindingService,
+          provide: CustomerTagService,
           useValue: {
-            findBoundLevelIds: jest.fn().mockResolvedValue([]),
+            effectiveTags: jest.fn().mockResolvedValue(new Set()),
           },
         },
         {
           provide: PricingEngineService,
           useValue: {
-            findMatchedSwapTier: jest.fn().mockReturnValue({
-              id: 't1',
-              name: 'T1',
-              rateMarkupBps: 10,
-              feeItems: [],
-            }),
-            calculateFeeLines: jest.fn().mockReturnValue({
-              lines: [],
+            findMatchedSwapTier: jest.fn((args: { tiers: any[] }) => args.tiers[0]),
+            calculateFeeLines: jest.fn((_amount: any, feeItems: any[]) => ({
+              lines: feeItems.map((f) => ({ code: f.code, amount: f.amount })),
               totals: {},
-            }),
+            })),
             buildSwapQuote: jest.fn().mockReturnValue({
               expiresAt: new Date(Date.now() + 30000).toISOString(),
               matched: {},
@@ -109,6 +122,37 @@ describe('SwapQuoteService', () => {
     service = module.get<SwapQuoteService>(SwapQuoteService);
     prisma = module.get<PrismaService>(PrismaService);
     auditLogsService = module.get<AuditLogsService>(AuditLogsService);
+    customerTagService = module.get<CustomerTagService>(CustomerTagService);
+  });
+
+  describe('resolveBestLevel (audience predicate)', () => {
+    it('includes the VIP level as a candidate and picks it as cheapest when customer has the VIP tag', async () => {
+      (customerTagService.effectiveTags as jest.Mock).mockResolvedValue(new Set(['VIP']));
+
+      const resolved = await service.resolveBestLevel({
+        fromAssetId: 'a-aed',
+        toAssetId: 'a-usdt',
+        amount: new Prisma.Decimal('100'),
+        customerId: 'cust-1',
+      });
+
+      expect(resolved).not.toBeNull();
+      expect(resolved!.feeLevelId).toBe('lvl-vip');
+    });
+
+    it('excludes the VIP level and falls back to the default level when customer has no tags', async () => {
+      (customerTagService.effectiveTags as jest.Mock).mockResolvedValue(new Set());
+
+      const resolved = await service.resolveBestLevel({
+        fromAssetId: 'a-aed',
+        toAssetId: 'a-usdt',
+        amount: new Prisma.Decimal('100'),
+        customerId: 'cust-1',
+      });
+
+      expect(resolved).not.toBeNull();
+      expect(resolved!.feeLevelId).toBe('lvl-1');
+    });
   });
 
   describe('createQuote', () => {

@@ -12,9 +12,10 @@ import { SwapFeeLevelChangeWorkflowService } from './swap-fee-level-change-workf
 import { SwapFeeLevelBindingWorkflowService } from './swap-fee-level-binding-workflow.service';
 import { SwapQuoteService } from './swap-quote.service';
 import { SwapFeeLevelController } from './swap-fee-level.controller';
+import { CustomerTagModule } from '../../identity/customer-tags/customer-tag.module';
 
 @Module({
-  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule)],
+  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule), CustomerTagModule],
   controllers: [SwapFeeLevelController],
   providers: [
     SwapFeeLevelService,

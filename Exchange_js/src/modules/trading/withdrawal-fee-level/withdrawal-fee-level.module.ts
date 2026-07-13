@@ -14,9 +14,10 @@ import { WithdrawQuoteService } from './withdraw-quote.service';
 import { WithdrawalFeeLevelController } from './withdrawal-fee-level.controller';
 import { WithdrawQuoteCustomerController } from './withdraw-quote-customer.controller';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
+import { CustomerTagModule } from '../../identity/customer-tags/customer-tag.module';
 
 @Module({
-  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule), forwardRef(() => OnboardingModule)],
+  imports: [PrismaModule, ApprovalsModule, AuditLogsModule, forwardRef(() => PricingCenterModule), forwardRef(() => OnboardingModule), CustomerTagModule],
   controllers: [WithdrawalFeeLevelController, WithdrawQuoteCustomerController],
   providers: [
     WithdrawalFeeLevelService,
