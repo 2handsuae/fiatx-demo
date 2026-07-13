@@ -350,7 +350,9 @@ export class OnboardingService {
               verificationCustomerActionRequired: false,
               verificationCanContinue: false,
               sumsubExperiencedLevel2: false,
-              onboardingApprovedAt: now,
+              // Write-once: lock the NEW_CUSTOMER window start on first APPROVED;
+              // a later re-approval must not reset it.
+              onboardingApprovedAt: customer.onboardingApprovedAt ?? now,
             };
           }
           break;

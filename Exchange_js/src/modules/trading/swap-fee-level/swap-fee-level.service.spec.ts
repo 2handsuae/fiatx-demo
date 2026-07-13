@@ -102,6 +102,23 @@ describe('SwapFeeLevelService', () => {
       expect(prismaMock.swapFeeLevel.create).not.toHaveBeenCalled();
     });
 
+    it('rejects isDefault=true combined with a non-empty requiredTags', async () => {
+      await expect(
+        service.createLevel({
+          levelCode: 'SFL-DEFAULT-TAGGED',
+          name: 'Default level with tags',
+          fromAssetId: 'asset-from',
+          toAssetId: 'asset-to',
+          isDefault: true,
+          tiersJson: validTiersJson,
+          createdByUserId: 'admin-1',
+          requiredTags: ['VIP'],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.swapFeeLevel.create).not.toHaveBeenCalled();
+    });
+
     it('rejects when validFrom is after validTo', async () => {
       await expect(
         service.createLevel({

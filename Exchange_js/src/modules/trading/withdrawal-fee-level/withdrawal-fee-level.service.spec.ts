@@ -103,6 +103,22 @@ describe('WithdrawalFeeLevelService', () => {
       expect(prismaMock.withdrawalFeeLevel.create).not.toHaveBeenCalled();
     });
 
+    it('rejects isDefault=true combined with a non-empty requiredTags', async () => {
+      await expect(
+        service.createLevel({
+          levelCode: 'WFL-DEFAULT-TAGGED',
+          name: 'Default level with tags',
+          assetId: 'asset-1',
+          isDefault: true,
+          tiersJson: validTiersJson,
+          createdByUserId: 'admin-1',
+          requiredTags: ['VIP'],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.withdrawalFeeLevel.create).not.toHaveBeenCalled();
+    });
+
     it('rejects when validFrom is after validTo', async () => {
       await expect(
         service.createLevel({

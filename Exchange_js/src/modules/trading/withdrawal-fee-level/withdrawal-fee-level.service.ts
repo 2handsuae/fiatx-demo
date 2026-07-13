@@ -92,7 +92,15 @@ export class WithdrawalFeeLevelService {
     return parsed;
   }
 
-  validateAudienceFields(requiredTags?: string[], validFrom?: string, validTo?: string): void {
+  validateAudienceFields(
+    isDefault: boolean,
+    requiredTags?: string[],
+    validFrom?: string,
+    validTo?: string,
+  ): void {
+    if (isDefault && (requiredTags?.length ?? 0) > 0) {
+      throw new BadRequestException('默认级(isDefault)不可再设 requiredTags —— 二者语义冲突');
+    }
     for (const tag of requiredTags ?? []) {
       if (!isValidTag(tag)) {
         throw new BadRequestException(`Invalid requiredTags entry: ${tag}`);
@@ -131,7 +139,7 @@ export class WithdrawalFeeLevelService {
     }
 
     this.validateTiersJson(dto.tiersJson);
-    this.validateAudienceFields(dto.requiredTags, dto.validFrom, dto.validTo);
+    this.validateAudienceFields(dto.isDefault, dto.requiredTags, dto.validFrom, dto.validTo);
 
     return db.withdrawalFeeLevel.create({
       data: {

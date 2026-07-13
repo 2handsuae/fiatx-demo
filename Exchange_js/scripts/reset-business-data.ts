@@ -71,11 +71,9 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'withdrawPricingQuote',
   'withdrawalAddress',
 
-  // ── Fee-level config (bindings/change-requests before levels) ──────
-  'swapFeeLevelBinding',
+  // ── Fee-level config (change-requests before levels) ────────────────
   'swapFeeLevelChangeRequest',
   'swapFeeLevel',
-  'withdrawalFeeLevelBinding',
   'withdrawalFeeLevelChangeRequest',
   'withdrawalFeeLevel',
   'pricingPolicy',
