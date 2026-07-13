@@ -170,6 +170,7 @@ Date: 2026-07-12 ｜ Status: Draft（设计稿，**只出设计不实现**）｜
 □ 能说清 record 与 case 的区别、case 双向桥、L3 按订单双事件触发
 □ 能说清证据三层存放（结论/过程/原始报文）分别落哪
 □ 明确标注了 deferred 依赖（金额级冻结）与既有代码命名冲突（L3-archive 改名）
+□ 能说清 L2 集成契约（附录 A）：应然四步（规划/分发/收敛/裁决）、同步响应三用途 + webhook 唯一写状态、KYT 充值单步（pre/post-tx）、TR 两场景绑定（预告登记 vs 订单为锚）
 
 ## 9. 关键锚点
 
@@ -185,3 +186,74 @@ Date: 2026-07-12 ｜ Status: Draft（设计稿，**只出设计不实现**）｜
 
 1. **旧 L3 归档改名**：`withdraw-workflow.service.ts:1237/1368` 的 `// L3: Post-Tx Archive` 与本文 L3=行为监测 撞名，风控落地时改名（如 "Post-Tx txHash 归档 / L3 数据上游"）。→ BACKLOG「V5 提现」。
 2. **金额级冻结原语（deferred 依赖）**：已终态充值/兑换订单命中 L3 需单笔金额级冻结，现仅客户级；风控落地前置。→ BACKLOG「待决策/交易风控」。
+
+---
+
+## 11. 附录 A · L2 集成契约（Sumsub KYT/TR，充值方向）
+
+> 把 §4.2 充值 L2 的"用 Sumsub、挂单等回执"展开到接口级，供实现者照做。2026-07-12 brainstorm 追加。
+
+### A.1 应然 L2 四步：规划 → 分发 → 收敛 → 裁决
+
+| 步 | 做什么 | 等什么 | 铁律 |
+|---|---|---|---|
+| ① 规划 | 本地算这单的筛查清单（crypto: KYT必 + TR按三条件；fiat: 行为规则 + 人名核对，TR 恒 NOT_REQUIRED），每道一个独立状态字段初始 PENDING | 不等（毫秒） | **"不适用"也落库 + 带原因**（规划本身即证据） |
+| ② 分发 | 清单里每道适用筛查**一次性并行**提交给执行方 | 不等；同步调用失败进重试队列 | 并行非串行（总时长=最慢一道）；外部服务挂**不得堵死入账管道** |
+| ③ 收敛 | 每道各自等回执，独立 PENDING→PASSED/FAILED；某道转人工不作废其余 | KYT 秒级 / TR 分钟~天 / 人名核对等运营 | **每道必有超时出口**（无限等 = 钱悬在中转账户） |
+| ④ 裁决 | 全部到终态触发：全 PASS/NOT_REQUIRED→放行入账；任一命中→FROZEN 转 MLRO | 等 ③ 全收敛（裁决本身毫秒） | **幂等**：由"最后一道回执到达"触发、非轮询；webhook 重推不二次记账 |
+
+### A.2 同步响应 vs webhook（写死的铁律）
+
+**状态字段（`kytStatus` / `travelRuleStatus`）唯一写入口 = webhook 处理器；同步响应绝不写状态。**
+
+同步响应只做三件：① 确认提交成功（4xx/超时 → 重试队列，订单状态不动）；② 初评作**证据快照**落审计；③ 校验 txnId 对号。
+
+四条理由：单一写入者（幂等只做一处）｜ 结论会翻案（on-hold→Reviewed 改判必须听 webhook）｜ 同步响应不可靠（超时/重试残缺，webhook 可重推）｜ 充值挂起型不差秒（客户无交互在等）。**唯一例外**：登录 ATO 等"必须在请求-响应周期内当场决定"的场景才直接用同步响应；充值/提现一律等 webhook。
+
+### A.3 KYT 两种方式（pre-tx / post-tx）——充值为何单步
+
+- **pre-tx**（送出前筛**目标地址**）：**提现独有**（主动送钱，送前得看对方地址干不干净）。
+- **post-tx**（拿真实 txHash 筛**真实链上交易**）：两者都有。
+- **充值**：钱到手时**已在链上**、天生有 txHash → 无"事前"（交易已发生）→ **只有 post-tx，单步**（代码 `applyKytResult`）。提现才 pre+post 两步（`kyt-phase1/2` + `archivePostKyt`）。此不对称由物理时序决定，非设计缺陷。
+
+### A.4 KYT 掰开（充值）
+
+1. **提交**：`POST /resources/applicants/{applicantId}/kyt/txns/-/data`，`type: finance`，带 源地址 + 真实 txHash + 金额 + 币种 + 方向 in。**txnId 自铸（`depositNo` 派生）**——webhook 靠它认领，别让 Sumsub 生成再回找。
+2. **同步响应**：走 A.2 三用途。
+3. **webhook 终局**：`applicantKytTxnApproved`(GREEN)→PASSED ｜ `applicantKytTxnRejected`(RED)→FAILED→FROZEN ｜ `applicantKytOnHold`→FROZEN（Sumsub 人审）→后续 `applicantKytTxnReviewed` 改判。放行后如需 MLRO 人工：`POST /resources/kyt/txns/{txnId}/review/status/completed` `reviewAnswer:GREEN`。
+
+### A.5 TR 掰开（充值=入站）——两场景 + 绑定
+
+TR 是"和对方 VASP 的一场对话"，结果 100% 靠 webhook。入站两剧本，**绑定方式不同**：
+
+**场景 A · 信息先行（对方先发 TR，后打款）——TR 是锚，订单后到认领**
+TR 到达时**订单/txHash 都还不存在**（钱没动），故不能"把 TR 绑订单"，只能反过来。三拍：
+1. TR 到达（`applicantKytOnHold`）→ 处理归属确认（`POST /resources/kyt/txns/{txnId}/travelRuleOwnership` + 提供客户 PII）→ 落一条**独立"预告入账登记"**（不挂订单），记 收款地址 + 资产 + 预告金额 + 对方 VASP + txnId + 核验结果 + TTL。
+2. 钱到账、Deposit 诞生 → 规划步按 **同地址 + 同资产 + 金额容差 + 时间窗** 回头认领该预告 → `travelRuleStatus` 继承 PASSED，不重发 TR。
+3. 补真实 txHash（`applicantKytTxnDataChanged`）→ TR/订单/链上三方闭环。
+- 边角策略（必定）：预告 TTL 过期作废（可通知）｜ 金额超容差不认领 → 转场景 B、原预告转人工 ｜ 一条预告只被一笔订单消费。
+
+**场景 B · 钱先到（你发起 TR 追问）——订单是锚，天然绑定**
+- 订单先在，发起时**自铸 txnId（`depositNo` 派生）+ 带真实 txHash**，无认领问题。
+- **方向修正**：受益人 = 你家客户、PII 在你手、不用问；你向对方追的是**发款人(originator)信息**；核验 = 拿对方声称的收款人比对你库里客户真实身份。
+- **"通过"分两层**：Sumsub 核验层给匹配结论（match→Approved / 不匹配→`counterpartyMismatchedData`）；你自己的 L2 汇合裁决才是订单放行——两层别捏一起。
+- 超时出口：**Confirmation Timeout**（等对方所 N 小时无果 → 按拒/转人工）——"钱已在手、TR 不过 = 持币悬案"的必备兜底。
+
+### A.6 三条工程铁律（实现必踩）
+
+1. **先落库再外调**：先写"预告/分发记录（带自铸 txnId）"，再调 Sumsub——防 **webhook 先于同步响应到达**时找不到单而丢事件。
+2. **幂等**：webhook 会重推，同一事件（按 txnId + 事件类型）到两次不得二次写状态 / 二次记账。
+3. **txnId 自铸**（`depositNo` 派生）作全链关联键，贯穿 提交 / webhook / 对账。
+
+### A.7 应然 vs 现状（差距，带 BACKLOG 依据）
+
+| 应然 | 现状 |
+|---|---|
+| ① 规划显式化、不适用带原因 | ❌ 隐式；TR 三条件仅落地"法币→NOT_REQUIRED"一条（BACKLOG V4：TR 适用判定未自动计算） |
+| ② 真实提交 + 失败重试 | ❌ stub，模拟端点注入（BACKLOG V4/V5：Sumsub 真实集成未做） |
+| ③ 双字段独立收敛 | ✅ `kytStatus`/`travelRuleStatus` 已拆 |
+| ③ 每道超时出口 | ❌ KYT 超时转人工未做（BACKLOG V4）；TR Confirmation Timeout 未接 |
+| ④ 汇合自动裁决 + FROZEN | ✅ 骨架已有 |
+| A.5 场景 A 预告登记表 + 认领 | ❌ 未建（TR 目前只走模拟注入，无预告/认领模型） |
+
+> 四步结构对**提现 L2** 同样成立，差异仅：清单含 pre-KYT + TR + 大额审批门，且末尾多一步 post-tx txHash 回填。
