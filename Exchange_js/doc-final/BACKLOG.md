@@ -29,8 +29,9 @@ Last Updated: 2026-07-12
 - [ ] 区块重组自动回退未做（与"按链确认数配置"一起设计，该功能项在 roadmap V4 ADVANCED）｜来源: roadmap V4
 - [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状仅条件①法币→NOT_REQUIRED 落地，条件②(hosted/unhosted VASP 分类，依赖 roadmap V3 地址打标)+③(3,500 阈值判定)**代码未自动计算** → crypto TR 结果当前由 demo 模拟端点注入 ｜来源: 2026-07-11 充值 PRD v2
+- [ ] 🔴 **必做 · TR 从 status 闸口升级为"交换实体"**：现状 TR 仅是订单上 `travelRuleStatus`/`travelRuleTransferId`/`travelRuleCheckedAt` 几个字段（`schema.prisma:960-964` 充值 / `1183-1187` 提现），由模拟端点 `travelRuleCheckSimulated` 写字符串（`sumsub-ingestion.service.ts:122`），**无独立 TR 交换表**、无预告登记/认领、无 `travelRuleOwnership` API、无真实 webhook 消费（`applicantKytOnHold`/`counterpartyMismatchedData`/`awaitingCounterparty` 零匹配）、无 Confirmation Timeout 超时出口。**应然设计已定稿**（充值 PRD §3.1 TR 交换记录数据模型 + §6.3 两场景业务规则）：独立 TR 交换表，关联链 **txHash→资金单(直连)→充值订单(经资金单)**（txHash 是编码非表）；状态机 **3 主态(交换中/待认领/已消费) + 3 异常终态(未通过/已超时/已取消，各带原因码)**；双时钟(sessionDeadline 会话 / consumeTtl 预告)、一次性消费守卫、归属否认不绑单守卫、lastExternalState 展示字段。KYT 不需独立表（单向筛查，订单字段够）｜来源: 2026-07-12 充值 TR 两场景设计（业主定**必做**）
 - [ ] **充值自动侦测器未接**：链上 watcher / 银行 VIBAN webhook 未部署，`deposit-transactions.service.ts → detected()`（真实业务入口）当前**唯一**触发路径是客户申报入账信号 + 手动扫描（demo 脚手架，带 `simulationRisk*` 注入 + `QUICK_DEMO` 模式）；PRD happy path 按业务意图写"系统自动侦测"，落地待接真实侦测源 ｜来源: 2026-07-11 充值 PRD v2
-- [ ] **充值审计事件改名 + 精简（8→6）**：PRD v2 定稿审计集去 `DEPOSIT_` 冗余前缀（workflowType 已标 DEPOSIT）+ 统一 `_APPLIED`→`_PASSED`（与展示词对齐）；并合并两对同刻冗余事件——`DEPOSIT_COMPLIANCE_STARTED`(并入 PAYIN_CONFIRMED) + `DEPOSIT_APPROVED`(并入 COMPLETED)。改 `audit-actions.constant.ts` + `deposit-workflow.service.ts`，须评估历史 `audit_log_events` 旧值兼容 ｜来源: 2026-07-11 充值 PRD v2（审计瘦身轮）
+- [ ] **充值审计事件改名 + 精简（8→6）**：PRD v2 定稿审计集去 `DEPOSIT_` 冗余前缀（workflowType 已标 DEPOSIT）+ 统一 `_APPLIED`→`_PASSED`（与展示词对齐）；并合并两对同刻冗余事件——`DEPOSIT_COMPLIANCE_STARTED`(并入 PAYIN_CONFIRMED) + `DEPOSIT_APPROVED`(并入 COMPLETED)；**并 GATE0→L1**（退役 `GATE0`/`Gate 0` 命名，统一 L1/L2/L3 口径：`DEPOSIT_GATE0_PASSED`→`L1_PASSED`、`runGate0()`→`runL1()`、日志 "Gate 0" 改 "L1"）。改 `audit-actions.constant.ts` + `deposit-workflow.service.ts`，须评估历史 `audit_log_events` 旧值兼容 ｜来源: 2026-07-11 充值 PRD v2（审计瘦身轮）+ 2026-07-12 三闸门命名统一
 
 ## 技术债 — V3 财务配置
 
@@ -144,6 +145,8 @@ Last Updated: 2026-07-12
 
 ## 交付 / 可移植 Docker（2026-07-04 本会话新增）
 
+- [ ] **`scripts/stack.sh up`(self) 端口连锁失败**：admin/client 端口被上次会话遗留 vite 占着时，`ensure_port_free` 在 `set -euo pipefail` 下返回非零 → **整脚本中止、永不走到重建/重启 backend**（即便 backend 端口本身空闲）；与 CLAUDE.md「每次 up 自愈 .env / 重建后端」描述不符，导致实现者被迫手起 `node dist/main`。规避：`lsof -ti:<端口段>|xargs kill` 释放残留再 up。修法：`ensure_port_free` 命中占用改为 kill 残留后继续、或各服务独立处理不整体 `set -e` 退出 ｜来源: 2026-07-12 费率受众 worktree 执行（C + 验收两轮实现者各撞一次）
+
 - [ ] **launch.json 治理（待决策）**：`.claude/launch.json` 全机器专属绝对路径 + 预览工具自动重生成 stale 配置（settle-opt/claude-admin 反复回填）；已经 `.gitattributes` export-ignore 不进交付包，但仍被 git 跟踪。待决策：gitignore 停止跟踪、交预览工具本地生成 ｜来源: 2026-07-04 可移植 Docker
 - [ ] **Docker `tb-format` 非幂等**：重跑演示需先 `docker compose down -v` 清账本端数据卷（否则 format 撞已存在文件报错）；可给 format 加 if-missing 守卫做到重跑免 down -v ｜来源: 2026-07-04 Docker 交付
 - [ ] **Docker Desktop Mac 4.42+ io_uring 风险留账**：新版 Mac 版可能 VM 级封 io_uring，`seccomp=unconfined` 也救不回 → 退 OrbStack（已写进 `READ-ME-FIRST.md`，此处备查）｜来源: 2026-07-04 Docker 交付
@@ -168,7 +171,7 @@ Last Updated: 2026-07-12
 
 - [ ] **外部账单摄入生产管道未做**：银行/HexTrust/链账单的拉取+清洗入库无生产实现，`external_balances`/`external_statement_lines` 仅 demo 脚本注入、引擎只读 ｜来源: spec §2.2/§9
 - [ ] **外部未清洗成 canonical 同构模型**：外部存独立表、匹配时才取公共字段归一；应清洗成与 `account_flow` 同字段/同单位(分)/同方向语义的 canonical 流水模型（字段清单见 spec §2.3）｜来源: spec §2.2 决策2
-- [ ] **流水 match tag 结转未做**：行项每 run delete-then-insert 全量重配、无 `UNRECONCILED/MATCHED/开放` 状态；应 MATCHED 冻结踢出、只对未决+新增。上文「reObservedCount 恒为 0」是无持久行状态的同源症状 ｜来源: spec §0.5/§3.2
+- [ ] **流水 match tag 结转未做**：行项每 run delete-then-insert 全量重配、无持久行状态；应 Reconciled 冻结踢出、只对未决+新增。上文「reObservedCount 恒为 0」是无持久行状态的同源症状。⚠ **落地时字段名用 `reconciliationStatus`（Reconciliation Status，业主定名），枚举 `Open / Reconciled / In-transit / Exception`**（PRD §5.2 已定，勿再叫 tag / UNRECONCILED / OPEN_EXCEPTION）｜来源: spec §0.5/§3.2 + 2026-07-13 PRD 命名
 - [ ] **余额字段用法未约束**：内部 `balanceAfter` 回填补账后不自动重算 → 陈旧；对账内部数字应从账本现算(TB/Σflows)、balanceAfter 仅交叉校验(断言 ==Σ流水)；外部收盘余额可直用 + 逐笔余额查账单缺行 ｜来源: spec §2.5
 - [ ] **effectiveDate 语义待核**：应 date(价值日) + 独立 createdAt(datetime) 两字段两用途；需核 `effectiveDate` 是否 date-only、截止边界卡点是否用 createdAt ｜来源: spec §2.4
 
@@ -190,5 +193,16 @@ Last Updated: 2026-07-12
 - [ ] aging SLA 阈值（法币 ≥1 银行日 / 链按确认窗口）具体数值 ｜来源: spec §10
 - [ ] 人工平账 maker-checker 是否按 severity 分级审批人（v1 可扁平：一律一道复核）｜来源: spec §10
 - [ ] 恒等左移落点（CI 断言 / 每次记账后同步断言 / 高频轻量 cron）｜来源: spec §10
+
+**对账 PRD 重写范围决策（2026-07-12 业主拍板，doc WOaEds8s）**
+
+> 本期对账聚焦「正常业务会出现的问题」＝时间差（在途）：检测 + 自愈 + 同步腿推单。所有"异常/真差异"侧本期不做。以下为据此决策产生的 defer / 代码改名账。
+
+- [ ] **INTERNAL_BREAK 全链本期不做**：内部恒等检测+中止代码已在（`wallet-recon-run.service.ts → computeInternalIdentity()` 预门），但事故界面（见上「INTERNAL_BREAK run 详情误显示空表」）/ 实时告警 / 收敛冻结 / 受控更正 workflow / 恒等左移 全部 defer；**对账 PRD 显式不体现 INTERNAL_BREAK 作为 run 结果**（run 结论只留 对平 / 有差异两态）｜来源: 2026-07-12 PRD 重写 Q3
+- [ ] **五桶命名 SOFT_FLAG→COMPENSATING 代码改名**：PRD 已改用专业名 `COMPENSATING`（抵销错误）；代码仍 `SOFT_FLAG`（`engine/v2/bucket-classifier.ts` `ReconBucket`、`dto/reconciliation.dto.ts` `ReconWalletBucket`+`ReconCaseQueryDto.bucket` `@IsIn`、`reconciliation_cases.bucket` 列值、前端徽章）。`HELD→AWAITING`（待外部数据）未进码、随 HELD 落地直接用新名 ｜来源: 2026-07-12 PRD 重写 Q4
+- [ ] **人工腿推单 + BREAK/异常处置 = 本期非目标**：本期只交付**同步腿推单**（外部回执验证、免审批）；人工强推腿（`push/manual` + `ManualPushDto`，代码已在）、真差异/异常处置本期不作为交付/验收范围 ｜来源: 2026-07-12 PRD 重写 Q1
+- [ ] **新增 CFO 角色**：PRD 加 `CFO`（财务负责人，差异升级 / 财务终审接收方，相关处置动作多为后续）；可经自定义角色造，代码 `rbac.catalog.ts` `RBAC_ROLE_DEFINITIONS` 待注册 ｜来源: 2026-07-12 PRD 重写 Q2
+- [ ] **Run 结果字段枚举待重命名**：`reconciliation_runs.invariantStatus`（PASS/FAIL）语义像生命周期状态、且外部 break 也写 FAIL（与"内部恒等"名不符）；PRD 拟结论字段用 `RECONCILED / EXCEPTIONS_FOUND`（对平 / 有差异）。代码字段名+值待随之调（与 `status` RUNNING/COMPLETED/FAILED 两轴分清）｜来源: 2026-07-12 PRD 重写 Q5
+- [ ] **流水匹配去掉第二轮"无据模糊配对"（业主拍板·甲）**：PRD §4 步骤3 只保留 精确对号（externalRef 相等）+ 认在途（配非终态资金单）两轮；代码 `wallet-flow-matcher.service.ts` 仍有 **Pass2 金额+方向+时间窗（默认 60min）模糊匹配** → 无参考号即凭"金额凑巧一样"下配平结论，有假配平掩盖真差异风险。应移除 Pass2（或降级为"疑似待人复核"、不直接算 MATCHED）。⚠ 移除前评估法币无号入金的覆盖影响（应落到孤儿→开 case，可接受）｜来源: 2026-07-13 PRD §4 细化，业主选甲
 
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
