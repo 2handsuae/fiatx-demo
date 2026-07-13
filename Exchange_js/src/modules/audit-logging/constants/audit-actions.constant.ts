@@ -94,6 +94,7 @@ export const AuditEntityTypes = {
   RECONCILIATION_RUN_V8: 'RECONCILIATION_RUN_V8',
   RECONCILIATION_CASE: 'RECONCILIATION_CASE',
   RECONCILIATION_LINE_ITEM: 'RECONCILIATION_LINE_ITEM',
+  CUSTOMER_TAG: 'CUSTOMER_TAG',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -159,6 +160,8 @@ export const AuditBusinessWorkflowTypes = {
   INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
   // V8 Reconciliation (2026-06-18)
   V8_RECONCILIATION: 'clearing-settle/reconciliation',
+  // Customer Tags (2026-07-13)
+  CUSTOMER_TAG: 'CUSTOMER_TAG',
 } as const;
 
 export const AuditUserActions = {
@@ -633,6 +636,12 @@ export const AuditGovernanceActions = {
   SWAP_FEE_LEVEL_BINDING: {
     LEVEL_BOUND:   'LEVEL_BOUND',
     LEVEL_UNBOUND: 'LEVEL_UNBOUND',
+  },
+
+  // Customer Tags (2026-07-13)
+  CUSTOMER_TAG: {
+    TAG_ASSIGNED: 'TAG_ASSIGNED',
+    TAG_REVOKED:  'TAG_REVOKED',
   },
 } as const;
 
