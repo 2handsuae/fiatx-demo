@@ -43,7 +43,7 @@ PENDING_APPROVAL/COMPLIANCE/PAYOUT_PENDING → REJECTED / CANCELLED（→ releas
   - 结算：`postPendingTransfer()` + 公司侧同笔 `FIRM_ASSET → FIRM_FEE` 收 fee
   - 解锁：`releaseLock() → voidPendingTransferBestEffort()`（失败/拒绝/大额否决）
 - **L3 归档**：`archivePostKyt()` **crypto-only**（`asset.type !== 'FIAT' && txHash`），fire-and-forget，**当前是 stub**
-- **费率治理**：3 个独立工作流 `WithdrawalFeeLevel{Creation/Change/Binding}WorkflowService`；Creation/Change 走审批（**现状 OPS_OFFICER 单步**，非 roadmap 写的 MLRO+SMO），Change 走 request-record + configHash 冲突检测，Binding 无审批门直接生效；`WithdrawQuoteService → resolveBestLevel()` 多 level 取最低费
+- **费率治理**：2 个独立工作流 `WithdrawalFeeLevel{Creation/Change}WorkflowService`；Creation/Change 走审批（**现状 OPS_OFFICER 单步**，非 roadmap 写的 MLRO+SMO），Change 走 request-record + configHash 冲突检测；受众改由 `requiredTagsJson`（客户标签谓词）+ `validFrom/validTo`（限时窗）表达，`WithdrawQuoteService → resolveBestLevel()` 按谓词命中集合取最低费（binding 表已 2026-07-13 退役，见 BACKLOG 历史）
 - 锚点：`withdraw-workflow.service.ts → handleWithdrawalCreated()/initializeTransactionScreen()/checkScreenPass()/initiatePayoutPhase()/onPayoutLegConfirmed()/releaseLock()/archivePostKyt()` ｜ `withdraw-approval.constant.ts → shouldRequireApproval()` ｜ `withdrawal-fee-level/*-workflow.service.ts` ｜ `withdraw-quote.service.ts → resolveBestLevel()`
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
@@ -59,5 +59,5 @@ PENDING_APPROVAL/COMPLIANCE/PAYOUT_PENDING → REJECTED / CANCELLED（→ releas
 ## 5. 锚点
 
 `withdraw-transactions/`：`customer-withdraw.controller.ts`（客户端 API）｜ `withdraw-transactions.controller.ts`（admin + simulate 端点）｜ `withdraw-workflow.service.ts`（三层编排 + TB 记账，主文件）｜ `withdraw-transactions.service.ts`（状态机）｜ `dto/withdraw-transaction.dto.ts`（状态枚举）｜ `constants/withdraw-approval.constant.ts`（大额门）
-`withdrawal-fee-level/`：`*-creation/change/binding-workflow.service.ts` ｜ `withdrawal-fee-level.service.ts`（executeChange + configHash）｜ `withdraw-quote.service.ts`
+`withdrawal-fee-level/`：`*-creation/change-workflow.service.ts` ｜ `withdrawal-fee-level.service.ts`（executeChange + configHash）｜ `withdraw-quote.service.ts`
 共享：`funds-order.service.ts` ｜ `approval.constants.ts → WITHDRAW_LARGE_VALUE_APPROVAL / WITHDRAWAL_FEE_LEVEL_*` ｜ 前端 `client-web/Withdraw.tsx`、`admin-web/WithdrawTransaction{List,Detail}.tsx`

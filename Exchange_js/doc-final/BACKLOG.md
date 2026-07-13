@@ -105,12 +105,12 @@ Last Updated: 2026-07-12
 
 ## 技术债 — 费率等级治理（2026-07-11 V3 PRD 需求，本轮只出文档、代码未实现）
 
-> 来源统一：`doc-final/superpowers/`（拟）+ 飞书《交易费率等级治理》V3（docx `KoqidVBVMoPIBoxOVVKltxn6g9c`）。现状已在代码：`isDefault`(EVERYONE)、binding 表(EXPLICIT)、cheapest 取最低费、configHash 冲突门、OPS_OFFICER 48h 审批。以下为 V3 新立需求。
+> 来源统一：`doc-final/superpowers/`（拟）+ 飞书《交易费率等级治理》V3（docx `KoqidVBVMoPIBoxOVVKltxn6g9c`）。现状已在代码（2026-07-13 后）：`isDefault`(EVERYONE) + `requiredTagsJson`/`validFrom`/`validTo` 谓词（TAG/WINDOW 受众，`matchesAudience()`）、cheapest 取最低费、configHash 冲突门、OPS_OFFICER 48h 审批；binding 表已退役（見下条，非仍在用）。以下为 V3 剩余需求。
 
 - [ ] **受众谓词引擎**：现状仅 `isDefault` + binding 表两种受众；V3 要求 level 挂 `{ requiredTags: string[], window?: [validFrom,validTo] }`，成交时 `(窗未设∨now∈窗)∧(requiredTags⊆客户标签)` 判命中。含 WINDOW（限时活动，超窗自动失效）+ TAG（VIP/新客/白名单）两型新增 ｜来源: 2026-07-11 费率 V3 §3.4/§5.2
 - [ ] **客户标签求值器 `effectiveTags(customerId, now)`**（依赖《客户管理》，未建）：返回 静态标签 ∪ 派生标签，供费率成交时消费。费率域只声明"要什么标签"，不定义"客户带什么标签" ｜来源: 2026-07-11 费率 V3 §5.3
 - [ ] **派生标签读时算（免定时器）**：如 `NEW_CUSTOMER = (now−起算日)≤newCustomerDays`（起算日=onboarding 完成/首次可交易日）；铁律=时间/行为衍生标签一律读时现算、**禁 cron 落标签再清**（防 staleness 错价）；到期通知走一次性定时、与价格判定解耦 ｜来源: 2026-07-11 费率 V3 §5.3
-- [ ] **binding 表退役 + 迁移**：删 `withdrawal_fee_level_bindings`/`swap_fee_level_bindings`，"指定客户"改由客户域**白名单静态标签**表达（现有 binding 迁为标签赋值，LEVEL_BOUND/UNBOUND 审计语义迁客户域）；须**等价保真**（迁移前后同客户取费一致，V3 §6.5）｜来源: 2026-07-11 费率 V3 §5.4
+- [x] ~~**binding 表退役 + 迁移**~~：**已兑现（2026-07-13）**。删 `withdrawal_fee_level_bindings`/`swap_fee_level_bindings`（两表两域对称，drop 迁移 `20260713174411_drop_fee_level_bindings`）+ 4 个 binding service/workflow 文件 + 两 controller 的 bind/unbind/list-bindings 路由 + module providers/exports + 审计常量（`*_FEE_LEVEL_BINDING` 实体/工作流类型、`LEVEL_BOUND/UNBOUND` 治理动作）+ rbac catalog 6 条 binding 路由 + 前端两 fee-level 详情页「Customer Bindings」面板/「Bind Customer」弹窗。worktree DB 实测 binding 表本就 0 行，**无数据需迁移**（"指定客户"此前从未真正用过 binding，已直接由客户标签白名单表达，见 B1-B4）；main DB 未受影响（binding 表暂留，随下次合并一并清）｜来源: 2026-07-11 费率 V3 §5.4 → 2026-07-13 Task C 收口
 - [ ] **报价落"资格快照"**：现 quote 仅存 `policyRef=LEVEL:code`；V3 要求成交时落 命中集合 + 选中级 + 选中理由(最低费) + 客户此刻标签快照（可解释/可申诉）｜来源: 2026-07-11 费率 V3 §4.4/§5.5
 - [ ] **⚠待定：受众（requiredTags/window）变更口径**：现变更流只覆盖 `tiersJson`（configHash 保护费率本身）；受众字段变更是否也走 configHash + 审批链未定 ｜来源: 2026-07-11 费率 V3 §4.2
 - [ ] **费率变更 30 日历日生效闸 + 通知客户**：现即改即生效；与提现/兑换 backlog 的 30 日闸同源（MC II.A.7/8），费率治理统一落 ｜来源: 2026-07-11 费率 V3 §1.2
