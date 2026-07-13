@@ -37,10 +37,13 @@ export class SwapFeeLevelCreationWorkflowService {
       isDefault: boolean;
       tiersJson: string;
       reason: string;
+      requiredTags?: string[];
+      validFrom?: string;
+      validTo?: string;
     },
     actor: ApprovalActorContext,
   ) {
-    const { levelCode, name, fromAssetId, toAssetId, isDefault, tiersJson, reason } = dto;
+    const { levelCode, name, fromAssetId, toAssetId, isDefault, tiersJson, reason, requiredTags, validFrom, validTo } = dto;
 
     if (!reason?.trim()) {
       throw new BadRequestException('reason is required');
@@ -55,6 +58,9 @@ export class SwapFeeLevelCreationWorkflowService {
       isDefault,
       tiersJson,
       createdByUserId: actor.userId,
+      requiredTags,
+      validFrom,
+      validTo,
     });
 
     // Create approval case
@@ -75,6 +81,9 @@ export class SwapFeeLevelCreationWorkflowService {
             isDefault,
             tiersJson,
             reason,
+            requiredTags: requiredTags ?? [],
+            validFrom: validFrom ?? null,
+            validTo: validTo ?? null,
           },
         },
         { reason, traceId },

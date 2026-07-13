@@ -36,10 +36,13 @@ export class WithdrawalFeeLevelCreationWorkflowService {
       isDefault: boolean;
       tiersJson: string;
       reason: string;
+      requiredTags?: string[];
+      validFrom?: string;
+      validTo?: string;
     },
     actor: ApprovalActorContext,
   ) {
-    const { levelCode, name, assetId, isDefault, tiersJson, reason } = dto;
+    const { levelCode, name, assetId, isDefault, tiersJson, reason, requiredTags, validFrom, validTo } = dto;
 
     if (!reason?.trim()) {
       throw new BadRequestException('reason is required');
@@ -53,6 +56,9 @@ export class WithdrawalFeeLevelCreationWorkflowService {
       isDefault,
       tiersJson,
       createdByUserId: actor.userId,
+      requiredTags,
+      validFrom,
+      validTo,
     });
 
     // Create approval case
@@ -72,6 +78,9 @@ export class WithdrawalFeeLevelCreationWorkflowService {
             isDefault,
             tiersJson,
             reason,
+            requiredTags: requiredTags ?? [],
+            validFrom: validFrom ?? null,
+            validTo: validTo ?? null,
           },
         },
         { reason, traceId },

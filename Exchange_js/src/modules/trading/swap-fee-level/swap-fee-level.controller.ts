@@ -21,6 +21,7 @@ import { SwapFeeLevelCreationWorkflowService } from './swap-fee-level-creation-w
 import { SwapFeeLevelChangeWorkflowService } from './swap-fee-level-change-workflow.service';
 import { SwapFeeLevelBindingWorkflowService } from './swap-fee-level-binding-workflow.service';
 import { SwapFeeLevelBindingService } from './swap-fee-level-binding.service';
+import { CreateSwapFeeLevelDto } from './dto/create-swap-fee-level.dto';
 
 @Controller('admin/swap-fee-levels')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -78,15 +79,7 @@ export class SwapFeeLevelController {
   @Post()
   @RequirePermissions(buildPermissionCode('POST', '/admin/swap-fee-levels'))
   async create(
-    @Body() dto: {
-      levelCode: string;
-      name: string;
-      fromAssetId: string;
-      toAssetId: string;
-      isDefault: boolean;
-      tiersJson: string;
-      reason: string;
-    },
+    @Body() dto: CreateSwapFeeLevelDto,
     @Req() req: any,
   ) {
     this.ensureAdmin(req);

@@ -23,6 +23,7 @@ import { WithdrawalFeeLevelChangeWorkflowService } from './withdrawal-fee-level-
 import { WithdrawalFeeLevelBindingWorkflowService } from './withdrawal-fee-level-binding-workflow.service';
 import { WithdrawalFeeLevelBindingService } from './withdrawal-fee-level-binding.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { CreateWithdrawalFeeLevelDto } from './dto/create-withdrawal-fee-level.dto';
 
 @Controller('admin/withdrawal-fee-levels')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
@@ -119,7 +120,7 @@ export class WithdrawalFeeLevelController {
   @Post()
   @RequirePermissions(buildPermissionCode('POST', '/admin/withdrawal-fee-levels'))
   async create(
-    @Body() dto: { levelCode: string; name: string; assetId: string; isDefault: boolean; tiersJson: string; reason: string },
+    @Body() dto: CreateWithdrawalFeeLevelDto,
     @Req() req: any,
   ) {
     this.ensureAdmin(req);
