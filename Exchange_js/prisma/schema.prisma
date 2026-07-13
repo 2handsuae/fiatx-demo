@@ -204,8 +204,9 @@ model CustomerMain {
   termsAcceptedAt   DateTime?
 
   // ═══ 状态轴 1：准入旅程 ═══
-  onboardingStatus  String    @default("NONE")
-  onboardingTraceId String?
+  onboardingStatus     String    @default("NONE")
+  onboardingTraceId    String?
+  onboardingApprovedAt DateTime?
 
   // ═══ 状态轴 2：行政生命周期 ═══
   adminStatus       String    @default("INACTIVE")
@@ -278,11 +279,24 @@ model CustomerMain {
   withdrawalAddresses       WithdrawalAddress[]
   withdrawalFeeLevelBindings  WithdrawalFeeLevelBinding[]
   swapFeeLevelBindings        SwapFeeLevelBinding[]
+  explicitTags                CustomerExplicitTag[]
 
   @@index([adminStatus])
   @@index([complianceStatus])
   @@index([riskRating])
   @@map("customer_main")
+}
+
+model CustomerExplicitTag {
+  id               String   @id @default(uuid())
+  customerId       String
+  tagCode          String
+  assignedByUserId String
+  assignedAt       DateTime @default(now())
+  customer         CustomerMain @relation(fields: [customerId], references: [id])
+  @@unique([customerId, tagCode])
+  @@index([tagCode])
+  @@map("customer_explicit_tags")
 }
 
 model CorporateProfile {
