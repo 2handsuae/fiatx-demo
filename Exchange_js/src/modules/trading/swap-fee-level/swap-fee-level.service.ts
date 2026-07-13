@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SwapFeeLevelTiersConfig, SWAP_FEE_ITEM_CODES } from './types/fee-level.types';
+import { isValidTag } from '../../identity/customer-tags/constants/customer-tag.constant';
 
 @Injectable()
 export class SwapFeeLevelService {
@@ -104,6 +105,28 @@ export class SwapFeeLevelService {
     return parsed;
   }
 
+  validateAudienceFields(
+    isDefault: boolean,
+    requiredTags?: string[],
+    validFrom?: string,
+    validTo?: string,
+  ): void {
+    if (isDefault && (requiredTags?.length ?? 0) > 0) {
+      throw new BadRequestException('默认级(isDefault)不可再设 requiredTags —— 二者语义冲突');
+    }
+    if ((requiredTags?.length ?? 0) > 1) {
+      throw new BadRequestException('单个费率等级只能要求至多一个标签（或全体）');
+    }
+    for (const tag of requiredTags ?? []) {
+      if (!isValidTag(tag)) {
+        throw new BadRequestException(`Invalid requiredTags entry: ${tag}`);
+      }
+    }
+    if (validFrom && validTo && new Date(validFrom) > new Date(validTo)) {
+      throw new BadRequestException('validFrom must not be after validTo');
+    }
+  }
+
   async createLevel(
     dto: {
       levelCode: string;
@@ -113,6 +136,9 @@ export class SwapFeeLevelService {
       isDefault: boolean;
       tiersJson: string;
       createdByUserId: string;
+      requiredTags?: string[];
+      validFrom?: string;
+      validTo?: string;
     },
     tx?: Prisma.TransactionClient,
   ) {
@@ -140,6 +166,7 @@ export class SwapFeeLevelService {
     }
 
     this.validateTiersJson(dto.tiersJson);
+    this.validateAudienceFields(dto.isDefault, dto.requiredTags, dto.validFrom, dto.validTo);
 
     return db.swapFeeLevel.create({
       data: {
@@ -150,6 +177,9 @@ export class SwapFeeLevelService {
         isDefault: dto.isDefault,
         tiersJson: dto.tiersJson,
         configHash: this.computeHash(dto.tiersJson),
+        requiredTagsJson: JSON.stringify(dto.requiredTags ?? []),
+        validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
+        validTo: dto.validTo ? new Date(dto.validTo) : null,
         status: 'PENDING_APPROVAL',
         createdByUserId: dto.createdByUserId,
       },

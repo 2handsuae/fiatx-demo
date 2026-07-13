@@ -40,6 +40,7 @@ interface FinalApprovalCustomerRow {
   eddRequired?: boolean | null;
   latestRiskApprovalId?: string | null;
   latestRiskApprovalStatus?: string | null;
+  onboardingApprovedAt?: Date | null;
 }
 
 interface FinalApprovalSummary {
@@ -63,6 +64,7 @@ const FINAL_APPROVAL_CUSTOMER_SELECT = {
   eddRequired: true,
   latestRiskApprovalId: true,
   latestRiskApprovalStatus: true,
+  onboardingApprovedAt: true,
 } satisfies Prisma.CustomerMainSelect;
 
 @Injectable()
@@ -467,6 +469,9 @@ export class OnboardingFinalApprovalService {
         }),
         ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
         latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
+        // Write-once: lock the NEW_CUSTOMER window start on first APPROVED;
+        // a later re-approval must not reset it.
+        onboardingApprovedAt: customer.onboardingApprovedAt ?? new Date(),
       };
     }
 

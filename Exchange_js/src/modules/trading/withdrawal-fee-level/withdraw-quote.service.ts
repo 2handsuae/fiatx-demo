@@ -7,8 +7,9 @@ import {
   WITHDRAW_QUOTE_TTL_SECONDS,
 } from '../pricing-center/types/pricing.types';
 import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
-import { WithdrawalFeeLevelBindingService } from './withdrawal-fee-level-binding.service';
 import { FeeLevelTiersConfig } from './types/fee-level.types';
+import { CustomerTagService } from '../../identity/customer-tags/customer-tag.service';
+import { matchesAudience } from '../shared/fee-audience.util';
 
 interface ResolvedQuote {
   feeLevelId: string;
@@ -27,7 +28,7 @@ export class WithdrawQuoteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly feeLevelService: WithdrawalFeeLevelService,
-    private readonly bindingService: WithdrawalFeeLevelBindingService,
+    private readonly customerTagService: CustomerTagService,
     @Inject(forwardRef(() => PricingEngineService))
     private readonly engineService: PricingEngineService,
   ) {}
@@ -40,11 +41,13 @@ export class WithdrawQuoteService {
     const allLevels = await this.feeLevelService.findActiveByAsset(input.assetId);
     if (allLevels.length === 0) return null;
 
-    const boundLevelIds = await this.bindingService.findBoundLevelIds(input.customerId);
-    const boundSet = new Set(boundLevelIds);
-
+    const now = new Date();
+    const tags = await this.customerTagService.effectiveTags(input.customerId, now);
     const applicableLevels = allLevels.filter(
-      (l) => l.isDefault || boundSet.has(l.id),
+      (l) => l.isDefault || matchesAudience(
+        { requiredTagsJson: l.requiredTagsJson, validFrom: l.validFrom, validTo: l.validTo },
+        tags, now,
+      ),
     );
     if (applicableLevels.length === 0) return null;
 

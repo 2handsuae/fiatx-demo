@@ -39,7 +39,7 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 - **推进**：leg1 自动 initiate、**leg2-4 lazy**（admin `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` → `advanceLeg()`，带 **sell-first 顺序守卫**）；STUCK 后 `POST .../resume`（新 attempt 重试）
 - **4 腿账户**（`swap-leg-plan.constant.ts`，CRYPTO_TO_FIAT / FIAT_TO_CRYPTO 各一组）：客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE`；per-leg two-phase `initiateLegPending()→postLeg()`（成功）/ `voidLeg()`（失败 best-effort 补偿）。**无 clearing bridge / Outstanding / FEE_RECEIVABLE**（全仓 0 命中）
 - **对账 evidence**：每腿 `externalRef = ${swapNo}:${legSeq}:${attempt}:pending` + debit/creditWalletRef + `isExternalCrossing=true`（swap 不上链，swap-internal ref 即跨钱包互证键）
-- **费率治理**：3 独立工作流 `SwapFeeLevel{Creation/Change/Binding}WorkflowService`；创建/变更走审批（**OPS_OFFICER 单步**），Change 走 request-record + `configHash` 冲突检测 + 单 PENDING 约束，Binding 无审批门
+- **费率治理**：2 独立工作流 `SwapFeeLevel{Creation/Change}WorkflowService`；创建/变更走审批（**OPS_OFFICER 单步**），Change 走 request-record + `configHash` 冲突检测 + 单 PENDING 约束；受众改由 `requiredTagsJson`（客户标签谓词）+ `validFrom/validTo`（限时窗）表达（binding 表已 2026-07-13 退役，见 BACKLOG 历史）
 - 锚点：`swap-workflow.service.ts → executeSwap()/handleFundsOrderChanged()/onLegConfirmed()/onLegFailedSelfHeal()/advanceLeg()/mapLegAction()` ｜ `swap-leg-accounting.ts → initiateLegPending()/postLeg()/voidLeg()` ｜ `swap-leg-plan.constant.ts → buildSwapLegPlan()` ｜ `swap-quote.service.ts → createQuote()/resolveBestLevel()` ｜ `binance-rate.provider.ts → fetchRate()` ｜ `swap-fee-level/*-workflow.service.ts`
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
@@ -54,6 +54,6 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 ## 5. 锚点
 
 `swap-transactions/`：`swap-workflow.service.ts`（入口+事件编排+advance，主文件）｜ `swap-leg-accounting.ts`（per-leg two-phase 记账）｜ `swap-transactions.service.ts`（状态机+投影）｜ `swap-transactions.controller.ts`（advance/resume 端点）｜ `dto/swap-transaction.dto.ts`（状态枚举）
-`swap-fee-level/`：`swap-quote.service.ts`（报价+resolveBestLevel）｜ `swap-fee-level.service.ts`（executeChange+configHash）｜ `*-creation/change/binding-workflow.service.ts`
+`swap-fee-level/`：`swap-quote.service.ts`（报价+resolveBestLevel）｜ `swap-fee-level.service.ts`（executeChange+configHash）｜ `*-creation/change-workflow.service.ts`
 `funds-layer/constants/swap-leg-plan.constant.ts`（4 腿声明）｜ `pricing-center/`（`pricing-engine.service.ts`、`providers/binance-rate.provider.ts`；**`PricingCenterService` 已删**）｜ `approval.constants.ts → SWAP_FEE_LEVEL_CREATION/CHANGE`
 前端：`client-web/Swap.tsx`、`admin-web/SwapTransaction{List,Detail}.tsx`、`SwapQuote{List,Detail}.tsx`、`SwapFeeLevel{List,Detail}.tsx`

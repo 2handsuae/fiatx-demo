@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { X, Pencil, UserPlus } from 'lucide-react';
+import { X, Pencil } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
@@ -21,6 +21,9 @@ interface FeeLevelDetail {
   toAsset: { id: string; code: string; type: string };
   isDefault: boolean;
   tiersJson: string;
+  requiredTagsJson: string;
+  validFrom: string | null;
+  validTo: string | null;
   status: string;
   configHash: string | null;
   approvalCaseNo: string | null;
@@ -28,12 +31,11 @@ interface FeeLevelDetail {
   updatedAt: string;
 }
 
-interface BindingItem {
-  id: string;
-  customerId: string;
-  customerNo: string;
-  customerName: string;
-  createdAt: string;
+interface TagCatalogItem {
+  tagCode: string;
+  displayName: string;
+  type: 'STATIC' | 'DERIVED';
+  description?: string | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -97,10 +99,10 @@ export default function SwapFeeLevelDetail() {
   const navigate = useNavigate();
 
   const [level, setLevel] = useState<FeeLevelDetail | null>(null);
-  const [bindings, setBindings] = useState<BindingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tagCatalog, setTagCatalog] = useState<TagCatalogItem[]>([]);
 
   /* ── Change Modal state ── */
   const [showChangeModal, setShowChangeModal] = useState(false);
@@ -108,12 +110,6 @@ export default function SwapFeeLevelDetail() {
   const [changeReason, setChangeReason] = useState('');
   const [changeLoading, setChangeLoading] = useState(false);
   const [changeError, setChangeError] = useState<string | null>(null);
-
-  /* ── Bind Modal state ── */
-  const [showBindModal, setShowBindModal] = useState(false);
-  const [bindCustomerId, setBindCustomerId] = useState('');
-  const [bindLoading, setBindLoading] = useState(false);
-  const [bindError, setBindError] = useState<string | null>(null);
 
   /* ── Technical section ── */
   const [showRawJson, setShowRawJson] = useState(false);
@@ -139,25 +135,27 @@ export default function SwapFeeLevelDetail() {
     }
   };
 
-  const fetchBindings = async () => {
-    if (!levelCode) return;
+  const fetchTagCatalog = async () => {
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-fee-levels/${levelCode}/bindings`,
+        `${import.meta.env.VITE_API_URL}/admin/customer-tags/catalog`,
       );
       if (res.ok) {
-        const data = (await res.json()) as BindingItem[] | { items: BindingItem[] };
-        setBindings(Array.isArray(data) ? data : Array.isArray((data as { items: BindingItem[] }).items) ? (data as { items: BindingItem[] }).items : []);
+        const data = (await res.json()) as TagCatalogItem[];
+        if (Array.isArray(data)) setTagCatalog(data);
       }
     } catch {
-      /* ignore binding fetch errors */
+      /* ignore */
     }
   };
 
   useEffect(() => {
     void fetchDetail();
-    void fetchBindings();
   }, [levelCode]);
+
+  useEffect(() => {
+    void fetchTagCatalog();
+  }, []);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -216,71 +214,6 @@ export default function SwapFeeLevelDetail() {
     }
   };
 
-  /* ── Bind Customer ── */
-
-  const openBindModal = () => {
-    setBindCustomerId('');
-    setBindError(null);
-    setShowBindModal(true);
-  };
-
-  const handleBindSubmit = async () => {
-    if (!level) return;
-    if (!bindCustomerId.trim()) {
-      setBindError('Customer ID is required');
-      return;
-    }
-
-    setBindLoading(true);
-    setBindError(null);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-fee-levels/bindings/bind`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerId: bindCustomerId.trim(),
-            levelId: level.id,
-          }),
-        },
-      );
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to bind customer'));
-      setShowBindModal(false);
-      setNotice('Customer bound successfully.');
-      void fetchBindings();
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setBindError(err instanceof Error ? err.message : 'Failed to bind customer.');
-    } finally {
-      setBindLoading(false);
-    }
-  };
-
-  /* ── Unbind Customer ── */
-
-  const handleUnbind = async (customerId: string) => {
-    if (!level) return;
-    if (!window.confirm('Unbind this customer from the fee level?')) return;
-
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/swap-fee-levels/bindings/unbind`,
-        {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customerId, levelId: level.id }),
-        },
-      );
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to unbind'));
-      setNotice('Customer unbound successfully.');
-      void fetchBindings();
-    } catch (err) {
-      if (err instanceof AdminSessionError) return;
-      setError(err instanceof Error ? err.message : 'Failed to unbind customer.');
-    }
-  };
-
   /* ── Parse tiers for display ── */
 
   const parsedTiers = level
@@ -310,6 +243,27 @@ export default function SwapFeeLevelDetail() {
         }
       })()
     : [];
+
+  /* ── Audience (read-only) ── */
+
+  const audienceDisplay = (() => {
+    if (!level) return '全体客户（everyone）';
+    let tags: string[] = [];
+    try {
+      tags = JSON.parse(level.requiredTagsJson || '[]');
+    } catch {
+      tags = [];
+    }
+    if (tags.length === 0) return '全体客户（everyone）';
+    const tagCode = tags[0];
+    const found = tagCatalog.find((t) => t.tagCode === tagCode);
+    return found ? found.displayName : tagCode;
+  })();
+
+  const audienceWindowDisplay =
+    level && (level.validFrom || level.validTo)
+      ? `生效窗：${fmt(level.validFrom)} ~ ${fmt(level.validTo)}`
+      : '长期有效';
 
   /* ── Loading / Error states ── */
 
@@ -350,7 +304,6 @@ export default function SwapFeeLevelDetail() {
         onBack={() => navigate('/admin/pricing/swap-fee-levels')}
         onRefresh={() => {
           void fetchDetail();
-          void fetchBindings();
         }}
         refreshing={loading}
       />
@@ -485,53 +438,7 @@ export default function SwapFeeLevelDetail() {
             </div>
           </section>
 
-          {/* ③ Customer Bindings */}
-          <section className="px-6 py-5">
-            <Cap>Customer Bindings ({bindings.length})</Cap>
-            <div className="mt-3">
-              {bindings.length === 0 ? (
-                <p className="font-mono text-[11px] text-adm-t3">
-                  No customers bound to this level
-                </p>
-              ) : (
-                <div className="rounded-lg border border-adm-border bg-adm-panel">
-                  <table className="w-full border-collapse text-[11px]">
-                    <thead>
-                      <tr className="bg-adm-card font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                        <th className="px-3 py-2 text-left font-medium">Customer No</th>
-                        <th className="px-3 py-2 text-left font-medium">Name</th>
-                        <th className="px-3 py-2 text-left font-medium">Bound At</th>
-                        <th className="px-3 py-2 text-right font-medium">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bindings.map((b) => (
-                        <tr key={b.id} className="border-t border-adm-border/50">
-                          <td className="px-3 py-2 font-mono text-adm-amber">
-                            {b.customerNo}
-                          </td>
-                          <td className="px-3 py-2 text-adm-t1">{b.customerName}</td>
-                          <td className="px-3 py-2 font-mono text-[10px] text-adm-t3">
-                            {fmt(b.createdAt)}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              onClick={() => void handleUnbind(b.customerId)}
-                              className="rounded border border-adm-danger px-2 py-0.5 font-mono text-[10px] text-adm-danger hover:bg-adm-danger/10"
-                            >
-                              Unbind
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* ④ Technical (Raw JSON) */}
+          {/* ③ Technical (Raw JSON) */}
           <section className="px-6 py-4">
             <button
               onClick={() => setShowRawJson(!showRawJson)}
@@ -558,10 +465,6 @@ export default function SwapFeeLevelDetail() {
                   <Pencil size={13} />
                   Edit Tiers
                 </button>
-                <button onClick={openBindModal} className={adminButtonClass('listSecondary')}>
-                  <UserPlus size={13} />
-                  Bind Customer
-                </button>
                 <p className="text-center font-mono text-[10px] text-adm-t3">
                   Edit Tiers requires MLRO → SMO approval
                 </p>
@@ -582,6 +485,8 @@ export default function SwapFeeLevelDetail() {
               value={`${level.toAsset.code} (${level.toAsset.type})`}
             />
             <SidebarKV label="Default" value={level.isDefault ? 'Yes' : 'No'} />
+            <SidebarKV label="Audience" value={audienceDisplay} />
+            <SidebarKV label="Valid Window" value={audienceWindowDisplay} />
             <SidebarKV label="Config Hash" value={truncateHash(level.configHash)} mono />
             <SidebarKV
               label="Approval"
@@ -686,66 +591,6 @@ export default function SwapFeeLevelDetail() {
                 className={adminButtonClass('modalConfirm')}
               >
                 {changeLoading ? 'Submitting…' : 'Submit for Approval'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ════ Bind Customer Modal ════ */}
-      {showBindModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
-              <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                Bind Customer
-              </p>
-              <button
-                onClick={() => setShowBindModal(false)}
-                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="px-5 py-4 space-y-3">
-              {bindError && (
-                <div className="rounded border border-adm-danger/30 bg-adm-danger/5 px-3 py-2 font-mono text-[11px] text-adm-danger">
-                  {bindError}
-                </div>
-              )}
-
-              <div>
-                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                  Customer ID
-                </label>
-                <input
-                  type="text"
-                  value={bindCustomerId}
-                  onChange={(e) => setBindCustomerId(e.target.value)}
-                  placeholder="Enter customer UUID"
-                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors"
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
-              <button
-                onClick={() => setShowBindModal(false)}
-                className={adminButtonClass('modalCancel')}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void handleBindSubmit()}
-                disabled={bindLoading || !bindCustomerId.trim()}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {bindLoading ? 'Binding…' : 'Bind'}
               </button>
             </div>
           </div>

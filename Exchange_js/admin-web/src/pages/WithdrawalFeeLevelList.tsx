@@ -27,6 +27,13 @@ interface AssetOption {
   type: string;
 }
 
+interface TagCatalogItem {
+  tagCode: string;
+  displayName: string;
+  type: 'STATIC' | 'DERIVED';
+  description?: string | null;
+}
+
 interface FeeLevelItem {
   id: string;
   levelCode: string;
@@ -85,6 +92,7 @@ const WithdrawalFeeLevelList = () => {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [tagCatalog, setTagCatalog] = useState<TagCatalogItem[]>([]);
 
   /* ── Create modal state ── */
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -94,6 +102,9 @@ const WithdrawalFeeLevelList = () => {
     assetId: '',
     isDefault: false,
     reason: '',
+    requiredTags: [] as string[],
+    validFrom: '',
+    validTo: '',
   });
   const [createTiers, setCreateTiers] = useState<TierState[]>([newTier(0)]);
   const [createLoading, setCreateLoading] = useState(false);
@@ -110,6 +121,21 @@ const WithdrawalFeeLevelList = () => {
       if (res.ok) {
         const data = (await res.json()) as { items: AssetOption[] };
         if (Array.isArray(data.items)) setAssets(data.items);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  /* ── Fetch tag catalog for audience editor ── */
+  const fetchTagCatalog = async () => {
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customer-tags/catalog`,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as TagCatalogItem[];
+        if (Array.isArray(data)) setTagCatalog(data);
       }
     } catch {
       /* ignore */
@@ -159,11 +185,21 @@ const WithdrawalFeeLevelList = () => {
   useEffect(() => {
     void fetchItems(1, DEFAULT_FILTERS);
     void fetchAssets();
+    void fetchTagCatalog();
   }, []);
 
   /* ── Create modal handlers ── */
   const openCreateModal = () => {
-    setCreateForm({ levelCode: '', name: '', assetId: '', isDefault: false, reason: '' });
+    setCreateForm({
+      levelCode: '',
+      name: '',
+      assetId: '',
+      isDefault: false,
+      reason: '',
+      requiredTags: [],
+      validFrom: '',
+      validTo: '',
+    });
     setCreateTiers([newTier(0)]);
     setCreateError(null);
     setShowCreateModal(true);
@@ -209,6 +245,13 @@ const WithdrawalFeeLevelList = () => {
             isDefault: createForm.isDefault,
             tiersJson: serializeTiers(createTiers),
             reason: createForm.reason.trim(),
+            requiredTags: createForm.requiredTags,
+            validFrom: createForm.validFrom
+              ? new Date(createForm.validFrom).toISOString()
+              : undefined,
+            validTo: createForm.validTo
+              ? new Date(createForm.validTo).toISOString()
+              : undefined,
           }),
         },
       );
@@ -499,12 +542,71 @@ const WithdrawalFeeLevelList = () => {
                 <input
                   type="checkbox"
                   checked={createForm.isDefault}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, isDefault: e.target.checked }))
-                  }
+                  onChange={(e) => {
+                    const isDefault = e.target.checked;
+                    setCreateForm((f) => ({
+                      ...f,
+                      isDefault,
+                      // isDefault levels cannot carry an audience restriction (backend guard).
+                      requiredTags: isDefault ? [] : f.requiredTags,
+                    }));
+                  }}
                 />
                 Is Default Level
               </label>
+
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                  Audience — Required Tag
+                </label>
+                <p className="mb-2 font-mono text-[9px] text-adm-t3">
+                  Select 全体客户（everyone） for no restriction, or a single tag this level applies to.
+                </p>
+                <select
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors disabled:opacity-50"
+                  value={createForm.requiredTags[0] ?? ''}
+                  disabled={createForm.isDefault}
+                  onChange={(e) => {
+                    const tagCode = e.target.value;
+                    setCreateForm((f) => ({
+                      ...f,
+                      requiredTags: tagCode ? [tagCode] : [],
+                    }));
+                  }}
+                >
+                  <option value="">全体客户（everyone）</option>
+                  {tagCatalog.map((t) => (
+                    <option key={t.tagCode} value={t.tagCode}>
+                      {t.displayName} ({t.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                    Valid From (optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors"
+                    value={createForm.validFrom}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, validFrom: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                    Valid To (optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors"
+                    value={createForm.validTo}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, validTo: e.target.value }))}
+                  />
+                </div>
+              </div>
 
               <div>
                 <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">

@@ -241,6 +241,49 @@ describe('OnboardingFinalApprovalService', () => {
     );
   });
 
+  it('should not overwrite an existing onboardingApprovedAt on a later re-approval', async () => {
+    const originalApprovedAt = new Date('2026-01-01T00:00:00.000Z');
+    prisma.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      onboardingStatus: 'FINAL_APPROVAL',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
+      eddRequired: true,
+      latestRiskApprovalId: 'approval-1',
+      latestRiskApprovalStatus: ApprovalStatuses.PENDING,
+      onboardingApprovedAt: originalApprovedAt,
+    });
+    prisma.customerMain.update.mockResolvedValue({
+      id: 'c1',
+      onboardingStatus: 'APPROVED',
+      adminStatus: 'ACTIVE',
+      latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
+      onboardingApprovedAt: originalApprovedAt,
+    });
+
+    await service.onApprovalApproved({
+      approvalId: 'approval-1',
+      approvalNo: 'APR2603180001',
+      actionType: ApprovalActionTypes.ONBOARDING_FINAL_APPROVAL,
+      entityRef: 'c1',
+      traceId: 'trace-1',
+      status: ApprovalStatuses.APPROVED,
+      decisionByUserId: 'mlro-1',
+      decisionByRole: 'MLRO',
+      decisionReason: 'approved',
+      decidedAt: '2026-03-18T12:00:00.000Z',
+    });
+
+    expect(prisma.customerMain.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          onboardingApprovedAt: originalApprovedAt,
+        }),
+      }),
+    );
+  });
+
   it('should block resubmission when linked approval is already approved', async () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',

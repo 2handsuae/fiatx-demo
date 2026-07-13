@@ -311,6 +311,31 @@ describe('OnboardingService', () => {
       expect(result.customer.adminStatus).toBe('ACTIVE');
     });
 
+    it('does not overwrite an existing onboardingApprovedAt on a later re-approval', async () => {
+      const originalApprovedAt = new Date('2026-01-01T00:00:00.000Z');
+      seedVerificationEventFlow({
+        sumsubExperiencedLevel2: false,
+        verificationSubstatus: 'UNDER_REVIEW',
+        onboardingApprovedAt: originalApprovedAt,
+      });
+
+      await service.handleSumsubVerificationEvent(
+        {
+          type: 'applicantWorkflowCompleted',
+          applicantId: 'app-1',
+        },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            onboardingApprovedAt: originalApprovedAt,
+          }),
+        }),
+      );
+    });
+
     it('routes workflow completion with level2 into FINAL_APPROVAL and ensures pending approval', async () => {
       seedVerificationEventFlow({
         sumsubExperiencedLevel2: true,

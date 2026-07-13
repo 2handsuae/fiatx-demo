@@ -13,6 +13,8 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -103,6 +105,15 @@ interface CustomerDetailData {
   sumsubLatestAttemptId?: string | null;
   sumsubExperiencedLevel2?: boolean;
   onboardingTraceId?: string | null;
+}
+
+/* ── Customer Tags ───────────────────────────────────────────── */
+
+interface CustomerTagDefinition {
+  tagCode: string;
+  displayName: string;
+  type: 'STATIC' | 'DERIVED';
+  description?: string | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -251,12 +262,23 @@ const DaysLeftCell = ({ days }: { days?: number | null }) => {
 const CustomerDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasPermission } = useAdminSession();
 
   const [detail, setDetail] = useState<CustomerDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [controlAction, setControlAction] = useState<CustomerControlAction | null>(null);
+
+  /* ── Tags state ── */
+  const canViewTags = hasPermission(PERMISSIONS.CUSTOMER_TAGS_READ);
+  const canManageTags = hasPermission(PERMISSIONS.CUSTOMER_TAGS_ASSIGN);
+  const [tagCatalog, setTagCatalog] = useState<CustomerTagDefinition[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagBusyCode, setTagBusyCode] = useState<string | null>(null);
+  const [tagAddValue, setTagAddValue] = useState('');
+  const [tagError, setTagError] = useState<string | null>(null);
 
   /* ── Material holdings state ── */
   const [holdings, setHoldings] = useState<MaterialHoldingSummary[]>([]);
@@ -329,6 +351,78 @@ const CustomerDetail = () => {
     if (detail?.id) fetchHoldings(detail.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.id]);
+
+  /* ── Tags fetching ── */
+  const fetchTagCatalog = () => {
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/customer-tags/catalog`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: CustomerTagDefinition[]) => setTagCatalog(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  };
+
+  const fetchTags = (customerNo: string) => {
+    setTagsLoading(true);
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/customers/${customerNo}/effective-tags`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: string[]) => setTags(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setTagsLoading(false));
+  };
+
+  useEffect(() => {
+    if (canViewTags) fetchTagCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewTags]);
+
+  useEffect(() => {
+    if (canViewTags && detail?.customerNo) fetchTags(detail.customerNo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canViewTags, detail?.customerNo]);
+
+  const handleAddTag = async () => {
+    if (!detail || !tagAddValue) return;
+    setTagBusyCode(tagAddValue);
+    setTagError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customers/${detail.customerNo}/tags`,
+        { method: 'POST', body: JSON.stringify({ tagCode: tagAddValue }) },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to add tag.'));
+      setTagAddValue('');
+      fetchTags(detail.customerNo);
+    } catch (e: unknown) {
+      if (e instanceof AdminPermissionError) {
+        setTagError('Permission denied. You cannot add tags.');
+      } else {
+        setTagError(e instanceof Error ? e.message : 'Failed to add tag.');
+      }
+    } finally {
+      setTagBusyCode(null);
+    }
+  };
+
+  const handleRemoveTag = async (tagCode: string) => {
+    if (!detail) return;
+    setTagBusyCode(tagCode);
+    setTagError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customers/${detail.customerNo}/tags/${tagCode}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to remove tag.'));
+      fetchTags(detail.customerNo);
+    } catch (e: unknown) {
+      if (e instanceof AdminPermissionError) {
+        setTagError('Permission denied. You cannot remove tags.');
+      } else {
+        setTagError(e instanceof Error ? e.message : 'Failed to remove tag.');
+      }
+    } finally {
+      setTagBusyCode(null);
+    }
+  };
 
   /* ── Derived booleans ── */
 
@@ -494,6 +588,88 @@ const CustomerDetail = () => {
               <p className="mt-1.5 break-all font-mono text-[9px] text-adm-t3">{detail.id}</p>
             </div>
           </section>
+
+          {/* Tags */}
+          {canViewTags && (
+            <section className="px-6 py-5">
+              <Cap>Tags</Cap>
+              <p className="mt-1 mb-4 font-mono text-[9px] text-adm-t3">
+                Manual tags plus system-derived classifications
+              </p>
+              {tagError && (
+                <div className="mb-3 rounded border border-adm-red/30 bg-adm-red/10 px-3 py-2 font-mono text-[10px] text-adm-red">
+                  {tagError}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {tagsLoading && tags.length === 0 ? (
+                  <span className="font-mono text-[10px] text-adm-t3">Loading…</span>
+                ) : tags.length === 0 ? (
+                  <span className="font-mono text-[10px] text-adm-t3">No tags.</span>
+                ) : (
+                  tags.map((tagCode) => {
+                    const def = tagCatalog.find((t) => t.tagCode === tagCode);
+                    const label = def?.displayName || tagCode;
+                    if (def?.type === 'DERIVED') {
+                      return (
+                        <span
+                          key={tagCode}
+                          title={def.description ?? undefined}
+                          className="inline-flex items-center rounded border border-adm-t3/25 bg-adm-t3/10 px-2 py-0.5 font-mono text-[10px] text-adm-t3"
+                        >
+                          {label}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span
+                        key={tagCode}
+                        title={def?.description ?? undefined}
+                        className="inline-flex items-center gap-1.5 rounded border border-adm-blue/25 bg-adm-blue/10 px-2 py-0.5 font-mono text-[10px] text-adm-blue"
+                      >
+                        {label}
+                        {canManageTags && (
+                          <button
+                            onClick={() => void handleRemoveTag(tagCode)}
+                            disabled={tagBusyCode === tagCode}
+                            aria-label={`Remove ${label}`}
+                            className="text-adm-blue/70 hover:text-adm-red disabled:opacity-40"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })
+                )}
+              </div>
+              {canManageTags && (
+                <div className="mt-4 flex items-center gap-2">
+                  <select
+                    value={tagAddValue}
+                    onChange={(e) => setTagAddValue(e.target.value)}
+                    className="rounded border border-adm-border bg-adm-bg px-2 py-1.5 font-mono text-[10px] text-adm-t2 focus:border-adm-amber focus:outline-none"
+                  >
+                    <option value="">Add tag…</option>
+                    {tagCatalog
+                      .filter((t) => t.type === 'STATIC' && !tags.includes(t.tagCode))
+                      .map((t) => (
+                        <option key={t.tagCode} value={t.tagCode}>
+                          {t.displayName}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    onClick={() => void handleAddTag()}
+                    disabled={!tagAddValue || tagBusyCode === tagAddValue}
+                    className={adminButtonClass('detailUtility')}
+                  >
+                    {tagBusyCode && tagBusyCode === tagAddValue ? 'Adding…' : 'Add'}
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* ② Profile */}
           <section className="px-6 py-5">

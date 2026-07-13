@@ -24,9 +24,10 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { SwapFeeLevelService } from './swap-fee-level.service';
-import { SwapFeeLevelBindingService } from './swap-fee-level-binding.service';
 import { SwapFeeLevelTiersConfig } from './types/fee-level.types';
 import { AdminSwapQuoteQueryDto } from '../swap-transactions/dto/swap-quote.dto';
+import { CustomerTagService } from '../../identity/customer-tags/customer-tag.service';
+import { matchesAudience } from '../shared/fee-audience.util';
 
 const SWAP_QUOTE_TTL_SECONDS = 30;
 const QUOTE_NO_MAX_RETRIES = 5;
@@ -50,7 +51,7 @@ export class SwapQuoteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly feeLevelService: SwapFeeLevelService,
-    private readonly bindingService: SwapFeeLevelBindingService,
+    private readonly customerTagService: CustomerTagService,
     @Inject(forwardRef(() => PricingEngineService))
     private readonly engineService: PricingEngineService,
     @Inject(forwardRef(() => BinanceRateProvider))
@@ -67,11 +68,13 @@ export class SwapQuoteService {
     const allLevels = await this.feeLevelService.findActiveByPair(input.fromAssetId, input.toAssetId);
     if (allLevels.length === 0) return null;
 
-    const boundLevelIds = await this.bindingService.findBoundLevelIds(input.customerId);
-    const boundSet = new Set(boundLevelIds);
-
+    const now = new Date();
+    const tags = await this.customerTagService.effectiveTags(input.customerId, now);
     const applicableLevels = allLevels.filter(
-      (l) => l.isDefault || boundSet.has(l.id),
+      (l) => l.isDefault || matchesAudience(
+        { requiredTagsJson: l.requiredTagsJson, validFrom: l.validFrom, validTo: l.validTo },
+        tags, now,
+      ),
     );
     if (applicableLevels.length === 0) return null;
 

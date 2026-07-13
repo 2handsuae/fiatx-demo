@@ -18,6 +18,8 @@ export type PermissionGroup =
   | 'IAM_ROLE_DEFINE'
   | 'CUSTOMER_READ'
   | 'CUSTOMER_WRITE'
+  | 'CUSTOMER_TAG_VIEW'
+  | 'CUSTOMER_TAG_MANAGE'
   | 'CUSTOMER_RATE_READ'
   | 'CUSTOMER_RATE_WRITE'
   | 'ONBOARDING_READ'
@@ -223,6 +225,12 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/customers/:id', 'Get customer detail', ['CUSTOMER_READ']),
   route('PATCH', '/customers/:id', 'Update customer', ['CUSTOMER_WRITE']),
   route('DELETE', '/customers/:id', 'Delete customer', ['CUSTOMER_WRITE']),
+
+  // Customer tags
+  route('GET', '/admin/customer-tags/catalog', 'List customer tag registry', ['CUSTOMER_TAG_VIEW']),
+  route('GET', '/admin/customers/:customerNo/effective-tags', 'Get customer effective tags', ['CUSTOMER_TAG_VIEW']),
+  route('POST', '/admin/customers/:customerNo/tags', 'Assign customer tag', ['CUSTOMER_TAG_MANAGE']),
+  route('DELETE', '/admin/customers/:customerNo/tags/:tagCode', 'Revoke customer tag', ['CUSTOMER_TAG_MANAGE']),
 
   // Pricing center
   route('GET', '/admin/pricing/policies', 'List pricing policies', ['CUSTOMER_RATE_READ']),
@@ -531,15 +539,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/withdrawal-fee-levels/:levelCode/change', 'Submit withdrawal fee level change request', [
     'WITHDRAWAL_FEE_LEVEL_WRITE',
   ]),
-  route('GET', '/admin/withdrawal-fee-levels/:levelCode/bindings', 'List withdrawal fee level bindings', [
-    'WITHDRAWAL_FEE_LEVEL_READ',
-  ]),
-  route('POST', '/admin/withdrawal-fee-levels/bindings', 'Bind customer to withdrawal fee level', [
-    'WITHDRAWAL_FEE_LEVEL_WRITE',
-  ]),
-  route('DELETE', '/admin/withdrawal-fee-levels/bindings', 'Unbind customer from withdrawal fee level', [
-    'WITHDRAWAL_FEE_LEVEL_WRITE',
-  ]),
 
   // Swap Fee Levels
   route('GET', '/admin/swap-fee-levels', 'List swap fee levels', [
@@ -552,15 +551,6 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
   route('POST', '/admin/swap-fee-levels/:levelCode/change', 'Submit swap fee level change request', [
-    'SWAP_FEE_LEVEL_WRITE',
-  ]),
-  route('GET', '/admin/swap-fee-levels/:levelCode/bindings', 'List swap fee level bindings', [
-    'SWAP_FEE_LEVEL_READ',
-  ]),
-  route('POST', '/admin/swap-fee-levels/bindings', 'Bind customer to swap fee level', [
-    'SWAP_FEE_LEVEL_WRITE',
-  ]),
-  route('DELETE', '/admin/swap-fee-levels/bindings', 'Unbind customer from swap fee level', [
     'SWAP_FEE_LEVEL_WRITE',
   ]),
 

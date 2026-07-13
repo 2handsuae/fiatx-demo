@@ -204,8 +204,9 @@ model CustomerMain {
   termsAcceptedAt   DateTime?
 
   // ═══ 状态轴 1：准入旅程 ═══
-  onboardingStatus  String    @default("NONE")
-  onboardingTraceId String?
+  onboardingStatus     String    @default("NONE")
+  onboardingTraceId    String?
+  onboardingApprovedAt DateTime?
 
   // ═══ 状态轴 2：行政生命周期 ═══
   adminStatus       String    @default("INACTIVE")
@@ -276,13 +277,24 @@ model CustomerMain {
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
   withdrawalAddresses       WithdrawalAddress[]
-  withdrawalFeeLevelBindings  WithdrawalFeeLevelBinding[]
-  swapFeeLevelBindings        SwapFeeLevelBinding[]
+  explicitTags                CustomerExplicitTag[]
 
   @@index([adminStatus])
   @@index([complianceStatus])
   @@index([riskRating])
   @@map("customer_main")
+}
+
+model CustomerExplicitTag {
+  id               String   @id @default(uuid())
+  customerId       String
+  tagCode          String
+  assignedByUserId String
+  assignedAt       DateTime @default(now())
+  customer         CustomerMain @relation(fields: [customerId], references: [id])
+  @@unique([customerId, tagCode])
+  @@index([tagCode])
+  @@map("customer_explicit_tags")
 }
 
 model CorporateProfile {
@@ -1582,6 +1594,9 @@ model WithdrawalFeeLevel {
   enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
+  requiredTagsJson String    @default("[]")
+  validFrom        DateTime?
+  validTo          DateTime?
   status           String    @default("PENDING_APPROVAL")
   approvalCaseId   String?
   approvalCaseNo   String?
@@ -1591,7 +1606,6 @@ model WithdrawalFeeLevel {
   updatedAt        DateTime  @updatedAt
 
   asset            Asset     @relation(fields: [assetId], references: [id])
-  bindings         WithdrawalFeeLevelBinding[]
   changeRequests   WithdrawalFeeLevelChangeRequest[]
 
   @@index([assetId, status, enabled])
@@ -1622,23 +1636,6 @@ model WithdrawalFeeLevelChangeRequest {
   @@map("withdrawal_fee_level_change_requests")
 }
 
-model WithdrawalFeeLevelBinding {
-  id              String   @id @default(uuid())
-  customerId      String
-  levelId         String
-  boundByUserId   String
-  boundAt         DateTime @default(now())
-  createdAt       DateTime @default(now())
-
-  customer        CustomerMain             @relation(fields: [customerId], references: [id])
-  level           WithdrawalFeeLevel   @relation(fields: [levelId], references: [id])
-
-  @@unique([customerId, levelId])
-  @@index([customerId])
-  @@index([levelId])
-  @@map("withdrawal_fee_level_bindings")
-}
-
 // ─── Swap Fee Level (2026-05-31) ─────────────────────
 model SwapFeeLevel {
   id               String    @id @default(uuid())
@@ -1650,6 +1647,9 @@ model SwapFeeLevel {
   enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
+  requiredTagsJson String    @default("[]")
+  validFrom        DateTime?
+  validTo          DateTime?
   status           String    @default("PENDING_APPROVAL")
   approvalCaseId   String?
   approvalCaseNo   String?
@@ -1660,7 +1660,6 @@ model SwapFeeLevel {
 
   fromAsset        Asset     @relation("SwapFeeLevelFromAsset", fields: [fromAssetId], references: [id])
   toAsset          Asset     @relation("SwapFeeLevelToAsset", fields: [toAssetId], references: [id])
-  bindings         SwapFeeLevelBinding[]
   changeRequests   SwapFeeLevelChangeRequest[]
 
   @@index([fromAssetId, toAssetId, status, enabled])
@@ -1689,23 +1688,6 @@ model SwapFeeLevelChangeRequest {
 
   @@index([levelId, status])
   @@map("swap_fee_level_change_requests")
-}
-
-model SwapFeeLevelBinding {
-  id              String   @id @default(uuid())
-  customerId      String
-  levelId         String
-  boundByUserId   String
-  boundAt         DateTime @default(now())
-  createdAt       DateTime @default(now())
-
-  customer        CustomerMain @relation(fields: [customerId], references: [id])
-  level           SwapFeeLevel @relation(fields: [levelId], references: [id])
-
-  @@unique([customerId, levelId])
-  @@index([customerId])
-  @@index([levelId])
-  @@map("swap_fee_level_bindings")
 }
 
 model ReconciliationRun {

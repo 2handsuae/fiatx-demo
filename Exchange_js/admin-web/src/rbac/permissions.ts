@@ -20,6 +20,11 @@ export const PERMISSIONS = {
   CUSTOMERS_DETAIL_READ: 'api.get.customers_id',
   PRICING_SWAP_CONFIG_READ: 'api.get.admin_pricing_policies_swap',
 
+  CUSTOMER_TAGS_CATALOG_READ: 'api.get.admin_customer_tags_catalog',
+  CUSTOMER_TAGS_READ: 'api.get.admin_customers_customerno_effective_tags',
+  CUSTOMER_TAGS_ASSIGN: 'api.post.admin_customers_customerno_tags',
+  CUSTOMER_TAGS_REVOKE: 'api.delete.admin_customers_customerno_tags_tagcode',
+
   SWAP_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
   SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
   SWAP_TRANSACTIONS_READ: 'api.get.admin_swap_transactions',
