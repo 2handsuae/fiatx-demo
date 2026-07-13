@@ -27,6 +27,13 @@ interface AssetOption {
   type: string;
 }
 
+interface TagCatalogItem {
+  tagCode: string;
+  displayName: string;
+  type: 'STATIC' | 'DERIVED';
+  description?: string | null;
+}
+
 interface FeeLevelItem {
   id: string;
   levelCode: string;
@@ -99,6 +106,7 @@ const SwapFeeLevelList = () => {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [tagCatalog, setTagCatalog] = useState<TagCatalogItem[]>([]);
 
   /* ── Create modal state ── */
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -109,6 +117,9 @@ const SwapFeeLevelList = () => {
     toAssetId: '',
     isDefault: false,
     reason: '',
+    requiredTags: [] as string[],
+    validFrom: '',
+    validTo: '',
   });
   const [createTiers, setCreateTiers] = useState<TierState[]>([newTier(0)]);
   const [createLoading, setCreateLoading] = useState(false);
@@ -125,6 +136,21 @@ const SwapFeeLevelList = () => {
       if (res.ok) {
         const data = (await res.json()) as { items: AssetOption[] };
         if (Array.isArray(data.items)) setAssets(data.items);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  /* ── Fetch tag catalog for audience editor ── */
+  const fetchTagCatalog = async () => {
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customer-tags/catalog`,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as TagCatalogItem[];
+        if (Array.isArray(data)) setTagCatalog(data);
       }
     } catch {
       /* ignore */
@@ -174,17 +200,36 @@ const SwapFeeLevelList = () => {
   useEffect(() => {
     void fetchItems(1, DEFAULT_FILTERS);
     void fetchAssets();
+    void fetchTagCatalog();
   }, []);
 
   /* ── Create modal handlers ── */
   const openCreateModal = () => {
-    setCreateForm({ levelCode: '', name: '', fromAssetId: '', toAssetId: '', isDefault: false, reason: '' });
+    setCreateForm({
+      levelCode: '',
+      name: '',
+      fromAssetId: '',
+      toAssetId: '',
+      isDefault: false,
+      reason: '',
+      requiredTags: [],
+      validFrom: '',
+      validTo: '',
+    });
     setCreateTiers([newTier(0)]);
     setCreateError(null);
     setShowCreateModal(true);
   };
 
   const closeCreateModal = () => setShowCreateModal(false);
+
+  const toggleRequiredTag = (tagCode: string) =>
+    setCreateForm((f) => ({
+      ...f,
+      requiredTags: f.requiredTags.includes(tagCode)
+        ? f.requiredTags.filter((t) => t !== tagCode)
+        : [...f.requiredTags, tagCode],
+    }));
 
   const handleCreateSubmit = async () => {
     if (!createForm.levelCode.trim()) {
@@ -228,6 +273,13 @@ const SwapFeeLevelList = () => {
             isDefault: createForm.isDefault,
             tiersJson: serializeTiers(createTiers),
             reason: createForm.reason.trim(),
+            requiredTags: createForm.requiredTags,
+            validFrom: createForm.validFrom
+              ? new Date(createForm.validFrom).toISOString()
+              : undefined,
+            validTo: createForm.validTo
+              ? new Date(createForm.validTo).toISOString()
+              : undefined,
           }),
         },
       );
@@ -550,6 +602,65 @@ const SwapFeeLevelList = () => {
                 />
                 Is Default Level
               </label>
+
+              <div>
+                <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                  Audience — Required Tags
+                </label>
+                <p className="mb-2 font-mono text-[9px] text-adm-t3">
+                  Leave empty to apply to all customers. Selected tags are ANDed.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {tagCatalog.length === 0 ? (
+                    <span className="font-mono text-[10px] text-adm-t3">No tags available.</span>
+                  ) : (
+                    tagCatalog.map((t) => {
+                      const selected = createForm.requiredTags.includes(t.tagCode);
+                      return (
+                        <button
+                          key={t.tagCode}
+                          type="button"
+                          onClick={() => toggleRequiredTag(t.tagCode)}
+                          title={t.description ?? undefined}
+                          className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[10px] transition-colors ${
+                            selected
+                              ? 'border-adm-amber/50 bg-adm-amber/10 text-adm-amber'
+                              : 'border-adm-border bg-adm-bg text-adm-t2 hover:border-adm-t3'
+                          }`}
+                        >
+                          {t.displayName}
+                          <span className="text-[8px] uppercase text-adm-t3">{t.type}</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                    Valid From (optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors"
+                    value={createForm.validFrom}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, validFrom: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+                    Valid To (optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors"
+                    value={createForm.validTo}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, validTo: e.target.value }))}
+                  />
+                </div>
+              </div>
 
               <div>
                 <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
