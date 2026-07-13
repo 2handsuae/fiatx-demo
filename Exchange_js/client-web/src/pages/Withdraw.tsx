@@ -78,6 +78,11 @@ interface WithdrawQuoteResult {
   totals: Record<string, string>;
 }
 
+const WITHDRAW_FEE_LABELS: Record<string, string> = {
+  WITHDRAW_SERVICE_FEE: 'Service Fee',
+  NETWORK_FEE_EST: 'Network Fee',
+};
+
 const Withdraw = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -755,24 +760,16 @@ const Withdraw = () => {
 
                                 {quote && (
                                     <div className="space-y-2 text-xs">
-                                        <div className="flex justify-between">
-                                            <span className="text-fx-dust">Service Fee</span>
-                                            <span className="font-medium text-fx-sand">
-                                                {formatAssetAmount(
-                                                    quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
-                                                    selectedAsset?.decimals,
-                                                )} {selectedAsset?.currency}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-fx-dust">Gas Fee</span>
-                                            <span className="font-medium text-fx-sand">
-                                                {formatAssetAmount(
-                                                    quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
-                                                    selectedAsset?.decimals,
-                                                )} {selectedAsset?.currency}
-                                            </span>
-                                        </div>
+                                        {quote.fees
+                                            .filter((f) => Number(f.amount) > 0)
+                                            .map((f) => (
+                                                <div key={f.itemCode} className="flex justify-between">
+                                                    <span className="text-fx-dust">{WITHDRAW_FEE_LABELS[f.itemCode] ?? f.itemCode}</span>
+                                                    <span className="font-medium text-fx-sand">
+                                                        {formatAssetAmount(f.amount, selectedAsset?.decimals)} {selectedAsset?.currency}
+                                                    </span>
+                                                </div>
+                                            ))}
                                         <div className="flex justify-between border-t border-fx-rule pt-2">
                                             <span className="text-fx-dust">Total Fee</span>
                                             <span className="font-medium text-fx-sand">
@@ -980,24 +977,16 @@ const Withdraw = () => {
                       </div>
 
                       <div className="space-y-3 text-sm">
-                          <div className="flex justify-between">
-                              <span className="text-fx-dust">Service Fee</span>
-                              <span className="font-medium text-fx-sand">
-                                  {formatAssetAmount(
-                                      quote.fees.find((item) => item.itemCode === 'WITHDRAW_SERVICE_FEE')?.amount || 0,
-                                      selectedAsset?.decimals,
-                                  )} {selectedAsset?.currency}
-                              </span>
-                          </div>
-                          <div className="flex justify-between">
-                              <span className="text-fx-dust">Network Fee</span>
-                              <span className="font-medium text-fx-sand">
-                                  {formatAssetAmount(
-                                      quote.fees.find((item) => item.itemCode === 'NETWORK_FEE_EST')?.amount || 0,
-                                      selectedAsset?.decimals,
-                                  )} {selectedAsset?.currency}
-                              </span>
-                          </div>
+                          {quote.fees
+                              .filter((f) => Number(f.amount) > 0)
+                              .map((f) => (
+                                  <div key={f.itemCode} className="flex justify-between">
+                                      <span className="text-fx-dust">{WITHDRAW_FEE_LABELS[f.itemCode] ?? f.itemCode}</span>
+                                      <span className="font-medium text-fx-sand">
+                                          {formatAssetAmount(f.amount, selectedAsset?.decimals)} {selectedAsset?.currency}
+                                      </span>
+                                  </div>
+                              ))}
                           <div className="flex justify-between border-t border-fx-rule pt-3">
                               <span className="text-fx-dust">Total Fee</span>
                               <span className="font-semibold text-fx-sand">
