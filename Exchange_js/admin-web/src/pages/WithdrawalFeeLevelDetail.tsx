@@ -20,11 +20,21 @@ interface FeeLevelDetail {
   asset: { id: string; code: string; type: string; decimals?: number };
   isDefault: boolean;
   tiersJson: string;
+  requiredTagsJson: string;
+  validFrom: string | null;
+  validTo: string | null;
   status: string;
   configHash: string | null;
   approvalCaseNo: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface TagCatalogItem {
+  tagCode: string;
+  displayName: string;
+  type: 'STATIC' | 'DERIVED';
+  description?: string | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -91,6 +101,7 @@ export default function WithdrawalFeeLevelDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tagCatalog, setTagCatalog] = useState<TagCatalogItem[]>([]);
 
   /* ── Change Modal state ── */
   const [showChangeModal, setShowChangeModal] = useState(false);
@@ -123,9 +134,27 @@ export default function WithdrawalFeeLevelDetail() {
     }
   };
 
+  const fetchTagCatalog = async () => {
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/customer-tags/catalog`,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as TagCatalogItem[];
+        if (Array.isArray(data)) setTagCatalog(data);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
   useEffect(() => {
     void fetchDetail();
   }, [levelCode]);
+
+  useEffect(() => {
+    void fetchTagCatalog();
+  }, []);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -212,6 +241,27 @@ export default function WithdrawalFeeLevelDetail() {
         }
       })()
     : [];
+
+  /* ── Audience (read-only) ── */
+
+  const audienceDisplay = (() => {
+    if (!level) return '全体客户（everyone）';
+    let tags: string[] = [];
+    try {
+      tags = JSON.parse(level.requiredTagsJson || '[]');
+    } catch {
+      tags = [];
+    }
+    if (tags.length === 0) return '全体客户（everyone）';
+    const tagCode = tags[0];
+    const found = tagCatalog.find((t) => t.tagCode === tagCode);
+    return found ? found.displayName : tagCode;
+  })();
+
+  const audienceWindowDisplay =
+    level && (level.validFrom || level.validTo)
+      ? `生效窗：${fmt(level.validFrom)} ~ ${fmt(level.validTo)}`
+      : '长期有效';
 
   /* ── Loading / Error states ── */
 
@@ -419,6 +469,8 @@ export default function WithdrawalFeeLevelDetail() {
               value={`${level.asset.code} (${level.asset.type})`}
             />
             <SidebarKV label="Default" value={level.isDefault ? 'Yes' : 'No'} />
+            <SidebarKV label="Audience" value={audienceDisplay} />
+            <SidebarKV label="Valid Window" value={audienceWindowDisplay} />
             <SidebarKV label="Config Hash" value={truncateHash(level.configHash)} mono />
             <SidebarKV
               label="Approval"

@@ -119,6 +119,22 @@ describe('WithdrawalFeeLevelService', () => {
       expect(prismaMock.withdrawalFeeLevel.create).not.toHaveBeenCalled();
     });
 
+    it('rejects requiredTags with more than one entry', async () => {
+      await expect(
+        service.createLevel({
+          levelCode: 'WFL-MULTI-TAG',
+          name: 'Multi tag level',
+          assetId: 'asset-1',
+          isDefault: false,
+          tiersJson: validTiersJson,
+          createdByUserId: 'admin-1',
+          requiredTags: ['VIP', 'WHITELIST_PILOT'],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.withdrawalFeeLevel.create).not.toHaveBeenCalled();
+    });
+
     it('rejects when validFrom is after validTo', async () => {
       await expect(
         service.createLevel({

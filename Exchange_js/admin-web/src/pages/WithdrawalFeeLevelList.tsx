@@ -207,14 +207,6 @@ const WithdrawalFeeLevelList = () => {
 
   const closeCreateModal = () => setShowCreateModal(false);
 
-  const toggleRequiredTag = (tagCode: string) =>
-    setCreateForm((f) => ({
-      ...f,
-      requiredTags: f.requiredTags.includes(tagCode)
-        ? f.requiredTags.filter((t) => t !== tagCode)
-        : [...f.requiredTags, tagCode],
-    }));
-
   const handleCreateSubmit = async () => {
     if (!createForm.levelCode.trim()) {
       setCreateError('Level Code is required');
@@ -550,45 +542,45 @@ const WithdrawalFeeLevelList = () => {
                 <input
                   type="checkbox"
                   checked={createForm.isDefault}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, isDefault: e.target.checked }))
-                  }
+                  onChange={(e) => {
+                    const isDefault = e.target.checked;
+                    setCreateForm((f) => ({
+                      ...f,
+                      isDefault,
+                      // isDefault levels cannot carry an audience restriction (backend guard).
+                      requiredTags: isDefault ? [] : f.requiredTags,
+                    }));
+                  }}
                 />
                 Is Default Level
               </label>
 
               <div>
                 <label className="mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
-                  Audience — Required Tags
+                  Audience — Required Tag
                 </label>
                 <p className="mb-2 font-mono text-[9px] text-adm-t3">
-                  Leave empty to apply to all customers. Selected tags are ANDed.
+                  Select 全体客户（everyone） for no restriction, or a single tag this level applies to.
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {tagCatalog.length === 0 ? (
-                    <span className="font-mono text-[10px] text-adm-t3">No tags available.</span>
-                  ) : (
-                    tagCatalog.map((t) => {
-                      const selected = createForm.requiredTags.includes(t.tagCode);
-                      return (
-                        <button
-                          key={t.tagCode}
-                          type="button"
-                          onClick={() => toggleRequiredTag(t.tagCode)}
-                          title={t.description ?? undefined}
-                          className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[10px] transition-colors ${
-                            selected
-                              ? 'border-adm-amber/50 bg-adm-amber/10 text-adm-amber'
-                              : 'border-adm-border bg-adm-bg text-adm-t2 hover:border-adm-t3'
-                          }`}
-                        >
-                          {t.displayName}
-                          <span className="text-[8px] uppercase text-adm-t3">{t.type}</span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+                <select
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none transition-colors disabled:opacity-50"
+                  value={createForm.requiredTags[0] ?? ''}
+                  disabled={createForm.isDefault}
+                  onChange={(e) => {
+                    const tagCode = e.target.value;
+                    setCreateForm((f) => ({
+                      ...f,
+                      requiredTags: tagCode ? [tagCode] : [],
+                    }));
+                  }}
+                >
+                  <option value="">全体客户（everyone）</option>
+                  {tagCatalog.map((t) => (
+                    <option key={t.tagCode} value={t.tagCode}>
+                      {t.displayName} ({t.type})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

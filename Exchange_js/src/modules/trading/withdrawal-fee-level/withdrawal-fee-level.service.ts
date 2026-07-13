@@ -101,6 +101,9 @@ export class WithdrawalFeeLevelService {
     if (isDefault && (requiredTags?.length ?? 0) > 0) {
       throw new BadRequestException('默认级(isDefault)不可再设 requiredTags —— 二者语义冲突');
     }
+    if ((requiredTags?.length ?? 0) > 1) {
+      throw new BadRequestException('单个费率等级只能要求至多一个标签（或全体）');
+    }
     for (const tag of requiredTags ?? []) {
       if (!isValidTag(tag)) {
         throw new BadRequestException(`Invalid requiredTags entry: ${tag}`);

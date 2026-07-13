@@ -119,6 +119,23 @@ describe('SwapFeeLevelService', () => {
       expect(prismaMock.swapFeeLevel.create).not.toHaveBeenCalled();
     });
 
+    it('rejects requiredTags with more than one entry', async () => {
+      await expect(
+        service.createLevel({
+          levelCode: 'SFL-MULTI-TAG',
+          name: 'Multi tag level',
+          fromAssetId: 'asset-from',
+          toAssetId: 'asset-to',
+          isDefault: false,
+          tiersJson: validTiersJson,
+          createdByUserId: 'admin-1',
+          requiredTags: ['VIP', 'WHITELIST_PILOT'],
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.swapFeeLevel.create).not.toHaveBeenCalled();
+    });
+
     it('rejects when validFrom is after validTo', async () => {
       await expect(
         service.createLevel({
