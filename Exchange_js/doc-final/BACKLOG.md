@@ -128,6 +128,6 @@ Last Updated: 2026-07-03
 
 ## 账本流水（2026-07-10 本会话新增）
 
-- [ ] **账本流水未排除 pending（「落账才进流水」，本期业主跳过）**：投影器 `account-flow-projector.persist()` 当前对 pending/lock 阶段的转账**也**写流水行（现存 4 条 `transferType=PENDING` 流水行）。目标口径=流水只体现**已落账 posted**：pending 阶段不进流水、`VOID_PENDING` 永不生成，凭证表照旧记 pending。落地=`persist` 在 post 那刻才写流水行（pending 跳过 persist）+ 一次性清历史 pending 流水行。业主 2026-07-10 明确本期跳过 ｜来源: 2026-07-10 账务三列表细化 brainstorm（spec `superpowers/specs/2026-07-10-ledger-lists-refinement-design.md` §6）
+- [x] ~~**账本流水未排除 pending（「落账才进流水」）**~~ —— **撤销（2026-07-12）**：业主改定 **pending 也进流水**为正确口径——挂起（pending）阶段即落一行流水（`transferType=PENDING`），落账后同一行转 POSTED，流水实时反映「在途 / 锁定」的进出。原「流水只体现 posted、pending 不进」的排除需求**作废**；投影器 `account-flow-projector.persist()` 现行为（pending＋posted 都投影）即为**目标态**，无需改。已同步飞书账本 PRD §5.3「流水怎么展示」 ｜来源: 2026-07-12 账本 PRD §5.3 校正（推翻 2026-07-10 §6 的排除口径）
 
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
