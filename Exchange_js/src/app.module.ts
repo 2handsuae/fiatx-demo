@@ -34,6 +34,7 @@ import { ProfileBannersModule } from './modules/identity/profile-banners/profile
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
 import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
 import { TradingReadinessModule } from './modules/trading/shared/trading-readiness.module';
+import { CustomerTagModule } from './modules/identity/customer-tags/customer-tag.module';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { TradingReadinessModule } from './modules/trading/shared/trading-readine
     FundsLayerModule,
     FundsOrdersModule,
     TradingReadinessModule,
+    CustomerTagModule,
   ],
   controllers: [],
   providers: [],

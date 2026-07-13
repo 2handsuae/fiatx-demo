@@ -350,6 +350,7 @@ export class OnboardingService {
               verificationCustomerActionRequired: false,
               verificationCanContinue: false,
               sumsubExperiencedLevel2: false,
+              onboardingApprovedAt: now,
             };
           }
           break;

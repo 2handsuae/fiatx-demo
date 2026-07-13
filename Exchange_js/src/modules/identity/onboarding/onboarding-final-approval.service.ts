@@ -467,6 +467,7 @@ export class OnboardingFinalApprovalService {
         }),
         ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
         latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
+        onboardingApprovedAt: new Date(),
       };
     }
 
