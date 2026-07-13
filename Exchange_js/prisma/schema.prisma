@@ -1596,6 +1596,9 @@ model WithdrawalFeeLevel {
   enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
+  requiredTagsJson String    @default("[]")
+  validFrom        DateTime?
+  validTo          DateTime?
   status           String    @default("PENDING_APPROVAL")
   approvalCaseId   String?
   approvalCaseNo   String?
@@ -1664,6 +1667,9 @@ model SwapFeeLevel {
   enabled          Boolean   @default(true)
   tiersJson        String
   configHash       String
+  requiredTagsJson String    @default("[]")
+  validFrom        DateTime?
+  validTo          DateTime?
   status           String    @default("PENDING_APPROVAL")
   approvalCaseId   String?
   approvalCaseNo   String?
