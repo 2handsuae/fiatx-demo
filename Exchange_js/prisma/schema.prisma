@@ -277,8 +277,6 @@ model CustomerMain {
   riskAssessments           ClientRiskAssessment[]   @relation("CustomerRiskAssessments")
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
   withdrawalAddresses       WithdrawalAddress[]
-  withdrawalFeeLevelBindings  WithdrawalFeeLevelBinding[]
-  swapFeeLevelBindings        SwapFeeLevelBinding[]
   explicitTags                CustomerExplicitTag[]
 
   @@index([adminStatus])
@@ -1608,7 +1606,6 @@ model WithdrawalFeeLevel {
   updatedAt        DateTime  @updatedAt
 
   asset            Asset     @relation(fields: [assetId], references: [id])
-  bindings         WithdrawalFeeLevelBinding[]
   changeRequests   WithdrawalFeeLevelChangeRequest[]
 
   @@index([assetId, status, enabled])
@@ -1639,23 +1636,6 @@ model WithdrawalFeeLevelChangeRequest {
   @@map("withdrawal_fee_level_change_requests")
 }
 
-model WithdrawalFeeLevelBinding {
-  id              String   @id @default(uuid())
-  customerId      String
-  levelId         String
-  boundByUserId   String
-  boundAt         DateTime @default(now())
-  createdAt       DateTime @default(now())
-
-  customer        CustomerMain             @relation(fields: [customerId], references: [id])
-  level           WithdrawalFeeLevel   @relation(fields: [levelId], references: [id])
-
-  @@unique([customerId, levelId])
-  @@index([customerId])
-  @@index([levelId])
-  @@map("withdrawal_fee_level_bindings")
-}
-
 // ─── Swap Fee Level (2026-05-31) ─────────────────────
 model SwapFeeLevel {
   id               String    @id @default(uuid())
@@ -1680,7 +1660,6 @@ model SwapFeeLevel {
 
   fromAsset        Asset     @relation("SwapFeeLevelFromAsset", fields: [fromAssetId], references: [id])
   toAsset          Asset     @relation("SwapFeeLevelToAsset", fields: [toAssetId], references: [id])
-  bindings         SwapFeeLevelBinding[]
   changeRequests   SwapFeeLevelChangeRequest[]
 
   @@index([fromAssetId, toAssetId, status, enabled])
@@ -1709,23 +1688,6 @@ model SwapFeeLevelChangeRequest {
 
   @@index([levelId, status])
   @@map("swap_fee_level_change_requests")
-}
-
-model SwapFeeLevelBinding {
-  id              String   @id @default(uuid())
-  customerId      String
-  levelId         String
-  boundByUserId   String
-  boundAt         DateTime @default(now())
-  createdAt       DateTime @default(now())
-
-  customer        CustomerMain @relation(fields: [customerId], references: [id])
-  level           SwapFeeLevel @relation(fields: [levelId], references: [id])
-
-  @@unique([customerId, levelId])
-  @@index([customerId])
-  @@index([levelId])
-  @@map("swap_fee_level_bindings")
 }
 
 model ReconciliationRun {

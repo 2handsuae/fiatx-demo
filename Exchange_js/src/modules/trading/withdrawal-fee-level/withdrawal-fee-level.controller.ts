@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
   NotFoundException,
@@ -20,8 +19,6 @@ import { ApprovalActorContext } from '../../governance/approvals/constants/appro
 import { WithdrawalFeeLevelService } from './withdrawal-fee-level.service';
 import { WithdrawalFeeLevelCreationWorkflowService } from './withdrawal-fee-level-creation-workflow.service';
 import { WithdrawalFeeLevelChangeWorkflowService } from './withdrawal-fee-level-change-workflow.service';
-import { WithdrawalFeeLevelBindingWorkflowService } from './withdrawal-fee-level-binding-workflow.service';
-import { WithdrawalFeeLevelBindingService } from './withdrawal-fee-level-binding.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CreateWithdrawalFeeLevelDto } from './dto/create-withdrawal-fee-level.dto';
 
@@ -32,8 +29,6 @@ export class WithdrawalFeeLevelController {
     private readonly feeLevelService: WithdrawalFeeLevelService,
     private readonly creationWorkflowService: WithdrawalFeeLevelCreationWorkflowService,
     private readonly changeWorkflowService: WithdrawalFeeLevelChangeWorkflowService,
-    private readonly bindingWorkflowService: WithdrawalFeeLevelBindingWorkflowService,
-    private readonly bindingService: WithdrawalFeeLevelBindingService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -142,32 +137,4 @@ export class WithdrawalFeeLevelController {
       this.buildAdminActor(req),
     );
   }
-
-  @Get(':levelCode/bindings')
-  @RequirePermissions(buildPermissionCode('GET', '/admin/withdrawal-fee-levels/:levelCode/bindings'))
-  async getBindings(@Param('levelCode') levelCode: string) {
-    const level = await this.feeLevelService.findByLevelCode(levelCode);
-    return this.bindingService.findByLevel(level.id);
-  }
-
-  @Post('bindings/bind')
-  @RequirePermissions(buildPermissionCode('POST', '/admin/withdrawal-fee-levels/bindings'))
-  async bindLevel(
-    @Body() dto: { customerId: string; levelId: string },
-    @Req() req: any,
-  ) {
-    this.ensureAdmin(req);
-    return this.bindingWorkflowService.bindLevel(dto, this.buildAdminActor(req));
-  }
-
-  @Delete('bindings/unbind')
-  @RequirePermissions(buildPermissionCode('DELETE', '/admin/withdrawal-fee-levels/bindings'))
-  async unbindLevel(
-    @Body() dto: { customerId: string; levelId: string },
-    @Req() req: any,
-  ) {
-    this.ensureAdmin(req);
-    return this.bindingWorkflowService.unbindLevel(dto, this.buildAdminActor(req));
-  }
-
 }
