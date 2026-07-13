@@ -170,7 +170,7 @@ Date: 2026-07-12 ｜ Status: Draft（设计稿，**只出设计不实现**）｜
 □ 能说清 record 与 case 的区别、case 双向桥、L3 按订单双事件触发
 □ 能说清证据三层存放（结论/过程/原始报文）分别落哪
 □ 明确标注了 deferred 依赖（金额级冻结）与既有代码命名冲突（L3-archive 改名）
-□ 能说清 L2 集成契约（附录 A）：应然四步（规划/分发/收敛/裁决）、同步响应三用途 + webhook 唯一写状态、KYT 充值单步（pre/post-tx）、TR 两场景绑定（预告登记 vs 订单为锚）
+□ 能说清 L2 集成契约（附录 A）：应然四步（规划/分发/收敛/裁决）、同步响应三用途 + webhook 唯一写状态、KYT 充值单步（pre/post-tx）、TR 两场景（Sumsub 当真身；订单锚定字段；场景 A 无状态归属应答，不建本地预告表——见 A.5 ⛔ 修正）
 
 ## 9. 关键锚点
 
@@ -222,16 +222,16 @@ Date: 2026-07-12 ｜ Status: Draft（设计稿，**只出设计不实现**）｜
 2. **同步响应**：走 A.2 三用途。
 3. **webhook 终局**：`applicantKytTxnApproved`(GREEN)→PASSED ｜ `applicantKytTxnRejected`(RED)→FAILED→FROZEN ｜ `applicantKytOnHold`→FROZEN（Sumsub 人审）→后续 `applicantKytTxnReviewed` 改判。放行后如需 MLRO 人工：`POST /resources/kyt/txns/{txnId}/review/status/completed` `reviewAnswer:GREEN`。
 
-### A.5 TR 掰开（充值=入站）——两场景 + 绑定
+### A.5 TR 掰开（充值=入站）——两场景
 
-TR 是"和对方 VASP 的一场对话"，结果 100% 靠 webhook。入站两剧本，**绑定方式不同**：
+> ⛔ **修正（2026-07-14，业主否决"独立 TR 交换实体表"）**：本节原写的"独立预告入账登记 + 认领匹配引擎"已否决——**TR 不建本地独立表**。**Sumsub 存 TR 交换真身（system of record）**；我方只在充值/提现**订单字段**上镜像 `travelRuleStatus`/`sumsubTxnId`/`counterpartyVasp`/`failReason`。决策见 memory `tr-exchange-table-rejected`。
 
-**场景 A · 信息先行（对方先发 TR，后打款）——TR 是锚，订单后到认领**
-TR 到达时**订单/txHash 都还不存在**（钱没动），故不能"把 TR 绑订单"，只能反过来。三拍：
-1. TR 到达（`applicantKytOnHold`）→ 处理归属确认（`POST /resources/kyt/txns/{txnId}/travelRuleOwnership` + 提供客户 PII）→ 落一条**独立"预告入账登记"**（不挂订单），记 收款地址 + 资产 + 预告金额 + 对方 VASP + txnId + 核验结果 + TTL。
-2. 钱到账、Deposit 诞生 → 规划步按 **同地址 + 同资产 + 金额容差 + 时间窗** 回头认领该预告 → `travelRuleStatus` 继承 PASSED，不重发 TR。
-3. 补真实 txHash（`applicantKytTxnDataChanged`）→ TR/订单/链上三方闭环。
-- 边角策略（必定）：预告 TTL 过期作废（可通知）｜ 金额超容差不认领 → 转场景 B、原预告转人工 ｜ 一条预告只被一笔订单消费。
+TR 是"和对方 VASP 的一场对话"，结果 100% 靠 webhook。入站两剧本：
+
+**场景 A · 信息先行（对方先发 TR，后打款）——无状态自动应答，不建本地预告表**
+1. TR 到达（`applicantKytOnHold`）→ 归属确认可**无状态自动应答**：客户充值地址已预注册到 Sumsub 绑 applicant → 自动确认归属（`POST /resources/kyt/txns/{txnId}/travelRuleOwnership`）+ 从 applicant 资料自动带 PII → Sumsub 交叉核验、**记在 Sumsub**。我方本地**不落预告表**，顶多记日志。
+2. 钱到账、Deposit 诞生 → 走**场景 B 姿势**（订单为锚）；**先查 Sumsub 有没有这笔的已完成交换**（按地址/txHash），有就直接读结果、不重发（txHash 幂等），没有才发起。
+3. 补真实 txHash → Sumsub 记录闭环。
 
 **场景 B · 钱先到（你发起 TR 追问）——订单是锚，天然绑定**
 - 订单先在，发起时**自铸 txnId（`depositNo` 派生）+ 带真实 txHash**，无认领问题。
@@ -241,7 +241,7 @@ TR 到达时**订单/txHash 都还不存在**（钱没动），故不能"把 TR 
 
 ### A.6 三条工程铁律（实现必踩）
 
-1. **先落库再外调**：先写"预告/分发记录（带自铸 txnId）"，再调 Sumsub——防 **webhook 先于同步响应到达**时找不到单而丢事件。
+1. **先落库再外调**：先写订单侧 TR 分发标记（`travelRuleStatus=PENDING` + 自铸 `sumsubTxnId`），再调 Sumsub——防 **webhook 先于同步响应到达**时找不到单而丢事件。（原"预告记录"随独立表否决，见 A.5 ⛔）
 2. **幂等**：webhook 会重推，同一事件（按 txnId + 事件类型）到两次不得二次写状态 / 二次记账。
 3. **txnId 自铸**（`depositNo` 派生）作全链关联键，贯穿 提交 / webhook / 对账。
 
@@ -254,6 +254,6 @@ TR 到达时**订单/txHash 都还不存在**（钱没动），故不能"把 TR 
 | ③ 双字段独立收敛 | ✅ `kytStatus`/`travelRuleStatus` 已拆 |
 | ③ 每道超时出口 | ❌ KYT 超时转人工未做（BACKLOG V4）；TR Confirmation Timeout 未接 |
 | ④ 汇合自动裁决 + FROZEN | ✅ 骨架已有 |
-| A.5 场景 A 预告登记表 + 认领 | ❌ 未建（TR 目前只走模拟注入，无预告/认领模型） |
+| A.5 场景 A 本地建模 | ⛔ **否决（2026-07-14）**——不建本地预告表/认领引擎；改 Sumsub 当真身 + 无状态归属应答（见 A.5 修正、memory `tr-exchange-table-rejected`） |
 
 > 四步结构对**提现 L2** 同样成立，差异仅：清单含 pre-KYT + TR + 大额审批门，且末尾多一步 post-tx txHash 回填。
