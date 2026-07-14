@@ -36,13 +36,21 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
   const { user, loading, isAuthenticated, error } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { tradingReady, loading: tradingReadinessLoading } = useTradingReadiness();
+  const { tradingReady, loading: tradingReadinessLoading, refetch: refetchTradingReadiness } = useTradingReadiness();
 
   useEffect(() => {
     if (!loading && !isAuthenticated && !error) {
       navigate('/login');
     }
   }, [loading, isAuthenticated, error, navigate]);
+
+  // Re-check trading readiness on every navigation: AuthGuard persists across
+  // route changes (React reuses the Outlet slot), so its readiness would otherwise
+  // stay stale after the customer adds their first fiat address and navigates on
+  // to a business page — leaving the guard wrongly showing.
+  useEffect(() => {
+    refetchTradingReadiness();
+  }, [location.pathname, refetchTradingReadiness]);
 
   if (loading) {
     return (

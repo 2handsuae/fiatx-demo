@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   CustomerSessionError,
   customerFetch,
@@ -10,7 +10,7 @@ export const useTradingReadiness = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const fetchReadiness = async () => {
+  const fetchReadiness = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -35,11 +35,11 @@ export const useTradingReadiness = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchReadiness();
-  }, []);
+  }, [fetchReadiness]);
 
   return { tradingReady, loading, error, refetch: fetchReadiness };
 };
