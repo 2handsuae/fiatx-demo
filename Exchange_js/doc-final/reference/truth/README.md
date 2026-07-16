@@ -22,10 +22,10 @@
 | [_template.md](_template.md) | 新建文件的结构模板 | — |
 | [v1-governance-audit.md](v1-governance-audit.md) | 审批引擎 / 审计日志 / RBAC / admin 生命周期 / 凭证安全 | 2026-07-04 |
 | [v2-customer-compliance.md](v2-customer-compliance.md) | Onboarding / CRA / 材料时效 / Tier 升级 / 冻结 / 三轴状态 / Sumsub 翻译层 | 2026-07-04 |
-| [v3-financial-config.md](v3-financial-config.md) | 资产 / 托管钱包 / COA 账本账户 / 提现地址 / 金额闸门 | 2026-07-03 |
+| [v3-financial-config.md](v3-financial-config.md) | 资产 / 托管钱包 / COA 账本账户 / 提现地址 / 金额闸门 | 2026-07-16 |
 | [v4-deposit.md](v4-deposit.md) | 充值双链路（crypto/fiat）/ 合规三层门 / 异常分支现状 / funds_orders 充值切片 | 2026-07-03 |
-| [v5-withdraw.md](v5-withdraw.md) | 提现双链路（共用工作流）/ 大额审批门 / 三层合规 / 费率治理 / funds_order 2 腿 | 2026-07-03 |
-| [v6-swap.md](v6-swap.md) | 兑换报价 + 4 腿成交 / 仅 L1 合规 / 费率治理 / FAILED-REVERSED 死枚举 | 2026-07-04 |
+| [v5-withdraw.md](v5-withdraw.md) | 提现双链路（共用工作流）/ 大额审批门 / 三层合规 / 费率治理 / funds_order 2 腿 | 2026-07-16 |
+| [v6-swap.md](v6-swap.md) | 兑换报价 + 4 腿成交 / 仅 L1 合规 / 费率治理 / FAILED-REVERSED 死枚举 | 2026-07-16 |
 | [v8-recon.md](v8-recon.md) | 逐钱包 1:1 对账 / 五桶 / Run-Case 驾驶舱 / effectiveDate / 推单处置 / 止于 Case OPEN | 2026-07-04 |
 | [accounting-coa.md](accounting-coa.md) | **跨版本** 8 码 COA / TB 记账机制 / AccountFlow 投影 / 实时 1:1 不变量 | 2026-07-04 |
 | [funds-orders.md](funds-orders.md) | **跨版本** 资金单状态机 / 共享执行引擎 / 三视图投影 | 2026-07-10 |

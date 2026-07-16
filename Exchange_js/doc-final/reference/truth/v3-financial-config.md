@@ -1,6 +1,6 @@
 # V3 财务配置 — 当前实现真相
 
-Last Verified: 2026-07-11（核对方式：三路 subagent 逐条 file:line 走查 + 主线复核，见各节锚点）
+Last Verified: 2026-07-16（核对方式：金额闸门节按 transaction-limits 落地逐符号重核；余节 2026-07-11 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。历史沿革看 git/roadmap，计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -12,7 +12,7 @@ Last Verified: 2026-07-11（核对方式：三路 subagent 逐条 file:line 走�
 - **主标识**：`code = {currency}-{network}`（如 `USDT-TRC20`），无 network 时 = currency；身份字段 currency/network/decimals 一旦创建即锁定
 - **创建无审批门**，同事务完成系统账本账户 provisioning；激活/暂停/恢复各走**独立 CISO 审批**（`ApprovalActionTypes.ASSET_ACTIVATION / SUSPENSION / REACTIVATION`）
 - **激活就绪检查两项**：① 系统账本账户齐全 ② ≥1 个 ACTIVE 钱包
-- **PROVISIONING 期可编辑运营字段**（限额/开关/描述），身份字段锁定
+- **PROVISIONING 期可编辑运营字段**（开关/描述等，身份字段锁定）；单笔 min/max 限额已移交 `transaction_limit_rules` SINGLE 行（见 §5），资产表单不再配
 - **客户端守卫双侧**：前端只列 ACTIVE 资产；后端钱包创建 API 拒绝非 ACTIVE 资产
 - **锚点**：`assets.service.ts` ｜ `asset-activation-workflow.service.ts → checkReadiness()`（就绪检查）｜ `AssetEdit.tsx`（PROVISIONING 期字段锁定守卫）
 - ⚠️ **已知残留**：`contractAddress` 字段前端已移除但 schema/DTO 仍保留（无害，见 BACKLOG）
@@ -56,11 +56,19 @@ Last Verified: 2026-07-11（核对方式：三路 subagent 逐条 file:line 走�
 - **锚点**：`withdrawal-address.service.ts → deactivate() / createBankAccount()`（首地址免冷却判定）｜ `withdrawal-address-sweep.service.ts → handleCoolingExpiry() @Cron`
 - ⚠️ **已知缺口**：提现创建流程**不校验**地址是否 ACTIVE/已注册——前端过滤 ACTIVE、后端裸奔，绕过前端可用任意地址提现（安全守卫卡片 task_20678a2c，见 BACKLOG）
 
-## 5. 金额闸门（现状）
+## 5. 金额闸门（Transaction Limits）
 
-- **限额策略表**：`tradingTier × operationType × period`（`policyNo` = TLP-NNN）；变更走 request-record（`requestNo` = TLC-NNN，快照冲突检测，同策略单 PENDING）
-- **审批**：`OPS_OFFICER` 单步 48h（2026-06-01 起，原 MLRO+SMO 两步已简化）
-- ⚠️ **执行侧零接入**：充值/提现/兑换**均不读此表**；admin 侧边栏入口已隐藏（commit 84cfffb，路由直链仍可达）
-- **现役唯一金额闸门**：提现毛额 ≥ 200,000 AED 触发 SMO 审批（**硬编码**阈值，withdraw 模块）
-- **锚点**：`governance/transaction-limits/` ｜ `approval.constants.ts → TRANSACTION_LIMIT_CREATION/CHANGE`
-- ⚠️ **待收口**：三条金额线（tier 限额 / 大额审批 20 万 / TR 阈值 3,500）建议合并为"金额闸门矩阵"统一接入 L1，见 roadmap V3 ADVANCED + BACKLOG 待决策
+统一规则表 `transaction_limit_rules`（模型 `TransactionLimitRule`，模块 `asset-treasury/transaction-limits/`）+ 一台 L1 判定引擎，取代旧 `governance/transaction-limits` 半成品（已退役）。
+
+- **三种 gateType 行形状锁死**（每型固定哪些维度必填/必空，无通配优先级问题）：
+  - `SINGLE`（A 单笔）：operationType × assetId，`minAmount`/`maxAmount`（原生币种，可只填一边）
+  - `CUMULATIVE`（B 累计）：operationType × tradingTier(BASIC/PREMIUM) × period(DAILY/MONTHLY)，`defaultLimit` + `cap`（AED；`cap` = 客户微调层上限占位，本轮引擎不消费）
+  - `LARGE_APPROVAL`（D1）：operationType，`threshold`（AED）
+  - 唯一约束 =（gateType, operationType, assetId?, tradingTier?, period?）；SQLite 复合唯一对 NULL 不去重 → 服务层 `assertUnique()` 预检
+- **配置台**：admin **Transaction Limits** 页（Assets 菜单组，三 tab 各一 gateType）；创建/变更走 **OPS_OFFICER 单步审批**（maker-checker，`TransactionLimitRuleWorkflowService` + 两个审批发射器 `TransactionLimit{Creation,Change}ApprovalService`，apply-time before-vs-current 冲突守卫 + PENDING 守卫），权限 `TRANSACTION_LIMIT_READ/WRITE`
+- **L1 执行接入**：提现 `createWithdrawal()` + 兑换 `executeSwap()` 在订单 persist 前调 `TransactionLimitGateService.evaluate({operationType,customerId,assetId,amount})`——A/B 拒绝不建单不耗 quote、D1 提现大额门读 LARGE_APPROVAL 行（详见 [v5-withdraw.md](v5-withdraw.md) §3 / [v6-swap.md](v6-swap.md) §3）
+- **种子**：`seedTransactionLimitRules`（`prisma/seed.business.ts`，`db:biz:init` 注入）——A 每资产×WITHDRAWAL/SWAP、B 8 行（BASIC/PREMIUM × 方向 × 周期）、D1 WITHDRAWAL 200000 AED
+- **锚点**：`transaction-limits/transaction-limit-rules.service.ts`（CRUD+三查找+校验）｜ `transaction-limit-gate.service.ts → evaluate()`（L1 引擎）｜ `transaction-limit-rule-workflow.service.ts`（审批工作流）｜ `prisma/seed.business.ts → seedTransactionLimitRules()`
+- ⚠️ **Asset 4 列 `min/maxDeposit/WithdrawAmount` 已成弃用残留**：单笔上下限归 `transaction_limit_rules` SINGLE 行，资产表单已撤 4 输入框；schema 列暂留待 drop（见 BACKLOG）
+- ⚠️ **DEPOSIT 配置先行、执行未接**：规则表接受 `operationType='DEPOSIT'` 行，但充值工作流暂不消费此闸（待充值任务，见 BACKLOG）
+- ⚠️ **TR 阈值 3,500 不属本模块**（合规域，刻意排除；见 roadmap V4 TR 闸门）

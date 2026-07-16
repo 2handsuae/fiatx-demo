@@ -1,6 +1,6 @@
 # V6 兑换流程 — 当前实现真相
 
-Last Verified: 2026-07-11（核对方式：externalRef 收口体检——swap 腿真实转账/有真实 externalRef 纠偏 + demo:all/recon:demo 端到端佐证）
+Last Verified: 2026-07-16（核对方式：金额限额落地核对——executeSwap L1 A/B gate + grossAedValue 落库逐符号走查；余节 2026-07-11 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -27,12 +27,14 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 - **swap 腿** = `swapTransactionId` 非空的 `funds_order`（+ `legSeq` 1-4，不走白名单）。⚠️ 代码仍用 `InternalFundAction` 旧名映射到 `FundsOrderAction`（命名债，见 BACKLOG）
 - **Quote**：`SwapQuoteStatus` = ACTIVE/USED/EXPIRED/CANCELLED；`SWAP_QUOTE_TTL_SECONDS = 30`；**懒过期**（查询时 markExpired，无 cron）
 - **SwapFeeLevel**：tier = `rateMarkupBps`（点差）+ `feeItems`（可选，**支持 spread-only** tier）
+- **AED 估值快照**：`swap_transactions.grossAedValue`（L1 金额限额门在建 swap 行时落库，供 B 周期累计用量取数；无 `aedRate`/`rateFetchedAt` 等余列，swap 仅需累计求和）
 - 锚点：`swap-quote.service.ts → SWAP_QUOTE_TTL_SECONDS` ｜ `pricing.types.ts → SwapTier`
 
 ## 3. 关键流程
 
 - **报价**：`SwapQuoteService.createQuote()` → `resolveBestLevel()`（多 level 取最低费）+ `BinanceRateProvider.fetchRate()`（实时 + 3s 缓存 + AED 钉 3.6725）+ `PricingEngineService.buildSwapQuote()`（amountOut/spread/fee）→ 30s TTL
 - **L1 资格**：`SwapWorkflowService.executeSwap()` 内 `ensureCustomerCanTransact()` + `assertTradingEligibility(ownerId, 'SWAP')`（pre-creation 同步）
+- **L1 金额限额门**（资格之后、`$transaction` 之前）：`executeSwap()` 事务外 peek quote（`swapQuote.findUnique` 取 `fromAssetId`/`amountIn`）→ `TransactionLimitGateService.evaluate({operationType:'SWAP',customerId:ownerId,assetId,amount})`——A 单笔 min/max（原生币种）+ B 周期累计（AED，迪拜日历日/月窗口，用量 = 窗口内该客户 swap `grossAedValue` 之和[排除 FAILED/REVERSED] + 本笔）；有 B 规则但汇率失败 → fail-closed `UNPRICEABLE`。拒绝 = **swap 不建、quote 不耗**，审计 `TRANSACTION_LIMIT_REJECTED`（workflowType `TRANSACTION_LIMIT_ENFORCEMENT`）；通过则 `grossAedValue` 随 swap 行落库。peek 到空 quote 不在此抛（落到事务内 `getActiveQuoteOrThrow` 的既有 SWAP_FAILED 路径）。**无 D1 大额审批门**（业主决策：兑换资金不出境、无第三方对手方，不做大额审批）
 - **R4 双边收款账户门**：`executeSwap()` 读到 quote 后（事务内，consume 前）逐一检查 buy/sell 两侧资产的 `WalletQueryService.hasReceivingAccount(ownerId, assetId)`（ACTIVE 的 C_DEP/C_VIBAN），任一缺失即 `RECEIVING_ACCOUNT_REQUIRED`（带 assetCode），先于 consumeQuote/建 swap 行/建 leg1 拦截，避免腿中段才在 `resolveLegWallets()` 撞见钱包缺失
   - **前端逐币预检**（`Swap.tsx` + `GET /client/trading-readiness/receiving-accounts`）：选定 buy/sell 后即查两侧收款账户，缺失则禁提交并提示，CTA「Create receiving account」**跳 `/deposit`**（收款账户=充值地址，Deposit 页是自然落点；2026-07-11 起，原 `/wallet`）
 - **成交编排**：consume Quote → swap PROCESSING → `createLeg(leg1)` → per-leg two-phase → `onLegConfirmed()` 链式创建下一腿 → 第 4 腿 CLEAR → `markStatus('SUCCESS')`
@@ -40,7 +42,7 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 - **4 腿账户**（`swap-leg-plan.constant.ts`，CRYPTO_TO_FIAT / FIAT_TO_CRYPTO 各一组）：客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE`；per-leg two-phase `initiateLegPending()→postLeg()`（成功）/ `voidLeg()`（失败 best-effort 补偿）。**无 clearing bridge / Outstanding / FEE_RECEIVABLE**（全仓 0 命中）
 - **对账 evidence**：每腿 `externalRef = ${swapNo}:${legSeq}:${attempt}:pending` + debit/creditWalletRef + `isExternalCrossing=true`（swap 不上链，swap-internal ref 即跨钱包互证键）
 - **费率治理**：2 独立工作流 `SwapFeeLevel{Creation/Change}WorkflowService`；创建/变更走审批（**OPS_OFFICER 单步**），Change 走 request-record + `configHash` 冲突检测 + 单 PENDING 约束；受众改由 `requiredTagsJson`（客户标签谓词）+ `validFrom/validTo`（限时窗）表达（binding 表已 2026-07-13 退役，见 BACKLOG 历史）
-- 锚点：`swap-workflow.service.ts → executeSwap()/handleFundsOrderChanged()/onLegConfirmed()/onLegFailedSelfHeal()/advanceLeg()/mapLegAction()` ｜ `swap-leg-accounting.ts → initiateLegPending()/postLeg()/voidLeg()` ｜ `swap-leg-plan.constant.ts → buildSwapLegPlan()` ｜ `swap-quote.service.ts → createQuote()/resolveBestLevel()` ｜ `binance-rate.provider.ts → fetchRate()` ｜ `swap-fee-level/*-workflow.service.ts`
+- 锚点：`swap-workflow.service.ts → executeSwap()/handleFundsOrderChanged()/onLegConfirmed()/onLegFailedSelfHeal()/advanceLeg()/mapLegAction()` ｜ `asset-treasury/transaction-limits/transaction-limit-gate.service.ts → evaluate()`（L1 金额限额引擎，A/B）｜ `swap-leg-accounting.ts → initiateLegPending()/postLeg()/voidLeg()` ｜ `swap-leg-plan.constant.ts → buildSwapLegPlan()` ｜ `swap-quote.service.ts → createQuote()/resolveBestLevel()` ｜ `binance-rate.provider.ts → fetchRate()` ｜ `swap-fee-level/*-workflow.service.ts`
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
 
@@ -56,4 +58,5 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
 `swap-transactions/`：`swap-workflow.service.ts`（入口+事件编排+advance，主文件）｜ `swap-leg-accounting.ts`（per-leg two-phase 记账）｜ `swap-transactions.service.ts`（状态机+投影）｜ `swap-transactions.controller.ts`（advance/resume 端点）｜ `dto/swap-transaction.dto.ts`（状态枚举）
 `swap-fee-level/`：`swap-quote.service.ts`（报价+resolveBestLevel）｜ `swap-fee-level.service.ts`（executeChange+configHash）｜ `*-creation/change-workflow.service.ts`
 `funds-layer/constants/swap-leg-plan.constant.ts`（4 腿声明）｜ `pricing-center/`（`pricing-engine.service.ts`、`providers/binance-rate.provider.ts`；**`PricingCenterService` 已删**）｜ `approval.constants.ts → SWAP_FEE_LEVEL_CREATION/CHANGE`
-前端：`client-web/Swap.tsx`、`admin-web/SwapTransaction{List,Detail}.tsx`、`SwapQuote{List,Detail}.tsx`、`SwapFeeLevel{List,Detail}.tsx`
+共享：`asset-treasury/transaction-limits/transaction-limit-gate.service.ts`（L1 金额限额引擎，提现兑换共用）
+前端：`client-web/Swap.tsx`（限额 `code` 友好文案映射）、`admin-web/SwapTransaction{List,Detail}.tsx`、`SwapQuote{List,Detail}.tsx`、`SwapFeeLevel{List,Detail}.tsx`
