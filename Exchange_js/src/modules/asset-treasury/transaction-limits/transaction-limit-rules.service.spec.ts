@@ -56,6 +56,12 @@ describe('TransactionLimitRulesService', () => {
     ).toThrow(BadRequestException);
   });
 
+  it('validateShape rejects a CUMULATIVE row with only cap set (defaultLimit required)', () => {
+    expect(() =>
+      service.validateShape({ gateType: 'CUMULATIVE', operationType: 'SWAP', tradingTier: 'BASIC', period: 'DAILY', cap: 200000 } as any),
+    ).toThrow(BadRequestException);
+  });
+
   it('getSingleRule queries ACTIVE row by op+asset', async () => {
     prisma.transactionLimitRule.findFirst.mockResolvedValue({ id: 'r1' });
     const r = await service.getSingleRule('WITHDRAWAL', 'asset-1');

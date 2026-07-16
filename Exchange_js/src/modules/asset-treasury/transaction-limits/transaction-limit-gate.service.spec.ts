@@ -51,6 +51,25 @@ describe('TransactionLimitGateService', () => {
     expect(audit.recordSystem).toHaveBeenCalledWith(expect.objectContaining({ action: 'TRANSACTION_LIMIT_REJECTED' }));
   });
 
+  it('拒绝审计带 per-attempt-unique requestId(含 ruleNo+customerId) → 不被幂等去重吞掉', async () => {
+    rules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-1', minAmount: D('2'), maxAmount: null });
+    await expect(gate.evaluate(input)).rejects.toThrow(BadRequestException);
+    const call = audit.recordSystem.mock.calls[0][0];
+    expect(call.requestId).toEqual(expect.stringContaining('TLR-1'));
+    expect(call.requestId).toEqual(expect.stringContaining('c1'));
+    // 二次同规则拒绝 → requestId 必须不同(否则 idempotencyKey 相同,审计被吞)
+    await expect(gate.evaluate(input)).rejects.toThrow(BadRequestException);
+    expect(audit.recordSystem.mock.calls[1][0].requestId).not.toEqual(call.requestId);
+  });
+
+  it('B: CUMULATIVE 规则缺 defaultLimit(只填 cap) → 引擎跳过、不抛 DecimalError、放行', async () => {
+    rules.getCumulativeRules.mockResolvedValue([{ ruleNo: 'TLR-4', period: 'DAILY', defaultLimit: null, cap: D('999') }]);
+    prisma.withdrawTransaction.aggregate.mockResolvedValue({ _sum: { grossAedValue: D('100') } });
+    await expect(gate.evaluate(input)).resolves.toBeDefined();
+    // 缺 defaultLimit 视为无限额:不计用量、不拒绝
+    expect(prisma.withdrawTransaction.aggregate).not.toHaveBeenCalled();
+  });
+
   it('A: 等于 minAmount → 放行（边界含等号）', async () => {
     rules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-1', minAmount: D('1'), maxAmount: D('5') });
     await expect(gate.evaluate(input)).resolves.toBeDefined();

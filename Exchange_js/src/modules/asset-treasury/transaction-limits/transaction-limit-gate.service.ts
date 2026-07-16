@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -60,6 +61,10 @@ export class TransactionLimitGateService {
       await this.reject(input, cumRules[0].ruleNo, 'TRANSACTION_LIMIT_UNPRICEABLE', {});
     }
     for (const rule of cumRules) {
+      if (rule.defaultLimit == null) {
+        this.logger.warn(`Rule ${rule.ruleNo} CUMULATIVE missing defaultLimit — skipping`);
+        continue;
+      }
       const windowStart = dubaiWindowStart(rule.period as 'DAILY' | 'MONTHLY', new Date());
       const used = await this.sumUsage(input.operationType, input.customerId, windowStart);
       const projected = used.add(valuation.grossAedValue!);
@@ -107,7 +112,10 @@ export class TransactionLimitGateService {
       entityNo: ruleNo,
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: input.customerId,
-      workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+      workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_ENFORCEMENT,
+      // Per-attempt-unique requestId → distinct idempotency key so every rejection is
+      // audited (default NO_REQUEST_ID fallback would dedup all breaches of one rule).
+      requestId: `TRANSACTION_LIMIT_REJECTED_${ruleNo}_${input.customerId}_${randomUUID()}`,
       metadata: { code, operationType: input.operationType, amount: input.amount.toString(), ...context },
     });
     throw new BadRequestException({ code, ruleNo, ...context });

@@ -39,6 +39,12 @@ export class TransactionLimitRulesService {
       (f) => !shape.amountFields.includes(f) && (input as any)[f] != null,
     );
     if (alien.length) throw new BadRequestException(`${input.gateType} rule must not set: ${alien.join(', ')}`);
+    // CUMULATIVE 的 defaultLimit 是引擎 B 环真正消费的限额；cap 仅占位(未来客户层微调)。
+    // 只填 cap 会让引擎 `new Decimal(defaultLimit)` 抛 DecimalError → 该 tier 每笔交易 500。
+    // 不放进 GATE_SHAPES.required(维度专用,`!input[f]` 会把 0 误读成缺失)，此处按 gateType 单独强校验。
+    if (input.gateType === 'CUMULATIVE' && input.defaultLimit == null) {
+      throw new BadRequestException('CUMULATIVE rule requires defaultLimit');
+    }
     for (const f of shape.amountFields) {
       const v = (input as any)[f];
       if (v != null && new Prisma.Decimal(v).lte(0)) throw new BadRequestException(`${f} must be > 0`);
