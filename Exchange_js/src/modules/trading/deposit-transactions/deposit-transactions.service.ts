@@ -23,6 +23,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -54,6 +55,7 @@ export class DepositTransactionsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly fundsOrders: FundsOrderService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly limitRulesService: TransactionLimitRulesService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -427,6 +429,13 @@ export class DepositTransactionsService {
     const resolvedTraceId = input.traceId ?? randomUUID();
     const depositNo = generateReferenceNo('DEP');
 
+    // L1 金额下限判定(出生落标——deposit 是被动入金,低于 min 不拒绝,建单+隐藏+挂起)
+    let limitHoldReason: string | undefined;
+    const singleRule = await this.limitRulesService.getSingleRule('DEPOSIT', input.assetId);
+    if (singleRule?.minAmount && new Prisma.Decimal(input.amount).lt(new Prisma.Decimal(singleRule.minAmount))) {
+      limitHoldReason = 'BELOW_MIN';
+    }
+
     const deposit = await (this.prisma as any).depositTransaction.create({
       data: {
         depositNo,
@@ -453,6 +462,7 @@ export class DepositTransactionsService {
         fromIban: input.fromIban ?? undefined,
         toAddress: wallet.address,
         toIban: wallet.iban,
+        limitHoldReason,
       },
     });
 

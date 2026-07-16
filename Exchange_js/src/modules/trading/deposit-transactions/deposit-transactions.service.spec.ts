@@ -9,15 +9,28 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { Prisma } from '@prisma/client';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
   let prisma: PrismaService;
   let eventEmitter: EventEmitter2;
+  let fundsOrderService: Record<string, jest.Mock>;
+  let limitRules: Record<string, jest.Mock>;
   let module: TestingModule;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    fundsOrderService = {
+      create: jest.fn(),
+      advance: jest.fn(),
+      findById: jest.fn(),
+      findByParent: jest.fn().mockResolvedValue([]),
+    };
+    limitRules = {
+      getSingleRule: jest.fn().mockResolvedValue(null),
+    };
     module = await Test.createTestingModule({
       providers: [
         DepositTransactionsService,
@@ -48,18 +61,17 @@ describe('DepositTransactionsService', () => {
         },
         {
           provide: FundsOrderService,
-          useValue: {
-            create: jest.fn(),
-            advance: jest.fn(),
-            findById: jest.fn(),
-            findByParent: jest.fn().mockResolvedValue([]),
-          },
+          useValue: fundsOrderService,
         },
         {
           provide: AuditLogsService,
           useValue: {
             recordSystem: jest.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: TransactionLimitRulesService,
+          useValue: limitRules,
         },
       ],
     }).compile();
@@ -374,6 +386,48 @@ describe('DepositTransactionsService', () => {
           travelRuleStatus: 'NOT_REQUIRED',
         },
       });
+    });
+  });
+
+  describe('detected', () => {
+    beforeEach(() => {
+      ((prisma as any).wallet.findUnique as jest.Mock).mockResolvedValue({
+        id: 'w1',
+        assetId: 'a1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        address: null,
+        iban: null,
+        asset: { type: 'FIAT' },
+      });
+      ((prisma as any).depositTransaction.create as jest.Mock).mockImplementation(
+        ({ data }: any) => Promise.resolve({ id: 'dep-1', ...data }),
+      );
+      fundsOrderService.create.mockResolvedValue({ id: 'fo-1', fundsOrderNo: 'FO0001' });
+    });
+
+    it('detected(): amount < DEPOSIT SINGLE min → deposit born with limitHoldReason=BELOW_MIN', async () => {
+      limitRules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-x', minAmount: new Prisma.Decimal('100'), maxAmount: null });
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '5' });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: 'BELOW_MIN' }) }),
+      );
+    });
+
+    it('detected(): amount >= min → no hold flag', async () => {
+      limitRules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-x', minAmount: new Prisma.Decimal('100'), maxAmount: null });
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '100' });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: undefined }) }),
+      );
+    });
+
+    it('detected(): no DEPOSIT rule → no hold flag', async () => {
+      limitRules.getSingleRule.mockResolvedValue(null);
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '5' });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: undefined }) }),
+      );
     });
   });
 

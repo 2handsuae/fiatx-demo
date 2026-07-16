@@ -7,6 +7,7 @@ import {
   DepositOwnerType,
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
+import { randomUUID } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -180,6 +181,25 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.debug(
         `Auto-approval skip: deposit ${depositId} status is ${deposit.status}`,
       );
+      return;
+    }
+
+    if (deposit.limitHoldReason === 'BELOW_MIN') {
+      this.logger.warn(`Auto-approval hold: deposit ${depositId} below minimum amount — awaiting ops disposition`);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'Deposit held: amount below configured minimum (BELOW_MIN)',
+        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+        sourcePlatform: 'SYSTEM',
+        requestId: `DEPOSIT_HELD_BELOW_MIN_${deposit.depositNo}_${randomUUID()}`,
+      });
       return;
     }
 

@@ -8,9 +8,10 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WithdrawalAddressesModule } from '../../asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
+import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 
 @Module({
-  imports: [forwardRef(() => OnboardingModule), TigerBeetleModule, FundsLayerModule, FundsOrdersModule, WithdrawalAddressesModule],
+  imports: [forwardRef(() => OnboardingModule), TigerBeetleModule, FundsLayerModule, FundsOrdersModule, WithdrawalAddressesModule, TransactionLimitsModule],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,

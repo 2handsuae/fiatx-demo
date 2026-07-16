@@ -205,6 +205,30 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD_BELOW_MIN, never approves', async () => {
+      const approveSpy = jest.spyOn(service, 'approveDeposit');
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DEP001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        kytStatus: 'PASSED',
+        travelRuleStatus: 'PASSED',
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        amount: '5',
+        traceId: 'trace-1',
+        limitHoldReason: 'BELOW_MIN',
+      });
+
+      await service.checkAutoApproval('dep-1');
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_HELD_BELOW_MIN' }),
+      );
+      expect(approveSpy).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
     it('does not approve when deposit is FROZEN (even if KYT+TR passed)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
