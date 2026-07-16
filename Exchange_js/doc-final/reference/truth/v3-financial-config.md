@@ -1,6 +1,6 @@
 # V3 财务配置 — 当前实现真相
 
-Last Verified: 2026-07-16（核对方式：金额闸门节按 transaction-limits 落地逐符号重核；余节 2026-07-11 基线）
+Last Verified: 2026-07-17（核对方式：§5 DEPOSIT 接入 deposit-min 落地逐符号重核；余节 2026-07-16 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。历史沿革看 git/roadmap，计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -66,9 +66,9 @@ Last Verified: 2026-07-16（核对方式：金额闸门节按 transaction-limits
   - `LARGE_APPROVAL`（D1）：operationType，`threshold`（AED）
   - 唯一约束 =（gateType, operationType, assetId?, tradingTier?, period?）；SQLite 复合唯一对 NULL 不去重 → 服务层 `assertUnique()` 预检
 - **配置台**：admin **Transaction Limits** 页（Assets 菜单组，三 tab 各一 gateType）；创建/变更走 **OPS_OFFICER 单步审批**（maker-checker，`TransactionLimitRuleWorkflowService` + 两个审批发射器 `TransactionLimit{Creation,Change}ApprovalService`，apply-time before-vs-current 冲突守卫 + PENDING 守卫），权限 `TRANSACTION_LIMIT_READ/WRITE`
-- **L1 执行接入**：提现 `createWithdrawal()` + 兑换 `executeSwap()` 在订单 persist 前调 `TransactionLimitGateService.evaluate({operationType,customerId,assetId,amount})`——A/B 拒绝不建单不耗 quote、D1 提现大额门读 LARGE_APPROVAL 行（详见 [v5-withdraw.md](v5-withdraw.md) §3 / [v6-swap.md](v6-swap.md) §3）
-- **种子**：`seedTransactionLimitRules`（`prisma/seed.business.ts`，`db:biz:init` 注入）——A 每资产×WITHDRAWAL/SWAP、B 8 行（BASIC/PREMIUM × 方向 × 周期）、D1 WITHDRAWAL 200000 AED
-- **锚点**：`transaction-limits/transaction-limit-rules.service.ts`（CRUD+三查找+校验）｜ `transaction-limit-gate.service.ts → evaluate()`（L1 引擎）｜ `transaction-limit-rule-workflow.service.ts`（审批工作流）｜ `prisma/seed.business.ts → seedTransactionLimitRules()`
+- **L1 执行接入**：提现 `createWithdrawal()` + 兑换 `executeSwap()` 在订单 persist 前调 `TransactionLimitGateService.evaluate({operationType,customerId,assetId,amount})`——A/B 拒绝不建单不耗 quote、D1 提现大额门读 LARGE_APPROVAL 行（详见 [v5-withdraw.md](v5-withdraw.md) §3 / [v6-swap.md](v6-swap.md) §3）。**DEPOSIT 是唯一不走本引擎的 operationType**——充值是被动入金，不能在建单前拒绝；改由 `deposit-transactions.service.ts → detected()` 自己查 `TransactionLimitRulesService.getSingleRule('DEPOSIT', assetId)` 落 `limitHoldReason='BELOW_MIN'` 挂起（不拒绝、不建单前拦截），详见 [v4-deposit.md](v4-deposit.md) §5
+- **种子**：`seedTransactionLimitRules`（`prisma/seed.business.ts`，`db:biz:init` 注入）——A 每资产×WITHDRAWAL/SWAP、B 8 行（BASIC/PREMIUM × 方向 × 周期）、D1 WITHDRAWAL 200000 AED；DEPOSIT SINGLE 每资产一行（`minAmount=100` 原生币种，无上限）
+- **锚点**：`transaction-limits/transaction-limit-rules.service.ts`（CRUD+三查找+校验）｜ `transaction-limit-gate.service.ts → evaluate()`（L1 引擎，提现/兑换用）｜ `transaction-limit-rule-workflow.service.ts`（审批工作流）｜ `prisma/seed.business.ts → seedTransactionLimitRules()`
 - ⚠️ **Asset 4 列 `min/maxDeposit/WithdrawAmount` 已成弃用残留**：单笔上下限归 `transaction_limit_rules` SINGLE 行，资产表单已撤 4 输入框；schema 列暂留待 drop（见 BACKLOG）
-- ⚠️ **DEPOSIT 配置先行、执行未接**：规则表接受 `operationType='DEPOSIT'` 行，但充值工作流暂不消费此闸（待充值任务，见 BACKLOG）
+- ⚠️ **DEPOSIT 累计限额（B 档）未接**：本轮（2026-07-17）只把 DEPOSIT 的 SINGLE 下限接进 `detected()`；`CUMULATIVE`/`LARGE_APPROVAL` 两档尚未对 DEPOSIT operationType 消费（见 BACKLOG）
 - ⚠️ **TR 阈值 3,500 不属本模块**（合规域，刻意排除；见 roadmap V4 TR 闸门）

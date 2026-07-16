@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-07-16
+Last Updated: 2026-07-17
 
 ---
 
@@ -23,12 +23,17 @@ Last Updated: 2026-07-16
 - [ ] Deposit/资金单层无 `txHash` 唯一约束（仅信号层 `dedupeKey` 有）→ 同 txHash 可能产生多 Deposit ｜来源: 2026-07-03 V4 体检
 - [ ] TB 记账失败无 repair surface：仅记 `DEPOSIT_ACCOUNTING_BLOCKED` 审计后卡住 ｜来源: roadmap V4 待实现
 - [ ] `deposit.status.changed` 用 `emit` 非 `emitAsync`，异常不传播到调用方 ｜来源: roadmap V4 待实现
-- [ ] Admin PATCH deposit status 部分绕过 workflow：仅 SUCCESS 被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫，FREEZE/CONFISCATE 可绕过记账与审计 ｜来源: 2026-07-03 V4 体检
+- [ ] Admin PATCH deposit status 部分绕过 workflow：仅 SUCCESS 被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫，FREEZE/CONFISCATE 可绕过记账与审计 ｜来源: 2026-07-03 V4 体检 ｜⚠️ **2026-07-17 deposit-min 复核：此洞随 D7 变严重**——`action='confiscate'` 现有真实两腿记账+funds_order 语义（见 v4-deposit.md §6/§7），但 PATCH `default` 分支仍可绕过 `initiateConfiscation` 治理正门直接把状态拍成 `CONFISCATED`，零记账零审批，产生"终态但两腿未入账"的账实不符（旧版只是状态壳空转，危害较小）
 - [ ] ERC-20 合约失败交易未过滤（合约执行失败仍建 Payin）｜来源: roadmap V4
 - [ ] KYT 超时转人工未做 ｜来源: roadmap V4
 - [ ] 区块重组自动回退未做（与"按链确认数配置"一起设计，该功能项在 roadmap V4 ADVANCED）｜来源: roadmap V4
 - [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
-- [ ] **DEPOSIT 金额限额配置先行、执行未接**：`transaction_limit_rules` 接受 `operationType='DEPOSIT'` 行（配置台可建），但充值工作流尚不调 `TransactionLimitGateService.evaluate` → DEPOSIT 单笔/累计限额配了不生效；接入待充值 BELOW_MIN/挂起处置任务落地时一并做（复用 `DEPOSIT_HELD_NOT_TRADING_READY` 挂起模式，见 spec §8）｜来源: 2026-07-16 transaction-limits
+- [x] ~~**DEPOSIT 金额限额配置先行、执行未接**：`transaction_limit_rules` 接受 `operationType='DEPOSIT'` 行（配置台可建），但充值工作流尚不调 `TransactionLimitGateService.evaluate` → DEPOSIT 单笔/累计限额配了不生效~~ **已兑现（2026-07-17 deposit-min）**：`detected()` 出生时查 `TransactionLimitRulesService.getSingleRule('DEPOSIT', assetId)`，低于 min → `limitHoldReason='BELOW_MIN'` 挂起（复用 `DEPOSIT_HELD_NOT_TRADING_READY` 挂起模式）+ `checkAutoApproval()` L1 永久挂起 + PASS/没收两处置动作，见 truth/v4-deposit.md §5-§7。仅 SINGLE min 接入，**B 累计限额仍未接 DEPOSIT**（见下条待决策）｜来源: 2026-07-16 transaction-limits → 2026-07-17 收口
+- [ ] **DEPOSIT 累计限额（CUMULATIVE gateType B）仍未接**：本轮只接了 SINGLE 单笔下限，`transaction_limit_rules` 的 B 档（tradingTier×period 累计）尚未对 DEPOSIT operationType 消费 ｜来源: 2026-07-17 deposit-min 收口复核
+- [ ] **原路退回（return-to-source）未做**：PASS/没收是本轮仅有的两个处置动作，"退回客户原来源"（链上退 originator 地址 / 法币退原汇出账户）未实现——依赖真实出金能力（等于半个提现流程：出账渠道/链上转出/银行汇款），本轮不做 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
+- [ ] **BELOW_MIN 计次自动冻结未做**：同客户多次触发 below-min 挂起累计到阈值后自动转 FROZEN（防试探式小额充值绕限额）未实现，本轮只做单笔挂起+人工处置 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
+- [ ] **自动没收 cron 未做**：BELOW_MIN 挂起超时后自动发起没收（现只能 ops 手动点 Confiscate）未实现 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
+- [ ] **制裁没收（sanctions-confiscation）不在本轮范围**：本轮"没收"专指 BELOW_MIN 金额没收（T&C 手续费性质，OPS_OFFICER 单步审批）；FROZEN（制裁冻结）路径下的没收属 MLRO 合规域、走独立审批链（roadmap V4 ⚖️「制裁冻结完整闭环」P0），未随本轮触碰，FROZEN 状态机本身也未改动 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状仅条件①法币→NOT_REQUIRED 落地，条件②(hosted/unhosted VASP 分类，依赖 roadmap V3 地址打标)+③(3,500 阈值判定)**代码未自动计算** → crypto TR 结果当前由 demo 模拟端点注入 ｜来源: 2026-07-11 充值 PRD v2
 - [x] ~~🔴 TR 从 status 升级为独立"交换实体"表~~ ❌ **否决（2026-07-14）**：经两轮论证否决"独立 TR 交换表"——① **Sumsub 存 TR 交换真身**（system of record，可 API 查特定 TR 交易 / Dashboard 列 / on-hold 队列），我方本地只是镜像；② 无本地充值场景 A（预告）则每笔 TR 都 1:1 **订单锚定** → 订单字段（`travelRuleStatus`/`sumsubTxnId`/`counterpartyVasp`/`failReason`，前几个已有）+ workflow 流转即可，不必建表；③ 入站归属确认（对方先发 TR）可**无状态自动应答**（客户充值地址预注册到 Sumsub → 自动确认 + 从 applicant 带 PII），不需本地预告表；④ 场景 A 可塌成"无状态应答 + 钱到走场景 B"（Sumsub 当相关器，txHash 幂等防重复提交）。**目标架构** = 充值/提现订单字段 + 无状态入站归属应答器 + Sumsub 当真身/合规台（合规人员在 Sumsub Dashboard 处置，我方不自建审核台）。曾做完 9 task/12 commit 的分支 `claude/tr-exchange` + Lark PRD 已删。**新集成点**（真接 Sumsub 时）：建客户充值地址时同步注册到 Sumsub 绑 applicant。决策见 memory `tr-exchange-table-rejected` ｜来源: 2026-07-14 TR 交换表否决
 - [ ] **充值自动侦测器未接**：链上 watcher / 银行 VIBAN webhook 未部署，`deposit-transactions.service.ts → detected()`（真实业务入口）当前**唯一**触发路径是客户申报入账信号 + 手动扫描（demo 脚手架，带 `simulationRisk*` 注入 + `QUICK_DEMO` 模式）；PRD happy path 按业务意图写"系统自动侦测"，落地待接真实侦测源 ｜来源: 2026-07-11 充值 PRD v2
