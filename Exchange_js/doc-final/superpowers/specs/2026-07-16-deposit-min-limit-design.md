@@ -64,11 +64,11 @@
 
 ## 5. 验证
 
-- 单测：detected 落标 / checkAutoApproval BELOW_MIN 闸 / PASS 摘标重跑 / 没收两腿记账 / FROZEN 白名单修正 / 客户面过滤
+- 单测：detected 落标 / checkAutoApproval BELOW_MIN 闸 / PASS 摘标重跑 / 没收两腿记账 / 客户面过滤
 - e2e：小额充值 → 客户列表不可见 → admin 可见带标 → PASS 路径入账 / Confiscate 路径审批→两腿→CONFISCATED
 - 回归：`verify:coa` 四式恒等（含没收后）、`demo:all` 不受影响（demo 金额 3000/8000 ≫ min 100）、recon 没收单钱包对账平
 - 渲染截图：admin 处置按钮 + 审批单 + 账本两腿流水；客户端列表前后对比（隐藏生效）
 
 ## 6. 文档同步义务（实施时）
 
-truth v4-deposit（BELOW_MIN 挂起/CONFISCATED 治理化/FROZEN 白名单修正/客户面过滤）+ v3-financial-config（DEPOSIT 限额行）+ funds-orders（deposit legSeq>1 投影）+ BACKLOG（§4 各账）+ roadmap V4（异常终态回退 P0 部分兑现标注）。
+truth v4-deposit（BELOW_MIN 挂起/CONFISCATED 治理化/客户面过滤）+ v3-financial-config（DEPOSIT 限额行）+ funds-orders（deposit legSeq>1 投影）+ BACKLOG（§4 各账）+ roadmap V4（异常终态回退 P0 部分兑现标注）。
