@@ -80,6 +80,7 @@ interface DepositDetail {
   payinStatus?: string | null;
   payinType?: string | null;
   traceId?: string | null;
+  limitHoldReason?: string | null;
   asset: {
     code: string;
     type: string;
@@ -104,6 +105,11 @@ const DepositTransactionDetail = () => {
   const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
   const [reasonText, setReasonText] = useState('');
   const [pendingAction, setPendingAction] = useState('');
+  const [notice, setNotice] = useState('');
+  const [dispositionSubmitting, setDispositionSubmitting] = useState(false);
+  const [dispositionError, setDispositionError] = useState('');
+  const [isConfiscateModalOpen, setIsConfiscateModalOpen] = useState(false);
+  const [confiscateReason, setConfiscateReason] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -175,6 +181,64 @@ const DepositTransactionDetail = () => {
     }
   };
 
+  /* ── Below-min disposition handlers ── */
+
+  const handleWaiveLimit = async () => {
+    if (!id) return;
+    if (!window.confirm('Waive the below-minimum hold and resume compliance processing for this deposit?')) {
+      return;
+    }
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/waive-limit`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to waive limit hold.'));
+        return;
+      }
+      setNotice('Minimum-limit hold waived — deposit resumed compliance');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to waive limit hold.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  const handleConfiscateSubmit = async () => {
+    if (!id || !confiscateReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/confiscate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: confiscateReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit confiscation.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Confiscation submitted for approval — ${result.approvalNo}`);
+      setIsConfiscateModalOpen(false);
+      setConfiscateReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit confiscation.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
   /* ── Loading / Empty ── */
 
   if (loading) {
@@ -189,6 +253,8 @@ const DepositTransactionDetail = () => {
   if (!data) return null;
 
   const actions = getDepositActionsForStatus(data.status);
+  const isBelowMinPending =
+    data.status === 'COMPLIANCE_PENDING' && data.limitHoldReason === 'BELOW_MIN';
   const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
   const kytStyle = getComplianceLayerStyle(data.kytStatus);
   const trStyle = getComplianceLayerStyle(
@@ -204,6 +270,13 @@ const DepositTransactionDetail = () => {
         refreshing={loading}
         backLabel="Deposits"
       />
+
+      {/* ── Notice ── */}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-green/5 px-6 py-2.5 font-mono text-[11px] text-adm-green">
+          {notice}
+        </div>
+      )}
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -345,6 +418,33 @@ const DepositTransactionDetail = () => {
             </div>
           </SidebarGroup>
 
+          {/* Below-Min Disposition */}
+          {isBelowMinPending && (
+            <SidebarGroup title="Below-Min Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleWaiveLimit}
+                  disabled={dispositionSubmitting}
+                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {dispositionSubmitting ? 'Processing...' : 'PASS (Waive Min-Limit)'}
+                </button>
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setConfiscateReason('');
+                    setIsConfiscateModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confiscate as Fee
+                </button>
+              </div>
+            </SidebarGroup>
+          )}
+
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Deposit No" value={data.depositNo} mono />
@@ -403,6 +503,53 @@ const DepositTransactionDetail = () => {
                 className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
               >
                 {isSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confiscate Modal ── */}
+      {isConfiscateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[420px] rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-bold mb-4">Confiscate as Fee</h3>
+            <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Amount</span>
+                <span className="font-mono font-semibold">
+                  {formatAssetAmount(data.amount, data.asset.decimals)} {data.asset.code}
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-gray-500">
+                Per T&C: below-minimum deposit handling fee
+              </div>
+            </div>
+            {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+            <textarea
+              className="w-full rounded border p-2 text-sm mb-4"
+              rows={3}
+              placeholder="Enter reason for confiscation (required)..."
+              value={confiscateReason}
+              onChange={(e) => setConfiscateReason(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsConfiscateModalOpen(false);
+                  setConfiscateReason('');
+                  setDispositionError('');
+                }}
+                className="rounded border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfiscateSubmit}
+                disabled={dispositionSubmitting || !confiscateReason.trim()}
+                className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
               </button>
             </div>
           </div>
