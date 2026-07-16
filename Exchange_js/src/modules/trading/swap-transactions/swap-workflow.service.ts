@@ -29,6 +29,7 @@ import {
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { WalletQueryService } from '../../asset-treasury/wallets/wallet-query.service';
+import { TransactionLimitGateService } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -170,6 +171,7 @@ export class SwapWorkflowService {
     private readonly swapLegAccounting: SwapLegAccounting,
     private readonly fundsOrders: FundsOrderService,
     private readonly walletQuery: WalletQueryService,
+    private readonly limitGateService: TransactionLimitGateService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -185,6 +187,19 @@ export class SwapWorkflowService {
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
     ensureCustomerCanTransact(customer);
     await this.onboardingService.assertTradingEligibility(ownerId, 'SWAP');
+
+    // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──
+    const quotePeek = await this.prisma.swapQuote.findUnique({
+      where: { id: quoteId },
+      select: { fromAssetId: true, amountIn: true },
+    });
+    if (!quotePeek) throw new NotFoundException('Swap quote not found');
+    const gateValuation = await this.limitGateService.evaluate({
+      operationType: 'SWAP',
+      customerId: ownerId,
+      assetId: quotePeek.fromAssetId,
+      amount: new Prisma.Decimal(quotePeek.amountIn),
+    });
 
     const now = new Date();
     const swapNo = generateReferenceNo('SWP');
@@ -262,6 +277,7 @@ export class SwapWorkflowService {
           tbFeeTransferId: null,
           tbSpreadTransferId: null,
           traceId,
+          grossAedValue: gateValuation.grossAedValue ?? undefined,
         }, tx);
 
         await this.auditLogsService.recordByActor(

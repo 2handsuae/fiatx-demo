@@ -107,9 +107,20 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     hasReceivingAccount: jest.fn(() => Promise.resolve(true)),
   };
 
+  const limitGateService = {
+    evaluate: jest.fn(() => Promise.resolve({
+      grossAedValue: new Prisma.Decimal(0), aedRate: null, rateFetchedAt: null, rateFetchFailed: false,
+    })),
+  };
+
   const prisma: any = {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
+    },
+    // L1 Transaction Limit gate: executeSwap peeks the quote (outside the tx)
+    // for the from-asset + amount before evaluating the gate.
+    swapQuote: {
+      findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
     },
     $transaction: jest.fn((cb: (tx: any) => Promise<any>) => {
       const tx: any = {
@@ -124,7 +135,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, prisma };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
@@ -160,6 +171,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     stubLegAccounting,
     stubFundsOrders,
     (mocks as any).walletQuery,
+    mocks.limitGateService as any,
   );
 }
 
@@ -484,6 +496,7 @@ function buildAdvanceLegMocks(opts: {
 }
 
 function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
+  // advanceLeg never calls executeSwap, so the limit gate is never invoked here.
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -495,6 +508,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.legAccounting as any,
     mocks.fundsOrders as any,
     mocks.walletQuery as any,
+    {} as any,
   );
 }
 
