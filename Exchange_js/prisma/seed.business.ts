@@ -35,7 +35,7 @@ export async function seedBusiness(
   // ② Config layer
   await seedSwapFeeLevels(prisma);
   await seedWithdrawalFeeLevels(prisma);
-  await seedTransactionLimitPolicies(prisma);
+  await seedTransactionLimitRules(prisma);
   // ③ Customers layer
   await seedCustomers(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
@@ -461,6 +461,63 @@ export async function seedTransactionLimitPolicies(prisma: PrismaClient): Promis
   }
 
   console.log(`  ✔ Seeded ${policies.length} transaction limit policies`);
+}
+
+export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<void> {
+  // A: 每资产 × WITHDRAWAL/SWAP 单笔 min/max（原生币种）
+  const assets = await prisma.asset.findMany({ select: { id: true, code: true, currency: true, type: true } });
+  const singleDefaults: Record<string, { min: string; max: string }> = {
+    BTC: { min: '0.0001', max: '10' },
+    ETH: { min: '0.001', max: '100' },
+    USDT: { min: '10', max: '1000000' },
+    AED: { min: '10', max: '1000000' },
+    USD: { min: '10', max: '1000000' },
+  };
+  const rules: any[] = [];
+  let seq = 1;
+  const no = () => `TLR-${String(seq++).padStart(3, '0')}`;
+  for (const a of assets) {
+    // 按 currency 而非 code 匹配——code 含网络后缀(如 USDT-TRON),currency 才是 singleDefaults 的键
+    const d = singleDefaults[a.currency] || { min: '0.0001', max: '1000000' };
+    for (const op of ['WITHDRAWAL', 'SWAP']) {
+      rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: op, assetId: a.id, minAmount: d.min, maxAmount: d.max });
+    }
+  }
+  // B: tier × 方向 × 周期（AED；默认值+cap）
+  const cum = [
+    ['BASIC', 'WITHDRAWAL', 'DAILY', '50000', '100000'],
+    ['BASIC', 'WITHDRAWAL', 'MONTHLY', '500000', '1000000'],
+    ['BASIC', 'SWAP', 'DAILY', '100000', '200000'],
+    ['BASIC', 'SWAP', 'MONTHLY', '1000000', '2000000'],
+    ['PREMIUM', 'WITHDRAWAL', 'DAILY', '500000', '1000000'],
+    ['PREMIUM', 'WITHDRAWAL', 'MONTHLY', '5000000', '10000000'],
+    ['PREMIUM', 'SWAP', 'DAILY', '1000000', '2000000'],
+    ['PREMIUM', 'SWAP', 'MONTHLY', '10000000', '20000000'],
+  ];
+  for (const [tier, op, period, defaultLimit, cap] of cum) {
+    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit, cap });
+  }
+  // D1: 提现大额审批线（承接原 WITHDRAW_APPROVAL_AED_THRESHOLD=200000）
+  rules.push({ ruleNo: no(), gateType: 'LARGE_APPROVAL', operationType: 'WITHDRAWAL', threshold: '200000' });
+
+  for (const r of rules) {
+    // ⚠️ Prisma+SQLite composite-unique WHERE with NULLs is unreliable — use manual upsert:
+    const existing = await prisma.transactionLimitRule.findFirst({
+      where: {
+        gateType: r.gateType, operationType: r.operationType,
+        assetId: r.assetId ?? null, tradingTier: r.tradingTier ?? null, period: r.period ?? null,
+      },
+    });
+    if (existing) {
+      await prisma.transactionLimitRule.update({
+        where: { id: existing.id },
+        data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, cap: r.cap, threshold: r.threshold, status: 'ACTIVE' },
+      });
+    } else {
+      await prisma.transactionLimitRule.create({ data: { ...r, status: 'ACTIVE' } });
+    }
+  }
+  console.log(`  ✔ Seeded ${rules.length} transaction limit rules`);
 }
 
 // ─────────────────────────────────────────────────────────────
