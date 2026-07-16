@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -104,7 +105,7 @@ export class TransactionLimitRuleWorkflowService {
     const ruleNo = `TLR-${Date.now()}`;
     const rule = await this.rulesService.createPending({ ...input, ruleNo });
 
-    const traceId = crypto.randomUUID();
+    const traceId = randomUUID();
     let approvalCase: any;
     try {
       approvalCase = await this.approvalsService.createAndSubmit(
@@ -310,7 +311,7 @@ export class TransactionLimitRuleWorkflowService {
       throw new BadRequestException('No amount field changed');
     }
 
-    const traceId = crypto.randomUUID();
+    const traceId = randomUUID();
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
