@@ -12,22 +12,23 @@
 
 - ✅ **A 单笔 min/max**：死线直比，硬拒。原散落 Asset 4 字段（min/maxDeposit/WithdrawAmount），收编统一；swap 原本无 min/max，统一后补上。
 - ✅ **B 周期累计限额**：死线（tier 配值）+ 有状态（累加客户窗口用量），硬拒。两层结构 = 政策层（tier×方向×周期 → **默认值 + cap 双数字**）+ 客户微调层（本轮不做，cap 字段占位）。
-- ✅ **D1 大额审批门**：死线，软门（≥ 阈值 → SMO 审批）。**业主拍板：仅提现，兑换不做**。现役 20 万 AED 常量收编。
-- ✅ **D2 TR 阈值**：死线，软门（≥ 3,500 AED → 打 TR 标）。本轮仅提现 crypto；充值侧随充值任务。
+- ✅ **D1 大额审批门**：死线，软门（≥ 阈值 → SMO 审批）。**业主拍板：仅提现，兑换不做**。现役 20 万 AED 常量收编进配置（数字是平台定的，属业务决策）。
+- ✅ **D2 TR 阈值**：死线，软门（≥ 3,500 AED → 打 TR 标）。本轮仅提现 crypto；充值侧随充值任务。**业主拍板：不进配置表，写死代码常量**——治理原则：*谁定的数字走谁的变更通道*，3,500 是 VARA 法定明线，改它=rulebook 修订=合规事件+发版，不该给运营留可调入口（防误调静音 TR）。roadmap V3 ADVANCED「阈值参数配置治理（TR 阈值出硬编码）」是将来多辖区时的账，本轮明确不做。
 - ❌ **D3 SOF/EDD**：因果链是 大额→风险↑→SOF，评分驱动 → 归风险引擎（业主纠偏）。
 - ❌ **D4 拆单聚合**：行为模式识别 → 归交易监控/AML（业主纠偏）。
 - ⏸️ **C 持仓上限 / E 平台熔断**：demo 非必需，不做。
 
 ## 2. 数据模型
 
-**新表 `transaction_limit_rules`**（模块 `src/modules/asset-treasury/transaction-limits/`），四种行形状锁死（每 gateType 固定哪些维度必填/必空，**无通配优先级问题**）：
+**新表 `transaction_limit_rules`**（模块 `src/modules/asset-treasury/transaction-limits/`），三种行形状锁死（每 gateType 固定哪些维度必填/必空，**无通配优先级问题**）：
 
 | gateType | 必填维度 | 金额字段 | 单位 |
 |---|---|---|---|
 | `SINGLE`（A） | operation × assetId | `minAmount` / `maxAmount`（可只填一边） | 原生币种 |
 | `CUMULATIVE`（B） | operation × tradingTier × period(DAILY/MONTHLY) | `defaultLimit` + `cap` | AED |
 | `LARGE_APPROVAL`（D1） | operation（本轮仅 WITHDRAWAL） | `threshold` | AED |
-| `TRAVEL_RULE`（D2） | —（crypto 全局一条） | `threshold` | AED |
+
+**D2 不进表**：`TRAVEL_RULE_AED_THRESHOLD = 3500` 代码常量（样式照抄 `WITHDRAW_APPROVAL_AED_THRESHOLD`，配套单测锁值——改数字必先改测试，天然双人复核）。
 
 公共字段：`ruleNo`（业务键）、`status`、审批挂钩字段、时间戳。唯一约束 =（gateType, operation, assetId?, tradingTier?, period?）。
 
@@ -47,8 +48,8 @@
 ② 折 AED（复用现有汇率服务；取不到 → fail-closed，同现 D1 语义）
 ③ B: 客户 tradingTier → CUMULATIVE 行；用量 =（迪拜日历日/月内该客户该方向
    [非终态+成功] 订单 aedValueSnapshot 之和）+ 本笔 ≤ defaultLimit → 不过即 REJECT
-④ D1: 本笔 AED ≥ threshold → requiresLargeApproval = true（仅提现）
-⑤ D2: crypto 且本笔 AED ≥ threshold → travelRuleRequired = true（仅提现）
+④ D1: 本笔 AED ≥ D1 行 threshold → requiresLargeApproval = true（仅提现）
+⑤ D2: crypto 且本笔 AED ≥ TRAVEL_RULE_AED_THRESHOLD 常量 → travelRuleRequired = true（仅提现）
 返回: { pass | rejectCode+限额上下文, requiresLargeApproval, travelRuleRequired, aedValue }
 ```
 
@@ -69,7 +70,7 @@
 ## 5. 配置台（admin）
 
 - 新页 **Transaction Limits**，挂 **Assets 菜单组**——复活 `DashboardLayout.tsx` 中被注释的原入口（`/admin/assets/transaction-limits`，roadmap「入口已隐藏 84cfffb」原位）。
-- 四 tab = 四 gateType，各一张小表；创建/变更走 **OPS_OFFICER 单步审批**（与费率等级同款）。
+- 三 tab = 三 gateType（SINGLE/CUMULATIVE/LARGE_APPROVAL），各一张小表；创建/变更走 **OPS_OFFICER 单步审批**（与费率等级同款）。D2 无配置面（法定常量）。
 - 新权限 `TRANSACTION_LIMIT_READ/WRITE` 登记 `rbac.catalog.ts`；⚠️ 需 `db:base:sync` + **重启后端**方生效。
 
 ## 6. 种子数据（业主定：走业务数据初始化命令）
@@ -77,7 +78,7 @@
 种子写进 `prisma/seed.business.ts`（原 `seedTransactionLimitPolicies` 段原位替换为新表种子），即 `db:biz:init` / `main:reset:biz` 链路注入：
 - A：每资产 × WITHDRAWAL/SWAP min/max（值迁自现 Asset 字段，swap 补默认）
 - B：BASIC/PREMIUM × WITHDRAWAL/SWAP × DAILY/MONTHLY 共 8 行（BASIC 日提现 5 万 / PREMIUM 50 万量级）
-- D1：WITHDRAWAL 200,000 AED ｜ D2：3,500 AED
+- D1：WITHDRAWAL 200,000 AED（D2 是代码常量，不入种子）
 
 ## 7. 验证
 
