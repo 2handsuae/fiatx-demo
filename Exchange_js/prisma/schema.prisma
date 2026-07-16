@@ -1546,45 +1546,6 @@ model TbEvidenceBacklog {
   @@map("tb_evidence_backlog")
 }
 
-// ─── Transaction Limit Policy (2026-05-16) ──────────────────
-model TransactionLimitPolicy {
-  id              String   @id @default(uuid())
-  policyNo        String   @unique
-  tradingTier     String                         // BASIC | PREMIUM
-  operationType   String                         // WITHDRAWAL | SWAP
-  period          String                         // DAILY
-  limitAmount     Decimal
-  status          String   @default("ACTIVE")    // ACTIVE | PENDING_APPROVAL
-  approvalCaseId  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([tradingTier, operationType, period])
-  @@index([status])
-  @@map("transaction_limit_policies")
-}
-
-model TransactionLimitChangeRequest {
-  id                String    @id @default(uuid())
-  requestNo         String    @unique @default("TEMP")
-  policyId          String
-  policyNo          String
-  currentAmount     Decimal
-  proposedAmount    Decimal
-  changeReason      String
-  status            String    @default("PENDING_APPROVAL")
-  requestedByUserId String
-  approvalCaseId    String?
-  approvalCaseNo    String?
-  executedAt        DateTime?
-  failureReason     String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@index([policyId, status])
-  @@map("transaction_limit_change_requests")
-}
-
 // ─── Transaction Limit Rules（金额限额，2026-07-16 三行形状统一表）───
 model TransactionLimitRule {
   id             String   @id @default(uuid())

@@ -7,10 +7,18 @@ import { TransactionLimitRulesService } from './transaction-limit-rules.service'
 import { TransactionLimitRuleWorkflowService } from './transaction-limit-rule-workflow.service';
 import { TransactionLimitRulesController } from './transaction-limit-rules.controller';
 import { TransactionLimitGateService } from './transaction-limit-gate.service';
+import { TransactionLimitCreationApprovalService } from './transaction-limit-creation-approval.service';
+import { TransactionLimitChangeApprovalService } from './transaction-limit-change-approval.service';
 
 @Module({
   imports: [PrismaModule, ApprovalsModule, AuditLogsModule, PricingCenterModule],
-  providers: [TransactionLimitRulesService, TransactionLimitRuleWorkflowService, TransactionLimitGateService],
+  providers: [
+    TransactionLimitRulesService,
+    TransactionLimitRuleWorkflowService,
+    TransactionLimitGateService,
+    TransactionLimitCreationApprovalService,
+    TransactionLimitChangeApprovalService,
+  ],
   controllers: [TransactionLimitRulesController],
   exports: [TransactionLimitRulesService, TransactionLimitGateService],
 })

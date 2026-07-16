@@ -78,9 +78,8 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'withdrawalFeeLevel',
   'pricingPolicy',
 
-  // ── Transaction limit policies ─────────────────────────────────────
-  'transactionLimitChangeRequest',
-  'transactionLimitPolicy',
+  // ── Transaction limit rules ────────────────────────────────────────
+  'transactionLimitRule',
 
   // ── Compliance / KYC artifacts (reports before cases) ──────────────
   'cddResponseReport',
