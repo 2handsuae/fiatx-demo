@@ -347,6 +347,14 @@ describe('DepositWorkflowService', () => {
       depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: null }));
       await expect(service.waiveLimitHold('dep-1', adminActor)).rejects.toThrow(BadRequestException);
     });
+
+    it('waiveLimitHold: rejects a BELOW_MIN hold no longer in COMPLIANCE_PENDING', async () => {
+      depositService.findOne.mockResolvedValue(
+        baseDeposit({ limitHoldReason: 'BELOW_MIN', status: DepositTransactionStatus.SUCCESS }),
+      );
+      await expect(service.waiveLimitHold('dep-1', adminActor)).rejects.toThrow(BadRequestException);
+      expect(depositService.clearLimitHold).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleFundsOrderChanged — filter + routing', () => {

@@ -144,6 +144,7 @@ Last Updated: 2026-07-16
 
 - [ ] 提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检
 - [ ] 充值"已记账不可直转终态"守卫（回退分录未实现前，拦住对已入暂扣充值的拒绝）｜卡片 task_16af8187 ｜来源: 2026-07-03 V4 体检
+- [ ] **`DepositTransactionsController` 兄弟 admin 端点缺 `assertAdmin` 授权洞（PRE-EXISTING，早于 deposit-min）**：`AdminPermissionGuard.canActivate` 对非 ADMIN token 直接 `return true`（NO-OP），控制器需各 admin 路由自己调 `assertAdmin(req)` 才真拦。`GET /deposit-transactions`(findAll)、`GET /deposit-transactions/export`、`PATCH /deposit-transactions/:id/status`(updateStatus) 三个端点均缺此调用 → **今天客户 token 即可列出/导出全部客户的充值、乱推状态机**（越权读他人数据 + 篡改）。本轮仅修了新增的 `POST :id/waive-limit`（已加 assertAdmin）；这三个同源兄弟洞属既存债，需一次 DepositTransactionsController 全量硬化补齐（对齐 `withdraw-transactions.controller.ts` 每路由 assertAdmin 模式）｜来源: 2026-07-16 D5 review
 
 ## 交付 / 可移植 Docker（2026-07-04 本会话新增）
 

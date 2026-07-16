@@ -10,6 +10,7 @@ import {
   ValidationPipe,
   UseGuards,
   Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
@@ -42,6 +43,12 @@ export class DepositTransactionsController {
     private readonly inboundTransferSignalsService: InboundTransferSignalsService,
     private readonly workflow: DepositWorkflowService,
   ) {}
+
+  private assertAdmin(req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin only');
+    }
+  }
 
   @Get('my')
   @ApiOperation({ summary: 'List my deposit transactions' })
@@ -133,6 +140,7 @@ export class DepositTransactionsController {
   @Post(':id/waive-limit')
   @ApiOperation({ summary: 'Waive below-minimum amount hold (PASS disposition)' })
   waiveLimitHold(@Param('id') id: string, @Req() req: any) {
+    this.assertAdmin(req);
     const actor = {
       actorId: req.user?.userId,
       actorRole: req.user?.role,
