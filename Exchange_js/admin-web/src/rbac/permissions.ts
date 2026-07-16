@@ -140,8 +140,8 @@ export const PERMISSIONS = {
   TB_TRANSFER_DETAIL_READ: 'api.get.admin_tb_transfers_tbtransferid',
   TB_FLOWS_READ: 'api.get.admin_tb_account_flows',
 
-  TRANSACTION_LIMIT_POLICIES_READ: 'api.get.admin_transaction_limit_policies',
-  TRANSACTION_LIMIT_POLICIES_WRITE: 'api.post.admin_transaction_limit_policies',
+  TRANSACTION_LIMIT_READ: 'api.get.admin_transaction_limit_rules',
+  TRANSACTION_LIMIT_WRITE: 'api.post.admin_transaction_limit_rules',
 
   WITHDRAWAL_ADDRESSES_READ: 'api.get.admin_withdrawal_addresses',
   WITHDRAWAL_ADDRESS_DETAIL_READ: 'api.get.admin_withdrawal_addresses_addressno',

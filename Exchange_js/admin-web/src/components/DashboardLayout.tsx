@@ -19,6 +19,7 @@ import {
   Briefcase,
   Coins,
   Layers,
+  Gauge,
   ShieldCheck,
   Shield,
   UserCheck,
@@ -239,13 +240,12 @@ const DashboardLayout = () => {
           icon: <Coins size={13} />,
           requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
-        // Hidden from sidebar 2026-07-02 (route stays live for direct links)
-        // {
-        //   path: '/admin/assets/transaction-limits',
-        //   label: 'Transaction Limits',
-        //   icon: <Gauge size={13} />,
-        //   requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ],
-        // },
+        {
+          path: '/admin/assets/transaction-limits',
+          label: 'Transaction Limits',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_READ],
+        },
       ],
     },
     // ─── Pricing ──────────────────────────────────────────────────

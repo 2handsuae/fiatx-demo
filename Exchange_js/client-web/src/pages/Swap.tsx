@@ -22,6 +22,7 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
+import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
 
 interface Asset {
   id: string;
@@ -481,7 +482,7 @@ const Swap = () => {
         setActiveTab('history');
         fetchBalances(); // Refresh balances after swap
       } else {
-        const message = await getCustomerApiErrorMessage(response, 'Swap failed');
+        const message = await resolveSubmitErrorMessage(response, 'Swap failed');
         alert(message);
 
         if (message.includes('Quote')) {
