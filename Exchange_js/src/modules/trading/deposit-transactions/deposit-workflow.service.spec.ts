@@ -411,6 +411,34 @@ describe('DepositWorkflowService', () => {
       approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
       await expect(service.initiateConfiscation('dep-1', { reason: 'x' }, adminActor)).rejects.toThrow(ConflictException);
     });
+
+    // Regression guard (D6 review FIX 1): a deposit whose traceId is null must NOT fail
+    // the confiscation. createDraftCase mints its own traceId when createDto.traceId is
+    // undefined; submitCase then asserts create/submit trace consistency. Reusing the one
+    // locally-minted traceId in BOTH DTOs keeps them identical so submit does not throw.
+    it('initiateConfiscation: null-traceId deposit resolves with matching create/submit traceId', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ traceId: null }));
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-2', approvalNo: 'APR-2' });
+
+      await expect(
+        service.initiateConfiscation('dep-1', { reason: 'below min' }, adminActor),
+      ).resolves.toEqual(expect.objectContaining({ approvalNo: 'APR-2' }));
+
+      const [createDto, submitDto] = approvalsService.createAndSubmit.mock.calls[0];
+      expect(createDto.traceId).toBeTruthy();
+      expect(submitDto.traceId).toBeTruthy();
+      expect(createDto.traceId).toBe(submitDto.traceId);
+    });
+
+    // FIX 2: high-risk fund-confiscating action must carry a non-blank audit reason.
+    it('initiateConfiscation: rejects a blank reason before creating any approval', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: 'COMPLIANCE_PENDING' }));
+      await expect(
+        service.initiateConfiscation('dep-1', { reason: '  ' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleFundsOrderChanged — filter + routing', () => {

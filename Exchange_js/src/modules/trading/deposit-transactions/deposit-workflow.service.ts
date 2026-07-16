@@ -463,6 +463,10 @@ export class DepositWorkflowService implements OnModuleInit {
     dto: { reason: string },
     actor: ApprovalActorContext,
   ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Confiscation reason is required');
+    }
+
     const deposit = await this.depositService.findOne(depositId);
     if (
       deposit.limitHoldReason !== 'BELOW_MIN' ||
@@ -486,12 +490,16 @@ export class DepositWorkflowService implements OnModuleInit {
       );
     }
 
+    // Mint the trace id ONCE and reuse it in both the create and submit DTOs — the
+    // approvals engine mints its own id when createDto.traceId is undefined, then asserts
+    // create/submit trace consistency, so a recomputed/divergent id (null-traceId path)
+    // would reject the whole confiscation. Mirrors transaction-limit initiateCreate/Change.
     const traceId = deposit.traceId || randomUUID();
     const approvalCase = await this.approvalsService.createAndSubmit(
       {
         actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
         entityRef: deposit.id,
-        traceId: deposit.traceId || undefined,
+        traceId,
         objectSnapshot: {
           depositNo: deposit.depositNo,
           amount: String(deposit.amount),
