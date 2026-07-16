@@ -15,9 +15,11 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
+  ApprovalStatuses,
 } from '../../governance/approvals/constants/approval.constants';
 import {
   RuleShapeInput,
@@ -165,7 +167,7 @@ export class TransactionLimitRuleWorkflowService {
   }
 
   @OnEvent(CREATION_DECIDED_EVENT, { async: true })
-  async onCreationDecided(event: any) {
+  async onCreationDecided(event: ApprovalDecidedEvent) {
     const decision = event?.decision;
     const entityRef = event?.entityRef;
     const approvalId = event?.approvalId;
@@ -254,6 +256,19 @@ export class TransactionLimitRuleWorkflowService {
       );
     }
 
+    // 早拒(FIX-1b):同一规则已有 OPEN 的变更审批 → 不许再提第二单(否则两单先后落地,后者绝对值快照会覆盖前者)
+    const openChanges = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.TRANSACTION_LIMIT_CHANGE,
+      entityRef: rule.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openChanges.total > 0) {
+      throw new ConflictException(
+        `Rule ${ruleNo} already has a pending change approval; resolve it before submitting another.`,
+      );
+    }
+
     const shape = GATE_SHAPES[rule.gateType as GateType];
 
     // 只许改本形状的金额字段:任何别形状字段被填 → 拒绝
@@ -264,14 +279,14 @@ export class TransactionLimitRuleWorkflowService {
       }
     }
 
-    // 合并行:本形状金额字段用 dto 覆盖,未提供则沿用当前值
+    // 合并行:本形状金额字段用 dto 覆盖,未提供则沿用当前值(两侧一律字符串化,精度自洽)
     const before: Record<string, string | null> = {};
-    const after: Record<string, number | null> = {};
+    const after: Record<string, string | null> = {};
     for (const f of shape.amountFields) {
       const current = (rule as any)[f] as Prisma.Decimal | null;
       const provided = (dto as any)[f] as number | null | undefined;
       before[f] = current != null ? current.toString() : null;
-      after[f] = provided != null ? provided : current != null ? Number(current) : null;
+      after[f] = provided != null ? String(provided) : current != null ? current.toString() : null;
     }
 
     // 用合并后的完整行跑形状校验(金额>0、min<max 等)
@@ -345,7 +360,7 @@ export class TransactionLimitRuleWorkflowService {
   }
 
   @OnEvent(CHANGE_DECIDED_EVENT, { async: true })
-  async onChangeDecided(event: any) {
+  async onChangeDecided(event: ApprovalDecidedEvent) {
     const decision = event?.decision;
     const entityRef = event?.entityRef;
     const approvalId = event?.approvalId;
@@ -361,10 +376,39 @@ export class TransactionLimitRuleWorkflowService {
     if (decision === 'APPROVED') {
       try {
         const approval: any = await this.approvalsService.getById(approvalId);
+        const before = approval?.objectSnapshot?.before;
         const after = approval?.objectSnapshot?.after;
-        if (!after || typeof after !== 'object') {
-          throw new Error('approval snapshot missing "after" amounts');
+        if (!after || typeof after !== 'object' || !before || typeof before !== 'object') {
+          throw new Error('approval snapshot missing before/after amounts');
         }
+
+        // 落地前冲突闸(FIX-1a):审批期间若另一变更已落地,快照 before 与当前值漂移 →
+        // 拒绝用旧绝对值快照覆盖(否则静默回退他人已批变更),转为可见的 FAILURE 审计。
+        if (!this.beforeMatchesCurrent(before as Record<string, unknown>, rule)) {
+          await this.auditLogsService.recordSystem({
+            action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLY_FAILED,
+            entityType: AuditEntityTypes.TRANSACTION_LIMIT_POLICY,
+            entityId: rule.id,
+            entityNo: rule.ruleNo,
+            workflowType: AuditBusinessWorkflowTypes.TRANSACTION_LIMIT_CHANGE,
+            traceId: event?.traceId,
+            result: AuditResult.FAILED,
+            reason: 'Concurrent change detected: rule amounts drifted from approval snapshot; apply skipped',
+            metadata: {
+              before,
+              current: this.currentAmounts(rule),
+              after,
+              approvalNo: event?.approvalNo,
+            },
+            requestId: `TRANSACTION_LIMIT_CHANGE_APPLY_FAILED_${rule.ruleNo}`,
+            sourcePlatform: 'SYSTEM',
+          });
+          this.logger.warn(
+            `Rule ${rule.ruleNo} change skipped: snapshot 'before' drifted from current amounts (concurrent change)`,
+          );
+          return;
+        }
+
         await this.rulesService.applyAmountChange(rule.ruleNo, after);
         await this.auditLogsService.recordSystem({
           action: AuditGovernanceActions.TRANSACTION_LIMIT_CHANGE.CHANGE_APPLIED,
@@ -422,5 +466,28 @@ export class TransactionLimitRuleWorkflowService {
       if (v != null) out[f] = String(v);
     }
     return out;
+  }
+
+  /** 规则当前金额(本形状字段,字符串化)——落地冲突失败审计用 */
+  private currentAmounts(rule: any): Record<string, string | null> {
+    const out: Record<string, string | null> = {};
+    for (const f of GATE_SHAPES[rule.gateType as GateType].amountFields) {
+      const v = rule[f] as Prisma.Decimal | null;
+      out[f] = v != null ? v.toString() : null;
+    }
+    return out;
+  }
+
+  /** 审批快照 before 是否仍等于规则当前金额(逐本形状字段按 Decimal 精确比对) */
+  private beforeMatchesCurrent(before: Record<string, unknown>, rule: any): boolean {
+    return GATE_SHAPES[rule.gateType as GateType].amountFields.every((f) => {
+      const snap = before?.[f];
+      const cur = rule[f] as Prisma.Decimal | null;
+      const snapNull = snap == null;
+      const curNull = cur == null;
+      if (snapNull && curNull) return true;
+      if (snapNull || curNull) return false;
+      return new Prisma.Decimal(snap as string | number).equals(cur);
+    });
   }
 }
