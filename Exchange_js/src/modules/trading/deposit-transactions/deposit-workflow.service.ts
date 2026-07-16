@@ -7,7 +7,6 @@ import {
   DepositOwnerType,
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
-import { randomUUID } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -198,7 +197,6 @@ export class DepositWorkflowService implements OnModuleInit {
         reason: 'Deposit held: amount below configured minimum (BELOW_MIN)',
         metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
         sourcePlatform: 'SYSTEM',
-        requestId: `DEPOSIT_HELD_BELOW_MIN_${deposit.depositNo}_${randomUUID()}`,
       });
       return;
     }
