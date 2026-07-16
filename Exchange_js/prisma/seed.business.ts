@@ -455,6 +455,10 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
       rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: op, assetId: a.id, minAmount: d.min, maxAmount: d.max });
     }
   }
+  // DEPOSIT: 只有下限(min=100 原生币种),无上限(maxAmount 空=∞) — 2026-07-16 deposit-min spec
+  for (const a of assets) {
+    rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: 'DEPOSIT', assetId: a.id, minAmount: '100' });
+  }
   // B: tier × 方向 × 周期（AED；默认值+cap）
   const cum = [
     ['BASIC', 'WITHDRAWAL', 'DAILY', '50000', '100000'],
