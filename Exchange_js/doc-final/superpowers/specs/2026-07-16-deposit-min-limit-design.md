@@ -13,11 +13,7 @@
   - 等 payin CONFIRMED 再建 → 孤儿资金单窗口；三视图投影按父 FK 分类（payin = depositTransactionId≠null），没爹的资金单三个视图都进不去、事件链没人接。且 crypto 金额在 detected() 就已知，等待零收益。否。
   - **建单 + 客户面隐藏** ✅：写模型一切照旧（FK 铁链/Step1 记账/对账配对全保），只动读模型。原则：**可见性是呈现层的事，不为它扭曲写模型**（tipping-off 映射同源先例）。
 - **法币 below-min 是经济攻击面**（业主发现）：客户打 5 AED、平台银行成本 11 AED → 每笔净亏。防线地基 = 法币打款走 VIBAN，打款人是自己的 KYC 客户，可识别可处置。应然了断 = **没收入费**（T&C 授权），攻击经济学从"无限放血"变"每打一笔自损一笔"。虚拟币 gas 出金方付，隐藏挂起即可。
-- **FROZEN 宪法**（业主 Q2 定调）：
-  - COMPLIANCE_PENDING = "闸未过完"的正常排队区；FROZEN = "命中明确红旗"的法律冻结态（制裁/合规指令，附带法定义务），**必须稀缺**。
-  - **below-min 留 COMPLIANCE_PENDING，绝不进 FROZEN**（金额线是配置闸不是红旗）。
-  - FROZEN **可回退**：`FROZEN →(排除误报/解冻)→ COMPLIANCE_PENDING 重跑全部闸`，或走向终态（没收/退回）。监管流程本身要求可回退（V9 PNMR：10 工作日排除窗口→排除则恢复）。
-  - **解冻不许直通 SUCCESS**：现状 `approveDeposit` 允许从 FROZEN 直接 approve 入账（语义洞）——本轮修正：FROZEN 移出 approve 白名单，新增 unfreeze→COMPLIANCE_PENDING 转移 + 重跑 checkAutoApproval。
+- **below-min 留 COMPLIANCE_PENDING，不进 FROZEN**（业主定调）：金额线是配置闸不是合规红旗；FROZEN 语义/转移与本场景无关，**本轮不碰 FROZEN 任何代码**。
 - **双层授权**（业主 Q3 定调）：
   - 客户授权 = **T&C 事前合同授权**（VARA 口径：费用须"按协议到期应付"才从 Client Money 变公司钱）。demo 不建协议管理，但没收动作的审批/审计单**必须带固定依据字段**（`basis: "T&C §x below-minimum deposit handling fee"`）。副产品：两腿资金单恰好执行"公司钱混客户账户 ≤1 日历日须移出"的法定动作。
   - 内部授权 = **maker-checker**：Confiscate 按钮开审批单（V1 引擎，新 actionType `DEPOSIT_CONFISCATION`，单步 OPS_OFFICER），批准后才执行。**PASS 不走审批**（刻意不对称：放客户自己的钱=低风险单人+审计；拿客户的钱=高风险四眼）。
@@ -50,7 +46,7 @@
 ## 3. 数据与接口改动
 
 - **DepositTransaction 加列** `limitHoldReason String?`（现值域仅 'BELOW_MIN'，将来其他 hold 复用）。
-- **状态机**：`CONFISCATED` 入正式枚举 + 转移表（COMPLIANCE_PENDING→CONFISCATED 仅经审批链）；FROZEN 移出 approve 白名单，加 `unfreeze`（FROZEN→COMPLIANCE_PENDING + 重跑闸）。
+- **状态机**：`CONFISCATED` 入正式枚举 + 转移表（COMPLIANCE_PENDING→CONFISCATED 仅经审批链）。FROZEN 相关不动。
 - **客户面过滤（业主特别叮嘱）**：客户侧充值**列表 + 详情**端点服务端过滤 `limitHoldReason='BELOW_MIN'` 的单（列表不出现；详情按不存在处理）。过滤在**服务端**做，非前端隐藏——防直连 API 看到。admin 端点不过滤，列表加 BELOW_MIN 标识。
 - **三视图投影扩一行**：`depositTransactionId≠null 且 legSeq>1 → internal 视图`（照抄提现 fee 腿分类，`funds-order-source.repo.ts`）。
 - **审批**：新 actionType `DEPOSIT_CONFISCATION`（approval.constants 注册 + 单步 OPS_OFFICER 策略 + decided 事件 handler 执行 ①②③）。
