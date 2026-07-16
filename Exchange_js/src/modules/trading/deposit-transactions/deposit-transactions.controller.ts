@@ -48,7 +48,7 @@ export class DepositTransactionsController {
   @UsePipes(new ValidationPipe({ transform: true }))
   findMy(@Req() req: any, @Query() query: DepositTransactionQueryDto) {
     const userId = req.user.userId;
-    return this.service.findAll({ ...query, ownerId: userId });
+    return this.service.findAllForCustomer(userId, query);
   }
 
   @Get('my/inbound-signals')
@@ -93,8 +93,11 @@ export class DepositTransactionsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get deposit transaction details' })
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    if (req.user?.type === 'ADMIN') {
+      return this.service.findOne(id);
+    }
+    return this.service.findOneForCustomer(id, req.user?.userId);
   }
 
   @Patch(':id/status')

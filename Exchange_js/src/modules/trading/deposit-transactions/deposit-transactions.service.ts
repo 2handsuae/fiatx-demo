@@ -72,7 +72,10 @@ export class DepositTransactionsService {
     return String(assetType || '').toUpperCase() === 'CRYPTO' ? 'crypto' : 'fiat';
   }
 
-  async findAll(query: DepositTransactionQueryDto) {
+  async findAll(
+    query: DepositTransactionQueryDto,
+    options?: { customerScope?: boolean },
+  ) {
     const {
       skip,
       take,
@@ -99,6 +102,10 @@ export class DepositTransactionsService {
       if (startDate) where.createdAt.gte = new Date(startDate);
       if (endDate) where.createdAt.lte = new Date(endDate);
     }
+
+    // BELOW_MIN deposits are hold-pending admin disposition; the customer
+    // must never see them (server-side, not a frontend hide).
+    if (options?.customerScope) where.limitHoldReason = null;
 
     const [items, total] = await Promise.all([
       (this.prisma as any).depositTransaction.findMany({
@@ -135,6 +142,11 @@ export class DepositTransactionsService {
       })),
       total,
     };
+  }
+
+  /** Customer-facing list: same query, scoped to the caller's own deposits with BELOW_MIN hold-pending rows hidden. */
+  async findAllForCustomer(customerId: string, query: DepositTransactionQueryDto) {
+    return this.findAll({ ...query, ownerId: customerId }, { customerScope: true });
   }
 
   async findOne(id: string) {
@@ -194,6 +206,19 @@ export class DepositTransactionsService {
       fromWalletNo: deposit.fromWallet?.walletNo,
       linkedFundOrders,
     };
+  }
+
+  /**
+   * Customer-facing single-fetch: BELOW_MIN (hold-pending admin disposition)
+   * deposits are treated as non-existent — do not leak existence via a
+   * different error than a normal missing id.
+   */
+  async findOneForCustomer(id: string, customerId: string) {
+    const item = await this.findOne(id);
+    if ((item as any).limitHoldReason != null) {
+      throw new NotFoundException('Deposit transaction not found');
+    }
+    return item;
   }
 
   async updateStatus(

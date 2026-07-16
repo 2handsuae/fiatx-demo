@@ -110,6 +110,44 @@ describe('DepositTransactionsService', () => {
         type: 'crypto',
       });
     });
+
+    it('admin list: NOT filtered (below-min visible)', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({} as any);
+
+      const calls = ((prisma as any).depositTransaction.findMany as jest.Mock).mock.calls;
+      const call = calls[calls.length - 1][0];
+      expect(call.where?.limitHoldReason).toBeUndefined();
+    });
+  });
+
+  describe('findAllForCustomer', () => {
+    it('customer list: BELOW_MIN deposits are filtered out server-side', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAllForCustomer('cust-1', {} as any);
+
+      expect((prisma as any).depositTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ limitHoldReason: null }) }),
+      );
+    });
+  });
+
+  describe('findOneForCustomer', () => {
+    it('customer detail: BELOW_MIN deposit → NotFound (treated as non-existent)', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'd1',
+        ownerId: 'cust-1',
+        limitHoldReason: 'BELOW_MIN',
+      });
+
+      await expect(service.findOneForCustomer('d1', 'cust-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 
   describe('updateStatus (State Machine)', () => {
