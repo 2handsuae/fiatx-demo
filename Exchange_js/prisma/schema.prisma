@@ -1137,6 +1137,7 @@ model SwapTransaction {
   failureReason    String?
   statusHistory    String?
   spreadAmount     Decimal?
+  grossAedValue    Decimal?                  // 创建时 AED 估值快照(B 累计用量取数)
   tbFromTransferId String?
   tbToTransferId   String?
   tbFeeTransferId  String?
@@ -1582,6 +1583,30 @@ model TransactionLimitChangeRequest {
 
   @@index([policyId, status])
   @@map("transaction_limit_change_requests")
+}
+
+// ─── Transaction Limit Rules（金额限额，2026-07-16 三行形状统一表）───
+model TransactionLimitRule {
+  id             String   @id @default(uuid())
+  ruleNo         String   @unique
+  gateType       String                      // SINGLE | CUMULATIVE | LARGE_APPROVAL
+  operationType  String                      // WITHDRAWAL | SWAP | DEPOSIT(配置先行,执行随充值任务)
+  assetId        String?                     // SINGLE 必填,其余必空
+  tradingTier    String?                     // CUMULATIVE 必填(BASIC|PREMIUM),其余必空
+  period         String?                     // CUMULATIVE 必填(DAILY|MONTHLY),其余必空
+  minAmount      Decimal?                    // SINGLE(原生币种,可只填一边)
+  maxAmount      Decimal?                    // SINGLE(原生币种)
+  defaultLimit   Decimal?                    // CUMULATIVE(AED)
+  cap            Decimal?                    // CUMULATIVE(AED,客户微调层上限,本轮仅占位)
+  threshold      Decimal?                    // LARGE_APPROVAL(AED)
+  status         String   @default("ACTIVE") // ACTIVE | PENDING_APPROVAL
+  approvalCaseId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([gateType, operationType, assetId, tradingTier, period])
+  @@index([gateType, status])
+  @@map("transaction_limit_rules")
 }
 
 // ─── Withdrawal Fee Level (2026-05-30) ─────────────────────
