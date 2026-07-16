@@ -684,4 +684,65 @@ describe('WithdrawTransactionsService', () => {
       }
     });
   });
+
+  // Task 5 review FIX 1: a FAILED re-valuation must not clobber a good AED
+  // birth-value to null (that would zero the row's contribution to the B
+  // cumulative window and let a sibling withdrawal slip past the AED cap).
+  describe('saveValuationSnapshot — B-sum no-clobber guard', () => {
+    beforeEach(() => {
+      prisma.withdrawTransaction.update = jest.fn().mockResolvedValue({});
+    });
+
+    it('preserves the birth-value: a failed re-valuation does NOT overwrite an existing non-null grossAedValue', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        grossAedValue: new Prisma.Decimal('367000'),
+      });
+
+      await service.saveValuationSnapshot('wd-birth', {
+        grossAedValue: null,
+        aedRate: null,
+        rateFetchedAt: null,
+        rateFetchFailed: true,
+      });
+
+      // No write — the good birth snapshot is left intact.
+      expect(prisma.withdrawTransaction.update).not.toHaveBeenCalled();
+    });
+
+    it('ADMIN path (no birth-value): a failed re-valuation still writes the failed snapshot', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({ grossAedValue: null });
+
+      await service.saveValuationSnapshot('wd-admin', {
+        grossAedValue: null,
+        aedRate: null,
+        rateFetchedAt: null,
+        rateFetchFailed: true,
+      });
+
+      expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wd-admin' },
+          data: expect.objectContaining({ grossAedValue: null, rateFetchFailed: true }),
+        }),
+      );
+    });
+
+    it('a successful re-valuation overwrites with the fresher value (no guard, no read)', async () => {
+      const fresh = new Prisma.Decimal('999999');
+
+      await service.saveValuationSnapshot('wd-fresh', {
+        grossAedValue: fresh,
+        aedRate: new Prisma.Decimal('3.67'),
+        rateFetchedAt: new Date(),
+        rateFetchFailed: false,
+      });
+
+      expect(prisma.withdrawTransaction.findUnique).not.toHaveBeenCalled();
+      expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ grossAedValue: fresh, rateFetchFailed: false }),
+        }),
+      );
+    });
+  });
 });
