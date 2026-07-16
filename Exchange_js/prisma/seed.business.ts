@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
+import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
 import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
@@ -439,8 +440,14 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
     USD: { min: '10', max: '1000000' },
   };
   const rules: any[] = [];
-  let seq = 1;
-  const no = () => `TLR-${String(seq++).padStart(3, '0')}`;
+  // 标准业务号(与 DEP/APR/SWP 同源);批内去重防同秒随机撞号
+  const usedNos = new Set<string>();
+  const no = () => {
+    let n = generateReferenceNo('TLR');
+    while (usedNos.has(n)) n = generateReferenceNo('TLR');
+    usedNos.add(n);
+    return n;
+  };
   for (const a of assets) {
     // 按 currency 而非 code 匹配——code 含网络后缀(如 USDT-TRON),currency 才是 singleDefaults 的键
     const d = singleDefaults[a.currency] || { min: '0.0001', max: '1000000' };

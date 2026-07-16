@@ -7,6 +7,7 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -102,7 +103,7 @@ export class TransactionLimitRuleWorkflowService {
     this.rulesService.validateShape(input);
     await this.rulesService.assertUnique(input);
 
-    const ruleNo = `TLR-${Date.now()}`;
+    const ruleNo = generateReferenceNo('TLR');
     const rule = await this.rulesService.createPending({ ...input, ruleNo });
 
     const traceId = randomUUID();

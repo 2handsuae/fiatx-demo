@@ -44,12 +44,20 @@ interface RuleItem {
 
 /* ── Constants ───────────────────────────────────────────────── */
 
-const GATE_TABS: { key: GateType; label: string }[] = [
+const GATE_LABELS: Record<GateType, string> = {
+  SINGLE: 'Single',
+  CUMULATIVE: 'Cumulative',
+  LARGE_APPROVAL: 'Large Approval',
+};
+
+const TYPE_FILTERS: { key: 'ALL' | GateType; label: string }[] = [
+  { key: 'ALL', label: 'All Types' },
   { key: 'SINGLE', label: 'Single' },
   { key: 'CUMULATIVE', label: 'Cumulative' },
   { key: 'LARGE_APPROVAL', label: 'Large Approval' },
 ];
 
+const GATE_OPTIONS: GateType[] = ['SINGLE', 'CUMULATIVE', 'LARGE_APPROVAL'];
 const OPERATION_OPTIONS = ['WITHDRAWAL', 'SWAP'];
 const TIER_OPTIONS = ['BASIC', 'PREMIUM'];
 const PERIOD_OPTIONS = ['DAILY', 'MONTHLY'];
@@ -64,7 +72,31 @@ const fmtAmount = (v?: string | null): string => {
     : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 8 });
 };
 
+/** One-field "Applies To" — the target dimensions vary by gate type. */
+const appliesTo = (r: RuleItem, assetCodeById: Map<string, string>): string => {
+  if (r.gateType === 'SINGLE') return r.assetId ? assetCodeById.get(r.assetId) ?? '—' : '—';
+  if (r.gateType === 'CUMULATIVE') return `${r.tradingTier ?? '—'} · ${r.period ?? '—'}`;
+  return 'All'; // LARGE_APPROVAL
+};
+
+/** One-field "Limit" summary — the amount fields vary by gate type. */
+const limitSummary = (r: RuleItem): string => {
+  if (r.gateType === 'SINGLE') {
+    const parts = [
+      r.minAmount != null && r.minAmount !== '' ? `min ${fmtAmount(r.minAmount)}` : null,
+      r.maxAmount != null && r.maxAmount !== '' ? `max ${fmtAmount(r.maxAmount)}` : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(' / ') : '—';
+  }
+  if (r.gateType === 'CUMULATIVE') {
+    const base = `${fmtAmount(r.defaultLimit)} AED`;
+    return r.cap != null && r.cap !== '' ? `${base} · cap ${fmtAmount(r.cap)}` : base;
+  }
+  return `≥ ${fmtAmount(r.threshold)} AED`; // LARGE_APPROVAL
+};
+
 interface CreateFormState {
+  gateType: GateType;
   operationType: string;
   assetId: string;
   tradingTier: string;
@@ -78,6 +110,7 @@ interface CreateFormState {
 }
 
 const EMPTY_CREATE_FORM: CreateFormState = {
+  gateType: 'SINGLE',
   operationType: 'WITHDRAWAL',
   assetId: '',
   tradingTier: 'BASIC',
@@ -95,7 +128,7 @@ const EMPTY_CREATE_FORM: CreateFormState = {
 const TransactionLimitList = () => {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<GateType>('SINGLE');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | GateType>('ALL');
   const [items, setItems] = useState<RuleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,14 +165,14 @@ const TransactionLimitList = () => {
     return map;
   }, [assets]);
 
-  /* ── Data fetching (list endpoint returns a bare array) ── */
-  const fetchItems = async (gateType: GateType) => {
+  /* ── Data fetching — one list of ALL rules; type filter is client-side ── */
+  const fetchItems = async () => {
     const seq = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-rules?gateType=${gateType}`,
+        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-rules`,
       );
       if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to load rules.'));
 
@@ -156,10 +189,7 @@ const TransactionLimitList = () => {
   };
 
   useEffect(() => {
-    void fetchItems(activeTab);
-  }, [activeTab]);
-
-  useEffect(() => {
+    void fetchItems();
     void fetchAssets();
   }, []);
 
@@ -168,6 +198,11 @@ const TransactionLimitList = () => {
     const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
     return () => window.clearTimeout(t);
   }, [notice]);
+
+  const visibleItems = useMemo(
+    () => (typeFilter === 'ALL' ? items : items.filter((r) => r.gateType === typeFilter)),
+    [items, typeFilter],
+  );
 
   /* ── Create modal handlers ── */
   const openCreateModal = () => {
@@ -188,12 +223,12 @@ const TransactionLimitList = () => {
     };
 
     const base: Record<string, unknown> = {
-      gateType: activeTab,
+      gateType: f.gateType,
       operationType: f.operationType,
       reason: f.reason.trim(),
     };
 
-    if (activeTab === 'SINGLE') {
+    if (f.gateType === 'SINGLE') {
       if (!f.assetId) return 'Asset is required';
       const minAmount = num(f.minAmount);
       const maxAmount = num(f.maxAmount);
@@ -202,7 +237,7 @@ const TransactionLimitList = () => {
       base.assetId = f.assetId;
       if (minAmount !== undefined) base.minAmount = minAmount;
       if (maxAmount !== undefined) base.maxAmount = maxAmount;
-    } else if (activeTab === 'CUMULATIVE') {
+    } else if (f.gateType === 'CUMULATIVE') {
       const defaultLimit = num(f.defaultLimit);
       const cap = num(f.cap);
       if (defaultLimit === undefined) return 'Default Limit (AED) is required';
@@ -246,7 +281,7 @@ const TransactionLimitList = () => {
       setNotice(
         `Submitted for approval${res.approvalNo ? ` — ${res.approvalNo}` : ''}`,
       );
-      void fetchItems(activeTab);
+      void fetchItems();
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : 'Request failed');
     } finally {
@@ -265,27 +300,9 @@ const TransactionLimitList = () => {
   const fieldLabel =
     'mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3';
 
-  const colCount =
-    activeTab === 'SINGLE' ? 6 : activeTab === 'CUMULATIVE' ? 7 : 4;
-
   /* ── Row ── */
   const goDetail = (ruleNo: string) =>
     navigate(`/admin/assets/transaction-limits/${ruleNo}`);
-
-  const ruleNoCell = (r: RuleItem) => (
-    <td className="px-3 py-2">
-      <button
-        className={adminButtonClass('rowKeyLink')}
-        onClick={(e) => {
-          e.stopPropagation();
-          goDetail(r.ruleNo);
-        }}
-        title={r.ruleNo}
-      >
-        {r.ruleNo}
-      </button>
-    </td>
-  );
 
   /* ── Render ── */
   return (
@@ -293,7 +310,7 @@ const TransactionLimitList = () => {
       {/* ─── Zone 1: Title ─── */}
       <PageTitleBar
         title="Transaction Limits"
-        meta={`${items.length} ${activeTab.toLowerCase().replace('_', ' ')} rule${items.length === 1 ? '' : 's'}`}
+        meta={`${visibleItems.length} rule${visibleItems.length === 1 ? '' : 's'}`}
       >
         <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
           <Plus size={13} />
@@ -315,24 +332,22 @@ const TransactionLimitList = () => {
         </div>
       )}
 
-      {/* ─── Zone 2: Tabs ─── */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-adm-border px-4">
-        {GATE_TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`relative px-3 py-2.5 font-mono text-[11px] transition-colors ${
-              activeTab === t.key ? 'text-adm-amber' : 'text-adm-t3 hover:text-adm-t1'
-            }`}
-          >
-            {t.label}
-            {activeTab === t.key && (
-              <span className="absolute inset-x-0 -bottom-px h-0.5 bg-adm-amber" />
-            )}
-          </button>
-        ))}
+      {/* ─── Zone 2: Type filter ─── */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-adm-border px-4 py-2">
+        <label className="font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3">
+          Type
+        </label>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as 'ALL' | GateType)}
+          className="rounded border border-adm-border bg-adm-bg px-2 py-1 font-mono text-[11px] text-adm-t1 focus:border-adm-amber focus:outline-none"
+        >
+          {TYPE_FILTERS.map((f) => (
+            <option key={f.key} value={f.key}>{f.label}</option>
+          ))}
+        </select>
         <button
-          onClick={() => void fetchItems(activeTab)}
+          onClick={() => void fetchItems()}
           className={`${adminIconButtonClass()} ml-auto`}
           title="Refresh"
         >
@@ -340,78 +355,55 @@ const TransactionLimitList = () => {
         </button>
       </div>
 
-      {/* ─── Zone 3: Table ─── */}
+      {/* ─── Zone 3: Table (unified columns) ─── */}
       <div className="flex-1 overflow-y-auto">
         <table className="w-full border-collapse text-[11px]">
           <thead className="sticky top-0 z-10 bg-adm-panel">
             <tr className="border-b border-adm-border">
               <th className={th} style={{ width: 150 }}>Rule No</th>
+              <th className={th} style={{ width: 130 }}>Type</th>
               <th className={th} style={{ width: 120 }}>Operation</th>
-              {activeTab === 'SINGLE' && (
-                <>
-                  <th className={th} style={{ width: 120 }}>Asset</th>
-                  <th className={th} style={{ width: 140 }}>Min</th>
-                  <th className={th} style={{ width: 140 }}>Max</th>
-                </>
-              )}
-              {activeTab === 'CUMULATIVE' && (
-                <>
-                  <th className={th} style={{ width: 100 }}>Tier</th>
-                  <th className={th} style={{ width: 90 }}>Period</th>
-                  <th className={th} style={{ width: 150 }}>Default Limit (AED)</th>
-                  <th className={th} style={{ width: 140 }}>Cap (AED)</th>
-                </>
-              )}
-              {activeTab === 'LARGE_APPROVAL' && (
-                <th className={th} style={{ width: 160 }}>Threshold (AED)</th>
-              )}
+              <th className={th} style={{ width: 160 }}>Applies To</th>
+              <th className={th}>Limit</th>
               <th className={th} style={{ width: 120 }}>Status</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && !loading ? (
+            {visibleItems.length === 0 && !loading ? (
               <tr>
-                <td colSpan={colCount} className="px-3 py-12 text-center text-[11px] text-adm-t3">
+                <td colSpan={6} className="px-3 py-12 text-center text-[11px] text-adm-t3">
                   No rules found
                 </td>
               </tr>
             ) : (
-              items.map((r) => (
+              visibleItems.map((r) => (
                 <tr
                   key={r.id}
                   className="cursor-pointer border-b border-adm-border hover:bg-adm-hover"
                   onClick={() => goDetail(r.ruleNo)}
                 >
-                  {ruleNoCell(r)}
+                  <td className="px-3 py-2">
+                    <button
+                      className={adminButtonClass('rowKeyLink')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        goDetail(r.ruleNo);
+                      }}
+                      title={r.ruleNo}
+                    >
+                      {r.ruleNo}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <AdminBadge value={GATE_LABELS[r.gateType]} />
+                  </td>
                   <td className="px-3 py-2">
                     <AdminBadge value={r.operationType} />
                   </td>
-                  {activeTab === 'SINGLE' && (
-                    <>
-                      <td className="px-3 py-2 font-mono text-adm-t1">
-                        {r.assetId ? assetCodeById.get(r.assetId) ?? '—' : '—'}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-adm-t1">{fmtAmount(r.minAmount)}</td>
-                      <td className="px-3 py-2 font-mono text-adm-t1">{fmtAmount(r.maxAmount)}</td>
-                    </>
-                  )}
-                  {activeTab === 'CUMULATIVE' && (
-                    <>
-                      <td className="px-3 py-2">
-                        {r.tradingTier ? <AdminBadge value={r.tradingTier} /> : '—'}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-adm-t2">{r.period ?? '—'}</td>
-                      <td className="px-3 py-2 font-mono text-adm-t1 font-semibold">
-                        {fmtAmount(r.defaultLimit)}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-adm-t2">{fmtAmount(r.cap)}</td>
-                    </>
-                  )}
-                  {activeTab === 'LARGE_APPROVAL' && (
-                    <td className="px-3 py-2 font-mono text-adm-t1 font-semibold">
-                      {fmtAmount(r.threshold)}
-                    </td>
-                  )}
+                  <td className="px-3 py-2 font-mono text-adm-t2">
+                    {appliesTo(r, assetCodeById)}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-adm-t1">{limitSummary(r)}</td>
                   <td className="px-3 py-2">
                     <AdminBadge value={r.status} />
                   </td>
@@ -424,7 +416,7 @@ const TransactionLimitList = () => {
 
       {/* ─── Zone 4: Footer ─── */}
       <div className="flex shrink-0 items-center justify-between border-t border-adm-border px-4 py-2 text-[10px] text-adm-t3">
-        <span>Showing {items.length} rules</span>
+        <span>Showing {visibleItems.length} rules</span>
       </div>
 
       {/* ════ Create Rule Modal ════ */}
@@ -435,7 +427,7 @@ const TransactionLimitList = () => {
             <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
               <div>
                 <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Create {GATE_TABS.find((t) => t.key === activeTab)?.label} Rule
+                  Create Transaction Limit Rule
                 </p>
                 <p className="mt-1 font-mono text-[9px] text-adm-t3">
                   Submitted to OPS_OFFICER approval before it takes effect
@@ -458,6 +450,19 @@ const TransactionLimitList = () => {
               )}
 
               <div>
+                <label className={fieldLabel}>Rule Type</label>
+                <select
+                  className={fieldInput}
+                  value={createForm.gateType}
+                  onChange={(e) => updateForm('gateType', e.target.value)}
+                >
+                  {GATE_OPTIONS.map((g) => (
+                    <option key={g} value={g}>{GATE_LABELS[g]}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className={fieldLabel}>Operation Type</label>
                 <select
                   className={fieldInput}
@@ -470,7 +475,7 @@ const TransactionLimitList = () => {
                 </select>
               </div>
 
-              {activeTab === 'SINGLE' && (
+              {createForm.gateType === 'SINGLE' && (
                 <>
                   <div>
                     <label className={fieldLabel}>Asset</label>
@@ -516,7 +521,7 @@ const TransactionLimitList = () => {
                 </>
               )}
 
-              {activeTab === 'CUMULATIVE' && (
+              {createForm.gateType === 'CUMULATIVE' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -573,7 +578,7 @@ const TransactionLimitList = () => {
                 </>
               )}
 
-              {activeTab === 'LARGE_APPROVAL' && (
+              {createForm.gateType === 'LARGE_APPROVAL' && (
                 <div>
                   <label className={fieldLabel}>Threshold (AED)</label>
                   <input
