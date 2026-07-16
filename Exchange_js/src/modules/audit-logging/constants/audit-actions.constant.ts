@@ -590,6 +590,9 @@ export const AuditGovernanceActions = {
     CREATION_CANCELLED:     'CREATION_CANCELLED',
   },
 
+  // Transaction Limit runtime enforcement (2026-07-16)
+  TRANSACTION_LIMIT_REJECTED: 'TRANSACTION_LIMIT_REJECTED',   // L1 金额限额拦截(A/B) — used by Task 4 engine
+
   // Withdrawal Fee Level Creation (2026-05-30)
   WITHDRAWAL_FEE_LEVEL_CREATION: {
     CREATION_REQUESTED:    'CREATION_REQUESTED',

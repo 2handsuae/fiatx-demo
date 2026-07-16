@@ -97,4 +97,58 @@ export class TransactionLimitRulesService {
     if (!rule) throw new NotFoundException(`Rule ${ruleNo} not found`);
     return rule;
   }
+
+  // ── 工作流写面(仅供 workflow 调用;领域写入统一经此,守 validateShape 不变量,Rule 5) ──
+
+  /** 以 PENDING_APPROVAL 落一条新规则(调用方须先 validateShape + assertUnique) */
+  createPending(input: RuleShapeInput & { ruleNo: string }) {
+    return this.prisma.transactionLimitRule.create({
+      data: {
+        ruleNo: input.ruleNo,
+        gateType: input.gateType,
+        operationType: input.operationType,
+        assetId: input.assetId ?? null,
+        tradingTier: input.tradingTier ?? null,
+        period: input.period ?? null,
+        minAmount: this.toDecimal(input.minAmount),
+        maxAmount: this.toDecimal(input.maxAmount),
+        defaultLimit: this.toDecimal(input.defaultLimit),
+        cap: this.toDecimal(input.cap),
+        threshold: this.toDecimal(input.threshold),
+        status: 'PENDING_APPROVAL',
+      },
+    });
+  }
+
+  attachApprovalCase(ruleNo: string, approvalCaseId: string) {
+    return this.prisma.transactionLimitRule.update({
+      where: { ruleNo },
+      data: { approvalCaseId },
+    });
+  }
+
+  activate(ruleNo: string) {
+    return this.prisma.transactionLimitRule.update({
+      where: { ruleNo },
+      data: { status: 'ACTIVE' },
+    });
+  }
+
+  /** 物理删除一条 PENDING_APPROVAL 规则(创建被否决时) */
+  deletePending(ruleNo: string) {
+    return this.prisma.transactionLimitRule.delete({ where: { ruleNo } });
+  }
+
+  /** 变更生效:仅覆盖传入的金额字段(其余保持不变) */
+  applyAmountChange(ruleNo: string, amounts: Record<string, number | string | null | undefined>) {
+    const data: Prisma.TransactionLimitRuleUpdateInput = {};
+    for (const f of ALL_AMOUNT_FIELDS) {
+      if (f in amounts) (data as any)[f] = this.toDecimal(amounts[f]);
+    }
+    return this.prisma.transactionLimitRule.update({ where: { ruleNo }, data });
+  }
+
+  private toDecimal(v: number | string | null | undefined): Prisma.Decimal | null {
+    return v == null ? null : new Prisma.Decimal(v);
+  }
 }
