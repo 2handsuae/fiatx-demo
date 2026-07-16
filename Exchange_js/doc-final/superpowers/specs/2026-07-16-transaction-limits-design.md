@@ -26,7 +26,7 @@
 
 公共字段：`ruleNo`（业务键）、`status`、审批挂钩字段、时间戳。唯一约束 =（gateType, operation, assetId?, tradingTier?, period?）。
 
-**订单侧新列**：withdraw/swap 订单加 `aedValueSnapshot`（创建时按当时汇率定格），B 用量 = SUM 该列，免历史重算。
+**订单侧 AED 快照**：withdraw **已有** `grossAedValue`/`aedRate`/`rateFetchedAt`/`rateFetchFailed` 四列（大额门估值快照，现由创建后事件 handler 回填→本轮改为出生即落）；swap 补 `grossAedValue` 一列对齐。B 用量 = SUM `grossAedValue`，免历史重算。
 
 **吸收退役**：
 - 旧 `governance/transaction-limits` 模块 + `TransactionLimitPolicy`/`TransactionLimitChangeRequest` 两表退役（零消费方；了结 BACKLOG「限额执行接入 vs 明示退役」待决策）。创建/变更审批工作流**模式**照抄进新模块。
@@ -39,12 +39,13 @@
 
 ```
 ① A: 本笔 vs 该资产 SINGLE 行（原生币种直比）→ 不过即 REJECT
-② 折 AED（复用现有汇率服务；取不到 → fail-closed，同现 D1 语义）
+② 折 AED（复用 BinanceRateProvider；取不到 → fail-closed，同现 D1 语义）
 ③ B: 客户 tradingTier → CUMULATIVE 行；用量 =（迪拜日历日/月内该客户该方向
-   [非终态+成功] 订单 aedValueSnapshot 之和）+ 本笔 ≤ defaultLimit → 不过即 REJECT
-④ D1: 本笔 AED ≥ threshold → requiresLargeApproval = true（仅提现）
-返回: { pass | rejectCode+限额上下文, requiresLargeApproval, aedValue }
+   [非终态+成功] 订单 grossAedValue 之和）+ 本笔 ≤ defaultLimit → 不过即 REJECT
+返回: { grossAedValue 估值快照（随单落库） | 拒绝时 rejectCode+限额上下文 }
 ```
+
+**D1 不进前置引擎**（读代码后精化）：现状 D1 判定在订单创建后的事件 handler `handleWithdrawalCreated` 里（估值→`shouldRequireApproval`→开审批），位置不动，**只把阈值来源从死常量换成 LARGE_APPROVAL 规则行**（`shouldRequireApproval(valuation, threshold)` 纯函数化；规则缺失 fail-closed 走审批）。
 
 要点：
 - **B 计在途**：用量含非终态订单，防并发绕限。
@@ -54,8 +55,8 @@
 
 ## 4. 接入点（本轮两处）
 
-- **提现** `withdraw-workflow.service.ts → createWithdrawal()`：现有 `ensureCustomerCanTransact` 之后、`$transaction` 之前调 evaluate；A/B 拒绝抛出；D1 结果取代死常量判定。
-- **兑换** `swap-workflow.service.ts → executeSwap()`：同位置调 evaluate，仅消费 A/B（无 D1）。
+- **提现** `withdraw-workflow.service.ts → createWithdrawal()`：现有 `ensureCustomerCanTransact` 之后、`$transaction` 之前调 evaluate（A/B 拒绝抛出）；估值快照随单出生落库；`handleWithdrawalCreated` 里 D1 阈值改读规则行。
+- **兑换** `swap-workflow.service.ts → executeSwap()`：同位置调 evaluate（事务外只读 peek quote 拿金额），仅 A/B（无 D1）。
 - 已核实：两链路 L1 均在订单落库之前（均 pre-$transaction），插入点现成。
 
 **大流程合同**（业主确认）：① 配置多条目 → ② B 经客户已有 `tradingTier` 关联（客户侧零改动；用量现算不落客户资料）→ ③ L1 统一判定：A/B 不创建订单直接拦，D1 创建订单走审批（"L1 判定，D1 延迟发力"）。
