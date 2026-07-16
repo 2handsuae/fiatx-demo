@@ -29,7 +29,10 @@ import {
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { WalletQueryService } from '../../asset-treasury/wallets/wallet-query.service';
-import { TransactionLimitGateService } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
+import {
+  TransactionLimitGateService,
+  GateValuation,
+} from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -189,17 +192,24 @@ export class SwapWorkflowService {
     await this.onboardingService.assertTradingEligibility(ownerId, 'SWAP');
 
     // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──
+    // Peek the quote OUTSIDE the transaction only to get the from-asset + amount
+    // for the gate. A missing quote is NOT thrown here on purpose: it falls
+    // through to the in-transaction getActiveQuoteOrThrow, which rejects it via
+    // the existing audited SWAP_FAILED path (skipping the gate for a nonexistent
+    // quote gates nothing — no swap can be created without a valid quote).
+    let gateValuation: GateValuation | null = null;
     const quotePeek = await this.prisma.swapQuote.findUnique({
       where: { id: quoteId },
       select: { fromAssetId: true, amountIn: true },
     });
-    if (!quotePeek) throw new NotFoundException('Swap quote not found');
-    const gateValuation = await this.limitGateService.evaluate({
-      operationType: 'SWAP',
-      customerId: ownerId,
-      assetId: quotePeek.fromAssetId,
-      amount: new Prisma.Decimal(quotePeek.amountIn),
-    });
+    if (quotePeek) {
+      gateValuation = await this.limitGateService.evaluate({
+        operationType: 'SWAP',
+        customerId: ownerId,
+        assetId: quotePeek.fromAssetId,
+        amount: new Prisma.Decimal(quotePeek.amountIn),
+      });
+    }
 
     const now = new Date();
     const swapNo = generateReferenceNo('SWP');
@@ -277,7 +287,7 @@ export class SwapWorkflowService {
           tbFeeTransferId: null,
           tbSpreadTransferId: null,
           traceId,
-          grossAedValue: gateValuation.grossAedValue ?? undefined,
+          grossAedValue: gateValuation?.grossAedValue ?? undefined,
         }, tx);
 
         await this.auditLogsService.recordByActor(
