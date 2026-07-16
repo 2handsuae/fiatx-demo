@@ -209,13 +209,18 @@ export class DepositTransactionsService {
   }
 
   /**
-   * Customer-facing single-fetch: BELOW_MIN (hold-pending admin disposition)
-   * deposits are treated as non-existent — do not leak existence via a
-   * different error than a normal missing id.
+   * Customer-facing single-fetch. Two rows are treated as non-existent (same
+   * NotFound as a missing id — never leak existence via a different error):
+   *  1. a deposit owned by another customer (IDOR guard), and
+   *  2. a BELOW_MIN hold-pending deposit (admin-only until disposed).
    */
   async findOneForCustomer(id: string, customerId: string) {
     const item = await this.findOne(id);
-    if ((item as any).limitHoldReason != null) {
+    const deposit = item as any;
+    if (deposit.ownerId !== customerId) {
+      throw new NotFoundException('Deposit transaction not found');
+    }
+    if (deposit.limitHoldReason != null) {
       throw new NotFoundException('Deposit transaction not found');
     }
     return item;

@@ -148,6 +148,18 @@ describe('DepositTransactionsService', () => {
         NotFoundException,
       );
     });
+
+    it("customer detail: another customer's deposit → NotFound (ownership enforced)", async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'd1',
+        ownerId: 'other-cust',
+        limitHoldReason: null,
+      });
+
+      await expect(service.findOneForCustomer('d1', 'cust-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 
   describe('updateStatus (State Machine)', () => {
