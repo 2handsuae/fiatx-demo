@@ -976,6 +976,7 @@ model DepositTransaction {
   travelRuleCheckedAt  DateTime?
   traceId              String?
   statusHistory        String?
+  limitHoldReason      String?           // 'BELOW_MIN' — L1 金额挂起原因(客户面隐藏依据)
   aggregatedAt         DateTime?
   aggregatedTransferId String?
   createdAt            DateTime          @default(now())
