@@ -130,6 +130,16 @@ export class DepositTransactionsController {
     }
   }
 
+  @Post(':id/waive-limit')
+  @ApiOperation({ summary: 'Waive below-minimum amount hold (PASS disposition)' })
+  waiveLimitHold(@Param('id') id: string, @Req() req: any) {
+    const actor = {
+      actorId: req.user?.userId,
+      actorRole: req.user?.role,
+    };
+    return this.workflow.waiveLimitHold(id, actor);
+  }
+
   @Get('export')
   @ApiOperation({ summary: 'Export deposit transactions' })
   @UsePipes(new ValidationPipe({ transform: true }))

@@ -13,6 +13,7 @@ import {
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { BadRequestException } from '@nestjs/common';
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -29,9 +30,11 @@ describe('DepositWorkflowService', () => {
       findOne: jest.fn(),
       updateKytStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
+      clearLimitHold: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
+      recordByActor: jest.fn().mockResolvedValue(undefined),
     };
     fundsOrders = {
       findById: jest.fn(),
@@ -309,6 +312,40 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-fiat-1', {
         action: DepositTransactionAction.APPROVE,
       });
+    });
+  });
+
+  describe('waiveLimitHold', () => {
+    const adminActor = { actorId: 'admin-1', actorRole: 'OPERATOR' };
+    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-1',
+      depositNo: 'DEP001',
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      amount: '5',
+      traceId: 'trace-1',
+      limitHoldReason: 'BELOW_MIN',
+      ...overrides,
+    });
+
+    it('waiveLimitHold: clears flag, audits DEPOSIT_LIMIT_WAIVED, re-runs checkAutoApproval', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      const reRun = jest.spyOn(service, 'checkAutoApproval').mockResolvedValue(undefined);
+
+      await service.waiveLimitHold('dep-1', adminActor);
+
+      expect(depositService.clearLimitHold).toHaveBeenCalledWith('dep-1');
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_LIMIT_WAIVED' }),
+        expect.anything(),
+      );
+      expect(reRun).toHaveBeenCalledWith('dep-1');
+    });
+
+    it('waiveLimitHold: rejects when deposit has no BELOW_MIN hold', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: null }));
+      await expect(service.waiveLimitHold('dep-1', adminActor)).rejects.toThrow(BadRequestException);
     });
   });
 

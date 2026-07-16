@@ -409,6 +409,14 @@ export class DepositTransactionsService {
     });
   }
 
+  /** PASS (waive) disposition: clears the BELOW_MIN hold flag. Does not touch status. */
+  async clearLimitHold(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { limitHoldReason: null },
+    });
+  }
+
   async getOwnerComplianceStatus(depositId: string): Promise<string> {
     const deposit = await (this.prisma as any).depositTransaction.findUnique({
       where: { id: depositId },

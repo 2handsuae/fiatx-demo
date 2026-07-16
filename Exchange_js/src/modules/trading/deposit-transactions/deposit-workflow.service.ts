@@ -1,5 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
   DepositTransactionAction,
@@ -382,6 +383,55 @@ export class DepositWorkflowService implements OnModuleInit {
       reason || 'Admin freeze',
     );
     return updated;
+  }
+
+  /**
+   * PASS (waive) disposition: ops waives the amount floor for this one deposit.
+   * This does NOT approve/入账 the deposit — it clears the BELOW_MIN hold and
+   * re-runs checkAutoApproval so the deposit proceeds through the normal L2
+   * compliance gates (KYT/TR/trading-ready). Waiving the amount line does not
+   * waive compliance. Single-operator action — no maker-checker.
+   */
+  async waiveLimitHold(
+    depositId: string,
+    actor: { actorId: string; actorRole?: string },
+  ) {
+    const deposit = await this.depositService.findOne(depositId);
+    if (
+      deposit.limitHoldReason !== 'BELOW_MIN' ||
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING
+    ) {
+      throw new BadRequestException(
+        'Deposit has no BELOW_MIN hold to waive',
+      );
+    }
+
+    await this.depositService.clearLimitHold(depositId);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_LIMIT_WAIVED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        result: AuditResult.SUCCESS,
+        reason: 'Ops waived below-minimum amount hold (compliance gates still apply)',
+        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+        requestId: `DEPOSIT_LIMIT_WAIVED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+      },
+    );
+
+    await this.checkAutoApproval(depositId);
   }
 
   private async onPayinFailed(depositId: string, fundsOrderId: string) {

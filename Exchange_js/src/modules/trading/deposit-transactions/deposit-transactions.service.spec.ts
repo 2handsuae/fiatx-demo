@@ -516,6 +516,19 @@ describe('DepositTransactionsService', () => {
       expect(result.travelRuleStatus).toBe('PASSED');
     });
 
+    it('clearLimitHold sets limitHoldReason to null', async () => {
+      const mockRecord = { id: 'dep-1', limitHoldReason: null };
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+
+      const result = await service.clearLimitHold('dep-1');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { limitHoldReason: null },
+      });
+      expect(result.limitHoldReason).toBeNull();
+    });
+
     it('getOwnerComplianceStatus returns customer complianceStatus', async () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
