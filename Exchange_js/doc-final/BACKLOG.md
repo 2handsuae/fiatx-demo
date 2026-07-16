@@ -23,7 +23,7 @@ Last Updated: 2026-07-17
 - [ ] Deposit/资金单层无 `txHash` 唯一约束（仅信号层 `dedupeKey` 有）→ 同 txHash 可能产生多 Deposit ｜来源: 2026-07-03 V4 体检
 - [ ] TB 记账失败无 repair surface：仅记 `DEPOSIT_ACCOUNTING_BLOCKED` 审计后卡住 ｜来源: roadmap V4 待实现
 - [ ] `deposit.status.changed` 用 `emit` 非 `emitAsync`，异常不传播到调用方 ｜来源: roadmap V4 待实现
-- [ ] Admin PATCH deposit status 部分绕过 workflow：仅 SUCCESS 被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫，FREEZE/CONFISCATE 可绕过记账与审计 ｜来源: 2026-07-03 V4 体检 ｜⚠️ **2026-07-17 deposit-min 复核：此洞随 D7 变严重**——`action='confiscate'` 现有真实两腿记账+funds_order 语义（见 v4-deposit.md §6/§7），但 PATCH `default` 分支仍可绕过 `initiateConfiscation` 治理正门直接把状态拍成 `CONFISCATED`，零记账零审批，产生"终态但两腿未入账"的账实不符（旧版只是状态壳空转，危害较小）
+- [~] Admin PATCH deposit status 部分绕过 workflow：仅 SUCCESS 被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫，FREEZE/CONFISCATE 可绕过记账与审计 ｜来源: 2026-07-03 V4 体检 ｜✅ **2026-07-17 CONFISCATE 部分已关**——`CONFISCATED` 已加入 `deposit-transactions.service.ts → updateStatus()` 的 `ACCOUNTING_TERMINALS` 工作流专用守卫（isAdminApi PATCH 到 CONFISCATED 抛 `DEPOSIT_APPROVE_WORKFLOW_ONLY`；executeConfiscation 非 ADMIN_API 路径不受影响，单测 `blocks ADMIN_API from directly reaching CONFISCATED` 锁定）。**剩 FREEZE 部分未关**（FREEZE 无 TB 记账、危害较小，但仍应统一治理化，留账）
 - [ ] ERC-20 合约失败交易未过滤（合约执行失败仍建 Payin）｜来源: roadmap V4
 - [ ] KYT 超时转人工未做 ｜来源: roadmap V4
 - [ ] 区块重组自动回退未做（与"按链确认数配置"一起设计，该功能项在 roadmap V4 ADVANCED）｜来源: roadmap V4

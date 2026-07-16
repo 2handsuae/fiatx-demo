@@ -241,8 +241,16 @@ export class DepositTransactionsService {
     const action = dto.action;
     const nextStatus = this.getNextStatus(currentStatus, action);
 
+    // States that post to TigerBeetle must only be reached via DepositWorkflowService
+    // (SUCCESS via approveDeposit's Step2; CONFISCATED via the confiscation approval →
+    // executeConfiscation's two-leg posting). A direct admin PATCH must never flip a
+    // deposit into one of these, or it would carry the terminal semantics with no ledger
+    // legs. The workflow's own updateStatus calls pass no ADMIN_API source, so they pass.
     const isAdminApi = options?.sourcePlatform === 'ADMIN_API';
-    const ACCOUNTING_TERMINALS = new Set([DepositTransactionStatus.SUCCESS]);
+    const ACCOUNTING_TERMINALS = new Set([
+      DepositTransactionStatus.SUCCESS,
+      DepositTransactionStatus.CONFISCATED,
+    ]);
     if (isAdminApi && ACCOUNTING_TERMINALS.has(nextStatus)) {
       throw new BadRequestException({
         code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY',
