@@ -345,6 +345,11 @@ export class DepositTransactionsService {
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
+        // Below-min confiscation (D7) goes COMPLIANCE_PENDING → CONFISCATED — the
+        // held deposit never entered FROZEN. Distinct from the FROZEN→CONFISCATE
+        // path below (compliance-frozen confiscation), same terminal state.
+        [DepositTransactionAction.CONFISCATE]:
+          DepositTransactionStatus.CONFISCATED,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
