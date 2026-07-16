@@ -51,6 +51,8 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -116,6 +118,8 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -172,6 +176,8 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -240,6 +246,8 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 

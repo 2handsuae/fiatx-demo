@@ -112,6 +112,8 @@ describe('WithdrawTransactionsService', () => {
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      { evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })) } as any, // limitGateService
+      {} as any, // limitRulesService
     );
 
     jest.clearAllMocks();

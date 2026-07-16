@@ -40,6 +40,11 @@ import {
   SYSTEM_APPROVAL_ACTOR,
 } from './constants/withdraw-approval.constant';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
+import {
+  TransactionLimitGateService,
+  GateValuation,
+} from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
+import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
   FundsOrderAction,
@@ -113,6 +118,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly binanceRateProvider: BinanceRateProvider,
     private readonly systemWalletResolver: SystemWalletResolver,
     private readonly tbEvidenceService: TbEvidenceService,
+    private readonly limitGateService: TransactionLimitGateService,
+    private readonly limitRulesService: TransactionLimitRulesService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -183,6 +190,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const amountDecimal = new Prisma.Decimal(amount);
     if (!quoteId) {
       throw new BadRequestException('quoteId is required for withdrawal');
+    }
+
+    // ── L1 Transaction Limit gate (A single min/max + B cumulative) ──
+    // Rejects BEFORE order persist & quote consumption; returns AED valuation for the row.
+    let gateValuation: GateValuation | null = null;
+    if (ownerType === 'CUSTOMER') {
+      gateValuation = await this.limitGateService.evaluate({
+        operationType: 'WITHDRAWAL',
+        customerId: userId,
+        assetId,
+        amount: amountDecimal,
+      });
     }
 
     // Track TB pending transfer IDs in outer scope for compensation on failure.
@@ -259,6 +278,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
             travelRuleStatus: isCryptoWithdraw ? 'PENDING' : '',
             complianceStatus: 'PENDING',
             traceId,
+            grossAedValue: gateValuation?.grossAedValue ?? undefined,
+            aedRate: gateValuation?.aedRate ?? undefined,
+            rateFetchedAt: gateValuation?.rateFetchedAt ?? undefined,
+            rateFetchFailed: gateValuation?.rateFetchFailed ?? undefined,
             parentType,
             parentId,
             pricingQuoteId: consumedQuoteId,
@@ -459,8 +482,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
       const valuation = await this.valuateAed(w);
       await this.withdrawService.saveValuationSnapshot(w.id, valuation);
 
-      if (shouldRequireApproval(valuation)) {
-        await this.openApprovalGate(w, valuation);
+      const threshold = await this.limitRulesService.getLargeApprovalThreshold('WITHDRAWAL');
+      if (shouldRequireApproval(valuation, threshold)) {
+        await this.openApprovalGate(w, valuation, threshold);
       } else {
         this.logger.log(`Withdrawal ${event.withdrawId} below approval threshold — proceeding to compliance`);
         await this.withdrawService.updateStatus(
@@ -504,7 +528,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
   private async openApprovalGate(
     w: { id: string; withdrawNo: string; ownerType: string; ownerId: string; traceId: string | null },
     valuation: { grossAedValue: Prisma.Decimal | null; rateFetchFailed: boolean },
+    threshold: Prisma.Decimal | null,
   ) {
+    const reason = threshold
+      ? `Withdrawal ${w.withdrawNo} ≥ ${threshold} AED — senior management approval required`
+      : `Withdrawal ${w.withdrawNo} — large-value approval required (fail-closed: threshold unavailable)`;
     try {
       const approval = await this.approvalsService.createAndSubmit(
         {
@@ -519,7 +547,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             rateFetchFailed: valuation.rateFetchFailed,
           },
         },
-        { reason: `Withdrawal ${w.withdrawNo} ≥ 200000 AED — senior management approval required`, traceId: w.traceId || undefined },
+        { reason, traceId: w.traceId || undefined },
         SYSTEM_APPROVAL_ACTOR,
       );
 
