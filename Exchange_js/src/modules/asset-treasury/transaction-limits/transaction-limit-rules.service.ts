@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { GATE_SHAPES, GATE_TYPES, LIMIT_OPERATION_TYPES, LIMIT_PERIODS, LIMIT_TRADING_TIERS, GateType } from './constants/transaction-limit.constants';
+import { ALL_AMOUNT_FIELDS, GATE_SHAPES, GATE_TYPES, LIMIT_OPERATION_TYPES, LIMIT_PERIODS, LIMIT_TRADING_TIERS, GateType } from './constants/transaction-limit.constants';
 
 export interface RuleShapeInput {
   gateType: GateType;
@@ -35,7 +35,7 @@ export class TransactionLimitRulesService {
     if (input.tradingTier && !LIMIT_TRADING_TIERS.includes(input.tradingTier as any)) throw new BadRequestException(`Invalid tradingTier: ${input.tradingTier}`);
     const amountSet = shape.amountFields.filter((f) => (input as any)[f] != null);
     if (amountSet.length === 0) throw new BadRequestException(`${input.gateType} rule requires at least one of: ${shape.amountFields.join(', ')}`);
-    const alien = ['minAmount', 'maxAmount', 'defaultLimit', 'cap', 'threshold'].filter(
+    const alien = ALL_AMOUNT_FIELDS.filter(
       (f) => !shape.amountFields.includes(f) && (input as any)[f] != null,
     );
     if (alien.length) throw new BadRequestException(`${input.gateType} rule must not set: ${alien.join(', ')}`);
