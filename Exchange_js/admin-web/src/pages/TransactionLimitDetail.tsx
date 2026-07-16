@@ -46,10 +46,7 @@ const SHAPE_AMOUNT_FIELDS: Record<
     { key: 'minAmount', label: 'Min Amount', required: false },
     { key: 'maxAmount', label: 'Max Amount', required: false },
   ],
-  CUMULATIVE: [
-    { key: 'defaultLimit', label: 'Default Limit', required: true },
-    { key: 'cap', label: 'Cap', required: false },
-  ],
+  CUMULATIVE: [{ key: 'defaultLimit', label: 'Default Limit', required: true }],
   LARGE_APPROVAL: [{ key: 'threshold', label: 'Threshold', required: true }],
 };
 
@@ -371,7 +368,6 @@ export default function TransactionLimitDetail() {
                   <InfoField label="Period" value={rule.period ?? '—'} />
                   <InfoField label="Operation Type" value={rule.operationType} />
                   <InfoField label="Default Limit (AED)" value={fmtAmount(rule.defaultLimit)} mono />
-                  <InfoField label="Cap (AED)" value={fmtAmount(rule.cap)} mono />
                 </>
               )}
               {rule.gateType === 'LARGE_APPROVAL' && (

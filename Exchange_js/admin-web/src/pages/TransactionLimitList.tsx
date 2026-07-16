@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import {
   adminButtonClass,
   adminIconButtonClass,
@@ -57,11 +57,6 @@ const TYPE_FILTERS: { key: 'ALL' | GateType; label: string }[] = [
   { key: 'LARGE_APPROVAL', label: 'Large Approval' },
 ];
 
-const GATE_OPTIONS: GateType[] = ['SINGLE', 'CUMULATIVE', 'LARGE_APPROVAL'];
-const OPERATION_OPTIONS = ['WITHDRAWAL', 'SWAP'];
-const TIER_OPTIONS = ['BASIC', 'PREMIUM'];
-const PERIOD_OPTIONS = ['DAILY', 'MONTHLY'];
-
 /* ── Helpers ─────────────────────────────────────────────────── */
 
 const fmtAmount = (v?: string | null): string => {
@@ -88,39 +83,8 @@ const limitSummary = (r: RuleItem): string => {
     ].filter(Boolean);
     return parts.length ? parts.join(' / ') : '—';
   }
-  if (r.gateType === 'CUMULATIVE') {
-    const base = `${fmtAmount(r.defaultLimit)} AED`;
-    return r.cap != null && r.cap !== '' ? `${base} · cap ${fmtAmount(r.cap)}` : base;
-  }
+  if (r.gateType === 'CUMULATIVE') return `${fmtAmount(r.defaultLimit)} AED`;
   return `≥ ${fmtAmount(r.threshold)} AED`; // LARGE_APPROVAL
-};
-
-interface CreateFormState {
-  gateType: GateType;
-  operationType: string;
-  assetId: string;
-  tradingTier: string;
-  period: string;
-  minAmount: string;
-  maxAmount: string;
-  defaultLimit: string;
-  cap: string;
-  threshold: string;
-  reason: string;
-}
-
-const EMPTY_CREATE_FORM: CreateFormState = {
-  gateType: 'SINGLE',
-  operationType: 'WITHDRAWAL',
-  assetId: '',
-  tradingTier: 'BASIC',
-  period: 'DAILY',
-  minAmount: '',
-  maxAmount: '',
-  defaultLimit: '',
-  cap: '',
-  threshold: '',
-  reason: '',
 };
 
 /* ── Component ───────────────────────────────────────────────── */
@@ -132,19 +96,12 @@ const TransactionLimitList = () => {
   const [items, setItems] = useState<RuleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const [assets, setAssets] = useState<AssetOption[]>([]);
 
-  /* ── Create modal state ── */
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
   const requestSeqRef = useRef(0);
 
-  /* ── Fetch assets (for code lookup + Single create dropdown) ── */
+  /* ── Fetch assets (for the Single "Applies To" asset-code lookup) ── */
   const fetchAssets = async () => {
     try {
       const res = await adminFetch(
@@ -193,142 +150,32 @@ const TransactionLimitList = () => {
     void fetchAssets();
   }, []);
 
-  useEffect(() => {
-    if (!notice) return undefined;
-    const t = window.setTimeout(() => setNotice((c) => (c === notice ? null : c)), 4000);
-    return () => window.clearTimeout(t);
-  }, [notice]);
-
   const visibleItems = useMemo(
     () => (typeFilter === 'ALL' ? items : items.filter((r) => r.gateType === typeFilter)),
     [items, typeFilter],
   );
 
-  /* ── Create modal handlers ── */
-  const openCreateModal = () => {
-    setCreateForm(EMPTY_CREATE_FORM);
-    setCreateError(null);
-    setShowCreateModal(true);
-  };
-  const closeCreateModal = () => setShowCreateModal(false);
-
-  const buildCreatePayload = (): Record<string, unknown> | string => {
-    const f = createForm;
-    if (!f.reason.trim()) return 'Reason is required';
-
-    const num = (v: string): number | undefined => {
-      if (v.trim() === '') return undefined;
-      const n = parseFloat(v);
-      return Number.isNaN(n) ? undefined : n;
-    };
-
-    const base: Record<string, unknown> = {
-      gateType: f.gateType,
-      operationType: f.operationType,
-      reason: f.reason.trim(),
-    };
-
-    if (f.gateType === 'SINGLE') {
-      if (!f.assetId) return 'Asset is required';
-      const minAmount = num(f.minAmount);
-      const maxAmount = num(f.maxAmount);
-      if (minAmount === undefined && maxAmount === undefined)
-        return 'At least one of Min / Max is required';
-      base.assetId = f.assetId;
-      if (minAmount !== undefined) base.minAmount = minAmount;
-      if (maxAmount !== undefined) base.maxAmount = maxAmount;
-    } else if (f.gateType === 'CUMULATIVE') {
-      const defaultLimit = num(f.defaultLimit);
-      const cap = num(f.cap);
-      if (defaultLimit === undefined) return 'Default Limit (AED) is required';
-      base.tradingTier = f.tradingTier;
-      base.period = f.period;
-      base.defaultLimit = defaultLimit;
-      if (cap !== undefined) base.cap = cap;
-    } else {
-      const threshold = num(f.threshold);
-      if (threshold === undefined) return 'Threshold (AED) is required';
-      base.threshold = threshold;
-    }
-    return base;
-  };
-
-  const handleCreateSubmit = async () => {
-    const payload = buildCreatePayload();
-    if (typeof payload === 'string') {
-      setCreateError(payload);
-      return;
-    }
-
-    setCreateLoading(true);
-    setCreateError(null);
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/transaction-limit-rules`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-      );
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { message?: string };
-        setCreateError(data.message || 'Failed to submit');
-        return;
-      }
-      const res = (await response.json()) as { approvalNo?: string };
-      closeCreateModal();
-      setNotice(
-        `Submitted for approval${res.approvalNo ? ` — ${res.approvalNo}` : ''}`,
-      );
-      void fetchItems();
-    } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : 'Request failed');
-    } finally {
-      setCreateLoading(false);
-    }
-  };
-
-  const updateForm = (key: keyof CreateFormState, value: string) =>
-    setCreateForm((prev) => ({ ...prev, [key]: value }));
-
-  /* ── Styles ── */
-  const th =
-    'px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3';
-  const fieldInput =
-    'w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none transition-colors';
-  const fieldLabel =
-    'mb-1 block font-mono text-[10px] font-semibold uppercase tracking-wider text-adm-t3';
-
   /* ── Row ── */
   const goDetail = (ruleNo: string) =>
     navigate(`/admin/assets/transaction-limits/${ruleNo}`);
 
+  /* ── Styles ── */
+  const th =
+    'px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3';
+
   /* ── Render ── */
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* ─── Zone 1: Title ─── */}
+      {/* ─── Zone 1: Title (no create — rules are a pre-configured, asset-derived grid; edit-only) ─── */}
       <PageTitleBar
         title="Transaction Limits"
         meta={`${visibleItems.length} rule${visibleItems.length === 1 ? '' : 's'}`}
-      >
-        <button onClick={openCreateModal} className={adminButtonClass('listPrimary')}>
-          <Plus size={13} />
-          Create Rule
-        </button>
-      </PageTitleBar>
+      />
 
       {/* ─── Error banner ─── */}
       {error && (
         <div className="shrink-0 border-b border-adm-border bg-adm-danger/5 px-4 py-2 font-mono text-[11px] text-adm-danger">
           {error}
-        </div>
-      )}
-
-      {/* ─── Notice toast ─── */}
-      {notice && (
-        <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-4 py-2 font-mono text-[11px] text-adm-amber">
-          {notice}
         </div>
       )}
 
@@ -418,209 +265,6 @@ const TransactionLimitList = () => {
       <div className="flex shrink-0 items-center justify-between border-t border-adm-border px-4 py-2 text-[10px] text-adm-t3">
         <span>Showing {visibleItems.length} rules</span>
       </div>
-
-      {/* ════ Create Rule Modal ════ */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-adm-border bg-adm-card px-5 py-4">
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-adm-t1">
-                  Create Transaction Limit Rule
-                </p>
-                <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  Submitted to OPS_OFFICER approval before it takes effect
-                </p>
-              </div>
-              <button
-                onClick={closeCreateModal}
-                className="rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-t1"
-              >
-                <X size={15} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="space-y-3 px-5 py-4">
-              {createError && (
-                <div className="rounded border border-adm-danger/30 bg-adm-danger/5 px-3 py-2 font-mono text-[11px] text-adm-danger">
-                  {createError}
-                </div>
-              )}
-
-              <div>
-                <label className={fieldLabel}>Rule Type</label>
-                <select
-                  className={fieldInput}
-                  value={createForm.gateType}
-                  onChange={(e) => updateForm('gateType', e.target.value)}
-                >
-                  {GATE_OPTIONS.map((g) => (
-                    <option key={g} value={g}>{GATE_LABELS[g]}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className={fieldLabel}>Operation Type</label>
-                <select
-                  className={fieldInput}
-                  value={createForm.operationType}
-                  onChange={(e) => updateForm('operationType', e.target.value)}
-                >
-                  {OPERATION_OPTIONS.map((o) => (
-                    <option key={o} value={o}>{o}</option>
-                  ))}
-                </select>
-              </div>
-
-              {createForm.gateType === 'SINGLE' && (
-                <>
-                  <div>
-                    <label className={fieldLabel}>Asset</label>
-                    <select
-                      className={fieldInput}
-                      value={createForm.assetId}
-                      onChange={(e) => updateForm('assetId', e.target.value)}
-                    >
-                      <option value="">Select asset…</option>
-                      {assets.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.code} ({a.type})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={fieldLabel}>Min Amount</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        className={fieldInput}
-                        value={createForm.minAmount}
-                        onChange={(e) => updateForm('minAmount', e.target.value)}
-                        placeholder="native units"
-                      />
-                    </div>
-                    <div>
-                      <label className={fieldLabel}>Max Amount</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        className={fieldInput}
-                        value={createForm.maxAmount}
-                        onChange={(e) => updateForm('maxAmount', e.target.value)}
-                        placeholder="native units"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {createForm.gateType === 'CUMULATIVE' && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={fieldLabel}>Trading Tier</label>
-                      <select
-                        className={fieldInput}
-                        value={createForm.tradingTier}
-                        onChange={(e) => updateForm('tradingTier', e.target.value)}
-                      >
-                        {TIER_OPTIONS.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={fieldLabel}>Period</label>
-                      <select
-                        className={fieldInput}
-                        value={createForm.period}
-                        onChange={(e) => updateForm('period', e.target.value)}
-                      >
-                        {PERIOD_OPTIONS.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className={fieldLabel}>Default Limit (AED)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        className={fieldInput}
-                        value={createForm.defaultLimit}
-                        onChange={(e) => updateForm('defaultLimit', e.target.value)}
-                        placeholder="e.g. 50000"
-                      />
-                    </div>
-                    <div>
-                      <label className={fieldLabel}>Cap (AED, optional)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        className={fieldInput}
-                        value={createForm.cap}
-                        onChange={(e) => updateForm('cap', e.target.value)}
-                        placeholder="optional"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {createForm.gateType === 'LARGE_APPROVAL' && (
-                <div>
-                  <label className={fieldLabel}>Threshold (AED)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    className={fieldInput}
-                    value={createForm.threshold}
-                    onChange={(e) => updateForm('threshold', e.target.value)}
-                    placeholder="e.g. 100000"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className={fieldLabel}>Reason</label>
-                <textarea
-                  className={`${fieldInput} resize-none`}
-                  rows={3}
-                  value={createForm.reason}
-                  onChange={(e) => updateForm('reason', e.target.value)}
-                  placeholder="Why is this rule needed?"
-                />
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end gap-2 border-t border-adm-border bg-adm-card px-5 py-4">
-              <button onClick={closeCreateModal} className={adminButtonClass('modalCancel')}>
-                Cancel
-              </button>
-              <button
-                onClick={() => void handleCreateSubmit()}
-                disabled={createLoading || !createForm.reason.trim()}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {createLoading ? 'Submitting…' : 'Submit for Approval'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
