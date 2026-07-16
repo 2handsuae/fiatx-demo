@@ -13,7 +13,8 @@ import {
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
-import { BadRequestException } from '@nestjs/common';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -21,6 +22,7 @@ describe('DepositWorkflowService', () => {
   let auditLogsService: Record<string, jest.Mock>;
   let fundsOrders: Record<string, jest.Mock>;
   let withdrawalAddresses: Record<string, jest.Mock>;
+  let approvalsService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     depositService = {
@@ -51,6 +53,10 @@ describe('DepositWorkflowService', () => {
     withdrawalAddresses = {
       hasActiveFiatWithdrawalAddress: jest.fn().mockResolvedValue(true),
     };
+    approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
+      createAndSubmit: jest.fn().mockResolvedValue({ id: 'app-1', approvalNo: 'APR-1' }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +66,7 @@ describe('DepositWorkflowService', () => {
         { provide: AuditLogsService, useValue: auditLogsService },
         { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
         { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
+        { provide: ApprovalsService, useValue: approvalsService },
       ],
     }).compile();
 
@@ -357,6 +364,55 @@ describe('DepositWorkflowService', () => {
     });
   });
 
+  describe('initiateConfiscation', () => {
+    const adminActor = {
+      actorType: 'ADMIN' as const,
+      userId: 'admin-1',
+      userNo: 'ADM-1',
+      role: 'OPS_OFFICER',
+      roleCodes: ['OPS_OFFICER'],
+    };
+    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-1',
+      depositNo: 'DEP001',
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: '5',
+      traceId: 'trace-1',
+      limitHoldReason: 'BELOW_MIN',
+      ...overrides,
+    });
+
+    it('initiateConfiscation: below-min COMPLIANCE_PENDING → creates approval, audits REQUESTED', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: 'COMPLIANCE_PENDING' }));
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-1', approvalNo: 'APR-1' });
+      const res = await service.initiateConfiscation('dep-1', { reason: 'below min' }, adminActor);
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: 'DEPOSIT_CONFISCATION', entityRef: expect.any(String),
+          objectSnapshot: expect.objectContaining({ basis: expect.stringContaining('T&C') }) }),
+        expect.anything(), expect.anything(),
+      );
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_REQUESTED' }), expect.anything(),
+      );
+      expect(res).toEqual(expect.objectContaining({ approvalNo: 'APR-1' }));
+    });
+
+    it('initiateConfiscation: rejects when not BELOW_MIN held', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: null }));
+      await expect(service.initiateConfiscation('dep-1', { reason: 'x' }, adminActor)).rejects.toThrow(BadRequestException);
+    });
+
+    it('initiateConfiscation: rejects when an open confiscation approval already exists', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: 'COMPLIANCE_PENDING' }));
+      approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
+      await expect(service.initiateConfiscation('dep-1', { reason: 'x' }, adminActor)).rejects.toThrow(ConflictException);
+    });
+  });
+
   describe('handleFundsOrderChanged — filter + routing', () => {
     it('ignores funds orders that are not payins (no depositTransactionId)', async () => {
       await service.handleFundsOrderChanged({
@@ -419,6 +475,7 @@ describe('DepositWorkflowService', () => {
           { provide: AuditLogsService, useValue: auditLogsService },
           { provide: AccountingService, useValue: accountingService },
           { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
+          { provide: ApprovalsService, useValue: approvalsService },
         ],
       }).compile();
 

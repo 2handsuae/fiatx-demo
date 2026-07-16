@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { DepositTransactionsService } from './deposit-transactions.service';
@@ -25,6 +25,12 @@ import {
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import {
+  ApprovalActionTypes,
+  ApprovalActorContext,
+  ApprovalStatuses,
+} from '../../governance/approvals/constants/approval.constants';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -56,7 +62,17 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
     private readonly withdrawalAddresses: WithdrawalAddressService,
+    private readonly approvalsService: ApprovalsService,
   ) {}
+
+  private toAuditActor(actor: ApprovalActorContext) {
+    return {
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      actorNo: actor.userNo,
+      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+    };
+  }
 
   onModuleInit() {
     this.logger.log('DepositWorkflowService initialized and listening for events.');
@@ -432,6 +448,89 @@ export class DepositWorkflowService implements OnModuleInit {
     );
 
     await this.checkAutoApproval(depositId);
+  }
+
+  /**
+   * CONFISCATE disposition (initiate side): ops proposes taking a below-min deposit
+   * as a T&C handling fee. High-risk (moves customer-attributed money to platform
+   * revenue) → routed through V1 maker-checker approval (single-step OPS_OFFICER),
+   * unlike the single-operator PASS/waive. This only opens the approval case + audits
+   * the request; the two-leg posting + status→CONFISCATED lands in D7's decided-event
+   * handler (Rule 5: initiate reads only, never writes the deposit table here).
+   */
+  async initiateConfiscation(
+    depositId: string,
+    dto: { reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    const deposit = await this.depositService.findOne(depositId);
+    if (
+      deposit.limitHoldReason !== 'BELOW_MIN' ||
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING
+    ) {
+      throw new BadRequestException(
+        'Deposit has no BELOW_MIN hold to confiscate',
+      );
+    }
+
+    // Anti-dup: a deposit must not accrue two open confiscation approvals.
+    const openConfiscations = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
+      entityRef: deposit.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openConfiscations.total > 0) {
+      throw new ConflictException(
+        `Deposit ${deposit.depositNo} already has a pending confiscation approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = deposit.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
+        entityRef: deposit.id,
+        traceId: deposit.traceId || undefined,
+        objectSnapshot: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          assetId: deposit.assetId,
+          basis: 'T&C below-minimum deposit handling fee',
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_CONFISCATION_REQUESTED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_CONFISCATION',
+        result: AuditResult.SUCCESS,
+        reason: 'Ops requested confiscation of below-minimum deposit as T&C handling fee',
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          approvalNo: approvalCase.approvalNo,
+        },
+        requestId: `DEPOSIT_CONFISCATION_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      depositNo: deposit.depositNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
   }
 
   private async onPayinFailed(depositId: string, fundsOrderId: string) {

@@ -71,6 +71,8 @@ export const ApprovalActionTypes = {
   SWAP_FEE_LEVEL_CHANGE: 'SWAP_FEE_LEVEL_CHANGE',
   // Withdraw Large-Value Approval Gate (2026-06-01)
   WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
+  // Deposit Below-Min Confiscation (2026-07-16)
+  DEPOSIT_CONFISCATION: 'DEPOSIT_CONFISCATION',
 } as const;
 
 export const ApprovalStatuses = {
@@ -363,6 +365,12 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // ─── Deposit Below-Min Confiscation (2026-07-16) ────
+  [ApprovalActionTypes.DEPOSIT_CONFISCATION]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -390,6 +398,7 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.WITHDRAWAL_FEE_LEVEL_CHANGE,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
+  ApprovalActionTypes.DEPOSIT_CONFISCATION,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

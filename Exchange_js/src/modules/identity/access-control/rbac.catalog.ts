@@ -282,6 +282,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   ),
   route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
 
   // Withdraw

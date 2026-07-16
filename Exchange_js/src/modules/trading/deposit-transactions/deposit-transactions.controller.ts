@@ -32,6 +32,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Deposit Transactions')
 @ApiBearerAuth()
@@ -146,6 +147,24 @@ export class DepositTransactionsController {
       actorRole: req.user?.role,
     };
     return this.workflow.waiveLimitHold(id, actor);
+  }
+
+  @Post(':id/confiscate')
+  @ApiOperation({ summary: 'Confiscate below-minimum deposit as T&C fee (maker-checker approval)' })
+  confiscate(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateConfiscation(id, { reason: body?.reason ?? '' }, actor);
   }
 
   @Get('export')
