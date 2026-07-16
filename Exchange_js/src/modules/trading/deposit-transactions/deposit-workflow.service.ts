@@ -593,6 +593,42 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
+    // Re-assert the confiscable precondition BEFORE posting anything. initiateConfiscation
+    // (D6) writes NOTHING to the deposit, so while the approval sat PENDING the deposit
+    // stayed mutable — a concurrent waiveLimitHold→approve (→SUCCESS) or adminReject
+    // (→REJECTED) can have drifted it out of the confiscable state. Posting the two legs
+    // against a SUCCESS/REJECTED deposit would zero CLIENT_ASSET while CLIENT_PAYABLE still
+    // owes the customer → phantom liability / double-spend (and the negative suspense would
+    // net the L/E identity, hiding it from recon). Guard: post NO legs, create NO funds
+    // order, change NO status when drifted — just leave an audit trail for ops.
+    if (
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING ||
+      deposit.limitHoldReason !== 'BELOW_MIN'
+    ) {
+      this.logger.warn(
+        `Confiscation skipped: deposit ${deposit.depositNo} no longer confiscable ` +
+          `(status=${deposit.status}, hold=${deposit.limitHoldReason})`,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_CONFISCATION_FAILED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_CONFISCATION',
+        result: AuditResult.FAILED,
+        reason:
+          'Approved confiscation not executed: deposit drifted out of confiscable state ' +
+          '(waived/rejected before approval landed)',
+        metadata: { depositNo: deposit.depositNo, status: deposit.status },
+        requestId: `DEPOSIT_CONFISCATION_SKIPPED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
     await this.executeConfiscation(deposit, event.approvalNo);
   }
 

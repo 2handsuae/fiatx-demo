@@ -841,6 +841,44 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
+    // Double-spend regression guard (D7 review): initiateConfiscation writes nothing to
+    // the deposit, so a concurrent waiveLimitHold→approve (SUCCESS) or adminReject
+    // (REJECTED) can drift it out of the confiscable state while the approval is PENDING.
+    // The APPROVED decided event must then post NOTHING (else CLIENT_ASSET is zeroed while
+    // CLIENT_PAYABLE still owes the now-credited customer → phantom liability).
+    it('drift race: deposit already SUCCESS (waived→approved) → posts nothing, records FAILED audit', async () => {
+      depositService.findOne.mockResolvedValue(
+        confiscableDeposit({ status: DepositTransactionStatus.SUCCESS, limitHoldReason: null }),
+      );
+
+      await service.onConfiscationDecided(decidedEvent());
+
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+      expect(fundsOrders.create).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_CONFISCATION_FAILED',
+          reason: expect.stringContaining('drifted out of confiscable state'),
+        }),
+      );
+    });
+
+    it('drift race: deposit REJECTED after initiate → posts nothing, records FAILED audit', async () => {
+      depositService.findOne.mockResolvedValue(
+        confiscableDeposit({ status: DepositTransactionStatus.REJECTED }),
+      );
+
+      await service.onConfiscationDecided(decidedEvent());
+
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+      expect(fundsOrders.create).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
+      );
+    });
+
     it('accounting throws → DEPOSIT_CONFISCATION_FAILED audit, status NOT changed, rethrows (先账后状态)', async () => {
       depositService.findOne.mockResolvedValue(confiscableDeposit());
       accountingService.executeTransfer.mockRejectedValueOnce(new Error('TB rejected'));
