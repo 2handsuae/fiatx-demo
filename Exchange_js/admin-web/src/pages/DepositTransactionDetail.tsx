@@ -279,6 +279,13 @@ const DepositTransactionDetail = () => {
         </div>
       )}
 
+      {/* ── Confiscation in-transit banner ── */}
+      {data.status === 'CONFISCATING' && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-6 py-2.5 font-mono text-[11px] text-adm-amber">
+          Confiscation funds order in transit — advance the linked funds order below to settle; the deposit completes automatically once it is confirmed / 没收资金单在途结算中，步进下方资金单，确认后自动完成没收
+        </div>
+      )}
+
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ── Main Body ── */}
@@ -623,7 +630,8 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
 const getTimelineDotColor = (status: string) => {
   const map: Record<string, string> = {
     SUCCESS: 'bg-green-500', FAILED: 'bg-orange-500', REJECTED: 'bg-red-500',
-    CONFISCATED: 'bg-red-700', COMPLIANCE_PENDING: 'bg-purple-500',
+    CONFISCATING: 'bg-amber-500', CONFISCATED: 'bg-red-700',
+    COMPLIANCE_PENDING: 'bg-purple-500',
     ACTION_PENDING: 'bg-amber-500', FROZEN: 'bg-cyan-500',
     PAYIN_PENDING: 'bg-blue-500', EXPIRED: 'bg-gray-400',
   };
@@ -635,6 +643,7 @@ const getTimelineBadge = (status: string) => {
     SUCCESS: 'bg-green-50 text-green-700 border-green-200',
     FAILED: 'bg-orange-50 text-orange-700 border-orange-200',
     REJECTED: 'bg-red-50 text-red-700 border-red-200',
+    CONFISCATING: 'bg-amber-50 text-amber-700 border-amber-200',
     CONFISCATED: 'bg-red-100 text-red-800 border-red-300',
     COMPLIANCE_PENDING: 'bg-purple-50 text-purple-700 border-purple-200',
     ACTION_PENDING: 'bg-amber-50 text-amber-700 border-amber-200',

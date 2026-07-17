@@ -31,6 +31,7 @@ const STATUS_PILL_MAP: Record<string, string> = {
   SIGNING: 'bg-amber-100 text-amber-800',
   BROADCASTED: 'bg-blue-100 text-blue-800',
   CONFIRMING: 'bg-amber-100 text-amber-800',
+  CONFISCATING: 'bg-amber-100 text-amber-800',
   DETECTED: 'bg-blue-100 text-blue-800',
   // negative / terminal
   REJECTED: 'bg-red-100 text-red-800',
