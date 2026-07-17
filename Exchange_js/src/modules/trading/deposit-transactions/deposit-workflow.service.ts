@@ -18,6 +18,7 @@ import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { deterministicTransferId } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
   FundsOrderAction,
@@ -89,6 +90,9 @@ export class DepositWorkflowService implements OnModuleInit {
     // an internal/confiscation leg driven by startConfiscation itself, never a
     // payin, so it must not enter onPayinConfirmed/onPayinFailed. (Mirrors the
     // withdraw workflow branching on PAYOUT_LEG_SEQ vs FEE_LEG_SEQ.)
+    // legSeq 2 is the C2/C3 confiscation leg → its CONFIRMED settles the below-min
+    // confiscation (POST the two pending legs + deposit → CONFISCATED).
+    if (event.legSeq === 2) { await this.onConfiscationLegChanged(event); return; }
     if (event.legSeq !== 1) return;
     const depositId = event.parent.depositTransactionId;
     this.logger.log(
@@ -581,8 +585,15 @@ export class DepositWorkflowService implements OnModuleInit {
       throw err;
     }
 
-    if (deposit.status === DepositTransactionStatus.CONFISCATED) {
-      this.logger.debug(`Deposit ${deposit.depositNo} already CONFISCATED — skipping decided replay.`);
+    // Idempotent replay no-op: both CONFISCATED (settle done) and CONFISCATING (start done,
+    // settle in flight) are already-handled states. Without CONFISCATING here, a replayed
+    // decided event mid-flight would fall into the drift-precondition guard below and record
+    // a MISLEADING "drifted out of confiscable state" FAILED audit for a perfectly healthy move.
+    if (
+      deposit.status === DepositTransactionStatus.CONFISCATED ||
+      deposit.status === DepositTransactionStatus.CONFISCATING
+    ) {
+      this.logger.debug(`Deposit ${deposit.depositNo} already ${deposit.status} — skipping decided replay.`);
       return;
     }
 
@@ -715,6 +726,81 @@ export class DepositWorkflowService implements OnModuleInit {
       metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), approvalNo },
       requestId: `DEPOSIT_CONFISCATION_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
     });
+  }
+
+  /**
+   * Confiscation settle half (C3): the legSeq 2 funds order reached a status. Ops advancing
+   * the leg to CONFIRMED is the trigger to POST both pending legs and land the deposit in
+   * CONFISCATED. Non-CONFIRMED statuses (SUBMITTED/…) are ignored. Idempotent: only a deposit
+   * still CONFISCATING is in flight — an already-CONFISCATED one (or one that never entered
+   * confiscation) is a no-op, so a replayed CONFIRMED never double-settles.
+   */
+  private async onConfiscationLegChanged(event: FundsOrderStatusChangedEvent) {
+    if (event.newStatus !== FundsOrderStatus.CONFIRMED) return; // only settle on CONFIRMED
+    const depositId = event.parent.depositTransactionId;
+    if (!depositId) return;
+    const deposit = await this.depositService.findOne(depositId);
+    if (deposit.status !== DepositTransactionStatus.CONFISCATING) return; // already settled / not in transit
+    await this.settleConfiscation(deposit, event.fundsOrderId);
+  }
+
+  /**
+   * POST the two pending confiscation legs C2 locked (先账后状态), then flip the deposit to
+   * CONFISCATED. Each pending id is reproduced deterministically from the SAME business key
+   * C2 used — deterministicTransferId('DEPOSIT', depositNo, eventCode, 1) — so the eventCodes +
+   * legIndex(=1) MUST match startConfiscation exactly (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2
+   * CONFISCATE_FIRM_FEE). 3× retry on a transient TB failure; if every attempt fails the deposit
+   * stays CONFISCATING (no revert, no rethrow — silent stop in the async listener) with a
+   * DEPOSIT_CONFISCATION_FAILED audit flagging it for manual intervention.
+   */
+  private async settleConfiscation(deposit: any, fundsOrderId: string) {
+    const asset = deposit.asset;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
+    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_FIRM_FEE', 1);
+    const MAX = 3;
+    for (let attempt = 1; attempt <= MAX; attempt++) {
+      try {
+        // leg1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse the payin suspense.
+        await this.accountingService.postPendingTransfer({
+          pendingTransferId: pend1, amount: amountBigint,
+          evidence: {
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+          },
+        });
+        // leg2: DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize the handling-fee income.
+        await this.accountingService.postPendingTransfer({
+          pendingTransferId: pend2, amount: amountBigint,
+          evidence: {
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+          },
+        });
+        await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_SETTLE, reason: 'Below-min confiscation settled' });
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_CONFISCATION_EXECUTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId }, requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        });
+        return;
+      } catch (err: any) {
+        this.logger.error(`Confiscation settle attempt ${attempt}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);
+        if (attempt === MAX) {
+          await this.auditLogsService.recordSystem({
+            action: AuditActions.DEPOSIT_CONFISCATION_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+            workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+            reason: `Settle failed after ${MAX} retries — manual intervention required (deposit stays CONFISCATING)`,
+            metadata: { depositNo: deposit.depositNo, fundsOrderId, error: err.message }, requestId: `DEPOSIT_CONFISCATION_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+          });
+          return; // stay CONFISCATING, no revert, no rethrow (silent stop in the async listener)
+        }
+      }
+    }
   }
 
   private async onPayinFailed(depositId: string, fundsOrderId: string) {

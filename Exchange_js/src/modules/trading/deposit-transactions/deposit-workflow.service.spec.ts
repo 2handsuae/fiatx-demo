@@ -882,6 +882,24 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
+    // C3 guard fix: a replayed APPROVED decided event that arrives while the deposit is
+    // already CONFISCATING (start half done, settle in flight) must be a clean no-op — NOT
+    // a misleading "drifted out of confiscable state" FAILED audit, and NOT a second start.
+    it('onConfiscationDecided replay while CONFISCATING → no-op (no FAILED audit, no double start)', async () => {
+      depositService.findOne.mockResolvedValue(
+        confiscableDeposit({ status: DepositTransactionStatus.CONFISCATING }),
+      );
+
+      await service.onConfiscationDecided(decidedEvent());
+
+      expect(accountingService.executePendingTransfer).not.toHaveBeenCalled();
+      expect(fundsOrders.create).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
+      );
+    });
+
     // Double-spend regression guard (D7 review): initiateConfiscation writes nothing to
     // the deposit, so a concurrent waiveLimitHold→approve (SUCCESS) or adminReject
     // (REJECTED) can drift it out of the confiscable state while the approval is PENDING.
@@ -933,6 +951,111 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STARTED' }),
       );
+    });
+  });
+
+  describe('handleFundsOrderChanged — legSeq2 confiscation settle (C3)', () => {
+    let accountingService: {
+      resolveTbAccountId: jest.Mock;
+      executeTransfer: jest.Mock;
+      executePendingTransfer: jest.Mock;
+      postPendingTransfer: jest.Mock;
+    };
+
+    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-1',
+      depositNo: 'DEP-CF-001',
+      status: DepositTransactionStatus.CONFISCATING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      amount: '5',
+      traceId: 'trace-1',
+      asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6, type: 'CRYPTO' },
+      ...overrides,
+    });
+
+    const legEvent = (overrides: Record<string, unknown> = {}) => ({
+      fundsOrderId: 'fo2',
+      fundsOrderNo: 'FO-CF-2',
+      parent: { depositTransactionId: 'dep-1' },
+      legSeq: 2,
+      attempt: 1,
+      oldStatus: 'CREATED',
+      newStatus: 'CONFIRMED',
+      ...overrides,
+    });
+
+    beforeEach(async () => {
+      accountingService = {
+        resolveTbAccountId: jest.fn(),
+        executeTransfer: jest.fn().mockResolvedValue(undefined),
+        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
+        postPendingTransfer: jest.fn().mockResolvedValue(undefined),
+      };
+      depositService.updateStatus.mockResolvedValue({});
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          DepositWorkflowService,
+          { provide: DepositTransactionsService, useValue: depositService },
+          { provide: FundsOrderService, useValue: fundsOrders },
+          { provide: AuditLogsService, useValue: auditLogsService },
+          { provide: AccountingService, useValue: accountingService },
+          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
+          { provide: ApprovalsService, useValue: approvalsService },
+          { provide: SystemWalletResolver, useValue: systemWalletResolver },
+        ],
+      }).compile();
+
+      service = module.get<DepositWorkflowService>(DepositWorkflowService);
+    });
+
+    it('handleFundsOrderChanged: legSeq2 CONFIRMED → posts 2 legs → CONFISCATED', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+      accountingService.postPendingTransfer.mockResolvedValue(undefined);
+
+      await service.handleFundsOrderChanged(legEvent() as any);
+
+      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(2);
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_SETTLE }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_EXECUTED' }),
+      );
+    });
+
+    it('settle: post fails 3× → stays CONFISCATING + FAILED audit (no settle)', async () => {
+      const dep = baseDeposit({ status: 'CONFISCATING' });
+      depositService.findOne.mockResolvedValue(dep);
+      accountingService.postPendingTransfer.mockRejectedValue(new Error('TB down'));
+
+      await (service as any).settleConfiscation(dep, 'fo2');
+
+      // leg1 rejects on every attempt → 1 call/attempt = 3 total (leg2 never reached).
+      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(3);
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_SETTLE }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
+      );
+    });
+
+    it('settle idempotent: deposit already CONFISCATED → no-op', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATED' }));
+
+      await service.handleFundsOrderChanged(legEvent() as any);
+
+      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
+    });
+
+    it('legSeq2 non-CONFIRMED status → no settle (e.g. SUBMITTED)', async () => {
+      await service.handleFundsOrderChanged(legEvent({ newStatus: 'SUBMITTED' }) as any);
+
+      expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
     });
   });
 });
