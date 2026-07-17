@@ -32,13 +32,11 @@
         【PASS】     摘 hold 标 + 审计(DEPOSIT_LIMIT_WAIVED) + 重跑 checkAutoApproval → 进 L2 → 全过才 Step2
                      （豁免的是金额线，不豁免合规——两闸正交）
         【Confiscate as fee】 开审批单(DEPOSIT_CONFISCATION, OPS_OFFICER 单步, 快照含金额/币种/依据条款)
-           批准 → ① 挂 deposit 下建第二张资金单（legSeq=2, INTERNAL, 客户托管钱包→公司钱包）
-                  ② 资金单 CLEAR 记两腿：
-                     腿1(客户侧) DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET   ← Step1 反向分录（roadmap V4 ⚖️P0 第一块）
-                     腿2(公司侧) DR FIRM_ASSET / CR FIRM_FEE            ← 确认平台收入
-                  ③ deposit → CONFISCATED（终态，治理化取代现 PATCH 直改的半截桥）+ 三打点审计
+           批准 → 见 §10 异步两阶段没收（2026-07-17 取代下列同步流）
            拒绝 → deposit 留 COMPLIANCE_PENDING（可再发起）
 ```
+> ⚠️ 下列同步没收流为 D7 初版，**已被 §10 异步两阶段重设计取代**（2026-07-17）；保留仅作演进对照。
+> 初版：批准 → 建 legSeq=2 资金单秒 CLEAR → 单相 executeTransfer 记两腿 → deposit 直接 CONFISCATED。
 
 - 两腿之后客户侧/公司侧恒等式双双保平；逐钱包对账两边都有行（资金单外部镜像照常）。
 - min 判定**出生时落标**（detected()），checkAutoApproval 读标——判定确定性从第一秒起；之后运营调低 min 不会静默放行存量挂单（存量走 PASS 处置）。
@@ -71,4 +69,54 @@
 
 ## 6. 文档同步义务（实施时）
 
-truth v4-deposit（BELOW_MIN 挂起/CONFISCATED 治理化/客户面过滤）+ v3-financial-config（DEPOSIT 限额行）+ funds-orders（deposit legSeq>1 投影）+ BACKLOG（§4 各账）+ roadmap V4（异常终态回退 P0 部分兑现标注）。
+truth v4-deposit（BELOW_MIN 挂起/CONFISCATED 治理化/客户面过滤/§10 异步没收）+ v3-financial-config（DEPOSIT 限额行）+ funds-orders（deposit legSeq>1 投影 + 没收两阶段）+ BACKLOG（§4 各账）+ roadmap V4（异常终态回退 P0 部分兑现标注）。
+
+## 10. 没收异步两阶段重设计（2026-07-17，业主定，取代 §2 同步没收）
+
+**底层逻辑**：没收是真实资金移动（客户托管钱包→公司钱包），应与内部转账/提现资金单**同构**——异步步进 + pending/post 两阶段记账，而非 D7 初版的"同步一把梭"。
+
+### 状态机
+- 新增 deposit 中间态 **`CONFISCATING`**：`COMPLIANCE_PENDING → CONFISCATING → CONFISCATED`。
+- `CONFISCATING` = **承诺态，只进不退**（除人工介入）——一旦审批通过进入，pending 两腿始终锁定，钱不漏回也不双扣。
+- 转移表加 `COMPLIANCE_PENDING →(CONFISCATE_START)→ CONFISCATING`、`CONFISCATING →(CONFISCATE_SETTLE)→ CONFISCATED`。
+
+### 流程（三段）
+```
+① onConfiscationDecided(APPROVED):
+   deposit → CONFISCATING(via service updateStatus, Rule 5)
+   建 legSeq=2 INTERNAL 资金单, initialStatus=CREATED(可步进,不再秒 CLEAR)
+   两腿 PENDING 锁定(executePendingTransfer, 同 swap-leg-accounting 的 executePendingTransfer):
+     腿1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM)  ← Step1 反向
+     腿2: DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM)             ← 平台收入
+   审计 DEPOSIT_CONFISCATION_STARTED(暂名, 或复用 REQUESTED 后置)
+
+② ops 手动步进资金单(现成 ⚡ 面板 POST /admin/funds-orders/:no/advance):
+   CREATED → SUBMITTED → CONFIRMING → CONFIRMED → CLEARED
+   (与内部转账/提现 payout 同一步进机制, 无新端点)
+
+③ handleFundsOrderChanged(FUNDS_ORDER_STATUS_CHANGED, 扩现有 handler):
+   event.legSeq===2 且 status===CONFIRMED →
+     两腿 POST 结算(postPendingTransfer, 同 withdraw onPayoutLegConfirmed):
+       ├─ 成功 → deposit → CONFISCATED + DEPOSIT_CONFISCATION_EXECUTED 审计
+       └─ 失败 → 同步自动重试 3 次
+            ├─ 某次成功 → CONFISCATED
+            └─ 3 次全败 → deposit 停在 CONFISCATING(不回退) + DEPOSIT_CONFISCATION_FAILED 审计
+                          (标"需人工介入", pending 锁定保留)
+```
+
+### 接线锚点（已核实）
+- 事件：`DomainEventNames.FUNDS_ORDER_STATUS_CHANGED`（含 `legSeq`/`status`，提现 payout post 同源）→ `deposit-workflow.service.ts → handleFundsOrderChanged()`（现 `legSeq!==1 return`，扩 legSeq===2 分支）。
+- 两阶段记账：`accounting.service.ts → executePendingTransfer()/postPendingTransfer()/voidPendingTransfer()`（swap-leg-accounting / withdraw-workflow 现成模板）。
+- 拆分：`executeConfiscation` 拆成 `startConfiscation`（① pending+CONFISCATING，挂 onConfiscationDecided）+ `settleConfiscation`（③ post+CONFISCATED+重试，挂 handleFundsOrderChanged legSeq2）。
+- 资金单建单：`fundsOrders.create({ initialStatus: CREATED })`（原 CONFIRMED 改 CREATED，不 auto-CLEAR）。
+- 前端：CONFISCATING 状态徽章（`StatusPill` + 状态色，进行中色如 amber）；详情页 CONFISCATING 期间显示没收资金单在途（Fix 2 已就位）。
+
+### 失败/边界
+- **POST 重试**：同步 3 次（demo 级）；真异步结算的 backoff/cron 重试 → BACKLOG。
+- **卡住的 CONFISCATING 人工介入**：demo 先"停住+FAILED 审计标记"；"一键重试 settle"的 ops 动作 → BACKLOG。
+- **幂等**：settle 前查 deposit 已 CONFISCATED 则 no-op（重复事件/重放）；pending 已存在则不重复锁。
+- **先账后状态铁律不变**：post 成功才翻 CONFISCATED。
+
+### 验证增量
+- 单测：startConfiscation(CONFISCATING+pending+funds order CREATED) / settle 成功(post+CONFISCATED) / settle 失败重试 3 次后停 CONFISCATING / 幂等 no-op。
+- e2e：审批通过→CONFISCATING→⚡步进资金单到 CONFIRMED→CONFISCATED；verify:coa 全平（pending 与 post 两态都不破恒等）。
