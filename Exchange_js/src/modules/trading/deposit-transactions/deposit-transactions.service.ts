@@ -260,6 +260,7 @@ export class DepositTransactionsService {
     const ACCOUNTING_TERMINALS = new Set([
       DepositTransactionStatus.SUCCESS,
       DepositTransactionStatus.CONFISCATED,
+      DepositTransactionStatus.CONFISCATING,
     ]);
     if (isAdminApi && ACCOUNTING_TERMINALS.has(nextStatus)) {
       throw new BadRequestException({
@@ -363,12 +364,16 @@ export class DepositTransactionsService {
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
-        // Below-min confiscation (D7) goes COMPLIANCE_PENDING → CONFISCATED — the
-        // held deposit never entered FROZEN. Distinct from the FROZEN→CONFISCATE
-        // path below (compliance-frozen confiscation), same terminal state.
-        [DepositTransactionAction.CONFISCATE]:
-          DepositTransactionStatus.CONFISCATED,
+        // Below-min confiscation is async two-phase (C1): COMPLIANCE_PENDING →
+        // CONFISCATING (funds in transit, accounting pending-locked) → ops advances
+        // the funds order → CONFISCATE_SETTLE lands CONFISCATED once posted.
+        [DepositTransactionAction.CONFISCATE_START]:
+          DepositTransactionStatus.CONFISCATING,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
+      },
+      [DepositTransactionStatus.CONFISCATING]: {
+        [DepositTransactionAction.CONFISCATE_SETTLE]:
+          DepositTransactionStatus.CONFISCATED,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,

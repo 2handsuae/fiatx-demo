@@ -233,25 +233,26 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
     });
 
-    it('blocks ADMIN_API from directly reaching CONFISCATED (must go through confiscation approval)', async () => {
+    it('COMPLIANCE_PENDING → CONFISCATING via confiscate_start', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
-
+      await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CONFISCATING' }) }),
+      );
+    });
+    it('CONFISCATING → CONFISCATED via confiscate_settle', async () => {
+      setupMock(DepositTransactionStatus.CONFISCATING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_SETTLE });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CONFISCATED' }) }),
+      );
+    });
+    it('blocks ADMIN_API from directly reaching CONFISCATING (workflow-only)', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
       await expect(
-        service.updateStatus(
-          mockId,
-          { action: DepositTransactionAction.CONFISCATE },
-          {
-            sourcePlatform: 'ADMIN_API',
-            actor: { actorType: 'ADMIN', actorId: 'a1' },
-          },
-        ),
-      ).rejects.toMatchObject({
-        response: expect.objectContaining({
-          code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY',
-        }),
-      });
-
-      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+        service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START },
+          { sourcePlatform: 'ADMIN_API', actor: { actorType: 'ADMIN', actorId: 'a1' } }),
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY' }) });
     });
 
     it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
