@@ -31,11 +31,12 @@ import {
   getDepositStatusBadgeClass,
   getComplianceLayerStyle,
 } from '../utils/depositActionMap';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
 interface LinkedFundOrder {
-  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN';
+  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
   no: string;
   id: string;
   status: string;
@@ -367,7 +368,7 @@ const DepositTransactionDetail = () => {
                 {data.linkedFundOrders.map((o) => (
                   <LinkedRelationCard
                     key={o.no}
-                    cap="Principal · Payin"
+                    cap={o.kind === 'CONFISCATION' ? 'Fee · Confiscation' : 'Principal · Payin'}
                     identifier={o.no}
                     statusValue={normalizeRailDisplayStatus(o.status)}
                     meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
@@ -394,29 +395,34 @@ const DepositTransactionDetail = () => {
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
-          {/* Actions */}
-          <SidebarGroup title="Actions">
-            {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
-            <div className="flex flex-col gap-2">
-              {actions.map((a) => {
-                const baseCls = a.variant === 'workflowPrimary'
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : a.variant === 'workflowNegative'
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
-                return (
-                  <button
-                    key={a.action}
-                    onClick={() => onActionClick(a.action, a.requiresReason)}
-                    disabled={!a.enabled || isSubmitting}
-                    className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
-                  </button>
-                );
-              })}
-            </div>
-          </SidebarGroup>
+          {/* Actions — hidden for a below-min hold: the generic Approve/
+              Reject/old-Confiscate actions either don't apply or are now
+              blocked by the backend guard; only the Below-Min Disposition
+              actions (PASS / Confiscate-as-Fee) are valid here. */}
+          {!isBelowMinPending && (
+            <SidebarGroup title="Actions">
+              {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
+              <div className="flex flex-col gap-2">
+                {actions.map((a) => {
+                  const baseCls = a.variant === 'workflowPrimary'
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : a.variant === 'workflowNegative'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
+                  return (
+                    <button
+                      key={a.action}
+                      onClick={() => onActionClick(a.action, a.requiresReason)}
+                      disabled={!a.enabled || isSubmitting}
+                      className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </SidebarGroup>
+          )}
 
           {/* Below-Min Disposition */}
           {isBelowMinPending && (
@@ -480,27 +486,31 @@ const DepositTransactionDetail = () => {
 
       {/* ── Reason Modal ── */}
       {isReasonModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[400px] rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-bold mb-4">Reason Required</h3>
-            <textarea
-              className="w-full rounded border p-2 text-sm mb-4"
-              rows={3}
-              placeholder="Enter reason for this action..."
-              value={reasonText}
-              onChange={(e) => setReasonText(e.target.value)}
-            />
-            <div className="flex justify-end gap-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Reason Required</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason for this action..."
+                value={reasonText}
+                onChange={(e) => setReasonText(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
               <button
                 onClick={() => { setIsReasonModalOpen(false); setReasonText(''); setPendingAction(''); }}
-                className="rounded border px-4 py-2 text-sm"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleAction(pendingAction, reasonText)}
                 disabled={isSubmitting || !reasonText.trim()}
-                className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className={adminButtonClass('modalConfirm')}
               >
                 {isSubmitting ? 'Processing...' : 'Confirm'}
               </button>
@@ -511,43 +521,47 @@ const DepositTransactionDetail = () => {
 
       {/* ── Confiscate Modal ── */}
       {isConfiscateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[420px] rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-bold mb-4">Confiscate as Fee</h3>
-            <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Amount</span>
-                <span className="font-mono font-semibold">
-                  {formatAssetAmount(data.amount, data.asset.decimals)} {data.asset.code}
-                </span>
-              </div>
-              <div className="mt-2 text-xs text-gray-500">
-                Per T&C: below-minimum deposit handling fee
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Confiscate as Fee</p>
             </div>
-            {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
-            <textarea
-              className="w-full rounded border p-2 text-sm mb-4"
-              rows={3}
-              placeholder="Enter reason for confiscation (required)..."
-              value={confiscateReason}
-              onChange={(e) => setConfiscateReason(e.target.value)}
-            />
-            <div className="flex justify-end gap-2">
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-border bg-adm-card px-3 py-2.5">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-adm-t3">Amount</span>
+                  <span className="font-mono font-semibold text-adm-t1">
+                    {formatAssetAmount(data.amount, data.asset.decimals)} {data.asset.code}
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-[10px] text-adm-t3">
+                  Per T&C: below-minimum deposit handling fee
+                </div>
+              </div>
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason for confiscation (required)..."
+                value={confiscateReason}
+                onChange={(e) => setConfiscateReason(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
               <button
                 onClick={() => {
                   setIsConfiscateModalOpen(false);
                   setConfiscateReason('');
                   setDispositionError('');
                 }}
-                className="rounded border px-4 py-2 text-sm"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfiscateSubmit}
                 disabled={dispositionSubmitting || !confiscateReason.trim()}
-                className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className={adminButtonClass('modalConfirm')}
               >
                 {dispositionSubmitting ? 'Processing...' : 'Confirm'}
               </button>

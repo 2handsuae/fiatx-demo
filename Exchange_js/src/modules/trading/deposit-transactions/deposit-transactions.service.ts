@@ -179,21 +179,31 @@ export class DepositTransactionsService {
     }
 
     // Unified fund-order list for the detail page's "Linked Funds Orders".
-    // A deposit's fund order is its payin funds_order (principal in); no fee
-    // (deposits are free). The payin IS a funds_order now (三合一).
-    const payinOrder = (deposit.fundsOrders ?? [])[0] ?? null;
-    const linkedFundOrders = payinOrder
-      ? [
-          {
-            kind: 'PAYIN' as const,
-            no: payinOrder.fundsOrderNo,
-            id: payinOrder.id,
-            status: payinOrder.status,
-            amount: String(payinOrder.amount),
-            role: 'principal' as const,
-          },
-        ]
-      : [];
+    // A deposit's payin funds_order (legSeq=1) is the principal in. A
+    // below-minimum confiscation books a second funds_order (legSeq>1) hung
+    // under the same deposit — surface both so the confiscation leg is
+    // visible on the detail page (三合一, deposits' fee leg = confiscation).
+    const fundsOrders = deposit.fundsOrders ?? [];
+    const payinOrder =
+      fundsOrders.find((f: any) => !f.legSeq || f.legSeq === 1) ?? null;
+    const linkedFundOrders: Array<{
+      kind: 'PAYIN' | 'CONFISCATION';
+      no: string;
+      id: string;
+      status: string;
+      amount: string;
+      role: 'principal' | 'fee';
+    }> = fundsOrders.map((fo: any) => {
+      const isConfiscation = fo.legSeq != null && fo.legSeq > 1;
+      return {
+        kind: isConfiscation ? 'CONFISCATION' : 'PAYIN',
+        no: fo.fundsOrderNo,
+        id: fo.id,
+        status: fo.status,
+        amount: String(fo.amount),
+        role: isConfiscation ? 'fee' : 'principal',
+      };
+    });
 
     return {
       ...item,
