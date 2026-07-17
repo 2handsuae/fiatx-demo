@@ -252,8 +252,8 @@ export class DepositTransactionsService {
     const nextStatus = this.getNextStatus(currentStatus, action);
 
     // States that post to TigerBeetle must only be reached via DepositWorkflowService
-    // (SUCCESS via approveDeposit's Step2; CONFISCATED via the confiscation approval →
-    // executeConfiscation's two-leg posting). A direct admin PATCH must never flip a
+    // (SUCCESS via approveDeposit's Step2; CONFISCATING via startConfiscation's two
+    // pending legs, then CONFISCATED via C3's settle post). A direct admin PATCH must never flip a
     // deposit into one of these, or it would carry the terminal semantics with no ledger
     // legs. The workflow's own updateStatus calls pass no ADMIN_API source, so they pass.
     const isAdminApi = options?.sourcePlatform === 'ADMIN_API';

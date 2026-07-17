@@ -671,8 +671,12 @@ describe('DepositWorkflowService', () => {
     });
   });
 
-  describe('onConfiscationDecided — confiscation execution (D7)', () => {
-    let accountingService: { resolveTbAccountId: jest.Mock; executeTransfer: jest.Mock };
+  describe('onConfiscationDecided — confiscation start (C2, two-phase)', () => {
+    let accountingService: {
+      resolveTbAccountId: jest.Mock;
+      executeTransfer: jest.Mock;
+      executePendingTransfer: jest.Mock;
+    };
 
     const decidedEvent = (overrides: Record<string, unknown> = {}) => ({
       decision: 'APPROVED' as const,
@@ -712,9 +716,10 @@ describe('DepositWorkflowService', () => {
           .mockResolvedValueOnce('tb-firm-asset')
           .mockResolvedValueOnce('tb-firm-fee'),
         executeTransfer: jest.fn().mockResolvedValue(undefined),
+        executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
       };
       fundsOrders.findByParent.mockResolvedValue([]);
-      fundsOrders.create.mockResolvedValue({ id: 'fo-cf-1', fundsOrderNo: 'FO-CF-1', status: 'CONFIRMED' });
+      fundsOrders.create.mockResolvedValue({ id: 'fo-cf-1', fundsOrderNo: 'FO-CF-1', legSeq: 2, status: 'CREATED' });
       fundsOrders.advance.mockResolvedValue(undefined);
       depositService.updateStatus.mockResolvedValue({});
 
@@ -734,80 +739,116 @@ describe('DepositWorkflowService', () => {
       service = module.get<DepositWorkflowService>(DepositWorkflowService);
     });
 
-    it('APPROVED → books leg1 (reverse suspense) + leg2 (firm fee), funds order legSeq 2 → CLEARED, CONFISCATED, EXECUTED audit', async () => {
+    it('APPROVED → pends leg1 (reverse suspense) + leg2 (firm fee), funds order legSeq 2 CREATED (not advanced), CONFISCATING, STARTED audit', async () => {
       depositService.findOne.mockResolvedValue(confiscableDeposit());
 
       await service.onConfiscationDecided(decidedEvent());
 
-      // Funds order legSeq 2: customer deposit wallet → firm F_FEE wallet, then CLEARED.
+      // Funds order legSeq 2: customer deposit wallet → firm F_FEE wallet, CREATED (advanceable, NOT auto-cleared).
       expect(systemWalletResolver.resolve).toHaveBeenCalledWith('asset-usdt', 'F_FEE');
       expect(fundsOrders.create).toHaveBeenCalledWith(
         expect.objectContaining({
           depositTransactionId: 'dep-cf-1',
           legSeq: 2,
+          initialStatus: 'CREATED',
           fromWalletId: 'cust-wallet-1',
           toWalletId: 'fee-wallet-1',
         }),
       );
-      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-cf-1', 'CLEAR', 'SYSTEM');
+      expect(fundsOrders.advance).not.toHaveBeenCalled();
 
-      // Leg 1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM)
+      // Leg 1 (pending): DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM)
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
         code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: 'cust-cf-1',
       });
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
         code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: 2, ownerType: 'SYSTEM',
       });
-      expect(accountingService.executeTransfer).toHaveBeenNthCalledWith(1,
+      expect(accountingService.executePendingTransfer).toHaveBeenNthCalledWith(1,
         expect.objectContaining({
           debitAccountId: 'tb-suspense',
           creditAccountId: 'tb-client-asset',
           code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET,
+          timeout: 0,
+          legIndex: 1,
           evidence: expect.objectContaining({
+            // C3's post must reproduce this via deterministicTransferId('DEPOSIT', depositNo, eventCode, 1)
+            eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
             debitCode: 'L.DEPOSIT_SUSPENSE',
             creditCode: 'A.CLIENT_ASSET',
             debitWalletRef: 'cust-wallet-1',
             creditWalletRef: 'cust-wallet-1',
-            externalRef: null,
             isExternalCrossing: false,
           }),
         }),
       );
 
-      // Leg 2: DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM)
+      // Leg 2 (pending): DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM)
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(3, {
         code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger: 2, ownerType: 'SYSTEM',
       });
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(4, {
         code: TB_ACCOUNT_CODES.FIRM_FEE, ledger: 2, ownerType: 'SYSTEM',
       });
-      expect(accountingService.executeTransfer).toHaveBeenNthCalledWith(2,
+      expect(accountingService.executePendingTransfer).toHaveBeenNthCalledWith(2,
         expect.objectContaining({
           debitAccountId: 'tb-firm-asset',
           creditAccountId: 'tb-firm-fee',
           code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE,
+          timeout: 0,
+          legIndex: 1,
           evidence: expect.objectContaining({
+            eventCode: 'CONFISCATE_FIRM_FEE',
             debitCode: 'A.FIRM_ASSET',
             creditCode: 'E.FIRM_FEE',
             debitWalletRef: null,
             creditWalletRef: 'fee-wallet-1',
-            externalRef: null,
             isExternalCrossing: false,
           }),
         }),
       );
 
-      // 先账后状态: status flip AFTER both legs; via the service (Rule 5).
-      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-cf-1', {
-        action: DepositTransactionAction.CONFISCATE,
-        reason: expect.any(String),
-      });
+      // Never the synchronous post — pending only in the start half.
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+
+      // 先账后状态: deposit → CONFISCATING via CONFISCATE_START (via the service, Rule 5).
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-cf-1',
+        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }),
+      );
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_CONFISCATION_EXECUTED',
-          metadata: expect.objectContaining({ fundsOrderNo: 'FO-CF-1', approvalNo: 'APR-CF-1' }),
+          action: 'DEPOSIT_CONFISCATION_STARTED',
+          metadata: expect.objectContaining({ approvalNo: 'APR-CF-1' }),
         }),
       );
+    });
+
+    it('startConfiscation: CREATED legSeq2 funds order, pends 2 legs, deposit → CONFISCATING', async () => {
+      const dep = confiscableDeposit();
+      fundsOrders.findByParent.mockResolvedValue([]);
+      fundsOrders.create.mockResolvedValue({ id: 'fo2', fundsOrderNo: 'FO-2', legSeq: 2, status: 'CREATED' });
+      systemWalletResolver.resolve.mockResolvedValue({ id: 'firmFee', address: null, iban: null });
+      accountingService.resolveTbAccountId.mockResolvedValue('acct');
+      await (service as any).startConfiscation(dep, 'APR-1');
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, initialStatus: 'CREATED' }));
+      expect(fundsOrders.advance).not.toHaveBeenCalled();
+      expect(accountingService.executePendingTransfer).toHaveBeenCalledTimes(2);
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        dep.id, expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STARTED' }),
+      );
+    });
+
+    it('startConfiscation idempotent: reuses existing legSeq2 funds order', async () => {
+      const dep = confiscableDeposit();
+      fundsOrders.findByParent.mockResolvedValue([{ id: 'fo2', fundsOrderNo: 'FO-2', legSeq: 2, status: 'CREATED' }]);
+      systemWalletResolver.resolve.mockResolvedValue({ id: 'firmFee', address: null, iban: null });
+      accountingService.resolveTbAccountId.mockResolvedValue('acct');
+      await (service as any).startConfiscation(dep, 'APR-1');
+      expect(fundsOrders.create).not.toHaveBeenCalled();
     });
 
     it('DECLINED → no-op (no legs, no funds order, status unchanged)', async () => {
@@ -879,19 +920,19 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('accounting throws → DEPOSIT_CONFISCATION_FAILED audit, status NOT changed, rethrows (先账后状态)', async () => {
+    it('pending transfer throws → rethrows, deposit NOT flipped to CONFISCATING, no STARTED audit (先账后状态)', async () => {
       depositService.findOne.mockResolvedValue(confiscableDeposit());
-      accountingService.executeTransfer.mockRejectedValueOnce(new Error('TB rejected'));
+      accountingService.executePendingTransfer.mockRejectedValueOnce(new Error('TB rejected'));
 
       await expect(service.onConfiscationDecided(decidedEvent())).rejects.toThrow('TB rejected');
 
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
-      );
-      // Deposit must remain COMPLIANCE_PENDING — CONFISCATE transition never applied.
+      // Deposit must remain COMPLIANCE_PENDING — CONFISCATE_START transition never applied.
       expect(depositService.updateStatus).not.toHaveBeenCalledWith('dep-cf-1', expect.objectContaining({
-        action: DepositTransactionAction.CONFISCATE,
+        action: DepositTransactionAction.CONFISCATE_START,
       }));
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_STARTED' }),
+      );
     });
   });
 });

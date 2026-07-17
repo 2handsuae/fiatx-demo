@@ -84,9 +84,9 @@ export class DepositWorkflowService implements OnModuleInit {
   @OnEvent(DomainEventNames.FUNDS_ORDER_STATUS_CHANGED)
   async handleFundsOrderChanged(event: FundsOrderStatusChangedEvent) {
     if (!event.parent.depositTransactionId) return; // only payin funds orders
-    // A deposit's payin is legSeq 1; the confiscation move (D7) hangs a legSeq 2
+    // A deposit's payin is legSeq 1; the confiscation move hangs a legSeq 2
     // funds order under the SAME deposit. Only leg 1 is the payin — legSeq > 1 is
-    // an internal/confiscation leg driven by executeConfiscation itself, never a
+    // an internal/confiscation leg driven by startConfiscation itself, never a
     // payin, so it must not enter onPayinConfirmed/onPayinFailed. (Mirrors the
     // withdraw workflow branching on PAYOUT_LEG_SEQ vs FEE_LEG_SEQ.)
     if (event.legSeq !== 1) return;
@@ -552,11 +552,11 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * CONFISCATE disposition (decided side, D7): the V1 approval opened by
-   * initiateConfiscation reached a decision. On APPROVED, execute the confiscation
-   * (two accounting legs + funds order + status→CONFISCATED). On any other outcome
-   * the deposit stays COMPLIANCE_PENDING with its BELOW_MIN hold intact — the
-   * approvals engine owns the rejection/cancel/expire audit trail, so this is a
-   * clean no-op (idempotent).
+   * initiateConfiscation reached a decision. On APPROVED, START the confiscation
+   * (two PENDING accounting legs + legSeq 2 funds order CREATED + status→CONFISCATING;
+   * the POST/settle half lands in C3). On any other outcome the deposit stays
+   * COMPLIANCE_PENDING with its BELOW_MIN hold intact — the approvals engine owns the
+   * rejection/cancel/expire audit trail, so this is a clean no-op (idempotent).
    *
    * entityRef is the deposit id. A foreign entityRef (some other workflow's) makes
    * findOne throw NotFound → graceful no-op. An already-CONFISCATED deposit (replayed
@@ -629,200 +629,92 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    await this.executeConfiscation(deposit, event.approvalNo);
+    await this.startConfiscation(deposit, event.approvalNo);
   }
 
   /**
-   * Execute an approved below-min confiscation. 先账后状态: book BOTH accounting
-   * legs (+ the funds order that represents the physical customer→firm move)
-   * SUCCESSFULLY, THEN flip the deposit to CONFISCATED. Any accounting/funds-order
-   * failure → audit DEPOSIT_CONFISCATION_FAILED + rethrow, leaving the deposit in
-   * COMPLIANCE_PENDING (a new approval can retry — all TB legs use deterministic
-   * ids so re-execution is idempotent).
+   * Start an approved below-min confiscation (two-phase, "start" half). 先账后状态:
+   * PENDING-lock BOTH accounting legs + create the legSeq 2 funds order in CREATED
+   * (advanceable, NOT auto-cleared), THEN flip the deposit to CONFISCATING via
+   * CONFISCATE_START. The matching POST/settle half (funds order → CLEARED, pending
+   * transfers posted, deposit → CONFISCATED) lands in C3's settleConfiscation, which
+   * reproduces each pending transfer via deterministicTransferId('DEPOSIT',
+   * depositNo, eventCode, 1) — so the eventCodes + legIndex here are load-bearing.
    *
-   * The two legs (same ledger = asset.tbLedgerId):
+   * The two pending legs (same ledger = asset.tbLedgerId):
    *   leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact reverse
-   *         of the payin STEP_1; zeroes the customer's suspense. Client identity
-   *         Σ CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) stays balanced
-   *         (both sides −amount).
+   *         of the payin STEP_1; zeroes the customer's suspense.
    *   leg2  DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize the handling-fee
-   *         income. Firm identity FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_FEE+FIRM_LIQ)
-   *         stays balanced (both sides +amount).
+   *         income.
    * Neither leg is an external crossing — confiscation reclassifies funds already in
    * the firm's custody; the legSeq 2 funds order (customer deposit wallet → firm F_FEE
-   * wallet) is the by-wallet recon anchor for the physical move.
+   * wallet) is the by-wallet recon anchor for the physical move. Idempotent: reuse an
+   * existing legSeq 2 order, and every TB pending id is deterministic so a retry via a
+   * new approval re-books without duplicating.
    */
-  private async executeConfiscation(deposit: any, approvalNo?: string) {
-    const requestId = randomUUID();
-    try {
-      const asset = deposit.asset;
-      if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
-      if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
+  private async startConfiscation(deposit: any, approvalNo?: string) {
+    const asset = deposit.asset;
+    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
+    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
+    const ledger = asset.tbLedgerId;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+    const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
 
-      const ledger = asset.tbLedgerId;
-      const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-      const customerWalletRef: string | null = deposit.toWalletId ?? null;
-
-      // Firm destination wallet (fail-closed: no F_FEE wallet → throw → FAILED audit).
-      const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
-
-      // ── Funds order (legSeq 2): the physical customer→firm move representation.
-      // Idempotent: reuse an existing legSeq 2 order if a prior partial run created it.
-      const [existingLeg] = await this.fundsOrders.findByParent(
-        { depositTransactionId: deposit.id },
-        { legSeq: 2 },
-      );
-      let fundsOrder = existingLeg;
-      if (!fundsOrder) {
-        fundsOrder = await this.fundsOrders.create({
-          depositTransactionId: deposit.id,
-          legSeq: 2,
-          initialStatus: FundsOrderStatus.CONFIRMED,
-          assetId: deposit.assetId,
-          amount: String(deposit.amount),
-          netAmount: String(deposit.amount),
-          fromWalletId: deposit.toWalletId ?? null,
-          fromAddress: deposit.toAddress ?? undefined,
-          fromIban: deposit.toIban ?? undefined,
-          toWalletId: firmFeeWallet.id,
-          toAddress: firmFeeWallet.address ?? undefined,
-          toIban: firmFeeWallet.iban ?? undefined,
-          traceId: deposit.traceId || undefined,
-        });
-      }
-      if (fundsOrder.status !== FundsOrderStatus.CLEARED) {
-        await this.fundsOrders.advance(fundsOrder.id, FundsOrderAction.CLEAR, 'SYSTEM');
-      }
-
-      // ── Leg 1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse STEP_1.
-      const suspenseAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
-        ledger,
-        ownerType: 'CUSTOMER',
-        ownerUuid: deposit.ownerId,
-      });
-      const clientAssetAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.CLIENT_ASSET,
-        ledger,
-        ownerType: 'SYSTEM',
-      });
-      await this.accountingService.executeTransfer({
-        debitAccountId: suspenseAccountId,
-        creditAccountId: clientAssetAccountId,
-        amount: amountBigint,
-        ledger,
-        code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET,
-        evidence: {
-          sourceType: 'DEPOSIT',
-          sourceNo: deposit.depositNo,
-          eventCode: 'CONFISCATION_REVERSE_SUSPENSE',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
-          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-          assetCurrency: asset.currency,
-          traceId: deposit.traceId || deposit.id,
-          actorType: 'SYSTEM',
-          actorId: 'SYSTEM',
-          memo: 'Below-min confiscation: reverse suspense (DEPOSIT_SUSPENSE→CLIENT_ASSET)',
-          // Not an external crossing — suspense reclass on the customer's own wallet.
-          debitWalletRef: customerWalletRef,
-          creditWalletRef: customerWalletRef,
-          externalRef: null,
-          isExternalCrossing: false,
-        },
-      });
-
-      // ── Leg 2: DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize fee income.
-      const firmAssetAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_ASSET,
-        ledger,
-        ownerType: 'SYSTEM',
-      });
-      const firmFeeAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_FEE,
-        ledger,
-        ownerType: 'SYSTEM',
-      });
-      await this.accountingService.executeTransfer({
-        debitAccountId: firmAssetAccountId,
-        creditAccountId: firmFeeAccountId,
-        amount: amountBigint,
-        ledger,
-        code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE,
-        evidence: {
-          sourceType: 'DEPOSIT',
-          sourceNo: deposit.depositNo,
-          eventCode: 'CONFISCATION_FIRM_FEE',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
-          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
-          assetCurrency: asset.currency,
-          traceId: deposit.traceId || deposit.id,
-          actorType: 'SYSTEM',
-          actorId: 'SYSTEM',
-          memo: 'Below-min confiscation: recognize firm fee income (FIRM_ASSET→FIRM_FEE)',
-          // FIRM_ASSET is the aggregate pool (no physical wallet); FIRM_FEE sits on
-          // the platform F_FEE wallet. Internal recognition — not an external crossing.
-          debitWalletRef: null,
-          creditWalletRef: firmFeeWallet.id,
-          externalRef: null,
-          isExternalCrossing: false,
-        },
-      });
-
-      // ── 先账后状态: only NOW flip the deposit to CONFISCATED (via the service, Rule 5).
-      await this.depositService.updateStatus(deposit.id, {
-        action: DepositTransactionAction.CONFISCATE,
-        reason: 'Below-min deposit confiscated as T&C handling fee',
-      });
-
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CONFISCATION_EXECUTED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
+    const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 2 });
+    if (!existing) {
+      await this.fundsOrders.create({
+        depositTransactionId: deposit.id,
+        legSeq: 2,
+        initialStatus: FundsOrderStatus.CREATED,
+        assetId: deposit.assetId,
+        amount: String(deposit.amount),
+        netAmount: String(deposit.amount),
+        fromWalletId: deposit.toWalletId ?? null,
+        fromAddress: deposit.toAddress ?? undefined,
+        fromIban: deposit.toIban ?? undefined,
+        toWalletId: firmFeeWallet.id,
+        toAddress: firmFeeWallet.address ?? undefined,
+        toIban: firmFeeWallet.iban ?? undefined,
         traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT_CONFISCATION',
-        result: AuditResult.SUCCESS,
-        reason: 'Below-min deposit confiscated: suspense reversed + firm fee recognized',
-        metadata: {
-          amount: String(deposit.amount),
-          assetCurrency: asset.currency,
-          basis: 'T&C below-minimum deposit handling fee',
-          fundsOrderNo: fundsOrder.fundsOrderNo,
-          approvalNo: approvalNo ?? null,
-        },
-        requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${requestId}`,
-        sourcePlatform: 'SYSTEM',
       });
-
-      this.logger.log(
-        `Deposit ${deposit.depositNo} CONFISCATED — funds order ${fundsOrder.fundsOrderNo}, two legs posted.`,
-      );
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.logger.error(`Confiscation execution failed for deposit ${deposit.depositNo}: ${error.message}`);
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_CONFISCATION_FAILED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
-        traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT_CONFISCATION',
-        result: AuditResult.FAILED,
-        reason: `Confiscation execution failed: ${error.message}`,
-        metadata: {
-          amount: String(deposit.amount),
-          assetCurrency: deposit.asset?.currency ?? null,
-          approvalNo: approvalNo ?? null,
-        },
-        requestId: `DEPOSIT_CONFISCATION_FAILED_${deposit.depositNo}_${requestId}`,
-        sourcePlatform: 'SYSTEM',
-      });
-      throw error;
     }
+
+    const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
+    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
+    const firmFeeId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_FEE, ledger, ownerType: 'SYSTEM' });
+
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET, timeout: 0, legIndex: 1,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Below-min confiscation reverse suspense (pending)', debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
+      },
+    });
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: firmAssetId, creditAccountId: firmFeeId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE, timeout: 0, legIndex: 1,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
+      },
+    });
+
+    await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_START, reason: 'Below-min confiscation started (funds in transit)' });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_CONFISCATION_STARTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+      workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), approvalNo },
+      requestId: `DEPOSIT_CONFISCATION_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    });
   }
 
   private async onPayinFailed(depositId: string, fundsOrderId: string) {
