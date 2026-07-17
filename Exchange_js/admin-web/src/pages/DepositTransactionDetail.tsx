@@ -256,6 +256,12 @@ const DepositTransactionDetail = () => {
   const actions = getDepositActionsForStatus(data.status);
   const isBelowMinPending =
     data.status === 'COMPLIANCE_PENDING' && data.limitHoldReason === 'BELOW_MIN';
+  // Confiscation lifecycle (in-transit / settled): the generic Approve/Reject/
+  // Confiscate actions no longer apply — the deposit is committed to confiscation.
+  // In CONFISCATING the only valid move is advancing the linked funds order (see
+  // the in-transit banner); CONFISCATED is terminal.
+  const isConfiscationLifecycle =
+    data.status === 'CONFISCATING' || data.status === 'CONFISCATED';
   const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
   const kytStyle = getComplianceLayerStyle(data.kytStatus);
   const trStyle = getComplianceLayerStyle(
@@ -402,11 +408,11 @@ const DepositTransactionDetail = () => {
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
-          {/* Actions — hidden for a below-min hold: the generic Approve/
-              Reject/old-Confiscate actions either don't apply or are now
-              blocked by the backend guard; only the Below-Min Disposition
-              actions (PASS / Confiscate-as-Fee) are valid here. */}
-          {!isBelowMinPending && (
+          {/* Actions — hidden for a below-min hold (only PASS / Confiscate-as-Fee
+              disposition applies) and throughout the confiscation lifecycle
+              (CONFISCATING in-transit → advance the funds order; CONFISCATED
+              terminal) where the generic Approve/Reject/Confiscate no longer apply. */}
+          {!isBelowMinPending && !isConfiscationLifecycle && (
             <SidebarGroup title="Actions">
               {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
               <div className="flex flex-col gap-2">
