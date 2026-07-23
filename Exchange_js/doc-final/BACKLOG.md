@@ -130,4 +130,6 @@ Last Updated: 2026-07-03
 
 - [x] ~~**账本流水未排除 pending（「落账才进流水」）**~~ —— **撤销（2026-07-12）**：业主改定 **pending 也进流水**为正确口径——挂起（pending）阶段即落一行流水（`transferType=PENDING`），落账后同一行转 POSTED，流水实时反映「在途 / 锁定」的进出。原「流水只体现 posted、pending 不进」的排除需求**作废**；投影器 `account-flow-projector.persist()` 现行为（pending＋posted 都投影）即为**目标态**，无需改。已同步飞书账本 PRD §5.3「流水怎么展示」 ｜来源: 2026-07-12 账本 PRD §5.3 校正（推翻 2026-07-10 §6 的排除口径）
 
+- [ ] **提现 eventCode 去阶段化（向 swap 看齐）**：提现两步腿现发 `WITHDRAW_LOCK_NET` → `WITHDRAW_NET_POST`（`tb-evidence.service.ts → enrichForPost()` 落账时把 eventCode 从 LOCK 改成 POST），把阶段塞进了 event 名。目标口径（账本 PRD 附录 B 已采用）＝**一笔分录一个稳定 event、阶段交给 `transferType`（PENDING/POSTED/VOIDED）**，如 swap 的 `SWAP_SELL_CLIENT` 全程不变。落地＝提现净额/费腿 eventCode 合并为 `WITHDRAW_NET` / `WITHDRAW_FEE`（去掉 LOCK/POST/VOID 后缀），`enrichForPost` 不再改 eventCode。deposit/swap 已是干净模型、无需改。业主 2026-07-12 定（甲：PRD 写应然、代码待对齐）｜来源: 2026-07-12 账本 PRD 附录 B（对应模块 8 · G2）
+
 > 注：外部合规派生的欠账（VARA/FATF 条款驱动，非本 repo 可核）不入本文件——它们活在 roadmap 的 ⚖️ ADVANCED 条目里。BACKLOG 只记能对着本仓库代码/文件自证的账。
