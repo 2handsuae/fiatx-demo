@@ -288,6 +288,137 @@ describe('DepositTransactionsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('COMPLIANCE_PENDING → MANUAL_CHECKING via manual_check', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.MANUAL_CHECK,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.MANUAL_CHECKING,
+          }),
+        }),
+      );
+    });
+
+    it('MANUAL_CHECKING → SUCCESS via approve', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.APPROVE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.SUCCESS,
+            completedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('MANUAL_CHECKING → FROZEN via freeze', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.FREEZE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.FROZEN,
+            completedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('MANUAL_CHECKING → RETURNING via return', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.RETURN,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.RETURNING,
+          }),
+        }),
+      );
+    });
+
+    it('RETURNING → RETURNED via returned_done', async () => {
+      setupMock(DepositTransactionStatus.RETURNING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.RETURNED_DONE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.RETURNED,
+            completedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('FROZEN → RETURNING via return', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.RETURN,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.RETURNING,
+          }),
+        }),
+      );
+    });
+
+    it('FROZEN → SEIZING via seize', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.SEIZE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.SEIZING,
+          }),
+        }),
+      );
+    });
+
+    it('FROZEN → COMPLIANCE_PENDING via resume', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.RESUME,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.COMPLIANCE_PENDING,
+          }),
+        }),
+      );
+    });
+
     it('PAYIN_PENDING → FAILED via fail', async () => {
       setupMock(DepositTransactionStatus.PAYIN_PENDING);
 
@@ -327,6 +458,22 @@ describe('DepositTransactionsService', () => {
 
       await expect(
         service.updateStatus(mockId, { action: DepositTransactionAction.FAIL }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws on any action for terminal RETURNED', async () => {
+      setupMock(DepositTransactionStatus.RETURNED);
+
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws on any action for terminal SEIZED', async () => {
+      setupMock(DepositTransactionStatus.SEIZED);
+
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
       ).rejects.toThrow(BadRequestException);
     });
 
