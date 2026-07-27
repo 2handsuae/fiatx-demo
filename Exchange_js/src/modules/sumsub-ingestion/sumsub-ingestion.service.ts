@@ -113,14 +113,14 @@ export class SumsubIngestionService {
         reviewRejectType?: string;
       } | null;
 
-      // ── Pre-routing: deposit Sumsub KYT-txn / action webhook types (Task 5) ──
+      // ── Pre-routing: deposit Sumsub KYT-txn webhook types (Task 5) ──
       // Reuses this durable event table's dedup/retry/dead-letter; only the
       // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
+      // NOTE: does NOT include applicantAction* — those are consumed by the
+      // pre-existing Clue 3 branch below (material-refresh cycles). See
+      // doc-final/BACKLOG.md / Task 9 for wiring deposit-action routing via actionId.
       const depositWebhookType = String(payload.type ?? '');
-      if (
-        depositWebhookType.startsWith('applicantKytTxn') ||
-        depositWebhookType.startsWith('applicantAction')
-      ) {
+      if (depositWebhookType.startsWith('applicantKytTxn')) {
         await this.depositWebhookRouter.route(payload);
         result = { routedTo: 'deposit-sumsub', type: depositWebhookType };
         dispatchedContext = 'DEPOSIT_SUMSUB';
