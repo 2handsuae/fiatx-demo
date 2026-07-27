@@ -796,5 +796,37 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
+
+    it('no-op when already RETURNING and a duplicate rejected+RETURN_TO_SENDER webhook arrives', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-12',
+        depositNo: 'DEP012',
+        status: DepositTransactionStatus.RETURNING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-12', { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it('no-op when already MANUAL_CHECKING and a duplicate rejected (no tag) webhook arrives', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-13',
+        depositNo: 'DEP013',
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-13', { verdict: 'rejected' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
   });
 });

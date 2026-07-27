@@ -332,6 +332,8 @@ export class DepositTransactionsService {
         [DepositTransactionAction.RESUME]:
           DepositTransactionStatus.COMPLIANCE_PENDING,
         [DepositTransactionAction.EXPIRE]: DepositTransactionStatus.EXPIRED,
+        [DepositTransactionAction.MANUAL_CHECK]:
+          DepositTransactionStatus.MANUAL_CHECKING,
       },
       [DepositTransactionStatus.MANUAL_CHECKING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,

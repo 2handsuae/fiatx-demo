@@ -249,6 +249,22 @@ describe('DepositTransactionsService', () => {
       );
     });
 
+    it('ACTION_PENDING → MANUAL_CHECKING via manual_check', async () => {
+      setupMock(DepositTransactionStatus.ACTION_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.MANUAL_CHECK,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.MANUAL_CHECKING,
+          }),
+        }),
+      );
+    });
+
     it('FROZEN → SUCCESS via approve', async () => {
       setupMock(DepositTransactionStatus.FROZEN);
 
