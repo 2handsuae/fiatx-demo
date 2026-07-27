@@ -254,6 +254,8 @@ export class DepositTransactionsService {
       DepositTransactionStatus.FAILED,
       DepositTransactionStatus.EXPIRED,
       DepositTransactionStatus.CONFISCATED,
+      DepositTransactionStatus.RETURNED,
+      DepositTransactionStatus.SEIZED,
     ]);
     if (TERMINAL.has(nextStatus) || nextStatus === DepositTransactionStatus.FROZEN) {
       updateData.completedAt = new Date();
@@ -290,6 +292,8 @@ export class DepositTransactionsService {
       DepositTransactionStatus.FAILED,
       DepositTransactionStatus.EXPIRED,
       DepositTransactionStatus.CONFISCATED,
+      DepositTransactionStatus.RETURNED,
+      DepositTransactionStatus.SEIZED,
     ]);
 
     if (TERMINAL.has(current)) {
@@ -314,6 +318,8 @@ export class DepositTransactionsService {
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
+        [DepositTransactionAction.MANUAL_CHECK]:
+          DepositTransactionStatus.MANUAL_CHECKING,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
@@ -323,10 +329,23 @@ export class DepositTransactionsService {
           DepositTransactionStatus.COMPLIANCE_PENDING,
         [DepositTransactionAction.EXPIRE]: DepositTransactionStatus.EXPIRED,
       },
+      [DepositTransactionStatus.MANUAL_CHECKING]: {
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+      },
+      [DepositTransactionStatus.RETURNING]: {
+        [DepositTransactionAction.RETURNED_DONE]:
+          DepositTransactionStatus.RETURNED,
+      },
       [DepositTransactionStatus.FROZEN]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.CONFISCATE]:
           DepositTransactionStatus.CONFISCATED,
+        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+        [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
+        [DepositTransactionAction.RESUME]:
+          DepositTransactionStatus.COMPLIANCE_PENDING,
       },
     };
 

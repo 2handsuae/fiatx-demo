@@ -981,6 +981,11 @@ model DepositTransaction {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   completedAt          DateTime?
+  sumsubFinanceTxnId    String?
+  sumsubTravelRuleTxnId String?
+  manualReason          String?
+  slaDeadline           DateTime?
+  slaBreached           Boolean   @default(false)
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])

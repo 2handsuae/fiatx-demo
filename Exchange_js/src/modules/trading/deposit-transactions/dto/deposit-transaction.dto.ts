@@ -11,6 +11,12 @@ export enum DepositTransactionStatus {
   FAILED = 'FAILED',
   EXPIRED = 'EXPIRED',
   CONFISCATED = 'CONFISCATED',
+  MANUAL_CHECKING = 'MANUAL_CHECKING',
+  RETURNING = 'RETURNING',
+  RETURNED = 'RETURNED',
+  SEIZING = 'SEIZING',
+  SEIZED = 'SEIZED',
+  CONFISCATING = 'CONFISCATING',
 }
 
 export enum DepositOwnerType {
@@ -80,6 +86,10 @@ export enum DepositTransactionAction {
   CONFISCATE = 'confiscate',
   EXPIRE = 'expire',
   FAIL = 'fail',
+  MANUAL_CHECK = 'manual_check',
+  RETURN = 'return',
+  RETURNED_DONE = 'returned_done',
+  SEIZE = 'seize',
 }
 
 export class UpdateDepositTransactionStatusDto {
