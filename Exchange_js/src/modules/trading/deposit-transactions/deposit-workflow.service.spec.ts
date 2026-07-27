@@ -13,7 +13,10 @@ import {
 } from './dto/deposit-transaction.dto';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
-import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -208,6 +211,18 @@ describe('DepositWorkflowService', () => {
       expect(depositService.setSumsubTxnIds).toHaveBeenCalledWith('dep-sub-fiat', {
         financeTxnId: 'TXN-FIN-1',
       });
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: 'dep-sub-fiat',
+          entityNo: 'DEP-SUB-FIAT-001',
+          entityOwnerType: 'CUSTOMER',
+          entityOwnerId: 'cust-1',
+          workflowType: 'DEPOSIT',
+          metadata: { financeTxnId: 'TXN-FIN-1', travelRuleTxnId: undefined },
+        }),
+      );
     });
 
     it('crypto deposit with applicantId → submits finance + travelRule and persists both txnIds', async () => {
@@ -245,6 +260,10 @@ describe('DepositWorkflowService', () => {
       expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
       // Rest of Gate 0 still runs (gates initialize; deposit itself stays in COMPLIANCE_PENDING).
       expect(depositService.initializeComplianceGates).toHaveBeenCalledWith('dep-sub-fiat');
+      // No submission happened → no DEPOSIT_SUMSUB_SUBMITTED audit entry.
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED }),
+      );
     });
 
     it('deposit already has sumsubFinanceTxnId → idempotent skip (no re-submit on runGate0 re-entry)', async () => {

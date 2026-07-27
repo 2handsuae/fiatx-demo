@@ -196,6 +196,20 @@ export class DepositWorkflowService implements OnModuleInit {
 
     await this.depositService.setSumsubTxnIds(deposit.id, txnIds);
 
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Deposit submitted to Sumsub KYT for transaction monitoring',
+      metadata: { financeTxnId: txnIds.financeTxnId, travelRuleTxnId: txnIds.travelRuleTxnId },
+      sourcePlatform: 'SYSTEM',
+    });
+
     this.logger.log(
       `Sumsub txn submitted for deposit ${deposit.id}: finance=${txnIds.financeTxnId}` +
         (txnIds.travelRuleTxnId ? `, travelRule=${txnIds.travelRuleTxnId}` : ''),
