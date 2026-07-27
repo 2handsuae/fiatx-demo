@@ -575,6 +575,38 @@ describe('DepositTransactionsService', () => {
       expect(result.travelRuleStatus).toBe('PASSED');
     });
 
+    it('setSumsubTxnIds writes only the provided keys (fiat: finance only)', async () => {
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        sumsubFinanceTxnId: 'TXN-FIN-1',
+      });
+
+      await service.setSumsubTxnIds('dep-1', { financeTxnId: 'TXN-FIN-1' });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { sumsubFinanceTxnId: 'TXN-FIN-1' },
+      });
+    });
+
+    it('setSumsubTxnIds writes both keys (crypto: finance + travelRule)', async () => {
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        sumsubFinanceTxnId: 'TXN-FIN-2',
+        sumsubTravelRuleTxnId: 'TXN-TR-2',
+      });
+
+      await service.setSumsubTxnIds('dep-1', {
+        financeTxnId: 'TXN-FIN-2',
+        travelRuleTxnId: 'TXN-TR-2',
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { sumsubFinanceTxnId: 'TXN-FIN-2', sumsubTravelRuleTxnId: 'TXN-TR-2' },
+      });
+    });
+
     it('getOwnerComplianceStatus returns customer complianceStatus', async () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',

@@ -14,6 +14,6 @@ import { DepositTransactionsModule } from '../trading/deposit-transactions/depos
     DepositActionHandler,
     { provide: SUMSUB_TXN_CLIENT, useClass: HttpSumsubTxnClient },
   ],
-  exports: [DepositWebhookRouter],
+  exports: [DepositWebhookRouter, SUMSUB_TXN_CLIENT],
 })
 export class DepositSumsubModule {}

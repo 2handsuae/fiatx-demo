@@ -5,6 +5,7 @@ import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
+import { SUMSUB_TXN_CLIENT } from '../../deposit-sumsub/sumsub-txn-client.interface';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import {
   DepositTransactionStatus,
@@ -20,6 +21,7 @@ describe('DepositWorkflowService', () => {
   let auditLogsService: Record<string, jest.Mock>;
   let fundsOrders: Record<string, jest.Mock>;
   let withdrawalAddresses: Record<string, jest.Mock>;
+  let sumsubTxnClient: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     depositService = {
@@ -30,6 +32,7 @@ describe('DepositWorkflowService', () => {
       updateKytStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
       setOnHoldSla: jest.fn().mockResolvedValue(undefined),
+      setSumsubTxnIds: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -49,6 +52,12 @@ describe('DepositWorkflowService', () => {
     withdrawalAddresses = {
       hasActiveFiatWithdrawalAddress: jest.fn().mockResolvedValue(true),
     };
+    sumsubTxnClient = {
+      submitTxn: jest.fn(),
+      getTxn: jest.fn(),
+      rescore: jest.fn(),
+      reviewComplete: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,6 +67,7 @@ describe('DepositWorkflowService', () => {
         { provide: AuditLogsService, useValue: auditLogsService },
         { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
         { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
+        { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
       ],
     }).compile();
 
@@ -137,6 +147,116 @@ describe('DepositWorkflowService', () => {
       await service.handleDepositStatusChanged(event);
 
       expect(depositService.getOwnerComplianceStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Sumsub txn submission — Gate 0 (Task 8)', () => {
+    const baseFiatDeposit = {
+      id: 'dep-sub-fiat',
+      depositNo: 'DEP-SUB-FIAT-001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      traceId: null,
+      amount: '500',
+      asset: { type: 'FIAT', currency: 'AED' },
+      customer: { sumsubApplicantId: 'applicant-1' },
+    };
+
+    const baseCryptoDeposit = {
+      id: 'dep-sub-crypto',
+      depositNo: 'DEP-SUB-CRYPTO-001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      traceId: null,
+      amount: '100.5',
+      asset: { type: 'CRYPTO', currency: 'USDT' },
+      customer: { sumsubApplicantId: 'applicant-1' },
+    };
+
+    function mkEvent(depositId: string) {
+      return new DepositStatusChangedEvent(
+        depositId,
+        DepositTransactionStatus.PAYIN_PENDING,
+        DepositTransactionStatus.COMPLIANCE_PENDING,
+        'CUSTOMER', 'cust-1', 'asset-1', '100',
+      );
+    }
+
+    beforeEach(() => {
+      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      depositService.initializeComplianceGates.mockResolvedValue({});
+    });
+
+    it('fiat deposit with applicantId → submits finance leg once and persists sumsubFinanceTxnId', async () => {
+      depositService.findOne.mockResolvedValue(baseFiatDeposit);
+      sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-1' });
+
+      await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
+
+      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          applicantId: 'applicant-1',
+          clientTxnId: 'DEP-SUB-FIAT-001',
+          type: 'finance',
+          direction: 'in',
+          amount: 500,
+          currencyCode: 'AED',
+          currencyType: 'fiat',
+        }),
+      );
+      expect(depositService.setSumsubTxnIds).toHaveBeenCalledWith('dep-sub-fiat', {
+        financeTxnId: 'TXN-FIN-1',
+      });
+    });
+
+    it('crypto deposit with applicantId → submits finance + travelRule and persists both txnIds', async () => {
+      depositService.findOne.mockResolvedValue(baseCryptoDeposit);
+      sumsubTxnClient.submitTxn
+        .mockResolvedValueOnce({ txnId: 'TXN-FIN-2' })
+        .mockResolvedValueOnce({ txnId: 'TXN-TR-2' });
+
+      await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto'));
+
+      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(2);
+      expect(sumsubTxnClient.submitTxn).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ type: 'finance', currencyType: 'crypto', currencyCode: 'USDT' }),
+      );
+      expect(sumsubTxnClient.submitTxn).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ type: 'travelRule', currencyType: 'crypto', currencyCode: 'USDT' }),
+      );
+      expect(depositService.setSumsubTxnIds).toHaveBeenCalledWith('dep-sub-crypto', {
+        financeTxnId: 'TXN-FIN-2',
+        travelRuleTxnId: 'TXN-TR-2',
+      });
+    });
+
+    it('customer has no sumsubApplicantId → warns and skips submission (stays COMPLIANCE_PENDING for manual handling)', async () => {
+      depositService.findOne.mockResolvedValue({
+        ...baseFiatDeposit,
+        customer: {},
+      });
+
+      await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
+
+      expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+      expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
+      // Rest of Gate 0 still runs (gates initialize; deposit itself stays in COMPLIANCE_PENDING).
+      expect(depositService.initializeComplianceGates).toHaveBeenCalledWith('dep-sub-fiat');
+    });
+
+    it('deposit already has sumsubFinanceTxnId → idempotent skip (no re-submit on runGate0 re-entry)', async () => {
+      depositService.findOne.mockResolvedValue({
+        ...baseFiatDeposit,
+        sumsubFinanceTxnId: 'TXN-ALREADY-SET',
+      });
+
+      await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
+
+      expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+      expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
     });
   });
 
@@ -351,6 +471,7 @@ describe('DepositWorkflowService', () => {
           { provide: AuditLogsService, useValue: auditLogsService },
           { provide: AccountingService, useValue: accountingService },
           { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
+          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
         ],
       }).compile();
 

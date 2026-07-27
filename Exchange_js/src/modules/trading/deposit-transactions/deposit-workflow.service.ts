@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
@@ -24,6 +24,10 @@ import {
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
+import {
+  SUMSUB_TXN_CLIENT,
+  SumsubTxnClient,
+} from '../../deposit-sumsub/sumsub-txn-client.interface';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -55,6 +59,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
     private readonly withdrawalAddresses: WithdrawalAddressService,
+    @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
   ) {}
 
   onModuleInit() {
@@ -128,7 +133,73 @@ export class DepositWorkflowService implements OnModuleInit {
       sourcePlatform: 'SYSTEM',
     });
 
+    await this.submitSumsubTxns(deposit);
+
     await this.depositService.initializeComplianceGates(depositId);
+  }
+
+  /**
+   * Gate 0 submission entry: submits the deposit to Sumsub KYT so a verdict webhook
+   * can later drive the state machine. Fiat → finance leg only; crypto → finance +
+   * travelRule (spec §3). Idempotent on sumsubFinanceTxnId (protects against
+   * runGate0 re-entry). If the customer has no sumsubApplicantId yet, warns and
+   * skips — the deposit stays in COMPLIANCE_PENDING awaiting manual handling
+   * rather than crashing.
+   */
+  private async submitSumsubTxns(deposit: any): Promise<void> {
+    if (deposit.sumsubFinanceTxnId) {
+      this.logger.debug(
+        `Sumsub submit skip: deposit ${deposit.id} already has sumsubFinanceTxnId (idempotent)`,
+      );
+      return;
+    }
+
+    const applicantId = deposit.customer?.sumsubApplicantId;
+    if (!applicantId) {
+      this.logger.warn(
+        `Sumsub submit skip: deposit ${deposit.id} customer ${deposit.ownerId} has no sumsubApplicantId — staying in COMPLIANCE_PENDING for manual handling`,
+      );
+      return;
+    }
+
+    const isCrypto = deposit.asset?.type === 'CRYPTO';
+    const currencyType: 'fiat' | 'crypto' = isCrypto ? 'crypto' : 'fiat';
+    const amount = Number(deposit.amount);
+    const currencyCode = deposit.asset?.currency;
+
+    const financeResult = await this.sumsubTxnClient.submitTxn({
+      applicantId,
+      clientTxnId: deposit.depositNo,
+      type: 'finance',
+      direction: 'in',
+      amount,
+      currencyCode,
+      currencyType,
+    });
+
+    const txnIds: { financeTxnId?: string; travelRuleTxnId?: string } = {
+      financeTxnId: financeResult.txnId,
+    };
+
+    if (isCrypto) {
+      const travelRuleResult = await this.sumsubTxnClient.submitTxn({
+        applicantId,
+        clientTxnId: `${deposit.depositNo}-TR`,
+        type: 'travelRule',
+        direction: 'in',
+        amount,
+        currencyCode,
+        currencyType,
+      });
+      txnIds.travelRuleTxnId = travelRuleResult.txnId;
+    }
+
+    await this.depositService.setSumsubTxnIds(deposit.id, txnIds);
+
+    this.logger.log(
+      `Sumsub txn submitted for deposit ${deposit.id}: finance=${txnIds.financeTxnId}` +
+        (txnIds.travelRuleTxnId ? `, travelRule=${txnIds.travelRuleTxnId}` : ''),
+    );
   }
 
   // 已终态:进入 applyKytVerdict 时直接 no-op(幂等,防终态后迟到的 webhook)。

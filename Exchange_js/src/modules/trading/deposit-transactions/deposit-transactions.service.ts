@@ -155,6 +155,7 @@ export class DepositTransactionsService {
             onboardingStatus: true,
             adminStatus: true,
             complianceStatus: true,
+            sumsubApplicantId: true,
           },
         },
       },
@@ -411,6 +412,24 @@ export class DepositTransactionsService {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: { slaDeadline },
+    });
+  }
+
+  /**
+   * Persists the txn id(s) returned by SumsubTxnClient.submitTxn at Gate 0
+   * submission time (DepositWorkflowService.runGate0). Only the provided keys
+   * are written (fiat submits finance only; crypto submits both).
+   */
+  async setSumsubTxnIds(
+    id: string,
+    data: { financeTxnId?: string; travelRuleTxnId?: string },
+  ) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: {
+        ...(data.financeTxnId !== undefined && { sumsubFinanceTxnId: data.financeTxnId }),
+        ...(data.travelRuleTxnId !== undefined && { sumsubTravelRuleTxnId: data.travelRuleTxnId }),
+      },
     });
   }
 
