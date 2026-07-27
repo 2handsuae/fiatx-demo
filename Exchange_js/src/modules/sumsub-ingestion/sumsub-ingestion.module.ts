@@ -6,6 +6,7 @@ import { MaterialRefreshModule } from '../identity/material-refresh/material-ref
 import { TierUpgradeCaseModule } from '../identity/tier-upgrade-case/tier-upgrade-case.module';
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
+import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { SumsubIngestionController } from './sumsub-ingestion.controller';
 import { SumsubIngestionAdminController } from './sumsub-ingestion-admin.controller';
@@ -20,6 +21,7 @@ import { SumsubRetryService } from './sumsub-ingestion-retry.service';
     forwardRef(() => TierUpgradeCaseModule),
     forwardRef(() => DepositTransactionsModule),
     forwardRef(() => WithdrawTransactionsModule),
+    DepositSumsubModule,
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],

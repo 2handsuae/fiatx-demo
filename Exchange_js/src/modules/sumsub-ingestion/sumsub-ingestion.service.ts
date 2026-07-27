@@ -14,6 +14,7 @@ import { MaterialRefreshService } from '../identity/material-refresh/material-re
 import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
+import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
@@ -34,6 +35,7 @@ export class SumsubIngestionService {
     private readonly depositWorkflowService: DepositWorkflowService,
     @Inject(forwardRef(() => WithdrawTransactionsService))
     private readonly withdrawService: WithdrawTransactionsService,
+    private readonly depositWebhookRouter: DepositWebhookRouter,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -111,8 +113,20 @@ export class SumsubIngestionService {
         reviewRejectType?: string;
       } | null;
 
+      // ── Pre-routing: deposit Sumsub KYT-txn / action webhook types (Task 5) ──
+      // Reuses this durable event table's dedup/retry/dead-letter; only the
+      // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
+      const depositWebhookType = String(payload.type ?? '');
+      if (
+        depositWebhookType.startsWith('applicantKytTxn') ||
+        depositWebhookType.startsWith('applicantAction')
+      ) {
+        await this.depositWebhookRouter.route(payload);
+        result = { routedTo: 'deposit-sumsub', type: depositWebhookType };
+        dispatchedContext = 'DEPOSIT_SUMSUB';
+      }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
-      if (event.eventType === 'kytCheckSimulated') {
+      else if (event.eventType === 'kytCheckSimulated') {
         const depositId = String(payload.depositId ?? '');
         const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
         const riskScore = (payload.riskScore as number | null) ?? null;
