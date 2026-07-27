@@ -396,6 +396,20 @@ export class DepositTransactionsService {
     });
   }
 
+  /**
+   * Sumsub KYT webhooks carry the txn id we handed it at submission time
+   * (sumsubFinanceTxnId for the finance leg, sumsubTravelRuleTxnId for the
+   * travel-rule leg). Neither is the deposit's own id, so this is a stable
+   * business-key lookup, not an id-as-contract query.
+   */
+  async findBySumsubTxnId(txnId: string) {
+    return (this.prisma as any).depositTransaction.findFirst({
+      where: {
+        OR: [{ sumsubFinanceTxnId: txnId }, { sumsubTravelRuleTxnId: txnId }],
+      },
+    });
+  }
+
   async getOwnerComplianceStatus(depositId: string): Promise<string> {
     const deposit = await (this.prisma as any).depositTransaction.findUnique({
       where: { id: depositId },

@@ -131,6 +131,24 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.depositService.initializeComplianceGates(depositId);
   }
 
+  /**
+   * 桩:Sumsub KYT 裁决落地入口(Task 6 的 DepositKytVerdictHandler 调用)。
+   * Task 7 实现真流转(state-aware,已终态 no-op);此处暂 no-op,勿 throw。
+   */
+  async applyKytVerdict(
+    depositId: string,
+    v: {
+      verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
+      sceneTag?: 'SANCTION' | 'PEP';
+      dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
+    },
+  ): Promise<void> {
+    this.logger.debug(
+      `applyKytVerdict stub: deposit ${depositId} verdict=${v.verdict} sceneTag=${v.sceneTag ?? '-'} dispoTag=${v.dispoTag ?? '-'}`,
+    );
+    // TODO Task 7 实现
+  }
+
   async applyKytResult(depositId: string, kytStatus: string, riskScore?: number | null) {
     await this.depositService.updateKytStatus(depositId, kytStatus, riskScore);
 
