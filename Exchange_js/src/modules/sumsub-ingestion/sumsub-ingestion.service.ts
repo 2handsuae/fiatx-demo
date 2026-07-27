@@ -117,8 +117,9 @@ export class SumsubIngestionService {
       // Reuses this durable event table's dedup/retry/dead-letter; only the
       // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
       // NOTE: does NOT include applicantAction* — those are consumed by the
-      // pre-existing Clue 3 branch below (material-refresh cycles). See
-      // doc-final/BACKLOG.md / Task 9 for wiring deposit-action routing via actionId.
+      // pre-existing Clue 3 branch below (material-refresh cycles). deposit 侧对
+      // action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动重评并发出
+      // applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,DepositActionHandler 桩已退役)。
       const depositWebhookType = String(payload.type ?? '');
       if (depositWebhookType.startsWith('applicantKytTxn')) {
         await this.depositWebhookRouter.route(payload);

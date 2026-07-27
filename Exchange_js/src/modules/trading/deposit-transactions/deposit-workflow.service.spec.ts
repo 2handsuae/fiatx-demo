@@ -708,6 +708,39 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    it('approved from ACTION_PENDING (补料重检:Sumsub 自动重评发 applicantKytTxnApproved)→ delegates to approveDeposit (SUCCESS), no DEPOSIT_MANUAL_APPROVED overturn record', async () => {
+      const deposit = {
+        id: 'dep-2b',
+        depositNo: 'DEP002B',
+        status: DepositTransactionStatus.ACTION_PENDING,
+        ownerType: 'FIRM', // skip TB posting, focus on state transition
+        ownerId: 'firm-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.SUCCESS,
+      });
+
+      // Sumsub 自动重评后发出的 applicantKytTxnApproved webhook → 已被
+      // DepositKytVerdictHandler 翻译为 verdict='approved'(无需 DepositActionHandler)。
+      await service.applyKytVerdict('dep-2b', { verdict: 'approved' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-2b', {
+        action: DepositTransactionAction.APPROVE,
+      });
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED' }),
+      );
+    });
+
     it('awaitUser + PEP → ACTION_PENDING with manualReason=EDD_PEP', async () => {
       const deposit = {
         id: 'dep-3',
