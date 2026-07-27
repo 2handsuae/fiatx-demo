@@ -404,14 +404,33 @@ export class DepositTransactionsService {
   }
 
   /**
-   * KYT verdict = onHold: deposit stays in its current status (no transition),
-   * only the SLA deadline is (re)set. No status change, so this doesn't go
-   * through updateStatus/getNextStatus.
+   * Sets/refreshes the SLA deadline for a deposit sitting in onHold
+   * (COMPLIANCE_PENDING) or ACTION_PENDING. No status change here — callers
+   * manage the transition (or lack thereof) separately via updateStatus.
    */
-  async setOnHoldSla(id: string, slaDeadline: Date) {
+  async setSlaDeadline(id: string, slaDeadline: Date) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: { slaDeadline },
+    });
+  }
+
+  /**
+   * SLA timer (Task 10) scan: onHold(COMPLIANCE_PENDING) and ACTION_PENDING
+   * deposits whose slaDeadline has passed and haven't been flagged yet.
+   */
+  async findSlaBreachCandidates(now: Date) {
+    return (this.prisma as any).depositTransaction.findMany({
+      where: {
+        status: {
+          in: [
+            DepositTransactionStatus.COMPLIANCE_PENDING,
+            DepositTransactionStatus.ACTION_PENDING,
+          ],
+        },
+        slaDeadline: { lt: now },
+        slaBreached: false,
+      },
     });
   }
 

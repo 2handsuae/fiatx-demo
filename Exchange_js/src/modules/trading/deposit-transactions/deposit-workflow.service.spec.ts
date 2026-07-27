@@ -34,7 +34,7 @@ describe('DepositWorkflowService', () => {
       findOne: jest.fn(),
       updateKytStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
-      setOnHoldSla: jest.fn().mockResolvedValue(undefined),
+      setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxnIds: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
@@ -763,6 +763,7 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
         expect.objectContaining({ extraData: { manualReason: 'EDD_PEP' } }),
       );
+      expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-3', expect.any(Date));
     });
 
     it('awaitUser without PEP → manualReason=CLIENT_ACTION', async () => {
@@ -787,9 +788,10 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
         expect.objectContaining({ extraData: { manualReason: 'CLIENT_ACTION' } }),
       );
+      expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-3b', expect.any(Date));
     });
 
-    it('onHold → stays put, sets slaDeadline via setOnHoldSla, records DEPOSIT_ONHOLD', async () => {
+    it('onHold → stays put, sets slaDeadline via setSlaDeadline, records DEPOSIT_ONHOLD', async () => {
       const deposit = {
         id: 'dep-4',
         depositNo: 'DEP004',
@@ -803,7 +805,7 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-4', { verdict: 'onHold' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(depositService.setOnHoldSla).toHaveBeenCalledWith('dep-4', expect.any(Date));
+      expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-4', expect.any(Date));
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_ONHOLD', entityId: 'dep-4' }),
       );

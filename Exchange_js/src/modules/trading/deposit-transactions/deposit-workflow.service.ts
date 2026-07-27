@@ -228,6 +228,7 @@ export class DepositWorkflowService implements OnModuleInit {
   ]);
 
   private static readonly ONHOLD_SLA_DAYS = 7;
+  private static readonly ACTION_SLA_DAYS = 7;
 
   /**
    * Sumsub KYT 裁决落地入口(DepositKytVerdictHandler 调用)。State-aware:
@@ -311,6 +312,11 @@ export class DepositWorkflowService implements OnModuleInit {
       },
     );
 
+    const slaDeadline = new Date(
+      Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
+    await this.depositService.setSlaDeadline(deposit.id, slaDeadline);
+
     await this.recordStateTransitionAudit(
       updated,
       oldStatus,
@@ -323,7 +329,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const slaDeadline = new Date(
       Date.now() + DepositWorkflowService.ONHOLD_SLA_DAYS * 24 * 60 * 60 * 1000,
     );
-    await this.depositService.setOnHoldSla(deposit.id, slaDeadline);
+    await this.depositService.setSlaDeadline(deposit.id, slaDeadline);
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_ONHOLD,
