@@ -29,6 +29,7 @@ describe('DepositWorkflowService', () => {
       findOne: jest.fn(),
       updateKytStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
+      setOnHoldSla: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -507,6 +508,293 @@ describe('DepositWorkflowService', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('applyKytVerdict — Task 7 state transitions', () => {
+    it('approved from COMPLIANCE_PENDING → delegates to approveDeposit (SUCCESS)', async () => {
+      const deposit = {
+        id: 'dep-1',
+        depositNo: 'DEP001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'FIRM', // skip TB posting, focus on state transition
+        ownerId: 'firm-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.SUCCESS,
+      });
+
+      await service.applyKytVerdict('dep-1', { verdict: 'approved' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-1', {
+        action: DepositTransactionAction.APPROVE,
+      });
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED' }),
+      );
+    });
+
+    it('approved from MANUAL_CHECKING → records DEPOSIT_MANUAL_APPROVED then approveDeposit → SUCCESS', async () => {
+      const deposit = {
+        id: 'dep-2',
+        depositNo: 'DEP002',
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+        ownerType: 'FIRM',
+        ownerId: 'firm-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.SUCCESS,
+      });
+
+      await service.applyKytVerdict('dep-2', { verdict: 'approved' });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_MANUAL_APPROVED', entityId: 'dep-2' }),
+      );
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-2', {
+        action: DepositTransactionAction.APPROVE,
+      });
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+      );
+    });
+
+    it('awaitUser + PEP → ACTION_PENDING with manualReason=EDD_PEP', async () => {
+      const deposit = {
+        id: 'dep-3',
+        depositNo: 'DEP003',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'trace-3',
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.ACTION_PENDING,
+      });
+
+      await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag: 'PEP' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-3',
+        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+        expect.objectContaining({ extraData: { manualReason: 'EDD_PEP' } }),
+      );
+    });
+
+    it('awaitUser without PEP → manualReason=CLIENT_ACTION', async () => {
+      const deposit = {
+        id: 'dep-3b',
+        depositNo: 'DEP003B',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.ACTION_PENDING,
+      });
+
+      await service.applyKytVerdict('dep-3b', { verdict: 'awaitUser' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-3b',
+        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+        expect.objectContaining({ extraData: { manualReason: 'CLIENT_ACTION' } }),
+      );
+    });
+
+    it('onHold → stays put, sets slaDeadline via setOnHoldSla, records DEPOSIT_ONHOLD', async () => {
+      const deposit = {
+        id: 'dep-4',
+        depositNo: 'DEP004',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-4', { verdict: 'onHold' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.setOnHoldSla).toHaveBeenCalledWith('dep-4', expect.any(Date));
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_ONHOLD', entityId: 'dep-4' }),
+      );
+    });
+
+    it('rejected + SANCTION (from COMPLIANCE_PENDING) → FROZEN, zero accounting', async () => {
+      const deposit = {
+        id: 'dep-5',
+        depositNo: 'DEP005',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.FROZEN,
+      });
+
+      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-5',
+        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_FROZEN' }),
+      );
+      // Zero accounting: no TB/executeTransfer calls implied — accountingService not asserted here
+      // since freeze never touches it (only updateStatus + audit).
+    });
+
+    it('rejected, no tag (from COMPLIANCE_PENDING) → MANUAL_CHECKING', async () => {
+      const deposit = {
+        id: 'dep-6',
+        depositNo: 'DEP006',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+      });
+
+      await service.applyKytVerdict('dep-6', { verdict: 'rejected' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-6',
+        expect.objectContaining({ action: DepositTransactionAction.MANUAL_CHECK }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_MANUAL_CHECKING' }),
+      );
+    });
+
+    it('rejected + FROZEN_BY_MLRO (from MANUAL_CHECKING) → FROZEN', async () => {
+      const deposit = {
+        id: 'dep-7',
+        depositNo: 'DEP007',
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.FROZEN,
+      });
+
+      await service.applyKytVerdict('dep-7', { verdict: 'rejected', dispoTag: 'FROZEN_BY_MLRO' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-7',
+        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_FROZEN',
+          reason: expect.stringContaining('MLRO'),
+        }),
+      );
+    });
+
+    it('rejected + RETURN_TO_SENDER (from MANUAL_CHECKING) → RETURNING', async () => {
+      const deposit = {
+        id: 'dep-8',
+        depositNo: 'DEP008',
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.RETURNING,
+      });
+
+      await service.applyKytVerdict('dep-8', { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-8',
+        expect.objectContaining({ action: DepositTransactionAction.RETURN }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_RETURN_INITIATED' }),
+      );
+    });
+
+    it('no-op when deposit already terminal (SUCCESS)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-9',
+        depositNo: 'DEP009',
+        status: DepositTransactionStatus.SUCCESS,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it('no-op when already FROZEN and a duplicate rejected+SANCTION webhook arrives', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-10',
+        depositNo: 'DEP010',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it('no-op when already ACTION_PENDING and a duplicate awaitUser webhook arrives', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-11',
+        depositNo: 'DEP011',
+        status: DepositTransactionStatus.ACTION_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-11', { verdict: 'awaitUser', sceneTag: 'PEP' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
   });
 });

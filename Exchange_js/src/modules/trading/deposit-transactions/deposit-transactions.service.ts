@@ -43,6 +43,9 @@ export interface DepositStatusUpdateOptions {
   metadata?: Record<string, unknown>;
   statusHistoryContext?: Record<string, unknown>;
   sourcePlatform?: string;
+  // Additional deposit columns to persist in the same update as the status change
+  // (e.g. manualReason on COMPLIANCE_PENDING → ACTION_PENDING). Single-table, single-write.
+  extraData?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -246,6 +249,7 @@ export class DepositTransactionsService {
     const updateData: any = {
       status: nextStatus,
       statusHistory: JSON.stringify(currentHistory),
+      ...(options?.extraData || {}),
     };
 
     const TERMINAL = new Set([
@@ -393,6 +397,18 @@ export class DepositTransactionsService {
         travelRuleStatus: status,
         travelRuleCheckedAt: new Date(),
       },
+    });
+  }
+
+  /**
+   * KYT verdict = onHold: deposit stays in its current status (no transition),
+   * only the SLA deadline is (re)set. No status change, so this doesn't go
+   * through updateStatus/getNextStatus.
+   */
+  async setOnHoldSla(id: string, slaDeadline: Date) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { slaDeadline },
     });
   }
 

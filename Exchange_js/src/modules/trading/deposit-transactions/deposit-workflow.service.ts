@@ -131,9 +131,22 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.depositService.initializeComplianceGates(depositId);
   }
 
+  // 已终态:进入 applyKytVerdict 时直接 no-op(幂等,防终态后迟到的 webhook)。
+  private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
+    DepositTransactionStatus.SUCCESS,
+    DepositTransactionStatus.REJECTED,
+    DepositTransactionStatus.FAILED,
+    DepositTransactionStatus.EXPIRED,
+    DepositTransactionStatus.CONFISCATED,
+    DepositTransactionStatus.RETURNED,
+    DepositTransactionStatus.SEIZED,
+  ]);
+
+  private static readonly ONHOLD_SLA_DAYS = 7;
+
   /**
-   * 桩:Sumsub KYT 裁决落地入口(Task 6 的 DepositKytVerdictHandler 调用)。
-   * Task 7 实现真流转(state-aware,已终态 no-op);此处暂 no-op,勿 throw。
+   * Sumsub KYT 裁决落地入口(DepositKytVerdictHandler 调用)。State-aware:
+   * 已终态 no-op;已在目标态(重复 webhook)也 no-op。spec §5.1b + 校正(FROZEN 零记账)。
    */
   async applyKytVerdict(
     depositId: string,
@@ -143,10 +156,193 @@ export class DepositWorkflowService implements OnModuleInit {
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
     },
   ): Promise<void> {
-    this.logger.debug(
-      `applyKytVerdict stub: deposit ${depositId} verdict=${v.verdict} sceneTag=${v.sceneTag ?? '-'} dispoTag=${v.dispoTag ?? '-'}`,
+    const deposit = await this.depositService.findOne(depositId);
+    if (!deposit) {
+      this.logger.warn(`applyKytVerdict: deposit ${depositId} not found`);
+      return;
+    }
+
+    const status = deposit.status as DepositTransactionStatus;
+    if (DepositWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) {
+      this.logger.debug(
+        `applyKytVerdict no-op: deposit ${depositId} already terminal (${status})`,
+      );
+      return;
+    }
+
+    switch (v.verdict) {
+      case 'approved':
+        await this.applyKytApproved(deposit);
+        return;
+      case 'awaitUser':
+        await this.applyKytAwaitUser(deposit, v.sceneTag);
+        return;
+      case 'onHold':
+        await this.applyKytOnHold(deposit);
+        return;
+      case 'rejected':
+        await this.applyKytRejected(deposit, v.sceneTag, v.dispoTag);
+        return;
+    }
+  }
+
+  private async applyKytApproved(deposit: any) {
+    if (deposit.status === DepositTransactionStatus.MANUAL_CHECKING) {
+      // 误报翻案:此前进了人工复核,官方裁决翻回 approved。记账/SUCCESS 由下面的
+      // approveDeposit 统一处理,这里只补一条“翻案”审计。
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_MANUAL_APPROVED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'KYT verdict approved: manual checking overturned',
+        sourcePlatform: 'SYSTEM',
+      });
+    }
+    await this.approveDeposit(deposit.id);
+  }
+
+  private async applyKytAwaitUser(deposit: any, sceneTag?: 'SANCTION' | 'PEP') {
+    if (deposit.status === DepositTransactionStatus.ACTION_PENDING) {
+      return; // 已在目标态,防重复 webhook
+    }
+
+    const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
+    const oldStatus = deposit.status;
+    const updated = await this.depositService.updateStatus(
+      deposit.id,
+      {
+        action: DepositTransactionAction.ACTION_PENDING,
+        reason: 'KYT verdict: awaitUser',
+      },
+      {
+        actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
+        sourcePlatform: 'SYSTEM',
+        extraData: { manualReason },
+      },
     );
-    // TODO Task 7 实现
+
+    await this.recordStateTransitionAudit(
+      updated,
+      oldStatus,
+      updated.status,
+      `KYT verdict: awaitUser (manualReason=${manualReason})`,
+    );
+  }
+
+  private async applyKytOnHold(deposit: any) {
+    const slaDeadline = new Date(
+      Date.now() + DepositWorkflowService.ONHOLD_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
+    await this.depositService.setOnHoldSla(deposit.id, slaDeadline);
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_ONHOLD,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'KYT verdict: onHold, awaiting officer review',
+      metadata: { slaDeadline: slaDeadline.toISOString() },
+      sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  private async applyKytRejected(
+    deposit: any,
+    sceneTag?: 'SANCTION' | 'PEP',
+    dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER',
+  ) {
+    if (sceneTag === 'SANCTION' || dispoTag === 'FROZEN_BY_MLRO') {
+      if (deposit.status === DepositTransactionStatus.FROZEN) return; // 已在目标态,防重复 webhook
+
+      await this.depositService.updateStatus(
+        deposit.id,
+        { action: DepositTransactionAction.FREEZE, reason: 'KYT verdict: rejected' },
+        {
+          actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
+          sourcePlatform: 'SYSTEM',
+        },
+      );
+      // 校正:FROZEN 零记账——钱留在 DEPOSIT_SUSPENSE,不释放/不过账。
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_FROZEN,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: `KYT verdict rejected: ${sceneTag === 'SANCTION' ? 'SANCTION hit' : 'FROZEN_BY_MLRO disposition'}`,
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    if (dispoTag === 'RETURN_TO_SENDER') {
+      if (deposit.status === DepositTransactionStatus.RETURNING) return; // 已在目标态,防重复 webhook
+
+      await this.depositService.updateStatus(
+        deposit.id,
+        {
+          action: DepositTransactionAction.RETURN,
+          reason: 'KYT verdict: rejected, return to sender',
+        },
+        {
+          actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
+          sourcePlatform: 'SYSTEM',
+        },
+      );
+      // 只到状态位;两腿实际回款结算留计划2。
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_RETURN_INITIATED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'KYT verdict rejected: RETURN_TO_SENDER disposition',
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    // 无处置 tag → 转人工复核
+    if (deposit.status === DepositTransactionStatus.MANUAL_CHECKING) return; // 已在目标态,防重复 webhook
+
+    await this.depositService.updateStatus(
+      deposit.id,
+      {
+        action: DepositTransactionAction.MANUAL_CHECK,
+        reason: 'KYT verdict: rejected, no disposition tag',
+      },
+      {
+        actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
+        sourcePlatform: 'SYSTEM',
+      },
+    );
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_MANUAL_CHECKING,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'KYT verdict rejected: routed to manual compliance review',
+      sourcePlatform: 'SYSTEM',
+    });
   }
 
   async applyKytResult(depositId: string, kytStatus: string, riskScore?: number | null) {
@@ -258,7 +454,8 @@ export class DepositWorkflowService implements OnModuleInit {
     if (
       oldStatus !== DepositTransactionStatus.COMPLIANCE_PENDING &&
       oldStatus !== DepositTransactionStatus.ACTION_PENDING &&
-      oldStatus !== DepositTransactionStatus.FROZEN
+      oldStatus !== DepositTransactionStatus.FROZEN &&
+      oldStatus !== DepositTransactionStatus.MANUAL_CHECKING
     ) {
       this.logger.warn(`Deposit ${depositId} in ${oldStatus}, cannot approve.`);
       return;
