@@ -92,15 +92,16 @@
 
 ## 4. 动钱弧(自系统,admin 触发)· 复刻现成没收骨架
 
-统一骨架 = **先审批 → 进在途态 → 锁两腿 pending → post 结算 + 重试**(C1-C5 已跑通):
+统一骨架 = **先审批 → 进在途态 → 锁两腿 pending → post 结算 + 重试**。
+> ⚠️ **锚点校正(2026-07-25)**:main 上**没有**现成没收管道——CONFISCATE 现为纯状态跳转(零记账)。可复刻的两腿 pending→post+3重试模板是 **SWAP**(`swap-leg-accounting.ts` initiateLegPending/postLeg/voidLeg + `swap-workflow` MAX_LEG_ATTEMPTS=3 self-heal);那套 CONFISCATING 异步两腿在**未合并的 feat/transaction-limits 分支**。**无 CLIENT_BLOCKED 科目**(冻结=钱留 DEPOSIT_SUSPENSE 不释放,或 TB pending 表达)。
 
 | 弧 | 触发 | 事前审批 | 在途态 | 两腿(钱从→到) | 失败 |
 |---|---|---|---|---|---|
-| 冻结 | SANCTION webhook / FROZEN_BY_MLRO | ❌ 免(收紧,自动) | 无(单步) | SUSPENSE → CLIENT_BLOCKED | 单步重试 |
-| 退回 | RETURN_TO_SENDER | ✅ MLRO 双人 + FIU | RETURNING | SUSPENSE → 外部出金 | 停在途重试,不回滚 |
-| 上缴 | admin(政府令) | ✅ 政府令验证 + 双人 | SEIZING | CLIENT_BLOCKED → 政府账 | 停在途重试 |
-| 没收(已有) | 运营闸 below-min | ✅ OPS 双人 | CONFISCATING | SUSPENSE → FIRM_FEE | 3 重试(现成) |
-| 解冻回炉 | admin(除名/EOCN 令) | ✅ 双人 | 无 | CLIENT_BLOCKED → SUSPENSE | 后调 rescore 重跑 |
+| 冻结 | SANCTION webhook / FROZEN_BY_MLRO | ❌ 免(收紧,自动) | 无 | **钱留 DEPOSIT_SUSPENSE 不释放**(无 CLIENT_BLOCKED 科目) | 状态变,无记账 |
+| 退回 | RETURN_TO_SENDER | ✅ MLRO 双人 + FIU | RETURNING | DEPOSIT_SUSPENSE → 外部出金 | 停在途重试,不回滚 |
+| 上缴 | admin(政府令) | ✅ 政府令验证 + 双人 | SEIZING | DEPOSIT_SUSPENSE → 政府账 | 停在途重试 |
+| 没收 | 运营闸 below-min | ✅ OPS 双人 | CONFISCATING | DEPOSIT_SUSPENSE → FIRM_FEE | 3 重试(**新建,仿 SWAP**) |
+| 解冻回炉 | admin(除名/EOCN 令) | ✅ 双人 | 无 | 无(留 suspense)→ 重跑合规 | 后调 rescore 重跑 |
 
 **时序(退回/上缴 照没收"先批后动"):** 收 RETURN 标签 → 留人工校验 + 起审批单 → 批准+FIU → RETURNING(锁出金腿 pending)→ 出金广播确认 → post → RETURNED;驳回 → 回人工校验。
 **取向:** 动钱=敏感必留痕可失败 → 全两腿 pending→post + 失败停在途重试(不回滚/不跳终态);**冻结唯一免审批**(收紧可逆,放钱才审批)。
@@ -128,9 +129,9 @@
 
 ## 7. 数据模型改动
 
-- **状态 enum**(`deposit-transaction.dto.ts`):**新增** MANUAL_CHECKING / RETURNING / RETURNED / SEIZING / SEIZED / CONFISCATING;CONFISCATED 已有;**弃用** REJECTED(由 RETURNED 取代);FAILED/EXPIRED 技术态保留。
-- **字段**:`sumsubFinanceTxnId` / `sumsubTravelRuleTxnId`(出站映射)、`manualReason`、`slaDeadline·slaBreached`、动钱审批引用。(部分已在,实施核对。)
-- **COA 科目**:退回的"外部出金账"、上缴的"政府账"COA 里**可能缺**,需新增;SUSPENSE/CLIENT_BLOCKED/FIRM_FEE 现成。实施核 `accounting-coa.md`。
+- **状态 TS enum**(`deposit-transaction.dto.ts:4-14`,非 prisma enum;status 是 String 列):**新增** MANUAL_CHECKING / RETURNING / RETURNED / SEIZING / SEIZED / CONFISCATING;CONFISCATED 已有;**弃用** REJECTED(由 RETURNED 取代);FAILED/EXPIRED 技术态保留。加可逆中间态**须改** `deposit-transactions.service.ts` 的 `getNextStatus` 转移表(:301-331)+ TERMINAL 集合(:251/:287)。
+- **字段(全新,现状均无)**:`sumsubFinanceTxnId` / `sumsubTravelRuleTxnId`(出站映射)、`manualReason`、`slaDeadline`/`slaBreached`、动钱审批引用。现状合规子态承载在 `kytStatus/kytScreeningId/kytRiskScore/travelRuleStatus/...`。
+- **COA 科目**(`tb-account-codes.constant.ts`,u16 code+ledger 非 8 码):`DEPOSIT_SUSPENSE=101`/`CLIENT_PAYABLE=100`/`FIRM_FEE=202` 现成;**无 CLIENT_BLOCKED**(冻结=留 suspense 不释放,或 TB pending);退回"外部出金账"、上缴"政府账"**需新增科目 + transfer code**。实施核 `accounting-coa.md`。
 - **规则**:命中 5 条不可违反(审计走 `AuditLogsService` DI、多表变更用事务、业务键查询、不绕合规门、workflow 经 service 不直写表)。
 
 ## 8. 未决 / 风险(诚实)
@@ -139,7 +140,8 @@
 - 🟡 **SANCTION/PEP 场景标签靠规则打**(v3 spec §2),沙盒验不了;替代=读 scoringResult 命中规则名。
 - 🟡 退回/上缴 COA 科目待定;FIU 同意(退回)UAE 对等机制待核。
 - 本设计**不含前端**;officer 处置全在 Sumsub 控制台(onHold→tag→reject),我系统只收 webhook。
+- ⚠️ **锚点校正(2026-07-25 探测实证)**:main 上**无没收管道**(CONFISCATE 是纯状态跳转);两腿 self-heal 复刻 **SWAP** 而非"现成没收"(后者在未合并的 feat/transaction-limits 分支)。**无 CLIENT_BLOCKED 科目**(冻结=留 suspense)。`SumsubClient` **无交易 API**(submit/getTxn 全新加)。命名字段全无,需加列。
 
 ## 9. 交付物(本次)
 
-`deposit-sumsub/` 子模块(接收+handler+SumsubClient 真/mock)+ 状态 enum/字段迁移 + 动钱弧(RETURNING/SEIZING + 解冻,复用 CONFISCATING)+ 9 场景 fixture + e2e + 沙盒冒烟脚本。**不含**前端。
+`deposit-sumsub/` 子模块(接收+handler+SumsubClient 真/mock)+ 状态 enum/字段迁移 + 动钱弧(RETURNING/SEIZING/CONFISCATING + 解冻,**新建、复刻 SWAP 两腿 self-heal**)+ 9 场景 fixture + e2e + 沙盒冒烟脚本。**不含**前端。
