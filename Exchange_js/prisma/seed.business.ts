@@ -514,6 +514,7 @@ type DemoCustomer = {
   eddRequired: boolean;
   companyName?: string;
   complianceFreezeReason?: string;
+  sumsubApplicantId?: string;
 };
 
 const DEMO_CUSTOMERS: DemoCustomer[] = [
@@ -523,6 +524,9 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     firstName: 'Alice', lastName: 'Happy', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+    // Sumsub sandbox applicant (externalUserId = this customer's customerNo CU2601019430),
+    // tagged shawn-test. Survives reset because customerNo is derived from the email.
+    sumsubApplicantId: '6a5dd88f07d9bbd981a22fc9',
   },
   {
     email: 'demo_bob@example.com', phone: '+15552000002',
@@ -603,6 +607,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       tradingTier: c.tradingTier,
       eddRequired: c.eddRequired,
       companyName: c.companyName ?? null,
+      sumsubApplicantId: c.sumsubApplicantId ?? null,
     };
 
     const customer = await prisma.customerMain.upsert({
