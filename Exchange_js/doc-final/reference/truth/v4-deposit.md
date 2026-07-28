@@ -1,6 +1,6 @@
 # V4 充值流程 — 当前实现真相
 
-Last Verified: 2026-07-28（核对方式：① 充值状态机·计划1 引擎 12 task 落地后 symbol-level 复核，新增第 4.1/4.2 节 + 状态机/异常分支表同步，同日终审修复 I1/I2/onHold/awaitUser 原子化；② 没收改异步两阶段——CONFISCATING 中间态 + startConfiscation/settleConfiscation + 资金单 legSeq=2 判 INTERNAL + pending→post 幂等逐符号核实，below-min 挂起/PASS 沿用该轮基线；③ 2026-07-28 两支合并后交叉复核第 2/7 节——`CONFISCATING` 已由"孤儿占位"转为真实接线，没收路径已有反向分录，两处旧表述已校正；余节沿用 2026-07-03 三路 subagent 走查基线）
+Last Verified: 2026-07-28（核对方式：① 充值状态机·计划1 引擎 12 task 落地后 symbol-level 复核，新增第 4.1/4.2 节 + 状态机/异常分支表同步，同日终审修复 I1/I2/onHold/awaitUser 原子化；② 没收改异步两阶段——CONFISCATING 中间态 + startConfiscation/settleConfiscation + 资金单 legSeq=2 判 INTERNAL + pending→post 幂等逐符号核实，below-min 挂起/PASS 沿用该轮基线；③ 2026-07-28 两支合并后交叉复核第 2/7 节——`CONFISCATING` 已由"孤儿占位"转为真实接线，没收路径已有反向分录，两处旧表述已校正；④ 2026-07-28 计划2·A1（地基补齐）落地——`SEIZING→SEIZED_DONE→SEIZED` 转移边补上（此前 `SEIZING` 零出边、`SEIZED` 不可达），第 2/7 节同步校正；A1 仅铺地基（转移边 + COA 科目 `FIRM_SEIZED`=204 + TB 转账码 5-9/20 + 12 个审计常量），零 workflow/记账/审批接线，故记账列仍标 ❌；余节沿用 2026-07-03 三路 subagent 走查基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -19,7 +19,7 @@ Happy path：`PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS`；异常态 `ACT
 
 充值状态机·计划1 引擎（2026-07 落地）新增 `MANUAL_CHECKING`（人工复核）/ `RETURNING`（原路退回处理中）/ `SEIZING`（没收处理中）三个中间态，均**已接线进转移表**（见第 7 节）。没收链路另有 `CONFISCATING`（**中间态，非终态**）→ 治理终态 `CONFISCATED`。**两条没收弧**：below-min 走 `COMPLIANCE_PENDING --CONFISCATE_START--> CONFISCATING --CONFISCATE_SETTLE--> CONFISCATED`（异步两阶段，见第 6 节）；制裁走 `FROZEN --CONFISCATE--> CONFISCATED`（单跳，路径不变）。
 
-枚举里仍有两个**未真正接线**的值：`RETURNED` 可经 `RETURNING→RETURNED_DONE` 到达，但该 action 无业务 workflow 调用方（只能走 admin PATCH 直改）；`SEIZED` 只出现在终态判定集合里，转移表没有任何 action 能转入（`SEIZING` 无出边）。RETURNING 两腿回款结算 + 解冻回炉留计划2（见 BACKLOG）。
+枚举里两个终态均**已铺转移边、仍未接线进 workflow**：`RETURNED` 可经 `RETURNING→RETURNED_DONE` 到达；`SEIZED` 可经 `SEIZING→SEIZED_DONE` 到达（计划2·A1 新增，2026-07-28，`SEIZING` 此前零出边）——两个 action 均无业务 workflow 调用方（只能走 admin PATCH 直改）。RETURNING/SEIZING 两腿资金结算 + 解冻回炉留计划2 后续任务（见 BACKLOG）。
 
 - **新增字段** `limitHoldReason`（nullable，现仅一个取值 `'BELOW_MIN'`）：L1 金额下限挂起标记，充值出生时由 `detected()` 落标，`clearLimitHold()`（PASS）清除；没收不清标（CONFISCATING/CONFISCATED 仍带 `BELOW_MIN`，故对客户面持续隐藏，见第 5 节）
 - **锚点**：`deposit-transaction.dto.ts → DepositTransactionStatus/DepositTransactionAction` 枚举 ｜ `deposit-transactions.service.ts → getNextStatus()` 转移表（`CONFISCATED` 入 `TERMINAL` 集合；**`CONFISCATING` 不在 TERMINAL**，仅 `CONFISCATE_SETTLE` 一条出弧）
@@ -96,7 +96,7 @@ Happy path：`PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS`；异常态 `ACT
 | FROZEN 制裁/官方冻结 | ✅ | rejected(SANCTION tag 或 officer 打 FROZEN_BY_MLRO tag) → FREEZE 进；APPROVE/CONFISCATE/RETURN/SEIZE/RESUME 出边都在 | **零记账（设计如此，非缺口）**：钱留在 Step1 记的 DEPOSIT_SUSPENSE，不反转不释放 | ✅ officer 打 `FROZEN_BY_MLRO` tag 驱动进 |
 | MANUAL_CHECKING 人工复核（新）| ✅ | rejected(无处置tag) 或 SLA breach → MANUAL_CHECK 进；APPROVE(翻案记 `DEPOSIT_MANUAL_APPROVED`)/FREEZE/RETURN 出边都在 | 翻案批准才记账（走 approved 分支的 `approveDeposit`）| — |
 | RETURNING 原路退回中（新，止于此）| ✅进 / ❌出 | rejected(RETURN_TO_SENDER tag) → RETURN 进；出边 `RETURNED_DONE`→`RETURNED` 无 workflow 方法调用，只能靠 admin PATCH 直改触发 | ❌ 两腿回款记账未做（计划2）| — |
-| SEIZING 没收处理中（新，止于此）| ✅进 / ❌出 | FROZEN → SEIZE 进（同上，只能 admin PATCH 直改，无 workflow 调用）；转移表未定义任何离开 SEIZING 的 action，进了出不来 | ❌ 未做（计划2）| — |
+| SEIZING 没收处理中（新）| ✅进 / ❌出 | FROZEN → SEIZE 进；`SEIZING → SEIZED_DONE → SEIZED` 出边已铺（计划2·A1，2026-07-28），但同 RETURNING 一样无 workflow 调用方，只能 admin PATCH 直改触发 | ❌ 未做（计划2）| — |
 | REJECTED | ✅ | ✅ 转移在 | ❌ **无反向分录** | — |
 | Payin FAILED | ✅ | ✅ `onPayinFailed` | ❌ **无反向分录** | — |
 | EXPIRED | ✅ | ✅ ACTION_PENDING→EXPIRED | ❌ **无反向分录** | — |
@@ -107,8 +107,8 @@ Happy path：`PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS`；异常态 `ACT
 
 - 🔴 **半截桥风险（缩小但未消除）**：`adminReject`/`adminFreeze` 端点已上线，但 deposit 模块对 REJECTED/FAILED/EXPIRED **仍零回退分录代码**——已过 Step1 的充值被拒 → 钱永久滞留 DEPOSIT_SUSPENSE。**只有 BELOW_MIN 没收一条路径**补上了反向分录（第 6 节 Leg1），其余异常终态仍是半截桥。临时守卫卡片 task_16af8187（见 BACKLOG）。
 - **CONFISCATE 正门治理 + PATCH 侧门已封**：`POST :id/confiscate` 走 `initiateConfiscation → 审批 → onConfiscationDecided → startConfiscation →（ops 步进 legSeq=2 资金单）→ settleConfiscation` 治理链（先 pending 锁账推 CONFISCATING，资金单 CONFIRMED 才 POST 落 CONFISCATED）；而 `PATCH :id/status` 的 `default` 分支虽仍直调 `deposit-transactions.service.ts → updateStatus()`，但 `ACCOUNTING_TERMINALS` 现已从 `{SUCCESS}` 扩到 **`{SUCCESS, CONFISCATED, CONFISCATING}`**——ADMIN_API 来源的 PATCH 若把 `nextStatus` 推向这三者即被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 拒绝。即 admin **不再能**用旧 PATCH 裸拍 `CONFISCATED`/`CONFISCATING`（`confiscate`/`confiscate_start`/`confiscate_settle` 三个 action 全被拦），"状态已终态但两腿未入账"的账实不符已堵。
-- **⚠️ 其余 PATCH 侧门仍开**：`FROZEN`/`RETURNING`/`SEIZING`/`RETURNED` 均 ∉ `ACCOUNTING_TERMINALS`，故 PATCH `action='freeze'`（→FROZEN）/ `'returned_done'`（RETURNING→RETURNED）/ `'seize'`（FROZEN→SEIZING）仍可走 `updateStatus()` 的 default 分支直改状态，绕过 workflow 与记账。计划1 新增的 `RETURNED_DONE`/`SEIZE` 沿用了这个老口子、未收窄（既存技术债，见 BACKLOG"Admin PATCH deposit status 部分绕过 workflow"）。
-- **枚举里 `SEIZED` 仍是纯占位**：只出现在终态判定集合里，转移表没有任何 action 能把状态转成 `SEIZED`（`SEIZING` 无出边）。RETURNING 两腿回款结算 + 解冻回炉留计划2（见 BACKLOG）。**注**：`CONFISCATING` 曾在计划1 阶段是孤儿枚举值，没收异步两阶段落地后已真实接线（`CONFISCATE_START` 进 / `CONFISCATE_SETTLE` 出），不再是占位。
+- **⚠️ 其余 PATCH 侧门仍开**：`FROZEN`/`RETURNING`/`SEIZING`/`RETURNED`/`SEIZED` 均 ∉ `ACCOUNTING_TERMINALS`，故 PATCH `action='freeze'`（→FROZEN）/ `'returned_done'`（RETURNING→RETURNED）/ `'seize'`（FROZEN→SEIZING）/ `'seized_done'`（SEIZING→SEIZED，计划2·A1 新增）仍可走 `updateStatus()` 的 default 分支直改状态，绕过 workflow 与记账。计划1 新增的 `RETURNED_DONE`/`SEIZE`、计划2·A1 新增的 `SEIZED_DONE` 都沿用了这个老口子、未收窄（既存技术债，见 BACKLOG"Admin PATCH deposit status 部分绕过 workflow"）。
+- **枚举里 `SEIZED` 曾是纯占位，现已铺出边**：计划2·A1（2026-07-28）新增 `SEIZING → SEIZED_DONE → SEIZED` 转移边（与既有 `RETURNED_DONE` 同构：无 workflow 调用方，仅 admin PATCH 侧门可达，见上表）。`SEIZED` 也 ∉ `ACCOUNTING_TERMINALS`，PATCH `action='seized_done'` 同样不受 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 拦。RETURNING/SEIZING 两腿资金结算 + 解冻回炉留计划2 后续任务（见 BACKLOG）。**注**：`CONFISCATING` 曾在计划1 阶段是孤儿枚举值，没收异步两阶段落地后已真实接线（`CONFISCATE_START` 进 / `CONFISCATE_SETTLE` 出），不再是占位。
 - **锚点**：`deposit-workflow.service.ts → runGate0()`（L1 冻结）｜ `deposit-transactions.controller.ts → updateStatus()`（PATCH 路由；CONFISCATE 治理正门是独立 `:id/confiscate` 端点）｜ `deposit-transactions.service.ts → updateStatus()/getNextStatus()`（转移表；`ACCOUNTING_TERMINALS={SUCCESS,CONFISCATED,CONFISCATING}` + `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫；FREEZE/RETURNED_DONE/SEIZE 仍可绕）
 
 ## 8. 支撑项（均 ✅ 存活）
