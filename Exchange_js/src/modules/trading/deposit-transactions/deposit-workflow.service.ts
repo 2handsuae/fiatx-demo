@@ -18,7 +18,8 @@ import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
-import { deterministicTransferId } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { deterministicTransferId, bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
   FundsOrderAction,
@@ -84,6 +85,7 @@ export class DepositWorkflowService implements OnModuleInit {
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly approvalsService: ApprovalsService,
     private readonly systemWalletResolver: SystemWalletResolver,
+    private readonly tbEvidenceService: TbEvidenceService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -110,6 +112,9 @@ export class DepositWorkflowService implements OnModuleInit {
     // legSeq 2 is the C2/C3 confiscation leg → its CONFIRMED settles the below-min
     // confiscation (POST the two pending legs + deposit → CONFISCATED).
     if (event.legSeq === 2) { await this.onConfiscationLegChanged(event); return; }
+    // legSeq 3 is the A3 return-to-sender leg (confiscation owns legSeq 2) →
+    // CONFIRMED settles RETURNING → RETURNED; FAILED/TIMEOUT voids + retries.
+    if (event.legSeq === 3) { await this.onReturnLegChanged(event); return; }
     if (event.legSeq !== 1) return;
     const depositId = event.parent.depositTransactionId;
     this.logger.log(
@@ -484,6 +489,11 @@ export class DepositWorkflowService implements OnModuleInit {
         );
       } catch (err) {
         if (err instanceof ConflictException) {
+          // Minor (A2 review): this catch assumes ConflictException can only come from
+          // initiateReturn's own anti-dup guard (an already-open DEPOSIT_RETURN approval)
+          // — initiateReturn's only other throw is BadRequestException (wrong status /
+          // blank reason), never caught here. If initiateReturn's error surface ever
+          // grows a second ConflictException source, this blanket catch would swallow it.
           // 已有一笔在途的退回审批——重复 webhook 命中防重闸,幂等 no-op。
           this.logger.debug(
             `applyKytRejected RETURN_TO_SENDER: deposit ${deposit.id} already has a pending return approval`,
@@ -1698,13 +1708,258 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.onReturnApproved(deposit);
   }
 
-  /** Stub — A3 fills in the actual return settlement (out-leg posting + status transitions). */
+  /**
+   * Start an approved return-to-sender (A3, "start" half). 先账后状态: PENDING-lock the
+   * single reverse-suspense leg + create the legSeq 3 funds order in CREATED
+   * (advanceable, NOT auto-cleared) BEFORE flipping the deposit to RETURNING via
+   * RETURN. The matching POST/settle half lands in settleReturn, which reproduces
+   * the pending transfer via deterministicTransferId('DEPOSIT', depositNo, eventCode,
+   * attempt) — so eventCode + legIndex(=attempt) here are load-bearing.
+   *
+   * Mirrors startConfiscation's structure but with ONE leg, not two: return only
+   * reverses the customer's suspense (DR DEPOSIT_SUSPENSE(CUSTOMER) / CR
+   * CLIENT_ASSET(SYSTEM) — exact reverse of the payin STEP_1, same direction as
+   * confiscation's leg1). Unlike confiscation (an internal reclass), this leg is a
+   * genuine external crossing — the funds order's destination is the ORIGINAL
+   * SENDER (deposit.fromAddress/fromIban), not a firm wallet, and toWalletId is
+   * null (external, not platform-owned). Idempotent: reuse an existing legSeq 3
+   * order rather than creating a duplicate on replay.
+   *
+   * Guarded to only run from MANUAL_CHECKING — a replayed decided event arriving
+   * after the deposit already left MANUAL_CHECKING (already RETURNING/RETURNED, or
+   * drifted to some other state) is a no-op rather than crashing on an invalid
+   * state-machine transition.
+   */
   private async onReturnApproved(deposit: any) {
-    // TODO(A3): post the return leg(s) (reverse suspense + return to sender) and drive
-    // the deposit status through RETURNING → RETURNED.
-    this.logger.log(
-      `Deposit ${deposit.depositNo} return approved — settlement execution deferred to A3.`,
-    );
+    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+      this.logger.debug(
+        `onReturnApproved no-op: deposit ${deposit.id} not in MANUAL_CHECKING (status=${deposit.status})`,
+      );
+      return;
+    }
+
+    const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 3 });
+    const returnLeg = existing ?? await this.fundsOrders.create({
+      depositTransactionId: deposit.id,
+      legSeq: 3,
+      initialStatus: FundsOrderStatus.CREATED,
+      assetId: deposit.assetId,
+      amount: String(deposit.amount),
+      netAmount: String(deposit.amount),
+      fromWalletId: deposit.toWalletId ?? null,
+      fromAddress: deposit.toAddress ?? undefined,
+      fromIban: deposit.toIban ?? undefined,
+      toWalletId: null,
+      toAddress: deposit.fromAddress ?? undefined,
+      toIban: deposit.fromIban ?? undefined,
+      traceId: deposit.traceId || undefined,
+    });
+
+    await this.pendReturnSuspense(deposit, returnLeg.attempt ?? 1);
+
+    await this.depositService.updateStatus(deposit.id, {
+      action: DepositTransactionAction.RETURN,
+      reason: 'Return to sender approved (funds in transit)',
+    });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_RETURN_STARTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+      workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), fundsOrderNo: returnLeg.fundsOrderNo },
+      requestId: `DEPOSIT_RETURN_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  /**
+   * Books the single return-leg pending transfer: DR DEPOSIT_SUSPENSE(CUSTOMER) /
+   * CR CLIENT_ASSET(SYSTEM), `legIndex: attempt`. `attempt` disambiguates the TB
+   * deterministic id across rebuild retries (ExecutePendingTransferParams.legIndex's
+   * documented purpose — "distinguish retries of the same (sourceType, sourceNo,
+   * eventCode)", the same convention SwapLegAccounting uses for leg self-heal) —
+   * without it, a retried leg's pending lock would collide with the voided one from
+   * the previous attempt (same deterministic id) and TB would silently no-op it.
+   */
+  private async pendReturnSuspense(deposit: any, attempt: number): Promise<void> {
+    const asset = deposit.asset;
+    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
+    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
+    const ledger = asset.tbLedgerId;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+
+    const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
+    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_RETURN_PENDING, timeout: 0, legIndex: attempt,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'DEPOSIT_RETURN_PENDING',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Return to sender (pending)', debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: true,
+      },
+    });
+  }
+
+  /**
+   * Return-leg settle half: the legSeq 3 funds order reached a status. Mirrors
+   * onConfiscationLegChanged's routing but handles BOTH outcomes — the return leg
+   * is a genuine external crossing that can fail/timeout (confiscation's internal
+   * reclass leg never models this). Idempotent: only a deposit still RETURNING is
+   * in flight — an already-RETURNED one (or one that never entered RETURNING) is a
+   * no-op, so a replayed event never double-settles or double-retries.
+   */
+  private async onReturnLegChanged(event: FundsOrderStatusChangedEvent) {
+    const depositId = event.parent.depositTransactionId;
+    if (!depositId) return;
+    const deposit = await this.depositService.findOne(depositId);
+    if (deposit.status !== DepositTransactionStatus.RETURNING) return; // already settled / not in transit
+
+    switch (event.newStatus) {
+      case FundsOrderStatus.CONFIRMED:
+        await this.settleReturn(deposit, event.fundsOrderId, event.attempt);
+        break;
+      case FundsOrderStatus.FAILED:
+      case FundsOrderStatus.TIMEOUT:
+        await this.onReturnLegFailed(deposit, event.fundsOrderId, event.attempt);
+        break;
+    }
+  }
+
+  /**
+   * POST the return leg's pending transfer (external payout confirmed), enrich the
+   * evidence row with the funds order's externalRef (chain txHash / bank ref, minted
+   * at CONFIRMED — mirrors withdraw's onPayoutLegConfirmed → enrichForPost), then
+   * flip the deposit to RETURNED. The pending id is reproduced deterministically
+   * from the SAME business key pendReturnSuspense used —
+   * deterministicTransferId('DEPOSIT', depositNo, 'DEPOSIT_RETURN_PENDING', attempt)
+   * — so eventCode + legIndex(=attempt) MUST match exactly. 3× retry on a transient
+   * TB failure (mirrors settleConfiscation); if every attempt fails the deposit
+   * stays RETURNING (no revert, no rethrow — silent stop in the async listener) with
+   * a DEPOSIT_RETURN_STUCK audit flagging it for manual intervention.
+   */
+  private async settleReturn(deposit: any, fundsOrderId: string, attempt: number) {
+    const asset = deposit.asset;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const pend = deterministicTransferId('DEPOSIT', deposit.depositNo, 'DEPOSIT_RETURN_PENDING', attempt);
+    const fundsOrder = await this.fundsOrders.findById(fundsOrderId);
+    const externalRef = fundsOrder ? this.fundsOrders.resolveExternalRef(fundsOrder) : null;
+    const MAX = 3;
+    for (let i = 1; i <= MAX; i++) {
+      try {
+        await this.accountingService.postPendingTransfer({
+          pendingTransferId: pend, amount: amountBigint,
+          evidence: {
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'DEPOSIT_RETURN_PENDING',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+          },
+        });
+        // postPendingTransfer only flips transferType — it doesn't write a new evidence
+        // row or carry Phase B fields. Enrich the LOCK row so it now records the POST
+        // event semantics (new eventCode + externalRef/crossing), mirrors withdraw.
+        await this.tbEvidenceService.enrichForPost(bigintToHex(pend), {
+          eventCode: 'DEPOSIT_RETURN_POST',
+          memo: 'Return to sender confirmed externally',
+          externalRef,
+          isExternalCrossing: true,
+        });
+        await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.RETURNED_DONE, reason: 'Return to sender settled' });
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_RETURNED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, externalRef },
+          requestId: `DEPOSIT_RETURNED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        });
+        return;
+      } catch (err: any) {
+        this.logger.error(`Return settle attempt ${i}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);
+        if (i === MAX) {
+          await this.auditLogsService.recordSystem({
+            action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+            workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+            reason: `Settle failed after ${MAX} retries — manual intervention required (deposit stays RETURNING)`,
+            metadata: { depositNo: deposit.depositNo, fundsOrderId, error: err.message }, requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+          });
+          return; // stay RETURNING, no revert, no rethrow (silent stop in the async listener)
+        }
+      }
+    }
+  }
+
+  /**
+   * The external return payout itself FAILED/TIMED OUT (leg-level failure, distinct
+   * from settleReturn's transient-TB-failure retry). VOID the pending lock — the
+   * SAME deterministic id reproduced with the failed leg's own `attempt` — then
+   * either rebuild a new legSeq 3 attempt (attempt < 3: fresh funds order + fresh
+   * pending lock at legIndex=attempt+1, DEPOSIT_RETURN_RETRIED audit) or give up
+   * (attempt exhausted: DEPOSIT_RETURN_STUCK audit). Never auto-jumps to a terminal
+   * status and never rolls back — the deposit simply stays RETURNING either way,
+   * mirroring settleConfiscation's "stop, don't revert" failure semantics.
+   */
+  private async onReturnLegFailed(deposit: any, fundsOrderId: string, attempt: number) {
+    const asset = deposit.asset;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const pend = deterministicTransferId('DEPOSIT', deposit.depositNo, 'DEPOSIT_RETURN_PENDING', attempt);
+
+    await this.accountingService.voidPendingTransfer({
+      pendingTransferId: pend, amount: amountBigint,
+      evidence: {
+        // Note: voidPendingTransfer (like postPendingTransfer) only flips the pending
+        // evidence row's transferType — it doesn't currently persist this evidence
+        // object. eventCode is set to the VOID label (not the PENDING one used for the
+        // hash above) for self-documentation / forward-compat if that ever changes.
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'DEPOSIT_RETURN_VOID',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+      },
+    });
+
+    const MAX = 3;
+    if (attempt < MAX) {
+      const nextAttempt = attempt + 1;
+      const newLeg = await this.fundsOrders.create({
+        depositTransactionId: deposit.id,
+        legSeq: 3,
+        attempt: nextAttempt,
+        initialStatus: FundsOrderStatus.CREATED,
+        assetId: deposit.assetId,
+        amount: String(deposit.amount),
+        netAmount: String(deposit.amount),
+        fromWalletId: deposit.toWalletId ?? null,
+        fromAddress: deposit.toAddress ?? undefined,
+        fromIban: deposit.toIban ?? undefined,
+        toWalletId: null,
+        toAddress: deposit.fromAddress ?? undefined,
+        toIban: deposit.fromIban ?? undefined,
+        traceId: deposit.traceId || undefined,
+      });
+
+      await this.pendReturnSuspense(deposit, nextAttempt);
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_RETURN_RETRIED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+        workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+        reason: `Return leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
+        requestId: `DEPOSIT_RETURN_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+      workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+      reason: `Return leg failed after ${attempt} attempts — manual intervention required (deposit stays RETURNING)`,
+      metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
+      requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    });
   }
 
   /**
