@@ -63,6 +63,7 @@ npm run runtime:diagnose           # 诊断迁移漂移
 | 前端管理台 | `doc-final/rules/frontend-admin.md` |
 | 前端客户端 | `doc-final/rules/frontend-client.md` |
 | **某功能代码现状** | `doc-final/reference/truth/`（真相文档；改代码必须同步）|
+| **验收某功能 / 写测试用例** | `doc-final/test-cases/`（按 PRD「应然」写，与 truth 的「实然」不一致即待办）|
 | **技术债/死码/待决策** | `doc-final/BACKLOG.md`（唯一登记处；说"以后做"必须记一行）|
 
 需要了解版本路线图与架构决策 → `doc-final/reference/roadmap.md`、`doc-final/reference/truth/funds-orders.md`
@@ -75,7 +76,7 @@ npm run runtime:diagnose           # 诊断迁移漂移
 
 项目文档只有**一个根**：`Exchange_js/doc-final/`（读法地图见 `doc-final/README.md`）。禁止在别处另立文档目录（壳层 `重做版/doc-final/`、`Exchange_js/docs/` 已于 2026-07-03 收编删除）。分两层：
 
-- **🟢 活真相层**（平时改代码看）：`rules/` ｜ `reference/(+truth/)` ｜ `glossary/` ｜ `ui-contract/` ｜ `BACKLOG.md`
+- **🟢 活真相层**（平时改代码看）：`rules/` ｜ `reference/(+truth/)` ｜ `test-cases/` ｜ `glossary/` ｜ `ui-contract/` ｜ `BACKLOG.md`
 - **🗄️ 历史/设计存档层**（追溯设计才翻，**只读**）：`superpowers/`（`specs/` ｜ `plans/` ｜ `product-docs/`）
 
 **spec/plan 写入铁律**：brainstorming / writing-plans 产出一律写入
