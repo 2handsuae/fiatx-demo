@@ -2113,6 +2113,15 @@ export class DepositWorkflowService implements OnModuleInit {
    * lock's deterministic id). `orderRef` is embedded in the persisted
    * evidence.memo — the sole 8-year retention anchor since the destination account
    * itself is never modeled (owner decision 2026-07-28).
+   *
+   * creditWalletRef is deliberately `null`, NOT customerWalletRef: unlike the
+   * return arc's CLIENT_ASSET credit (an aggregate account, R2-exempt), FIRM_SEIZED
+   * is a per-owner SYSTEM account with no backing wallet row (government handoff
+   * account is intentionally never modeled — same "no wallet" reasoning as
+   * startConfiscation's FIRM_ASSET debitWalletRef: null). Crediting it with the
+   * *customer's* walletRef would fail the R2 owner-match guard in
+   * AccountFlowProjectorService (CUSTOMER wallet vs SYSTEM-owned account) —
+   * this was Bug #2 from the A6 e2e run.
    */
   private async pendSeizeSuspense(deposit: any, attempt: number, orderRef: string): Promise<void> {
     const asset = deposit.asset;
@@ -2133,7 +2142,7 @@ export class DepositWorkflowService implements OnModuleInit {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_SEIZED],
         assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: `Government seizure order ${orderRef} — funds moved to firm-seized custody (pending)`,
-        debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: true,
+        debitWalletRef: customerWalletRef, creditWalletRef: null, isExternalCrossing: true,
       },
     });
   }

@@ -2420,7 +2420,11 @@ describe('DepositWorkflowService', () => {
             debitCode: 'L.DEPOSIT_SUSPENSE',
             creditCode: 'E.FIRM_SEIZED',
             debitWalletRef: 'cust-wallet-sz-1',
-            creditWalletRef: 'cust-wallet-sz-1',
+            // FIRM_SEIZED (COA 204) has no backing wallet row (government handoff
+            // account is deliberately never modeled) — creditWalletRef must be
+            // null, NOT the customer's wallet (that would fail the R2 owner-match
+            // guard: a CUSTOMER wallet credited against a SYSTEM-owned account).
+            creditWalletRef: null,
             isExternalCrossing: true,
             // 8-year retention anchor: orderRef must be embedded in the memo since
             // the destination account itself is never modeled.

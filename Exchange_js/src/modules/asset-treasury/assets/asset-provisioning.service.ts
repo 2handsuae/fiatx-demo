@@ -36,6 +36,7 @@ export class AssetProvisioningService {
       { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
       { code: TB_ACCOUNT_CODES.FIRM_FEE, desc: 'FIRM_FEE' },
       { code: TB_ACCOUNT_CODES.FIRM_LIQ, desc: 'FIRM_LIQ' },
+      { code: TB_ACCOUNT_CODES.FIRM_SEIZED, desc: 'FIRM_SEIZED' },
       ...(isFiat ? [{ code: TB_ACCOUNT_CODES.FIRM_SET, desc: 'FIRM_SET' }] : []),
     ];
 
