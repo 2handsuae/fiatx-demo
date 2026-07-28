@@ -1,6 +1,6 @@
 # Sumsub 合规信号翻译层 — 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-07-04（核对方式：符号级 grep + V2/V4/V5/V6 体检交叉佐证）
+Last Verified: 2026-07-28（核对方式：符号级 grep + V2/V4/V5/V6 体检交叉佐证；本次补充充值 KYT-txn webhook 前置分流段，见第 3 节）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V2(onboarding/CRA/材料时效)/V4(充值 KYT)/V5(提现 KYT)/V6(兑换) 引用——外部合规信号进平台的**唯一入口**。各版本文档只描述"自己消费哪个事件"，翻译层机制链到此。
 
@@ -25,20 +25,22 @@ Sumsub（KYC/KYT/Travel Rule/制裁筛查/持续监控）的 webhook → 翻译�
 
 - **接入**：`POST /webhooks/sumsub` → `handleWebhook()` 签名验证（`sumsubClient.verifyWebhookSignature`，失败抛 401）
 - **ingest**：`ingest()` → 去重（dedupeKey）→ `createEventRecord()` 建 SumsubWebhookEvent(PENDING) → 触发 dispatch
-- **dispatch 路由**（`dispatch()`，按 eventType + 客户 onboardingStatus 分流）：
+- **dispatch 前置分流（充值交易 webhook，2026-07 落地）**：`dispatch()` 在按 eventType 的老 if/else 分支**之前**新插一段——`payload.type` 以 `applicantKytTxn` 开头（`applicantKytTxnApproved/Rejected/AwaitingUser/OnHold/Reviewed/Created`）即整段转交 `DepositWebhookRouter.route()`（新模块 `deposit-sumsub/`），复用本表既有的去重/retry/dead-letter，只是路由目标从老 if/else 换成这个 router。`DepositWebhookRouter` 再按 type 二次分流到 `DepositKytVerdictHandler`（Approved/Rejected/AwaitingUser/OnHold）→ 调 `DepositWorkflowService.applyKytVerdict()` 驱动充值状态机（Created 只记 debug 回执 no-op，Reviewed 归一 ignore，未知 type 记 orphan warn）。`applicantAction*` 事件**不**进这条新分支——仍走下面"applicant 事件"这条老分支（Clue 3，材料时效重检消费方 V2 `materialRefreshService`），两者互不干扰；充值侧对材料补齐后的重检不需要专门 handler 接住 action 事件本身，客户补料后 Sumsub 自动重评发出的仍是 `applicantKytTxn*`，继续走新分支。详见 `v4-deposit.md` §4.1。
+- **dispatch 路由**（老分支，按 eventType + 客户 onboardingStatus 分流，`applicantKytTxn*` 已被上面的新分支拦截，不会落到这里）：
   - 模拟合规事件（kyt/tr/caseDecision）→ 对应交易的合规门（V4/V5/V6 KYT/TR 状态）
   - `ongoingDocExpired` → V2 `materialRefreshService.handleSumsubDocMonitoringFire()`
   - applicant 事件 → 按 onboardingStatus：PENDING_VERIFICATION→V2 onboarding；APPROVED+WorkflowCompleted→V2 tierUpgrade；APPROVED+Reviewed(RED)→V2 CRA
 - **韧性**：`sumsub-ingestion-retry.service.ts` `@Cron('*/2 * * * *')` 扫 FAILED，退避 [30s/5m/30m]，超 3 次 → DEAD
 - **模拟端点**：`simulate()`（DEV 阶段注入合规结果，走同 ingest 管道）；admin `list()/findOne()/replay()`（Sumsub Events 页）
-- 锚点：`sumsub-ingestion.controller.ts → handleWebhook()` ｜ `sumsub-ingestion.service.ts → ingest()/dispatch()/simulate()/replay()` ｜ `sumsub-ingestion-retry.service.ts` ｜ `admin-sumsub-simulation.controller.ts`（各交易的 kyt/tr 模拟端点）
+- 锚点：`sumsub-ingestion.controller.ts → handleWebhook()` ｜ `sumsub-ingestion.service.ts → ingest()/dispatch()/simulate()/replay()` ｜ `sumsub-ingestion-retry.service.ts` ｜ `admin-sumsub-simulation.controller.ts`（各交易的 kyt/tr 模拟端点）｜ `deposit-sumsub/deposit-webhook.router.ts`（充值 KYT-txn webhook 前置分流）｜ `deposit-sumsub/deposit-kyt-verdict.handler.ts`
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
 
-- 🔴 **真实 Sumsub KYT/TR 集成未做**：当前 V4/V5/V6 的 KYT/Travel Rule 门**靠模拟端点驱动**，真实 webhook 对交易合规的消费链路未见部署；V5 `archivePostKyt()` stub（待替换真实 PATCH /kyt/txns 调用）
+- 🔴 **真实 Sumsub KYT/TR 集成未做（V5/V6）**：V5（提现）/V6（兑换）的 KYT/Travel Rule 门仍**靠模拟端点驱动**，真实 webhook 消费链路未见部署；V5 `archivePostKyt()` stub（待替换真实 PATCH /kyt/txns 调用）。**V4（充值）已接真实 webhook**（`applicantKytTxn*` → `DepositWebhookRouter`，见第 3 节 + `v4-deposit.md` §4.1）——但老 mock kyt-check/tr-check 路径（`v4-deposit.md` §4.2）并未删除，新旧两条路径并存。
 - 消费方处置见各版本：V2 onboarding/CRA/材料时效（v2-customer-compliance.md）、V4-V6 合规门（各自 truth）
 
 ## 5. 锚点汇总
 
 `sumsub-ingestion/`：`sumsub-ingestion.controller.ts`（webhook 接入）｜ `sumsub-ingestion.service.ts`（ingest/dispatch 主）｜ `sumsub-ingestion-retry.service.ts`（retry/dead-letter cron）｜ `sumsub-ingestion-admin.controller.ts`（Events 页）｜ `admin-sumsub-simulation.controller.ts`（模拟端点）
-消费方：`identity/onboarding`、`identity/client-risk-assessment`、`identity/material-refresh`、各 trading 模块合规门
+`deposit-sumsub/`（充值 KYT-txn webhook 消费方，2026-07 落地）：`deposit-webhook.router.ts`（分流）｜ `deposit-kyt-verdict.handler.ts`（翻译 verdict）｜ `deposit-sla.service.ts`（onHold/ACTION_PENDING SLA 定时器）｜ `sumsub-txn-client.{interface,http,mock}.ts`（提交/查询 KYT 交易）
+消费方：`identity/onboarding`、`identity/client-risk-assessment`、`identity/material-refresh`、`deposit-sumsub`（充值 KYT-txn，见上）、各 trading 模块合规门

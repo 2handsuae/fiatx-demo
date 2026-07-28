@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-07-12
+Last Updated: 2026-07-28
 
 ---
 
@@ -32,6 +32,17 @@ Last Updated: 2026-07-12
 - [x] ~~🔴 TR 从 status 升级为独立"交换实体"表~~ ❌ **否决（2026-07-14）**：经两轮论证否决"独立 TR 交换表"——① **Sumsub 存 TR 交换真身**（system of record，可 API 查特定 TR 交易 / Dashboard 列 / on-hold 队列），我方本地只是镜像；② 无本地充值场景 A（预告）则每笔 TR 都 1:1 **订单锚定** → 订单字段（`travelRuleStatus`/`sumsubTxnId`/`counterpartyVasp`/`failReason`，前几个已有）+ workflow 流转即可，不必建表；③ 入站归属确认（对方先发 TR）可**无状态自动应答**（客户充值地址预注册到 Sumsub → 自动确认 + 从 applicant 带 PII），不需本地预告表；④ 场景 A 可塌成"无状态应答 + 钱到走场景 B"（Sumsub 当相关器，txHash 幂等防重复提交）。**目标架构** = 充值/提现订单字段 + 无状态入站归属应答器 + Sumsub 当真身/合规台（合规人员在 Sumsub Dashboard 处置，我方不自建审核台）。曾做完 9 task/12 commit 的分支 `claude/tr-exchange` + Lark PRD 已删。**新集成点**（真接 Sumsub 时）：建客户充值地址时同步注册到 Sumsub 绑 applicant。决策见 memory `tr-exchange-table-rejected` ｜来源: 2026-07-14 TR 交换表否决
 - [ ] **充值自动侦测器未接**：链上 watcher / 银行 VIBAN webhook 未部署，`deposit-transactions.service.ts → detected()`（真实业务入口）当前**唯一**触发路径是客户申报入账信号 + 手动扫描（demo 脚手架，带 `simulationRisk*` 注入 + `QUICK_DEMO` 模式）；PRD happy path 按业务意图写"系统自动侦测"，落地待接真实侦测源 ｜来源: 2026-07-11 充值 PRD v2
 - [ ] **充值审计事件改名 + 精简（8→6）**：PRD v2 定稿审计集去 `DEPOSIT_` 冗余前缀（workflowType 已标 DEPOSIT）+ 统一 `_APPLIED`→`_PASSED`（与展示词对齐）；并合并两对同刻冗余事件——`DEPOSIT_COMPLIANCE_STARTED`(并入 PAYIN_CONFIRMED) + `DEPOSIT_APPROVED`(并入 COMPLETED)；**并 GATE0→L1**（退役 `GATE0`/`Gate 0` 命名，统一 L1/L2/L3 口径：`DEPOSIT_GATE0_PASSED`→`L1_PASSED`、`runGate0()`→`runL1()`、日志 "Gate 0" 改 "L1"）。改 `audit-actions.constant.ts` + `deposit-workflow.service.ts`，须评估历史 `audit_log_events` 旧值兼容 ｜来源: 2026-07-11 充值 PRD v2（审计瘦身轮）+ 2026-07-12 三闸门命名统一
+
+## 技术债 — 充值状态机·计划1 引擎（deposit-sumsub，2026-07-28）
+
+> 来源统一：`superpowers/specs/2026-07-2x-deposit-state-machine-*`（KYT-only 架构，忽略 amlCase，靠规则折叠+自动重算）+ 12-task 实施计划。现状见 `truth/v4-deposit.md` §4.1/§4.2、`truth/sumsub-ingestion.md` §3。以下为本计划刻意延后到计划2 的功能块 + 落地中发现的欠账。
+
+- [ ] **计划2：RETURNING/CONFISCATING/SEIZING 三条动钱弧的结算+审批闭环**：`RETURNING→RETURNED`（原路退回）/ `CONFISCATING→CONFISCATED`（没收）/ `FROZEN→SEIZING→SEIZED`（政府没收）目前只到中间态或占位（见 `v4-deposit.md` §2/§5），计划2 承接：两腿 pending→post 结算（复刻 SWAP `swap-leg-accounting.ts`）+ 审批管道 + 解冻回炉 + 3 重试 self-heal + below-min→CONFISCATING（含最小充值阈值基建）+ 新增科目（外部出金账、政府账）+ transfer code ｜来源: task-13-brief 与计划2 的边界
+- [ ] **慢 case 自动重算未端到端验证**：KYT-only 架构的根基假设——客户/officer 处置慢 case 后，Sumsub 自动重算并补发 `applicantKytTxn*`（S4/S7 场景据此设计：ACTION_PENDING/MANUAL_CHECKING 补料或翻案后无需专门 action handler，靠重评 webhook 自动推进）——沙盒环境逼不出真实的"慢 case 重算"时序，Task 12 e2e（`test/deposit-sumsub-scenarios.e2e-spec.ts` S4/S7）只能用 fixture 直接喂第二个 webhook 断言，不是对真实 Sumsub 异步重算的端到端验证。上线前需拿真实 applicant 走一次真慢 case 验证 ｜来源: task-13-brief
+- [ ] **`sumsub-txn-client.http.ts` 三处 minor**：① `resolveVerdict()` 在 `review.reviewResult` 和 `scoringResult.action` 都缺失时返回 `undefined`（无兜底/无告警，边缘场景）；② `submitTxn()` 的 counterparty 只设 `paymentMethod.accountId`，未设 `paymentMethod.type`（生产 crypto travelRule 场景需要补，当前沙盒未触发校验）；③ `deposit-kyt-verdict.handler.ts` 的 `SCENE_TAGS`/`DISPO_TAGS` 字面量集合与 `deposit-workflow.service.ts → applyKytVerdict()` 参数上手写的 `sceneTag`/`dispoTag` 联合类型两处手工同步，未共享一个类型/常量源 ｜来源: 2026-07-28 Task 13 code 走查
+- [ ] **`prisma/schema.prisma` 新增字段列未对齐**：`DepositTransaction` 新增的 `sumsubFinanceTxnId`/`sumsubTravelRuleTxnId`/`manualReason`/`slaDeadline`/`slaBreached` 5 列缩进与同 model 其它列的列对齐格式不一致（`prisma format` 未跑），纯格式债 ｜来源: 2026-07-28 Task 13 code 走查
+- [ ] **`scripts/stack-stop.sh` 孤儿进程清理相对/绝对路径不匹配，永不命中**：`cleanup_orphans_by_pattern "backend-orphan" "${APP_DIR}/dist/main"` 用绝对路径 pattern 做 `pgrep -f`，但 `stack-up.sh:114` 实际以相对路径 `["node","dist/main"]` 启动后端进程，命令行里不含 `${APP_DIR}` 前缀 → 该 orphan 清理分支永远 0 命中，无法杀残留 backend 进程。建议 `stack-up.sh` 改绝对路径启动，或 `stack-stop.sh` 的 pattern 改成只匹配 `dist/main`（相对）｜来源: 2026-07-28 Task 13 走查
+- [ ] **payin→COMPLIANCE_PENDING 管道（STEP_1/funds_order 级联）无 e2e 覆盖**：Task 12 e2e 为避开 `detected()→funds_order→事件级联`（fire-and-forget `emit`，测试里会竞态），改为直接 Prisma 建一条 `status=COMPLIANCE_PENDING` 的 deposit + 手动调 `handleDepositStatusChanged()`，绕过了 PAYIN_PENDING→COMPLIANCE_PENDING 这段（payin 检测 + TB Step1 记账）。该段仍缺 e2e 直接覆盖 ｜来源: `test/deposit-sumsub-scenarios.e2e-spec.ts` 文件头注释 + task-13-brief
 
 ## 技术债 — V3 财务配置
 
