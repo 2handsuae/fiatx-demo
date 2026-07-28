@@ -86,6 +86,29 @@ describe('FundsOrderService', () => {
     );
   });
 
+  it('advance: deposit-parented legSeq>1 (confiscation) leg is INTERNAL — CREATED --SUBMIT--> SUBMITTED', async () => {
+    // below-min confiscation moves customer wallet → firm F_FEE as a legSeq=2 internal
+    // leg born CREATED; it must advance via the INTERNAL/OUT map (IN has no CREATED entry).
+    prisma.fundsOrder.findUnique.mockResolvedValue({
+      id: 'fo2', status: 'CREATED', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 2, attempt: 1, statusHistory: null, asset: { type: 'FIAT' },
+    });
+    prisma.fundsOrder.update.mockResolvedValue({
+      id: 'fo2', status: 'SUBMITTED', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 2, attempt: 1,
+    });
+    const fo = await service.advance('fo2', FundsOrderAction.SUBMIT, 'SYSTEM');
+    expect(fo.status).toBe('SUBMITTED');
+  });
+
+  it('advance: deposit payin (legSeq=1) stays IN — CREATED --SUBMIT--> is invalid (payin born SUBMITTED/CONFIRMED)', async () => {
+    prisma.fundsOrder.findUnique.mockResolvedValue({
+      id: 'fo1', status: 'CREATED', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,
+      legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'FIAT' },
+    });
+    await expect(service.advance('fo1', FundsOrderAction.SUBMIT, 'SYSTEM')).rejects.toThrow(/invalid transition/i);
+  });
+
   it('advance forwards opts.effectiveDate into the status.changed event payload', async () => {
     prisma.fundsOrder.findUnique.mockResolvedValue({
       id: 'fo1', status: 'CONFIRMING', depositTransactionId: 'd1', withdrawTransactionId: null, swapTransactionId: null,

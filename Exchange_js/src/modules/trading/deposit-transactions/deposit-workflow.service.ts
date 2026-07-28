@@ -1,5 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
   DepositTransactionAction,
@@ -17,6 +18,7 @@ import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { deterministicTransferId } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
   FundsOrderAction,
@@ -24,6 +26,14 @@ import {
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
+import {
+  ApprovalActionTypes,
+  ApprovalActorContext,
+  ApprovalStatuses,
+} from '../../governance/approvals/constants/approval.constants';
+import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -55,7 +65,18 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly auditLogsService: AuditLogsService,
     private readonly accountingService: AccountingService,
     private readonly withdrawalAddresses: WithdrawalAddressService,
+    private readonly approvalsService: ApprovalsService,
+    private readonly systemWalletResolver: SystemWalletResolver,
   ) {}
+
+  private toAuditActor(actor: ApprovalActorContext) {
+    return {
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      actorNo: actor.userNo,
+      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+    };
+  }
 
   onModuleInit() {
     this.logger.log('DepositWorkflowService initialized and listening for events.');
@@ -64,6 +85,15 @@ export class DepositWorkflowService implements OnModuleInit {
   @OnEvent(DomainEventNames.FUNDS_ORDER_STATUS_CHANGED)
   async handleFundsOrderChanged(event: FundsOrderStatusChangedEvent) {
     if (!event.parent.depositTransactionId) return; // only payin funds orders
+    // A deposit's payin is legSeq 1; the confiscation move hangs a legSeq 2
+    // funds order under the SAME deposit. Only leg 1 is the payin — legSeq > 1 is
+    // an internal/confiscation leg driven by startConfiscation itself, never a
+    // payin, so it must not enter onPayinConfirmed/onPayinFailed. (Mirrors the
+    // withdraw workflow branching on PAYOUT_LEG_SEQ vs FEE_LEG_SEQ.)
+    // legSeq 2 is the C2/C3 confiscation leg → its CONFIRMED settles the below-min
+    // confiscation (POST the two pending legs + deposit → CONFISCATED).
+    if (event.legSeq === 2) { await this.onConfiscationLegChanged(event); return; }
+    if (event.legSeq !== 1) return;
     const depositId = event.parent.depositTransactionId;
     this.logger.log(
       `Deposit ${depositId} funds order ${event.fundsOrderNo} → ${event.newStatus}`,
@@ -180,6 +210,24 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.debug(
         `Auto-approval skip: deposit ${depositId} status is ${deposit.status}`,
       );
+      return;
+    }
+
+    if (deposit.limitHoldReason === 'BELOW_MIN') {
+      this.logger.warn(`Auto-approval hold: deposit ${depositId} below minimum amount — awaiting ops disposition`);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'Deposit held: amount below configured minimum (BELOW_MIN)',
+        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+        sourcePlatform: 'SYSTEM',
+      });
       return;
     }
 
@@ -364,6 +412,395 @@ export class DepositWorkflowService implements OnModuleInit {
       reason || 'Admin freeze',
     );
     return updated;
+  }
+
+  /**
+   * PASS (waive) disposition: ops waives the amount floor for this one deposit.
+   * This does NOT approve/入账 the deposit — it clears the BELOW_MIN hold and
+   * re-runs checkAutoApproval so the deposit proceeds through the normal L2
+   * compliance gates (KYT/TR/trading-ready). Waiving the amount line does not
+   * waive compliance. Single-operator action — no maker-checker.
+   */
+  async waiveLimitHold(
+    depositId: string,
+    actor: { actorId: string; actorRole?: string },
+  ) {
+    const deposit = await this.depositService.findOne(depositId);
+    if (
+      deposit.limitHoldReason !== 'BELOW_MIN' ||
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING
+    ) {
+      throw new BadRequestException(
+        'Deposit has no BELOW_MIN hold to waive',
+      );
+    }
+
+    await this.depositService.clearLimitHold(depositId);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_LIMIT_WAIVED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        result: AuditResult.SUCCESS,
+        reason: 'Ops waived below-minimum amount hold (compliance gates still apply)',
+        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+        requestId: `DEPOSIT_LIMIT_WAIVED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor.actorId,
+        actorRole: actor.actorRole,
+      },
+    );
+
+    await this.checkAutoApproval(depositId);
+  }
+
+  /**
+   * CONFISCATE disposition (initiate side): ops proposes taking a below-min deposit
+   * as a T&C handling fee. High-risk (moves customer-attributed money to platform
+   * revenue) → routed through V1 maker-checker approval (single-step OPS_OFFICER),
+   * unlike the single-operator PASS/waive. This only opens the approval case + audits
+   * the request; the two-leg posting + status→CONFISCATED lands in D7's decided-event
+   * handler (Rule 5: initiate reads only, never writes the deposit table here).
+   */
+  async initiateConfiscation(
+    depositId: string,
+    dto: { reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Confiscation reason is required');
+    }
+
+    const deposit = await this.depositService.findOne(depositId);
+    if (
+      deposit.limitHoldReason !== 'BELOW_MIN' ||
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING
+    ) {
+      throw new BadRequestException(
+        'Deposit has no BELOW_MIN hold to confiscate',
+      );
+    }
+
+    // Anti-dup: a deposit must not accrue two open confiscation approvals.
+    const openConfiscations = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
+      entityRef: deposit.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openConfiscations.total > 0) {
+      throw new ConflictException(
+        `Deposit ${deposit.depositNo} already has a pending confiscation approval; resolve it before submitting another.`,
+      );
+    }
+
+    // Mint the trace id ONCE and reuse it in both the create and submit DTOs — the
+    // approvals engine mints its own id when createDto.traceId is undefined, then asserts
+    // create/submit trace consistency, so a recomputed/divergent id (null-traceId path)
+    // would reject the whole confiscation. Mirrors transaction-limit initiateCreate/Change.
+    const traceId = deposit.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.DEPOSIT_CONFISCATION,
+        entityRef: deposit.id,
+        traceId,
+        objectSnapshot: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          assetId: deposit.assetId,
+          basis: 'T&C below-minimum deposit handling fee',
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_CONFISCATION_REQUESTED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_CONFISCATION',
+        result: AuditResult.SUCCESS,
+        reason: 'Ops requested confiscation of below-minimum deposit as T&C handling fee',
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          approvalNo: approvalCase.approvalNo,
+        },
+        requestId: `DEPOSIT_CONFISCATION_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      depositNo: deposit.depositNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * CONFISCATE disposition (decided side, D7): the V1 approval opened by
+   * initiateConfiscation reached a decision. On APPROVED, START the confiscation
+   * (two PENDING accounting legs + legSeq 2 funds order CREATED + status→CONFISCATING;
+   * the POST/settle half lands in C3). On any other outcome the deposit stays
+   * COMPLIANCE_PENDING with its BELOW_MIN hold intact — the approvals engine owns the
+   * rejection/cancel/expire audit trail, so this is a clean no-op (idempotent).
+   *
+   * entityRef is the deposit id. A foreign entityRef (some other workflow's) makes
+   * findOne throw NotFound → graceful no-op. An already-CONFISCATED deposit (replayed
+   * decided event) → no-op.
+   */
+  @OnEvent('workflow.deposit-confiscation.decided', { async: true })
+  async onConfiscationDecided(event: ApprovalDecidedEvent) {
+    const entityRef = event?.entityRef;
+    if (!entityRef) {
+      this.logger.warn('Deposit confiscation decided event missing entityRef');
+      return;
+    }
+
+    let deposit: any;
+    try {
+      deposit = await this.depositService.findOne(entityRef);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        // entityRef belongs to another workflow's entity — not ours, ignore.
+        return;
+      }
+      throw err;
+    }
+
+    // Idempotent replay no-op: both CONFISCATED (settle done) and CONFISCATING (start done,
+    // settle in flight) are already-handled states. Without CONFISCATING here, a replayed
+    // decided event mid-flight would fall into the drift-precondition guard below and record
+    // a MISLEADING "drifted out of confiscable state" FAILED audit for a perfectly healthy move.
+    if (
+      deposit.status === DepositTransactionStatus.CONFISCATED ||
+      deposit.status === DepositTransactionStatus.CONFISCATING
+    ) {
+      this.logger.debug(`Deposit ${deposit.depositNo} already ${deposit.status} — skipping decided replay.`);
+      return;
+    }
+
+    if (event.decision !== 'APPROVED') {
+      this.logger.log(
+        `Deposit ${deposit.depositNo} confiscation ${event.decision} (case ${event.approvalNo}) — hold intact, no confiscation.`,
+      );
+      return;
+    }
+
+    // Re-assert the confiscable precondition BEFORE posting anything. initiateConfiscation
+    // (D6) writes NOTHING to the deposit, so while the approval sat PENDING the deposit
+    // stayed mutable — a concurrent waiveLimitHold→approve (→SUCCESS) or adminReject
+    // (→REJECTED) can have drifted it out of the confiscable state. Posting the two legs
+    // against a SUCCESS/REJECTED deposit would zero CLIENT_ASSET while CLIENT_PAYABLE still
+    // owes the customer → phantom liability / double-spend (and the negative suspense would
+    // net the L/E identity, hiding it from recon). Guard: post NO legs, create NO funds
+    // order, change NO status when drifted — just leave an audit trail for ops.
+    if (
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING ||
+      deposit.limitHoldReason !== 'BELOW_MIN'
+    ) {
+      this.logger.warn(
+        `Confiscation skipped: deposit ${deposit.depositNo} no longer confiscable ` +
+          `(status=${deposit.status}, hold=${deposit.limitHoldReason})`,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_CONFISCATION_FAILED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_CONFISCATION',
+        result: AuditResult.FAILED,
+        reason:
+          'Approved confiscation not executed: deposit drifted out of confiscable state ' +
+          '(waived/rejected before approval landed)',
+        metadata: { depositNo: deposit.depositNo, status: deposit.status },
+        requestId: `DEPOSIT_CONFISCATION_SKIPPED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    await this.startConfiscation(deposit, event.approvalNo);
+  }
+
+  /**
+   * Start an approved below-min confiscation (two-phase, "start" half). 先账后状态:
+   * PENDING-lock BOTH accounting legs + create the legSeq 2 funds order in CREATED
+   * (advanceable, NOT auto-cleared), THEN flip the deposit to CONFISCATING via
+   * CONFISCATE_START. The matching POST/settle half (funds order → CLEARED, pending
+   * transfers posted, deposit → CONFISCATED) lands in C3's settleConfiscation, which
+   * reproduces each pending transfer via deterministicTransferId('DEPOSIT',
+   * depositNo, eventCode, 1) — so the eventCodes + legIndex here are load-bearing.
+   *
+   * The two pending legs (same ledger = asset.tbLedgerId):
+   *   leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact reverse
+   *         of the payin STEP_1; zeroes the customer's suspense.
+   *   leg2  DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize the handling-fee
+   *         income.
+   * Neither leg is an external crossing — confiscation reclassifies funds already in
+   * the firm's custody; the legSeq 2 funds order (customer deposit wallet → firm F_FEE
+   * wallet) is the by-wallet recon anchor for the physical move. Idempotent: reuse an
+   * existing legSeq 2 order, and every TB pending id is deterministic so a retry via a
+   * new approval re-books without duplicating.
+   */
+  private async startConfiscation(deposit: any, approvalNo?: string) {
+    const asset = deposit.asset;
+    if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
+    if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
+    const ledger = asset.tbLedgerId;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+    const firmFeeWallet = await this.systemWalletResolver.resolve(deposit.assetId, 'F_FEE');
+
+    const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 2 });
+    if (!existing) {
+      await this.fundsOrders.create({
+        depositTransactionId: deposit.id,
+        legSeq: 2,
+        initialStatus: FundsOrderStatus.CREATED,
+        assetId: deposit.assetId,
+        amount: String(deposit.amount),
+        netAmount: String(deposit.amount),
+        fromWalletId: deposit.toWalletId ?? null,
+        fromAddress: deposit.toAddress ?? undefined,
+        fromIban: deposit.toIban ?? undefined,
+        toWalletId: firmFeeWallet.id,
+        toAddress: firmFeeWallet.address ?? undefined,
+        toIban: firmFeeWallet.iban ?? undefined,
+        traceId: deposit.traceId || undefined,
+      });
+    }
+
+    const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
+    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
+    const firmFeeId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_FEE, ledger, ownerType: 'SYSTEM' });
+
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET, timeout: 0, legIndex: 1,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Below-min confiscation reverse suspense (pending)', debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
+      },
+    });
+    await this.accountingService.executePendingTransfer({
+      debitAccountId: firmAssetId, creditAccountId: firmFeeId, amount: amountBigint, ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE, timeout: 0, legIndex: 1,
+      evidence: {
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
+      },
+    });
+
+    await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_START, reason: 'Below-min confiscation started (funds in transit)' });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_CONFISCATION_STARTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+      workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount), approvalNo },
+      requestId: `DEPOSIT_CONFISCATION_STARTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  /**
+   * Confiscation settle half (C3): the legSeq 2 funds order reached a status. Ops advancing
+   * the leg to CONFIRMED is the trigger to POST both pending legs and land the deposit in
+   * CONFISCATED. Non-CONFIRMED statuses (SUBMITTED/…) are ignored. Idempotent: only a deposit
+   * still CONFISCATING is in flight — an already-CONFISCATED one (or one that never entered
+   * confiscation) is a no-op, so a replayed CONFIRMED never double-settles.
+   */
+  private async onConfiscationLegChanged(event: FundsOrderStatusChangedEvent) {
+    if (event.newStatus !== FundsOrderStatus.CONFIRMED) return; // only settle on CONFIRMED
+    const depositId = event.parent.depositTransactionId;
+    if (!depositId) return;
+    const deposit = await this.depositService.findOne(depositId);
+    if (deposit.status !== DepositTransactionStatus.CONFISCATING) return; // already settled / not in transit
+    await this.settleConfiscation(deposit, event.fundsOrderId);
+  }
+
+  /**
+   * POST the two pending confiscation legs C2 locked (先账后状态), then flip the deposit to
+   * CONFISCATED. Each pending id is reproduced deterministically from the SAME business key
+   * C2 used — deterministicTransferId('DEPOSIT', depositNo, eventCode, 1) — so the eventCodes +
+   * legIndex(=1) MUST match startConfiscation exactly (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2
+   * CONFISCATE_FIRM_FEE). 3× retry on a transient TB failure; if every attempt fails the deposit
+   * stays CONFISCATING (no revert, no rethrow — silent stop in the async listener) with a
+   * DEPOSIT_CONFISCATION_FAILED audit flagging it for manual intervention.
+   */
+  private async settleConfiscation(deposit: any, fundsOrderId: string) {
+    const asset = deposit.asset;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
+    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_FIRM_FEE', 1);
+    const MAX = 3;
+    for (let attempt = 1; attempt <= MAX; attempt++) {
+      try {
+        // leg1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse the payin suspense.
+        await this.accountingService.postPendingTransfer({
+          pendingTransferId: pend1, amount: amountBigint,
+          evidence: {
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+          },
+        });
+        // leg2: DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize the handling-fee income.
+        await this.accountingService.postPendingTransfer({
+          pendingTransferId: pend2, amount: amountBigint,
+          evidence: {
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+          },
+        });
+        await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CONFISCATE_SETTLE, reason: 'Below-min confiscation settled' });
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_CONFISCATION_EXECUTED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId }, requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        });
+        return;
+      } catch (err: any) {
+        this.logger.error(`Confiscation settle attempt ${attempt}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);
+        if (attempt === MAX) {
+          await this.auditLogsService.recordSystem({
+            action: AuditActions.DEPOSIT_CONFISCATION_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+            workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+            reason: `Settle failed after ${MAX} retries — manual intervention required (deposit stays CONFISCATING)`,
+            metadata: { depositNo: deposit.depositNo, fundsOrderId, error: err.message }, requestId: `DEPOSIT_CONFISCATION_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+          });
+          return; // stay CONFISCATING, no revert, no rethrow (silent stop in the async listener)
+        }
+      }
+    }
   }
 
   private async onPayinFailed(depositId: string, fundsOrderId: string) {

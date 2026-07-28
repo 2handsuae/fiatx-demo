@@ -10,6 +10,7 @@ import {
   ValidationPipe,
   UseGuards,
   Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
@@ -31,6 +32,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Deposit Transactions')
 @ApiBearerAuth()
@@ -43,12 +45,18 @@ export class DepositTransactionsController {
     private readonly workflow: DepositWorkflowService,
   ) {}
 
+  private assertAdmin(req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin only');
+    }
+  }
+
   @Get('my')
   @ApiOperation({ summary: 'List my deposit transactions' })
   @UsePipes(new ValidationPipe({ transform: true }))
   findMy(@Req() req: any, @Query() query: DepositTransactionQueryDto) {
     const userId = req.user.userId;
-    return this.service.findAll({ ...query, ownerId: userId });
+    return this.service.findAllForCustomer(userId, query);
   }
 
   @Get('my/inbound-signals')
@@ -93,8 +101,11 @@ export class DepositTransactionsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get deposit transaction details' })
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+    if (req.user?.type === 'ADMIN') {
+      return this.service.findOne(id);
+    }
+    return this.service.findOneForCustomer(id, req.user?.userId);
   }
 
   @Patch(':id/status')
@@ -125,6 +136,35 @@ export class DepositTransactionsController {
           },
         });
     }
+  }
+
+  @Post(':id/waive-limit')
+  @ApiOperation({ summary: 'Waive below-minimum amount hold (PASS disposition)' })
+  waiveLimitHold(@Param('id') id: string, @Req() req: any) {
+    this.assertAdmin(req);
+    const actor = {
+      actorId: req.user?.userId,
+      actorRole: req.user?.role,
+    };
+    return this.workflow.waiveLimitHold(id, actor);
+  }
+
+  @Post(':id/confiscate')
+  @ApiOperation({ summary: 'Confiscate below-minimum deposit as T&C fee (maker-checker approval)' })
+  confiscate(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateConfiscation(id, { reason: body?.reason ?? '' }, actor);
   }
 
   @Get('export')

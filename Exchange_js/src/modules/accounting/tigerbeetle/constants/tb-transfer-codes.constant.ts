@@ -4,6 +4,10 @@ export const TB_TRANSFER_CODES = {
   // ── 充值(1–9)──
   DEPOSIT_ASSET_TO_SUSPENSE: 1,   // DR CLIENT_ASSET / CR DEPOSIT_SUSPENSE
   DEPOSIT_SUSPENSE_TO_PAYABLE: 2, // DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE
+  // 没收(below-min 充值当 T&C 手续费没收，两腿)：leg1 精确反冲 STEP_1 归零客户暂扣，
+  // leg2 公司侧确认手续费收入。两腿各保客户/公司恒等式两边同增减。
+  DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET: 3, // DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET（反冲 STEP_1）
+  DEPOSIT_CONFISCATE_FIRM_FEE: 4,          // DR FIRM_ASSET / CR FIRM_FEE（确认公司手续费收入）
 
   // ── 提现(10–19)──
   WITHDRAW_NET_PENDING: 10, // 客户侧锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)

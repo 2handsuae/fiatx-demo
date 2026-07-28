@@ -23,6 +23,7 @@ import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -54,6 +55,7 @@ export class DepositTransactionsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly fundsOrders: FundsOrderService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly limitRulesService: TransactionLimitRulesService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -70,7 +72,10 @@ export class DepositTransactionsService {
     return String(assetType || '').toUpperCase() === 'CRYPTO' ? 'crypto' : 'fiat';
   }
 
-  async findAll(query: DepositTransactionQueryDto) {
+  async findAll(
+    query: DepositTransactionQueryDto,
+    options?: { customerScope?: boolean },
+  ) {
     const {
       skip,
       take,
@@ -97,6 +102,10 @@ export class DepositTransactionsService {
       if (startDate) where.createdAt.gte = new Date(startDate);
       if (endDate) where.createdAt.lte = new Date(endDate);
     }
+
+    // BELOW_MIN deposits are hold-pending admin disposition; the customer
+    // must never see them (server-side, not a frontend hide).
+    if (options?.customerScope) where.limitHoldReason = null;
 
     const [items, total] = await Promise.all([
       (this.prisma as any).depositTransaction.findMany({
@@ -135,6 +144,11 @@ export class DepositTransactionsService {
     };
   }
 
+  /** Customer-facing list: same query, scoped to the caller's own deposits with BELOW_MIN hold-pending rows hidden. */
+  async findAllForCustomer(customerId: string, query: DepositTransactionQueryDto) {
+    return this.findAll({ ...query, ownerId: customerId }, { customerScope: true });
+  }
+
   async findOne(id: string) {
     const item = await (this.prisma as any).depositTransaction.findUnique({
       where: { id },
@@ -165,21 +179,31 @@ export class DepositTransactionsService {
     }
 
     // Unified fund-order list for the detail page's "Linked Funds Orders".
-    // A deposit's fund order is its payin funds_order (principal in); no fee
-    // (deposits are free). The payin IS a funds_order now (三合一).
-    const payinOrder = (deposit.fundsOrders ?? [])[0] ?? null;
-    const linkedFundOrders = payinOrder
-      ? [
-          {
-            kind: 'PAYIN' as const,
-            no: payinOrder.fundsOrderNo,
-            id: payinOrder.id,
-            status: payinOrder.status,
-            amount: String(payinOrder.amount),
-            role: 'principal' as const,
-          },
-        ]
-      : [];
+    // A deposit's payin funds_order (legSeq=1) is the principal in. A
+    // below-minimum confiscation books a second funds_order (legSeq>1) hung
+    // under the same deposit — surface both so the confiscation leg is
+    // visible on the detail page (三合一, deposits' fee leg = confiscation).
+    const fundsOrders = deposit.fundsOrders ?? [];
+    const payinOrder =
+      fundsOrders.find((f: any) => !f.legSeq || f.legSeq === 1) ?? null;
+    const linkedFundOrders: Array<{
+      kind: 'PAYIN' | 'CONFISCATION';
+      no: string;
+      id: string;
+      status: string;
+      amount: string;
+      role: 'principal' | 'fee';
+    }> = fundsOrders.map((fo: any) => {
+      const isConfiscation = fo.legSeq != null && fo.legSeq > 1;
+      return {
+        kind: isConfiscation ? 'CONFISCATION' : 'PAYIN',
+        no: fo.fundsOrderNo,
+        id: fo.id,
+        status: fo.status,
+        amount: String(fo.amount),
+        role: isConfiscation ? 'fee' : 'principal',
+      };
+    });
 
     return {
       ...item,
@@ -192,6 +216,24 @@ export class DepositTransactionsService {
       fromWalletNo: deposit.fromWallet?.walletNo,
       linkedFundOrders,
     };
+  }
+
+  /**
+   * Customer-facing single-fetch. Two rows are treated as non-existent (same
+   * NotFound as a missing id — never leak existence via a different error):
+   *  1. a deposit owned by another customer (IDOR guard), and
+   *  2. a BELOW_MIN hold-pending deposit (admin-only until disposed).
+   */
+  async findOneForCustomer(id: string, customerId: string) {
+    const item = await this.findOne(id);
+    const deposit = item as any;
+    if (deposit.ownerId !== customerId) {
+      throw new NotFoundException('Deposit transaction not found');
+    }
+    if (deposit.limitHoldReason != null) {
+      throw new NotFoundException('Deposit transaction not found');
+    }
+    return item;
   }
 
   async updateStatus(
@@ -209,8 +251,17 @@ export class DepositTransactionsService {
     const action = dto.action;
     const nextStatus = this.getNextStatus(currentStatus, action);
 
+    // States that post to TigerBeetle must only be reached via DepositWorkflowService
+    // (SUCCESS via approveDeposit's Step2; CONFISCATING via startConfiscation's two
+    // pending legs, then CONFISCATED via C3's settle post). A direct admin PATCH must never flip a
+    // deposit into one of these, or it would carry the terminal semantics with no ledger
+    // legs. The workflow's own updateStatus calls pass no ADMIN_API source, so they pass.
     const isAdminApi = options?.sourcePlatform === 'ADMIN_API';
-    const ACCOUNTING_TERMINALS = new Set([DepositTransactionStatus.SUCCESS]);
+    const ACCOUNTING_TERMINALS = new Set([
+      DepositTransactionStatus.SUCCESS,
+      DepositTransactionStatus.CONFISCATED,
+      DepositTransactionStatus.CONFISCATING,
+    ]);
     if (isAdminApi && ACCOUNTING_TERMINALS.has(nextStatus)) {
       throw new BadRequestException({
         code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY',
@@ -313,7 +364,16 @@ export class DepositTransactionsService {
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
+        // Below-min confiscation is async two-phase (C1): COMPLIANCE_PENDING →
+        // CONFISCATING (funds in transit, accounting pending-locked) → ops advances
+        // the funds order → CONFISCATE_SETTLE lands CONFISCATED once posted.
+        [DepositTransactionAction.CONFISCATE_START]:
+          DepositTransactionStatus.CONFISCATING,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
+      },
+      [DepositTransactionStatus.CONFISCATING]: {
+        [DepositTransactionAction.CONFISCATE_SETTLE]:
+          DepositTransactionStatus.CONFISCATED,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
@@ -377,6 +437,14 @@ export class DepositTransactionsService {
     });
   }
 
+  /** PASS (waive) disposition: clears the BELOW_MIN hold flag. Does not touch status. */
+  async clearLimitHold(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { limitHoldReason: null },
+    });
+  }
+
   async getOwnerComplianceStatus(depositId: string): Promise<string> {
     const deposit = await (this.prisma as any).depositTransaction.findUnique({
       where: { id: depositId },
@@ -427,6 +495,13 @@ export class DepositTransactionsService {
     const resolvedTraceId = input.traceId ?? randomUUID();
     const depositNo = generateReferenceNo('DEP');
 
+    // L1 金额下限判定(出生落标——deposit 是被动入金,低于 min 不拒绝,建单+隐藏+挂起)
+    let limitHoldReason: string | undefined;
+    const singleRule = await this.limitRulesService.getSingleRule('DEPOSIT', input.assetId);
+    if (singleRule?.minAmount && new Prisma.Decimal(input.amount).lt(new Prisma.Decimal(singleRule.minAmount))) {
+      limitHoldReason = 'BELOW_MIN';
+    }
+
     const deposit = await (this.prisma as any).depositTransaction.create({
       data: {
         depositNo,
@@ -453,6 +528,7 @@ export class DepositTransactionsService {
         fromIban: input.fromIban ?? undefined,
         toAddress: wallet.address,
         toIban: wallet.iban,
+        limitHoldReason,
       },
     });
 

@@ -35,6 +35,7 @@ import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
 import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
 import { TradingReadinessModule } from './modules/trading/shared/trading-readiness.module';
 import { CustomerTagModule } from './modules/identity/customer-tags/customer-tag.module';
+import { TransactionLimitsModule as TransactionLimitRulesModule } from './modules/asset-treasury/transaction-limits/transaction-limits.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { CustomerTagModule } from './modules/identity/customer-tags/customer-tag
     FundsOrdersModule,
     TradingReadinessModule,
     CustomerTagModule,
+    TransactionLimitRulesModule,
   ],
   controllers: [],
   providers: [],

@@ -13,6 +13,7 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WalletsModule } from '../../asset-treasury/wallets/wallets.module';
+import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { WalletsModule } from '../../asset-treasury/wallets/wallets.module';
     FundsLayerModule,
     FundsOrdersModule,
     WalletsModule,
+    TransactionLimitsModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],

@@ -454,6 +454,7 @@ export class SwapTransactionsService {
       tbFeeTransferId?: string | null;
       tbSpreadTransferId?: string | null;
       traceId: string;
+      grossAedValue?: Prisma.Decimal | null;
     },
     tx: Prisma.TransactionClient,
   ) {
@@ -484,6 +485,7 @@ export class SwapTransactionsService {
         tbFeeTransferId: input.tbFeeTransferId ?? null,
         tbSpreadTransferId: input.tbSpreadTransferId ?? null,
         traceId: input.traceId,
+        grossAedValue: input.grossAedValue ?? null,
         completedAt: null,
         statusHistory: JSON.stringify([
           {

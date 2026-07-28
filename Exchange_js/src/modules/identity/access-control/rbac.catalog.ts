@@ -281,6 +281,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     ['TRADING_DEPOSIT_WRITE'],
   ),
   route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
 
   // Withdraw
@@ -498,19 +500,11 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'GOV_APPROVAL_POLICY_READ',
   ]),
 
-  // Transaction Limit Policies
-  route('GET', '/admin/transaction-limit-policies', 'List transaction limit policies', [
-    'TRANSACTION_LIMIT_READ',
-  ]),
-  route('GET', '/admin/transaction-limit-policies/:policyNo', 'Get transaction limit policy detail', [
-    'TRANSACTION_LIMIT_READ',
-  ]),
-  route('POST', '/admin/transaction-limit-policies', 'Create transaction limit policy', [
-    'TRANSACTION_LIMIT_WRITE',
-  ]),
-  route('POST', '/admin/transaction-limit-policies/:policyNo/change', 'Submit transaction limit change request', [
-    'TRANSACTION_LIMIT_WRITE',
-  ]),
+  // Transaction Limit Rules
+  route('GET', '/admin/transaction-limit-rules', 'List transaction limit rules', ['TRANSACTION_LIMIT_READ']),
+  route('GET', '/admin/transaction-limit-rules/:ruleNo', 'Get transaction limit rule detail', ['TRANSACTION_LIMIT_READ']),
+  route('POST', '/admin/transaction-limit-rules', 'Create transaction limit rule', ['TRANSACTION_LIMIT_WRITE']),
+  route('POST', '/admin/transaction-limit-rules/:ruleNo/change', 'Submit transaction limit rule change', ['TRANSACTION_LIMIT_WRITE']),
 
   // Withdrawal Addresses
   route('GET', '/admin/withdrawal-addresses', 'List withdrawal addresses', [

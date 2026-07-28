@@ -241,13 +241,22 @@ export class AccountingService {
     }]);
 
     const realErrors = errors.filter((e: any) =>
-      e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+      e.status !== CreateTransferStatus.exists &&
+      e.status !== CreateTransferStatus.created &&
+      e.status !== CreateTransferStatus.pending_transfer_already_posted,
     );
     if (realErrors.length > 0) {
       throw new BadRequestException({
         code: 'TB_POST_PENDING_FAILED',
         message: `TigerBeetle post pending transfer failed: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
       });
+    }
+
+    // Idempotent replay: the pending was already posted (e.g. a retry after a
+    // transient failure on a sibling leg). The POSTED evidence row already exists
+    // from the original post — skip the rewrite so we don't stamp a bogus postId.
+    if (errors.some((e: any) => e.status === CreateTransferStatus.pending_transfer_already_posted)) {
+      return;
     }
 
     // Update the original PENDING evidence record → POSTED (not create a new row)
@@ -280,13 +289,21 @@ export class AccountingService {
     }]);
 
     const realErrors = errors.filter((e: any) =>
-      e.status !== CreateTransferStatus.exists && e.status !== CreateTransferStatus.created,
+      e.status !== CreateTransferStatus.exists &&
+      e.status !== CreateTransferStatus.created &&
+      e.status !== CreateTransferStatus.pending_transfer_already_voided,
     );
     if (realErrors.length > 0) {
       throw new BadRequestException({
         code: 'TB_VOID_PENDING_FAILED',
         message: `TigerBeetle void pending transfer failed: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`,
       });
+    }
+
+    // Idempotent replay: the pending was already voided — the VOIDED evidence row
+    // already exists from the original void; skip the rewrite (bogus voidId).
+    if (errors.some((e: any) => e.status === CreateTransferStatus.pending_transfer_already_voided)) {
+      return;
     }
 
     // Update the original PENDING evidence record → VOIDED (not create a new row)

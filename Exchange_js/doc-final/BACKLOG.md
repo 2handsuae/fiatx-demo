@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-07-12
+Last Updated: 2026-07-17
 
 ---
 
@@ -23,11 +23,19 @@ Last Updated: 2026-07-12
 - [ ] Deposit/资金单层无 `txHash` 唯一约束（仅信号层 `dedupeKey` 有）→ 同 txHash 可能产生多 Deposit ｜来源: 2026-07-03 V4 体检
 - [ ] TB 记账失败无 repair surface：仅记 `DEPOSIT_ACCOUNTING_BLOCKED` 审计后卡住 ｜来源: roadmap V4 待实现
 - [ ] `deposit.status.changed` 用 `emit` 非 `emitAsync`，异常不传播到调用方 ｜来源: roadmap V4 待实现
-- [ ] Admin PATCH deposit status 部分绕过 workflow：仅 SUCCESS 被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫，FREEZE/CONFISCATE 可绕过记账与审计 ｜来源: 2026-07-03 V4 体检
+- [~] Admin PATCH deposit status 部分绕过 workflow：仅 SUCCESS 被 `DEPOSIT_APPROVE_WORKFLOW_ONLY` 守卫，FREEZE/CONFISCATE 可绕过记账与审计 ｜来源: 2026-07-03 V4 体检 ｜✅ **2026-07-17 CONFISCATE 部分已关**——`CONFISCATED` 已加入 `deposit-transactions.service.ts → updateStatus()` 的 `ACCOUNTING_TERMINALS` 工作流专用守卫（isAdminApi PATCH 到 CONFISCATED 抛 `DEPOSIT_APPROVE_WORKFLOW_ONLY`；executeConfiscation 非 ADMIN_API 路径不受影响，单测 `blocks ADMIN_API from directly reaching CONFISCATED` 锁定）。**剩 FREEZE 部分未关**（FREEZE 无 TB 记账、危害较小，但仍应统一治理化，留账）
 - [ ] ERC-20 合约失败交易未过滤（合约执行失败仍建 Payin）｜来源: roadmap V4
 - [ ] KYT 超时转人工未做 ｜来源: roadmap V4
 - [ ] 区块重组自动回退未做（与"按链确认数配置"一起设计，该功能项在 roadmap V4 ADVANCED）｜来源: roadmap V4
 - [ ] 充值挂起（`DEPOSIT_HELD_NOT_TRADING_READY`）无自动重驱：客户补齐法币地址后，挂 COMPLIANCE_PENDING 的充值不会自动重跑 checkAutoApproval → 需 hook `ADDRESS_ACTIVATED` 重驱该客户挂起充值，否则要人工 ｜来源: 2026-07-11 Task 4b
+- [x] ~~**DEPOSIT 金额限额配置先行、执行未接**：`transaction_limit_rules` 接受 `operationType='DEPOSIT'` 行（配置台可建），但充值工作流尚不调 `TransactionLimitGateService.evaluate` → DEPOSIT 单笔/累计限额配了不生效~~ **已兑现（2026-07-17 deposit-min）**：`detected()` 出生时查 `TransactionLimitRulesService.getSingleRule('DEPOSIT', assetId)`，低于 min → `limitHoldReason='BELOW_MIN'` 挂起（复用 `DEPOSIT_HELD_NOT_TRADING_READY` 挂起模式）+ `checkAutoApproval()` L1 永久挂起 + PASS/没收两处置动作，见 truth/v4-deposit.md §5-§7。仅 SINGLE min 接入，**B 累计限额仍未接 DEPOSIT**（见下条待决策）｜来源: 2026-07-16 transaction-limits → 2026-07-17 收口
+- [ ] **DEPOSIT 累计限额（CUMULATIVE gateType B）仍未接**：本轮只接了 SINGLE 单笔下限，`transaction_limit_rules` 的 B 档（tradingTier×period 累计）尚未对 DEPOSIT operationType 消费 ｜来源: 2026-07-17 deposit-min 收口复核
+- [ ] **原路退回（return-to-source）未做**：PASS/没收是本轮仅有的两个处置动作，"退回客户原来源"（链上退 originator 地址 / 法币退原汇出账户）未实现——依赖真实出金能力（等于半个提现流程：出账渠道/链上转出/银行汇款），本轮不做 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
+- [ ] **BELOW_MIN 计次自动冻结未做**：同客户多次触发 below-min 挂起累计到阈值后自动转 FROZEN（防试探式小额充值绕限额）未实现，本轮只做单笔挂起+人工处置 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
+- [ ] **自动没收 cron 未做**：BELOW_MIN 挂起超时后自动发起没收（现只能 ops 手动点 Confiscate）未实现 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
+- [ ] **充值详情页通用 Actions 组在终态仍全显（pre-existing）**：`DepositTransactionDetail.tsx` 的通用 Approve/Freeze/Resume/Expire/Reject/Confiscate 组当前仅对 below-min 挂起 + 没收生命周期(CONFISCATING/CONFISCATED)隐藏；**SUCCESS/FROZEN/REJECTED 等其它终态仍全显 6 个按钮且可点**（点了会被后端状态机/治理守卫拒，非资金安全问题，纯 UX 误导）。根因=该组无"终态即隐藏"门控（D8 只加了 `!isBelowMinPending`，2026-07-17 没收轮补了 `!isConfiscationLifecycle`）。彻底修=按 deposit 是否终态统一门控通用组 ｜来源: 2026-07-17 没收异步 C5 实景截图发现（pre-existing，早于本分支）
+- [ ] **CONFISCATING 结算耗尽重试后无手动重触发出口**：没收异步结算（`settleConfiscation`）失败自动重试 3 次仍失败则停 `CONFISCATING` + 记 `DEPOSIT_CONFISCATION_FAILED` 待人工介入（业主设计）。但资金单此时已 `CONFIRMED`（终态、不再发 `funds_order.status.changed`），且 `CONFISCATING` 状态机唯一出口是 `CONFISCATE_SETTLE`（由该事件驱动）、ADMIN_API PATCH 被 `ACCOUNTING_TERMINALS` 守卫挡 → **无 ops 可触达的重结算入口**。⚠️ 现实触发条件已收窄：`postPendingTransfer` 已幂等化（2026-07-17，赦免 `pending_transfer_already_posted`），故 leg1 成功/leg2 瞬时失败的 within-event 重试可自愈；仅"TB 持续宕机跨越全部 3 次重试"这一持续性故障才会真卡住（本地 TB demo 不可复现）。补法=加 admin `retry-confiscation-settle` 端点重调 `settleConfiscation`（幂等已就绪，安全可重入）｜来源: 2026-07-17 没收异步化对抗式复核 Finding 2
+- [ ] **制裁没收（sanctions-confiscation）不在本轮范围**：本轮"没收"专指 BELOW_MIN 金额没收（T&C 手续费性质，OPS_OFFICER 单步审批）；FROZEN（制裁冻结）路径下的没收属 MLRO 合规域、走独立审批链（roadmap V4 ⚖️「制裁冻结完整闭环」P0），未随本轮触碰，FROZEN 状态机本身也未改动 ｜来源: 2026-07-16 deposit-min spec §8（deferred）
 - [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状仅条件①法币→NOT_REQUIRED 落地，条件②(hosted/unhosted VASP 分类，依赖 roadmap V3 地址打标)+③(3,500 阈值判定)**代码未自动计算** → crypto TR 结果当前由 demo 模拟端点注入 ｜来源: 2026-07-11 充值 PRD v2
 - [x] ~~🔴 TR 从 status 升级为独立"交换实体"表~~ ❌ **否决（2026-07-14）**：经两轮论证否决"独立 TR 交换表"——① **Sumsub 存 TR 交换真身**（system of record，可 API 查特定 TR 交易 / Dashboard 列 / on-hold 队列），我方本地只是镜像；② 无本地充值场景 A（预告）则每笔 TR 都 1:1 **订单锚定** → 订单字段（`travelRuleStatus`/`sumsubTxnId`/`counterpartyVasp`/`failReason`，前几个已有）+ workflow 流转即可，不必建表；③ 入站归属确认（对方先发 TR）可**无状态自动应答**（客户充值地址预注册到 Sumsub → 自动确认 + 从 applicant 带 PII），不需本地预告表；④ 场景 A 可塌成"无状态应答 + 钱到走场景 B"（Sumsub 当相关器，txHash 幂等防重复提交）。**目标架构** = 充值/提现订单字段 + 无状态入站归属应答器 + Sumsub 当真身/合规台（合规人员在 Sumsub Dashboard 处置，我方不自建审核台）。曾做完 9 task/12 commit 的分支 `claude/tr-exchange` + Lark PRD 已删。**新集成点**（真接 Sumsub 时）：建客户充值地址时同步注册到 Sumsub 绑 applicant。决策见 memory `tr-exchange-table-rejected` ｜来源: 2026-07-14 TR 交换表否决
 - [ ] **充值自动侦测器未接**：链上 watcher / 银行 VIBAN webhook 未部署，`deposit-transactions.service.ts → detected()`（真实业务入口）当前**唯一**触发路径是客户申报入账信号 + 手动扫描（demo 脚手架，带 `simulationRisk*` 注入 + `QUICK_DEMO` 模式）；PRD happy path 按业务意图写"系统自动侦测"，落地待接真实侦测源 ｜来源: 2026-07-11 充值 PRD v2
@@ -37,6 +45,7 @@ Last Updated: 2026-07-12
 
 - [ ] TB 账户创建失败无 backlog 重试（仅转账凭证 `TbEvidenceBacklog` 有）｜来源: 2026-07-03 V3 体检
 - [ ] `contractAddress` 字段 schema/DTO 残留（前端已移除）｜来源: 2026-07-03 V3 体检
+- [ ] **Asset `min/maxDeposit/WithdrawAmount` 4 列待 drop**：单笔上下限已由 `transaction_limit_rules` SINGLE 行接管，资产表单 4 输入框已撤、schema 列现无人配无人读（弃用残留），留待未来迁移 drop ｜来源: 2026-07-16 transaction-limits
 - [ ] 资本注入流水缺 evidence 行（`FIRM_ASSET` 流水缺资本那笔）｜来源: V8 redesign 遗留
 - [ ] 法币就绪查询 where-clause 三处重复（`WithdrawalAddressService.hasActiveFiatWithdrawalAddress`/`countActiveFiatAddresses` + `onboarding.service.ts` 内联 `assertTradingReady`）→ 未来抽 cycle-free 共享查询层 ｜来源: 2026-07-11 交易起始前置门 Task 2 质量审
 
@@ -119,7 +128,7 @@ Last Updated: 2026-07-12
 
 ## 待决策（等业主拍板）
 
-- [ ] **限额执行接入 vs 明示退役**：表和审批管道已建，执行侧零消费 ｜来源: 2026-07-03 V3 体检
+- [x] ~~**限额执行接入 vs 明示退役**：表和审批管道已建，执行侧零消费~~ **已了结（2026-07-16 transaction-limits）**：旧 `governance/transaction-limits` 模块 + `TransactionLimitPolicy`/`TransactionLimitChangeRequest` 两表退役（migration `20260716092727_drop_transaction_limit_policies`）；新 `transaction_limit_rules`（A 单笔 / B 等级累计 / D1 大额审批 三 gateType）L1 接入提现 + 兑换（A/B 建单前拦截、D1 读规则行）｜来源: 2026-07-03 V3 体检 → 2026-07-16 执行
 - [ ] **金额闸门矩阵**：tier 限额 + 大额审批 20 万 + TR 阈值 3,500 三线合一后再统一接入 L1（避免接完旧表又改）｜来源: 限额重设计 + TR 调研（roadmap V3 ADVANCED）
 - [ ] **客户 TB 账户创建策略**：补事件驱动异步创建 or 认可懒加载 + 补文档 ｜来源: 2026-07-03 V3 体检
 - [ ] **InternalFundAuditLog 有读无写**：Round 2 后零写入方，详情页审计列表永远空——补写状态变更 or 改读中央审计日志 ｜来源: 2026-07-03 死码 D6 改判（勿删表，有活读取链）
@@ -142,10 +151,13 @@ Last Updated: 2026-07-12
 
 - [ ] 提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检
 - [ ] 充值"已记账不可直转终态"守卫（回退分录未实现前，拦住对已入暂扣充值的拒绝）｜卡片 task_16af8187 ｜来源: 2026-07-03 V4 体检
+- [ ] **`DepositTransactionsController` 兄弟 admin 端点缺 `assertAdmin` 授权洞（PRE-EXISTING，早于 deposit-min）**：`AdminPermissionGuard.canActivate` 对非 ADMIN token 直接 `return true`（NO-OP），控制器需各 admin 路由自己调 `assertAdmin(req)` 才真拦。`GET /deposit-transactions`(findAll)、`GET /deposit-transactions/export`、`PATCH /deposit-transactions/:id/status`(updateStatus) 三个端点均缺此调用 → **今天客户 token 即可列出/导出全部客户的充值、乱推状态机**（越权读他人数据 + 篡改）。本轮仅修了新增的 `POST :id/waive-limit`（已加 assertAdmin）；这三个同源兄弟洞属既存债，需一次 DepositTransactionsController 全量硬化补齐（对齐 `withdraw-transactions.controller.ts` 每路由 assertAdmin 模式）｜来源: 2026-07-16 D5 review
 
 ## 交付 / 可移植 Docker（2026-07-04 本会话新增）
 
 - [ ] **`scripts/stack.sh up`(self) 端口连锁失败**：admin/client 端口被上次会话遗留 vite 占着时，`ensure_port_free` 在 `set -euo pipefail` 下返回非零 → **整脚本中止、永不走到重建/重启 backend**（即便 backend 端口本身空闲）；与 CLAUDE.md「每次 up 自愈 .env / 重建后端」描述不符，导致实现者被迫手起 `node dist/main`。规避：`lsof -ti:<端口段>|xargs kill` 释放残留再 up。修法：`ensure_port_free` 命中占用改为 kill 残留后继续、或各服务独立处理不整体 `set -e` 退出 ｜来源: 2026-07-12 费率受众 worktree 执行（C + 验收两轮实现者各撞一次）
+
+- [ ] **`scripts/on-stack.sh self <script>` 跑 `ts-node` 脚本时 `node_modules/.bin` 不在 PATH → `ts-node: command not found`**：经包装器跑 ts-node 类脚本（如 demo-lib/单脚本）时报错。规避 = 直接 `DATABASE_URL=... TB_ADDRESS=... npx ts-node -r tsconfig-paths/register scripts/<x>.ts`。修法：包装器把 `node_modules/.bin` 前置进 PATH（或统一用 `npx`）｜来源: 2026-07-16 transaction-limits（费率受众 worktree 亦曾遇，与本节上一条 stack.sh self 同源工具债）
 
 - [ ] **launch.json 治理（待决策）**：`.claude/launch.json` 全机器专属绝对路径 + 预览工具自动重生成 stale 配置（settle-opt/claude-admin 反复回填）；已经 `.gitattributes` export-ignore 不进交付包，但仍被 git 跟踪。待决策：gitignore 停止跟踪、交预览工具本地生成 ｜来源: 2026-07-04 可移植 Docker
 - [ ] **Docker `tb-format` 非幂等**：重跑演示需先 `docker compose down -v` 清账本端数据卷（否则 format 撞已存在文件报错）；可给 format 加 if-missing 守卫做到重跑免 down -v ｜来源: 2026-07-04 Docker 交付
@@ -153,6 +165,7 @@ Last Updated: 2026-07-12
 - [ ] **泄露 dev `.env` 仍在 git 历史**：`.env` 已 `git rm --cached`（合 c80ce5e）+ 本地换新 MFA key 作废旧值；旧值仍留在历史（用户选不重写历史，属 demo key）。若确认该 key 曾用于任何真实用途，需重评是否 filter-repo 抹历史 ｜来源: 2026-07-04 一级审计
 ## demo / 对账脚本（canon2 收尾）
 
+- [ ] **demo:all 充值 5/6 + `demo-lib.ts` 未建 trading-ready 法币地址**（PRE-EXISTING，非金额限额 feature 引入）：交易起始前置门落地后（61337fb2），demo 客户在充值前需先有 ACTIVE 法币提现地址，但 `scripts/demo-lib.ts` 从未跟进创建（其末次改动 4c27f1ff 早于该门）；main 栈 DB 仅因人工种过 4 个地址才过。**全新 DB 跑 demo:all，充值会挂 COMPLIANCE_PENDING**。即便种了地址，demo:all 仍稳定在 **7/8（充值 5/6）**——有一笔充值因与金额限额无关的充值流原因始终不 SUCCESS（提现 5/5 + 兑换 3/3 + COA 4/4 全过；本轮金额限额门未拒任何单）。需单独 demo-setup 修复（`demo-lib.ts` 播种 trading-ready 法币地址）+ 排查第 6 笔充值卡因 ｜来源: 2026-07-16 transaction-limits 回归跑
 - [ ] **`recon-demo.ts` MANIFEST_PATH 写死 main tmp**：默认 `/tmp/exchange_js_main/recon-demo-manifest.json`（可 `RECON_DEMO_MANIFEST_PATH` 覆盖）；self 栈跑 `recon:demo:break` 时 manifest 落 main 栈 tmp、非本 worktree tmp。不影响评分（verifyManifest 读内存 manifest 对象、不回读文件），仅文件落点跨栈。修法：默认按 `DATABASE_URL` 派生 tmp 目录，或 on-stack 包装器注入 `RECON_DEMO_MANIFEST_PATH` ｜来源: 2026-07-04 canon2 T5 code-review（M2）
 
 ## 账本流水（2026-07-10 本会话新增）

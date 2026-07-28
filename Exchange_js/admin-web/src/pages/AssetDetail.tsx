@@ -18,10 +18,6 @@ interface AssetDetailData {
   decimals: number;
   description: string | null;
   status: string;
-  minDepositAmount?: number | null;
-  maxDepositAmount?: number | null;
-  minWithdrawAmount?: number | null;
-  maxWithdrawAmount?: number | null;
   depositEnabled?: boolean;
   withdrawalEnabled?: boolean;
   suspendedAt?: string | null;
@@ -289,10 +285,6 @@ export default function AssetDetail() {
           <section className="px-6 py-5">
             <Cap>Deposit & Withdrawal</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Min Deposit" value={asset.minDepositAmount != null ? String(asset.minDepositAmount) : '—'} mono />
-              <InfoField label="Max Deposit" value={asset.maxDepositAmount != null ? String(asset.maxDepositAmount) : '—'} mono />
-              <InfoField label="Min Withdraw" value={asset.minWithdrawAmount != null ? String(asset.minWithdrawAmount) : '—'} mono />
-              <InfoField label="Max Withdraw" value={asset.maxWithdrawAmount != null ? String(asset.maxWithdrawAmount) : '—'} mono />
               <InfoField label="Deposit Enabled" value={asset.depositEnabled ? 'Yes' : 'No'} />
               <InfoField label="Withdrawal Enabled" value={asset.withdrawalEnabled ? 'Yes' : 'No'} />
             </div>

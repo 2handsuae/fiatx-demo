@@ -8,6 +8,7 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
+import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
 
 interface Asset {
   id: string;
@@ -355,7 +356,7 @@ const Withdraw = () => {
                 setBalances(data);
             }
         } else {
-            const message = await getCustomerApiErrorMessage(
+            const message = await resolveSubmitErrorMessage(
               response,
               'Failed to submit withdrawal request',
             );

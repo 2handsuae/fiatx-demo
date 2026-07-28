@@ -976,6 +976,7 @@ model DepositTransaction {
   travelRuleCheckedAt  DateTime?
   traceId              String?
   statusHistory        String?
+  limitHoldReason      String?           // 'BELOW_MIN' — L1 金额挂起原因(客户面隐藏依据)
   aggregatedAt         DateTime?
   aggregatedTransferId String?
   createdAt            DateTime          @default(now())
@@ -1137,6 +1138,7 @@ model SwapTransaction {
   failureReason    String?
   statusHistory    String?
   spreadAmount     Decimal?
+  grossAedValue    Decimal?                  // 创建时 AED 估值快照(B 累计用量取数)
   tbFromTransferId String?
   tbToTransferId   String?
   tbFeeTransferId  String?
@@ -1545,43 +1547,28 @@ model TbEvidenceBacklog {
   @@map("tb_evidence_backlog")
 }
 
-// ─── Transaction Limit Policy (2026-05-16) ──────────────────
-model TransactionLimitPolicy {
-  id              String   @id @default(uuid())
-  policyNo        String   @unique
-  tradingTier     String                         // BASIC | PREMIUM
-  operationType   String                         // WITHDRAWAL | SWAP
-  period          String                         // DAILY
-  limitAmount     Decimal
-  status          String   @default("ACTIVE")    // ACTIVE | PENDING_APPROVAL
-  approvalCaseId  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+// ─── Transaction Limit Rules（金额限额，2026-07-16 三行形状统一表）───
+model TransactionLimitRule {
+  id             String   @id @default(uuid())
+  ruleNo         String   @unique
+  gateType       String                      // SINGLE | CUMULATIVE | LARGE_APPROVAL
+  operationType  String                      // WITHDRAWAL | SWAP | DEPOSIT(配置先行,执行随充值任务)
+  assetId        String?                     // SINGLE 必填,其余必空
+  tradingTier    String?                     // CUMULATIVE 必填(BASIC|PREMIUM),其余必空
+  period         String?                     // CUMULATIVE 必填(DAILY|MONTHLY),其余必空
+  minAmount      Decimal?                    // SINGLE(原生币种,可只填一边)
+  maxAmount      Decimal?                    // SINGLE(原生币种)
+  defaultLimit   Decimal?                    // CUMULATIVE(AED)
+  cap            Decimal?                    // CUMULATIVE(AED,客户微调层上限,本轮仅占位)
+  threshold      Decimal?                    // LARGE_APPROVAL(AED)
+  status         String   @default("ACTIVE") // ACTIVE | PENDING_APPROVAL
+  approvalCaseId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  @@unique([tradingTier, operationType, period])
-  @@index([status])
-  @@map("transaction_limit_policies")
-}
-
-model TransactionLimitChangeRequest {
-  id                String    @id @default(uuid())
-  requestNo         String    @unique @default("TEMP")
-  policyId          String
-  policyNo          String
-  currentAmount     Decimal
-  proposedAmount    Decimal
-  changeReason      String
-  status            String    @default("PENDING_APPROVAL")
-  requestedByUserId String
-  approvalCaseId    String?
-  approvalCaseNo    String?
-  executedAt        DateTime?
-  failureReason     String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@index([policyId, status])
-  @@map("transaction_limit_change_requests")
+  @@unique([gateType, operationType, assetId, tradingTier, period])
+  @@index([gateType, status])
+  @@map("transaction_limit_rules")
 }
 
 // ─── Withdrawal Fee Level (2026-05-30) ─────────────────────

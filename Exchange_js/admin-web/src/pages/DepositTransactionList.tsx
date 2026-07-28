@@ -19,6 +19,7 @@ import {
 } from '../utils/transactionRootDisplay';
 import { getDepositStatusBadgeClass } from '../utils/depositActionMap';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { AdminBadge } from '../components/ui/AdminBadge';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -33,6 +34,7 @@ interface DepositItem {
   type?: string | null;
   asset: { code: string; type: string; decimals?: number };
   createdAt: string;
+  limitHoldReason?: string | null;
 }
 
 interface FilterState {
@@ -48,7 +50,7 @@ interface FilterState {
 
 const DEPOSIT_STATUSES = [
   'PAYIN_PENDING', 'COMPLIANCE_PENDING', 'ACTION_PENDING', 'FROZEN',
-  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATED',
+  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATING', 'CONFISCATED',
 ];
 
 const PAGE_SIZE = 20;
@@ -288,9 +290,12 @@ const DepositTransactionList = () => {
 
                 {/* Status */}
                 <td className="px-4 py-2.5">
-                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusBadgeClass(item.status)}`}>
-                    {formatStatusLabel(item.status)}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusBadgeClass(item.status)}`}>
+                      {formatStatusLabel(item.status)}
+                    </span>
+                    {item.limitHoldReason === 'BELOW_MIN' && <AdminBadge value="BELOW MIN" dot={false} />}
+                  </div>
                 </td>
 
                 {/* Amount */}

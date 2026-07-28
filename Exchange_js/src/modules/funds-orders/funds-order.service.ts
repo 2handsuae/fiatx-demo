@@ -32,8 +32,12 @@ export class FundsOrderService {
     };
   }
 
-  private directionOf(row: { depositTransactionId?: string | null; withdrawTransactionId?: string | null; swapTransactionId?: string | null }): FundsOrderDirection {
-    if (row.depositTransactionId) return 'IN';
+  private directionOf(row: { depositTransactionId?: string | null; withdrawTransactionId?: string | null; swapTransactionId?: string | null; legSeq?: number | null }): FundsOrderDirection {
+    // A deposit's legSeq=1 leg is the inbound payin (IN). A legSeq>1 deposit leg
+    // is an internal reclassification move (below-min confiscation: customer wallet
+    // → firm F_FEE), born CREATED — it must advance via the INTERNAL/OUT map, not IN
+    // (the IN map has no CREATED entry, since payins are born SUBMITTED/CONFIRMED).
+    if (row.depositTransactionId) return (row.legSeq ?? 1) > 1 ? 'INTERNAL' : 'IN';
     if (row.withdrawTransactionId) return 'OUT';
     return 'INTERNAL'; // swap
   }
