@@ -1,6 +1,6 @@
 # V4 充值流程 — 当前实现真相
 
-Last Verified: 2026-07-28（核对方式：充值状态机·计划1 引擎 12 task 落地后 symbol-level 复核，新增第 4.1/4.2 节 + 状态机/异常分支表同步）
+Last Verified: 2026-07-28（核对方式：充值状态机·计划1 引擎 12 task 落地后 symbol-level 复核，新增第 4.1/4.2 节 + 状态机/异常分支表同步；同日终审修复 I1/I2/onHold/awaitUser 原子化，4.1/4.2 节同步）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -39,14 +39,14 @@ Happy path：`PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS`；异常态 `ACT
 ### 4.1 KYT-only 真实 Sumsub webhook 驱动（新，主路径）
 
 - **字段**：`Customer.sumsubApplicantId`（唯一）；`Deposit.sumsubFinanceTxnId` / `sumsubTravelRuleTxnId`（Sumsub 侧 txnId）/ `manualReason`（`EDD_PEP`/`CLIENT_ACTION`）/ `slaDeadline` / `slaBreached`。
-- **提交**：进 COMPLIANCE_PENDING（Gate 0 通过后）时 `submitSumsubTxns()` 向 Sumsub 提交交易——法币只提 `finance` 腿，虚拟币提 `finance` + `travelRule` 两腿；`applicantId` 取 `customer.sumsubApplicantId`，取不到则告警跳过（充值留在 COMPLIANCE_PENDING 等人工处理，不报错不卡流程）；以 `sumsubFinanceTxnId` 是否已存在做幂等（防 `runGate0` 重入重复提交）；写 `DEPOSIT_SUMSUB_SUBMITTED` 审计。
+- **提交**：进 COMPLIANCE_PENDING（Gate 0 通过后）时 `submitSumsubTxns()` 向 Sumsub 提交交易——法币只提 `finance` 腿，虚拟币提 `finance` + `travelRule` 两腿；`applicantId` 取 `customer.sumsubApplicantId`，取不到则告警跳过（充值留在 COMPLIANCE_PENDING 等人工处理，不报错不卡流程）；以 `sumsubFinanceTxnId` 是否已存在做幂等（防 `runGate0` 重入重复提交）；写 `DEPOSIT_SUMSUB_SUBMITTED` 审计。`runGate0()` 里这次调用整段包 try/catch（终审修复 I2）：真 HTTP 抛错（缺 creds/超时/5xx）只记 `logger.error` 降级，不再中断 `runGate0`——`initializeComplianceGates()` 照常执行，deposit 留 COMPLIANCE_PENDING 等人工/后续重试，不会 strand。
 - **webhook 前置分流**：`sumsub-ingestion.service.ts → dispatch()` 在旧 if/else 分支**之前**新增一段——`payload.type` 以 `applicantKytTxn` 开头即整段转交 `DepositWebhookRouter.route()`，复用 `SumsubWebhookEvent` 既有的去重/retry/dead-letter，只是路由目标不同。`applicantAction*` 事件**不**进这条分支，仍走 dispatch() 里更早的老 Clue 3 分支（材料时效重检，消费方是 V2 `materialRefreshService`）——两者互不干扰；客户补料后 Sumsub 侧自动重评发出的仍是 `applicantKytTxn*`，走新分支，无需专门的 action handler 接住补料事件本身。
 - **DepositWebhookRouter**（`deposit-sumsub/deposit-webhook.router.ts`）：按 `payload.type` 二次分流——`applicantKytTxnApproved/Rejected/AwaitingUser/OnHold` → `DepositKytVerdictHandler.handle()`；`applicantKytTxnReviewed` → 归一为 `ignore`，不推进状态机；`applicantKytTxnCreated` → 只记 debug 回执，no-op；其余未知 type → warn 记 orphan。
 - **DepositKytVerdictHandler**（`deposit-sumsub/deposit-kyt-verdict.handler.ts`）：把 webhook type 归一成 `KytVerdict`（`approved/rejected/awaitUser/onHold`）；只有 `rejected`/`awaitUser` 才回调 `SumsubTxnClient.getTxn(kytTxnId)` 读 `typedTags`，挑出 scene tag（`SANCTION`/`PEP`）和 officer 处置 tag（`FROZEN_BY_MLRO`/`RETURN_TO_SENDER`）；按 `kytTxnId`（即 `sumsubFinanceTxnId` 或 `sumsubTravelRuleTxnId`，稳定业务键非 `id`）反查 deposit（`findBySumsubTxnId`），查不到记 orphan warn；再调 `DepositWorkflowService.applyKytVerdict(depositId, { verdict, sceneTag?, dispoTag? })`。
 - **applyKytVerdict 状态转移**（`deposit-workflow.service.ts`；state-aware：已终态直接 no-op 防迟到 webhook，已在目标态也 no-op 防重复 webhook）：
-  - `approved` → 若当前 `MANUAL_CHECKING`，先补一条 `DEPOSIT_MANUAL_APPROVED`"翻案"审计，再统一调 `approveDeposit()`（TB Step2 `DEPOSIT_SUSPENSE→CLIENT_PAYABLE`）→ `SUCCESS`。
-  - `awaitUser` → 非终态 → `ACTION_PENDING`；`manualReason` 按 `sceneTag==='PEP'` 写 `EDD_PEP`，否则 `CLIENT_ACTION`；`slaDeadline = now + 7d`。
-  - `onHold` → **不换状态**，留在 `COMPLIANCE_PENDING`，只刷新 `slaDeadline = now + 7d`，记 `DEPOSIT_ONHOLD` 审计，等 officer 在 Sumsub 侧裁决。
+  - `approved` → 先过 `assertTradingReadyOrHold()`（trading-ready 闸，见下方 4.2 节"已收敛"说明），不通过则原地 hold（不改状态）+ 记 `DEPOSIT_HELD_NOT_TRADING_READY` 审计、直接 return；通过后若当前 `MANUAL_CHECKING`，先补一条 `DEPOSIT_MANUAL_APPROVED`"翻案"审计，再统一调 `approveDeposit()`（TB Step2 `DEPOSIT_SUSPENSE→CLIENT_PAYABLE`）→ `SUCCESS`。
+  - `awaitUser` → 非终态 → `ACTION_PENDING`；`manualReason` 按 `sceneTag==='PEP'` 写 `EDD_PEP`，否则 `CLIENT_ACTION`；`slaDeadline = now + 7d` 与 `manualReason` 折进同一次 `updateStatus` 的 `extraData`，一次原子写（终审修复，原为两步写）。
+  - `onHold` → 仅当当前 `status===COMPLIANCE_PENDING` 才生效（终审修复，加状态守卫防迟到 webhook 重写 SLA/记多余审计）：**不换状态**，留在 `COMPLIANCE_PENDING`，只刷新 `slaDeadline = now + 7d`，记 `DEPOSIT_ONHOLD` 审计，等 officer 在 Sumsub 侧裁决；若已转到其它状态则直接 no-op。
   - `rejected` → 按 tag 三分支：`sceneTag===SANCTION` 或 `dispoTag===FROZEN_BY_MLRO` → `FREEZE` → `FROZEN`（零记账，见下）；`dispoTag===RETURN_TO_SENDER` → `RETURN` → `RETURNING`（只落状态位，两腿回款结算留计划2）；两种 tag 都没有 → `MANUAL_CHECK` → `MANUAL_CHECKING`（转人工复核）。
 - **FROZEN 语义（已校正）**：钱仍停在 Step1 记的 `DEPOSIT_SUSPENSE`（COMPLIANCE_PENDING 入口已借记），FROZEN 不触发任何额外记账——不反转、不释放、**不建 `CLIENT_BLOCKED` 类科目**。
 - **SLA 定时器**：`DepositSlaService`（`deposit-sumsub/deposit-sla.service.ts`）`@Cron('*/5 * * * *', { timeZone: 'Asia/Dubai' })` 扫 `COMPLIANCE_PENDING`（onHold 留在此态）/`ACTION_PENDING` 且 `slaDeadline < now` 且 `slaBreached=false` 的 deposit，逐条驱动 `MANUAL_CHECK` → `MANUAL_CHECKING`，`extraData` 写 `slaBreached=true`（防重复扫），记 `DEPOSIT_SLA_BREACHED` 审计。
@@ -55,7 +55,8 @@ Happy path：`PAYIN_PENDING → COMPLIANCE_PENDING → SUCCESS`；异常态 `ACT
 ### 4.2 老 mock kyt-check/tr-check 路径（deposit-only 未拆，仍并存）
 
 - **字段**：Deposit 表 `kytStatus`（PENDING→PASSED/FAILED）+ `travelRuleRequired` + `travelRuleStatus`（PENDING→PASSED/FAILED/NOT_REQUIRED），法币 TR 初值 NOT_REQUIRED——本计划**未删未改**这套字段。
-- **分发**：`POST /admin/sumsub/simulate/kyt-check` + `tr-check` 仍走 Sumsub ingest 同一管道 → `applyKytResult()`/`applyTrResult()` → `checkAutoApproval()`（KYT+TR 双通过 + 客户合规状态正常 + trading-ready 地址就绪才 `approveDeposit()`）。与 4.1 的 `applyKytVerdict()` 是**两条独立入口**：`applyKytVerdict()` 走这条新路径时**不**经过 `checkAutoApproval()` 的 trading-ready 门（两条路径的门禁不对称，本计划未收敛，如实记录）。
+- **分发**：`POST /admin/sumsub/simulate/kyt-check` + `tr-check` 仍走 Sumsub ingest 同一管道 → `applyKytResult()`/`applyTrResult()` → `checkAutoApproval()`（KYT+TR 双通过 + 客户合规状态正常 + trading-ready 地址就绪才 `approveDeposit()`）。与 4.1 的 `applyKytVerdict()` 是**两条独立入口**，但 trading-ready 闸已收敛：两条路径的 approve 分支共享同一个私有 helper `assertTradingReadyOrHold()`（终审修复，此前 `applyKytVerdict()` 走新路径时不经过这道门，2026-07-28 已统一，消除两路门禁漂移）。
+- **锚点补充**：`deposit-workflow.service.ts → assertTradingReadyOrHold()`（`checkAutoApproval()` 与 `applyKytApproved()` 共享）
 - **锚点**：`admin-sumsub-simulation.controller.ts → simulateKytCheck()/simulateTrCheck()` ｜ `deposit-workflow.service.ts → applyKytResult()/applyTrResult()/checkAutoApproval()`
 
 ## 5. 异常分支现状（计划1 后：KYT-only webhook 驱动为主，骨架仍有缺口）

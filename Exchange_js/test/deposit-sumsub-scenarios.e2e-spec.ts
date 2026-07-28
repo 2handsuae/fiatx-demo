@@ -29,6 +29,7 @@ import { DepositSlaService } from '../src/modules/deposit-sumsub/deposit-sla.ser
 import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { WithdrawalAddressService } from '../src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service';
 import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { DEPOSIT_SCENARIOS, DepositScenario } from '../src/modules/deposit-sumsub/fixtures/scenarios';
 import { runScenario, DepositScenarioRunnerCtx, ScenarioDeposit } from './helpers/deposit-scenario-runner';
@@ -176,6 +177,26 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       },
     });
     cryptoWalletId = cryptoWallet.id;
+
+    // I1 fix: approveDeposit (via both checkAutoApproval and the new applyKytApproved
+    // path) is gated on the customer having an active fiat withdrawal address
+    // ("trading-ready"). The demo fixture customer has none by default in this
+    // worktree's DB, so every approved→SUCCESS scenario below would now get held
+    // in COMPLIANCE_PENDING instead. Seed one real ACTIVE bank withdrawal address via
+    // the actual service (first bank address for a customer auto-activates, no
+    // cooling period) so the e2e customer matches real trading-ready semantics.
+    await app.get(WithdrawalAddressService).createBankAccount({
+      customerId,
+      customerNo: customer.customerNo,
+      assetId: fiatAssetId,
+      iban: 'DE89370400440532013000',
+      swiftBic: 'DEUTDEFF500',
+      bankName: 'E2E Test Bank',
+      beneficiaryName: customer.customerNo,
+      ownershipDeclaredAt: new Date(),
+      ownershipProofType: 'E2E_FIXTURE',
+      traceId: 'task-12-e2e-withdrawal-address-seed',
+    });
   });
 
   afterAll(async () => {

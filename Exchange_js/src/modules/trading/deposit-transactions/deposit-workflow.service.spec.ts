@@ -277,6 +277,24 @@ describe('DepositWorkflowService', () => {
       expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
       expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
     });
+
+    it('I2: submitTxn throws (real HTTP failure) → runGate0 does not throw, deposit stays COMPLIANCE_PENDING, initializeComplianceGates still runs', async () => {
+      depositService.findOne.mockResolvedValue(baseFiatDeposit);
+      sumsubTxnClient.submitTxn.mockRejectedValue(new Error('ECONNREFUSED: Sumsub unreachable'));
+
+      await expect(service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'))).resolves.not.toThrow();
+
+      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+      // Submission failed → no txnIds persisted, no DEPOSIT_SUMSUB_SUBMITTED audit.
+      expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED }),
+      );
+      // Gate 0 must NOT be strand: initializeComplianceGates still runs, deposit is not
+      // touched via updateStatus (i.e. it stays wherever it already is — COMPLIANCE_PENDING).
+      expect(depositService.initializeComplianceGates).toHaveBeenCalledWith('dep-sub-fiat');
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
   });
 
   describe('checkAutoApproval', () => {
@@ -741,6 +759,37 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    it('I1: approved but customer has no active fiat withdrawal address → held in COMPLIANCE_PENDING, DEPOSIT_HELD_NOT_TRADING_READY audit, NOT SUCCESS (trading-ready gate shared with checkAutoApproval)', async () => {
+      const deposit = {
+        id: 'dep-2c',
+        depositNo: 'DEP002C',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-not-ready',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(false);
+
+      await service.applyKytVerdict('dep-2c', { verdict: 'approved' });
+
+      expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-not-ready');
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_HELD_NOT_TRADING_READY',
+          entityId: 'dep-2c',
+          entityNo: 'DEP002C',
+        }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+      );
+    });
+
     it('awaitUser + PEP → ACTION_PENDING with manualReason=EDD_PEP', async () => {
       const deposit = {
         id: 'dep-3',
@@ -758,12 +807,16 @@ describe('DepositWorkflowService', () => {
 
       await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag: 'PEP' });
 
+      // Minor a: slaDeadline is folded into the same updateStatus extraData write
+      // (one atomic write), not a separate setSlaDeadline call.
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-3',
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
-        expect.objectContaining({ extraData: { manualReason: 'EDD_PEP' } }),
+        expect.objectContaining({
+          extraData: { manualReason: 'EDD_PEP', slaDeadline: expect.any(Date) },
+        }),
       );
-      expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-3', expect.any(Date));
+      expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
     });
 
     it('awaitUser without PEP → manualReason=CLIENT_ACTION', async () => {
@@ -786,9 +839,11 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-3b',
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
-        expect.objectContaining({ extraData: { manualReason: 'CLIENT_ACTION' } }),
+        expect.objectContaining({
+          extraData: { manualReason: 'CLIENT_ACTION', slaDeadline: expect.any(Date) },
+        }),
       );
-      expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-3b', expect.any(Date));
+      expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
     });
 
     it('onHold → stays put, sets slaDeadline via setSlaDeadline, records DEPOSIT_ONHOLD', async () => {
@@ -808,6 +863,26 @@ describe('DepositWorkflowService', () => {
       expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-4', expect.any(Date));
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_ONHOLD', entityId: 'dep-4' }),
+      );
+    });
+
+    it('Minor b: late onHold on a deposit no longer in COMPLIANCE_PENDING (e.g. MANUAL_CHECKING) → no-op, no slaDeadline rewrite / no DEPOSIT_ONHOLD audit', async () => {
+      const deposit = {
+        id: 'dep-4b',
+        depositNo: 'DEP004B',
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-4b', { verdict: 'onHold' });
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_ONHOLD' }),
       );
     });
 

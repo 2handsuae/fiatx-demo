@@ -133,7 +133,15 @@ export class DepositWorkflowService implements OnModuleInit {
       sourcePlatform: 'SYSTEM',
     });
 
-    await this.submitSumsubTxns(deposit);
+    try {
+      await this.submitSumsubTxns(deposit);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.error(
+        `Sumsub submit failed for deposit ${depositId}: ${error.message} — ` +
+          `deposit remains COMPLIANCE_PENDING for manual handling/retry; Gate 0 continues`,
+      );
+    }
 
     await this.depositService.initializeComplianceGates(depositId);
   }
@@ -272,7 +280,40 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
+  /**
+   * Trading-ready 闸(法币提现地址,2026-07-11 不变量):approve 前必须客户已设置 active
+   * 法币提现地址,否则原地 hold(不改状态)+ 记 DEPOSIT_HELD_NOT_TRADING_READY 审计。
+   * `checkAutoApproval`(老 kyt/tr mock 路径)与 `applyKytApproved`(新 KYT-only 路径)
+   * 共享此 helper,消除两路门禁漂移(I1 修复)。
+   * 返回 true = trading-ready,调用方可继续;false = 已 hold,调用方须 return。
+   */
+  private async assertTradingReadyOrHold(deposit: any): Promise<boolean> {
+    const ready = await this.withdrawalAddresses.hasActiveFiatWithdrawalAddress(deposit.ownerId);
+    if (ready) return true;
+
+    this.logger.warn(
+      `Trading-ready gate hold: deposit ${deposit.id} customer ${deposit.ownerId} not trading-ready (no active fiat withdrawal address)`,
+    );
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_HELD_NOT_TRADING_READY,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Deposit held: customer has no active fiat withdrawal address (not trading-ready)',
+      metadata: { depositNo: deposit.depositNo },
+      sourcePlatform: 'SYSTEM',
+    });
+    return false;
+  }
+
   private async applyKytApproved(deposit: any) {
+    const ready = await this.assertTradingReadyOrHold(deposit);
+    if (!ready) return;
+
     if (deposit.status === DepositTransactionStatus.MANUAL_CHECKING) {
       // 误报翻案:此前进了人工复核,官方裁决翻回 approved。记账/SUCCESS 由下面的
       // approveDeposit 统一处理,这里只补一条“翻案”审计。
@@ -299,6 +340,11 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
+    // Minor a 修复:slaDeadline 折进同一次 updateStatus 的 extraData,与 manualReason
+    // 一次原子写(避免两步写中间失败,留 ACTION_PENDING 无 slaDeadline 永不被 SLA 扫)。
+    const slaDeadline = new Date(
+      Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
@@ -308,14 +354,9 @@ export class DepositWorkflowService implements OnModuleInit {
       {
         actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
         sourcePlatform: 'SYSTEM',
-        extraData: { manualReason },
+        extraData: { manualReason, slaDeadline },
       },
     );
-
-    const slaDeadline = new Date(
-      Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
-    await this.depositService.setSlaDeadline(deposit.id, slaDeadline);
 
     await this.recordStateTransitionAudit(
       updated,
@@ -326,6 +367,16 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   private async applyKytOnHold(deposit: any) {
+    // Minor b 修复:状态守卫——onHold 只对当前在 COMPLIANCE_PENDING 的 deposit 生效。
+    // 迟到的 onHold webhook(deposit 已转到 ACTION_PENDING/MANUAL_CHECKING/FROZEN 等其它
+    // 状态)no-op,防止重写 slaDeadline + 记多余 DEPOSIT_ONHOLD 审计。
+    if (deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
+      this.logger.debug(
+        `applyKytOnHold no-op: deposit ${deposit.id} not in COMPLIANCE_PENDING (status=${deposit.status}), late onHold webhook ignored`,
+      );
+      return;
+    }
+
     const slaDeadline = new Date(
       Date.now() + DepositWorkflowService.ONHOLD_SLA_DAYS * 24 * 60 * 60 * 1000,
     );
@@ -511,26 +562,8 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    const ready = await this.withdrawalAddresses.hasActiveFiatWithdrawalAddress(deposit.ownerId);
-    if (!ready) {
-      this.logger.warn(
-        `Auto-approval hold: deposit ${depositId} customer ${deposit.ownerId} not trading-ready (no active fiat withdrawal address) — staying in COMPLIANCE_PENDING`,
-      );
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_HELD_NOT_TRADING_READY,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
-        traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT',
-        reason: 'Deposit held: customer has no active fiat withdrawal address (not trading-ready)',
-        metadata: { depositNo: deposit.depositNo },
-        sourcePlatform: 'SYSTEM',
-      });
-      return;
-    }
+    const ready = await this.assertTradingReadyOrHold(deposit);
+    if (!ready) return;
 
     this.logger.log(
       `All gates PASSED for deposit ${depositId} — auto-approving`,
