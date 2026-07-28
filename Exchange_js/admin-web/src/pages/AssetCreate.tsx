@@ -32,10 +32,6 @@ const AssetCreate = () => {
     network: '',
     decimals: 18,
     description: '',
-    minDepositAmount: 0,
-    maxDepositAmount: 0,
-    minWithdrawAmount: 0,
-    maxWithdrawAmount: 0,
     depositEnabled: true,
     withdrawalEnabled: true,
   });
@@ -61,10 +57,6 @@ const AssetCreate = () => {
       currency: formData.currency,
       decimals: formData.decimals,
       description: formData.description || undefined,
-      minDepositAmount: formData.minDepositAmount,
-      maxDepositAmount: formData.maxDepositAmount,
-      minWithdrawAmount: formData.minWithdrawAmount,
-      maxWithdrawAmount: formData.maxWithdrawAmount,
       depositEnabled: formData.depositEnabled,
       withdrawalEnabled: formData.withdrawalEnabled,
     };
@@ -155,34 +147,7 @@ const AssetCreate = () => {
             </div>
           </fieldset>
 
-          {/* ② Limits */}
-          <fieldset className="space-y-4">
-            <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
-              Deposit & Withdrawal Limits
-            </p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <div>
-                <Label required>Min Deposit Amount</Label>
-                <input type="number" name="minDepositAmount" value={formData.minDepositAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-              </div>
-              <div>
-                <Label required>Max Deposit Amount</Label>
-                <input type="number" name="maxDepositAmount" value={formData.maxDepositAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-                <Hint>Must be &ge; min deposit</Hint>
-              </div>
-              <div>
-                <Label required>Min Withdraw Amount</Label>
-                <input type="number" name="minWithdrawAmount" value={formData.minWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-              </div>
-              <div>
-                <Label required>Max Withdraw Amount</Label>
-                <input type="number" name="maxWithdrawAmount" value={formData.maxWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-                <Hint>Must be &ge; min withdraw</Hint>
-              </div>
-            </div>
-          </fieldset>
-
-          {/* ③ Toggles */}
+          {/* ② Toggles */}
           <fieldset className="space-y-4">
             <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
               Feature Flags
@@ -199,7 +164,7 @@ const AssetCreate = () => {
             </div>
           </fieldset>
 
-          {/* ④ Submit */}
+          {/* ③ Submit */}
           <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
             <button type="button" onClick={() => navigate('/admin/assets')} className={adminButtonClass('modalCancel')}>
               Cancel

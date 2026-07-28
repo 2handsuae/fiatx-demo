@@ -51,6 +51,8 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -116,6 +118,8 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -172,6 +176,8 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -240,6 +246,8 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
       {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
     );
   });
 
@@ -372,5 +380,118 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
     expect(result).toBe(alreadyBound);
     expect(prisma.wallet.findFirst).not.toHaveBeenCalled();
     expect(prisma.withdrawTransaction.update).not.toHaveBeenCalled();
+  });
+});
+
+// Task 5 review: D1 large-value approval threshold now comes from the rule row
+// (getLargeApprovalThreshold), not a dead constant. Fail-closed on a missing rule
+// or a failed re-valuation — with a sane reason string (never "≥ null AED").
+describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold source + fail-closed', () => {
+  const event = {
+    withdrawId: 'wd-hc-1',
+    withdrawNo: 'WD7001',
+    status: 'CREATED',
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-hc',
+    assetId: 'asset-usdt',
+    amount: '100',
+    traceId: 'trace-hc',
+  };
+
+  function buildWorkflow(opts: {
+    fetchRate?: () => Promise<{ rate: Prisma.Decimal; fetchedAt: Date }>;
+    threshold: Prisma.Decimal | null;
+  }) {
+    const row = {
+      id: 'wd-hc-1',
+      withdrawNo: 'WD7001',
+      status: WithdrawTransactionStatus.CREATED,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-hc',
+      traceId: 'trace-hc',
+      amount: new Prisma.Decimal('100'),
+      asset: { currency: 'USDT', type: 'CRYPTO' },
+    };
+    const withdrawService = {
+      findOneInternal: jest.fn().mockResolvedValue(row),
+      saveValuationSnapshot: jest.fn().mockResolvedValue(undefined),
+      linkApprovalCase: jest.fn().mockResolvedValue(undefined),
+      updateStatus: jest.fn().mockResolvedValue(undefined),
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const approvalsService = {
+      createAndSubmit: jest.fn().mockResolvedValue({ id: 'ap-hc', approvalNo: 'AP-HC-1' }),
+    };
+    const binanceRateProvider = {
+      fetchRate: jest.fn(
+        opts.fetchRate ??
+          (() => Promise.resolve({ rate: new Prisma.Decimal('3.67'), fetchedAt: new Date() })),
+      ),
+    };
+    const limitRulesService = {
+      getLargeApprovalThreshold: jest.fn().mockResolvedValue(opts.threshold),
+    };
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      approvalsService as any,
+      binanceRateProvider as any,
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      limitRulesService as any,
+    );
+    return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
+  }
+
+  it('reads getLargeApprovalThreshold(WITHDRAWAL); a null rule routes to approval with a sane reason (no "≥ null AED")', async () => {
+    const { workflow, withdrawService, approvalsService, limitRulesService } = buildWorkflow({
+      threshold: null,
+    });
+
+    await workflow.handleWithdrawalCreated(event);
+
+    expect(limitRulesService.getLargeApprovalThreshold).toHaveBeenCalledWith('WITHDRAWAL');
+    // Fail-closed on the missing rule → approval, not compliance.
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      'wd-hc-1',
+      expect.objectContaining({ action: WithdrawTransactionAction.REQUIRE_APPROVAL }),
+      expect.anything(),
+    );
+    const reason = (approvalsService.createAndSubmit as jest.Mock).mock.calls[0][1].reason as string;
+    expect(reason).not.toContain('null');
+    expect(reason).toContain('large-value approval required');
+  });
+
+  it('fail-closes to approval when the re-valuation fails, passing the fresh failed valuation to persistence', async () => {
+    const { workflow, withdrawService, approvalsService } = buildWorkflow({
+      fetchRate: () => Promise.reject(new Error('binance timeout')),
+      threshold: new Prisma.Decimal('200000'),
+    });
+
+    await workflow.handleWithdrawalCreated(event);
+
+    // Persistence receives the FAILED valuation; the domain no-clobber guard
+    // (asserted directly in withdraw-transactions.service.spec) protects any
+    // good birth-value from being downgraded to null here.
+    expect(withdrawService.saveValuationSnapshot).toHaveBeenCalledWith(
+      'wd-hc-1',
+      expect.objectContaining({ grossAedValue: null, rateFetchFailed: true }),
+    );
+    // Approval decision fail-closes on the fresh failure regardless of threshold.
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      'wd-hc-1',
+      expect.objectContaining({ action: WithdrawTransactionAction.REQUIRE_APPROVAL }),
+      expect.anything(),
+    );
+    const reason = (approvalsService.createAndSubmit as jest.Mock).mock.calls[0][1].reason as string;
+    expect(reason).toContain('200000');
   });
 });

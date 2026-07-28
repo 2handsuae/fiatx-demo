@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
+import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
 import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
@@ -35,7 +36,7 @@ export async function seedBusiness(
   // ② Config layer
   await seedSwapFeeLevels(prisma);
   await seedWithdrawalFeeLevels(prisma);
-  await seedTransactionLimitPolicies(prisma);
+  await seedTransactionLimitRules(prisma);
   // ③ Customers layer
   await seedCustomers(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
@@ -428,39 +429,71 @@ async function seedWithdrawalFeeLevels(prisma: PrismaClient): Promise<void> {
   console.log(`Seeded ${count} withdrawal fee levels.`);
 }
 
-export async function seedTransactionLimitPolicies(prisma: PrismaClient): Promise<void> {
-  const policies = [
-    { policyNo: 'TLP-001', tradingTier: 'BASIC',   operationType: 'WITHDRAWAL', period: 'DAILY', limitAmount: 30000 },
-    { policyNo: 'TLP-002', tradingTier: 'BASIC',   operationType: 'SWAP',       period: 'DAILY', limitAmount: 100000 },
-    { policyNo: 'TLP-003', tradingTier: 'PREMIUM',  operationType: 'WITHDRAWAL', period: 'DAILY', limitAmount: 150000 },
-    { policyNo: 'TLP-004', tradingTier: 'PREMIUM',  operationType: 'SWAP',       period: 'DAILY', limitAmount: 500000 },
+export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<void> {
+  // A: 每资产 × WITHDRAWAL/SWAP 单笔 min/max（原生币种）
+  const assets = await prisma.asset.findMany({ select: { id: true, code: true, currency: true, type: true } });
+  const singleDefaults: Record<string, { min: string; max: string }> = {
+    BTC: { min: '0.0001', max: '10' },
+    ETH: { min: '0.001', max: '100' },
+    USDT: { min: '10', max: '1000000' },
+    AED: { min: '10', max: '1000000' },
+    USD: { min: '10', max: '1000000' },
+  };
+  const rules: any[] = [];
+  // 标准业务号(与 DEP/APR/SWP 同源);批内去重防同秒随机撞号
+  const usedNos = new Set<string>();
+  const no = () => {
+    let n = generateReferenceNo('TLR');
+    while (usedNos.has(n)) n = generateReferenceNo('TLR');
+    usedNos.add(n);
+    return n;
+  };
+  for (const a of assets) {
+    // 按 currency 而非 code 匹配——code 含网络后缀(如 USDT-TRON),currency 才是 singleDefaults 的键
+    const d = singleDefaults[a.currency] || { min: '0.0001', max: '1000000' };
+    for (const op of ['WITHDRAWAL', 'SWAP']) {
+      rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: op, assetId: a.id, minAmount: d.min, maxAmount: d.max });
+    }
+  }
+  // DEPOSIT: 只有下限(min=100 原生币种),无上限(maxAmount 空=∞) — 2026-07-16 deposit-min spec
+  for (const a of assets) {
+    rules.push({ ruleNo: no(), gateType: 'SINGLE', operationType: 'DEPOSIT', assetId: a.id, minAmount: '100' });
+  }
+  // B: tier × 方向 × 周期（AED；默认值+cap）
+  const cum = [
+    ['BASIC', 'WITHDRAWAL', 'DAILY', '50000', '100000'],
+    ['BASIC', 'WITHDRAWAL', 'MONTHLY', '500000', '1000000'],
+    ['BASIC', 'SWAP', 'DAILY', '100000', '200000'],
+    ['BASIC', 'SWAP', 'MONTHLY', '1000000', '2000000'],
+    ['PREMIUM', 'WITHDRAWAL', 'DAILY', '500000', '1000000'],
+    ['PREMIUM', 'WITHDRAWAL', 'MONTHLY', '5000000', '10000000'],
+    ['PREMIUM', 'SWAP', 'DAILY', '1000000', '2000000'],
+    ['PREMIUM', 'SWAP', 'MONTHLY', '10000000', '20000000'],
   ];
+  for (const [tier, op, period, defaultLimit, cap] of cum) {
+    rules.push({ ruleNo: no(), gateType: 'CUMULATIVE', operationType: op, tradingTier: tier, period, defaultLimit, cap });
+  }
+  // D1: 提现大额审批线（承接原 WITHDRAW_APPROVAL_AED_THRESHOLD=200000）
+  rules.push({ ruleNo: no(), gateType: 'LARGE_APPROVAL', operationType: 'WITHDRAWAL', threshold: '200000' });
 
-  for (const p of policies) {
-    await prisma.transactionLimitPolicy.upsert({
+  for (const r of rules) {
+    // ⚠️ Prisma+SQLite composite-unique WHERE with NULLs is unreliable — use manual upsert:
+    const existing = await prisma.transactionLimitRule.findFirst({
       where: {
-        tradingTier_operationType_period: {
-          tradingTier: p.tradingTier,
-          operationType: p.operationType,
-          period: p.period,
-        },
-      },
-      update: {
-        policyNo: p.policyNo,
-        limitAmount: p.limitAmount,
-      },
-      create: {
-        policyNo: p.policyNo,
-        tradingTier: p.tradingTier,
-        operationType: p.operationType,
-        period: p.period,
-        limitAmount: p.limitAmount,
-        status: 'ACTIVE',
+        gateType: r.gateType, operationType: r.operationType,
+        assetId: r.assetId ?? null, tradingTier: r.tradingTier ?? null, period: r.period ?? null,
       },
     });
+    if (existing) {
+      await prisma.transactionLimitRule.update({
+        where: { id: existing.id },
+        data: { minAmount: r.minAmount, maxAmount: r.maxAmount, defaultLimit: r.defaultLimit, cap: r.cap, threshold: r.threshold, status: 'ACTIVE' },
+      });
+    } else {
+      await prisma.transactionLimitRule.create({ data: { ...r, status: 'ACTIVE' } });
+    }
   }
-
-  console.log(`  ✔ Seeded ${policies.length} transaction limit policies`);
+  console.log(`  ✔ Seeded ${rules.length} transaction limit rules`);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -481,6 +514,7 @@ type DemoCustomer = {
   eddRequired: boolean;
   companyName?: string;
   complianceFreezeReason?: string;
+  sumsubApplicantId?: string;
 };
 
 const DEMO_CUSTOMERS: DemoCustomer[] = [
@@ -490,6 +524,9 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     firstName: 'Alice', lastName: 'Happy', customerType: 'INDIVIDUAL',
     onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+    // Sumsub sandbox applicant (externalUserId = this customer's customerNo CU2601019430),
+    // tagged shawn-test. Survives reset because customerNo is derived from the email.
+    sumsubApplicantId: '6a5dd88f07d9bbd981a22fc9',
   },
   {
     email: 'demo_bob@example.com', phone: '+15552000002',
@@ -570,6 +607,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       tradingTier: c.tradingTier,
       eddRequired: c.eddRequired,
       companyName: c.companyName ?? null,
+      sumsubApplicantId: c.sumsubApplicantId ?? null,
     };
 
     const customer = await prisma.customerMain.upsert({

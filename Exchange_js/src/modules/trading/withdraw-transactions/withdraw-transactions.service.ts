@@ -724,6 +724,24 @@ export class WithdrawTransactionsService {
       rateFetchFailed: boolean;
     },
   ) {
+    // No-clobber guard (B-sum integrity): a FAILED re-valuation must NOT downgrade
+    // a good birth snapshot to null. The row still counts toward the B cumulative
+    // window (status CREATED/PENDING_APPROVAL ∈ counted), so nulling grossAedValue
+    // would make it contribute 0 to sumUsage → a sibling withdrawal under-counts and
+    // silently slips past the AED cap. When the incoming valuation failed AND the row
+    // already carries a non-null grossAedValue, preserve the existing columns.
+    // (A successful re-valuation still overwrites — a fresher rate is fine. The ADMIN
+    // path has no birth-value, so a failed re-valuation there writes as before.)
+    if (snapshot.rateFetchFailed) {
+      const existing = await (this.prisma as any).withdrawTransaction.findUnique({
+        where: { id },
+        select: { grossAedValue: true },
+      });
+      if (existing?.grossAedValue != null) {
+        return;
+      }
+    }
+
     await (this.prisma as any).withdrawTransaction.update({
       where: { id },
       data: {

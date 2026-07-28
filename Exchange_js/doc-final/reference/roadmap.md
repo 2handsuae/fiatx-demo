@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-07-06
+Last Updated: 2026-07-17
 
 **三层分类**（按需求来源）：
 - **MVP** — 领导定义的基础必须（非常基础，未必行业惯例，但领导要）
@@ -158,7 +158,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [x] 账本账户开设 — 随资产同事务开系统账户，客户账户首笔懒解析+手动兜底 ｜来源:领导 ✅2026-05-15
 - [x] 提现地址登记 — Crypto — 24h 安全冷却 ｜来源:领导+**行业惯例**(⚠️2026-07-06 审计:查遍各册无地址冷却法定条款,原 TIR III.A 误引——那是保密信息条款) ｜配对:地址停用归档(ADV) ✅2026-05-13
 - [x] 提现地址登记 — Bank — 同冷却机制 ｜来源:领导+**行业惯例**(同上,无法定锚) ｜配对:地址停用归档(ADV) ✅2026-05-13
-- [~] 金额闸门体系 — 限额配置管道✅2026-05-16；**未接入执行**（充/提/兑均不消费限额表，侧边栏入口已隐藏 84cfffb）。三条金额线（tier 限额 / 大额审批 20 万 / TR 阈值 3,500）待合并为"金额闸门矩阵"统一接入 L1 ｜来源:领导（2026-07-03 定性 MVP 未完成，待重设计）
+- [~] 金额闸门体系 — 统一 `transaction_limit_rules`（A 单笔 / B 等级累计 / D1 大额审批 三 gateType）**✅2026-07-16 接入 L1**：A/B 提现+兑换建单前拦截、D1 提现大额审批读规则行；旧 `TransactionLimitPolicy`/`TransactionLimitChangeRequest` 两表退役。**✅2026-07-17 充值执行接入**（V4 below-min 挂起，见下）。仍欠（defer）：**客户微调层**（cap 列占位）+ **DEPOSIT 累计限额（B 档）**；**TR 阈值 3,500 属合规域、不并入本体** ｜来源:领导 ｜配对:充值限额接入(V4，✅已交付) ｜现状见 truth/v3-financial-config §5
 
 ### ADVANCED（VARA gap + 低频逆向）
 
@@ -209,12 +209,13 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 - [x] 虚拟币充值 Happy Path — 链上到账→资金单确认→暂扣记账(Step1 CLIENT_ASSET→SUSPENSE)→L1 资格→L2(KYT+TR 全 PASSED)→入账(Step2 SUSPENSE→PAYABLE) ｜来源:领导+VARA CRM II.A ✅2026-05-22
 - [x] 法币充值 Happy Path — VIBAN 到账(无确认阶段)→暂扣记账→L1→L2(KYT；TR 自动 NOT_REQUIRED)→入账 ｜来源:领导+VARA CRM II.A ✅2026-05-27
+- [x] 充值最低限额（below-min）挂起 + 处置 — `transaction_limit_rules` DEPOSIT SINGLE 配置(min-only)→`detected()` 落 `limitHoldReason='BELOW_MIN'`(仍 CREATED+记 Step1，只隐不拒)→L1 永久挂起(不自动放行)→客户面服务端隐藏(列表过滤+详情 404)→ops 两选一处置：PASS(单人，清标+重跑 L2)/ 没收(maker-checker，两腿反向+确认收入→CONFISCATED) ｜来源:领导 ✅2026-07-17 ｜现状见 truth/v4-deposit.md §5-§7 ｜配对:金额闸门体系(V3，✅已交付)
 
 ### ADVANCED（VARA gap + 异常分支；括号内 P0/P1/P2 = 实施优先级）
 
 **P0（硬条款欠账 + 已上线按钮钱路未通）：**
 - [ ] ⚖️ 制裁冻结完整闭环 — KYT/制裁命中→FROZEN→MLRO 审批门→放行/没收(CONFISCATE 治理化) ｜VARA CRM III.H(命中即冻结、记录 8 年) ｜(P0)
-- [ ] ⚖️ 已记账异常终态 TB 回退 — REJECTED/FAILED/EXPIRED 若已过 Step1 须反向 SUSPENSE→CLIENT_ASSET ｜VARA BD(禁止不当处置客户资产) ｜(P0，临时守卫见 BACKLOG task_16af8187)
+- [~] ⚖️ 已记账异常终态 TB 回退 — REJECTED/FAILED/EXPIRED 若已过 Step1 须反向 SUSPENSE→CLIENT_ASSET ｜VARA BD(禁止不当处置客户资产) ｜(P0，临时守卫见 BACKLOG task_16af8187) ｜**部分兑现 2026-07-17**：BELOW_MIN 没收路径补上了这条反向分录(`DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET`，见 truth/v4-deposit.md §6 Leg1)——是这个 P0 条款的第一块砖，但只覆盖"没收"一种异常终态；REJECTED/FAILED/EXPIRED 仍零回退分录，P0 未整体收口
 - [ ] KYT FAILED 消化路径 — 失败不能永挂 COMPLIANCE_PENDING ｜来源:业务 ｜(P0)
 
 **P1（有具体数字/字段的条款欠账）：**
@@ -238,7 +239,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 Unhosted 来源充值差异化处置 — 来源判定 unhosted 时**不进"等对手方数据"分支**(没有对手方永远等不来)，改走独立政策:所有权自证/增强监控/限额/退回，接受与退回均留痕；⚠️现设计反把 unhosted 判 NOT_REQUIRED 自动放行(比 hosted 更松、管反了) ｜CRM III.G.7(a)(一手核)
 - [ ] ⚖️P1 收款侧对手方 VASP 尽调入账门 — 来自某 hosted 钱包(=某外部 VASP)的充值，该 VASP 首次交易前须完成 risk-based 尽调、未尽调不得直接入账(查一次即可，除非风险升高)；V5 只落了发送侧对手方尽调 ｜CRM III.G.6(一手核)
 - [ ] ⚖️P1 法币到账 1 日入 Client Account — 收到客户法币须 **1 个自然日内**存入 Client Account，**暂扣审查不豁免隔离**(境外 24h 汇回境内已在 V3 银行配置) ｜CRM IV.B.5.a(一手核)
-- [ ] ⚖️P1 拒收充值原路退回(return-to-source) — 可退回的拒收(KYT FAILED/合规拒绝/孤儿到期)**只可退回原来源**(链上退原 originator 地址、法币退原汇出账户)，禁退客户指定的第三方——否则平台成洗白通道 ｜CRM III.G.4(b)+G.9(一手核) ｜与 P0 制裁禁退不同分支
+- [ ] ⚖️P1 拒收充值原路退回(return-to-source) — 可退回的拒收(KYT FAILED/合规拒绝/孤儿到期)**只可退回原来源**(链上退原 originator 地址、法币退原汇出账户)，禁退客户指定的第三方——否则平台成洗白通道 ｜CRM III.G.4(b)+G.9(一手核) ｜与 P0 制裁禁退不同分支 ｜⚠️2026-07-17 deposit-min 复核仍 deferred：below-min 的两个处置动作(PASS/没收)均不做退回，原路退回依赖真实出金能力(等于半个提现流程)，本轮未做
 - [ ] ⚖️P1 充值记录法定字段集 + 来源画像留存 — 每笔充值留存 I.F.1 最低字段(金额/时间/payment instruction[txHash+来源地址/银行汇款参考]/费用总额/客户+居住国/对手方 VASP·托管方)，含 originator 三要素 obtain-and-hold、≥8y、监管索取即出 ｜CRM I.F.1-2 + III.G.3/G.4(一手核) ｜与 V5/V6/V8 记录字段集同源
 
 **P2（低频/披露）：**

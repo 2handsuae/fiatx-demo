@@ -20,10 +20,6 @@ const Label = ({ children, required, locked }: { children: React.ReactNode; requ
   </label>
 );
 
-const Hint = ({ children }: { children: React.ReactNode }) => (
-  <p className="mt-1 font-mono text-[9px] text-adm-t3">{children}</p>
-);
-
 /* ── Component ───────────────────────────────────────────────── */
 
 interface AssetData {
@@ -36,10 +32,6 @@ interface AssetData {
   decimals: number;
   description: string | null;
   status: string;
-  minDepositAmount: number;
-  maxDepositAmount: number;
-  minWithdrawAmount: number;
-  maxWithdrawAmount: number;
   depositEnabled: boolean;
   withdrawalEnabled: boolean;
 }
@@ -64,10 +56,6 @@ const AssetEdit = () => {
   /* Editable fields */
   const [formData, setFormData] = useState({
     description: '',
-    minDepositAmount: 0,
-    maxDepositAmount: 0,
-    minWithdrawAmount: 0,
-    maxWithdrawAmount: 0,
     depositEnabled: true,
     withdrawalEnabled: true,
   });
@@ -100,10 +88,6 @@ const AssetEdit = () => {
 
         setFormData({
           description: data.description || '',
-          minDepositAmount: data.minDepositAmount ?? 0,
-          maxDepositAmount: data.maxDepositAmount ?? 0,
-          minWithdrawAmount: data.minWithdrawAmount ?? 0,
-          maxWithdrawAmount: data.maxWithdrawAmount ?? 0,
           depositEnabled: data.depositEnabled ?? true,
           withdrawalEnabled: data.withdrawalEnabled ?? true,
         });
@@ -141,10 +125,6 @@ const AssetEdit = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             description: formData.description || undefined,
-            minDepositAmount: formData.minDepositAmount,
-            maxDepositAmount: formData.maxDepositAmount,
-            minWithdrawAmount: formData.minWithdrawAmount,
-            maxWithdrawAmount: formData.maxWithdrawAmount,
             depositEnabled: formData.depositEnabled,
             withdrawalEnabled: formData.withdrawalEnabled,
           }),
@@ -256,34 +236,7 @@ const AssetEdit = () => {
             </div>
           </fieldset>
 
-          {/* ③ Limits */}
-          <fieldset className="space-y-4">
-            <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
-              Deposit & Withdrawal Limits
-            </p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <div>
-                <Label required>Min Deposit Amount</Label>
-                <input type="number" name="minDepositAmount" value={formData.minDepositAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-              </div>
-              <div>
-                <Label required>Max Deposit Amount</Label>
-                <input type="number" name="maxDepositAmount" value={formData.maxDepositAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-                <Hint>Must be &ge; min deposit</Hint>
-              </div>
-              <div>
-                <Label required>Min Withdraw Amount</Label>
-                <input type="number" name="minWithdrawAmount" value={formData.minWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-              </div>
-              <div>
-                <Label required>Max Withdraw Amount</Label>
-                <input type="number" name="maxWithdrawAmount" value={formData.maxWithdrawAmount} onChange={handleChange} min={0} step="any" className={fi} required />
-                <Hint>Must be &ge; min withdraw</Hint>
-              </div>
-            </div>
-          </fieldset>
-
-          {/* ④ Toggles */}
+          {/* ③ Toggles */}
           <fieldset className="space-y-4">
             <p className="font-mono text-[8.5px] font-semibold uppercase tracking-[0.16em] text-adm-t3 border-b border-adm-border pb-2">
               Feature Flags
@@ -300,7 +253,7 @@ const AssetEdit = () => {
             </div>
           </fieldset>
 
-          {/* ⑤ Submit */}
+          {/* ④ Submit */}
           <div className="flex justify-end gap-3 border-t border-adm-border pt-4">
             <button type="button" onClick={() => navigate(`/admin/assets/${assetNoParam}`)} className={adminButtonClass('modalCancel')}>
               Cancel

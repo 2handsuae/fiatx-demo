@@ -1,27 +1,49 @@
 import { Prisma } from '@prisma/client';
-import {
-  WITHDRAW_APPROVAL_AED_THRESHOLD,
-  shouldRequireApproval,
-} from './withdraw-approval.constant';
+import { shouldRequireApproval } from './withdraw-approval.constant';
 
 describe('shouldRequireApproval', () => {
-  it('threshold is 200000 AED', () => {
-    expect(WITHDRAW_APPROVAL_AED_THRESHOLD.toString()).toBe('200000');
+  it('returns true at or above the threshold (>=)', () => {
+    expect(
+      shouldRequireApproval(
+        { grossAedValue: new Prisma.Decimal('200000'), rateFetchFailed: false },
+        new Prisma.Decimal('200000'),
+      ),
+    ).toBe(true);
   });
 
-  it('returns true at exactly the threshold (>=)', () => {
-    expect(shouldRequireApproval({ grossAedValue: new Prisma.Decimal('200000'), rateFetchFailed: false })).toBe(true);
+  it('returns false below the threshold', () => {
+    expect(
+      shouldRequireApproval(
+        { grossAedValue: new Prisma.Decimal('199999.99'), rateFetchFailed: false },
+        new Prisma.Decimal('200000'),
+      ),
+    ).toBe(false);
   });
 
-  it('returns false just below the threshold', () => {
-    expect(shouldRequireApproval({ grossAedValue: new Prisma.Decimal('199999.99'), rateFetchFailed: false })).toBe(false);
+  it('fail-closed: returns true when threshold is null (rule missing)', () => {
+    expect(
+      shouldRequireApproval(
+        { grossAedValue: new Prisma.Decimal('1'), rateFetchFailed: false },
+        null,
+      ),
+    ).toBe(true);
   });
 
   it('fail-closed: returns true when the rate fetch failed', () => {
-    expect(shouldRequireApproval({ grossAedValue: null, rateFetchFailed: true })).toBe(true);
+    expect(
+      shouldRequireApproval(
+        { grossAedValue: null, rateFetchFailed: true },
+        new Prisma.Decimal('200000'),
+      ),
+    ).toBe(true);
   });
 
   it('fail-closed: returns true when value is missing', () => {
-    expect(shouldRequireApproval({ grossAedValue: null, rateFetchFailed: false })).toBe(true);
+    expect(
+      shouldRequireApproval(
+        { grossAedValue: null, rateFetchFailed: false },
+        new Prisma.Decimal('200000'),
+      ),
+    ).toBe(true);
   });
 });

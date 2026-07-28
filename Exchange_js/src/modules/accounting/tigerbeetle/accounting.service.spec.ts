@@ -4,6 +4,8 @@ jest.mock('tigerbeetle-node', () => ({
   CreateTransferStatus: {
     exists: 'exists',
     created: 'created',
+    pending_transfer_already_posted: 'pending_transfer_already_posted',
+    pending_transfer_already_voided: 'pending_transfer_already_voided',
   },
   TransferFlags: {
     pending: 1,
@@ -34,6 +36,7 @@ describe('AccountingService', () => {
     };
     mockEvidenceService = {
       writeEvidence: jest.fn().mockResolvedValue(undefined),
+      updateTransferType: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new AccountingService(mockTbService, mockRegistryService, mockEvidenceService);
@@ -167,6 +170,42 @@ describe('AccountingService', () => {
 
       expect(mockEvidenceService.writeEvidence).not.toHaveBeenCalled();
       expect(result).toHaveProperty('tbTransferId');
+    });
+  });
+
+  describe('postPendingTransfer', () => {
+    const params = { pendingTransferId: 999n, amount: 5000n };
+
+    it('normal post: forwards to TB and flips evidence → POSTED', async () => {
+      mockTbService.createTransfers.mockResolvedValue([]);
+      await service.postPendingTransfer(params as any);
+      expect(mockTbService.createTransfers).toHaveBeenCalledTimes(1);
+      expect(mockEvidenceService.updateTransferType).toHaveBeenCalledTimes(1);
+    });
+
+    it('idempotent replay: pending already posted → no throw, skip evidence rewrite', async () => {
+      mockTbService.createTransfers.mockResolvedValue([
+        { status: CreateTransferStatus.pending_transfer_already_posted },
+      ]);
+      await expect(service.postPendingTransfer(params as any)).resolves.toBeUndefined();
+      expect(mockEvidenceService.updateTransferType).not.toHaveBeenCalled();
+    });
+
+    it('genuine TB error still throws', async () => {
+      mockTbService.createTransfers.mockResolvedValue([{ status: 'some_other_error' }]);
+      await expect(service.postPendingTransfer(params as any)).rejects.toThrow();
+    });
+  });
+
+  describe('voidPendingTransfer', () => {
+    const params = { pendingTransferId: 888n, amount: 3000n };
+
+    it('idempotent replay: pending already voided → no throw, skip evidence rewrite', async () => {
+      mockTbService.createTransfers.mockResolvedValue([
+        { status: CreateTransferStatus.pending_transfer_already_voided },
+      ]);
+      await expect(service.voidPendingTransfer(params as any)).resolves.toBeUndefined();
+      expect(mockEvidenceService.updateTransferType).not.toHaveBeenCalled();
     });
   });
 

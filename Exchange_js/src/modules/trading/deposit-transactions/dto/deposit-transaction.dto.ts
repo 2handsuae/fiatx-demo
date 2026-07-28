@@ -84,6 +84,8 @@ export enum DepositTransactionAction {
   ACTION_PENDING = 'action_pending',
   RESUME = 'resume',
   CONFISCATE = 'confiscate',
+  CONFISCATE_START = 'confiscate_start',
+  CONFISCATE_SETTLE = 'confiscate_settle',
   EXPIRE = 'expire',
   FAIL = 'fail',
   MANUAL_CHECK = 'manual_check',

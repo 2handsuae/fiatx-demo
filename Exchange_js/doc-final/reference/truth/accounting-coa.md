@@ -30,7 +30,7 @@ Last Verified: 2026-07-12（核对方式：符号级 grep + V3-V8 体检交叉�
 ## 2. 数据模型要点
 
 - **TB Transfer**：余额真相，flags 区分资产/负债/pending。`tb_transfer_evidence`（Prisma 凭证）：每笔 TB transfer 一行，含 `effectiveDate`（生效日/结算日）、`walletRef`/`externalRef`/`isExternalCrossing`（对账三字段）。
-- **AccountFlow 投影**（`account_flows`）：2 行/transfer（借贷各一），供对账 by-wallet 视图 + effectiveDate 过滤；由 `writeEvidence` 唯一漏斗触发投影。**每行含 `balanceAfter`**（该账户过账后当时 posted 余额快照，分，class-aware 符号：资产借正、负债/权益贷正）——写 evidence 时由 `tb-evidence.service.ts → postedBalanceAfter(tbAccountId, coaCode)` 读该账户 TB posted 余额落每行（借腿/贷腿各存各账户；pending→POST 重投影都刷）；历史行可空，一次性回填脚本 `scripts/backfill-account-flow-balance.ts`。
+- **AccountFlow 投影**（`account_flows`）：2 行/transfer（借贷各一），供对账 by-wallet 视图 + effectiveDate 过滤；由 `writeEvidence` 唯一漏斗触发投影。**每行含 `balanceAfter`**（该账户过账后当时 posted **净额**快照，分，class-aware：资产＝posted 借－贷、负债/权益＝posted 贷－借，**不含在途 pending**）——写 evidence 时由 `tb-evidence.service.ts → postedBalanceAfter(tbAccountId, coaCode)` 读该账户 TB posted 净额落每行（借腿/贷腿各存各账户；pending→POST 重投影都刷）；历史行可空，一次性回填脚本 `scripts/backfill-account-flow-balance.ts`。
 - **transfer codes**（`tb-transfer-codes.constant.ts`）：如 `CAPITAL_INJECTION=70`（DR FIRM_ASSET / CR FIRM_OPS）等业务分类。
 - 锚点：prisma `tb_transfer_evidence`/`account_flows` ｜ `tb-transfer-codes.constant.ts`
 
@@ -38,7 +38,7 @@ Last Verified: 2026-07-12（核对方式：符号级 grep + V3-V8 体检交叉�
 
 - **建账**：`createAccounts()`（批量 provision TB 账户 + registry）
 - **实时转账**：`executeTransfer()`（单笔即时借贷，写 evidence）
-- **两阶段（提现/swap 用）**：`executePendingTransfer()`（锁定，create pending）→ `postPendingTransfer()`（结算）/ `voidPendingTransfer()` / `voidPendingTransferBestEffort()`（失败解锁，best-effort 补偿）
+- **两阶段（提现/swap/充值没收 用）**：`executePendingTransfer()`（锁定，create pending）→ `postPendingTransfer()`（结算）/ `voidPendingTransfer()` / `voidPendingTransferBestEffort()`（失败解锁，best-effort 补偿）。**post/void 幂等**：`postPendingTransfer`/`voidPendingTransfer` 对 TB 的 `pending_transfer_already_posted`/`pending_transfer_already_voided` 放行为干净 no-op（不重写凭证、不盖假 postId/voidId），故重放安全——充值没收结算的 3 重试可自愈"leg1 已 post、leg2 瞬断"的半截 split（见 [v4-deposit.md](v4-deposit.md) §6）
 - **凭证漏斗**：`tb-evidence.service.ts → writeEvidence()` 是**唯一写入漏斗**——打 `effectiveDate`（不传=`toBusinessDate(now)` 写当天）+ 触发 `flowProjector.persist()` 投影 AccountFlow。**平账回填经此透传**（advance→writeEvidence→account_flows）。
 - **余额读**：`lookupBalance()` / `getCustomerAvailableBalance()`（客户可用余额，扣 pending）
 - **记账铁律**：workflow 同步调 accounting，记账失败则业务状态不许推进（绝不事件异步记账，保 ACID）。

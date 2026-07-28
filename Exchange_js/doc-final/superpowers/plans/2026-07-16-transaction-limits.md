@@ -901,6 +901,8 @@ git commit -m "feat(limits): 种子——A 每资产×两方向 + B 8行(默认�
 - Modify: `prisma/schema.prisma`（删 `TransactionLimitPolicy` + `TransactionLimitChangeRequest` 两模型）
 - Migration: drop 两表
 
+> 🔴 **Task 3 遗留铁律（删前必做）**：新模块的 decided handler 靠旧模块的 `TransactionLimitCreationApprovalService` + `TransactionLimitChangeApprovalService`（两个 ApprovalHandler 发射器，共享 `ApprovalActionTypes.TRANSACTION_LIMIT_CREATION/_CHANGE`）发 `workflow.transaction-limit-{creation,change}.decided` 事件。**删旧模块前必须把这两个发射器 service 搬进新 `transaction-limits.module.ts` 的 providers**（连同它们依赖的类），否则 `.decided` 事件没人发 → 规则永远卡 PENDING_APPROVAL、变更永不生效。搬完 grep 确认无第二处注册（防双发审计）。
+
 - [ ] **Step 1: 消费方普查**（删前必查，谁还在引用旧模块/旧表）
 
 ```bash

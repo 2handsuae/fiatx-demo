@@ -11,6 +11,7 @@
  *   resumeLeg          → manual recovery (fresh attempt, clears needsReview).
  */
 import { SwapWorkflowService } from './swap-workflow.service';
+import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 
@@ -107,9 +108,20 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     hasReceivingAccount: jest.fn(() => Promise.resolve(true)),
   };
 
+  const limitGateService = {
+    evaluate: jest.fn(() => Promise.resolve({
+      grossAedValue: new Prisma.Decimal(0), aedRate: null, rateFetchedAt: null, rateFetchFailed: false,
+    })),
+  };
+
   const prisma: any = {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
+    },
+    // L1 Transaction Limit gate: executeSwap peeks the quote (outside the tx)
+    // for the from-asset + amount before evaluating the gate.
+    swapQuote: {
+      findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
     },
     $transaction: jest.fn((cb: (tx: any) => Promise<any>) => {
       const tx: any = {
@@ -124,7 +136,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, prisma };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
@@ -160,6 +172,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     stubLegAccounting,
     stubFundsOrders,
     (mocks as any).walletQuery,
+    mocks.limitGateService as any,
   );
 }
 
@@ -251,6 +264,49 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       .map((c: any[]) => c[0])
       .find((a: any) => a.action === 'SWAP_CREATED');
     expect(createdAudit).toBeDefined();
+  });
+
+  // ── L1 Transaction Limit gate (Task 6) wiring contract ──────────────────────
+  it('L1 limit: calls limitGateService.evaluate with the FROM-side asset/amount for the customer', async () => {
+    const mocks = buildMocks(makeQuote()); // fromAssetId=asset-usdt, amountIn=100
+    const service = makeService(mocks);
+
+    await service.executeSwap('cust-1', 'q-1');
+
+    expect(mocks.limitGateService.evaluate).toHaveBeenCalledTimes(1);
+    const gateArg = (mocks.limitGateService.evaluate as jest.Mock).mock.calls[0][0];
+    expect(gateArg.operationType).toBe('SWAP');
+    expect(gateArg.customerId).toBe('cust-1');
+    expect(gateArg.assetId).toBe('asset-usdt'); // FROM-side, not toAssetId
+    expect(gateArg.amount.equals(new Prisma.Decimal('100'))).toBe(true);
+  });
+
+  it('L1 limit: an A/B breach (evaluate rejects) blocks creation — no swap row, no quote consume', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+    (mocks.limitGateService.evaluate as jest.Mock).mockRejectedValueOnce(
+      new BadRequestException({ code: 'TRANSACTION_LIMIT_ABOVE_MAX' }),
+    );
+
+    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(BadRequestException);
+
+    // Gate runs BEFORE the $transaction: nothing is created or consumed.
+    expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
+    expect(mocks.swapQuoteService.consumeQuote).not.toHaveBeenCalled();
+    expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+  });
+
+  it('L1 limit: the AED valuation flows onto swapTransactionsService.create (grossAedValue not dropped)', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+    (mocks.limitGateService.evaluate as jest.Mock).mockResolvedValueOnce({
+      grossAedValue: new Prisma.Decimal('1234'), aedRate: new Prisma.Decimal('3.67'), rateFetchedAt: new Date(), rateFetchFailed: false,
+    });
+
+    await service.executeSwap('cust-1', 'q-1');
+
+    const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
+    expect(createArg.grossAedValue.equals(new Prisma.Decimal('1234'))).toBe(true);
   });
 
   it('R4: rejects RECEIVING_ACCOUNT_REQUIRED when buy-side (toAsset) has no receiving account', async () => {
@@ -484,6 +540,7 @@ function buildAdvanceLegMocks(opts: {
 }
 
 function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
+  // advanceLeg never calls executeSwap, so the limit gate is never invoked here.
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -495,6 +552,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.legAccounting as any,
     mocks.fundsOrders as any,
     mocks.walletQuery as any,
+    {} as any,
   );
 }
 

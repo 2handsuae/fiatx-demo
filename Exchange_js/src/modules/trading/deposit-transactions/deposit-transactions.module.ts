@@ -9,6 +9,9 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WithdrawalAddressesModule } from '../../asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
 import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
+import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
+import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { DepositConfiscationApprovalService } from './deposit-confiscation-approval.service';
 
 @Module({
   imports: [
@@ -18,12 +21,15 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     FundsOrdersModule,
     WithdrawalAddressesModule,
     forwardRef(() => DepositSumsubModule),
+    TransactionLimitsModule,
+    ApprovalsModule,
   ],
   controllers: [DepositTransactionsController],
   providers: [
     DepositTransactionsService,
     InboundTransferSignalsService,
     DepositWorkflowService,
+    DepositConfiscationApprovalService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService],
 })

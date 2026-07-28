@@ -9,15 +9,28 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { Prisma } from '@prisma/client';
 
 describe('DepositTransactionsService', () => {
   let service: DepositTransactionsService;
   let prisma: PrismaService;
   let eventEmitter: EventEmitter2;
+  let fundsOrderService: Record<string, jest.Mock>;
+  let limitRules: Record<string, jest.Mock>;
   let module: TestingModule;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    fundsOrderService = {
+      create: jest.fn(),
+      advance: jest.fn(),
+      findById: jest.fn(),
+      findByParent: jest.fn().mockResolvedValue([]),
+    };
+    limitRules = {
+      getSingleRule: jest.fn().mockResolvedValue(null),
+    };
     module = await Test.createTestingModule({
       providers: [
         DepositTransactionsService,
@@ -48,18 +61,17 @@ describe('DepositTransactionsService', () => {
         },
         {
           provide: FundsOrderService,
-          useValue: {
-            create: jest.fn(),
-            advance: jest.fn(),
-            findById: jest.fn(),
-            findByParent: jest.fn().mockResolvedValue([]),
-          },
+          useValue: fundsOrderService,
         },
         {
           provide: AuditLogsService,
           useValue: {
             recordSystem: jest.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: TransactionLimitRulesService,
+          useValue: limitRules,
         },
       ],
     }).compile();
@@ -97,6 +109,56 @@ describe('DepositTransactionsService', () => {
         ownerNo: 'CU001',
         type: 'crypto',
       });
+    });
+
+    it('admin list: NOT filtered (below-min visible)', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({} as any);
+
+      const calls = ((prisma as any).depositTransaction.findMany as jest.Mock).mock.calls;
+      const call = calls[calls.length - 1][0];
+      expect(call.where?.limitHoldReason).toBeUndefined();
+    });
+  });
+
+  describe('findAllForCustomer', () => {
+    it('customer list: BELOW_MIN deposits are filtered out server-side', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAllForCustomer('cust-1', {} as any);
+
+      expect((prisma as any).depositTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ limitHoldReason: null }) }),
+      );
+    });
+  });
+
+  describe('findOneForCustomer', () => {
+    it('customer detail: BELOW_MIN deposit → NotFound (treated as non-existent)', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'd1',
+        ownerId: 'cust-1',
+        limitHoldReason: 'BELOW_MIN',
+      });
+
+      await expect(service.findOneForCustomer('d1', 'cust-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it("customer detail: another customer's deposit → NotFound (ownership enforced)", async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'd1',
+        ownerId: 'other-cust',
+        limitHoldReason: null,
+      });
+
+      await expect(service.findOneForCustomer('d1', 'cust-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -169,6 +231,28 @@ describe('DepositTransactionsService', () => {
       });
 
       expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+    });
+
+    it('COMPLIANCE_PENDING → CONFISCATING via confiscate_start', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CONFISCATING' }) }),
+      );
+    });
+    it('CONFISCATING → CONFISCATED via confiscate_settle', async () => {
+      setupMock(DepositTransactionStatus.CONFISCATING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_SETTLE });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CONFISCATED' }) }),
+      );
+    });
+    it('blocks ADMIN_API from directly reaching CONFISCATING (workflow-only)', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START },
+          { sourcePlatform: 'ADMIN_API', actor: { actorType: 'ADMIN', actorId: 'a1' } }),
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY' }) });
     });
 
     it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
@@ -540,6 +624,48 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  describe('detected', () => {
+    beforeEach(() => {
+      ((prisma as any).wallet.findUnique as jest.Mock).mockResolvedValue({
+        id: 'w1',
+        assetId: 'a1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        address: null,
+        iban: null,
+        asset: { type: 'FIAT' },
+      });
+      ((prisma as any).depositTransaction.create as jest.Mock).mockImplementation(
+        ({ data }: any) => Promise.resolve({ id: 'dep-1', ...data }),
+      );
+      fundsOrderService.create.mockResolvedValue({ id: 'fo-1', fundsOrderNo: 'FO0001' });
+    });
+
+    it('detected(): amount < DEPOSIT SINGLE min → deposit born with limitHoldReason=BELOW_MIN', async () => {
+      limitRules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-x', minAmount: new Prisma.Decimal('100'), maxAmount: null });
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '5' });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: 'BELOW_MIN' }) }),
+      );
+    });
+
+    it('detected(): amount >= min → no hold flag', async () => {
+      limitRules.getSingleRule.mockResolvedValue({ ruleNo: 'TLR-x', minAmount: new Prisma.Decimal('100'), maxAmount: null });
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '100' });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: undefined }) }),
+      );
+    });
+
+    it('detected(): no DEPOSIT rule → no hold flag', async () => {
+      limitRules.getSingleRule.mockResolvedValue(null);
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '5' });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: undefined }) }),
+      );
+    });
+  });
+
   describe('Compliance Gate Methods', () => {
 
     it('updateKytStatus sets kytStatus, riskScore, and checkedAt', async () => {
@@ -605,6 +731,19 @@ describe('DepositTransactionsService', () => {
         where: { id: 'dep-1' },
         data: { sumsubFinanceTxnId: 'TXN-FIN-2', sumsubTravelRuleTxnId: 'TXN-TR-2' },
       });
+    });
+
+    it('clearLimitHold sets limitHoldReason to null', async () => {
+      const mockRecord = { id: 'dep-1', limitHoldReason: null };
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
+
+      const result = await service.clearLimitHold('dep-1');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { limitHoldReason: null },
+      });
+      expect(result.limitHoldReason).toBeNull();
     });
 
     it('getOwnerComplianceStatus returns customer complianceStatus', async () => {

@@ -12,6 +12,7 @@ import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approval.service';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
+import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
     PricingCenterModule,
     FundsLayerModule,
     FundsOrdersModule,
+    TransactionLimitsModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

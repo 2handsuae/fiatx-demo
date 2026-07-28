@@ -31,11 +31,12 @@ import {
   getDepositStatusBadgeClass,
   getComplianceLayerStyle,
 } from '../utils/depositActionMap';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
 interface LinkedFundOrder {
-  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN';
+  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
   no: string;
   id: string;
   status: string;
@@ -80,6 +81,7 @@ interface DepositDetail {
   payinStatus?: string | null;
   payinType?: string | null;
   traceId?: string | null;
+  limitHoldReason?: string | null;
   asset: {
     code: string;
     type: string;
@@ -104,6 +106,11 @@ const DepositTransactionDetail = () => {
   const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
   const [reasonText, setReasonText] = useState('');
   const [pendingAction, setPendingAction] = useState('');
+  const [notice, setNotice] = useState('');
+  const [dispositionSubmitting, setDispositionSubmitting] = useState(false);
+  const [dispositionError, setDispositionError] = useState('');
+  const [isConfiscateModalOpen, setIsConfiscateModalOpen] = useState(false);
+  const [confiscateReason, setConfiscateReason] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -175,6 +182,64 @@ const DepositTransactionDetail = () => {
     }
   };
 
+  /* ── Below-min disposition handlers ── */
+
+  const handleWaiveLimit = async () => {
+    if (!id) return;
+    if (!window.confirm('Waive the below-minimum hold and resume compliance processing for this deposit?')) {
+      return;
+    }
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/waive-limit`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to waive limit hold.'));
+        return;
+      }
+      setNotice('Minimum-limit hold waived — deposit resumed compliance');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to waive limit hold.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  const handleConfiscateSubmit = async () => {
+    if (!id || !confiscateReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/confiscate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: confiscateReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit confiscation.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Confiscation submitted for approval — ${result.approvalNo}`);
+      setIsConfiscateModalOpen(false);
+      setConfiscateReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit confiscation.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
   /* ── Loading / Empty ── */
 
   if (loading) {
@@ -189,6 +254,14 @@ const DepositTransactionDetail = () => {
   if (!data) return null;
 
   const actions = getDepositActionsForStatus(data.status);
+  const isBelowMinPending =
+    data.status === 'COMPLIANCE_PENDING' && data.limitHoldReason === 'BELOW_MIN';
+  // Confiscation lifecycle (in-transit / settled): the generic Approve/Reject/
+  // Confiscate actions no longer apply — the deposit is committed to confiscation.
+  // In CONFISCATING the only valid move is advancing the linked funds order (see
+  // the in-transit banner); CONFISCATED is terminal.
+  const isConfiscationLifecycle =
+    data.status === 'CONFISCATING' || data.status === 'CONFISCATED';
   const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
   const kytStyle = getComplianceLayerStyle(data.kytStatus);
   const trStyle = getComplianceLayerStyle(
@@ -204,6 +277,20 @@ const DepositTransactionDetail = () => {
         refreshing={loading}
         backLabel="Deposits"
       />
+
+      {/* ── Notice ── */}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-green/5 px-6 py-2.5 font-mono text-[11px] text-adm-green">
+          {notice}
+        </div>
+      )}
+
+      {/* ── Confiscation in-transit banner ── */}
+      {data.status === 'CONFISCATING' && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-6 py-2.5 font-mono text-[11px] text-adm-amber">
+          Confiscation funds order in transit — advance the linked funds order below to settle; the deposit completes automatically once it is confirmed / 没收资金单在途结算中，步进下方资金单，确认后自动完成没收
+        </div>
+      )}
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -294,7 +381,7 @@ const DepositTransactionDetail = () => {
                 {data.linkedFundOrders.map((o) => (
                   <LinkedRelationCard
                     key={o.no}
-                    cap="Principal · Payin"
+                    cap={o.kind === 'CONFISCATION' ? 'Fee · Confiscation' : 'Principal · Payin'}
                     identifier={o.no}
                     statusValue={normalizeRailDisplayStatus(o.status)}
                     meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
@@ -321,29 +408,61 @@ const DepositTransactionDetail = () => {
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
-          {/* Actions */}
-          <SidebarGroup title="Actions">
-            {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
-            <div className="flex flex-col gap-2">
-              {actions.map((a) => {
-                const baseCls = a.variant === 'workflowPrimary'
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : a.variant === 'workflowNegative'
-                    ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
-                return (
-                  <button
-                    key={a.action}
-                    onClick={() => onActionClick(a.action, a.requiresReason)}
-                    disabled={!a.enabled || isSubmitting}
-                    className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
-                  </button>
-                );
-              })}
-            </div>
-          </SidebarGroup>
+          {/* Actions — hidden for a below-min hold (only PASS / Confiscate-as-Fee
+              disposition applies) and throughout the confiscation lifecycle
+              (CONFISCATING in-transit → advance the funds order; CONFISCATED
+              terminal) where the generic Approve/Reject/Confiscate no longer apply. */}
+          {!isBelowMinPending && !isConfiscationLifecycle && (
+            <SidebarGroup title="Actions">
+              {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
+              <div className="flex flex-col gap-2">
+                {actions.map((a) => {
+                  const baseCls = a.variant === 'workflowPrimary'
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : a.variant === 'workflowNegative'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
+                  return (
+                    <button
+                      key={a.action}
+                      onClick={() => onActionClick(a.action, a.requiresReason)}
+                      disabled={!a.enabled || isSubmitting}
+                      className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </SidebarGroup>
+          )}
+
+          {/* Below-Min Disposition */}
+          {isBelowMinPending && (
+            <SidebarGroup title="Below-Min Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleWaiveLimit}
+                  disabled={dispositionSubmitting}
+                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {dispositionSubmitting ? 'Processing...' : 'PASS (Waive Min-Limit)'}
+                </button>
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setConfiscateReason('');
+                    setIsConfiscateModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className="w-full rounded px-3 py-2 text-sm font-medium transition-colors bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confiscate as Fee
+                </button>
+              </div>
+            </SidebarGroup>
+          )}
 
           {/* Identity */}
           <SidebarGroup title="Identity">
@@ -380,29 +499,84 @@ const DepositTransactionDetail = () => {
 
       {/* ── Reason Modal ── */}
       {isReasonModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[400px] rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-bold mb-4">Reason Required</h3>
-            <textarea
-              className="w-full rounded border p-2 text-sm mb-4"
-              rows={3}
-              placeholder="Enter reason for this action..."
-              value={reasonText}
-              onChange={(e) => setReasonText(e.target.value)}
-            />
-            <div className="flex justify-end gap-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Reason Required</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason for this action..."
+                value={reasonText}
+                onChange={(e) => setReasonText(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
               <button
                 onClick={() => { setIsReasonModalOpen(false); setReasonText(''); setPendingAction(''); }}
-                className="rounded border px-4 py-2 text-sm"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleAction(pendingAction, reasonText)}
                 disabled={isSubmitting || !reasonText.trim()}
-                className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                className={adminButtonClass('modalConfirm')}
               >
                 {isSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confiscate Modal ── */}
+      {isConfiscateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Confiscate as Fee</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="rounded border border-adm-border bg-adm-card px-3 py-2.5">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-adm-t3">Amount</span>
+                  <span className="font-mono font-semibold text-adm-t1">
+                    {formatAssetAmount(data.amount, data.asset.decimals)} {data.asset.code}
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-[10px] text-adm-t3">
+                  Per T&C: below-minimum deposit handling fee
+                </div>
+              </div>
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason for confiscation (required)..."
+                value={confiscateReason}
+                onChange={(e) => setConfiscateReason(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsConfiscateModalOpen(false);
+                  setConfiscateReason('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfiscateSubmit}
+                disabled={dispositionSubmitting || !confiscateReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
               </button>
             </div>
           </div>
@@ -462,7 +636,8 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
 const getTimelineDotColor = (status: string) => {
   const map: Record<string, string> = {
     SUCCESS: 'bg-green-500', FAILED: 'bg-orange-500', REJECTED: 'bg-red-500',
-    CONFISCATED: 'bg-red-700', COMPLIANCE_PENDING: 'bg-purple-500',
+    CONFISCATING: 'bg-amber-500', CONFISCATED: 'bg-red-700',
+    COMPLIANCE_PENDING: 'bg-purple-500',
     ACTION_PENDING: 'bg-amber-500', FROZEN: 'bg-cyan-500',
     PAYIN_PENDING: 'bg-blue-500', EXPIRED: 'bg-gray-400',
   };
@@ -474,6 +649,7 @@ const getTimelineBadge = (status: string) => {
     SUCCESS: 'bg-green-50 text-green-700 border-green-200',
     FAILED: 'bg-orange-50 text-orange-700 border-orange-200',
     REJECTED: 'bg-red-50 text-red-700 border-red-200',
+    CONFISCATING: 'bg-amber-50 text-amber-700 border-amber-200',
     CONFISCATED: 'bg-red-100 text-red-800 border-red-300',
     COMPLIANCE_PENDING: 'bg-purple-50 text-purple-700 border-purple-200',
     ACTION_PENDING: 'bg-amber-50 text-amber-700 border-amber-200',

@@ -573,11 +573,11 @@ function App() {
             />
             <Route
               path="system/transaction-limits"
-              element={withPermission(<TransactionLimitList />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])}
+              element={withPermission(<TransactionLimitList />, [PERMISSIONS.TRANSACTION_LIMIT_READ])}
             />
             <Route
-              path="system/transaction-limits/:policyNo"
-              element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])}
+              path="system/transaction-limits/:ruleNo"
+              element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_READ])}
             />
             <Route
               path="pricing/withdrawal-fee-levels"
@@ -658,8 +658,8 @@ function App() {
             <Route path="assets/create" element={withPermission(<AssetCreate />, [PERMISSIONS.ASSETS_CREATE])} />
             <Route path="assets/:assetNo/edit" element={withPermission(<AssetEdit />, [PERMISSIONS.ASSETS_CREATE])} />
             <Route path="assets/:assetNo" element={withPermission(<AssetDetail />, [PERMISSIONS.ASSETS_READ])} />
-            <Route path="assets/transaction-limits" element={withPermission(<TransactionLimitList />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])} />
-            <Route path="assets/transaction-limits/:policyNo" element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_POLICIES_READ])} />
+            <Route path="assets/transaction-limits" element={withPermission(<TransactionLimitList />, [PERMISSIONS.TRANSACTION_LIMIT_READ])} />
+            <Route path="assets/transaction-limits/:ruleNo" element={withPermission(<TransactionLimitDetail />, [PERMISSIONS.TRANSACTION_LIMIT_READ])} />
 
             {/* pricing */}
             <Route path="pricing/withdrawal-fee-levels" element={withPermission(<WithdrawalFeeLevelList />, [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ])} />
