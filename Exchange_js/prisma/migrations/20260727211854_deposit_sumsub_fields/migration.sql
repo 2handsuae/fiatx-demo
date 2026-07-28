@@ -31,6 +31,7 @@ CREATE TABLE "new_deposit_transactions" (
     "travelRuleCheckedAt" DATETIME,
     "traceId" TEXT,
     "statusHistory" TEXT,
+    "limitHoldReason" TEXT,
     "aggregatedAt" DATETIME,
     "aggregatedTransferId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -46,7 +47,7 @@ CREATE TABLE "new_deposit_transactions" (
     CONSTRAINT "deposit_transactions_fromWalletId_fkey" FOREIGN KEY ("fromWalletId") REFERENCES "wallets" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "deposit_transactions_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "customer_main" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
-INSERT INTO "new_deposit_transactions" ("aggregatedAt", "aggregatedTransferId", "amount", "assetId", "completedAt", "counterpartyVasp", "createdAt", "depositNo", "expiresAt", "feeAmount", "fromAddress", "fromIban", "fromWalletId", "id", "kytCheckedAt", "kytRiskScore", "kytScreeningId", "kytStatus", "netAmount", "ownerId", "ownerType", "referenceNo", "status", "statusHistory", "toAddress", "toIban", "toWalletId", "traceId", "travelRuleCheckedAt", "travelRuleRequired", "travelRuleStatus", "travelRuleTransferId", "txHash", "updatedAt") SELECT "aggregatedAt", "aggregatedTransferId", "amount", "assetId", "completedAt", "counterpartyVasp", "createdAt", "depositNo", "expiresAt", "feeAmount", "fromAddress", "fromIban", "fromWalletId", "id", "kytCheckedAt", "kytRiskScore", "kytScreeningId", "kytStatus", "netAmount", "ownerId", "ownerType", "referenceNo", "status", "statusHistory", "toAddress", "toIban", "toWalletId", "traceId", "travelRuleCheckedAt", "travelRuleRequired", "travelRuleStatus", "travelRuleTransferId", "txHash", "updatedAt" FROM "deposit_transactions";
+INSERT INTO "new_deposit_transactions" ("aggregatedAt", "aggregatedTransferId", "amount", "assetId", "completedAt", "counterpartyVasp", "createdAt", "depositNo", "expiresAt", "feeAmount", "fromAddress", "fromIban", "fromWalletId", "id", "kytCheckedAt", "kytRiskScore", "kytScreeningId", "kytStatus", "limitHoldReason", "netAmount", "ownerId", "ownerType", "referenceNo", "status", "statusHistory", "toAddress", "toIban", "toWalletId", "traceId", "travelRuleCheckedAt", "travelRuleRequired", "travelRuleStatus", "travelRuleTransferId", "txHash", "updatedAt") SELECT "aggregatedAt", "aggregatedTransferId", "amount", "assetId", "completedAt", "counterpartyVasp", "createdAt", "depositNo", "expiresAt", "feeAmount", "fromAddress", "fromIban", "fromWalletId", "id", "kytCheckedAt", "kytRiskScore", "kytScreeningId", "kytStatus", "limitHoldReason", "netAmount", "ownerId", "ownerType", "referenceNo", "status", "statusHistory", "toAddress", "toIban", "toWalletId", "traceId", "travelRuleCheckedAt", "travelRuleRequired", "travelRuleStatus", "travelRuleTransferId", "txHash", "updatedAt" FROM "deposit_transactions";
 DROP TABLE "deposit_transactions";
 ALTER TABLE "new_deposit_transactions" RENAME TO "deposit_transactions";
 CREATE UNIQUE INDEX "deposit_transactions_depositNo_key" ON "deposit_transactions"("depositNo");
