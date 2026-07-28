@@ -41,4 +41,6 @@ echo "[on-stack/${stack}] TB_ADDRESS=${TB_ADDRESS}"
 echo "[on-stack/${stack}] script '${script}' -> ${clean} $*"
 
 cd "${APP_DIR}"
-exec env DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" bash -c "${clean} \"\$@\"" _ "$@"
+# npm run injects node_modules/.bin into PATH; we bypass npm by running the script body
+# ourselves, so we must inject it too — else every ts-node script dies with "command not found".
+exec env PATH="${APP_DIR}/node_modules/.bin:${PATH}" DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" bash -c "${clean} \"\$@\"" _ "$@"
