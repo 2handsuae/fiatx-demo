@@ -14,6 +14,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { deterministicTransferId } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -2211,6 +2212,11 @@ describe('DepositWorkflowService', () => {
       await service.handleFundsOrderChanged(legEvent() as any);
 
       expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(1);
+      expect(accountingService.postPendingTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pendingTransferId: deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 1),
+        }),
+      );
       expect(tbEvidenceService.enrichForPost).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ eventCode: 'DEPOSIT_RETURN_POST', externalRef: '0xabc', isExternalCrossing: true }),
@@ -2253,7 +2259,14 @@ describe('DepositWorkflowService', () => {
 
       await service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED', attempt: 1 }) as any);
 
+      const oldPendingId = deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 1);
+      const newPendingId = deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 2);
+      expect(newPendingId).not.toEqual(oldPendingId); // rebuilt attempt must not collide with the voided one
+
       expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(1);
+      expect(accountingService.voidPendingTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({ pendingTransferId: oldPendingId }),
+      );
       expect(fundsOrders.create).toHaveBeenCalledWith(
         expect.objectContaining({ depositTransactionId: 'dep-rt-2', legSeq: 3, attempt: 2, initialStatus: 'CREATED' }),
       );
@@ -2272,6 +2285,11 @@ describe('DepositWorkflowService', () => {
       await service.handleFundsOrderChanged(legEvent({ newStatus: 'TIMEOUT', attempt: 3 }) as any);
 
       expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(1);
+      expect(accountingService.voidPendingTransfer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pendingTransferId: deterministicTransferId('DEPOSIT', 'DEP-RT-002', 'DEPOSIT_RETURN_PENDING', 3),
+        }),
+      );
       expect(fundsOrders.create).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_RETURN_STUCK' }),

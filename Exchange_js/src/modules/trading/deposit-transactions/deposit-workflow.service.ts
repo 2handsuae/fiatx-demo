@@ -24,6 +24,7 @@ import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import {
   FundsOrderAction,
   FundsOrderStatus,
+  CreateFundsOrderInput,
 } from '../../funds-orders/dto/funds-order.dto';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { WithdrawalAddressService } from '../../asset-treasury/withdrawal-addresses/withdrawal-address.service';
@@ -1730,18 +1731,16 @@ export class DepositWorkflowService implements OnModuleInit {
    * drifted to some other state) is a no-op rather than crashing on an invalid
    * state-machine transition.
    */
-  private async onReturnApproved(deposit: any) {
-    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
-      this.logger.debug(
-        `onReturnApproved no-op: deposit ${deposit.id} not in MANUAL_CHECKING (status=${deposit.status})`,
-      );
-      return;
-    }
-
-    const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 3 });
-    const returnLeg = existing ?? await this.fundsOrders.create({
+  /**
+   * Shared legSeq 3 (return-to-sender) funds order creation input — used by both
+   * the initial build (onReturnApproved) and the rebuild-on-retry path
+   * (onReturnLegFailed). Only `attempt` varies between the two call sites.
+   */
+  private buildReturnLegInput(deposit: any, attempt: number): CreateFundsOrderInput {
+    return {
       depositTransactionId: deposit.id,
       legSeq: 3,
+      attempt,
       initialStatus: FundsOrderStatus.CREATED,
       assetId: deposit.assetId,
       amount: String(deposit.amount),
@@ -1753,7 +1752,19 @@ export class DepositWorkflowService implements OnModuleInit {
       toAddress: deposit.fromAddress ?? undefined,
       toIban: deposit.fromIban ?? undefined,
       traceId: deposit.traceId || undefined,
-    });
+    };
+  }
+
+  private async onReturnApproved(deposit: any) {
+    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+      this.logger.debug(
+        `onReturnApproved no-op: deposit ${deposit.id} not in MANUAL_CHECKING (status=${deposit.status})`,
+      );
+      return;
+    }
+
+    const [existing] = await this.fundsOrders.findByParent({ depositTransactionId: deposit.id }, { legSeq: 3 });
+    const returnLeg = existing ?? await this.fundsOrders.create(this.buildReturnLegInput(deposit, 1));
 
     await this.pendReturnSuspense(deposit, returnLeg.attempt ?? 1);
 
@@ -1922,22 +1933,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const MAX = 3;
     if (attempt < MAX) {
       const nextAttempt = attempt + 1;
-      const newLeg = await this.fundsOrders.create({
-        depositTransactionId: deposit.id,
-        legSeq: 3,
-        attempt: nextAttempt,
-        initialStatus: FundsOrderStatus.CREATED,
-        assetId: deposit.assetId,
-        amount: String(deposit.amount),
-        netAmount: String(deposit.amount),
-        fromWalletId: deposit.toWalletId ?? null,
-        fromAddress: deposit.toAddress ?? undefined,
-        fromIban: deposit.toIban ?? undefined,
-        toWalletId: null,
-        toAddress: deposit.fromAddress ?? undefined,
-        toIban: deposit.fromIban ?? undefined,
-        traceId: deposit.traceId || undefined,
-      });
+      const newLeg = await this.fundsOrders.create(this.buildReturnLegInput(deposit, nextAttempt));
 
       await this.pendReturnSuspense(deposit, nextAttempt);
 
