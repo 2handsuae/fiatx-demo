@@ -231,6 +231,28 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     return balance.creditsPosted - balance.debitsPosted; // L-normal: credit increases
   }
 
+  /** A7: SEIZE is now two legs (2026-07-28 owner decision) — these three helpers
+   *  let the SEIZE scenario prove BOTH the client bucket (CLIENT_ASSET shrinks,
+   *  same amount as the suspense reversal) and the firm bucket (FIRM_ASSET/
+   *  FIRM_SEIZED both grow) stay self-balanced, exactly like startConfiscation. */
+  async function clientAssetTotal(): Promise<bigint> {
+    const id = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const balance = await accounting.lookupBalance(id);
+    return balance.debitsPosted - balance.creditsPosted; // asset-normal: debit increases
+  }
+
+  async function firmAssetTotal(): Promise<bigint> {
+    const id = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
+    const balance = await accounting.lookupBalance(id);
+    return balance.debitsPosted - balance.creditsPosted; // asset-normal: debit increases
+  }
+
+  async function firmSeizedTotal(): Promise<bigint> {
+    const id = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_SEIZED, ledger, ownerType: 'SYSTEM' });
+    const balance = await accounting.lookupBalance(id);
+    return balance.creditsPosted - balance.debitsPosted; // equity-normal: credit increases
+  }
+
   /**
    * Drives a legSeq 3/4 funds order to a terminal-relevant status (CONFIRMED/FAILED/
    * TIMEOUT) WITHOUT going through FundsOrderService.advance()'s real fire-and-forget
@@ -368,13 +390,17 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     expect(after - before).toBe(-amountBigint);
   });
 
-  it('2. SEIZE full arc: FROZEN → initiateSeize(orderRef) → two-step approval (SENIOR_MANAGEMENT_OFFICER → MLRO, distinct actors) → SEIZING + legSeq=4 pending-locked → leg CONFIRMED → SEIZED, evidence.memo carries orderRef', async () => {
+  it('2. SEIZE full arc: FROZEN → initiateSeize(orderRef) → two-step approval (SENIOR_MANAGEMENT_OFFICER → MLRO, distinct actors) → SEIZING + legSeq=4 pending-locked (TWO TB legs) → leg CONFIRMED → SEIZED, evidence.memo carries orderRef, COA identity holds (A7: two-leg seize)', async () => {
     const amount = '50.00';
     const amountBigint = decimalToBigint(amount, fiatDecimals);
     const orderRef = `GOV-ORDER-${Date.now()}`;
     const deposit = await createDepositAtStatus('SEZ1', DepositTransactionStatus.FROZEN, { amount });
 
     await preBookSuspense(deposit, amountBigint);
+    const suspenseBefore = await suspenseTotal();
+    const clientAssetBefore = await clientAssetTotal();
+    const firmAssetBefore = await firmAssetTotal();
+    const firmSeizedBefore = await firmSeizedTotal();
 
     await workflow.initiateSeize(
       deposit.id,
@@ -425,10 +451,29 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     actions = await auditActionsFor(deposit.id);
     expect(actions).toContain(AuditActions.DEPOSIT_SEIZED);
 
+    // A7: two-leg seize evidence — leg1 reverses suspense into CLIENT_ASSET,
+    // leg2 reclasses into FIRM_ASSET/FIRM_SEIZED. Both memos carry orderRef
+    // (the sole 8-year retention anchor since the destination account is never
+    // modeled).
     const evidenceRows = await tbEvidence.findBySource('DEPOSIT', deposit.depositNo);
-    const pendingRow = evidenceRows.find((r: any) => r.eventCode === 'DEPOSIT_SEIZE_PENDING');
-    expect(pendingRow).toBeTruthy();
-    expect(pendingRow.memo).toContain(orderRef);
+    const leg1Row = evidenceRows.find((r: any) => r.eventCode === 'SEIZE_REVERSE_SUSPENSE');
+    const leg2Row = evidenceRows.find((r: any) => r.eventCode === 'SEIZE_FIRM_SEIZED');
+    expect(leg1Row).toBeTruthy();
+    expect(leg1Row.memo).toContain(orderRef);
+    expect(leg2Row).toBeTruthy();
+    expect(leg2Row.memo).toContain(orderRef);
+
+    // The whole point of A7: prove the two-leg design keeps BOTH the client
+    // bucket and the firm bucket self-balanced — no more single-leg
+    // CLIENT_ASSET-never-shrinks COA break (see BACKLOG.md / v4-deposit.md §6.3).
+    const suspenseAfter = await suspenseTotal();
+    const clientAssetAfter = await clientAssetTotal();
+    const firmAssetAfter = await firmAssetTotal();
+    const firmSeizedAfter = await firmSeizedTotal();
+    expect(suspenseAfter - suspenseBefore).toBe(-amountBigint);
+    expect(clientAssetAfter - clientAssetBefore).toBe(-amountBigint);
+    expect(firmAssetAfter - firmAssetBefore).toBe(amountBigint);
+    expect(firmSeizedAfter - firmSeizedBefore).toBe(amountBigint);
   });
 
   it('3. UNFREEZE full arc: FROZEN → initiateUnfreeze(orderRef) → approve → COMPLIANCE_PENDING + DEPOSIT_UNFROZEN audit, zero new accounting', async () => {
