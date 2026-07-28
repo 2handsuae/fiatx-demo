@@ -8,6 +8,13 @@ export const TB_TRANSFER_CODES = {
   // leg2 公司侧确认手续费收入。两腿各保客户/公司恒等式两边同增减。
   DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET: 3, // DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET（反冲 STEP_1）
   DEPOSIT_CONFISCATE_FIRM_FEE: 4,          // DR FIRM_ASSET / CR FIRM_FEE（确认公司手续费收入）
+  // 退回(RETURNING→RETURNED)：pending/post/void 三段式，模仿提现净额腿
+  DEPOSIT_RETURN_PENDING: 5, // 客户侧锁定(pending)
+  DEPOSIT_RETURN_POST: 6,    // 外部确认:post
+  DEPOSIT_RETURN_VOID: 7,    // 取消/失败:void
+  // 上缴(SEIZING→SEIZED)：pending/post 两段(void 见下方 20 段)
+  DEPOSIT_SEIZE_PENDING: 8, // 客户侧锁定(pending)
+  DEPOSIT_SEIZE_POST: 9,    // 落地确认:post
 
   // ── 提现(10–19)──
   WITHDRAW_NET_PENDING: 10, // 客户侧锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)
@@ -17,6 +24,9 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_FEE_POST: 14,    // post
   WITHDRAW_FEE_VOID: 15,    // void
   WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR FIRM_FEE
+
+  // ── 充值·上缴续段(20–29)：充值段 5–9 已满,void 挪此──
+  DEPOSIT_SEIZE_VOID: 20, // 上缴取消/失败:void
 
   // ── 兑换(30–49)──
   SWAP_SELL_CLIENT: 30,        // 客户卖出(from):DR CLIENT_PAYABLE / CR CLIENT_ASSET

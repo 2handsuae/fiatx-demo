@@ -503,6 +503,23 @@ describe('DepositTransactionsService', () => {
       );
     });
 
+    it('SEIZING → SEIZED via seized_done', async () => {
+      setupMock(DepositTransactionStatus.SEIZING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.SEIZED_DONE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.SEIZED,
+            completedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
     it('FROZEN → COMPLIANCE_PENDING via resume', async () => {
       setupMock(DepositTransactionStatus.FROZEN);
 

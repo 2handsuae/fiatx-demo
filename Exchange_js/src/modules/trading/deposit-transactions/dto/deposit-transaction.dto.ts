@@ -92,6 +92,7 @@ export enum DepositTransactionAction {
   RETURN = 'return',
   RETURNED_DONE = 'returned_done',
   SEIZE = 'seize',
+  SEIZED_DONE = 'seized_done',
 }
 
 export class UpdateDepositTransactionStatusDto {

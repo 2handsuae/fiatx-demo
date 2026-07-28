@@ -17,6 +17,7 @@ export const TB_ACCOUNT_CODES = {
   FIRM_SET: 201, // 法币结算户(仅法币 ledger,银行约束)
   FIRM_FEE: 202, // 手续费
   FIRM_LIQ: 203, // 流动性储备(本版挂着不用)
+  FIRM_SEIZED: 204, // 上缴/政府移交对手账
 } as const;
 
 export type TbAccountCode = (typeof TB_ACCOUNT_CODES)[keyof typeof TB_ACCOUNT_CODES];
@@ -31,6 +32,7 @@ export const COA_TO_TB_CODE: Record<string, number> = {
   'E.FIRM_SET': TB_ACCOUNT_CODES.FIRM_SET,
   'E.FIRM_FEE': TB_ACCOUNT_CODES.FIRM_FEE,
   'E.FIRM_LIQ': TB_ACCOUNT_CODES.FIRM_LIQ,
+  'E.FIRM_SEIZED': TB_ACCOUNT_CODES.FIRM_SEIZED,
 };
 
 /** TB numeric code → human-readable COA code */

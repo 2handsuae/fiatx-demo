@@ -2,7 +2,7 @@
 import { TB_ACCOUNT_CODES, COA_TO_TB_CODE, TB_CODE_TO_COA } from './tb-account-codes.constant';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
-  it('exposes exactly the 8 new codes', () => {
+  it('exposes exactly the 9 codes', () => {
     expect(TB_ACCOUNT_CODES).toEqual({
       CLIENT_ASSET: 1,
       FIRM_ASSET: 50,
@@ -12,6 +12,7 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
       FIRM_SET: 201,
       FIRM_FEE: 202,
       FIRM_LIQ: 203,
+      FIRM_SEIZED: 204,
     });
   });
 

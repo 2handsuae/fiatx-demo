@@ -405,6 +405,10 @@ export class DepositTransactionsService {
         [DepositTransactionAction.RETURNED_DONE]:
           DepositTransactionStatus.RETURNED,
       },
+      [DepositTransactionStatus.SEIZING]: {
+        [DepositTransactionAction.SEIZED_DONE]:
+          DepositTransactionStatus.SEIZED,
+      },
       [DepositTransactionStatus.FROZEN]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.CONFISCATE]:
