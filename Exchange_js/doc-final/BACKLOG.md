@@ -157,7 +157,9 @@ Last Updated: 2026-07-12
 
 ## 账本流水（2026-07-10 本会话新增）
 
-- [ ] **账本流水未排除 pending（「落账才进流水」，本期业主跳过）**：投影器 `account-flow-projector.persist()` 当前对 pending/lock 阶段的转账**也**写流水行（现存 4 条 `transferType=PENDING` 流水行）。目标口径=流水只体现**已落账 posted**：pending 阶段不进流水、`VOID_PENDING` 永不生成，凭证表照旧记 pending。落地=`persist` 在 post 那刻才写流水行（pending 跳过 persist）+ 一次性清历史 pending 流水行。业主 2026-07-10 明确本期跳过 ｜来源: 2026-07-10 账务三列表细化 brainstorm（spec `superpowers/specs/2026-07-10-ledger-lists-refinement-design.md` §6）
+- [x] ~~**账本流水未排除 pending（「落账才进流水」）**~~ —— **撤销（2026-07-12）**：业主改定 **pending 也进流水**为正确口径——挂起（pending）阶段即落一行流水（`transferType=PENDING`），落账后同一行转 POSTED，流水实时反映「在途 / 锁定」的进出。原「流水只体现 posted、pending 不进」的排除需求**作废**；投影器 `account-flow-projector.persist()` 现行为（pending＋posted 都投影）即为**目标态**，无需改。已同步飞书账本 PRD §5.3「流水怎么展示」 ｜来源: 2026-07-12 账本 PRD §5.3 校正（推翻 2026-07-10 §6 的排除口径）
+
+- [ ] **提现 eventCode 去阶段化（向 swap 看齐）**：提现两步腿现发 `WITHDRAW_LOCK_NET` → `WITHDRAW_NET_POST`（`tb-evidence.service.ts → enrichForPost()` 落账时把 eventCode 从 LOCK 改成 POST），把阶段塞进了 event 名。目标口径（账本 PRD 附录 B 已采用）＝**一笔分录一个稳定 event、阶段交给 `transferType`（PENDING/POSTED/VOIDED）**，如 swap 的 `SWAP_SELL_CLIENT` 全程不变。落地＝提现净额/费腿 eventCode 合并为 `WITHDRAW_NET` / `WITHDRAW_FEE`（去掉 LOCK/POST/VOID 后缀），`enrichForPost` 不再改 eventCode。deposit/swap 已是干净模型、无需改。业主 2026-07-12 定（甲：PRD 写应然、代码待对齐）｜来源: 2026-07-12 账本 PRD 附录 B（对应模块 8 · G2）
 
 ## 对账（2026-07-06 V8 遗漏审计）
 
