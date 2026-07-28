@@ -2665,4 +2665,122 @@ describe('DepositWorkflowService', () => {
       expect(accountingService.voidPendingTransfer).not.toHaveBeenCalled();
     });
   });
+
+  // A5: onUnfreezeApproved fills in the real resume-into-compliance-flow execution
+  // (previously a stub — see A2). Zero accounting (money never left DEPOSIT_SUSPENSE
+  // while FROZEN) — the only state change is FROZEN --RESUME--> COMPLIANCE_PENDING,
+  // plus a best-effort Sumsub rescore so a fresh verdict can drive the state machine
+  // post-resume (the whole reason this arc exists). rescore is an external HTTP call
+  // and must NEVER crash/roll back the already-committed resume (plan-1 终审 I2
+  // teaching re: submitSumsubTxns' missing try/catch stranding deposits).
+  describe('onUnfreezeApproved — resume into compliance flow (A5)', () => {
+    const frozenDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-uf-1',
+      depositNo: 'DEP-UF-001',
+      status: DepositTransactionStatus.FROZEN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-uf-1',
+      assetId: 'asset-usdt',
+      amount: '5',
+      traceId: 'trace-uf-1',
+      sumsubFinanceTxnId: 'sumsub-fin-1',
+      sumsubTravelRuleTxnId: 'sumsub-tr-1',
+      ...overrides,
+    });
+
+    const approvedUnfreezeCase = (orderRef = 'ORD-UF-1') => ({
+      total: 1,
+      items: [{ id: 'app-uf-1', objectSnapshot: { depositNo: 'DEP-UF-001', orderRef } }],
+    });
+
+    beforeEach(() => {
+      depositService.updateStatus.mockResolvedValue({});
+      approvalsService.list.mockResolvedValue(approvedUnfreezeCase());
+      sumsubTxnClient.rescore.mockResolvedValue(undefined);
+    });
+
+    it('FROZEN → resumes to COMPLIANCE_PENDING (RESUME), DEPOSIT_UNFROZEN audit with orderRef, rescores both finance + travelRule txns', async () => {
+      const dep = frozenDeposit();
+
+      await (service as any).onUnfreezeApproved(dep);
+
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: 'DEPOSIT_UNFREEZE', entityRef: 'dep-uf-1', status: 'APPROVED' }),
+      );
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-uf-1',
+        expect.objectContaining({ action: DepositTransactionAction.RESUME }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_UNFROZEN',
+          reason: expect.stringContaining('ORD-UF-1'),
+        }),
+      );
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-fin-1');
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-tr-1');
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledTimes(2);
+    });
+
+    it('fiat deposit (no sumsubTravelRuleTxnId) → rescores only the finance txn once', async () => {
+      const dep = frozenDeposit({ sumsubTravelRuleTxnId: undefined });
+
+      await (service as any).onUnfreezeApproved(dep);
+
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-fin-1');
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledTimes(1);
+    });
+
+    it('no-op when deposit is not FROZEN (e.g. replayed decided event after already resumed)', async () => {
+      const dep = frozenDeposit({ status: DepositTransactionStatus.COMPLIANCE_PENDING });
+
+      await (service as any).onUnfreezeApproved(dep);
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      expect(sumsubTxnClient.rescore).not.toHaveBeenCalled();
+    });
+
+    it('rescore throws → flow still succeeds (status flipped + audit already written), only warns — never crashes/rolls back', async () => {
+      sumsubTxnClient.rescore.mockRejectedValue(new Error('Sumsub down'));
+      const dep = frozenDeposit();
+
+      await expect((service as any).onUnfreezeApproved(dep)).resolves.toBeUndefined();
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-uf-1',
+        expect.objectContaining({ action: DepositTransactionAction.RESUME }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_UNFROZEN' }),
+      );
+    });
+
+    it('no sumsubFinanceTxnId (never submitted to Sumsub) → skips rescore entirely, does not throw', async () => {
+      const dep = frozenDeposit({ sumsubFinanceTxnId: undefined, sumsubTravelRuleTxnId: undefined });
+
+      await expect((service as any).onUnfreezeApproved(dep)).resolves.toBeUndefined();
+
+      expect(sumsubTxnClient.rescore).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_UNFROZEN' }),
+      );
+    });
+
+    it('no APPROVED DEPOSIT_UNFREEZE case found (orderRef unavailable) → throws, no status change, no audit, no rescore', async () => {
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      const dep = frozenDeposit();
+
+      await expect((service as any).onUnfreezeApproved(dep)).rejects.toThrow(/orderRef/);
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      expect(sumsubTxnClient.rescore).not.toHaveBeenCalled();
+    });
+
+    // Reject path (A2, untouched by A5): decision !== APPROVED never reaches
+    // onUnfreezeApproved — onUnfreezeDecided's routing short-circuits before this
+    // method is called, so the deposit stays FROZEN. Already covered by the existing
+    // A2 stub test 'onUnfreezeDecided: EXPIRED → no-op' (asserts the (now-real) method
+    // is never invoked for a non-APPROVED decision).
+  });
 });

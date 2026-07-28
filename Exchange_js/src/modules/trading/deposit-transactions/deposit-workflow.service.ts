@@ -2301,12 +2301,116 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.onUnfreezeApproved(deposit);
   }
 
-  /** Stub — A5 fills in the actual unfreeze execution (resume into compliance flow). */
+  /**
+   * Re-derive the delisting/unfreeze order reference (orderRef) from the APPROVED
+   * DEPOSIT_UNFREEZE approval case's objectSnapshot. onUnfreezeApproved doesn't carry
+   * orderRef through directly: `ApprovalDecidedEvent.metadata` is always `{}` (see
+   * `emitDecidedEvent` in approval-handler.base.ts) — same re-fetch pattern as A4's
+   * `fetchSeizeOrderRef`. Throws rather than silently defaulting to an empty string:
+   * initiateUnfreeze enforces orderRef non-empty at approval-open time, so a missing
+   * orderRef here means data corruption, not a normal path — and this fetch runs
+   * BEFORE any state mutation, so a throw here leaves the deposit untouched (still
+   * FROZEN), mirroring onSeizeApproved's guard-before-mutate ordering.
+   */
+  private async fetchUnfreezeOrderRef(depositId: string): Promise<string> {
+    const { items } = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.DEPOSIT_UNFREEZE,
+      entityRef: depositId,
+      status: ApprovalStatuses.APPROVED,
+      take: 1,
+    });
+    const snapshot = items[0]?.objectSnapshot as { orderRef?: string } | null;
+    const orderRef = snapshot?.orderRef;
+    if (!orderRef) {
+      throw new Error(
+        `Deposit ${depositId}: no APPROVED DEPOSIT_UNFREEZE case with an orderRef found in objectSnapshot`,
+      );
+    }
+    return orderRef;
+  }
+
+  /**
+   * A5: trigger a Sumsub rescore of the deposit's KYT txn(s) after it has already
+   * resumed into COMPLIANCE_PENDING — the whole point of the unfreeze arc (a fresh
+   * verdict driving the state machine post-resume, instead of sitting on a stale
+   * pre-freeze one). Crypto deposits also rescore the travel-rule txn.
+   *
+   * rescore is an EXTERNAL HTTP call — MUST be try/catch'd. By the time this runs the
+   * deposit has already committed to COMPLIANCE_PENDING with its DEPOSIT_UNFROZEN
+   * audit written, so a failed rescore must only warn and let webhook/manual re-submit
+   * recover later; it must NEVER crash or roll back the already-committed resume
+   * (plan-1 终审 I2 教训: submitSumsubTxns 当年缺 try/catch,一 throw 就会 strand deposit —
+   * don't repeat that here).
+   *
+   * No sumsubFinanceTxnId (old deposit / never submitted to Sumsub) → skip entirely,
+   * just warn.
+   */
+  private async triggerUnfreezeRescore(deposit: any): Promise<void> {
+    if (!deposit.sumsubFinanceTxnId) {
+      this.logger.warn(
+        `Unfreeze rescore skip: deposit ${deposit.id} has no sumsubFinanceTxnId — never submitted to Sumsub`,
+      );
+      return;
+    }
+
+    try {
+      await this.sumsubTxnClient.rescore(deposit.sumsubFinanceTxnId);
+      if (deposit.sumsubTravelRuleTxnId) {
+        await this.sumsubTxnClient.rescore(deposit.sumsubTravelRuleTxnId);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.logger.warn(
+        `Unfreeze rescore failed for deposit ${deposit.id}: ${error.message} — ` +
+          `deposit remains COMPLIANCE_PENDING for webhook/manual re-submit`,
+      );
+    }
+  }
+
+  /**
+   * UNFREEZE approved (A5): resume the deposit back into the compliance flow. 零记账
+   * — the money never left DEPOSIT_SUSPENSE while FROZEN, so there is no reverse leg
+   * to book (unlike return/seize/confiscate). Order of operations:
+   *   1. Guard: only runs from FROZEN — a replayed decided event arriving after the
+   *      deposit already left FROZEN is a no-op rather than crashing.
+   *   2. Fetch orderRef BEFORE mutating anything (see fetchUnfreezeOrderRef) — if the
+   *      APPROVED case has no orderRef, throw and leave the deposit untouched.
+   *   3. RESUME → COMPLIANCE_PENDING (via depositService.updateStatus, Rule 5).
+   *   4. Audit DEPOSIT_UNFROZEN with orderRef in the reason (8-year retention trail,
+   *      same rationale as A4's seizure orderRef).
+   *   5. Best-effort Sumsub rescore (see triggerUnfreezeRescore) — never crashes.
+   */
   private async onUnfreezeApproved(deposit: any) {
-    // TODO(A5): resume the deposit back into the compliance flow (RESUME action →
-    // COMPLIANCE_PENDING) and record DEPOSIT_UNFROZEN.
-    this.logger.log(
-      `Deposit ${deposit.depositNo} unfreeze approved — execution deferred to A5.`,
-    );
+    if (deposit.status !== DepositTransactionStatus.FROZEN) {
+      this.logger.debug(
+        `onUnfreezeApproved no-op: deposit ${deposit.id} not in FROZEN (status=${deposit.status})`,
+      );
+      return;
+    }
+
+    const orderRef = await this.fetchUnfreezeOrderRef(deposit.id);
+
+    await this.depositService.updateStatus(deposit.id, {
+      action: DepositTransactionAction.RESUME,
+      reason: `Unfreeze approved (order ${orderRef}) — resumed into compliance flow`,
+    });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_UNFROZEN,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT_UNFREEZE',
+      result: AuditResult.SUCCESS,
+      reason: `Unfreeze order ${orderRef} — deposit resumed to COMPLIANCE_PENDING`,
+      metadata: { depositNo: deposit.depositNo, orderRef },
+      requestId: `DEPOSIT_UNFROZEN_${deposit.depositNo}_${randomUUID()}`,
+      sourcePlatform: 'SYSTEM',
+    });
+
+    await this.triggerUnfreezeRescore(deposit);
   }
 }
