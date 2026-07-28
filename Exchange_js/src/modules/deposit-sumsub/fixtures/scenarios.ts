@@ -3,7 +3,9 @@ import { SumsubTxnDetail } from '../sumsub-txn.types';
 /**
  * Task 11:8 场景 fixture(计划1 引擎)。场景清单以 Task 11 dispatch 为准,非 brief 原稿的 9 个:
  * S8(below-min)挪计划2;S4 改为 KYT 重评驱动(补料后 Sumsub 自动重评发 approved,不走专门的
- * DepositActionHandler);S6 止于 RETURNING(RETURNED 两腿结算留计划2)。
+ * DepositActionHandler);S6 原止于 RETURNING,计划2·A2 接入退回 maker-checker 审批后改止于
+ * MANUAL_CHECKING(RETURN_TO_SENDER 只开 DEPOSIT_RETURN 审批,不再直推状态——两腿回款结算/
+ * RETURNING→RETURNED 留 A3)。
  *
  * 每个场景 = submit 预置(clientTxnId→txnId 的映射)+ 有序 steps。steps 里:
  *   - primeTxn:本步喂 webhook 前,先(重)设 MockSumsubTxnClient 对该 txnId 的 getTxn 应答。
@@ -141,7 +143,8 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
     key: 'S6_DIRTY_MANUAL_RETURN',
     description:
       '脏钱→人工复核(第一次 Rejected 无处置tag→MANUAL_CHECKING)→第二次 Rejected 重设为 RETURN_TO_SENDER → ' +
-      'RETURNING(计划1 止于此,两腿回款结算/RETURNED 留计划2)',
+      '开 DEPOSIT_RETURN maker-checker 审批,止于 MANUAL_CHECKING(计划2·A2 改:不再直推 RETURNING —— ' +
+      '审批通过后的两腿回款结算/RETURNING→RETURNED 留 A3)',
     submit: { financeTxnId: 'T6' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T6' } },
@@ -165,7 +168,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T6' },
       },
     ],
-    expectedFinalStatus: 'RETURNING',
+    expectedFinalStatus: 'MANUAL_CHECKING',
   },
 
   S7_DIRTY_MANUAL_OVERTURNED: {

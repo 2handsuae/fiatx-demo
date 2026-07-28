@@ -61,6 +61,18 @@ export class DepositWorkflowService implements OnModuleInit {
     'FROZEN', 'SUSPENDED', 'BLOCKED', 'REJECTED',
   ]);
 
+  // A2: system-triggered maker actor for the KYT-verdict-driven RETURN approval.
+  // ApprovalActorContext.actorType only accepts 'ADMIN' (mirrors ApprovalsService's own
+  // private systemActor() helper) — this is the approvals engine's accepted shape for a
+  // SYSTEM-originated maker, not a real admin.
+  private static readonly KYT_VERDICT_ACTOR: ApprovalActorContext = {
+    actorType: 'ADMIN',
+    userId: 'KYT_VERDICT',
+    userNo: 'KYT_VERDICT',
+    role: 'SYSTEM',
+    roleCodes: ['SYSTEM'],
+  };
+
   private readonly logger = new Logger(DepositWorkflowService.name);
 
   constructor(
@@ -462,30 +474,24 @@ export class DepositWorkflowService implements OnModuleInit {
     if (dispoTag === 'RETURN_TO_SENDER') {
       if (deposit.status === DepositTransactionStatus.RETURNING) return; // 已在目标态,防重复 webhook
 
-      await this.depositService.updateStatus(
-        deposit.id,
-        {
-          action: DepositTransactionAction.RETURN,
-          reason: 'KYT verdict: rejected, return to sender',
-        },
-        {
-          actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
-          sourcePlatform: 'SYSTEM',
-        },
-      );
-      // 只到状态位;两腿实际回款结算留计划2。
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_RETURN_INITIATED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
-        traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT',
-        reason: 'KYT verdict rejected: RETURN_TO_SENDER disposition',
-        sourcePlatform: 'SYSTEM',
-      });
+      // A2: 不再直推 RETURNING——改开 maker-checker 审批(MLRO 单步),deposit 留
+      // MANUAL_CHECKING;批准后的实际结算(出场腿/记账)留 A3(见 initiateReturn/onReturnDecided)。
+      try {
+        await this.initiateReturn(
+          deposit.id,
+          { reason: 'KYT verdict rejected: RETURN_TO_SENDER disposition' },
+          DepositWorkflowService.KYT_VERDICT_ACTOR,
+        );
+      } catch (err) {
+        if (err instanceof ConflictException) {
+          // 已有一笔在途的退回审批——重复 webhook 命中防重闸,幂等 no-op。
+          this.logger.debug(
+            `applyKytRejected RETURN_TO_SENDER: deposit ${deposit.id} already has a pending return approval`,
+          );
+          return;
+        }
+        throw err;
+      }
       return;
     }
 
@@ -1390,5 +1396,400 @@ export class DepositWorkflowService implements OnModuleInit {
       reason,
       sourcePlatform: 'SYSTEM',
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // A2 — RETURN / SEIZE / UNFREEZE maker-checker approval gates (计划2).
+  // Each initiate* mirrors initiateConfiscation's structure exactly: reads the
+  // deposit, checks a precondition + an open-approval anti-dup guard, opens the
+  // V1 approval case, audits the request — and writes NOTHING to the deposit
+  // table (Rule 5: initiate reads only). Each on*Decided listener mirrors
+  // onConfiscationDecided's routing (APPROVED → execute, else → audit trail
+  // already owned by the approvals engine, deposit stays put) but the "execute"
+  // side is a stub for this task — real settlement (out-leg posting, status
+  // transitions) lands in A3 (return) / A4 (seize) / A5 (unfreeze).
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * RETURN disposition (initiate side, A2): KYT verdict says RETURN_TO_SENDER while the
+   * deposit sits in MANUAL_CHECKING. High-risk (moves customer money back out) → routed
+   * through V1 maker-checker approval (single-step MLRO). Only opens the approval case +
+   * audits the request; the actual return leg posting + status→RETURNING/RETURNED lands
+   * in A3's decided-event handler.
+   */
+  async initiateReturn(
+    depositId: string,
+    dto: { reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Return reason is required');
+    }
+
+    const deposit = await this.depositService.findOne(depositId);
+    if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+      throw new BadRequestException(
+        'Deposit is not awaiting manual review, cannot open a return approval',
+      );
+    }
+
+    // Anti-dup: a deposit must not accrue two open return approvals.
+    const openReturns = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.DEPOSIT_RETURN,
+      entityRef: deposit.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openReturns.total > 0) {
+      throw new ConflictException(
+        `Deposit ${deposit.depositNo} already has a pending return approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = deposit.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.DEPOSIT_RETURN,
+        entityRef: deposit.id,
+        traceId,
+        objectSnapshot: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          assetId: deposit.assetId,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_RETURN_APPROVAL_REQUESTED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_RETURN',
+        result: AuditResult.SUCCESS,
+        reason: dto.reason,
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          approvalNo: approvalCase.approvalNo,
+        },
+        requestId: `DEPOSIT_RETURN_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      depositNo: deposit.depositNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * SEIZE disposition (initiate side, A2): ops proposes seizing a FROZEN deposit under a
+   * government order (asset forfeiture, distinct from the below-min T&C CONFISCATION
+   * disposition). High-risk (moves customer-attributed money to government custody) →
+   * routed through V1 maker-checker approval (two-step SENIOR_MANAGEMENT_OFFICER → MLRO,
+   * four-eyes). Only opens the approval case + audits the request; the actual seize leg
+   * posting + status→SEIZING/SEIZED lands in A4's decided-event handler.
+   */
+  async initiateSeize(
+    depositId: string,
+    dto: { reason: string; orderRef: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Seize reason is required');
+    }
+    if (!dto.orderRef?.trim()) {
+      throw new BadRequestException('Government order reference is required');
+    }
+
+    const deposit = await this.depositService.findOne(depositId);
+    if (deposit.status !== DepositTransactionStatus.FROZEN) {
+      throw new BadRequestException('Deposit is not FROZEN, cannot open a seize approval');
+    }
+
+    // Anti-dup: a deposit must not accrue two open seize approvals.
+    const openSeizures = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
+      entityRef: deposit.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openSeizures.total > 0) {
+      throw new ConflictException(
+        `Deposit ${deposit.depositNo} already has a pending seize approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = deposit.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.DEPOSIT_SEIZE,
+        entityRef: deposit.id,
+        traceId,
+        objectSnapshot: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          assetId: deposit.assetId,
+          orderRef: dto.orderRef,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_SEIZE_APPROVAL_REQUESTED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_SEIZE',
+        result: AuditResult.SUCCESS,
+        reason: dto.reason,
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          orderRef: dto.orderRef,
+          approvalNo: approvalCase.approvalNo,
+        },
+        requestId: `DEPOSIT_SEIZE_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      depositNo: deposit.depositNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * UNFREEZE disposition (initiate side, A2): ops proposes unfreezing a FROZEN deposit
+   * under a delisting/unfreeze order (sanction list correction, MLRO clearance, etc.).
+   * Routed through V1 maker-checker approval (single-step MLRO). Only opens the approval
+   * case + audits the request; the actual resume-into-compliance-flow lands in A5's
+   * decided-event handler.
+   */
+  async initiateUnfreeze(
+    depositId: string,
+    dto: { reason: string; orderRef: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Unfreeze reason is required');
+    }
+    if (!dto.orderRef?.trim()) {
+      throw new BadRequestException('Delisting/unfreeze order reference is required');
+    }
+
+    const deposit = await this.depositService.findOne(depositId);
+    if (deposit.status !== DepositTransactionStatus.FROZEN) {
+      throw new BadRequestException('Deposit is not FROZEN, cannot open an unfreeze approval');
+    }
+
+    // Anti-dup: a deposit must not accrue two open unfreeze approvals.
+    const openUnfreezes = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.DEPOSIT_UNFREEZE,
+      entityRef: deposit.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openUnfreezes.total > 0) {
+      throw new ConflictException(
+        `Deposit ${deposit.depositNo} already has a pending unfreeze approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = deposit.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.DEPOSIT_UNFREEZE,
+        entityRef: deposit.id,
+        traceId,
+        objectSnapshot: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          assetId: deposit.assetId,
+          orderRef: dto.orderRef,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_UNFREEZE_APPROVAL_REQUESTED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT_UNFREEZE',
+        result: AuditResult.SUCCESS,
+        reason: dto.reason,
+        metadata: {
+          depositNo: deposit.depositNo,
+          amount: String(deposit.amount),
+          orderRef: dto.orderRef,
+          approvalNo: approvalCase.approvalNo,
+        },
+        requestId: `DEPOSIT_UNFREEZE_APPROVAL_REQUESTED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      depositNo: deposit.depositNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * RETURN decided (A2): the V1 approval opened by initiateReturn reached a decision.
+   * APPROVED → delegate to the onReturnApproved stub (real settlement lands in A3). Any
+   * other outcome → the approvals engine already owns the rejection/cancel/expire audit
+   * trail; this is a no-op log, deposit stays MANUAL_CHECKING.
+   */
+  @OnEvent('workflow.deposit-return.decided', { async: true })
+  async onReturnDecided(event: ApprovalDecidedEvent) {
+    const entityRef = event?.entityRef;
+    if (!entityRef) {
+      this.logger.warn('Deposit return decided event missing entityRef');
+      return;
+    }
+
+    let deposit: any;
+    try {
+      deposit = await this.depositService.findOne(entityRef);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        // entityRef belongs to another workflow's entity — not ours, ignore.
+        return;
+      }
+      throw err;
+    }
+
+    if (event.decision !== 'APPROVED') {
+      this.logger.log(
+        `Deposit ${deposit.depositNo} return ${event.decision} (case ${event.approvalNo}) — original state intact, no return executed.`,
+      );
+      return;
+    }
+
+    await this.onReturnApproved(deposit);
+  }
+
+  /** Stub — A3 fills in the actual return settlement (out-leg posting + status transitions). */
+  private async onReturnApproved(deposit: any) {
+    // TODO(A3): post the return leg(s) (reverse suspense + return to sender) and drive
+    // the deposit status through RETURNING → RETURNED.
+    this.logger.log(
+      `Deposit ${deposit.depositNo} return approved — settlement execution deferred to A3.`,
+    );
+  }
+
+  /**
+   * SEIZE decided (A2): the V1 approval opened by initiateSeize reached a decision.
+   * APPROVED → delegate to the onSeizeApproved stub (real settlement lands in A4). Any
+   * other outcome → the approvals engine already owns the rejection/cancel/expire audit
+   * trail; this is a no-op log, deposit stays FROZEN.
+   */
+  @OnEvent('workflow.deposit-seize.decided', { async: true })
+  async onSeizeDecided(event: ApprovalDecidedEvent) {
+    const entityRef = event?.entityRef;
+    if (!entityRef) {
+      this.logger.warn('Deposit seize decided event missing entityRef');
+      return;
+    }
+
+    let deposit: any;
+    try {
+      deposit = await this.depositService.findOne(entityRef);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        return;
+      }
+      throw err;
+    }
+
+    if (event.decision !== 'APPROVED') {
+      this.logger.log(
+        `Deposit ${deposit.depositNo} seize ${event.decision} (case ${event.approvalNo}) — original state intact, no seize executed.`,
+      );
+      return;
+    }
+
+    await this.onSeizeApproved(deposit);
+  }
+
+  /** Stub — A4 fills in the actual seize settlement (out-leg posting + status transitions). */
+  private async onSeizeApproved(deposit: any) {
+    // TODO(A4): post the seize leg(s) (reverse suspense + transfer to FIRM_SEIZED) and
+    // drive the deposit status through SEIZING → SEIZED.
+    this.logger.log(
+      `Deposit ${deposit.depositNo} seize approved — settlement execution deferred to A4.`,
+    );
+  }
+
+  /**
+   * UNFREEZE decided (A2): the V1 approval opened by initiateUnfreeze reached a decision.
+   * APPROVED → delegate to the onUnfreezeApproved stub (real resume-into-compliance-flow
+   * lands in A5). Any other outcome → the approvals engine already owns the
+   * rejection/cancel/expire audit trail; this is a no-op log, deposit stays FROZEN.
+   */
+  @OnEvent('workflow.deposit-unfreeze.decided', { async: true })
+  async onUnfreezeDecided(event: ApprovalDecidedEvent) {
+    const entityRef = event?.entityRef;
+    if (!entityRef) {
+      this.logger.warn('Deposit unfreeze decided event missing entityRef');
+      return;
+    }
+
+    let deposit: any;
+    try {
+      deposit = await this.depositService.findOne(entityRef);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        return;
+      }
+      throw err;
+    }
+
+    if (event.decision !== 'APPROVED') {
+      this.logger.log(
+        `Deposit ${deposit.depositNo} unfreeze ${event.decision} (case ${event.approvalNo}) — original state intact, no unfreeze executed.`,
+      );
+      return;
+    }
+
+    await this.onUnfreezeApproved(deposit);
+  }
+
+  /** Stub — A5 fills in the actual unfreeze execution (resume into compliance flow). */
+  private async onUnfreezeApproved(deposit: any) {
+    // TODO(A5): resume the deposit back into the compliance flow (RESUME action →
+    // COMPLIANCE_PENDING) and record DEPOSIT_UNFROZEN.
+    this.logger.log(
+      `Deposit ${deposit.depositNo} unfreeze approved — execution deferred to A5.`,
+    );
   }
 }

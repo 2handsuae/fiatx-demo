@@ -12,6 +12,9 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { DepositConfiscationApprovalService } from './deposit-confiscation-approval.service';
+import { DepositReturnApprovalService } from './deposit-return-approval.service';
+import { DepositSeizeApprovalService } from './deposit-seize-approval.service';
+import { DepositUnfreezeApprovalService } from './deposit-unfreeze-approval.service';
 
 @Module({
   imports: [
@@ -30,6 +33,9 @@ import { DepositConfiscationApprovalService } from './deposit-confiscation-appro
     InboundTransferSignalsService,
     DepositWorkflowService,
     DepositConfiscationApprovalService,
+    DepositReturnApprovalService,
+    DepositSeizeApprovalService,
+    DepositUnfreezeApprovalService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService],
 })

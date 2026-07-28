@@ -365,17 +365,26 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
     expect(actions).toContain(AuditActions.DEPOSIT_FROZEN);
   });
 
-  it('S6_DIRTY_MANUAL_RETURN: rejected(no tag)→MANUAL_CHECKING, rejected(RETURN_TO_SENDER)→RETURNING', async () => {
+  it('S6_DIRTY_MANUAL_RETURN: rejected(no tag)→MANUAL_CHECKING, rejected(RETURN_TO_SENDER)→opens DEPOSIT_RETURN approval, stays MANUAL_CHECKING (A2)', async () => {
     const scenario = DEPOSIT_SCENARIOS.S6_DIRTY_MANUAL_RETURN;
     const amount = '250.00';
 
     const deposit = await createDepositAtCompliancePending(scenario, { isCrypto: false, amount });
     await runScenario(ctx, scenario, deposit);
 
+    // A2: RETURN_TO_SENDER no longer drives a direct status transition — it opens a
+    // maker-checker approval instead. Deposit stays MANUAL_CHECKING (real settlement +
+    // the RETURNING/RETURNED transition lands in A3).
     expect(await finalStatusOf(deposit.id)).toBe(scenario.expectedFinalStatus);
     const actions = await auditActionsFor(deposit.id);
     expect(actions).toContain(AuditActions.DEPOSIT_MANUAL_CHECKING);
-    expect(actions).toContain(AuditActions.DEPOSIT_RETURN_INITIATED);
+    expect(actions).toContain(AuditActions.DEPOSIT_RETURN_APPROVAL_REQUESTED);
+
+    const returnApproval = await prisma.approvalCase.findFirst({
+      where: { actionType: 'DEPOSIT_RETURN', entityRef: deposit.id },
+    });
+    expect(returnApproval).toBeTruthy();
+    expect(returnApproval?.status).toBe('PENDING');
   });
 
   it('S7_DIRTY_MANUAL_OVERTURNED: rejected(no tag)→MANUAL_CHECKING, 官方裁决翻回 approved → SUCCESS', async () => {

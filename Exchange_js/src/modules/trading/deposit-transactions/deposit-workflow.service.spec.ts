@@ -605,6 +605,316 @@ describe('DepositWorkflowService', () => {
     });
   });
 
+  // A2: initiateReturn/initiateSeize/initiateUnfreeze mirror initiateConfiscation's
+  // structure (precondition + anti-dup + createAndSubmit + audit, no deposit-table write).
+  describe('initiateReturn', () => {
+    const adminActor = {
+      actorType: 'ADMIN' as const,
+      userId: 'admin-1',
+      userNo: 'ADM-1',
+      role: 'MLRO',
+      roleCodes: ['MLRO'],
+    };
+    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-r1',
+      depositNo: 'DEPR001',
+      status: DepositTransactionStatus.MANUAL_CHECKING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: '5',
+      traceId: 'trace-r1',
+      ...overrides,
+    });
+
+    it('MANUAL_CHECKING → creates a DEPOSIT_RETURN approval, audits REQUESTED', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-r1', approvalNo: 'APR-R1' });
+
+      const res = await service.initiateReturn('dep-r1', { reason: 'dirty money' }, adminActor);
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'dep-r1' }),
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_RETURN_APPROVAL_REQUESTED' }),
+        expect.anything(),
+      );
+      expect(res).toEqual(expect.objectContaining({ approvalNo: 'APR-R1' }));
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rejects when deposit is not MANUAL_CHECKING', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: DepositTransactionStatus.COMPLIANCE_PENDING }));
+      await expect(
+        service.initiateReturn('dep-r1', { reason: 'x' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when an open return approval already exists', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
+      await expect(
+        service.initiateReturn('dep-r1', { reason: 'x' }, adminActor),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects a blank reason before creating any approval', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      await expect(
+        service.initiateReturn('dep-r1', { reason: '  ' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('initiateSeize', () => {
+    const adminActor = {
+      actorType: 'ADMIN' as const,
+      userId: 'admin-2',
+      userNo: 'ADM-2',
+      role: 'SENIOR_MANAGEMENT_OFFICER',
+      roleCodes: ['SENIOR_MANAGEMENT_OFFICER'],
+    };
+    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-s1',
+      depositNo: 'DEPS001',
+      status: DepositTransactionStatus.FROZEN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: '5',
+      traceId: 'trace-s1',
+      ...overrides,
+    });
+
+    it('FROZEN → creates a DEPOSIT_SEIZE approval, audits REQUESTED with orderRef', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-s1', approvalNo: 'APR-S1' });
+
+      const res = await service.initiateSeize(
+        'dep-s1',
+        { reason: 'gov order', orderRef: 'ORD-123' },
+        adminActor,
+      );
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: 'DEPOSIT_SEIZE',
+          entityRef: 'dep-s1',
+          objectSnapshot: expect.objectContaining({ orderRef: 'ORD-123' }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_SEIZE_APPROVAL_REQUESTED',
+          metadata: expect.objectContaining({ orderRef: 'ORD-123' }),
+        }),
+        expect.anything(),
+      );
+      expect(res).toEqual(expect.objectContaining({ approvalNo: 'APR-S1' }));
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rejects when deposit is not FROZEN', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: DepositTransactionStatus.MANUAL_CHECKING }));
+      await expect(
+        service.initiateSeize('dep-s1', { reason: 'x', orderRef: 'ORD-1' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when an open seize approval already exists', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
+      await expect(
+        service.initiateSeize('dep-s1', { reason: 'x', orderRef: 'ORD-1' }, adminActor),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects a blank reason before creating any approval', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      await expect(
+        service.initiateSeize('dep-s1', { reason: '  ', orderRef: 'ORD-1' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('rejects a blank orderRef before creating any approval', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      await expect(
+        service.initiateSeize('dep-s1', { reason: 'x', orderRef: '  ' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('initiateUnfreeze', () => {
+    const adminActor = {
+      actorType: 'ADMIN' as const,
+      userId: 'admin-3',
+      userNo: 'ADM-3',
+      role: 'MLRO',
+      roleCodes: ['MLRO'],
+    };
+    const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-u1',
+      depositNo: 'DEPU001',
+      status: DepositTransactionStatus.FROZEN,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      assetId: 'asset-1',
+      amount: '5',
+      traceId: 'trace-u1',
+      ...overrides,
+    });
+
+    it('FROZEN → creates a DEPOSIT_UNFREEZE approval, audits REQUESTED with orderRef', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-u1', approvalNo: 'APR-U1' });
+
+      const res = await service.initiateUnfreeze(
+        'dep-u1',
+        { reason: 'delisted', orderRef: 'ORD-U-1' },
+        adminActor,
+      );
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: 'DEPOSIT_UNFREEZE',
+          entityRef: 'dep-u1',
+          objectSnapshot: expect.objectContaining({ orderRef: 'ORD-U-1' }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
+          metadata: expect.objectContaining({ orderRef: 'ORD-U-1' }),
+        }),
+        expect.anything(),
+      );
+      expect(res).toEqual(expect.objectContaining({ approvalNo: 'APR-U1' }));
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rejects when deposit is not FROZEN', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: DepositTransactionStatus.MANUAL_CHECKING }));
+      await expect(
+        service.initiateUnfreeze('dep-u1', { reason: 'x', orderRef: 'ORD-1' }, adminActor),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when an open unfreeze approval already exists', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit());
+      approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
+      await expect(
+        service.initiateUnfreeze('dep-u1', { reason: 'x', orderRef: 'ORD-1' }, adminActor),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // A2: decided listeners are routing skeletons only — APPROVED delegates to a stub
+  // (logs + TODO, never throws); any other outcome is a no-op (approvals engine already
+  // owns the audit trail for reject/cancel/expire). Real execution lands in A3/A4/A5.
+  describe('onReturnDecided / onSeizeDecided / onUnfreezeDecided (A2 stubs)', () => {
+    const decidedEvent = (overrides: Record<string, unknown> = {}) => ({
+      decision: 'APPROVED' as const,
+      actionType: 'DEPOSIT_RETURN',
+      entityRef: 'dep-x1',
+      approvalId: 'app-x1',
+      approvalNo: 'APR-X1',
+      traceId: 'trace-x1',
+      workflowType: 'DEPOSIT_RETURN',
+      metadata: {},
+      ...overrides,
+    });
+
+    it('onReturnDecided: APPROVED → calls the onReturnApproved stub, does not throw, does not touch deposit status', async () => {
+      const deposit = { id: 'dep-x1', depositNo: 'DEP-X1', status: DepositTransactionStatus.MANUAL_CHECKING };
+      depositService.findOne.mockResolvedValue(deposit);
+      const stub = jest.spyOn(service as any, 'onReturnApproved').mockResolvedValue(undefined);
+
+      await expect(service.onReturnDecided(decidedEvent())).resolves.toBeUndefined();
+
+      expect(stub).toHaveBeenCalledWith(deposit);
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('onReturnDecided: DECLINED → no-op (stub not called, deposit untouched)', async () => {
+      const deposit = { id: 'dep-x1', depositNo: 'DEP-X1', status: DepositTransactionStatus.MANUAL_CHECKING };
+      depositService.findOne.mockResolvedValue(deposit);
+      const stub = jest.spyOn(service as any, 'onReturnApproved').mockResolvedValue(undefined);
+
+      await service.onReturnDecided(decidedEvent({ decision: 'DECLINED' }));
+
+      expect(stub).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('onReturnDecided: foreign entityRef (deposit not found) → graceful no-op', async () => {
+      depositService.findOne.mockRejectedValue(new NotFoundException('not found'));
+      await expect(service.onReturnDecided(decidedEvent())).resolves.toBeUndefined();
+    });
+
+    it('onSeizeDecided: APPROVED → calls the onSeizeApproved stub, does not throw', async () => {
+      const deposit = { id: 'dep-x2', depositNo: 'DEP-X2', status: DepositTransactionStatus.FROZEN };
+      depositService.findOne.mockResolvedValue(deposit);
+      const stub = jest.spyOn(service as any, 'onSeizeApproved').mockResolvedValue(undefined);
+
+      await expect(
+        service.onSeizeDecided(decidedEvent({ actionType: 'DEPOSIT_SEIZE', entityRef: 'dep-x2', workflowType: 'DEPOSIT_SEIZE' })),
+      ).resolves.toBeUndefined();
+
+      expect(stub).toHaveBeenCalledWith(deposit);
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('onSeizeDecided: CANCELLED → no-op', async () => {
+      const deposit = { id: 'dep-x2', depositNo: 'DEP-X2', status: DepositTransactionStatus.FROZEN };
+      depositService.findOne.mockResolvedValue(deposit);
+      const stub = jest.spyOn(service as any, 'onSeizeApproved').mockResolvedValue(undefined);
+
+      await service.onSeizeDecided(
+        decidedEvent({ actionType: 'DEPOSIT_SEIZE', entityRef: 'dep-x2', workflowType: 'DEPOSIT_SEIZE', decision: 'CANCELLED' }),
+      );
+
+      expect(stub).not.toHaveBeenCalled();
+    });
+
+    it('onUnfreezeDecided: APPROVED → calls the onUnfreezeApproved stub, does not throw', async () => {
+      const deposit = { id: 'dep-x3', depositNo: 'DEP-X3', status: DepositTransactionStatus.FROZEN };
+      depositService.findOne.mockResolvedValue(deposit);
+      const stub = jest.spyOn(service as any, 'onUnfreezeApproved').mockResolvedValue(undefined);
+
+      await expect(
+        service.onUnfreezeDecided(decidedEvent({ actionType: 'DEPOSIT_UNFREEZE', entityRef: 'dep-x3', workflowType: 'DEPOSIT_UNFREEZE' })),
+      ).resolves.toBeUndefined();
+
+      expect(stub).toHaveBeenCalledWith(deposit);
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('onUnfreezeDecided: EXPIRED → no-op', async () => {
+      const deposit = { id: 'dep-x3', depositNo: 'DEP-X3', status: DepositTransactionStatus.FROZEN };
+      depositService.findOne.mockResolvedValue(deposit);
+      const stub = jest.spyOn(service as any, 'onUnfreezeApproved').mockResolvedValue(undefined);
+
+      await service.onUnfreezeDecided(
+        decidedEvent({ actionType: 'DEPOSIT_UNFREEZE', entityRef: 'dep-x3', workflowType: 'DEPOSIT_UNFREEZE', decision: 'EXPIRED' }),
+      );
+
+      expect(stub).not.toHaveBeenCalled();
+    });
+  });
+
   describe('handleFundsOrderChanged — filter + routing', () => {
     it('ignores funds orders that are not payins (no depositTransactionId)', async () => {
       await service.handleFundsOrderChanged({
@@ -1133,31 +1443,58 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('rejected + RETURN_TO_SENDER (from MANUAL_CHECKING) → RETURNING', async () => {
+    // A2: RETURN_TO_SENDER no longer drives a direct status transition — it opens a
+    // maker-checker approval instead (MLRO single-step). The deposit stays MANUAL_CHECKING;
+    // real settlement + the RETURNING/RETURNED transition lands in A3.
+    it('rejected + RETURN_TO_SENDER (from MANUAL_CHECKING) → opens a DEPOSIT_RETURN approval, stays MANUAL_CHECKING', async () => {
       const deposit = {
         id: 'dep-8',
         depositNo: 'DEP008',
         status: DepositTransactionStatus.MANUAL_CHECKING,
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
+        assetId: 'asset-1',
+        amount: '10',
         traceId: null,
       };
       depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({
-        ...deposit,
-        status: DepositTransactionStatus.RETURNING,
-      });
+      approvalsService.list.mockResolvedValue({ total: 0, items: [] });
+      approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-ret-1', approvalNo: 'APR-RET-1' });
 
       await service.applyKytVerdict('dep-8', { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
 
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'dep-8',
-        expect.objectContaining({ action: DepositTransactionAction.RETURN }),
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ actionType: 'DEPOSIT_RETURN', entityRef: 'dep-8' }),
+        expect.anything(),
         expect.anything(),
       );
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_RETURN_INITIATED' }),
+      expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_RETURN_APPROVAL_REQUESTED' }),
+        expect.anything(),
       );
+    });
+
+    it('rejected + RETURN_TO_SENDER duplicate webhook while a return approval is already pending → idempotent no-op', async () => {
+      const deposit = {
+        id: 'dep-8b',
+        depositNo: 'DEP008B',
+        status: DepositTransactionStatus.MANUAL_CHECKING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        assetId: 'asset-1',
+        amount: '10',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
+
+      await expect(
+        service.applyKytVerdict('dep-8b', { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' }),
+      ).resolves.toBeUndefined();
+
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
     it('no-op when deposit already terminal (SUCCESS)', async () => {

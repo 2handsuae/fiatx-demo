@@ -73,6 +73,10 @@ export const ApprovalActionTypes = {
   WITHDRAW_LARGE_VALUE_APPROVAL: 'WITHDRAW_LARGE_VALUE_APPROVAL',
   // Deposit Below-Min Confiscation (2026-07-16)
   DEPOSIT_CONFISCATION: 'DEPOSIT_CONFISCATION',
+  // Deposit Return/Seize/Unfreeze (A2, 2026-07-28) — 复刻 DEPOSIT_CONFISCATION 的 maker-checker 范式
+  DEPOSIT_RETURN: 'DEPOSIT_RETURN',
+  DEPOSIT_SEIZE: 'DEPOSIT_SEIZE',
+  DEPOSIT_UNFREEZE: 'DEPOSIT_UNFREEZE',
 } as const;
 
 export const ApprovalStatuses = {
@@ -371,6 +375,22 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // ─── Deposit Return/Seize/Unfreeze (A2, 2026-07-28) ────
+  [ApprovalActionTypes.DEPOSIT_RETURN]: {
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.DEPOSIT_SEIZE]: {
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }, { stepNo: 2, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.DEPOSIT_UNFREEZE]: {
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -399,6 +419,9 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.SWAP_FEE_LEVEL_CREATION,
   ApprovalActionTypes.SWAP_FEE_LEVEL_CHANGE,
   ApprovalActionTypes.DEPOSIT_CONFISCATION,
+  ApprovalActionTypes.DEPOSIT_RETURN,
+  ApprovalActionTypes.DEPOSIT_SEIZE,
+  ApprovalActionTypes.DEPOSIT_UNFREEZE,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

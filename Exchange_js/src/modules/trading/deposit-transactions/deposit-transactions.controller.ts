@@ -167,6 +167,50 @@ export class DepositTransactionsController {
     return this.workflow.initiateConfiscation(id, { reason: body?.reason ?? '' }, actor);
   }
 
+  @Post(':id/seize')
+  @ApiOperation({ summary: 'Seize a frozen deposit under government order (maker-checker approval)' })
+  seize(
+    @Param('id') id: string,
+    @Body() body: { reason?: string; orderRef?: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateSeize(
+      id,
+      { reason: body?.reason ?? '', orderRef: body?.orderRef ?? '' },
+      actor,
+    );
+  }
+
+  @Post(':id/unfreeze')
+  @ApiOperation({ summary: 'Unfreeze a frozen deposit under delisting/unfreeze order (maker-checker approval)' })
+  unfreeze(
+    @Param('id') id: string,
+    @Body() body: { reason?: string; orderRef?: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateUnfreeze(
+      id,
+      { reason: body?.reason ?? '', orderRef: body?.orderRef ?? '' },
+      actor,
+    );
+  }
+
   @Get('export')
   @ApiOperation({ summary: 'Export deposit transactions' })
   @UsePipes(new ValidationPipe({ transform: true }))

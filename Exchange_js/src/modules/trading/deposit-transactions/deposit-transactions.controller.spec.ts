@@ -19,6 +19,8 @@ describe('DepositTransactionsController', () => {
     adminFreeze: jest.Mock;
     waiveLimitHold: jest.Mock;
     initiateConfiscation: jest.Mock;
+    initiateSeize: jest.Mock;
+    initiateUnfreeze: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -38,6 +40,8 @@ describe('DepositTransactionsController', () => {
       adminFreeze: jest.fn(),
       waiveLimitHold: jest.fn(),
       initiateConfiscation: jest.fn(),
+      initiateSeize: jest.fn(),
+      initiateUnfreeze: jest.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DepositTransactionsController],
@@ -104,6 +108,48 @@ describe('DepositTransactionsController', () => {
       'dep-1',
       { reason: 'below min' },
       expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['OPS_OFFICER'] }),
+    );
+  });
+
+  it('seize rejects a CUSTOMER token with ForbiddenException (assertAdmin-first)', () => {
+    expect(() =>
+      controller.seize('dep-1', { reason: 'x', orderRef: 'ORD-1' }, { user: { type: 'CUSTOMER', userId: 'c1' } }),
+    ).toThrow(ForbiddenException);
+    expect(depositWorkflow.initiateSeize).not.toHaveBeenCalled();
+  });
+
+  it('seize forwards to the workflow with an admin approval actor for an ADMIN token', async () => {
+    depositWorkflow.initiateSeize.mockResolvedValue({ approvalNo: 'APR-S1' });
+
+    await controller.seize('dep-1', { reason: 'gov order', orderRef: 'ORD-1' }, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'SENIOR_MANAGEMENT_OFFICER', roleCodes: ['SENIOR_MANAGEMENT_OFFICER'] },
+    });
+
+    expect(depositWorkflow.initiateSeize).toHaveBeenCalledWith(
+      'dep-1',
+      { reason: 'gov order', orderRef: 'ORD-1' },
+      expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['SENIOR_MANAGEMENT_OFFICER'] }),
+    );
+  });
+
+  it('unfreeze rejects a CUSTOMER token with ForbiddenException (assertAdmin-first)', () => {
+    expect(() =>
+      controller.unfreeze('dep-1', { reason: 'x', orderRef: 'ORD-1' }, { user: { type: 'CUSTOMER', userId: 'c1' } }),
+    ).toThrow(ForbiddenException);
+    expect(depositWorkflow.initiateUnfreeze).not.toHaveBeenCalled();
+  });
+
+  it('unfreeze forwards to the workflow with an admin approval actor for an ADMIN token', async () => {
+    depositWorkflow.initiateUnfreeze.mockResolvedValue({ approvalNo: 'APR-U1' });
+
+    await controller.unfreeze('dep-1', { reason: 'delisted', orderRef: 'ORD-U-1' }, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'MLRO', roleCodes: ['MLRO'] },
+    });
+
+    expect(depositWorkflow.initiateUnfreeze).toHaveBeenCalledWith(
+      'dep-1',
+      { reason: 'delisted', orderRef: 'ORD-U-1' },
+      expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['MLRO'] }),
     );
   });
 
