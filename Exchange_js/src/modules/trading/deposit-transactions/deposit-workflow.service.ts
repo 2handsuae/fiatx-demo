@@ -1447,6 +1447,15 @@ export class DepositWorkflowService implements OnModuleInit {
       );
     }
 
+    // Fix 4: a return-to-sender needs somewhere to send it back to — buildReturnLegInput
+    // reads deposit.fromAddress/fromIban as the destination. Without either, onReturnApproved
+    // would build a legSeq 3 funds order with a blank destination and no way to ever settle it.
+    if (!deposit.fromAddress?.trim() && !deposit.fromIban?.trim()) {
+      throw new BadRequestException(
+        'Deposit has no sender address/IBAN on file — nothing to return the funds to',
+      );
+    }
+
     // Anti-dup: a deposit must not accrue two open return approvals.
     const openReturns = await this.approvalsService.list({
       actionType: ApprovalActionTypes.DEPOSIT_RETURN,
@@ -1914,51 +1923,70 @@ export class DepositWorkflowService implements OnModuleInit {
    * (attempt exhausted: DEPOSIT_RETURN_STUCK audit). Never auto-jumps to a terminal
    * status and never rolls back — the deposit simply stays RETURNING either way,
    * mirroring settleConfiscation's "stop, don't revert" failure semantics.
+   *
+   * The whole body is try/catch'd (final-review Fix 2): `voidPendingTransfer`,
+   * `fundsOrders.create` and `pendReturnSuspense` are all external calls in this
+   * fire-and-forget @OnEvent downstream — an uncaught throw here would escape as
+   * an unhandled rejection. Mirrors settleReturn's catch: log a
+   * DEPOSIT_RETURN_STUCK audit with the error and return, never rethrow.
    */
   private async onReturnLegFailed(deposit: any, fundsOrderId: string, attempt: number) {
-    const asset = deposit.asset;
-    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const pend = deterministicTransferId('DEPOSIT', deposit.depositNo, 'DEPOSIT_RETURN_PENDING', attempt);
+    try {
+      const asset = deposit.asset;
+      const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+      const pend = deterministicTransferId('DEPOSIT', deposit.depositNo, 'DEPOSIT_RETURN_PENDING', attempt);
 
-    await this.accountingService.voidPendingTransfer({
-      pendingTransferId: pend, amount: amountBigint,
-      evidence: {
-        // Note: voidPendingTransfer (like postPendingTransfer) only flips the pending
-        // evidence row's transferType — it doesn't currently persist this evidence
-        // object. eventCode is set to the VOID label (not the PENDING one used for the
-        // hash above) for self-documentation / forward-compat if that ever changes.
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'DEPOSIT_RETURN_VOID',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-      },
-    });
+      await this.accountingService.voidPendingTransfer({
+        pendingTransferId: pend, amount: amountBigint,
+        evidence: {
+          // Note: voidPendingTransfer (like postPendingTransfer) only flips the pending
+          // evidence row's transferType — it doesn't currently persist this evidence
+          // object. eventCode is set to the VOID label (not the PENDING one used for the
+          // hash above) for self-documentation / forward-compat if that ever changes.
+          sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'DEPOSIT_RETURN_VOID',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+          assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        },
+      });
 
-    const MAX = 3;
-    if (attempt < MAX) {
-      const nextAttempt = attempt + 1;
-      const newLeg = await this.fundsOrders.create(this.buildReturnLegInput(deposit, nextAttempt));
+      const MAX = 3;
+      if (attempt < MAX) {
+        const nextAttempt = attempt + 1;
+        const newLeg = await this.fundsOrders.create(this.buildReturnLegInput(deposit, nextAttempt));
 
-      await this.pendReturnSuspense(deposit, nextAttempt);
+        await this.pendReturnSuspense(deposit, nextAttempt);
+
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_RETURN_RETRIED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+          reason: `Return leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
+          requestId: `DEPOSIT_RETURN_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
 
       await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_RETURN_RETRIED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
-        workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
-        reason: `Return leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
-        requestId: `DEPOSIT_RETURN_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+        reason: `Return leg failed after ${attempt} attempts — manual intervention required (deposit stays RETURNING)`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
+        requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+      });
+    } catch (err: any) {
+      this.logger.error(`onReturnLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+        workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+        reason: `onReturnLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays RETURNING)`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt, error: err.message },
+        requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
       });
       return;
     }
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_RETURN_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
-      workflowType: 'DEPOSIT_RETURN', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
-      reason: `Return leg failed after ${attempt} attempts — manual intervention required (deposit stays RETURNING)`,
-      metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
-      requestId: `DEPOSIT_RETURN_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-    });
   }
 
   /**
@@ -2064,12 +2092,15 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * Start an approved government seizure (A4, "start" half) — TWO-leg structure
-   * (2026-07-28 owner decision, mirrors startConfiscation's two legs exactly; see
-   * pendSeizeSuspense for the account pairs). 先账后状态: pending-lock both legs +
-   * create the legSeq 4 funds order in CREATED (advanceable, NOT auto-cleared)
-   * BEFORE flipping the deposit to SEIZING via SEIZE. The matching POST/settle
-   * half lands in settleSeize.
+   * Start an approved government seizure (A4, "start" half) — SINGLE-leg structure
+   * (2026-07-28 owner final-review correction: the A6 COA break was traced to the
+   * leg's credit account being wrong — CR FIRM_SEIZED instead of CR CLIENT_ASSET —
+   * not to a missing second leg. Fixing the credit account makes this single leg
+   * self-balancing on its own, structurally identical to pendReturnSuspense; see
+   * pendSeizeSuspense for the account pair). 先账后状态: pending-lock the single
+   * leg + create the legSeq 4 funds order in CREATED (advanceable, NOT
+   * auto-cleared) BEFORE flipping the deposit to SEIZING via SEIZE. The matching
+   * POST/settle half lands in settleSeize.
    *
    * Guarded to only run from FROZEN — a replayed decided event arriving after the
    * deposit already left FROZEN is a no-op rather than crashing.
@@ -2106,34 +2137,31 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * Books the TWO seize-leg pending transfers — structurally identical to
-   * startConfiscation's two legs (2026-07-28 owner decision: seize must be two
-   * legs, not one, else custody never shrinks and the COA identity breaks — see
-   * BACKLOG.md / v4-deposit.md §6.3). `legIndex: attempt` on BOTH legs — same
+   * Books the SINGLE seize-leg pending transfer — structurally identical to
+   * pendReturnSuspense (2026-07-28 owner final-review correction: the A6 COA
+   * break was caused by crediting FIRM_SEIZED instead of CLIENT_ASSET, not by
+   * having only one leg. A two-leg version was tried and reverted — its leg2
+   * (DR FIRM_ASSET / CR FIRM_SEIZED) phantom-booked firm equity for money that
+   * had actually left for the government, with no reversal ever planned. See
+   * BACKLOG.md / v4-deposit.md §6.3). `legIndex: attempt` — same
    * attempt-disambiguation convention this arc already used (a retried leg must
-   * not collide with the voided pending lock's deterministic id); unlike
-   * startConfiscation (constant legIndex 1, no retry), this arc retries via
-   * onSeizeLegFailed, so both legs must share the SAME attempt number.
+   * not collide with the voided pending lock's deterministic id).
    *
-   * leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact same
-   *       direction as startConfiscation's leg1: zeroes the customer's suspense
-   *       AND shrinks custodial CLIENT_ASSET (money is actually leaving custody
-   *       for the government, unlike confiscation which stays in-house).
-   *       creditWalletRef reuses customerWalletRef on both sides (CLIENT_ASSET,
-   *       code=1, is in AGGREGATE_TB_CODES — R2-exempt, mirrors startConfiscation).
-   * leg2  DR FIRM_ASSET(SYSTEM) / CR FIRM_SEIZED(SYSTEM) — mirrors
-   *       startConfiscation's leg2 exactly, crediting FIRM_SEIZED (COA 204,
-   *       "已移交待缴") instead of FIRM_FEE. `orderRef` is embedded in BOTH legs'
-   *       evidence.memo — the sole 8-year retention anchor since the destination
-   *       account itself is never modeled (owner decision 2026-07-28).
+   * DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact same
+   * direction as pendReturnSuspense/startConfiscation's leg1: zeroes the
+   * customer's suspense AND shrinks custodial CLIENT_ASSET (money is actually
+   * leaving custody for the government). `debitWalletRef`/`creditWalletRef` both
+   * reuse customerWalletRef (CLIENT_ASSET, code=1, is in AGGREGATE_TB_CODES —
+   * R2-exempt), copied verbatim from pendReturnSuspense's walletRef treatment.
+   * `orderRef` is embedded in the evidence.memo — the sole 8-year retention
+   * anchor since the destination account itself is never modeled (owner
+   * decision 2026-07-28). `isExternalCrossing: true` — same as the return arc:
+   * the money genuinely leaves client custody here (unlike confiscation's
+   * in-house reclass).
    *
-   * Both legs' walletRef are deliberately `null` on the FIRM_SEIZED side (same
-   * "no backing wallet row" reasoning as startConfiscation's FIRM_ASSET
-   * debitWalletRef: null) — FIRM_SEIZED is a per-owner SYSTEM account with no
-   * backing wallet (government handoff account is intentionally never modeled).
-   * Crediting it with the *customer's* walletRef would fail the R2 owner-match
-   * guard in AccountFlowProjectorService (CUSTOMER wallet vs SYSTEM-owned
-   * account) — this was Bug #2 from the A6 e2e run, preserved here for leg2.
+   * FIRM_SEIZED (COA 204) remains a registered/seeded account for a possible
+   * future "pending handoff ledger" feature, but this arc no longer books
+   * anything into it.
    */
   private async pendSeizeSuspense(deposit: any, attempt: number, orderRef: string): Promise<void> {
     const asset = deposit.asset;
@@ -2145,8 +2173,6 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
     const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
-    const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
-    const firmSeizedId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_SEIZED, ledger, ownerType: 'SYSTEM' });
 
     await this.accountingService.executePendingTransfer({
       debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
@@ -2156,18 +2182,7 @@ export class DepositWorkflowService implements OnModuleInit {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
         assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: `Government seizure order ${orderRef} — funds leaving client custody (pending)`,
-        debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
-      },
-    });
-    await this.accountingService.executePendingTransfer({
-      debitAccountId: firmAssetId, creditAccountId: firmSeizedId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_SEIZE_FIRM, timeout: 0, legIndex: attempt,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'SEIZE_FIRM_SEIZED',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_SEIZED],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-        memo: `Government seizure order ${orderRef} — firm custody earmarked pending handoff`,
-        debitWalletRef: null, creditWalletRef: null, isExternalCrossing: false,
+        debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: true,
       },
     });
   }
@@ -2194,16 +2209,14 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * POST BOTH seize-leg pending transfers, then flip the deposit to SEIZED.
-   * Mirrors settleConfiscation exactly: each pending id is reproduced
-   * deterministically from the SAME business key pendSeizeSuspense used —
-   * deterministicTransferId('DEPOSIT', depositNo, eventCode, attempt) — so the
-   * eventCodes + legIndex(=attempt) MUST match pendSeizeSuspense exactly (leg1
-   * SEIZE_REVERSE_SUSPENSE, leg2 SEIZE_FIRM_SEIZED). Unlike settleConfiscation
-   * (constant legIndex 1), this arc's legIndex is `attempt` — retried seize legs
-   * reuse settleSeize with their own attempt number. 3× retry on a transient TB
-   * failure; if every attempt fails the deposit stays SEIZING (no revert, no
-   * rethrow — silent stop in the async listener) with a DEPOSIT_SEIZE_STUCK audit.
+   * POST the single seize-leg pending transfer, then flip the deposit to SEIZED.
+   * Mirrors settleReturn: the pending id is reproduced deterministically from
+   * the SAME business key pendSeizeSuspense used — deterministicTransferId
+   * ('DEPOSIT', depositNo, eventCode, attempt) — so the eventCode
+   * (SEIZE_REVERSE_SUSPENSE) + legIndex(=attempt) MUST match pendSeizeSuspense
+   * exactly. 3× retry on a transient TB failure; if every attempt fails the
+   * deposit stays SEIZING (no revert, no rethrow — silent stop in the async
+   * listener) with a DEPOSIT_SEIZE_STUCK audit.
    *
    * Unlike settleReturn, this deliberately does NOT call tbEvidenceService.enrichForPost:
    * there is no external payout artifact (txHash/bank ref) to enrich with — seizure's
@@ -2215,26 +2228,16 @@ export class DepositWorkflowService implements OnModuleInit {
   private async settleSeize(deposit: any, fundsOrderId: string, attempt: number) {
     const asset = deposit.asset;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'SEIZE_REVERSE_SUSPENSE', attempt);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'SEIZE_FIRM_SEIZED', attempt);
+    const pend = deterministicTransferId('DEPOSIT', deposit.depositNo, 'SEIZE_REVERSE_SUSPENSE', attempt);
     const MAX = 3;
     for (let i = 1; i <= MAX; i++) {
       try {
-        // leg1: DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse the payin suspense, shrink custody.
+        // DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — reverse the payin suspense, shrink custody.
         await this.accountingService.postPendingTransfer({
-          pendingTransferId: pend1, amount: amountBigint,
+          pendingTransferId: pend, amount: amountBigint,
           evidence: {
             sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'SEIZE_REVERSE_SUSPENSE',
             debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-            assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-          },
-        });
-        // leg2: DR FIRM_ASSET(SYSTEM) / CR FIRM_SEIZED(SYSTEM) — recognize the firm-side seized-custody equity.
-        await this.accountingService.postPendingTransfer({
-          pendingTransferId: pend2, amount: amountBigint,
-          evidence: {
-            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'SEIZE_FIRM_SEIZED',
-            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_SEIZED],
             assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
           },
         });
@@ -2265,64 +2268,75 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * The offline handoff itself FAILED/TIMED OUT (leg-level failure, distinct from
-   * settleSeize's transient-TB-failure retry). VOID BOTH pending locks (SAME
-   * deterministic ids reproduced with the failed leg's own `attempt`), then either
+   * settleSeize's transient-TB-failure retry). VOID the single pending lock (SAME
+   * deterministic id reproduced with the failed leg's own `attempt`), then either
    * rebuild a new legSeq 4 attempt (attempt < 3: fresh funds order + fresh pending
    * lock at legIndex=attempt+1, re-fetching orderRef since this call site doesn't
    * carry it through, DEPOSIT_SEIZE_RETRIED audit) or give up (attempt exhausted:
    * DEPOSIT_SEIZE_STUCK audit). Never auto-jumps to a terminal status and never
    * rolls back — mirrors onReturnLegFailed's "stop, don't revert" semantics.
+   *
+   * The whole body is try/catch'd (final-review Fix 2): `voidPendingTransfer`,
+   * `fetchSeizeOrderRef` (can throw when the APPROVED case is missing an
+   * orderRef), `fundsOrders.create` and `pendSeizeSuspense` are all external
+   * calls in this fire-and-forget @OnEvent downstream — an uncaught throw here
+   * would escape as an unhandled rejection. Mirrors settleSeize's catch: log a
+   * DEPOSIT_SEIZE_STUCK audit with the error and return, never rethrow.
    */
   private async onSeizeLegFailed(deposit: any, fundsOrderId: string, attempt: number) {
-    const asset = deposit.asset;
-    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
-    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'SEIZE_REVERSE_SUSPENSE', attempt);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'SEIZE_FIRM_SEIZED', attempt);
+    try {
+      const asset = deposit.asset;
+      const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+      const pend = deterministicTransferId('DEPOSIT', deposit.depositNo, 'SEIZE_REVERSE_SUSPENSE', attempt);
 
-    await this.accountingService.voidPendingTransfer({
-      pendingTransferId: pend1, amount: amountBigint,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'SEIZE_REVERSE_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-      },
-    });
-    await this.accountingService.voidPendingTransfer({
-      pendingTransferId: pend2, amount: amountBigint,
-      evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'SEIZE_FIRM_SEIZED',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_SEIZED],
-        assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
-      },
-    });
+      await this.accountingService.voidPendingTransfer({
+        pendingTransferId: pend, amount: amountBigint,
+        evidence: {
+          sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'SEIZE_REVERSE_SUSPENSE',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+          assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        },
+      });
 
-    const MAX = 3;
-    if (attempt < MAX) {
-      const nextAttempt = attempt + 1;
-      const orderRef = await this.fetchSeizeOrderRef(deposit.id);
-      const newLeg = await this.fundsOrders.create(this.buildSeizeLegInput(deposit, nextAttempt));
+      const MAX = 3;
+      if (attempt < MAX) {
+        const nextAttempt = attempt + 1;
+        const orderRef = await this.fetchSeizeOrderRef(deposit.id);
+        const newLeg = await this.fundsOrders.create(this.buildSeizeLegInput(deposit, nextAttempt));
 
-      await this.pendSeizeSuspense(deposit, nextAttempt, orderRef);
+        await this.pendSeizeSuspense(deposit, nextAttempt, orderRef);
+
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_SEIZE_RETRIED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_SEIZE', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+          reason: `Seize leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
+          requestId: `DEPOSIT_SEIZE_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
 
       await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_SEIZE_RETRIED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
         entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
-        workflowType: 'DEPOSIT_SEIZE', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
-        reason: `Seize leg attempt ${attempt} failed — rebuilt attempt ${nextAttempt}`,
-        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt: nextAttempt, fundsOrderNo: newLeg.fundsOrderNo },
-        requestId: `DEPOSIT_SEIZE_RETRIED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        workflowType: 'DEPOSIT_SEIZE', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+        reason: `Seize leg failed after ${attempt} attempts — manual intervention required (deposit stays SEIZING)`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
+        requestId: `DEPOSIT_SEIZE_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+      });
+    } catch (err: any) {
+      this.logger.error(`onSeizeLegFailed crashed for deposit ${deposit.depositNo} attempt ${attempt}: ${err.message}`);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+        workflowType: 'DEPOSIT_SEIZE', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+        reason: `onSeizeLegFailed crashed (attempt ${attempt}): ${err.message} — manual intervention required (deposit stays SEIZING)`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt, error: err.message },
+        requestId: `DEPOSIT_SEIZE_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
       });
       return;
     }
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_SEIZE_STUCK, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
-      workflowType: 'DEPOSIT_SEIZE', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
-      reason: `Seize leg failed after ${attempt} attempts — manual intervention required (deposit stays SEIZING)`,
-      metadata: { depositNo: deposit.depositNo, fundsOrderId, attempt },
-      requestId: `DEPOSIT_SEIZE_STUCK_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
-    });
   }
 
   /**

@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { DepositTransactionsController } from './deposit-transactions.controller';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { DepositWorkflowService } from './deposit-workflow.service';
+import { DepositTransactionAction } from './dto/deposit-transaction.dto';
 
 describe('DepositTransactionsController', () => {
   let controller: DepositTransactionsController;
@@ -150,6 +151,68 @@ describe('DepositTransactionsController', () => {
       'dep-1',
       { reason: 'delisted', orderRef: 'ORD-U-1' },
       expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['MLRO'] }),
+    );
+  });
+
+  // Fix 3 (final review): PATCH :id/status default branch must reject workflow-only
+  // actions that carry funds/approval semantics, rather than silently passing them
+  // through to service.updateStatus.
+  it('updateStatus rejects action=resume via PATCH (bypasses A2 MLRO unfreeze approval)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.RESUME } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus rejects action=seized_done via PATCH (terminal jump, no ledger legs posted)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.SEIZED_DONE } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus rejects action=returned_done via PATCH (terminal jump, no ledger legs posted)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.RETURNED_DONE } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus rejects action=confiscate_settle via PATCH (terminal jump, no ledger legs posted)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.CONFISCATE_SETTLE } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus forwards a legit non-funds action (e.g. expire) to service.updateStatus', async () => {
+    depositService.updateStatus.mockResolvedValue({ id: 'dep-1', status: 'EXPIRED' });
+    const dto = { action: DepositTransactionAction.EXPIRE } as any;
+
+    await controller.updateStatus('dep-1', dto, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' },
+    });
+
+    expect(depositService.updateStatus).toHaveBeenCalledWith(
+      'dep-1',
+      dto,
+      expect.objectContaining({ sourcePlatform: 'ADMIN_API' }),
     );
   });
 

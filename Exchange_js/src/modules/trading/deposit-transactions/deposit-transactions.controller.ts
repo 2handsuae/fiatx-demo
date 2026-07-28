@@ -11,6 +11,7 @@ import {
   UseGuards,
   Req,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
@@ -108,6 +109,19 @@ export class DepositTransactionsController {
     return this.service.findOneForCustomer(id, req.user?.userId);
   }
 
+  // Fix 3 (final review): workflow-only actions carry funds/approval semantics that a
+  // raw admin PATCH must never reach directly. `resume` would bypass the A2 MLRO
+  // unfreeze approval; `seized_done`/`returned_done`/`confiscate_settle` would jump
+  // straight to a terminal status with no ledger legs ever posted, stranding the
+  // pending lock forever. Mirrors the existing ACCOUNTING_TERMINALS +
+  // DEPOSIT_APPROVE_WORKFLOW_ONLY guard style in deposit-transactions.service.ts.
+  private static readonly PATCH_STATUS_WORKFLOW_ONLY_ACTIONS = new Set<DepositTransactionAction>([
+    DepositTransactionAction.RESUME,
+    DepositTransactionAction.SEIZED_DONE,
+    DepositTransactionAction.RETURNED_DONE,
+    DepositTransactionAction.CONFISCATE_SETTLE,
+  ]);
+
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update deposit transaction status' })
   updateStatus(
@@ -127,6 +141,13 @@ export class DepositTransactionsController {
       case DepositTransactionAction.FREEZE:
         return this.workflow.adminFreeze(id, dto.reason, actor);
       default:
+        if (DepositTransactionsController.PATCH_STATUS_WORKFLOW_ONLY_ACTIONS.has(dto.action)) {
+          throw new BadRequestException({
+            code: 'DEPOSIT_ACTION_WORKFLOW_ONLY',
+            message: `Action '${dto.action}' must go through its workflow endpoint/approval, not a direct status patch.`,
+            details: { action: dto.action },
+          });
+        }
         return this.service.updateStatus(id, dto, {
           sourcePlatform: 'ADMIN_API',
           actor: {

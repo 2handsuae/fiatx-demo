@@ -12,11 +12,11 @@ export const TB_TRANSFER_CODES = {
   DEPOSIT_RETURN_PENDING: 5, // 客户侧锁定(pending)
   DEPOSIT_RETURN_POST: 6,    // 外部确认:post
   DEPOSIT_RETURN_VOID: 7,    // 取消/失败:void
-  // 上缴(SEIZING→SEIZED)：改两腿自平(仿没收结构，业主拍板 2026-07-28)——
-  // leg1 反冲客户暂扣(销负债+托管资产收缩，钱离场) pending/post 两段(void 见下方 20 段)；
-  // leg2 公司内部转权益(记录已移交待缴，见下方 21 段)。两腿各保 client/firm 桶两边恒等。
-  DEPOSIT_SEIZE_PENDING: 8, // leg1 客户侧锁定(pending)：DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET
-  DEPOSIT_SEIZE_POST: 9,    // leg1 落地确认:post
+  // 上缴(SEIZING→SEIZED)：单腿(终审纠偏 2026-07-28)——反冲客户暂扣(销负债+托管资产
+  // 收缩，钱离场)，贷方记 CLIENT_ASSET（此前误记 FIRM_SEIZED 导致 COA 恒等式破坏，
+  // 已改回；结构与退回弧一致）。pending/post 两段，void 见下方 20 段。
+  DEPOSIT_SEIZE_PENDING: 8, // 客户侧锁定(pending)：DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET
+  DEPOSIT_SEIZE_POST: 9,    // 落地确认:post
 
   // ── 提现(10–19)──
   WITHDRAW_NET_PENDING: 10, // 客户侧锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)
@@ -28,8 +28,7 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR FIRM_FEE
 
   // ── 充值·上缴续段(20–29)：充值段 5–9 已满,续挪此──
-  DEPOSIT_SEIZE_VOID: 20, // leg1 上缴取消/失败:void
-  DEPOSIT_SEIZE_FIRM: 21, // leg2 公司内部转权益(pending/post/void 共用)：DR FIRM_ASSET / CR FIRM_SEIZED
+  DEPOSIT_SEIZE_VOID: 20, // 上缴取消/失败:void
 
   // ── 兑换(30–49)──
   SWAP_SELL_CLIENT: 30,        // 客户卖出(from):DR CLIENT_PAYABLE / CR CLIENT_ASSET

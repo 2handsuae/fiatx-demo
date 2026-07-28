@@ -137,6 +137,13 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
     // dedicated to this test suite, so wiping prior deposit rows before each run
     // is safe and keeps the suite repeatable.
     await prisma.depositTransaction.deleteMany({});
+    // Same reasoning extended to the wallet/withdrawal-address fixtures created
+    // below with hardcoded ibans/addresses ('AE_E2E_TEST_IBAN', 'DE8937...') — a
+    // second run against this same worktree DB without this wipe hits the
+    // `[customerId, assetId, address]` unique constraint on withdrawal_addresses
+    // (BANK_ACCOUNT_ALREADY_REGISTERED), so this suite was only ever repeatable once.
+    await prisma.wallet.deleteMany({ where: { ownerId: customerId } });
+    await prisma.withdrawalAddress.deleteMany({ where: { customerId } });
 
     const fiatAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });
     const cryptoAsset = await prisma.asset.findFirst({ where: { currency: 'USDT' } });
@@ -250,6 +257,12 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
         amount: new Prisma.Decimal(opts.amount),
         netAmount: new Prisma.Decimal(opts.amount),
         feeAmount: new Prisma.Decimal(0),
+        // final-review Fix 4: initiateReturn() now requires a sender address/IBAN on
+        // file (a RETURN_TO_SENDER disposition needs somewhere to send the funds back
+        // to) — S6_DIRTY_MANUAL_RETURN exercises that path, so every fixture deposit
+        // here needs one, matching what a real inbound transfer signal would capture.
+        fromIban: opts.isCrypto ? undefined : 'E2E_SENDER_IBAN',
+        fromAddress: opts.isCrypto ? 'E2E_SENDER_ADDRESS' : undefined,
       },
     });
 
