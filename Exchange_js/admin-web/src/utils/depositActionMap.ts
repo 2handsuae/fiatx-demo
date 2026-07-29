@@ -68,7 +68,7 @@ export const DEPOSIT_ACTIONS: DepositAction[] = [
 
 /** Terminal statuses where no actions are available at all */
 const TERMINAL_STATUSES = new Set([
-  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATED',
+  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATED', 'RETURNED', 'SEIZED',
 ]);
 
 /**
@@ -83,6 +83,11 @@ export function getDepositActionsForStatus(
     ...a,
     enabled: !isTerminal && a.enabledStatuses.has(currentStatus),
   }));
+}
+
+/** Whether the given deposit status is terminal (no further actions apply). */
+export function isDepositTerminalStatus(currentStatus: string): boolean {
+  return TERMINAL_STATUSES.has(currentStatus);
 }
 
 /* ── Compliance Layer Styling ──────────────────────────────────── */

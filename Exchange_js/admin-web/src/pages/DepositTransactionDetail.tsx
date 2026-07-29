@@ -22,15 +22,15 @@ import {
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
 import {
-  formatStatusLabel,
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
 import {
   getDepositActionsForStatus,
-  getDepositStatusBadgeClass,
   getComplianceLayerStyle,
+  isDepositTerminalStatus,
 } from '../utils/depositActionMap';
+import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 
 /* ── Types ──────────────────────────────────────────────────── */
@@ -82,6 +82,10 @@ interface DepositDetail {
   payinType?: string | null;
   traceId?: string | null;
   limitHoldReason?: string | null;
+  sumsubFinanceTxnId?: string | null;
+  sumsubTravelRuleTxnId?: string | null;
+  manualReason?: string | null;
+  slaDeadline?: string | null;
   asset: {
     code: string;
     type: string;
@@ -262,6 +266,14 @@ const DepositTransactionDetail = () => {
   // the in-transit banner); CONFISCATED is terminal.
   const isConfiscationLifecycle =
     data.status === 'CONFISCATING' || data.status === 'CONFISCATED';
+  // Terminal statuses (SUCCESS/REJECTED/FAILED/EXPIRED/CONFISCATED/RETURNED/
+  // SEIZED): no further actions apply at all.
+  const isTerminal = isDepositTerminalStatus(data.status);
+  // In-flight remediation (returning/seizing/confiscating): the generic
+  // Approve/Reject/Confiscate actions don't apply while a disposition is
+  // already underway.
+  const isDisposing =
+    data.status === 'RETURNING' || data.status === 'SEIZING' || data.status === 'CONFISCATING';
   const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
   const kytStyle = getComplianceLayerStyle(data.kytStatus);
   const trStyle = getComplianceLayerStyle(
@@ -288,7 +300,7 @@ const DepositTransactionDetail = () => {
       {/* ── Confiscation in-transit banner ── */}
       {data.status === 'CONFISCATING' && (
         <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-6 py-2.5 font-mono text-[11px] text-adm-amber">
-          Confiscation funds order in transit — advance the linked funds order below to settle; the deposit completes automatically once it is confirmed / 没收资金单在途结算中，步进下方资金单，确认后自动完成没收
+          Confiscation funds order in transit — advance the linked funds order below to settle; the deposit completes automatically once it is confirmed
         </div>
       )}
 
@@ -305,8 +317,8 @@ const DepositTransactionDetail = () => {
             <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Status</span>
-                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getDepositStatusBadgeClass(data.status)}`}>
-                  {formatStatusLabel(data.status)}
+                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getDepositStatusMeta(data.status).badgeClass}`}>
+                  {getDepositStatusMeta(data.status).label}
                 </span>
               </div>
               <div>
@@ -394,6 +406,27 @@ const DepositTransactionDetail = () => {
             )}
           </DetailCard>
 
+          {/* 5. Sumsub References (read-only) */}
+          <DetailCard title="Sumsub References" columns={2}>
+            <InfoField
+              label="Finance Txn ID"
+              value={data.sumsubFinanceTxnId}
+              copyable
+              onCopy={(v) => handleCopy(v, 'sumsubFinanceTxnId')}
+              isCopied={copiedField === 'sumsubFinanceTxnId'}
+              mono
+            />
+            <InfoField
+              label="Travel Rule Txn ID"
+              value={data.sumsubTravelRuleTxnId}
+              copyable
+              onCopy={(v) => handleCopy(v, 'sumsubTravelRuleTxnId')}
+              isCopied={copiedField === 'sumsubTravelRuleTxnId'}
+              mono
+            />
+            <InfoField label="Manual Reason" value={data.manualReason} />
+          </DetailCard>
+
           {/* 6. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
@@ -409,10 +442,14 @@ const DepositTransactionDetail = () => {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
           {/* Actions — hidden for a below-min hold (only PASS / Confiscate-as-Fee
-              disposition applies) and throughout the confiscation lifecycle
+              disposition applies), throughout the confiscation lifecycle
               (CONFISCATING in-transit → advance the funds order; CONFISCATED
-              terminal) where the generic Approve/Reject/Confiscate no longer apply. */}
-          {!isBelowMinPending && !isConfiscationLifecycle && (
+              terminal) where the generic Approve/Reject/Confiscate no longer
+              apply, once the deposit reaches any terminal status, while a
+              disposition (returning/seizing/confiscating) is already in
+              flight, or during MANUAL_CHECKING (see the read-only notice
+              below — disposition happens in the Sumsub console instead). */}
+          {!isBelowMinPending && !isConfiscationLifecycle && !isTerminal && !isDisposing && data.status !== 'MANUAL_CHECKING' && (
             <SidebarGroup title="Actions">
               {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
               <div className="flex flex-col gap-2">
@@ -434,6 +471,15 @@ const DepositTransactionDetail = () => {
                   );
                 })}
               </div>
+            </SidebarGroup>
+          )}
+
+          {/* Manual checking — disposition happens in Sumsub, not here */}
+          {data.status === 'MANUAL_CHECKING' && (
+            <SidebarGroup title="Actions">
+              <p className="font-mono text-[11px] text-adm-t3">
+                Disposition happens in the Sumsub console (officer tags the txn, then re-rejects).
+              </p>
             </SidebarGroup>
           )}
 
@@ -609,12 +655,12 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
       {history.map((item: any, idx: number) => (
         <div key={idx} className="ml-8 relative">
           <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getTimelineDotColor(item.status)}`} />
+            <div className={`h-3 w-3 rounded-full ${getDepositStatusMeta(item.status).badgeClass}`} />
           </span>
           <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
             <div className="flex items-center gap-2">
-              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getTimelineBadge(item.status)}`}>
-                {formatStatusLabel(item.status)}
+              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getDepositStatusMeta(item.status).badgeClass}`}>
+                {getDepositStatusMeta(item.status).label}
               </span>
             </div>
             <p className="mt-1 text-sm text-adm-t2">{item.reason || 'No reason provided'}</p>
@@ -631,33 +677,6 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
       ))}
     </div>
   );
-};
-
-const getTimelineDotColor = (status: string) => {
-  const map: Record<string, string> = {
-    SUCCESS: 'bg-green-500', FAILED: 'bg-orange-500', REJECTED: 'bg-red-500',
-    CONFISCATING: 'bg-amber-500', CONFISCATED: 'bg-red-700',
-    COMPLIANCE_PENDING: 'bg-purple-500',
-    ACTION_PENDING: 'bg-amber-500', FROZEN: 'bg-cyan-500',
-    PAYIN_PENDING: 'bg-blue-500', EXPIRED: 'bg-gray-400',
-  };
-  return map[status] || 'bg-gray-300';
-};
-
-const getTimelineBadge = (status: string) => {
-  const map: Record<string, string> = {
-    SUCCESS: 'bg-green-50 text-green-700 border-green-200',
-    FAILED: 'bg-orange-50 text-orange-700 border-orange-200',
-    REJECTED: 'bg-red-50 text-red-700 border-red-200',
-    CONFISCATING: 'bg-amber-50 text-amber-700 border-amber-200',
-    CONFISCATED: 'bg-red-100 text-red-800 border-red-300',
-    COMPLIANCE_PENDING: 'bg-purple-50 text-purple-700 border-purple-200',
-    ACTION_PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
-    FROZEN: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-    PAYIN_PENDING: 'bg-blue-50 text-blue-700 border-blue-200',
-    EXPIRED: 'bg-gray-50 text-gray-700 border-gray-200',
-  };
-  return map[status] || 'bg-gray-50 text-gray-700 border-gray-200';
 };
 
 export default DepositTransactionDetail;
