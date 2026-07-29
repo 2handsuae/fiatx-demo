@@ -115,6 +115,17 @@ const DepositTransactionDetail = () => {
   const [dispositionError, setDispositionError] = useState('');
   const [isConfiscateModalOpen, setIsConfiscateModalOpen] = useState(false);
   const [confiscateReason, setConfiscateReason] = useState('');
+  const [isSeizeModalOpen, setIsSeizeModalOpen] = useState(false);
+  const [seizeReason, setSeizeReason] = useState('');
+  const [seizeOrderRef, setSeizeOrderRef] = useState('');
+  const [isUnfreezeModalOpen, setIsUnfreezeModalOpen] = useState(false);
+  const [unfreezeReason, setUnfreezeReason] = useState('');
+  const [unfreezeOrderRef, setUnfreezeOrderRef] = useState('');
+  // Degraded approval indicator (see handleSeizeSubmit/handleUnfreezeSubmit): `findOne`
+  // does not return `approvalCaseId` (the deposit table has no such column), so this
+  // banner only lives in local component state — it disappears on page refresh. Known
+  // limitation, tracked in BACKLOG.md.
+  const [lastApprovalNo, setLastApprovalNo] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -244,6 +255,78 @@ const DepositTransactionDetail = () => {
     }
   };
 
+  /* ── Frozen disposition handlers (seize / unfreeze — maker-checker) ── */
+
+  const handleSeizeSubmit = async () => {
+    if (!id || !seizeReason.trim() || !seizeOrderRef.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/seize`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: seizeReason.trim(),
+            orderRef: seizeOrderRef.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit seize request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Seize submitted for approval — ${result.approvalNo} (pending two-step approval)`);
+      setLastApprovalNo(result.approvalNo);
+      setIsSeizeModalOpen(false);
+      setSeizeReason('');
+      setSeizeOrderRef('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit seize request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  const handleUnfreezeSubmit = async () => {
+    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/unfreeze`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: unfreezeReason.trim(),
+            orderRef: unfreezeOrderRef.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit unfreeze request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Unfreeze submitted for approval — ${result.approvalNo}`);
+      setLastApprovalNo(result.approvalNo);
+      setIsUnfreezeModalOpen(false);
+      setUnfreezeReason('');
+      setUnfreezeOrderRef('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit unfreeze request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
   /* ── Loading / Empty ── */
 
   if (loading) {
@@ -294,6 +377,17 @@ const DepositTransactionDetail = () => {
       {notice && (
         <div className="shrink-0 border-b border-adm-border bg-adm-green/5 px-6 py-2.5 font-mono text-[11px] text-adm-green">
           {notice}
+        </div>
+      )}
+
+      {/* ── Approval indicator (degraded): the deposit table has no
+          `approvalCaseId` column and `findOne` doesn't return one, so this can
+          only be tracked in local state here — a page refresh loses it. Known
+          limitation, tracked in BACKLOG.md. Do not treat this as a persistent
+          status indicator. ── */}
+      {lastApprovalNo && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-blue/5 px-6 py-2.5 font-mono text-[11px] text-adm-blue">
+          Approval {lastApprovalNo} submitted — track it in the Approvals center
         </div>
       )}
 
@@ -510,6 +604,45 @@ const DepositTransactionDetail = () => {
             </SidebarGroup>
           )}
 
+          {/* Frozen Disposition — initiate seize / unfreeze (both maker-checker
+              approvals, not immediate execution): seize opens a two-step
+              SENIOR_MANAGEMENT_OFFICER → MLRO approval; unfreeze opens a
+              single-step MLRO approval. Note: the generic "Actions" group above
+              also enables Approve for FROZEN, which resolves the deposit to
+              SUCCESS immediately with no approval step — see task-4-report.md
+              for the semantic overlap this creates. */}
+          {data.status === 'FROZEN' && (
+            <SidebarGroup title="Frozen Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setSeizeReason('');
+                    setSeizeOrderRef('');
+                    setIsSeizeModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Initiate Seize
+                </button>
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setUnfreezeReason('');
+                    setUnfreezeOrderRef('');
+                    setIsUnfreezeModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  Initiate Unfreeze
+                </button>
+              </div>
+            </SidebarGroup>
+          )}
+
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Deposit No" value={data.depositNo} mono />
@@ -620,6 +753,122 @@ const DepositTransactionDetail = () => {
               <button
                 onClick={handleConfiscateSubmit}
                 disabled={dispositionSubmitting || !confiscateReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Seize Modal ── */}
+      {isSeizeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Seize</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Enter reason for seizing this deposit (required)..."
+                  value={seizeReason}
+                  onChange={(e) => setSeizeReason(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Government order reference
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  placeholder="e.g. court or enforcement order number"
+                  value={seizeOrderRef}
+                  onChange={(e) => setSeizeOrderRef(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsSeizeModalOpen(false);
+                  setSeizeReason('');
+                  setSeizeOrderRef('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSeizeSubmit}
+                disabled={dispositionSubmitting || !seizeReason.trim() || !seizeOrderRef.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unfreeze Modal ── */}
+      {isUnfreezeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Unfreeze</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Enter reason for unfreezing this deposit (required)..."
+                  value={unfreezeReason}
+                  onChange={(e) => setUnfreezeReason(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Unfreeze order reference
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  placeholder="e.g. delisting or release order number"
+                  value={unfreezeOrderRef}
+                  onChange={(e) => setUnfreezeOrderRef(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsUnfreezeModalOpen(false);
+                  setUnfreezeReason('');
+                  setUnfreezeOrderRef('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnfreezeSubmit}
+                disabled={dispositionSubmitting || !unfreezeReason.trim() || !unfreezeOrderRef.trim()}
                 className={adminButtonClass('modalConfirm')}
               >
                 {dispositionSubmitting ? 'Processing...' : 'Confirm'}
