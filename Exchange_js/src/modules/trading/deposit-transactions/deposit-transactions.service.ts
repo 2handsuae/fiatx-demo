@@ -98,7 +98,7 @@ export class DepositTransactionsService {
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
     if (toWalletId) where.toWalletId = toWalletId;
-    if (status) where.status = status;
+    if (status) where.status = Array.isArray(status) ? { in: status } : status;
 
     if (startDate || endDate) {
       where.createdAt = {};

@@ -86,3 +86,37 @@ export function getDepositStatusMeta(status: string): DepositStatusMeta {
  * independently-maintained status list — see admin list page filter).
  */
 export const ALL_DEPOSIT_STATUSES: string[] = Object.keys(DEPOSIT_STATUS_MAP);
+
+export interface DepositStatusFilterGroup {
+  label: string;
+  /** Raw backend statuses this filter option maps to (>1 means a merged filter). */
+  statuses: string[];
+}
+
+/**
+ * Operator-facing filter groups for the admin deposit list, per design spec
+ * §2.1. This collapses the 15 raw statuses into the groups an operator picks
+ * from — "Disposing" merges the three in-flight remediation statuses
+ * (returning/seizing/confiscating) into a single filter option.
+ *
+ * REJECTED and EXPIRED are intentionally left out of this list: the owner
+ * has decided to remove those two statuses later (see BACKLOG d7b4456e), so
+ * no new filter UI is built for them. The badge map above still renders them
+ * as-is for historical transactions — this only affects the filter dropdown.
+ *
+ * Single source of truth: the admin list page reads this array to render its
+ * status filter, it must not keep its own independently-maintained list.
+ */
+export const DEPOSIT_STATUS_FILTERS: DepositStatusFilterGroup[] = [
+  { label: 'Awaiting payin', statuses: ['PAYIN_PENDING'] },
+  { label: 'Compliance review', statuses: ['COMPLIANCE_PENDING'] },
+  { label: 'Awaiting customer', statuses: ['ACTION_PENDING'] },
+  { label: 'Manual checking', statuses: ['MANUAL_CHECKING'] },
+  { label: 'Frozen', statuses: ['FROZEN'] },
+  { label: 'Disposing', statuses: ['RETURNING', 'SEIZING', 'CONFISCATING'] },
+  { label: 'Returned', statuses: ['RETURNED'] },
+  { label: 'Seized', statuses: ['SEIZED'] },
+  { label: 'Confiscated', statuses: ['CONFISCATED'] },
+  { label: 'Success', statuses: ['SUCCESS'] },
+  { label: 'Failed', statuses: ['FAILED'] },
+];

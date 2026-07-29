@@ -1,5 +1,5 @@
 import { IsOptional, IsString, IsEnum, IsNumber, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export enum DepositTransactionStatus {
   PAYIN_PENDING = 'PAYIN_PENDING',
@@ -55,9 +55,14 @@ export class DepositTransactionQueryDto {
   @IsString()
   toWalletId?: string;
 
+  // Accepts a single status or a comma-separated list (e.g. "RETURNING,SEIZING,CONFISCATING")
+  // so the admin list can filter a spec-defined status group in one request.
   @IsOptional()
-  @IsEnum(DepositTransactionStatus)
-  status?: DepositTransactionStatus;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.split(',').map((s) => s.trim()).filter(Boolean) : value,
+  )
+  @IsEnum(DepositTransactionStatus, { each: true })
+  status?: DepositTransactionStatus | DepositTransactionStatus[];
 
   @IsOptional()
   @IsString()

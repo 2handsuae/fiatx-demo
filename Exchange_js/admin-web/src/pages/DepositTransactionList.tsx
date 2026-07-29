@@ -14,7 +14,7 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
-import { ALL_DEPOSIT_STATUSES, getDepositStatusMeta } from '../utils/depositStatusMap';
+import { DEPOSIT_STATUS_FILTERS, getDepositStatusMeta } from '../utils/depositStatusMap';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { AdminBadge } from '../components/ui/AdminBadge';
 
@@ -37,6 +37,7 @@ interface DepositItem {
 interface FilterState {
   depositNo: string;
   ownerNo: string;
+  /** DEPOSIT_STATUS_FILTERS[].label of the selected filter group, or '' for All. */
   status: string;
   type: string;
   startDate: string;
@@ -64,15 +65,6 @@ const fmt = (v?: string | null): string => {
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
 
-/** Status filter options use Title Case (badges stay all-caps — see design §1.1). */
-const toTitleCase = (label: string): string =>
-  label
-    .toLowerCase()
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-
 /* ── Component ───────────────────────────────────────────────── */
 
 const DepositTransactionList = () => {
@@ -99,7 +91,10 @@ const DepositTransactionList = () => {
       params.set('take', String(PAGE_SIZE));
       if (next.depositNo.trim()) params.set('depositNo', next.depositNo.trim());
       if (next.ownerNo.trim()) params.set('ownerNo', next.ownerNo.trim());
-      if (next.status) params.set('status', next.status);
+      if (next.status) {
+        const group = DEPOSIT_STATUS_FILTERS.find((f) => f.label === next.status);
+        if (group) params.set('status', group.statuses.join(','));
+      }
       if (next.startDate) params.set('startDate', next.startDate);
       if (next.endDate) params.set('endDate', next.endDate);
 
@@ -190,9 +185,9 @@ const DepositTransactionList = () => {
           onChange={(e) => updateFilter('status', e.target.value)}
           className={`${fi} w-40`}
         >
-          <option value="">All status</option>
-          {ALL_DEPOSIT_STATUSES.map((s) => (
-            <option key={s} value={s}>{toTitleCase(getDepositStatusMeta(s).label)}</option>
+          <option value="">All</option>
+          {DEPOSIT_STATUS_FILTERS.map((f) => (
+            <option key={f.label} value={f.label}>{f.label}</option>
           ))}
         </select>
         <select

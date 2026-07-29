@@ -1,6 +1,10 @@
 // admin-web/src/utils/depositStatusMap.spec.ts
 
-import { getDepositStatusMeta } from './depositStatusMap';
+import {
+  getDepositStatusMeta,
+  ALL_DEPOSIT_STATUSES,
+  DEPOSIT_STATUS_FILTERS,
+} from './depositStatusMap';
 
 /**
  * Single source of truth for the admin-facing deposit status badge.
@@ -61,5 +65,32 @@ describe('depositStatusMap (admin, as-is)', () => {
     expect(meta.label).toBe('SOME_FUTURE_STATUS');
     expect(meta.group).toBe('EXCEPTION');
     expect(meta.badgeClass).toMatch(/adm-/);
+  });
+});
+
+/**
+ * Admin list filter groups (design spec §2.1). The owner decided the filter
+ * dropdown should be operator-facing groups, not the raw 15 statuses —
+ * "Disposing" merges RETURNING/SEIZING/CONFISCATING into one option, and
+ * REJECTED/EXPIRED are excluded (slated for deletion, see BACKLOG d7b4456e).
+ */
+describe('DEPOSIT_STATUS_FILTERS (admin list filter groups, spec §2.1)', () => {
+  it('every filter status is one of the 15 backend statuses', () => {
+    for (const group of DEPOSIT_STATUS_FILTERS) {
+      for (const status of group.statuses) {
+        expect(ALL_DEPOSIT_STATUSES).toContain(status);
+      }
+    }
+  });
+
+  it('never offers REJECTED or EXPIRED as a filter (owner decision: to be deleted)', () => {
+    const allFilterStatuses = DEPOSIT_STATUS_FILTERS.flatMap((g) => g.statuses);
+    expect(allFilterStatuses).not.toContain('REJECTED');
+    expect(allFilterStatuses).not.toContain('EXPIRED');
+  });
+
+  it('"Disposing" merges the three in-flight remediation statuses', () => {
+    const disposing = DEPOSIT_STATUS_FILTERS.find((g) => g.label === 'Disposing');
+    expect(disposing?.statuses).toEqual(['RETURNING', 'SEIZING', 'CONFISCATING']);
   });
 });
