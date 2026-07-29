@@ -1643,7 +1643,7 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('approveDeposit — oldStatus whitelist (fix: FROZEN→approve→SUCCESS single-operator release hole)', () => {
-    it('called directly (e.g. via PATCH :id/status {action:approve}) on a FROZEN deposit → no-op, stays FROZEN, no DEPOSIT_APPROVED/COMPLETED audit, no TB posting', async () => {
+    it('called directly (e.g. via PATCH :id/status {action:approve}) on a FROZEN deposit → blocked: throws BadRequestException + records DEPOSIT_APPROVE_BLOCKED_FROZEN audit, stays FROZEN, no DEPOSIT_APPROVED/COMPLETED audit, no TB posting', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-frozen-direct',
         depositNo: 'DEP-FROZEN-DIRECT',
@@ -1653,10 +1653,19 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.approveDeposit('dep-frozen-direct');
+      await expect(service.approveDeposit('dep-frozen-direct')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(fundsOrders.findByParent).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
+          entityId: 'dep-frozen-direct',
+          entityNo: 'DEP-FROZEN-DIRECT',
+        }),
+      );
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
       );

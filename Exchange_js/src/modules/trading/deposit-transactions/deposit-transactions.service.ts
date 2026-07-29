@@ -149,7 +149,50 @@ export class DepositTransactionsService {
 
   /** Customer-facing list: same query, scoped to the caller's own deposits with BELOW_MIN hold-pending rows hidden. */
   async findAllForCustomer(customerId: string, query: DepositTransactionQueryDto) {
-    return this.findAll({ ...query, ownerId: customerId }, { customerScope: true });
+    const result = await this.findAll(
+      { ...query, ownerId: customerId },
+      { customerScope: true },
+    );
+    return {
+      ...result,
+      items: result.items.map((item: any) => this.toCustomerDepositView(item)),
+    };
+  }
+
+  /**
+   * Customer-facing field whitelist (tipping-off guard). The raw Prisma row
+   * carries investigation-only fields — statusHistory entries quote sanctions,
+   * seizure and KYT verdicts verbatim (e.g. "Seizure approved (funds in transit
+   * to government custody)"), plus manualReason, the sumsub, kyt and
+   * travelRule metadata fields, limitHoldReason, slaDeadline/slaBreached —
+   * that must never reach
+   * a customer's browser: a DevTools inspection of the JSON response would be
+   * enough to tip off a person under investigation. Only whitelisted fields
+   * are returned; this list must stay in lockstep with the `Transaction`
+   * interface in client-web/src/pages/Deposit.tsx, which is the actual field
+   * contract the client reads.
+   */
+  private toCustomerDepositView(item: any) {
+    return {
+      id: item.id,
+      depositNo: item.depositNo,
+      status: item.status,
+      amount: item.amount,
+      createdAt: item.createdAt,
+      completedAt: item.completedAt,
+      txHash: item.txHash,
+      referenceNo: item.referenceNo,
+      fromAddress: item.fromAddress,
+      fromIban: item.fromIban,
+      asset: item.asset
+        ? {
+            currency: item.asset.currency,
+            code: item.asset.code,
+            network: item.asset.network,
+            decimals: item.asset.decimals,
+          }
+        : null,
+    };
   }
 
   async findOne(id: string) {
@@ -237,7 +280,7 @@ export class DepositTransactionsService {
     if (deposit.limitHoldReason != null) {
       throw new NotFoundException('Deposit transaction not found');
     }
-    return item;
+    return this.toCustomerDepositView(item);
   }
 
   async updateStatus(

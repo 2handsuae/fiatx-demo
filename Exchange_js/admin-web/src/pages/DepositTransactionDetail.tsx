@@ -8,7 +8,6 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { StatusPill } from '../components/ui/StatusPill';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -688,10 +687,10 @@ const DepositTransactionDetail = () => {
           {/* Frozen Disposition — initiate seize / unfreeze (both maker-checker
               approvals, not immediate execution): seize opens a two-step
               SENIOR_MANAGEMENT_OFFICER → MLRO approval; unfreeze opens a
-              single-step MLRO approval. Note: the generic "Actions" group above
-              also enables Approve for FROZEN, which resolves the deposit to
-              SUCCESS immediately with no approval step — see task-4-report.md
-              for the semantic overlap this creates. */}
+              single-step MLRO approval. FROZEN can only leave via this
+              maker-checker unfreeze/seize flow — the generic "Actions" group's
+              Approve is intentionally not enabled for FROZEN (see the
+              transition table in deposit-transactions.service.ts). */}
           {data.status === 'FROZEN' && (
             <SidebarGroup title="Frozen Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
@@ -727,7 +726,6 @@ const DepositTransactionDetail = () => {
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Deposit No" value={data.depositNo} mono />
-            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
             <SidebarKV
               label="Owner"
               value={

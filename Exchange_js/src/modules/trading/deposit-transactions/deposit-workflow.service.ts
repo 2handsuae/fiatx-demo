@@ -674,6 +674,35 @@ export class DepositWorkflowService implements OnModuleInit {
       oldStatus !== DepositTransactionStatus.ACTION_PENDING &&
       oldStatus !== DepositTransactionStatus.MANUAL_CHECKING
     ) {
+      // FROZEN is the sanctions/MLRO-hold case: a caller reaching this path is a
+      // request (HTTP PATCH via the controller), not the webhook no-op path
+      // (applyKytApproved has its own earlier FROZEN guard and never calls in
+      // here). A blocked single-operator attempt to release frozen funds is
+      // exactly the event regulators expect to see recorded — audit it and fail
+      // loud instead of a silent 200.
+      if (oldStatus === DepositTransactionStatus.FROZEN) {
+        this.logger.warn(
+          `Blocked approve on FROZEN deposit ${depositId}: sanctions/MLRO hold requires unfreeze maker-checker, not a direct approve.`,
+        );
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_APPROVE_BLOCKED_FROZEN,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          traceId: deposit.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          reason:
+            'Blocked: attempted approve on a FROZEN deposit — requires unfreeze approval (MLRO), not a direct approve',
+          sourcePlatform: 'ADMIN_API',
+        });
+        throw new BadRequestException({
+          code: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
+          message:
+            'Deposit is FROZEN — release requires the unfreeze maker-checker approval, not a direct approve.',
+        });
+      }
       this.logger.warn(`Deposit ${depositId} in ${oldStatus}, cannot approve.`);
       return;
     }

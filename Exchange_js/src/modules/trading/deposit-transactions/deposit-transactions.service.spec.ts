@@ -123,6 +123,62 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  // Fix 1 (final review, tipping-off): a row carrying every investigation-only
+  // field a SEIZED/FROZEN/rejected deposit would have. limitHoldReason is null
+  // (a seized deposit reaches SEIZED via FROZEN, never via the below-min hold
+  // path) so it passes the existing customerScope filter — the whitelist is
+  // the only thing standing between this row and the customer's browser.
+  const SENSITIVE_FULL_ROW = {
+    id: 'd-sensitive-1',
+    depositNo: 'DEP-SENS-1',
+    ownerId: 'cust-1',
+    ownerType: 'CUSTOMER',
+    status: 'SEIZED',
+    amount: '500.00',
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    completedAt: new Date('2026-01-02T00:00:00Z'),
+    txHash: '0xabc',
+    referenceNo: 'REF-1',
+    fromAddress: 'T_FROM',
+    fromIban: null,
+    asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
+    limitHoldReason: null,
+    statusHistory: JSON.stringify([
+      { status: 'SEIZED', reason: 'Seizure settled — funds handed off to government custody' },
+      { status: 'SEIZING', reason: 'Seizure approved (funds in transit to government custody)' },
+      { status: 'FROZEN', reason: 'KYT verdict: rejected' },
+    ]),
+    manualReason: 'EDD_PEP',
+    sumsubFinanceTxnId: 'sumsub-finance-1',
+    sumsubTravelRuleTxnId: 'sumsub-tr-1',
+    kytStatus: 'REJECTED',
+    kytRiskScore: 92,
+    kytScreeningId: 'screen-1',
+    kytCheckedAt: new Date('2026-01-01T00:05:00Z'),
+    travelRuleStatus: 'PASSED',
+    travelRuleTransferId: 'tr-transfer-1',
+    counterpartyVasp: 'Some VASP Inc.',
+    slaDeadline: new Date('2026-01-03T00:00:00Z'),
+    slaBreached: true,
+  };
+
+  const SENSITIVE_KEYS = [
+    'statusHistory',
+    'manualReason',
+    'sumsubFinanceTxnId',
+    'sumsubTravelRuleTxnId',
+    'kytStatus',
+    'kytRiskScore',
+    'kytScreeningId',
+    'kytCheckedAt',
+    'travelRuleStatus',
+    'travelRuleTransferId',
+    'counterpartyVasp',
+    'limitHoldReason',
+    'slaDeadline',
+    'slaBreached',
+  ];
+
   describe('findAllForCustomer', () => {
     it('customer list: BELOW_MIN deposits are filtered out server-side', async () => {
       ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
@@ -133,6 +189,33 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ limitHoldReason: null }) }),
       );
+    });
+
+    it('Fix 1 (tipping-off): customer list strips statusHistory/manualReason/sumsub*/kyt*/travelRule*/limitHoldReason/sla* while keeping the fields the client actually renders', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([
+        SENSITIVE_FULL_ROW,
+      ]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.findAllForCustomer('cust-1', {} as any);
+      const item = result.items[0] as any;
+
+      for (const key of SENSITIVE_KEYS) {
+        expect(item).not.toHaveProperty(key);
+      }
+      expect(item).toEqual({
+        id: 'd-sensitive-1',
+        depositNo: 'DEP-SENS-1',
+        status: 'SEIZED',
+        amount: '500.00',
+        createdAt: SENSITIVE_FULL_ROW.createdAt,
+        completedAt: SENSITIVE_FULL_ROW.completedAt,
+        txHash: '0xabc',
+        referenceNo: 'REF-1',
+        fromAddress: 'T_FROM',
+        fromIban: null,
+        asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+      });
     });
   });
 
@@ -159,6 +242,31 @@ describe('DepositTransactionsService', () => {
       await expect(service.findOneForCustomer('d1', 'cust-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('Fix 1 (tipping-off): customer detail strips statusHistory/manualReason/sumsub*/kyt*/travelRule*/limitHoldReason/sla* while keeping the fields the client actually renders', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        SENSITIVE_FULL_ROW,
+      );
+
+      const result = (await service.findOneForCustomer('d-sensitive-1', 'cust-1')) as any;
+
+      for (const key of SENSITIVE_KEYS) {
+        expect(result).not.toHaveProperty(key);
+      }
+      expect(result).toEqual({
+        id: 'd-sensitive-1',
+        depositNo: 'DEP-SENS-1',
+        status: 'SEIZED',
+        amount: '500.00',
+        createdAt: SENSITIVE_FULL_ROW.createdAt,
+        completedAt: SENSITIVE_FULL_ROW.completedAt,
+        txHash: '0xabc',
+        referenceNo: 'REF-1',
+        fromAddress: 'T_FROM',
+        fromIban: null,
+        asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+      });
     });
   });
 
