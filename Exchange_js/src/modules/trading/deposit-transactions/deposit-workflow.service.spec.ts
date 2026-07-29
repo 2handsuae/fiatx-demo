@@ -1289,6 +1289,38 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    it('fix(deposit): FROZEN → approved verdict (e.g. a re-scored/late applicantKytTxnApproved after a sanctions veto) is blocked — no-op, DEPOSIT_APPROVE_BLOCKED_FROZEN audit, deposit stays FROZEN, never reaches approveDeposit/TB', async () => {
+      const deposit = {
+        id: 'dep-frozen-1',
+        depositNo: 'DEP-FROZEN-1',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'trace-frozen-1',
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      const approveSpy = jest.spyOn(service, 'approveDeposit');
+
+      await service.applyKytVerdict('dep-frozen-1', { verdict: 'approved' });
+
+      expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).not.toHaveBeenCalled();
+      expect(approveSpy).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
+          entityId: 'dep-frozen-1',
+          entityNo: 'DEP-FROZEN-1',
+        }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+      );
+    });
+
     it('awaitUser + PEP → ACTION_PENDING with manualReason=EDD_PEP', async () => {
       const deposit = {
         id: 'dep-3',
@@ -1607,6 +1639,30 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('approveDeposit — oldStatus whitelist (fix: FROZEN→approve→SUCCESS single-operator release hole)', () => {
+    it('called directly (e.g. via PATCH :id/status {action:approve}) on a FROZEN deposit → no-op, stays FROZEN, no DEPOSIT_APPROVED/COMPLETED audit, no TB posting', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-frozen-direct',
+        depositNo: 'DEP-FROZEN-DIRECT',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.approveDeposit('dep-frozen-direct');
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(fundsOrders.findByParent).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_APPROVED' }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_COMPLETED' }),
+      );
     });
   });
 

@@ -410,7 +410,11 @@ export class DepositTransactionsService {
           DepositTransactionStatus.SEIZED,
       },
       [DepositTransactionStatus.FROZEN]: {
-        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        // NOTE: no APPROVE edge here — a sanctions/MLRO freeze must never be lifted by
+        // a single-operator approve. The only legal exits are the unfreeze
+        // maker-checker (RESUME → COMPLIANCE_PENDING → re-run compliance) or the
+        // seize/return disposition arcs. See DepositWorkflowService.approveDeposit's
+        // oldStatus whitelist (FROZEN excluded) and applyKytApproved's FROZEN guard.
         [DepositTransactionAction.CONFISCATE]:
           DepositTransactionStatus.CONFISCATED,
         [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,

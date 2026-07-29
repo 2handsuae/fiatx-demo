@@ -362,6 +362,32 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   private async applyKytApproved(deposit: any) {
+    // Sanctions/MLRO freeze must never be auto-lifted by a late or re-scored
+    // "approved" KYT webhook (e.g. a sanctions veto followed by a subsequent
+    // applicantKytTxnApproved event). The only legal exit from FROZEN is the
+    // unfreeze maker-checker (RESUME → COMPLIANCE_PENDING → re-run compliance) or
+    // the seize/return disposition arcs — never a bare approve. no-op + audit,
+    // never throw (this runs off a webhook, not a request we can reject to a caller).
+    if (deposit.status === DepositTransactionStatus.FROZEN) {
+      this.logger.warn(
+        `applyKytApproved no-op: deposit ${deposit.id} is FROZEN, ignoring approved KYT verdict (requires unfreeze approval to resume)`,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_APPROVE_BLOCKED_FROZEN,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason:
+          'KYT verdict approved but deposit is FROZEN — ignored; requires unfreeze approval (MLRO) to resume',
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
     const ready = await this.assertTradingReadyOrHold(deposit);
     if (!ready) return;
 
@@ -646,7 +672,6 @@ export class DepositWorkflowService implements OnModuleInit {
     if (
       oldStatus !== DepositTransactionStatus.COMPLIANCE_PENDING &&
       oldStatus !== DepositTransactionStatus.ACTION_PENDING &&
-      oldStatus !== DepositTransactionStatus.FROZEN &&
       oldStatus !== DepositTransactionStatus.MANUAL_CHECKING
     ) {
       this.logger.warn(`Deposit ${depositId} in ${oldStatus}, cannot approve.`);

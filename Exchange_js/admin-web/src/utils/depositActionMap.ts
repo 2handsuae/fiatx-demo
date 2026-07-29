@@ -27,7 +27,7 @@ export const DEPOSIT_ACTIONS: DepositAction[] = [
     label: 'Approve',
     variant: 'workflowPrimary',
     requiresReason: false,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING', 'FROZEN']),
+    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING']),
   },
   {
     action: 'freeze',

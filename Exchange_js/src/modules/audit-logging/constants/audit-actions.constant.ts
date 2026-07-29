@@ -226,6 +226,10 @@ export const AuditActions = {
   DEPOSIT_COMPLIANCE_EVIDENCE_SYNCED: 'DEPOSIT_COMPLIANCE_EVIDENCE_SYNCED',
   DEPOSIT_ACCOUNTING_BLOCKED: 'DEPOSIT_ACCOUNTING_BLOCKED',
   DEPOSIT_HELD_NOT_TRADING_READY: 'DEPOSIT_HELD_NOT_TRADING_READY',
+  // Sanctions/MLRO freeze must never be lifted by a late/re-scored "approved" KYT
+  // webhook — this is the audit trail for that blocked attempt (fix for the
+  // FROZEN→approve→SUCCESS single-operator release hole).
+  DEPOSIT_APPROVE_BLOCKED_FROZEN: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
   // KYT verdict-driven transitions (Sumsub TxnMonitoring, Task 7)
   DEPOSIT_FROZEN: 'DEPOSIT_FROZEN',
   DEPOSIT_MANUAL_CHECKING: 'DEPOSIT_MANUAL_CHECKING',

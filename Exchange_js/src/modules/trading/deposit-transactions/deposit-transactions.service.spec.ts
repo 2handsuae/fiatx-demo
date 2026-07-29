@@ -349,18 +349,14 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('FROZEN → SUCCESS via approve', async () => {
+    it('FROZEN rejects approve (sanctions/MLRO freeze must not be lifted by a single-operator approve)', async () => {
       setupMock(DepositTransactionStatus.FROZEN);
 
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.APPROVE,
-      });
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
+      ).rejects.toThrow(BadRequestException);
 
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.SUCCESS }),
-        }),
-      );
+      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
     });
 
     it('FROZEN → CONFISCATED via confiscate', async () => {
