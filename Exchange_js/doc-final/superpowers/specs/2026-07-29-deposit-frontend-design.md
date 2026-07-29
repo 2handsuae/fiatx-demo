@@ -35,41 +35,46 @@
 ### 1.1 admin 映射(`admin-web/src/utils/depositStatusMap.ts`,如实)
 **徽章文案即最终英文串**(照抄进代码):
 
+**状态徽章一律全大写**(与项目既有惯例一致:client `Deposit.tsx:511/519`、admin 表头 `:256` 均用 `uppercase`)。
+
 | 状态 | 徽章(英文,最终) | 归组 | 配色 |
 |---|---|---|---|
-| PAYIN_PENDING | `Awaiting payin` | In progress | 中性 |
-| COMPLIANCE_PENDING | `Compliance review` | In progress | 中性 |
-| ACTION_PENDING | `Awaiting customer` | Waiting | 琥珀 |
-| **MANUAL_CHECKING** | `Manual checking` | Needs officer | 琥珀 |
-| SUCCESS | `Credited` | Completed | 绿 |
-| **FROZEN** | `Frozen` | Needs officer | 红 |
-| **RETURNING / RETURNED** | `Returning` / `Returned` | Disposing / Completed | 橙 / 灰蓝 |
-| **SEIZING / SEIZED** | `Seizing` / `Seized` | Disposing / Completed | 橙 / 灰蓝 |
-| CONFISCATING / CONFISCATED | `Confiscating` / `Confiscated` | Disposing / Completed | 橙 / 灰蓝 |
-| FAILED | `Failed` | Exception | 灰红 |
-| REJECTED / EXPIRED | `Rejected` / `Expired` | Exception(**待删,仅兜底**) | 灰 |
+| PAYIN_PENDING | `AWAITING PAYIN` | In progress | 中性 |
+| COMPLIANCE_PENDING | `COMPLIANCE REVIEW` | In progress | 中性 |
+| ACTION_PENDING | `AWAITING CUSTOMER` | Waiting | 琥珀 |
+| **MANUAL_CHECKING** | `MANUAL CHECKING` | Needs officer | 琥珀 |
+| SUCCESS | `SUCCESS` | Completed | 绿 |
+| **FROZEN** | `FROZEN` | Needs officer | 红 |
+| **RETURNING / RETURNED** | `RETURNING` / `RETURNED` | Disposing / Completed | 橙 / 灰蓝 |
+| **SEIZING / SEIZED** | `SEIZING` / `SEIZED` | Disposing / Completed | 橙 / 灰蓝 |
+| CONFISCATING / CONFISCATED | `CONFISCATING` / `CONFISCATED` | Disposing / Completed | 橙 / 灰蓝 |
+| FAILED | `FAILED` | Exception | 灰红 |
+| REJECTED / EXPIRED | `REJECTED` / `EXPIRED` | Exception(**待删,仅兜底**) | 灰 |
 
-筛选项英文:`Manual checking` / `Frozen` / `Disposing` / `Returned` / `Seized`。
+筛选项(下拉,非徽章,用 Title case):`Manual checking` / `Frozen` / `Disposing` / `Returned` / `Seized`。
 
 配色用 `adm-*` 令牌(rules 强制),不用裸 Tailwind 色。
 
 ### 1.2 client 映射(`client-web/src/utils/depositStatusView.ts`,面向客户)
 **文案即最终英文串**(照抄进代码):
 
-| 后端状态 | 客户看到(英文,最终) | 附带 |
+**状态徽章一律全大写;副文案(说明句)用正常句式大小写。**
+
+| 后端状态 | 客户徽章(全大写,最终) | 副文案 |
 |---|---|---|
-| PAYIN_PENDING / COMPLIANCE_PENDING | `Processing` | — |
-| ACTION_PENDING | `Action required` | 副文案 `Please provide additional information` + CTA(§3.C) |
-| SUCCESS | `Credited` | 金额 |
-| **RETURNING** | `Returning` | 副文案 `Funds are being returned to the original sender` |
-| **RETURNED** | `Returned` | 副文案 `Funds were returned to the original sender` |
-| **FROZEN / SEIZING / SEIZED / MANUAL_CHECKING** | `Under review` | 副文案 `Please contact support` + 客服入口 |
+| PAYIN_PENDING / COMPLIANCE_PENDING | `PROCESSING` | — |
+| ACTION_PENDING | `ACTION REQUIRED` | `Please provide additional information` + CTA(§3.C) |
+| SUCCESS | **`SUCCESS`** | 金额 |
+| **RETURNING** | `RETURNING` | `Funds are being returned to the original sender` |
+| **RETURNED** | `RETURNED` | `Funds were returned to the original sender` |
+| **FROZEN / SEIZING / SEIZED / MANUAL_CHECKING** | `UNDER REVIEW` | `Please contact support` + 客服入口 |
 | CONFISCATING / CONFISCATED | (服务端已过滤,客户不可见) | — |
-| FAILED / REJECTED / EXPIRED | `Failed` / `Unsuccessful` / `Expired` | 中性 |
+| FAILED / REJECTED / EXPIRED | `FAILED` / `UNSUCCESSFUL` / `EXPIRED` | 中性 |
 
 **三条铁律(写进文件头注释 + 单测锁住)**:
 1. 本文件**永不**出现制裁/执法语义词 —— 违禁词表(大小写不敏感):`sanction` / `seiz` / `frozen` / `freeze` / `confiscat` / `enforcement` / `government` / `police`。单测遍历 15 态断言输出不含任一。
-   > 注意:`Under review` 是刻意选的中性词,**不得**因为"更准确"而改成 `Frozen`/`Seized`。
+   > 注意:`UNDER REVIEW` 是刻意选的中性词,**不得**因为"更准确"而改成 `FROZEN`/`SEIZED`。
+   > 违禁词检测**大小写不敏感**——全大写徽章同样受约束(`FROZEN`/`SEIZED` 一样会被单测拦下)。
 2. **未知状态兜底**:client 回落 `Processing`(绝不裸奔状态码);admin 显示原始码 + 警告色(便于发现漏配)。
 3. **零中文**(§0.1):本文件及所有客户可见文案全英文。
 
