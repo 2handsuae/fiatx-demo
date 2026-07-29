@@ -93,7 +93,9 @@ export function isDepositTerminalStatus(currentStatus: string): boolean {
 /* ── Compliance Layer Styling ──────────────────────────────────── */
 
 const LAYER_PASS = new Set(['PASSED', 'ACTIVE', 'APPROVED', 'CLEAR', 'CLEARED', 'NOT_REQUIRED']);
-const LAYER_PENDING = new Set(['PENDING', 'CREATED', 'RECEIVED']);
+// ON_HOLD / AWAITING_USER 是 Sumsub KYT 的两个未决裁决(officer 复核中 / 等客户补料),
+// 由 DepositWorkflowService.GATE_STATUS_BY_VERDICT 回写——归"未决"色，不是失败。
+const LAYER_PENDING = new Set(['PENDING', 'CREATED', 'RECEIVED', 'ON_HOLD', 'AWAITING_USER']);
 const LAYER_FAIL = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
 
 export interface LayerStyle {

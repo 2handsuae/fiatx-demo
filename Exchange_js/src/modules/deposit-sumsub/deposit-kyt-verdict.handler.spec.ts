@@ -31,11 +31,15 @@ describe('DepositKytVerdictHandler', () => {
     handler = new DepositKytVerdictHandler(workflow, depositService, sumsubTxnClient);
   });
 
-  function txnDetail(tags: { label: string; type?: 'system' | 'userDefined' }[]): SumsubTxnDetail {
+  function txnDetail(
+    tags: { label: string; type?: 'system' | 'userDefined' }[],
+    riskScore: number | null = 87,
+  ): SumsubTxnDetail {
     return {
       txnId: 'T1',
       verdict: 'rejected',
       reviewAnswer: 'RED',
+      riskScore,
       typedTags: tags.map((t) => ({ label: t.label, type: t.type ?? 'userDefined' })),
     };
   }
@@ -46,7 +50,11 @@ describe('DepositKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
     expect(depositService.findBySumsubTxnId).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledTimes(1);
-    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, { verdict: 'approved' });
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
+      verdict: 'approved',
+      lane: 'FINANCE',
+      riskScore: null,
+    });
   });
 
   it('Rejected + getTxn returns [SANCTION] → verdict=rejected, sceneTag=SANCTION', async () => {
@@ -57,6 +65,8 @@ describe('DepositKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'rejected',
+      lane: 'FINANCE',
+      riskScore: 87,
       sceneTag: 'SANCTION',
     });
   });
@@ -68,6 +78,8 @@ describe('DepositKytVerdictHandler', () => {
 
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'rejected',
+      lane: 'FINANCE',
+      riskScore: 87,
       dispoTag: 'FROZEN_BY_MLRO',
     });
   });
@@ -80,7 +92,41 @@ describe('DepositKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'awaitUser',
+      lane: 'FINANCE',
+      riskScore: 87,
       sceneTag: 'PEP',
+    });
+  });
+
+  it('lane=TRAVEL_RULE when the webhook txnId matches the travel-rule leg', async () => {
+    depositService.findBySumsubTxnId.mockResolvedValue({
+      id: DEPOSIT_ID,
+      sumsubFinanceTxnId: 'FIN-1',
+      sumsubTravelRuleTxnId: 'TR-1',
+    } as any);
+
+    await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'TR-1' });
+
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
+      verdict: 'approved',
+      lane: 'TRAVEL_RULE',
+      riskScore: null,
+    });
+  });
+
+  it('lane=FINANCE when the webhook txnId matches the finance leg', async () => {
+    depositService.findBySumsubTxnId.mockResolvedValue({
+      id: DEPOSIT_ID,
+      sumsubFinanceTxnId: 'FIN-1',
+      sumsubTravelRuleTxnId: 'TR-1',
+    } as any);
+
+    await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'FIN-1' });
+
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
+      verdict: 'approved',
+      lane: 'FINANCE',
+      riskScore: null,
     });
   });
 

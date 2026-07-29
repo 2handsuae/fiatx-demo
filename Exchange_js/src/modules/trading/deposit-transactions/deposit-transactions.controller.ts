@@ -104,7 +104,7 @@ export class DepositTransactionsController {
   @ApiOperation({ summary: 'Get deposit transaction details' })
   findOne(@Param('id') id: string, @Req() req: any) {
     if (req.user?.type === 'ADMIN') {
-      return this.service.findOne(id);
+      return this.service.findOneForAdmin(id);
     }
     return this.service.findOneForCustomer(id, req.user?.userId);
   }

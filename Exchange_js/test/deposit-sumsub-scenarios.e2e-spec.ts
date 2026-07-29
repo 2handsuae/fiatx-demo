@@ -126,7 +126,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
     customerId = customer.id;
     await prisma.customerMain.update({
       where: { id: customerId },
-      data: { sumsubApplicantId: 'E2E_TEST_APPLICANT' },
+      data: { sumsubApplicantId: '6b1c47f0a2d38e5904bb7215' },
     });
 
     // Clean slate: DepositKytVerdictHandler.findBySumsubTxnId() does a global

@@ -297,6 +297,8 @@ export class DepositWorkflowService implements OnModuleInit {
     depositId: string,
     v: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
+      lane?: 'FINANCE' | 'TRAVEL_RULE';
+      riskScore?: number | null;
       sceneTag?: 'SANCTION' | 'PEP';
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
     },
@@ -315,6 +317,10 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
+    // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
+    // 终态 no-op 之后、状态流转之前落库——终态单的既有裁决不被迟到 webhook 覆写。
+    await this.writeBackGateStatus(deposit, v.verdict, v.lane, v.riskScore);
+
     switch (v.verdict) {
       case 'approved':
         await this.applyKytApproved(deposit);
@@ -329,6 +335,49 @@ export class DepositWorkflowService implements OnModuleInit {
         await this.applyKytRejected(deposit, v.sceneTag, v.dispoTag);
         return;
     }
+  }
+
+  /** KYT 裁决 → L2 闸门展示值。前端 getComplianceLayerStyle 按这四个值上色。 */
+  private static readonly GATE_STATUS_BY_VERDICT: Record<string, string> = {
+    approved: 'PASSED',
+    rejected: 'FAILED',
+    onHold: 'ON_HOLD',
+    awaitUser: 'AWAITING_USER',
+  };
+
+  /**
+   * 把 KYT 裁决回写到对应泳道的闸门字段。
+   *
+   * 一笔 deposit 报两笔 Sumsub 交易(finance + travelRule),webhook 只带 kytTxnId;
+   * 调用方按 deposit 上的两个 txnId 反查泳道。FINANCE → kytStatus/kytRiskScore/
+   * kytCheckedAt;TRAVEL_RULE → travelRuleStatus。
+   *
+   * 为什么必须回写:新 KYT-only 管道(deposit-sumsub)此前只驱动状态机,闸门字段
+   * 停在建单默认值 PENDING —— 结果是制裁命中冻结的单子,admin 详情页 L2 仍显示
+   * PENDING、风险分空白,operator 看不出这笔单为什么被冻。回写只补展示与
+   * checkAutoApproval 的前置读值,**不改任何状态流转**。
+   */
+  private async writeBackGateStatus(
+    deposit: any,
+    verdict: string,
+    lane: 'FINANCE' | 'TRAVEL_RULE' | undefined,
+    riskScore: number | null | undefined,
+  ): Promise<void> {
+    const gateStatus = DepositWorkflowService.GATE_STATUS_BY_VERDICT[verdict];
+    if (!gateStatus) return;
+
+    if (lane === 'TRAVEL_RULE') {
+      await this.depositService.updateTravelRuleStatus(deposit.id, gateStatus);
+      return;
+    }
+
+    // lane 未给(老调用方)按 FINANCE 处理 —— finance 是每笔 deposit 必报的主交易。
+    // 风险分只在拉过 txn 详情时有值;没有就保留库里既有值,不用 null 抹掉。
+    await this.depositService.updateKytStatus(
+      deposit.id,
+      gateStatus,
+      riskScore ?? deposit.kytRiskScore ?? null,
+    );
   }
 
   /**

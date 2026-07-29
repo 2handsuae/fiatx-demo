@@ -266,6 +266,57 @@ export class DepositTransactionsService {
   }
 
   /**
+   * Admin detail fetch = findOne + 该单最近一次 Sumsub webhook。
+   *
+   * 为什么单开一个方法而不是塞进 `findOne`:`findOne` 在状态机热路径里被反复调用
+   * (applyKytVerdict / approveDeposit / 各处置弧),给它加一条 webhook 查询是白付
+   * 的代价。只有 admin 详情页需要这段。
+   *
+   * 为什么需要:详情页的 "Sumsub References" 此前只展示提交时拿到的两个 txnId ——
+   * 静态、提交后再不变;operator 看不到 Sumsub 最近一次说了什么(裁决事件、什么时候
+   * 到的、有没有处理成功),排查只能翻库。
+   */
+  async findOneForAdmin(id: string) {
+    const item: any = await this.findOne(id);
+
+    const txnIds = [item.sumsubFinanceTxnId, item.sumsubTravelRuleTxnId].filter(Boolean);
+    if (txnIds.length === 0) {
+      return { ...item, latestSumsubWebhook: null };
+    }
+
+    // webhook 事件表不挂 depositId 外键(它是全站 Sumsub 事件的落地表),只能靠
+    // rawPayload 里的 kytTxnId 反查 —— SQLite 无 JSON 索引,用 contains 足够:
+    // 这是单条详情页读取,不是批量。
+    const events = await (this.prisma as any).sumsubWebhookEvent.findMany({
+      where: { OR: txnIds.map((t: string) => ({ rawPayload: { contains: `"${t}"` } })) },
+      orderBy: { receivedAt: 'desc' },
+      take: 1,
+      select: {
+        eventNo: true,
+        eventType: true,
+        status: true,
+        receivedAt: true,
+        processedAt: true,
+        lastErrorMessage: true,
+        isSimulated: true,
+        rawPayload: true,
+      },
+    });
+
+    const latest = events[0] ?? null;
+    if (!latest) return { ...item, latestSumsubWebhook: null };
+
+    // 哪条泳道发来的 —— 详情页要能一眼看出是主交易还是 Travel Rule 腿的裁决。
+    const lane = item.sumsubTravelRuleTxnId
+      && String(latest.rawPayload).includes(`"${item.sumsubTravelRuleTxnId}"`)
+      ? 'TRAVEL_RULE'
+      : 'FINANCE';
+
+    const { rawPayload: _rawPayload, ...rest } = latest;
+    return { ...item, latestSumsubWebhook: { ...rest, lane } };
+  }
+
+  /**
    * Customer-facing single-fetch. Two rows are treated as non-existent (same
    * NotFound as a missing id — never leak existence via a different error):
    *  1. a deposit owned by another customer (IDOR guard), and

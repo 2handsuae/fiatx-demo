@@ -109,9 +109,31 @@ interface DepositDetail {
     decimals: number;
   };
   statusHistory: string | null;
-  customer?: { complianceStatus?: string | null } | null;
+  customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
+  latestSumsubWebhook?: LatestSumsubWebhook | null;
 }
+
+/**
+ * 该单最近一次收到的 Sumsub webhook(后端 findOneForAdmin 附带)。上面那两个
+ * txn ID 是提交时定格的静态引用;这个才回答"Sumsub 最近说了什么"。
+ */
+interface LatestSumsubWebhook {
+  eventNo: string;
+  eventType: string;
+  status: string;
+  receivedAt: string | null;
+  processedAt: string | null;
+  lastErrorMessage: string | null;
+  isSimulated: boolean;
+  lane: 'FINANCE' | 'TRAVEL_RULE';
+}
+
+/** 泳道 = 我们报给 Sumsub 的两笔交易,命名与 Sumsub 侧一致。 */
+const LANE_LABELS: Record<LatestSumsubWebhook['lane'], string> = {
+  FINANCE: 'Finance txn',
+  TRAVEL_RULE: 'Travel Rule txn',
+};
 
 /* ── Page Component ─────────────────────────────────────────── */
 
@@ -409,10 +431,18 @@ const DepositTransactionDetail = () => {
   // already underway.
   const isDisposing =
     data.status === 'RETURNING' || data.status === 'SEIZING' || data.status === 'CONFISCATING';
-  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
-  const kytStyle = getComplianceLayerStyle(data.kytStatus);
+  // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
+  // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
+  // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
+  const gatesNotEvaluated = data.status === 'PAYIN_PENDING';
+  const eligibilityStyle = getComplianceLayerStyle(
+    gatesNotEvaluated ? 'PENDING' : data.customer?.complianceStatus,
+  );
+  const financeStyle = getComplianceLayerStyle(
+    gatesNotEvaluated ? 'PENDING' : data.kytStatus,
+  );
   const trStyle = getComplianceLayerStyle(
-    data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
+    gatesNotEvaluated ? 'PENDING' : data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
   );
 
   return (
@@ -496,22 +526,27 @@ const DepositTransactionDetail = () => {
               <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
                 <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Post-arrival check</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
+                  {gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
+                </div>
               </div>
-              {/* L2: Transaction Screen */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${kytStyle.borderColor}`}>
+              {/* L2: Transaction Screen — 两条泳道对应报给 Sumsub 的两笔交易
+                  (finance txn / travel rule txn),命名与 Sumsub 侧保持一致。 */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${financeStyle.borderColor}`}>
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">KYT:</span>
-                  <span className={`text-[11px] font-semibold ${kytStyle.textColor}`}>
-                    {data.kytStatus || '—'}
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">Finance:</span>
+                  <span className={`text-[11px] font-semibold ${financeStyle.textColor}`}>
+                    {financeStyle.label}
                   </span>
-                  <span className="font-mono text-[10px] text-adm-t3">Risk: {data.kytRiskScore ?? '—'}</span>
+                  <span className="font-mono text-[10px] text-adm-t3">
+                    Risk: {gatesNotEvaluated ? '—' : (data.kytRiskScore ?? '—')}
+                  </span>
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
                   <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
-                    {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
+                    {trStyle.label}
                   </span>
                 </div>
               </div>
@@ -552,8 +587,18 @@ const DepositTransactionDetail = () => {
             )}
           </DetailCard>
 
-          {/* 5. Sumsub References (read-only) */}
+          {/* 5. Sumsub References (read-only) — 上半是提交时拿到的两笔交易号(静态),
+              下半是最近一次收到的 webhook(动态,回答"Sumsub 最近说了什么")。 */}
           <DetailCard title="Sumsub References" columns={2}>
+            <InfoField
+              label="Applicant ID"
+              value={data.customer?.sumsubApplicantId}
+              copyable
+              onCopy={(v) => handleCopy(v, 'sumsubApplicantId')}
+              isCopied={copiedField === 'sumsubApplicantId'}
+              mono
+            />
+            <InfoField label="Manual Reason" value={data.manualReason} />
             <InfoField
               label="Finance Txn ID"
               value={data.sumsubFinanceTxnId}
@@ -570,7 +615,42 @@ const DepositTransactionDetail = () => {
               isCopied={copiedField === 'sumsubTravelRuleTxnId'}
               mono
             />
-            <InfoField label="Manual Reason" value={data.manualReason} />
+          </DetailCard>
+
+          {/* 5b. Latest Sumsub webhook — the two txn IDs above are static
+              (captured at submission). This is what Sumsub said most recently. */}
+          <DetailCard title="Latest Sumsub Webhook" columns={2}>
+            {data.latestSumsubWebhook ? (
+              <>
+                <InfoField label="Event" value={data.latestSumsubWebhook.eventType} mono accent />
+                <InfoField label="Leg" value={LANE_LABELS[data.latestSumsubWebhook.lane]} />
+                <InfoField
+                  label="Received At"
+                  value={
+                    data.latestSumsubWebhook.receivedAt
+                      ? new Date(data.latestSumsubWebhook.receivedAt).toLocaleString()
+                      : null
+                  }
+                />
+                <InfoField
+                  label="Processing"
+                  value={
+                    data.latestSumsubWebhook.isSimulated
+                      ? `${data.latestSumsubWebhook.status} · SIMULATED`
+                      : data.latestSumsubWebhook.status
+                  }
+                />
+                <InfoField label="Event No" value={data.latestSumsubWebhook.eventNo} mono />
+                <InfoField
+                  label="Error"
+                  value={data.latestSumsubWebhook.lastErrorMessage}
+                />
+              </>
+            ) : (
+              <div className="col-span-2 font-mono text-[11px] text-adm-t3">
+                No Sumsub webhook received for this deposit yet
+              </div>
+            )}
           </DetailCard>
 
           {/* 6. Status History */}

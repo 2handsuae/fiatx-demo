@@ -1168,6 +1168,94 @@ describe('DepositWorkflowService', () => {
     });
   });
 
+  describe('applyKytVerdict — L2 闸门字段回写', () => {
+    // 回归防线:新 KYT-only 管道曾经只驱动状态机、不回写闸门字段,导致制裁命中冻结的
+    // 单子在 admin 详情页 L2 仍显示 kytStatus=PENDING、风险分空白 —— operator 看不出
+    // 这笔单为什么被冻(2026-07-29 live demo 实测发现)。
+    function gateDeposit(id: string, status = DepositTransactionStatus.COMPLIANCE_PENDING) {
+      return {
+        id,
+        depositNo: `DEP-${id}`,
+        status,
+        ownerType: 'FIRM',
+        ownerId: 'firm-1',
+        traceId: null,
+        kytRiskScore: null,
+      };
+    }
+
+    it('rejected(FINANCE 泳道)→ kytStatus=FAILED + 落风险分', async () => {
+      const deposit = gateDeposit('dep-gate-1');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      await service.applyKytVerdict('dep-gate-1', {
+        verdict: 'rejected',
+        lane: 'FINANCE',
+        riskScore: 98,
+        sceneTag: 'SANCTION',
+      });
+
+      expect(depositService.updateKytStatus).toHaveBeenCalledWith('dep-gate-1', 'FAILED', 98);
+      expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
+    });
+
+    it('approved(TRAVEL_RULE 泳道)→ 只写 travelRuleStatus,不碰 kytStatus', async () => {
+      const deposit = gateDeposit('dep-gate-2');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      await service.applyKytVerdict('dep-gate-2', {
+        verdict: 'approved',
+        lane: 'TRAVEL_RULE',
+        riskScore: null,
+      });
+
+      expect(depositService.updateTravelRuleStatus).toHaveBeenCalledWith('dep-gate-2', 'PASSED');
+      expect(depositService.updateKytStatus).not.toHaveBeenCalled();
+    });
+
+    it('onHold / awaitUser → 写未决态,不写成 FAILED', async () => {
+      const deposit = gateDeposit('dep-gate-3');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      await service.applyKytVerdict('dep-gate-3', { verdict: 'onHold', lane: 'FINANCE' });
+      expect(depositService.updateKytStatus).toHaveBeenCalledWith('dep-gate-3', 'ON_HOLD', null);
+
+      await service.applyKytVerdict('dep-gate-3', { verdict: 'awaitUser', lane: 'FINANCE' });
+      expect(depositService.updateKytStatus).toHaveBeenCalledWith(
+        'dep-gate-3',
+        'AWAITING_USER',
+        null,
+      );
+    });
+
+    it('已终态的单:迟到 webhook 不覆写既有裁决', async () => {
+      const deposit = gateDeposit('dep-gate-4', DepositTransactionStatus.SEIZED);
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-gate-4', {
+        verdict: 'approved',
+        lane: 'FINANCE',
+        riskScore: 5,
+      });
+
+      expect(depositService.updateKytStatus).not.toHaveBeenCalled();
+      expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
+    });
+
+    it('未给 lane 的老调用方 → 按 FINANCE 处理,不静默丢弃', async () => {
+      const deposit = gateDeposit('dep-gate-5');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      await service.applyKytVerdict('dep-gate-5', { verdict: 'approved' });
+
+      expect(depositService.updateKytStatus).toHaveBeenCalledWith('dep-gate-5', 'PASSED', null);
+    });
+  });
+
   describe('applyKytVerdict — Task 7 state transitions', () => {
     it('approved from COMPLIANCE_PENDING → delegates to approveDeposit (SUCCESS)', async () => {
       const deposit = {

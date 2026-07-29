@@ -7,7 +7,13 @@ import { SumsubTxnDetail } from '../sumsub-txn.types';
  * MANUAL_CHECKING(RETURN_TO_SENDER 只开 DEPOSIT_RETURN 审批,不再直推状态——两腿回款结算/
  * RETURNING→RETURNED 留 A3)。
  *
- * 每个场景 = submit 预置(clientTxnId→txnId 的映射)+ 有序 steps。steps 里:
+ * ⚠️ **T1/TF/TT/T3… 是槽位名,不是 txnId。** 真实的 Sumsub KYT txnId 是 24 位小写 hex
+ * (ObjectId 形态),由 `DepositDemoScenarioService.mintTxnId()` 按 (depositNo, 槽位) 现铸,
+ * 本文件只负责"哪几步引用同一笔交易"。**不要把这里的字面量当真 id 直接查库/发 webhook** ——
+ * 那正是 2026-07-29 实测踩到的坑:两笔单跑同一场景时 `findBySumsubTxnId('T3')` 匹到上一笔单,
+ * 端点返回 201、事件全 PROCESSED、零报错,驱动的却是错误的单。
+ *
+ * 每个场景 = submit 预置(clientTxnId→槽位 的映射)+ 有序 steps。steps 里:
  *   - primeTxn:本步喂 webhook 前,先(重)设 MockSumsubTxnClient 对该 txnId 的 getTxn 应答。
  *     S5/S6 需要在两次 applicantKytTxnRejected 之间重设 tag(先无处置tag,后 FROZEN_BY_MLRO /
  *     RETURN_TO_SENDER),所以 primeTxn 挂在 step 上而不是挂在 scenario 顶层。
@@ -82,7 +88,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T3',
-          detail: { txnId: 'T3', verdict: 'rejected', reviewAnswer: 'RED', typedTags: [userTag('SANCTION')] },
+          detail: { txnId: 'T3', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 98, typedTags: [userTag('SANCTION')] },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T3' },
       },
@@ -100,7 +106,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T4',
-          detail: { txnId: 'T4', verdict: 'awaitUser', reviewAnswer: null, typedTags: [userTag('PEP')] },
+          detail: { txnId: 'T4', verdict: 'awaitUser', reviewAnswer: null, riskScore: 71, typedTags: [userTag('PEP')] },
         },
         webhook: { type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T4' },
       },
@@ -119,7 +125,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T5',
-          detail: { txnId: 'T5', verdict: 'rejected', reviewAnswer: 'RED', typedTags: [] },
+          detail: { txnId: 'T5', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 84, typedTags: [] },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T5' },
       },
@@ -130,6 +136,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
             txnId: 'T5',
             verdict: 'rejected',
             reviewAnswer: 'RED',
+            riskScore: 84,
             typedTags: [userTag('FROZEN_BY_MLRO')],
           },
         },
@@ -151,7 +158,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T6',
-          detail: { txnId: 'T6', verdict: 'rejected', reviewAnswer: 'RED', typedTags: [] },
+          detail: { txnId: 'T6', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 79, typedTags: [] },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T6' },
       },
@@ -162,6 +169,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
             txnId: 'T6',
             verdict: 'rejected',
             reviewAnswer: 'RED',
+            riskScore: 79,
             typedTags: [userTag('RETURN_TO_SENDER')],
           },
         },
@@ -181,7 +189,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T7',
-          detail: { txnId: 'T7', verdict: 'rejected', reviewAnswer: 'RED', typedTags: [] },
+          detail: { txnId: 'T7', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 62, typedTags: [] },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T7' },
       },
