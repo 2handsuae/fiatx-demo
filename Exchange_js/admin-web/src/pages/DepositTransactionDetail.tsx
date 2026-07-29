@@ -32,8 +32,25 @@ import {
 } from '../utils/depositActionMap';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Types ──────────────────────────────────────────────────── */
+
+/**
+ * Demo scenario fixtures (Task 6, `SUMSUB_MOCK_MODE`-gated backend endpoint).
+ * Keys must stay in sync with `src/modules/deposit-sumsub/fixtures/scenarios.ts`
+ * — note the key sequence intentionally skips S8 (moved to a later plan).
+ */
+const DEPOSIT_DEMO_SCENARIOS: Array<{ key: string; label: string }> = [
+  { key: 'S1_HAPPY_FIAT', label: 'Happy path — fiat' },
+  { key: 'S2_HAPPY_CRYPTO', label: 'Happy path — crypto' },
+  { key: 'S3_SANCTIONS', label: 'Sanctions hit → Frozen' },
+  { key: 'S4_PEP_EDD_PASS', label: 'PEP → EDD pass' },
+  { key: 'S5_DIRTY_MANUAL_FROZEN', label: 'Dirty → Manual review → Frozen' },
+  { key: 'S6_DIRTY_MANUAL_RETURN', label: 'Dirty → Manual review → Return' },
+  { key: 'S7_DIRTY_MANUAL_OVERTURNED', label: 'Dirty → Manual review → Overturned' },
+  { key: 'S9_ONHOLD_SLA', label: 'On hold → SLA breach → Manual review' },
+];
 
 interface LinkedFundOrder {
   kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
@@ -126,6 +143,9 @@ const DepositTransactionDetail = () => {
   // banner only lives in local component state — it disappears on page refresh. Known
   // limitation, tracked in BACKLOG.md.
   const [lastApprovalNo, setLastApprovalNo] = useState('');
+  const { enabled: simEnabled } = useSimulationMode();
+  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
+  const [simError, setSimError] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -194,6 +214,39 @@ const DepositTransactionDetail = () => {
       setIsReasonModalOpen(true);
     } else {
       handleAction(action);
+    }
+  };
+
+  /* ── Demo scenario handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
+
+  const handleRunScenario = async (scenario: string) => {
+    if (!id) return;
+    setSimSubmitting(scenario);
+    setSimError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/deposit-sumsub/demo/run-scenario`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depositId: id, scenario }),
+        },
+      );
+      if (!response.ok) {
+        if (response.status === 404) {
+          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
+        } else {
+          setSimError(await getApiErrorMessage(response, 'Scenario run failed.'));
+        }
+        return;
+      }
+      setNotice(`Scenario ${scenario} fed — deposit refreshed`);
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setSimError(error instanceof Error ? error.message : 'Scenario run failed.');
+    } finally {
+      setSimSubmitting(null);
     }
   };
 
@@ -530,6 +583,34 @@ const DepositTransactionDetail = () => {
           <DetailCard title="Technical" columns={1}>
             <InfoField label="Trace ID" value={data.traceId} mono />
           </DetailCard>
+
+          {/* 8. Simulation (demo only — gated by the local simulation-mode
+              toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
+          {simEnabled && (
+            <DetailCard title="⚡ Simulation" columns={1}>
+              <p className="font-mono text-[11px] text-adm-t3">
+                Feeds a scripted Sumsub webhook sequence into the real ingestion
+                pipeline. Requires SUMSUB_MOCK_MODE on the backend.
+              </p>
+              <p className="font-mono text-[11px] text-adm-amber">
+                Best used on a freshly created deposit — scenarios prime the
+                mock client before Gate 0 submits.
+              </p>
+              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
+              <div className="flex flex-wrap gap-2">
+                {DEPOSIT_DEMO_SCENARIOS.map((s) => (
+                  <button
+                    key={s.key}
+                    disabled={simSubmitting !== null}
+                    onClick={() => handleRunScenario(s.key)}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simSubmitting === s.key ? 'Running...' : s.label}
+                  </button>
+                ))}
+              </div>
+            </DetailCard>
+          )}
         </div>
 
         {/* ── Sidebar ── */}
