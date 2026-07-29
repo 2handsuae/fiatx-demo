@@ -258,6 +258,9 @@ export const AuditActions = {
   // 解冻地基常量(A1),接线见 A5
   DEPOSIT_UNFREEZE_APPROVAL_REQUESTED: 'DEPOSIT_UNFREEZE_APPROVAL_REQUESTED',
   DEPOSIT_UNFROZEN: 'DEPOSIT_UNFROZEN',
+  // Demo scenario runner (Task 6, 计划1·甲方案) — feeds a deposit through a Sumsub mock
+  // scenario fixture (SUMSUB_MOCK_MODE only; endpoint doesn't exist otherwise)
+  DEPOSIT_DEMO_SCENARIO_RUN: 'DEPOSIT_DEMO_SCENARIO_RUN',
   CDD_SUBMITTED: 'CDD_SUBMITTED',
   CDD_APPROVED: 'CDD_APPROVED',
   EDD_REJECTED: 'EDD_REJECTED',
