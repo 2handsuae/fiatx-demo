@@ -13,43 +13,65 @@
 | 3 | **admin 审批**:只做发起 + 审批状态可见,实际审批走现有审批中心,不重复造界面 |
 | 4 | **甲方案并入本轮**(新页面没 fixture 驱动就无法验证/演示;sandbox 造不出制裁/PEP) |
 | 5 | **FAILED 保留**;**REJECTED / EXPIRED 将来删**(已登记 BACKLOG `d7b4456e`)——本轮仅保留映射兜底展示,**不给操作入口、不做筛选项** |
+| 6 | **全英文文案铁律**:两个前端**所有**用户可见文字一律英文,**不得出现任何中文**(业主 2026-07-29 定)。含本轮新增与**顺带清理的既有残留** |
+
+### 0.1 全英文铁律(硬约束)
+
+**所有页面文案(徽章 / 按钮 / 提示 / 空态 / 错误 / tooltip)必须是英文,零中文字符。**
+
+**已实测的既有残留(本轮一并清理)**:
+- `admin-web/src/pages/DepositTransactionDetail.tsx:291` —— 没收在途提示是**英文/中文双语拼接**,删掉中文半句
+- `client-web/src/pages/Deposit.tsx:487,488` —— 模拟充值下一步提示,纯中文
+- `client-web/src/pages/Deposit.tsx:498` —— "…模拟充值已创建成功,下一步请去 Admin 继续推进"
+- `client-web/src/pages/Deposit.tsx:505` —— "查看历史" → `View history`
+
+**验收**:`grep -P '[\x{4e00}-\x{9fff}]'` 扫两个前端的充值相关文件,**必须零命中**(纳入 §5 硬闸)。
+> 注:代码注释可用中文(与项目现有风格一致);**仅"用户可见文案"强制英文**。
 
 ## 1. 状态映射:一个数据、两套口径(核心)
 
 **为什么是核心**:15 个状态 × 两套口径,没有单一真相源必然出错;客户面误显示"已上缴"即合规事故。
 
 ### 1.1 admin 映射(`admin-web/src/utils/depositStatusMap.ts`,如实)
-| 状态 | 徽章 | 归组 | 配色 |
+**徽章文案即最终英文串**(照抄进代码):
+
+| 状态 | 徽章(英文,最终) | 归组 | 配色 |
 |---|---|---|---|
-| PAYIN_PENDING | 待入账 | 进行中 | 中性 |
-| COMPLIANCE_PENDING | 合规审查中 | 进行中 | 中性 |
-| ACTION_PENDING | 等客户补料 | 等待 | 琥珀 |
-| **MANUAL_CHECKING** | 人工校验 | 需人工 | 琥珀 |
-| SUCCESS | 已入账 | 完成 | 绿 |
-| **FROZEN** | 已冻结 | 需人工 | 红 |
-| **RETURNING / RETURNED** | 退回中 / 已退回 | 处置中 / 完成 | 橙 / 灰蓝 |
-| **SEIZING / SEIZED** | 上缴中 / 已上缴 | 处置中 / 完成 | 橙 / 灰蓝 |
-| CONFISCATING / CONFISCATED | 没收中 / 已没收 | 处置中 / 完成 | 橙 / 灰蓝 |
-| FAILED | 失败 | 异常 | 灰红 |
-| REJECTED / EXPIRED | 已拒绝 / 已过期 | 异常(**待删,仅兜底**) | 灰 |
+| PAYIN_PENDING | `Awaiting payin` | In progress | 中性 |
+| COMPLIANCE_PENDING | `Compliance review` | In progress | 中性 |
+| ACTION_PENDING | `Awaiting customer` | Waiting | 琥珀 |
+| **MANUAL_CHECKING** | `Manual checking` | Needs officer | 琥珀 |
+| SUCCESS | `Credited` | Completed | 绿 |
+| **FROZEN** | `Frozen` | Needs officer | 红 |
+| **RETURNING / RETURNED** | `Returning` / `Returned` | Disposing / Completed | 橙 / 灰蓝 |
+| **SEIZING / SEIZED** | `Seizing` / `Seized` | Disposing / Completed | 橙 / 灰蓝 |
+| CONFISCATING / CONFISCATED | `Confiscating` / `Confiscated` | Disposing / Completed | 橙 / 灰蓝 |
+| FAILED | `Failed` | Exception | 灰红 |
+| REJECTED / EXPIRED | `Rejected` / `Expired` | Exception(**待删,仅兜底**) | 灰 |
+
+筛选项英文:`Manual checking` / `Frozen` / `Disposing` / `Returned` / `Seized`。
 
 配色用 `adm-*` 令牌(rules 强制),不用裸 Tailwind 色。
 
 ### 1.2 client 映射(`client-web/src/utils/depositStatusView.ts`,面向客户)
-| 后端状态 | 客户看到 | 附带 |
-|---|---|---|
-| PAYIN_PENDING / COMPLIANCE_PENDING | 处理中 | — |
-| ACTION_PENDING | **需要您补充材料** | 补料 CTA(见 §3.C) |
-| SUCCESS | 已到账 | 金额 |
-| **RETURNING** | 退回中 | 款项正退回原付款方 |
-| **RETURNED** | 已退回 | 已退至原付款方 |
-| **FROZEN / SEIZING / SEIZED / MANUAL_CHECKING** | **审核中,请联系客服** | 客服入口 |
-| CONFISCATING / CONFISCATED | (服务端已过滤,客户不可见) | — |
-| FAILED / REJECTED / EXPIRED | 失败 / 未成功 / 已过期 | 中性 |
+**文案即最终英文串**(照抄进代码):
 
-**两条铁律(写进文件头注释 + 单测锁住)**:
-1. 本文件**永不**出现"制裁 / 冻结 / 上缴 / 执法 / sanction / seiz / frozen"等字眼 —— 单测遍历 15 态断言输出不含违禁词。
-2. **未知状态兜底**:client 回落"处理中"(绝不裸奔状态码);admin 显示原始码 + 警告色(便于发现漏配)。
+| 后端状态 | 客户看到(英文,最终) | 附带 |
+|---|---|---|
+| PAYIN_PENDING / COMPLIANCE_PENDING | `Processing` | — |
+| ACTION_PENDING | `Action required` | 副文案 `Please provide additional information` + CTA(§3.C) |
+| SUCCESS | `Credited` | 金额 |
+| **RETURNING** | `Returning` | 副文案 `Funds are being returned to the original sender` |
+| **RETURNED** | `Returned` | 副文案 `Funds were returned to the original sender` |
+| **FROZEN / SEIZING / SEIZED / MANUAL_CHECKING** | `Under review` | 副文案 `Please contact support` + 客服入口 |
+| CONFISCATING / CONFISCATED | (服务端已过滤,客户不可见) | — |
+| FAILED / REJECTED / EXPIRED | `Failed` / `Unsuccessful` / `Expired` | 中性 |
+
+**三条铁律(写进文件头注释 + 单测锁住)**:
+1. 本文件**永不**出现制裁/执法语义词 —— 违禁词表(大小写不敏感):`sanction` / `seiz` / `frozen` / `freeze` / `confiscat` / `enforcement` / `government` / `police`。单测遍历 15 态断言输出不含任一。
+   > 注意:`Under review` 是刻意选的中性词,**不得**因为"更准确"而改成 `Frozen`/`Seized`。
+2. **未知状态兜底**:client 回落 `Processing`(绝不裸奔状态码);admin 显示原始码 + 警告色(便于发现漏配)。
+3. **零中文**(§0.1):本文件及所有客户可见文案全英文。
 
 ## 2. admin 页面
 
@@ -114,7 +136,10 @@ happy-fiat / happy-crypto / **制裁→冻结** / **PEP→补料→放行** / �
 1. **单测**:两张映射表全状态覆盖;**client 违禁词断言**(15 态输出不含"制裁/冻结/上缴/执法"等)。
 2. **渲染验证(硬性,项目铁律)**:声称前端完成前**必须真起服务 + 预览截图比对**,不能只 tsc 绿。用 mock 开关喂场景,把新状态逐个渲染截图(人工校验 / 退回中 / 已退回 / 上缴中 / 冻结 / 演示面板)。
 3. **e2e 不新增**:后端 15/15 已覆盖状态流转;前端靠渲染验证。
-4. **硬闸**:两个前端 `tsc` 0 + 后端 `jest` 不回归。
+4. **硬闸**:
+   - 两个前端 `tsc` 0 + 后端 `jest` 不回归
+   - **零中文扫描**:`grep -rP '[\x{4e00}-\x{9fff}]'` 扫本轮改动的所有前端文件的**用户可见文案**,必须零命中(注释除外)
+   - **违禁词扫描**:client 映射输出不含 `sanction/seiz/frozen/freeze/confiscat/enforcement/government/police`(单测保障)
 
 ## 6. 交付物
 
