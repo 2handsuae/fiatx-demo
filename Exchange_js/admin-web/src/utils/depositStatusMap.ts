@@ -79,3 +79,10 @@ export function getDepositStatusMeta(status: string): DepositStatusMeta {
     }
   );
 }
+
+/**
+ * All 15 backend deposit statuses, derived from the map above so this
+ * stays the single source of truth (consumers must not keep a second,
+ * independently-maintained status list — see admin list page filter).
+ */
+export const ALL_DEPOSIT_STATUSES: string[] = Object.keys(DEPOSIT_STATUS_MAP);

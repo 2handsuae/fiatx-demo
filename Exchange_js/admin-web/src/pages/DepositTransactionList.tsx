@@ -13,11 +13,8 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import {
-  formatStatusLabel,
-  formatTransactionTypeLabel,
-} from '../utils/transactionRootDisplay';
-import { getDepositStatusBadgeClass } from '../utils/depositActionMap';
+import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
+import { ALL_DEPOSIT_STATUSES, getDepositStatusMeta } from '../utils/depositStatusMap';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { AdminBadge } from '../components/ui/AdminBadge';
 
@@ -48,11 +45,6 @@ interface FilterState {
 
 /* ── Constants ───────────────────────────────────────────────── */
 
-const DEPOSIT_STATUSES = [
-  'PAYIN_PENDING', 'COMPLIANCE_PENDING', 'ACTION_PENDING', 'FROZEN',
-  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATING', 'CONFISCATED',
-];
-
 const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS: FilterState = {
@@ -71,6 +63,15 @@ const fmt = (v?: string | null): string => {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? v : d.toLocaleString();
 };
+
+/** Status filter options use Title Case (badges stay all-caps — see design §1.1). */
+const toTitleCase = (label: string): string =>
+  label
+    .toLowerCase()
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 
 /* ── Component ───────────────────────────────────────────────── */
 
@@ -190,8 +191,8 @@ const DepositTransactionList = () => {
           className={`${fi} w-40`}
         >
           <option value="">All status</option>
-          {DEPOSIT_STATUSES.map((s) => (
-            <option key={s} value={s}>{formatStatusLabel(s)}</option>
+          {ALL_DEPOSIT_STATUSES.map((s) => (
+            <option key={s} value={s}>{toTitleCase(getDepositStatusMeta(s).label)}</option>
           ))}
         </select>
         <select
@@ -291,8 +292,8 @@ const DepositTransactionList = () => {
                 {/* Status */}
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-1.5">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusBadgeClass(item.status)}`}>
-                      {formatStatusLabel(item.status)}
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusMeta(item.status).badgeClass}`}>
+                      {getDepositStatusMeta(item.status).label}
                     </span>
                     {item.limitHoldReason === 'BELOW_MIN' && <AdminBadge value="BELOW MIN" dot={false} />}
                   </div>
