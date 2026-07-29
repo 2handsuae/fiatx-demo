@@ -21,7 +21,7 @@ module.exports = {
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: './coverage',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src', '<rootDir>/admin-web/src'],
+  roots: ['<rootDir>/src', '<rootDir>/admin-web/src', '<rootDir>/client-web/src'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
   },
