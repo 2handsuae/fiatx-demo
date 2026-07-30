@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { Prisma } from '@prisma/client';
 
 describe('DepositTransactionsService', () => {
@@ -18,6 +19,7 @@ describe('DepositTransactionsService', () => {
   let eventEmitter: EventEmitter2;
   let fundsOrderService: Record<string, jest.Mock>;
   let limitRules: Record<string, jest.Mock>;
+  let approvalsService: Record<string, jest.Mock>;
   let module: TestingModule;
 
   beforeEach(async () => {
@@ -30,6 +32,9 @@ describe('DepositTransactionsService', () => {
     };
     limitRules = {
       getSingleRule: jest.fn().mockResolvedValue(null),
+    };
+    approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
     };
     module = await Test.createTestingModule({
       providers: [
@@ -72,6 +77,10 @@ describe('DepositTransactionsService', () => {
         {
           provide: TransactionLimitRulesService,
           useValue: limitRules,
+        },
+        {
+          provide: ApprovalsService,
+          useValue: approvalsService,
         },
       ],
     }).compile();
@@ -904,6 +913,88 @@ describe('DepositTransactionsService', () => {
       const result = await service.getOwnerComplianceStatus('dep-1');
 
       expect(result).toBe('UNKNOWN');
+    });
+  });
+
+  describe('findOneForAdmin', () => {
+    const financeJson = JSON.stringify({
+      verdict: 'GREEN',
+      scoringResult: {
+        score: 87,
+        matchedRules: [
+          { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
+        ],
+        applicantActions: [
+          { applicantActionId: 'act-1' },
+          { applicantActionId: 'act-2' },
+        ],
+      },
+    });
+
+    beforeEach(() => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        financeTxnDetailJson: financeJson,
+        travelRuleTxnDetailJson: null,
+        fundsOrders: [],
+      });
+    });
+
+    it('parses financeTxnDetailJson into financeDetail (score/matchedRules/applicantActionIds)', async () => {
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.financeDetail.score).toBe(87);
+      expect(result.financeDetail.matchedRules).toEqual([
+        { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
+      ]);
+      expect(result.financeDetail.applicantActionIds).toEqual(['act-1', 'act-2']);
+    });
+
+    it('returns approvals as single-header-only (no steps/step), regardless of status', async () => {
+      approvalsService.list.mockResolvedValue({
+        total: 2,
+        items: [
+          {
+            approvalNo: 'APR-1',
+            actionType: 'DEPOSIT_CONFISCATION',
+            status: 'APPROVED',
+            createdAt: new Date('2026-01-01T00:00:00Z'),
+            steps: [{ id: 'step-1', decision: 'APPROVE' }],
+          },
+          {
+            approvalNo: 'APR-2',
+            actionType: 'DEPOSIT_RETURN',
+            status: 'REJECTED',
+            createdAt: new Date('2026-01-02T00:00:00Z'),
+            step: { id: 'step-2' },
+          },
+        ],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({ entityRef: 'dep-1' }),
+      );
+      expect(result.approvals).toEqual([
+        {
+          approvalNo: 'APR-1',
+          actionType: 'DEPOSIT_CONFISCATION',
+          status: 'APPROVED',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+        {
+          approvalNo: 'APR-2',
+          actionType: 'DEPOSIT_RETURN',
+          status: 'REJECTED',
+          createdAt: new Date('2026-01-02T00:00:00Z'),
+        },
+      ]);
+      for (const a of result.approvals) {
+        expect(a).not.toHaveProperty('steps');
+        expect(a).not.toHaveProperty('step');
+      }
     });
   });
 

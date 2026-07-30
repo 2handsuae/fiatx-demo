@@ -24,6 +24,7 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -59,6 +60,7 @@ export class DepositTransactionsService {
     private readonly fundsOrders: FundsOrderService,
     private readonly auditLogsService: AuditLogsService,
     private readonly limitRulesService: TransactionLimitRulesService,
+    private readonly approvalsService: ApprovalsService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -279,9 +281,50 @@ export class DepositTransactionsService {
   async findOneForAdmin(id: string) {
     const item: any = await this.findOne(id);
 
+    // Sumsub getTxn 报文展示子集(Task 2 落库的原始报文 → 详情页可读字段)。
+    const parseDetail = (json?: string | null) => {
+      if (!json) return null;
+      let d: any;
+      try {
+        d = JSON.parse(json);
+      } catch {
+        return null;
+      }
+      const sr = d.scoringResult ?? {};
+      return {
+        verdict: d.verdict ?? null,
+        reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
+        score: sr.score ?? null,
+        matchedRules: (sr.matchedRules ?? []).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          action: r.action,
+          score: r.score,
+        })),
+        applicantActionIds: (sr.applicantActions ?? [])
+          .map((a: any) => a.applicantActionId)
+          .filter(Boolean),
+        tags: (d.typedTags ?? []).map((t: any) => t.label),
+        raw: d, // 供订单下方原文折叠
+      };
+    };
+
+    const financeDetail = parseDetail(item.financeTxnDetailJson);
+    const travelRuleDetail = parseDetail(item.travelRuleTxnDetailJson);
+
+    // 内部审批单反查(仅单头,业主定:不含 step/steps)。四种充值审批发起时
+    // entityRef 全部落 deposit.id,ApprovalsService.list 已支持 entityRef 过滤。
+    const approvalPage = await this.approvalsService.list({ entityRef: item.id } as any);
+    const approvals = (approvalPage.items ?? []).map((a: any) => ({
+      approvalNo: a.approvalNo,
+      actionType: a.actionType,
+      status: a.status,
+      createdAt: a.createdAt,
+    }));
+
     const txnIds = [item.sumsubFinanceTxnId, item.sumsubTravelRuleTxnId].filter(Boolean);
     if (txnIds.length === 0) {
-      return { ...item, latestSumsubWebhook: null };
+      return { ...item, financeDetail, travelRuleDetail, approvals, latestSumsubWebhook: null };
     }
 
     // webhook 事件表不挂 depositId 外键(它是全站 Sumsub 事件的落地表),只能靠
@@ -304,7 +347,9 @@ export class DepositTransactionsService {
     });
 
     const latest = events[0] ?? null;
-    if (!latest) return { ...item, latestSumsubWebhook: null };
+    if (!latest) {
+      return { ...item, financeDetail, travelRuleDetail, approvals, latestSumsubWebhook: null };
+    }
 
     // 哪条泳道发来的 —— 详情页要能一眼看出是主交易还是 Travel Rule 腿的裁决。
     const lane = item.sumsubTravelRuleTxnId
@@ -313,7 +358,13 @@ export class DepositTransactionsService {
       : 'FINANCE';
 
     const { rawPayload: _rawPayload, ...rest } = latest;
-    return { ...item, latestSumsubWebhook: { ...rest, lane } };
+    return {
+      ...item,
+      financeDetail,
+      travelRuleDetail,
+      approvals,
+      latestSumsubWebhook: { ...rest, lane },
+    };
   }
 
   /**
