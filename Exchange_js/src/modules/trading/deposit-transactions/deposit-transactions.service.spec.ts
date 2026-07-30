@@ -777,35 +777,33 @@ describe('DepositTransactionsService', () => {
       expect(result.sumsubVerdict).toBe('rejected');
     });
 
-    it('setSumsubTxnIds writes only the provided keys (fiat: finance only)', async () => {
+    it('setSumsubTxn writes sumsubTxnId and sumsubTxnType (finance)', async () => {
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
         id: 'dep-1',
-        sumsubFinanceTxnId: 'TXN-FIN-1',
+        sumsubTxnId: 'TXN-FIN-1',
+        sumsubTxnType: 'finance',
       });
 
-      await service.setSumsubTxnIds('dep-1', { financeTxnId: 'TXN-FIN-1' });
+      await service.setSumsubTxn('dep-1', { sumsubTxnId: 'TXN-FIN-1', sumsubTxnType: 'finance' });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
-        data: { sumsubFinanceTxnId: 'TXN-FIN-1' },
+        data: { sumsubTxnId: 'TXN-FIN-1', sumsubTxnType: 'finance' },
       });
     });
 
-    it('setSumsubTxnIds writes both keys (crypto: finance + travelRule)', async () => {
+    it('setSumsubTxn writes sumsubTxnId and sumsubTxnType (travelRule)', async () => {
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
         id: 'dep-1',
-        sumsubFinanceTxnId: 'TXN-FIN-2',
-        sumsubTravelRuleTxnId: 'TXN-TR-2',
+        sumsubTxnId: 'TXN-TR-2',
+        sumsubTxnType: 'travelRule',
       });
 
-      await service.setSumsubTxnIds('dep-1', {
-        financeTxnId: 'TXN-FIN-2',
-        travelRuleTxnId: 'TXN-TR-2',
-      });
+      await service.setSumsubTxn('dep-1', { sumsubTxnId: 'TXN-TR-2', sumsubTxnType: 'travelRule' });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
-        data: { sumsubFinanceTxnId: 'TXN-FIN-2', sumsubTravelRuleTxnId: 'TXN-TR-2' },
+        data: { sumsubTxnId: 'TXN-TR-2', sumsubTxnType: 'travelRule' },
       });
     });
 

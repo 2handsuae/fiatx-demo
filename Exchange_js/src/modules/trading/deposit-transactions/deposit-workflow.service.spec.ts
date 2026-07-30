@@ -42,7 +42,7 @@ describe('DepositWorkflowService', () => {
       updateSumsubVerdict: jest.fn(),
       saveTxnDetail: jest.fn().mockResolvedValue(undefined),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
-      setSumsubTxnIds: jest.fn().mockResolvedValue(undefined),
+      setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
@@ -172,7 +172,7 @@ describe('DepositWorkflowService', () => {
     });
   });
 
-  describe('Sumsub txn submission — Gate 0 (Task 8)', () => {
+  describe('submitSumsub — Task 5: single-txn submit (判定接线,带开关)', () => {
     const baseFiatDeposit = {
       id: 'dep-sub-fiat',
       depositNo: 'DEP-SUB-FIAT-001',
@@ -181,17 +181,33 @@ describe('DepositWorkflowService', () => {
       traceId: null,
       amount: '500',
       asset: { type: 'FIAT', currency: 'AED' },
+      counterpartyIsVasp: null,
       customer: { sumsubApplicantId: 'applicant-1' },
     };
 
-    const baseCryptoDeposit = {
-      id: 'dep-sub-crypto',
-      depositNo: 'DEP-SUB-CRYPTO-001',
+    // crypto + VASP + amount >= USDT 阈值(1000) → resolveKytTxnType 判 travelRule
+    const baseCryptoVaspOverThreshold = {
+      id: 'dep-sub-crypto-tr',
+      depositNo: 'DEP-SUB-CRYPTO-TR-001',
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       traceId: null,
-      amount: '100.5',
+      amount: '1500',
       asset: { type: 'CRYPTO', currency: 'USDT' },
+      counterpartyIsVasp: true,
+      customer: { sumsubApplicantId: 'applicant-1' },
+    };
+
+    // crypto + 非 VASP(counterpartyIsVasp=false) → 恒 finance,即使超阈值
+    const baseCryptoNotVasp = {
+      id: 'dep-sub-crypto-nonvasp',
+      depositNo: 'DEP-SUB-CRYPTO-NONVASP-001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      traceId: null,
+      amount: '1500',
+      asset: { type: 'CRYPTO', currency: 'USDT' },
+      counterpartyIsVasp: false,
       customer: { sumsubApplicantId: 'applicant-1' },
     };
 
@@ -204,65 +220,154 @@ describe('DepositWorkflowService', () => {
       );
     }
 
+    const ORIGINAL_SWITCH_ENV = process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+
     beforeEach(() => {
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
     });
 
-    it('fiat deposit with applicantId → submits finance leg once and persists sumsubFinanceTxnId', async () => {
-      depositService.findOne.mockResolvedValue(baseFiatDeposit);
-      sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-1' });
-
-      await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
-
-      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
-      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          applicantId: 'applicant-1',
-          clientTxnId: 'DEP-SUB-FIAT-001',
-          type: 'finance',
-          direction: 'in',
-          amount: 500,
-          currencyCode: 'AED',
-          currencyType: 'fiat',
-        }),
-      );
-      expect(depositService.setSumsubTxnIds).toHaveBeenCalledWith('dep-sub-fiat', {
-        financeTxnId: 'TXN-FIN-1',
-      });
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: 'dep-sub-fiat',
-          entityNo: 'DEP-SUB-FIAT-001',
-          entityOwnerType: 'CUSTOMER',
-          entityOwnerId: 'cust-1',
-          workflowType: 'DEPOSIT',
-          metadata: { financeTxnId: 'TXN-FIN-1', travelRuleTxnId: undefined },
-        }),
-      );
+    afterEach(() => {
+      if (ORIGINAL_SWITCH_ENV === undefined) {
+        delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+      } else {
+        process.env.SUMSUB_SINGLE_TXN_SUBMIT = ORIGINAL_SWITCH_ENV;
+      }
     });
 
-    it('crypto deposit with applicantId → submits finance + travelRule and persists both txnIds', async () => {
-      depositService.findOne.mockResolvedValue(baseCryptoDeposit);
-      sumsubTxnClient.submitTxn
-        .mockResolvedValueOnce({ txnId: 'TXN-FIN-2' })
-        .mockResolvedValueOnce({ txnId: 'TXN-TR-2' });
+    describe('switch ON (SUMSUB_SINGLE_TXN_SUBMIT=true)', () => {
+      beforeEach(() => {
+        process.env.SUMSUB_SINGLE_TXN_SUBMIT = 'true';
+      });
 
-      await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto'));
+      it('crypto + VASP + over threshold → submitTxn called once, type=travelRule', async () => {
+        depositService.findOne.mockResolvedValue(baseCryptoVaspOverThreshold);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-TR-1' });
 
-      expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(2);
-      expect(sumsubTxnClient.submitTxn).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({ type: 'finance', currencyType: 'crypto', currencyCode: 'USDT' }),
-      );
-      expect(sumsubTxnClient.submitTxn).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({ type: 'travelRule', currencyType: 'crypto', currencyCode: 'USDT' }),
-      );
-      expect(depositService.setSumsubTxnIds).toHaveBeenCalledWith('dep-sub-crypto', {
-        financeTxnId: 'TXN-FIN-2',
-        travelRuleTxnId: 'TXN-TR-2',
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-tr'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            applicantId: 'applicant-1',
+            clientTxnId: 'DEP-SUB-CRYPTO-TR-001',
+            type: 'travelRule',
+            direction: 'in',
+            amount: 1500,
+            currencyCode: 'USDT',
+            currencyType: 'crypto',
+          }),
+        );
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-crypto-tr', {
+          sumsubTxnId: 'TXN-TR-1',
+          sumsubTxnType: 'travelRule',
+        });
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: 'dep-sub-crypto-tr',
+            entityNo: 'DEP-SUB-CRYPTO-TR-001',
+            metadata: { sumsubTxnId: 'TXN-TR-1', txnType: 'travelRule', reason: 'TR_REQUIRED' },
+          }),
+        );
+      });
+
+      it('crypto + non-VASP → submitTxn called once, type=finance', async () => {
+        depositService.findOne.mockResolvedValue(baseCryptoNotVasp);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-2' });
+
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-nonvasp'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'finance', currencyType: 'crypto', currencyCode: 'USDT' }),
+        );
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-crypto-nonvasp', {
+          sumsubTxnId: 'TXN-FIN-2',
+          sumsubTxnType: 'finance',
+        });
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            metadata: { sumsubTxnId: 'TXN-FIN-2', txnType: 'finance', reason: 'COUNTERPARTY_NOT_VASP' },
+          }),
+        );
+      });
+
+      it('fiat → submitTxn called once, type=finance', async () => {
+        depositService.findOne.mockResolvedValue(baseFiatDeposit);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-1' });
+
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            applicantId: 'applicant-1',
+            clientTxnId: 'DEP-SUB-FIAT-001',
+            type: 'finance',
+            direction: 'in',
+            amount: 500,
+            currencyCode: 'AED',
+            currencyType: 'fiat',
+          }),
+        );
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-fiat', {
+          sumsubTxnId: 'TXN-FIN-1',
+          sumsubTxnType: 'finance',
+        });
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: 'dep-sub-fiat',
+            entityNo: 'DEP-SUB-FIAT-001',
+            entityOwnerType: 'CUSTOMER',
+            entityOwnerId: 'cust-1',
+            workflowType: 'DEPOSIT',
+            metadata: { sumsubTxnId: 'TXN-FIN-1', txnType: 'finance', reason: 'NOT_CRYPTO' },
+          }),
+        );
+      });
+    });
+
+    describe('switch OFF (default — SUMSUB_SINGLE_TXN_SUBMIT unset)', () => {
+      it('crypto + VASP + over threshold → still submits ONCE, but forced to type=finance (reason still reflects the real判定)', async () => {
+        delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+        depositService.findOne.mockResolvedValue(baseCryptoVaspOverThreshold);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-3' });
+
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-tr'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'finance', currencyType: 'crypto', currencyCode: 'USDT' }),
+        );
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-crypto-tr', {
+          sumsubTxnId: 'TXN-FIN-3',
+          sumsubTxnType: 'finance',
+        });
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            metadata: { sumsubTxnId: 'TXN-FIN-3', txnType: 'finance', reason: 'TR_REQUIRED' },
+          }),
+        );
+      });
+
+      it('fiat → submits once, type=finance (no behavior change)', async () => {
+        delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+        depositService.findOne.mockResolvedValue(baseFiatDeposit);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-1' });
+
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'finance' }),
+        );
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-fiat', {
+          sumsubTxnId: 'TXN-FIN-1',
+          sumsubTxnType: 'finance',
+        });
       });
     });
 
@@ -275,23 +380,23 @@ describe('DepositWorkflowService', () => {
       await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
 
       expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
-      expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
+      expect(depositService.setSumsubTxn).not.toHaveBeenCalled();
       // No submission happened → no DEPOSIT_SUMSUB_SUBMITTED audit entry.
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED }),
       );
     });
 
-    it('deposit already has sumsubFinanceTxnId → idempotent skip (no re-submit on runGate0 re-entry)', async () => {
+    it('deposit already has sumsubTxnId → idempotent skip (no re-submit on runGate0 re-entry)', async () => {
       depositService.findOne.mockResolvedValue({
         ...baseFiatDeposit,
-        sumsubFinanceTxnId: 'TXN-ALREADY-SET',
+        sumsubTxnId: 'TXN-ALREADY-SET',
       });
 
       await service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'));
 
       expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
-      expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
+      expect(depositService.setSumsubTxn).not.toHaveBeenCalled();
     });
 
     it('I2: submitTxn throws (real HTTP failure) → runGate0 does not throw, deposit stays COMPLIANCE_PENDING', async () => {
@@ -301,8 +406,8 @@ describe('DepositWorkflowService', () => {
       await expect(service.handleDepositStatusChanged(mkEvent('dep-sub-fiat'))).resolves.not.toThrow();
 
       expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
-      // Submission failed → no txnIds persisted, no DEPOSIT_SUMSUB_SUBMITTED audit.
-      expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
+      // Submission failed → no txnId persisted, no DEPOSIT_SUMSUB_SUBMITTED audit.
+      expect(depositService.setSumsubTxn).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED }),
       );

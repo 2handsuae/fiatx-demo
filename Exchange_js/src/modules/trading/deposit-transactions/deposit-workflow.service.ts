@@ -32,6 +32,7 @@ import {
   SUMSUB_TXN_CLIENT,
   SumsubTxnClient,
 } from '../../deposit-sumsub/sumsub-txn-client.interface';
+import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -197,16 +198,23 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * Gate 0 submission entry: submits the deposit to Sumsub KYT so a verdict webhook
-   * can later drive the state machine. Fiat → finance leg only; crypto → finance +
-   * travelRule (spec §3). Idempotent on sumsubFinanceTxnId (protects against
-   * runGate0 re-entry). If the customer has no sumsubApplicantId yet, warns and
-   * skips — the deposit stays in COMPLIANCE_PENDING awaiting manual handling
+   * can later drive the state machine. One deposit → one txn; `type` is decided by
+   * resolveKytTxnType (VARA判定,spec §3). Idempotent on sumsubTxnId (protects
+   * against runGate0 re-entry). If the customer has no sumsubApplicantId yet, warns
+   * and skips — the deposit stays in COMPLIANCE_PENDING awaiting manual handling
    * rather than crashing.
+   *
+   * ⚠️ 硬前提:合规须先把筛查规则作用域改为 types:["finance","travelRule"] 并确认,
+   * 否则 travelRule 单不进规则 = 筛查真空(且 TR 单正是最大额那批)。确认后置为 true。
+   * 开关关闭时仍只提交一笔,但强制 type='finance'(退回旧筛查覆盖面,不产生真空);
+   * decision.reason 无论开关状态都落审计,以便观察判定器实际会怎么走。
    */
   private async submitSumsubTxns(deposit: any): Promise<void> {
-    if (deposit.sumsubFinanceTxnId) {
+    const SINGLE_TXN_SUBMIT_ENABLED = process.env.SUMSUB_SINGLE_TXN_SUBMIT === 'true';
+
+    if (deposit.sumsubTxnId) {
       this.logger.debug(
-        `Sumsub submit skip: deposit ${deposit.id} already has sumsubFinanceTxnId (idempotent)`,
+        `Sumsub submit skip: deposit ${deposit.id} already has sumsubTxnId (idempotent)`,
       );
       return;
     }
@@ -224,34 +232,28 @@ export class DepositWorkflowService implements OnModuleInit {
     const amount = Number(deposit.amount);
     const currencyCode = deposit.asset?.currency;
 
-    const financeResult = await this.sumsubTxnClient.submitTxn({
+    const decision = resolveKytTxnType({
+      assetType: deposit.asset?.type,
+      currency: deposit.asset?.currency,
+      amount,
+      counterpartyIsVasp: deposit.counterpartyIsVasp,
+    });
+    const submitType = SINGLE_TXN_SUBMIT_ENABLED ? decision.type : 'finance';
+
+    const result = await this.sumsubTxnClient.submitTxn({
       applicantId,
       clientTxnId: deposit.depositNo,
-      type: 'finance',
+      type: submitType,
       direction: 'in',
       amount,
       currencyCode,
       currencyType,
     });
 
-    const txnIds: { financeTxnId?: string; travelRuleTxnId?: string } = {
-      financeTxnId: financeResult.txnId,
-    };
-
-    if (isCrypto) {
-      const travelRuleResult = await this.sumsubTxnClient.submitTxn({
-        applicantId,
-        clientTxnId: `${deposit.depositNo}-TR`,
-        type: 'travelRule',
-        direction: 'in',
-        amount,
-        currencyCode,
-        currencyType,
-      });
-      txnIds.travelRuleTxnId = travelRuleResult.txnId;
-    }
-
-    await this.depositService.setSumsubTxnIds(deposit.id, txnIds);
+    await this.depositService.setSumsubTxn(deposit.id, {
+      sumsubTxnId: result.txnId,
+      sumsubTxnType: submitType,
+    });
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED,
@@ -263,13 +265,12 @@ export class DepositWorkflowService implements OnModuleInit {
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
       reason: 'Deposit submitted to Sumsub KYT for transaction monitoring',
-      metadata: { financeTxnId: txnIds.financeTxnId, travelRuleTxnId: txnIds.travelRuleTxnId },
+      metadata: { sumsubTxnId: result.txnId, txnType: submitType, reason: decision.reason },
       sourcePlatform: 'SYSTEM',
     });
 
     this.logger.log(
-      `Sumsub txn submitted for deposit ${deposit.id}: finance=${txnIds.financeTxnId}` +
-        (txnIds.travelRuleTxnId ? `, travelRule=${txnIds.travelRuleTxnId}` : ''),
+      `Sumsub txn submitted for deposit ${deposit.id}: type=${submitType} txnId=${result.txnId} (decision=${decision.type}/${decision.reason})`,
     );
   }
 
@@ -697,8 +698,6 @@ export class DepositWorkflowService implements OnModuleInit {
       workflowType: 'DEPOSIT',
       reason: 'Compliance approved, funds credited to client',
       metadata: {
-        financeStatus: deposit.financeStatus,
-        travelRuleStatus: deposit.travelRuleStatus,
         oldStatus,
       },
       sourcePlatform: 'SYSTEM',

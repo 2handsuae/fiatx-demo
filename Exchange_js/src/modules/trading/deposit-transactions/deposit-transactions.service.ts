@@ -634,19 +634,18 @@ export class DepositTransactionsService {
   }
 
   /**
-   * Persists the txn id(s) returned by SumsubTxnClient.submitTxn at Gate 0
-   * submission time (DepositWorkflowService.runGate0). Only the provided keys
-   * are written (fiat submits finance only; crypto submits both).
+   * Persists the single Sumsub txn id + type returned by SumsubTxnClient.submitTxn at
+   * Gate 0 submission time (DepositWorkflowService.submitSumsubTxns). One deposit → one txn.
    */
-  async setSumsubTxnIds(
+  async setSumsubTxn(
     id: string,
-    data: { financeTxnId?: string; travelRuleTxnId?: string },
+    data: { sumsubTxnId: string; sumsubTxnType: 'finance' | 'travelRule' },
   ) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: {
-        ...(data.financeTxnId !== undefined && { sumsubFinanceTxnId: data.financeTxnId }),
-        ...(data.travelRuleTxnId !== undefined && { sumsubTravelRuleTxnId: data.travelRuleTxnId }),
+        sumsubTxnId: data.sumsubTxnId,
+        sumsubTxnType: data.sumsubTxnType,
       },
     });
   }
