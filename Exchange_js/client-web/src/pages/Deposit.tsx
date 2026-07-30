@@ -109,6 +109,7 @@ interface CreateInboundTransferSignalPayload {
   fromAddress?: string;
   referenceNo?: string;
   fromIban?: string;
+  counterpartyIsVasp?: boolean;
 }
 
 const normalizeSimulationAssetType = (
@@ -165,6 +166,7 @@ const Deposit = () => {
   const [simulatingSignal, setSimulatingSignal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const [signalAmount, setSignalAmount] = useState('');
+  const [counterpartyIsVasp, setCounterpartyIsVasp] = useState<boolean | null>(null);
   const [signalFeedback, setSignalFeedback] = useState<SimulationFeedback | null>(null);
   const [lastSimulationResult, setLastSimulationResult] = useState<SimulationResultSummary | null>(null);
 
@@ -233,6 +235,7 @@ const Deposit = () => {
     setSignalFeedback(null);
     setLastSimulationResult(null);
     setSignalAmount('');
+    setCounterpartyIsVasp(null);
     setShowSimulateModal(false);
   }, [selectedAssetId, activeTab, depositWallet?.id]);
 
@@ -243,6 +246,7 @@ const Deposit = () => {
 
     setShowSimulateModal(false);
     setSignalAmount('');
+    setCounterpartyIsVasp(null);
     setLastSimulationResult(null);
   }, [simulationModeEnabled]);
 
@@ -371,6 +375,7 @@ const Deposit = () => {
   const buildMockInboundSignalPayload = (
     wallet: WalletItem,
     amount: string,
+    counterpartyIsVasp: boolean | null,
   ): CreateInboundTransferSignalPayload => {
     const rawSeed = `${wallet.id}-${wallet.asset.code}-${Date.now().toString(16)}-${Math.random()
       .toString(16)
@@ -386,6 +391,7 @@ const Deposit = () => {
         amount,
         txHash: `0x${txSeed}`,
         fromAddress: `0x${addressSeed}`,
+        counterpartyIsVasp: counterpartyIsVasp ?? undefined,
       };
     }
 
@@ -428,12 +434,21 @@ const Deposit = () => {
       return;
     }
 
+    const isCryptoDeposit = depositWallet.asset.type === 'CRYPTO';
+    if (isCryptoDeposit && counterpartyIsVasp === null) {
+      setSignalFeedback({
+        kind: 'error',
+        message: 'Please select the counterparty type',
+      });
+      return;
+    }
+
     setSimulatingSignal(true);
     setSignalFeedback(null);
     setLastSimulationResult(null);
     try {
       const payload: CreateInboundTransferSignalPayload = {
-        ...buildMockInboundSignalPayload(depositWallet, amount),
+        ...buildMockInboundSignalPayload(depositWallet, amount, counterpartyIsVasp),
       };
       const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -480,6 +495,7 @@ const Deposit = () => {
         assetType: normalizeSimulationAssetType(depositWallet.asset.type),
       });
       setSignalAmount('');
+      setCounterpartyIsVasp(null);
       setShowSimulateModal(false);
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
@@ -586,6 +602,7 @@ const Deposit = () => {
       <button
         onClick={() => {
           setSignalAmount('');
+          setCounterpartyIsVasp(null);
           setSignalFeedback(null);
           setShowSimulateModal(true);
         }}
@@ -1075,6 +1092,36 @@ const Deposit = () => {
                 />
               </div>
 
+              {depositWallet.asset.type === 'CRYPTO' && (
+                <div>
+                  <label className="text-xs text-fx-dust font-medium block mb-1">Counterparty</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCounterpartyIsVasp(true)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                        counterpartyIsVasp === true
+                          ? 'border-fx-brass bg-fx-brass/10 text-fx-brass'
+                          : 'border-fx-rule text-fx-dune hover:bg-fx-charcoal/50'
+                      }`}
+                    >
+                      VASP (exchange / custodian)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCounterpartyIsVasp(false)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                        counterpartyIsVasp === false
+                          ? 'border-fx-brass bg-fx-brass/10 text-fx-brass'
+                          : 'border-fx-rule text-fx-dune hover:bg-fx-charcoal/50'
+                      }`}
+                    >
+                      Unhosted wallet
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 text-sm text-fx-dune">
                 This step only submits the mock inbound signal. After the payin/deposit is created, use Admin Risk Policy Executions to simulate Low, Medium, or High risk.
               </div>
@@ -1084,6 +1131,7 @@ const Deposit = () => {
               <button
                 onClick={() => {
                   setSignalAmount('');
+                  setCounterpartyIsVasp(null);
                   setShowSimulateModal(false);
                 }}
                 disabled={simulatingSignal}
