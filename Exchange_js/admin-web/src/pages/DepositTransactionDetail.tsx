@@ -479,7 +479,21 @@ const DepositTransactionDetail = () => {
             </div>
           </div>
 
-          {/* 2. Compliance Layers */}
+          {/* 2. Transaction Details */}
+          <DetailCard title="Transaction Details" columns={2}>
+            <InfoField label="Asset" value={`${data.asset.code} · ${data.asset.type} · ${data.asset.network || 'N/A'}`} />
+            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
+            <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
+            <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
+            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
+            <InfoField label="Confirmations" value={data.confirmations ?? null} />
+            <InfoField label="From Address" value={data.fromAddress} copyable onCopy={(v) => handleCopy(v, 'fromAddr')} isCopied={copiedField === 'fromAddr'} mono />
+            <InfoField label="To Wallet" value={data.toWalletNo} mono />
+            <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
+            <InfoField label="Reference No" value={data.referenceNo} mono />
+          </DetailCard>
+
+          {/* 3. Compliance Layers */}
           <DetailCard title="Compliance" columns={1}>
             <div className="grid grid-cols-2 gap-3">
               {/* L1: Eligibility Guard */}
@@ -513,71 +527,7 @@ const DepositTransactionDetail = () => {
             </div>
           </DetailCard>
 
-          {/* 3. Transaction Details */}
-          <DetailCard title="Transaction Details" columns={2}>
-            <InfoField label="Asset" value={`${data.asset.code} · ${data.asset.type} · ${data.asset.network || 'N/A'}`} />
-            <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
-            <InfoField label="Fee" value={formatAssetAmount(data.feeAmount, data.asset.decimals)} />
-            <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
-            <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
-            <InfoField label="Confirmations" value={data.confirmations ?? null} />
-            <InfoField label="From Address" value={data.fromAddress} copyable onCopy={(v) => handleCopy(v, 'fromAddr')} isCopied={copiedField === 'fromAddr'} mono />
-            <InfoField label="To Wallet" value={data.toWalletNo} mono />
-            <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
-            <InfoField label="Reference No" value={data.referenceNo} mono />
-          </DetailCard>
-
-          {/* 4. Linked Funds Orders — payin (principal in) */}
-          <DetailCard title="Linked Funds Orders" columns={1}>
-            {data.linkedFundOrders && data.linkedFundOrders.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {data.linkedFundOrders.map((o) => (
-                  <LinkedRelationCard
-                    key={o.no}
-                    cap={o.kind === 'CONFISCATION' ? 'Fee · Confiscation' : 'Principal · Payin'}
-                    identifier={o.no}
-                    statusValue={normalizeRailDisplayStatus(o.status)}
-                    meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
-                    onClick={() => navigate(`/admin/funds-orders/${o.no}`)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <LinkedRelationEmpty cap="Funds Order" message="No fund orders yet" />
-            )}
-          </DetailCard>
-
-          {/* 5. Sumsub Transaction Detail — admin-readable subset of the raw
-              Sumsub getTxn report per lane (Task 2 parseDetail on the backend). */}
-          <DetailCard title="Sumsub Transaction Detail" columns={1}>
-            <SumsubDetailSection label="Finance" detail={data.financeDetail} isFirst />
-            {data.travelRuleRequired && (
-              <SumsubDetailSection label="Travel Rule" detail={data.travelRuleDetail} />
-            )}
-          </DetailCard>
-
-          {/* 6. Internal Approvals — maker-checker cases raised against this
-              deposit (seize/return/unfreeze/confiscate), single header only. */}
-          <DetailCard title="Internal Approvals" columns={1}>
-            {data.approvals && data.approvals.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {data.approvals.map((a) => (
-                  <LinkedRelationCard
-                    key={a.approvalNo}
-                    cap={APPROVAL_ACTION_LABELS[a.actionType] ?? a.actionType}
-                    identifier={a.approvalNo}
-                    statusValue={a.status}
-                    meta={new Date(a.createdAt).toLocaleString()}
-                    onClick={() => navigate('/admin/governance/approvals')}
-                  />
-                ))}
-              </div>
-            ) : (
-              <LinkedRelationEmpty cap="Internal Approval" message="No internal approvals" />
-            )}
-          </DetailCard>
-
-          {/* 7. Sumsub References (read-only) — Applicant ID + one three-piece
+          {/* 4. Sumsub References (read-only) — Applicant ID + one three-piece
               set per lane (txn ID / status / received-at). status + receivedAt
               come from `latestSumsubWebhook` (G4), which only ever reflects
               whichever lane most recently fired — the other lane's set is
@@ -625,14 +575,59 @@ const DepositTransactionDetail = () => {
             </div>
           </DetailCard>
 
+          {/* 5. Sumsub Transaction Detail — admin-readable subset of the raw
+              Sumsub getTxn report per lane (Task 2 parseDetail on the backend). */}
+          <DetailCard title="Sumsub Transaction Detail" columns={1}>
+            <SumsubDetailSection label="Finance" detail={data.financeDetail} isFirst />
+            {data.travelRuleRequired && (
+              <SumsubDetailSection label="Travel Rule" detail={data.travelRuleDetail} />
+            )}
+          </DetailCard>
+
+          {/* 6. Internal Approvals — maker-checker cases raised against this
+              deposit (seize/return/unfreeze/confiscate), single header only. */}
+          <DetailCard title="Internal Approvals" columns={1}>
+            {data.approvals && data.approvals.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.approvals.map((a) => (
+                  <LinkedRelationCard
+                    key={a.approvalNo}
+                    cap={APPROVAL_ACTION_LABELS[a.actionType] ?? a.actionType}
+                    identifier={a.approvalNo}
+                    statusValue={a.status}
+                    meta={new Date(a.createdAt).toLocaleString()}
+                    onClick={() => navigate('/admin/governance/approvals')}
+                  />
+                ))}
+              </div>
+            ) : (
+              <LinkedRelationEmpty cap="Internal Approval" message="No internal approvals" />
+            )}
+          </DetailCard>
+
+          {/* 7. Linked Funds Orders — payin (principal in) */}
+          <DetailCard title="Linked Funds Orders" columns={1}>
+            {data.linkedFundOrders && data.linkedFundOrders.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.linkedFundOrders.map((o) => (
+                  <LinkedRelationCard
+                    key={o.no}
+                    cap={o.kind === 'CONFISCATION' ? 'Fee · Confiscation' : 'Principal · Payin'}
+                    identifier={o.no}
+                    statusValue={normalizeRailDisplayStatus(o.status)}
+                    meta={`${formatAssetAmount(o.amount, data.asset.decimals)} ${data.asset.code}`}
+                    onClick={() => navigate(`/admin/funds-orders/${o.no}`)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <LinkedRelationEmpty cap="Funds Order" message="No fund orders yet" />
+            )}
+          </DetailCard>
+
           {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
-          </DetailCard>
-
-          {/* 9. Technical */}
-          <DetailCard title="Technical" columns={1}>
-            <InfoField label="Trace ID" value={data.traceId} mono />
           </DetailCard>
 
           {/* 10. Simulation (demo only — gated by the local simulation-mode
@@ -768,6 +763,7 @@ const DepositTransactionDetail = () => {
               value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}
               mono
             />
+            <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
           </SidebarGroup>
         </div>
       </div>
