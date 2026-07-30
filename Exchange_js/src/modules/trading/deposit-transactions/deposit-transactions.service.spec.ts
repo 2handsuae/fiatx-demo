@@ -56,6 +56,9 @@ describe('DepositTransactionsService', () => {
             customerMain: {
               findUnique: jest.fn(),
             },
+            sumsubWebhookEvent: {
+              findMany: jest.fn().mockResolvedValue([]),
+            },
           },
         },
         {
@@ -885,7 +888,7 @@ describe('DepositTransactionsService', () => {
   });
 
   describe('findOneForAdmin', () => {
-    const financeJson = JSON.stringify({
+    const sumsubJson = JSON.stringify({
       verdict: 'GREEN',
       scoringResult: {
         score: 87,
@@ -903,48 +906,45 @@ describe('DepositTransactionsService', () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DP001',
-        financeTxnDetailJson: financeJson,
-        travelRuleTxnDetailJson: null,
+        sumsubTxnDetailJson: sumsubJson,
         fundsOrders: [],
       });
     });
 
-    it('parses financeTxnDetailJson into financeDetail (score/matchedRules/applicantActionIds)', async () => {
+    it('parses sumsubTxnDetailJson into sumsubDetail (score/matchedRules/applicantActionIds)', async () => {
       const result: any = await service.findOneForAdmin('dep-1');
 
-      expect(result.financeDetail.score).toBe(87);
-      expect(result.financeDetail.matchedRules).toEqual([
+      expect(result.sumsubDetail.score).toBe(87);
+      expect(result.sumsubDetail.matchedRules).toEqual([
         { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
       ]);
-      expect(result.financeDetail.applicantActionIds).toEqual(['act-1', 'act-2']);
+      expect(result.sumsubDetail.applicantActionIds).toEqual(['act-1', 'act-2']);
     });
 
-    it('parseDetail: financeTxnDetailJson = "null" (valid JSON, value null) does not throw; financeDetail is null', async () => {
+    it('parseDetail: sumsubTxnDetailJson = "null" (valid JSON, value null) does not throw; sumsubDetail is null', async () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DP001',
-        financeTxnDetailJson: 'null',
-        travelRuleTxnDetailJson: null,
+        sumsubTxnDetailJson: 'null',
         fundsOrders: [],
       });
 
       const result: any = await service.findOneForAdmin('dep-1');
 
-      expect(result.financeDetail).toBeNull();
+      expect(result.sumsubDetail).toBeNull();
     });
 
-    it('parseDetail: non-object JSON (e.g. "123") does not throw; financeDetail is null', async () => {
+    it('parseDetail: non-object JSON (e.g. "123") does not throw; sumsubDetail is null', async () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DP001',
-        financeTxnDetailJson: '123',
-        travelRuleTxnDetailJson: null,
+        sumsubTxnDetailJson: '123',
         fundsOrders: [],
       });
 
       const result: any = await service.findOneForAdmin('dep-1');
 
-      expect(result.financeDetail).toBeNull();
+      expect(result.sumsubDetail).toBeNull();
     });
 
     it('parseDetail: null elements in matchedRules/applicantActions are filtered out, valid entries survive', async () => {
@@ -959,17 +959,16 @@ describe('DepositTransactionsService', () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DP001',
-        financeTxnDetailJson: jsonWithNulls,
-        travelRuleTxnDetailJson: null,
+        sumsubTxnDetailJson: jsonWithNulls,
         fundsOrders: [],
       });
 
       const result: any = await service.findOneForAdmin('dep-1');
 
-      expect(result.financeDetail.matchedRules).toEqual([
+      expect(result.sumsubDetail.matchedRules).toEqual([
         { id: 'A', name: 'x', action: 'reject', score: 5 },
       ]);
-      expect(result.financeDetail.applicantActionIds).toEqual(['act-1']);
+      expect(result.sumsubDetail.applicantActionIds).toEqual(['act-1']);
     });
 
     // 终审 Minor #2:matchedRules/applicantActions 已 .filter(Boolean),但 typedTags 的
@@ -982,14 +981,13 @@ describe('DepositTransactionsService', () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DP001',
-        financeTxnDetailJson: jsonWithNullTag,
-        travelRuleTxnDetailJson: null,
+        sumsubTxnDetailJson: jsonWithNullTag,
         fundsOrders: [],
       });
 
       const result: any = await service.findOneForAdmin('dep-1');
 
-      expect(result.financeDetail.tags).toEqual(['HIGH_RISK']);
+      expect(result.sumsubDetail.tags).toEqual(['HIGH_RISK']);
     });
 
     // 终审 Minor #6:生产 HttpSumsubTxnClient.getTxn 的 raw(= SumsubKytTxnResponse)没有
@@ -1005,14 +1003,80 @@ describe('DepositTransactionsService', () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DP001',
-        financeTxnDetailJson: jsonNoTopLevelVerdict,
-        travelRuleTxnDetailJson: null,
+        sumsubTxnDetailJson: jsonNoTopLevelVerdict,
         fundsOrders: [],
       });
 
       const result: any = await service.findOneForAdmin('dep-1');
 
-      expect(result.financeDetail.verdict).toBe('reject');
+      expect(result.sumsubDetail.verdict).toBe('reject');
+    });
+
+    // Task 7: parseDetail 新增回显官方字段 reviewStatus/reviewAnswer(来自
+    // review.reviewStatus / review.reviewResult.reviewAnswer)。
+    it('parseDetail: review.reviewStatus/reviewResult.reviewAnswer surfaced verbatim on sumsubDetail', async () => {
+      const jsonWithReview = JSON.stringify({
+        scoringResult: { action: 'reject', score: 90 },
+        review: { reviewStatus: 'completed', reviewResult: { reviewAnswer: 'RED' } },
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: jsonWithReview,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail.reviewStatus).toBe('completed');
+      expect(result.sumsubDetail.reviewAnswer).toBe('RED');
+    });
+
+    it('latestSumsubWebhook: no lookup when sumsubTxnId is absent', async () => {
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.latestSumsubWebhook).toBeNull();
+      expect((prisma as any).sumsubWebhookEvent.findMany).not.toHaveBeenCalled();
+    });
+
+    // Task 7: 一笔单只有一个 Sumsub 交易 —— 反查按 sumsubTxnId 单值匹配,不再按
+    // 「泳道」拆两个 txnId 做 OR 查询,也不再从 rawPayload 里反推 lane。
+    it('latestSumsubWebhook: looks up the single sumsubTxnId, returns the most recent event verbatim', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnId: 'txn-abc123',
+        sumsubTxnDetailJson: sumsubJson,
+        fundsOrders: [],
+      });
+      ((prisma as any).sumsubWebhookEvent.findMany as jest.Mock).mockResolvedValue([
+        {
+          eventNo: 'EVT-1',
+          eventType: 'txnStatusChanged',
+          status: 'PROCESSED',
+          receivedAt: new Date('2026-01-01T00:00:00Z'),
+          processedAt: new Date('2026-01-01T00:00:05Z'),
+          lastErrorMessage: null,
+          isSimulated: false,
+        },
+      ]);
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect((prisma as any).sumsubWebhookEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { rawPayload: { contains: '"txn-abc123"' } },
+        }),
+      );
+      expect(result.latestSumsubWebhook).toEqual({
+        eventNo: 'EVT-1',
+        eventType: 'txnStatusChanged',
+        status: 'PROCESSED',
+        receivedAt: new Date('2026-01-01T00:00:00Z'),
+        processedAt: new Date('2026-01-01T00:00:05Z'),
+        lastErrorMessage: null,
+        isSimulated: false,
+      });
     });
 
     it('returns approvals as single-header-only (no steps/step), regardless of status', async () => {

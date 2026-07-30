@@ -301,6 +301,7 @@ export class DepositTransactionsService {
         // 顶层 verdict。回退到 scoringResult.action,否则生产环境下这里恒为 null,详情页
         // Verdict 行空白。
         verdict: d.verdict ?? sr.action ?? null,
+        reviewStatus: d?.review?.reviewStatus ?? null,
         reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
         score: sr.score ?? null,
         matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
@@ -320,8 +321,7 @@ export class DepositTransactionsService {
       };
     };
 
-    const financeDetail = parseDetail(item.financeTxnDetailJson);
-    const travelRuleDetail = parseDetail(item.travelRuleTxnDetailJson);
+    const sumsubDetail = parseDetail(item.sumsubTxnDetailJson);
 
     // 内部审批单反查(仅单头,业主定:不含 step/steps)。四种充值审批发起时
     // entityRef 全部落 deposit.id,ApprovalsService.list 已支持 entityRef 过滤。
@@ -333,16 +333,15 @@ export class DepositTransactionsService {
       createdAt: a.createdAt,
     }));
 
-    const txnIds = [item.sumsubFinanceTxnId, item.sumsubTravelRuleTxnId].filter(Boolean);
-    if (txnIds.length === 0) {
-      return { ...item, financeDetail, travelRuleDetail, approvals, latestSumsubWebhook: null };
+    if (!item.sumsubTxnId) {
+      return { ...item, sumsubDetail, approvals, latestSumsubWebhook: null };
     }
 
     // webhook 事件表不挂 depositId 外键(它是全站 Sumsub 事件的落地表),只能靠
-    // rawPayload 里的 kytTxnId 反查 —— SQLite 无 JSON 索引,用 contains 足够:
+    // rawPayload 里的 txnId 反查 —— SQLite 无 JSON 索引,用 contains 足够:
     // 这是单条详情页读取,不是批量。
     const events = await (this.prisma as any).sumsubWebhookEvent.findMany({
-      where: { OR: txnIds.map((t: string) => ({ rawPayload: { contains: `"${t}"` } })) },
+      where: { rawPayload: { contains: `"${item.sumsubTxnId}"` } },
       orderBy: { receivedAt: 'desc' },
       take: 1,
       select: {
@@ -353,29 +352,10 @@ export class DepositTransactionsService {
         processedAt: true,
         lastErrorMessage: true,
         isSimulated: true,
-        rawPayload: true,
       },
     });
 
-    const latest = events[0] ?? null;
-    if (!latest) {
-      return { ...item, financeDetail, travelRuleDetail, approvals, latestSumsubWebhook: null };
-    }
-
-    // 哪条泳道发来的 —— 详情页要能一眼看出是主交易还是 Travel Rule 腿的裁决。
-    const lane = item.sumsubTravelRuleTxnId
-      && String(latest.rawPayload).includes(`"${item.sumsubTravelRuleTxnId}"`)
-      ? 'TRAVEL_RULE'
-      : 'FINANCE';
-
-    const { rawPayload: _rawPayload, ...rest } = latest;
-    return {
-      ...item,
-      financeDetail,
-      travelRuleDetail,
-      approvals,
-      latestSumsubWebhook: { ...rest, lane },
-    };
+    return { ...item, sumsubDetail, approvals, latestSumsubWebhook: events[0] ?? null };
   }
 
   /**

@@ -79,12 +79,6 @@ interface DepositDetail {
   txHash: string | null;
   confirmations: number;
   referenceNo: string | null;
-  financeStatus: string;
-  financeRiskScore: number | null;
-  financeCheckedAt: string | null;
-  travelRuleRequired: boolean;
-  travelRuleStatus: string;
-  travelRuleCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -94,8 +88,10 @@ interface DepositDetail {
   payinType?: string | null;
   traceId?: string | null;
   limitHoldReason?: string | null;
-  sumsubFinanceTxnId?: string | null;
-  sumsubTravelRuleTxnId?: string | null;
+  sumsubTxnId?: string | null;
+  sumsubTxnType?: 'finance' | 'travelRule' | null;
+  sumsubVerdict?: string | null;
+  sumsubScore?: number | null;
   slaDeadline?: string | null;
   asset: {
     code: string;
@@ -107,8 +103,7 @@ interface DepositDetail {
   customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
   latestSumsubWebhook?: LatestSumsubWebhook | null;
-  financeDetail?: SumsubTxnDetail | null;
-  travelRuleDetail?: SumsubTxnDetail | null;
+  sumsubDetail?: SumsubTxnDetail | null;
   approvals?: DepositApproval[];
 }
 
@@ -121,10 +116,11 @@ interface SumsubMatchedRule {
   score?: number;
 }
 
-/** Admin-readable subset of a Sumsub getTxn report for one lane (finance
- *  or travel rule) — parsed server-side from the raw stored payload. */
+/** Admin-readable subset of a Sumsub getTxn report for this deposit's single
+ *  Sumsub txn — parsed server-side from the raw stored payload. */
 interface SumsubTxnDetail {
   verdict: string | null;
+  reviewStatus: string | null;
   reviewAnswer: string | null;
   score: number | null;
   matchedRules: SumsubMatchedRule[];
@@ -143,7 +139,7 @@ interface DepositApproval {
 }
 
 /**
- * 该单最近一次收到的 Sumsub webhook(后端 findOneForAdmin 附带)。上面那两个
+ * 该单最近一次收到的 Sumsub webhook(后端 findOneForAdmin 附带)。上面那个
  * txn ID 是提交时定格的静态引用;这个才回答"Sumsub 最近说了什么"。
  */
 interface LatestSumsubWebhook {
@@ -154,7 +150,6 @@ interface LatestSumsubWebhook {
   processedAt: string | null;
   lastErrorMessage: string | null;
   isSimulated: boolean;
-  lane: 'FINANCE' | 'TRAVEL_RULE';
 }
 
 /** Internal-approval `actionType` → English action label shown in the
@@ -402,19 +397,13 @@ const DepositTransactionDetail = () => {
   const eligibilityStyle = getComplianceLayerStyle(
     gatesNotEvaluated ? 'PENDING' : data.customer?.complianceStatus,
   );
-  const financeStyle = getComplianceLayerStyle(
-    gatesNotEvaluated ? 'PENDING' : data.financeStatus,
+  // L2 · Transaction Screen — a deposit now submits a single Sumsub txn
+  // (finance or travelRule, decided by the type judge), not two lanes — so
+  // there is one verdict, colored the same way the other compliance layers
+  // are, but shown verbatim (not translated).
+  const l2Style = getComplianceLayerStyle(
+    gatesNotEvaluated ? 'PENDING' : data.sumsubVerdict,
   );
-  const trStyle = getComplianceLayerStyle(
-    gatesNotEvaluated ? 'PENDING' : data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
-  );
-  // The single `latestSumsubWebhook` (G4) only ever reflects one lane at a
-  // time — pick it out per lane so each Sumsub References three-piece set
-  // only shows status/receivedAt when it is actually the lane that fired.
-  const financeWebhook =
-    data.latestSumsubWebhook?.lane === 'FINANCE' ? data.latestSumsubWebhook : null;
-  const travelRuleWebhook =
-    data.latestSumsubWebhook?.lane === 'TRAVEL_RULE' ? data.latestSumsubWebhook : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -504,34 +493,32 @@ const DepositTransactionDetail = () => {
                   {gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
                 </div>
               </div>
-              {/* L2: Transaction Screen — 两条泳道对应报给 Sumsub 的两笔交易
-                  (finance txn / travel rule txn),命名与 Sumsub 侧保持一致。 */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${financeStyle.borderColor}`}>
+              {/* L2: Transaction Screen — a deposit now submits exactly one
+                  Sumsub txn (finance or travelRule, per `sumsubTxnType`); the
+                  label follows the type and the value is the webhook verdict
+                  verbatim (approved/rejected/onHold/awaitingUser — not
+                  translated). */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
                 <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Finance:</span>
-                  <span className={`text-[11px] font-semibold ${financeStyle.textColor}`}>
-                    {financeStyle.label}
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">
+                    {data.sumsubTxnType === 'travelRule' ? 'Travel Rule:' : 'Finance:'}
+                  </span>
+                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
+                    {gatesNotEvaluated ? '—' : (data.sumsubVerdict ?? '—')}
                   </span>
                   <span className="font-mono text-[10px] text-adm-t3">
-                    Risk: {gatesNotEvaluated ? '—' : (data.financeRiskScore ?? '—')}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
-                  <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
-                    {trStyle.label}
+                    Score: {gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}
                   </span>
                 </div>
               </div>
             </div>
           </DetailCard>
 
-          {/* 4. Sumsub References (read-only) — Applicant ID + one three-piece
-              set per lane (txn ID / status / received-at). status + receivedAt
-              come from `latestSumsubWebhook` (G4), which only ever reflects
-              whichever lane most recently fired — the other lane's set is
-              blank until its own webhook arrives. */}
+          {/* 4. Sumsub References (read-only) — Applicant ID + the single
+              Sumsub txn this deposit submitted. status/receivedAt come from
+              `latestSumsubWebhook`, which now only ever reflects this one
+              txn (no more per-lane split). */}
           <DetailCard title="Sumsub References" columns={2}>
             <div className="col-span-2">
               <InfoField
@@ -543,45 +530,29 @@ const DepositTransactionDetail = () => {
                 mono
               />
             </div>
-            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-4">
               <InfoField
-                label="Finance Txn ID"
-                value={data.sumsubFinanceTxnId}
+                label="Txn ID"
+                value={data.sumsubTxnId}
                 copyable
-                onCopy={(v) => handleCopy(v, 'sumsubFinanceTxnId')}
-                isCopied={copiedField === 'sumsubFinanceTxnId'}
+                onCopy={(v) => handleCopy(v, 'sumsubTxnId')}
+                isCopied={copiedField === 'sumsubTxnId'}
                 mono
               />
-              <InfoField label="Finance Status" value={financeWebhook?.status} />
+              <InfoField label="Type" value={data.sumsubTxnType} />
+              <InfoField label="Verdict" value={data.sumsubVerdict} />
               <InfoField
-                label="Finance Received At"
-                value={financeWebhook?.receivedAt ? new Date(financeWebhook.receivedAt).toLocaleString() : null}
-              />
-            </div>
-            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <InfoField
-                label="Travel Rule Txn ID"
-                value={data.sumsubTravelRuleTxnId}
-                copyable
-                onCopy={(v) => handleCopy(v, 'sumsubTravelRuleTxnId')}
-                isCopied={copiedField === 'sumsubTravelRuleTxnId'}
-                mono
-              />
-              <InfoField label="Travel Rule Status" value={travelRuleWebhook?.status} />
-              <InfoField
-                label="Travel Rule Received At"
-                value={travelRuleWebhook?.receivedAt ? new Date(travelRuleWebhook.receivedAt).toLocaleString() : null}
+                label="Received At"
+                value={data.latestSumsubWebhook?.receivedAt ? new Date(data.latestSumsubWebhook.receivedAt).toLocaleString() : null}
               />
             </div>
           </DetailCard>
 
           {/* 5. Sumsub Transaction Detail — admin-readable subset of the raw
-              Sumsub getTxn report per lane (Task 2 parseDetail on the backend). */}
+              Sumsub getTxn report for this deposit's single txn
+              (findOneForAdmin's parseDetail on the backend). */}
           <DetailCard title="Sumsub Transaction Detail" columns={1}>
-            <SumsubDetailSection label="Finance" detail={data.financeDetail} isFirst />
-            {data.travelRuleRequired && (
-              <SumsubDetailSection label="Travel Rule" detail={data.travelRuleDetail} />
-            )}
+            <SumsubDetailSection detail={data.sumsubDetail} />
           </DetailCard>
 
           {/* 6. Internal Approvals — maker-checker cases raised against this
@@ -941,28 +912,21 @@ const DepositTransactionDetail = () => {
 /* ── SumsubDetailSection ─────────────────────────────────────── */
 
 /**
- * Renders one lane (Finance / Travel Rule) of the parsed Sumsub getTxn
- * report. `label` is only a section heading here — the raw payload behind
- * `detail.raw` is the same shape for either lane.
+ * Renders the parsed Sumsub getTxn report for this deposit's single Sumsub
+ * txn — the raw payload behind `detail.raw` is that txn's report verbatim.
  */
 const SumsubDetailSection = ({
-  label,
   detail,
-  isFirst = false,
 }: {
-  label: string;
   detail: SumsubTxnDetail | null | undefined;
-  isFirst?: boolean;
 }) => (
-  <div className={isFirst ? undefined : 'mt-4 border-t border-adm-border pt-4'}>
-    <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
-      {label}
-    </div>
+  <div>
     {detail ? (
       <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <InfoField label="Score" value={detail.score} mono />
           <InfoField label="Verdict" value={detail.verdict} />
+          <InfoField label="Review Status" value={detail.reviewStatus} />
           <InfoField label="Review Answer" value={detail.reviewAnswer} />
         </div>
         <div>
