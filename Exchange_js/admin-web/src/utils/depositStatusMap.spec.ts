@@ -16,8 +16,8 @@ import {
 // [status, expected label, expected group] — copied verbatim from
 // doc-final/superpowers/specs/2026-07-29-deposit-frontend-design.md §1.1
 const CASES: Array<[string, string, string]> = [
-  ['PAYIN_PENDING', 'AWAITING PAYIN', 'IN_PROGRESS'],
-  ['COMPLIANCE_PENDING', 'COMPLIANCE REVIEW', 'IN_PROGRESS'],
+  ['PAYIN_PENDING', 'PAYIN PENDING', 'IN_PROGRESS'],
+  ['COMPLIANCE_PENDING', 'COMPLIANCE PENDING', 'IN_PROGRESS'],
   ['ACTION_PENDING', 'AWAITING CUSTOMER', 'WAITING'],
   ['MANUAL_CHECKING', 'MANUAL CHECKING', 'NEEDS_OFFICER'],
   ['FROZEN', 'FROZEN', 'NEEDS_OFFICER'],

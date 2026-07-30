@@ -24,11 +24,7 @@ import {
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
-import {
-  getDepositActionsForStatus,
-  getComplianceLayerStyle,
-  isDepositTerminalStatus,
-} from '../utils/depositActionMap';
+import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -100,7 +96,6 @@ interface DepositDetail {
   limitHoldReason?: string | null;
   sumsubFinanceTxnId?: string | null;
   sumsubTravelRuleTxnId?: string | null;
-  manualReason?: string | null;
   slaDeadline?: string | null;
   asset: {
     code: string;
@@ -112,6 +107,39 @@ interface DepositDetail {
   customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
   latestSumsubWebhook?: LatestSumsubWebhook | null;
+  financeDetail?: SumsubTxnDetail | null;
+  travelRuleDetail?: SumsubTxnDetail | null;
+  approvals?: DepositApproval[];
+}
+
+/** Matched-rule entry inside a Sumsub getTxn scoring result (see backend
+ *  `findOneForAdmin` parseDetail). */
+interface SumsubMatchedRule {
+  id?: string;
+  name?: string;
+  action?: string;
+  score?: number;
+}
+
+/** Admin-readable subset of a Sumsub getTxn report for one lane (finance
+ *  or travel rule) — parsed server-side from the raw stored payload. */
+interface SumsubTxnDetail {
+  verdict: string | null;
+  reviewAnswer: string | null;
+  score: number | null;
+  matchedRules: SumsubMatchedRule[];
+  applicantActionIds: string[];
+  tags: string[];
+  raw: unknown;
+}
+
+/** Internal (non-Sumsub) approval case linked to this deposit — single
+ *  header only, no step/steps (see backend `findOneForAdmin`). */
+interface DepositApproval {
+  approvalNo: string;
+  actionType: string;
+  status: string;
+  createdAt: string;
 }
 
 /**
@@ -129,10 +157,13 @@ interface LatestSumsubWebhook {
   lane: 'FINANCE' | 'TRAVEL_RULE';
 }
 
-/** 泳道 = 我们报给 Sumsub 的两笔交易,命名与 Sumsub 侧一致。 */
-const LANE_LABELS: Record<LatestSumsubWebhook['lane'], string> = {
-  FINANCE: 'Finance txn',
-  TRAVEL_RULE: 'Travel Rule txn',
+/** Internal-approval `actionType` → English action label shown in the
+ *  Internal Approvals block. */
+const APPROVAL_ACTION_LABELS: Record<string, string> = {
+  DEPOSIT_SEIZE: 'Seize',
+  DEPOSIT_RETURN: 'Return',
+  DEPOSIT_UNFREEZE: 'Unfreeze',
+  DEPOSIT_CONFISCATION: 'Confiscate',
 };
 
 /* ── Page Component ─────────────────────────────────────────── */
@@ -143,11 +174,6 @@ const DepositTransactionDetail = () => {
   const [data, setData] = useState<DepositDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionError, setActionError] = useState('');
-  const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
-  const [reasonText, setReasonText] = useState('');
-  const [pendingAction, setPendingAction] = useState('');
   const [notice, setNotice] = useState('');
   const [dispositionSubmitting, setDispositionSubmitting] = useState(false);
   const [dispositionError, setDispositionError] = useState('');
@@ -159,11 +185,6 @@ const DepositTransactionDetail = () => {
   const [isUnfreezeModalOpen, setIsUnfreezeModalOpen] = useState(false);
   const [unfreezeReason, setUnfreezeReason] = useState('');
   const [unfreezeOrderRef, setUnfreezeOrderRef] = useState('');
-  // Degraded approval indicator (see handleSeizeSubmit/handleUnfreezeSubmit): `findOne`
-  // does not return `approvalCaseId` (the deposit table has no such column), so this
-  // banner only lives in local component state — it disappears on page refresh. Known
-  // limitation, tracked in BACKLOG.md.
-  const [lastApprovalNo, setLastApprovalNo] = useState('');
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
@@ -196,46 +217,6 @@ const DepositTransactionDetail = () => {
     copyToClipboard(text);
     setCopiedField(field);
     setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  /* ── Action handlers ── */
-
-  const handleAction = async (action: string, reason?: string) => {
-    if (!id) return;
-    setIsSubmitting(true);
-    setActionError('');
-    try {
-      const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/status`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, reason }),
-        },
-      );
-      if (!response.ok) {
-        setActionError(await getApiErrorMessage(response, 'Action failed.'));
-        return;
-      }
-      await fetchData();
-      setIsReasonModalOpen(false);
-      setReasonText('');
-      setPendingAction('');
-    } catch (error) {
-      if (error instanceof AdminSessionError) return;
-      setActionError(error instanceof Error ? error.message : 'Action failed.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const onActionClick = (action: string, requiresReason: boolean) => {
-    if (requiresReason) {
-      setPendingAction(action);
-      setIsReasonModalOpen(true);
-    } else {
-      handleAction(action);
-    }
   };
 
   /* ── Demo scenario handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
@@ -353,7 +334,6 @@ const DepositTransactionDetail = () => {
       }
       const result = await response.json();
       setNotice(`Seize submitted for approval — ${result.approvalNo} (pending two-step approval)`);
-      setLastApprovalNo(result.approvalNo);
       setIsSeizeModalOpen(false);
       setSeizeReason('');
       setSeizeOrderRef('');
@@ -388,7 +368,6 @@ const DepositTransactionDetail = () => {
       }
       const result = await response.json();
       setNotice(`Unfreeze submitted for approval — ${result.approvalNo}`);
-      setLastApprovalNo(result.approvalNo);
       setIsUnfreezeModalOpen(false);
       setUnfreezeReason('');
       setUnfreezeOrderRef('');
@@ -414,23 +393,8 @@ const DepositTransactionDetail = () => {
 
   if (!data) return null;
 
-  const actions = getDepositActionsForStatus(data.status);
   const isBelowMinPending =
     data.status === 'COMPLIANCE_PENDING' && data.limitHoldReason === 'BELOW_MIN';
-  // Confiscation lifecycle (in-transit / settled): the generic Approve/Reject/
-  // Confiscate actions no longer apply — the deposit is committed to confiscation.
-  // In CONFISCATING the only valid move is advancing the linked funds order (see
-  // the in-transit banner); CONFISCATED is terminal.
-  const isConfiscationLifecycle =
-    data.status === 'CONFISCATING' || data.status === 'CONFISCATED';
-  // Terminal statuses (SUCCESS/REJECTED/FAILED/EXPIRED/CONFISCATED/RETURNED/
-  // SEIZED): no further actions apply at all.
-  const isTerminal = isDepositTerminalStatus(data.status);
-  // In-flight remediation (returning/seizing/confiscating): the generic
-  // Approve/Reject/Confiscate actions don't apply while a disposition is
-  // already underway.
-  const isDisposing =
-    data.status === 'RETURNING' || data.status === 'SEIZING' || data.status === 'CONFISCATING';
   // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
   // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
   // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
@@ -444,6 +408,13 @@ const DepositTransactionDetail = () => {
   const trStyle = getComplianceLayerStyle(
     gatesNotEvaluated ? 'PENDING' : data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
   );
+  // The single `latestSumsubWebhook` (G4) only ever reflects one lane at a
+  // time — pick it out per lane so each Sumsub References three-piece set
+  // only shows status/receivedAt when it is actually the lane that fired.
+  const financeWebhook =
+    data.latestSumsubWebhook?.lane === 'FINANCE' ? data.latestSumsubWebhook : null;
+  const travelRuleWebhook =
+    data.latestSumsubWebhook?.lane === 'TRAVEL_RULE' ? data.latestSumsubWebhook : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -459,17 +430,6 @@ const DepositTransactionDetail = () => {
       {notice && (
         <div className="shrink-0 border-b border-adm-border bg-adm-green/5 px-6 py-2.5 font-mono text-[11px] text-adm-green">
           {notice}
-        </div>
-      )}
-
-      {/* ── Approval indicator (degraded): the deposit table has no
-          `approvalCaseId` column and `findOne` doesn't return one, so this can
-          only be tracked in local state here — a page refresh loses it. Known
-          limitation, tracked in BACKLOG.md. Do not treat this as a persistent
-          status indicator. ── */}
-      {lastApprovalNo && (
-        <div className="shrink-0 border-b border-adm-border bg-adm-blue/5 px-6 py-2.5 font-mono text-[11px] text-adm-blue">
-          Approval {lastApprovalNo} submitted — track it in the Approvals center
         </div>
       )}
 
@@ -587,83 +547,95 @@ const DepositTransactionDetail = () => {
             )}
           </DetailCard>
 
-          {/* 5. Sumsub References (read-only) — 上半是提交时拿到的两笔交易号(静态),
-              下半是最近一次收到的 webhook(动态,回答"Sumsub 最近说了什么")。 */}
-          <DetailCard title="Sumsub References" columns={2}>
-            <InfoField
-              label="Applicant ID"
-              value={data.customer?.sumsubApplicantId}
-              copyable
-              onCopy={(v) => handleCopy(v, 'sumsubApplicantId')}
-              isCopied={copiedField === 'sumsubApplicantId'}
-              mono
-            />
-            <InfoField label="Manual Reason" value={data.manualReason} />
-            <InfoField
-              label="Finance Txn ID"
-              value={data.sumsubFinanceTxnId}
-              copyable
-              onCopy={(v) => handleCopy(v, 'sumsubFinanceTxnId')}
-              isCopied={copiedField === 'sumsubFinanceTxnId'}
-              mono
-            />
-            <InfoField
-              label="Travel Rule Txn ID"
-              value={data.sumsubTravelRuleTxnId}
-              copyable
-              onCopy={(v) => handleCopy(v, 'sumsubTravelRuleTxnId')}
-              isCopied={copiedField === 'sumsubTravelRuleTxnId'}
-              mono
-            />
-          </DetailCard>
-
-          {/* 5b. Latest Sumsub webhook — the two txn IDs above are static
-              (captured at submission). This is what Sumsub said most recently. */}
-          <DetailCard title="Latest Sumsub Webhook" columns={2}>
-            {data.latestSumsubWebhook ? (
-              <>
-                <InfoField label="Event" value={data.latestSumsubWebhook.eventType} mono accent />
-                <InfoField label="Leg" value={LANE_LABELS[data.latestSumsubWebhook.lane]} />
-                <InfoField
-                  label="Received At"
-                  value={
-                    data.latestSumsubWebhook.receivedAt
-                      ? new Date(data.latestSumsubWebhook.receivedAt).toLocaleString()
-                      : null
-                  }
-                />
-                <InfoField
-                  label="Processing"
-                  value={
-                    data.latestSumsubWebhook.isSimulated
-                      ? `${data.latestSumsubWebhook.status} · SIMULATED`
-                      : data.latestSumsubWebhook.status
-                  }
-                />
-                <InfoField label="Event No" value={data.latestSumsubWebhook.eventNo} mono />
-                <InfoField
-                  label="Error"
-                  value={data.latestSumsubWebhook.lastErrorMessage}
-                />
-              </>
-            ) : (
-              <div className="col-span-2 font-mono text-[11px] text-adm-t3">
-                No Sumsub webhook received for this deposit yet
-              </div>
+          {/* 5. Sumsub Transaction Detail — admin-readable subset of the raw
+              Sumsub getTxn report per lane (Task 2 parseDetail on the backend). */}
+          <DetailCard title="Sumsub Transaction Detail" columns={1}>
+            <SumsubDetailSection label="Finance" detail={data.financeDetail} isFirst />
+            {data.travelRuleRequired && (
+              <SumsubDetailSection label="Travel Rule" detail={data.travelRuleDetail} />
             )}
           </DetailCard>
 
-          {/* 6. Status History */}
+          {/* 6. Internal Approvals — maker-checker cases raised against this
+              deposit (seize/return/unfreeze/confiscate), single header only. */}
+          <DetailCard title="Internal Approvals" columns={1}>
+            {data.approvals && data.approvals.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.approvals.map((a) => (
+                  <LinkedRelationCard
+                    key={a.approvalNo}
+                    cap={APPROVAL_ACTION_LABELS[a.actionType] ?? a.actionType}
+                    identifier={a.approvalNo}
+                    statusValue={a.status}
+                    meta={new Date(a.createdAt).toLocaleString()}
+                    onClick={() => navigate('/admin/governance/approvals')}
+                  />
+                ))}
+              </div>
+            ) : (
+              <LinkedRelationEmpty cap="Internal Approval" message="No internal approvals" />
+            )}
+          </DetailCard>
+
+          {/* 7. Sumsub References (read-only) — Applicant ID + one three-piece
+              set per lane (txn ID / status / received-at). status + receivedAt
+              come from `latestSumsubWebhook` (G4), which only ever reflects
+              whichever lane most recently fired — the other lane's set is
+              blank until its own webhook arrives. */}
+          <DetailCard title="Sumsub References" columns={2}>
+            <div className="col-span-2">
+              <InfoField
+                label="Applicant ID"
+                value={data.customer?.sumsubApplicantId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubApplicantId')}
+                isCopied={copiedField === 'sumsubApplicantId'}
+                mono
+              />
+            </div>
+            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <InfoField
+                label="Finance Txn ID"
+                value={data.sumsubFinanceTxnId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubFinanceTxnId')}
+                isCopied={copiedField === 'sumsubFinanceTxnId'}
+                mono
+              />
+              <InfoField label="Finance Status" value={financeWebhook?.status} />
+              <InfoField
+                label="Finance Received At"
+                value={financeWebhook?.receivedAt ? new Date(financeWebhook.receivedAt).toLocaleString() : null}
+              />
+            </div>
+            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <InfoField
+                label="Travel Rule Txn ID"
+                value={data.sumsubTravelRuleTxnId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubTravelRuleTxnId')}
+                isCopied={copiedField === 'sumsubTravelRuleTxnId'}
+                mono
+              />
+              <InfoField label="Travel Rule Status" value={travelRuleWebhook?.status} />
+              <InfoField
+                label="Travel Rule Received At"
+                value={travelRuleWebhook?.receivedAt ? new Date(travelRuleWebhook.receivedAt).toLocaleString() : null}
+              />
+            </div>
+          </DetailCard>
+
+          {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
           </DetailCard>
 
-          {/* 7. Technical */}
+          {/* 9. Technical */}
           <DetailCard title="Technical" columns={1}>
             <InfoField label="Trace ID" value={data.traceId} mono />
           </DetailCard>
 
-          {/* 8. Simulation (demo only — gated by the local simulation-mode
+          {/* 10. Simulation (demo only — gated by the local simulation-mode
               toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
           {simEnabled && (
             <DetailCard title="⚡ Simulation" columns={1}>
@@ -694,48 +666,6 @@ const DepositTransactionDetail = () => {
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
-
-          {/* Actions — hidden for a below-min hold (only PASS / Confiscate-as-Fee
-              disposition applies), throughout the confiscation lifecycle
-              (CONFISCATING in-transit → advance the funds order; CONFISCATED
-              terminal) where the generic Approve/Reject/Confiscate no longer
-              apply, once the deposit reaches any terminal status, while a
-              disposition (returning/seizing/confiscating) is already in
-              flight, or during MANUAL_CHECKING (see the read-only notice
-              below — disposition happens in the Sumsub console instead). */}
-          {!isBelowMinPending && !isConfiscationLifecycle && !isTerminal && !isDisposing && data.status !== 'MANUAL_CHECKING' && (
-            <SidebarGroup title="Actions">
-              {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
-              <div className="flex flex-col gap-2">
-                {actions.map((a) => {
-                  const baseCls = a.variant === 'workflowPrimary'
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : a.variant === 'workflowNegative'
-                      ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
-                  return (
-                    <button
-                      key={a.action}
-                      onClick={() => onActionClick(a.action, a.requiresReason)}
-                      disabled={!a.enabled || isSubmitting}
-                      className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </SidebarGroup>
-          )}
-
-          {/* Manual checking — disposition happens in Sumsub, not here */}
-          {data.status === 'MANUAL_CHECKING' && (
-            <SidebarGroup title="Actions">
-              <p className="font-mono text-[11px] text-adm-t3">
-                Disposition happens in the Sumsub console (officer tags the txn, then re-rejects).
-              </p>
-            </SidebarGroup>
-          )}
 
           {/* Below-Min Disposition */}
           {isBelowMinPending && (
@@ -768,9 +698,8 @@ const DepositTransactionDetail = () => {
               approvals, not immediate execution): seize opens a two-step
               SENIOR_MANAGEMENT_OFFICER → MLRO approval; unfreeze opens a
               single-step MLRO approval. FROZEN can only leave via this
-              maker-checker unfreeze/seize flow — the generic "Actions" group's
-              Approve is intentionally not enabled for FROZEN (see the
-              transition table in deposit-transactions.service.ts). */}
+              maker-checker unfreeze/seize flow (see the transition table in
+              deposit-transactions.service.ts). */}
           {data.status === 'FROZEN' && (
             <SidebarGroup title="Frozen Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
@@ -834,41 +763,6 @@ const DepositTransactionDetail = () => {
           </SidebarGroup>
         </div>
       </div>
-
-      {/* ── Reason Modal ── */}
-      {isReasonModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
-              <p className="font-mono text-[11px] font-semibold text-adm-t1">Reason Required</p>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              <textarea
-                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
-                rows={3}
-                placeholder="Enter reason for this action..."
-                value={reasonText}
-                onChange={(e) => setReasonText(e.target.value)}
-              />
-            </div>
-            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
-              <button
-                onClick={() => { setIsReasonModalOpen(false); setReasonText(''); setPendingAction(''); }}
-                className={adminButtonClass('modalCancel')}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleAction(pendingAction, reasonText)}
-                disabled={isSubmitting || !reasonText.trim()}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {isSubmitting ? 'Processing...' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Confiscate Modal ── */}
       {isConfiscateModalOpen && (
@@ -1039,6 +933,68 @@ const DepositTransactionDetail = () => {
     </div>
   );
 };
+
+/* ── SumsubDetailSection ─────────────────────────────────────── */
+
+/**
+ * Renders one lane (Finance / Travel Rule) of the parsed Sumsub getTxn
+ * report. `label` is only a section heading here — the raw payload behind
+ * `detail.raw` is the same shape for either lane.
+ */
+const SumsubDetailSection = ({
+  label,
+  detail,
+  isFirst = false,
+}: {
+  label: string;
+  detail: SumsubTxnDetail | null | undefined;
+  isFirst?: boolean;
+}) => (
+  <div className={isFirst ? undefined : 'mt-4 border-t border-adm-border pt-4'}>
+    <div className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
+      {label}
+    </div>
+    {detail ? (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <InfoField label="Score" value={detail.score} mono />
+          <InfoField label="Verdict" value={detail.verdict} />
+          <InfoField label="Review Answer" value={detail.reviewAnswer} />
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
+          {detail.matchedRules.length > 0 ? (
+            <ul className="mt-1 space-y-1">
+              {detail.matchedRules.map((r, idx) => (
+                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
+                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
+          )}
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
+          <div className="mt-1 font-mono text-[11px] text-adm-t1">
+            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
+          </div>
+        </div>
+        <details>
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+            Raw payload
+          </summary>
+          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
+            {JSON.stringify(detail.raw, null, 2)}
+          </pre>
+        </details>
+      </div>
+    ) : (
+      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
+    )}
+  </div>
+);
 
 /* ── StatusTimeline (preserved from existing) ── */
 

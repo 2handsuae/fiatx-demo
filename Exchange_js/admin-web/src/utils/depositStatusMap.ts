@@ -46,8 +46,8 @@ const GRAY = 'border-adm-t3/25 bg-adm-t3/10 text-adm-t3';
 const WARNING = 'border-adm-yellow/40 bg-adm-yellow/10 text-adm-yellow';
 
 const DEPOSIT_STATUS_MAP: Record<string, DepositStatusMeta> = {
-  PAYIN_PENDING: { label: 'AWAITING PAYIN', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
-  COMPLIANCE_PENDING: { label: 'COMPLIANCE REVIEW', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
+  PAYIN_PENDING: { label: 'PAYIN PENDING', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
+  COMPLIANCE_PENDING: { label: 'COMPLIANCE PENDING', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
   ACTION_PENDING: { label: 'AWAITING CUSTOMER', group: 'WAITING', badgeClass: AMBER },
   MANUAL_CHECKING: { label: 'MANUAL CHECKING', group: 'NEEDS_OFFICER', badgeClass: AMBER },
   FROZEN: { label: 'FROZEN', group: 'NEEDS_OFFICER', badgeClass: RED },
@@ -108,8 +108,8 @@ export interface DepositStatusFilterGroup {
  * status filter, it must not keep its own independently-maintained list.
  */
 export const DEPOSIT_STATUS_FILTERS: DepositStatusFilterGroup[] = [
-  { label: 'Awaiting payin', statuses: ['PAYIN_PENDING'] },
-  { label: 'Compliance review', statuses: ['COMPLIANCE_PENDING'] },
+  { label: 'Payin pending', statuses: ['PAYIN_PENDING'] },
+  { label: 'Compliance pending', statuses: ['COMPLIANCE_PENDING'] },
   { label: 'Awaiting customer', statuses: ['ACTION_PENDING'] },
   { label: 'Manual checking', statuses: ['MANUAL_CHECKING'] },
   { label: 'Frozen', statuses: ['FROZEN'] },

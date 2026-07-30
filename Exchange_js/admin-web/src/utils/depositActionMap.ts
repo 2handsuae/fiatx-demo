@@ -1,94 +1,10 @@
 // admin-web/src/utils/depositActionMap.ts
 
 /* ── Deposit Action Map ─────────────────────────────────────────
-   State-machine-aware action availability for the Deposit Detail
-   sidebar. Each action knows its button style and which statuses
-   enable it.
+   Compliance-layer styling + payin simulation action availability
+   shared by the Deposit Detail page (and, for getComplianceLayerStyle,
+   the Withdraw Detail page).
    ────────────────────────────────────────────────────────────── */
-
-export interface DepositAction {
-  action: string;
-  label: string;
-  /** workflowPrimary | workflowSecondary | workflowNegative */
-  variant: 'workflowPrimary' | 'workflowSecondary' | 'workflowNegative';
-  /** Whether a reason modal is required before executing */
-  requiresReason: boolean;
-  /** Ordered set of statuses where this action is enabled */
-  enabledStatuses: Set<string>;
-}
-
-/**
- * Canonical ordered list of deposit actions.
- * Order: primary → secondary → negative (per frontend-admin.md).
- */
-export const DEPOSIT_ACTIONS: DepositAction[] = [
-  {
-    action: 'approve',
-    label: 'Approve',
-    variant: 'workflowPrimary',
-    requiresReason: false,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING']),
-  },
-  {
-    action: 'freeze',
-    label: 'Freeze',
-    variant: 'workflowSecondary',
-    requiresReason: false,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING']),
-  },
-  {
-    action: 'resume',
-    label: 'Resume',
-    variant: 'workflowSecondary',
-    requiresReason: false,
-    enabledStatuses: new Set(['ACTION_PENDING']),
-  },
-  {
-    action: 'expire',
-    label: 'Expire',
-    variant: 'workflowSecondary',
-    requiresReason: false,
-    enabledStatuses: new Set(['ACTION_PENDING']),
-  },
-  {
-    action: 'reject',
-    label: 'Reject',
-    variant: 'workflowNegative',
-    requiresReason: true,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING']),
-  },
-  {
-    action: 'confiscate',
-    label: 'Confiscate',
-    variant: 'workflowNegative',
-    requiresReason: true,
-    enabledStatuses: new Set(['FROZEN']),
-  },
-];
-
-/** Terminal statuses where no actions are available at all */
-const TERMINAL_STATUSES = new Set([
-  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATED', 'RETURNED', 'SEIZED',
-]);
-
-/**
- * Returns the full DEPOSIT_ACTIONS list annotated with `enabled` for
- * the given current status. Hides all actions for terminal statuses.
- */
-export function getDepositActionsForStatus(
-  currentStatus: string,
-): Array<DepositAction & { enabled: boolean }> {
-  const isTerminal = TERMINAL_STATUSES.has(currentStatus);
-  return DEPOSIT_ACTIONS.map((a) => ({
-    ...a,
-    enabled: !isTerminal && a.enabledStatuses.has(currentStatus),
-  }));
-}
-
-/** Whether the given deposit status is terminal (no further actions apply). */
-export function isDepositTerminalStatus(currentStatus: string): boolean {
-  return TERMINAL_STATUSES.has(currentStatus);
-}
 
 /* ── Compliance Layer Styling ──────────────────────────────────── */
 
