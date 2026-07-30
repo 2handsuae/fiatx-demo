@@ -25,6 +25,22 @@ describe('MockSumsubTxnClient', () => {
     it('throws for an unprimed txnId', async () => {
       await expect(client.getTxn('X')).rejects.toThrow('Unknown txn');
     });
+
+    it('passes through raw when primed with it', async () => {
+      const raw = { id: 'T2', scoringResult: { score: 42 } };
+      const detail: SumsubTxnDetail = {
+        txnId: 'T2',
+        verdict: 'approved',
+        reviewAnswer: 'GREEN',
+        riskScore: 42,
+        typedTags: [],
+        raw,
+      };
+      client.primeTxn('T2', detail);
+
+      const result = await client.getTxn('T2');
+      expect(result.raw).toEqual(raw);
+    });
   });
 
   describe('submitTxn', () => {

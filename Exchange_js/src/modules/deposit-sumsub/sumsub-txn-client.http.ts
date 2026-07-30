@@ -70,6 +70,7 @@ export class HttpSumsubTxnClient implements SumsubTxnClient {
       reviewAnswer: data.review?.reviewResult?.reviewAnswer ?? null,
       riskScore: data.scoringResult?.score ?? null,
       typedTags: data.typedTags ?? [],
+      raw: data,
     };
   }
 

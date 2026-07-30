@@ -984,6 +984,8 @@ model DepositTransaction {
   completedAt          DateTime?
   sumsubFinanceTxnId    String?
   sumsubTravelRuleTxnId String?
+  financeTxnDetailJson    String?
+  travelRuleTxnDetailJson String?
   manualReason          String?
   slaDeadline           DateTime?
   slaBreached           Boolean   @default(false)
