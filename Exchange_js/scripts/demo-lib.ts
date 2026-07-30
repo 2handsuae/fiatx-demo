@@ -262,8 +262,7 @@ async function driveDeposit(ctx: DemoCtx, c: any, asset: any, walletId: string, 
     const d: any = await ctx.deposits.findOne(dep.id);
     return d.status === 'COMPLIANCE_PENDING' ? d : null;
   });
-  await ctx.depositWf.applyKytResult(dep.id, 'PASSED', 5);
-  if (type === PayinType.CRYPTO) await ctx.depositWf.applyTrResult(dep.id, 'PASSED');
+  await ctx.depositWf.applyKytVerdict(dep.id, { verdict: 'approved', riskScore: 5 });
   await waitFor(`deposit ${dep.depositNo} SUCCESS`, async () => {
     const d: any = await ctx.deposits.findOne(dep.id);
     if (d.status === 'SUCCESS') return d;

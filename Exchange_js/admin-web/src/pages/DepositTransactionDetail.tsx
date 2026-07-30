@@ -496,7 +496,7 @@ const DepositTransactionDetail = () => {
               {/* L2: Transaction Screen — a deposit now submits exactly one
                   Sumsub txn (finance or travelRule, per `sumsubTxnType`); the
                   label follows the type and the value is the webhook verdict
-                  verbatim (approved/rejected/onHold/awaitingUser — not
+                  verbatim (approved/rejected/onHold/awaitUser — not
                   translated). */}
               <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
                 <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>

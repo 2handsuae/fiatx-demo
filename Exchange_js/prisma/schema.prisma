@@ -979,7 +979,7 @@ model DepositTransaction {
   completedAt          DateTime?
   sumsubTxnId          String?
   sumsubTxnType        String?   // finance | travelRule
-  sumsubVerdict        String?   // approved | rejected | onHold | awaitingUser（webhook 裁决原值）
+  sumsubVerdict        String?   // approved | rejected | onHold | awaitUser（webhook 裁决原值）
   sumsubScore          Int?
   sumsubScoredAt       DateTime?
   sumsubTxnDetailJson  String?

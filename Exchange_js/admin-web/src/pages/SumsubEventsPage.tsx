@@ -151,11 +151,7 @@ export default function SumsubEventsPage() {
   // Level 2 simulation tab
   const [l2CustomerNo, setL2CustomerNo] = useState('');
 
-  // KYT / Travel Rule simulation — shared depositNo
-  const [simDepositNo, setSimDepositNo] = useState('');
-
   // Withdraw KYT / Travel Rule simulation
-  const [simTxnType, setSimTxnType] = useState<'deposit' | 'withdraw'>('deposit');
   const [simWithdrawNo, setSimWithdrawNo] = useState('');
   const [simKytStage, setSimKytStage] = useState<'PRE' | 'POST'>('PRE');
 
@@ -249,65 +245,33 @@ export default function SumsubEventsPage() {
         setSimCycleNo('');
         setMessage(`Material simulation: ${simMaterialScenario} for cycle ${simCycleNo}`);
       } else if (simTab === 'kyt') {
-        if (simTxnType === 'deposit') {
-          if (!simDepositNo.trim()) { setSimError('Deposit No is required'); setSimLoading(false); return; }
-          const response = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/kyt-check`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ depositNo: simDepositNo, result: 'PASS' }),
-            },
-          );
-          if (!response.ok) throw new Error(await getApiErrorMessage(response, 'KYT simulation failed.'));
-          const res = await response.json();
-          setShowSimulate(false);
-          setMessage(`KYT check simulated: PASSED for ${res.depositNo ?? simDepositNo}`);
-        } else {
-          if (!simWithdrawNo.trim()) { setSimError('Withdraw No is required'); setSimLoading(false); return; }
-          const response = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/withdraw-kyt`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ withdrawNo: simWithdrawNo, stage: simKytStage, result: 'PASS' }),
-            },
-          );
-          if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Withdraw KYT simulation failed.'));
-          const res = await response.json();
-          setShowSimulate(false);
-          setMessage(`Withdraw ${simKytStage} KYT simulated: PASSED for ${res.withdrawNo ?? simWithdrawNo}`);
-        }
+        if (!simWithdrawNo.trim()) { setSimError('Withdraw No is required'); setSimLoading(false); return; }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/withdraw-kyt`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ withdrawNo: simWithdrawNo, stage: simKytStage, result: 'PASS' }),
+          },
+        );
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Withdraw KYT simulation failed.'));
+        const res = await response.json();
+        setShowSimulate(false);
+        setMessage(`Withdraw ${simKytStage} KYT simulated: PASSED for ${res.withdrawNo ?? simWithdrawNo}`);
       } else if (simTab === 'travelRule') {
-        if (simTxnType === 'deposit') {
-          if (!simDepositNo.trim()) { setSimError('Deposit No is required'); setSimLoading(false); return; }
-          const response = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/tr-check`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ depositNo: simDepositNo, result: 'PASS' }),
-            },
-          );
-          if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Travel Rule simulation failed.'));
-          const res = await response.json();
-          setShowSimulate(false);
-          setMessage(`Travel Rule check simulated: PASSED for ${res.depositNo ?? simDepositNo}`);
-        } else {
-          if (!simWithdrawNo.trim()) { setSimError('Withdraw No is required'); setSimLoading(false); return; }
-          const response = await adminFetch(
-            `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/withdraw-tr`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ withdrawNo: simWithdrawNo, result: 'PASS' }),
-            },
-          );
-          if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Withdraw TR simulation failed.'));
-          const res = await response.json();
-          setShowSimulate(false);
-          setMessage(`Withdraw Travel Rule simulated: PASSED for ${res.withdrawNo ?? simWithdrawNo}`);
-        }
+        if (!simWithdrawNo.trim()) { setSimError('Withdraw No is required'); setSimLoading(false); return; }
+        const response = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/withdraw-tr`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ withdrawNo: simWithdrawNo, result: 'PASS' }),
+          },
+        );
+        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Withdraw TR simulation failed.'));
+        const res = await response.json();
+        setShowSimulate(false);
+        setMessage(`Withdraw Travel Rule simulated: PASSED for ${res.withdrawNo ?? simWithdrawNo}`);
       }
       void fetchEvents(1, filters);
     } catch (e) {
@@ -526,7 +490,7 @@ export default function SumsubEventsPage() {
               ]).map((tab) => (
                 <button
                   key={tab.key}
-                  onClick={() => { setSimTab(tab.key); setSimError(null); setSimResult(''); setSimTxnType('deposit'); setSimWithdrawNo(''); setSimKytStage('PRE'); }}
+                  onClick={() => { setSimTab(tab.key); setSimError(null); setSimResult(''); setSimWithdrawNo(''); setSimKytStage('PRE'); }}
                   className={`flex-1 py-2.5 font-mono text-[11px] font-medium transition-colors ${
                     simTab === tab.key
                       ? 'border-b-2 border-adm-amber text-adm-amber'
@@ -794,63 +758,41 @@ export default function SumsubEventsPage() {
               {simTab === 'kyt' && (
                 <div className="space-y-4">
                   <p className="font-mono text-[10px] text-adm-t3">
-                    Simulate a KYT (Know Your Transaction) check PASS.
+                    Simulate a KYT (Know Your Transaction) check PASS for a withdrawal.
                     After both KYT and Travel Rule pass, the transaction auto-approves.
                   </p>
-                  {/* Deposit / Withdraw toggle */}
+                  {/* Identifier input */}
                   <div>
-                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Transaction Type</label>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+                      Withdraw No
+                    </label>
+                    <input
+                      value={simWithdrawNo}
+                      onChange={e => setSimWithdrawNo(e.target.value)}
+                      placeholder="WDR_…"
+                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
+                    />
+                  </div>
+                  {/* KYT Stage */}
+                  <div>
+                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">KYT Stage</label>
                     <div className="flex gap-2">
-                      {(['deposit', 'withdraw'] as const).map((t) => (
+                      {(['PRE', 'POST'] as const).map((s) => (
                         <label
-                          key={t}
+                          key={s}
                           className={`flex-1 cursor-pointer rounded border px-3 py-2 text-center transition-colors ${
-                            simTxnType === t
+                            simKytStage === s
                               ? 'border-adm-amber bg-adm-amber/6'
                               : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
                           }`}
                         >
-                          <input type="radio" name="kytTxnType" value={t} checked={simTxnType === t}
-                            onChange={() => setSimTxnType(t)} className="sr-only" />
-                          <span className="font-mono text-[11px] text-adm-t1">{t === 'deposit' ? 'Deposit' : 'Withdraw'}</span>
+                          <input type="radio" name="kytStage" value={s} checked={simKytStage === s}
+                            onChange={() => setSimKytStage(s)} className="sr-only" />
+                          <span className="font-mono text-[11px] text-adm-t1">{s === 'PRE' ? 'Pre-broadcast' : 'Post-broadcast'}</span>
                         </label>
                       ))}
                     </div>
                   </div>
-                  {/* Identifier input */}
-                  <div>
-                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                      {simTxnType === 'deposit' ? 'Deposit No' : 'Withdraw No'}
-                    </label>
-                    <input
-                      value={simTxnType === 'deposit' ? simDepositNo : simWithdrawNo}
-                      onChange={e => simTxnType === 'deposit' ? setSimDepositNo(e.target.value) : setSimWithdrawNo(e.target.value)}
-                      placeholder={simTxnType === 'deposit' ? 'DEP-…' : 'WDR_…'}
-                      className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
-                    />
-                  </div>
-                  {/* KYT Stage (withdraw only) */}
-                  {simTxnType === 'withdraw' && (
-                    <div>
-                      <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">KYT Stage</label>
-                      <div className="flex gap-2">
-                        {(['PRE', 'POST'] as const).map((s) => (
-                          <label
-                            key={s}
-                            className={`flex-1 cursor-pointer rounded border px-3 py-2 text-center transition-colors ${
-                              simKytStage === s
-                                ? 'border-adm-amber bg-adm-amber/6'
-                                : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
-                            }`}
-                          >
-                            <input type="radio" name="kytStage" value={s} checked={simKytStage === s}
-                              onChange={() => setSimKytStage(s)} className="sr-only" />
-                            <span className="font-mono text-[11px] text-adm-t1">{s === 'PRE' ? 'Pre-broadcast' : 'Post-broadcast'}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -858,38 +800,18 @@ export default function SumsubEventsPage() {
               {simTab === 'travelRule' && (
                 <div className="space-y-4">
                   <p className="font-mono text-[10px] text-adm-t3">
-                    Simulate a Travel Rule check PASS.
+                    Simulate a Travel Rule check PASS for a withdrawal.
                     After both KYT and Travel Rule pass, the transaction auto-approves.
                   </p>
-                  {/* Deposit / Withdraw toggle */}
-                  <div>
-                    <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Transaction Type</label>
-                    <div className="flex gap-2">
-                      {(['deposit', 'withdraw'] as const).map((t) => (
-                        <label
-                          key={t}
-                          className={`flex-1 cursor-pointer rounded border px-3 py-2 text-center transition-colors ${
-                            simTxnType === t
-                              ? 'border-adm-amber bg-adm-amber/6'
-                              : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
-                          }`}
-                        >
-                          <input type="radio" name="trTxnType" value={t} checked={simTxnType === t}
-                            onChange={() => setSimTxnType(t)} className="sr-only" />
-                          <span className="font-mono text-[11px] text-adm-t1">{t === 'deposit' ? 'Deposit' : 'Withdraw'}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
                   {/* Identifier input */}
                   <div>
                     <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                      {simTxnType === 'deposit' ? 'Deposit No' : 'Withdraw No'}
+                      Withdraw No
                     </label>
                     <input
-                      value={simTxnType === 'deposit' ? simDepositNo : simWithdrawNo}
-                      onChange={e => simTxnType === 'deposit' ? setSimDepositNo(e.target.value) : setSimWithdrawNo(e.target.value)}
-                      placeholder={simTxnType === 'deposit' ? 'DEP-…' : 'WDR_…'}
+                      value={simWithdrawNo}
+                      onChange={e => setSimWithdrawNo(e.target.value)}
+                      placeholder="WDR_…"
                       className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
                     />
                   </div>
@@ -925,7 +847,7 @@ export default function SumsubEventsPage() {
                 >
                   {simLoading ? 'Sending…'
                     : simTab === 'kyt'
-                      ? (simTxnType === 'withdraw' ? `Simulate ${simKytStage === 'PRE' ? 'Pre' : 'Post'}-KYT PASS` : 'Simulate KYT PASS')
+                      ? `Simulate ${simKytStage === 'PRE' ? 'Pre' : 'Post'}-KYT PASS`
                     : simTab === 'travelRule' ? 'Simulate TR PASS'
                     : 'Send Event'}
                 </button>
