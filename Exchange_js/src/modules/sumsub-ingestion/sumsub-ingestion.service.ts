@@ -127,20 +127,7 @@ export class SumsubIngestionService {
         dispatchedContext = 'DEPOSIT_SUMSUB';
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
-      else if (event.eventType === 'kytCheckSimulated') {
-        const depositId = String(payload.depositId ?? '');
-        const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        const riskScore = (payload.riskScore as number | null) ?? null;
-        await this.depositWorkflowService.applyKytResult(depositId, kytStatus, riskScore);
-        result = { depositId, kytStatus, riskScore };
-        dispatchedContext = 'KYT_CHECK';
-      } else if (event.eventType === 'travelRuleCheckSimulated') {
-        const depositId = String(payload.depositId ?? '');
-        const trStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        await this.depositWorkflowService.applyTrResult(depositId, trStatus);
-        result = { depositId, trStatus };
-        dispatchedContext = 'TRAVEL_RULE_CHECK';
-      } else if (event.eventType === 'withdrawKytCheckSimulated') {
+      else if (event.eventType === 'withdrawKytCheckSimulated') {
         const withdrawId = String(payload.withdrawId ?? '');
         const stage = String(payload.stage ?? 'PRE');
         const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';

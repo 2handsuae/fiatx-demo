@@ -589,51 +589,6 @@ export class DepositWorkflowService implements OnModuleInit {
     });
   }
 
-  async applyKytResult(depositId: string, kytStatus: string, riskScore?: number | null) {
-    // Old mock KYT pipeline, slated for retirement (泳道删除的连带项:updateFinanceStatus
-    // no longer exists — this is a compile-only rename, not a semantic fix; full
-    // retirement of applyKytResult/applyTrResult is a separate follow-up task).
-    await this.depositService.updateSumsubVerdict(depositId, kytStatus, riskScore);
-
-    const deposit = await this.depositService.findOne(depositId);
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_KYT_APPLIED,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
-      traceId: deposit.traceId || undefined,
-      workflowType: 'DEPOSIT',
-      reason: `KYT result applied: ${kytStatus}`,
-      metadata: { kytStatus, riskScore: riskScore ?? null },
-      sourcePlatform: 'SYSTEM',
-    });
-
-    await this.checkAutoApproval(depositId);
-  }
-
-  async applyTrResult(depositId: string, trStatus: string) {
-    // Same compile-only rename as applyKytResult above (updateTravelRuleStatus removed).
-    await this.depositService.updateSumsubVerdict(depositId, trStatus);
-
-    const deposit = await this.depositService.findOne(depositId);
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.DEPOSIT_TR_APPLIED,
-      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-      entityId: deposit.id,
-      entityNo: deposit.depositNo,
-      entityOwnerType: deposit.ownerType,
-      entityOwnerId: deposit.ownerId,
-      traceId: deposit.traceId || undefined,
-      workflowType: 'DEPOSIT',
-      reason: `Travel rule result applied: ${trStatus}`,
-      metadata: { trStatus },
-      sourcePlatform: 'SYSTEM',
-    });
-
-    await this.checkAutoApproval(depositId);
-  }
 
   async checkAutoApproval(depositId: string) {
     const deposit = await this.depositService.findOne(depositId);
@@ -663,19 +618,12 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    if (deposit.financeStatus !== 'PASSED') {
-      this.logger.debug(
-        `Auto-approval skip: deposit ${depositId} kytStatus=${deposit.financeStatus}`,
-      );
+    // 放行由 webhook 裁决驱动;这里读的是裁决字段(不是展示用的翻译值)。
+    if (deposit.sumsubVerdict !== 'approved') {
+      this.logger.debug(`Auto-approval skip: deposit ${depositId} sumsubVerdict=${deposit.sumsubVerdict}`);
       return;
     }
-
-    if (deposit.travelRuleStatus !== 'PASSED' && deposit.travelRuleStatus !== 'NOT_REQUIRED') {
-      this.logger.debug(
-        `Auto-approval skip: deposit ${depositId} travelRuleStatus=${deposit.travelRuleStatus}`,
-      );
-      return;
-    }
+    // 原 travelRuleStatus 那道闸整条删除 —— 一笔单只有一个 type,不存在「另一腿未过」。
 
     const complianceStatus =
       await this.depositService.getOwnerComplianceStatus(depositId);

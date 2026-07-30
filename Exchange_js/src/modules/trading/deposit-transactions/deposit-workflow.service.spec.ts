@@ -313,13 +313,12 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('checkAutoApproval', () => {
-    it('approves when all three gates pass (COMPLIANCE_PENDING + ACTIVE + PASSED + PASSED)', async () => {
+    it('approves when sumsubVerdict=approved (COMPLIANCE_PENDING + ACTIVE + trading-ready)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DEP001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'PASSED',
+        sumsubVerdict: 'approved',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
         assetId: 'asset-1',
@@ -347,8 +346,7 @@ describe('DepositWorkflowService', () => {
         id: 'dep-1',
         depositNo: 'DEP001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'PASSED',
+        sumsubVerdict: 'approved',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
         assetId: 'asset-1',
@@ -384,8 +382,7 @@ describe('DepositWorkflowService', () => {
         id: 'dep-1',
         depositNo: 'DEP001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'PASSED',
+        sumsubVerdict: 'approved',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
         amount: '5',
@@ -402,12 +399,11 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('does not approve when deposit is FROZEN (even if KYT+TR passed)', async () => {
+    it('does not approve when deposit is FROZEN (even if sumsubVerdict is approved)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.FROZEN,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'PASSED',
+        sumsubVerdict: 'approved',
       });
 
       await service.checkAutoApproval('dep-1');
@@ -415,38 +411,37 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('does not approve when financeStatus is PENDING', async () => {
+    it('does not approve when sumsubVerdict is not approved (e.g. onHold)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PENDING',
-        travelRuleStatus: 'PASSED',
+        sumsubVerdict: 'onHold',
       });
 
       await service.checkAutoApproval('dep-1');
 
       expect(depositService.getOwnerComplianceStatus).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('does not approve when travelRuleStatus is PENDING', async () => {
+    it('does not approve when sumsubVerdict is absent (webhook not yet received)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'PENDING',
+        sumsubVerdict: null,
       });
 
       await service.checkAutoApproval('dep-1');
 
       expect(depositService.getOwnerComplianceStatus).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
     it('does not approve when customer compliance is abnormal', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'PASSED',
+        sumsubVerdict: 'approved',
         ownerId: 'cust-1',
       });
       depositService.getOwnerComplianceStatus.mockResolvedValue('FROZEN');
@@ -456,13 +451,12 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('approves fiat deposit when financeStatus=PASSED and travelRuleStatus=NOT_REQUIRED', async () => {
+    it('approves fiat deposit when sumsubVerdict=approved (single type, no separate travel-rule gate)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-fiat-1',
         depositNo: 'DEP-FIAT-001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        financeStatus: 'PASSED',
-        travelRuleStatus: 'NOT_REQUIRED',
+        sumsubVerdict: 'approved',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
         assetId: 'asset-usd',
@@ -524,6 +518,35 @@ describe('DepositWorkflowService', () => {
       );
       await expect(service.waiveLimitHold('dep-1', adminActor)).rejects.toThrow(BadRequestException);
       expect(depositService.clearLimitHold).not.toHaveBeenCalled();
+    });
+
+    it('waiveLimitHold: KYT 已 approved 的单,豁免后应放行', async () => {
+      const dep = {
+        id: 'dep-w1', depositNo: 'DEPW1', status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: 'BELOW_MIN', sumsubVerdict: 'approved', ownerType: 'FIRM', ownerId: 'firm-1', traceId: null,
+      };
+      // waiveLimitHold's own findOne sees the still-held deposit (to validate the waive);
+      // checkAutoApproval's re-fetch afterwards must see clearLimitHold's write already
+      // landed (real DB semantics) — a single static mock would wrongly re-trip the
+      // BELOW_MIN gate inside checkAutoApproval and mask the sumsubVerdict check entirely.
+      depositService.findOne
+        .mockResolvedValueOnce(dep)
+        .mockResolvedValue({ ...dep, limitHoldReason: null });
+      depositService.updateStatus.mockResolvedValue({ status: DepositTransactionStatus.SUCCESS });
+      await service.waiveLimitHold('dep-w1', { actorId: 'admin-1' });
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-w1', { action: DepositTransactionAction.APPROVE });
+    });
+
+    it('waiveLimitHold: KYT 未 approved 的单,豁免后不放行', async () => {
+      const dep = {
+        id: 'dep-w2', depositNo: 'DEPW2', status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: 'BELOW_MIN', sumsubVerdict: 'onHold', ownerType: 'FIRM', ownerId: 'firm-1', traceId: null,
+      };
+      depositService.findOne
+        .mockResolvedValueOnce(dep)
+        .mockResolvedValue({ ...dep, limitHoldReason: null });
+      await service.waiveLimitHold('dep-w2', { actorId: 'admin-1' });
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith('dep-w2', { action: DepositTransactionAction.APPROVE });
     });
   });
 
