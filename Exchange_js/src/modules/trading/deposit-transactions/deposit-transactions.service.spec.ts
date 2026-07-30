@@ -756,6 +756,30 @@ describe('DepositTransactionsService', () => {
         expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: undefined }) }),
       );
     });
+
+    it('detected(): counterpartyIsVasp true → written through to deposit create data', async () => {
+      await service.detected({
+        assetId: 'a1',
+        toWalletId: 'w1',
+        amount: '100',
+        counterpartyIsVasp: true,
+      });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: true }) }),
+      );
+    });
+
+    it('detected(): counterpartyIsVasp false → written through as false, not coerced to true', async () => {
+      await service.detected({
+        assetId: 'a1',
+        toWalletId: 'w1',
+        amount: '100',
+        counterpartyIsVasp: false,
+      });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: false }) }),
+      );
+    });
   });
 
   describe('Compliance Gate Methods', () => {

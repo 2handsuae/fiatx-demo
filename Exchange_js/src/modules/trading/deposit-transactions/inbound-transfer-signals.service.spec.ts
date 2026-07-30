@@ -167,6 +167,31 @@ describe('InboundTransferSignalsService', () => {
     expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
   });
 
+  it('should reject a crypto inbound signal with counterpartyIsVasp explicitly null', async () => {
+    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    prisma.wallet.findUnique.mockResolvedValue({
+      id: 'wallet-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      direction: 'INBOUND',
+      walletRole: 'C_DEP',
+      status: 'ACTIVE',
+      assetId: 'asset-1',
+      asset: { type: 'CRYPTO' },
+    });
+
+    await expect(
+      service.createForCustomer('cust-1', {
+        walletId: 'wallet-1',
+        amount: '12.50',
+        txHash: '0xabc',
+        fromAddress: '0xfrom',
+        counterpartyIsVasp: null as any,
+      }),
+    ).rejects.toThrow('counterpartyIsVasp is required for crypto deposits');
+    expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
+  });
+
   it('should reject a fiat inbound signal that provides counterpartyIsVasp', async () => {
     onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
     prisma.wallet.findUnique.mockResolvedValue({

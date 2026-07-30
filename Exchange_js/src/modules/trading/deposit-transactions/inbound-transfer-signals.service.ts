@@ -143,10 +143,10 @@ export class InboundTransferSignalsService {
     this.assertSimulationRiskProfile(dto, channelType);
 
     const isCrypto = String(wallet.asset?.type).toUpperCase() === 'CRYPTO';
-    if (isCrypto && dto.counterpartyIsVasp === undefined) {
+    if (isCrypto && dto.counterpartyIsVasp == null) {
       throw new BadRequestException('counterpartyIsVasp is required for crypto deposits');
     }
-    if (!isCrypto && dto.counterpartyIsVasp !== undefined) {
+    if (!isCrypto && dto.counterpartyIsVasp != null) {
       throw new BadRequestException('counterpartyIsVasp must not be provided for fiat deposits');
     }
 
