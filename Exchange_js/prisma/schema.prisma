@@ -928,6 +928,7 @@ model InboundTransferSignal {
   fromIban             String?
   simulationRiskLevel  String?
   simulationRiskReason String?
+  counterpartyIsVasp   Boolean?
   status               String       @default("PENDING_SCAN")
   dedupeKey            String       @unique
   submittedAt          DateTime     @default(now())
@@ -965,12 +966,6 @@ model DepositTransaction {
   txHash               String?
   referenceNo          String?
   expiresAt            DateTime?
-  financeStatus        String            @default("PENDING")
-  financeScreeningId   String?
-  financeRiskScore     Int?
-  financeCheckedAt     DateTime?
-  travelRuleRequired   Boolean           @default(false)
-  travelRuleStatus     String            @default("NOT_REQUIRED")
   travelRuleTransferId String?
   counterpartyVasp     String?
   travelRuleCheckedAt  DateTime?
@@ -982,10 +977,13 @@ model DepositTransaction {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   completedAt          DateTime?
-  sumsubFinanceTxnId    String?
-  sumsubTravelRuleTxnId String?
-  financeTxnDetailJson    String?
-  travelRuleTxnDetailJson String?
+  sumsubTxnId          String?
+  sumsubTxnType        String?   // finance | travelRule
+  sumsubVerdict        String?   // approved | rejected | onHold | awaitingUser（webhook 裁决原值）
+  sumsubScore          Int?
+  sumsubScoredAt       DateTime?
+  sumsubTxnDetailJson  String?
+  counterpartyIsVasp   Boolean?  // crypto 必填；fiat 为 null
   manualReason          String?
   slaDeadline           DateTime?
   slaBreached           Boolean   @default(false)
