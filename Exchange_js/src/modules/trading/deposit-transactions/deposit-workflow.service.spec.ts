@@ -40,7 +40,7 @@ describe('DepositWorkflowService', () => {
       initializeComplianceGates: jest.fn(),
       updateStatus: jest.fn(),
       findOne: jest.fn(),
-      updateKytStatus: jest.fn(),
+      updateFinanceStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxnIds: jest.fn().mockResolvedValue(undefined),
@@ -326,7 +326,7 @@ describe('DepositWorkflowService', () => {
         id: 'dep-1',
         depositNo: 'DEP001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'PASSED',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
@@ -355,7 +355,7 @@ describe('DepositWorkflowService', () => {
         id: 'dep-1',
         depositNo: 'DEP001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'PASSED',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
@@ -392,7 +392,7 @@ describe('DepositWorkflowService', () => {
         id: 'dep-1',
         depositNo: 'DEP001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'PASSED',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
@@ -414,7 +414,7 @@ describe('DepositWorkflowService', () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.FROZEN,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'PASSED',
       });
 
@@ -423,11 +423,11 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('does not approve when kytStatus is PENDING', async () => {
+    it('does not approve when financeStatus is PENDING', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PENDING',
+        financeStatus: 'PENDING',
         travelRuleStatus: 'PASSED',
       });
 
@@ -440,7 +440,7 @@ describe('DepositWorkflowService', () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'PENDING',
       });
 
@@ -453,7 +453,7 @@ describe('DepositWorkflowService', () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'PASSED',
         ownerId: 'cust-1',
       });
@@ -464,12 +464,12 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('approves fiat deposit when kytStatus=PASSED and travelRuleStatus=NOT_REQUIRED', async () => {
+    it('approves fiat deposit when financeStatus=PASSED and travelRuleStatus=NOT_REQUIRED', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-fiat-1',
         depositNo: 'DEP-FIAT-001',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        kytStatus: 'PASSED',
+        financeStatus: 'PASSED',
         travelRuleStatus: 'NOT_REQUIRED',
         ownerId: 'cust-1',
         ownerType: 'CUSTOMER',
@@ -1170,7 +1170,7 @@ describe('DepositWorkflowService', () => {
 
   describe('applyKytVerdict — L2 闸门字段回写', () => {
     // 回归防线:新 KYT-only 管道曾经只驱动状态机、不回写闸门字段,导致制裁命中冻结的
-    // 单子在 admin 详情页 L2 仍显示 kytStatus=PENDING、风险分空白 —— operator 看不出
+    // 单子在 admin 详情页 L2 仍显示 financeStatus=PENDING、风险分空白 —— operator 看不出
     // 这笔单为什么被冻(2026-07-29 live demo 实测发现)。
     function gateDeposit(id: string, status = DepositTransactionStatus.COMPLIANCE_PENDING) {
       return {
@@ -1180,11 +1180,11 @@ describe('DepositWorkflowService', () => {
         ownerType: 'FIRM',
         ownerId: 'firm-1',
         traceId: null,
-        kytRiskScore: null,
+        financeRiskScore: null,
       };
     }
 
-    it('rejected(FINANCE 泳道)→ kytStatus=FAILED + 落风险分', async () => {
+    it('rejected(FINANCE 泳道)→ financeStatus=FAILED + 落风险分', async () => {
       const deposit = gateDeposit('dep-gate-1');
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit });
@@ -1196,11 +1196,11 @@ describe('DepositWorkflowService', () => {
         sceneTag: 'SANCTION',
       });
 
-      expect(depositService.updateKytStatus).toHaveBeenCalledWith('dep-gate-1', 'FAILED', 98);
+      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-1', 'FAILED', 98);
       expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
     });
 
-    it('approved(TRAVEL_RULE 泳道)→ 只写 travelRuleStatus,不碰 kytStatus', async () => {
+    it('approved(TRAVEL_RULE 泳道)→ 只写 travelRuleStatus,不碰 financeStatus', async () => {
       const deposit = gateDeposit('dep-gate-2');
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit });
@@ -1212,7 +1212,7 @@ describe('DepositWorkflowService', () => {
       });
 
       expect(depositService.updateTravelRuleStatus).toHaveBeenCalledWith('dep-gate-2', 'PASSED');
-      expect(depositService.updateKytStatus).not.toHaveBeenCalled();
+      expect(depositService.updateFinanceStatus).not.toHaveBeenCalled();
     });
 
     it('onHold / awaitUser → 写未决态,不写成 FAILED', async () => {
@@ -1221,10 +1221,10 @@ describe('DepositWorkflowService', () => {
       depositService.updateStatus.mockResolvedValue({ ...deposit });
 
       await service.applyKytVerdict('dep-gate-3', { verdict: 'onHold', lane: 'FINANCE' });
-      expect(depositService.updateKytStatus).toHaveBeenCalledWith('dep-gate-3', 'ON_HOLD', null);
+      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-3', 'ON_HOLD', null);
 
       await service.applyKytVerdict('dep-gate-3', { verdict: 'awaitUser', lane: 'FINANCE' });
-      expect(depositService.updateKytStatus).toHaveBeenCalledWith(
+      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith(
         'dep-gate-3',
         'AWAITING_USER',
         null,
@@ -1241,7 +1241,7 @@ describe('DepositWorkflowService', () => {
         riskScore: 5,
       });
 
-      expect(depositService.updateKytStatus).not.toHaveBeenCalled();
+      expect(depositService.updateFinanceStatus).not.toHaveBeenCalled();
       expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
     });
 
@@ -1252,7 +1252,7 @@ describe('DepositWorkflowService', () => {
 
       await service.applyKytVerdict('dep-gate-5', { verdict: 'approved' });
 
-      expect(depositService.updateKytStatus).toHaveBeenCalledWith('dep-gate-5', 'PASSED', null);
+      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-5', 'PASSED', null);
     });
   });
 

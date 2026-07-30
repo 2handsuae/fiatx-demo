@@ -151,10 +151,10 @@ describe('DepositTransactionsService', () => {
     manualReason: 'EDD_PEP',
     sumsubFinanceTxnId: 'sumsub-finance-1',
     sumsubTravelRuleTxnId: 'sumsub-tr-1',
-    kytStatus: 'REJECTED',
-    kytRiskScore: 92,
-    kytScreeningId: 'screen-1',
-    kytCheckedAt: new Date('2026-01-01T00:05:00Z'),
+    financeStatus: 'REJECTED',
+    financeRiskScore: 92,
+    financeScreeningId: 'screen-1',
+    financeCheckedAt: new Date('2026-01-01T00:05:00Z'),
     travelRuleStatus: 'PASSED',
     travelRuleTransferId: 'tr-transfer-1',
     counterpartyVasp: 'Some VASP Inc.',
@@ -167,10 +167,10 @@ describe('DepositTransactionsService', () => {
     'manualReason',
     'sumsubFinanceTxnId',
     'sumsubTravelRuleTxnId',
-    'kytStatus',
-    'kytRiskScore',
-    'kytScreeningId',
-    'kytCheckedAt',
+    'financeStatus',
+    'financeRiskScore',
+    'financeScreeningId',
+    'financeCheckedAt',
     'travelRuleStatus',
     'travelRuleTransferId',
     'counterpartyVasp',
@@ -789,21 +789,21 @@ describe('DepositTransactionsService', () => {
 
   describe('Compliance Gate Methods', () => {
 
-    it('updateKytStatus sets kytStatus, riskScore, and checkedAt', async () => {
-      const mockRecord = { id: 'dep-1', kytStatus: 'PASSED', kytRiskScore: 15, kytCheckedAt: new Date() };
+    it('updateFinanceStatus sets financeStatus, riskScore, and checkedAt', async () => {
+      const mockRecord = { id: 'dep-1', financeStatus: 'PASSED', financeRiskScore: 15, financeCheckedAt: new Date() };
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
 
-      const result = await service.updateKytStatus('dep-1', 'PASSED', 15);
+      const result = await service.updateFinanceStatus('dep-1', 'PASSED', 15);
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
         data: expect.objectContaining({
-          kytStatus: 'PASSED',
-          kytRiskScore: 15,
-          kytCheckedAt: expect.any(Date),
+          financeStatus: 'PASSED',
+          financeRiskScore: 15,
+          financeCheckedAt: expect.any(Date),
         }),
       });
-      expect(result.kytStatus).toBe('PASSED');
+      expect(result.financeStatus).toBe('PASSED');
     });
 
     it('updateTravelRuleStatus sets travelRuleStatus and checkedAt', async () => {

@@ -544,13 +544,13 @@ export class DepositTransactionsService {
     });
   }
 
-  async updateKytStatus(id: string, status: string, riskScore?: number | null) {
+  async updateFinanceStatus(id: string, status: string, riskScore?: number | null) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: {
-        kytStatus: status,
-        kytRiskScore: riskScore ?? null,
-        kytCheckedAt: new Date(),
+        financeStatus: status,
+        financeRiskScore: riskScore ?? null,
+        financeCheckedAt: new Date(),
       },
     });
   }

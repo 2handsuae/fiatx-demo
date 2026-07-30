@@ -349,8 +349,8 @@ export class DepositWorkflowService implements OnModuleInit {
    * 把 KYT 裁决回写到对应泳道的闸门字段。
    *
    * 一笔 deposit 报两笔 Sumsub 交易(finance + travelRule),webhook 只带 kytTxnId;
-   * 调用方按 deposit 上的两个 txnId 反查泳道。FINANCE → kytStatus/kytRiskScore/
-   * kytCheckedAt;TRAVEL_RULE → travelRuleStatus。
+   * 调用方按 deposit 上的两个 txnId 反查泳道。FINANCE → financeStatus/financeRiskScore/
+   * financeCheckedAt;TRAVEL_RULE → travelRuleStatus。
    *
    * 为什么必须回写:新 KYT-only 管道(deposit-sumsub)此前只驱动状态机,闸门字段
    * 停在建单默认值 PENDING —— 结果是制裁命中冻结的单子,admin 详情页 L2 仍显示
@@ -373,10 +373,10 @@ export class DepositWorkflowService implements OnModuleInit {
 
     // lane 未给(老调用方)按 FINANCE 处理 —— finance 是每笔 deposit 必报的主交易。
     // 风险分只在拉过 txn 详情时有值;没有就保留库里既有值,不用 null 抹掉。
-    await this.depositService.updateKytStatus(
+    await this.depositService.updateFinanceStatus(
       deposit.id,
       gateStatus,
-      riskScore ?? deposit.kytRiskScore ?? null,
+      riskScore ?? deposit.financeRiskScore ?? null,
     );
   }
 
@@ -613,7 +613,7 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   async applyKytResult(depositId: string, kytStatus: string, riskScore?: number | null) {
-    await this.depositService.updateKytStatus(depositId, kytStatus, riskScore);
+    await this.depositService.updateFinanceStatus(depositId, kytStatus, riskScore);
 
     const deposit = await this.depositService.findOne(depositId);
     await this.auditLogsService.recordSystem({
@@ -682,9 +682,9 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    if (deposit.kytStatus !== 'PASSED') {
+    if (deposit.financeStatus !== 'PASSED') {
       this.logger.debug(
-        `Auto-approval skip: deposit ${depositId} kytStatus=${deposit.kytStatus}`,
+        `Auto-approval skip: deposit ${depositId} kytStatus=${deposit.financeStatus}`,
       );
       return;
     }
@@ -768,7 +768,7 @@ export class DepositWorkflowService implements OnModuleInit {
       workflowType: 'DEPOSIT',
       reason: 'Compliance approved, funds credited to client',
       metadata: {
-        kytStatus: deposit.kytStatus,
+        financeStatus: deposit.financeStatus,
         travelRuleStatus: deposit.travelRuleStatus,
         oldStatus,
       },

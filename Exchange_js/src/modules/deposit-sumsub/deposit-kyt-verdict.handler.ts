@@ -49,7 +49,7 @@ export class DepositKytVerdictHandler {
     }
 
     // 一笔 deposit 报两笔 txn(finance + travelRule),webhook 只带 kytTxnId。
-    // 反查落在哪条泳道,决定裁决回写 kytStatus 还是 travelRuleStatus。
+    // 反查落在哪条泳道,决定裁决回写 financeStatus 还是 travelRuleStatus。
     const lane: KytLane =
       deposit.sumsubTravelRuleTxnId === kytTxnId ? 'TRAVEL_RULE' : 'FINANCE';
 

@@ -83,9 +83,9 @@ interface DepositDetail {
   txHash: string | null;
   confirmations: number;
   referenceNo: string | null;
-  kytStatus: string;
-  kytRiskScore: number | null;
-  kytCheckedAt: string | null;
+  financeStatus: string;
+  financeRiskScore: number | null;
+  financeCheckedAt: string | null;
   travelRuleRequired: boolean;
   travelRuleStatus: string;
   travelRuleCheckedAt: string | null;
@@ -439,7 +439,7 @@ const DepositTransactionDetail = () => {
     gatesNotEvaluated ? 'PENDING' : data.customer?.complianceStatus,
   );
   const financeStyle = getComplianceLayerStyle(
-    gatesNotEvaluated ? 'PENDING' : data.kytStatus,
+    gatesNotEvaluated ? 'PENDING' : data.financeStatus,
   );
   const trStyle = getComplianceLayerStyle(
     gatesNotEvaluated ? 'PENDING' : data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
@@ -540,7 +540,7 @@ const DepositTransactionDetail = () => {
                     {financeStyle.label}
                   </span>
                   <span className="font-mono text-[10px] text-adm-t3">
-                    Risk: {gatesNotEvaluated ? '—' : (data.kytRiskScore ?? '—')}
+                    Risk: {gatesNotEvaluated ? '—' : (data.financeRiskScore ?? '—')}
                   </span>
                 </div>
                 <div className="mt-1 flex items-center gap-2">

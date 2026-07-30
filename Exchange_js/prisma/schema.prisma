@@ -965,10 +965,10 @@ model DepositTransaction {
   txHash               String?
   referenceNo          String?
   expiresAt            DateTime?
-  kytStatus            String            @default("PENDING")
-  kytScreeningId       String?
-  kytRiskScore         Int?
-  kytCheckedAt         DateTime?
+  financeStatus        String            @default("PENDING")
+  financeScreeningId   String?
+  financeRiskScore     Int?
+  financeCheckedAt     DateTime?
   travelRuleRequired   Boolean           @default(false)
   travelRuleStatus     String            @default("NOT_REQUIRED")
   travelRuleTransferId String?

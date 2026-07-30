@@ -66,7 +66,7 @@ export class DepositTransactionQueryDto {
 
   @IsOptional()
   @IsString()
-  kytStatus?: string;
+  financeStatus?: string;
 
   @IsOptional()
   @IsString()
