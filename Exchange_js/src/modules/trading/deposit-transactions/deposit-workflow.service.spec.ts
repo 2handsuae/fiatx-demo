@@ -42,6 +42,7 @@ describe('DepositWorkflowService', () => {
       findOne: jest.fn(),
       updateFinanceStatus: jest.fn(),
       updateTravelRuleStatus: jest.fn(),
+      saveTxnDetail: jest.fn().mockResolvedValue(undefined),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxnIds: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
@@ -1253,6 +1254,70 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-gate-5', { verdict: 'approved' });
 
       expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-5', 'PASSED', null);
+    });
+
+    it('detailRaw 透传(FINANCE 泳道)→ saveTxnDetail 写 financeTxnDetailJson 列', async () => {
+      const deposit = gateDeposit('dep-gate-6');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      const raw = { txnId: 'T-FIN', foo: 'bar' };
+      await service.applyKytVerdict('dep-gate-6', {
+        verdict: 'approved',
+        lane: 'FINANCE',
+        riskScore: 10,
+        detailRaw: raw,
+      });
+
+      expect(depositService.saveTxnDetail).toHaveBeenCalledWith(
+        'dep-gate-6',
+        'FINANCE',
+        JSON.stringify(raw),
+      );
+    });
+
+    it('detailRaw 透传(TRAVEL_RULE 泳道)→ saveTxnDetail 写 travelRuleTxnDetailJson 列', async () => {
+      const deposit = gateDeposit('dep-gate-7');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      const raw = { txnId: 'T-TR' };
+      await service.applyKytVerdict('dep-gate-7', {
+        verdict: 'approved',
+        lane: 'TRAVEL_RULE',
+        riskScore: null,
+        detailRaw: raw,
+      });
+
+      expect(depositService.saveTxnDetail).toHaveBeenCalledWith(
+        'dep-gate-7',
+        'TRAVEL_RULE',
+        JSON.stringify(raw),
+      );
+    });
+
+    it('已终态的单:即便带 detailRaw 也不写报文(终态不被迟到 webhook 覆写)', async () => {
+      const deposit = gateDeposit('dep-gate-8', DepositTransactionStatus.SEIZED);
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-gate-8', {
+        verdict: 'approved',
+        lane: 'FINANCE',
+        riskScore: 5,
+        detailRaw: { txnId: 'late' },
+      });
+
+      expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
+    });
+
+    it('未给 detailRaw 时不调 saveTxnDetail', async () => {
+      const deposit = gateDeposit('dep-gate-9');
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit });
+
+      await service.applyKytVerdict('dep-gate-9', { verdict: 'approved', lane: 'FINANCE' });
+
+      expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
     });
   });
 

@@ -565,6 +565,12 @@ export class DepositTransactionsService {
     });
   }
 
+  /** Sumsub getTxn 原始报文按泳道存证(乙口径落库):FINANCE → financeTxnDetailJson,TRAVEL_RULE → travelRuleTxnDetailJson。 */
+  async saveTxnDetail(id: string, lane: 'FINANCE' | 'TRAVEL_RULE', json: string) {
+    const col = lane === 'TRAVEL_RULE' ? 'travelRuleTxnDetailJson' : 'financeTxnDetailJson';
+    return (this.prisma as any).depositTransaction.update({ where: { id }, data: { [col]: json } });
+  }
+
   /**
    * Sets/refreshes the SLA deadline for a deposit sitting in onHold
    * (COMPLIANCE_PENDING) or ACTION_PENDING. No status change here — callers

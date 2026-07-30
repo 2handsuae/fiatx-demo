@@ -13,6 +13,8 @@ const VERDICT_BY_TYPE: Record<string, KytVerdict | 'ignore'> = {
   applicantKytTxnReviewed: 'ignore',
 };
 
+// approved 也拉:证据对齐(score + 报文),但不读处置 tag。
+const DETAIL_LOOKUP_VERDICTS = new Set<KytVerdict>(['approved', 'rejected', 'awaitUser']);
 // 标签不在 webhook 里,只在 rejected/awaitUser 时才拉 getTxn 读 typedTags。
 const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 
@@ -58,14 +60,18 @@ export class DepositKytVerdictHandler {
     // 风险分只有在已经拉了 txn 详情时才拿得到;approved 路径不额外多打一次 API
     // 换一个展示数字(留 null,前端显示 —)。
     let riskScore: number | null = null;
+    let detailRaw: unknown;
 
-    if (TAG_LOOKUP_VERDICTS.has(verdict)) {
+    if (DETAIL_LOOKUP_VERDICTS.has(verdict)) {
       const detail = await this.sumsubTxnClient.getTxn(kytTxnId);
       riskScore = detail.riskScore ?? null;
-      for (const tag of detail.typedTags) {
-        if (tag.type !== 'userDefined') continue;
-        if (SCENE_TAGS.has(tag.label)) sceneTag = tag.label as 'SANCTION' | 'PEP';
-        if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
+      detailRaw = detail.raw;
+      if (TAG_LOOKUP_VERDICTS.has(verdict)) {
+        for (const tag of detail.typedTags) {
+          if (tag.type !== 'userDefined') continue;
+          if (SCENE_TAGS.has(tag.label)) sceneTag = tag.label as 'SANCTION' | 'PEP';
+          if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
+        }
       }
     }
 
@@ -75,6 +81,7 @@ export class DepositKytVerdictHandler {
       riskScore,
       ...(sceneTag && { sceneTag }),
       ...(dispoTag && { dispoTag }),
+      ...(detailRaw !== undefined && { detailRaw }),
     });
   }
 }

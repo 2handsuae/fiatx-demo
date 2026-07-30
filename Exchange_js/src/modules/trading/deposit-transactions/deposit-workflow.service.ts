@@ -301,6 +301,7 @@ export class DepositWorkflowService implements OnModuleInit {
       riskScore?: number | null;
       sceneTag?: 'SANCTION' | 'PEP';
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
+      detailRaw?: unknown;
     },
   ): Promise<void> {
     const deposit = await this.depositService.findOne(depositId);
@@ -320,6 +321,11 @@ export class DepositWorkflowService implements OnModuleInit {
     // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
     // 终态 no-op 之后、状态流转之前落库——终态单的既有裁决不被迟到 webhook 覆写。
     await this.writeBackGateStatus(deposit, v.verdict, v.lane, v.riskScore);
+
+    // Sumsub getTxn 原始报文存证:同样落在终态 no-op 之内,迟到 webhook 不覆写终态单的既有报文。
+    if (v.detailRaw !== undefined) {
+      await this.depositService.saveTxnDetail(deposit.id, v.lane ?? 'FINANCE', JSON.stringify(v.detailRaw));
+    }
 
     switch (v.verdict) {
       case 'approved':
