@@ -66,14 +66,6 @@ export class DepositTransactionQueryDto {
 
   @IsOptional()
   @IsString()
-  financeStatus?: string;
-
-  @IsOptional()
-  @IsString()
-  travelRuleStatus?: string;
-
-  @IsOptional()
-  @IsString()
   startDate?: string;
 
   @IsOptional()

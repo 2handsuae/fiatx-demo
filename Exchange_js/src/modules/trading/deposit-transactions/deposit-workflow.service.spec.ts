@@ -3086,8 +3086,7 @@ describe('DepositWorkflowService', () => {
       assetId: 'asset-usdt',
       amount: '5',
       traceId: 'trace-uf-1',
-      sumsubFinanceTxnId: 'sumsub-fin-1',
-      sumsubTravelRuleTxnId: 'sumsub-tr-1',
+      sumsubTxnId: 'sumsub-txn-1',
       ...overrides,
     });
 
@@ -3102,7 +3101,10 @@ describe('DepositWorkflowService', () => {
       sumsubTxnClient.rescore.mockResolvedValue(undefined);
     });
 
-    it('FROZEN → resumes to COMPLIANCE_PENDING (RESUME), DEPOSIT_UNFROZEN audit with orderRef, rescores both finance + travelRule txns', async () => {
+    // Repro: deposit-workflow.service.ts:2452 used to gate on the deleted
+    // `sumsubFinanceTxnId` column (schema now only has `sumsubTxnId`), so this
+    // guard was always true in production and rescore silently never ran.
+    it('FROZEN → resumes to COMPLIANCE_PENDING (RESUME), DEPOSIT_UNFROZEN audit with orderRef, rescores the sumsub txn once', async () => {
       const dep = frozenDeposit();
 
       await (service as any).onUnfreezeApproved(dep);
@@ -3119,17 +3121,7 @@ describe('DepositWorkflowService', () => {
           reason: expect.stringContaining('ORD-UF-1'),
         }),
       );
-      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-fin-1');
-      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-tr-1');
-      expect(sumsubTxnClient.rescore).toHaveBeenCalledTimes(2);
-    });
-
-    it('fiat deposit (no sumsubTravelRuleTxnId) → rescores only the finance txn once', async () => {
-      const dep = frozenDeposit({ sumsubTravelRuleTxnId: undefined });
-
-      await (service as any).onUnfreezeApproved(dep);
-
-      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-fin-1');
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-txn-1');
       expect(sumsubTxnClient.rescore).toHaveBeenCalledTimes(1);
     });
 
@@ -3157,8 +3149,8 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('no sumsubFinanceTxnId (never submitted to Sumsub) → skips rescore entirely, does not throw', async () => {
-      const dep = frozenDeposit({ sumsubFinanceTxnId: undefined, sumsubTravelRuleTxnId: undefined });
+    it('no sumsubTxnId (never submitted to Sumsub) → skips rescore entirely, does not throw', async () => {
+      const dep = frozenDeposit({ sumsubTxnId: undefined });
 
       await expect((service as any).onUnfreezeApproved(dep)).resolves.toBeUndefined();
 

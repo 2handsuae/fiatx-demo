@@ -2433,10 +2433,12 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   /**
-   * A5: trigger a Sumsub rescore of the deposit's KYT txn(s) after it has already
+   * A5: trigger a Sumsub rescore of the deposit's KYT txn after it has already
    * resumed into COMPLIANCE_PENDING — the whole point of the unfreeze arc (a fresh
    * verdict driving the state machine post-resume, instead of sitting on a stale
-   * pre-freeze one). Crypto deposits also rescore the travel-rule txn.
+   * pre-freeze one). One deposit has exactly one Sumsub txn now (finance/travelRule
+   * legs collapsed into the single sumsubTxnId column), so there is only one rescore
+   * call, not two.
    *
    * rescore is an EXTERNAL HTTP call — MUST be try/catch'd. By the time this runs the
    * deposit has already committed to COMPLIANCE_PENDING with its DEPOSIT_UNFROZEN
@@ -2445,22 +2447,19 @@ export class DepositWorkflowService implements OnModuleInit {
    * (plan-1 终审 I2 教训: submitSumsubTxns 当年缺 try/catch,一 throw 就会 strand deposit —
    * don't repeat that here).
    *
-   * No sumsubFinanceTxnId (old deposit / never submitted to Sumsub) → skip entirely,
+   * No sumsubTxnId (old deposit / never submitted to Sumsub) → skip entirely,
    * just warn.
    */
   private async triggerUnfreezeRescore(deposit: any): Promise<void> {
-    if (!deposit.sumsubFinanceTxnId) {
+    if (!deposit.sumsubTxnId) {
       this.logger.warn(
-        `Unfreeze rescore skip: deposit ${deposit.id} has no sumsubFinanceTxnId — never submitted to Sumsub`,
+        `Unfreeze rescore skip: deposit ${deposit.id} has no sumsubTxnId — never submitted to Sumsub`,
       );
       return;
     }
 
     try {
-      await this.sumsubTxnClient.rescore(deposit.sumsubFinanceTxnId);
-      if (deposit.sumsubTravelRuleTxnId) {
-        await this.sumsubTxnClient.rescore(deposit.sumsubTravelRuleTxnId);
-      }
+      await this.sumsubTxnClient.rescore(deposit.sumsubTxnId);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.logger.warn(
