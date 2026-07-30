@@ -7,7 +7,7 @@ import { SumsubTxnDetail } from '../sumsub-txn.types';
  * MANUAL_CHECKING(RETURN_TO_SENDER 只开 DEPOSIT_RETURN 审批,不再直推状态——两腿回款结算/
  * RETURNING→RETURNED 留 A3)。
  *
- * ⚠️ **T1/TF/TT/T3… 是槽位名,不是 txnId。** 真实的 Sumsub KYT txnId 是 24 位小写 hex
+ * ⚠️ **T1/T2/T3… 是槽位名,不是 txnId。** 真实的 Sumsub KYT txnId 是 24 位小写 hex
  * (ObjectId 形态),由 `DepositDemoScenarioService.mintTxnId()` 按 (depositNo, 槽位) 现铸,
  * 本文件只负责"哪几步引用同一笔交易"。**不要把这里的字面量当真 id 直接查库/发 webhook** ——
  * 那正是 2026-07-29 实测踩到的坑:两笔单跑同一场景时 `findBySumsubTxnId('T3')` 匹到上一笔单,
@@ -33,12 +33,14 @@ export interface DepositScenarioStep {
   needsSlaTimer?: boolean;
 }
 
-/** submitTxn 预置:对应 DepositWorkflowService.submitSumsubTxns() 提交时用的 clientTxnId → txnId */
+/**
+ * submitTxn 预置:对应 DepositWorkflowService.submitSumsubTxns() 提交时用的
+ * clientTxnId(=deposit.depositNo)→ txnId。一笔充值只报一笔 Sumsub 交易——
+ * `type`(finance/travelRule)由 VARA 判定器决定,不再分"finance 腿/travelRule 腿"
+ * 两个槽位。
+ */
 export interface DepositScenarioSubmit {
-  /** finance 腿:clientTxnId = deposit.depositNo */
-  financeTxnId: string;
-  /** travelRule 腿(仅 crypto 场景才有):clientTxnId = `${deposit.depositNo}-TR` */
-  travelRuleTxnId?: string;
+  txnId: string;
 }
 
 export interface DepositScenario {
@@ -92,7 +94,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
   S1_HAPPY_FIAT: {
     key: 'S1_HAPPY_FIAT',
     description: 'fiat 充值全绿:Created→Approved,approved 不读 tag,直接 SUCCESS',
-    submit: { financeTxnId: 'T1' },
+    submit: { txnId: 'T1' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T1' } },
       {
@@ -123,57 +125,32 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
 
   S2_HAPPY_CRYPTO: {
     key: 'S2_HAPPY_CRYPTO',
-    description: 'crypto 充值全绿:finance + travelRule 两腿各自 Created→Approved → SUCCESS',
-    submit: { financeTxnId: 'TF', travelRuleTxnId: 'TT' },
+    description:
+      'crypto 充值全绿:单笔提交(type 由 VARA 判定器决定 finance 或 travelRule)Created→Approved → SUCCESS',
+    submit: { txnId: 'T2' },
     steps: [
-      { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'TF' } },
-      { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'TT' } },
+      { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T2' } },
       {
         primeTxn: {
-          txnId: 'TF',
+          txnId: 'T2',
           detail: {
-            txnId: 'TF',
+            txnId: 'T2',
             verdict: 'approved',
             reviewAnswer: 'GREEN',
             riskScore: 5,
             typedTags: [],
             raw: buildRawDetail({
-              txnId: 'TF',
+              txnId: 'T2',
               verdict: 'approved',
               score: 5,
               reviewAnswer: 'GREEN',
-              moderationComment: 'Crypto deposit finance leg cleared — no risk indicators detected.',
+              moderationComment: 'Crypto deposit transaction cleared — no risk indicators detected.',
               matchedRules: [],
               typedTags: [],
             }),
           },
         },
-        webhook: { type: 'applicantKytTxnApproved', kytTxnId: 'TF' },
-      },
-      {
-        primeTxn: {
-          txnId: 'TT',
-          detail: {
-            txnId: 'TT',
-            verdict: 'approved',
-            reviewAnswer: 'GREEN',
-            riskScore: 5,
-            typedTags: [],
-            raw: {
-              ...buildRawDetail({
-                txnId: 'TT',
-                verdict: 'approved',
-                score: 5,
-                reviewAnswer: 'GREEN',
-                moderationComment: 'Travel Rule leg cleared — counterparty VASP data verified, no risk indicators detected.',
-                matchedRules: [],
-                typedTags: [],
-              }),
-              travelRuleInfo: { status: 'completed' },
-            },
-          },
-        },
-        webhook: { type: 'applicantKytTxnApproved', kytTxnId: 'TT' },
+        webhook: { type: 'applicantKytTxnApproved', kytTxnId: 'T2' },
       },
     ],
     expectedFinalStatus: 'SUCCESS',
@@ -182,7 +159,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
   S3_SANCTIONS: {
     key: 'S3_SANCTIONS',
     description: '制裁命中:Created→Rejected(SANCTION tag) → FROZEN(零记账)',
-    submit: { financeTxnId: 'T3' },
+    submit: { txnId: 'T3' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T3' } },
       {
@@ -215,7 +192,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
     key: 'S4_PEP_EDD_PASS',
     description:
       'PEP EDD:Created→AwaitingUser(PEP tag)→ACTION_PENDING;客户补料后 Sumsub 自动重评发 Approved(不读tag) → SUCCESS',
-    submit: { financeTxnId: 'T4' },
+    submit: { txnId: 'T4' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T4' } },
       {
@@ -270,7 +247,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
     key: 'S5_DIRTY_MANUAL_FROZEN',
     description:
       '脏钱→人工复核(第一次 Rejected 无处置tag→MANUAL_CHECKING)→第二次 Rejected 重设为 FROZEN_BY_MLRO → FROZEN',
-    submit: { financeTxnId: 'T5' },
+    submit: { txnId: 'T5' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T5' } },
       {
@@ -327,7 +304,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       '脏钱→人工复核(第一次 Rejected 无处置tag→MANUAL_CHECKING)→第二次 Rejected 重设为 RETURN_TO_SENDER → ' +
       '开 DEPOSIT_RETURN maker-checker 审批,止于 MANUAL_CHECKING(计划2·A2 改:不再直推 RETURNING —— ' +
       '审批通过后的两腿回款结算/RETURNING→RETURNED 留 A3)',
-    submit: { financeTxnId: 'T6' },
+    submit: { txnId: 'T6' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T6' } },
       {
@@ -382,7 +359,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
     key: 'S7_DIRTY_MANUAL_OVERTURNED',
     description:
       '脏钱→人工复核(Rejected 无处置tag→MANUAL_CHECKING)→误报翻案,官方裁决翻回 Approved(不读tag) → SUCCESS',
-    submit: { financeTxnId: 'T7' },
+    submit: { txnId: 'T7' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T7' } },
       {
@@ -437,7 +414,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
     key: 'S9_ONHOLD_SLA',
     description:
       'Created→OnHold(不读tag)挂起等 officer;SLA 定时器扫到 slaDeadline 已过 → MANUAL_CHECKING',
-    submit: { financeTxnId: 'T9' },
+    submit: { txnId: 'T9' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T9' } },
       { webhook: { type: 'applicantKytTxnOnHold', kytTxnId: 'T9' } },

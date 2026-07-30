@@ -9,9 +9,19 @@
 /* ── Compliance Layer Styling ──────────────────────────────────── */
 
 const LAYER_PASS = new Set(['PASSED', 'ACTIVE', 'APPROVED', 'CLEAR', 'CLEARED', 'NOT_REQUIRED']);
-// ON_HOLD / AWAITING_USER 是 Sumsub KYT 的两个未决裁决(officer 复核中 / 等客户补料),
-// 由 DepositWorkflowService.GATE_STATUS_BY_VERDICT 回写——归"未决"色，不是失败。
-const LAYER_PENDING = new Set(['PENDING', 'CREATED', 'RECEIVED', 'ON_HOLD', 'AWAITING_USER']);
+// ON_HOLD / AWAITING_USER / ONHOLD / AWAITUSER 是 Sumsub KYT 的两个未决裁决(officer 复核中 /
+// 等客户补料)——归"未决"色，不是失败。deposit 详情页把 sumsubVerdict(驼峰原值 onHold/awaitUser)
+// 原样传进来,经 toUpperCase() 变成 ONHOLD/AWAITUSER(不是 ON_HOLD/AWAITING_USER),缺这两个
+// 变体会导致这两态在 L2 落回默认灰色,和"无状态"视觉无区分——这两态恰是最需要 officer 注意的。
+const LAYER_PENDING = new Set([
+  'PENDING',
+  'CREATED',
+  'RECEIVED',
+  'ON_HOLD',
+  'AWAITING_USER',
+  'ONHOLD',
+  'AWAITUSER',
+]);
 const LAYER_FAIL = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
 
 export interface LayerStyle {

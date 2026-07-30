@@ -54,36 +54,24 @@ export class DepositDemoScenarioService {
 
     const deposit = await this.depositService.findOne(depositId);
 
-    // fixture 里的 T1/TF/T3 是**槽位名**,不是真 txnId。槽位 → 真 id 的解析规则:
+    // fixture 里的 T1/T2/T3 是**槽位名**,不是真 txnId。槽位 → 真 id 的解析规则:
     //
     //   该单已经过 Gate 0(库里已有真 txnId)→ **用它自己的号**;
     //   还没过 Gate 0                      → 铸一个新号并 prime,等 Gate 0 取用。
     //
-    // 第一条是必须的:Gate 0 的提交对 sumsubFinanceTxnId 幂等,已提交的单不会因为
+    // 第一条是必须的:Gate 0 的提交对 sumsubTxnId 幂等,已提交的单不会因为
     // primeSubmit 而换号。若这里一律铸新号,喂出去的 webhook 全部是孤儿 —— handler
     // 只 warn 一行就丢掉,端点却照样返回 201 + stepsFed>0,看起来"跑成功了"而单子
-    // 纹丝不动(2026-07-29 实测)。
+    // 纹丝不动(2026-07-29 实测)。一笔充值只报一笔 Sumsub 交易,只有一个槽位。
     const slotIds = new Map<string, string>();
     slotIds.set(
-      scenario.submit.financeTxnId,
-      deposit.sumsubFinanceTxnId ?? this.mintTxnId(deposit, scenario.submit.financeTxnId),
+      scenario.submit.txnId,
+      deposit.sumsubTxnId ?? this.mintTxnId(deposit, scenario.submit.txnId),
     );
-    if (scenario.submit.travelRuleTxnId) {
-      slotIds.set(
-        scenario.submit.travelRuleTxnId,
-        deposit.sumsubTravelRuleTxnId ?? this.mintTxnId(deposit, scenario.submit.travelRuleTxnId),
-      );
-    }
     const txnIdFor = (slot: string) =>
       slotIds.get(slot) ?? this.mintTxnId(deposit, slot);
 
-    mockClient.primeSubmit(deposit.depositNo, txnIdFor(scenario.submit.financeTxnId));
-    if (scenario.submit.travelRuleTxnId) {
-      mockClient.primeSubmit(
-        `${deposit.depositNo}-TR`,
-        txnIdFor(scenario.submit.travelRuleTxnId),
-      );
-    }
+    mockClient.primeSubmit(deposit.depositNo, txnIdFor(scenario.submit.txnId));
 
     let stepsFed = 0;
     for (const step of scenario.steps) {

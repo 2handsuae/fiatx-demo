@@ -139,7 +139,7 @@ describe('DepositDemoScenarioService', () => {
   it('已过 Gate 0 的单:复用该单自己的 txnId,不铸新号(否则 webhook 全成孤儿)', async () => {
     depositService.findOne.mockResolvedValue({
       ...deposit,
-      sumsubFinanceTxnId: '68c0aa11bb22cc33dd44ee55',
+      sumsubTxnId: '68c0aa11bb22cc33dd44ee55',
     });
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');

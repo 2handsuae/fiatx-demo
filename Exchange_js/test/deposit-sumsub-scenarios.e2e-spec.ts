@@ -130,7 +130,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
     });
 
     // Clean slate: DepositKytVerdictHandler.findBySumsubTxnId() does a global
-    // findFirst on sumsubFinanceTxnId/sumsubTravelRuleTxnId — the fixtures reuse
+    // findFirst on sumsubTxnId — the fixtures reuse
     // short, fixed ids ('T1', 'T3', ...) by design, so any leftover deposit rows
     // from a previous run of this suite (or an interrupted run) would collide and
     // make findFirst resolve to the WRONG (stale) deposit. This worktree DB is
@@ -231,7 +231,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
    */
   async function createDepositAtCompliancePending(
     scenario: DepositScenario,
-    opts: { isCrypto: boolean; amount: string },
+    opts: { isCrypto: boolean; amount: string; counterpartyIsVasp?: boolean },
   ): Promise<ScenarioDeposit> {
     const assetId = opts.isCrypto ? cryptoAssetId : fiatAssetId;
     const toWalletId = opts.isCrypto ? cryptoWalletId : fiatWalletId;
@@ -263,15 +263,20 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
         // here needs one, matching what a real inbound transfer signal would capture.
         fromIban: opts.isCrypto ? undefined : 'E2E_SENDER_IBAN',
         fromAddress: opts.isCrypto ? 'E2E_SENDER_ADDRESS' : undefined,
+        // Task 8: real client-created crypto deposits always carry counterpartyIsVasp
+        // (InboundTransferSignalsService.createForCustomer requires it, 400s without
+        // it) — resolveKytTxnType() also reads it off the deposit row to decide
+        // finance vs travelRule. This harness bypasses that endpoint (direct Prisma
+        // create), so mirror the field here for crypto scenarios that pass it; fiat
+        // scenarios never set it (matches the "must not be provided for fiat" rule).
+        counterpartyIsVasp: opts.isCrypto ? (opts.counterpartyIsVasp ?? null) : undefined,
       },
     });
 
     // Must prime BEFORE Gate 0 fires submitSumsubTxns, or the mock falls back to
     // `MOCK-${clientTxnId}` and the fixture's kytTxnId never matches on webhook lookup.
-    mockSumsubTxnClient.primeSubmit(created.depositNo, scenario.submit.financeTxnId);
-    if (scenario.submit.travelRuleTxnId) {
-      mockSumsubTxnClient.primeSubmit(`${created.depositNo}-TR`, scenario.submit.travelRuleTxnId);
-    }
+    // One deposit → one Sumsub txn (no more finance/travelRule leg split).
+    mockSumsubTxnClient.primeSubmit(created.depositNo, scenario.submit.txnId);
 
     // Real Gate-0 entry point — the exact method 'deposit.status.changed' would invoke,
     // called directly (and awaited) instead of via the fire-and-forget EventEmitter2 emit.
@@ -327,11 +332,15 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
     expect(after.total - before.total).toBe(expectedDelta);
   });
 
-  it('S2_HAPPY_CRYPTO: crypto happy path (finance + travelRule legs) → SUCCESS', async () => {
+  it('S2_HAPPY_CRYPTO: crypto happy path (single Sumsub txn, type decided by resolveKytTxnType) → SUCCESS', async () => {
     const scenario = DEPOSIT_SCENARIOS.S2_HAPPY_CRYPTO;
     const amount = '10.500000';
 
-    const deposit = await createDepositAtCompliancePending(scenario, { isCrypto: true, amount });
+    const deposit = await createDepositAtCompliancePending(scenario, {
+      isCrypto: true,
+      amount,
+      counterpartyIsVasp: true,
+    });
     await runScenario(ctx, scenario, deposit);
 
     expect(await finalStatusOf(deposit.id)).toBe(scenario.expectedFinalStatus);
@@ -431,7 +440,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
 
   describe('idempotency + out-of-order (workflow/handler layer)', () => {
     it('same applicantKytTxnApproved delivered twice → deposit transitions once (2nd is no-op)', async () => {
-      // Own scenario object with a unique financeTxnId (NOT S1's fixed 'T1') —
+      // Own scenario object with a unique txnId (NOT S1's fixed 'T1') —
       // findBySumsubTxnId() does a global lookup with no per-run scoping, so
       // reusing a fixture's hardcoded id here would collide with the S1 test's
       // own (already-SUCCESS, terminal) deposit and findFirst() could resolve
@@ -439,7 +448,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       const scenario: DepositScenario = {
         ...DEPOSIT_SCENARIOS.S1_HAPPY_FIAT,
         key: 'IDEMPOTENCY_TEST',
-        submit: { financeTxnId: `IDEM-${Date.now()}` },
+        submit: { txnId: `IDEM-${Date.now()}` },
       };
       const amount = '90.00';
 
@@ -448,8 +457,8 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       // Decision 7: approved also pulls getTxn (evidence alignment) — prime a clean
       // approved detail for this test's own dynamic txnId before feeding the webhook,
       // or MockSumsubTxnClient.getTxn throws "Unknown txn".
-      mockSumsubTxnClient.primeTxn(scenario.submit.financeTxnId, {
-        txnId: scenario.submit.financeTxnId,
+      mockSumsubTxnClient.primeTxn(scenario.submit.txnId, {
+        txnId: scenario.submit.txnId,
         verdict: 'approved',
         reviewAnswer: 'GREEN',
         riskScore: 5,
@@ -460,7 +469,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       // this test targets workflow/handler-layer idempotency (applyKytVerdict's
       // KYT_VERDICT_TERMINAL_STATUSES short-circuit), a separate layer from the
       // dedupe already covered elsewhere. See runner header comment.
-      const webhook = { type: 'applicantKytTxnApproved', kytTxnId: scenario.submit.financeTxnId };
+      const webhook = { type: 'applicantKytTxnApproved', kytTxnId: scenario.submit.txnId };
 
       await ingestionService.ingest(webhook, { isSimulated: true });
       expect(await finalStatusOf(deposit.id)).toBe('SUCCESS');
@@ -484,7 +493,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       const scenario: DepositScenario = {
         ...DEPOSIT_SCENARIOS.S1_HAPPY_FIAT,
         key: 'OUT_OF_ORDER_TEST',
-        submit: { financeTxnId: `OOO-${Date.now()}` },
+        submit: { txnId: `OOO-${Date.now()}` },
       };
       const amount = '70.00';
 
@@ -493,8 +502,8 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       // Decision 7: approved also pulls getTxn (evidence alignment) — prime a clean
       // approved detail for this test's own dynamic txnId before feeding the webhook,
       // or MockSumsubTxnClient.getTxn throws "Unknown txn".
-      mockSumsubTxnClient.primeTxn(scenario.submit.financeTxnId, {
-        txnId: scenario.submit.financeTxnId,
+      mockSumsubTxnClient.primeTxn(scenario.submit.txnId, {
+        txnId: scenario.submit.txnId,
         verdict: 'approved',
         reviewAnswer: 'GREEN',
         riskScore: 5,
@@ -503,7 +512,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
 
       // Approved FIRST (out of the fixture's natural Created→Approved order).
       await ingestionService.ingest(
-        { type: 'applicantKytTxnApproved', kytTxnId: scenario.submit.financeTxnId },
+        { type: 'applicantKytTxnApproved', kytTxnId: scenario.submit.txnId },
         { isSimulated: true },
       );
       expect(await finalStatusOf(deposit.id)).toBe('SUCCESS');
@@ -511,7 +520,7 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       // Created arrives late — DepositWebhookRouter logs a debug receipt and returns,
       // it must not touch deposit state.
       await ingestionService.ingest(
-        { type: 'applicantKytTxnCreated', kytTxnId: scenario.submit.financeTxnId },
+        { type: 'applicantKytTxnCreated', kytTxnId: scenario.submit.txnId },
         { isSimulated: true },
       );
       expect(await finalStatusOf(deposit.id)).toBe('SUCCESS');

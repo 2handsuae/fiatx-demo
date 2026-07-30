@@ -18,9 +18,9 @@ import { DepositScenario } from '../../src/modules/deposit-sumsub/fixtures/scena
  * (`await this.dispatch(event)`),所以喂完这一步、下一步开始前,上一步已经落地。
  *
  * runner 本身不创建 deposit、不做断言(那是 Task 12 e2e 的事)——只负责按剧本顺序:
- *   1) primeSubmit:把 submit 预置的 txnId 注册到 clientTxnId 上,对应
- *      DepositWorkflowService.submitSumsubTxns() 提交时用的 clientTxnId
- *      (finance 腿 = deposit.depositNo,travelRule 腿 = `${deposit.depositNo}-TR`)。
+ *   1) primeSubmit:把 submit 预置的 txnId 注册到 clientTxnId(= deposit.depositNo)上,
+ *      对应 DepositWorkflowService.submitSumsubTxns() 提交时用的 clientTxnId——一笔充值
+ *      只报一笔 Sumsub 交易,不再分 finance/travelRule 两个槽位。
  *   2) 逐步执行:若该步有 primeTxn,先(重)设 MockSumsubTxnClient 的 getTxn 应答;
  *      若有 webhook,喂进 ingestionService;若 needsSlaTimer,把 deposit.slaDeadline
  *      拨到过去(免得真等 7 天 SLA),再触发一次 SLA 扫描。
@@ -58,10 +58,7 @@ export async function runScenario(
 ): Promise<void> {
   const { mockSumsubTxnClient, ingestionService, depositService, slaService } = ctx;
 
-  mockSumsubTxnClient.primeSubmit(deposit.depositNo, scenario.submit.financeTxnId);
-  if (scenario.submit.travelRuleTxnId) {
-    mockSumsubTxnClient.primeSubmit(`${deposit.depositNo}-TR`, scenario.submit.travelRuleTxnId);
-  }
+  mockSumsubTxnClient.primeSubmit(deposit.depositNo, scenario.submit.txnId);
 
   for (const step of scenario.steps) {
     if (step.primeTxn) {
