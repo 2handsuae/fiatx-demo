@@ -290,18 +290,22 @@ export class DepositTransactionsService {
       } catch {
         return null;
       }
+      // JSON.parse 对合法但非对象的 JSON(如 "null"/"123"/'"str"')不抛,紧接着的
+      // 属性访问会在 null 上炸 → 未捕获 500。这里挡住非对象结果。
+      if (d === null || typeof d !== 'object') return null;
       const sr = d.scoringResult ?? {};
       return {
         verdict: d.verdict ?? null,
         reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
         score: sr.score ?? null,
-        matchedRules: (sr.matchedRules ?? []).map((r: any) => ({
+        matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
           id: r.id,
           name: r.name,
           action: r.action,
           score: r.score,
         })),
         applicantActionIds: (sr.applicantActions ?? [])
+          .filter(Boolean)
           .map((a: any) => a.applicantActionId)
           .filter(Boolean),
         tags: (d.typedTags ?? []).map((t: any) => t.label),

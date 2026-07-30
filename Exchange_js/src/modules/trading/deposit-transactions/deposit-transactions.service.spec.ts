@@ -951,6 +951,59 @@ describe('DepositTransactionsService', () => {
       expect(result.financeDetail.applicantActionIds).toEqual(['act-1', 'act-2']);
     });
 
+    it('parseDetail: financeTxnDetailJson = "null" (valid JSON, value null) does not throw; financeDetail is null', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        financeTxnDetailJson: 'null',
+        travelRuleTxnDetailJson: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.financeDetail).toBeNull();
+    });
+
+    it('parseDetail: non-object JSON (e.g. "123") does not throw; financeDetail is null', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        financeTxnDetailJson: '123',
+        travelRuleTxnDetailJson: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.financeDetail).toBeNull();
+    });
+
+    it('parseDetail: null elements in matchedRules/applicantActions are filtered out, valid entries survive', async () => {
+      const jsonWithNulls = JSON.stringify({
+        verdict: 'GREEN',
+        scoringResult: {
+          score: 87,
+          matchedRules: [null, { id: 'A', name: 'x', action: 'reject', score: 5 }],
+          applicantActions: [null, { applicantActionId: 'act-1' }],
+        },
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        financeTxnDetailJson: jsonWithNulls,
+        travelRuleTxnDetailJson: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.financeDetail.matchedRules).toEqual([
+        { id: 'A', name: 'x', action: 'reject', score: 5 },
+      ]);
+      expect(result.financeDetail.applicantActionIds).toEqual(['act-1']);
+    });
+
     it('returns approvals as single-header-only (no steps/step), regardless of status', async () => {
       approvalsService.list.mockResolvedValue({
         total: 2,
