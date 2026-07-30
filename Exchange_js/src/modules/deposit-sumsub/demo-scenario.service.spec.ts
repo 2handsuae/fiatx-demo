@@ -118,6 +118,24 @@ describe('DepositDemoScenarioService', () => {
     });
   });
 
+  it('S3_SANCTIONS: primeTxn 喂料时,raw.id 被同步成实际铸出的 txnId,而非 fixture 槽位名', async () => {
+    // demo-scenario.service.ts:93-102 —— fixture 的 raw 报文自带一个 `id` 字段(真 Sumsub
+    // getTxn 形态),值是槽位名(如 'T3')而非现铸的真实 txnId;runner 必须把它同步成
+    // mintedId,否则详情页折叠原文里的号和 Sumsub References 卡片上的号对不上。
+    const service = buildService();
+    const primeTxnSpy = jest.spyOn(mockClient, 'primeTxn');
+
+    await service.runScenario('deposit-1', 'S3_SANCTIONS', actor);
+
+    expect(primeTxnSpy).toHaveBeenCalledTimes(1);
+    const [mintedId, detail] = primeTxnSpy.mock.calls[0];
+    expect(mintedId).toMatch(OBJECT_ID);
+    expect(mintedId).not.toBe('T3');
+    expect(detail.txnId).toBe(mintedId);
+    expect((detail.raw as Record<string, unknown>).id).toBe(mintedId);
+    expect((detail.raw as Record<string, unknown>).id).not.toBe('T3');
+  });
+
   it('已过 Gate 0 的单:复用该单自己的 txnId,不铸新号(否则 webhook 全成孤儿)', async () => {
     depositService.findOne.mockResolvedValue({
       ...deposit,

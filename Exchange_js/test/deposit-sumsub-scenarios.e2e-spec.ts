@@ -445,6 +445,17 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
 
       const deposit = await createDepositAtCompliancePending(scenario, { isCrypto: false, amount });
 
+      // Decision 7: approved also pulls getTxn (evidence alignment) — prime a clean
+      // approved detail for this test's own dynamic txnId before feeding the webhook,
+      // or MockSumsubTxnClient.getTxn throws "Unknown txn".
+      mockSumsubTxnClient.primeTxn(scenario.submit.financeTxnId, {
+        txnId: scenario.submit.financeTxnId,
+        verdict: 'approved',
+        reviewAnswer: 'GREEN',
+        riskScore: 5,
+        typedTags: [],
+      });
+
       // ingest() with isSimulated:true bypasses ingestion-layer dedupe on purpose —
       // this test targets workflow/handler-layer idempotency (applyKytVerdict's
       // KYT_VERDICT_TERMINAL_STATUSES short-circuit), a separate layer from the
@@ -478,6 +489,17 @@ describe('Deposit Sumsub scenarios (e2e, Task 12)', () => {
       const amount = '70.00';
 
       const deposit = await createDepositAtCompliancePending(scenario, { isCrypto: false, amount });
+
+      // Decision 7: approved also pulls getTxn (evidence alignment) — prime a clean
+      // approved detail for this test's own dynamic txnId before feeding the webhook,
+      // or MockSumsubTxnClient.getTxn throws "Unknown txn".
+      mockSumsubTxnClient.primeTxn(scenario.submit.financeTxnId, {
+        txnId: scenario.submit.financeTxnId,
+        verdict: 'approved',
+        reviewAnswer: 'GREEN',
+        riskScore: 5,
+        typedTags: [],
+      });
 
       // Approved FIRST (out of the fixture's natural Created→Approved order).
       await ingestionService.ingest(
