@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
 import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from './sumsub-txn-client.interface';
-import { KytLane, KytVerdict } from './sumsub-txn.types';
+import { KytVerdict } from './sumsub-txn.types';
 
 // payload.type → 归一 verdict;'ignore' = Reviewed,不推进状态机。
 const VERDICT_BY_TYPE: Record<string, KytVerdict | 'ignore'> = {
@@ -50,11 +50,6 @@ export class DepositKytVerdictHandler {
       return;
     }
 
-    // 一笔 deposit 报两笔 txn(finance + travelRule),webhook 只带 kytTxnId。
-    // 反查落在哪条泳道,决定裁决回写 financeStatus 还是 travelRuleStatus。
-    const lane: KytLane =
-      deposit.sumsubTravelRuleTxnId === kytTxnId ? 'TRAVEL_RULE' : 'FINANCE';
-
     let sceneTag: 'SANCTION' | 'PEP' | undefined;
     let dispoTag: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' | undefined;
     // 风险分只有在已经拉了 txn 详情时才拿得到;approved 路径不额外多打一次 API
@@ -77,7 +72,6 @@ export class DepositKytVerdictHandler {
 
     await this.workflow.applyKytVerdict(deposit.id, {
       verdict,
-      lane,
       riskScore,
       ...(sceneTag && { sceneTag }),
       ...(dispoTag && { dispoTag }),

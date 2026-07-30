@@ -37,11 +37,9 @@ describe('DepositWorkflowService', () => {
   beforeEach(async () => {
     depositService = {
       getOwnerComplianceStatus: jest.fn(),
-      initializeComplianceGates: jest.fn(),
       updateStatus: jest.fn(),
       findOne: jest.fn(),
-      updateFinanceStatus: jest.fn(),
-      updateTravelRuleStatus: jest.fn(),
+      updateSumsubVerdict: jest.fn(),
       saveTxnDetail: jest.fn().mockResolvedValue(undefined),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxnIds: jest.fn().mockResolvedValue(undefined),
@@ -102,9 +100,8 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('handleDepositStatusChanged — Gate 0', () => {
-    it('initializes compliance gates when entering COMPLIANCE_PENDING with normal customer', async () => {
+    it('runs Gate 0 when entering COMPLIANCE_PENDING with normal customer', async () => {
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
-      depositService.initializeComplianceGates.mockResolvedValue({});
       depositService.findOne.mockResolvedValue({ id: 'dep-1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'cust-1', traceId: null });
 
       const event = new DepositStatusChangedEvent(
@@ -117,7 +114,6 @@ describe('DepositWorkflowService', () => {
       await service.handleDepositStatusChanged(event);
 
       expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-1');
-      expect(depositService.initializeComplianceGates).toHaveBeenCalledWith('dep-1');
     });
 
     it('freezes deposit when customer complianceStatus is FROZEN', async () => {
@@ -139,7 +135,6 @@ describe('DepositWorkflowService', () => {
           reason: expect.stringContaining('FROZEN'),
         }),
       );
-      expect(depositService.initializeComplianceGates).not.toHaveBeenCalled();
     });
 
     it('freezes deposit when customer complianceStatus is SUSPENDED', async () => {
@@ -211,7 +206,6 @@ describe('DepositWorkflowService', () => {
 
     beforeEach(() => {
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
-      depositService.initializeComplianceGates.mockResolvedValue({});
     });
 
     it('fiat deposit with applicantId → submits finance leg once and persists sumsubFinanceTxnId', async () => {
@@ -282,8 +276,6 @@ describe('DepositWorkflowService', () => {
 
       expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
       expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
-      // Rest of Gate 0 still runs (gates initialize; deposit itself stays in COMPLIANCE_PENDING).
-      expect(depositService.initializeComplianceGates).toHaveBeenCalledWith('dep-sub-fiat');
       // No submission happened → no DEPOSIT_SUMSUB_SUBMITTED audit entry.
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED }),
@@ -302,7 +294,7 @@ describe('DepositWorkflowService', () => {
       expect(depositService.setSumsubTxnIds).not.toHaveBeenCalled();
     });
 
-    it('I2: submitTxn throws (real HTTP failure) → runGate0 does not throw, deposit stays COMPLIANCE_PENDING, initializeComplianceGates still runs', async () => {
+    it('I2: submitTxn throws (real HTTP failure) → runGate0 does not throw, deposit stays COMPLIANCE_PENDING', async () => {
       depositService.findOne.mockResolvedValue(baseFiatDeposit);
       sumsubTxnClient.submitTxn.mockRejectedValue(new Error('ECONNREFUSED: Sumsub unreachable'));
 
@@ -314,9 +306,8 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_SUMSUB_SUBMITTED }),
       );
-      // Gate 0 must NOT be strand: initializeComplianceGates still runs, deposit is not
-      // touched via updateStatus (i.e. it stays wherever it already is — COMPLIANCE_PENDING).
-      expect(depositService.initializeComplianceGates).toHaveBeenCalledWith('dep-sub-fiat');
+      // Gate 0 must NOT be strand: deposit is not touched via updateStatus
+      // (i.e. it stays wherever it already is — COMPLIANCE_PENDING).
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
   });
@@ -1169,9 +1160,9 @@ describe('DepositWorkflowService', () => {
     });
   });
 
-  describe('applyKytVerdict — L2 闸门字段回写', () => {
-    // 回归防线:新 KYT-only 管道曾经只驱动状态机、不回写闸门字段,导致制裁命中冻结的
-    // 单子在 admin 详情页 L2 仍显示 financeStatus=PENDING、风险分空白 —— operator 看不出
+  describe('applyKytVerdict — 展示投影回写(sumsubVerdict/sumsubScore)', () => {
+    // 回归防线:新 KYT-only 管道曾经只驱动状态机、不回写展示字段,导致制裁命中冻结的
+    // 单子在 admin 详情页 L2 仍显示 sumsubVerdict=null、风险分空白 —— operator 看不出
     // 这笔单为什么被冻(2026-07-29 live demo 实测发现)。
     function gateDeposit(id: string, status = DepositTransactionStatus.COMPLIANCE_PENDING) {
       return {
@@ -1181,53 +1172,36 @@ describe('DepositWorkflowService', () => {
         ownerType: 'FIRM',
         ownerId: 'firm-1',
         traceId: null,
-        financeRiskScore: null,
+        sumsubScore: null,
       };
     }
 
-    it('rejected(FINANCE 泳道)→ financeStatus=FAILED + 落风险分', async () => {
+    it('rejected → updateSumsubVerdict 写原值 + 落风险分', async () => {
       const deposit = gateDeposit('dep-gate-1');
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit });
 
       await service.applyKytVerdict('dep-gate-1', {
         verdict: 'rejected',
-        lane: 'FINANCE',
         riskScore: 98,
         sceneTag: 'SANCTION',
       });
 
-      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-1', 'FAILED', 98);
-      expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
+      expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith('dep-gate-1', 'rejected', 98);
     });
 
-    it('approved(TRAVEL_RULE 泳道)→ 只写 travelRuleStatus,不碰 financeStatus', async () => {
-      const deposit = gateDeposit('dep-gate-2');
-      depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({ ...deposit });
-
-      await service.applyKytVerdict('dep-gate-2', {
-        verdict: 'approved',
-        lane: 'TRAVEL_RULE',
-        riskScore: null,
-      });
-
-      expect(depositService.updateTravelRuleStatus).toHaveBeenCalledWith('dep-gate-2', 'PASSED');
-      expect(depositService.updateFinanceStatus).not.toHaveBeenCalled();
-    });
-
-    it('onHold / awaitUser → 写未决态,不写成 FAILED', async () => {
+    it('onHold / awaitUser → 原值写回,不做任何翻译', async () => {
       const deposit = gateDeposit('dep-gate-3');
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit });
 
-      await service.applyKytVerdict('dep-gate-3', { verdict: 'onHold', lane: 'FINANCE' });
-      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-3', 'ON_HOLD', null);
+      await service.applyKytVerdict('dep-gate-3', { verdict: 'onHold' });
+      expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith('dep-gate-3', 'onHold', null);
 
-      await service.applyKytVerdict('dep-gate-3', { verdict: 'awaitUser', lane: 'FINANCE' });
-      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith(
+      await service.applyKytVerdict('dep-gate-3', { verdict: 'awaitUser' });
+      expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith(
         'dep-gate-3',
-        'AWAITING_USER',
+        'awaitUser',
         null,
       );
     });
@@ -1238,25 +1212,13 @@ describe('DepositWorkflowService', () => {
 
       await service.applyKytVerdict('dep-gate-4', {
         verdict: 'approved',
-        lane: 'FINANCE',
         riskScore: 5,
       });
 
-      expect(depositService.updateFinanceStatus).not.toHaveBeenCalled();
-      expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
+      expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
     });
 
-    it('未给 lane 的老调用方 → 按 FINANCE 处理,不静默丢弃', async () => {
-      const deposit = gateDeposit('dep-gate-5');
-      depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({ ...deposit });
-
-      await service.applyKytVerdict('dep-gate-5', { verdict: 'approved' });
-
-      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-5', 'PASSED', null);
-    });
-
-    it('detailRaw 透传(FINANCE 泳道)→ saveTxnDetail 写 financeTxnDetailJson 列', async () => {
+    it('detailRaw 透传 → saveTxnDetail 写 sumsubTxnDetailJson 列(两参,无 lane)', async () => {
       const deposit = gateDeposit('dep-gate-6');
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit });
@@ -1264,34 +1226,12 @@ describe('DepositWorkflowService', () => {
       const raw = { txnId: 'T-FIN', foo: 'bar' };
       await service.applyKytVerdict('dep-gate-6', {
         verdict: 'approved',
-        lane: 'FINANCE',
         riskScore: 10,
         detailRaw: raw,
       });
 
       expect(depositService.saveTxnDetail).toHaveBeenCalledWith(
         'dep-gate-6',
-        'FINANCE',
-        JSON.stringify(raw),
-      );
-    });
-
-    it('detailRaw 透传(TRAVEL_RULE 泳道)→ saveTxnDetail 写 travelRuleTxnDetailJson 列', async () => {
-      const deposit = gateDeposit('dep-gate-7');
-      depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({ ...deposit });
-
-      const raw = { txnId: 'T-TR' };
-      await service.applyKytVerdict('dep-gate-7', {
-        verdict: 'approved',
-        lane: 'TRAVEL_RULE',
-        riskScore: null,
-        detailRaw: raw,
-      });
-
-      expect(depositService.saveTxnDetail).toHaveBeenCalledWith(
-        'dep-gate-7',
-        'TRAVEL_RULE',
         JSON.stringify(raw),
       );
     });
@@ -1302,7 +1242,6 @@ describe('DepositWorkflowService', () => {
 
       await service.applyKytVerdict('dep-gate-8', {
         verdict: 'approved',
-        lane: 'FINANCE',
         riskScore: 5,
         detailRaw: { txnId: 'late' },
       });
@@ -1315,52 +1254,48 @@ describe('DepositWorkflowService', () => {
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit });
 
-      await service.applyKytVerdict('dep-gate-9', { verdict: 'approved', lane: 'FINANCE' });
+      await service.applyKytVerdict('dep-gate-9', { verdict: 'approved' });
 
       expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
     });
 
     // 终审 Important #1:FROZEN 不在 KYT_VERDICT_TERMINAL_STATUSES 里,所以此前迟到/
-    // 重评的 approved webhook 会先把 financeStatus FAILED→PASSED、再用 approved 报文
-    // 覆写既有的制裁报文(financeRiskScore 98→5),尽管状态机随后在 applyKytApproved 的
+    // 重评的 approved webhook 会先把 sumsubVerdict rejected→approved、再用 approved 报文
+    // 覆写既有的制裁报文(sumsubScore 98→5),尽管状态机随后在 applyKytApproved 的
     // FROZEN 守卫处 no-op(不放行)。结果是 L2 闸门 + Sumsub Transaction Detail 块在一笔
-    // 冻结单上渲染成 PASSED/approved/无制裁证据 —— 制裁证据被静默损坏。
-    it('FROZEN 单收到迟到 approved(带 detailRaw+riskScore)→ 不覆写既有制裁证据(writeBackGateStatus/saveTxnDetail 均跳过)', async () => {
+    // 冻结单上渲染成 approved/无制裁证据 —— 制裁证据被静默损坏。
+    it('FROZEN 单收到迟到 approved(带 detailRaw+riskScore)→ 不覆写既有制裁证据(writeBackVerdict/saveTxnDetail 均跳过)', async () => {
       const deposit = {
         ...gateDeposit('dep-gate-frozen', DepositTransactionStatus.FROZEN),
-        financeStatus: 'FAILED',
-        financeRiskScore: 98,
+        sumsubVerdict: 'rejected',
+        sumsubScore: 98,
       };
       depositService.findOne.mockResolvedValue(deposit);
 
       await service.applyKytVerdict('dep-gate-frozen', {
         verdict: 'approved',
-        lane: 'FINANCE',
         riskScore: 5,
         detailRaw: { txnId: 'late-approved', verdict: 'approved' },
       });
 
-      expect(depositService.updateFinanceStatus).not.toHaveBeenCalled();
-      expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
+      expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
       expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
     });
 
-    it('对照组:MANUAL_CHECKING 单收到 approved → 仍正常写回闸门字段 + 存证(不受 FROZEN 护栏影响,它合法翻案到 SUCCESS)', async () => {
+    it('对照组:MANUAL_CHECKING 单收到 approved → 仍正常写回展示字段 + 存证(不受 FROZEN 护栏影响,它合法翻案到 SUCCESS)', async () => {
       const deposit = gateDeposit('dep-gate-manual', DepositTransactionStatus.MANUAL_CHECKING);
       depositService.findOne.mockResolvedValue(deposit);
       depositService.updateStatus.mockResolvedValue({ ...deposit, status: DepositTransactionStatus.SUCCESS });
 
       await service.applyKytVerdict('dep-gate-manual', {
         verdict: 'approved',
-        lane: 'FINANCE',
         riskScore: 3,
         detailRaw: { txnId: 'overturn-approved' },
       });
 
-      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-manual', 'PASSED', 3);
+      expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith('dep-gate-manual', 'approved', 3);
       expect(depositService.saveTxnDetail).toHaveBeenCalledWith(
         'dep-gate-manual',
-        'FINANCE',
         JSON.stringify({ txnId: 'overturn-approved' }),
       );
     });

@@ -716,44 +716,6 @@ describe('DepositTransactionsService', () => {
     });
   });
 
-  describe('initializeComplianceGates', () => {
-    it('CRYPTO asset → travelRuleRequired true, travelRuleStatus PENDING', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-1',
-        asset: { type: 'CRYPTO' },
-      });
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
-
-      await service.initializeComplianceGates('dep-1');
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        data: {
-          travelRuleRequired: true,
-          travelRuleStatus: 'PENDING',
-        },
-      });
-    });
-
-    it('FIAT asset → travelRuleRequired false, travelRuleStatus NOT_REQUIRED', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-1',
-        asset: { type: 'FIAT' },
-      });
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
-
-      await service.initializeComplianceGates('dep-1');
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        data: {
-          travelRuleRequired: false,
-          travelRuleStatus: 'NOT_REQUIRED',
-        },
-      });
-    });
-  });
-
   describe('detected', () => {
     beforeEach(() => {
       ((prisma as any).wallet.findUnique as jest.Mock).mockResolvedValue({
@@ -798,37 +760,21 @@ describe('DepositTransactionsService', () => {
 
   describe('Compliance Gate Methods', () => {
 
-    it('updateFinanceStatus sets financeStatus, riskScore, and checkedAt', async () => {
-      const mockRecord = { id: 'dep-1', financeStatus: 'PASSED', financeRiskScore: 15, financeCheckedAt: new Date() };
+    it('updateSumsubVerdict sets sumsubVerdict, sumsubScore, and sumsubScoredAt', async () => {
+      const mockRecord = { id: 'dep-1', sumsubVerdict: 'rejected', sumsubScore: 15, sumsubScoredAt: new Date() };
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
 
-      const result = await service.updateFinanceStatus('dep-1', 'PASSED', 15);
+      const result = await service.updateSumsubVerdict('dep-1', 'rejected', 15);
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
-        data: expect.objectContaining({
-          financeStatus: 'PASSED',
-          financeRiskScore: 15,
-          financeCheckedAt: expect.any(Date),
-        }),
+        data: {
+          sumsubVerdict: 'rejected',
+          sumsubScore: 15,
+          sumsubScoredAt: expect.any(Date),
+        },
       });
-      expect(result.financeStatus).toBe('PASSED');
-    });
-
-    it('updateTravelRuleStatus sets travelRuleStatus and checkedAt', async () => {
-      const mockRecord = { id: 'dep-1', travelRuleStatus: 'PASSED', travelRuleCheckedAt: new Date() };
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
-
-      const result = await service.updateTravelRuleStatus('dep-1', 'PASSED');
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        data: expect.objectContaining({
-          travelRuleStatus: 'PASSED',
-          travelRuleCheckedAt: expect.any(Date),
-        }),
-      });
-      expect(result.travelRuleStatus).toBe('PASSED');
+      expect(result.sumsubVerdict).toBe('rejected');
     });
 
     it('setSumsubTxnIds writes only the provided keys (fiat: finance only)', async () => {

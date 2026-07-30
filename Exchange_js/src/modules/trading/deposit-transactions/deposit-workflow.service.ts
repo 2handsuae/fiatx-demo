@@ -193,8 +193,6 @@ export class DepositWorkflowService implements OnModuleInit {
           `deposit remains COMPLIANCE_PENDING for manual handling/retry; Gate 0 continues`,
       );
     }
-
-    await this.depositService.initializeComplianceGates(depositId);
   }
 
   /**
@@ -297,7 +295,6 @@ export class DepositWorkflowService implements OnModuleInit {
     depositId: string,
     v: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
-      lane?: 'FINANCE' | 'TRAVEL_RULE';
       riskScore?: number | null;
       sceneTag?: 'SANCTION' | 'PEP';
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
@@ -321,8 +318,8 @@ export class DepositWorkflowService implements OnModuleInit {
     // FROZEN 是制裁/MLRO 冻结态,不在 KYT_VERDICT_TERMINAL_STATUSES 里(不是终态,还有
     // 解冻/没收/退回等处置出口),所以一笔 approved verdict 会跑到这里。但
     // applyKytApproved 自己的 FROZEN 守卫随后会把它 no-op(不放行、不解冻)——如果闸门
-    // 回写/存证照常执行,就会用 approved 报文覆写既有的制裁报文(financeRiskScore
-    // 98→5、financeStatus FAILED→PASSED),尽管状态机压根没推进。跳过写回/存证,别让
+    // 回写/存证照常执行,就会用 approved 报文覆写既有的制裁报文(sumsubScore
+    // 98→5、sumsubVerdict rejected→approved),尽管状态机压根没推进。跳过写回/存证,别让
     // 一个必然 no-op 的 approved 静默损坏冻结单的制裁证据。MANUAL_CHECKING 不受影响
     // (它是 approved 的合法翻案路径,必须正常写回)。
     const approvedWillNoOpFrozen =
@@ -331,11 +328,11 @@ export class DepositWorkflowService implements OnModuleInit {
     if (!approvedWillNoOpFrozen) {
       // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
       // 终态 no-op 之后、状态流转之前落库——终态单的既有裁决不被迟到 webhook 覆写。
-      await this.writeBackGateStatus(deposit, v.verdict, v.lane, v.riskScore);
+      await this.writeBackVerdict(deposit, v.verdict, v.riskScore);
 
       // Sumsub getTxn 原始报文存证:同样落在终态 no-op 之内,迟到 webhook 不覆写终态单的既有报文。
       if (v.detailRaw !== undefined) {
-        await this.depositService.saveTxnDetail(deposit.id, v.lane ?? 'FINANCE', JSON.stringify(v.detailRaw));
+        await this.depositService.saveTxnDetail(deposit.id, JSON.stringify(v.detailRaw));
       }
     }
 
@@ -355,47 +352,9 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
-  /** KYT 裁决 → L2 闸门展示值。前端 getComplianceLayerStyle 按这四个值上色。 */
-  private static readonly GATE_STATUS_BY_VERDICT: Record<string, string> = {
-    approved: 'PASSED',
-    rejected: 'FAILED',
-    onHold: 'ON_HOLD',
-    awaitUser: 'AWAITING_USER',
-  };
-
-  /**
-   * 把 KYT 裁决回写到对应泳道的闸门字段。
-   *
-   * 一笔 deposit 报两笔 Sumsub 交易(finance + travelRule),webhook 只带 kytTxnId;
-   * 调用方按 deposit 上的两个 txnId 反查泳道。FINANCE → financeStatus/financeRiskScore/
-   * financeCheckedAt;TRAVEL_RULE → travelRuleStatus。
-   *
-   * 为什么必须回写:新 KYT-only 管道(deposit-sumsub)此前只驱动状态机,闸门字段
-   * 停在建单默认值 PENDING —— 结果是制裁命中冻结的单子,admin 详情页 L2 仍显示
-   * PENDING、风险分空白,operator 看不出这笔单为什么被冻。回写只补展示与
-   * checkAutoApproval 的前置读值,**不改任何状态流转**。
-   */
-  private async writeBackGateStatus(
-    deposit: any,
-    verdict: string,
-    lane: 'FINANCE' | 'TRAVEL_RULE' | undefined,
-    riskScore: number | null | undefined,
-  ): Promise<void> {
-    const gateStatus = DepositWorkflowService.GATE_STATUS_BY_VERDICT[verdict];
-    if (!gateStatus) return;
-
-    if (lane === 'TRAVEL_RULE') {
-      await this.depositService.updateTravelRuleStatus(deposit.id, gateStatus);
-      return;
-    }
-
-    // lane 未给(老调用方)按 FINANCE 处理 —— finance 是每笔 deposit 必报的主交易。
-    // 风险分只在拉过 txn 详情时有值;没有就保留库里既有值,不用 null 抹掉。
-    await this.depositService.updateFinanceStatus(
-      deposit.id,
-      gateStatus,
-      riskScore ?? deposit.financeRiskScore ?? null,
-    );
+  /** webhook 裁决 → 展示投影(sumsubVerdict/sumsubScore)。仅供 L2 显示,不作决策依据。 */
+  private async writeBackVerdict(deposit: any, verdict: string, score: number | null | undefined) {
+    await this.depositService.updateSumsubVerdict(deposit.id, verdict, score ?? deposit.sumsubScore ?? null);
   }
 
   /**
@@ -631,7 +590,10 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   async applyKytResult(depositId: string, kytStatus: string, riskScore?: number | null) {
-    await this.depositService.updateFinanceStatus(depositId, kytStatus, riskScore);
+    // Old mock KYT pipeline, slated for retirement (泳道删除的连带项:updateFinanceStatus
+    // no longer exists — this is a compile-only rename, not a semantic fix; full
+    // retirement of applyKytResult/applyTrResult is a separate follow-up task).
+    await this.depositService.updateSumsubVerdict(depositId, kytStatus, riskScore);
 
     const deposit = await this.depositService.findOne(depositId);
     await this.auditLogsService.recordSystem({
@@ -652,7 +614,8 @@ export class DepositWorkflowService implements OnModuleInit {
   }
 
   async applyTrResult(depositId: string, trStatus: string) {
-    await this.depositService.updateTravelRuleStatus(depositId, trStatus);
+    // Same compile-only rename as applyKytResult above (updateTravelRuleStatus removed).
+    await this.depositService.updateSumsubVerdict(depositId, trStatus);
 
     const deposit = await this.depositService.findOne(depositId);
     await this.auditLogsService.recordSystem({

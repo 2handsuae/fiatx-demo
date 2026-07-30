@@ -56,7 +56,6 @@ describe('DepositKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).toHaveBeenCalledTimes(1);
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'approved',
-      lane: 'FINANCE',
       riskScore: 92,
       detailRaw: detail.raw,
     });
@@ -71,7 +70,6 @@ describe('DepositKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'rejected',
-      lane: 'FINANCE',
       riskScore: 87,
       sceneTag: 'SANCTION',
       detailRaw: detail.raw,
@@ -86,7 +84,6 @@ describe('DepositKytVerdictHandler', () => {
 
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'rejected',
-      lane: 'FINANCE',
       riskScore: 87,
       dispoTag: 'FROZEN_BY_MLRO',
       detailRaw: detail.raw,
@@ -102,47 +99,8 @@ describe('DepositKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'awaitUser',
-      lane: 'FINANCE',
       riskScore: 87,
       sceneTag: 'PEP',
-      detailRaw: detail.raw,
-    });
-  });
-
-  it('lane=TRAVEL_RULE when the webhook txnId matches the travel-rule leg', async () => {
-    depositService.findBySumsubTxnId.mockResolvedValue({
-      id: DEPOSIT_ID,
-      sumsubFinanceTxnId: 'FIN-1',
-      sumsubTravelRuleTxnId: 'TR-1',
-    } as any);
-    const detail = txnDetail([], 42);
-    sumsubTxnClient.getTxn.mockResolvedValue(detail);
-
-    await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'TR-1' });
-
-    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
-      verdict: 'approved',
-      lane: 'TRAVEL_RULE',
-      riskScore: 42,
-      detailRaw: detail.raw,
-    });
-  });
-
-  it('lane=FINANCE when the webhook txnId matches the finance leg', async () => {
-    depositService.findBySumsubTxnId.mockResolvedValue({
-      id: DEPOSIT_ID,
-      sumsubFinanceTxnId: 'FIN-1',
-      sumsubTravelRuleTxnId: 'TR-1',
-    } as any);
-    const detail = txnDetail([], 42);
-    sumsubTxnClient.getTxn.mockResolvedValue(detail);
-
-    await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'FIN-1' });
-
-    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
-      verdict: 'approved',
-      lane: 'FINANCE',
-      riskScore: 42,
       detailRaw: detail.raw,
     });
   });

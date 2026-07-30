@@ -590,47 +590,16 @@ export class DepositTransactionsService {
     return nextStatus;
   }
 
-  async initializeComplianceGates(id: string) {
-    const deposit = await (this.prisma as any).depositTransaction.findUnique({
-      where: { id },
-      include: { asset: true },
-    });
-    const isCrypto = deposit?.asset?.type === 'CRYPTO';
-
+  async updateSumsubVerdict(id: string, verdict: string, score?: number | null) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
-      data: {
-        travelRuleRequired: isCrypto,
-        travelRuleStatus: isCrypto ? 'PENDING' : 'NOT_REQUIRED',
-      },
+      data: { sumsubVerdict: verdict, sumsubScore: score ?? null, sumsubScoredAt: new Date() },
     });
   }
 
-  async updateFinanceStatus(id: string, status: string, riskScore?: number | null) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: {
-        financeStatus: status,
-        financeRiskScore: riskScore ?? null,
-        financeCheckedAt: new Date(),
-      },
-    });
-  }
-
-  async updateTravelRuleStatus(id: string, status: string) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: {
-        travelRuleStatus: status,
-        travelRuleCheckedAt: new Date(),
-      },
-    });
-  }
-
-  /** Sumsub getTxn 原始报文按泳道存证(乙口径落库):FINANCE → financeTxnDetailJson,TRAVEL_RULE → travelRuleTxnDetailJson。 */
-  async saveTxnDetail(id: string, lane: 'FINANCE' | 'TRAVEL_RULE', json: string) {
-    const col = lane === 'TRAVEL_RULE' ? 'travelRuleTxnDetailJson' : 'financeTxnDetailJson';
-    return (this.prisma as any).depositTransaction.update({ where: { id }, data: { [col]: json } });
+  /** Sumsub getTxn 原始报文存证(乙口径落库)。 */
+  async saveTxnDetail(id: string, json: string) {
+    return (this.prisma as any).depositTransaction.update({ where: { id }, data: { sumsubTxnDetailJson: json } });
   }
 
   /**
@@ -684,15 +653,12 @@ export class DepositTransactionsService {
 
   /**
    * Sumsub KYT webhooks carry the txn id we handed it at submission time
-   * (sumsubFinanceTxnId for the finance leg, sumsubTravelRuleTxnId for the
-   * travel-rule leg). Neither is the deposit's own id, so this is a stable
-   * business-key lookup, not an id-as-contract query.
+   * (sumsubTxnId). Not the deposit's own id, so this is a stable business-key
+   * lookup, not an id-as-contract query.
    */
   async findBySumsubTxnId(txnId: string) {
     return (this.prisma as any).depositTransaction.findFirst({
-      where: {
-        OR: [{ sumsubFinanceTxnId: txnId }, { sumsubTravelRuleTxnId: txnId }],
-      },
+      where: { sumsubTxnId: txnId },
     });
   }
 
