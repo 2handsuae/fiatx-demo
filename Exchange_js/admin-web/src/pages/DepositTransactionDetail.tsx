@@ -732,6 +732,14 @@ const DepositTransactionDetail = () => {
             </SidebarGroup>
           )}
 
+          {/* Manual checking — no action buttons; disposition happens in
+              Sumsub, not here (see 2026-07-29 deposit-frontend spec §2.2). */}
+          {data.status === 'MANUAL_CHECKING' && (
+            <p className="mb-4 font-mono text-[11px] text-adm-t3">
+              Disposition happens in the Sumsub console (officer tags the txn, then re-rejects).
+            </p>
+          )}
+
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Deposit No" value={data.depositNo} mono />
