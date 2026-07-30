@@ -15,6 +15,7 @@
 | 5 | **存证颗粒度 = 乙:每腿只留最新一份 `getTxn` 全报文,后盖前**(不建历史表) | 业主:「要乙就行」 |
 | 6 | **不单独拉 amlCase 明细**;证据链止于 tag(SANCTION)+ score(98)+ 报文里的 `counterpartyAmlCaseId` 引用号 | 业主:「amlCase 明细不用单独拉」 |
 | 7 | **approved 也拉一次 `getTxn`**(现状为省一次 API 只在 rejected/awaitUser 拉)——否则 happy path 单无 score、无报文,证据不对齐 | 业主早前:「为什么放行和为什么冻结同样要举证」。⚠️ 本轮新增,spec review 时可否决 |
+| 8 | **详情页展示 deposit 的内部审批单**:范围=**全部**(含历史/驳回),颗粒度=**仅审批单头**(不含 step) | 业主 2026-07-30 加需求 + 拍板范围/颗粒度。零 schema 改动,`entityRef=deposit.id` 反查(§3.4b) |
 
 ## 1. 数据模型
 
@@ -104,6 +105,19 @@ Travel Rule Txn ID │ TR Txn status    │ Received At
 - **Applicant Action IDs**:`applicantActions[].applicantActionId`(补料动作引用)
 - **原始全报文**:折叠展示(`<details>` 或等价),供 operator 需要时看全文。上游厂商分在原文里,不单列。
 
+### 3.4b Internal Approvals(内部审批单,业主 2026-07-30 加需求)
+详情页新增一块「Internal Approvals」(**放订单下方**,挨着 §3.4)。展示这单开过的**全部**审批单(所有类型、所有状态,含已通过/已驳回的历史——取证视角要留驳回记录)。
+
+**零 schema 改动**:四种充值审批(`DEPOSIT_CONFISCATION` / `DEPOSIT_RETURN` / `DEPOSIT_SEIZE` / `DEPOSIT_UNFREEZE`)发起时全部 `entityRef = deposit.id`(`deposit-workflow.service.ts` 四处 `createAndSubmit`),`ApprovalsService.list()` 已支持 `entityRef` 过滤(`approvals.service.ts:881`),表上有 `@@index([actionType, entityRef, status])`。反查即得,不加列、不新表。
+
+**后端**:`findOneForAdmin` 带出 `approvals: []` —— 调 `approvalsService.list({ entityRef: deposit.id })`,每条**只取审批单头**(业主定:不含 step):
+- `approvalNo` / `actionType`(映射成中文/英文动作名) / `status`(DRAFT/PENDING/APPROVED/REJECTED/…) / `createdAt`
+- **不带 steps**(谁批的、批语不展示)
+
+**前端**:一行一单——动作名 + 审批号 + 状态徽章 + 发起时间,可点进审批中心(`/admin/approvals/<no>` 或现有路由)看详情。空态:「No internal approvals」。
+
+**顺带结清 BACKLOG**:删除现有那个存 local state、刷新即丢的 `lastApprovalNo` 横幅(`DepositTransactionDetail.tsx:166/470`,BACKLOG「approval banner lost on refresh」)——改由本模块持久反查,横幅债一并结清。
+
 ### 3.5 删除大 ACTIONS 块(业主指令 #4)
 详情页右侧那个通用 ACTIONS 组(Approve/Freeze/Resume/Expire/Reject/Confiscate)**删除**——不同场景的动作已由各自的按钮承载(FROZEN 的 Seize/Unfreeze、below-min 的 PASS/Confiscate、Simulation 面板)。删除后确认无状态失去唯一入口(逐状态核对:见 §5 验证)。
 
@@ -116,12 +130,12 @@ Travel Rule Txn ID │ TR Txn status    │ Received At
 
 ## 5. 验证
 1. **单测**:①存证——rejected/awaitUser/**approved** 三路都断言 `financeTxnDetailJson` 落库、按 lane 分列;②改名——`financeStatus` 回写、`checkAutoApproval` 读新字段不回归;③TR 二元映射。
-2. **渲染验证(项目铁律)**:真起服务 + mock 喂 S1(happy)/S3(制裁)两场景,截图比对:PAYIN PENDING / COMPLIANCE PENDING 新文案、L2 Finance+TR、References 三件套、订单下方 Transaction Detail(score+matchedRules)、大 ACTIONS 已消失。
+2. **渲染验证(项目铁律)**:真起服务 + mock 喂 S1(happy)/S3(制裁)两场景,截图比对:PAYIN PENDING / COMPLIANCE PENDING 新文案、L2 Finance+TR、References 三件套、订单下方 Transaction Detail(score+matchedRules)、**Internal Approvals**(制裁单走一次 seize/unfreeze 审批后应列出该审批单头)、大 ACTIONS 已消失、刷新后审批模块不丢。
 3. **硬闸**:后端 + admin `tsc` 0;`jest` 不回归(asset-treasury/wallets 4 例 pre-existing 除外);零中文扫描(客户面文案)。
 4. **客户面不泄露**:断言 `GET /deposit-transactions/my` 响应无 `financeTxnDetailJson`/`travelRuleTxnDetailJson`/PII(F9 白名单回归)。
 
 ## 6. 交付物
-Prisma 迁移(rename + 2 新列)+ handler 存证 + approved 拉取 + `findOneForAdmin` 带报文子集 + 详情页(状态文案 / L2 / References 三件套 / Transaction Detail 块 / 删 ACTIONS)+ fixtures 全报文 + 单测 + 渲染截图。
+Prisma 迁移(rename + 2 新列)+ handler 存证 + approved 拉取 + `findOneForAdmin`(带报文子集 + `approvals[]` 反查)+ 详情页(状态文案 / L2 / References 三件套 / Transaction Detail 块 / **Internal Approvals 块** / 删 ACTIONS / 删刷新即丢横幅)+ fixtures 全报文 + 单测 + 渲染截图。
 
 ## 7. 明确不做(本轮 defer,已登记/另立项)
 - **Travel Rule 真实数据交换**:右路补 `paymentTxnId`/对手方地址/链信息、左路入站应答(`ownership/confirmed` + `travelRuleOwnership`)、地址簿批量导入、`applicantKytTxnDataChanged` 订阅、mirrored 识别、13 值 lifecycle。→ 依赖合规先建 VASP 主体 + 答定制问卷(已发邮件),单独立项。
