@@ -89,7 +89,17 @@ export class DepositDemoScenarioService {
     for (const step of scenario.steps) {
       if (step.primeTxn) {
         const mintedId = txnIdFor(step.primeTxn.txnId);
-        mockClient.primeTxn(mintedId, { ...step.primeTxn.detail, txnId: mintedId });
+        const { detail } = step.primeTxn;
+        mockClient.primeTxn(mintedId, {
+          ...detail,
+          txnId: mintedId,
+          // fixture 的 raw 报文自带一个 `id` 字段(真 Sumsub getTxn 形态),值是槽位名
+          // (如 'T3')而非现铸的真实 txnId —— 同步成 mintedId,否则详情页折叠原文里的
+          // 号和 Sumsub References 卡片上的号对不上。
+          ...(detail.raw !== undefined && {
+            raw: { ...(detail.raw as Record<string, unknown>), id: mintedId },
+          }),
+        });
       }
 
       if (step.webhook) {

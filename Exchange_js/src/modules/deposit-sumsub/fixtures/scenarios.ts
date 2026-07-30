@@ -54,6 +54,40 @@ function userTag(label: string): { label: string; type: 'userDefined' } {
   return { label, type: 'userDefined' };
 }
 
+/**
+ * 拼一份近真 getTxn 报文,塞进 `detail.raw`(Task 1 存证字段)。只覆盖
+ * `DepositTransactionsService.findOneForAdmin` 的 `parseDetail` 实际会读的形状——
+ * `scoringResult.{score,matchedRules,applicantActions}` / `review.reviewResult.reviewAnswer` /
+ * `typedTags` ——不追求覆盖 Sumsub 全字段。`id` 是这份报文自己的 txnId 字段(真 Sumsub 形态),
+ * 喂料时会被 `DepositDemoScenarioService.runScenario` 同步成实际铸出的 txnId(见该文件注释)。
+ */
+function buildRawDetail(opts: {
+  txnId: string;
+  verdict: string;
+  score: number;
+  reviewAnswer: 'GREEN' | 'RED' | null;
+  moderationComment: string;
+  matchedRules: { id: string; name: string; action: string; score: number }[];
+  typedTags: { label: string; type: 'system' | 'userDefined' }[];
+}): Record<string, unknown> {
+  return {
+    id: opts.txnId,
+    verdict: opts.verdict,
+    scoringResult: {
+      score: opts.score,
+      matchedRules: opts.matchedRules,
+      applicantActions: [],
+    },
+    review: {
+      reviewResult: {
+        reviewAnswer: opts.reviewAnswer,
+        moderationComment: opts.moderationComment,
+      },
+    },
+    typedTags: opts.typedTags,
+  };
+}
+
 export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
   S1_HAPPY_FIAT: {
     key: 'S1_HAPPY_FIAT',
@@ -88,7 +122,22 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T3',
-          detail: { txnId: 'T3', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 98, typedTags: [userTag('SANCTION')] },
+          detail: {
+            txnId: 'T3',
+            verdict: 'rejected',
+            reviewAnswer: 'RED',
+            riskScore: 98,
+            typedTags: [userTag('SANCTION')],
+            raw: buildRawDetail({
+              txnId: 'T3',
+              verdict: 'rejected',
+              score: 98,
+              reviewAnswer: 'RED',
+              moderationComment: 'Counterparty address matches an OFAC SDN sanctions list entry.',
+              matchedRules: [{ id: 'AML1', name: 'Sanctions match', action: 'reject', score: 98 }],
+              typedTags: [userTag('SANCTION')],
+            }),
+          },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T3' },
       },
@@ -106,7 +155,22 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T4',
-          detail: { txnId: 'T4', verdict: 'awaitUser', reviewAnswer: null, riskScore: 71, typedTags: [userTag('PEP')] },
+          detail: {
+            txnId: 'T4',
+            verdict: 'awaitUser',
+            reviewAnswer: null,
+            riskScore: 71,
+            typedTags: [userTag('PEP')],
+            raw: buildRawDetail({
+              txnId: 'T4',
+              verdict: 'awaitUser',
+              score: 71,
+              reviewAnswer: null,
+              moderationComment: 'Counterparty flagged as a politically exposed person — awaiting enhanced due diligence documents.',
+              matchedRules: [{ id: 'AML2', name: 'PEP match', action: 'awaitUser', score: 71 }],
+              typedTags: [userTag('PEP')],
+            }),
+          },
         },
         webhook: { type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T4' },
       },
@@ -125,7 +189,22 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T5',
-          detail: { txnId: 'T5', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 84, typedTags: [] },
+          detail: {
+            txnId: 'T5',
+            verdict: 'rejected',
+            reviewAnswer: 'RED',
+            riskScore: 84,
+            typedTags: [],
+            raw: buildRawDetail({
+              txnId: 'T5',
+              verdict: 'rejected',
+              score: 84,
+              reviewAnswer: 'RED',
+              moderationComment: 'Transaction flagged by the risk engine for manual compliance review.',
+              matchedRules: [{ id: 'AML3', name: 'High-risk transaction pattern', action: 'reject', score: 84 }],
+              typedTags: [],
+            }),
+          },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T5' },
       },
@@ -138,6 +217,15 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
             reviewAnswer: 'RED',
             riskScore: 84,
             typedTags: [userTag('FROZEN_BY_MLRO')],
+            raw: buildRawDetail({
+              txnId: 'T5',
+              verdict: 'rejected',
+              score: 84,
+              reviewAnswer: 'RED',
+              moderationComment: 'MLRO reviewed and confirmed high-risk — funds frozen pending investigation.',
+              matchedRules: [{ id: 'AML3', name: 'High-risk transaction pattern', action: 'reject', score: 84 }],
+              typedTags: [userTag('FROZEN_BY_MLRO')],
+            }),
           },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T5' },
@@ -158,7 +246,22 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T6',
-          detail: { txnId: 'T6', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 79, typedTags: [] },
+          detail: {
+            txnId: 'T6',
+            verdict: 'rejected',
+            reviewAnswer: 'RED',
+            riskScore: 79,
+            typedTags: [],
+            raw: buildRawDetail({
+              txnId: 'T6',
+              verdict: 'rejected',
+              score: 79,
+              reviewAnswer: 'RED',
+              moderationComment: 'Transaction flagged by the risk engine for manual compliance review.',
+              matchedRules: [{ id: 'AML4', name: 'High-risk transaction pattern', action: 'reject', score: 79 }],
+              typedTags: [],
+            }),
+          },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T6' },
       },
@@ -171,6 +274,15 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
             reviewAnswer: 'RED',
             riskScore: 79,
             typedTags: [userTag('RETURN_TO_SENDER')],
+            raw: buildRawDetail({
+              txnId: 'T6',
+              verdict: 'rejected',
+              score: 79,
+              reviewAnswer: 'RED',
+              moderationComment: 'MLRO reviewed — insufficient evidence of wrongdoing, funds to be returned to sender.',
+              matchedRules: [{ id: 'AML4', name: 'High-risk transaction pattern', action: 'reject', score: 79 }],
+              typedTags: [userTag('RETURN_TO_SENDER')],
+            }),
           },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T6' },
@@ -189,7 +301,22 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
       {
         primeTxn: {
           txnId: 'T7',
-          detail: { txnId: 'T7', verdict: 'rejected', reviewAnswer: 'RED', riskScore: 62, typedTags: [] },
+          detail: {
+            txnId: 'T7',
+            verdict: 'rejected',
+            reviewAnswer: 'RED',
+            riskScore: 62,
+            typedTags: [],
+            raw: buildRawDetail({
+              txnId: 'T7',
+              verdict: 'rejected',
+              score: 62,
+              reviewAnswer: 'RED',
+              moderationComment: 'Transaction flagged by the risk engine for manual compliance review — pending officer decision.',
+              matchedRules: [{ id: 'AML5', name: 'High-risk transaction pattern', action: 'reject', score: 62 }],
+              typedTags: [],
+            }),
+          },
         },
         webhook: { type: 'applicantKytTxnRejected', kytTxnId: 'T7' },
       },
