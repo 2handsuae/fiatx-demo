@@ -1319,6 +1319,51 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
     });
+
+    // 终审 Important #1:FROZEN 不在 KYT_VERDICT_TERMINAL_STATUSES 里,所以此前迟到/
+    // 重评的 approved webhook 会先把 financeStatus FAILED→PASSED、再用 approved 报文
+    // 覆写既有的制裁报文(financeRiskScore 98→5),尽管状态机随后在 applyKytApproved 的
+    // FROZEN 守卫处 no-op(不放行)。结果是 L2 闸门 + Sumsub Transaction Detail 块在一笔
+    // 冻结单上渲染成 PASSED/approved/无制裁证据 —— 制裁证据被静默损坏。
+    it('FROZEN 单收到迟到 approved(带 detailRaw+riskScore)→ 不覆写既有制裁证据(writeBackGateStatus/saveTxnDetail 均跳过)', async () => {
+      const deposit = {
+        ...gateDeposit('dep-gate-frozen', DepositTransactionStatus.FROZEN),
+        financeStatus: 'FAILED',
+        financeRiskScore: 98,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-gate-frozen', {
+        verdict: 'approved',
+        lane: 'FINANCE',
+        riskScore: 5,
+        detailRaw: { txnId: 'late-approved', verdict: 'approved' },
+      });
+
+      expect(depositService.updateFinanceStatus).not.toHaveBeenCalled();
+      expect(depositService.updateTravelRuleStatus).not.toHaveBeenCalled();
+      expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
+    });
+
+    it('对照组:MANUAL_CHECKING 单收到 approved → 仍正常写回闸门字段 + 存证(不受 FROZEN 护栏影响,它合法翻案到 SUCCESS)', async () => {
+      const deposit = gateDeposit('dep-gate-manual', DepositTransactionStatus.MANUAL_CHECKING);
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit, status: DepositTransactionStatus.SUCCESS });
+
+      await service.applyKytVerdict('dep-gate-manual', {
+        verdict: 'approved',
+        lane: 'FINANCE',
+        riskScore: 3,
+        detailRaw: { txnId: 'overturn-approved' },
+      });
+
+      expect(depositService.updateFinanceStatus).toHaveBeenCalledWith('dep-gate-manual', 'PASSED', 3);
+      expect(depositService.saveTxnDetail).toHaveBeenCalledWith(
+        'dep-gate-manual',
+        'FINANCE',
+        JSON.stringify({ txnId: 'overturn-approved' }),
+      );
+    });
   });
 
   describe('applyKytVerdict — Task 7 state transitions', () => {

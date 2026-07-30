@@ -295,7 +295,12 @@ export class DepositTransactionsService {
       if (d === null || typeof d !== 'object') return null;
       const sr = d.scoringResult ?? {};
       return {
-        verdict: d.verdict ?? null,
+        // 生产 HttpSumsubTxnClient.getTxn 的 raw(SumsubKytTxnResponse)没有顶层 verdict
+        // 字段,只有 scoringResult.action(Sumsub 规则动作:score/onHold/awaitUser/reject)
+        // 和 review.reviewResult.reviewAnswer —— 只有 fixtures 的 buildRawDetail 才塞了
+        // 顶层 verdict。回退到 scoringResult.action,否则生产环境下这里恒为 null,详情页
+        // Verdict 行空白。
+        verdict: d.verdict ?? sr.action ?? null,
         reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
         score: sr.score ?? null,
         matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
@@ -308,7 +313,9 @@ export class DepositTransactionsService {
           .filter(Boolean)
           .map((a: any) => a.applicantActionId)
           .filter(Boolean),
-        tags: (d.typedTags ?? []).map((t: any) => t.label),
+        // matchedRules/applicantActions 同理:含 null 元素的数组在 .map 前先 .filter(Boolean),
+        // 防止 t.label 在 null 上炸出 TypeError。
+        tags: (d.typedTags ?? []).filter(Boolean).map((t: any) => t.label),
         raw: d, // 供订单下方原文折叠
       };
     };

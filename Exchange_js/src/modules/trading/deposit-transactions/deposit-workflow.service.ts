@@ -318,13 +318,25 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
-    // 终态 no-op 之后、状态流转之前落库——终态单的既有裁决不被迟到 webhook 覆写。
-    await this.writeBackGateStatus(deposit, v.verdict, v.lane, v.riskScore);
+    // FROZEN 是制裁/MLRO 冻结态,不在 KYT_VERDICT_TERMINAL_STATUSES 里(不是终态,还有
+    // 解冻/没收/退回等处置出口),所以一笔 approved verdict 会跑到这里。但
+    // applyKytApproved 自己的 FROZEN 守卫随后会把它 no-op(不放行、不解冻)——如果闸门
+    // 回写/存证照常执行,就会用 approved 报文覆写既有的制裁报文(financeRiskScore
+    // 98→5、financeStatus FAILED→PASSED),尽管状态机压根没推进。跳过写回/存证,别让
+    // 一个必然 no-op 的 approved 静默损坏冻结单的制裁证据。MANUAL_CHECKING 不受影响
+    // (它是 approved 的合法翻案路径,必须正常写回)。
+    const approvedWillNoOpFrozen =
+      v.verdict === 'approved' && status === DepositTransactionStatus.FROZEN;
 
-    // Sumsub getTxn 原始报文存证:同样落在终态 no-op 之内,迟到 webhook 不覆写终态单的既有报文。
-    if (v.detailRaw !== undefined) {
-      await this.depositService.saveTxnDetail(deposit.id, v.lane ?? 'FINANCE', JSON.stringify(v.detailRaw));
+    if (!approvedWillNoOpFrozen) {
+      // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
+      // 终态 no-op 之后、状态流转之前落库——终态单的既有裁决不被迟到 webhook 覆写。
+      await this.writeBackGateStatus(deposit, v.verdict, v.lane, v.riskScore);
+
+      // Sumsub getTxn 原始报文存证:同样落在终态 no-op 之内,迟到 webhook 不覆写终态单的既有报文。
+      if (v.detailRaw !== undefined) {
+        await this.depositService.saveTxnDetail(deposit.id, v.lane ?? 'FINANCE', JSON.stringify(v.detailRaw));
+      }
     }
 
     switch (v.verdict) {

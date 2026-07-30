@@ -1004,6 +1004,49 @@ describe('DepositTransactionsService', () => {
       expect(result.financeDetail.applicantActionIds).toEqual(['act-1']);
     });
 
+    // 终审 Minor #2:matchedRules/applicantActions 已 .filter(Boolean),但 typedTags 的
+    // .map 此前没有 —— 含 null 元素的 typedTags 数组会在 `t.label` 上炸出 TypeError。
+    it('parseDetail: null elements in typedTags are filtered out, does not throw, valid tags survive', async () => {
+      const jsonWithNullTag = JSON.stringify({
+        verdict: 'GREEN',
+        typedTags: [null, { label: 'HIGH_RISK', type: 'system' }],
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        financeTxnDetailJson: jsonWithNullTag,
+        travelRuleTxnDetailJson: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.financeDetail.tags).toEqual(['HIGH_RISK']);
+    });
+
+    // 终审 Minor #6:生产 HttpSumsubTxnClient.getTxn 的 raw(= SumsubKytTxnResponse)没有
+    // 顶层 verdict 字段,只有 scoringResult.action(Sumsub 规则动作)和
+    // review.reviewResult.reviewAnswer。只有 fixtures 的 buildRawDetail 才塞了顶层
+    // verdict —— 生产环境下 parseDetail.verdict 恒为 null,详情页 Verdict 行空白。
+    // 回退到 scoringResult.action:它就是 Sumsub 的规则裁决,语义上等价。
+    it('parseDetail: raw 无顶层 verdict、有 scoringResult.action=reject → verdict 回退取 scoringResult.action', async () => {
+      const jsonNoTopLevelVerdict = JSON.stringify({
+        id: 'txn-prod-1',
+        scoringResult: { action: 'reject', score: 90 },
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        financeTxnDetailJson: jsonNoTopLevelVerdict,
+        travelRuleTxnDetailJson: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.financeDetail.verdict).toBe('reject');
+    });
+
     it('returns approvals as single-header-only (no steps/step), regardless of status', async () => {
       approvalsService.list.mockResolvedValue({
         total: 2,
