@@ -13,6 +13,25 @@ if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcryp
 // AppModule loads the same .env, this just guarantees the order).
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
+// ── 破坏性护栏(2026-07-31 加,因为已经真的炸过两次)────────────────────────
+// 本 suite 的 beforeAll 会 `depositTransaction.deleteMany({})` 清空整张表,并把
+// 该客户的 wallet 全删重建(walletRole 变 GENERAL、walletNo 变空)——跑在 worktree
+// 常驻栈的验收库上,后果是:正在验收的充值单全没、客户端建单通路被打断。
+//
+// 此前这条禁令只写在文档和派工说明里,靠人/agent 自觉遵守。实测两次都没守住
+// (第二次是审查者为验证一处改动的必要性而跑的,完全合理的动机)。所以改成物理拦截:
+// 只认专用 e2e 库,任何其它 DATABASE_URL 一律拒跑并说清怎么办。
+const E2E_DB_MARKER = 'e2e-';
+if (!process.env.DATABASE_URL?.includes(E2E_DB_MARKER)) {
+  throw new Error(
+    `[deposit-sumsub e2e] 拒绝运行:本 suite 会清空 deposit_transactions 并重建客户钱包,` +
+      `但 DATABASE_URL 当前指向 ${process.env.DATABASE_URL} —— 这看起来是常驻栈的验收库。\n` +
+      `请指向专用库再跑,例如:\n` +
+      `  DATABASE_URL="file:/tmp/exchange_js_wt_deposit_arcs/e2e-deposit-sumsub.db" npx jest --config test/jest-e2e.json\n` +
+      `(库名必须含 "${E2E_DB_MARKER}";专用库需先 prisma migrate deploy + 业务种子)`,
+  );
+}
+
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
