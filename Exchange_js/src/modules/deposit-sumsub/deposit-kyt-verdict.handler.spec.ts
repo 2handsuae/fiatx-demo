@@ -113,6 +113,39 @@ describe('DepositKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
   });
 
+  it('Created: 归一为 ignore,不调用 getTxn / applyKytVerdict', async () => {
+    await handler.handle({ type: 'applicantKytTxnCreated', kytTxnId: 'T1' });
+
+    expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
+    expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+  });
+
+  it('onHold 也拉 getTxn 存证(分数+报文),但不读处置 tag', async () => {
+    depositService.findBySumsubTxnId.mockResolvedValue({ id: 'dep-1' });
+    sumsubTxnClient.getTxn.mockResolvedValue({
+      txnId: 'T-oh',
+      verdict: 'onHold',
+      reviewAnswer: null,
+      riskScore: 55,
+      typedTags: [{ label: 'FROZEN_BY_MLRO', type: 'userDefined' }],
+      raw: { id: 'T-oh' },
+    });
+
+    await handler.handle({ type: 'applicantKytOnHold', kytTxnId: 'T-oh' });
+
+    expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T-oh');
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith('dep-1', {
+      verdict: 'onHold',
+      riskScore: 55,
+      detailRaw: { id: 'T-oh' },
+    });
+    // onHold 不读处置 tag —— 上面 fixture 故意塞了 FROZEN_BY_MLRO,不应被解析出来
+    expect(workflow.applyKytVerdict).not.toHaveBeenCalledWith(
+      'dep-1',
+      expect.objectContaining({ dispoTag: 'FROZEN_BY_MLRO' }),
+    );
+  });
+
   it('orphan: no deposit found for kytTxnId → does not call workflow', async () => {
     depositService.findBySumsubTxnId.mockResolvedValue(null as any);
 

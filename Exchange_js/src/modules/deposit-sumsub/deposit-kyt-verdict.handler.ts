@@ -15,17 +15,20 @@ const VERDICT_BY_TYPE: Record<string, KytVerdict | 'ignore'> = {
   applicantKytTxnCreated: 'ignore',
 };
 
-// approved 也拉:证据对齐(score + 报文),但不读处置 tag。
-const DETAIL_LOOKUP_VERDICTS = new Set<KytVerdict>(['approved', 'rejected', 'awaitUser']);
-// 标签不在 webhook 里,只在 rejected/awaitUser 时才拉 getTxn 读 typedTags。
+// approved / onHold 也拉:证据对齐(score + 报文),但都不读处置 tag。
+// onHold 语义是「规则已算完分、判定需人工复核」,分数与命中规则正是 officer 的决策依据;
+// 此前 onHold 不拉,导致挂起单在详情页零证据(2026-07-31 实测 score/报文双空)。
+const DETAIL_LOOKUP_VERDICTS = new Set<KytVerdict>(['approved', 'rejected', 'awaitUser', 'onHold']);
+// 标签不在 webhook 里,只在 rejected/awaitUser 时才读 typedTags。
 const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 
 const SCENE_TAGS = new Set(['SANCTION', 'PEP']);
 const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'RETURN_TO_SENDER']);
 
 /**
- * 翻译 applicantKytTxn{Approved,Rejected,AwaitingUser,OnHold,Reviewed} webhook:
- * 映射到 deposit → 归一 verdict(+ 按需读 tag)→ 调 DepositWorkflowService.applyKytVerdict。
+ * 翻译 applicantKytTxn{Approved,Rejected,AwaitingUser,Reviewed,Created} + applicantKytOnHold
+ * (注意:onHold 官方命名没有 `Txn`)webhook:映射到 deposit → 归一 verdict(+ 按需读 tag)
+ * → 调 DepositWorkflowService.applyKytVerdict。
  */
 @Injectable()
 export class DepositKytVerdictHandler {
