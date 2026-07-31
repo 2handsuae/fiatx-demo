@@ -516,6 +516,20 @@ git commit -m "fix(deposit-sumsub): onHold 也拉 getTxn 存证,挂起单不再�
 - Consumes: Task 1 的 `buildTxnReport` / `TxnReportVerdict`；Task 2 的 `KYT_ONHOLD_TYPE`
 - Produces: `DEPOSIT_VERDICT_BUTTONS: Record<string, DepositVerdictButton>`；`DepositDemoScenarioService.runVerdict(depositId, buttonKey, actor)`
 
+> ⚠️ **Task 1 之后的修正（必读，优先于下方代码字面量）**：`moderationComment` **已从
+> `TxnReportVerdict` 删除** —— 两次独立核对官方文档确认，交易的 `review.reviewResult`
+> 只有 `reviewAnswer` 和 `reviewRejectType` 两个字段，`moderationComment` 属 applicant
+> 审核 schema，不在交易报文里。
+>
+> 因此下方按钮定义里每处 `moderationComment: '...'` 都要这样落地：
+> 1. **删掉** `moderationComment` 这一行；
+> 2. 那句人类可读的叙述改放进 `matchedRules[].title`（官方真字段，raw payload 里可见度与
+>    原先等同）—— 把 `RULE()` 辅助函数改成 `RULE(id, name, score, action, title)`，
+>    `title` 传原 `moderationComment` 的句子，`name` 保持短规则名不变；
+> 3. ① Approved 与 ⑧ On hold 这类无叙述可挂的，直接不传即可（真实 Sumsub 的干净交易
+>    本来就没有散文解释，这更贴近实际）。
+> 4. rejected 类按钮可顺带传 `reviewRejectType: 'FINAL'`（官方字段，Task 1 已支持）。
+
 - [ ] **Step 1: 写按钮定义表**
 
 ```ts
