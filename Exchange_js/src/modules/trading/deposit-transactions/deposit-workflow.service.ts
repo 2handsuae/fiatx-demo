@@ -210,7 +210,13 @@ export class DepositWorkflowService implements OnModuleInit {
    * decision.reason 无论开关状态都落审计,以便观察判定器实际会怎么走。
    */
   private async submitSumsubTxns(deposit: any): Promise<void> {
-    const SINGLE_TXN_SUBMIT_ENABLED = process.env.SUMSUB_SINGLE_TXN_SUBMIT === 'true';
+    // 该开关守的风险是**真实 Sumsub 集成**特有的:租户规则作用域若只含 finance,
+    // travelRule 单不进规则 = 筛查真空。mock 模式下没有真实规则引擎,该风险结构性
+    // 不存在 —— 用真实集成的安全阀顺手锁死演示/e2e 是范畴错误,会让判定器在整个
+    // demo 与 Docker 交付里恒不生效(2026-07-31 验收实测:2090 USDT + VASP 落 finance)。
+    const SINGLE_TXN_SUBMIT_ENABLED =
+      process.env.SUMSUB_SINGLE_TXN_SUBMIT === 'true' ||
+      process.env.SUMSUB_MOCK_MODE === 'true';
 
     if (deposit.sumsubTxnId) {
       this.logger.debug(

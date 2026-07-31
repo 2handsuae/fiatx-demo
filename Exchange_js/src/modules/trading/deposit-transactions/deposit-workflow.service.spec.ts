@@ -221,9 +221,12 @@ describe('DepositWorkflowService', () => {
     }
 
     const ORIGINAL_SWITCH_ENV = process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+    const ORIGINAL_MOCK_ENV = process.env.SUMSUB_MOCK_MODE;
 
     beforeEach(() => {
       depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      // 两个开关都会让判定生效,任一残留都会污染"OFF"组。逐个 describe 自己设。
+      delete process.env.SUMSUB_MOCK_MODE;
     });
 
     afterEach(() => {
@@ -231,6 +234,11 @@ describe('DepositWorkflowService', () => {
         delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
       } else {
         process.env.SUMSUB_SINGLE_TXN_SUBMIT = ORIGINAL_SWITCH_ENV;
+      }
+      if (ORIGINAL_MOCK_ENV === undefined) {
+        delete process.env.SUMSUB_MOCK_MODE;
+      } else {
+        process.env.SUMSUB_MOCK_MODE = ORIGINAL_MOCK_ENV;
       }
     });
 
@@ -326,6 +334,42 @@ describe('DepositWorkflowService', () => {
             workflowType: 'DEPOSIT',
             metadata: { sumsubTxnId: 'TXN-FIN-1', txnType: 'finance', reason: 'NOT_CRYPTO' },
           }),
+        );
+      });
+    });
+
+    describe('mock 模式隐含开启 (SUMSUB_MOCK_MODE=true, 开关未设)', () => {
+      // 该开关守的是**真实 Sumsub 集成**的筛查真空风险(规则作用域若只含 finance,
+      // travelRule 单不进规则)。mock 模式下压根没有真实规则引擎,风险结构性不存在
+      // —— 用真实集成的安全阀锁死演示/e2e 是范畴错误,判定器结果必须原样生效。
+      beforeEach(() => {
+        delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+        process.env.SUMSUB_MOCK_MODE = 'true';
+      });
+
+      it('crypto + VASP + over threshold → type=travelRule(判定生效,不被降级)', async () => {
+        depositService.findOne.mockResolvedValue(baseCryptoVaspOverThreshold);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-TR-MOCK' });
+
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-tr'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'travelRule' }),
+        );
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-crypto-tr', {
+          sumsubTxnId: 'TXN-TR-MOCK',
+          sumsubTxnType: 'travelRule',
+        });
+      });
+
+      it('crypto + non-VASP → type=finance(mock 模式不是无条件 TR)', async () => {
+        depositService.findOne.mockResolvedValue(baseCryptoNotVasp);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-MOCK' });
+
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-nonvasp'));
+
+        expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'finance' }),
         );
       });
     });
