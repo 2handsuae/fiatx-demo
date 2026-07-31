@@ -3,14 +3,16 @@ import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-
 import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
 import { SUMSUB_TXN_CLIENT, SumsubTxnClient } from './sumsub-txn-client.interface';
 import { KytVerdict } from './sumsub-txn.types';
+import { KYT_ONHOLD_TYPE } from './kyt-webhook-types';
 
-// payload.type → 归一 verdict;'ignore' = Reviewed,不推进状态机。
+// payload.type → 归一 verdict;'ignore' = Reviewed/Created,不推进状态机。
 const VERDICT_BY_TYPE: Record<string, KytVerdict | 'ignore'> = {
   applicantKytTxnApproved: 'approved',
   applicantKytTxnRejected: 'rejected',
   applicantKytTxnAwaitingUser: 'awaitUser',
-  applicantKytTxnOnHold: 'onHold',
+  [KYT_ONHOLD_TYPE]: 'onHold',
   applicantKytTxnReviewed: 'ignore',
+  applicantKytTxnCreated: 'ignore',
 };
 
 // approved 也拉:证据对齐(score + 报文),但不读处置 tag。

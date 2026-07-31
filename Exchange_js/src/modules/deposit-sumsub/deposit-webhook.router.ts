@@ -1,13 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DepositKytVerdictHandler } from './deposit-kyt-verdict.handler';
-
-const KYT_VERDICT_TYPES = new Set([
-  'applicantKytTxnApproved',
-  'applicantKytTxnRejected',
-  'applicantKytTxnAwaitingUser',
-  'applicantKytTxnOnHold',
-  'applicantKytTxnReviewed',
-]);
+import { KYT_VERDICT_TYPES } from './kyt-webhook-types';
 
 /**
  * 充值 Sumsub webhook 强类型路由:按 payload.type 分派到对应 handler。
@@ -26,11 +19,6 @@ export class DepositWebhookRouter {
 
     if (KYT_VERDICT_TYPES.has(type)) {
       await this.kytVerdictHandler.handle(payload);
-      return;
-    }
-
-    if (type === 'applicantKytTxnCreated') {
-      this.logger.debug(`applicantKytTxnCreated receipt: ${JSON.stringify(payload)}`);
       return;
     }
 

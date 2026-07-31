@@ -417,7 +417,7 @@ export const DEPOSIT_SCENARIOS: Record<string, DepositScenario> = {
     submit: { txnId: 'T9' },
     steps: [
       { webhook: { type: 'applicantKytTxnCreated', kytTxnId: 'T9' } },
-      { webhook: { type: 'applicantKytTxnOnHold', kytTxnId: 'T9' } },
+      { webhook: { type: 'applicantKytOnHold', kytTxnId: 'T9' } },
       { needsSlaTimer: true },
     ],
     expectedFinalStatus: 'MANUAL_CHECKING',
