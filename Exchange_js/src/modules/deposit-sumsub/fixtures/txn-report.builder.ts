@@ -2,8 +2,10 @@
  * 按 Sumsub 官方 getTxn 报文 schema 生成仿真报文（2026-07-31 查证
  * docs.sumsub.com/reference/get-transaction）。
  *
- * 为什么不再手拼字面量:旧 `buildRawDetail()` 塞了一个真实 Sumsub **不存在**的顶层
- * `verdict` 字段,又缺 `data.type`/`review.reviewStatus`/`scoringResult.action` —— 导致
+ * 为什么不再手拼字面量:旧 `buildRawDetail()` 塞了若干真实 Sumsub **不存在**的字段：
+ * - 顶层 `verdict`（applicant 审核字段）
+ * - `review.reviewResult.moderationComment`（applicant 审核字段，不在交易 getTxn 里）
+ * 又缺 `data.type`/`review.reviewStatus`/`scoringResult.action` —— 导致
  * ① 详情页 "Review Status" 行恒空;② `parseDetail` 的生产回退分支(读 scoringResult.action)
  * 在演示里一次都跑不到;③ 报文里看不出这笔是 finance 还是 travelRule。
  */
@@ -51,7 +53,8 @@ export interface TxnReportVerdict {
   /** 官方 scoringResult.action —— parseDetail 在生产环境读的就是它 */
   action: 'score' | 'onHold' | 'awaitUser' | 'reject';
   score: number;
-  moderationComment: string;
+  /** 官方 review.reviewResult 的合法字段之一：决定是否重新审核或最终拒绝 */
+  reviewRejectType?: 'FINAL' | 'RETRY';
   matchedRules?: MatchedRule[];
   applicantActions?: ApplicantAction[];
   typedTags?: TypedTag[];
@@ -84,7 +87,7 @@ export function buildTxnReport(
       reviewStatus: verdict.reviewStatus,
       reviewResult: {
         reviewAnswer: verdict.reviewAnswer,
-        moderationComment: verdict.moderationComment,
+        ...(verdict.reviewRejectType && { reviewRejectType: verdict.reviewRejectType }),
       },
     },
     scoringResult: {

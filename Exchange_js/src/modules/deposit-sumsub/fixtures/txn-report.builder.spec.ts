@@ -17,7 +17,6 @@ const approvedVerdict: TxnReportVerdict = {
   reviewAnswer: 'GREEN',
   action: 'score',
   score: 5,
-  moderationComment: 'Transaction cleared — no risk indicators detected.',
 };
 
 describe('buildTxnReport', () => {
@@ -35,7 +34,7 @@ describe('buildTxnReport', () => {
     const r = buildTxnReport(baseCtx, approvedVerdict) as any;
     expect(r.review.reviewStatus).toBe('completed');
     expect(r.review.reviewResult.reviewAnswer).toBe('GREEN');
-    expect(r.review.reviewResult.moderationComment).toContain('cleared');
+    expect(r.review.reviewResult.moderationComment).toBeUndefined();
   });
 
   it('scoringResult.action 是 verdict 的生产来源', () => {
@@ -85,5 +84,18 @@ describe('buildTxnReport', () => {
     expect(r.typedTags).toEqual([{ label: 'SANCTION', type: 'userDefined' }]);
     expect(r.scoringResult.matchedRules[0].name).toBe('Sanctions match');
     expect(r.scoringResult.applicantActions[0].applicantActionId).toBe('act-1');
+  });
+
+  it('reviewRejectType 传入时出现在 reviewResult 上', () => {
+    const r = buildTxnReport(baseCtx, {
+      ...approvedVerdict,
+      reviewRejectType: 'FINAL',
+    }) as any;
+    expect(r.review.reviewResult.reviewRejectType).toBe('FINAL');
+  });
+
+  it('reviewRejectType 不传时不出现在 reviewResult 上', () => {
+    const r = buildTxnReport(baseCtx, approvedVerdict) as any;
+    expect(r.review.reviewResult.reviewRejectType).toBeUndefined();
   });
 });
