@@ -57,7 +57,7 @@ SELECT "id", "depositNo", "ownerType", "ownerId", "status", "assetId", "toWallet
         WHEN 'PASSED' THEN 'approved'
         WHEN 'FAILED' THEN 'rejected'
         WHEN 'ON_HOLD' THEN 'onHold'
-        WHEN 'AWAITING_USER' THEN 'awaitUser'
+        WHEN 'AWAITING_USER' THEN 'awaitingUser'
         ELSE NULL
     END AS "sumsubVerdict",
     "financeRiskScore" AS "sumsubScore",
