@@ -34,7 +34,7 @@ const SUMSUB_MOCK_MODE = process.env.SUMSUB_MOCK_MODE === 'true';
   // Security gate (a): the demo scenario controller only exists in the Nest route
   // table when SUMSUB_MOCK_MODE=true — in production it is never registered (not
   // merely guard-blocked). Sumsub sandbox can't reproduce sanctions/PEP/slow-case
-  // outcomes, so demos drive them via fixtures instead (see fixtures/scenarios.ts).
+  // outcomes, so demos drive them via fixtures instead (see fixtures/verdict-buttons.ts).
   controllers: SUMSUB_MOCK_MODE ? [AdminDepositDemoController] : [],
   exports: [DepositWebhookRouter, SUMSUB_TXN_CLIENT],
 })

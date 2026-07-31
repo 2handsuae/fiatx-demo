@@ -286,11 +286,12 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['TRADING_DEPOSIT_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
-  // Demo scenario runner (Task 6, 计划1·甲方案) — controller only registered when SUMSUB_MOCK_MODE=true
+  // Demo verdict runner (Task 6 计划1·甲方案 起步, Task 4 计划「充值仿真裁决按钮」改单步) —
+  // controller only registered when SUMSUB_MOCK_MODE=true
   route(
     'POST',
-    '/admin/deposit-sumsub/demo/run-scenario',
-    'Feed a deposit through a Sumsub mock scenario fixture (demo only)',
+    '/admin/deposit-sumsub/demo/run-verdict',
+    'Feed one Sumsub KYT verdict webhook into a deposit (demo only)',
     ['TRADING_DEPOSIT_WRITE'],
   ),
 
