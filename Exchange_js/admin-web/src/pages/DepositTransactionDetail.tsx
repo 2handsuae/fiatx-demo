@@ -635,7 +635,7 @@ const DepositTransactionDetail = () => {
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
-          {/* Below-Min Disposition */}
+          {/* Ops Disposition */}
           {isBelowMinPending && (
             <SidebarGroup title="Ops Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}

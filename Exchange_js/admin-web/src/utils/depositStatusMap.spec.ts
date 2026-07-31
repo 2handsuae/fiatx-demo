@@ -19,6 +19,7 @@ const CASES: Array<[string, string, string]> = [
   ['PAYIN_PENDING', 'PAYIN PENDING', 'IN_PROGRESS'],
   ['COMPLIANCE_PENDING', 'COMPLIANCE PENDING', 'IN_PROGRESS'],
   ['ACTION_PENDING', 'AWAITING CUSTOMER', 'WAITING'],
+  ['OPERATION_PENDING', 'OPERATION PENDING', 'NEEDS_OFFICER'],
   ['MANUAL_CHECKING', 'MANUAL CHECKING', 'NEEDS_OFFICER'],
   ['FROZEN', 'FROZEN', 'NEEDS_OFFICER'],
   ['SUCCESS', 'SUCCESS', 'COMPLETED'],
@@ -34,8 +35,9 @@ const CASES: Array<[string, string, string]> = [
 ];
 
 describe('depositStatusMap (admin, as-is)', () => {
-  it('covers exactly the 15 backend statuses', () => {
-    expect(CASES).toHaveLength(15);
+  it('covers exactly the 16 backend statuses (one row per DEPOSIT_STATUS_MAP key — keeps this drift-proof)', () => {
+    expect(CASES).toHaveLength(16);
+    expect(CASES.map(([status]) => status).sort()).toEqual([...ALL_DEPOSIT_STATUSES].sort());
   });
 
   it.each(CASES)('%s -> label=%s group=%s', (status, label, group) => {
@@ -77,12 +79,12 @@ describe('depositStatusMap (admin, as-is)', () => {
 
 /**
  * Admin list filter groups (design spec §2.1). The owner decided the filter
- * dropdown should be operator-facing groups, not the raw 15 statuses —
+ * dropdown should be operator-facing groups, not the raw 16 statuses —
  * "Disposing" merges RETURNING/SEIZING/CONFISCATING into one option, and
  * REJECTED/EXPIRED are excluded (slated for deletion, see BACKLOG d7b4456e).
  */
 describe('DEPOSIT_STATUS_FILTERS (admin list filter groups, spec §2.1)', () => {
-  it('every filter status is one of the 15 backend statuses', () => {
+  it('every filter status is one of the 16 backend statuses', () => {
     for (const group of DEPOSIT_STATUS_FILTERS) {
       for (const status of group.statuses) {
         expect(ALL_DEPOSIT_STATUSES).toContain(status);

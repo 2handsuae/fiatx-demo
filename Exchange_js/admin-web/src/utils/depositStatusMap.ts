@@ -4,12 +4,12 @@
    Single source of truth for the admin-facing deposit status badge.
    admin shows the RAW backend status (FROZEN / SEIZED / etc as-is) —
    this is the operator-facing table. The client-facing counterpart
-   (client-web/src/utils/depositStatusView.ts) softens the same 15
+   (client-web/src/utils/depositStatusView.ts) softens the same 16
    statuses for tipping-off compliance; the two tables are deliberately
    different and must never be merged.
 
-   Source of the 15 backend statuses:
-   src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-20
+   Source of the 16 backend statuses:
+   src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-22
 
    Badge copy and grouping copied verbatim from design spec §1.1:
    doc-final/superpowers/specs/2026-07-29-deposit-frontend-design.md
@@ -82,7 +82,7 @@ export function getDepositStatusMeta(status: string): DepositStatusMeta {
 }
 
 /**
- * All 15 backend deposit statuses, derived from the map above so this
+ * All 16 backend deposit statuses, derived from the map above so this
  * stays the single source of truth (consumers must not keep a second,
  * independently-maintained status list — see admin list page filter).
  */
@@ -96,7 +96,7 @@ export interface DepositStatusFilterGroup {
 
 /**
  * Operator-facing filter groups for the admin deposit list, per design spec
- * §2.1. This collapses the 15 raw statuses into the groups an operator picks
+ * §2.1. This collapses the 16 raw statuses into the groups an operator picks
  * from — "Disposing" merges the three in-flight remediation statuses
  * (returning/seizing/confiscating) into a single filter option.
  *
