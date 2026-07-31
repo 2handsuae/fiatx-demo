@@ -49,6 +49,7 @@ const DEPOSIT_STATUS_MAP: Record<string, DepositStatusMeta> = {
   PAYIN_PENDING: { label: 'PAYIN PENDING', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
   COMPLIANCE_PENDING: { label: 'COMPLIANCE PENDING', group: 'IN_PROGRESS', badgeClass: NEUTRAL },
   ACTION_PENDING: { label: 'AWAITING CUSTOMER', group: 'WAITING', badgeClass: AMBER },
+  OPERATION_PENDING: { label: 'OPERATION PENDING', group: 'NEEDS_OFFICER', badgeClass: AMBER },
   MANUAL_CHECKING: { label: 'MANUAL CHECKING', group: 'NEEDS_OFFICER', badgeClass: AMBER },
   FROZEN: { label: 'FROZEN', group: 'NEEDS_OFFICER', badgeClass: RED },
   SUCCESS: { label: 'SUCCESS', group: 'COMPLETED', badgeClass: GREEN },

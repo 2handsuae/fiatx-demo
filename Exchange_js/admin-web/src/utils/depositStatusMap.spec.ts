@@ -66,6 +66,13 @@ describe('depositStatusMap (admin, as-is)', () => {
     expect(meta.group).toBe('EXCEPTION');
     expect(meta.badgeClass).toMatch(/adm-/);
   });
+
+  it('OPERATION_PENDING 归 NEEDS_OFFICER 组,有专属文案', () => {
+    const meta = getDepositStatusMeta('OPERATION_PENDING');
+    expect(meta.label).toBe('OPERATION PENDING');
+    expect(meta.group).toBe('NEEDS_OFFICER');
+    expect(meta.badgeClass).not.toBe(getDepositStatusMeta('UNKNOWN_XYZ').badgeClass);
+  });
 });
 
 /**

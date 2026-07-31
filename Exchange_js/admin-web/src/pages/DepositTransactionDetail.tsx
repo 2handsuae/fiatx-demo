@@ -31,20 +31,18 @@ import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-/**
- * Demo scenario fixtures (Task 6, `SUMSUB_MOCK_MODE`-gated backend endpoint).
- * Keys must stay in sync with `src/modules/deposit-sumsub/fixtures/scenarios.ts`
- * — note the key sequence intentionally skips S8 (moved to a later plan).
- */
-const DEPOSIT_DEMO_SCENARIOS: Array<{ key: string; label: string }> = [
-  { key: 'S1_HAPPY_FIAT', label: 'Happy path — fiat' },
-  { key: 'S2_HAPPY_CRYPTO', label: 'Happy path — crypto' },
-  { key: 'S3_SANCTIONS', label: 'Sanctions hit → Frozen' },
-  { key: 'S4_PEP_EDD_PASS', label: 'PEP → EDD pass' },
-  { key: 'S5_DIRTY_MANUAL_FROZEN', label: 'Dirty → Manual review → Frozen' },
-  { key: 'S6_DIRTY_MANUAL_RETURN', label: 'Dirty → Manual review → Return' },
-  { key: 'S7_DIRTY_MANUAL_OVERTURNED', label: 'Dirty → Manual review → Overturned' },
-  { key: 'S9_ONHOLD_SLA', label: 'On hold → SLA breach → Manual review' },
+/* 9 个单步裁决按钮(取代旧的 8 个多步剧本)。key 必须与后端
+   src/modules/deposit-sumsub/fixtures/verdict-buttons.ts 的 DEPOSIT_VERDICT_BUTTONS 一致。 */
+const DEPOSIT_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
+  { key: 'V1_APPROVED', label: '① Approved' },
+  { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
+  { key: 'V3_AWAIT_USER_PEP', label: '③ Awaiting user · PEP' },
+  { key: 'V4_REJECTED_SANCTION', label: '④ Rejected · Sanctions' },
+  { key: 'V5_REJECTED_FROZEN_MLRO', label: '⑤ Rejected · MLRO freeze' },
+  { key: 'V6_REJECTED_RETURN', label: '⑥ Rejected · MLRO return' },
+  { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
+  { key: 'V8_ONHOLD', label: '⑧ On hold' },
+  { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
 ];
 
 interface LinkedFundOrder {
@@ -214,34 +212,34 @@ const DepositTransactionDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  /* ── Demo scenario handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
+  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
 
-  const handleRunScenario = async (scenario: string) => {
+  const handleRunVerdict = async (verdict: string) => {
     if (!id) return;
-    setSimSubmitting(scenario);
+    setSimSubmitting(verdict);
     setSimError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/deposit-sumsub/demo/run-scenario`,
+        `${import.meta.env.VITE_API_URL}/admin/deposit-sumsub/demo/run-verdict`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depositId: id, scenario }),
+          body: JSON.stringify({ depositId: id, verdict }),
         },
       );
       if (!response.ok) {
         if (response.status === 404) {
           setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
         } else {
-          setSimError(await getApiErrorMessage(response, 'Scenario run failed.'));
+          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
         }
         return;
       }
-      setNotice(`Scenario ${scenario} fed — deposit refreshed`);
+      setNotice(`Verdict ${verdict} fed — deposit refreshed`);
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setSimError(error instanceof Error ? error.message : 'Scenario run failed.');
+      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
     } finally {
       setSimSubmitting(null);
     }
@@ -389,7 +387,7 @@ const DepositTransactionDetail = () => {
   if (!data) return null;
 
   const isBelowMinPending =
-    data.status === 'COMPLIANCE_PENDING' && data.limitHoldReason === 'BELOW_MIN';
+    data.status === 'OPERATION_PENDING' && data.limitHoldReason === 'BELOW_MIN';
   // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
   // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
   // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
@@ -606,20 +604,24 @@ const DepositTransactionDetail = () => {
           {simEnabled && (
             <DetailCard title="⚡ Simulation" columns={1}>
               <p className="font-mono text-[11px] text-adm-t3">
-                Feeds a scripted Sumsub webhook sequence into the real ingestion
-                pipeline. Requires SUMSUB_MOCK_MODE on the backend.
+                Feeds ONE Sumsub KYT verdict webhook into the real ingestion
+                pipeline. The report is generated to match this deposit's actual
+                Sumsub txn type. Requires SUMSUB_MOCK_MODE on the backend.
               </p>
               <p className="font-mono text-[11px] text-adm-amber">
-                Best used on a freshly created deposit — scenarios prime the
-                mock client before Gate 0 submits.
+                Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
+              </p>
+              <p className="font-mono text-[11px] text-adm-t3">
+                ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
+                drive the real SLA timer (DepositSlaService); same code path as ⑦.
               </p>
               {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
               <div className="flex flex-wrap gap-2">
-                {DEPOSIT_DEMO_SCENARIOS.map((s) => (
+                {DEPOSIT_VERDICT_BUTTONS.map((s) => (
                   <button
                     key={s.key}
                     disabled={simSubmitting !== null}
-                    onClick={() => handleRunScenario(s.key)}
+                    onClick={() => handleRunVerdict(s.key)}
                     className={adminButtonClass('simulationAction')}
                   >
                     {simSubmitting === s.key ? 'Running...' : s.label}
@@ -635,7 +637,7 @@ const DepositTransactionDetail = () => {
 
           {/* Below-Min Disposition */}
           {isBelowMinPending && (
-            <SidebarGroup title="Below-Min Disposition">
+            <SidebarGroup title="Ops Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
               <div className="flex flex-col gap-2">
                 <button
