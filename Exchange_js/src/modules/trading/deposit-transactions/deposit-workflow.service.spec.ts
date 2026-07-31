@@ -22,6 +22,9 @@ import {
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -759,6 +762,29 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
       );
+    });
+
+    // 终审"顺带"项:此前注释宣称"已在 OPERATION_PENDING 的单再次进来会被转移表拒掉
+    // → fails safe",但表现其实是转移表抛 BadRequestException('Invalid action
+    // operation_pending for status OPERATION_PENDING')——语义上没漏钱,但不是干净的
+    // no-op,重复点①就能触发。改成显式 no-op(早退 + debug 日志),不再让它掉进
+    // holdBelowMinIfNeeded 去撞转移表。
+    it('顺带修复:重复 approve 于仍持有 BELOW_MIN 挂起的 OPERATION_PENDING 单 → 显式 no-op,不再落入金额闸重复尝试 operation_pending 动作', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-repeat-1',
+        depositNo: 'DEP-REPEAT-001',
+        status: DepositTransactionStatus.OPERATION_PENDING,
+        limitHoldReason: 'BELOW_MIN',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'tr-repeat-1',
+        amount: '5',
+      });
+
+      await expect(service.approveDeposit('dep-repeat-1')).resolves.toBeUndefined();
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
     });
   });
 
@@ -3388,5 +3414,155 @@ describe('DepositWorkflowService', () => {
     // method is called, so the deposit stays FROZEN. Already covered by the existing
     // A2 stub test 'onUnfreezeDecided: EXPIRED → no-op' (asserts the (now-real) method
     // is never invoked for a non-APPROVED decision).
+  });
+
+  // 终审发现:前面每个 describe 块都把 DepositTransactionsService 整体 jest.fn() 掉,
+  // updateStatus 永远 resolve、从不校验真实转移表——spec 全绿但真实路径是断的
+  // (Critical 1/2 都是这样漏过单测的)。这里换上真正的 DepositTransactionsService
+  // (只在 Prisma 这一层 mock),让 getNextStatus 的转移表真的跑一遍,复现并验证修复。
+  describe('OPERATION_PENDING 状态机缺口 —— 真实 DepositTransactionsService(不 mock 转移表本体)', () => {
+    let realService: DepositWorkflowService;
+    let prismaDeposit: Record<string, jest.Mock>;
+    let realAuditLogsService: Record<string, jest.Mock>;
+
+    const mockRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-real-1',
+      depositNo: 'DEP-REAL-001',
+      status: DepositTransactionStatus.OPERATION_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-real-1',
+      assetId: 'asset-usdt',
+      amount: '5',
+      limitHoldReason: 'BELOW_MIN',
+      traceId: 'trace-real-1',
+      statusHistory: null,
+      ...overrides,
+    });
+
+    beforeEach(async () => {
+      prismaDeposit = {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      };
+      realAuditLogsService = {
+        recordSystem: jest.fn().mockResolvedValue(undefined),
+        recordByActor: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          DepositWorkflowService,
+          DepositTransactionsService,
+          { provide: PrismaService, useValue: { depositTransaction: prismaDeposit } },
+          { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+          { provide: FundsOrderService, useValue: fundsOrders },
+          { provide: AuditLogsService, useValue: realAuditLogsService },
+          { provide: AccountingService, useValue: { resolveTbAccountId: jest.fn(), executeTransfer: jest.fn() } },
+          { provide: WithdrawalAddressService, useValue: withdrawalAddresses },
+          { provide: SUMSUB_TXN_CLIENT, useValue: sumsubTxnClient },
+          { provide: ApprovalsService, useValue: approvalsService },
+          { provide: SystemWalletResolver, useValue: systemWalletResolver },
+          { provide: TbEvidenceService, useValue: tbEvidenceService },
+          {
+            provide: TransactionLimitRulesService,
+            useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },
+          },
+        ],
+      }).compile();
+
+      realService = module.get<DepositWorkflowService>(DepositWorkflowService);
+    });
+
+    it('Critical 1: OPERATION_PENDING 单收到 rejected+SANCTION 裁决 → 真落 FROZEN + DEPOSIT_FROZEN 审计(此前转移表无 freeze 边,抛 Invalid action,制裁裁决落不了地)', async () => {
+      const row = mockRow();
+      prismaDeposit.findUnique.mockResolvedValue(row);
+      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
+
+      await expect(
+        realService.applyKytVerdict('dep-real-1', { verdict: 'rejected', sceneTag: 'SANCTION' }),
+      ).resolves.toBeUndefined();
+
+      expect(prismaDeposit.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.FROZEN }),
+        }),
+      );
+      expect(realAuditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_FROZEN }),
+      );
+    });
+
+    it('Critical 1: OPERATION_PENDING 单收到 rejected+无tag 裁决 → 落 MANUAL_CHECKING(此前抛 Invalid action)', async () => {
+      const row = mockRow();
+      prismaDeposit.findUnique.mockResolvedValue(row);
+      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
+
+      await expect(
+        realService.applyKytVerdict('dep-real-1', { verdict: 'rejected' }),
+      ).resolves.toBeUndefined();
+
+      expect(prismaDeposit.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.MANUAL_CHECKING }),
+        }),
+      );
+    });
+
+    it('Critical 1: OPERATION_PENDING 单收到 awaitUser 裁决 → 落 ACTION_PENDING(此前抛 Invalid action)', async () => {
+      const row = mockRow();
+      prismaDeposit.findUnique.mockResolvedValue(row);
+      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
+
+      await expect(
+        realService.applyKytVerdict('dep-real-1', { verdict: 'awaitUser' }),
+      ).resolves.toBeUndefined();
+
+      expect(prismaDeposit.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.ACTION_PENDING }),
+        }),
+      );
+    });
+
+    it('Critical 1: adminReject 于 OPERATION_PENDING → 落 REJECTED(此前抛 Invalid action)', async () => {
+      const row = mockRow();
+      prismaDeposit.findUnique.mockResolvedValue(row);
+      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
+
+      await expect(
+        realService.adminReject('dep-real-1', 'ops reject', { actorId: 'admin-1' }),
+      ).resolves.toEqual(expect.objectContaining({ status: DepositTransactionStatus.REJECTED }));
+    });
+
+    it('Critical 2: below-min 单从 ACTION_PENDING 出发调 approveDeposit → 落 OPERATION_PENDING,不抛(此前金额闸自己在转移表抛 Invalid action)', async () => {
+      const row = mockRow({ status: DepositTransactionStatus.ACTION_PENDING });
+      prismaDeposit.findUnique.mockResolvedValue(row);
+      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
+
+      await expect(realService.approveDeposit('dep-real-1')).resolves.toBeUndefined();
+
+      expect(prismaDeposit.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
+      expect(realAuditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+      );
+    });
+
+    it('Critical 2: below-min 单从 MANUAL_CHECKING 出发调 approveDeposit → 落 OPERATION_PENDING,不抛', async () => {
+      const row = mockRow({ status: DepositTransactionStatus.MANUAL_CHECKING });
+      prismaDeposit.findUnique.mockResolvedValue(row);
+      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
+
+      await expect(realService.approveDeposit('dep-real-1')).resolves.toBeUndefined();
+
+      expect(prismaDeposit.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
+    });
   });
 });

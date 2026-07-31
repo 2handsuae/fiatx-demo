@@ -102,4 +102,22 @@ describe('DEPOSIT_STATUS_FILTERS (admin list filter groups, spec §2.1)', () => 
     const disposing = DEPOSIT_STATUS_FILTERS.find((g) => g.label === 'Disposing');
     expect(disposing?.statuses).toEqual(['RETURNING', 'SEIZING', 'CONFISCATING']);
   });
+
+  // 终审 Important 4 回归闸:此前只断言"每个 filter status 都是合法后端状态"(单向),
+  // 不断言反向覆盖——DEPOSIT_STATUS_MAP 加了 OPERATION_PENDING 但 FILTERS 忘了跟进,
+  // 这条单向断言拦不住。反向断言:每个后端状态都至少被一个 filter 覆盖(REJECTED/
+  // EXPIRED 是业主拍板的例外,见上一条),下次再漏加会立刻红。
+  it('every backend status is covered by at least one filter, except the REJECTED/EXPIRED owner-decision exclusion (reverse coverage — catches a status added to the map but forgotten in the filters)', () => {
+    const intentionallyExcluded = new Set(['REJECTED', 'EXPIRED']);
+    const covered = new Set(DEPOSIT_STATUS_FILTERS.flatMap((g) => g.statuses));
+    const uncovered = ALL_DEPOSIT_STATUSES.filter(
+      (status) => !intentionallyExcluded.has(status) && !covered.has(status),
+    );
+    expect(uncovered).toEqual([]);
+  });
+
+  it('offers "Operation pending" so ops can find below-min deposits awaiting disposition (queue reachability — this status is admin-only, hidden from the customer entirely)', () => {
+    const group = DEPOSIT_STATUS_FILTERS.find((g) => g.label === 'Operation pending');
+    expect(group?.statuses).toEqual(['OPERATION_PENDING']);
+  });
 });

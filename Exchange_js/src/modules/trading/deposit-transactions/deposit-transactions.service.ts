@@ -528,6 +528,16 @@ export class DepositTransactionsService {
         [DepositTransactionAction.CONFISCATE_START]:
           DepositTransactionStatus.CONFISCATING,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
+        // 终审 Critical 1 回归闸:OPERATION_PENDING 不在 KYT_VERDICT_TERMINAL_STATUSES
+        // 里,迟到的 Sumsub 裁决(冻结/人工复核/补料)webhook 仍会照常派发进来。合规
+        // 裁决优先于金额挂起——一笔因金额小而等运营处置的单,若被判制裁/需人工复核,
+        // 应当离开 OPERATION_PENDING 进入合规处置弧,而不是卡在运营队列里 500。
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.MANUAL_CHECK]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
+        [DepositTransactionAction.ACTION_PENDING]:
+          DepositTransactionStatus.ACTION_PENDING,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
@@ -538,11 +548,20 @@ export class DepositTransactionsService {
         [DepositTransactionAction.EXPIRE]: DepositTransactionStatus.EXPIRED,
         [DepositTransactionAction.MANUAL_CHECK]:
           DepositTransactionStatus.MANUAL_CHECKING,
+        // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受
+        // ACTION_PENDING,金额闸(holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
+        // 调 operation_pending 动作——此边此前只从 COMPLIANCE_PENDING 出发存在,
+        // 两边前置条件对不上,below-min 单补料后被 approve 翻案时在这里抛 Invalid action。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
       },
       [DepositTransactionStatus.MANUAL_CHECKING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+        // 同上(Critical 2):MANUAL_CHECKING 也在 approveDeposit 的 oldStatus 白名单里。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
       },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:

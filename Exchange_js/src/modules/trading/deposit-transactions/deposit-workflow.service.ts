@@ -710,10 +710,10 @@ export class DepositWorkflowService implements OnModuleInit {
       // Task 7 companion fix: OPERATION_PENDING is the waived-hold re-approval path
       // (waiveLimitHold clears limitHoldReason then re-runs checkAutoApproval, which
       // now calls in here). A still-held OPERATION_PENDING deposit reaching this
-      // point without going through the waive still fails safe: holdBelowMinIfNeeded
-      // below finds limitHoldReason==='BELOW_MIN' and calls updateStatus with the
-      // OPERATION_PENDING action, which the transition table rejects from an
-      // already-OPERATION_PENDING deposit ('Invalid action') — no silent bypass.
+      // point without going through the waive is handled explicitly below (repeat-
+      // approve no-op) — the transition table has no operation_pending edge from an
+      // already-OPERATION_PENDING deposit, so falling through to holdBelowMinIfNeeded
+      // would throw instead of a clean no-op; no silent bypass either way.
       oldStatus !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       // FROZEN is the sanctions/MLRO-hold case: a caller reaching this path is a
@@ -746,6 +746,21 @@ export class DepositWorkflowService implements OnModuleInit {
         });
       }
       this.logger.warn(`Deposit ${depositId} in ${oldStatus}, cannot approve.`);
+      return;
+    }
+
+    // 终审"顺带"项:重复 approve 于一笔已经在 OPERATION_PENDING、且 BELOW_MIN 挂起
+    // 仍未解除的单(没有经过 waiveLimitHold),是合法的重复调用(operator 手滑双击
+    // ①、或上游重放),不是错误——显式 no-op,不再落入 holdBelowMinIfNeeded 去对一个
+    // 已经处于 OPERATION_PENDING 的单再次尝试 operation_pending 动作(转移表在这个
+    // 状态上没有这条自环边,会抛 Invalid action)。真正解除挂起走 waiveLimitHold。
+    if (
+      oldStatus === DepositTransactionStatus.OPERATION_PENDING &&
+      deposit.limitHoldReason === 'BELOW_MIN'
+    ) {
+      this.logger.debug(
+        `approveDeposit no-op: deposit ${depositId} already OPERATION_PENDING with BELOW_MIN hold intact — repeat approve ignored, waive the hold first`,
+      );
       return;
     }
 

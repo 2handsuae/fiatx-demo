@@ -402,6 +402,80 @@ describe('DepositTransactionsService', () => {
       ).rejects.toThrow(/Invalid action/);
     });
 
+    // 终审 Critical 1 回归闸:OPERATION_PENDING 此前只有 approve/confiscate_start/fail
+    // 三条出边,但它不在 KYT_VERDICT_TERMINAL_STATUSES 里,迟到的 Sumsub 裁决(冻结/
+    // 人工复核/补料)webhook 仍会照常派发进来,撞上转移表直接 500——合规裁决必须能
+    // 落地,不能被"金额小、等运营处置"卡死。
+    it('OPERATION_PENDING → FROZEN via freeze(制裁/MLRO 裁决必须能落地,不能卡在运营队列)', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.FREEZE });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.FROZEN,
+            completedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('OPERATION_PENDING → MANUAL_CHECKING via manual_check(无处置 tag 的迟到裁决须能转人工复核)', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.MANUAL_CHECK });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.MANUAL_CHECKING }),
+        }),
+      );
+    });
+
+    it('OPERATION_PENDING → REJECTED via reject(adminReject 必须能对 OPERATION_PENDING 单生效)', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.REJECT });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.REJECTED,
+            completedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('OPERATION_PENDING → ACTION_PENDING via action_pending(迟到的 awaitUser 裁决须能转客户补料)', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.ACTION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.ACTION_PENDING }),
+        }),
+      );
+    });
+
+    // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受 ACTION_PENDING/
+    // MANUAL_CHECKING,但金额闸下沉后调用的 operation_pending 边此前只从
+    // COMPLIANCE_PENDING 出发存在——两边前置条件对不上,below-min 单从这两个状态被
+    // approve 翻案时,金额闸自己在转移表这层抛 Invalid action。
+    it('ACTION_PENDING → OPERATION_PENDING via operation_pending(金额闸下沉后,补料后的 below-min 单必须能落地)', async () => {
+      setupMock(DepositTransactionStatus.ACTION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.OPERATION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
+    });
+
+    it('MANUAL_CHECKING → OPERATION_PENDING via operation_pending(误报翻案的 below-min 单必须能落地)', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.OPERATION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
+    });
+
     it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 

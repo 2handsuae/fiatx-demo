@@ -112,6 +112,7 @@ export const DEPOSIT_STATUS_FILTERS: DepositStatusFilterGroup[] = [
   { label: 'Payin pending', statuses: ['PAYIN_PENDING'] },
   { label: 'Compliance pending', statuses: ['COMPLIANCE_PENDING'] },
   { label: 'Awaiting customer', statuses: ['ACTION_PENDING'] },
+  { label: 'Operation pending', statuses: ['OPERATION_PENDING'] },
   { label: 'Manual checking', statuses: ['MANUAL_CHECKING'] },
   { label: 'Frozen', statuses: ['FROZEN'] },
   { label: 'Disposing', statuses: ['RETURNING', 'SEIZING', 'CONFISCATING'] },
