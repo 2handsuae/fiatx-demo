@@ -32,16 +32,21 @@
 
 **Bug 1 — onHold webhook 类型名写错（真接入即失效）**
 
-Sumsub 官方文档 verbatim：on-hold 事件的 type 是 **`applicantKytOnHold`**（无 `Txn`），文档本身注明"该事件与其他 KYT 事件命名不一致"。我方四处一致写成 `applicantKytTxnOnHold`：
+Sumsub 官方文档 verbatim：on-hold 事件的 type 是 **`applicantKytOnHold`**（无 `Txn`），文档本身注明"该事件与其他 KYT 事件命名不一致"。我方**五处**一致写成 `applicantKytTxnOnHold`，且缺陷分**三层**：
 
 ```
-src/modules/deposit-sumsub/deposit-kyt-verdict.handler.ts:12
-src/modules/deposit-sumsub/deposit-webhook.router.ts:8
-src/modules/deposit-sumsub/deposit-webhook.router.spec.ts:26
-src/modules/deposit-sumsub/fixtures/scenarios.ts:420
+① sumsub-ingestion.service.ts:124   startsWith('applicantKytTxn')  ← 前置分流,最外层
+② deposit-webhook.router.ts:8       KYT_VERDICT_TYPES 集合
+③ deposit-webhook.router.spec.ts:26
+④ deposit-kyt-verdict.handler.ts:12 VERDICT_BY_TYPE 映射
+⑤ fixtures/scenarios.ts:420         仿真 fixture
 ```
 
-fixture 与 handler **一致地错**，所以演示跑得通、单测全绿；真接上 Sumsub 后 onHold 事件永远匹配不上 → 被 handler 静默忽略 → 挂起复核整条路失效。
+最外层的 ① 是**前缀匹配**：真实的 `applicantKytOnHold` 不以 `applicantKytTxn` 开头，所以它连 router 都进不去，在 ingestion 分流处就被丢弃 —— 比 handler 层更早一步。
+
+fixture 与全链路 **一致地错**，所以演示跑得通、单测全绿；真接上 Sumsub 后 onHold 事件永远匹配不上 → 静默丢弃 → 挂起复核整条路失效。
+
+**修法约束**：① 不能简单改成 `startsWith('applicantKyt')` —— 那会把 `applicantKytAml*` 等其它 KYT 族事件也吞进 deposit 路由。应改为显式类型集合匹配（与 ② 共用一份常量），避免前缀匹配再次埋雷。
 
 **Bug 2 — approved 主路径没有金额闸（below-min 挂起从未生效）**
 
@@ -261,7 +266,8 @@ webhook payload 同步按官方补齐：现有 `type`/`kytTxnId`/`applicantId`/`
 - `src/modules/deposit-sumsub/fixtures/scenarios.ts` → 重写为按钮定义 + `buildTxnReport()`
 - `src/modules/deposit-sumsub/demo-scenario.service.ts` → 从"跑剧本"改为"投单次裁决"
 - `src/modules/deposit-sumsub/deposit-kyt-verdict.handler.ts` → 改 `applicantKytOnHold`；`DETAIL_LOOKUP_VERDICTS` 加 `onHold`
-- `src/modules/deposit-sumsub/deposit-webhook.router.ts`（+ `.spec`）→ 改 `applicantKytOnHold`
+- `src/modules/deposit-sumsub/deposit-webhook.router.ts`（+ `.spec`）→ 改 `applicantKytOnHold`；把类型集合提成导出常量
+- `src/modules/sumsub-ingestion/sumsub-ingestion.service.ts:124` → 前缀匹配改为引用上述导出常量做显式集合匹配
 - `src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts` → 加 `OPERATION_PENDING` 状态 + 动作
 - `src/modules/trading/deposit-transactions/deposit-transactions.service.ts` → 转移表增删
 - `src/modules/trading/deposit-transactions/deposit-workflow.service.ts` → `applyKytApproved` 加金额闸；三处处置前置条件改 `OPERATION_PENDING`
