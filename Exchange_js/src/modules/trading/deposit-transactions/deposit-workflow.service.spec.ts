@@ -525,7 +525,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD_BELOW_MIN, never approves', async () => {
+    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD_BELOW_MIN, transitions to OPERATION_PENDING, never approves (2026-07-31 口径反转: 金额闸移到 approved 之后)', async () => {
       const approveSpy = jest.spyOn(service, 'approveDeposit');
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
@@ -545,7 +545,11 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({ action: 'DEPOSIT_HELD_BELOW_MIN' }),
       );
       expect(approveSpy).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-1',
+        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
+        expect.anything(),
+      );
     });
 
     it('does not approve when deposit is FROZEN (even if sumsubVerdict is approved)', async () => {
@@ -625,6 +629,51 @@ describe('DepositWorkflowService', () => {
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-fiat-1', {
         action: DepositTransactionAction.APPROVE,
       });
+    });
+  });
+
+  describe('applyKytApproved — Bug 2 回归闸: approved 主路径也要过金额闸', () => {
+    it('BELOW_MIN 单收到 approved → 转 OPERATION_PENDING,不放行不记账（Bug 2 回归闸）', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-below-min',
+        depositNo: 'DEP-BELOW-MIN-001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: 'BELOW_MIN',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'tr-1',
+      });
+      withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
+      const approveSpy = jest.spyOn(service, 'approveDeposit');
+
+      await (service as any).applyKytApproved(await depositService.findOne('dep-below-min'));
+
+      expect(approveSpy).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-below-min',
+        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+      );
+    });
+
+    it('金额达标单收到 approved → 照常 approveDeposit', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-ok',
+        depositNo: 'DEP-OK-001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: null,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+      });
+      withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
+      const approveSpy = jest.spyOn(service, 'approveDeposit').mockResolvedValue(undefined as any);
+
+      await (service as any).applyKytApproved(await depositService.findOne('dep-ok'));
+
+      expect(approveSpy).toHaveBeenCalledWith('dep-ok');
     });
   });
 

@@ -394,6 +394,51 @@ export class DepositWorkflowService implements OnModuleInit {
     return false;
   }
 
+  /**
+   * 合规通过后的金额闸(2026-07-31 口径反转:旧=建单时判金额、合规只是后续;
+   * 新=先走完合规,approved 之后才判金额)。
+   *
+   * 返回 true = 已被挂起(调用方须 return,不得放行)。
+   *
+   * 判定依据是建单时落的 `limitHoldReason`,**不在此处重查限额规则** —— 规则可能在
+   * 单子生命周期内被改,用出生时的标记更稳定、可追溯。边界沿用 `amount < min`,
+   * 即恰好等于下限放行。
+   */
+  private async holdBelowMinIfNeeded(deposit: any): Promise<boolean> {
+    if (deposit.limitHoldReason !== 'BELOW_MIN') return false;
+
+    await this.depositService.updateStatus(
+      deposit.id,
+      {
+        action: DepositTransactionAction.OPERATION_PENDING,
+        reason: 'Compliance approved; amount below configured minimum — awaiting ops disposition',
+      },
+      {
+        actor: { actorType: 'SYSTEM', actorId: 'SYSTEM' },
+        sourcePlatform: 'SYSTEM',
+      },
+    );
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Deposit held: compliance approved but amount below configured minimum (BELOW_MIN)',
+      metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
+      sourcePlatform: 'SYSTEM',
+    });
+
+    this.logger.warn(
+      `Below-min hold: deposit ${deposit.id} approved by compliance but below minimum — OPERATION_PENDING`,
+    );
+    return true;
+  }
+
   private async applyKytApproved(deposit: any) {
     // Sanctions/MLRO freeze must never be auto-lifted by a late or re-scored
     // "approved" KYT webhook (e.g. a sanctions veto followed by a subsequent
@@ -440,6 +485,7 @@ export class DepositWorkflowService implements OnModuleInit {
         sourcePlatform: 'SYSTEM',
       });
     }
+    if (await this.holdBelowMinIfNeeded(deposit)) return;
     await this.approveDeposit(deposit.id);
   }
 
@@ -607,24 +653,6 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
-    if (deposit.limitHoldReason === 'BELOW_MIN') {
-      this.logger.warn(`Auto-approval hold: deposit ${depositId} below minimum amount — awaiting ops disposition`);
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_HELD_BELOW_MIN,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
-        traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT',
-        reason: 'Deposit held: amount below configured minimum (BELOW_MIN)',
-        metadata: { depositNo: deposit.depositNo, amount: String(deposit.amount) },
-        sourcePlatform: 'SYSTEM',
-      });
-      return;
-    }
-
     // 放行由 webhook 裁决驱动;这里读的是裁决字段(不是展示用的翻译值)。
     if (deposit.sumsubVerdict !== 'approved') {
       this.logger.debug(`Auto-approval skip: deposit ${depositId} sumsubVerdict=${deposit.sumsubVerdict}`);
@@ -643,6 +671,8 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const ready = await this.assertTradingReadyOrHold(deposit);
     if (!ready) return;
+
+    if (await this.holdBelowMinIfNeeded(deposit)) return;
 
     this.logger.log(
       `All gates PASSED for deposit ${depositId} — auto-approving`,
