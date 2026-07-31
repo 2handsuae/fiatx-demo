@@ -767,7 +767,9 @@ describe('DepositWorkflowService', () => {
     const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
       id: 'dep-1',
       depositNo: 'DEP001',
-      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      // Task 7: a BELOW_MIN hold now lives on OPERATION_PENDING deposits (compliance
+      // already passed before the amount gate runs — Task 6's reversal).
+      status: DepositTransactionStatus.OPERATION_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       amount: '5',
@@ -803,9 +805,33 @@ describe('DepositWorkflowService', () => {
       expect(depositService.clearLimitHold).not.toHaveBeenCalled();
     });
 
+    // Task 7: 没收/放行入口条件从 COMPLIANCE_PENDING 上移到 OPERATION_PENDING(Task 5
+    // 已把该边从转移表挪走)。waiveLimitHold 现在只认 OPERATION_PENDING;COMPLIANCE_PENDING
+    // (旧入口)必须拒绝,否则会在真实调用中撞上转移表的 'Invalid action'。
+    it('waiveLimitHold 只接受 OPERATION_PENDING,COMPLIANCE_PENDING 拒绝', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'd1', limitHoldReason: 'BELOW_MIN',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      });
+      await expect(service.waiveLimitHold('d1', { actorId: 'a1' })).rejects.toThrow(
+        /no BELOW_MIN hold to waive/,
+      );
+
+      depositService.findOne.mockResolvedValue({
+        id: 'd1', depositNo: 'DEP-1', limitHoldReason: 'BELOW_MIN',
+        status: DepositTransactionStatus.OPERATION_PENDING,
+        ownerType: 'CUSTOMER', ownerId: 'c1',
+      });
+      // waiveLimitHold has no explicit return (always resolves void) — the meaningful
+      // assertion is that it resolves at all (no BadRequestException) rather than a
+      // truthy return value, so toBeUndefined() over the brief's literal toBeDefined().
+      await expect(service.waiveLimitHold('d1', { actorId: 'a1' })).resolves.toBeUndefined();
+      expect(depositService.clearLimitHold).toHaveBeenCalledWith('d1');
+    });
+
     it('waiveLimitHold: KYT 已 approved 的单,豁免后应放行', async () => {
       const dep = {
-        id: 'dep-w1', depositNo: 'DEPW1', status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        id: 'dep-w1', depositNo: 'DEPW1', status: DepositTransactionStatus.OPERATION_PENDING,
         limitHoldReason: 'BELOW_MIN', sumsubVerdict: 'approved', ownerType: 'FIRM', ownerId: 'firm-1', traceId: null,
       };
       // waiveLimitHold's own findOne sees the still-held deposit (to validate the waive);
@@ -822,7 +848,7 @@ describe('DepositWorkflowService', () => {
 
     it('waiveLimitHold: KYT 未 approved 的单,豁免后不放行', async () => {
       const dep = {
-        id: 'dep-w2', depositNo: 'DEPW2', status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        id: 'dep-w2', depositNo: 'DEPW2', status: DepositTransactionStatus.OPERATION_PENDING,
         limitHoldReason: 'BELOW_MIN', sumsubVerdict: 'onHold', ownerType: 'FIRM', ownerId: 'firm-1', traceId: null,
       };
       depositService.findOne
@@ -844,7 +870,11 @@ describe('DepositWorkflowService', () => {
     const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
       id: 'dep-1',
       depositNo: 'DEP001',
-      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      // Task 7: confiscation entry moved from COMPLIANCE_PENDING to OPERATION_PENDING
+      // in lockstep with waiveLimitHold — see deposit-transactions.service.ts's
+      // transition table (OPERATION_PENDING is the only status with a
+      // CONFISCATE_START edge since Task 5).
+      status: DepositTransactionStatus.OPERATION_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       assetId: 'asset-1',
@@ -854,8 +884,8 @@ describe('DepositWorkflowService', () => {
       ...overrides,
     });
 
-    it('initiateConfiscation: below-min COMPLIANCE_PENDING → creates approval, audits REQUESTED', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: 'COMPLIANCE_PENDING' }));
+    it('initiateConfiscation: below-min OPERATION_PENDING → creates approval, audits REQUESTED', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: DepositTransactionStatus.OPERATION_PENDING }));
       approvalsService.list.mockResolvedValue({ total: 0, items: [] });
       approvalsService.createAndSubmit.mockResolvedValue({ id: 'app-1', approvalNo: 'APR-1' });
       const res = await service.initiateConfiscation('dep-1', { reason: 'below min' }, adminActor);
@@ -876,7 +906,7 @@ describe('DepositWorkflowService', () => {
     });
 
     it('initiateConfiscation: rejects when an open confiscation approval already exists', async () => {
-      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: 'COMPLIANCE_PENDING' }));
+      depositService.findOne.mockResolvedValue(baseDeposit({ limitHoldReason: 'BELOW_MIN', status: DepositTransactionStatus.OPERATION_PENDING }));
       approvalsService.list.mockResolvedValue({ total: 1, items: [{ id: 'existing' }] });
       await expect(service.initiateConfiscation('dep-1', { reason: 'x' }, adminActor)).rejects.toThrow(ConflictException);
     });
@@ -2136,7 +2166,10 @@ describe('DepositWorkflowService', () => {
     const confiscableDeposit = (overrides: Record<string, unknown> = {}) => ({
       id: 'dep-cf-1',
       depositNo: 'DEP-CF-001',
-      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      // Task 7: onConfiscationDecided's drift guard now requires OPERATION_PENDING
+      // (confiscation entry moved off COMPLIANCE_PENDING with the CONFISCATE_START
+      // edge in Task 5's transition table).
+      status: DepositTransactionStatus.OPERATION_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-cf-1',
       assetId: 'asset-usdt',

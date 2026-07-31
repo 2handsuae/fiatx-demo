@@ -647,7 +647,14 @@ export class DepositWorkflowService implements OnModuleInit {
   async checkAutoApproval(depositId: string) {
     const deposit = await this.depositService.findOne(depositId);
 
-    if (deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
+    // Task 7 companion fix: this is waiveLimitHold's re-evaluation entry point, and a
+    // waived BELOW_MIN hold now lives on OPERATION_PENDING (not COMPLIANCE_PENDING —
+    // that edge moved with the confiscation/waive entry conditions). Without this,
+    // waiveLimitHold silently never re-approves an OPERATION_PENDING deposit.
+    if (
+      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING &&
+      deposit.status !== DepositTransactionStatus.OPERATION_PENDING
+    ) {
       this.logger.debug(
         `Auto-approval skip: deposit ${depositId} status is ${deposit.status}`,
       );
@@ -699,7 +706,15 @@ export class DepositWorkflowService implements OnModuleInit {
     if (
       oldStatus !== DepositTransactionStatus.COMPLIANCE_PENDING &&
       oldStatus !== DepositTransactionStatus.ACTION_PENDING &&
-      oldStatus !== DepositTransactionStatus.MANUAL_CHECKING
+      oldStatus !== DepositTransactionStatus.MANUAL_CHECKING &&
+      // Task 7 companion fix: OPERATION_PENDING is the waived-hold re-approval path
+      // (waiveLimitHold clears limitHoldReason then re-runs checkAutoApproval, which
+      // now calls in here). A still-held OPERATION_PENDING deposit reaching this
+      // point without going through the waive still fails safe: holdBelowMinIfNeeded
+      // below finds limitHoldReason==='BELOW_MIN' and calls updateStatus with the
+      // OPERATION_PENDING action, which the transition table rejects from an
+      // already-OPERATION_PENDING deposit ('Invalid action') — no silent bypass.
+      oldStatus !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       // FROZEN is the sanctions/MLRO-hold case: a caller reaching this path is a
       // request (HTTP PATCH via the controller), not the webhook no-op path
@@ -868,7 +883,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const deposit = await this.depositService.findOne(depositId);
     if (
       deposit.limitHoldReason !== 'BELOW_MIN' ||
-      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING
+      deposit.status !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       throw new BadRequestException(
         'Deposit has no BELOW_MIN hold to waive',
@@ -923,7 +938,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const deposit = await this.depositService.findOne(depositId);
     if (
       deposit.limitHoldReason !== 'BELOW_MIN' ||
-      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING
+      deposit.status !== DepositTransactionStatus.OPERATION_PENDING
     ) {
       throw new BadRequestException(
         'Deposit has no BELOW_MIN hold to confiscate',
@@ -999,7 +1014,7 @@ export class DepositWorkflowService implements OnModuleInit {
    * initiateConfiscation reached a decision. On APPROVED, START the confiscation
    * (two PENDING accounting legs + legSeq 2 funds order CREATED + status→CONFISCATING;
    * the POST/settle half lands in C3). On any other outcome the deposit stays
-   * COMPLIANCE_PENDING with its BELOW_MIN hold intact — the approvals engine owns the
+   * OPERATION_PENDING with its BELOW_MIN hold intact — the approvals engine owns the
    * rejection/cancel/expire audit trail, so this is a clean no-op (idempotent).
    *
    * entityRef is the deposit id. A foreign entityRef (some other workflow's) makes
@@ -1053,7 +1068,7 @@ export class DepositWorkflowService implements OnModuleInit {
     // net the L/E identity, hiding it from recon). Guard: post NO legs, create NO funds
     // order, change NO status when drifted — just leave an audit trail for ops.
     if (
-      deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING ||
+      deposit.status !== DepositTransactionStatus.OPERATION_PENDING ||
       deposit.limitHoldReason !== 'BELOW_MIN'
     ) {
       this.logger.warn(
