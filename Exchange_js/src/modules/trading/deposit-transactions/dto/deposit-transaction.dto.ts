@@ -5,6 +5,8 @@ export enum DepositTransactionStatus {
   PAYIN_PENDING = 'PAYIN_PENDING',
   COMPLIANCE_PENDING = 'COMPLIANCE_PENDING',
   ACTION_PENDING = 'ACTION_PENDING',
+  /** 合规已通过、但金额低于下限,等运营处置(放行/没收)。与 ACTION_PENDING(等客户补料)互不重叠。 */
+  OPERATION_PENDING = 'OPERATION_PENDING',
   SUCCESS = 'SUCCESS',
   FROZEN = 'FROZEN',
   REJECTED = 'REJECTED',
@@ -79,6 +81,7 @@ export enum DepositTransactionAction {
   REJECT = 'reject',
   FREEZE = 'freeze',
   ACTION_PENDING = 'action_pending',
+  OPERATION_PENDING = 'operation_pending',
   RESUME = 'resume',
   CONFISCATE = 'confiscate',
   CONFISCATE_START = 'confiscate_start',

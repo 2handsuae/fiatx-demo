@@ -509,11 +509,10 @@ export class DepositTransactionsService {
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
-        // Below-min confiscation is async two-phase (C1): COMPLIANCE_PENDING →
-        // CONFISCATING (funds in transit, accounting pending-locked) → ops advances
-        // the funds order → CONFISCATE_SETTLE lands CONFISCATED once posted.
-        [DepositTransactionAction.CONFISCATE_START]:
-          DepositTransactionStatus.CONFISCATING,
+        // 合规通过后才判金额(口径 2026-07-31 反转:旧=先判金额后合规)。
+        // 低于下限 → OPERATION_PENDING 等运营处置,没收入口随之上移。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
         [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
         [DepositTransactionAction.MANUAL_CHECK]:
           DepositTransactionStatus.MANUAL_CHECKING,
@@ -521,6 +520,14 @@ export class DepositTransactionsService {
       [DepositTransactionStatus.CONFISCATING]: {
         [DepositTransactionAction.CONFISCATE_SETTLE]:
           DepositTransactionStatus.CONFISCATED,
+      },
+      [DepositTransactionStatus.OPERATION_PENDING]: {
+        // 放行:直接入账。没收:异步两阶段(C1)——OPERATION_PENDING → CONFISCATING
+        //(资金在途、记账 pending 锁)→ ops 推资金单 → CONFISCATE_SETTLE 落 CONFISCATED。
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        [DepositTransactionAction.CONFISCATE_START]:
+          DepositTransactionStatus.CONFISCATING,
+        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,

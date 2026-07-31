@@ -353,8 +353,8 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
     });
 
-    it('COMPLIANCE_PENDING → CONFISCATING via confiscate_start', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+    it('OPERATION_PENDING → CONFISCATING via confiscate_start', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
       await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START });
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'CONFISCATING' }) }),
@@ -368,11 +368,38 @@ describe('DepositTransactionsService', () => {
       );
     });
     it('blocks ADMIN_API from directly reaching CONFISCATING (workflow-only)', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
       await expect(
         service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START },
           { sourcePlatform: 'ADMIN_API', actor: { actorType: 'ADMIN', actorId: 'a1' } }),
       ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY' }) });
+    });
+
+    it('COMPLIANCE_PENDING → OPERATION_PENDING via operation_pending', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.OPERATION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
+    });
+
+    it('OPERATION_PENDING → SUCCESS via approve (放行)', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.SUCCESS }),
+        }),
+      );
+    });
+
+    it('COMPLIANCE_PENDING 不再直接 confiscate_start —— 没收入口已上移到 OPERATION_PENDING', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START }),
+      ).rejects.toThrow(/Invalid action/);
     });
 
     it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
