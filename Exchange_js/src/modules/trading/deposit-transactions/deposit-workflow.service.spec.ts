@@ -525,8 +525,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD_BELOW_MIN, transitions to OPERATION_PENDING, never approves (2026-07-31 口径反转: 金额闸移到 approved 之后)', async () => {
-      const approveSpy = jest.spyOn(service, 'approveDeposit');
+    it('holds when limitHoldReason=BELOW_MIN — audits DEPOSIT_HELD_BELOW_MIN, transitions to OPERATION_PENDING, never approves (2026-07-31 口径反转: 金额闸移到 approved 之后; 2026-07-31 闸下沉到 approveDeposit 唯一出口后,断言改为验可观测结果而非"approveDeposit 未被调用"这一实现细节——闸下沉后 checkAutoApproval 仍会调用 approveDeposit,只是 approveDeposit 自己在记账前拦下)', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-1',
         depositNo: 'DEP001',
@@ -544,12 +543,20 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_HELD_BELOW_MIN' }),
       );
-      expect(approveSpy).not.toHaveBeenCalled();
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-1',
         expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
         expect.anything(),
       );
+      // 终态不是 APPROVE/SUCCESS,也没有记账相关审计——闸真的拦住了钱,不只是拦住了某个 helper 调用
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
+        'dep-1',
+        { action: DepositTransactionAction.APPROVE },
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
+      );
+      expect(fundsOrders.findByParent).not.toHaveBeenCalled();
     });
 
     it('does not approve when deposit is FROZEN (even if sumsubVerdict is approved)', async () => {
@@ -633,7 +640,7 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('applyKytApproved — Bug 2 回归闸: approved 主路径也要过金额闸', () => {
-    it('BELOW_MIN 单收到 approved → 转 OPERATION_PENDING,不放行不记账（Bug 2 回归闸）', async () => {
+    it('BELOW_MIN 单收到 approved → 转 OPERATION_PENDING,不放行不记账（Bug 2 回归闸；2026-07-31 闸下沉到 approveDeposit 唯一出口后,断言改为验可观测结果而非"approveDeposit 未被调用"这一实现细节——闸下沉后 applyKytApproved 仍会调用 approveDeposit,只是 approveDeposit 自己在记账前拦下）', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-below-min',
         depositNo: 'DEP-BELOW-MIN-001',
@@ -644,11 +651,9 @@ describe('DepositWorkflowService', () => {
         traceId: 'tr-1',
       });
       withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
-      const approveSpy = jest.spyOn(service, 'approveDeposit');
 
       await (service as any).applyKytApproved(await depositService.findOne('dep-below-min'));
 
-      expect(approveSpy).not.toHaveBeenCalled();
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-below-min',
         expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
@@ -657,6 +662,15 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
       );
+      // 终态不是 APPROVE/SUCCESS,也没有记账相关审计——闸真的拦住了钱,不只是拦住了某个 helper 调用
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
+        'dep-below-min',
+        { action: DepositTransactionAction.APPROVE },
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
+      );
+      expect(fundsOrders.findByParent).not.toHaveBeenCalled();
     });
 
     it('金额达标单收到 approved → 照常 approveDeposit', async () => {
@@ -674,6 +688,77 @@ describe('DepositWorkflowService', () => {
       await (service as any).applyKytApproved(await depositService.findOne('dep-ok'));
 
       expect(approveSpy).toHaveBeenCalledWith('dep-ok');
+    });
+  });
+
+  describe('approveDeposit — 金额闸下沉到唯一出口(admin 直调 PATCH /status 也必须过闸)', () => {
+    it('直调 approveDeposit 于 BELOW_MIN 单 → 转 OPERATION_PENDING + 审计 DEPOSIT_HELD_BELOW_MIN,不记账(缺口本身——admin 绕过 applyKytApproved/checkAutoApproval 直接 PATCH 状态接口时曾完整复现漏洞)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-admin-below-min',
+        depositNo: 'DEP-ADMIN-BM-001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: 'BELOW_MIN',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'tr-admin-1',
+        amount: '5',
+      });
+      const executeAccountingSpy = jest.spyOn(service as any, 'executeDepositAccounting');
+
+      await service.approveDeposit('dep-admin-below-min');
+
+      // 转 OPERATION_PENDING,不是 APPROVE
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-admin-below-min',
+        expect.objectContaining({ action: DepositTransactionAction.OPERATION_PENDING }),
+        expect.anything(),
+      );
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
+        'dep-admin-below-min',
+        { action: DepositTransactionAction.APPROVE },
+      );
+      // 写 DEPOSIT_HELD_BELOW_MIN 审计,不写 DEPOSIT_APPROVED/DEPOSIT_COMPLETED
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
+      );
+      // 不记账:资金层完全没被碰
+      expect(fundsOrders.findByParent).not.toHaveBeenCalled();
+      expect(executeAccountingSpy).not.toHaveBeenCalled();
+    });
+
+    it('直调 approveDeposit 于 limitHoldReason=null 单 → 照常入账走 SUCCESS(防止把正常路径改坏)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-admin-ok',
+        depositNo: 'DEP-ADMIN-OK-001',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        limitHoldReason: null,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: 'tr-admin-2',
+        amount: '500',
+        asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
+      });
+
+      await service.approveDeposit('dep-admin-ok');
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith('dep-admin-ok', {
+        action: DepositTransactionAction.APPROVE,
+      });
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_APPROVED }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_COMPLETED }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_HELD_BELOW_MIN }),
+      );
     });
   });
 

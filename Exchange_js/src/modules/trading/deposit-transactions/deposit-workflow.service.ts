@@ -485,7 +485,8 @@ export class DepositWorkflowService implements OnModuleInit {
         sourcePlatform: 'SYSTEM',
       });
     }
-    if (await this.holdBelowMinIfNeeded(deposit)) return;
+    // 金额闸(BELOW_MIN)已下沉到 approveDeposit() 内部——它是资金入账唯一出口,
+    // 这里不再重复判定(见 approveDeposit 的 JSDoc)。
     await this.approveDeposit(deposit.id);
   }
 
@@ -672,14 +673,25 @@ export class DepositWorkflowService implements OnModuleInit {
     const ready = await this.assertTradingReadyOrHold(deposit);
     if (!ready) return;
 
-    if (await this.holdBelowMinIfNeeded(deposit)) return;
-
+    // 金额闸(BELOW_MIN)已下沉到 approveDeposit() 内部——它是资金入账唯一出口,
+    // 这里不再重复判定(见 approveDeposit 的 JSDoc)。
     this.logger.log(
       `All gates PASSED for deposit ${depositId} — auto-approving`,
     );
     await this.approveDeposit(depositId);
   }
 
+  /**
+   * 充值资金入账的**唯一出口**——所有放行路径(applyKytApproved 的 webhook 驱动路径、
+   * checkAutoApproval 的老 mock 自动放行路径、admin 直调 PATCH /deposit-transactions/:id/status
+   * {action: approve} 的人工路径)最终都汇聚到这一个函数记账+转 SUCCESS。
+   *
+   * 金额闸(BELOW_MIN,见 holdBelowMinIfNeeded)因此也装在这里,紧跟在 oldStatus 白名单
+   * 校验通过之后、任何记账/状态推进之前:装在出口上只需把一次关,不会再出现"调用点
+   * 忘了加闸"——历史上就出现过 admin 直接 PATCH 状态接口绕过 applyKytApproved/
+   * checkAutoApproval 里各自的闸、直接把 BELOW_MIN 单放行入账的资金安全缺口。
+   * 不要再往调用点(applyKytApproved/checkAutoApproval 等)上加这道闸。
+   */
   async approveDeposit(depositId: string) {
     const deposit = await this.depositService.findOne(depositId);
     const oldStatus = deposit.status;
@@ -721,6 +733,8 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.warn(`Deposit ${depositId} in ${oldStatus}, cannot approve.`);
       return;
     }
+
+    if (await this.holdBelowMinIfNeeded(deposit)) return;
 
     // ⑥ DEPOSIT_APPROVED — record before state change
     await this.auditLogsService.recordSystem({
