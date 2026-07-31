@@ -160,15 +160,15 @@ export class DepositDemoScenarioService {
    *   ③ **跨单绝不重号** —— 此前 fixture 把 `T3` 当真 id 直接用,第二笔单跑同一场景时
    *      `findBySumsubTxnId('T3')` 会匹到**上一笔**单,端点照样返回 201 且事件全部
    *      PROCESSED、零报错,但驱动的是错误的单(2026-07-29 live demo 实测踩中)。
+   *
+   * ⚠️ 本方法与 runVerdict() 里的 createdAtIso 同样依赖「createdAt 是非空且带
+   * @default(now()) 的 DB 列」这一不变量(prisma/schema.prisma 保证),所以不做
+   * 运行时兜底;若将来该列变可空,两处要一起改。
    */
-  private mintTxnId(deposit: { depositNo: string; createdAt?: Date | string }, slot: string): string {
+  private mintTxnId(deposit: { depositNo: string; createdAt: Date | string }, slot: string): string {
     const digest = createHash('sha1').update(`${deposit.depositNo}:${slot}`).digest('hex');
-    const ms = deposit.createdAt ? new Date(deposit.createdAt).getTime() : NaN;
-    // createdAt 缺失/非法时退回哈希段 —— 产出必须恒为 24 位合法 hex,
-    // 否则会拼出 `00000NaN…` 这种既不像 Sumsub 也查不出东西的脏号。
-    const tsHex = Number.isFinite(ms)
-      ? Math.floor(ms / 1000).toString(16).padStart(8, '0').slice(-8)
-      : digest.slice(16, 24);
+    const ms = new Date(deposit.createdAt).getTime();
+    const tsHex = Math.floor(ms / 1000).toString(16).padStart(8, '0').slice(-8);
     return `${tsHex}${digest.slice(0, 16)}`;
   }
 
