@@ -4,8 +4,10 @@ import { getDepositStatusView } from './depositStatusView';
 
 /**
  * Client-facing deposit status view — the tipping-off-safe table.
- * FROZEN / SEIZING / SEIZED / MANUAL_CHECKING must all read as the same
- * neutral "UNDER REVIEW"; CONFISCATING / CONFISCATED must never surface
+ * FROZEN / SEIZING / SEIZED / MANUAL_CHECKING must be INDISTINGUISHABLE
+ * from COMPLIANCE_PENDING — same label, same (absent) note, same tone.
+ * A distinct colour or a "contact support" hint is itself a tipping-off
+ * signal. CONFISCATING / CONFISCATED must never surface
  * to the client at all (server already filters them out — this util's
  * job is to make sure that even if one leaks through, it never renders
  * enforcement language). See design §1.2.
@@ -38,10 +40,10 @@ const LABEL_CASES: Array<[string, string]> = [
   ['SUCCESS', 'SUCCESS'],
   ['RETURNING', 'RETURNING'],
   ['RETURNED', 'RETURNED'],
-  ['FROZEN', 'UNDER REVIEW'],
-  ['SEIZING', 'UNDER REVIEW'],
-  ['SEIZED', 'UNDER REVIEW'],
-  ['MANUAL_CHECKING', 'UNDER REVIEW'],
+  ['FROZEN', 'PROCESSING'],
+  ['SEIZING', 'PROCESSING'],
+  ['SEIZED', 'PROCESSING'],
+  ['MANUAL_CHECKING', 'PROCESSING'],
   ['FAILED', 'FAILED'],
 ];
 
@@ -52,6 +54,25 @@ describe('depositStatusView (client, tipping-off safe)', () => {
 
   it.each(LABEL_CASES)('%s -> label=%s', (status, label) => {
     expect(getDepositStatusView(status).label).toBe(label);
+  });
+
+  // 只断言 label 相同是不够的:note 或 tone 任一不同，客户端上这一单就"看着不一样"，
+  // 被调查人照样能辨认出自己被盯上了。所以这里断言**整个 view 对象逐字段等同**于
+  // 正常处理中的 COMPLIANCE_PENDING —— 将来谁"体贴地"把 'Please contact support'
+  // 加回来、或把颜色调成警示黄，本条即红。
+  it.each(['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'])(
+    '%s 与 COMPLIANCE_PENDING 逐字段完全一致（tipping-off 防线）',
+    (status) => {
+      expect(getDepositStatusView(status)).toEqual(
+        getDepositStatusView('COMPLIANCE_PENDING'),
+      );
+    },
+  );
+
+  it('执法四态一律不带 note（note 本身即可辨识信号）', () => {
+    for (const status of ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING']) {
+      expect(getDepositStatusView(status).note).toBeUndefined();
+    }
   });
 
   it('every badge label is fully uppercase', () => {
