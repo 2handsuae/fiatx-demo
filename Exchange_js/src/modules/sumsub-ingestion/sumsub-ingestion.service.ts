@@ -15,6 +15,7 @@ import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgra
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
+import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
 import { SumsubWebhookEvent } from '@prisma/client';
@@ -121,26 +122,16 @@ export class SumsubIngestionService {
       // action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动重评并发出
       // applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,DepositActionHandler 桩已退役)。
       const depositWebhookType = String(payload.type ?? '');
-      if (depositWebhookType.startsWith('applicantKytTxn')) {
+      // 显式集合匹配,不用 startsWith:官方 on-hold 事件是 `applicantKytOnHold`(无 Txn),
+      // 旧的 `startsWith('applicantKytTxn')` 会把它漏在门外;而放宽成 `applicantKyt`
+      // 又会误吞 AML 等同前缀的其它族事件。见 kyt-webhook-types.ts。
+      if (KYT_VERDICT_TYPES.has(depositWebhookType)) {
         await this.depositWebhookRouter.route(payload);
         result = { routedTo: 'deposit-sumsub', type: depositWebhookType };
         dispatchedContext = 'DEPOSIT_SUMSUB';
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
-      else if (event.eventType === 'kytCheckSimulated') {
-        const depositId = String(payload.depositId ?? '');
-        const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        const riskScore = (payload.riskScore as number | null) ?? null;
-        await this.depositWorkflowService.applyKytResult(depositId, kytStatus, riskScore);
-        result = { depositId, kytStatus, riskScore };
-        dispatchedContext = 'KYT_CHECK';
-      } else if (event.eventType === 'travelRuleCheckSimulated') {
-        const depositId = String(payload.depositId ?? '');
-        const trStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        await this.depositWorkflowService.applyTrResult(depositId, trStatus);
-        result = { depositId, trStatus };
-        dispatchedContext = 'TRAVEL_RULE_CHECK';
-      } else if (event.eventType === 'withdrawKytCheckSimulated') {
+      else if (event.eventType === 'withdrawKytCheckSimulated') {
         const withdrawId = String(payload.withdrawId ?? '');
         const stage = String(payload.stage ?? 'PRE');
         const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';

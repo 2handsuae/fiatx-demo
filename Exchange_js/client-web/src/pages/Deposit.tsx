@@ -9,6 +9,7 @@ import {
   customerFetch,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
+import { getDepositStatusView, type DepositStatusView } from '../utils/depositStatusView';
 
 interface Asset {
   id: string;
@@ -108,11 +109,40 @@ interface CreateInboundTransferSignalPayload {
   fromAddress?: string;
   referenceNo?: string;
   fromIban?: string;
+  counterpartyIsVasp?: boolean;
 }
 
 const normalizeSimulationAssetType = (
   assetType: string | null | undefined,
 ): DepositAssetType => (assetType === 'FIAT' ? 'FIAT' : 'CRYPTO');
+
+/* Client-facing badge tone -> fx-* color classes (rules/frontend-client.md
+   forbids raw Tailwind colors). Kept in sync with DepositStatusView['tone']. */
+const STATUS_TONE_CLASS: Record<DepositStatusView['tone'], string> = {
+  positive: 'bg-fx-sage/20 text-fx-sage',
+  warning: 'bg-fx-brass/20 text-fx-brass',
+  danger: 'bg-fx-rust/20 text-fx-rust',
+  neutral: 'bg-fx-dust/20 text-fx-dust',
+};
+
+/**
+ * History filter groups, customer-facing wording. Labels come from getDepositStatusView
+ * so filter text always matches the badge text; `statuses` are the raw
+ * backend codes sent as a comma-separated `status` query value (supported by
+ * DepositTransactionQueryDto). REJECTED/EXPIRED intentionally excluded —
+ * those two statuses are slated for removal (BACKLOG d7b4456e / design
+ * decision #5) and get no new filter UI, mirroring admin's
+ * DEPOSIT_STATUS_FILTERS (admin-web/src/utils/depositStatusMap.ts).
+ */
+const HISTORY_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
+  { label: getDepositStatusView('PAYIN_PENDING').label, statuses: ['PAYIN_PENDING', 'COMPLIANCE_PENDING'] },
+  { label: getDepositStatusView('ACTION_PENDING').label, statuses: ['ACTION_PENDING'] },
+  { label: getDepositStatusView('FROZEN').label, statuses: ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'] },
+  { label: getDepositStatusView('RETURNING').label, statuses: ['RETURNING'] },
+  { label: getDepositStatusView('RETURNED').label, statuses: ['RETURNED'] },
+  { label: getDepositStatusView('SUCCESS').label, statuses: ['SUCCESS'] },
+  { label: getDepositStatusView('FAILED').label, statuses: ['FAILED'] },
+];
 
 const Deposit = () => {
   const { user } = useAuth();
@@ -136,6 +166,7 @@ const Deposit = () => {
   const [simulatingSignal, setSimulatingSignal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const [signalAmount, setSignalAmount] = useState('');
+  const [counterpartyIsVasp, setCounterpartyIsVasp] = useState<boolean | null>(null);
   const [signalFeedback, setSignalFeedback] = useState<SimulationFeedback | null>(null);
   const [lastSimulationResult, setLastSimulationResult] = useState<SimulationResultSummary | null>(null);
 
@@ -204,6 +235,7 @@ const Deposit = () => {
     setSignalFeedback(null);
     setLastSimulationResult(null);
     setSignalAmount('');
+    setCounterpartyIsVasp(null);
     setShowSimulateModal(false);
   }, [selectedAssetId, activeTab, depositWallet?.id]);
 
@@ -214,6 +246,7 @@ const Deposit = () => {
 
     setShowSimulateModal(false);
     setSignalAmount('');
+    setCounterpartyIsVasp(null);
     setLastSimulationResult(null);
   }, [simulationModeEnabled]);
 
@@ -297,34 +330,40 @@ const Deposit = () => {
     setSelectedAssetId(filteredAssets[0]?.id || '');
   }, [activeTab, filteredAssets, selectedAssetId]);
 
-  const getCustomerFacingStatus = (internalStatus: string): { label: string; color: string } => {
-    switch (internalStatus) {
-      case 'PAYIN_PENDING':
-      case 'COMPLIANCE_PENDING':
-      case 'ACTION_PENDING':
-      case 'FROZEN':
-        return { label: 'Processing', color: 'bg-blue-500/20 text-blue-400' };
-      case 'SUCCESS':
-        return { label: 'Completed', color: 'bg-fx-sage/20 text-fx-sage' };
-      case 'REJECTED':
-        return { label: 'Declined', color: 'bg-rose-500/20 text-rose-400' };
-      case 'FAILED':
-        return { label: 'Failed', color: 'bg-fx-rust/20 text-fx-rust' };
-      case 'EXPIRED':
-        return { label: 'Expired', color: 'bg-fx-dust/20 text-fx-dust' };
-      case 'CONFISCATED':
-        return { label: 'Contact Support', color: 'bg-rose-500/20 text-rose-400' };
-      default:
-        return { label: 'Processing', color: 'bg-fx-dust/20 text-fx-dust' };
-    }
+  const renderStatusBadge = (status: string) => {
+    const view = getDepositStatusView(status);
+    return (
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${STATUS_TONE_CLASS[view.tone]}`}
+      >
+        {view.label}
+      </span>
+    );
   };
 
-  const renderStatusBadge = (status: string) => {
-    const { label, color } = getCustomerFacingStatus(status);
+  const renderStatusDetail = (status: string) => {
+    const view = getDepositStatusView(status);
+    const isActionPending = status.toUpperCase() === 'ACTION_PENDING';
+
+    if (!view.note && !isActionPending) return null;
+
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${color}`}>
-        {label}
-      </span>
+      <div className="mt-3 space-y-2 text-center">
+        {view.note ? <p className="text-sm text-fx-dust">{view.note}</p> : null}
+        {isActionPending ? (
+          // The ACTION_PENDING CTA is designed (spec §3.C) to deep-link into a
+          // Sumsub verification link / questionnaire, but the deposit
+          // transaction API exposes no SDK token or verification-link field
+          // for the client to jump to (confirmed by inspection — no such
+          // field on DepositTransaction/its DTOs). Degraded to a static
+          // "contact support" message per the owner-approved fallback; do
+          // not invent a link/route here — wire a real CTA once the backend
+          // exposes one.
+          <div className="rounded-xl border border-fx-brass/30 bg-fx-brass/10 px-4 py-3 text-sm font-semibold text-fx-brass">
+            Please contact support
+          </div>
+        ) : null}
+      </div>
     );
   };
 
@@ -336,6 +375,7 @@ const Deposit = () => {
   const buildMockInboundSignalPayload = (
     wallet: WalletItem,
     amount: string,
+    counterpartyIsVasp: boolean | null,
   ): CreateInboundTransferSignalPayload => {
     const rawSeed = `${wallet.id}-${wallet.asset.code}-${Date.now().toString(16)}-${Math.random()
       .toString(16)
@@ -351,6 +391,7 @@ const Deposit = () => {
         amount,
         txHash: `0x${txSeed}`,
         fromAddress: `0x${addressSeed}`,
+        counterpartyIsVasp: counterpartyIsVasp ?? undefined,
       };
     }
 
@@ -393,12 +434,21 @@ const Deposit = () => {
       return;
     }
 
+    const isCryptoDeposit = depositWallet.asset.type === 'CRYPTO';
+    if (isCryptoDeposit && counterpartyIsVasp === null) {
+      setSignalFeedback({
+        kind: 'error',
+        message: 'Please select the counterparty type',
+      });
+      return;
+    }
+
     setSimulatingSignal(true);
     setSignalFeedback(null);
     setLastSimulationResult(null);
     try {
       const payload: CreateInboundTransferSignalPayload = {
-        ...buildMockInboundSignalPayload(depositWallet, amount),
+        ...buildMockInboundSignalPayload(depositWallet, amount, counterpartyIsVasp),
       };
       const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -445,6 +495,7 @@ const Deposit = () => {
         assetType: normalizeSimulationAssetType(depositWallet.asset.type),
       });
       setSignalAmount('');
+      setCounterpartyIsVasp(null);
       setShowSimulateModal(false);
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
@@ -484,8 +535,8 @@ const Deposit = () => {
   const renderSimulationResultSummary = (summary: SimulationResultSummary) => {
     const nextStepText =
       summary.assetType === 'FIAT'
-        ? '下一步去 Admin 的 Payin Detail，用 Payin rail 点 FIAT_CONFIRMED；之后系统会进入 Final review / Alert / Case。'
-        : '下一步去 Admin 的 Payin Detail，用 Payin rail 继续推进；随后再走 KYT / Travel Rule / Alert / Case。';
+        ? 'Next: open Payin Detail in Admin and use the payin rail to mark FIAT_CONFIRMED; the system then moves to Final review / Alert / Case.'
+        : 'Next: open Payin Detail in Admin and advance the payin rail; KYT / Travel Rule / Alert / Case follow.';
 
     return (
       <div className="rounded-2xl border border-fx-sage/30 bg-fx-sage/10 p-4 space-y-4">
@@ -495,14 +546,14 @@ const Deposit = () => {
               Simulation Created
             </h4>
             <p className="mt-1 text-sm text-fx-sage/80">
-              {summary.assetCode} 模拟充值已创建成功，下一步请去 Admin 继续推进。
+              {summary.assetCode} simulated deposit created — continue in Admin.
             </p>
           </div>
           <button
             onClick={openHistoryWithReset}
             className="shrink-0 rounded-lg border border-fx-sage/30 px-3 py-1.5 text-xs font-semibold text-fx-sage hover:bg-fx-sage/20 transition-colors"
           >
-            查看历史
+            View history
           </button>
         </div>
 
@@ -551,6 +602,7 @@ const Deposit = () => {
       <button
         onClick={() => {
           setSignalAmount('');
+          setCounterpartyIsVasp(null);
           setSignalFeedback(null);
           setShowSimulateModal(true);
         }}
@@ -709,11 +761,11 @@ const Deposit = () => {
                           className="bg-transparent text-sm text-fx-sand focus:outline-none"
                         >
                             <option value="">All Status</option>
-                            <option value="PAYIN_PENDING">Processing</option>
-                            <option value="SUCCESS">Completed</option>
-                            <option value="REJECTED">Declined</option>
-                            <option value="FAILED">Failed</option>
-                            <option value="EXPIRED">Expired</option>
+                            {HISTORY_STATUS_FILTERS.map((filter) => (
+                                <option key={filter.label} value={filter.statuses.join(',')}>
+                                    {filter.label}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div className="flex items-center gap-2 bg-fx-charcoal/50 px-3 py-2 rounded-lg border border-fx-rule">
@@ -1040,6 +1092,36 @@ const Deposit = () => {
                 />
               </div>
 
+              {depositWallet.asset.type === 'CRYPTO' && (
+                <div>
+                  <label className="text-xs text-fx-dust font-medium block mb-1">Counterparty</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCounterpartyIsVasp(true)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                        counterpartyIsVasp === true
+                          ? 'border-fx-brass bg-fx-brass/10 text-fx-brass'
+                          : 'border-fx-rule text-fx-dune hover:bg-fx-charcoal/50'
+                      }`}
+                    >
+                      VASP (exchange / custodian)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCounterpartyIsVasp(false)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
+                        counterpartyIsVasp === false
+                          ? 'border-fx-brass bg-fx-brass/10 text-fx-brass'
+                          : 'border-fx-rule text-fx-dune hover:bg-fx-charcoal/50'
+                      }`}
+                    >
+                      Unhosted wallet
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-xl border border-fx-rule bg-fx-charcoal/50 p-4 text-sm text-fx-dune">
                 This step only submits the mock inbound signal. After the payin/deposit is created, use Admin Risk Policy Executions to simulate Low, Medium, or High risk.
               </div>
@@ -1049,6 +1131,7 @@ const Deposit = () => {
               <button
                 onClick={() => {
                   setSignalAmount('');
+                  setCounterpartyIsVasp(null);
                   setShowSimulateModal(false);
                 }}
                 disabled={simulatingSignal}
@@ -1090,6 +1173,7 @@ const Deposit = () => {
                         <div className="mt-2">
                              {renderStatusBadge(selectedTx.status)}
                         </div>
+                        {renderStatusDetail(selectedTx.status)}
                     </div>
 
                     <div className="space-y-3 bg-fx-charcoal/50 p-4 rounded-xl border border-fx-rule">

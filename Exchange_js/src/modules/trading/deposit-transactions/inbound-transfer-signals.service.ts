@@ -142,6 +142,14 @@ export class InboundTransferSignalsService {
 
     this.assertSimulationRiskProfile(dto, channelType);
 
+    const isCrypto = String(wallet.asset?.type).toUpperCase() === 'CRYPTO';
+    if (isCrypto && dto.counterpartyIsVasp == null) {
+      throw new BadRequestException('counterpartyIsVasp is required for crypto deposits');
+    }
+    if (!isCrypto && dto.counterpartyIsVasp != null) {
+      throw new BadRequestException('counterpartyIsVasp must not be provided for fiat deposits');
+    }
+
     const dedupeKey = this.buildDedupeKey({
       channelType,
       walletId: wallet.id,
@@ -185,6 +193,7 @@ export class InboundTransferSignalsService {
           fromIban: dto.fromIban,
           simulationRiskLevel: dto.simulationRiskLevel || null,
           simulationRiskReason: dto.simulationRiskReason || null,
+          counterpartyIsVasp: dto.counterpartyIsVasp ?? null,
           status: InboundTransferSignalStatus.PENDING_SCAN,
           dedupeKey,
           submittedAt: new Date(),
@@ -373,6 +382,7 @@ export class InboundTransferSignalsService {
         fromIban: signal.fromIban || undefined,
         referenceNo: signal.referenceNo || undefined,
         providerTxnId: signal.id,
+        counterpartyIsVasp: signal.counterpartyIsVasp,
       });
       deposit = detected.deposit;
       fundsOrder = detected.fundsOrder;

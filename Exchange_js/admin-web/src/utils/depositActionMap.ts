@@ -1,94 +1,27 @@
 // admin-web/src/utils/depositActionMap.ts
 
 /* ── Deposit Action Map ─────────────────────────────────────────
-   State-machine-aware action availability for the Deposit Detail
-   sidebar. Each action knows its button style and which statuses
-   enable it.
+   Compliance-layer styling + payin simulation action availability
+   shared by the Deposit Detail page (and, for getComplianceLayerStyle,
+   the Withdraw Detail page).
    ────────────────────────────────────────────────────────────── */
-
-export interface DepositAction {
-  action: string;
-  label: string;
-  /** workflowPrimary | workflowSecondary | workflowNegative */
-  variant: 'workflowPrimary' | 'workflowSecondary' | 'workflowNegative';
-  /** Whether a reason modal is required before executing */
-  requiresReason: boolean;
-  /** Ordered set of statuses where this action is enabled */
-  enabledStatuses: Set<string>;
-}
-
-/**
- * Canonical ordered list of deposit actions.
- * Order: primary → secondary → negative (per frontend-admin.md).
- */
-export const DEPOSIT_ACTIONS: DepositAction[] = [
-  {
-    action: 'approve',
-    label: 'Approve',
-    variant: 'workflowPrimary',
-    requiresReason: false,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING', 'FROZEN']),
-  },
-  {
-    action: 'freeze',
-    label: 'Freeze',
-    variant: 'workflowSecondary',
-    requiresReason: false,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING']),
-  },
-  {
-    action: 'resume',
-    label: 'Resume',
-    variant: 'workflowSecondary',
-    requiresReason: false,
-    enabledStatuses: new Set(['ACTION_PENDING']),
-  },
-  {
-    action: 'expire',
-    label: 'Expire',
-    variant: 'workflowSecondary',
-    requiresReason: false,
-    enabledStatuses: new Set(['ACTION_PENDING']),
-  },
-  {
-    action: 'reject',
-    label: 'Reject',
-    variant: 'workflowNegative',
-    requiresReason: true,
-    enabledStatuses: new Set(['COMPLIANCE_PENDING', 'ACTION_PENDING']),
-  },
-  {
-    action: 'confiscate',
-    label: 'Confiscate',
-    variant: 'workflowNegative',
-    requiresReason: true,
-    enabledStatuses: new Set(['FROZEN']),
-  },
-];
-
-/** Terminal statuses where no actions are available at all */
-const TERMINAL_STATUSES = new Set([
-  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATED',
-]);
-
-/**
- * Returns the full DEPOSIT_ACTIONS list annotated with `enabled` for
- * the given current status. Hides all actions for terminal statuses.
- */
-export function getDepositActionsForStatus(
-  currentStatus: string,
-): Array<DepositAction & { enabled: boolean }> {
-  const isTerminal = TERMINAL_STATUSES.has(currentStatus);
-  return DEPOSIT_ACTIONS.map((a) => ({
-    ...a,
-    enabled: !isTerminal && a.enabledStatuses.has(currentStatus),
-  }));
-}
 
 /* ── Compliance Layer Styling ──────────────────────────────────── */
 
 const LAYER_PASS = new Set(['PASSED', 'ACTIVE', 'APPROVED', 'CLEAR', 'CLEARED', 'NOT_REQUIRED']);
-const LAYER_PENDING = new Set(['PENDING', 'CREATED', 'RECEIVED']);
+// ON_HOLD / AWAITING_USER / ONHOLD / AWAITUSER 是 Sumsub KYT 的两个未决裁决(officer 复核中 /
+// 等客户补料)——归"未决"色，不是失败。deposit 详情页把 sumsubVerdict(驼峰原值 onHold/awaitUser)
+// 原样传进来,经 toUpperCase() 变成 ONHOLD/AWAITUSER(不是 ON_HOLD/AWAITING_USER),缺这两个
+// 变体会导致这两态在 L2 落回默认灰色,和"无状态"视觉无区分——这两态恰是最需要 officer 注意的。
+const LAYER_PENDING = new Set([
+  'PENDING',
+  'CREATED',
+  'RECEIVED',
+  'ON_HOLD',
+  'AWAITING_USER',
+  'ONHOLD',
+  'AWAITUSER',
+]);
 const LAYER_FAIL = new Set(['FAILED', 'REJECTED', 'SUSPENDED', 'BLOCKED']);
 
 export interface LayerStyle {
@@ -148,9 +81,7 @@ const DEPOSIT_BADGE_MAP: Record<string, string> = {
   ACTION_PENDING:      'bg-amber-100 text-amber-800',
   FROZEN:              'bg-cyan-100 text-cyan-800',
   SUCCESS:             'bg-green-100 text-green-800',
-  REJECTED:            'bg-red-100 text-red-800',
   FAILED:              'bg-orange-100 text-orange-800',
-  EXPIRED:             'bg-gray-100 text-gray-800',
   CONFISCATING:        'bg-amber-100 text-amber-800',
   CONFISCATED:         'bg-red-200 text-red-900',
 };

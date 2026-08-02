@@ -21,7 +21,11 @@ import { SumsubRetryService } from './sumsub-ingestion-retry.service';
     forwardRef(() => TierUpgradeCaseModule),
     forwardRef(() => DepositTransactionsModule),
     forwardRef(() => WithdrawTransactionsModule),
-    DepositSumsubModule,
+    // Task 6: DepositSumsubModule now also imports this module (forwardRef(() =>
+    // SumsubIngestionModule)) so its demo-scenario service can call
+    // SumsubIngestionService.ingest() — wrap in forwardRef on this side too, matching
+    // the existing DepositTransactionsModule<->DepositSumsubModule cycle pattern.
+    forwardRef(() => DepositSumsubModule),
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],

@@ -13,11 +13,8 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import {
-  formatStatusLabel,
-  formatTransactionTypeLabel,
-} from '../utils/transactionRootDisplay';
-import { getDepositStatusBadgeClass } from '../utils/depositActionMap';
+import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
+import { DEPOSIT_STATUS_FILTERS, getDepositStatusMeta } from '../utils/depositStatusMap';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { AdminBadge } from '../components/ui/AdminBadge';
 
@@ -40,6 +37,7 @@ interface DepositItem {
 interface FilterState {
   depositNo: string;
   ownerNo: string;
+  /** DEPOSIT_STATUS_FILTERS[].label of the selected filter group, or '' for All. */
   status: string;
   type: string;
   startDate: string;
@@ -47,11 +45,6 @@ interface FilterState {
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
-
-const DEPOSIT_STATUSES = [
-  'PAYIN_PENDING', 'COMPLIANCE_PENDING', 'ACTION_PENDING', 'FROZEN',
-  'SUCCESS', 'REJECTED', 'FAILED', 'EXPIRED', 'CONFISCATING', 'CONFISCATED',
-];
 
 const PAGE_SIZE = 20;
 
@@ -98,7 +91,10 @@ const DepositTransactionList = () => {
       params.set('take', String(PAGE_SIZE));
       if (next.depositNo.trim()) params.set('depositNo', next.depositNo.trim());
       if (next.ownerNo.trim()) params.set('ownerNo', next.ownerNo.trim());
-      if (next.status) params.set('status', next.status);
+      if (next.status) {
+        const group = DEPOSIT_STATUS_FILTERS.find((f) => f.label === next.status);
+        if (group) params.set('status', group.statuses.join(','));
+      }
       if (next.startDate) params.set('startDate', next.startDate);
       if (next.endDate) params.set('endDate', next.endDate);
 
@@ -189,9 +185,9 @@ const DepositTransactionList = () => {
           onChange={(e) => updateFilter('status', e.target.value)}
           className={`${fi} w-40`}
         >
-          <option value="">All status</option>
-          {DEPOSIT_STATUSES.map((s) => (
-            <option key={s} value={s}>{formatStatusLabel(s)}</option>
+          <option value="">All</option>
+          {DEPOSIT_STATUS_FILTERS.map((f) => (
+            <option key={f.label} value={f.label}>{f.label}</option>
           ))}
         </select>
         <select
@@ -291,8 +287,8 @@ const DepositTransactionList = () => {
                 {/* Status */}
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-1.5">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusBadgeClass(item.status)}`}>
-                      {formatStatusLabel(item.status)}
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getDepositStatusMeta(item.status).badgeClass}`}>
+                      {getDepositStatusMeta(item.status).label}
                     </span>
                     {item.limitHoldReason === 'BELOW_MIN' && <AdminBadge value="BELOW MIN" dot={false} />}
                   </div>

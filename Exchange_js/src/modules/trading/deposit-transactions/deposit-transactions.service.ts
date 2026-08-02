@@ -24,6 +24,7 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -59,6 +60,7 @@ export class DepositTransactionsService {
     private readonly fundsOrders: FundsOrderService,
     private readonly auditLogsService: AuditLogsService,
     private readonly limitRulesService: TransactionLimitRulesService,
+    private readonly approvalsService: ApprovalsService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -98,7 +100,7 @@ export class DepositTransactionsService {
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
     if (toWalletId) where.toWalletId = toWalletId;
-    if (status) where.status = status;
+    if (status) where.status = Array.isArray(status) ? { in: status } : status;
 
     if (startDate || endDate) {
       where.createdAt = {};
@@ -149,7 +151,50 @@ export class DepositTransactionsService {
 
   /** Customer-facing list: same query, scoped to the caller's own deposits with BELOW_MIN hold-pending rows hidden. */
   async findAllForCustomer(customerId: string, query: DepositTransactionQueryDto) {
-    return this.findAll({ ...query, ownerId: customerId }, { customerScope: true });
+    const result = await this.findAll(
+      { ...query, ownerId: customerId },
+      { customerScope: true },
+    );
+    return {
+      ...result,
+      items: result.items.map((item: any) => this.toCustomerDepositView(item)),
+    };
+  }
+
+  /**
+   * Customer-facing field whitelist (tipping-off guard). The raw Prisma row
+   * carries investigation-only fields — statusHistory entries quote sanctions,
+   * seizure and KYT verdicts verbatim (e.g. "Seizure approved (funds in transit
+   * to government custody)"), plus manualReason, the sumsub, kyt and
+   * travelRule metadata fields, limitHoldReason, slaDeadline/slaBreached —
+   * that must never reach
+   * a customer's browser: a DevTools inspection of the JSON response would be
+   * enough to tip off a person under investigation. Only whitelisted fields
+   * are returned; this list must stay in lockstep with the `Transaction`
+   * interface in client-web/src/pages/Deposit.tsx, which is the actual field
+   * contract the client reads.
+   */
+  private toCustomerDepositView(item: any) {
+    return {
+      id: item.id,
+      depositNo: item.depositNo,
+      status: item.status,
+      amount: item.amount,
+      createdAt: item.createdAt,
+      completedAt: item.completedAt,
+      txHash: item.txHash,
+      referenceNo: item.referenceNo,
+      fromAddress: item.fromAddress,
+      fromIban: item.fromIban,
+      asset: item.asset
+        ? {
+            currency: item.asset.currency,
+            code: item.asset.code,
+            network: item.asset.network,
+            decimals: item.asset.decimals,
+          }
+        : null,
+    };
   }
 
   async findOne(id: string) {
@@ -223,6 +268,97 @@ export class DepositTransactionsService {
   }
 
   /**
+   * Admin detail fetch = findOne + 该单最近一次 Sumsub webhook。
+   *
+   * 为什么单开一个方法而不是塞进 `findOne`:`findOne` 在状态机热路径里被反复调用
+   * (applyKytVerdict / approveDeposit / 各处置弧),给它加一条 webhook 查询是白付
+   * 的代价。只有 admin 详情页需要这段。
+   *
+   * 为什么需要:详情页的 "Sumsub References" 此前只展示提交时拿到的两个 txnId ——
+   * 静态、提交后再不变;operator 看不到 Sumsub 最近一次说了什么(裁决事件、什么时候
+   * 到的、有没有处理成功),排查只能翻库。
+   */
+  async findOneForAdmin(id: string) {
+    const item: any = await this.findOne(id);
+
+    // Sumsub getTxn 报文展示子集(Task 2 落库的原始报文 → 详情页可读字段)。
+    const parseDetail = (json?: string | null) => {
+      if (!json) return null;
+      let d: any;
+      try {
+        d = JSON.parse(json);
+      } catch {
+        return null;
+      }
+      // JSON.parse 对合法但非对象的 JSON(如 "null"/"123"/'"str"')不抛,紧接着的
+      // 属性访问会在 null 上炸 → 未捕获 500。这里挡住非对象结果。
+      if (d === null || typeof d !== 'object') return null;
+      const sr = d.scoringResult ?? {};
+      return {
+        // 生产 HttpSumsubTxnClient.getTxn 的 raw(SumsubKytTxnResponse)没有顶层 verdict
+        // 字段,只有 scoringResult.action(Sumsub 规则动作:score/onHold/awaitUser/reject)
+        // 和 review.reviewResult.reviewAnswer —— 只有 fixtures 的 buildRawDetail 才塞了
+        // 顶层 verdict。回退到 scoringResult.action,否则生产环境下这里恒为 null,详情页
+        // Verdict 行空白。
+        verdict: d.verdict ?? sr.action ?? null,
+        reviewStatus: d?.review?.reviewStatus ?? null,
+        reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
+        score: sr.score ?? null,
+        matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          action: r.action,
+          score: r.score,
+        })),
+        applicantActionIds: (sr.applicantActions ?? [])
+          .filter(Boolean)
+          .map((a: any) => a.applicantActionId)
+          .filter(Boolean),
+        // matchedRules/applicantActions 同理:含 null 元素的数组在 .map 前先 .filter(Boolean),
+        // 防止 t.label 在 null 上炸出 TypeError。
+        tags: (d.typedTags ?? []).filter(Boolean).map((t: any) => t.label),
+        raw: d, // 供订单下方原文折叠
+      };
+    };
+
+    const sumsubDetail = parseDetail(item.sumsubTxnDetailJson);
+
+    // 内部审批单反查(仅单头,业主定:不含 step/steps)。四种充值审批发起时
+    // entityRef 全部落 deposit.id,ApprovalsService.list 已支持 entityRef 过滤。
+    const approvalPage = await this.approvalsService.list({ entityRef: item.id } as any);
+    const approvals = (approvalPage.items ?? []).map((a: any) => ({
+      approvalNo: a.approvalNo,
+      actionType: a.actionType,
+      status: a.status,
+      createdAt: a.createdAt,
+    }));
+
+    if (!item.sumsubTxnId) {
+      return { ...item, sumsubDetail, approvals, latestSumsubWebhook: null };
+    }
+
+    // webhook 事件表不挂 depositId 外键(它是全站 Sumsub 事件的落地表),只能靠
+    // rawPayload 里的 txnId 反查 —— SQLite 无 JSON 索引,用 contains 足够:
+    // 这是单条详情页读取,不是批量。
+    const events = await (this.prisma as any).sumsubWebhookEvent.findMany({
+      where: { rawPayload: { contains: `"${item.sumsubTxnId}"` } },
+      orderBy: { receivedAt: 'desc' },
+      take: 1,
+      select: {
+        eventNo: true,
+        eventType: true,
+        status: true,
+        receivedAt: true,
+        processedAt: true,
+        lastErrorMessage: true,
+        isSimulated: true,
+      },
+    });
+
+    return { ...item, sumsubDetail, approvals, latestSumsubWebhook: events[0] ?? null };
+  }
+
+  /**
    * Customer-facing single-fetch. Two rows are treated as non-existent (same
    * NotFound as a missing id — never leak existence via a different error):
    *  1. a deposit owned by another customer (IDOR guard), and
@@ -237,7 +373,7 @@ export class DepositTransactionsService {
     if (deposit.limitHoldReason != null) {
       throw new NotFoundException('Deposit transaction not found');
     }
-    return item;
+    return this.toCustomerDepositView(item);
   }
 
   async updateStatus(
@@ -306,9 +442,7 @@ export class DepositTransactionsService {
 
     const TERMINAL = new Set([
       DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.REJECTED,
       DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.EXPIRED,
       DepositTransactionStatus.CONFISCATED,
       DepositTransactionStatus.RETURNED,
       DepositTransactionStatus.SEIZED,
@@ -344,9 +478,7 @@ export class DepositTransactionsService {
   ): DepositTransactionStatus {
     const TERMINAL = new Set([
       DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.REJECTED,
       DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.EXPIRED,
       DepositTransactionStatus.CONFISCATED,
       DepositTransactionStatus.RETURNED,
       DepositTransactionStatus.SEIZED,
@@ -358,6 +490,12 @@ export class DepositTransactionsService {
       );
     }
 
+    // 状态机收窄(业主 2026-07-31 定稿,14 状态/15 动作/26 边)。每个终态都必须回答
+    // 「钱去哪了」——REJECTED/EXPIRED 是仅有的说不出资金去向的终态(钱已到账却"拒绝"/
+    // "过期",资金悬空),已删除。payin 结束就是钱到了,COMPLIANCE_PENDING 之后不再有
+    // FAILED(FAIL 的唯一入口是 PAYIN_PENDING)。FROZEN 收窄为只剩两个合法归宿
+    // (resume/seize)——直通没收/退回的边已删,处置须先 resume 回 COMPLIANCE_PENDING
+    // 走正常弧。完整跃迁表与理由见 doc-final/reference/truth/v4-deposit.md 第 2 节。
     const transitions: Record<
       string,
       Partial<Record<DepositTransactionAction, DepositTransactionStatus>>
@@ -369,50 +507,79 @@ export class DepositTransactionsService {
       },
       [DepositTransactionStatus.COMPLIANCE_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        // 合规通过后才判金额(口径 2026-07-31 反转:旧=先判金额后合规)。
+        // 低于下限 → OPERATION_PENDING 等运营处置,没收入口随之上移。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
-        // Below-min confiscation is async two-phase (C1): COMPLIANCE_PENDING →
-        // CONFISCATING (funds in transit, accounting pending-locked) → ops advances
-        // the funds order → CONFISCATE_SETTLE lands CONFISCATED once posted.
+        [DepositTransactionAction.SLA_BREACH]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.KYT_REJECTED]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+      },
+      [DepositTransactionStatus.ACTION_PENDING]: {
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受
+        // ACTION_PENDING,金额闸(holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
+        // 调 operation_pending 动作——此边此前只从 COMPLIANCE_PENDING 出发存在,
+        // 两边前置条件对不上,below-min 单补料后被 approve 翻案时在这里抛 Invalid action。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
+        [DepositTransactionAction.SLA_BREACH]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.KYT_REJECTED]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.RESUME]:
+          DepositTransactionStatus.COMPLIANCE_PENDING,
+      },
+      [DepositTransactionStatus.OPERATION_PENDING]: {
+        // 只有 2 条,Sumsub 已通过、异步反转暂不考虑(迟到的制裁裁决按业主口径不给边,
+        // 见 BACKLOG)。放行:直接入账。没收:异步两阶段(C1)——OPERATION_PENDING →
+        // CONFISCATING(资金在途、记账 pending 锁)→ ops 推资金单 → CONFISCATE_SETTLE
+        // 落 CONFISCATED。
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.CONFISCATE_START]:
           DepositTransactionStatus.CONFISCATING,
-        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.MANUAL_CHECK]:
-          DepositTransactionStatus.MANUAL_CHECKING,
+      },
+      [DepositTransactionStatus.MANUAL_CHECKING]: {
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        // 同上(Critical 2):MANUAL_CHECKING 也在 approveDeposit 的 oldStatus 白名单里。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
+        // Sumsub 侧 officer 可以把一笔已 completed/RED 的交易改回 awaitingUser
+        // (reviewResult 被清空、新增 applicantActions 要客户补料)——2026-07-31 在沙盒
+        // 实测过这条路径。改动会再发一个 webhook 过来,我方必须接得住:少了这条边,
+        // applyKytAwaitUser 会抛 Invalid action → webhook 三次重试后 DEAD → 单子永久
+        // 停在 MANUAL_CHECKING,而 Sumsub 那边其实早就改口了。
+        [DepositTransactionAction.ACTION_PENDING]:
+          DepositTransactionStatus.ACTION_PENDING,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+      },
+      [DepositTransactionStatus.FROZEN]: {
+        // 冻结的钱只有两个合法归宿:resume(解冻回 COMPLIANCE_PENDING 重走合规)或
+        // seize(政府没收令)。没收/退回不再直通——NOTE: no APPROVE edge here either —
+        // a sanctions/MLRO freeze must never be lifted by a single-operator approve.
+        // See DepositWorkflowService.approveDeposit's oldStatus whitelist (FROZEN
+        // excluded) and applyKytApproved's FROZEN guard.
+        [DepositTransactionAction.RESUME]:
+          DepositTransactionStatus.COMPLIANCE_PENDING,
+        [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
       },
       [DepositTransactionStatus.CONFISCATING]: {
         [DepositTransactionAction.CONFISCATE_SETTLE]:
           DepositTransactionStatus.CONFISCATED,
       },
-      [DepositTransactionStatus.ACTION_PENDING]: {
-        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.RESUME]:
-          DepositTransactionStatus.COMPLIANCE_PENDING,
-        [DepositTransactionAction.EXPIRE]: DepositTransactionStatus.EXPIRED,
-        [DepositTransactionAction.MANUAL_CHECK]:
-          DepositTransactionStatus.MANUAL_CHECKING,
-      },
-      [DepositTransactionStatus.MANUAL_CHECKING]: {
-        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
-      },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:
           DepositTransactionStatus.RETURNED,
       },
-      [DepositTransactionStatus.FROZEN]: {
-        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.CONFISCATE]:
-          DepositTransactionStatus.CONFISCATED,
-        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
-        [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
-        [DepositTransactionAction.RESUME]:
-          DepositTransactionStatus.COMPLIANCE_PENDING,
+      [DepositTransactionStatus.SEIZING]: {
+        [DepositTransactionAction.SEIZED_DONE]:
+          DepositTransactionStatus.SEIZED,
       },
     };
 
@@ -426,41 +593,16 @@ export class DepositTransactionsService {
     return nextStatus;
   }
 
-  async initializeComplianceGates(id: string) {
-    const deposit = await (this.prisma as any).depositTransaction.findUnique({
-      where: { id },
-      include: { asset: true },
-    });
-    const isCrypto = deposit?.asset?.type === 'CRYPTO';
-
+  async updateSumsubVerdict(id: string, verdict: string, score?: number | null) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
-      data: {
-        travelRuleRequired: isCrypto,
-        travelRuleStatus: isCrypto ? 'PENDING' : 'NOT_REQUIRED',
-      },
+      data: { sumsubVerdict: verdict, sumsubScore: score ?? null, sumsubScoredAt: new Date() },
     });
   }
 
-  async updateKytStatus(id: string, status: string, riskScore?: number | null) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: {
-        kytStatus: status,
-        kytRiskScore: riskScore ?? null,
-        kytCheckedAt: new Date(),
-      },
-    });
-  }
-
-  async updateTravelRuleStatus(id: string, status: string) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: {
-        travelRuleStatus: status,
-        travelRuleCheckedAt: new Date(),
-      },
-    });
+  /** Sumsub getTxn 原始报文存证(乙口径落库)。 */
+  async saveTxnDetail(id: string, json: string) {
+    return (this.prisma as any).depositTransaction.update({ where: { id }, data: { sumsubTxnDetailJson: json } });
   }
 
   /**
@@ -495,34 +637,30 @@ export class DepositTransactionsService {
   }
 
   /**
-   * Persists the txn id(s) returned by SumsubTxnClient.submitTxn at Gate 0
-   * submission time (DepositWorkflowService.runGate0). Only the provided keys
-   * are written (fiat submits finance only; crypto submits both).
+   * Persists the single Sumsub txn id + type returned by SumsubTxnClient.submitTxn at
+   * Gate 0 submission time (DepositWorkflowService.submitSumsubTxns). One deposit → one txn.
    */
-  async setSumsubTxnIds(
+  async setSumsubTxn(
     id: string,
-    data: { financeTxnId?: string; travelRuleTxnId?: string },
+    data: { sumsubTxnId: string; sumsubTxnType: 'finance' | 'travelRule' },
   ) {
     return (this.prisma as any).depositTransaction.update({
       where: { id },
       data: {
-        ...(data.financeTxnId !== undefined && { sumsubFinanceTxnId: data.financeTxnId }),
-        ...(data.travelRuleTxnId !== undefined && { sumsubTravelRuleTxnId: data.travelRuleTxnId }),
+        sumsubTxnId: data.sumsubTxnId,
+        sumsubTxnType: data.sumsubTxnType,
       },
     });
   }
 
   /**
    * Sumsub KYT webhooks carry the txn id we handed it at submission time
-   * (sumsubFinanceTxnId for the finance leg, sumsubTravelRuleTxnId for the
-   * travel-rule leg). Neither is the deposit's own id, so this is a stable
-   * business-key lookup, not an id-as-contract query.
+   * (sumsubTxnId). Not the deposit's own id, so this is a stable business-key
+   * lookup, not an id-as-contract query.
    */
   async findBySumsubTxnId(txnId: string) {
     return (this.prisma as any).depositTransaction.findFirst({
-      where: {
-        OR: [{ sumsubFinanceTxnId: txnId }, { sumsubTravelRuleTxnId: txnId }],
-      },
+      where: { sumsubTxnId: txnId },
     });
   }
 
@@ -569,6 +707,7 @@ export class DepositTransactionsService {
     referenceNo?: string | null;
     providerTxnId?: string | null;
     traceId?: string;
+    counterpartyIsVasp?: boolean | null;
   }) {
     const wallet = await (this.prisma as any).wallet.findUnique({
       where: { id: input.toWalletId },
@@ -618,6 +757,7 @@ export class DepositTransactionsService {
         toAddress: wallet.address,
         toIban: wallet.iban,
         limitHoldReason,
+        counterpartyIsVasp: input.counterpartyIsVasp ?? null,
       },
     });
 

@@ -1,6 +1,19 @@
+import * as path from 'path';
+import * as dotenv from 'dotenv';
+
 // Node 18 polyfill: @nestjs/schedule uses globalThis.crypto (stable only in Node 19+)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
+
+// Loaded before `import { AppModule }` below: ConfigModule.forRoot() (called inside
+// AppModule's own @Module() decorator) only loads .env as part of evaluating AppModule's
+// imports array — which runs AFTER all of AppModule's own imports (every submodule,
+// transitively) have already been required and their own @Module() decorators evaluated.
+// A submodule that reads process.env.X directly inside its own @Module() decorator (e.g.
+// deposit-sumsub.module.ts's SUMSUB_MOCK_MODE-gated controller registration, Task 6) would
+// otherwise only ever see pre-.env values (i.e. undefined) at that point. Mirrors the same
+// workaround already used in test/deposit-sumsub-scenarios.e2e-spec.ts.
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';

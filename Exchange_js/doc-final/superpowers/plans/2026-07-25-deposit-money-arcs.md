@@ -81,5 +81,28 @@
 - 类型一致:actionType/审计/转移码/科目在 Task 1 集中定义,后续引用。
 - 风险:funds-order `directionOf` 对 depositTransactionId 恒判 IN,退回/上缴是 OUT——Task 5 需处理(转移图方向),标注。
 
+
+---
+
+## ⚠️ 修订(2026-07-28,基于合并后 main 实测重锚)
+
+会师合并 `7da42460` 已带入「金额限额 + 没收异步」整支。**实测覆盖度**:
+- **原 Task 2(below-min)= 已做完**,但实现方式与本计划书不同:走 `TransactionLimitRulesService.getSingleRule('DEPOSIT', assetId)` 在 `detected()` 出生打 `limitHoldReason='BELOW_MIN'` + `checkAutoApproval` 挂闸 + PASS/没收双按钮;**不消费 `Asset.minDepositAmount`**。→ **本计划删除该任务**。
+- **原 Task 4(CONFISCATING 结算)= 已做完且超额**:`initiateConfiscation`→审批→`startConfiscation`(两腿 pending,legSeq=2 资金单)→`settleConfiscation`(post + 3 重试,耗尽停 CONFISCATING)。→ **本计划删除该任务**。
+- **原 Task 1/3 各完成一半**(没收侧地基与审批范式已在)→ 缩为"复刻已有范式补退回/上缴/解冻"。
+- **`FROZEN --confiscate--> CONFISCATED` 单跳是已上线的制裁没收弧,与 below-min 两阶段弧并存 → 本计划不改它**(原计划书"改为经 CONFISCATING"作废)。
+
+**修订后任务表(6 个,均为实测空白):**
+| # | 任务 | 空白点 |
+|---|---|---|
+| A1 | 地基补齐 | `SEIZING→SEIZED` 边(现 SEIZING 零出边、SEIZED 不可达)、`FIRM_SEIZED` 科目、`DEPOSIT_RETURN_*`/`DEPOSIT_SEIZE_*` 转移码、`DEPOSIT_RETURNED/SEIZED/UNFROZEN/*_RETRIED/*_STUCK` 审计常量 |
+| A2 | 审批扩展 | 复刻 `DepositConfiscationApprovalService` 范式,加 `DEPOSIT_RETURN/SEIZE/UNFREEZE_APPROVAL` 三个 actionType+policy+handler;`applyKytRejected` 的 RETURN 分支改为**先开审批**(现直推 RETURNING) |
+| A3 | RETURNING 结算 | 批准→RETURNING→出场腿(pending,funds-order OUT)→确认 post→RETURNED;失败 void+重试 3+stuck |
+| A4 | SEIZING 结算 | 同 A3 结构,双人审批→SEIZED(需先补 A1 的出边与科目) |
+| A5 | 解冻回炉 | FROZEN→审批→`resume`→COMPLIANCE_PENDING + rescore;现仅一条裸边、无入口无审批无审计 |
+| A6 | e2e + 文档 + 硬闸 | `test/deposit-money-arcs.e2e-spec.ts`(退回/上缴/解冻/驳回)+ truth 更新 + tsc/jest/verify:coa |
+
+**复刻模板(实测锚点)**:审批=`deposit-confiscation-approval.service.ts:10` + `deposit-workflow.service.ts:813 initiateConfiscation`/`:908 onConfiscationDecided`;两腿在途+重试=`:1005 startConfiscation`/`:1095 settleConfiscation`(MAX=3);出场腿=withdraw `WITHDRAW_NET_PENDING/POST/VOID`。
+
 ## 执行边界
 计划 2 完 = 充值单全状态机(含动钱结算)闭环。前端(admin 处置/审批 UI + 客户面)仍留后续。

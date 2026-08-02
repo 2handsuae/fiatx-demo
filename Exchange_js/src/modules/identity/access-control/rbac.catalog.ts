@@ -283,7 +283,17 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PATCH', '/deposit-transactions/:id/status', 'Update deposit transaction status', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/waive-limit', 'Waive deposit below-minimum amount hold', ['TRADING_DEPOSIT_WRITE']),
   route('POST', '/deposit-transactions/:id/confiscate', 'Confiscate deposit below-minimum amount as fee', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/seize', 'Seize a frozen deposit under government order', ['TRADING_DEPOSIT_WRITE']),
+  route('POST', '/deposit-transactions/:id/unfreeze', 'Unfreeze a frozen deposit', ['TRADING_DEPOSIT_WRITE']),
   route('GET', '/deposit-transactions/export', 'Export deposit transactions', ['TRADING_DEPOSIT_READ']),
+  // Demo verdict runner (Task 6 计划1·甲方案 起步, Task 4 计划「充值仿真裁决按钮」改单步) —
+  // controller only registered when SUMSUB_MOCK_MODE=true
+  route(
+    'POST',
+    '/admin/deposit-sumsub/demo/run-verdict',
+    'Feed one Sumsub KYT verdict webhook into a deposit (demo only)',
+    ['TRADING_DEPOSIT_WRITE'],
+  ),
 
   // Withdraw
   route('GET', '/withdraw-transactions', 'List withdraw transactions', ['TRADING_WITHDRAW_READ']),

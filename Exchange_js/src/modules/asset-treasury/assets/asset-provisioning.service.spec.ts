@@ -16,7 +16,7 @@ describe('AssetProvisioningService (real-time 1:1)', () => {
     return { svc, createAccounts };
   }
 
-  it('CRYPTO 资产开 5 个系统账户(无 FIRM_SET)', async () => {
+  it('CRYPTO 资产开 6 个系统账户(无 FIRM_SET)', async () => {
     const { svc, createAccounts } = setup('CRYPTO', 'USDT');
     await svc.provision('a1');
     const codes = createAccounts.mock.calls[0][0].map((p: any) => p.code).sort((a: number, b: number) => a - b);
@@ -26,14 +26,15 @@ describe('AssetProvisioningService (real-time 1:1)', () => {
       TB_ACCOUNT_CODES.FIRM_OPS,     // 200
       TB_ACCOUNT_CODES.FIRM_FEE,     // 202
       TB_ACCOUNT_CODES.FIRM_LIQ,     // 203
+      TB_ACCOUNT_CODES.FIRM_SEIZED,  // 204
     ]);
   });
 
-  it('FIAT 资产额外开 FIRM_SET(6 个)', async () => {
+  it('FIAT 资产额外开 FIRM_SET(7 个)', async () => {
     const { svc, createAccounts } = setup('FIAT', 'AED');
     await svc.provision('a1');
     const codes = createAccounts.mock.calls[0][0].map((p: any) => p.code);
     expect(codes).toContain(TB_ACCOUNT_CODES.FIRM_SET); // 201
-    expect(codes).toHaveLength(6);
+    expect(codes).toHaveLength(7);
   });
 });

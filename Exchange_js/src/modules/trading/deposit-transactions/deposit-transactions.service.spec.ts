@@ -10,6 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { Prisma } from '@prisma/client';
 
 describe('DepositTransactionsService', () => {
@@ -18,6 +19,7 @@ describe('DepositTransactionsService', () => {
   let eventEmitter: EventEmitter2;
   let fundsOrderService: Record<string, jest.Mock>;
   let limitRules: Record<string, jest.Mock>;
+  let approvalsService: Record<string, jest.Mock>;
   let module: TestingModule;
 
   beforeEach(async () => {
@@ -30,6 +32,9 @@ describe('DepositTransactionsService', () => {
     };
     limitRules = {
       getSingleRule: jest.fn().mockResolvedValue(null),
+    };
+    approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
     };
     module = await Test.createTestingModule({
       providers: [
@@ -50,6 +55,9 @@ describe('DepositTransactionsService', () => {
             },
             customerMain: {
               findUnique: jest.fn(),
+            },
+            sumsubWebhookEvent: {
+              findMany: jest.fn().mockResolvedValue([]),
             },
           },
         },
@@ -72,6 +80,10 @@ describe('DepositTransactionsService', () => {
         {
           provide: TransactionLimitRulesService,
           useValue: limitRules,
+        },
+        {
+          provide: ApprovalsService,
+          useValue: approvalsService,
         },
       ],
     }).compile();
@@ -123,6 +135,62 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  // Fix 1 (final review, tipping-off): a row carrying every investigation-only
+  // field a SEIZED/FROZEN/rejected deposit would have. limitHoldReason is null
+  // (a seized deposit reaches SEIZED via FROZEN, never via the below-min hold
+  // path) so it passes the existing customerScope filter — the whitelist is
+  // the only thing standing between this row and the customer's browser.
+  const SENSITIVE_FULL_ROW = {
+    id: 'd-sensitive-1',
+    depositNo: 'DEP-SENS-1',
+    ownerId: 'cust-1',
+    ownerType: 'CUSTOMER',
+    status: 'SEIZED',
+    amount: '500.00',
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    completedAt: new Date('2026-01-02T00:00:00Z'),
+    txHash: '0xabc',
+    referenceNo: 'REF-1',
+    fromAddress: 'T_FROM',
+    fromIban: null,
+    asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
+    limitHoldReason: null,
+    statusHistory: JSON.stringify([
+      { status: 'SEIZED', reason: 'Seizure settled — funds handed off to government custody' },
+      { status: 'SEIZING', reason: 'Seizure approved (funds in transit to government custody)' },
+      { status: 'FROZEN', reason: 'KYT verdict: rejected' },
+    ]),
+    manualReason: 'EDD_PEP',
+    sumsubTxnId: 'sumsub-txn-1',
+    sumsubTxnType: 'finance',
+    sumsubVerdict: 'rejected',
+    sumsubScore: 92,
+    sumsubScoredAt: new Date('2026-01-01T00:05:00Z'),
+    sumsubTxnDetailJson: '{"verdict":"rejected"}',
+    counterpartyIsVasp: true,
+    travelRuleTransferId: 'tr-transfer-1',
+    counterpartyVasp: 'Some VASP Inc.',
+    slaDeadline: new Date('2026-01-03T00:00:00Z'),
+    slaBreached: true,
+  };
+
+  const SENSITIVE_KEYS = [
+    'statusHistory',
+    'manualReason',
+    'sumsubTxnId',
+    'sumsubTxnType',
+    'sumsubVerdict',
+    'sumsubScore',
+    'sumsubScoredAt',
+    'sumsubTxnDetailJson',
+    'counterpartyIsVasp',
+    'travelRuleTransferId',
+    'counterpartyVasp',
+    'limitHoldReason',
+    'slaDeadline',
+    'slaBreached',
+  ];
+
   describe('findAllForCustomer', () => {
     it('customer list: BELOW_MIN deposits are filtered out server-side', async () => {
       ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
@@ -133,6 +201,33 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ limitHoldReason: null }) }),
       );
+    });
+
+    it('Fix 1 (tipping-off): customer list strips statusHistory/manualReason/sumsub*/kyt*/travelRule*/limitHoldReason/sla* while keeping the fields the client actually renders', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([
+        SENSITIVE_FULL_ROW,
+      ]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.findAllForCustomer('cust-1', {} as any);
+      const item = result.items[0] as any;
+
+      for (const key of SENSITIVE_KEYS) {
+        expect(item).not.toHaveProperty(key);
+      }
+      expect(item).toEqual({
+        id: 'd-sensitive-1',
+        depositNo: 'DEP-SENS-1',
+        status: 'SEIZED',
+        amount: '500.00',
+        createdAt: SENSITIVE_FULL_ROW.createdAt,
+        completedAt: SENSITIVE_FULL_ROW.completedAt,
+        txHash: '0xabc',
+        referenceNo: 'REF-1',
+        fromAddress: 'T_FROM',
+        fromIban: null,
+        asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+      });
     });
   });
 
@@ -159,6 +254,31 @@ describe('DepositTransactionsService', () => {
       await expect(service.findOneForCustomer('d1', 'cust-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    it('Fix 1 (tipping-off): customer detail strips statusHistory/manualReason/sumsub*/kyt*/travelRule*/limitHoldReason/sla* while keeping the fields the client actually renders', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        SENSITIVE_FULL_ROW,
+      );
+
+      const result = (await service.findOneForCustomer('d-sensitive-1', 'cust-1')) as any;
+
+      for (const key of SENSITIVE_KEYS) {
+        expect(result).not.toHaveProperty(key);
+      }
+      expect(result).toEqual({
+        id: 'd-sensitive-1',
+        depositNo: 'DEP-SENS-1',
+        status: 'SEIZED',
+        amount: '500.00',
+        createdAt: SENSITIVE_FULL_ROW.createdAt,
+        completedAt: SENSITIVE_FULL_ROW.completedAt,
+        txHash: '0xabc',
+        referenceNo: 'REF-1',
+        fromAddress: 'T_FROM',
+        fromIban: null,
+        asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+      });
     });
   });
 
@@ -233,8 +353,16 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
     });
 
-    it('COMPLIANCE_PENDING → CONFISCATING via confiscate_start', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+    it('MANUAL_CHECKING → ACTION_PENDING via action_pending (Sumsub officer 把 RED 改回等客户补料)', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.ACTION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'ACTION_PENDING' }) }),
+      );
+    });
+
+    it('OPERATION_PENDING → CONFISCATING via confiscate_start', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
       await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START });
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'CONFISCATING' }) }),
@@ -248,30 +376,62 @@ describe('DepositTransactionsService', () => {
       );
     });
     it('blocks ADMIN_API from directly reaching CONFISCATING (workflow-only)', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
       await expect(
         service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START },
           { sourcePlatform: 'ADMIN_API', actor: { actorType: 'ADMIN', actorId: 'a1' } }),
       ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'DEPOSIT_APPROVE_WORKFLOW_ONLY' }) });
     });
 
-    it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
+    it('COMPLIANCE_PENDING → OPERATION_PENDING via operation_pending', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.REJECT,
-        reason: 'High risk detected',
-      });
-
+      await service.updateStatus(mockId, { action: DepositTransactionAction.OPERATION_PENDING });
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.REJECTED,
-            completedAt: expect.any(Date),
-          }),
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
         }),
       );
-      expect(eventEmitter.emit).toHaveBeenCalled();
+    });
+
+    it('OPERATION_PENDING → SUCCESS via approve (放行)', async () => {
+      setupMock(DepositTransactionStatus.OPERATION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.SUCCESS }),
+        }),
+      );
+    });
+
+    it('COMPLIANCE_PENDING 不再直接 confiscate_start —— 没收入口已上移到 OPERATION_PENDING', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START }),
+      ).rejects.toThrow(/Invalid action/);
+    });
+
+    // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受 ACTION_PENDING/
+    // MANUAL_CHECKING,但金额闸下沉后调用的 operation_pending 边此前只从
+    // COMPLIANCE_PENDING 出发存在——两边前置条件对不上,below-min 单从这两个状态被
+    // approve 翻案时,金额闸自己在转移表这层抛 Invalid action。
+    it('ACTION_PENDING → OPERATION_PENDING via operation_pending(金额闸下沉后,补料后的 below-min 单必须能落地)', async () => {
+      setupMock(DepositTransactionStatus.ACTION_PENDING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.OPERATION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
+    });
+
+    it('MANUAL_CHECKING → OPERATION_PENDING via operation_pending(误报翻案的 below-min 单必须能落地)', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.OPERATION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
+        }),
+      );
     });
 
     it('COMPLIANCE_PENDING → ACTION_PENDING via action_pending', async () => {
@@ -316,28 +476,11 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('ACTION_PENDING → EXPIRED via expire', async () => {
+    it('ACTION_PENDING → MANUAL_CHECKING via sla_breach', async () => {
       setupMock(DepositTransactionStatus.ACTION_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.EXPIRE,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.EXPIRED,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('ACTION_PENDING → MANUAL_CHECKING via manual_check', async () => {
-      setupMock(DepositTransactionStatus.ACTION_PENDING);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.MANUAL_CHECK,
+        action: DepositTransactionAction.SLA_BREACH,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
@@ -349,50 +492,29 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('FROZEN → SUCCESS via approve', async () => {
-      setupMock(DepositTransactionStatus.FROZEN);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.APPROVE,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.SUCCESS }),
-        }),
-      );
-    });
-
-    it('FROZEN → CONFISCATED via confiscate', async () => {
-      setupMock(DepositTransactionStatus.FROZEN);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.CONFISCATE,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.CONFISCATED,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('FROZEN rejects invalid actions', async () => {
+    it('FROZEN rejects approve (sanctions/MLRO freeze must not be lifted by a single-operator approve)', async () => {
       setupMock(DepositTransactionStatus.FROZEN);
 
       await expect(
-        service.updateStatus(mockId, { action: DepositTransactionAction.REJECT }),
+        service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+    });
+
+    it('FROZEN rejects invalid actions (confiscate/return no longer direct from FROZEN — must resume first)', async () => {
+      setupMock(DepositTransactionStatus.FROZEN);
+
+      await expect(
+        service.updateStatus(mockId, { action: DepositTransactionAction.ACTION_PENDING }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('COMPLIANCE_PENDING → MANUAL_CHECKING via manual_check', async () => {
+    it('COMPLIANCE_PENDING → MANUAL_CHECKING via kyt_rejected', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.MANUAL_CHECK,
+        action: DepositTransactionAction.KYT_REJECTED,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
@@ -471,22 +593,6 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('FROZEN → RETURNING via return', async () => {
-      setupMock(DepositTransactionStatus.FROZEN);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.RETURN,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.RETURNING,
-          }),
-        }),
-      );
-    });
-
     it('FROZEN → SEIZING via seize', async () => {
       setupMock(DepositTransactionStatus.FROZEN);
 
@@ -498,6 +604,23 @@ describe('DepositTransactionsService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             status: DepositTransactionStatus.SEIZING,
+          }),
+        }),
+      );
+    });
+
+    it('SEIZING → SEIZED via seized_done', async () => {
+      setupMock(DepositTransactionStatus.SEIZING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.SEIZED_DONE,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: DepositTransactionStatus.SEIZED,
+            completedAt: expect.any(Date),
           }),
         }),
       );
@@ -553,14 +676,6 @@ describe('DepositTransactionsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('throws on any action for terminal REJECTED', async () => {
-      setupMock(DepositTransactionStatus.REJECTED);
-
-      await expect(
-        service.updateStatus(mockId, { action: DepositTransactionAction.FAIL }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
     it('throws on any action for terminal RETURNED', async () => {
       setupMock(DepositTransactionStatus.RETURNED);
 
@@ -584,42 +699,83 @@ describe('DepositTransactionsService', () => {
         service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
       ).rejects.toThrow(BadRequestException);
     });
-  });
 
-  describe('initializeComplianceGates', () => {
-    it('CRYPTO asset → travelRuleRequired true, travelRuleStatus PENDING', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-1',
-        asset: { type: 'CRYPTO' },
+    // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
+    // §二定稿的 26 条边逐条列出——多一条、少一条、边指向变了,这里都会红。同时用穷举
+    // (14 状态 × 15 动作)反向断言:凡不在这 26 条边名单里的组合,一律必须抛
+    // Invalid action/Cannot apply action(即没有偷偷长出的第 27 条边)。
+    const EXPECTED_EDGES: Array<{
+      from: DepositTransactionStatus;
+      action: DepositTransactionAction;
+      to: DepositTransactionStatus;
+    }> = [
+      { from: DepositTransactionStatus.PAYIN_PENDING, action: DepositTransactionAction.PAYIN_CONFIRMED, to: DepositTransactionStatus.COMPLIANCE_PENDING },
+      { from: DepositTransactionStatus.PAYIN_PENDING, action: DepositTransactionAction.FAIL, to: DepositTransactionStatus.FAILED },
+
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.ACTION_PENDING, to: DepositTransactionStatus.ACTION_PENDING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.SLA_BREACH, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.KYT_REJECTED, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.SLA_BREACH, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.KYT_REJECTED, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.RESUME, to: DepositTransactionStatus.COMPLIANCE_PENDING },
+
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.CONFISCATE_START, to: DepositTransactionStatus.CONFISCATING },
+
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.ACTION_PENDING, to: DepositTransactionStatus.ACTION_PENDING },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.RETURN, to: DepositTransactionStatus.RETURNING },
+
+      { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.RESUME, to: DepositTransactionStatus.COMPLIANCE_PENDING },
+      { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.SEIZE, to: DepositTransactionStatus.SEIZING },
+
+      { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_SETTLE, to: DepositTransactionStatus.CONFISCATED },
+      { from: DepositTransactionStatus.RETURNING, action: DepositTransactionAction.RETURNED_DONE, to: DepositTransactionStatus.RETURNED },
+      { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
+    ];
+
+    describe('state machine integrity guard (26-edge brief)', () => {
+      it('brief lists exactly 26 edges', () => {
+        expect(EXPECTED_EDGES).toHaveLength(26);
       });
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
 
-      await service.initializeComplianceGates('dep-1');
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        data: {
-          travelRuleRequired: true,
-          travelRuleStatus: 'PENDING',
-        },
+      it.each(
+        EXPECTED_EDGES.map((e) => [`${e.from} --${e.action}--> ${e.to}`, e] as const),
+      )('%s', async (_label, edge) => {
+        setupMock(edge.from);
+        await service.updateStatus(mockId, { action: edge.action });
+        expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: edge.to }),
+          }),
+        );
       });
-    });
 
-    it('FIAT asset → travelRuleRequired false, travelRuleStatus NOT_REQUIRED', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-1',
-        asset: { type: 'FIAT' },
-      });
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
+      it('every (status, action) pair NOT in the 26-edge list throws (no undocumented edge exists)', async () => {
+        const edgeKeys = new Set(
+          EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`),
+        );
+        const allStatuses = Object.values(DepositTransactionStatus);
+        const allActions = Object.values(DepositTransactionAction);
 
-      await service.initializeComplianceGates('dep-1');
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        data: {
-          travelRuleRequired: false,
-          travelRuleStatus: 'NOT_REQUIRED',
-        },
+        for (const status of allStatuses) {
+          for (const action of allActions) {
+            if (edgeKeys.has(`${status}::${action}`)) continue;
+            setupMock(status);
+            await expect(
+              service.updateStatus(mockId, { action }),
+            ).rejects.toThrow(BadRequestException);
+          }
+        }
       });
     });
   });
@@ -664,72 +820,78 @@ describe('DepositTransactionsService', () => {
         expect.objectContaining({ data: expect.objectContaining({ limitHoldReason: undefined }) }),
       );
     });
+
+    it('detected(): counterpartyIsVasp true → written through to deposit create data', async () => {
+      await service.detected({
+        assetId: 'a1',
+        toWalletId: 'w1',
+        amount: '100',
+        counterpartyIsVasp: true,
+      });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: true }) }),
+      );
+    });
+
+    it('detected(): counterpartyIsVasp false → written through as false, not coerced to true', async () => {
+      await service.detected({
+        assetId: 'a1',
+        toWalletId: 'w1',
+        amount: '100',
+        counterpartyIsVasp: false,
+      });
+      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: false }) }),
+      );
+    });
   });
 
   describe('Compliance Gate Methods', () => {
 
-    it('updateKytStatus sets kytStatus, riskScore, and checkedAt', async () => {
-      const mockRecord = { id: 'dep-1', kytStatus: 'PASSED', kytRiskScore: 15, kytCheckedAt: new Date() };
+    it('updateSumsubVerdict sets sumsubVerdict, sumsubScore, and sumsubScoredAt', async () => {
+      const mockRecord = { id: 'dep-1', sumsubVerdict: 'rejected', sumsubScore: 15, sumsubScoredAt: new Date() };
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
 
-      const result = await service.updateKytStatus('dep-1', 'PASSED', 15);
+      const result = await service.updateSumsubVerdict('dep-1', 'rejected', 15);
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
-        data: expect.objectContaining({
-          kytStatus: 'PASSED',
-          kytRiskScore: 15,
-          kytCheckedAt: expect.any(Date),
-        }),
+        data: {
+          sumsubVerdict: 'rejected',
+          sumsubScore: 15,
+          sumsubScoredAt: expect.any(Date),
+        },
       });
-      expect(result.kytStatus).toBe('PASSED');
+      expect(result.sumsubVerdict).toBe('rejected');
     });
 
-    it('updateTravelRuleStatus sets travelRuleStatus and checkedAt', async () => {
-      const mockRecord = { id: 'dep-1', travelRuleStatus: 'PASSED', travelRuleCheckedAt: new Date() };
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue(mockRecord);
-
-      const result = await service.updateTravelRuleStatus('dep-1', 'PASSED');
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        data: expect.objectContaining({
-          travelRuleStatus: 'PASSED',
-          travelRuleCheckedAt: expect.any(Date),
-        }),
-      });
-      expect(result.travelRuleStatus).toBe('PASSED');
-    });
-
-    it('setSumsubTxnIds writes only the provided keys (fiat: finance only)', async () => {
+    it('setSumsubTxn writes sumsubTxnId and sumsubTxnType (finance)', async () => {
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
         id: 'dep-1',
-        sumsubFinanceTxnId: 'TXN-FIN-1',
+        sumsubTxnId: 'TXN-FIN-1',
+        sumsubTxnType: 'finance',
       });
 
-      await service.setSumsubTxnIds('dep-1', { financeTxnId: 'TXN-FIN-1' });
+      await service.setSumsubTxn('dep-1', { sumsubTxnId: 'TXN-FIN-1', sumsubTxnType: 'finance' });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
-        data: { sumsubFinanceTxnId: 'TXN-FIN-1' },
+        data: { sumsubTxnId: 'TXN-FIN-1', sumsubTxnType: 'finance' },
       });
     });
 
-    it('setSumsubTxnIds writes both keys (crypto: finance + travelRule)', async () => {
+    it('setSumsubTxn writes sumsubTxnId and sumsubTxnType (travelRule)', async () => {
       ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({
         id: 'dep-1',
-        sumsubFinanceTxnId: 'TXN-FIN-2',
-        sumsubTravelRuleTxnId: 'TXN-TR-2',
+        sumsubTxnId: 'TXN-TR-2',
+        sumsubTxnType: 'travelRule',
       });
 
-      await service.setSumsubTxnIds('dep-1', {
-        financeTxnId: 'TXN-FIN-2',
-        travelRuleTxnId: 'TXN-TR-2',
-      });
+      await service.setSumsubTxn('dep-1', { sumsubTxnId: 'TXN-TR-2', sumsubTxnType: 'travelRule' });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
-        data: { sumsubFinanceTxnId: 'TXN-FIN-2', sumsubTravelRuleTxnId: 'TXN-TR-2' },
+        data: { sumsubTxnId: 'TXN-TR-2', sumsubTxnType: 'travelRule' },
       });
     });
 
@@ -783,6 +945,245 @@ describe('DepositTransactionsService', () => {
       const result = await service.getOwnerComplianceStatus('dep-1');
 
       expect(result).toBe('UNKNOWN');
+    });
+  });
+
+  describe('findOneForAdmin', () => {
+    const sumsubJson = JSON.stringify({
+      verdict: 'GREEN',
+      scoringResult: {
+        score: 87,
+        matchedRules: [
+          { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
+        ],
+        applicantActions: [
+          { applicantActionId: 'act-1' },
+          { applicantActionId: 'act-2' },
+        ],
+      },
+    });
+
+    beforeEach(() => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: sumsubJson,
+        fundsOrders: [],
+      });
+    });
+
+    it('parses sumsubTxnDetailJson into sumsubDetail (score/matchedRules/applicantActionIds)', async () => {
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail.score).toBe(87);
+      expect(result.sumsubDetail.matchedRules).toEqual([
+        { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
+      ]);
+      expect(result.sumsubDetail.applicantActionIds).toEqual(['act-1', 'act-2']);
+    });
+
+    it('parseDetail: sumsubTxnDetailJson = "null" (valid JSON, value null) does not throw; sumsubDetail is null', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: 'null',
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail).toBeNull();
+    });
+
+    it('parseDetail: non-object JSON (e.g. "123") does not throw; sumsubDetail is null', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: '123',
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail).toBeNull();
+    });
+
+    it('parseDetail: null elements in matchedRules/applicantActions are filtered out, valid entries survive', async () => {
+      const jsonWithNulls = JSON.stringify({
+        verdict: 'GREEN',
+        scoringResult: {
+          score: 87,
+          matchedRules: [null, { id: 'A', name: 'x', action: 'reject', score: 5 }],
+          applicantActions: [null, { applicantActionId: 'act-1' }],
+        },
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: jsonWithNulls,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail.matchedRules).toEqual([
+        { id: 'A', name: 'x', action: 'reject', score: 5 },
+      ]);
+      expect(result.sumsubDetail.applicantActionIds).toEqual(['act-1']);
+    });
+
+    // 终审 Minor #2:matchedRules/applicantActions 已 .filter(Boolean),但 typedTags 的
+    // .map 此前没有 —— 含 null 元素的 typedTags 数组会在 `t.label` 上炸出 TypeError。
+    it('parseDetail: null elements in typedTags are filtered out, does not throw, valid tags survive', async () => {
+      const jsonWithNullTag = JSON.stringify({
+        verdict: 'GREEN',
+        typedTags: [null, { label: 'HIGH_RISK', type: 'system' }],
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: jsonWithNullTag,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail.tags).toEqual(['HIGH_RISK']);
+    });
+
+    // 终审 Minor #6:生产 HttpSumsubTxnClient.getTxn 的 raw(= SumsubKytTxnResponse)没有
+    // 顶层 verdict 字段,只有 scoringResult.action(Sumsub 规则动作)和
+    // review.reviewResult.reviewAnswer。只有 fixtures 的 buildRawDetail 才塞了顶层
+    // verdict —— 生产环境下 parseDetail.verdict 恒为 null,详情页 Verdict 行空白。
+    // 回退到 scoringResult.action:它就是 Sumsub 的规则裁决,语义上等价。
+    it('parseDetail: raw 无顶层 verdict、有 scoringResult.action=reject → verdict 回退取 scoringResult.action', async () => {
+      const jsonNoTopLevelVerdict = JSON.stringify({
+        id: 'txn-prod-1',
+        scoringResult: { action: 'reject', score: 90 },
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: jsonNoTopLevelVerdict,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail.verdict).toBe('reject');
+    });
+
+    // Task 7: parseDetail 新增回显官方字段 reviewStatus/reviewAnswer(来自
+    // review.reviewStatus / review.reviewResult.reviewAnswer)。
+    it('parseDetail: review.reviewStatus/reviewResult.reviewAnswer surfaced verbatim on sumsubDetail', async () => {
+      const jsonWithReview = JSON.stringify({
+        scoringResult: { action: 'reject', score: 90 },
+        review: { reviewStatus: 'completed', reviewResult: { reviewAnswer: 'RED' } },
+      });
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnDetailJson: jsonWithReview,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.sumsubDetail.reviewStatus).toBe('completed');
+      expect(result.sumsubDetail.reviewAnswer).toBe('RED');
+    });
+
+    it('latestSumsubWebhook: no lookup when sumsubTxnId is absent', async () => {
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(result.latestSumsubWebhook).toBeNull();
+      expect((prisma as any).sumsubWebhookEvent.findMany).not.toHaveBeenCalled();
+    });
+
+    // Task 7: 一笔单只有一个 Sumsub 交易 —— 反查按 sumsubTxnId 单值匹配,不再按
+    // 「泳道」拆两个 txnId 做 OR 查询,也不再从 rawPayload 里反推 lane。
+    it('latestSumsubWebhook: looks up the single sumsubTxnId, returns the most recent event verbatim', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'dep-1',
+        depositNo: 'DP001',
+        sumsubTxnId: 'txn-abc123',
+        sumsubTxnDetailJson: sumsubJson,
+        fundsOrders: [],
+      });
+      ((prisma as any).sumsubWebhookEvent.findMany as jest.Mock).mockResolvedValue([
+        {
+          eventNo: 'EVT-1',
+          eventType: 'txnStatusChanged',
+          status: 'PROCESSED',
+          receivedAt: new Date('2026-01-01T00:00:00Z'),
+          processedAt: new Date('2026-01-01T00:00:05Z'),
+          lastErrorMessage: null,
+          isSimulated: false,
+        },
+      ]);
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect((prisma as any).sumsubWebhookEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { rawPayload: { contains: '"txn-abc123"' } },
+        }),
+      );
+      expect(result.latestSumsubWebhook).toEqual({
+        eventNo: 'EVT-1',
+        eventType: 'txnStatusChanged',
+        status: 'PROCESSED',
+        receivedAt: new Date('2026-01-01T00:00:00Z'),
+        processedAt: new Date('2026-01-01T00:00:05Z'),
+        lastErrorMessage: null,
+        isSimulated: false,
+      });
+    });
+
+    it('returns approvals as single-header-only (no steps/step), regardless of status', async () => {
+      approvalsService.list.mockResolvedValue({
+        total: 2,
+        items: [
+          {
+            approvalNo: 'APR-1',
+            actionType: 'DEPOSIT_CONFISCATION',
+            status: 'APPROVED',
+            createdAt: new Date('2026-01-01T00:00:00Z'),
+            steps: [{ id: 'step-1', decision: 'APPROVE' }],
+          },
+          {
+            approvalNo: 'APR-2',
+            actionType: 'DEPOSIT_RETURN',
+            status: 'REJECTED',
+            createdAt: new Date('2026-01-02T00:00:00Z'),
+            step: { id: 'step-2' },
+          },
+        ],
+      });
+
+      const result: any = await service.findOneForAdmin('dep-1');
+
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({ entityRef: 'dep-1' }),
+      );
+      expect(result.approvals).toEqual([
+        {
+          approvalNo: 'APR-1',
+          actionType: 'DEPOSIT_CONFISCATION',
+          status: 'APPROVED',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+        {
+          approvalNo: 'APR-2',
+          actionType: 'DEPOSIT_RETURN',
+          status: 'REJECTED',
+          createdAt: new Date('2026-01-02T00:00:00Z'),
+        },
+      ]);
+      for (const a of result.approvals) {
+        expect(a).not.toHaveProperty('steps');
+        expect(a).not.toHaveProperty('step');
+      }
     });
   });
 

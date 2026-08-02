@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { DepositTransactionsController } from './deposit-transactions.controller';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { DepositWorkflowService } from './deposit-workflow.service';
+import { DepositTransactionAction } from './dto/deposit-transaction.dto';
 
 describe('DepositTransactionsController', () => {
   let controller: DepositTransactionsController;
@@ -15,10 +16,11 @@ describe('DepositTransactionsController', () => {
   };
   let depositWorkflow: {
     approveDeposit: jest.Mock;
-    adminReject: jest.Mock;
     adminFreeze: jest.Mock;
     waiveLimitHold: jest.Mock;
     initiateConfiscation: jest.Mock;
+    initiateSeize: jest.Mock;
+    initiateUnfreeze: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -34,10 +36,11 @@ describe('DepositTransactionsController', () => {
     };
     depositWorkflow = {
       approveDeposit: jest.fn(),
-      adminReject: jest.fn(),
       adminFreeze: jest.fn(),
       waiveLimitHold: jest.fn(),
       initiateConfiscation: jest.fn(),
+      initiateSeize: jest.fn(),
+      initiateUnfreeze: jest.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DepositTransactionsController],
@@ -104,6 +107,110 @@ describe('DepositTransactionsController', () => {
       'dep-1',
       { reason: 'below min' },
       expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['OPS_OFFICER'] }),
+    );
+  });
+
+  it('seize rejects a CUSTOMER token with ForbiddenException (assertAdmin-first)', () => {
+    expect(() =>
+      controller.seize('dep-1', { reason: 'x', orderRef: 'ORD-1' }, { user: { type: 'CUSTOMER', userId: 'c1' } }),
+    ).toThrow(ForbiddenException);
+    expect(depositWorkflow.initiateSeize).not.toHaveBeenCalled();
+  });
+
+  it('seize forwards to the workflow with an admin approval actor for an ADMIN token', async () => {
+    depositWorkflow.initiateSeize.mockResolvedValue({ approvalNo: 'APR-S1' });
+
+    await controller.seize('dep-1', { reason: 'gov order', orderRef: 'ORD-1' }, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'SENIOR_MANAGEMENT_OFFICER', roleCodes: ['SENIOR_MANAGEMENT_OFFICER'] },
+    });
+
+    expect(depositWorkflow.initiateSeize).toHaveBeenCalledWith(
+      'dep-1',
+      { reason: 'gov order', orderRef: 'ORD-1' },
+      expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['SENIOR_MANAGEMENT_OFFICER'] }),
+    );
+  });
+
+  it('unfreeze rejects a CUSTOMER token with ForbiddenException (assertAdmin-first)', () => {
+    expect(() =>
+      controller.unfreeze('dep-1', { reason: 'x', orderRef: 'ORD-1' }, { user: { type: 'CUSTOMER', userId: 'c1' } }),
+    ).toThrow(ForbiddenException);
+    expect(depositWorkflow.initiateUnfreeze).not.toHaveBeenCalled();
+  });
+
+  it('unfreeze forwards to the workflow with an admin approval actor for an ADMIN token', async () => {
+    depositWorkflow.initiateUnfreeze.mockResolvedValue({ approvalNo: 'APR-U1' });
+
+    await controller.unfreeze('dep-1', { reason: 'delisted', orderRef: 'ORD-U-1' }, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'MLRO', roleCodes: ['MLRO'] },
+    });
+
+    expect(depositWorkflow.initiateUnfreeze).toHaveBeenCalledWith(
+      'dep-1',
+      { reason: 'delisted', orderRef: 'ORD-U-1' },
+      expect.objectContaining({ actorType: 'ADMIN', userId: 'admin-1', roleCodes: ['MLRO'] }),
+    );
+  });
+
+  // Fix 3 (final review): PATCH :id/status default branch must reject workflow-only
+  // actions that carry funds/approval semantics, rather than silently passing them
+  // through to service.updateStatus.
+  it('updateStatus rejects action=resume via PATCH (bypasses A2 MLRO unfreeze approval)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.RESUME } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus rejects action=seized_done via PATCH (terminal jump, no ledger legs posted)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.SEIZED_DONE } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus rejects action=returned_done via PATCH (terminal jump, no ledger legs posted)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.RETURNED_DONE } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus rejects action=confiscate_settle via PATCH (terminal jump, no ledger legs posted)', () => {
+    expect(() =>
+      controller.updateStatus(
+        'dep-1',
+        { action: DepositTransactionAction.CONFISCATE_SETTLE } as any,
+        { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } },
+      ),
+    ).toThrow(BadRequestException);
+    expect(depositService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('updateStatus forwards a legit non-funds action (e.g. action_pending) to service.updateStatus', async () => {
+    depositService.updateStatus.mockResolvedValue({ id: 'dep-1', status: 'ACTION_PENDING' });
+    const dto = { action: DepositTransactionAction.ACTION_PENDING } as any;
+
+    await controller.updateStatus('dep-1', dto, {
+      user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' },
+    });
+
+    expect(depositService.updateStatus).toHaveBeenCalledWith(
+      'dep-1',
+      dto,
+      expect.objectContaining({ sourcePlatform: 'ADMIN_API' }),
     );
   });
 

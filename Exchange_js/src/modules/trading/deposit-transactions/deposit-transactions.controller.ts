@@ -11,6 +11,7 @@ import {
   UseGuards,
   Req,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import {
@@ -103,10 +104,23 @@ export class DepositTransactionsController {
   @ApiOperation({ summary: 'Get deposit transaction details' })
   findOne(@Param('id') id: string, @Req() req: any) {
     if (req.user?.type === 'ADMIN') {
-      return this.service.findOne(id);
+      return this.service.findOneForAdmin(id);
     }
     return this.service.findOneForCustomer(id, req.user?.userId);
   }
+
+  // Fix 3 (final review): workflow-only actions carry funds/approval semantics that a
+  // raw admin PATCH must never reach directly. `resume` would bypass the A2 MLRO
+  // unfreeze approval; `seized_done`/`returned_done`/`confiscate_settle` would jump
+  // straight to a terminal status with no ledger legs ever posted, stranding the
+  // pending lock forever. Mirrors the existing ACCOUNTING_TERMINALS +
+  // DEPOSIT_APPROVE_WORKFLOW_ONLY guard style in deposit-transactions.service.ts.
+  private static readonly PATCH_STATUS_WORKFLOW_ONLY_ACTIONS = new Set<DepositTransactionAction>([
+    DepositTransactionAction.RESUME,
+    DepositTransactionAction.SEIZED_DONE,
+    DepositTransactionAction.RETURNED_DONE,
+    DepositTransactionAction.CONFISCATE_SETTLE,
+  ]);
 
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update deposit transaction status' })
@@ -122,11 +136,16 @@ export class DepositTransactionsController {
     switch (dto.action) {
       case DepositTransactionAction.APPROVE:
         return this.workflow.approveDeposit(id);
-      case DepositTransactionAction.REJECT:
-        return this.workflow.adminReject(id, dto.reason, actor);
       case DepositTransactionAction.FREEZE:
         return this.workflow.adminFreeze(id, dto.reason, actor);
       default:
+        if (DepositTransactionsController.PATCH_STATUS_WORKFLOW_ONLY_ACTIONS.has(dto.action)) {
+          throw new BadRequestException({
+            code: 'DEPOSIT_ACTION_WORKFLOW_ONLY',
+            message: `Action '${dto.action}' must go through its workflow endpoint/approval, not a direct status patch.`,
+            details: { action: dto.action },
+          });
+        }
         return this.service.updateStatus(id, dto, {
           sourcePlatform: 'ADMIN_API',
           actor: {
@@ -165,6 +184,50 @@ export class DepositTransactionsController {
       roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
     };
     return this.workflow.initiateConfiscation(id, { reason: body?.reason ?? '' }, actor);
+  }
+
+  @Post(':id/seize')
+  @ApiOperation({ summary: 'Seize a frozen deposit under government order (maker-checker approval)' })
+  seize(
+    @Param('id') id: string,
+    @Body() body: { reason?: string; orderRef?: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateSeize(
+      id,
+      { reason: body?.reason ?? '', orderRef: body?.orderRef ?? '' },
+      actor,
+    );
+  }
+
+  @Post(':id/unfreeze')
+  @ApiOperation({ summary: 'Unfreeze a frozen deposit under delisting/unfreeze order (maker-checker approval)' })
+  unfreeze(
+    @Param('id') id: string,
+    @Body() body: { reason?: string; orderRef?: string },
+    @Req() req: any,
+  ) {
+    this.assertAdmin(req);
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.workflow.initiateUnfreeze(
+      id,
+      { reason: body?.reason ?? '', orderRef: body?.orderRef ?? '' },
+      actor,
+    );
   }
 
   @Get('export')

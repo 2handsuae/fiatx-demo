@@ -31,56 +31,77 @@ describe('DepositKytVerdictHandler', () => {
     handler = new DepositKytVerdictHandler(workflow, depositService, sumsubTxnClient);
   });
 
-  function txnDetail(tags: { label: string; type?: 'system' | 'userDefined' }[]): SumsubTxnDetail {
+  function txnDetail(
+    tags: { label: string; type?: 'system' | 'userDefined' }[],
+    riskScore: number | null = 87,
+  ): SumsubTxnDetail {
     return {
       txnId: 'T1',
       verdict: 'rejected',
       reviewAnswer: 'RED',
+      riskScore,
       typedTags: tags.map((t) => ({ label: t.label, type: t.type ?? 'userDefined' })),
+      raw: { txnId: 'T1', reviewResult: { reviewAnswer: 'RED' } },
     };
   }
 
-  it('Approved: does not call getTxn, applies verdict=approved', async () => {
+  it('Approved: calls getTxn (证据对齐), applies verdict=approved with riskScore + detailRaw, no tag reading', async () => {
+    const detail = txnDetail([{ label: 'SANCTION' }], 92);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
+
     await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'T1' });
 
-    expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
+    expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(depositService.findBySumsubTxnId).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledTimes(1);
-    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, { verdict: 'approved' });
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
+      verdict: 'approved',
+      riskScore: 92,
+      detailRaw: detail.raw,
+    });
   });
 
-  it('Rejected + getTxn returns [SANCTION] → verdict=rejected, sceneTag=SANCTION', async () => {
-    sumsubTxnClient.getTxn.mockResolvedValue(txnDetail([{ label: 'SANCTION' }]));
+  it('Rejected + getTxn returns [SANCTION] → verdict=rejected, sceneTag=SANCTION, detailRaw 透传', async () => {
+    const detail = txnDetail([{ label: 'SANCTION' }]);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
 
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'rejected',
+      riskScore: 87,
       sceneTag: 'SANCTION',
+      detailRaw: detail.raw,
     });
   });
 
-  it('Rejected + getTxn returns [FROZEN_BY_MLRO] → verdict=rejected, dispoTag=FROZEN_BY_MLRO', async () => {
-    sumsubTxnClient.getTxn.mockResolvedValue(txnDetail([{ label: 'FROZEN_BY_MLRO' }]));
+  it('Rejected + getTxn returns [FROZEN_BY_MLRO] → verdict=rejected, dispoTag=FROZEN_BY_MLRO, detailRaw 透传', async () => {
+    const detail = txnDetail([{ label: 'FROZEN_BY_MLRO' }]);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
 
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'rejected',
+      riskScore: 87,
       dispoTag: 'FROZEN_BY_MLRO',
+      detailRaw: detail.raw,
     });
   });
 
-  it('AwaitingUser + getTxn returns [PEP] → verdict=awaitUser, sceneTag=PEP', async () => {
-    sumsubTxnClient.getTxn.mockResolvedValue(txnDetail([{ label: 'PEP' }]));
+  it('AwaitingUser + getTxn returns [PEP] → verdict=awaitUser, sceneTag=PEP, detailRaw 透传', async () => {
+    const detail = txnDetail([{ label: 'PEP' }]);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
 
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
       verdict: 'awaitUser',
+      riskScore: 87,
       sceneTag: 'PEP',
+      detailRaw: detail.raw,
     });
   });
 
@@ -90,6 +111,39 @@ describe('DepositKytVerdictHandler', () => {
     expect(depositService.findBySumsubTxnId).not.toHaveBeenCalled();
     expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
     expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+  });
+
+  it('Created: 归一为 ignore,不调用 getTxn / applyKytVerdict', async () => {
+    await handler.handle({ type: 'applicantKytTxnCreated', kytTxnId: 'T1' });
+
+    expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
+    expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+  });
+
+  it('onHold 也拉 getTxn 存证(分数+报文),但不读处置 tag', async () => {
+    depositService.findBySumsubTxnId.mockResolvedValue({ id: 'dep-1' });
+    sumsubTxnClient.getTxn.mockResolvedValue({
+      txnId: 'T-oh',
+      verdict: 'onHold',
+      reviewAnswer: null,
+      riskScore: 55,
+      typedTags: [{ label: 'FROZEN_BY_MLRO', type: 'userDefined' }],
+      raw: { id: 'T-oh' },
+    });
+
+    await handler.handle({ type: 'applicantKytOnHold', kytTxnId: 'T-oh' });
+
+    expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T-oh');
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith('dep-1', {
+      verdict: 'onHold',
+      riskScore: 55,
+      detailRaw: { id: 'T-oh' },
+    });
+    // onHold 不读处置 tag —— 上面 fixture 故意塞了 FROZEN_BY_MLRO,不应被解析出来
+    expect(workflow.applyKytVerdict).not.toHaveBeenCalledWith(
+      'dep-1',
+      expect.objectContaining({ dispoTag: 'FROZEN_BY_MLRO' }),
+    );
   });
 
   it('orphan: no deposit found for kytTxnId → does not call workflow', async () => {

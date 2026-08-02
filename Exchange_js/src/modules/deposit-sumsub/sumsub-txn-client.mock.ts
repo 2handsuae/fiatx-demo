@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { SumsubTxnClient, SubmitTxnInput } from './sumsub-txn-client.interface';
 import { SumsubTxnDetail } from './sumsub-txn.types';
@@ -20,8 +21,19 @@ export class MockSumsubTxnClient implements SumsubTxnClient {
   }
 
   async submitTxn(input: SubmitTxnInput): Promise<{ txnId: string }> {
-    const txnId = this.submitResults.get(input.clientTxnId) ?? `MOCK-${input.clientTxnId}`;
+    const txnId =
+      this.submitResults.get(input.clientTxnId) ?? MockSumsubTxnClient.fallbackTxnId(input.clientTxnId);
     return { txnId };
+  }
+
+  /**
+   * 没被 primeSubmit 预置时的兜底 txnId。曾经是 `MOCK-${clientTxnId}` —— 那个值会
+   * 一路显示到 admin 详情页的 "Sumsub References",跟真 Sumsub 的号(24 位小写 hex,
+   * ObjectId 形态)完全不是一回事,演示/截图里一眼假。这里改成同样形态的确定性哈希:
+   * 仍然是可预测、可重放的测试替身值,只是长得像真的。
+   */
+  private static fallbackTxnId(clientTxnId: string): string {
+    return createHash('sha1').update(`mock-sumsub-txn:${clientTxnId}`).digest('hex').slice(0, 24);
   }
 
   async getTxn(txnId: string): Promise<SumsubTxnDetail> {

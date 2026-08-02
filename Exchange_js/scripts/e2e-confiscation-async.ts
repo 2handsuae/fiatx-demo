@@ -75,7 +75,15 @@ async function makeBelowMinDeposit(ctx: DemoCtx, cViban: any, ref: string): Prom
     }
     return d.status === 'COMPLIANCE_PENDING' && d.limitHoldReason === 'BELOW_MIN' ? d : null;
   });
-  return settled;
+  // 终审 Important 3 修复:口径反转(2026-07-31)后 below-min 单在合规通过后才转
+  // OPERATION_PENDING(不再停在 COMPLIANCE_PENDING),没收入口(initiateConfiscation)
+  // 跟着上移——喂一次 approved 裁决把单驱过去,再交给 confiscateApproveToConfiscating。
+  await ctx.depositWf.applyKytVerdict(settled.id, { verdict: 'approved', riskScore: 5 });
+  const held = await waitFor(`${deposit.depositNo} OPERATION_PENDING+BELOW_MIN`, async () => {
+    const d: any = await ctx.deposits.findOne(deposit.id);
+    return d.status === 'OPERATION_PENDING' && d.limitHoldReason === 'BELOW_MIN' ? d : null;
+  });
+  return held;
 }
 
 /** Maker requests confiscation → checker approves → wait for CONFISCATING + legSeq-2 order. */
@@ -162,8 +170,8 @@ async function main() {
   depositNoA = depA.depositNo;
   console.log(`  deposit A = ${depositNoA} (owner ${cA.customerNo})`);
   assert(
-    'A: COMPLIANCE_PENDING + BELOW_MIN',
-    depA.status === 'COMPLIANCE_PENDING' && depA.limitHoldReason === 'BELOW_MIN',
+    'A: OPERATION_PENDING + BELOW_MIN',
+    depA.status === 'OPERATION_PENDING' && depA.limitHoldReason === 'BELOW_MIN',
     `status=${depA.status}, hold=${depA.limitHoldReason}`,
   );
 

@@ -14,6 +14,7 @@ interface SumsubKytTxnResponse {
   };
   scoringResult?: {
     action?: KytVerdict;
+    score?: number;
   };
 }
 
@@ -67,7 +68,9 @@ export class HttpSumsubTxnClient implements SumsubTxnClient {
       txnId,
       verdict: this.resolveVerdict(data),
       reviewAnswer: data.review?.reviewResult?.reviewAnswer ?? null,
+      riskScore: data.scoringResult?.score ?? null,
       typedTags: data.typedTags ?? [],
+      raw: data,
     };
   }
 

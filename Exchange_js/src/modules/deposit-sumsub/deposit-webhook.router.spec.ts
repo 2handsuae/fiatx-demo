@@ -23,7 +23,7 @@ describe('DepositWebhookRouter', () => {
     'applicantKytTxnApproved',
     'applicantKytTxnRejected',
     'applicantKytTxnAwaitingUser',
-    'applicantKytTxnOnHold',
+    'applicantKytOnHold',
     'applicantKytTxnReviewed',
   ])('routes %s to kytVerdictHandler', async (type) => {
     await router.route({ type, kytTxnId: 'T1' });
@@ -31,10 +31,10 @@ describe('DepositWebhookRouter', () => {
     expect(kytVerdictHandler.handle).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call kytVerdictHandler for applicantKytTxnCreated (receipt only)', async () => {
+  it('routes applicantKytTxnCreated to kytVerdictHandler (handler itself ignores it, no state change)', async () => {
     await router.route({ type: 'applicantKytTxnCreated', kytTxnId: 'T1' });
 
-    expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
+    expect(kytVerdictHandler.handle).toHaveBeenCalledTimes(1);
   });
 
   it('does not throw and does not route applicantActionReviewed (dead branch retired — Task 9: deposit 纯 KYT 驱动)', async () => {
@@ -46,6 +46,18 @@ describe('DepositWebhookRouter', () => {
   it('does not throw and calls no handler for an unknown type', async () => {
     await expect(router.route({ type: 'somethingUnknown' })).resolves.toBeUndefined();
 
+    expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
+  });
+
+  it('官方 on-hold 类型 applicantKytOnHold（无 Txn）必须被路由', async () => {
+    await router.route({ type: 'applicantKytOnHold', kytTxnId: 'T-onhold' });
+    expect(kytVerdictHandler.handle).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'applicantKytOnHold' }),
+    );
+  });
+
+  it('拼错的 applicantKytTxnOnHold 不再被识别（防回退）', async () => {
+    await router.route({ type: 'applicantKytTxnOnHold', kytTxnId: 'T-typo' });
     expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
   });
 });

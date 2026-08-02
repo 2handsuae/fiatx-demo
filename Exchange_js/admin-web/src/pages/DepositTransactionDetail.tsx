@@ -8,7 +8,6 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { StatusPill } from '../components/ui/StatusPill';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -22,18 +21,29 @@ import {
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
 import {
-  formatStatusLabel,
   formatTransactionTypeLabel,
   normalizeRailDisplayStatus,
 } from '../utils/transactionRootDisplay';
-import {
-  getDepositActionsForStatus,
-  getDepositStatusBadgeClass,
-  getComplianceLayerStyle,
-} from '../utils/depositActionMap';
+import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Types ──────────────────────────────────────────────────── */
+
+/* 9 个单步裁决按钮(取代旧的 8 个多步剧本)。key 必须与后端
+   src/modules/deposit-sumsub/fixtures/verdict-buttons.ts 的 DEPOSIT_VERDICT_BUTTONS 一致。 */
+const DEPOSIT_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
+  { key: 'V1_APPROVED', label: '① Approved' },
+  { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
+  { key: 'V3_AWAIT_USER_PEP', label: '③ Awaiting user · PEP' },
+  { key: 'V4_REJECTED_SANCTION', label: '④ Rejected · Sanctions' },
+  { key: 'V5_REJECTED_FROZEN_MLRO', label: '⑤ Rejected · MLRO freeze' },
+  { key: 'V6_REJECTED_RETURN', label: '⑥ Rejected · MLRO return' },
+  { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
+  { key: 'V8_ONHOLD', label: '⑧ On hold' },
+  { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
+];
 
 interface LinkedFundOrder {
   kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN' | 'CONFISCATION';
@@ -67,12 +77,6 @@ interface DepositDetail {
   txHash: string | null;
   confirmations: number;
   referenceNo: string | null;
-  kytStatus: string;
-  kytRiskScore: number | null;
-  kytCheckedAt: string | null;
-  travelRuleRequired: boolean;
-  travelRuleStatus: string;
-  travelRuleCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -82,6 +86,11 @@ interface DepositDetail {
   payinType?: string | null;
   traceId?: string | null;
   limitHoldReason?: string | null;
+  sumsubTxnId?: string | null;
+  sumsubTxnType?: 'finance' | 'travelRule' | null;
+  sumsubVerdict?: string | null;
+  sumsubScore?: number | null;
+  slaDeadline?: string | null;
   asset: {
     code: string;
     type: string;
@@ -89,9 +98,66 @@ interface DepositDetail {
     decimals: number;
   };
   statusHistory: string | null;
-  customer?: { complianceStatus?: string | null } | null;
+  customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
+  latestSumsubWebhook?: LatestSumsubWebhook | null;
+  sumsubDetail?: SumsubTxnDetail | null;
+  approvals?: DepositApproval[];
 }
+
+/** Matched-rule entry inside a Sumsub getTxn scoring result (see backend
+ *  `findOneForAdmin` parseDetail). */
+interface SumsubMatchedRule {
+  id?: string;
+  name?: string;
+  action?: string;
+  score?: number;
+}
+
+/** Admin-readable subset of a Sumsub getTxn report for this deposit's single
+ *  Sumsub txn — parsed server-side from the raw stored payload. */
+interface SumsubTxnDetail {
+  verdict: string | null;
+  reviewStatus: string | null;
+  reviewAnswer: string | null;
+  score: number | null;
+  matchedRules: SumsubMatchedRule[];
+  applicantActionIds: string[];
+  tags: string[];
+  raw: unknown;
+}
+
+/** Internal (non-Sumsub) approval case linked to this deposit — single
+ *  header only, no step/steps (see backend `findOneForAdmin`). */
+interface DepositApproval {
+  approvalNo: string;
+  actionType: string;
+  status: string;
+  createdAt: string;
+}
+
+/**
+ * 该单最近一次收到的 Sumsub webhook(后端 findOneForAdmin 附带)。上面那个
+ * txn ID 是提交时定格的静态引用;这个才回答"Sumsub 最近说了什么"。
+ */
+interface LatestSumsubWebhook {
+  eventNo: string;
+  eventType: string;
+  status: string;
+  receivedAt: string | null;
+  processedAt: string | null;
+  lastErrorMessage: string | null;
+  isSimulated: boolean;
+}
+
+/** Internal-approval `actionType` → English action label shown in the
+ *  Internal Approvals block. */
+const APPROVAL_ACTION_LABELS: Record<string, string> = {
+  DEPOSIT_SEIZE: 'Seize',
+  DEPOSIT_RETURN: 'Return',
+  DEPOSIT_UNFREEZE: 'Unfreeze',
+  DEPOSIT_CONFISCATION: 'Confiscate',
+};
 
 /* ── Page Component ─────────────────────────────────────────── */
 
@@ -101,16 +167,20 @@ const DepositTransactionDetail = () => {
   const [data, setData] = useState<DepositDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionError, setActionError] = useState('');
-  const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
-  const [reasonText, setReasonText] = useState('');
-  const [pendingAction, setPendingAction] = useState('');
   const [notice, setNotice] = useState('');
   const [dispositionSubmitting, setDispositionSubmitting] = useState(false);
   const [dispositionError, setDispositionError] = useState('');
   const [isConfiscateModalOpen, setIsConfiscateModalOpen] = useState(false);
   const [confiscateReason, setConfiscateReason] = useState('');
+  const [isSeizeModalOpen, setIsSeizeModalOpen] = useState(false);
+  const [seizeReason, setSeizeReason] = useState('');
+  const [seizeOrderRef, setSeizeOrderRef] = useState('');
+  const [isUnfreezeModalOpen, setIsUnfreezeModalOpen] = useState(false);
+  const [unfreezeReason, setUnfreezeReason] = useState('');
+  const [unfreezeOrderRef, setUnfreezeOrderRef] = useState('');
+  const { enabled: simEnabled } = useSimulationMode();
+  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
+  const [simError, setSimError] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -142,43 +212,36 @@ const DepositTransactionDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  /* ── Action handlers ── */
+  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
 
-  const handleAction = async (action: string, reason?: string) => {
+  const handleRunVerdict = async (verdict: string) => {
     if (!id) return;
-    setIsSubmitting(true);
-    setActionError('');
+    setSimSubmitting(verdict);
+    setSimError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/status`,
+        `${import.meta.env.VITE_API_URL}/admin/deposit-sumsub/demo/run-verdict`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, reason }),
+          body: JSON.stringify({ depositId: id, verdict }),
         },
       );
       if (!response.ok) {
-        setActionError(await getApiErrorMessage(response, 'Action failed.'));
+        if (response.status === 404) {
+          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
+        } else {
+          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
+        }
         return;
       }
+      setNotice(`Verdict ${verdict} fed — deposit refreshed`);
       await fetchData();
-      setIsReasonModalOpen(false);
-      setReasonText('');
-      setPendingAction('');
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setActionError(error instanceof Error ? error.message : 'Action failed.');
+      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
     } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const onActionClick = (action: string, requiresReason: boolean) => {
-    if (requiresReason) {
-      setPendingAction(action);
-      setIsReasonModalOpen(true);
-    } else {
-      handleAction(action);
+      setSimSubmitting(null);
     }
   };
 
@@ -240,6 +303,76 @@ const DepositTransactionDetail = () => {
     }
   };
 
+  /* ── Frozen disposition handlers (seize / unfreeze — maker-checker) ── */
+
+  const handleSeizeSubmit = async () => {
+    if (!id || !seizeReason.trim() || !seizeOrderRef.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/seize`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: seizeReason.trim(),
+            orderRef: seizeOrderRef.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit seize request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Seize submitted for approval — ${result.approvalNo} (pending two-step approval)`);
+      setIsSeizeModalOpen(false);
+      setSeizeReason('');
+      setSeizeOrderRef('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit seize request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  const handleUnfreezeSubmit = async () => {
+    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/${id}/unfreeze`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: unfreezeReason.trim(),
+            orderRef: unfreezeOrderRef.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit unfreeze request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Unfreeze submitted for approval — ${result.approvalNo}`);
+      setIsUnfreezeModalOpen(false);
+      setUnfreezeReason('');
+      setUnfreezeOrderRef('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit unfreeze request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
   /* ── Loading / Empty ── */
 
   if (loading) {
@@ -253,19 +386,21 @@ const DepositTransactionDetail = () => {
 
   if (!data) return null;
 
-  const actions = getDepositActionsForStatus(data.status);
   const isBelowMinPending =
-    data.status === 'COMPLIANCE_PENDING' && data.limitHoldReason === 'BELOW_MIN';
-  // Confiscation lifecycle (in-transit / settled): the generic Approve/Reject/
-  // Confiscate actions no longer apply — the deposit is committed to confiscation.
-  // In CONFISCATING the only valid move is advancing the linked funds order (see
-  // the in-transit banner); CONFISCATED is terminal.
-  const isConfiscationLifecycle =
-    data.status === 'CONFISCATING' || data.status === 'CONFISCATED';
-  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
-  const kytStyle = getComplianceLayerStyle(data.kytStatus);
-  const trStyle = getComplianceLayerStyle(
-    data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
+    data.status === 'OPERATION_PENDING' && data.limitHoldReason === 'BELOW_MIN';
+  // 合规闸门只在 COMPLIANCE_PENDING 及之后才评估 —— 钱还没到账(PAYIN_PENDING)时
+  // L1/L2 一律显示 PENDING(未评估)。此前 L1 直接绑客户级 complianceStatus,那个值
+  // 与本单无关且恒为 APPROVED,导致钱还没到闸门就已经是绿的。
+  const gatesNotEvaluated = data.status === 'PAYIN_PENDING';
+  const eligibilityStyle = getComplianceLayerStyle(
+    gatesNotEvaluated ? 'PENDING' : data.customer?.complianceStatus,
+  );
+  // L2 · Transaction Screen — a deposit now submits a single Sumsub txn
+  // (finance or travelRule, decided by the type judge), not two lanes — so
+  // there is one verdict, colored the same way the other compliance layers
+  // are, but shown verbatim (not translated).
+  const l2Style = getComplianceLayerStyle(
+    gatesNotEvaluated ? 'PENDING' : data.sumsubVerdict,
   );
 
   return (
@@ -288,7 +423,7 @@ const DepositTransactionDetail = () => {
       {/* ── Confiscation in-transit banner ── */}
       {data.status === 'CONFISCATING' && (
         <div className="shrink-0 border-b border-adm-border bg-adm-amber/5 px-6 py-2.5 font-mono text-[11px] text-adm-amber">
-          Confiscation funds order in transit — advance the linked funds order below to settle; the deposit completes automatically once it is confirmed / 没收资金单在途结算中，步进下方资金单，确认后自动完成没收
+          Confiscation funds order in transit — advance the linked funds order below to settle; the deposit completes automatically once it is confirmed
         </div>
       )}
 
@@ -305,8 +440,8 @@ const DepositTransactionDetail = () => {
             <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Status</span>
-                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getDepositStatusBadgeClass(data.status)}`}>
-                  {formatStatusLabel(data.status)}
+                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getDepositStatusMeta(data.status).badgeClass}`}>
+                  {getDepositStatusMeta(data.status).label}
                 </span>
               </div>
               <div>
@@ -331,36 +466,7 @@ const DepositTransactionDetail = () => {
             </div>
           </div>
 
-          {/* 2. Compliance Layers */}
-          <DetailCard title="Compliance" columns={1}>
-            <div className="grid grid-cols-2 gap-3">
-              {/* L1: Eligibility Guard */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Post-arrival check</div>
-              </div>
-              {/* L2: Transaction Screen */}
-              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${kytStyle.borderColor}`}>
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">KYT:</span>
-                  <span className={`text-[11px] font-semibold ${kytStyle.textColor}`}>
-                    {data.kytStatus || '—'}
-                  </span>
-                  <span className="font-mono text-[10px] text-adm-t3">Risk: {data.kytRiskScore ?? '—'}</span>
-                </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
-                  <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
-                    {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </DetailCard>
-
-          {/* 3. Transaction Details */}
+          {/* 2. Transaction Details */}
           <DetailCard title="Transaction Details" columns={2}>
             <InfoField label="Asset" value={`${data.asset.code} · ${data.asset.type} · ${data.asset.network || 'N/A'}`} />
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
@@ -374,7 +480,101 @@ const DepositTransactionDetail = () => {
             <InfoField label="Reference No" value={data.referenceNo} mono />
           </DetailCard>
 
-          {/* 4. Linked Funds Orders — payin (principal in) */}
+          {/* 3. Compliance Layers */}
+          <DetailCard title="Compliance" columns={1}>
+            <div className="grid grid-cols-2 gap-3">
+              {/* L1: Eligibility Guard */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
+                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
+                  {gatesNotEvaluated ? 'Not evaluated until payin lands' : 'Post-arrival check'}
+                </div>
+              </div>
+              {/* L2: Transaction Screen — a deposit now submits exactly one
+                  Sumsub txn (finance or travelRule, per `sumsubTxnType`); the
+                  label follows the type and the value is the webhook verdict
+                  verbatim (approved/rejected/onHold/awaitUser — not
+                  translated). */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="font-mono text-[9px] text-adm-t3 w-24">
+                    {data.sumsubTxnType === 'travelRule' ? 'Travel Rule:' : 'Finance:'}
+                  </span>
+                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
+                    {gatesNotEvaluated ? '—' : (data.sumsubVerdict ?? '—')}
+                  </span>
+                  <span className="font-mono text-[10px] text-adm-t3">
+                    Score: {gatesNotEvaluated ? '—' : (data.sumsubScore ?? '—')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </DetailCard>
+
+          {/* 4. Sumsub References (read-only) — Applicant ID + the single
+              Sumsub txn this deposit submitted. status/receivedAt come from
+              `latestSumsubWebhook`, which now only ever reflects this one
+              txn (no more per-lane split). */}
+          <DetailCard title="Sumsub References" columns={2}>
+            <div className="col-span-2">
+              <InfoField
+                label="Applicant ID"
+                value={data.customer?.sumsubApplicantId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubApplicantId')}
+                isCopied={copiedField === 'sumsubApplicantId'}
+                mono
+              />
+            </div>
+            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-4">
+              <InfoField
+                label="Txn ID"
+                value={data.sumsubTxnId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubTxnId')}
+                isCopied={copiedField === 'sumsubTxnId'}
+                mono
+              />
+              <InfoField label="Type" value={data.sumsubTxnType} />
+              <InfoField label="Verdict" value={data.sumsubVerdict} />
+              <InfoField
+                label="Received At"
+                value={data.latestSumsubWebhook?.receivedAt ? new Date(data.latestSumsubWebhook.receivedAt).toLocaleString() : null}
+              />
+            </div>
+          </DetailCard>
+
+          {/* 5. Sumsub Transaction Detail — admin-readable subset of the raw
+              Sumsub getTxn report for this deposit's single txn
+              (findOneForAdmin's parseDetail on the backend). */}
+          <DetailCard title="Sumsub Transaction Detail" columns={1}>
+            <SumsubDetailSection detail={data.sumsubDetail} />
+          </DetailCard>
+
+          {/* 6. Internal Approvals — maker-checker cases raised against this
+              deposit (seize/return/unfreeze/confiscate), single header only. */}
+          <DetailCard title="Internal Approvals" columns={1}>
+            {data.approvals && data.approvals.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.approvals.map((a) => (
+                  <LinkedRelationCard
+                    key={a.approvalNo}
+                    cap={APPROVAL_ACTION_LABELS[a.actionType] ?? a.actionType}
+                    identifier={a.approvalNo}
+                    statusValue={a.status}
+                    meta={new Date(a.createdAt).toLocaleString()}
+                    onClick={() => navigate('/admin/governance/approvals')}
+                  />
+                ))}
+              </div>
+            ) : (
+              <LinkedRelationEmpty cap="Internal Approval" message="No internal approvals" />
+            )}
+          </DetailCard>
+
+          {/* 7. Linked Funds Orders — payin (principal in) */}
           <DetailCard title="Linked Funds Orders" columns={1}>
             {data.linkedFundOrders && data.linkedFundOrders.length > 0 ? (
               <div className="flex flex-col gap-2">
@@ -394,52 +594,50 @@ const DepositTransactionDetail = () => {
             )}
           </DetailCard>
 
-          {/* 6. Status History */}
+          {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
           </DetailCard>
 
-          {/* 7. Technical */}
-          <DetailCard title="Technical" columns={1}>
-            <InfoField label="Trace ID" value={data.traceId} mono />
-          </DetailCard>
+          {/* 10. Simulation (demo only — gated by the local simulation-mode
+              toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
+          {simEnabled && (
+            <DetailCard title="⚡ Simulation" columns={1}>
+              <p className="font-mono text-[11px] text-adm-t3">
+                Feeds ONE Sumsub KYT verdict webhook into the real ingestion
+                pipeline. The report is generated to match this deposit's actual
+                Sumsub txn type. Requires SUMSUB_MOCK_MODE on the backend.
+              </p>
+              <p className="font-mono text-[11px] text-adm-amber">
+                Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
+              </p>
+              <p className="font-mono text-[11px] text-adm-t3">
+                ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
+                drive the real SLA timer (DepositSlaService); same code path as ⑦.
+              </p>
+              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
+              <div className="flex flex-wrap gap-2">
+                {DEPOSIT_VERDICT_BUTTONS.map((s) => (
+                  <button
+                    key={s.key}
+                    disabled={simSubmitting !== null}
+                    onClick={() => handleRunVerdict(s.key)}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simSubmitting === s.key ? 'Running...' : s.label}
+                  </button>
+                ))}
+              </div>
+            </DetailCard>
+          )}
         </div>
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
-          {/* Actions — hidden for a below-min hold (only PASS / Confiscate-as-Fee
-              disposition applies) and throughout the confiscation lifecycle
-              (CONFISCATING in-transit → advance the funds order; CONFISCATED
-              terminal) where the generic Approve/Reject/Confiscate no longer apply. */}
-          {!isBelowMinPending && !isConfiscationLifecycle && (
-            <SidebarGroup title="Actions">
-              {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
-              <div className="flex flex-col gap-2">
-                {actions.map((a) => {
-                  const baseCls = a.variant === 'workflowPrimary'
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : a.variant === 'workflowNegative'
-                      ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
-                  return (
-                    <button
-                      key={a.action}
-                      onClick={() => onActionClick(a.action, a.requiresReason)}
-                      disabled={!a.enabled || isSubmitting}
-                      className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </SidebarGroup>
-          )}
-
-          {/* Below-Min Disposition */}
+          {/* Ops Disposition */}
           {isBelowMinPending && (
-            <SidebarGroup title="Below-Min Disposition">
+            <SidebarGroup title="Ops Disposition">
               {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
               <div className="flex flex-col gap-2">
                 <button
@@ -464,10 +662,55 @@ const DepositTransactionDetail = () => {
             </SidebarGroup>
           )}
 
+          {/* Frozen Disposition — initiate seize / unfreeze (both maker-checker
+              approvals, not immediate execution): seize opens a two-step
+              SENIOR_MANAGEMENT_OFFICER → MLRO approval; unfreeze opens a
+              single-step MLRO approval. FROZEN can only leave via this
+              maker-checker unfreeze/seize flow (see the transition table in
+              deposit-transactions.service.ts). */}
+          {data.status === 'FROZEN' && (
+            <SidebarGroup title="Frozen Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setSeizeReason('');
+                    setSeizeOrderRef('');
+                    setIsSeizeModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Initiate Seize
+                </button>
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setUnfreezeReason('');
+                    setUnfreezeOrderRef('');
+                    setIsUnfreezeModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  Initiate Unfreeze
+                </button>
+              </div>
+            </SidebarGroup>
+          )}
+
+          {/* Manual checking — no action buttons; disposition happens in
+              Sumsub, not here (see 2026-07-29 deposit-frontend spec §2.2). */}
+          {data.status === 'MANUAL_CHECKING' && (
+            <p className="mb-4 font-mono text-[11px] text-adm-t3">
+              Disposition happens in the Sumsub console (officer tags the txn, then re-rejects).
+            </p>
+          )}
+
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Deposit No" value={data.depositNo} mono />
-            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
             <SidebarKV
               label="Owner"
               value={
@@ -493,44 +736,10 @@ const DepositTransactionDetail = () => {
               value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}
               mono
             />
+            <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
           </SidebarGroup>
         </div>
       </div>
-
-      {/* ── Reason Modal ── */}
-      {isReasonModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
-            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
-              <p className="font-mono text-[11px] font-semibold text-adm-t1">Reason Required</p>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              <textarea
-                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
-                rows={3}
-                placeholder="Enter reason for this action..."
-                value={reasonText}
-                onChange={(e) => setReasonText(e.target.value)}
-              />
-            </div>
-            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
-              <button
-                onClick={() => { setIsReasonModalOpen(false); setReasonText(''); setPendingAction(''); }}
-                className={adminButtonClass('modalCancel')}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleAction(pendingAction, reasonText)}
-                disabled={isSubmitting || !reasonText.trim()}
-                className={adminButtonClass('modalConfirm')}
-              >
-                {isSubmitting ? 'Processing...' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Confiscate Modal ── */}
       {isConfiscateModalOpen && (
@@ -582,9 +791,180 @@ const DepositTransactionDetail = () => {
           </div>
         </div>
       )}
+
+      {/* ── Seize Modal ── */}
+      {isSeizeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Seize</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Enter reason for seizing this deposit (required)..."
+                  value={seizeReason}
+                  onChange={(e) => setSeizeReason(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Government order reference
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  placeholder="e.g. court or enforcement order number"
+                  value={seizeOrderRef}
+                  onChange={(e) => setSeizeOrderRef(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsSeizeModalOpen(false);
+                  setSeizeReason('');
+                  setSeizeOrderRef('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSeizeSubmit}
+                disabled={dispositionSubmitting || !seizeReason.trim() || !seizeOrderRef.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unfreeze Modal ── */}
+      {isUnfreezeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Unfreeze</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Enter reason for unfreezing this deposit (required)..."
+                  value={unfreezeReason}
+                  onChange={(e) => setUnfreezeReason(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Unfreeze order reference
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  placeholder="e.g. delisting or release order number"
+                  value={unfreezeOrderRef}
+                  onChange={(e) => setUnfreezeOrderRef(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsUnfreezeModalOpen(false);
+                  setUnfreezeReason('');
+                  setUnfreezeOrderRef('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnfreezeSubmit}
+                disabled={dispositionSubmitting || !unfreezeReason.trim() || !unfreezeOrderRef.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+/* ── SumsubDetailSection ─────────────────────────────────────── */
+
+/**
+ * Renders the parsed Sumsub getTxn report for this deposit's single Sumsub
+ * txn — the raw payload behind `detail.raw` is that txn's report verbatim.
+ */
+const SumsubDetailSection = ({
+  detail,
+}: {
+  detail: SumsubTxnDetail | null | undefined;
+}) => (
+  <div>
+    {detail ? (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <InfoField label="Score" value={detail.score} mono />
+          <InfoField label="Verdict" value={detail.verdict} />
+          <InfoField label="Review Status" value={detail.reviewStatus} />
+          <InfoField label="Review Answer" value={detail.reviewAnswer} />
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
+          {detail.matchedRules.length > 0 ? (
+            <ul className="mt-1 space-y-1">
+              {detail.matchedRules.map((r, idx) => (
+                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
+                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
+          )}
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
+          <div className="mt-1 font-mono text-[11px] text-adm-t1">
+            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
+          </div>
+        </div>
+        <details>
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+            Raw payload
+          </summary>
+          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
+            {JSON.stringify(detail.raw, null, 2)}
+          </pre>
+        </details>
+      </div>
+    ) : (
+      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
+    )}
+  </div>
+);
 
 /* ── StatusTimeline (preserved from existing) ── */
 
@@ -609,12 +989,12 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
       {history.map((item: any, idx: number) => (
         <div key={idx} className="ml-8 relative">
           <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getTimelineDotColor(item.status)}`} />
+            <div className={`h-3 w-3 rounded-full ${getDepositStatusMeta(item.status).badgeClass}`} />
           </span>
           <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
             <div className="flex items-center gap-2">
-              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getTimelineBadge(item.status)}`}>
-                {formatStatusLabel(item.status)}
+              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getDepositStatusMeta(item.status).badgeClass}`}>
+                {getDepositStatusMeta(item.status).label}
               </span>
             </div>
             <p className="mt-1 text-sm text-adm-t2">{item.reason || 'No reason provided'}</p>
@@ -631,33 +1011,6 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
       ))}
     </div>
   );
-};
-
-const getTimelineDotColor = (status: string) => {
-  const map: Record<string, string> = {
-    SUCCESS: 'bg-green-500', FAILED: 'bg-orange-500', REJECTED: 'bg-red-500',
-    CONFISCATING: 'bg-amber-500', CONFISCATED: 'bg-red-700',
-    COMPLIANCE_PENDING: 'bg-purple-500',
-    ACTION_PENDING: 'bg-amber-500', FROZEN: 'bg-cyan-500',
-    PAYIN_PENDING: 'bg-blue-500', EXPIRED: 'bg-gray-400',
-  };
-  return map[status] || 'bg-gray-300';
-};
-
-const getTimelineBadge = (status: string) => {
-  const map: Record<string, string> = {
-    SUCCESS: 'bg-green-50 text-green-700 border-green-200',
-    FAILED: 'bg-orange-50 text-orange-700 border-orange-200',
-    REJECTED: 'bg-red-50 text-red-700 border-red-200',
-    CONFISCATING: 'bg-amber-50 text-amber-700 border-amber-200',
-    CONFISCATED: 'bg-red-100 text-red-800 border-red-300',
-    COMPLIANCE_PENDING: 'bg-purple-50 text-purple-700 border-purple-200',
-    ACTION_PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
-    FROZEN: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-    PAYIN_PENDING: 'bg-blue-50 text-blue-700 border-blue-200',
-    EXPIRED: 'bg-gray-50 text-gray-700 border-gray-200',
-  };
-  return map[status] || 'bg-gray-50 text-gray-700 border-gray-200';
 };
 
 export default DepositTransactionDetail;

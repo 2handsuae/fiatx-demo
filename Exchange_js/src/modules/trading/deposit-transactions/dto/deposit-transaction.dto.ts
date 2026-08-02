@@ -1,15 +1,15 @@
 import { IsOptional, IsString, IsEnum, IsNumber, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export enum DepositTransactionStatus {
   PAYIN_PENDING = 'PAYIN_PENDING',
   COMPLIANCE_PENDING = 'COMPLIANCE_PENDING',
   ACTION_PENDING = 'ACTION_PENDING',
+  /** 合规已通过、但金额低于下限,等运营处置(放行/没收)。与 ACTION_PENDING(等客户补料)互不重叠。 */
+  OPERATION_PENDING = 'OPERATION_PENDING',
   SUCCESS = 'SUCCESS',
   FROZEN = 'FROZEN',
-  REJECTED = 'REJECTED',
   FAILED = 'FAILED',
-  EXPIRED = 'EXPIRED',
   CONFISCATED = 'CONFISCATED',
   MANUAL_CHECKING = 'MANUAL_CHECKING',
   RETURNING = 'RETURNING',
@@ -55,17 +55,14 @@ export class DepositTransactionQueryDto {
   @IsString()
   toWalletId?: string;
 
+  // Accepts a single status or a comma-separated list (e.g. "RETURNING,SEIZING,CONFISCATING")
+  // so the admin list can filter a spec-defined status group in one request.
   @IsOptional()
-  @IsEnum(DepositTransactionStatus)
-  status?: DepositTransactionStatus;
-
-  @IsOptional()
-  @IsString()
-  kytStatus?: string;
-
-  @IsOptional()
-  @IsString()
-  travelRuleStatus?: string;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.split(',').map((s) => s.trim()).filter(Boolean) : value,
+  )
+  @IsEnum(DepositTransactionStatus, { each: true })
+  status?: DepositTransactionStatus | DepositTransactionStatus[];
 
   @IsOptional()
   @IsString()
@@ -79,19 +76,19 @@ export class DepositTransactionQueryDto {
 export enum DepositTransactionAction {
   PAYIN_CONFIRMED = 'payin_confirmed',
   APPROVE = 'approve',
-  REJECT = 'reject',
   FREEZE = 'freeze',
   ACTION_PENDING = 'action_pending',
+  OPERATION_PENDING = 'operation_pending',
   RESUME = 'resume',
-  CONFISCATE = 'confiscate',
   CONFISCATE_START = 'confiscate_start',
   CONFISCATE_SETTLE = 'confiscate_settle',
-  EXPIRE = 'expire',
   FAIL = 'fail',
-  MANUAL_CHECK = 'manual_check',
+  SLA_BREACH = 'sla_breach',
+  KYT_REJECTED = 'kyt_rejected',
   RETURN = 'return',
   RETURNED_DONE = 'returned_done',
   SEIZE = 'seize',
+  SEIZED_DONE = 'seized_done',
 }
 
 export class UpdateDepositTransactionStatusDto {

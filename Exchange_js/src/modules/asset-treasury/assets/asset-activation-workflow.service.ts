@@ -140,6 +140,7 @@ export class AssetActivationWorkflowService {
       TB_ACCOUNT_CODES.FIRM_OPS,
       TB_ACCOUNT_CODES.FIRM_FEE,
       TB_ACCOUNT_CODES.FIRM_LIQ,
+      TB_ACCOUNT_CODES.FIRM_SEIZED,
       ...(asset.type === 'FIAT' ? [TB_ACCOUNT_CODES.FIRM_SET] : []),
     ];
 
