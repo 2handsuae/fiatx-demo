@@ -353,6 +353,14 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
     });
 
+    it('MANUAL_CHECKING → ACTION_PENDING via action_pending (Sumsub officer 把 RED 改回等客户补料)', async () => {
+      setupMock(DepositTransactionStatus.MANUAL_CHECKING);
+      await service.updateStatus(mockId, { action: DepositTransactionAction.ACTION_PENDING });
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'ACTION_PENDING' }) }),
+      );
+    });
+
     it('OPERATION_PENDING → CONFISCATING via confiscate_start', async () => {
       setupMock(DepositTransactionStatus.OPERATION_PENDING);
       await service.updateStatus(mockId, { action: DepositTransactionAction.CONFISCATE_START });

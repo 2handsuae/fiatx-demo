@@ -559,6 +559,13 @@ export class DepositTransactionsService {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
         [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+        // Sumsub 侧 officer 可以把一笔已 completed/RED 的交易改回 awaitingUser
+        // (reviewResult 被清空、新增 applicantActions 要客户补料)——2026-07-31 在沙盒
+        // 实测过这条路径。改动会再发一个 webhook 过来,我方必须接得住:少了这条边,
+        // applyKytAwaitUser 会抛 Invalid action → webhook 三次重试后 DEAD → 单子永久
+        // 停在 MANUAL_CHECKING,而 Sumsub 那边其实早就改口了。
+        [DepositTransactionAction.ACTION_PENDING]:
+          DepositTransactionStatus.ACTION_PENDING,
         // 同上(Critical 2):MANUAL_CHECKING 也在 approveDeposit 的 oldStatus 白名单里。
         [DepositTransactionAction.OPERATION_PENDING]:
           DepositTransactionStatus.OPERATION_PENDING,
