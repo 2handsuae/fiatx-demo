@@ -146,6 +146,16 @@ SEIZING
 
 ## 6. 没收 + 退回记账（两条动钱腿，均在 `asset.tbLedgerId` 内、pending→post 两段式）
 
+> **处置腿的资金单收口（2026-08-02 修，真机发现）**：三个 `settle*()`（`settleConfiscation` / `settleReturn` / `settleSeize`）结算成功后，统一调 **`clearDispositionLeg()`** 把该腿的资金单推到 `CLEARED`。
+>
+> **此前的缺陷**：`FundsOrderAction.CLEAR` 在充值域**只有一处**调用——payin 确认（`onPayinConfirmed`，硬绑 legSeq=1）。三条处置弧由 C3/A3/A4 三轮分别实现，每个 settle 都只做「记账 + 充值单状态 + 审计」三件事，**三次都漏了「资金单本身也是个状态机」这第四件**。真机实证：`FO2608024242`（legSeq=4 上缴腿）分录 `SEIZE_REVERSE_SUSPENSE` 已 POSTED、充值单已 `SEIZED`，资金单却永远停在 `CONFIRMED`；全库统计 legSeq=1 共 12 笔全 `CLEARED`，唯一的 legSeq=4 停 `CONFIRMED`。**不影响资金安全**（`verify:coa` 恒等式照常 PASS），影响的是运营视图与任何按 `status=CLEARED` 取数的对账口径——会漏掉全部处置腿。
+>
+> **`clearDispositionLeg()` 的两条设计约定**：
+> - **吞异常不上抛**：调用点在记账已 POSTED、充值单已进终态之后，资金单滞后属「视图不一致」而非「账不平」。若在此抛出，外层 settle 的 3 次重试会重跑 `updateStatus`，而充值单已在终态（零出边）→ `Invalid action` → 把轻微展示问题升级成 settle 卡死。失败只落 `DEPOSIT_LEG_CLEAR_FAILED` 审计 + warn。
+> - **`already terminal` 视为幂等成功**：webhook 重放 / 重试场景下资金单可能已 CLEARED，与 `postPendingTransfer` 赦免 `already_posted` 的既有惯例同源。
+>
+> **防漏闸**：`deposit-workflow.service.spec.ts` 有一条**守则性测试**——扫源码列出全部 `private async settle*()`，逐个断言其函数体含 `clearDispositionLeg(`。将来新增第四条处置弧若忘记收口，该条即红（已用变异测试验证：摘掉 `settleSeize` 的收口调用后精确报红并点名）。
+
 ### 6.1 没收记账（异步两阶段）
 
 **没收改异步两阶段**（旧同步单跳 `executeConfiscation` 已拆两段）：**阶段一 `startConfiscation()` 锁账** → ops 手动步进 legSeq=2 资金单 → **阶段二 `settleConfiscation()` 结算 + 落终态**。两腿的账目方向不变，变的是"pending 锁 → post 结"两步走，每段内均"先账后状态"。

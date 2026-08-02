@@ -1231,6 +1231,7 @@ export class DepositWorkflowService implements OnModuleInit {
           workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
           metadata: { depositNo: deposit.depositNo, fundsOrderId }, requestId: `DEPOSIT_CONFISCATION_EXECUTED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
         });
+        await this.clearDispositionLeg(deposit, fundsOrderId, 'DEPOSIT_CONFISCATION');
         return;
       } catch (err: any) {
         this.logger.error(`Confiscation settle attempt ${attempt}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);
@@ -1992,6 +1993,7 @@ export class DepositWorkflowService implements OnModuleInit {
           metadata: { depositNo: deposit.depositNo, fundsOrderId, externalRef },
           requestId: `DEPOSIT_RETURNED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
         });
+        await this.clearDispositionLeg(deposit, fundsOrderId, 'DEPOSIT_RETURN');
         return;
       } catch (err: any) {
         this.logger.error(`Return settle attempt ${i}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);
@@ -2320,6 +2322,60 @@ export class DepositWorkflowService implements OnModuleInit {
    * lock's evidence row untouched at POST also preserves its memo (the orderRef
    * retention anchor written by pendSeizeSuspense) instead of overwriting it.
    */
+  /**
+   * 处置腿（没收 legSeq=2 / 退回 legSeq=3 / 上缴 legSeq=4）结算完成后，把资金单收口到 CLEARED。
+   *
+   * 为什么需要这个：`FundsOrderAction.CLEAR` 在充值域此前**只有一处**调用——payin 确认
+   * （`onPayinConfirmed`），硬绑在 legSeq=1 的路径上。三个 settle 函数（C3/A3/A4 三轮分别
+   * 实现）都只做「记账 + 充值单状态 + 审计」三件事，三次都漏了「资金单本身也是个状态机」
+   * 这第四件。2026-08-02 真机逮到：`FO2608024242`（上缴腿）分录已 POSTED、充值单已 SEIZED，
+   * 资金单却永远停在 CONFIRMED，运营视图与对账口径都会漏掉全部处置腿。
+   *
+   * 为什么吞异常而不是让它抛：调到这里时记账已 POSTED、充值单已进终态，资金单状态滞后属于
+   * **视图不一致**而非**账不平**。若在此抛出，外层 settle 的重试循环会重跑 `updateStatus`，
+   * 而充值单已在终态（零出边）→ `Invalid action` → 把一个轻微的展示问题升级成 settle 卡死。
+   * 故失败只落审计 + warn，不影响已经完成的结算。
+   *
+   * 已 CLEARED 时 `advance` 会抛 `already terminal` —— 视为幂等成功（webhook 重放 / 重试场景），
+   * 与 `postPendingTransfer` 赦免 `already_posted` 的既有惯例同源。
+   */
+  private async clearDispositionLeg(
+    deposit: any,
+    fundsOrderId: string,
+    workflowType: string,
+  ): Promise<void> {
+    try {
+      await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
+    } catch (err: any) {
+      const msg = String(err?.message ?? '');
+      if (/already terminal/i.test(msg)) {
+        this.logger.debug(
+          `Disposition leg ${fundsOrderId} already terminal — treating CLEAR as idempotent no-op`,
+        );
+        return;
+      }
+      this.logger.warn(
+        `Disposition leg ${fundsOrderId} settled but CLEAR failed: ${msg} — accounting and deposit status are already final, funds order status lags`,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_LEG_CLEAR_FAILED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        workflowType,
+        traceId: deposit.traceId || undefined,
+        result: AuditResult.FAILED,
+        reason:
+          'Disposition leg settled (accounting posted, deposit terminal) but funds order could not be CLEARED — funds order status lags, no accounting impact',
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, error: msg },
+        requestId: `DEPOSIT_LEG_CLEAR_FAILED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      });
+    }
+  }
+
   private async settleSeize(deposit: any, fundsOrderId: string, attempt: number) {
     const asset = deposit.asset;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
@@ -2344,6 +2400,7 @@ export class DepositWorkflowService implements OnModuleInit {
           metadata: { depositNo: deposit.depositNo, fundsOrderId },
           requestId: `DEPOSIT_SEIZED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
         });
+        await this.clearDispositionLeg(deposit, fundsOrderId, 'DEPOSIT_SEIZE');
         return;
       } catch (err: any) {
         this.logger.error(`Seize settle attempt ${i}/${MAX} for ${deposit.depositNo} failed: ${err.message}`);

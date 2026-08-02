@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
+import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
@@ -3190,6 +3191,56 @@ describe('DepositWorkflowService', () => {
       );
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_SEIZED' }),
+      );
+    });
+
+    // 2026-08-02 真机发现:FO2608024242(legSeq=4 上缴腿)记账已 POSTED、充值单已 SEIZED,
+    // 资金单却永远停在 CONFIRMED。根因是充值域里 FundsOrderAction.CLEAR 只在 payin 确认
+    // 那一处被调用,三个处置腿的 settle 都只做「记账 + 业务状态 + 审计」,漏了资金单收口。
+    // 守则闸：不针对某一条弧，而是断言「每个 settle*() 都调了 clearDispositionLeg」。
+    // 三条处置弧由 C3/A3/A4 三轮分别实现、三次漏同一处，说明这不是手误而是职责边界问题——
+    // 所以这里守的是**规则**而非**实例**：将来新增第四条处置弧，若忘了收口资金单，本条即红。
+    it('守则：所有 settle*() 结算成功后都必须收口资金单（新增处置弧的防漏闸）', async () => {
+      const source = require('fs').readFileSync(
+        require('path').join(__dirname, 'deposit-workflow.service.ts'),
+        'utf8',
+      );
+      const settlers = [...source.matchAll(/private async (settle\w+)\s*\(/g)].map((m) => m[1]);
+      expect(settlers.length).toBeGreaterThanOrEqual(3); // 没收/退回/上缴
+
+      for (const name of settlers) {
+        const body = source.slice(
+          source.indexOf(`private async ${name}(`),
+          source.indexOf('\n  private async ', source.indexOf(`private async ${name}(`) + 10),
+        );
+        expect({ settler: name, clearsLeg: body.includes('clearDispositionLeg(') }).toEqual({
+          settler: name,
+          clearsLeg: true,
+        });
+      }
+    });
+
+    it('settle 成功后必须把处置腿收口到 CLEARED（真机回归闸）', async () => {
+      const dep = baseDeposit();
+
+      await (service as any).settleSeize(dep, 'fo-sz-2', 1);
+
+      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-sz-2', FundsOrderAction.CLEAR, 'SYSTEM');
+    });
+
+    it('资金单已 CLEARED 时视为幂等成功，不把 settle 拖垮', async () => {
+      const dep = baseDeposit();
+      fundsOrders.advance.mockRejectedValueOnce(
+        new Error('FundsOrder fo-sz-2 already terminal (CLEARED) — invalid transition'),
+      );
+
+      await expect((service as any).settleSeize(dep, 'fo-sz-2', 1)).resolves.toBeUndefined();
+
+      // 记账与业务状态照常完成，且不会因为 CLEAR 失败而触发重试重跑
+      expect(accountingService.postPendingTransfer).toHaveBeenCalledTimes(1);
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-sz-2',
+        expect.objectContaining({ action: DepositTransactionAction.SEIZED_DONE }),
       );
     });
 
