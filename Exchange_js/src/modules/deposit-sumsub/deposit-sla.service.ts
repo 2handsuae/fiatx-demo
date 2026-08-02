@@ -46,7 +46,7 @@ export class DepositSlaService {
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
-        action: DepositTransactionAction.MANUAL_CHECK,
+        action: DepositTransactionAction.SLA_BREACH,
         reason: 'SLA breached: no compliance action before deadline',
       },
       {

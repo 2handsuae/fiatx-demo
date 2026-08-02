@@ -11,17 +11,16 @@ import { getDepositStatusView } from './depositStatusView';
  * enforcement language). See design §1.2.
  */
 
-// Every status defined on the backend enum
-// (src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-20)
+// Every status defined on the backend enum, minus OPERATION_PENDING (a
+// BELOW_MIN-hold-pending admin-only status the customer never sees)
+// (src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-19)
 const ALL_STATUSES = [
   'PAYIN_PENDING',
   'COMPLIANCE_PENDING',
   'ACTION_PENDING',
   'SUCCESS',
   'FROZEN',
-  'REJECTED',
   'FAILED',
-  'EXPIRED',
   'CONFISCATED',
   'MANUAL_CHECKING',
   'RETURNING',
@@ -44,13 +43,11 @@ const LABEL_CASES: Array<[string, string]> = [
   ['SEIZED', 'UNDER REVIEW'],
   ['MANUAL_CHECKING', 'UNDER REVIEW'],
   ['FAILED', 'FAILED'],
-  ['REJECTED', 'UNSUCCESSFUL'],
-  ['EXPIRED', 'EXPIRED'],
 ];
 
 describe('depositStatusView (client, tipping-off safe)', () => {
-  it('exercises all 15 backend statuses', () => {
-    expect(ALL_STATUSES).toHaveLength(15);
+  it('exercises all 13 backend statuses', () => {
+    expect(ALL_STATUSES).toHaveLength(13);
   });
 
   it.each(LABEL_CASES)('%s -> label=%s', (status, label) => {
@@ -77,7 +74,7 @@ describe('depositStatusView (client, tipping-off safe)', () => {
 
   // ── The actual compliance guardrail ────────────────────────────
   // Tipping-off: a customer must never see sanction/enforcement wording.
-  // This must hold across ALL 15 statuses, not just the four sensitive
+  // This must hold across ALL 13 statuses, not just the four sensitive
   // ones, so a future edit anywhere in the map can't quietly regress it.
   const FORBIDDEN = /sanction|seiz|frozen|freeze|confiscat|enforcement|government|police/i;
 

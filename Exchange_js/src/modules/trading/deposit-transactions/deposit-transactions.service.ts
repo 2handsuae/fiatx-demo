@@ -442,9 +442,7 @@ export class DepositTransactionsService {
 
     const TERMINAL = new Set([
       DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.REJECTED,
       DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.EXPIRED,
       DepositTransactionStatus.CONFISCATED,
       DepositTransactionStatus.RETURNED,
       DepositTransactionStatus.SEIZED,
@@ -480,9 +478,7 @@ export class DepositTransactionsService {
   ): DepositTransactionStatus {
     const TERMINAL = new Set([
       DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.REJECTED,
       DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.EXPIRED,
       DepositTransactionStatus.CONFISCATED,
       DepositTransactionStatus.RETURNED,
       DepositTransactionStatus.SEIZED,
@@ -494,6 +490,12 @@ export class DepositTransactionsService {
       );
     }
 
+    // 状态机收窄(业主 2026-07-31 定稿,14 状态/15 动作/26 边)。每个终态都必须回答
+    // 「钱去哪了」——REJECTED/EXPIRED 是仅有的说不出资金去向的终态(钱已到账却"拒绝"/
+    // "过期",资金悬空),已删除。payin 结束就是钱到了,COMPLIANCE_PENDING 之后不再有
+    // FAILED(FAIL 的唯一入口是 PAYIN_PENDING)。FROZEN 收窄为只剩两个合法归宿
+    // (resume/seize)——直通没收/退回的边已删,处置须先 resume 回 COMPLIANCE_PENDING
+    // 走正常弧。完整跃迁表与理由见 doc-final/reference/truth/v4-deposit.md 第 2 节。
     const transitions: Record<
       string,
       Partial<Record<DepositTransactionAction, DepositTransactionStatus>>
@@ -505,60 +507,48 @@ export class DepositTransactionsService {
       },
       [DepositTransactionStatus.COMPLIANCE_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.ACTION_PENDING]:
-          DepositTransactionStatus.ACTION_PENDING,
         // 合规通过后才判金额(口径 2026-07-31 反转:旧=先判金额后合规)。
         // 低于下限 → OPERATION_PENDING 等运营处置,没收入口随之上移。
         [DepositTransactionAction.OPERATION_PENDING]:
           DepositTransactionStatus.OPERATION_PENDING,
-        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
-        [DepositTransactionAction.MANUAL_CHECK]:
-          DepositTransactionStatus.MANUAL_CHECKING,
-      },
-      [DepositTransactionStatus.CONFISCATING]: {
-        [DepositTransactionAction.CONFISCATE_SETTLE]:
-          DepositTransactionStatus.CONFISCATED,
-      },
-      [DepositTransactionStatus.OPERATION_PENDING]: {
-        // 放行:直接入账。没收:异步两阶段(C1)——OPERATION_PENDING → CONFISCATING
-        //(资金在途、记账 pending 锁)→ ops 推资金单 → CONFISCATE_SETTLE 落 CONFISCATED。
-        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.CONFISCATE_START]:
-          DepositTransactionStatus.CONFISCATING,
-        [DepositTransactionAction.FAIL]: DepositTransactionStatus.FAILED,
-        // 终审 Critical 1 回归闸:OPERATION_PENDING 不在 KYT_VERDICT_TERMINAL_STATUSES
-        // 里,迟到的 Sumsub 裁决(冻结/人工复核/补料)webhook 仍会照常派发进来。合规
-        // 裁决优先于金额挂起——一笔因金额小而等运营处置的单,若被判制裁/需人工复核,
-        // 应当离开 OPERATION_PENDING 进入合规处置弧,而不是卡在运营队列里 500。
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.MANUAL_CHECK]:
-          DepositTransactionStatus.MANUAL_CHECKING,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
+        [DepositTransactionAction.SLA_BREACH]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.KYT_REJECTED]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
       },
       [DepositTransactionStatus.ACTION_PENDING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.REJECT]: DepositTransactionStatus.REJECTED,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.RESUME]:
-          DepositTransactionStatus.COMPLIANCE_PENDING,
-        [DepositTransactionAction.EXPIRE]: DepositTransactionStatus.EXPIRED,
-        [DepositTransactionAction.MANUAL_CHECK]:
-          DepositTransactionStatus.MANUAL_CHECKING,
         // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受
         // ACTION_PENDING,金额闸(holdBelowMinIfNeeded)下沉到该唯一出口后会从这里
         // 调 operation_pending 动作——此边此前只从 COMPLIANCE_PENDING 出发存在,
         // 两边前置条件对不上,below-min 单补料后被 approve 翻案时在这里抛 Invalid action。
         [DepositTransactionAction.OPERATION_PENDING]:
           DepositTransactionStatus.OPERATION_PENDING,
+        [DepositTransactionAction.SLA_BREACH]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.KYT_REJECTED]:
+          DepositTransactionStatus.MANUAL_CHECKING,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.RESUME]:
+          DepositTransactionStatus.COMPLIANCE_PENDING,
+      },
+      [DepositTransactionStatus.OPERATION_PENDING]: {
+        // 只有 2 条,Sumsub 已通过、异步反转暂不考虑(迟到的制裁裁决按业主口径不给边,
+        // 见 BACKLOG)。放行:直接入账。没收:异步两阶段(C1)——OPERATION_PENDING →
+        // CONFISCATING(资金在途、记账 pending 锁)→ ops 推资金单 → CONFISCATE_SETTLE
+        // 落 CONFISCATED。
+        [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
+        [DepositTransactionAction.CONFISCATE_START]:
+          DepositTransactionStatus.CONFISCATING,
       },
       [DepositTransactionStatus.MANUAL_CHECKING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
-        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
-        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+        // 同上(Critical 2):MANUAL_CHECKING 也在 approveDeposit 的 oldStatus 白名单里。
+        [DepositTransactionAction.OPERATION_PENDING]:
+          DepositTransactionStatus.OPERATION_PENDING,
         // Sumsub 侧 officer 可以把一笔已 completed/RED 的交易改回 awaitingUser
         // (reviewResult 被清空、新增 applicantActions 要客户补料)——2026-07-31 在沙盒
         // 实测过这条路径。改动会再发一个 webhook 过来,我方必须接得住:少了这条边,
@@ -566,9 +556,22 @@ export class DepositTransactionsService {
         // 停在 MANUAL_CHECKING,而 Sumsub 那边其实早就改口了。
         [DepositTransactionAction.ACTION_PENDING]:
           DepositTransactionStatus.ACTION_PENDING,
-        // 同上(Critical 2):MANUAL_CHECKING 也在 approveDeposit 的 oldStatus 白名单里。
-        [DepositTransactionAction.OPERATION_PENDING]:
-          DepositTransactionStatus.OPERATION_PENDING,
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
+        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
+      },
+      [DepositTransactionStatus.FROZEN]: {
+        // 冻结的钱只有两个合法归宿:resume(解冻回 COMPLIANCE_PENDING 重走合规)或
+        // seize(政府没收令)。没收/退回不再直通——NOTE: no APPROVE edge here either —
+        // a sanctions/MLRO freeze must never be lifted by a single-operator approve.
+        // See DepositWorkflowService.approveDeposit's oldStatus whitelist (FROZEN
+        // excluded) and applyKytApproved's FROZEN guard.
+        [DepositTransactionAction.RESUME]:
+          DepositTransactionStatus.COMPLIANCE_PENDING,
+        [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
+      },
+      [DepositTransactionStatus.CONFISCATING]: {
+        [DepositTransactionAction.CONFISCATE_SETTLE]:
+          DepositTransactionStatus.CONFISCATED,
       },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:
@@ -577,19 +580,6 @@ export class DepositTransactionsService {
       [DepositTransactionStatus.SEIZING]: {
         [DepositTransactionAction.SEIZED_DONE]:
           DepositTransactionStatus.SEIZED,
-      },
-      [DepositTransactionStatus.FROZEN]: {
-        // NOTE: no APPROVE edge here — a sanctions/MLRO freeze must never be lifted by
-        // a single-operator approve. The only legal exits are the unfreeze
-        // maker-checker (RESUME → COMPLIANCE_PENDING → re-run compliance) or the
-        // seize/return disposition arcs. See DepositWorkflowService.approveDeposit's
-        // oldStatus whitelist (FROZEN excluded) and applyKytApproved's FROZEN guard.
-        [DepositTransactionAction.CONFISCATE]:
-          DepositTransactionStatus.CONFISCATED,
-        [DepositTransactionAction.RETURN]: DepositTransactionStatus.RETURNING,
-        [DepositTransactionAction.SEIZE]: DepositTransactionStatus.SEIZING,
-        [DepositTransactionAction.RESUME]:
-          DepositTransactionStatus.COMPLIANCE_PENDING,
       },
     };
 

@@ -16,7 +16,6 @@ describe('DepositTransactionsController', () => {
   };
   let depositWorkflow: {
     approveDeposit: jest.Mock;
-    adminReject: jest.Mock;
     adminFreeze: jest.Mock;
     waiveLimitHold: jest.Mock;
     initiateConfiscation: jest.Mock;
@@ -37,7 +36,6 @@ describe('DepositTransactionsController', () => {
     };
     depositWorkflow = {
       approveDeposit: jest.fn(),
-      adminReject: jest.fn(),
       adminFreeze: jest.fn(),
       waiveLimitHold: jest.fn(),
       initiateConfiscation: jest.fn(),
@@ -201,9 +199,9 @@ describe('DepositTransactionsController', () => {
     expect(depositService.updateStatus).not.toHaveBeenCalled();
   });
 
-  it('updateStatus forwards a legit non-funds action (e.g. expire) to service.updateStatus', async () => {
-    depositService.updateStatus.mockResolvedValue({ id: 'dep-1', status: 'EXPIRED' });
-    const dto = { action: DepositTransactionAction.EXPIRE } as any;
+  it('updateStatus forwards a legit non-funds action (e.g. action_pending) to service.updateStatus', async () => {
+    depositService.updateStatus.mockResolvedValue({ id: 'dep-1', status: 'ACTION_PENDING' });
+    const dto = { action: DepositTransactionAction.ACTION_PENDING } as any;
 
     await controller.updateStatus('dep-1', dto, {
       user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' },

@@ -283,9 +283,7 @@ export class DepositWorkflowService implements OnModuleInit {
   // 已终态:进入 applyKytVerdict 时直接 no-op(幂等,防终态后迟到的 webhook)。
   private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
     DepositTransactionStatus.SUCCESS,
-    DepositTransactionStatus.REJECTED,
     DepositTransactionStatus.FAILED,
-    DepositTransactionStatus.EXPIRED,
     DepositTransactionStatus.CONFISCATED,
     DepositTransactionStatus.RETURNED,
     DepositTransactionStatus.SEIZED,
@@ -621,7 +619,7 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.depositService.updateStatus(
       deposit.id,
       {
-        action: DepositTransactionAction.MANUAL_CHECK,
+        action: DepositTransactionAction.KYT_REJECTED,
         reason: 'KYT verdict: rejected, no disposition tag',
       },
       {
@@ -830,32 +828,6 @@ export class DepositWorkflowService implements OnModuleInit {
     });
 
     this.logger.log(`Deposit ${depositId} approved and credited.`);
-  }
-
-  async adminReject(
-    depositId: string,
-    reason: string | undefined,
-    actor: { actorId: string; actorRole?: string },
-  ) {
-    const updated = await this.depositService.updateStatus(
-      depositId,
-      { action: DepositTransactionAction.REJECT, reason },
-      {
-        actor: {
-          actorType: 'ADMIN',
-          actorId: actor.actorId,
-          actorRole: actor.actorRole,
-        },
-        sourcePlatform: 'ADMIN_API',
-      },
-    );
-    await this.recordStateTransitionAudit(
-      updated,
-      '',
-      updated.status,
-      reason || 'Admin reject',
-    );
-    return updated;
   }
 
   async adminFreeze(
@@ -1076,12 +1048,15 @@ export class DepositWorkflowService implements OnModuleInit {
 
     // Re-assert the confiscable precondition BEFORE posting anything. initiateConfiscation
     // (D6) writes NOTHING to the deposit, so while the approval sat PENDING the deposit
-    // stayed mutable — a concurrent waiveLimitHold→approve (→SUCCESS) or adminReject
-    // (→REJECTED) can have drifted it out of the confiscable state. Posting the two legs
-    // against a SUCCESS/REJECTED deposit would zero CLIENT_ASSET while CLIENT_PAYABLE still
-    // owes the customer → phantom liability / double-spend (and the negative suspense would
-    // net the L/E identity, hiding it from recon). Guard: post NO legs, create NO funds
-    // order, change NO status when drifted — just leave an audit trail for ops.
+    // stayed mutable — a concurrent waiveLimitHold→approve (→SUCCESS) can have drifted it
+    // out of the confiscable state (OPERATION_PENDING's only other edge is
+    // confiscate_start, so SUCCESS is the sole drift target since the state-machine
+    // narrowing removed OPERATION_PENDING's reject/freeze/action_pending edges). Posting
+    // the two legs against a SUCCESS deposit would zero CLIENT_ASSET while CLIENT_PAYABLE
+    // still owes the customer → phantom liability / double-spend (and the negative
+    // suspense would net the L/E identity, hiding it from recon). Guard: post NO legs,
+    // create NO funds order, change NO status when drifted — just leave an audit trail for
+    // ops.
     if (
       deposit.status !== DepositTransactionStatus.OPERATION_PENDING ||
       deposit.limitHoldReason !== 'BELOW_MIN'
@@ -1273,36 +1248,45 @@ export class DepositWorkflowService implements OnModuleInit {
     }
   }
 
+  /**
+   * 状态机收窄后 FAIL 的唯一入口是 PAYIN_PENDING(见 deposit-transactions.service.ts
+   * transitions 表)。原守卫是黑名单(只挡 FAILED/FROZEN/REJECTED),收窄后
+   * COMPLIANCE_PENDING 及之后的状态都没有 fail 边——黑名单守卫会放行到
+   * updateStatus 抛 Invalid action。改成白名单:只有 PAYIN_PENDING 才 FAIL,其余状态
+   * (payin 已确认之后的事后掉链/链上重组)no-op + warn,不落审计(BACKLOG 待补)。
+   */
   private async onPayinFailed(depositId: string, fundsOrderId: string) {
     const deposit = await this.depositService.findOne(depositId);
-    if (
-      deposit &&
-      deposit.status !== DepositTransactionStatus.FAILED &&
-      deposit.status !== DepositTransactionStatus.FROZEN &&
-      deposit.status !== DepositTransactionStatus.REJECTED
-    ) {
-      const oldStatus = deposit.status;
-      const updated = await this.depositService.updateStatus(deposit.id, {
-        action: DepositTransactionAction.FAIL,
-        reason: 'Payin funds order failed',
-      });
+    if (!deposit) return;
 
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.DEPOSIT_PAYIN_FAILED,
-        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-        entityId: deposit.id,
-        entityNo: deposit.depositNo,
-        entityOwnerType: deposit.ownerType,
-        entityOwnerId: deposit.ownerId,
-        traceId: deposit.traceId || undefined,
-        workflowType: 'DEPOSIT',
-        reason: 'Payin funds order failed',
-        metadata: { fundsOrderId },
-        sourcePlatform: 'SYSTEM',
-      });
-
-      await this.recordStateTransitionAudit(updated, oldStatus, updated.status, 'Payin funds order failed');
+    if (deposit.status !== DepositTransactionStatus.PAYIN_PENDING) {
+      this.logger.warn(
+        `onPayinFailed no-op: deposit ${deposit.id} status is ${deposit.status} (not PAYIN_PENDING) — payin already confirmed, cannot FAIL a post-confirmation status`,
+      );
+      return;
     }
+
+    const oldStatus = deposit.status;
+    const updated = await this.depositService.updateStatus(deposit.id, {
+      action: DepositTransactionAction.FAIL,
+      reason: 'Payin funds order failed',
+    });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_PAYIN_FAILED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: 'Payin funds order failed',
+      metadata: { fundsOrderId },
+      sourcePlatform: 'SYSTEM',
+    });
+
+    await this.recordStateTransitionAudit(updated, oldStatus, updated.status, 'Payin funds order failed');
   }
 
   private async onPayinConfirmed(depositId: string, fundsOrderId: string, effectiveDate?: string) {

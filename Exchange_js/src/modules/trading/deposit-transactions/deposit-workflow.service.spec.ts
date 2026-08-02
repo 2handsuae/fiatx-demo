@@ -1960,7 +1960,7 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-6',
-        expect.objectContaining({ action: DepositTransactionAction.MANUAL_CHECK }),
+        expect.objectContaining({ action: DepositTransactionAction.KYT_REJECTED }),
         expect.anything(),
       );
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
@@ -2405,10 +2405,11 @@ describe('DepositWorkflowService', () => {
     });
 
     // Double-spend regression guard (D7 review): initiateConfiscation writes nothing to
-    // the deposit, so a concurrent waiveLimitHold→approve (SUCCESS) or adminReject
-    // (REJECTED) can drift it out of the confiscable state while the approval is PENDING.
-    // The APPROVED decided event must then post NOTHING (else CLIENT_ASSET is zeroed while
-    // CLIENT_PAYABLE still owes the now-credited customer → phantom liability).
+    // the deposit, so a concurrent waiveLimitHold→approve (SUCCESS) can drift it out of
+    // the confiscable state while the approval is PENDING (状态机收窄后 REJECT/adminReject
+    // 已删除,OPERATION_PENDING 唯二出边只剩 approve/confiscate_start,SUCCESS 是仅有的
+    // 漂移目标). The APPROVED decided event must then post NOTHING (else CLIENT_ASSET is
+    // zeroed while CLIENT_PAYABLE still owes the now-credited customer → phantom liability).
     it('drift race: deposit already SUCCESS (waived→approved) → posts nothing, records FAILED audit', async () => {
       depositService.findOne.mockResolvedValue(
         confiscableDeposit({ status: DepositTransactionStatus.SUCCESS, limitHoldReason: null }),
@@ -2424,21 +2425,6 @@ describe('DepositWorkflowService', () => {
           action: 'DEPOSIT_CONFISCATION_FAILED',
           reason: expect.stringContaining('drifted out of confiscable state'),
         }),
-      );
-    });
-
-    it('drift race: deposit REJECTED after initiate → posts nothing, records FAILED audit', async () => {
-      depositService.findOne.mockResolvedValue(
-        confiscableDeposit({ status: DepositTransactionStatus.REJECTED }),
-      );
-
-      await service.onConfiscationDecided(decidedEvent());
-
-      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
-      expect(fundsOrders.create).not.toHaveBeenCalled();
-      expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_FAILED' }),
       );
     });
 
@@ -3473,66 +3459,12 @@ describe('DepositWorkflowService', () => {
       realService = module.get<DepositWorkflowService>(DepositWorkflowService);
     });
 
-    it('Critical 1: OPERATION_PENDING 单收到 rejected+SANCTION 裁决 → 真落 FROZEN + DEPOSIT_FROZEN 审计(此前转移表无 freeze 边,抛 Invalid action,制裁裁决落不了地)', async () => {
-      const row = mockRow();
-      prismaDeposit.findUnique.mockResolvedValue(row);
-      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
-
-      await expect(
-        realService.applyKytVerdict('dep-real-1', { verdict: 'rejected', sceneTag: 'SANCTION' }),
-      ).resolves.toBeUndefined();
-
-      expect(prismaDeposit.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.FROZEN }),
-        }),
-      );
-      expect(realAuditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.DEPOSIT_FROZEN }),
-      );
-    });
-
-    it('Critical 1: OPERATION_PENDING 单收到 rejected+无tag 裁决 → 落 MANUAL_CHECKING(此前抛 Invalid action)', async () => {
-      const row = mockRow();
-      prismaDeposit.findUnique.mockResolvedValue(row);
-      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
-
-      await expect(
-        realService.applyKytVerdict('dep-real-1', { verdict: 'rejected' }),
-      ).resolves.toBeUndefined();
-
-      expect(prismaDeposit.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.MANUAL_CHECKING }),
-        }),
-      );
-    });
-
-    it('Critical 1: OPERATION_PENDING 单收到 awaitUser 裁决 → 落 ACTION_PENDING(此前抛 Invalid action)', async () => {
-      const row = mockRow();
-      prismaDeposit.findUnique.mockResolvedValue(row);
-      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
-
-      await expect(
-        realService.applyKytVerdict('dep-real-1', { verdict: 'awaitUser' }),
-      ).resolves.toBeUndefined();
-
-      expect(prismaDeposit.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.ACTION_PENDING }),
-        }),
-      );
-    });
-
-    it('Critical 1: adminReject 于 OPERATION_PENDING → 落 REJECTED(此前抛 Invalid action)', async () => {
-      const row = mockRow();
-      prismaDeposit.findUnique.mockResolvedValue(row);
-      prismaDeposit.update.mockImplementation(({ data }: any) => Promise.resolve({ ...row, ...data }));
-
-      await expect(
-        realService.adminReject('dep-real-1', 'ops reject', { actorId: 'admin-1' }),
-      ).resolves.toEqual(expect.objectContaining({ status: DepositTransactionStatus.REJECTED }));
-    });
+    // 状态机收窄(业主 2026-07-31 定稿)撤销了上一轮 Critical 1 给 OPERATION_PENDING 补的
+    // freeze/kyt_rejected(原 manual_check)/action_pending 三条出边——OPERATION_PENDING
+    // 现在只剩 approve/confiscate_start 两条(见 transitions 表)。迟到的制裁裁决/补料
+    // webhook 落到 OPERATION_PENDING 上会重新抛 Invalid action,这是业主口径下的已知
+    // 行为,记入 BACKLOG(待补 no-op + 落审计),本轮不修——原先验证"必须落地不抛"的
+    // 三条 Critical 1 用例连同已删除的 adminReject 用例一并删除,不再改成别的动作硬凑绿。
 
     it('Critical 2: below-min 单从 ACTION_PENDING 出发调 approveDeposit → 落 OPERATION_PENDING,不抛(此前金额闸自己在转移表抛 Invalid action)', async () => {
       const row = mockRow({ status: DepositTransactionStatus.ACTION_PENDING });

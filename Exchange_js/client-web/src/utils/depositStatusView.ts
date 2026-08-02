@@ -51,8 +51,10 @@ const VIEW_MAP: Record<string, DepositStatusView> = {
   SEIZED: { label: 'UNDER REVIEW', note: 'Please contact support', tone: 'warning' },
   MANUAL_CHECKING: { label: 'UNDER REVIEW', note: 'Please contact support', tone: 'warning' },
   FAILED: { label: 'FAILED', tone: 'danger' },
-  REJECTED: { label: 'UNSUCCESSFUL', tone: 'danger' },
-  EXPIRED: { label: 'EXPIRED', tone: 'danger' },
+  // REJECTED / EXPIRED removed (状态机收窄,业主 2026-07-31 定稿): neither could
+  // answer "where did the money go" — deposit funds already landed on-chain/in
+  // the bank, so a deposit could never legitimately be "rejected" or "expire"
+  // after payin. See doc-final/reference/truth/v4-deposit.md §2.
   // CONFISCATING / CONFISCATED intentionally absent — see file header.
 };
 

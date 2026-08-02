@@ -136,8 +136,6 @@ export class DepositTransactionsController {
     switch (dto.action) {
       case DepositTransactionAction.APPROVE:
         return this.workflow.approveDeposit(id);
-      case DepositTransactionAction.REJECT:
-        return this.workflow.adminReject(id, dto.reason, actor);
       case DepositTransactionAction.FREEZE:
         return this.workflow.adminFreeze(id, dto.reason, actor);
       default:

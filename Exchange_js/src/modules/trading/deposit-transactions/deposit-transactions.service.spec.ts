@@ -410,56 +410,6 @@ describe('DepositTransactionsService', () => {
       ).rejects.toThrow(/Invalid action/);
     });
 
-    // 终审 Critical 1 回归闸:OPERATION_PENDING 此前只有 approve/confiscate_start/fail
-    // 三条出边,但它不在 KYT_VERDICT_TERMINAL_STATUSES 里,迟到的 Sumsub 裁决(冻结/
-    // 人工复核/补料)webhook 仍会照常派发进来,撞上转移表直接 500——合规裁决必须能
-    // 落地,不能被"金额小、等运营处置"卡死。
-    it('OPERATION_PENDING → FROZEN via freeze(制裁/MLRO 裁决必须能落地,不能卡在运营队列)', async () => {
-      setupMock(DepositTransactionStatus.OPERATION_PENDING);
-      await service.updateStatus(mockId, { action: DepositTransactionAction.FREEZE });
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.FROZEN,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('OPERATION_PENDING → MANUAL_CHECKING via manual_check(无处置 tag 的迟到裁决须能转人工复核)', async () => {
-      setupMock(DepositTransactionStatus.OPERATION_PENDING);
-      await service.updateStatus(mockId, { action: DepositTransactionAction.MANUAL_CHECK });
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.MANUAL_CHECKING }),
-        }),
-      );
-    });
-
-    it('OPERATION_PENDING → REJECTED via reject(adminReject 必须能对 OPERATION_PENDING 单生效)', async () => {
-      setupMock(DepositTransactionStatus.OPERATION_PENDING);
-      await service.updateStatus(mockId, { action: DepositTransactionAction.REJECT });
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.REJECTED,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('OPERATION_PENDING → ACTION_PENDING via action_pending(迟到的 awaitUser 裁决须能转客户补料)', async () => {
-      setupMock(DepositTransactionStatus.OPERATION_PENDING);
-      await service.updateStatus(mockId, { action: DepositTransactionAction.ACTION_PENDING });
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: DepositTransactionStatus.ACTION_PENDING }),
-        }),
-      );
-    });
-
     // 终审 Critical 2 回归闸:approveDeposit 的 oldStatus 白名单接受 ACTION_PENDING/
     // MANUAL_CHECKING,但金额闸下沉后调用的 operation_pending 边此前只从
     // COMPLIANCE_PENDING 出发存在——两边前置条件对不上,below-min 单从这两个状态被
@@ -482,25 +432,6 @@ describe('DepositTransactionsService', () => {
           data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
         }),
       );
-    });
-
-    it('COMPLIANCE_PENDING → REJECTED via reject', async () => {
-      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.REJECT,
-        reason: 'High risk detected',
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.REJECTED,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-      expect(eventEmitter.emit).toHaveBeenCalled();
     });
 
     it('COMPLIANCE_PENDING → ACTION_PENDING via action_pending', async () => {
@@ -545,28 +476,11 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('ACTION_PENDING → EXPIRED via expire', async () => {
+    it('ACTION_PENDING → MANUAL_CHECKING via sla_breach', async () => {
       setupMock(DepositTransactionStatus.ACTION_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.EXPIRE,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.EXPIRED,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('ACTION_PENDING → MANUAL_CHECKING via manual_check', async () => {
-      setupMock(DepositTransactionStatus.ACTION_PENDING);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.MANUAL_CHECK,
+        action: DepositTransactionAction.SLA_BREACH,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
@@ -588,36 +502,19 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
     });
 
-    it('FROZEN → CONFISCATED via confiscate', async () => {
-      setupMock(DepositTransactionStatus.FROZEN);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.CONFISCATE,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.CONFISCATED,
-            completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('FROZEN rejects invalid actions', async () => {
+    it('FROZEN rejects invalid actions (confiscate/return no longer direct from FROZEN — must resume first)', async () => {
       setupMock(DepositTransactionStatus.FROZEN);
 
       await expect(
-        service.updateStatus(mockId, { action: DepositTransactionAction.REJECT }),
+        service.updateStatus(mockId, { action: DepositTransactionAction.ACTION_PENDING }),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('COMPLIANCE_PENDING → MANUAL_CHECKING via manual_check', async () => {
+    it('COMPLIANCE_PENDING → MANUAL_CHECKING via kyt_rejected', async () => {
       setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
 
       await service.updateStatus(mockId, {
-        action: DepositTransactionAction.MANUAL_CHECK,
+        action: DepositTransactionAction.KYT_REJECTED,
       });
 
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
@@ -691,22 +588,6 @@ describe('DepositTransactionsService', () => {
           data: expect.objectContaining({
             status: DepositTransactionStatus.RETURNED,
             completedAt: expect.any(Date),
-          }),
-        }),
-      );
-    });
-
-    it('FROZEN → RETURNING via return', async () => {
-      setupMock(DepositTransactionStatus.FROZEN);
-
-      await service.updateStatus(mockId, {
-        action: DepositTransactionAction.RETURN,
-      });
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: DepositTransactionStatus.RETURNING,
           }),
         }),
       );
@@ -795,14 +676,6 @@ describe('DepositTransactionsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('throws on any action for terminal REJECTED', async () => {
-      setupMock(DepositTransactionStatus.REJECTED);
-
-      await expect(
-        service.updateStatus(mockId, { action: DepositTransactionAction.FAIL }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
     it('throws on any action for terminal RETURNED', async () => {
       setupMock(DepositTransactionStatus.RETURNED);
 
@@ -825,6 +698,85 @@ describe('DepositTransactionsService', () => {
       await expect(
         service.updateStatus(mockId, { action: DepositTransactionAction.APPROVE }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
+    // §二定稿的 26 条边逐条列出——多一条、少一条、边指向变了,这里都会红。同时用穷举
+    // (14 状态 × 15 动作)反向断言:凡不在这 26 条边名单里的组合,一律必须抛
+    // Invalid action/Cannot apply action(即没有偷偷长出的第 27 条边)。
+    const EXPECTED_EDGES: Array<{
+      from: DepositTransactionStatus;
+      action: DepositTransactionAction;
+      to: DepositTransactionStatus;
+    }> = [
+      { from: DepositTransactionStatus.PAYIN_PENDING, action: DepositTransactionAction.PAYIN_CONFIRMED, to: DepositTransactionStatus.COMPLIANCE_PENDING },
+      { from: DepositTransactionStatus.PAYIN_PENDING, action: DepositTransactionAction.FAIL, to: DepositTransactionStatus.FAILED },
+
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.ACTION_PENDING, to: DepositTransactionStatus.ACTION_PENDING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.SLA_BREACH, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.KYT_REJECTED, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.COMPLIANCE_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.SLA_BREACH, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.KYT_REJECTED, to: DepositTransactionStatus.MANUAL_CHECKING },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+      { from: DepositTransactionStatus.ACTION_PENDING, action: DepositTransactionAction.RESUME, to: DepositTransactionStatus.COMPLIANCE_PENDING },
+
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.CONFISCATE_START, to: DepositTransactionStatus.CONFISCATING },
+
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.ACTION_PENDING, to: DepositTransactionStatus.ACTION_PENDING },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
+      { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.RETURN, to: DepositTransactionStatus.RETURNING },
+
+      { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.RESUME, to: DepositTransactionStatus.COMPLIANCE_PENDING },
+      { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.SEIZE, to: DepositTransactionStatus.SEIZING },
+
+      { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_SETTLE, to: DepositTransactionStatus.CONFISCATED },
+      { from: DepositTransactionStatus.RETURNING, action: DepositTransactionAction.RETURNED_DONE, to: DepositTransactionStatus.RETURNED },
+      { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
+    ];
+
+    describe('state machine integrity guard (26-edge brief)', () => {
+      it('brief lists exactly 26 edges', () => {
+        expect(EXPECTED_EDGES).toHaveLength(26);
+      });
+
+      it.each(
+        EXPECTED_EDGES.map((e) => [`${e.from} --${e.action}--> ${e.to}`, e] as const),
+      )('%s', async (_label, edge) => {
+        setupMock(edge.from);
+        await service.updateStatus(mockId, { action: edge.action });
+        expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: edge.to }),
+          }),
+        );
+      });
+
+      it('every (status, action) pair NOT in the 26-edge list throws (no undocumented edge exists)', async () => {
+        const edgeKeys = new Set(
+          EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`),
+        );
+        const allStatuses = Object.values(DepositTransactionStatus);
+        const allActions = Object.values(DepositTransactionAction);
+
+        for (const status of allStatuses) {
+          for (const action of allActions) {
+            if (edgeKeys.has(`${status}::${action}`)) continue;
+            setupMock(status);
+            await expect(
+              service.updateStatus(mockId, { action }),
+            ).rejects.toThrow(BadRequestException);
+          }
+        }
+      });
     });
   });
 

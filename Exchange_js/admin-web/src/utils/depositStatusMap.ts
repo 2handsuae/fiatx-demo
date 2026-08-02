@@ -4,12 +4,12 @@
    Single source of truth for the admin-facing deposit status badge.
    admin shows the RAW backend status (FROZEN / SEIZED / etc as-is) —
    this is the operator-facing table. The client-facing counterpart
-   (client-web/src/utils/depositStatusView.ts) softens the same 16
+   (client-web/src/utils/depositStatusView.ts) softens the same 14
    statuses for tipping-off compliance; the two tables are deliberately
    different and must never be merged.
 
-   Source of the 16 backend statuses:
-   src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-22
+   Source of the 14 backend statuses:
+   src/modules/trading/deposit-transactions/dto/deposit-transaction.dto.ts:4-19
 
    Badge copy and grouping copied verbatim from design spec §1.1:
    doc-final/superpowers/specs/2026-07-29-deposit-frontend-design.md
@@ -40,8 +40,6 @@ const ORANGE = 'border-adm-yellow/25 bg-adm-yellow/10 text-adm-yellow';
 const GRAYBLUE = 'border-adm-blue/25 bg-adm-blue/10 text-adm-blue';
 /* FAILED — muted red, distinct from the FROZEN/needs-officer red above */
 const GRAYRED = 'border-adm-red/20 bg-adm-t3/10 text-adm-red';
-/* REJECTED/EXPIRED — fully muted, slated for deletion (BACKLOG d7b4456e) */
-const GRAY = 'border-adm-t3/25 bg-adm-t3/10 text-adm-t3';
 /* unknown/unmapped status — warning color, surfaces config gaps loudly */
 const WARNING = 'border-adm-yellow/40 bg-adm-yellow/10 text-adm-yellow';
 
@@ -60,8 +58,6 @@ const DEPOSIT_STATUS_MAP: Record<string, DepositStatusMeta> = {
   CONFISCATING: { label: 'CONFISCATING', group: 'DISPOSING', badgeClass: ORANGE },
   CONFISCATED: { label: 'CONFISCATED', group: 'COMPLETED', badgeClass: GRAYBLUE },
   FAILED: { label: 'FAILED', group: 'EXCEPTION', badgeClass: GRAYRED },
-  REJECTED: { label: 'REJECTED', group: 'EXCEPTION', badgeClass: GRAY },
-  EXPIRED: { label: 'EXPIRED', group: 'EXCEPTION', badgeClass: GRAY },
 };
 
 /**
@@ -82,7 +78,7 @@ export function getDepositStatusMeta(status: string): DepositStatusMeta {
 }
 
 /**
- * All 16 backend deposit statuses, derived from the map above so this
+ * All 14 backend deposit statuses, derived from the map above so this
  * stays the single source of truth (consumers must not keep a second,
  * independently-maintained status list — see admin list page filter).
  */
@@ -96,14 +92,15 @@ export interface DepositStatusFilterGroup {
 
 /**
  * Operator-facing filter groups for the admin deposit list, per design spec
- * §2.1. This collapses the 16 raw statuses into the groups an operator picks
+ * §2.1. This collapses the 14 raw statuses into the groups an operator picks
  * from — "Disposing" merges the three in-flight remediation statuses
  * (returning/seizing/confiscating) into a single filter option.
  *
- * REJECTED and EXPIRED are intentionally left out of this list: the owner
- * has decided to remove those two statuses later (see BACKLOG d7b4456e), so
- * no new filter UI is built for them. The badge map above still renders them
- * as-is for historical transactions — this only affects the filter dropdown.
+ * REJECTED and EXPIRED no longer exist (state machine narrowing, owner
+ * decision 2026-07-31 — see doc-final/reference/truth/v4-deposit.md §2):
+ * neither terminal status could answer "where did the money go", since a
+ * deposit's funds are already on-chain/in the bank by the time either would
+ * have applied.
  *
  * Single source of truth: the admin list page reads this array to render its
  * status filter, it must not keep its own independently-maintained list.

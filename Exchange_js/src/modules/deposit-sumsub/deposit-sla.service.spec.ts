@@ -43,7 +43,7 @@ describe('DepositSlaService', () => {
 
     expect(depositService.updateStatus).toHaveBeenCalledWith(
       'dep-1',
-      expect.objectContaining({ action: DepositTransactionAction.MANUAL_CHECK }),
+      expect.objectContaining({ action: DepositTransactionAction.SLA_BREACH }),
       expect.objectContaining({ extraData: { slaBreached: true } }),
     );
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
@@ -73,7 +73,7 @@ describe('DepositSlaService', () => {
 
     expect(depositService.updateStatus).toHaveBeenCalledWith(
       'dep-2',
-      expect.objectContaining({ action: DepositTransactionAction.MANUAL_CHECK }),
+      expect.objectContaining({ action: DepositTransactionAction.SLA_BREACH }),
       expect.objectContaining({ extraData: { slaBreached: true } }),
     );
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(

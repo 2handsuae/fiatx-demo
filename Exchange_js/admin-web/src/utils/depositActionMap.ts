@@ -81,9 +81,7 @@ const DEPOSIT_BADGE_MAP: Record<string, string> = {
   ACTION_PENDING:      'bg-amber-100 text-amber-800',
   FROZEN:              'bg-cyan-100 text-cyan-800',
   SUCCESS:             'bg-green-100 text-green-800',
-  REJECTED:            'bg-red-100 text-red-800',
   FAILED:              'bg-orange-100 text-orange-800',
-  EXPIRED:             'bg-gray-100 text-gray-800',
   CONFISCATING:        'bg-amber-100 text-amber-800',
   CONFISCATED:         'bg-red-200 text-red-900',
 };

@@ -30,13 +30,11 @@ const CASES: Array<[string, string, string]> = [
   ['CONFISCATING', 'CONFISCATING', 'DISPOSING'],
   ['CONFISCATED', 'CONFISCATED', 'COMPLETED'],
   ['FAILED', 'FAILED', 'EXCEPTION'],
-  ['REJECTED', 'REJECTED', 'EXCEPTION'],
-  ['EXPIRED', 'EXPIRED', 'EXCEPTION'],
 ];
 
 describe('depositStatusMap (admin, as-is)', () => {
-  it('covers exactly the 16 backend statuses (one row per DEPOSIT_STATUS_MAP key — keeps this drift-proof)', () => {
-    expect(CASES).toHaveLength(16);
+  it('covers exactly the 14 backend statuses (one row per DEPOSIT_STATUS_MAP key — keeps this drift-proof)', () => {
+    expect(CASES).toHaveLength(14);
     expect(CASES.map(([status]) => status).sort()).toEqual([...ALL_DEPOSIT_STATUSES].sort());
   });
 
@@ -79,23 +77,19 @@ describe('depositStatusMap (admin, as-is)', () => {
 
 /**
  * Admin list filter groups (design spec §2.1). The owner decided the filter
- * dropdown should be operator-facing groups, not the raw 16 statuses —
- * "Disposing" merges RETURNING/SEIZING/CONFISCATING into one option, and
- * REJECTED/EXPIRED are excluded (slated for deletion, see BACKLOG d7b4456e).
+ * dropdown should be operator-facing groups, not the raw 14 statuses —
+ * "Disposing" merges RETURNING/SEIZING/CONFISCATING into one option.
+ * REJECTED/EXPIRED no longer exist at all (state machine narrowing, owner
+ * decision 2026-07-31 — see doc-final/reference/truth/v4-deposit.md §2), so
+ * there is no longer a special-case exclusion to track here.
  */
 describe('DEPOSIT_STATUS_FILTERS (admin list filter groups, spec §2.1)', () => {
-  it('every filter status is one of the 16 backend statuses', () => {
+  it('every filter status is one of the 14 backend statuses', () => {
     for (const group of DEPOSIT_STATUS_FILTERS) {
       for (const status of group.statuses) {
         expect(ALL_DEPOSIT_STATUSES).toContain(status);
       }
     }
-  });
-
-  it('never offers REJECTED or EXPIRED as a filter (owner decision: to be deleted)', () => {
-    const allFilterStatuses = DEPOSIT_STATUS_FILTERS.flatMap((g) => g.statuses);
-    expect(allFilterStatuses).not.toContain('REJECTED');
-    expect(allFilterStatuses).not.toContain('EXPIRED');
   });
 
   it('"Disposing" merges the three in-flight remediation statuses', () => {
@@ -105,14 +99,11 @@ describe('DEPOSIT_STATUS_FILTERS (admin list filter groups, spec §2.1)', () => 
 
   // 终审 Important 4 回归闸:此前只断言"每个 filter status 都是合法后端状态"(单向),
   // 不断言反向覆盖——DEPOSIT_STATUS_MAP 加了 OPERATION_PENDING 但 FILTERS 忘了跟进,
-  // 这条单向断言拦不住。反向断言:每个后端状态都至少被一个 filter 覆盖(REJECTED/
-  // EXPIRED 是业主拍板的例外,见上一条),下次再漏加会立刻红。
-  it('every backend status is covered by at least one filter, except the REJECTED/EXPIRED owner-decision exclusion (reverse coverage — catches a status added to the map but forgotten in the filters)', () => {
-    const intentionallyExcluded = new Set(['REJECTED', 'EXPIRED']);
+  // 这条单向断言拦不住。反向断言:每个后端状态都至少被一个 filter 覆盖,下次再漏加
+  // 会立刻红。REJECTED/EXPIRED 已随状态机收窄整体删除,不再需要例外名单。
+  it('every backend status is covered by at least one filter (reverse coverage — catches a status added to the map but forgotten in the filters)', () => {
     const covered = new Set(DEPOSIT_STATUS_FILTERS.flatMap((g) => g.statuses));
-    const uncovered = ALL_DEPOSIT_STATUSES.filter(
-      (status) => !intentionallyExcluded.has(status) && !covered.has(status),
-    );
+    const uncovered = ALL_DEPOSIT_STATUSES.filter((status) => !covered.has(status));
     expect(uncovered).toEqual([]);
   });
 
