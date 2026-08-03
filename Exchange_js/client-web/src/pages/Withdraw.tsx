@@ -9,6 +9,7 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
+import { getWithdrawStatusView, type WithdrawStatusView } from '../utils/withdrawStatusView';
 
 interface Asset {
   id: string;
@@ -83,6 +84,35 @@ const WITHDRAW_FEE_LABELS: Record<string, string> = {
   WITHDRAW_SERVICE_FEE: 'Service Fee',
   NETWORK_FEE_EST: 'Network Fee',
 };
+
+/* Client-facing badge tone -> fx-* color classes (rules/frontend-client.md
+   forbids raw Tailwind colors). Kept in sync with WithdrawStatusView['tone']. */
+const STATUS_TONE_CLASS: Record<WithdrawStatusView['tone'], string> = {
+  positive: 'bg-fx-sage/20 text-fx-sage',
+  warning: 'bg-fx-brass/20 text-fx-brass',
+  danger: 'bg-fx-rust/20 text-fx-rust',
+  neutral: 'bg-fx-dust/20 text-fx-dust',
+};
+
+/**
+ * History filter groups, customer-facing wording. Labels come from
+ * getWithdrawStatusView so filter text always matches the badge text;
+ * `statuses` are the raw backend codes sent as a comma-separated `status`
+ * query value. PROCESSING merges every non-terminal, non-action-required
+ * status (PENDING_APPROVAL/COMPLIANCE_PENDING/MANUAL_CHECKING/FROZEN/
+ * PAYOUT_PENDING) — all of them render identically to the customer.
+ */
+const HISTORY_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
+  {
+    label: getWithdrawStatusView('COMPLIANCE_PENDING').label,
+    statuses: ['PENDING_APPROVAL', 'COMPLIANCE_PENDING', 'MANUAL_CHECKING', 'FROZEN', 'PAYOUT_PENDING'],
+  },
+  { label: getWithdrawStatusView('ACTION_PENDING').label, statuses: ['ACTION_PENDING'] },
+  { label: getWithdrawStatusView('SUCCESS').label, statuses: ['SUCCESS'] },
+  { label: getWithdrawStatusView('REJECTED').label, statuses: ['REJECTED'] },
+  { label: getWithdrawStatusView('FAILED').label, statuses: ['FAILED'] },
+  { label: getWithdrawStatusView('RETURNED').label, statuses: ['RETURNED'] },
+];
 
 const Withdraw = () => {
   const { user } = useAuth();
@@ -390,17 +420,21 @@ const Withdraw = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAssetId, amount, selectedAddressNo, manualAddress, isManualInput]);
 
-  const getCustomerFacingWithdrawStatus = (status: string): { label: string; className: string } => {
-    const s = status?.toUpperCase() || '';
-    if (['SUCCESS'].includes(s))
-      return { label: 'Completed', className: 'text-fx-sage bg-fx-sage/10' };
-    if (['REJECTED', 'CANCELLED'].includes(s))
-      return { label: 'Declined', className: 'text-rose-400 bg-rose-500/10' };
-    if (['FAILED', 'RETURNED'].includes(s))
-      return { label: 'Failed', className: 'text-fx-rust bg-fx-rust/10' };
-    if (['EXPIRED'].includes(s))
-      return { label: 'Expired', className: 'text-fx-dust bg-fx-dust/10' };
-    return { label: 'Processing', className: 'text-fx-brass bg-fx-brass/10' };
+  const renderStatusBadge = (status: string) => {
+    const view = getWithdrawStatusView(status);
+    return (
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${STATUS_TONE_CLASS[view.tone]}`}
+      >
+        {view.label}
+      </span>
+    );
+  };
+
+  const renderStatusNote = (status: string) => {
+    const view = getWithdrawStatusView(status);
+    if (!view.note) return null;
+    return <p className="mt-3 text-sm text-fx-dust text-center">{view.note}</p>;
   };
 
   return (
@@ -483,10 +517,11 @@ const Withdraw = () => {
                             className="bg-transparent text-sm text-fx-sand focus:outline-none"
                           >
                               <option value="">All Status</option>
-                              <option value="CREATED,PENDING_APPROVAL,PENDING_COMPLIANCE,UNDER_REVIEW,APPROVED,PAYOUT_PENDING,FROZEN">Processing</option>
-                              <option value="SUCCESS">Completed</option>
-                              <option value="REJECTED,CANCELLED">Declined</option>
-                              <option value="FAILED,RETURNED">Failed</option>
+                              {HISTORY_STATUS_FILTERS.map((filter) => (
+                                  <option key={filter.label} value={filter.statuses.join(',')}>
+                                      {filter.label}
+                                  </option>
+                              ))}
                           </select>
                       </div>
                       <div className="flex items-center gap-2 bg-fx-charcoal px-3 py-2 rounded-lg border border-fx-rule">
@@ -541,7 +576,6 @@ const Withdraw = () => {
                                   </tr>
                               ) : (
                                   transactions.map(tx => {
-                                      const st = getCustomerFacingWithdrawStatus(tx.status);
                                       return (
                                       <tr key={tx.id} className="hover:bg-fx-ink/60 transition-colors">
                                           <td className="px-4 py-3">
@@ -557,9 +591,7 @@ const Withdraw = () => {
                                               </div>
                                           </td>
                                           <td className="px-4 py-3">
-                                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${st.className}`}>
-                                                  {st.label}
-                                              </span>
+                                              {renderStatusBadge(tx.status)}
                                           </td>
                                           <td className="px-4 py-3 text-right">
                                               <button
@@ -1031,7 +1063,6 @@ const Withdraw = () => {
 
       {/* Detail Modal (Simplified) */}
       {selectedTx && (() => {
-          const detailSt = getCustomerFacingWithdrawStatus(selectedTx.status);
           return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
               <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-fx-rule">
@@ -1047,10 +1078,9 @@ const Withdraw = () => {
                               {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.currency}</span>
                           </div>
                           <div className="mt-2">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${detailSt.className}`}>
-                                  {detailSt.label}
-                              </span>
+                              {renderStatusBadge(selectedTx.status)}
                           </div>
+                          {renderStatusNote(selectedTx.status)}
                       </div>
                       <div className="space-y-4 bg-fx-charcoal p-4 rounded-xl border border-fx-rule">
                           <div className="flex justify-between text-sm">

@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
@@ -740,6 +740,138 @@ describe('WithdrawTransactionsService', () => {
           createdAt: new Date('2026-01-01T00:00:00Z'),
         },
       ]);
+    });
+  });
+
+  // Task 11: customer-facing field whitelist (tipping-off guard). Mirrors
+  // DepositTransactionsService's SENSITIVE_FULL_ROW/SENSITIVE_KEYS leak-prevention
+  // spec — a mock row carrying every investigation-only column a
+  // FROZEN/MANUAL_CHECKING withdrawal would have, asserting none of it survives
+  // toCustomerWithdrawView's whitelist projection.
+  describe('findAllForCustomer / findOneForCustomer — tipping-off whitelist', () => {
+    const SENSITIVE_FULL_ROW = {
+      id: 'w-sensitive-1',
+      withdrawNo: 'WDR-SENS-1',
+      ownerId: 'cust-1',
+      ownerType: 'CUSTOMER',
+      status: 'FROZEN',
+      amount: '500.00',
+      feeAmount: '5.00',
+      netAmount: '495.00',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      completedAt: null,
+      txHash: '0xabc',
+      referenceNo: 'REF-1',
+      toAddress: 'T_TO',
+      toIban: null,
+      asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
+      statusHistory: JSON.stringify([
+        { status: 'FROZEN', reason: 'Sanction match — sending unfreeze/refund to MLRO for review' },
+      ]),
+      manualReason: 'EDD_PEP',
+      sumsubTxnId: 'sumsub-txn-1',
+      sumsubTxnType: 'travelRule',
+      sumsubVerdict: 'rejected',
+      sumsubScore: 92,
+      sumsubTxnDetailJson: '{"verdict":"rejected"}',
+      counterpartyIsVasp: true,
+      slaDeadline: new Date('2026-01-03T00:00:00Z'),
+      slaBreached: true,
+      needsReview: true,
+      feeSettleAttempts: 2,
+      tbPendingNetId: 'tb-net-1',
+      tbPendingFeeId: 'tb-fee-1',
+      grossAedValue: '1837.50',
+      approvalCaseId: 'case-1',
+      approvalNo: 'APR-1',
+      traceId: 'WITHDRAW:w-sensitive-1',
+    };
+
+    const SENSITIVE_KEYS = [
+      'statusHistory',
+      'manualReason',
+      'sumsubTxnId',
+      'sumsubTxnType',
+      'sumsubVerdict',
+      'sumsubScore',
+      'sumsubTxnDetailJson',
+      'counterpartyIsVasp',
+      'slaDeadline',
+      'slaBreached',
+      'needsReview',
+      'feeSettleAttempts',
+      'tbPendingNetId',
+      'tbPendingFeeId',
+      'grossAedValue',
+      'approvalCaseId',
+      'approvalNo',
+      'traceId',
+    ];
+
+    const EXPECTED_VIEW = {
+      id: 'w-sensitive-1',
+      withdrawNo: 'WDR-SENS-1',
+      status: 'FROZEN',
+      amount: '500.00',
+      feeAmount: '5.00',
+      netAmount: '495.00',
+      createdAt: SENSITIVE_FULL_ROW.createdAt,
+      completedAt: null,
+      txHash: '0xabc',
+      referenceNo: 'REF-1',
+      toAddress: 'T_TO',
+      toIban: null,
+      asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+    };
+
+    describe('findAllForCustomer', () => {
+      it('scopes the list query to the caller (ownerId)', async () => {
+        prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([]);
+        prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(0);
+
+        await service.findAllForCustomer('cust-1', {} as any);
+
+        expect(prisma.withdrawTransaction.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({ ownerId: 'cust-1' }) }),
+        );
+      });
+
+      it('strips statusHistory/manualReason/sumsub*/sla*/needsReview/feeSettleAttempts/tbPending*/grossAedValue/approvalCaseId+No/traceId while keeping the fields the client actually renders', async () => {
+        prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([SENSITIVE_FULL_ROW]);
+        prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(1);
+
+        const result = await service.findAllForCustomer('cust-1', {} as any);
+        const item = result.items[0] as any;
+
+        for (const key of SENSITIVE_KEYS) {
+          expect(item).not.toHaveProperty(key);
+        }
+        expect(item).toEqual(EXPECTED_VIEW);
+      });
+    });
+
+    describe('findOneForCustomer', () => {
+      it("another customer's withdrawal → ForbiddenException (ownership enforced)", async () => {
+        prisma.withdrawTransaction.findUnique.mockResolvedValue({
+          id: 'w1',
+          ownerId: 'other-cust',
+        });
+
+        await expect(service.findOneForCustomer('w1', 'cust-1')).rejects.toThrow(
+          ForbiddenException,
+        );
+      });
+
+      it('strips statusHistory/manualReason/sumsub*/sla*/needsReview/feeSettleAttempts/tbPending*/grossAedValue/approvalCaseId+No/traceId while keeping the fields the client actually renders', async () => {
+        prisma.withdrawTransaction.findUnique.mockResolvedValue(SENSITIVE_FULL_ROW);
+
+        const result = (await service.findOneForCustomer('w-sensitive-1', 'cust-1')) as any;
+
+        for (const key of SENSITIVE_KEYS) {
+          expect(result).not.toHaveProperty(key);
+        }
+        expect(result).toEqual(EXPECTED_VIEW);
+      });
     });
   });
 

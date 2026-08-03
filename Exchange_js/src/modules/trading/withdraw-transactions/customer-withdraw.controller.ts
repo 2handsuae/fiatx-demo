@@ -52,17 +52,13 @@ export class CustomerWithdrawController {
   @UsePipes(new ValidationPipe({ transform: true }))
   findMy(@Req() req: any, @Query() query: WithdrawTransactionQueryDto) {
     const userId = this.assertCustomer(req);
-    return this.service.findAll({ ...query, ownerId: userId });
+    return this.service.findAllForCustomer(userId, query);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get my withdraw transaction detail (customer)' })
-  async findOne(@Req() req: any, @Param('id') id: string) {
+  findOne(@Req() req: any, @Param('id') id: string) {
     const userId = this.assertCustomer(req);
-    const item = await this.service.findOneInternal(id);
-    if (item.ownerId !== userId) {
-      throw new ForbiddenException('Not your withdrawal');
-    }
-    return item;
+    return this.service.findOneForCustomer(id, userId);
   }
 }

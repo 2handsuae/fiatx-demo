@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
   WithdrawTransactionQueryDto,
@@ -324,6 +330,55 @@ export class WithdrawTransactionsService {
     };
   }
 
+  /** Customer-facing list: same query, scoped to the caller's own withdrawals. */
+  async findAllForCustomer(customerId: string, query: WithdrawTransactionQueryDto) {
+    const result = await this.findAll({ ...query, ownerId: customerId });
+    return {
+      ...result,
+      items: result.items.map((item: any) => this.toCustomerWithdrawView(item)),
+    };
+  }
+
+  /**
+   * Customer-facing field whitelist (tipping-off guard). The raw Prisma row
+   * carries investigation-only fields — sumsubTxnId/sumsubTxnType/
+   * sumsubVerdict/sumsubScore/sumsubTxnDetailJson (KYT evidence),
+   * counterpartyIsVasp, manualReason, slaDeadline/slaBreached, needsReview,
+   * feeSettleAttempts, statusHistory (quotes sanctions/freeze reasons
+   * verbatim), tbPendingNetId/tbPendingFeeId, grossAedValue,
+   * approvalCaseId/approvalNo, traceId — that must never reach a customer's
+   * browser: a DevTools inspection of the JSON response would be enough to
+   * tip off a person under investigation. Only whitelisted fields are
+   * returned; this list must stay in lockstep with the `WithdrawTransaction`
+   * interface in client-web/src/pages/Withdraw.tsx, which is the actual
+   * field contract the client reads. Mirrors
+   * DepositTransactionsService#toCustomerDepositView (Task 11).
+   */
+  private toCustomerWithdrawView(item: any) {
+    return {
+      id: item.id,
+      withdrawNo: item.withdrawNo,
+      status: item.status,
+      amount: item.amount,
+      feeAmount: item.feeAmount,
+      netAmount: item.netAmount,
+      createdAt: item.createdAt,
+      completedAt: item.completedAt,
+      txHash: item.txHash,
+      referenceNo: item.referenceNo,
+      toAddress: item.toAddress,
+      toIban: item.toIban,
+      asset: item.asset
+        ? {
+            currency: item.asset.currency,
+            code: item.asset.code,
+            network: item.asset.network,
+            decimals: item.asset.decimals,
+          }
+        : null,
+    };
+  }
+
   async findOneInternal(id: string) {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({
       where: { id },
@@ -331,6 +386,20 @@ export class WithdrawTransactionsService {
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
     return item;
+  }
+
+  /**
+   * Customer-facing single-fetch (IDOR guard + tipping-off whitelist).
+   * Mirrors DepositTransactionsService#findOneForCustomer's shape; keeps the
+   * existing ForbiddenException semantics the controller previously enforced
+   * itself (Task 11 only moves the check + adds the field whitelist).
+   */
+  async findOneForCustomer(id: string, customerId: string) {
+    const item = await this.findOneInternal(id);
+    if (item.ownerId !== customerId) {
+      throw new ForbiddenException('Not your withdrawal');
+    }
+    return this.toCustomerWithdrawView(item);
   }
 
   /**
