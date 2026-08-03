@@ -1,13 +1,15 @@
 import { Prisma } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import { WithdrawWorkflowService, IllegalSourceWalletError } from './withdraw-workflow.service';
 import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
-import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
+import { FundsOrderStatus, FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 
 describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   let workflow: WithdrawWorkflowService;
@@ -1515,11 +1517,13 @@ function buildBounceWorkflow(overrides: {
   const accountingService = {
     executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
     resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     ...overrides.accountingService,
   };
   const fundsOrders = {
     findByParent: jest.fn().mockResolvedValue([]),
     resolveExternalRef: jest.fn().mockReturnValue(null),
+    advance: jest.fn().mockResolvedValue(undefined),
     ...overrides.fundsOrders,
   };
   const prisma = overrides.prisma ?? {
@@ -1668,6 +1672,143 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
     await expect(workflow.onBounce(bounceWithdrawal.id, 'second bounce')).rejects.toThrow();
 
     expect(accountingService.executeTransfer).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Fix Round 1 (reviewer catch): principal-POSTed does NOT imply fee-POSTed.
+// Task 6's ordering guard settles the fee AFTER the principal, so "principal
+// POSTed, fee still pending" is a ROUTINE window. Bouncing straight through
+// used to permanently orphan the fee's TB pending lock (timeout:0, never
+// expires) and falsely claim "fee retained" when the fee was never collected.
+// ─────────────────────────────────────────────────────────────
+
+const bounceWithdrawalWithFee = {
+  ...bounceWithdrawal,
+  tbPendingFeeId: 'ab',
+  feeAmount: new Prisma.Decimal('5'),
+};
+
+function primeBounceEvidence(prisma: any, { feePosted }: { feePosted: boolean }) {
+  prisma.tbTransferEvidence.findMany.mockImplementation(async ({ where }: any) => {
+    if (where?.eventCode === 'WITHDRAW_NET_POST') return [{ eventCode: 'WITHDRAW_NET_POST' }];
+    if (where?.eventCode === 'WITHDRAW_FEE_POST') return feePosted ? [{ eventCode: 'WITHDRAW_FEE_POST' }] : [];
+    return [];
+  });
+}
+
+describe('WithdrawWorkflowService.onBounce — Fix Round 1: fee disposition', () => {
+  it('fee already POSTed: no void, no FAIL advance, audit says fee retained (collected)', async () => {
+    const { workflow, withdrawService, accountingService, auditLogsService, fundsOrders, prisma } =
+      buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawalWithFee);
+    primeBounceEvidence(prisma, { feePosted: true });
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawalWithFee.asset }];
+      if (filter?.legSeq === 2) return [{ id: 'fo-fee-1' }];
+      return [];
+    });
+
+    await workflow.onBounce(bounceWithdrawalWithFee.id, 'bank returned funds');
+
+    expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+    expect(fundsOrders.advance).not.toHaveBeenCalled();
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.stringContaining('fee retained (collected)') }),
+      expect.anything(),
+    );
+  });
+
+  it('fee still PENDING (not posted): voids the fee lock + FAILs the fee funds order, audit says voided/returned', async () => {
+    const { workflow, withdrawService, accountingService, auditLogsService, fundsOrders, prisma } =
+      buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawalWithFee);
+    primeBounceEvidence(prisma, { feePosted: false });
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawalWithFee.asset }];
+      if (filter?.legSeq === 2) return [{ id: 'fo-fee-1' }];
+      return [];
+    });
+    fundsOrders.resolveExternalRef.mockReturnValue('0xabc');
+
+    await workflow.onBounce(bounceWithdrawalWithFee.id, 'bank returned funds');
+
+    expect(accountingService.voidPendingTransferBestEffort).toHaveBeenCalledWith(
+      hexToBigint('ab'),
+      expect.any(BigInt),
+    );
+    expect(fundsOrders.advance).toHaveBeenCalledWith('fo-fee-1', FundsOrderAction.FAIL, 'SYSTEM');
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: expect.stringContaining('uncollected fee lock voided — fee returned to customer'),
+      }),
+      expect.anything(),
+    );
+    // The status flip must still land — bounce is not blocked by fee cleanup.
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      bounceWithdrawalWithFee.id,
+      expect.objectContaining({ action: WithdrawTransactionAction.RETURN }),
+      expect.anything(),
+    );
+  });
+
+  it('fee void failure: logs CRITICAL but the bounce still completes (best-effort, money path not blocked)', async () => {
+    const { workflow, withdrawService, accountingService, fundsOrders, prisma } = buildBounceWorkflow({
+      accountingService: { voidPendingTransferBestEffort: jest.fn().mockResolvedValue(false) },
+    });
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawalWithFee);
+    primeBounceEvidence(prisma, { feePosted: false });
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawalWithFee.asset }];
+      if (filter?.legSeq === 2) return [{ id: 'fo-fee-1' }];
+      return [];
+    });
+
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined as any);
+
+    await workflow.onBounce(bounceWithdrawalWithFee.id, 'bank returned funds');
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('CRITICAL'));
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      bounceWithdrawalWithFee.id,
+      expect.objectContaining({ action: WithdrawTransactionAction.RETURN }),
+      expect.anything(),
+    );
+
+    errorSpy.mockRestore();
+  });
+
+  it('fee leg FAIL advance throws (e.g. already terminal / invalid transition): swallowed with a warn, bounce still completes', async () => {
+    const { workflow, withdrawService, fundsOrders, prisma } = buildBounceWorkflow({
+      fundsOrders: { advance: jest.fn().mockRejectedValue(new Error('Invalid transition: CONFIRMED --FAIL-->')) },
+    });
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawalWithFee);
+    primeBounceEvidence(prisma, { feePosted: false });
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawalWithFee.asset }];
+      if (filter?.legSeq === 2) return [{ id: 'fo-fee-1' }];
+      return [];
+    });
+
+    await expect(workflow.onBounce(bounceWithdrawalWithFee.id, 'bank returned funds')).resolves.toBeUndefined();
+
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      bounceWithdrawalWithFee.id,
+      expect.objectContaining({ action: WithdrawTransactionAction.RETURN }),
+      expect.anything(),
+    );
+  });
+
+  it('zero-fee withdrawal (no tbPendingFeeId): fee-disposition block is a no-op', async () => {
+    const { workflow, withdrawService, accountingService, fundsOrders, prisma } = buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawal); // no tbPendingFeeId
+    primeBounceEvidence(prisma, { feePosted: false });
+    fundsOrders.findByParent.mockResolvedValue([{ id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawal.asset }]);
+
+    await workflow.onBounce(bounceWithdrawal.id, 'bank returned funds');
+
+    expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+    expect(fundsOrders.advance).not.toHaveBeenCalled();
   });
 });
 

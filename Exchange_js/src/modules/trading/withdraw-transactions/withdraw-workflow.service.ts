@@ -1590,7 +1590,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         traceId: w.traceId || w.id,
         actorType: actorCtx.actorType,
         actorId: actorCtx.actorId,
-        memo: `Payout bounced by bank/network — reason: ${reason} (fee retained, not refunded)`,
+        memo: `Payout bounced by bank/network — reason: ${reason}`,
         debitWalletRef: walletRef,
         creditWalletRef: walletRef,
         externalRef,
@@ -1598,7 +1598,58 @@ export class WithdrawWorkflowService implements OnModuleInit {
       },
     });
 
-    // 先账后状态: the reverse TB entry above must land before this terminal flip.
+    // Fix Round 1 (reviewer catch): principal-POSTed does NOT imply fee-POSTed —
+    // Task 6's ordering guard settles the fee AFTER the principal, so "principal
+    // POSTed, fee still pending" is a ROUTINE window, not a rare race. Bouncing
+    // straight to RETURNED here would permanently orphan the fee's TB pending
+    // lock (timeout:0, never expires) and falsely claim "fee retained" in the
+    // audit when the fee was never actually collected. Resolve the fee's real
+    // disposition before flipping the terminal status.
+    let feeDisposition = 'fee retained (collected)';
+    if (w.tbPendingFeeId) {
+      const feePostedEvidence = await (this.prisma as any).tbTransferEvidence.findMany({
+        where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo, eventCode: 'WITHDRAW_FEE_POST' },
+      });
+      if (feePostedEvidence.length === 0) {
+        // Fee never left the customer's balance — void the pending lock so it
+        // isn't orphaned once the withdrawal lands on terminal RETURNED.
+        // Mirrors releaseLock's fee half exactly, including the CRITICAL log.
+        const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
+        const voided = await this.accountingService.voidPendingTransferBestEffort(
+          hexToBigint(w.tbPendingFeeId),
+          feeBigint,
+        );
+        if (!voided) {
+          this.logger.error(
+            `CRITICAL: failed to void fee pending transfer for withdrawal ${w.id} during bounce — funds may stay locked`,
+          );
+        }
+
+        // Best-effort: FAIL the fee funds order too, for view consistency
+        // (admin/recon read the funds order table). Swallow already-terminal /
+        // invalid-transition — the money path (TB void above) must never be
+        // blocked by a funds-order state-machine hiccup (mirrors
+        // DepositWorkflowService#clearDispositionLeg's swallow rationale: a
+        // lagging view must not roll back an already-completed money move).
+        const feeLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: FEE_LEG_SEQ });
+        const feeLeg = feeLegs[feeLegs.length - 1];
+        if (feeLeg) {
+          try {
+            await this.fundsOrders.advance(feeLeg.id, FundsOrderAction.FAIL, 'SYSTEM');
+          } catch (err: any) {
+            this.logger.warn(
+              `Bounce ${w.withdrawNo}: could not FAIL fee leg ${feeLeg.id} (${(err as Error).message}) — ` +
+              `TB void already applied, funds order status merely lags`,
+            );
+          }
+        }
+
+        feeDisposition = 'uncollected fee lock voided — fee returned to customer';
+      }
+    }
+
+    // 先账后状态: the reverse TB entry (+ fee disposition) above must land
+    // before this terminal flip.
     await this.withdrawService.updateStatus(
       w.id,
       { action: WithdrawTransactionAction.RETURN, reason },
@@ -1615,7 +1666,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         entityOwnerId: w.ownerId,
         traceId: w.traceId || undefined,
         workflowType: AuditWorkflowTypes.WITHDRAW,
-        reason: `Payout bounced: ${reason} — fee retained (not refunded)`,
+        reason: `Payout bounced: ${reason} — ${feeDisposition}`,
         metadata: { reason },
         sourcePlatform: 'ADMIN_API',
       },
