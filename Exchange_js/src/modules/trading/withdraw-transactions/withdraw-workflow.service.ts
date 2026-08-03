@@ -1857,6 +1857,213 @@ export class WithdrawWorkflowService implements OnModuleInit {
     };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Task 9 — FROZEN maker-checker approval gates (execution side). Consumes
+  // Task 8's decided events (workflow.withdraw-unfreeze.decided /
+  // workflow.withdraw-sanction-refund.decided) and drives the two out-edges
+  // FROZEN already carries (resume→COMPLIANCE_PENDING, reject_refund→REJECTED).
+  // Mirrors DepositWorkflowService.onUnfreezeDecided/onUnfreezeApproved/
+  // fetchUnfreezeOrderRef — see that file for the full A5 rationale.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * UNFREEZE decided: the V1 approval opened by initiateUnfreeze reached a
+   * decision. APPROVED → delegate to onUnfreezeApproved. Any other outcome
+   * (DECLINED/CANCELLED/EXPIRED) → log only, the withdrawal stays FROZEN
+   * untouched (mirrors deposit's onUnfreezeDecided).
+   */
+  @OnEvent('workflow.withdraw-unfreeze.decided', { async: true })
+  async onUnfreezeDecided(payload: {
+    decision: 'APPROVED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
+    entityRef: string;
+    approvalNo: string;
+    decisionReason?: string | null;
+  }) {
+    if (payload.decision !== 'APPROVED') {
+      this.logger.log(
+        `Withdrawal ${payload.entityRef} unfreeze ${payload.decision} (case ${payload.approvalNo}) — original state intact, no unfreeze executed.`,
+      );
+      return;
+    }
+    await this.onUnfreezeApproved(payload.entityRef);
+  }
+
+  /**
+   * Re-derive the delisting/unfreeze order reference (orderRef) from the most
+   * recent APPROVED approval case's objectSnapshot for the given actionType.
+   * `ApprovalDecidedEvent.metadata` is always `{}` (see `emitDecidedEvent` in
+   * approval-handler.base.ts), so orderRef must be re-fetched here rather than
+   * carried through the event payload — mirrors DepositWorkflowService's
+   * fetchUnfreezeOrderRef. Throws rather than silently defaulting to an empty
+   * string: initiateUnfreeze enforces orderRef non-empty at approval-open time,
+   * so a missing orderRef here means data corruption, not a normal path — and
+   * this fetch runs BEFORE any state mutation (guard-before-mutate ordering),
+   * so a throw here leaves the withdrawal untouched (still FROZEN).
+   */
+  private async fetchApprovedOrderRef(withdrawId: string, actionType: string): Promise<string> {
+    const { items } = await this.approvalsService.list({
+      actionType,
+      entityRef: withdrawId,
+      status: ApprovalStatuses.APPROVED,
+      take: 1,
+    });
+    const snapshot = items[0]?.objectSnapshot as { orderRef?: string } | null;
+    const orderRef = snapshot?.orderRef;
+    if (!orderRef) {
+      throw new Error(
+        `Withdrawal ${withdrawId}: no APPROVED ${actionType} case with an orderRef found in objectSnapshot`,
+      );
+    }
+    return orderRef;
+  }
+
+  /**
+   * Best-effort Sumsub rescore of the withdrawal's KYT txn after it has resumed
+   * into COMPLIANCE_PENDING — the whole point of the unfreeze arc (a fresh
+   * verdict driving the state machine post-resume instead of sitting on a stale
+   * pre-freeze one). rescore is an EXTERNAL HTTP call — MUST be try/catch'd: by
+   * the time this runs, the withdrawal has already committed to
+   * COMPLIANCE_PENDING with its WITHDRAW_UNFROZEN audit written, so a failed
+   * rescore must only warn and let webhook/manual re-submit recover later; it
+   * must NEVER crash or roll back the already-committed resume (I2: the same
+   * external-HTTP-must-never-roll-back-committed-state lesson submitSumsubTxn's
+   * own try/catch protects against).
+   */
+  private async triggerUnfreezeRescore(w: { id: string; sumsubTxnId?: string | null }): Promise<void> {
+    if (!w.sumsubTxnId) {
+      this.logger.warn(
+        `Unfreeze rescore skip: withdrawal ${w.id} has no sumsubTxnId — never submitted to Sumsub`,
+      );
+      return;
+    }
+
+    try {
+      await this.sumsubTxnClient.rescore(w.sumsubTxnId);
+    } catch (err) {
+      this.logger.warn(
+        `Unfreeze rescore failed for withdrawal ${w.id}: ${(err as Error).message} — ` +
+          `withdrawal remains COMPLIANCE_PENDING for webhook/manual re-submit`,
+      );
+    }
+  }
+
+  /**
+   * UNFREEZE approved: resume the withdrawal back into the compliance flow.
+   * 零记账 — the money never left its CLIENT_ASSET pending lock while FROZEN,
+   * so there is no reverse leg to book (unlike a payout failure/return). Order
+   * of operations:
+   *   1. Guard: only runs from FROZEN — a replayed decided event arriving after
+   *      the withdrawal already left FROZEN is a no-op rather than crashing.
+   *   2. Fetch orderRef BEFORE mutating anything (fetchApprovedOrderRef) — if
+   *      the APPROVED case has no orderRef, throw and leave the withdrawal
+   *      untouched.
+   *   3. RESUME → COMPLIANCE_PENDING (via withdrawService.updateStatus).
+   *   4. Audit WITHDRAW_UNFROZEN with orderRef in the reason.
+   *   5. Best-effort Sumsub rescore (triggerUnfreezeRescore) — never crashes.
+   * ZERO accounting calls — money stays locked exactly as it was.
+   */
+  private async onUnfreezeApproved(withdrawId: string) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.FROZEN) {
+      this.logger.warn(
+        `onUnfreezeApproved no-op: withdrawal ${withdrawId} not in FROZEN (status=${w.status})`,
+      );
+      return;
+    }
+
+    const orderRef = await this.fetchApprovedOrderRef(w.id, ApprovalActionTypes.WITHDRAW_UNFREEZE);
+
+    await this.withdrawService.updateStatus(
+      w.id,
+      {
+        action: WithdrawTransactionAction.RESUME,
+        reason: `Unfreeze approved (order ${orderRef}) — resumed into compliance flow`,
+      },
+      this.systemCtx,
+    );
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_UNFROZEN,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `Unfreeze order ${orderRef} — withdrawal resumed to COMPLIANCE_PENDING`,
+      sourcePlatform: 'SYSTEM',
+    });
+
+    await this.triggerUnfreezeRescore(w);
+  }
+
+  /**
+   * SANCTION REFUND decided: the V1 approval opened by initiateRefund reached a
+   * decision. APPROVED → delegate to onRefundApproved. Any other outcome → log
+   * only, the withdrawal stays FROZEN untouched.
+   */
+  @OnEvent('workflow.withdraw-sanction-refund.decided', { async: true })
+  async onRefundDecided(payload: {
+    decision: 'APPROVED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
+    entityRef: string;
+    approvalNo: string;
+    decisionReason?: string | null;
+  }) {
+    if (payload.decision !== 'APPROVED') {
+      this.logger.log(
+        `Withdrawal ${payload.entityRef} sanction-refund ${payload.decision} (case ${payload.approvalNo}) — original state intact, no refund executed.`,
+      );
+      return;
+    }
+    await this.onRefundApproved(payload.entityRef, payload.approvalNo);
+  }
+
+  /**
+   * SANCTION REFUND approved: reject the withdrawal and release the customer's
+   * locked balance back to available. Order mirrors onLargeValueApprovalDecided's
+   * rejected branch exactly: updateStatus first, then releaseLock (the P6
+   * primitive — voids both net + fee pendings best-effort), then audit.
+   * Customer-implication escalation (freezing the customer account itself) has
+   * no V2 API yet (BACKLOG) — this is audit-only; the reason notes the
+   * escalation is manual.
+   */
+  private async onRefundApproved(withdrawId: string, approvalNo?: string) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.FROZEN) {
+      this.logger.warn(
+        `onRefundApproved no-op: withdrawal ${withdrawId} not in FROZEN (status=${w.status})`,
+      );
+      return;
+    }
+
+    await this.withdrawService.updateStatus(
+      w.id,
+      {
+        action: WithdrawTransactionAction.REJECT_REFUND,
+        reason: 'Sanction refund approved (WITHDRAW_SANCTION_REFUND)',
+      },
+      this.systemCtx,
+    );
+
+    await this.releaseLock(w, 'Sanction refund approved (WITHDRAW_SANCTION_REFUND)');
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_SANCTION_REFUNDED,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: 'Sanction refund approved — withdrawal rejected and lock released; ' +
+        'customer-account escalation is manual (V2 freeze API not yet built, see BACKLOG)',
+      metadata: approvalNo ? { approvalNo } : undefined,
+      sourcePlatform: 'SYSTEM',
+    });
+  }
+
   // ── L3: Post-Tx Archive — fire-and-forget ──
 
   /**

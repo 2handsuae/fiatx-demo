@@ -2075,3 +2075,251 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// Task 9: FROZEN maker-checker gates (execution side) —
+// onUnfreezeDecided/onUnfreezeApproved/onRefundDecided/onRefundApproved.
+// Mirrors DepositWorkflowService's onUnfreezeDecided/onUnfreezeApproved test
+// shape: guard-before-mutate (orderRef missing throws BEFORE updateStatus),
+// rescore never rethrows (I2), non-FROZEN is a no-op, DECLINED/CANCELLED/
+// EXPIRED leave the row untouched.
+// ─────────────────────────────────────────────────────────────
+
+describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
+  const frozenWithdrawal = {
+    id: 'wd-frozen-9',
+    withdrawNo: 'WD-FROZEN-9',
+    status: WithdrawTransactionStatus.FROZEN,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-frozen-9',
+    traceId: 'trace-frozen-9',
+    sumsubTxnId: 'sumsub-txn-9',
+    netAmount: new Prisma.Decimal(90),
+    feeAmount: new Prisma.Decimal(10),
+    tbPendingNetId: '11',
+    tbPendingFeeId: '22',
+    asset: { decimals: 8 },
+  };
+
+  function buildWorkflow(overrides: {
+    withdrawService?: Partial<Record<string, jest.Mock>>;
+    approvalsService?: Partial<Record<string, jest.Mock>>;
+    accountingService?: Partial<Record<string, jest.Mock>>;
+    sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
+  } = {}) {
+    const withdrawService = {
+      findOneInternal: jest.fn().mockResolvedValue(frozenWithdrawal),
+      updateStatus: jest.fn().mockResolvedValue(undefined),
+      ...overrides.withdrawService,
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const approvalsService = {
+      list: jest.fn().mockResolvedValue({
+        items: [{ objectSnapshot: { orderRef: 'ORDER-REF-9' } }],
+        total: 1,
+      }),
+      ...overrides.approvalsService,
+    };
+    const accountingService = {
+      voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
+      ...overrides.accountingService,
+    };
+    const sumsubTxnClient = {
+      rescore: jest.fn().mockResolvedValue(undefined),
+      ...overrides.sumsubTxnClient,
+    };
+
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      accountingService as any,
+      {} as any, // fundsOrders
+      approvalsService as any,
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      sumsubTxnClient as any,
+    );
+
+    return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
+  }
+
+  describe('onUnfreezeDecided / onUnfreezeApproved', () => {
+    it('APPROVED + FROZEN: RESUME → COMPLIANCE_PENDING, audit contains orderRef, rescore called with sumsubTxnId', async () => {
+      const { workflow, withdrawService, auditLogsService, sumsubTxnClient } = buildWorkflow();
+
+      await workflow.onUnfreezeDecided({
+        decision: 'APPROVED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-UNFREEZE-1',
+      });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        frozenWithdrawal.id,
+        expect.objectContaining({ action: WithdrawTransactionAction.RESUME }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_UNFROZEN,
+          reason: expect.stringContaining('ORDER-REF-9'),
+        }),
+      );
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-txn-9');
+    });
+
+    it('orderRef missing on the APPROVED case → throws BEFORE updateStatus', async () => {
+      const { workflow, withdrawService } = buildWorkflow({
+        approvalsService: {
+          list: jest.fn().mockResolvedValue({ items: [{ objectSnapshot: {} }], total: 1 }),
+        },
+      });
+
+      await expect(
+        workflow.onUnfreezeDecided({
+          decision: 'APPROVED',
+          entityRef: frozenWithdrawal.id,
+          approvalNo: 'AP-UNFREEZE-2',
+        }),
+      ).rejects.toThrow('no APPROVED');
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rescore throws → status stays committed (COMPLIANCE_PENDING), no rethrow', async () => {
+      const { workflow, withdrawService, auditLogsService, sumsubTxnClient } = buildWorkflow({
+        sumsubTxnClient: { rescore: jest.fn().mockRejectedValue(new Error('sumsub down')) },
+      });
+
+      await expect(
+        workflow.onUnfreezeDecided({
+          decision: 'APPROVED',
+          entityRef: frozenWithdrawal.id,
+          approvalNo: 'AP-UNFREEZE-3',
+        }),
+      ).resolves.not.toThrow();
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_UNFROZEN }),
+      );
+      expect(sumsubTxnClient.rescore).toHaveBeenCalledWith('sumsub-txn-9');
+    });
+
+    it('empty sumsubTxnId → rescore skipped', async () => {
+      const { workflow, sumsubTxnClient } = buildWorkflow({
+        withdrawService: {
+          findOneInternal: jest.fn().mockResolvedValue({ ...frozenWithdrawal, sumsubTxnId: null }),
+          updateStatus: jest.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      await workflow.onUnfreezeDecided({
+        decision: 'APPROVED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-UNFREEZE-4',
+      });
+
+      expect(sumsubTxnClient.rescore).not.toHaveBeenCalled();
+    });
+
+    it('non-FROZEN withdrawal → no-op (updateStatus not called, orderRef never fetched)', async () => {
+      const { workflow, withdrawService, approvalsService } = buildWorkflow({
+        withdrawService: {
+          findOneInternal: jest.fn().mockResolvedValue({
+            ...frozenWithdrawal,
+            status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+          }),
+          updateStatus: jest.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      await workflow.onUnfreezeDecided({
+        decision: 'APPROVED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-UNFREEZE-5',
+      });
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(approvalsService.list).not.toHaveBeenCalled();
+    });
+
+    it('DECLINED → nothing executed, row untouched', async () => {
+      const { workflow, withdrawService, approvalsService } = buildWorkflow();
+
+      await workflow.onUnfreezeDecided({
+        decision: 'DECLINED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-UNFREEZE-6',
+      });
+
+      expect(withdrawService.findOneInternal).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(approvalsService.list).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onRefundDecided / onRefundApproved', () => {
+    it('APPROVED + FROZEN: REJECT_REFUND → REJECTED, releaseLock called (void x2), audit written', async () => {
+      const { workflow, withdrawService, accountingService, auditLogsService } = buildWorkflow();
+
+      await workflow.onRefundDecided({
+        decision: 'APPROVED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-REFUND-1',
+      });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        frozenWithdrawal.id,
+        expect.objectContaining({ action: WithdrawTransactionAction.REJECT_REFUND }),
+        expect.anything(),
+      );
+      // P6 primitive reused exactly: voids both net + fee pendings.
+      expect(accountingService.voidPendingTransferBestEffort).toHaveBeenCalledTimes(2);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_SANCTION_REFUNDED }),
+      );
+    });
+
+    it('non-FROZEN withdrawal → no-op, no releaseLock', async () => {
+      const { workflow, withdrawService, accountingService } = buildWorkflow({
+        withdrawService: {
+          findOneInternal: jest.fn().mockResolvedValue({
+            ...frozenWithdrawal,
+            status: WithdrawTransactionStatus.MANUAL_CHECKING,
+          }),
+          updateStatus: jest.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      await workflow.onRefundDecided({
+        decision: 'APPROVED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-REFUND-2',
+      });
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+    });
+
+    it('CANCELLED/EXPIRED/DECLINED → nothing executed, row untouched', async () => {
+      const { workflow, withdrawService } = buildWorkflow();
+
+      await workflow.onRefundDecided({
+        decision: 'CANCELLED',
+        entityRef: frozenWithdrawal.id,
+        approvalNo: 'AP-REFUND-3',
+      });
+
+      expect(withdrawService.findOneInternal).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+  });
+});
