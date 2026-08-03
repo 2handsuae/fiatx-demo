@@ -1259,6 +1259,7 @@ describe('WithdrawWorkflowService — Task 6: fee-leg order guard', () => {
     });
     fundsOrders.findById.mockResolvedValue({
       id: 'fo-fee-1',
+      status: FundsOrderStatus.CONFIRMED,
       asset: feeWithdrawal.asset,
       txHash: null,
       referenceNo: null,
@@ -1377,6 +1378,13 @@ describe('WithdrawWorkflowService — Task 6: settle-failure retry (three-rung l
     const { workflow, withdrawService, auditLogsService, fundsOrders, accountingService } = buildFeeWorkflow();
     withdrawService.findOneInternal.mockResolvedValue(feeWithdrawal);
     primeSettleThrow(fundsOrders, accountingService);
+    fundsOrders.findById.mockResolvedValue({
+      id: 'fo-fee-1',
+      status: FundsOrderStatus.CONFIRMED,
+      asset: feeWithdrawal.asset,
+      txHash: null,
+      referenceNo: null,
+    });
     withdrawService.incrementFeeSettleAttempts
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(2)
@@ -1404,11 +1412,70 @@ describe('WithdrawWorkflowService — Task 6: settle-failure retry (three-rung l
       if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', status: FundsOrderStatus.CLEARED }];
       return [];
     });
-    fundsOrders.findById.mockResolvedValue({ id: 'fo-fee-1', asset: feeWithdrawal.asset, txHash: null, referenceNo: null });
+    fundsOrders.findById.mockResolvedValue({
+      id: 'fo-fee-1',
+      status: FundsOrderStatus.CONFIRMED,
+      asset: feeWithdrawal.asset,
+      txHash: null,
+      referenceNo: null,
+    });
 
     await (workflow as any).onFeeLegConfirmed(feeWithdrawal.id, 'fo-fee-1');
 
     expect(fundsOrders.advance).toHaveBeenCalledWith('fo-fee-1', 'CLEAR', 'SYSTEM');
     expect(withdrawService.resetFeeSettleAttempts).toHaveBeenCalledWith(feeWithdrawal.id);
+  });
+
+  it('concurrent re-entry: fee leg already CLEARED when onFeeLegConfirmed runs → idempotent skip, no settlement or counter increments', async () => {
+    const { workflow, withdrawService, fundsOrders, accountingService } = buildFeeWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(feeWithdrawal);
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', status: FundsOrderStatus.CLEARED }];
+      return [];
+    });
+    // Concurrent racer: fee leg is already CLEARED
+    fundsOrders.findById.mockResolvedValue({ id: 'fo-fee-1', status: FundsOrderStatus.CLEARED });
+
+    await (workflow as any).onFeeLegConfirmed(feeWithdrawal.id, 'fo-fee-1');
+
+    // Guard prevents settlement: no POST calls, no firm-fee collect, no advance.
+    expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
+    expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(fundsOrders.advance).not.toHaveBeenCalled();
+    // Guard prevents false counter increments.
+    expect(withdrawService.incrementFeeSettleAttempts).not.toHaveBeenCalled();
+    expect(withdrawService.markNeedsReview).not.toHaveBeenCalled();
+  });
+
+  it('concurrent re-entry: fee leg already FAILED when onFeeLegConfirmed runs → idempotent skip', async () => {
+    const { workflow, withdrawService, fundsOrders, accountingService } = buildFeeWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(feeWithdrawal);
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', status: FundsOrderStatus.CLEARED }];
+      return [];
+    });
+    // Concurrent racer: fee leg is already FAILED
+    fundsOrders.findById.mockResolvedValue({ id: 'fo-fee-1', status: FundsOrderStatus.FAILED });
+
+    await (workflow as any).onFeeLegConfirmed(feeWithdrawal.id, 'fo-fee-1');
+
+    expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.incrementFeeSettleAttempts).not.toHaveBeenCalled();
+  });
+
+  it('concurrent re-entry: fee leg missing (null) when onFeeLegConfirmed runs → idempotent skip', async () => {
+    const { workflow, withdrawService, fundsOrders, accountingService } = buildFeeWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(feeWithdrawal);
+    fundsOrders.findByParent.mockImplementation(async (_parent: any, filter: any) => {
+      if (filter?.legSeq === 1) return [{ id: 'fo-principal-1', status: FundsOrderStatus.CLEARED }];
+      return [];
+    });
+    // Concurrent racer: fee leg vanished
+    fundsOrders.findById.mockResolvedValue(null);
+
+    await (workflow as any).onFeeLegConfirmed(feeWithdrawal.id, 'fo-fee-1');
+
+    expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.incrementFeeSettleAttempts).not.toHaveBeenCalled();
   });
 });

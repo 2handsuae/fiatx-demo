@@ -990,8 +990,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // principal finally clears. Pick it up here: if a fee leg exists, is still
     // sitting CONFIRMED (not yet posted/CLEARED), settle it now that the
     // principal is CLEARED. Safe to call unconditionally on every principal
-    // CLEAR (idempotent replay) — postPendingTransfer's already_posted amnesty
-    // and advance's terminal-status guard make a redundant call a no-op.
+    // CLEAR (idempotent replay, catches concurrent re-entry) — the guard inside
+    // onFeeLegConfirmed now checks if the fee leg is already terminal or gone,
+    // skipping settlement and avoiding false "already terminal" increments.
     const feeLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: FEE_LEG_SEQ });
     const feeLeg = feeLegs[feeLegs.length - 1];
     if (feeLeg && feeLeg.status === FundsOrderStatus.CONFIRMED) {
@@ -1014,6 +1015,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * webhook races ahead of the principal's. Defers (log + return, no throw) when
    * the principal isn't at least CONFIRMED yet; the fee funds order stays
    * CONFIRMED and is picked up later by onPayoutLegConfirmed's 回捞.
+   *
+   * Concurrent re-entry guard (Task 6): re-checks the fee leg's own current
+   * status after loading it (line 1061). If already terminal (CLEARED, FAILED, etc.)
+   * or missing, logs idempotent skip and returns without entering the settlement
+   * body — prevents concurrent double-invocations from both racing loser's
+   * "already terminal" error and false incrementFeeSettleAttempts counters.
    *
    * Settle-failure retry (Task 6, three-rung ladder rung 1): the settlement body
    * (POST + firm-fee collect + CLEAR) is wrapped in try/catch. A transient TB
@@ -1059,6 +1066,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
       }
 
       const fo = await this.fundsOrders.findById(fundsOrderId);
+
+      // Concurrent re-entry guard (Task 6): if the fee leg is no longer CONFIRMED
+      // (already CLEARED, FAILED, etc. or missing), skip settlement — prevents
+      // concurrent double-invocation from both racing loser's "already terminal"
+      // error and false incrementFeeSettleAttempts counters.
+      if (!fo || fo.status !== FundsOrderStatus.CONFIRMED) {
+        this.logger.debug(
+          `Withdrawal ${withdrawId}: fee leg ${fundsOrderId} status is ${fo?.status ?? 'MISSING'}, not CONFIRMED — idempotent skip`,
+        );
+        return;
+      }
+
       const { walletRef, externalRef } = this.recognitionRefs(w, fo);
 
       // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
