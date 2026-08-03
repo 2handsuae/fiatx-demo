@@ -1,6 +1,6 @@
 # 资金单（funds_orders）— 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-07-17（核对方式：没收改异步两阶段——legSeq=2 资金单改判 `INTERNAL`（出生 CREATED，走 INTERNAL/OUT 迁移表，ops 步进）+ 消费方 `handleFundsOrderChanged` 按 legSeq 分流逐符号核实；余节 2026-07-12 基线）
+Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 truth，查出两处漂移并修：①消费方 legSeq 分派仍停在 1/2 两条并称"其余直接 return"（实为四条，legSeq 3 退回 / 4 上缴各有 handler）②未记处置腿结算后收口 CLEARED 的新行为（2026-08-02 真机发现 FO2608024242 记账已 POSTED 但资金单永停 CONFIRMED）。前序核对方式：没收改异步两阶段——legSeq=2 资金单改判 `INTERNAL`（出生 CREATED，走 INTERNAL/OUT 迁移表，ops 步进）+ 消费方 `handleFundsOrderChanged` 按 legSeq 分流逐符号核实；余节 2026-07-12 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V4(充值)/V5(提现)/V6(兑换)/V8(对账) 引用——资金单状态机与执行引擎的唯一真相。各版本文档只描述"自己怎么用资金单"，状态机与共享 service 链到此。
 
@@ -40,7 +40,21 @@ Last Verified: 2026-07-17（核对方式：没收改异步两阶段——legSeq=
 - **externalRef 铸造/回写（funds_order 独占 owner）**：**首次到达 CONFIRMED** 由私有 `buildExternalRefPatch()` 按资产类型铸号落既有列——crypto→`txHash`(`fakeChainTxHash`) / fiat→`referenceNo`(`fakeBankRef`)，种子=`fundsOrderNo`、**幂等**（充值虚拟币沿用发起方 detected 带入的真实 txHash，不覆盖）；触发点在 `advance()`（`next===CONFIRMED`）+ `create()`（`FIAT_IN` 出生即 CONFIRMED）。消费方（账务/对账/前端）经 **`resolveExternalRef(row)`** 读（crypto→txHash / fiat→referenceNo），订单三域不再各自推导。swap 腿 pending 不带号，`postLeg → tbEvidence.enrichForPost` 在 CONFIRMED 补写真实号并重投影 account_flows（外部对账镜像 `writeMirror` 从 account_flows 复制 → 两侧构造性恒等）
 - **查询**：`findById`/`findByNo`/`findByParent`/`findAllForAdmin`；**`findNonTerminalByWallet(walletId)`** — V8 对账在途识别（非终态资金单 ↔ 孤儿外部行配对）
 - **CLEAR 时记账**：充值两步 / 提现 post+fee / swap 四腿两阶段——具体记账口径见 accounting-coa.md
-- **消费方按 legSeq 分流（充值侧，2026-07-17）**：`deposit-workflow.service.ts → handleFundsOrderChanged()` 按 legSeq 分派——`legSeq === 1`（payin 本体）走 `onPayinConfirmed`/`onPayinFailed`；`legSeq === 2`（没收内部单）走 `onConfiscationLegChanged`（该单由 `startConfiscation()` 建为 `CREATED`、ops 经 ⚡ 面板步进，到 `CONFIRMED` 触发 `settleConfiscation()` POST 两腿 pending + deposit→CONFISCATED）；其余 legSeq 直接 `return`。没收内部单**不复用 payin 事件路径**（提现侧 `withdraw-workflow.service.ts` 对 `PAYOUT_LEG_SEQ` vs `FEE_LEG_SEQ` 的分流是同一模式）
+- **消费方按 legSeq 分流（充值侧，2026-07-17 起；2026-07-28 补 legSeq 3/4）**：`deposit-workflow.service.ts → handleFundsOrderChanged()` 按 legSeq 分派——**四条腿各有独立 handler，互不复用 payin 事件路径**（提现侧 `withdraw-workflow.service.ts` 对 `PAYOUT_LEG_SEQ` vs `FEE_LEG_SEQ` 的分流是同一模式）：
+
+  | legSeq | 归属 | handler | `CONFIRMED` 时做什么 |
+  |---|---|---|---|
+  | 1 | payin 本体 | `onPayinConfirmed` / `onPayinFailed` | 记账 STEP_1 + deposit→`COMPLIANCE_PENDING` + **该腿 `CLEAR`** |
+  | 2 | 没收内部单（C2/C3） | `onConfiscationLegChanged` | `settleConfiscation()` post 两腿 + deposit→`CONFISCATED` |
+  | 3 | 退回单（A3） | `onReturnLegChanged` | `settleReturn()` post + deposit→`RETURNED`；`FAILED`/`TIMEOUT` → void + 以新 `attempt` 重建重试 |
+  | 4 | 上缴单（A4） | `onSeizeLegChanged` | `settleSeize()` post + deposit→`SEIZED`；失败处理同 legSeq 3 |
+
+  其余 legSeq 直接 `return`。
+
+- **处置腿结算后必须收口到 `CLEARED`（2026-08-02 修，真机发现）**：`settleConfiscation` / `settleReturn` / `settleSeize` 三者在记账 post 与 deposit 状态落定后，统一调 `clearDispositionLeg()` 把该腿推到 `CLEARED`。
+  ~~此前 `FundsOrderAction.CLEAR` 在充值域只有一处调用——payin 确认（硬绑 legSeq=1）~~；三条处置弧由 C3/A3/A4 三轮分别实现，每个 settle 都只做「记账 + deposit 状态 + 审计」三件事，**三次都漏了「资金单本身也是个状态机」这第四件**。真机实证：`FO2608024242`（legSeq=4）分录已 POSTED、deposit 已 `SEIZED`，资金单永停 `CONFIRMED`；全库统计 legSeq=1 共 12 笔全 `CLEARED`，唯一的 legSeq=4 停 `CONFIRMED`。**不影响资金安全**（`verify:coa` 恒等式照常 PASS），影响运营视图与任何按 `status=CLEARED` 取数的对账口径——会漏掉全部处置腿。
+  `clearDispositionLeg()` 两条约定：① **吞异常不上抛**（此刻记账已 POSTED、deposit 已进终态，若抛会让外层 settle 重试重跑 `updateStatus`，而 deposit 终态零出边 → `Invalid action` → 把展示问题升级成 settle 卡死；失败只落 `DEPOSIT_LEG_CLEAR_FAILED` 审计 + warn）；② **`already terminal` 视为幂等成功**（与 `postPendingTransfer` 赦免 `already_posted` 同源）。
+  **防漏闸**：`deposit-workflow.service.spec.ts` 有守则性测试——扫源码列出全部 `private async settle*()`，逐个断言函数体含 `clearDispositionLeg(`，新增第四条处置弧若忘收口即红（已用变异测试验证）。
 - **admin 读面**：`admin-web/src/pages/FundsOrderList.tsx`（列表）用前端小解析器（镜像 `resolveExternalRef`：crypto→txHash / fiat→referenceNo）展示 **External Ref 列**，类型(parent)/状态走筛选栏下拉（原顶部类型 tab 已删）；`FundsOrderDetail.tsx`（详情，⚡模拟推进 + 推单处置）。列表页全英文，菜单在 Trading 组 Swap Transactions 下。
 - 锚点：`funds-orders/funds-order.service.ts → create()/advance()/advanceByNo()/findNonTerminalByWallet()/resolveExternalRef()/buildExternalRefPatch()` ｜ 铸造器 `common/utils/fake-external-refs.util.ts → fakeChainTxHash()/fakeBankRef()` ｜ swap 补写 `swap-transactions/swap-leg-accounting.ts → postLeg()`(经 `tb-evidence.service.ts → enrichForPost()`) ｜ admin 后端 `funds-orders.admin.controller.ts`（列表/详情 + ⚡模拟推进 + 推单）
 

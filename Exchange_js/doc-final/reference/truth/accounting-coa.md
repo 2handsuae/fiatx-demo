@@ -1,6 +1,6 @@
 # 记账与 COA — 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-07-12（核对方式：符号级 grep + V3-V8 体检交叉佐证；2026-07-12 账本细化落地补 §2 `balanceAfter` + 新 §3.5 账本 admin 呈现层）
+Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 truth，查出一处漂移并修：§1 标题与清单写"8 码 COA"，实为 9 码——FIRM_SEIZED(204) 由 2026-07-28 计划2·A4 上缴落地新增，文档漏收。前序核对方式：符号级 grep + V3-V8 体检交叉佐证；2026-07-12 账本细化落地补 §2 `balanceAfter` + 新 §3.5 账本 admin 呈现层）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V3(账户开设)/V4(充值)/V5(提现)/V6(兑换)/V8(对账) 全部引用——记账口径的唯一真相，各版本文档链到此、不各写一遍。
 
@@ -10,7 +10,7 @@ Last Verified: 2026-07-12（核对方式：符号级 grep + V3-V8 体检交叉�
 
 **TigerBeetle 是余额唯一真相；Prisma 只留人类可读凭证与投影。** 实时 1:1 镜像账本：客户资产与负债内部恒等，每笔交易就地记账（无延迟结算/EOD 轧差）。本文管：8 码 COA、TB 记账机制（转账/两阶段/凭证）、AccountFlow 投影、记账不变量。**不**管：各交易流怎么调用记账（去 v4/v5/v6）。
 
-## 1. 8 码 COA（`tb-account-codes.constant.ts`）
+## 1. 9 码 COA（`tb-account-codes.constant.ts`）
 
 | 码 | 账户 | 归属 | 借贷方向 |
 |---|---|---|---|
@@ -22,6 +22,7 @@ Last Verified: 2026-07-12（核对方式：符号级 grep + V3-V8 体检交叉�
 | 201 | `FIRM_SET` | 结算中转（仅法币）| 公司 |
 | 202 | `FIRM_FEE` | 手续费收入 | 公司 |
 | 203 | `FIRM_LIQ` | 流动性 | 公司 |
+| 204 | `FIRM_SEIZED` | 已上缴执法（2026-07-28 计划2·A4 新增）| 公司 |
 
 - 系统级（CLIENT_ASSET/FIRM_ASSET/FIRM_OPS/FIRM_FEE/FIRM_LIQ + 法币 FIRM_SET）在资产创建**同事务** provision；客户级（CLIENT_PAYABLE/DEPOSIT_SUSPENSE）**首笔交易懒解析**。
 - 账户映射：`TbAccountRegistry` 按 `(code, ledger, ownerType, ownerUuid)` 四元组唯一。

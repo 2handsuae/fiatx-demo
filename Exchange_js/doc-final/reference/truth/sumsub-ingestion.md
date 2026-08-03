@@ -1,6 +1,6 @@
 # Sumsub 合规信号翻译层 — 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-07-28（核对方式：符号级 grep + V2/V4/V5/V6 体检交叉佐证；本次补充充值 KYT-txn webhook 前置分流段，见第 3 节）
+Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 truth，查出三处漂移并修：①前置分流仍写 startsWith 前缀匹配（实为 KYT_VERDICT_TYPES 显式集合）②类型清单写 applicantKytTxnOnHold（官方无 Txn，正是本轮修掉的真接入必失效 bug）③第 4 节仍称充值新旧两条路径并存（applyKytResult/applyTrResult 已全仓零残留）。前序核对方式：符号级 grep + V2/V4/V5/V6 体检交叉佐证；本次补充充值 KYT-txn webhook 前置分流段，见第 3 节）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V2(onboarding/CRA/材料时效)/V4(充值 KYT)/V5(提现 KYT)/V6(兑换) 引用——外部合规信号进平台的**唯一入口**。各版本文档只描述"自己消费哪个事件"，翻译层机制链到此。
 
@@ -25,8 +25,10 @@ Sumsub（KYC/KYT/Travel Rule/制裁筛查/持续监控）的 webhook → 翻译�
 
 - **接入**：`POST /webhooks/sumsub` → `handleWebhook()` 签名验证（`sumsubClient.verifyWebhookSignature`，失败抛 401）
 - **ingest**：`ingest()` → 去重（dedupeKey）→ `createEventRecord()` 建 SumsubWebhookEvent(PENDING) → 触发 dispatch
-- **dispatch 前置分流（充值交易 webhook，2026-07 落地）**：`dispatch()` 在按 eventType 的老 if/else 分支**之前**新插一段——`payload.type` 以 `applicantKytTxn` 开头（`applicantKytTxnApproved/Rejected/AwaitingUser/OnHold/Reviewed/Created`）即整段转交 `DepositWebhookRouter.route()`（新模块 `deposit-sumsub/`），复用本表既有的去重/retry/dead-letter，只是路由目标从老 if/else 换成这个 router。`DepositWebhookRouter` 再按 type 二次分流到 `DepositKytVerdictHandler`（Approved/Rejected/AwaitingUser/OnHold）→ 调 `DepositWorkflowService.applyKytVerdict()` 驱动充值状态机（Created 只记 debug 回执 no-op，Reviewed 归一 ignore，未知 type 记 orphan warn）。`applicantAction*` 事件**不**进这条新分支——仍走下面"applicant 事件"这条老分支（Clue 3，材料时效重检消费方 V2 `materialRefreshService`），两者互不干扰；充值侧对材料补齐后的重检不需要专门 handler 接住 action 事件本身，客户补料后 Sumsub 自动重评发出的仍是 `applicantKytTxn*`，继续走新分支。详见 `v4-deposit.md` §4.1。
-- **dispatch 路由**（老分支，按 eventType + 客户 onboardingStatus 分流，`applicantKytTxn*` 已被上面的新分支拦截，不会落到这里）：
+- **dispatch 前置分流（充值交易 webhook，2026-07 落地；2026-07-31 由前缀匹配改为显式集合匹配）**：`dispatch()` 在按 eventType 的老 if/else 分支**之前**新插一段——`payload.type` 命中 **`KYT_VERDICT_TYPES`**（`deposit-sumsub/kyt-webhook-types.ts`，六项：`applicantKytTxnApproved` / `applicantKytTxnRejected` / `applicantKytTxnAwaitingUser` / **`applicantKytOnHold`** / `applicantKytTxnReviewed` / `applicantKytTxnCreated`）即整段转交 `DepositWebhookRouter.route()`（新模块 `deposit-sumsub/`），复用本表既有的去重/retry/dead-letter，只是路由目标从老 if/else 换成这个 router。
+  ⚠️ **`applicantKytOnHold` 没有 `Txn`** —— 这是 Sumsub 官方的命名不一致（其文档自己也注明）。~~此前用 `startsWith('applicantKytTxn')` 前缀匹配~~，真实 on-hold 事件不以该前缀开头，**在最外层分流处就被丢弃**，挂起复核整条路失效；因我方 fixture 与全链路五处一致地写成 `applicantKytTxnOnHold`，演示与单测全绿、完全掩盖了缺陷（2026-07-31 修）。
+  **修法约束（勿改回）**：不可放宽成 `startsWith('applicantKyt')` —— 那会把 `applicantKytAml*` 等同前缀的其它 KYT 族事件误吞进 deposit 路由。类型清单以 `kyt-webhook-types.ts` 为**单一真相源**，ingestion 前置分流 / `DepositWebhookRouter` / `DepositKytVerdictHandler` 三处共用同一份，不得各自维护副本。`DepositWebhookRouter` 再按 type 二次分流到 `DepositKytVerdictHandler`（Approved/Rejected/AwaitingUser/OnHold）→ 调 `DepositWorkflowService.applyKytVerdict()` 驱动充值状态机（Created 只记 debug 回执 no-op，Reviewed 归一 ignore，未知 type 记 orphan warn）。`applicantAction*` 事件**不**进这条新分支——仍走下面"applicant 事件"这条老分支（Clue 3，材料时效重检消费方 V2 `materialRefreshService`），两者互不干扰；充值侧对材料补齐后的重检不需要专门 handler 接住 action 事件本身，客户补料后 Sumsub 自动重评发出的仍是 `applicantKytTxn*`，继续走新分支。详见 `v4-deposit.md` §4.1。
+- **dispatch 路由**（老分支，按 eventType + 客户 onboardingStatus 分流；命中 `KYT_VERDICT_TYPES` 的充值 KYT-txn 事件已被上面的前置分流拦截，不会落到这里）：
   - 模拟合规事件（kyt/tr/caseDecision）→ 对应交易的合规门（V4/V5/V6 KYT/TR 状态）
   - `ongoingDocExpired` → V2 `materialRefreshService.handleSumsubDocMonitoringFire()`
   - applicant 事件 → 按 onboardingStatus：PENDING_VERIFICATION→V2 onboarding；APPROVED+WorkflowCompleted→V2 tierUpgrade；APPROVED+Reviewed(RED)→V2 CRA
@@ -36,7 +38,7 @@ Sumsub（KYC/KYT/Travel Rule/制裁筛查/持续监控）的 webhook → 翻译�
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
 
-- 🔴 **真实 Sumsub KYT/TR 集成未做（V5/V6）**：V5（提现）/V6（兑换）的 KYT/Travel Rule 门仍**靠模拟端点驱动**，真实 webhook 消费链路未见部署；V5 `archivePostKyt()` stub（待替换真实 PATCH /kyt/txns 调用）。**V4（充值）已接真实 webhook**（`applicantKytTxn*` → `DepositWebhookRouter`，见第 3 节 + `v4-deposit.md` §4.1）——但老 mock kyt-check/tr-check 路径（`v4-deposit.md` §4.2）并未删除，新旧两条路径并存。
+- 🔴 **真实 Sumsub KYT/TR 集成未做（V5/V6）**：V5（提现）/V6（兑换）的 KYT/Travel Rule 门仍**靠模拟端点驱动**，真实 webhook 消费链路未见部署；V5 `archivePostKyt()` stub（待替换真实 PATCH /kyt/txns 调用）。**V4（充值）已接真实 webhook**（`KYT_VERDICT_TYPES` → `DepositWebhookRouter`，见第 3 节 + `v4-deposit.md` §4.1）。~~老 mock kyt-check/tr-check 路径并未删除，新旧两条路径并存~~ —— **该路径已于 2026-07-31 单笔提交改造中整体删除**（`applyKytResult()`/`applyTrResult()` 全仓零残留，已 grep 核实），充值侧不再并存两条路径，见 `v4-deposit.md` §4.2 的作废声明。
 - 消费方处置见各版本：V2 onboarding/CRA/材料时效（v2-customer-compliance.md）、V4-V6 合规门（各自 truth）
 
 ## 5. 锚点汇总
