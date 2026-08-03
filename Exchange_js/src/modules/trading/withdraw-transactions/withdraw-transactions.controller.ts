@@ -18,6 +18,8 @@ import {
   WithdrawTransactionQueryDto,
   AdminUpdateWithdrawTransactionStatusDto,
   BounceWithdrawTransactionDto,
+  UnfreezeWithdrawTransactionDto,
+  SanctionRefundWithdrawTransactionDto,
   WithdrawTransactionAction,
 } from './dto/withdraw-transaction.dto';
 import {
@@ -27,6 +29,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Withdraw Transactions')
 @ApiBearerAuth()
@@ -103,6 +106,46 @@ export class WithdrawTransactionsController {
       actorId: req.user?.userId || 'ADMIN_SYSTEM',
       actorRole: req.user?.role || 'ADMIN',
     });
+  }
+
+  private toApprovalActor(req: any): ApprovalActorContext {
+    return {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+  }
+
+  @Post(':id/unfreeze')
+  @ApiOperation({ summary: 'Unfreeze a FROZEN withdrawal under delisting/unfreeze order (maker-checker approval)' })
+  unfreeze(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UnfreezeWithdrawTransactionDto,
+  ) {
+    this.assertAdmin(req);
+    return this.workflowService.initiateUnfreeze(
+      id,
+      { orderRef: dto.orderRef, reason: dto.reason },
+      this.toApprovalActor(req),
+    );
+  }
+
+  @Post(':id/refund')
+  @ApiOperation({ summary: 'Refund a FROZEN withdrawal to sender under sanction disposition (maker-checker approval)' })
+  refund(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: SanctionRefundWithdrawTransactionDto,
+  ) {
+    this.assertAdmin(req);
+    return this.workflowService.initiateRefund(
+      id,
+      { reason: dto.reason },
+      this.toApprovalActor(req),
+    );
   }
 
 }

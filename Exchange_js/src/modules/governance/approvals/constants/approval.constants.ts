@@ -77,6 +77,9 @@ export const ApprovalActionTypes = {
   DEPOSIT_RETURN: 'DEPOSIT_RETURN',
   DEPOSIT_SEIZE: 'DEPOSIT_SEIZE',
   DEPOSIT_UNFREEZE: 'DEPOSIT_UNFREEZE',
+  // Withdraw FROZEN Unfreeze/Sanction-Refund (Task 8, 2026-08-03) — 复刻 DEPOSIT_UNFREEZE 的 maker-checker 范式
+  WITHDRAW_UNFREEZE: 'WITHDRAW_UNFREEZE',
+  WITHDRAW_SANCTION_REFUND: 'WITHDRAW_SANCTION_REFUND',
 } as const;
 
 export const ApprovalStatuses = {
@@ -391,6 +394,17 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // ─── Withdraw FROZEN Unfreeze/Sanction-Refund (Task 8, 2026-08-03) ────
+  [ApprovalActionTypes.WITHDRAW_UNFREEZE]: {
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.WITHDRAW_SANCTION_REFUND]: {
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -422,6 +436,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.DEPOSIT_RETURN,
   ApprovalActionTypes.DEPOSIT_SEIZE,
   ApprovalActionTypes.DEPOSIT_UNFREEZE,
+  ApprovalActionTypes.WITHDRAW_UNFREEZE,
+  ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

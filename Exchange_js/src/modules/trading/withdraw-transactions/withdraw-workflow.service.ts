@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -35,7 +36,11 @@ import { bigintToHex, hexToBigint } from '../../accounting/tigerbeetle/utils/tb-
 import { WithdrawQuoteService } from '../withdrawal-fee-level/withdraw-quote.service';
 import { WalletRole } from '../../asset-treasury/wallets/dto/wallet.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
-import { ApprovalActionTypes } from '../../governance/approvals/constants/approval.constants';
+import {
+  ApprovalActionTypes,
+  ApprovalActorContext,
+  ApprovalStatuses,
+} from '../../governance/approvals/constants/approval.constants';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 import {
   shouldRequireApproval,
@@ -1674,6 +1679,182 @@ export class WithdrawWorkflowService implements OnModuleInit {
     );
 
     this.logger.log(`Withdrawal ${withdrawId} bounced by bank/network — reversed net leg, status RETURNED`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Task 8 — FROZEN maker-checker approval gates (initiate side only).
+  // Mirrors DepositWorkflowService.initiateSeize/initiateUnfreeze exactly:
+  // reads the withdrawal, checks FROZEN + an anti-dup open-PENDING guard,
+  // opens the V1 approval case, audits the request — writes NOTHING to the
+  // withdraw table (Rule 5: initiate reads only). The two out-edges FROZEN
+  // already carries (resume→COMPLIANCE_PENDING, reject_refund→REJECTED) are
+  // driven off the APPROVED decision in Task 9's decided-event listeners
+  // (workflow.withdraw-unfreeze.decided / workflow.withdraw-sanction-refund.decided).
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private toAuditActor(actor: ApprovalActorContext): AuditActorContext {
+    return {
+      actorType: actor.actorType,
+      actorId: actor.userId,
+      actorNo: actor.userNo,
+      actorRole: actor.role || actor.roleCodes[0] || 'UNKNOWN',
+    };
+  }
+
+  /**
+   * UNFREEZE disposition (initiate side, Task 8): ops proposes unfreezing a FROZEN
+   * withdrawal under a delisting/unfreeze order (sanction list correction, MLRO
+   * clearance, etc.). Routed through V1 maker-checker approval (single-step MLRO).
+   * Only opens the approval case + audits the request; the actual resume→
+   * COMPLIANCE_PENDING transition lands in Task 9's decided-event handler.
+   */
+  async initiateUnfreeze(
+    withdrawId: string,
+    dto: { orderRef: string; reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.orderRef?.trim()) {
+      throw new BadRequestException('Delisting/unfreeze order reference is required');
+    }
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Unfreeze reason is required');
+    }
+
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.FROZEN) {
+      throw new BadRequestException('Withdrawal is not FROZEN, cannot open an unfreeze approval');
+    }
+
+    // Anti-dup: a withdrawal must not accrue two open unfreeze approvals.
+    const openUnfreezes = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
+      entityRef: w.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openUnfreezes.total > 0) {
+      throw new ConflictException(
+        `Withdrawal ${w.withdrawNo} already has a pending unfreeze approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = w.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
+        entityRef: w.id,
+        traceId,
+        objectSnapshot: {
+          withdrawNo: w.withdrawNo,
+          ownerType: w.ownerType,
+          ownerId: w.ownerId,
+          orderRef: dto.orderRef,
+          reason: dto.reason,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_UNFREEZE_APPROVAL_REQUESTED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: dto.reason,
+        metadata: { withdrawNo: w.withdrawNo, orderRef: dto.orderRef, approvalNo: approvalCase.approvalNo },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      withdrawNo: w.withdrawNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
+  }
+
+  /**
+   * SANCTION REFUND disposition (initiate side, Task 8): ops proposes refunding a
+   * FROZEN withdrawal back to its sender under a sanctions disposition (the
+   * REJECT_REFUND tag arriving while a withdrawal was already FROZEN is ignored —
+   * see applyKytRejected's WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED guard — so this is
+   * the only legal path to that exit). Routed through V1 maker-checker approval
+   * (single-step MLRO). Only opens the approval case + audits the request; the
+   * actual reject_refund→REJECTED transition lands in Task 9's decided-event handler.
+   */
+  async initiateRefund(
+    withdrawId: string,
+    dto: { reason: string },
+    actor: ApprovalActorContext,
+  ) {
+    if (!dto.reason?.trim()) {
+      throw new BadRequestException('Refund reason is required');
+    }
+
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.FROZEN) {
+      throw new BadRequestException('Withdrawal is not FROZEN, cannot open a sanction-refund approval');
+    }
+
+    // Anti-dup: a withdrawal must not accrue two open sanction-refund approvals.
+    const openRefunds = await this.approvalsService.list({
+      actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
+      entityRef: w.id,
+      status: ApprovalStatuses.PENDING,
+      take: 1,
+    });
+    if (openRefunds.total > 0) {
+      throw new ConflictException(
+        `Withdrawal ${w.withdrawNo} already has a pending sanction-refund approval; resolve it before submitting another.`,
+      );
+    }
+
+    const traceId = w.traceId || randomUUID();
+    const approvalCase = await this.approvalsService.createAndSubmit(
+      {
+        actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
+        entityRef: w.id,
+        traceId,
+        objectSnapshot: {
+          withdrawNo: w.withdrawNo,
+          ownerType: w.ownerType,
+          ownerId: w.ownerId,
+          reason: dto.reason,
+        },
+      },
+      { reason: dto.reason, traceId },
+      actor,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_SANCTION_REFUND_APPROVAL_REQUESTED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: dto.reason,
+        metadata: { withdrawNo: w.withdrawNo, approvalNo: approvalCase.approvalNo },
+        sourcePlatform: 'ADMIN_API',
+      },
+      this.toAuditActor(actor),
+    );
+
+    return {
+      withdrawNo: w.withdrawNo,
+      approvalNo: approvalCase.approvalNo,
+      status: 'PENDING_APPROVAL',
+    };
   }
 
   // ── L3: Post-Tx Archive — fire-and-forget ──

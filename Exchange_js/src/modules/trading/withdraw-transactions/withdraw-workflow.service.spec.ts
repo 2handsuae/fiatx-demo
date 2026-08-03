@@ -10,6 +10,7 @@ import { FundsOrderStatus, FundsOrderAction } from '../../funds-orders/dto/funds
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
+import { ApprovalActionTypes, ApprovalStatuses } from '../../governance/approvals/constants/approval.constants';
 
 describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   let workflow: WithdrawWorkflowService;
@@ -1850,5 +1851,227 @@ describe('WithdrawWorkflowService.archivePostKyt (Task 7: L3 real Sumsub archive
     });
 
     expect(sumsubTxnClient.archiveTxHash).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Task 8: FROZEN maker-checker gates (initiate side only) —
+// initiateUnfreeze / initiateRefund. Mirrors DepositWorkflowService's
+// initiateSeize/initiateUnfreeze test shape: non-FROZEN → BadRequest,
+// duplicate PENDING → Conflict, happy path → createAndSubmit called with
+// the right actionType + objectSnapshot, no write to the withdraw row.
+// ─────────────────────────────────────────────────────────────
+
+describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', () => {
+  const actor = {
+    actorType: 'ADMIN' as const,
+    userId: 'admin-1',
+    userNo: 'A0001',
+    role: 'MLRO',
+    roleCodes: ['MLRO'],
+  };
+
+  const frozenWithdrawal = {
+    id: 'wd-frozen-1',
+    withdrawNo: 'WD-FROZEN-1',
+    status: WithdrawTransactionStatus.FROZEN,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-frozen-1',
+    traceId: 'trace-frozen-1',
+  };
+
+  function buildFrozenWorkflow(overrides: {
+    withdrawService?: Partial<Record<string, jest.Mock>>;
+    approvalsService?: Partial<Record<string, jest.Mock>>;
+  } = {}) {
+    const withdrawService = {
+      findOneInternal: jest.fn().mockResolvedValue(frozenWithdrawal),
+      updateStatus: jest.fn(),
+      ...overrides.withdrawService,
+    };
+    const auditLogsService = { recordByActor: jest.fn().mockResolvedValue({}) };
+    const approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0 }),
+      createAndSubmit: jest.fn().mockResolvedValue({ id: 'ap-1', approvalNo: 'AP-FROZEN-1' }),
+      ...overrides.approvalsService,
+    };
+
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      approvalsService as any,
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+    );
+
+    return { workflow, withdrawService, auditLogsService, approvalsService };
+  }
+
+  describe('initiateUnfreeze', () => {
+    it('non-FROZEN withdrawal → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        withdrawService: {
+          findOneInternal: jest.fn().mockResolvedValue({
+            ...frozenWithdrawal,
+            status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+          }),
+        },
+      });
+
+      await expect(
+        workflow.initiateUnfreeze('wd-frozen-1', { orderRef: 'ORDER-1', reason: 'delisted' }, actor),
+      ).rejects.toThrow('not FROZEN');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('empty orderRef → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow();
+
+      await expect(
+        workflow.initiateUnfreeze('wd-frozen-1', { orderRef: '  ', reason: 'delisted' }, actor),
+      ).rejects.toThrow('order reference is required');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('empty reason → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow();
+
+      await expect(
+        workflow.initiateUnfreeze('wd-frozen-1', { orderRef: 'ORDER-1', reason: '' }, actor),
+      ).rejects.toThrow('reason is required');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('duplicate open PENDING unfreeze approval → ConflictException', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        approvalsService: { list: jest.fn().mockResolvedValue({ total: 1 }) },
+      });
+
+      await expect(
+        workflow.initiateUnfreeze('wd-frozen-1', { orderRef: 'ORDER-1', reason: 'delisted' }, actor),
+      ).rejects.toThrow('already has a pending unfreeze approval');
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
+          entityRef: 'wd-frozen-1',
+          status: ApprovalStatuses.PENDING,
+        }),
+      );
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('happy path: opens a WITHDRAW_UNFREEZE approval case with orderRef/withdrawNo in the snapshot, no write to the withdraw row', async () => {
+      const { workflow, withdrawService, approvalsService, auditLogsService } = buildFrozenWorkflow();
+
+      const result = await workflow.initiateUnfreeze(
+        'wd-frozen-1',
+        { orderRef: 'ORDER-REF-42', reason: 'Sanction list correction' },
+        actor,
+      );
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.WITHDRAW_UNFREEZE,
+          entityRef: 'wd-frozen-1',
+          objectSnapshot: expect.objectContaining({
+            withdrawNo: 'WD-FROZEN-1',
+            ownerType: 'CUSTOMER',
+            ownerId: 'cust-frozen-1',
+            orderRef: 'ORDER-REF-42',
+          }),
+        }),
+        expect.objectContaining({ reason: 'Sanction list correction' }),
+        actor,
+      );
+      // Rule 5: initiate reads only, never writes the withdraw table.
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(
+        expect.objectContaining({ withdrawNo: 'WD-FROZEN-1', approvalNo: 'AP-FROZEN-1', status: 'PENDING_APPROVAL' }),
+      );
+    });
+  });
+
+  describe('initiateRefund', () => {
+    it('non-FROZEN withdrawal → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        withdrawService: {
+          findOneInternal: jest.fn().mockResolvedValue({
+            ...frozenWithdrawal,
+            status: WithdrawTransactionStatus.MANUAL_CHECKING,
+          }),
+        },
+      });
+
+      await expect(
+        workflow.initiateRefund('wd-frozen-1', { reason: 'sanction hit' }, actor),
+      ).rejects.toThrow('not FROZEN');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('empty reason → BadRequestException, no approval case opened', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow();
+
+      await expect(
+        workflow.initiateRefund('wd-frozen-1', { reason: '   ' }, actor),
+      ).rejects.toThrow('reason is required');
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('duplicate open PENDING sanction-refund approval → ConflictException', async () => {
+      const { workflow, approvalsService } = buildFrozenWorkflow({
+        approvalsService: { list: jest.fn().mockResolvedValue({ total: 1 }) },
+      });
+
+      await expect(
+        workflow.initiateRefund('wd-frozen-1', { reason: 'sanction hit' }, actor),
+      ).rejects.toThrow('already has a pending sanction-refund approval');
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
+          entityRef: 'wd-frozen-1',
+          status: ApprovalStatuses.PENDING,
+        }),
+      );
+      expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    });
+
+    it('happy path: opens a WITHDRAW_SANCTION_REFUND approval case with withdrawNo in the snapshot, no write to the withdraw row', async () => {
+      const { workflow, withdrawService, approvalsService, auditLogsService } = buildFrozenWorkflow();
+
+      const result = await workflow.initiateRefund(
+        'wd-frozen-1',
+        { reason: 'Sanctions hit confirmed — refund to sender' },
+        actor,
+      );
+
+      expect(approvalsService.createAndSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actionType: ApprovalActionTypes.WITHDRAW_SANCTION_REFUND,
+          entityRef: 'wd-frozen-1',
+          objectSnapshot: expect.objectContaining({
+            withdrawNo: 'WD-FROZEN-1',
+            ownerType: 'CUSTOMER',
+            ownerId: 'cust-frozen-1',
+          }),
+        }),
+        expect.objectContaining({ reason: 'Sanctions hit confirmed — refund to sender' }),
+        actor,
+      );
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordByActor).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(
+        expect.objectContaining({ withdrawNo: 'WD-FROZEN-1', approvalNo: 'AP-FROZEN-1', status: 'PENDING_APPROVAL' }),
+      );
+    });
   });
 });

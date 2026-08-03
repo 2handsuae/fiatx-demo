@@ -10,6 +10,8 @@ import { WithdrawalFeeLevelModule } from '../withdrawal-fee-level/withdrawal-fee
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approval.service';
+import { WithdrawUnfreezeApprovalService } from './withdraw-unfreeze-approval.service';
+import { WithdrawSanctionRefundApprovalService } from './withdraw-sanction-refund-approval.service';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
@@ -37,6 +39,8 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     WithdrawTransactionsService,
     WithdrawWorkflowService,
     WithdrawLargeValueApprovalService,
+    WithdrawUnfreezeApprovalService,
+    WithdrawSanctionRefundApprovalService,
   ],
   exports: [
     WithdrawTransactionsService,

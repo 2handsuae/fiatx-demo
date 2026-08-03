@@ -69,6 +69,30 @@ export class BounceWithdrawTransactionDto {
   reason!: string;
 }
 
+// Task 8: FROZEN maker-checker gates (initiate side). orderRef is the
+// delisting/unfreeze order document number — required, this is the paper
+// trail justifying lifting a sanctions/MLRO hold.
+export class UnfreezeWithdrawTransactionDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  orderRef!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  reason!: string;
+}
+
+// Task 8: FROZEN sanction-refund gate (initiate side). No orderRef — this
+// disposition returns the funds to sender rather than lifting the freeze.
+export class SanctionRefundWithdrawTransactionDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  reason!: string;
+}
+
 export class CreateWithdrawTransactionDto {
   @IsString()
   assetId!: string;
