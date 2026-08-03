@@ -185,12 +185,12 @@ export async function createStuckWithdraw(
     }
   }
 
-  await waitFor(`${wd.withdrawNo} PENDING_COMPLIANCE`, async () => {
+  await waitFor(`${wd.withdrawNo} COMPLIANCE_PENDING`, async () => {
     const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-    return w.status === 'PENDING_COMPLIANCE' ? w : null;
+    return w.status === 'COMPLIANCE_PENDING' ? w : null;
   });
-  await ctx.withdraws.updateKytStatus(wd.id, 'PASSED', null, 5, 1);
-  if (isCrypto) await ctx.withdraws.updateTravelRuleStatus(wd.id, 'PASSED', null);
+  // Real Sumsub KYT verdict application (Task 5) — no real webhook in demo/local.
+  await ctx.withdrawWf.applyKytVerdict(wd.id, { verdict: 'approved', riskScore: 5 });
 
   await waitFor(
     `${wd.withdrawNo} PAYOUT_PENDING`,

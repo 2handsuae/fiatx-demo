@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -50,6 +51,11 @@ import {
   FundsOrderAction,
   FundsOrderStatus,
 } from '../../funds-orders/dto/funds-order.dto';
+import {
+  SUMSUB_TXN_CLIENT,
+  SumsubTxnClient,
+} from '../../deposit-sumsub/sumsub-txn-client.interface';
+import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -106,6 +112,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
     sourcePlatform: 'SYSTEM',
   };
 
+  // applyKytVerdict no-ops on these — every terminal state already answers "钱去哪了"
+  // (spec §5) and must not be reopened by a late/replayed KYT webhook.
+  private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
+    WithdrawTransactionStatus.SUCCESS,
+    WithdrawTransactionStatus.REJECTED,
+    WithdrawTransactionStatus.FAILED,
+    WithdrawTransactionStatus.RETURNED,
+  ]);
+
+  private static readonly ONHOLD_SLA_DAYS = 7;
+  private static readonly ACTION_SLA_DAYS = 7;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
@@ -120,6 +138,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly tbEvidenceService: TbEvidenceService,
     private readonly limitGateService: TransactionLimitGateService,
     private readonly limitRulesService: TransactionLimitRulesService,
+    @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -523,8 +542,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         this.logger.log(`Withdrawal ${event.withdrawId} below approval threshold — remaining in compliance`);
         // Withdrawal is already BORN on COMPLIANCE_PENDING (Task 2) — no transition
         // needed here.
-        // TASK5-TODO submitSumsubTxn()
-        await this.initializeTransactionScreen(w.id);
+        await this.submitSumsubTxn(w.id);
       }
     } catch (err) {
       this.logger.error(`handleWithdrawalCreated failed for ${event.withdrawId}: ${(err as Error).message}`);
@@ -645,7 +663,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         reason: `Large-value approval granted (case ${payload.approvalNo}) — proceeding to compliance`,
         sourcePlatform: 'SYSTEM',
       });
-      await this.initializeTransactionScreen(w.id);
+      await this.submitSumsubTxn(w.id);
     } else {
       await this.withdrawService.updateStatus(
         w.id,
@@ -728,32 +746,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     });
   }
 
-  @OnEvent(DomainEventNames.WITHDRAWAL_KYT_UPDATED)
-  async handleKytUpdated(event: {
-    withdrawId: string;
-    kytStatus: string;
-    phase: number;
-  }) {
-    this.logger.log(`KYT updated for withdrawal ${event.withdrawId}: phase=${event.phase} status=${event.kytStatus}`);
-
-    if (event.phase === 1) {
-      // Pre-broadcast KYT — check if pre-KYT + TR both pass → move to payout
-      await this.checkScreenPass(event.withdrawId);
-    } else if (event.phase === 2) {
-      // Post-broadcast KYT — payout already in flight, just audit
-      await this.handlePostBroadcastKyt(event.withdrawId, event.kytStatus);
-    }
-  }
-
-  @OnEvent(DomainEventNames.WITHDRAWAL_TRAVELRULE_UPDATED)
-  async handleTravelRuleUpdated(event: {
-    withdrawId: string;
-    travelRuleStatus: string;
-  }) {
-    this.logger.log(`Travel Rule updated for withdrawal ${event.withdrawId}: status=${event.travelRuleStatus}`);
-    await this.checkScreenPass(event.withdrawId);
-  }
-
   /**
    * Unified funds-order listener (spec §5.2) — replaces the legacy
    * @OnEvent(PAYOUT_STATUS_CONFIRMED) + @OnEvent(EVT_PAYOUT_FAILED/TIMEOUT/RETURNED)
@@ -791,78 +783,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
         }
         break;
     }
-  }
-
-  // ── L2: Transaction Screen — Initialize ──
-
-  private async initializeTransactionScreen(withdrawId: string) {
-    const w = await this.withdrawService.findOneInternal(withdrawId);
-    const isFiat = w.asset?.type === 'FIAT';
-
-    if (isFiat) {
-      // Fiat: Pre-KYT screens IBAN + BIC + beneficiary; Travel Rule not applicable
-      await this.withdrawService.updateKytStatus(withdrawId, 'PENDING', null, null, 1);
-      await this.withdrawService.updateTravelRuleStatus(withdrawId, 'NOT_REQUIRED', null);
-      this.logger.log(`Transaction screen initialized for fiat withdrawal ${withdrawId} — awaiting Pre-KYT`);
-    } else {
-      // Crypto: Pre-KYT screens wallet address; Travel Rule screens VASP beneficiary
-      await this.withdrawService.updateKytStatus(withdrawId, 'PENDING', null, null, 1);
-      await this.withdrawService.updateTravelRuleStatus(withdrawId, 'PENDING', null);
-      this.logger.log(`Transaction screen initialized for crypto withdrawal ${withdrawId} — awaiting Pre-KYT + Travel Rule`);
-    }
-
-    await this.checkScreenPass(withdrawId);
-  }
-
-  // ── L2: Transaction Screen — Convergence Check ──
-
-  private async checkScreenPass(withdrawId: string) {
-    const w = await this.withdrawService.findOneInternal(withdrawId);
-
-    if (w.status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
-      this.logger.debug(`Skip gate check: withdrawal ${withdrawId} status is ${w.status}`);
-      return;
-    }
-
-    const gate1Phase1Pass = w.preKytStatus === 'PASSED';
-    const gate2Pass = w.travelRuleStatus === 'PASSED' || w.travelRuleStatus === 'NOT_REQUIRED';
-
-    if (!gate1Phase1Pass || !gate2Pass) {
-      this.logger.debug(
-        `Gates not yet all passed for ${withdrawId}: preKyt=${w.preKytStatus} tr=${w.travelRuleStatus}`,
-      );
-      return;
-    }
-
-    this.logger.log(`Pre-broadcast gates PASSED for withdrawal ${withdrawId} — initiating payout phase`);
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WITHDRAW_KYT_PHASE1_PASSED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
-      traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Pre-KYT passed: score=${w.preKytRiskScore}`,
-      sourcePlatform: 'SYSTEM',
-    });
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WITHDRAW_TRAVEL_RULE_PASSED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
-      traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Travel Rule status: ${w.travelRuleStatus}`,
-      sourcePlatform: 'SYSTEM',
-    });
-
-    await this.initiatePayoutPhase(withdrawId);
   }
 
   // ── Payout Phase ──
@@ -968,27 +888,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
       `Withdrawal ${withdrawId} now PAYOUT_PENDING — payout leg ${payoutLeg.fundsOrderNo}` +
         (Number(w.feeAmount) > 0 ? ' + fee leg created' : ''),
     );
-  }
-
-  // ── Post-Broadcast KYT (Phase 2): after payout is in-flight ──
-
-  private async handlePostBroadcastKyt(withdrawId: string, kytStatus: string) {
-    const w = await this.withdrawService.findOneInternal(withdrawId);
-
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WITHDRAW_KYT_PHASE1_PASSED,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
-      traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Post-broadcast KYT completed: status=${kytStatus} score=${w.kytRiskScore}`,
-      sourcePlatform: 'SYSTEM',
-    });
-
-    this.logger.log(`Post-broadcast KYT recorded for withdrawal ${withdrawId}: ${kytStatus}`);
   }
 
   // ── Finalization: per-leg TB POST driven by funds_order.status.changed ──
@@ -1439,31 +1338,309 @@ export class WithdrawWorkflowService implements OnModuleInit {
     );
   }
 
-  // ── Task 5 stub: Sumsub KYT verdict application ──
+  // ── Sumsub single-txn submit (COMPLIANCE_PENDING entry) ──
 
   /**
-   * TASK5-TODO: stub only. WithdrawKytVerdictHandler (Task 4) already calls this
-   * on every KYT verdict webhook that owns a withdrawal, but the real
-   * state-machine wiring (FROZEN / MANUAL_CHECKING / REJECT_REFUND transitions,
-   * dispo-tag handling, gate writeback) is Task 5's job — mirrors
-   * DepositWorkflowService.applyKytVerdict's eventual shape. For now this only
-   * logs so the deposit→withdraw dispatch cascade is provably wired end to end
-   * without touching withdrawal state.
+   * Submits the withdrawal to Sumsub KYT so a verdict webhook (applyKytVerdict)
+   * can later drive the state machine. One withdrawal → one txn; `type` is
+   * decided by resolveKytTxnType (mirrors DepositWorkflowService.submitSumsubTxns,
+   * direction='out'). Idempotent on sumsubTxnId. If the customer has no
+   * sumsubApplicantId yet, warns and skips — the withdrawal stays
+   * COMPLIANCE_PENDING awaiting manual handling rather than crashing.
+   *
+   * I2 (充值教训): the ENTIRE call is wrapped in try/catch — a submit failure
+   * (Sumsub down, network error) must never strand the withdrawal; it just stays
+   * in COMPLIANCE_PENDING for retry (there is no caller-side try/catch here, unlike
+   * deposit's runGate0 wrapper).
+   */
+  private async submitSumsubTxn(withdrawId: string): Promise<void> {
+    try {
+      const w = await this.withdrawService.findOneInternal(withdrawId);
+      if (w.status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
+        this.logger.debug(
+          `submitSumsubTxn skip: withdrawal ${withdrawId} status is ${w.status}, not COMPLIANCE_PENDING`,
+        );
+        return;
+      }
+      if (w.sumsubTxnId) {
+        this.logger.debug(
+          `submitSumsubTxn skip: withdrawal ${withdrawId} already has sumsubTxnId (idempotent)`,
+        );
+        return;
+      }
+
+      const applicantId = w.customer?.sumsubApplicantId;
+      if (!applicantId) {
+        this.logger.warn(
+          `submitSumsubTxn skip: withdrawal ${withdrawId} customer ${w.ownerId} has no sumsubApplicantId — staying in COMPLIANCE_PENDING for manual handling`,
+        );
+        return;
+      }
+
+      const amount = Number(w.amount);
+      const decision = resolveKytTxnType({
+        assetType: w.asset?.type,
+        currency: w.asset?.currency,
+        amount,
+        counterpartyIsVasp: w.counterpartyIsVasp,
+      });
+      const SINGLE_TXN_SUBMIT_ENABLED =
+        process.env.SUMSUB_SINGLE_TXN_SUBMIT === 'true' ||
+        process.env.SUMSUB_MOCK_MODE === 'true';
+      const submitType = SINGLE_TXN_SUBMIT_ENABLED ? decision.type : 'finance';
+
+      const isCrypto = w.asset?.type === 'CRYPTO';
+      const currencyType: 'fiat' | 'crypto' = isCrypto ? 'crypto' : 'fiat';
+
+      const result = await this.sumsubTxnClient.submitTxn({
+        applicantId,
+        clientTxnId: w.withdrawNo,
+        type: submitType,
+        direction: 'out',
+        amount,
+        currencyCode: w.asset?.currency,
+        currencyType,
+      });
+
+      await this.withdrawService.setSumsubTxn(w.id, {
+        sumsubTxnId: result.txnId,
+        sumsubTxnType: submitType,
+      });
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_SUMSUB_SUBMITTED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: 'Withdrawal submitted to Sumsub KYT for transaction monitoring',
+        metadata: { sumsubTxnId: result.txnId, txnType: submitType, reason: decision.reason },
+        sourcePlatform: 'SYSTEM',
+      });
+
+      this.logger.log(
+        `Sumsub txn submitted for withdrawal ${w.id}: type=${submitType} txnId=${result.txnId} (decision=${decision.type}/${decision.reason})`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `submitSumsubTxn failed for withdrawal ${withdrawId}: ${(err as Error).message} — staying in COMPLIANCE_PENDING for retry`,
+      );
+    }
+  }
+
+  // ── Sumsub KYT verdict application (drives the 20-edge state machine) ──
+
+  /**
+   * Sumsub KYT 裁决落地入口(WithdrawKytVerdictHandler 调用)。State-aware: 已终态
+   * no-op;FROZEN 迟到 approved 整体 no-op(含存证跳过,保护制裁证据)。分支落 spec
+   * §3/§5 的转移表(mirrors DepositWorkflowService.applyKytVerdict)。
    */
   async applyKytVerdict(
     withdrawId: string,
     input: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
-      riskScore: number | null;
+      riskScore?: number | null;
       sceneTag?: 'SANCTION' | 'PEP';
       dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
       detailRaw?: unknown;
     },
   ): Promise<void> {
-    // TASK5-TODO
-    this.logger.debug(
-      `applyKytVerdict stub: withdrawal ${withdrawId} verdict=${input.verdict} ` +
-        `riskScore=${input.riskScore} sceneTag=${input.sceneTag ?? '-'} dispoTag=${input.dispoTag ?? '-'}`,
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+
+    const status = w.status as WithdrawTransactionStatus;
+    if (WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) {
+      this.logger.debug(
+        `applyKytVerdict no-op: withdrawal ${withdrawId} already terminal (${status})`,
+      );
+      return;
+    }
+
+    // FROZEN 是制裁/MLRO 冻结态,不在 KYT_VERDICT_TERMINAL_STATUSES 里(出口走 §4 的
+    // 双审批弧,不是 approve)。一笔迟到/重评的 approved verdict 会跑到这里——如果闸门
+    // 回写/存证照常执行,就会用 approved 报文覆写既有的制裁报文,尽管状态机压根没推进。
+    // 跳过写回/存证,别让一个必然 no-op 的 approved 静默损坏冻结单的制裁证据。
+    // MANUAL_CHECKING 不受影响(它是 approved 的合法翻案路径,必须正常写回)。
+    const approvedWillNoOpFrozen =
+      input.verdict === 'approved' && status === WithdrawTransactionStatus.FROZEN;
+
+    if (approvedWillNoOpFrozen) {
+      this.logger.debug(
+        `applyKytVerdict no-op: withdrawal ${withdrawId} is FROZEN, ignoring approved KYT verdict (requires unfreeze approval to resume)`,
+      );
+      return;
+    }
+
+    await this.withdrawService.saveSumsubVerdict(w.id, {
+      verdict: input.verdict,
+      score: input.riskScore ?? null,
+      scoredAt: new Date(),
+      ...(input.detailRaw !== undefined && { detailJson: JSON.stringify(input.detailRaw) }),
+    });
+
+    switch (input.verdict) {
+      case 'approved':
+        await this.applyKytApproved(w);
+        return;
+      case 'awaitUser':
+        await this.applyKytAwaitUser(w, input.sceneTag);
+        return;
+      case 'onHold':
+        await this.applyKytOnHold(w);
+        return;
+      case 'rejected':
+        await this.applyKytRejected(w, input.sceneTag, input.dispoTag);
+        return;
+    }
+  }
+
+  /**
+   * approved (from COMPLIANCE_PENDING/ACTION_PENDING/MANUAL_CHECKING — all three
+   * carry the APPROVE edge). FROZEN is already filtered out by applyKytVerdict's
+   * no-op guard before this runs. MANUAL_CHECKING gets an extra "翻案" audit;
+   * the status flip + funds-order creation stays owned by initiatePayoutPhase
+   * (single place the APPROVE action fires — do not duplicate the updateStatus
+   * call here).
+   */
+  private async applyKytApproved(w: any): Promise<void> {
+    if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) {
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_MANUAL_APPROVED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: 'KYT verdict approved: manual checking overturned',
+        sourcePlatform: 'SYSTEM',
+      });
+    }
+    await this.initiatePayoutPhase(w.id);
+  }
+
+  /**
+   * awaitUser: ACTION_PENDING (manualReason by sceneTag, slaDeadline+7d atomic
+   * write via updateStatus's extraData). Idempotent when already ACTION_PENDING
+   * (repeat webhook).
+   */
+  private async applyKytAwaitUser(w: any, sceneTag?: 'SANCTION' | 'PEP'): Promise<void> {
+    if (w.status === WithdrawTransactionStatus.ACTION_PENDING) {
+      return; // already in target state — repeat webhook
+    }
+
+    const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
+    const slaDeadline = new Date(
+      Date.now() + WithdrawWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
+    await this.withdrawService.updateStatus(
+      w.id,
+      { action: WithdrawTransactionAction.ACTION_PENDING, reason: 'KYT verdict: awaitUser' },
+      { ...this.systemCtx, extraData: { manualReason, slaDeadline } },
+    );
+  }
+
+  /**
+   * onHold: non-transitional — only refreshes slaDeadline + audits when the
+   * withdrawal is currently COMPLIANCE_PENDING (spec §3: "非转移边"). A late
+   * onHold webhook arriving after the withdrawal already moved on
+   * (ACTION_PENDING/MANUAL_CHECKING/FROZEN/...) is a no-op.
+   */
+  private async applyKytOnHold(w: any): Promise<void> {
+    if (w.status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
+      this.logger.debug(
+        `applyKytOnHold no-op: withdrawal ${w.id} not in COMPLIANCE_PENDING (status=${w.status}), late onHold webhook ignored`,
+      );
+      return;
+    }
+
+    const slaDeadline = new Date(
+      Date.now() + WithdrawWorkflowService.ONHOLD_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
+    await this.withdrawService.setSlaDeadline(w.id, slaDeadline);
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_ONHOLD,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: 'KYT verdict: onHold, awaiting officer review',
+      metadata: { slaDeadline: slaDeadline.toISOString() },
+      sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  /**
+   * rejected: tag 三分支(spec §3)。
+   *   SANCTION(场景) / FROZEN_BY_MLRO(处置) → FREEZE(免审批,收紧方向)
+   *   REJECT_REFUND(处置)                  → REJECT_REFUND → REJECTED + releaseLock
+   *   无 tag                                → KYT_REJECTED → MANUAL_CHECKING
+   * All three idempotent when already in the target state (repeat webhook).
+   */
+  private async applyKytRejected(
+    w: any,
+    sceneTag?: 'SANCTION' | 'PEP',
+    dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND',
+  ): Promise<void> {
+    if (sceneTag === 'SANCTION' || dispoTag === 'FROZEN_BY_MLRO') {
+      if (w.status === WithdrawTransactionStatus.FROZEN) return; // already frozen — repeat webhook
+
+      await this.withdrawService.updateStatus(
+        w.id,
+        { action: WithdrawTransactionAction.FREEZE, reason: 'KYT verdict: rejected' },
+        this.systemCtx,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_FROZEN,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `KYT verdict rejected: ${sceneTag === 'SANCTION' ? 'SANCTION hit' : 'FROZEN_BY_MLRO disposition'}`,
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    if (dispoTag === 'REJECT_REFUND') {
+      await this.withdrawService.updateStatus(
+        w.id,
+        { action: WithdrawTransactionAction.REJECT_REFUND, reason: 'KYT verdict: rejected, officer refund tag' },
+        this.systemCtx,
+      );
+      await this.releaseLock(w, 'Officer refund tag');
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_REFUNDED_BY_TAG,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: 'KYT verdict rejected: officer REJECT_REFUND tag — void pending locks, refund to available balance',
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    // no tag → routed to manual compliance review
+    if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) return; // already there — repeat webhook
+
+    await this.withdrawService.updateStatus(
+      w.id,
+      { action: WithdrawTransactionAction.KYT_REJECTED, reason: 'KYT verdict: rejected, no disposition tag' },
+      this.systemCtx,
     );
   }
 

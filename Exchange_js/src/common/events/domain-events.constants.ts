@@ -28,19 +28,6 @@ export const DOMAIN_EVENTS = {
     subscribers: ['WithdrawWorkflowService'],
     payload: '{ withdrawId: string, oldStatus: string, newStatus: string, ownerType: string, ownerId: string, assetId: string }',
   },
-  WITHDRAWAL_KYT_UPDATED: {
-    name: 'withdrawal.kyt.updated',
-    emitter: 'WithdrawTransactionsService',
-    subscribers: ['WithdrawWorkflowService'],
-    payload: '{ withdrawId: string, kytStatus: string, phase: number }',
-  },
-  WITHDRAWAL_TRAVELRULE_UPDATED: {
-    name: 'withdrawal.travelrule.updated',
-    emitter: 'WithdrawTransactionsService',
-    subscribers: ['WithdrawWorkflowService'],
-    payload: '{ withdrawId: string, travelRuleStatus: string }',
-  },
-
   // ── Funds Order (unified — Round 2) ──
   FUNDS_ORDER_STATUS_CHANGED: {
     name: 'funds_order.status.changed',
@@ -58,8 +45,6 @@ export const DomainEventNames = {
   // Withdrawal
   WITHDRAWAL_CREATED: DOMAIN_EVENTS.WITHDRAWAL_CREATED.name,
   WITHDRAWAL_STATUS_CHANGED: DOMAIN_EVENTS.WITHDRAWAL_STATUS_CHANGED.name,
-  WITHDRAWAL_KYT_UPDATED: DOMAIN_EVENTS.WITHDRAWAL_KYT_UPDATED.name,
-  WITHDRAWAL_TRAVELRULE_UPDATED: DOMAIN_EVENTS.WITHDRAWAL_TRAVELRULE_UPDATED.name,
   // Funds Order (unified — Round 2)
   FUNDS_ORDER_STATUS_CHANGED: DOMAIN_EVENTS.FUNDS_ORDER_STATUS_CHANGED.name,
 } as const;

@@ -79,11 +79,12 @@ async function main() {
     console.log(`[P6] created withdrawal ${wd.withdrawNo} (amount ${AMOUNT_AED} AED)`);
 
     // 2) Drive to PAYOUT_PENDING (compliance pass).
-    await waitFor(`${wd.withdrawNo} PENDING_COMPLIANCE`, async () => {
+    await waitFor(`${wd.withdrawNo} COMPLIANCE_PENDING`, async () => {
       const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-      return w.status === 'PENDING_COMPLIANCE' ? w : null;
+      return w.status === 'COMPLIANCE_PENDING' ? w : null;
     }, 8000);
-    await ctx.withdraws.updateKytStatus(wd.id, 'PASSED', null, 5, 1); // fiat: TR auto NOT_REQUIRED
+    // Real Sumsub KYT verdict application (Task 5) — no real webhook in demo/local.
+    await ctx.withdrawWf.applyKytVerdict(wd.id, { verdict: 'approved', riskScore: 5 });
 
     const wdp: any = await waitFor(`${wd.withdrawNo} PAYOUT_PENDING`, async () => {
       const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });

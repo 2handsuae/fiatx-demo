@@ -411,14 +411,14 @@ async function driveWithdraw(ctx: DemoCtx, c: any, asset: any, amount: number, t
       throw e;
     }
   }
-  const isCrypto = asset.type === 'CRYPTO';
-
-  await waitFor(`${wd.withdrawNo} PENDING_COMPLIANCE`, async () => {
+  await waitFor(`${wd.withdrawNo} COMPLIANCE_PENDING`, async () => {
     const w: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
-    return w.status === 'PENDING_COMPLIANCE' ? w : null;
+    return w.status === 'COMPLIANCE_PENDING' ? w : null;
   });
-  await ctx.withdraws.updateKytStatus(wd.id, 'PASSED', null, 5, 1);
-  if (isCrypto) await ctx.withdraws.updateTravelRuleStatus(wd.id, 'PASSED', null);
+  // Real Sumsub KYT verdict application (Task 5) — mirrors driveDeposit's
+  // applyKytVerdict call. There is no real Sumsub webhook in the demo/local
+  // environment, so the verdict is applied directly.
+  await ctx.withdrawWf.applyKytVerdict(wd.id, { verdict: 'approved', riskScore: 5 });
 
   // At PAYOUT_PENDING the workflow has materialised the payout principal funds
   // order (legSeq 1) and, when a fee was charged, the fee funds order (legSeq 2).

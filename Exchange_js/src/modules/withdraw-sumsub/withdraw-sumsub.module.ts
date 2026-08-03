@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { WithdrawWebhookRouter } from './withdraw-webhook.router';
 import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
+import { WithdrawSlaService } from './withdraw-sla.service';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
 
@@ -20,7 +21,7 @@ import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
     forwardRef(() => WithdrawTransactionsModule),
     forwardRef(() => DepositSumsubModule),
   ],
-  providers: [WithdrawWebhookRouter, WithdrawKytVerdictHandler],
+  providers: [WithdrawWebhookRouter, WithdrawKytVerdictHandler, WithdrawSlaService],
   exports: [WithdrawWebhookRouter],
 })
 export class WithdrawSumsubModule {}

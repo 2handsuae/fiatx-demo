@@ -4,7 +4,7 @@ export interface SubmitTxnInput {
   applicantId: string;
   clientTxnId: string;
   type: 'finance' | 'travelRule';
-  direction: 'in';
+  direction: 'in' | 'out';
   amount: number;
   currencyCode: string;
   currencyType: 'fiat' | 'crypto';

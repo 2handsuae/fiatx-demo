@@ -13,6 +13,7 @@ import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approv
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
+import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
 
 @Module({
   imports: [
@@ -25,6 +26,11 @@ import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits
     FundsLayerModule,
     FundsOrdersModule,
     TransactionLimitsModule,
+    // Task 5: WithdrawWorkflowService injects SUMSUB_TXN_CLIENT (submitSumsubTxn) —
+    // same provider deposit already uses. forwardRef: WithdrawTransactionsModule →
+    // DepositSumsubModule → SumsubIngestionModule → WithdrawTransactionsModule closes
+    // a cycle (mirrors DepositTransactionsModule's identical import).
+    forwardRef(() => DepositSumsubModule),
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

@@ -53,6 +53,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // tbEvidenceService
       {} as any, // limitGateService
       {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
     );
   });
 
@@ -120,6 +121,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // tbEvidenceService
       {} as any, // limitGateService
       {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
     );
   });
 
@@ -178,6 +180,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // tbEvidenceService
       {} as any, // limitGateService
       {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
     );
   });
 
@@ -248,6 +251,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // tbEvidenceService
       {} as any, // limitGateService
       {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
     );
   });
 
@@ -423,8 +427,6 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       saveValuationSnapshot: jest.fn().mockResolvedValue(undefined),
       linkApprovalCase: jest.fn().mockResolvedValue(undefined),
       landOnPendingApproval: jest.fn().mockResolvedValue(undefined),
-      updateKytStatus: jest.fn().mockResolvedValue(undefined),
-      updateTravelRuleStatus: jest.fn().mockResolvedValue(undefined),
     };
     const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
     const approvalsService = {
@@ -453,6 +455,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       {} as any, // tbEvidenceService
       {} as any, // limitGateService
       limitRulesService as any,
+      {} as any, // sumsubTxnClient
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -544,5 +547,449 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
     // (funds still locked, retriable on the next WITHDRAWAL_CREATED replay).
     expect(withdrawService.linkApprovalCase).not.toHaveBeenCalled();
     expect(withdrawService.landOnPendingApproval).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Task 5: submitSumsubTxn + applyKytVerdict (real Sumsub single-txn submit +
+// verdict-driven state machine, replacing the old preKyt/travelRule mock).
+// ─────────────────────────────────────────────────────────────
+
+function buildFullWorkflow(overrides: {
+  withdrawService?: Partial<Record<string, jest.Mock>>;
+  sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
+} = {}) {
+  const withdrawService = {
+    findOneInternal: jest.fn(),
+    setSumsubTxn: jest.fn().mockResolvedValue(undefined),
+    saveSumsubVerdict: jest.fn().mockResolvedValue(undefined),
+    setSlaDeadline: jest.fn().mockResolvedValue(undefined),
+    updateStatus: jest.fn().mockResolvedValue(undefined),
+    ...overrides.withdrawService,
+  };
+  const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+  const accountingService = { voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true) };
+  const sumsubTxnClient = {
+    submitTxn: jest.fn().mockResolvedValue({ txnId: 'SUMSUB-TXN-1' }),
+    getTxn: jest.fn(),
+    rescore: jest.fn(),
+    reviewComplete: jest.fn(),
+    ...overrides.sumsubTxnClient,
+  };
+
+  const workflow = new WithdrawWorkflowService(
+    {} as any, // prisma
+    {} as any, // eventEmitter
+    withdrawService as any,
+    {} as any, // withdrawQuoteService
+    auditLogsService as any,
+    accountingService as any,
+    {} as any, // fundsOrders
+    {} as any, // approvalsService
+    {} as any, // binanceRateProvider
+    {} as any, // systemWalletResolver
+    {} as any, // tbEvidenceService
+    {} as any, // limitGateService
+    {} as any, // limitRulesService
+    sumsubTxnClient as any,
+  );
+
+  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient };
+}
+
+function baseWithdrawRow(overrides: Record<string, any> = {}) {
+  return {
+    id: 'wd-sumsub-1',
+    withdrawNo: 'WD-SUMSUB-1',
+    status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-1',
+    traceId: 'trace-1',
+    amount: new Prisma.Decimal('100'),
+    netAmount: new Prisma.Decimal('95'),
+    feeAmount: new Prisma.Decimal('5'),
+    counterpartyIsVasp: false,
+    sumsubTxnId: null,
+    asset: { type: 'CRYPTO', currency: 'USDT', decimals: 8 },
+    customer: { sumsubApplicantId: 'APPLICANT-1' },
+    tbPendingNetId: null,
+    tbPendingFeeId: null,
+    ...overrides,
+  };
+}
+
+describe('WithdrawWorkflowService.submitSumsubTxn (private, Task 5)', () => {
+  const ORIGINAL_ENV = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('idempotent: withdrawal already has sumsubTxnId → skips submitTxn entirely', async () => {
+    const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow({ sumsubTxnId: 'ALREADY-SUBMITTED' }));
+
+    await (workflow as any).submitSumsubTxn('wd-sumsub-1');
+
+    expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+    expect(withdrawService.setSumsubTxn).not.toHaveBeenCalled();
+  });
+
+  it('guard: status is not COMPLIANCE_PENDING → skips (no submit)', async () => {
+    const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(
+      baseWithdrawRow({ status: WithdrawTransactionStatus.PAYOUT_PENDING }),
+    );
+
+    await (workflow as any).submitSumsubTxn('wd-sumsub-1');
+
+    expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+  });
+
+  it('missing applicant: customer has no sumsubApplicantId → warns + skips, stays COMPLIANCE_PENDING (no throw)', async () => {
+    const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow({ customer: {} }));
+
+    await expect((workflow as any).submitSumsubTxn('wd-sumsub-1')).resolves.toBeUndefined();
+
+    expect(sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+    expect(withdrawService.setSumsubTxn).not.toHaveBeenCalled();
+  });
+
+  it('I2: submitTxn throws (real HTTP failure) → caught internally, never strands the withdrawal (no throw propagates)', async () => {
+    const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow({
+      sumsubTxnClient: { submitTxn: jest.fn().mockRejectedValue(new Error('sumsub down')) },
+    });
+    withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow());
+
+    await expect((workflow as any).submitSumsubTxn('wd-sumsub-1')).resolves.toBeUndefined();
+
+    expect(withdrawService.setSumsubTxn).not.toHaveBeenCalled();
+  });
+
+  it('success: submits with direction=out, clientTxnId=withdrawNo, persists sumsubTxnId/Type, audits WITHDRAW_SUMSUB_SUBMITTED', async () => {
+    const { workflow, withdrawService, auditLogsService, sumsubTxnClient } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow());
+
+    await (workflow as any).submitSumsubTxn('wd-sumsub-1');
+
+    expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        applicantId: 'APPLICANT-1',
+        clientTxnId: 'WD-SUMSUB-1',
+        direction: 'out',
+        amount: 100,
+        currencyCode: 'USDT',
+        currencyType: 'crypto',
+      }),
+    );
+    expect(withdrawService.setSumsubTxn).toHaveBeenCalledWith('wd-sumsub-1', {
+      sumsubTxnId: 'SUMSUB-TXN-1',
+      sumsubTxnType: 'finance',
+    });
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.WITHDRAW_SUMSUB_SUBMITTED }),
+    );
+  });
+
+  it('travelRule decision under SUMSUB_MOCK_MODE=true: crypto+VASP+over-threshold → type=travelRule', async () => {
+    process.env.SUMSUB_MOCK_MODE = 'true';
+    delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+    const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(
+      baseWithdrawRow({ counterpartyIsVasp: true, amount: new Prisma.Decimal('5000') }),
+    );
+
+    await (workflow as any).submitSumsubTxn('wd-sumsub-1');
+
+    expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'travelRule' }),
+    );
+  });
+
+  it('switch OFF (SUMSUB_MOCK_MODE/SUMSUB_SINGLE_TXN_SUBMIT both unset): still submits once, forced to type=finance', async () => {
+    delete process.env.SUMSUB_MOCK_MODE;
+    delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+    const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(
+      baseWithdrawRow({ counterpartyIsVasp: true, amount: new Prisma.Decimal('5000') }),
+    );
+
+    await (workflow as any).submitSumsubTxn('wd-sumsub-1');
+
+    expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
+    expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'finance' }),
+    );
+  });
+});
+
+describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state machine)', () => {
+  it('terminal statuses (SUCCESS/REJECTED/FAILED/RETURNED) → no-op, no evidence write', async () => {
+    for (const status of [
+      WithdrawTransactionStatus.SUCCESS,
+      WithdrawTransactionStatus.REJECTED,
+      WithdrawTransactionStatus.FAILED,
+      WithdrawTransactionStatus.RETURNED,
+    ]) {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow({ status }));
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 5 });
+
+      expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    }
+  });
+
+  it('FROZEN + late/re-evaluated approved → full no-op (evidence NOT written, no status flip)', async () => {
+    const { workflow, withdrawService } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(
+      baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
+    );
+    const initiateSpy = jest
+      .spyOn(workflow as any, 'initiatePayoutPhase')
+      .mockResolvedValue(undefined);
+
+    await workflow.applyKytVerdict('wd-sumsub-1', {
+      verdict: 'approved',
+      riskScore: 5,
+      detailRaw: { txnId: 'late-approved' },
+    });
+
+    expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    expect(initiateSpy).not.toHaveBeenCalled();
+  });
+
+  describe('approved branch — three legal entry states', () => {
+    it('from COMPLIANCE_PENDING → delegates to initiatePayoutPhase, no manual-approved audit', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+      const initiateSpy = jest
+        .spyOn(workflow as any, 'initiatePayoutPhase')
+        .mockResolvedValue(undefined);
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 3 });
+
+      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ verdict: 'approved', score: 3 }),
+      );
+      expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED }),
+      );
+    });
+
+    it('from ACTION_PENDING (re-evaluated after补料) → delegates to initiatePayoutPhase, no manual-approved audit', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.ACTION_PENDING }),
+      );
+      const initiateSpy = jest
+        .spyOn(workflow as any, 'initiatePayoutPhase')
+        .mockResolvedValue(undefined);
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 3 });
+
+      expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED }),
+      );
+    });
+
+    it('from MANUAL_CHECKING → records WITHDRAW_MANUAL_APPROVED (翻案) THEN delegates to initiatePayoutPhase', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING }),
+      );
+      const initiateSpy = jest
+        .spyOn(workflow as any, 'initiatePayoutPhase')
+        .mockResolvedValue(undefined);
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 3 });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_MANUAL_APPROVED, entityId: 'wd-sumsub-1' }),
+      );
+      expect(initiateSpy).toHaveBeenCalledWith('wd-sumsub-1');
+    });
+  });
+
+  describe('awaitUser branch — atomic extraData (manualReason + slaDeadline)', () => {
+    it('sceneTag=PEP → manualReason=EDD_PEP, slaDeadline ~7d out, single atomic updateStatus call', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser', sceneTag: 'PEP' });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+      const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
+      expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
+      expect((ctx as any).extraData.manualReason).toBe('EDD_PEP');
+      expect((ctx as any).extraData.slaDeadline).toBeInstanceOf(Date);
+      const daysOut =
+        ((ctx as any).extraData.slaDeadline.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+      expect(daysOut).toBeGreaterThan(6.9);
+      expect(daysOut).toBeLessThan(7.1);
+    });
+
+    it('no sceneTag (general) → manualReason=CLIENT_ACTION', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser' });
+
+      const [, , ctx] = withdrawService.updateStatus.mock.calls[0];
+      expect((ctx as any).extraData.manualReason).toBe('CLIENT_ACTION');
+    });
+
+    it('idempotent: already ACTION_PENDING → no-op (repeat webhook)', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.ACTION_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser' });
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onHold branch — non-transitional, COMPLIANCE_PENDING guard', () => {
+    it('COMPLIANCE_PENDING → refreshes slaDeadline + audits WITHDRAW_ONHOLD, no status change', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'onHold' });
+
+      expect(withdrawService.setSlaDeadline).toHaveBeenCalledWith('wd-sumsub-1', expect.any(Date));
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_ONHOLD }),
+      );
+    });
+
+    it('guard: ACTION_PENDING (already moved on) → no-op, late onHold webhook ignored', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.ACTION_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'onHold' });
+
+      expect(withdrawService.setSlaDeadline).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_ONHOLD }),
+      );
+    });
+  });
+
+  describe('rejected branch — tag three-way (SANCTION/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
+    it('sceneTag=SANCTION from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION' });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_FROZEN }),
+      );
+    });
+
+    it('dispoTag=FROZEN_BY_MLRO from ACTION_PENDING → FREEZE', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.ACTION_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'FROZEN_BY_MLRO' });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+    });
+
+    it('idempotent: already FROZEN + sceneTag=SANCTION → no-op (repeat webhook, no double freeze)', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION' });
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('dispoTag=REJECT_REFUND from MANUAL_CHECKING → REJECT_REFUND action + releaseLock (void both pending) + WITHDRAW_REFUNDED_BY_TAG audit', async () => {
+      const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          status: WithdrawTransactionStatus.MANUAL_CHECKING,
+          tbPendingNetId: '01',
+          tbPendingFeeId: '02',
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'REJECT_REFUND' });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.REJECT_REFUND }),
+        expect.anything(),
+      );
+      // releaseLock voids both pending locks (net + fee).
+      expect(accountingService.voidPendingTransferBestEffort).toHaveBeenCalledTimes(2);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_REFUNDED_BY_TAG }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
+      );
+    });
+
+    it('no tag from COMPLIANCE_PENDING → KYT_REJECTED action (routes to MANUAL_CHECKING)', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected' });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.KYT_REJECTED }),
+        expect.anything(),
+      );
+    });
+
+    it('idempotent: no tag, already MANUAL_CHECKING → no-op (repeat webhook)', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected' });
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
   });
 });

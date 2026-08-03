@@ -141,22 +141,10 @@ export class SumsubIngestionService {
         dispatchedContext = depositHit ? 'DEPOSIT_SUMSUB' : (withdrawHit ? 'WITHDRAW_SUMSUB' : 'SUMSUB_KYT_ORPHAN');
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
-      else if (event.eventType === 'withdrawKytCheckSimulated') {
-        const withdrawId = String(payload.withdrawId ?? '');
-        const stage = String(payload.stage ?? 'PRE');
-        const kytStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        const riskScore = (payload.riskScore as number | null) ?? null;
-        const phase = stage === 'PRE' ? 1 : 2;
-        await this.withdrawService.updateKytStatus(withdrawId, kytStatus, null, riskScore, phase);
-        result = { withdrawId, kytStatus, riskScore, phase };
-        dispatchedContext = 'WITHDRAW_KYT_CHECK';
-      } else if (event.eventType === 'withdrawTravelRuleCheckSimulated') {
-        const withdrawId = String(payload.withdrawId ?? '');
-        const trStatus = String(payload.result) === 'PASS' ? 'PASSED' : 'FAILED';
-        await this.withdrawService.updateTravelRuleStatus(withdrawId, trStatus, null);
-        result = { withdrawId, travelRuleStatus: trStatus };
-        dispatchedContext = 'WITHDRAW_TR_CHECK';
-      } else if (event.eventType === 'caseDecisionSimulated') {
+      // withdrawKytCheckSimulated/withdrawTravelRuleCheckSimulated retired with the old
+      // preKyt/travelRule mock pipeline (Task 5 — real Sumsub single-txn submit +
+      // applyKytVerdict replaces it; see WithdrawWorkflowService).
+      else if (event.eventType === 'caseDecisionSimulated') {
         const assessmentId = String(payload.assessmentId ?? '');
         const customerId = String(payload.customerId ?? '');
         const decision = String(payload.decision ?? '');

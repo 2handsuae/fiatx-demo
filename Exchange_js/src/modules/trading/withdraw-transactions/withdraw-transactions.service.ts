@@ -16,8 +16,6 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
-import { DomainEventNames } from '../../../common/events/domain-events.constants';
-
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
 
 export interface WithdrawStatusUpdateContext {
@@ -26,6 +24,10 @@ export interface WithdrawStatusUpdateContext {
   actorId?: string;
   actorRole?: string;
   sourcePlatform?: string;
+  // Additional withdraw columns to persist in the same update as the status change
+  // (e.g. manualReason on COMPLIANCE_PENDING → ACTION_PENDING). Single-table, single-write
+  // — mirrors DepositStatusUpdateOptions#extraData.
+  extraData?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -124,7 +126,7 @@ export class WithdrawTransactionsService {
 
   private normalizeStatusUpdateContext(
     context?: WithdrawStatusUpdateContext,
-  ): Required<WithdrawStatusUpdateContext> {
+  ): Required<Omit<WithdrawStatusUpdateContext, 'extraData'>> {
     const normalized = context ?? this.systemStatusUpdateContext;
     const source = normalized.source || 'SYSTEM';
     if (source === 'ADMIN_API') {
@@ -231,7 +233,7 @@ export class WithdrawTransactionsService {
 
   private assertStatusUpdateSourceAllowed(
     nextStatus: WithdrawTransactionStatus,
-    context: Required<WithdrawStatusUpdateContext>,
+    context: Required<Omit<WithdrawStatusUpdateContext, 'extraData'>>,
   ) {
     if (
       context.source === 'ADMIN_API' &&
@@ -502,6 +504,7 @@ export class WithdrawTransactionsService {
             ? new Date()
             : item.completedAt,
           statusHistory: JSON.stringify(history),
+          ...(context?.extraData || {}),
         },
       });
 
@@ -623,50 +626,75 @@ export class WithdrawTransactionsService {
     return records;
   }
 
-  // TASK5-TODO retired with mock pipeline — preKyt*/kyt* columns were dropped
-  // in the Sumsub single-txn migration (Task 3, .superpowers/sdd/task-3-brief.md).
-  // Callers (workflow's initializeTransactionScreen, the [DEV] simulate
-  // endpoints, and the sumsub-ingestion mock pipeline) still exist until the
-  // real Sumsub webhook consumer lands in Task 4/5, so the signature is kept
-  // as a no-op: validates the id and still emits WITHDRAWAL_KYT_UPDATED so
-  // any downstream listener keeps firing, but no longer writes columns that
-  // no longer exist on the model.
-  async updateKytStatus(
+  /**
+   * Persists the single Sumsub txn id + type returned by SumsubTxnClient.submitTxn at
+   * COMPLIANCE_PENDING submission time (WithdrawWorkflowService.submitSumsubTxn). One
+   * withdrawal → one txn. Mirrors DepositTransactionsService#setSumsubTxn.
+   */
+  async setSumsubTxn(
     id: string,
-    kytStatus: string,
-    kytScreeningId: string | null,
-    kytRiskScore: number | null,
-    phase: number,
+    data: { sumsubTxnId: string; sumsubTxnType: 'finance' | 'travelRule' },
   ) {
-    const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
-    if (!item) throw new NotFoundException('Withdraw transaction not found');
-
-    this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_KYT_UPDATED, {
-      withdrawId: id,
-      kytStatus,
-      phase,
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: {
+        sumsubTxnId: data.sumsubTxnId,
+        sumsubTxnType: data.sumsubTxnType,
+      },
     });
-
-    return item;
   }
 
-  // TASK5-TODO retired with mock pipeline — travelRule* columns were dropped
-  // in the Sumsub single-txn migration (Task 3). See updateKytStatus above for
-  // why the signature is kept as a no-op rather than deleted outright.
-  async updateTravelRuleStatus(
+  /**
+   * Sumsub KYT verdict evidence write (applyKytVerdict) — sumsubVerdict/sumsubScore/
+   * sumsubScoredAt/sumsubTxnDetailJson in one atomic write (unlike deposit's two
+   * separate calls). Skipped entirely by the caller for the FROZEN-late-approved
+   * no-op case (protects sanctions evidence from being overwritten).
+   */
+  async saveSumsubVerdict(
     id: string,
-    travelRuleStatus: string,
-    travelRuleTransferId: string | null,
+    data: { verdict: string; score: number | null; scoredAt: Date; detailJson?: string },
   ) {
-    const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
-    if (!item) throw new NotFoundException('Withdraw transaction not found');
-
-    this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_TRAVELRULE_UPDATED, {
-      withdrawId: id,
-      travelRuleStatus,
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: {
+        sumsubVerdict: data.verdict,
+        sumsubScore: data.score,
+        sumsubScoredAt: data.scoredAt,
+        ...(data.detailJson !== undefined && { sumsubTxnDetailJson: data.detailJson }),
+      },
     });
+  }
 
-    return item;
+  /**
+   * Sets/refreshes the SLA deadline for a withdrawal sitting in onHold
+   * (COMPLIANCE_PENDING). No status change here — callers manage the
+   * transition (or lack thereof) separately via updateStatus.
+   */
+  async setSlaDeadline(id: string, slaDeadline: Date) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { slaDeadline },
+    });
+  }
+
+  /**
+   * SLA timer (WithdrawSlaService) scan: onHold(COMPLIANCE_PENDING) and
+   * ACTION_PENDING withdrawals whose slaDeadline has passed and haven't been
+   * flagged yet.
+   */
+  async findSlaBreachCandidates(now: Date) {
+    return (this.prisma as any).withdrawTransaction.findMany({
+      where: {
+        status: {
+          in: [
+            WithdrawTransactionStatus.COMPLIANCE_PENDING,
+            WithdrawTransactionStatus.ACTION_PENDING,
+          ],
+        },
+        slaDeadline: { lt: now },
+        slaBreached: false,
+      },
+    });
   }
 
   async saveValuationSnapshot(
