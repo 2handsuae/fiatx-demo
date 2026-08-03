@@ -13,11 +13,8 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import {
-  formatStatusLabel,
-  formatTransactionTypeLabel,
-} from '../utils/transactionRootDisplay';
-import { getWithdrawStatusBadgeClass } from '../utils/withdrawActionMap';
+import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
+import { getWithdrawStatusMeta, WITHDRAW_STATUS_FILTERS } from '../utils/withdrawStatusMap';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
@@ -45,12 +42,6 @@ interface FilterState {
 }
 
 /* ── Constants ───────────────────────────────────────────────── */
-
-const WITHDRAW_STATUSES = [
-  'CREATED', 'PENDING_COMPLIANCE', 'PENDING_APPROVAL', 'APPROVED',
-  'PAYOUT_PENDING', 'PROCESSING', 'FROZEN',
-  'SUCCESS', 'REJECTED', 'CANCELLED', 'FAILED', 'RETURNED',
-];
 
 const PAGE_SIZE = 20;
 
@@ -97,7 +88,10 @@ const WithdrawTransactionList = () => {
       params.set('take', String(PAGE_SIZE));
       if (next.withdrawNo.trim()) params.set('withdrawNo', next.withdrawNo.trim());
       if (next.ownerNo.trim()) params.set('ownerNo', next.ownerNo.trim());
-      if (next.status) params.set('status', next.status);
+      if (next.status) {
+        const group = WITHDRAW_STATUS_FILTERS.find((f) => f.label === next.status);
+        if (group) params.set('status', group.statuses.join(','));
+      }
       if (next.startDate) params.set('startDate', next.startDate);
       if (next.endDate) params.set('endDate', next.endDate);
 
@@ -189,8 +183,8 @@ const WithdrawTransactionList = () => {
           className={`${fi} w-40`}
         >
           <option value="">All status</option>
-          {WITHDRAW_STATUSES.map((s) => (
-            <option key={s} value={s}>{formatStatusLabel(s)}</option>
+          {WITHDRAW_STATUS_FILTERS.map((f) => (
+            <option key={f.label} value={f.label}>{f.label}</option>
           ))}
         </select>
         <select
@@ -289,8 +283,8 @@ const WithdrawTransactionList = () => {
 
                 {/* Status */}
                 <td className="px-4 py-2.5">
-                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getWithdrawStatusBadgeClass(item.status)}`}>
-                    {formatStatusLabel(item.status)}
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${getWithdrawStatusMeta(item.status).badgeClass}`}>
+                    {getWithdrawStatusMeta(item.status).label}
                   </span>
                 </td>
 

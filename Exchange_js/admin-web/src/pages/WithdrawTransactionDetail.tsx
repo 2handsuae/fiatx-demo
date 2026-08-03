@@ -8,7 +8,6 @@ import {
   InfoField,
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { StatusPill } from '../components/ui/StatusPill';
 import {
   LinkedRelationCard,
   LinkedRelationEmpty,
@@ -21,25 +20,69 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import { formatAssetAmount } from '../utils/number-format';
-import {
-  formatStatusLabel,
-  formatTransactionTypeLabel,
-} from '../utils/transactionRootDisplay';
-import {
-  getWithdrawActionsForStatus,
-  getWithdrawStatusBadgeClass,
-} from '../utils/withdrawActionMap';
+import { formatTransactionTypeLabel } from '../utils/transactionRootDisplay';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import {
+  getWithdrawStatusMeta,
+  isWithdrawTerminalStatus,
+} from '../utils/withdrawStatusMap';
+import { adminButtonClass } from '../components/common/adminButtonStyles';
+import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
+/* 9 个单步裁决按钮,与充值版镜像(去掉充值独有的 below-min)。key 必须与后端
+   src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts 的 WITHDRAW_VERDICT_BUTTONS 一致。 */
+const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
+  { key: 'V1_APPROVED', label: '① Approved' },
+  { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
+  { key: 'V3_AWAIT_USER_PEP', label: '③ Awaiting user · PEP' },
+  { key: 'V4_REJECTED_SANCTION', label: '④ Rejected · Sanctions' },
+  { key: 'V5_REJECTED_FROZEN_MLRO', label: '⑤ Rejected · MLRO freeze' },
+  { key: 'V6_REJECTED_REFUND_TAG', label: '⑥ Rejected · Refund tag' },
+  { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
+  { key: 'V8_ONHOLD', label: '⑧ On hold' },
+  { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
+];
+
 interface LinkedFundOrder {
-  kind: 'PAYOUT' | 'INTERNAL_FUND' | 'PAYIN';
+  kind: 'PAYOUT' | 'INTERNAL_FUND';
   no: string;
   id: string;
   status: string;
   amount: string;
   role: 'principal' | 'fee';
+}
+
+/** Matched-rule entry inside a Sumsub getTxn scoring result (see backend
+ *  `findOneForAdmin` parseDetail). */
+interface SumsubMatchedRule {
+  id?: string;
+  name?: string;
+  action?: string;
+  score?: number;
+}
+
+/** Admin-readable subset of a Sumsub getTxn report for this withdrawal's single
+ *  Sumsub txn — parsed server-side from the raw stored payload. */
+interface SumsubTxnDetail {
+  verdict: string | null;
+  reviewStatus: string | null;
+  reviewAnswer: string | null;
+  score: number | null;
+  matchedRules: SumsubMatchedRule[];
+  applicantActionIds: string[];
+  tags: string[];
+  raw: unknown;
+}
+
+/** Internal (non-Sumsub) approval case linked to this withdrawal — single
+ *  header only, no step/steps (see backend `findOneForAdmin`). */
+interface WithdrawApproval {
+  approvalNo: string;
+  actionType: string;
+  status: string;
+  createdAt: string;
 }
 
 interface WithdrawDetail {
@@ -70,33 +113,36 @@ interface WithdrawDetail {
   txHash: string | null;
   confirmations: number;
   referenceNo: string | null;
-  preKytStatus: string;
-  preKytRiskScore: number | null;
-  preKytCheckedAt: string | null;
-  kytStatus: string;
-  kytRiskScore: number | null;
-  kytCheckedAt: string | null;
-  travelRuleRequired: boolean;
-  travelRuleStatus: string;
-  travelRuleCheckedAt: string | null;
+  counterpartyIsVasp?: boolean | null;
+  manualReason?: string | null;
+  needsReview?: boolean;
+  sumsubTxnId?: string | null;
+  sumsubTxnType?: 'finance' | 'travelRule' | null;
+  sumsubVerdict?: string | null;
+  sumsubScore?: number | null;
+  sumsubScoredAt?: string | null;
+  slaDeadline?: string | null;
+  slaBreached?: boolean;
   createdAt: string;
   updatedAt: string;
   approvedAt: string | null;
   completedAt: string | null;
-  payoutId: string | null;
-  payoutNo: string | null;
   traceId?: string | null;
   statusHistory: string | null;
   asset: { code: string; type: string; network: string | null; decimals: number };
-  customer?: { complianceStatus?: string | null; customerNo?: string } | null;
-  payout?: {
-    payoutNo: string;
-    status: string;
-    gasUsed?: string | null;
-    effectiveGasPrice?: string | null;
-  } | null;
+  customer?: { complianceStatus?: string | null; sumsubApplicantId?: string | null; customerNo?: string | null } | null;
   linkedFundOrders?: LinkedFundOrder[];
+  sumsubDetail?: SumsubTxnDetail | null;
+  approvals?: WithdrawApproval[];
 }
+
+/** Internal-approval `actionType` → English action label shown in the
+ *  Internal Approvals block. */
+const APPROVAL_ACTION_LABELS: Record<string, string> = {
+  WITHDRAW_LARGE_VALUE_APPROVAL: 'Large-Value Approval',
+  WITHDRAW_UNFREEZE: 'Unfreeze',
+  WITHDRAW_SANCTION_REFUND: 'Sanction Refund',
+};
 
 /* ── Page Component ─────────────────────────────────────────── */
 
@@ -106,11 +152,19 @@ const WithdrawTransactionDetail = () => {
   const [data, setData] = useState<WithdrawDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionError, setActionError] = useState('');
-  const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
-  const [reasonText, setReasonText] = useState('');
-  const [pendingAction, setPendingAction] = useState('');
+  const [notice, setNotice] = useState('');
+  const [dispositionSubmitting, setDispositionSubmitting] = useState(false);
+  const [dispositionError, setDispositionError] = useState('');
+  const [isUnfreezeModalOpen, setIsUnfreezeModalOpen] = useState(false);
+  const [unfreezeReason, setUnfreezeReason] = useState('');
+  const [unfreezeOrderRef, setUnfreezeOrderRef] = useState('');
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
+  const [isBounceModalOpen, setIsBounceModalOpen] = useState(false);
+  const [bounceReason, setBounceReason] = useState('');
+  const { enabled: simEnabled } = useSimulationMode();
+  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
+  const [simError, setSimError] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -142,43 +196,133 @@ const WithdrawTransactionDetail = () => {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  /* ── Action handlers ── */
+  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
 
-  const handleAction = async (action: string, reason?: string) => {
+  const handleRunVerdict = async (verdict: string) => {
     if (!id) return;
-    setIsSubmitting(true);
-    setActionError('');
+    setSimSubmitting(verdict);
+    setSimError('');
     try {
       const response = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/status`,
+        `${import.meta.env.VITE_API_URL}/admin/withdraw-sumsub/demo/run-verdict`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, reason }),
+          body: JSON.stringify({ withdrawId: id, verdict }),
         },
       );
       if (!response.ok) {
-        setActionError(await getApiErrorMessage(response, 'Action failed.'));
+        if (response.status === 404) {
+          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
+        } else {
+          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
+        }
         return;
       }
+      setNotice(`Verdict ${verdict} fed — withdrawal refreshed`);
       await fetchData();
-      setIsReasonModalOpen(false);
-      setReasonText('');
-      setPendingAction('');
     } catch (error) {
       if (error instanceof AdminSessionError) return;
-      setActionError(error instanceof Error ? error.message : 'Action failed.');
+      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
     } finally {
-      setIsSubmitting(false);
+      setSimSubmitting(null);
     }
   };
 
-  const onActionClick = (action: string, requiresReason: boolean) => {
-    if (requiresReason) {
-      setPendingAction(action);
-      setIsReasonModalOpen(true);
-    } else {
-      handleAction(action);
+  /* ── Frozen disposition handlers (unfreeze / sanction refund — maker-checker) ── */
+
+  const handleUnfreezeSubmit = async () => {
+    if (!id || !unfreezeReason.trim() || !unfreezeOrderRef.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/unfreeze`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: unfreezeReason.trim(),
+            orderRef: unfreezeOrderRef.trim(),
+          }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit unfreeze request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Unfreeze submitted for approval — ${result.approvalNo}`);
+      setIsUnfreezeModalOpen(false);
+      setUnfreezeReason('');
+      setUnfreezeOrderRef('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit unfreeze request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  const handleRefundSubmit = async () => {
+    if (!id || !refundReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/refund`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: refundReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to submit refund request.'));
+        return;
+      }
+      const result = await response.json();
+      setNotice(`Refund submitted for approval — ${result.approvalNo}`);
+      setIsRefundModalOpen(false);
+      setRefundReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to submit refund request.');
+    } finally {
+      setDispositionSubmitting(false);
+    }
+  };
+
+  /* ── Bounce handler (PAYOUT_PENDING → RETURNED, no approval — immediate) ── */
+
+  const handleBounceSubmit = async () => {
+    if (!id || !bounceReason.trim()) return;
+    setDispositionSubmitting(true);
+    setDispositionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${id}/bounce`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: bounceReason.trim() }),
+        },
+      );
+      if (!response.ok) {
+        setDispositionError(await getApiErrorMessage(response, 'Failed to bounce payout.'));
+        return;
+      }
+      setNotice('Payout bounced — withdrawal returned');
+      setIsBounceModalOpen(false);
+      setBounceReason('');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setDispositionError(error instanceof Error ? error.message : 'Failed to bounce payout.');
+    } finally {
+      setDispositionSubmitting(false);
     }
   };
 
@@ -195,14 +339,11 @@ const WithdrawTransactionDetail = () => {
 
   if (!data) return null;
 
-  const actions = getWithdrawActionsForStatus(data.status);
   const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
-  const preKytStyle = getComplianceLayerStyle(data.preKytStatus);
-  const trStyle = getComplianceLayerStyle(
-    data.travelRuleRequired ? data.travelRuleStatus : 'NOT_REQUIRED',
-  );
-  const postKytStyle = getComplianceLayerStyle(data.kytStatus);
-  const isFiat = data.asset?.type === 'FIAT';
+  // L2 · Transaction Screen — a withdrawal submits a single Sumsub txn (finance
+  // or travelRule, decided by the type resolver), one verdict shown verbatim.
+  const l2Style = getComplianceLayerStyle(data.sumsubVerdict);
+  const isTerminal = isWithdrawTerminalStatus(data.status);
 
   return (
     <div className="flex h-full flex-col">
@@ -213,6 +354,22 @@ const WithdrawTransactionDetail = () => {
         refreshing={loading}
         backLabel="Withdrawals"
       />
+
+      {/* ── Notice ── */}
+      {notice && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-green/5 px-6 py-2.5 font-mono text-[11px] text-adm-green">
+          {notice}
+        </div>
+      )}
+
+      {/* ── Needs-review banner — a KYT verdict arrived after the payout already
+          broadcast, so there was no state-machine action to take (funds already
+          in flight); flagged for operator awareness rather than silently dropped. ── */}
+      {data.needsReview && (
+        <div className="shrink-0 border-b border-adm-border bg-adm-red/5 px-6 py-2.5 font-mono text-[11px] text-adm-red">
+          Needs review — a KYT verdict arrived after the payout broadcast; no automatic action was taken
+        </div>
+      )}
 
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -227,8 +384,8 @@ const WithdrawTransactionDetail = () => {
             <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
               <div>
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Status</span>
-                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getWithdrawStatusBadgeClass(data.status)}`}>
-                  {formatStatusLabel(data.status)}
+                <span className={`mt-1 inline-flex items-center rounded-full px-3 py-0.5 text-xs font-medium ${getWithdrawStatusMeta(data.status).badgeClass}`}>
+                  {getWithdrawStatusMeta(data.status).label}
                 </span>
               </div>
               <div>
@@ -239,75 +396,21 @@ const WithdrawTransactionDetail = () => {
                 <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Type</span>
                 <span className="text-adm-t1">{formatTransactionTypeLabel(data.type || data.asset.type)}</span>
               </div>
-              {data.ownerNo && (
+              {(data.ownerNo || data.customer?.customerNo) && (
                 <div>
                   <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">Owner</span>
                   <button
                     onClick={() => navigate(`/customers/${data.ownerId}`)}
                     className="text-adm-blue hover:underline"
                   >
-                    {data.ownerNo}
+                    {data.ownerNo || data.customer?.customerNo}
                   </button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* 2. Compliance Layers */}
-          <DetailCard title="Compliance" columns={1}>
-            <div>
-              <div className="grid grid-cols-2 gap-3">
-                {/* L1: Eligibility Guard */}
-                <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
-                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
-                  <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
-                  <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
-                </div>
-                {/* L2: Transaction Screen */}
-                <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${preKytStyle.borderColor}`}>
-                  <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="font-mono text-[9px] text-adm-t3 w-24">Pre-KYT:</span>
-                    <span className={`text-[11px] font-semibold ${preKytStyle.textColor}`}>
-                      {data.preKytStatus || '—'}
-                    </span>
-                    <span className="font-mono text-[10px] text-adm-t3">Risk: {data.preKytRiskScore ?? '—'}</span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <span className="font-mono text-[9px] text-adm-t3 w-24">Travel Rule:</span>
-                    <span className={`text-[11px] font-semibold ${trStyle.textColor}`}>
-                      {data.travelRuleRequired ? (data.travelRuleStatus || '—') : 'NOT REQUIRED'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              {/* L3: Post-Tx Archive (crypto only) */}
-              {!isFiat && (
-                <div className="mt-2 flex items-center gap-2 px-1">
-                  <span className="font-mono text-[9px] text-adm-t3">L3 Archive:</span>
-                  <span className={`text-[11px] font-semibold ${postKytStyle.textColor}`}>
-                    {data.kytStatus || '—'}
-                  </span>
-                  <span className="font-mono text-[9px] text-adm-t3">(post-tx, non-blocking)</span>
-                </div>
-              )}
-            </div>
-          </DetailCard>
-
-          {/* 3. Approval Gate (conditional) */}
-          {(data.approvalNo || data.grossAedValue || data.rateFetchFailed) && (
-            <DetailCard title="Approval Gate" columns={2}>
-              <InfoField label="Approval No" value={data.approvalNo || '—'} mono />
-              <InfoField label="Gross Value (AED)" value={data.grossAedValue ? Number(data.grossAedValue).toLocaleString() : '—'} accent />
-              <InfoField label="AED Rate" value={data.aedRate || '—'} mono />
-              <InfoField label="Rate Fetched At" value={data.rateFetchedAt ? new Date(data.rateFetchedAt).toLocaleString() : '—'} />
-              {data.rateFetchFailed ? (
-                <InfoField label="Valuation" value="Rate fetch failed — routed to approval (fail-closed)" />
-              ) : null}
-            </DetailCard>
-          )}
-
-          {/* 4. Transaction Details */}
+          {/* 2. Transaction Details */}
           <DetailCard title="Transaction Details" columns={2}>
             <InfoField label="Asset" value={`${data.asset.code} · ${data.asset.type} · ${data.asset.network || 'N/A'}`} />
             <InfoField label="Amount" value={formatAssetAmount(data.amount, data.asset.decimals)} accent />
@@ -315,14 +418,98 @@ const WithdrawTransactionDetail = () => {
             <InfoField label="Net Amount" value={formatAssetAmount(data.netAmount, data.asset.decimals)} accent />
             <InfoField label="Tx Hash" value={data.txHash} copyable onCopy={(v) => handleCopy(v, 'txHash')} isCopied={copiedField === 'txHash'} mono link={data.txHash ? explorerTxUrl(data.asset.network, data.txHash) : undefined} />
             <InfoField label="Confirmations" value={data.confirmations ?? null} />
-            <InfoField label="Gas Used" value={data.payout?.gasUsed ?? null} mono />
-            <InfoField label="Effective Gas Price" value={data.payout?.effectiveGasPrice ?? null} mono />
-            <InfoField label="Destination Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
+            <InfoField label="To Address" value={data.toAddress} copyable onCopy={(v) => handleCopy(v, 'toAddr')} isCopied={copiedField === 'toAddr'} mono />
+            <InfoField label="To Iban" value={data.toIban} copyable onCopy={(v) => handleCopy(v, 'toIban')} isCopied={copiedField === 'toIban'} mono />
             <InfoField label="From Wallet" value={data.fromWalletNo} mono />
             <InfoField label="Reference No" value={data.referenceNo} mono />
           </DetailCard>
 
-          {/* 5. Linked Funds Orders — payout (principal) + internal fund (fee) */}
+          {/* 3. Compliance Layers */}
+          <DetailCard title="Compliance" columns={1}>
+            <div className="grid grid-cols-2 gap-3">
+              {/* L1: Eligibility Guard */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L1 · Eligibility</div>
+                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>{eligibilityStyle.label}</div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-creation check</div>
+              </div>
+              {/* L2: Transaction Screen — a withdrawal submits exactly one
+                  Sumsub txn (finance or travelRule, per `sumsubTxnType`);
+                  single line: type: verdict · Score. */}
+              <div className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}>
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">L2 · Transaction Screen</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className={`text-[11px] font-semibold ${l2Style.textColor}`}>
+                    {data.sumsubTxnType ?? '—'}: {data.sumsubVerdict ?? '—'}
+                  </span>
+                  <span className="font-mono text-[10px] text-adm-t3">
+                    · Score {data.sumsubScore ?? '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </DetailCard>
+
+          {/* 4. Sumsub References (read-only) — Applicant ID + the single
+              Sumsub txn this withdrawal submitted. */}
+          <DetailCard title="Sumsub References" columns={2}>
+            <div className="col-span-2">
+              <InfoField
+                label="Applicant ID"
+                value={data.customer?.sumsubApplicantId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubApplicantId')}
+                isCopied={copiedField === 'sumsubApplicantId'}
+                mono
+              />
+            </div>
+            <div className="col-span-2 grid grid-cols-1 gap-4 sm:grid-cols-4">
+              <InfoField
+                label="Txn ID"
+                value={data.sumsubTxnId}
+                copyable
+                onCopy={(v) => handleCopy(v, 'sumsubTxnId')}
+                isCopied={copiedField === 'sumsubTxnId'}
+                mono
+              />
+              <InfoField label="Type" value={data.sumsubTxnType} />
+              <InfoField label="Verdict" value={data.sumsubVerdict} />
+              <InfoField
+                label="Received At"
+                value={data.sumsubScoredAt ? new Date(data.sumsubScoredAt).toLocaleString() : null}
+              />
+            </div>
+          </DetailCard>
+
+          {/* 5. Sumsub Transaction Detail — admin-readable subset of the raw
+              Sumsub getTxn report for this withdrawal's single txn
+              (findOneForAdmin's parseDetail on the backend). */}
+          <DetailCard title="Sumsub Transaction Detail" columns={1}>
+            <SumsubDetailSection detail={data.sumsubDetail} />
+          </DetailCard>
+
+          {/* 6. Internal Approvals — maker-checker cases raised against this
+              withdrawal (large-value/unfreeze/sanction-refund), single header only. */}
+          <DetailCard title="Internal Approvals" columns={1}>
+            {data.approvals && data.approvals.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.approvals.map((a) => (
+                  <LinkedRelationCard
+                    key={a.approvalNo}
+                    cap={APPROVAL_ACTION_LABELS[a.actionType] ?? a.actionType}
+                    identifier={a.approvalNo}
+                    statusValue={a.status}
+                    meta={new Date(a.createdAt).toLocaleString()}
+                    onClick={() => navigate('/admin/governance/approvals')}
+                  />
+                ))}
+              </div>
+            ) : (
+              <LinkedRelationEmpty cap="Internal Approval" message="No internal approvals" />
+            )}
+          </DetailCard>
+
+          {/* 7. Linked Funds Orders — payout (principal) + internal fund (fee) */}
           <DetailCard title="Linked Funds Orders" columns={1}>
             {data.linkedFundOrders && data.linkedFundOrders.length > 0 ? (
               <div className="flex flex-col gap-2">
@@ -342,58 +529,131 @@ const WithdrawTransactionDetail = () => {
             )}
           </DetailCard>
 
-          {/* 7. Status History */}
+          {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
           </DetailCard>
 
-          {/* 8. Technical */}
-          <DetailCard title="Technical" columns={1}>
-            <InfoField label="Trace ID" value={data.traceId} mono />
-          </DetailCard>
+          {/* 9. Simulation (demo only — gated by the local simulation-mode
+              toggle, independent of the backend SUMSUB_MOCK_MODE flag) */}
+          {simEnabled && (
+            <DetailCard title="⚡ Simulation" columns={1}>
+              <p className="font-mono text-[11px] text-adm-t3">
+                Feeds ONE Sumsub KYT verdict webhook into the real ingestion
+                pipeline. The report is generated to match this withdrawal's actual
+                Sumsub txn type. Requires SUMSUB_MOCK_MODE on the backend.
+              </p>
+              <p className="font-mono text-[11px] text-adm-amber">
+                Verdicts are atomic — chain them freely (e.g. ② then ①, or ⑦ then ⑤).
+              </p>
+              <p className="font-mono text-[11px] text-adm-t3">
+                ⑨ only posts a rejected verdict tagged SLA_BREACH — it does not
+                drive the real SLA timer (WithdrawSlaService); same code path as ⑦.
+              </p>
+              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
+              <div className="flex flex-wrap gap-2">
+                {WITHDRAW_VERDICT_BUTTONS.map((s) => (
+                  <button
+                    key={s.key}
+                    disabled={simSubmitting !== null}
+                    onClick={() => handleRunVerdict(s.key)}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simSubmitting === s.key ? 'Running...' : s.label}
+                  </button>
+                ))}
+              </div>
+            </DetailCard>
+          )}
         </div>
 
         {/* ── Sidebar ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
 
-          {/* Actions */}
-          <SidebarGroup title="Actions">
-            {actionError && <p className="mb-2 text-[11px] text-adm-red">{actionError}</p>}
-            <div className="flex flex-col gap-2">
-              {actions.map((a) => {
-                const baseCls =
-                  a.variant === 'workflowPrimary'
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : a.variant === 'workflowNegative'
-                      ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
-                return (
-                  <button
-                    key={a.action}
-                    onClick={() => onActionClick(a.action, a.requiresReason)}
-                    disabled={!a.enabled || isSubmitting}
-                    className={`w-full rounded px-3 py-2 text-sm font-medium transition-colors ${baseCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isSubmitting && pendingAction === a.action ? 'Processing...' : a.label}
-                  </button>
-                );
-              })}
-            </div>
-          </SidebarGroup>
+          {/* Bounce — payout broadcast but bounced by bank/network. Only
+              available from PAYOUT_PENDING (see WithdrawWorkflowService.onBounce's
+              BOUNCE_REQUIRES_PAYOUT_PENDING/BOUNCE_REQUIRES_POSTED_PAYOUT guards). */}
+          {data.status === 'PAYOUT_PENDING' && (
+            <SidebarGroup title="Payout Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <button
+                onClick={() => {
+                  setDispositionError('');
+                  setBounceReason('');
+                  setIsBounceModalOpen(true);
+                }}
+                disabled={dispositionSubmitting}
+                className={adminButtonClass('workflowNegative')}
+              >
+                Bounce Payout
+              </button>
+            </SidebarGroup>
+          )}
+
+          {/* Frozen Disposition — initiate unfreeze / sanction-refund (both
+              maker-checker approvals, not immediate execution): unfreeze opens a
+              single-step MLRO approval; refund opens a single-step MLRO approval
+              that returns the funds to sender. FROZEN can only leave via this
+              maker-checker flow (see the transition table in
+              withdraw-transactions.service.ts). */}
+          {data.status === 'FROZEN' && (
+            <SidebarGroup title="Frozen Disposition">
+              {dispositionError && <p className="mb-2 text-[11px] text-adm-red">{dispositionError}</p>}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setUnfreezeReason('');
+                    setUnfreezeOrderRef('');
+                    setIsUnfreezeModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowSecondary')}
+                >
+                  Initiate Unfreeze
+                </button>
+                <button
+                  onClick={() => {
+                    setDispositionError('');
+                    setRefundReason('');
+                    setIsRefundModalOpen(true);
+                  }}
+                  disabled={dispositionSubmitting}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  Initiate Refund
+                </button>
+              </div>
+            </SidebarGroup>
+          )}
+
+          {/* Manual checking — no action buttons; disposition happens in
+              Sumsub, not here (mirrors deposit's 2026-07-29 frontend spec §2.2). */}
+          {data.status === 'MANUAL_CHECKING' && (
+            <p className="mb-4 font-mono text-[11px] text-adm-t3">
+              Disposition happens in the Sumsub console (officer tags the txn, then re-rejects).
+            </p>
+          )}
+
+          {/* Terminal — no further disposition available. */}
+          {isTerminal && (
+            <p className="mb-4 font-mono text-[11px] text-adm-t3">
+              Terminal — no further action available.
+            </p>
+          )}
 
           {/* Identity */}
           <SidebarGroup title="Identity">
             <SidebarKV label="Withdraw No" value={data.withdrawNo} mono />
-            <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
             <SidebarKV
               label="Owner"
               value={
-                data.ownerNo ? (
+                (data.ownerNo || data.customer?.customerNo) ? (
                   <button
                     onClick={() => navigate(`/customers/${data.ownerId}`)}
                     className="text-adm-blue hover:underline"
                   >
-                    {data.ownerNo}
+                    {data.ownerNo || data.customer?.customerNo}
                   </button>
                 ) : null
               }
@@ -405,45 +665,153 @@ const WithdrawTransactionDetail = () => {
           {/* Lifecycle */}
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Created" value={new Date(data.createdAt).toLocaleString()} mono />
-            {data.approvedAt && (
-              <SidebarKV label="Approved" value={new Date(data.approvedAt).toLocaleString()} mono />
-            )}
-            {data.completedAt && (
-              <SidebarKV label="Completed" value={new Date(data.completedAt).toLocaleString()} mono />
-            )}
+            <SidebarKV
+              label="Approved"
+              value={data.approvedAt ? new Date(data.approvedAt).toLocaleString() : null}
+              mono
+            />
+            <SidebarKV
+              label="Completed"
+              value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}
+              mono
+            />
+            <SidebarKV label="Trace ID" value={data.traceId ?? null} mono />
           </SidebarGroup>
         </div>
       </div>
 
-      {/* ── Reason Modal ── */}
-      {isReasonModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[400px] rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-bold mb-4">Reason Required</h3>
-            <textarea
-              className="w-full rounded border p-2 text-sm mb-4"
-              rows={3}
-              placeholder="Enter reason for this action..."
-              value={reasonText}
-              onChange={(e) => setReasonText(e.target.value)}
-            />
-            <div className="flex justify-end gap-2">
+      {/* ── Unfreeze Modal ── */}
+      {isUnfreezeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Unfreeze</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Reason
+                </label>
+                <textarea
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  rows={3}
+                  placeholder="Enter reason for unfreezing this withdrawal (required)..."
+                  value={unfreezeReason}
+                  onChange={(e) => setUnfreezeReason(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  Delisting/unfreeze order reference
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                  placeholder="e.g. delisting or release order number"
+                  value={unfreezeOrderRef}
+                  onChange={(e) => setUnfreezeOrderRef(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
               <button
                 onClick={() => {
-                  setIsReasonModalOpen(false);
-                  setReasonText('');
-                  setPendingAction('');
+                  setIsUnfreezeModalOpen(false);
+                  setUnfreezeReason('');
+                  setUnfreezeOrderRef('');
+                  setDispositionError('');
                 }}
-                className="rounded border px-4 py-2 text-sm"
+                className={adminButtonClass('modalCancel')}
               >
                 Cancel
               </button>
               <button
-                onClick={() => handleAction(pendingAction, reasonText)}
-                disabled={isSubmitting || !reasonText.trim()}
-                className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+                onClick={handleUnfreezeSubmit}
+                disabled={dispositionSubmitting || !unfreezeReason.trim() || !unfreezeOrderRef.trim()}
+                className={adminButtonClass('modalConfirm')}
               >
-                {isSubmitting ? 'Processing...' : 'Confirm'}
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Refund Modal ── */}
+      {isRefundModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Refund</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason for refunding this withdrawal to sender (required)..."
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsRefundModalOpen(false);
+                  setRefundReason('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRefundSubmit}
+                disabled={dispositionSubmitting || !refundReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bounce Modal ── */}
+      {isBounceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border bg-adm-card px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Bounce Payout</p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
+              <textarea
+                className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
+                rows={3}
+                placeholder="Enter reason the bank/network bounced this payout (required)..."
+                value={bounceReason}
+                onChange={(e) => setBounceReason(e.target.value)}
+              />
+            </div>
+            <div className="border-t border-adm-border bg-adm-card px-5 py-4 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setIsBounceModalOpen(false);
+                  setBounceReason('');
+                  setDispositionError('');
+                }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBounceSubmit}
+                disabled={dispositionSubmitting || !bounceReason.trim()}
+                className={adminButtonClass('modalConfirm')}
+              >
+                {dispositionSubmitting ? 'Processing...' : 'Confirm'}
               </button>
             </div>
           </div>
@@ -453,56 +821,105 @@ const WithdrawTransactionDetail = () => {
   );
 };
 
+/* ── SumsubDetailSection ─────────────────────────────────────── */
+
+/**
+ * Renders the parsed Sumsub getTxn report for this withdrawal's single Sumsub
+ * txn — the raw payload behind `detail.raw` is that txn's report verbatim.
+ * Mirrors DepositTransactionDetail's SumsubDetailSection (deliberate fork).
+ */
+const SumsubDetailSection = ({
+  detail,
+}: {
+  detail: SumsubTxnDetail | null | undefined;
+}) => (
+  <div>
+    {detail ? (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <InfoField label="Score" value={detail.score} mono />
+          <InfoField label="Verdict" value={detail.verdict} />
+          <InfoField label="Review Status" value={detail.reviewStatus} />
+          <InfoField label="Review Answer" value={detail.reviewAnswer} />
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
+          {detail.matchedRules.length > 0 ? (
+            <ul className="mt-1 space-y-1">
+              {detail.matchedRules.map((r, idx) => (
+                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
+                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
+          )}
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
+          <div className="mt-1 font-mono text-[11px] text-adm-t1">
+            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
+          </div>
+        </div>
+        <details>
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+            Raw payload
+          </summary>
+          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
+            {JSON.stringify(detail.raw, null, 2)}
+          </pre>
+        </details>
+      </div>
+    ) : (
+      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
+    )}
+  </div>
+);
+
 /* ── StatusTimeline ─────────────────────────────────────────── */
 
+/**
+ * Renders the withdrawal's `statusHistory` JSON column. Defensively reads
+ * both the current write shape (`{status, timestamp, operator, note}` — see
+ * WithdrawTransactionsService#updateStatus/landOnPendingApproval) and the
+ * older field names (`reason`/`operatorId`/`actorType`/`changedAt`), so
+ * rows written under either shape render correctly instead of showing blank
+ * reason/operator text.
+ */
 const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
-  if (!historyJson)
-    return (
-      <div className="text-adm-t3 text-sm italic p-4 text-center">
-        No history available
-      </div>
-    );
+  if (!historyJson) return <div className="text-adm-t3 text-sm italic p-4 text-center">No history available</div>;
 
   let history: any[] = [];
   try {
     history = JSON.parse(historyJson);
-    history.sort(
-      (a: any, b: any) =>
-        new Date(b.timestamp || b.changedAt).getTime() -
-        new Date(a.timestamp || a.changedAt).getTime(),
+    history.sort((a: any, b: any) =>
+      new Date(b.timestamp || b.changedAt).getTime() -
+      new Date(a.timestamp || a.changedAt).getTime(),
     );
   } catch {
     return <div className="text-adm-red text-sm p-4">Error parsing history</div>;
   }
 
-  if (history.length === 0)
-    return (
-      <div className="text-adm-t3 text-sm italic p-4 text-center">No events</div>
-    );
+  if (history.length === 0) return <div className="text-adm-t3 text-sm italic p-4 text-center">No events</div>;
 
   return (
     <div className="relative ml-4 space-y-6 border-l-2 border-adm-border my-2">
       {history.map((item: any, idx: number) => (
         <div key={idx} className="ml-8 relative">
           <span className="absolute -left-[44px] top-0 flex h-6 w-6 items-center justify-center rounded-full bg-adm-panel ring-4 ring-adm-panel">
-            <div className={`h-3 w-3 rounded-full ${getTimelineDotColor(item.status)}`} />
+            <div className={`h-3 w-3 rounded-full ${getWithdrawStatusMeta(item.status).badgeClass}`} />
           </span>
           <div className="rounded-lg border border-adm-border bg-adm-bg p-3 transition-colors hover:bg-adm-hover">
             <div className="flex items-center gap-2">
-              <span
-                className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getTimelineBadge(item.status)}`}
-              >
-                {formatStatusLabel(item.status)}
+              <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold ${getWithdrawStatusMeta(item.status).badgeClass}`}>
+                {getWithdrawStatusMeta(item.status).label}
               </span>
             </div>
-            <p className="mt-1 text-sm text-adm-t2">
-              {item.reason || 'No reason provided'}
-            </p>
+            <p className="mt-1 text-sm text-adm-t2">{item.note || item.reason || 'No reason provided'}</p>
             <div className="mt-1 flex items-center gap-2 text-[10px] text-adm-t3">
               <User size={10} />
-              <span className="font-mono">
-                {item.operatorId || item.actorType || 'SYSTEM'}
-              </span>
+              <span className="font-mono">{item.operator || item.operatorId || item.actorType || 'SYSTEM'}</span>
               <span>·</span>
               <time className="font-mono">
                 {new Date(item.timestamp || item.changedAt).toLocaleString()}
@@ -513,42 +930,6 @@ const StatusTimeline = ({ historyJson }: { historyJson: string | null }) => {
       ))}
     </div>
   );
-};
-
-const getTimelineDotColor = (status: string) => {
-  const map: Record<string, string> = {
-    SUCCESS:            'bg-green-500',
-    FAILED:             'bg-orange-500',
-    REJECTED:           'bg-red-500',
-    CANCELLED:          'bg-red-700',
-    RETURNED:           'bg-purple-500',
-    PENDING_COMPLIANCE: 'bg-purple-500',
-    PENDING_APPROVAL:   'bg-amber-500',
-    APPROVED:           'bg-blue-500',
-    PAYOUT_PENDING:     'bg-blue-500',
-    PROCESSING:         'bg-blue-400',
-    CREATED:            'bg-gray-400',
-    FROZEN:             'bg-cyan-500',
-  };
-  return map[status] || 'bg-gray-300';
-};
-
-const getTimelineBadge = (status: string) => {
-  const map: Record<string, string> = {
-    SUCCESS:            'bg-green-50 text-green-700 border-green-200',
-    FAILED:             'bg-orange-50 text-orange-700 border-orange-200',
-    REJECTED:           'bg-red-50 text-red-700 border-red-200',
-    CANCELLED:          'bg-red-100 text-red-800 border-red-300',
-    RETURNED:           'bg-purple-50 text-purple-700 border-purple-200',
-    PENDING_COMPLIANCE: 'bg-purple-50 text-purple-700 border-purple-200',
-    PENDING_APPROVAL:   'bg-amber-50 text-amber-700 border-amber-200',
-    APPROVED:           'bg-blue-50 text-blue-700 border-blue-200',
-    PAYOUT_PENDING:     'bg-blue-50 text-blue-700 border-blue-200',
-    PROCESSING:         'bg-blue-50 text-blue-600 border-blue-200',
-    CREATED:            'bg-gray-50 text-gray-700 border-gray-200',
-    FROZEN:             'bg-cyan-50 text-cyan-700 border-cyan-200',
-  };
-  return map[status] || 'bg-gray-50 text-gray-700 border-gray-200';
 };
 
 export default WithdrawTransactionDetail;
