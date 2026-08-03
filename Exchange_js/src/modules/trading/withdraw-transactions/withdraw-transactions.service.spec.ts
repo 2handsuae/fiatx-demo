@@ -14,6 +14,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -26,6 +27,7 @@ describe('WithdrawTransactionsService', () => {
   let withdrawQuoteService: any;
   let accountingService: any;
   let auditLogsService: any;
+  let approvalsService: Record<string, jest.Mock>;
   let module: TestingModule;
 
   const mockTx: any = {
@@ -41,9 +43,16 @@ describe('WithdrawTransactionsService', () => {
   };
 
   beforeEach(async () => {
+    approvalsService = {
+      list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
+    };
     module = await Test.createTestingModule({
       providers: [
         WithdrawTransactionsService,
+        {
+          provide: ApprovalsService,
+          useValue: approvalsService,
+        },
         {
           provide: PrismaService,
       useValue: {
@@ -603,6 +612,135 @@ describe('WithdrawTransactionsService', () => {
     expect(result.sumsubTxnId).toBe('txn-1');
     expect(result.sumsubVerdict).toBe('approved');
     expect(result.counterpartyIsVasp).toBe(true);
+  });
+
+  // Task 10: admin detail enrichment — mirrors
+  // DepositTransactionsService#findOneForAdmin's parseDetail null-defense +
+  // verdict fallback + approvals[] reverse lookup.
+  describe('findOneForAdmin', () => {
+    const sumsubJson = JSON.stringify({
+      scoringResult: {
+        score: 87,
+        matchedRules: [
+          { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
+        ],
+        applicantActions: [
+          { applicantActionId: 'act-1' },
+          { applicantActionId: 'act-2' },
+        ],
+      },
+    });
+
+    beforeEach(() => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        withdrawNo: 'WD001',
+        sumsubTxnDetailJson: sumsubJson,
+        asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
+        customer: null,
+        fundsOrders: [],
+      });
+      prisma.auditLogEvent.findMany.mockResolvedValue([]);
+    });
+
+    it('parses sumsubTxnDetailJson into sumsubDetail (score/matchedRules/applicantActionIds)', async () => {
+      const result: any = await service.findOneForAdmin('wd-1');
+
+      expect(result.sumsubDetail.score).toBe(87);
+      expect(result.sumsubDetail.matchedRules).toEqual([
+        { id: 'rule-1', name: 'High risk country', action: 'block', score: 50 },
+      ]);
+      expect(result.sumsubDetail.applicantActionIds).toEqual(['act-1', 'act-2']);
+    });
+
+    it('parseDetail: sumsubTxnDetailJson = "null" (valid JSON, value null) does not throw; sumsubDetail is null', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        withdrawNo: 'WD001',
+        sumsubTxnDetailJson: 'null',
+        asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
+        customer: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('wd-1');
+
+      expect(result.sumsubDetail).toBeNull();
+    });
+
+    it('parseDetail: null elements in matchedRules/applicantActions/typedTags are filtered out', async () => {
+      const jsonWithNulls = JSON.stringify({
+        scoringResult: {
+          score: 87,
+          matchedRules: [null, { id: 'A', name: 'x', action: 'reject', score: 5 }],
+          applicantActions: [null, { applicantActionId: 'act-1' }],
+        },
+        typedTags: [null, { label: 'FROZEN_BY_MLRO', type: 'userDefined' }],
+      });
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        withdrawNo: 'WD001',
+        sumsubTxnDetailJson: jsonWithNulls,
+        asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
+        customer: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('wd-1');
+
+      expect(result.sumsubDetail.matchedRules).toEqual([
+        { id: 'A', name: 'x', action: 'reject', score: 5 },
+      ]);
+      expect(result.sumsubDetail.applicantActionIds).toEqual(['act-1']);
+      expect(result.sumsubDetail.tags).toEqual(['FROZEN_BY_MLRO']);
+    });
+
+    it('parseDetail: raw 无顶层 verdict、有 scoringResult.action=reject → verdict 回退取 scoringResult.action', async () => {
+      const jsonNoTopLevelVerdict = JSON.stringify({
+        scoringResult: { action: 'reject', score: 90 },
+      });
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        id: 'wd-1',
+        withdrawNo: 'WD001',
+        sumsubTxnDetailJson: jsonNoTopLevelVerdict,
+        asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
+        customer: null,
+        fundsOrders: [],
+      });
+
+      const result: any = await service.findOneForAdmin('wd-1');
+
+      expect(result.sumsubDetail.verdict).toBe('reject');
+    });
+
+    it('returns approvals as single-header-only (no steps/step), regardless of status', async () => {
+      approvalsService.list.mockResolvedValue({
+        total: 2,
+        items: [
+          {
+            approvalNo: 'APR-1',
+            actionType: 'WITHDRAW_UNFREEZE',
+            status: 'APPROVED',
+            createdAt: new Date('2026-01-01T00:00:00Z'),
+            steps: [{ id: 'step-1', decision: 'APPROVE' }],
+          },
+        ],
+      });
+
+      const result: any = await service.findOneForAdmin('wd-1');
+
+      expect(approvalsService.list).toHaveBeenCalledWith(
+        expect.objectContaining({ entityRef: 'wd-1' }),
+      );
+      expect(result.approvals).toEqual([
+        {
+          approvalNo: 'APR-1',
+          actionType: 'WITHDRAW_UNFREEZE',
+          status: 'APPROVED',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ]);
+    });
   });
 
   describe('approval-gate transitions', () => {

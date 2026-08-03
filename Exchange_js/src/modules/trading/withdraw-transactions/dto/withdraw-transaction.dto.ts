@@ -177,9 +177,16 @@ export class WithdrawTransactionQueryDto {
   @IsString()
   assetId?: string;
 
+  // Accepts a single status or a comma-separated list (e.g.
+  // "COMPLIANCE_PENDING,PENDING_APPROVAL") so the admin list's "Processing"
+  // filter can query a merged status group in one request. Mirrors
+  // DepositTransactionQueryDto#status.
   @IsOptional()
-  @IsEnum(WithdrawTransactionStatus)
-  status?: WithdrawTransactionStatus;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.split(',').map((s) => s.trim()).filter(Boolean) : value,
+  )
+  @IsEnum(WithdrawTransactionStatus, { each: true })
+  status?: WithdrawTransactionStatus | WithdrawTransactionStatus[];
 
   @IsOptional()
   @IsString()

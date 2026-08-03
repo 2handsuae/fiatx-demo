@@ -66,7 +66,7 @@ export class WithdrawTransactionsController {
   @ApiOperation({ summary: 'Get withdraw transaction details' })
   findOne(@Req() req: any, @Param('id') id: string) {
     this.assertAdmin(req);
-    return this.service.findOne(id);
+    return this.service.findOneForAdmin(id);
   }
 
   @Patch(':id/status')

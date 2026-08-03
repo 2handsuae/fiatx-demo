@@ -45,6 +45,8 @@ export interface TxnReportContext {
   /** 决定 cryptoTxnInfo 是否出现 */
   isCrypto: boolean;
   createdAtIso: string;
+  /** data.info.direction —— 充值='in'(默认,向后兼容)，提现(Task 10 复用)='out' */
+  direction?: 'in' | 'out';
 }
 
 export interface TxnReportVerdict {
@@ -79,7 +81,7 @@ export function buildTxnReport(
         amount: ctx.amount,
         currencyCode: ctx.currency,
         currencyType: ctx.isCrypto ? 'crypto' : 'fiat',
-        direction: 'in',
+        direction: ctx.direction ?? 'in',
       },
     },
     review: {

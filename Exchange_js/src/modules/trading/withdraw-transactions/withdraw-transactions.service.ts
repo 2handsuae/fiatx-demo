@@ -16,6 +16,7 @@ import {
   AuditWorkflowTypes,
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { ApprovalsService } from '../../governance/approvals/approvals.service';
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
 
 export interface WithdrawStatusUpdateContext {
@@ -92,6 +93,7 @@ export class WithdrawTransactionsService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
+    private readonly approvalsService: ApprovalsService,
   ) {}
 
   private createAccountingContext(withdrawal: {
@@ -288,7 +290,7 @@ export class WithdrawTransactionsService {
     if (ownerId) where.ownerId = ownerId;
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
-    if (status) where.status = status;
+    if (status) where.status = Array.isArray(status) ? { in: status } : status;
 
     if (startDate || endDate) {
       where.createdAt = {};
@@ -432,6 +434,69 @@ export class WithdrawTransactionsService {
       auditLogs,
       linkedFundOrders: this.buildLinkedFundOrders(item),
     };
+  }
+
+  /**
+   * Admin detail fetch = findOne + parsed Sumsub txn detail + internal approvals
+   * reverse lookup. Mirrors DepositTransactionsService#findOneForAdmin (Task 10).
+   *
+   * Unlike deposit, this does not do a separate `latestSumsubWebhook` reverse
+   * lookup against the webhook events table — a withdrawal already carries
+   * `sumsubScoredAt` (set atomically by saveSumsubVerdict alongside the verdict
+   * itself), which answers the same "when did Sumsub last respond" question
+   * without an extra query.
+   */
+  async findOneForAdmin(id: string) {
+    const item: any = await this.findOne(id);
+
+    // Sumsub getTxn 报文展示子集(与充值 findOneForAdmin 的 parseDetail 逐字同源)。
+    const parseDetail = (json?: string | null) => {
+      if (!json) return null;
+      let d: any;
+      try {
+        d = JSON.parse(json);
+      } catch {
+        return null;
+      }
+      // JSON.parse 对合法但非对象的 JSON(如 "null"/"123"/'"str"')不抛,紧接着的
+      // 属性访问会在 null 上炸 → 未捕获 500。这里挡住非对象结果。
+      if (d === null || typeof d !== 'object') return null;
+      const sr = d.scoringResult ?? {};
+      return {
+        // 生产 HttpSumsubTxnClient.getTxn 的 raw 没有顶层 verdict 字段,只有
+        // scoringResult.action —— 回退到它,否则生产环境下这里恒为 null。
+        verdict: d.verdict ?? sr.action ?? null,
+        reviewStatus: d?.review?.reviewStatus ?? null,
+        reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
+        score: sr.score ?? null,
+        matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          action: r.action,
+          score: r.score,
+        })),
+        applicantActionIds: (sr.applicantActions ?? [])
+          .filter(Boolean)
+          .map((a: any) => a.applicantActionId)
+          .filter(Boolean),
+        tags: (d.typedTags ?? []).filter(Boolean).map((t: any) => t.label),
+        raw: d, // 供详情页原文折叠
+      };
+    };
+
+    const sumsubDetail = parseDetail(item.sumsubTxnDetailJson);
+
+    // 内部审批单反查(仅单头,不含 step/steps)——withdraw 的三种审批(大额闸/解冻/
+    // 制裁退款)发起时 entityRef 全部落 withdraw.id。
+    const approvalPage = await this.approvalsService.list({ entityRef: item.id } as any);
+    const approvals = (approvalPage.items ?? []).map((a: any) => ({
+      approvalNo: a.approvalNo,
+      actionType: a.actionType,
+      status: a.status,
+      createdAt: a.createdAt,
+    }));
+
+    return { ...item, sumsubDetail, approvals };
   }
 
   async updateStatus(

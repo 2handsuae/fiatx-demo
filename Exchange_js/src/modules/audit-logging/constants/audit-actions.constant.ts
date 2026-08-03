@@ -356,6 +356,10 @@ export const AuditActions = {
   // Task 9: FROZEN maker-checker gates (execution side) — decided-event handlers.
   WITHDRAW_UNFROZEN: 'WITHDRAW_UNFROZEN',
   WITHDRAW_SANCTION_REFUNDED: 'WITHDRAW_SANCTION_REFUNDED',
+  // Task 10: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN. Feeds a
+  // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
+  // endpoint doesn't exist otherwise).
+  WITHDRAW_DEMO_SCENARIO_RUN: 'WITHDRAW_DEMO_SCENARIO_RUN',
   KYT_CASE_CREATED: 'KYT_CASE_CREATED',
   KYT_CASE_UPDATED: 'KYT_CASE_UPDATED',
   TRAVEL_RULE_UPDATED: 'TRAVEL_RULE_UPDATED',
