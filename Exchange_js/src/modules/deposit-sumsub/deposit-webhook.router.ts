@@ -15,14 +15,17 @@ export class DepositWebhookRouter {
 
   constructor(private readonly kytVerdictHandler: DepositKytVerdictHandler) {}
 
-  async route(payload: Record<string, unknown>): Promise<void> {
+  // Task 4: boolean hit-flag (true = a deposit row owns this kytTxnId) so
+  // SumsubIngestionService can cascade to withdraw-sumsub on a miss. Only this
+  // signature change touches the deposit module — everything else is unchanged.
+  async route(payload: Record<string, unknown>): Promise<boolean> {
     const type = String(payload.type ?? '');
 
     if (KYT_VERDICT_TYPES.has(type)) {
-      await this.kytVerdictHandler.handle(payload);
-      return;
+      return await this.kytVerdictHandler.handle(payload);
     }
 
     this.logger.warn(`orphan deposit sumsub webhook type: ${type}`);
+    return false;
   }
 }

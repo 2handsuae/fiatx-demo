@@ -1,13 +1,13 @@
-import { DepositWebhookRouter } from './deposit-webhook.router';
-import { DepositKytVerdictHandler } from './deposit-kyt-verdict.handler';
+import { WithdrawWebhookRouter } from './withdraw-webhook.router';
+import { WithdrawKytVerdictHandler } from './withdraw-kyt-verdict.handler';
 
-describe('DepositWebhookRouter', () => {
-  let kytVerdictHandler: jest.Mocked<DepositKytVerdictHandler>;
-  let router: DepositWebhookRouter;
+describe('WithdrawWebhookRouter', () => {
+  let kytVerdictHandler: jest.Mocked<WithdrawKytVerdictHandler>;
+  let router: WithdrawWebhookRouter;
 
   beforeEach(() => {
-    kytVerdictHandler = { handle: jest.fn().mockResolvedValue(true) } as unknown as jest.Mocked<DepositKytVerdictHandler>;
-    router = new DepositWebhookRouter(kytVerdictHandler);
+    kytVerdictHandler = { handle: jest.fn().mockResolvedValue(true) } as unknown as jest.Mocked<WithdrawKytVerdictHandler>;
+    router = new WithdrawWebhookRouter(kytVerdictHandler);
   });
 
   it('routes applicantKytTxnApproved to kytVerdictHandler and returns its boolean', async () => {
@@ -20,7 +20,7 @@ describe('DepositWebhookRouter', () => {
     expect(result).toBe(true);
   });
 
-  it('propagates false from kytVerdictHandler (no deposit owns this kytTxnId)', async () => {
+  it('propagates false from kytVerdictHandler (no withdraw owns this kytTxnId — true cross-domain orphan)', async () => {
     kytVerdictHandler.handle.mockResolvedValue(false);
 
     const result = await router.route({ type: 'applicantKytTxnApproved', kytTxnId: 'UNKNOWN' });
@@ -34,25 +34,14 @@ describe('DepositWebhookRouter', () => {
     'applicantKytTxnAwaitingUser',
     'applicantKytOnHold',
     'applicantKytTxnReviewed',
+    'applicantKytTxnCreated',
   ])('routes %s to kytVerdictHandler', async (type) => {
     await router.route({ type, kytTxnId: 'T1' });
 
     expect(kytVerdictHandler.handle).toHaveBeenCalledTimes(1);
   });
 
-  it('routes applicantKytTxnCreated to kytVerdictHandler (handler itself ignores it, no state change)', async () => {
-    await router.route({ type: 'applicantKytTxnCreated', kytTxnId: 'T1' });
-
-    expect(kytVerdictHandler.handle).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not throw and does not route applicantActionReviewed (dead branch retired — Task 9: deposit 纯 KYT 驱动)', async () => {
-    await expect(router.route({ type: 'applicantActionReviewed' })).resolves.toBe(false);
-
-    expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
-  });
-
-  it('does not throw and calls no handler for an unknown type', async () => {
+  it('does not throw and calls no handler for an unknown type, returns false', async () => {
     await expect(router.route({ type: 'somethingUnknown' })).resolves.toBe(false);
 
     expect(kytVerdictHandler.handle).not.toHaveBeenCalled();

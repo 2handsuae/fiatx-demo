@@ -329,6 +329,19 @@ export class WithdrawTransactionsService {
     return item;
   }
 
+  /**
+   * Sumsub KYT webhooks carry the txn id we handed it at submission time
+   * (sumsubTxnId). Not the withdrawal's own id, so this is a stable business-key
+   * lookup, not an id-as-contract query. Mirrors DepositTransactionsService's
+   * findBySumsubTxnId; used by WithdrawKytVerdictHandler (Task 4/5).
+   */
+  async findBySumsubTxnId(txnId: string) {
+    return (this.prisma as any).withdrawTransaction.findFirst({
+      where: { sumsubTxnId: txnId },
+      include: { asset: true },
+    });
+  }
+
   /** Resolve a customer's source wallet for a withdrawal (C_DEP for crypto, C_VIBAN for fiat).
    *  Used by the workflow at PAYOUT_PENDING to stamp from-wallet info on the fee InternalFund
    *  without depending on the orchestrator's async fromWalletId binding. */

@@ -1439,6 +1439,34 @@ export class WithdrawWorkflowService implements OnModuleInit {
     );
   }
 
+  // ── Task 5 stub: Sumsub KYT verdict application ──
+
+  /**
+   * TASK5-TODO: stub only. WithdrawKytVerdictHandler (Task 4) already calls this
+   * on every KYT verdict webhook that owns a withdrawal, but the real
+   * state-machine wiring (FROZEN / MANUAL_CHECKING / REJECT_REFUND transitions,
+   * dispo-tag handling, gate writeback) is Task 5's job — mirrors
+   * DepositWorkflowService.applyKytVerdict's eventual shape. For now this only
+   * logs so the deposit→withdraw dispatch cascade is provably wired end to end
+   * without touching withdrawal state.
+   */
+  async applyKytVerdict(
+    withdrawId: string,
+    input: {
+      verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
+      riskScore: number | null;
+      sceneTag?: 'SANCTION' | 'PEP';
+      dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
+      detailRaw?: unknown;
+    },
+  ): Promise<void> {
+    // TASK5-TODO
+    this.logger.debug(
+      `applyKytVerdict stub: withdrawal ${withdrawId} verdict=${input.verdict} ` +
+        `riskScore=${input.riskScore} sceneTag=${input.sceneTag ?? '-'} dispoTag=${input.dispoTag ?? '-'}`,
+    );
+  }
+
   private decimalToBigint(decimalValue: any, decimals: number): bigint {
     const str = String(decimalValue);
     const [whole, frac = ''] = str.split('.');

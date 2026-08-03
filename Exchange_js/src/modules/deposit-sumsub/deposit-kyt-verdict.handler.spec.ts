@@ -49,7 +49,7 @@ describe('DepositKytVerdictHandler', () => {
     const detail = txnDetail([{ label: 'SANCTION' }], 92);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
-    await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'T1' });
+    const result = await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'T1' });
 
     expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(depositService.findBySumsubTxnId).toHaveBeenCalledWith('T1');
@@ -59,6 +59,7 @@ describe('DepositKytVerdictHandler', () => {
       riskScore: 92,
       detailRaw: detail.raw,
     });
+    expect(result).toBe(true);
   });
 
   it('Rejected + getTxn returns [SANCTION] → verdict=rejected, sceneTag=SANCTION, detailRaw 透传', async () => {
@@ -105,19 +106,30 @@ describe('DepositKytVerdictHandler', () => {
     });
   });
 
-  it('Reviewed: no-op, does not call workflow', async () => {
-    await handler.handle({ type: 'applicantKytTxnReviewed', kytTxnId: 'T1' });
+  it('Reviewed: no-op, does not call workflow, but DOES look up ownership (boolean hit-flag)', async () => {
+    const result = await handler.handle({ type: 'applicantKytTxnReviewed', kytTxnId: 'T1' });
 
-    expect(depositService.findBySumsubTxnId).not.toHaveBeenCalled();
+    expect(depositService.findBySumsubTxnId).toHaveBeenCalledWith('T1');
     expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
     expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+    expect(result).toBe(true);
   });
 
-  it('Created: 归一为 ignore,不调用 getTxn / applyKytVerdict', async () => {
-    await handler.handle({ type: 'applicantKytTxnCreated', kytTxnId: 'T1' });
+  it('Reviewed + no deposit owns this kytTxnId: still no-op, returns false', async () => {
+    depositService.findBySumsubTxnId.mockResolvedValue(null as any);
+
+    const result = await handler.handle({ type: 'applicantKytTxnReviewed', kytTxnId: 'UNKNOWN' });
+
+    expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+    expect(result).toBe(false);
+  });
+
+  it('Created: 归一为 ignore,不调用 getTxn / applyKytVerdict,按 ownership 返回布尔', async () => {
+    const result = await handler.handle({ type: 'applicantKytTxnCreated', kytTxnId: 'T1' });
 
     expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
     expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+    expect(result).toBe(true);
   });
 
   it('onHold 也拉 getTxn 存证(分数+报文),但不读处置 tag', async () => {
@@ -146,11 +158,12 @@ describe('DepositKytVerdictHandler', () => {
     );
   });
 
-  it('orphan: no deposit found for kytTxnId → does not call workflow', async () => {
+  it('orphan: no deposit found for kytTxnId → does not call workflow, returns false', async () => {
     depositService.findBySumsubTxnId.mockResolvedValue(null as any);
 
-    await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'UNKNOWN' });
+    const result = await handler.handle({ type: 'applicantKytTxnApproved', kytTxnId: 'UNKNOWN' });
 
     expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
+    expect(result).toBe(false);
   });
 });

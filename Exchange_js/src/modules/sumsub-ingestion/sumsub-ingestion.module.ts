@@ -7,6 +7,7 @@ import { TierUpgradeCaseModule } from '../identity/tier-upgrade-case/tier-upgrad
 import { DepositTransactionsModule } from '../trading/deposit-transactions/deposit-transactions.module';
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
+import { WithdrawSumsubModule } from '../withdraw-sumsub/withdraw-sumsub.module';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { SumsubIngestionController } from './sumsub-ingestion.controller';
 import { SumsubIngestionAdminController } from './sumsub-ingestion-admin.controller';
@@ -26,6 +27,10 @@ import { SumsubRetryService } from './sumsub-ingestion-retry.service';
     // SumsubIngestionService.ingest() — wrap in forwardRef on this side too, matching
     // the existing DepositTransactionsModule<->DepositSumsubModule cycle pattern.
     forwardRef(() => DepositSumsubModule),
+    // Task 4: withdraw-sumsub's WithdrawWebhookRouter — deposit-first, withdraw-second
+    // cascade for KYT verdict webhooks (see dispatch() below). forwardRef because
+    // WithdrawSumsubModule → DepositSumsubModule → SumsubIngestionModule closes a cycle.
+    forwardRef(() => WithdrawSumsubModule),
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],

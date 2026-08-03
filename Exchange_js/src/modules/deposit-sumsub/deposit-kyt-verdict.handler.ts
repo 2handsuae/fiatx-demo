@@ -40,19 +40,25 @@ export class DepositKytVerdictHandler {
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
   ) {}
 
-  async handle(payload: Record<string, unknown>): Promise<void> {
+  // Task 4: returns boolean = "a deposit row owns this kytTxnId". Ignore-types
+  // (Reviewed/Created) now also do the lookup — cheap indexed query — purely to
+  // report ownership to the caller; they still never reach applyKytVerdict, so
+  // the state machine is untouched. This lets SumsubIngestionService cascade to
+  // withdraw-sumsub on a miss instead of silently dropping withdraw-owned events.
+  async handle(payload: Record<string, unknown>): Promise<boolean> {
     const type = String(payload.type ?? '');
     const verdict = VERDICT_BY_TYPE[type];
-    if (!verdict || verdict === 'ignore') {
-      this.logger.debug(`DepositKytVerdictHandler ignoring type: ${type}`);
-      return;
-    }
-
     const kytTxnId = String(payload.kytTxnId ?? '');
     const deposit = await this.depositService.findBySumsubTxnId(kytTxnId);
+
+    if (!verdict || verdict === 'ignore') {
+      this.logger.debug(`DepositKytVerdictHandler ignoring type: ${type}`);
+      return !!deposit;
+    }
+
     if (!deposit) {
       this.logger.warn(`orphan KYT verdict webhook, no deposit for kytTxnId=${kytTxnId}`);
-      return;
+      return false;
     }
 
     let sceneTag: 'SANCTION' | 'PEP' | undefined;
@@ -82,5 +88,6 @@ export class DepositKytVerdictHandler {
       ...(dispoTag && { dispoTag }),
       ...(detailRaw !== undefined && { detailRaw }),
     });
+    return true;
   }
 }

@@ -15,6 +15,7 @@ import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgra
 import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
+import { WithdrawWebhookRouter } from '../withdraw-sumsub/withdraw-webhook.router';
 import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
@@ -37,6 +38,7 @@ export class SumsubIngestionService {
     @Inject(forwardRef(() => WithdrawTransactionsService))
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly depositWebhookRouter: DepositWebhookRouter,
+    private readonly withdrawWebhookRouter: WithdrawWebhookRouter,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -114,7 +116,7 @@ export class SumsubIngestionService {
         reviewRejectType?: string;
       } | null;
 
-      // ── Pre-routing: deposit Sumsub KYT-txn webhook types (Task 5) ──
+      // ── Pre-routing: deposit/withdraw Sumsub KYT-txn webhook types (Task 5/4) ──
       // Reuses this durable event table's dedup/retry/dead-letter; only the
       // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
       // NOTE: does NOT include applicantAction* — those are consumed by the
@@ -126,9 +128,16 @@ export class SumsubIngestionService {
       // 旧的 `startsWith('applicantKytTxn')` 会把它漏在门外;而放宽成 `applicantKyt`
       // 又会误吞 AML 等同前缀的其它族事件。见 kyt-webhook-types.ts。
       if (KYT_VERDICT_TYPES.has(depositWebhookType)) {
-        await this.depositWebhookRouter.route(payload);
-        result = { routedTo: 'deposit-sumsub', type: depositWebhookType };
-        dispatchedContext = 'DEPOSIT_SUMSUB';
+        // Task 4: cascade — deposit tried first (owns the vast majority of KYT-txn
+        // webhooks); only when it reports no ownership (hit=false) does the same
+        // payload fall through to withdraw-sumsub. Both domains key off the same
+        // kytTxnId, so at most one of them ever owns a given event.
+        const hit = await this.depositWebhookRouter.route(payload);
+        if (!hit) {
+          await this.withdrawWebhookRouter.route(payload);
+        }
+        result = { routedTo: hit ? 'deposit-sumsub' : 'withdraw-sumsub', type: depositWebhookType };
+        dispatchedContext = hit ? 'DEPOSIT_SUMSUB' : 'WITHDRAW_SUMSUB';
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
       else if (event.eventType === 'withdrawKytCheckSimulated') {
