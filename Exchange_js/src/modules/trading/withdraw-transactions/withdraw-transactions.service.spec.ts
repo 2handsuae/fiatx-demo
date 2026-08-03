@@ -51,6 +51,7 @@ describe('WithdrawTransactionsService', () => {
         asset: { findUnique: jest.fn() },
         customerMain: { findUnique: jest.fn() },
         withdrawTransaction: { findUnique: jest.fn() },
+        withdrawalAddress: { findFirst: jest.fn() },
         auditLogEvent: {
           findUnique: jest.fn(),
           create: jest.fn(),
@@ -138,7 +139,7 @@ describe('WithdrawTransactionsService', () => {
   // V2 balance check removed — migrated to TigerBeetle
   // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
-  it('should create withdraw in COMPLIANCE_PENDING with CRYPTO compliance statuses', async () => {
+  it('should create withdraw in COMPLIANCE_PENDING (CRYPTO)', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
     mockTx.withdrawTransaction.create.mockResolvedValue({
@@ -170,10 +171,6 @@ describe('WithdrawTransactionsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
-          preKytStatus: 'PENDING',
-          kytStatus: '',
-          travelRuleStatus: 'PENDING',
-          complianceStatus: 'PENDING',
         }),
       }),
     );
@@ -186,7 +183,7 @@ describe('WithdrawTransactionsService', () => {
     );
   });
 
-  it('should create FIAT withdraw with empty compliance statuses', async () => {
+  it('should create FIAT withdraw in COMPLIANCE_PENDING', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT' });
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
     mockTx.withdrawTransaction.create.mockResolvedValue({
@@ -228,13 +225,127 @@ describe('WithdrawTransactionsService', () => {
     expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          preKytStatus: '',
-          kytStatus: '',
-          travelRuleRequired: false,
-          travelRuleStatus: '',
+          status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
         }),
       }),
     );
+  });
+
+  // ── Task 3: address-registration guard + VASP derivation (RED → GREEN) ──
+  //
+  // createWithdrawal must check the customer's registered withdrawal address
+  // BEFORE inserting the row: crypto withdrawals look up toAddress, fiat
+  // withdrawals look up toIban. A miss (unregistered / not ACTIVE) throws
+  // WITHDRAWAL_ADDRESS_NOT_REGISTERED; a hit derives counterpartyIsVasp from
+  // the registered address's addressType (crypto only — fiat always null).
+  describe('address-registration guard + VASP derivation', () => {
+    it('throws WITHDRAWAL_ADDRESS_NOT_REGISTERED when the crypto toAddress is not registered/ACTIVE', async () => {
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+      prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
+      prisma.withdrawalAddress.findFirst.mockResolvedValue(null);
+
+      await expect(
+        workflow.createWithdrawal(
+          {
+            assetId: 'asset-1',
+            amount: 100,
+            toAddress: '0xUNREGISTERED',
+            quoteId: 'wq-1',
+          } as any,
+          'user-1',
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'WITHDRAWAL_ADDRESS_NOT_REGISTERED' }),
+      });
+
+      expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledWith({
+        where: { customerId: 'user-1', address: '0xUNREGISTERED', status: 'ACTIVE' },
+      });
+      // Never reaches insert when the guard rejects.
+      expect(mockTx.withdrawTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('crypto: a registered VASP address derives counterpartyIsVasp=true on the inserted record', async () => {
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+      prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
+      prisma.withdrawalAddress.findFirst.mockResolvedValue({ addressType: 'VASP' });
+      mockTx.withdrawTransaction.create.mockResolvedValue({
+        id: 'wd-vasp-1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'user-1',
+        assetId: 'asset-1',
+        amount: new Prisma.Decimal(100),
+        netAmount: new Prisma.Decimal(100),
+        feeAmount: new Prisma.Decimal(0),
+        withdrawNo: 'WD-VASP-1',
+        fromWalletId: null,
+        fromWalletNo: null,
+        toWalletId: null,
+        toWalletNo: null,
+      });
+
+      await workflow.createWithdrawal(
+        {
+          assetId: 'asset-1',
+          amount: 100,
+          toAddress: '0xVASPADDR',
+          quoteId: 'wq-1',
+        } as any,
+        'user-1',
+      );
+
+      expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ counterpartyIsVasp: true }),
+        }),
+      );
+    });
+
+    it('fiat: a registered BANK address passes the guard with counterpartyIsVasp left null', async () => {
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-fiat-1', type: 'FIAT' });
+      prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
+      prisma.withdrawalAddress.findFirst.mockResolvedValue({ addressType: 'BANK' });
+      mockTx.withdrawTransaction.create.mockResolvedValue({
+        id: 'wd-bank-1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'user-1',
+        assetId: 'asset-fiat-1',
+        amount: new Prisma.Decimal(100),
+        netAmount: new Prisma.Decimal(100),
+        feeAmount: new Prisma.Decimal(0),
+        withdrawNo: 'WD-BANK-1',
+        fromWalletId: null,
+        fromWalletNo: null,
+        toWalletId: null,
+        toWalletNo: null,
+      });
+      withdrawQuoteService.getActiveQuoteOrThrow.mockResolvedValue({
+        id: 'wq-2',
+        assetId: 'asset-fiat-1',
+        amount: new Prisma.Decimal(100),
+        totalsJson: JSON.stringify({}),
+      });
+      withdrawQuoteService.consumeQuote.mockResolvedValue({ id: 'wq-2', status: 'USED' });
+
+      await workflow.createWithdrawal(
+        {
+          assetId: 'asset-fiat-1',
+          amount: 100,
+          toIban: 'AE070331234567890123456',
+          quoteId: 'wq-2',
+        } as any,
+        'user-1',
+      );
+
+      expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledWith({
+        where: { customerId: 'user-1', iban: 'AE070331234567890123456', status: 'ACTIVE', addressType: 'BANK' },
+      });
+      expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.not.objectContaining({ counterpartyIsVasp: true }),
+        }),
+      );
+    });
   });
 
   it('should reject create when quoteId is missing', async () => {
@@ -455,10 +566,9 @@ describe('WithdrawTransactionsService', () => {
       id: 'wd-detail-1',
       withdrawNo: 'WDDET1',
       status: WithdrawTransactionStatus.SUCCESS,
-      preKytStatus: 'PASS',
-      kytStatus: 'PENDING',
-      travelRuleRequired: true,
-      travelRuleStatus: 'ACCEPTED',
+      sumsubTxnId: 'txn-1',
+      sumsubVerdict: 'approved',
+      counterpartyIsVasp: true,
       asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
       customer: null,
       payout: null,
@@ -488,10 +598,10 @@ describe('WithdrawTransactionsService', () => {
         operatorId: 'SYSTEM',
       }),
     ]);
-    // raw statuses preserved from DB
-    expect(result.preKytStatus).toBe('PASS');
-    expect(result.kytStatus).toBe('PENDING');
-    expect(result.travelRuleStatus).toBe('ACCEPTED');
+    // raw sumsub fields preserved from DB
+    expect(result.sumsubTxnId).toBe('txn-1');
+    expect(result.sumsubVerdict).toBe('approved');
+    expect(result.counterpartyIsVasp).toBe(true);
   });
 
   describe('approval-gate transitions', () => {

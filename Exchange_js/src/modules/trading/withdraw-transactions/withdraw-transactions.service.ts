@@ -145,31 +145,6 @@ export class WithdrawTransactionsService {
     };
   }
 
-  private deriveWithdrawComplianceSnapshotFromStatus(
-    status?: string | null,
-  ): 'PENDING' | 'CLEAR' | 'UNDER_REVIEW' | 'REJECTED' {
-    const current = String(status || '').trim().toUpperCase();
-
-    if (current === WithdrawTransactionStatus.MANUAL_CHECKING) {
-      return 'UNDER_REVIEW';
-    }
-
-    if (current === WithdrawTransactionStatus.REJECTED) {
-      return 'REJECTED';
-    }
-
-    if (
-      current === WithdrawTransactionStatus.PAYOUT_PENDING ||
-      current === WithdrawTransactionStatus.SUCCESS ||
-      current === WithdrawTransactionStatus.FAILED ||
-      current === WithdrawTransactionStatus.RETURNED
-    ) {
-      return 'CLEAR';
-    }
-
-    return 'PENDING';
-  }
-
   private deriveWithdrawComplianceStatusFromStatus(
     status?: string | null,
   ): 'PENDING' | 'CLEAR' | 'HOLD' | 'REJECT' {
@@ -500,8 +475,6 @@ export class WithdrawTransactionsService {
         where: { id },
         data: {
           status: nextStatus,
-          complianceStatus:
-            this.deriveWithdrawComplianceSnapshotFromStatus(nextStatus),
           approvedAt:
             nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING &&
             !item.approvedAt
@@ -608,11 +581,6 @@ export class WithdrawTransactionsService {
           feeAmount: new Prisma.Decimal(0),
           toAddress: isCrypto ? '0x' + Math.random().toString(16).slice(2) : null,
           toIban: !isCrypto ? 'IBAN' + Math.random().toString().slice(2) : null,
-          preKytStatus: isCrypto ? 'PENDING' : '',
-          kytStatus: '',
-          travelRuleRequired: isCrypto,
-          travelRuleStatus: isCrypto ? 'PENDING' : '',
-          complianceStatus: 'PENDING',
           statusHistory: JSON.stringify([{
             from: 'NONE',
             to: WithdrawTransactionStatus.PENDING_APPROVAL,
@@ -642,6 +610,14 @@ export class WithdrawTransactionsService {
     return records;
   }
 
+  // TASK5-TODO retired with mock pipeline — preKyt*/kyt* columns were dropped
+  // in the Sumsub single-txn migration (Task 3, .superpowers/sdd/task-3-brief.md).
+  // Callers (workflow's initializeTransactionScreen, the [DEV] simulate
+  // endpoints, and the sumsub-ingestion mock pipeline) still exist until the
+  // real Sumsub webhook consumer lands in Task 4/5, so the signature is kept
+  // as a no-op: validates the id and still emits WITHDRAWAL_KYT_UPDATED so
+  // any downstream listener keeps firing, but no longer writes columns that
+  // no longer exist on the model.
   async updateKytStatus(
     id: string,
     kytStatus: string,
@@ -652,36 +628,18 @@ export class WithdrawTransactionsService {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
 
-    // Phase 1 = pre-broadcast KYT → preKyt* fields
-    // Phase 2 = post-broadcast KYT → kyt* fields
-    const data = phase === 1
-      ? {
-          preKytStatus: kytStatus,
-          preKytId: kytScreeningId ?? item.preKytId,
-          preKytRiskScore: kytRiskScore ?? item.preKytRiskScore,
-          preKytCheckedAt: new Date(),
-        }
-      : {
-          kytStatus,
-          kytScreeningId: kytScreeningId ?? item.kytScreeningId,
-          kytRiskScore: kytRiskScore ?? item.kytRiskScore,
-          kytCheckedAt: new Date(),
-        };
-
-    const updated = await (this.prisma as any).withdrawTransaction.update({
-      where: { id },
-      data,
-    });
-
     this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_KYT_UPDATED, {
       withdrawId: id,
       kytStatus,
       phase,
     });
 
-    return updated;
+    return item;
   }
 
+  // TASK5-TODO retired with mock pipeline — travelRule* columns were dropped
+  // in the Sumsub single-txn migration (Task 3). See updateKytStatus above for
+  // why the signature is kept as a no-op rather than deleted outright.
   async updateTravelRuleStatus(
     id: string,
     travelRuleStatus: string,
@@ -690,21 +648,12 @@ export class WithdrawTransactionsService {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({ where: { id } });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
 
-    const updated = await (this.prisma as any).withdrawTransaction.update({
-      where: { id },
-      data: {
-        travelRuleStatus,
-        travelRuleTransferId: travelRuleTransferId ?? item.travelRuleTransferId,
-        travelRuleCheckedAt: new Date(),
-      },
-    });
-
     this.eventEmitter.emit(DomainEventNames.WITHDRAWAL_TRAVELRULE_UPDATED, {
       withdrawId: id,
       travelRuleStatus,
     });
 
-    return updated;
+    return item;
   }
 
   async saveValuationSnapshot(

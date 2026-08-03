@@ -119,6 +119,11 @@ function buildServiceMocks() {
     withdrawTransaction: {
       findUnique: jest.fn(() => Promise.resolve(createdRecord)),
     },
+    // Task 3 address-registration guard: these tests create a crypto withdrawal
+    // to a registered toAddress ('0xABCD') — return a hit so the guard passes.
+    withdrawalAddress: {
+      findFirst: jest.fn(() => Promise.resolve({ addressType: 'SELF_CUSTODY' })),
+    },
     $transaction: jest.fn((cb: (tx: any) => Promise<any>) => {
       const tx: any = {
         asset: {

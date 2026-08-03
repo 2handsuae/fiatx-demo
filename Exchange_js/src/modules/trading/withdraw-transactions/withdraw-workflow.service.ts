@@ -178,6 +178,42 @@ export class WithdrawWorkflowService implements OnModuleInit {
       ensureCustomerCanTransact(customer);
     }
 
+    // ── Address-registration guard + VASP derivation (Task 3) ──
+    // The withdrawal destination must already be a registered, ACTIVE
+    // withdrawal address — crypto checks toAddress, fiat checks toIban. Runs
+    // BEFORE the row is inserted (and before the quote is consumed) so an
+    // unregistered destination never burns the quote or locks funds.
+    const isCryptoWithdraw = String(asset.type || '').toUpperCase() !== 'FIAT';
+    let counterpartyIsVasp: boolean | null = null;
+    if (isCryptoWithdraw && toAddress) {
+      const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
+        where: { customerId: userId, address: toAddress, status: 'ACTIVE' },
+      });
+      if (!registeredAddress) {
+        throw new BadRequestException({
+          code: 'WITHDRAWAL_ADDRESS_NOT_REGISTERED',
+          message: 'Withdrawal address is not registered or not active',
+        });
+      }
+      counterpartyIsVasp = registeredAddress.addressType === 'VASP';
+    } else if (!isCryptoWithdraw && toIban) {
+      // NOTE: registered bank rows are stamped addressType='BANK' (network is
+      // the generic asset-network value 'FIAT', not 'BANK') — see
+      // WithdrawalAddressService#createBankAccount. Matches the addressType
+      // filter used everywhere else in the codebase that checks for an active
+      // bank account (e.g. onboarding.service.ts, withdrawal-address.service.ts).
+      const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
+        where: { customerId: userId, iban: toIban, status: 'ACTIVE', addressType: 'BANK' },
+      });
+      if (!registeredAddress) {
+        throw new BadRequestException({
+          code: 'WITHDRAWAL_ADDRESS_NOT_REGISTERED',
+          message: 'Withdrawal address is not registered or not active',
+        });
+      }
+      // counterpartyIsVasp stays null — VASP counterparty is a crypto-only concept.
+    }
+
     const withdrawNo = this.generateWithdrawNo();
 
     // Resolve owner number inline (no PricingCenterService dependency)
@@ -255,10 +291,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
           const traceId = randomUUID();
 
-          const isCryptoWithdraw = String(asset.type || '').toUpperCase() !== 'FIAT';
-          // NOTE: isCryptoWithdraw is retained for compliance-field branching below;
-          // TB accounting no longer branches by asset type (both use CLIENT_ASSET).
-
           const record = await this.withdrawService.insertRecord(tx, {
             withdrawNo,
             ownerType,
@@ -278,11 +310,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             toWalletId,
             toAddress,
             toIban,
-            preKytStatus: isCryptoWithdraw ? 'PENDING' : '',
-            kytStatus: '',
-            travelRuleRequired: isCryptoWithdraw,
-            travelRuleStatus: isCryptoWithdraw ? 'PENDING' : '',
-            complianceStatus: 'PENDING',
+            counterpartyIsVasp,
             traceId,
             grossAedValue: gateValuation?.grossAedValue ?? undefined,
             aedRate: gateValuation?.aedRate ?? undefined,

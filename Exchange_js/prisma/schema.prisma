@@ -1191,21 +1191,18 @@ model WithdrawTransaction {
   txHash               String?
   confirmations        Int                   @default(0)
   referenceNo          String?
-  preKytStatus         String                @default("PENDING")
-  preKytId             String?
-  preKytRiskScore      Int?
-  preKytCheckedAt      DateTime?
-  kytStatus            String                @default("PENDING")
-  kytScreeningId       String?
-  kytRiskScore         Int?
-  kytCheckedAt         DateTime?
-  travelRuleRequired   Boolean               @default(false)
-  counterpartyVasp     String?
-  travelRuleStatus     String                @default("NOT_REQUIRED")
-  travelRuleTransferId String?
-  travelRuleCheckedAt  DateTime?
-  complianceStatus     String                @default("PENDING")
-  complianceReviewedAt DateTime?
+  sumsubTxnId          String?               @unique
+  sumsubTxnType        String?
+  sumsubVerdict        String?
+  sumsubScore          Int?
+  sumsubScoredAt       DateTime?
+  sumsubTxnDetailJson  String?
+  counterpartyIsVasp   Boolean?
+  manualReason         String?
+  slaDeadline          DateTime?
+  slaBreached          Boolean               @default(false)
+  needsReview          Boolean               @default(false)
+  feeSettleAttempts    Int                   @default(0)
   traceId              String?
   grossAedValue        Decimal?
   aedRate              Decimal?
