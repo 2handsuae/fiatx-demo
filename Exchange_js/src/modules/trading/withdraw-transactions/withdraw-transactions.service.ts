@@ -752,6 +752,47 @@ export class WithdrawTransactionsService {
     });
   }
 
+  /**
+   * COMPLIANCE_PENDING → PENDING_APPROVAL "birth routing" write. Called only from
+   * WithdrawWorkflowService.openApprovalGate() AFTER the approval case exists and
+   * is linked. This is NOT a business state transition — every withdrawal is BORN
+   * on COMPLIANCE_PENDING (Task 2, "出生即着陆"); a large-value one is routed up to
+   * PENDING_APPROVAL right after birth once the gate confirms it needs approval.
+   * The 10-state/20-edge `transitions` table deliberately has no edge for this, so
+   * this bypasses updateStatus/transitions and writes status + statusHistory
+   * directly. No audit here — the workflow owns WITHDRAW_APPROVAL_REQUESTED.
+   */
+  async landOnPendingApproval(id: string) {
+    const item = await (this.prisma as any).withdrawTransaction.findUnique({
+      where: { id },
+      select: { statusHistory: true },
+    });
+
+    let history: any[] = [];
+    try {
+      if (item?.statusHistory) {
+        history = JSON.parse(item.statusHistory);
+      }
+    } catch {
+      history = [];
+    }
+
+    history.push({
+      status: WithdrawTransactionStatus.PENDING_APPROVAL,
+      timestamp: new Date().toISOString(),
+      operator: 'SYSTEM',
+      note: 'Large-value approval gate opened — routed to PENDING_APPROVAL',
+    });
+
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: {
+        status: WithdrawTransactionStatus.PENDING_APPROVAL,
+        statusHistory: JSON.stringify(history),
+      },
+    });
+  }
+
   async getOwnerComplianceStatus(withdrawId: string): Promise<string> {
     const item = await (this.prisma as any).withdrawTransaction.findUnique({
       where: { id: withdrawId },

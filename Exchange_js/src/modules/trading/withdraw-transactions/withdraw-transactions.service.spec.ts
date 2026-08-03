@@ -138,7 +138,7 @@ describe('WithdrawTransactionsService', () => {
   // V2 balance check removed — migrated to TigerBeetle
   // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
-  it('should create withdraw in PENDING_APPROVAL with CRYPTO compliance statuses', async () => {
+  it('should create withdraw in COMPLIANCE_PENDING with CRYPTO compliance statuses', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
     mockTx.withdrawTransaction.create.mockResolvedValue({
@@ -169,7 +169,7 @@ describe('WithdrawTransactionsService', () => {
     expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          status: WithdrawTransactionStatus.PENDING_APPROVAL,
+          status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
           preKytStatus: 'PENDING',
           kytStatus: '',
           travelRuleStatus: 'PENDING',
@@ -515,9 +515,11 @@ describe('WithdrawTransactionsService', () => {
     }
 
     // NOTE: the CREATED --require_approval--> PENDING_APPROVAL edge this covered
-    // was deleted by the 10-state/20-edge rewrite (Task 1) — PENDING_APPROVAL is
-    // now the birth state itself (no incoming edges), and REQUIRE_APPROVAL has no
-    // edge in the new table. Removed rather than renamed.
+    // was deleted by the 10-state/20-edge rewrite (Task 1) — PENDING_APPROVAL has
+    // no incoming edges in the transitions table (REQUIRE_APPROVAL has no edge at
+    // all), and is reached only via the sanctioned birth-routing write covered by
+    // the `landOnPendingApproval` describe block below (Task 2). Removed rather
+    // than renamed.
 
     it('PENDING_APPROVAL → GATE_APPROVE → COMPLIANCE_PENDING', async () => {
       arrangeItem(WithdrawTransactionStatus.PENDING_APPROVAL);
@@ -534,6 +536,41 @@ describe('WithdrawTransactionsService', () => {
     // NOTE: 'rejects GATE_APPROVE from CREATED' removed (CREATED no longer exists);
     // the exhaustive negative sweep in the guard-rail describe block below now
     // covers every undocumented (status, action) pair, including this one.
+  });
+
+  // Task 2 ("出生即着陆"): landOnPendingApproval is the ONE sanctioned COMPLIANCE_PENDING
+  // → PENDING_APPROVAL write that bypasses updateStatus/transitions entirely — the
+  // 20-edge table deliberately has no edge for it. Called only by
+  // WithdrawWorkflowService.openApprovalGate() after the approval case is linked.
+  describe('landOnPendingApproval — sanctioned birth-routing write (bypasses transitions)', () => {
+    it('writes status PENDING_APPROVAL directly via prisma.update and appends statusHistory', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        statusHistory: JSON.stringify([
+          { status: WithdrawTransactionStatus.COMPLIANCE_PENDING, note: 'Withdrawal created — awaiting approval-gate valuation' },
+        ]),
+      });
+      prisma.withdrawTransaction.update = jest.fn().mockResolvedValue({
+        id: 'wd-birth-route-1',
+        status: WithdrawTransactionStatus.PENDING_APPROVAL,
+      });
+
+      const result = await service.landOnPendingApproval('wd-birth-route-1');
+
+      expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wd-birth-route-1' },
+          data: expect.objectContaining({
+            status: WithdrawTransactionStatus.PENDING_APPROVAL,
+          }),
+        }),
+      );
+      const writtenHistory = JSON.parse(
+        (prisma.withdrawTransaction.update as jest.Mock).mock.calls[0][0].data.statusHistory,
+      );
+      expect(writtenHistory).toHaveLength(2);
+      expect(writtenHistory[1]).toMatchObject({ status: WithdrawTransactionStatus.PENDING_APPROVAL });
+      expect(result.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
+    });
   });
 
   it('should transition to FAILED when payout fails', async () => {

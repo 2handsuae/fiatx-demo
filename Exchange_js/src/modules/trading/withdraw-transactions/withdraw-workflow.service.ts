@@ -264,9 +264,13 @@ export class WithdrawWorkflowService implements OnModuleInit {
             ownerType,
             ownerId: userId,
             ownerNo,
-            // Birth state under the 10-state/20-edge rewrite (Task 1): PENDING_APPROVAL
-            // has zero incoming edges, so a withdrawal is created directly on it.
-            status: WithdrawTransactionStatus.PENDING_APPROVAL,
+            // Birth state (Task 2, "出生即着陆"): every withdrawal is created directly
+            // on COMPLIANCE_PENDING. The WITHDRAWAL_CREATED cascade below (same event,
+            // after commit) valuates it in AED and — fail-closed on a missing/failed
+            // valuation — routes large-value ones up to PENDING_APPROVAL via
+            // openApprovalGate's sanctioned birth-routing write; everything else stays
+            // put in COMPLIANCE_PENDING.
+            status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
             assetId,
             amount: amountDecimal,
             netAmount,
@@ -288,7 +292,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             parentId,
             pricingQuoteId: consumedQuoteId,
             statusHistory: JSON.stringify([{
-              status: WithdrawTransactionStatus.PENDING_APPROVAL,
+              status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
               timestamp: new Date().toISOString(),
               operator: 'SYSTEM',
               note: 'Withdrawal created — awaiting approval-gate valuation'
@@ -476,7 +480,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }) {
     try {
       const w = await this.withdrawService.findOneInternal(event.withdrawId);
-      if (w.status !== WithdrawTransactionStatus.PENDING_APPROVAL) {
+      if (w.status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
         this.logger.debug(`Skip branch: withdrawal ${event.withdrawId} already ${w.status}`);
         return;
       }
@@ -488,16 +492,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
       if (shouldRequireApproval(valuation, threshold)) {
         await this.openApprovalGate(w, valuation, threshold);
       } else {
-        this.logger.log(`Withdrawal ${event.withdrawId} below approval threshold — proceeding to compliance`);
-        // TASK2-TODO: CHECK action removed by the 10-state/20-edge rewrite (Task 1).
-        // There is no longer a compiling transition straight to COMPLIANCE_PENDING
-        // here — Task 2 ("出生即着陆") rewrites handleWithdrawalCreated's birth-landing
-        // logic against the new state machine (see .superpowers/sdd/task-1-brief.md).
-        // await this.withdrawService.updateStatus(
-        //   w.id,
-        //   { action: WithdrawTransactionAction.CHECK },
-        //   this.systemCtx,
-        // );
+        this.logger.log(`Withdrawal ${event.withdrawId} below approval threshold — remaining in compliance`);
+        // Withdrawal is already BORN on COMPLIANCE_PENDING (Task 2) — no transition
+        // needed here.
+        // TASK5-TODO submitSumsubTxn()
         await this.initializeTransactionScreen(w.id);
       }
     } catch (err) {
@@ -559,14 +557,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
       await this.withdrawService.linkApprovalCase(w.id, approval.id, approval.approvalNo);
 
-      // Flip to PENDING_APPROVAL only AFTER the case exists and is linked, so a partial
-      // failure leaves the withdrawal cleanly in CREATED (funds locked, retriable) and
-      // never stuck in PENDING_APPROVAL with no approval case.
-      await this.withdrawService.updateStatus(
-        w.id,
-        { action: WithdrawTransactionAction.REQUIRE_APPROVAL },
-        this.systemCtx,
-      );
+      // Flip COMPLIANCE_PENDING → PENDING_APPROVAL only AFTER the case exists and is
+      // linked, so a partial failure leaves the withdrawal cleanly in COMPLIANCE_PENDING
+      // (funds locked, retriable) and never stuck in PENDING_APPROVAL with no approval
+      // case. This is the ONE sanctioned "birth routing" write — the transitions table
+      // deliberately has no edge for it (it isn't a business transition, it's where a
+      // large-value withdrawal actually lands right after birth) — so it bypasses
+      // updateStatus/transitions and goes straight to Prisma + statusHistory instead.
+      await this.withdrawService.landOnPendingApproval(w.id);
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_APPROVAL_REQUESTED,
@@ -583,7 +581,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
       this.logger.log(`Withdrawal ${w.id} now PENDING_APPROVAL — approval ${approval.approvalNo} opened`);
     } catch (err) {
-      this.logger.error(`openApprovalGate failed for ${w.id} — left in CREATED for retry: ${(err as Error).message}`);
+      this.logger.error(`openApprovalGate failed for ${w.id} — left in COMPLIANCE_PENDING for retry: ${(err as Error).message}`);
       throw err;
     }
   }

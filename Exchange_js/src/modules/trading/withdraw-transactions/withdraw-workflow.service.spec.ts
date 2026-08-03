@@ -383,14 +383,20 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
   });
 });
 
-// Task 5 review: D1 large-value approval threshold now comes from the rule row
-// (getLargeApprovalThreshold), not a dead constant. Fail-closed on a missing rule
+// Task 2 ("出生即着陆"): every withdrawal is now BORN on COMPLIANCE_PENDING (not
+// PENDING_APPROVAL) — handleWithdrawalCreated only proceeds when status is
+// COMPLIANCE_PENDING, valuates, and either leaves the row there (below threshold)
+// or routes it up to PENDING_APPROVAL via openApprovalGate's sanctioned
+// birth-routing write (WithdrawTransactionsService#landOnPendingApproval), which
+// bypasses updateStatus/transitions entirely (the 20-edge table has no edge for
+// it). Also covers Task 5 review D1: threshold comes from the rule row
+// (getLargeApprovalThreshold), not a dead constant, fail-closed on a missing rule
 // or a failed re-valuation — with a sane reason string (never "≥ null AED").
-describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold source + fail-closed', () => {
+describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Task 2) + D1 threshold source', () => {
   const event = {
     withdrawId: 'wd-hc-1',
     withdrawNo: 'WD7001',
-    status: 'CREATED',
+    status: 'COMPLIANCE_PENDING',
     ownerType: 'CUSTOMER',
     ownerId: 'cust-hc',
     assetId: 'asset-usdt',
@@ -405,7 +411,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold sourc
     const row = {
       id: 'wd-hc-1',
       withdrawNo: 'WD7001',
-      status: WithdrawTransactionStatus.PENDING_APPROVAL,
+      status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-hc',
       traceId: 'trace-hc',
@@ -416,7 +422,9 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold sourc
       findOneInternal: jest.fn().mockResolvedValue(row),
       saveValuationSnapshot: jest.fn().mockResolvedValue(undefined),
       linkApprovalCase: jest.fn().mockResolvedValue(undefined),
-      updateStatus: jest.fn().mockResolvedValue(undefined),
+      landOnPendingApproval: jest.fn().mockResolvedValue(undefined),
+      updateKytStatus: jest.fn().mockResolvedValue(undefined),
+      updateTravelRuleStatus: jest.fn().mockResolvedValue(undefined),
     };
     const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
     const approvalsService = {
@@ -449,7 +457,44 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold sourc
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
 
-  it('reads getLargeApprovalThreshold(WITHDRAWAL); a null rule routes to approval with a sane reason (no "≥ null AED")', async () => {
+  it('below-threshold: lands (stays) COMPLIANCE_PENDING — no approval case opened, no birth-routing write', async () => {
+    const { workflow, withdrawService, approvalsService } = buildWorkflow({
+      // default fetchRate → grossAedValue = 100 * 3.67 = 367, well under threshold.
+      threshold: new Prisma.Decimal('200000'),
+    });
+
+    await workflow.handleWithdrawalCreated(event);
+
+    expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+    expect(withdrawService.landOnPendingApproval).not.toHaveBeenCalled();
+    expect(withdrawService.saveValuationSnapshot).toHaveBeenCalledWith(
+      'wd-hc-1',
+      expect.objectContaining({ rateFetchFailed: false }),
+    );
+  });
+
+  it('≥200000 AED gross value: routes to PENDING_APPROVAL via the sanctioned birth-routing write, approval case linked first', async () => {
+    const { workflow, withdrawService, approvalsService } = buildWorkflow({
+      // 100 * 3000 = 300,000 AED ≥ 200,000 threshold.
+      fetchRate: () => Promise.resolve({ rate: new Prisma.Decimal('3000'), fetchedAt: new Date() }),
+      threshold: new Prisma.Decimal('200000'),
+    });
+
+    await workflow.handleWithdrawalCreated(event);
+
+    expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
+    // linkApprovalCase must happen BEFORE the birth-routing write (comment/invariant
+    // in openApprovalGate: never PENDING_APPROVAL with no linked approval case).
+    const linkOrder = (withdrawService.linkApprovalCase as jest.Mock).mock.invocationCallOrder[0];
+    const landOrder = (withdrawService.landOnPendingApproval as jest.Mock).mock.invocationCallOrder[0];
+    expect(linkOrder).toBeLessThan(landOrder);
+    expect(withdrawService.linkApprovalCase).toHaveBeenCalledWith('wd-hc-1', 'ap-hc', 'AP-HC-1');
+    // The status write is direct (WithdrawTransactionsService#landOnPendingApproval),
+    // NOT updateStatus/transitions — the 20-edge table has no such edge.
+    expect(withdrawService.landOnPendingApproval).toHaveBeenCalledWith('wd-hc-1');
+  });
+
+  it('reads getLargeApprovalThreshold(WITHDRAWAL); a null rule fail-closes to approval with a sane reason (no "≥ null AED")', async () => {
     const { workflow, withdrawService, approvalsService, limitRulesService } = buildWorkflow({
       threshold: null,
     });
@@ -459,17 +504,13 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold sourc
     expect(limitRulesService.getLargeApprovalThreshold).toHaveBeenCalledWith('WITHDRAWAL');
     // Fail-closed on the missing rule → approval, not compliance.
     expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
-    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
-      'wd-hc-1',
-      expect.objectContaining({ action: WithdrawTransactionAction.REQUIRE_APPROVAL }),
-      expect.anything(),
-    );
+    expect(withdrawService.landOnPendingApproval).toHaveBeenCalledWith('wd-hc-1');
     const reason = (approvalsService.createAndSubmit as jest.Mock).mock.calls[0][1].reason as string;
     expect(reason).not.toContain('null');
     expect(reason).toContain('large-value approval required');
   });
 
-  it('fail-closes to approval when the re-valuation fails, passing the fresh failed valuation to persistence', async () => {
+  it('valuation failure (rate provider throws): fail-closes to approval, PENDING_APPROVAL via birth-routing write', async () => {
     const { workflow, withdrawService, approvalsService } = buildWorkflow({
       fetchRate: () => Promise.reject(new Error('binance timeout')),
       threshold: new Prisma.Decimal('200000'),
@@ -486,12 +527,22 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold sourc
     );
     // Approval decision fail-closes on the fresh failure regardless of threshold.
     expect(approvalsService.createAndSubmit).toHaveBeenCalledTimes(1);
-    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
-      'wd-hc-1',
-      expect.objectContaining({ action: WithdrawTransactionAction.REQUIRE_APPROVAL }),
-      expect.anything(),
-    );
+    expect(withdrawService.landOnPendingApproval).toHaveBeenCalledWith('wd-hc-1');
     const reason = (approvalsService.createAndSubmit as jest.Mock).mock.calls[0][1].reason as string;
     expect(reason).toContain('200000');
+  });
+
+  it('openApprovalGate failure (approvalsService throws): the birth-routing write never runs, row stays COMPLIANCE_PENDING', async () => {
+    const { workflow, withdrawService, approvalsService } = buildWorkflow({
+      threshold: null, // fail-closed → routes into openApprovalGate
+    });
+    approvalsService.createAndSubmit.mockRejectedValue(new Error('approvals service down'));
+
+    await expect(workflow.handleWithdrawalCreated(event)).rejects.toThrow('approvals service down');
+
+    // Never linked, never routed — the row is cleanly left in COMPLIANCE_PENDING
+    // (funds still locked, retriable on the next WITHDRAWAL_CREATED replay).
+    expect(withdrawService.linkApprovalCase).not.toHaveBeenCalled();
+    expect(withdrawService.landOnPendingApproval).not.toHaveBeenCalled();
   });
 });
