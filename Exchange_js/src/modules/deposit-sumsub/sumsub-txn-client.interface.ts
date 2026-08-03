@@ -18,4 +18,7 @@ export interface SumsubTxnClient {
   getTxn(txnId: string): Promise<SumsubTxnDetail>;
   rescore(txnId: string): Promise<void>;
   reviewComplete(txnId: string, answer: 'GREEN' | 'RED'): Promise<void>; // 冒烟/officer 模拟用
+  // L3 Post-Tx Archive (Task 7): archives the real crossing txHash onto an
+  // already-submitted KYT txn for on-chain tracing.
+  archiveTxHash(txnId: string, txHash: string): Promise<void>;
 }

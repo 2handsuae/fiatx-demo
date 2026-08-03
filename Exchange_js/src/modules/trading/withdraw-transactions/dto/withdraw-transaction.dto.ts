@@ -1,5 +1,5 @@
-import { IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsEnum, IsNumber, IsNotEmpty } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 // 状态机收窄(10 状态/13 动作/20 边,定稿于 .superpowers/sdd/task-1-brief.md)。
 // CREATED/CANCELLED/UNDER_REVIEW/HELD/APPROVED/PENDING_COMPLIANCE 已删除——这些字符串
@@ -58,6 +58,15 @@ export class AdminUpdateWithdrawTransactionStatusDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+// Task 7: admin bounce entry (PAYOUT_PENDING → RETURNED). reason is required —
+// this is the "why" that lands in the audit trail (fee is NOT refunded).
+export class BounceWithdrawTransactionDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsNotEmpty()
+  @IsString()
+  reason!: string;
 }
 
 export class CreateWithdrawTransactionDto {

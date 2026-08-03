@@ -82,6 +82,12 @@ export class HttpSumsubTxnClient implements SumsubTxnClient {
     await this.post(`/resources/kyt/txns/${txnId}/review/status/completed`, { reviewAnswer: answer });
   }
 
+  async archiveTxHash(txnId: string, txHash: string): Promise<void> {
+    await this.patch(`/resources/kyt/txns/${txnId}/data/info`, {
+      txnInfo: { cryptoTxInfo: { txHash } },
+    });
+  }
+
   /**
    * officer 终裁(review.reviewResult.reviewAnswer)优先于规则评分(scoringResult.action)。
    */
@@ -103,6 +109,11 @@ export class HttpSumsubTxnClient implements SumsubTxnClient {
 
   private async post<T>(path: string, data: Record<string, unknown>): Promise<T> {
     const response = await this.http.post<T>(path, data, { headers: this.buildHeaders('POST', path, data) });
+    return response.data;
+  }
+
+  private async patch<T>(path: string, data: Record<string, unknown>): Promise<T> {
+    const response = await this.http.patch<T>(path, data, { headers: this.buildHeaders('PATCH', path, data) });
     return response.data;
   }
 

@@ -26,6 +26,9 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_FEE_POST: 14,    // post
   WITHDRAW_FEE_VOID: 15,    // void
   WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR FIRM_FEE
+  // 退汇(PAYOUT_PENDING→RETURNED，Task 7)：净额腿已 POST 后银行/链上退回,重入账反向单腿
+  // (DR CLIENT_ASSET / CR CLIENT_PAYABLE)。手续费不退(留归公司)。
+  WITHDRAW_BOUNCE_REENTRY: 17,
 
   // ── 充值·上缴续段(20–29)：充值段 5–9 已满,续挪此──
   DEPOSIT_SEIZE_VOID: 20, // 上缴取消/失败:void

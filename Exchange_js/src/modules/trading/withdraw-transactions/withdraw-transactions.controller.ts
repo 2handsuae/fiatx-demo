@@ -13,9 +13,11 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { WithdrawTransactionsService } from './withdraw-transactions.service';
+import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import {
   WithdrawTransactionQueryDto,
   AdminUpdateWithdrawTransactionStatusDto,
+  BounceWithdrawTransactionDto,
   WithdrawTransactionAction,
 } from './dto/withdraw-transaction.dto';
 import {
@@ -33,6 +35,7 @@ import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-
 export class WithdrawTransactionsController {
   constructor(
     private readonly service: WithdrawTransactionsService,
+    private readonly workflowService: WithdrawWorkflowService,
   ) {}
 
   private assertAdmin(req: any) {
@@ -85,6 +88,21 @@ export class WithdrawTransactionsController {
         sourcePlatform: 'ADMIN_API',
       },
     );
+  }
+
+  @Post(':id/bounce')
+  @ApiOperation({ summary: 'Bounce (return) a withdraw transaction payout' })
+  bounce(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: BounceWithdrawTransactionDto,
+  ) {
+    this.assertAdmin(req);
+    return this.workflowService.onBounce(id, dto.reason, {
+      actorType: 'ADMIN',
+      actorId: req.user?.userId || 'ADMIN_SYSTEM',
+      actorRole: req.user?.role || 'ADMIN',
+    });
   }
 
 }

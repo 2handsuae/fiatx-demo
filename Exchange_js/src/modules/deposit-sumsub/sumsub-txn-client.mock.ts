@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SumsubTxnClient, SubmitTxnInput } from './sumsub-txn-client.interface';
 import { SumsubTxnDetail } from './sumsub-txn.types';
 
@@ -9,6 +9,7 @@ import { SumsubTxnDetail } from './sumsub-txn.types';
  */
 @Injectable()
 export class MockSumsubTxnClient implements SumsubTxnClient {
+  private readonly logger = new Logger(MockSumsubTxnClient.name);
   private readonly txns = new Map<string, SumsubTxnDetail>();
   private readonly submitResults = new Map<string, string>();
 
@@ -50,5 +51,10 @@ export class MockSumsubTxnClient implements SumsubTxnClient {
 
   async reviewComplete(_txnId: string, _answer: 'GREEN' | 'RED'): Promise<void> {
     // no-op: mock 无需真实 officer 复核
+  }
+
+  async archiveTxHash(txnId: string, txHash: string): Promise<void> {
+    // no-op: mock 无需真调 Sumsub KYT 归档
+    this.logger.debug(`archiveTxHash no-op: txnId=${txnId} txHash=${txHash}`);
   }
 }

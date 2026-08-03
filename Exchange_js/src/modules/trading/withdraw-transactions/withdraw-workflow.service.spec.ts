@@ -6,6 +6,8 @@ import {
 } from './dto/withdraw-transaction.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 
 describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   let workflow: WithdrawWorkflowService;
@@ -1477,5 +1479,235 @@ describe('WithdrawWorkflowService — Task 6: settle-failure retry (three-rung l
 
     expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
     expect(withdrawService.incrementFeeSettleAttempts).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Task 7: onBounce (RETURNED bounce entry) + archivePostKyt (L3 real call)
+//
+//   onBounce — admin-initiated: the payout already POSTed (money actually
+//   left) but the bank/network bounced it back afterwards. Reverses the net
+//   leg (DR CLIENT_ASSET / CR CLIENT_PAYABLE) THEN flips PAYOUT_PENDING →
+//   RETURNED (先账后状态). Fee is NOT refunded. Idempotent: a second call
+//   after RETURNED fails cleanly on the status guard.
+//
+//   archivePostKyt — L3 real Sumsub call, replacing the log-only stub:
+//   guards on sumsubTxnId + txHash both present, then calls
+//   sumsubTxnClient.archiveTxHash(sumsubTxnId, txHash).
+// ─────────────────────────────────────────────────────────────
+
+function buildBounceWorkflow(overrides: {
+  withdrawService?: Partial<Record<string, jest.Mock>>;
+  accountingService?: Partial<Record<string, jest.Mock>>;
+  fundsOrders?: Partial<Record<string, jest.Mock>>;
+  prisma?: any;
+  sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
+} = {}) {
+  const withdrawService = {
+    findOneInternal: jest.fn(),
+    updateStatus: jest.fn().mockResolvedValue(undefined),
+    ...overrides.withdrawService,
+  };
+  const auditLogsService = {
+    recordSystem: jest.fn().mockResolvedValue({}),
+    recordByActor: jest.fn().mockResolvedValue({}),
+  };
+  const accountingService = {
+    executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
+    resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    ...overrides.accountingService,
+  };
+  const fundsOrders = {
+    findByParent: jest.fn().mockResolvedValue([]),
+    resolveExternalRef: jest.fn().mockReturnValue(null),
+    ...overrides.fundsOrders,
+  };
+  const prisma = overrides.prisma ?? {
+    tbTransferEvidence: {
+      findMany: jest.fn().mockResolvedValue([{ eventCode: 'WITHDRAW_NET_POST' }]),
+    },
+  };
+  const sumsubTxnClient = {
+    archiveTxHash: jest.fn().mockResolvedValue(undefined),
+    ...overrides.sumsubTxnClient,
+  };
+
+  const workflow = new WithdrawWorkflowService(
+    prisma as any,
+    {} as any, // eventEmitter
+    withdrawService as any,
+    {} as any, // withdrawQuoteService
+    auditLogsService as any,
+    accountingService as any,
+    fundsOrders as any,
+    {} as any, // approvalsService
+    {} as any, // binanceRateProvider
+    {} as any, // systemWalletResolver
+    {} as any, // tbEvidenceService
+    {} as any, // limitGateService
+    {} as any, // limitRulesService
+    sumsubTxnClient as any,
+  );
+
+  return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
+}
+
+const bounceWithdrawal = {
+  id: 'wd-bounce-1',
+  withdrawNo: 'WD-BOUNCE-1',
+  status: WithdrawTransactionStatus.PAYOUT_PENDING,
+  ownerType: 'CUSTOMER',
+  ownerId: 'cust-bounce-1',
+  traceId: 'trace-bounce-1',
+  assetId: 'asset-usdt',
+  netAmount: new Prisma.Decimal('95'),
+  feeAmount: new Prisma.Decimal('5'),
+  fromWalletId: 'wallet-from-1',
+  asset: { currency: 'USDT', decimals: 8, type: 'CRYPTO' },
+};
+
+describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () => {
+  it('rejects when withdrawal is not PAYOUT_PENDING', async () => {
+    const { workflow, withdrawService, accountingService } = buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue({
+      ...bounceWithdrawal,
+      status: WithdrawTransactionStatus.SUCCESS,
+    });
+
+    await expect(workflow.onBounce(bounceWithdrawal.id, 'bank returned funds')).rejects.toThrow();
+
+    expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects with BOUNCE_REQUIRES_POSTED_PAYOUT when the net leg has not posted yet', async () => {
+    const { workflow, withdrawService, accountingService, prisma } = buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawal);
+    prisma.tbTransferEvidence.findMany.mockResolvedValue([]); // no WITHDRAW_NET_POST evidence yet
+
+    await expect(workflow.onBounce(bounceWithdrawal.id, 'bank returned funds')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'BOUNCE_REQUIRES_POSTED_PAYOUT' }),
+    });
+
+    expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('happy path: reverses the net leg (DR CLIENT_ASSET / CR CLIENT_PAYABLE) THEN flips to RETURNED, audits reason + fee retained', async () => {
+    const { workflow, withdrawService, accountingService, auditLogsService, fundsOrders } =
+      buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawal);
+    fundsOrders.findByParent.mockResolvedValue([
+      { id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawal.asset },
+    ]);
+    fundsOrders.resolveExternalRef.mockReturnValue('0xabc');
+    accountingService.resolveTbAccountId.mockImplementation(async (params: any) =>
+      params.code === TB_ACCOUNT_CODES.CLIENT_ASSET ? 111n : 222n,
+    );
+
+    const callOrder: string[] = [];
+    accountingService.executeTransfer.mockImplementation(async () => {
+      callOrder.push('executeTransfer');
+      return { tbTransferId: 9n };
+    });
+    withdrawService.updateStatus.mockImplementation(async () => {
+      callOrder.push('updateStatus');
+    });
+
+    const reason = 'bank returned funds — invalid IBAN';
+    await workflow.onBounce(bounceWithdrawal.id, reason);
+
+    expect(accountingService.executeTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        debitAccountId: 111n,
+        creditAccountId: 222n,
+        code: TB_TRANSFER_CODES.WITHDRAW_BOUNCE_REENTRY,
+        evidence: expect.objectContaining({
+          sourceType: 'WITHDRAWAL',
+          sourceNo: bounceWithdrawal.withdrawNo,
+          eventCode: 'WITHDRAW_BOUNCE_REENTRY',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+          debitWalletRef: bounceWithdrawal.fromWalletId,
+          creditWalletRef: bounceWithdrawal.fromWalletId,
+          externalRef: '0xabc',
+          isExternalCrossing: true,
+          memo: expect.stringContaining(reason),
+        }),
+      }),
+    );
+
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      bounceWithdrawal.id,
+      expect.objectContaining({ action: WithdrawTransactionAction.RETURN, reason }),
+      expect.objectContaining({ source: 'WORKFLOW' }),
+    );
+
+    // 先账后状态: the reverse TB entry must land before the terminal status flip.
+    expect(callOrder).toEqual(['executeTransfer', 'updateStatus']);
+
+    expect(auditLogsService.recordByActor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.WITHDRAW_BOUNCED,
+        entityId: bounceWithdrawal.id,
+        entityNo: bounceWithdrawal.withdrawNo,
+        metadata: { reason },
+        reason: expect.stringContaining('fee retained'),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('double bounce: second call is rejected because the first already flipped status to RETURNED', async () => {
+    const { workflow, withdrawService, accountingService } = buildBounceWorkflow();
+    withdrawService.findOneInternal
+      .mockResolvedValueOnce(bounceWithdrawal)
+      .mockResolvedValueOnce({ ...bounceWithdrawal, status: WithdrawTransactionStatus.RETURNED });
+
+    await workflow.onBounce(bounceWithdrawal.id, 'first bounce');
+    await expect(workflow.onBounce(bounceWithdrawal.id, 'second bounce')).rejects.toThrow();
+
+    expect(accountingService.executeTransfer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WithdrawWorkflowService.archivePostKyt (Task 7: L3 real Sumsub archive call)', () => {
+  it('calls sumsubTxnClient.archiveTxHash(sumsubTxnId, txHash) when both are present', async () => {
+    const { workflow, sumsubTxnClient } = buildBounceWorkflow();
+
+    await (workflow as any).archivePostKyt({
+      id: 'wd-1',
+      withdrawNo: 'WD-1',
+      txHash: '0xabc',
+      sumsubTxnId: 'SUMSUB-TXN-1',
+    });
+
+    expect(sumsubTxnClient.archiveTxHash).toHaveBeenCalledWith('SUMSUB-TXN-1', '0xabc');
+  });
+
+  it('skips (no call) when sumsubTxnId is missing', async () => {
+    const { workflow, sumsubTxnClient } = buildBounceWorkflow();
+
+    await (workflow as any).archivePostKyt({
+      id: 'wd-1',
+      withdrawNo: 'WD-1',
+      txHash: '0xabc',
+      sumsubTxnId: null,
+    });
+
+    expect(sumsubTxnClient.archiveTxHash).not.toHaveBeenCalled();
+  });
+
+  it('skips (no call) when txHash is missing', async () => {
+    const { workflow, sumsubTxnClient } = buildBounceWorkflow();
+
+    await (workflow as any).archivePostKyt({
+      id: 'wd-1',
+      withdrawNo: 'WD-1',
+      txHash: null,
+      sumsubTxnId: 'SUMSUB-TXN-1',
+    });
+
+    expect(sumsubTxnClient.archiveTxHash).not.toHaveBeenCalled();
   });
 });

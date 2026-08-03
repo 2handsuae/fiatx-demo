@@ -24,6 +24,7 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditActorContext } from '../../audit-logging/dto/audit-log.dto';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -1505,17 +1506,152 @@ export class WithdrawWorkflowService implements OnModuleInit {
     );
   }
 
+  // ── Bounce (RETURNED) — bank/network returned an already-POSTed payout ──
+
+  /**
+   * Admin-initiated bounce (Task 7): the payout net leg already POSTed (money
+   * actually left) but the bank/network returned it afterwards (dead IBAN,
+   * closed account, downstream sanctions hit, etc.). Reverses the net amount
+   * back into the customer's balance — DR CLIENT_ASSET / CR CLIENT_PAYABLE —
+   * then flips PAYOUT_PENDING → RETURNED (terminal).
+   *
+   * Guards:
+   *   - status must be PAYOUT_PENDING. A payout that fails BEFORE it ever
+   *     posted should go through the existing FAIL path instead.
+   *   - the net leg must already carry WITHDRAW_NET_POST evidence — otherwise
+   *     the money never left and there is nothing to bounce back.
+   *
+   * FEE IS NOT REFUNDED — bank-bounce fees stay with the firm; only the net
+   * principal re-enters. The audit reason states this explicitly.
+   *
+   * Ordering (先账后状态): the reverse TB entry lands BEFORE the status flip,
+   * so a crash in between leaves the withdrawal retriable at PAYOUT_PENDING
+   * rather than silently losing the reversal. Idempotent: a second call after
+   * RETURNED lands fails cleanly on the status guard above.
+   */
+  async onBounce(
+    withdrawId: string,
+    reason: string,
+    actorCtx: AuditActorContext = { actorType: 'SYSTEM', actorId: 'SYSTEM', actorRole: 'SYSTEM' },
+  ): Promise<void> {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+
+    if (w.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
+      throw new BadRequestException({
+        code: 'BOUNCE_REQUIRES_PAYOUT_PENDING',
+        message: `Cannot bounce withdrawal ${w.withdrawNo}: status is ${w.status}, expected PAYOUT_PENDING`,
+      });
+    }
+
+    const postedEvidence = await (this.prisma as any).tbTransferEvidence.findMany({
+      where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo, eventCode: 'WITHDRAW_NET_POST' },
+    });
+    if (postedEvidence.length === 0) {
+      throw new BadRequestException({
+        code: 'BOUNCE_REQUIRES_POSTED_PAYOUT',
+        message: `Cannot bounce withdrawal ${w.withdrawNo}: payout net leg has not posted yet — use FAIL instead`,
+      });
+    }
+
+    const decimals = w.asset?.decimals ?? 8;
+    const netBigint = this.decimalToBigint(w.netAmount, decimals);
+    const ledger = TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS];
+
+    const clientAssetId = await this.accountingService.resolveTbAccountId({
+      code: TB_ACCOUNT_CODES.CLIENT_ASSET,
+      ledger,
+      ownerType: 'SYSTEM',
+    });
+    const clientPayableId = await this.accountingService.resolveTbAccountId({
+      code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+      ledger,
+      ownerType: 'CUSTOMER',
+      ownerUuid: w.ownerId,
+    });
+
+    const principalLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: PAYOUT_LEG_SEQ });
+    const principalLeg = principalLegs[principalLegs.length - 1];
+    const externalRef = principalLeg ? this.fundsOrders.resolveExternalRef(principalLeg) : null;
+    const walletRef = w.fromWalletId ?? null;
+
+    await this.accountingService.executeTransfer({
+      debitAccountId: clientAssetId,
+      creditAccountId: clientPayableId,
+      amount: netBigint,
+      ledger,
+      code: TB_TRANSFER_CODES.WITHDRAW_BOUNCE_REENTRY,
+      evidence: {
+        sourceType: 'WITHDRAWAL',
+        sourceNo: w.withdrawNo,
+        eventCode: 'WITHDRAW_BOUNCE_REENTRY',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+        assetCurrency: w.asset?.currency || '',
+        traceId: w.traceId || w.id,
+        actorType: actorCtx.actorType,
+        actorId: actorCtx.actorId,
+        memo: `Payout bounced by bank/network — reason: ${reason} (fee retained, not refunded)`,
+        debitWalletRef: walletRef,
+        creditWalletRef: walletRef,
+        externalRef,
+        isExternalCrossing: true,
+      },
+    });
+
+    // 先账后状态: the reverse TB entry above must land before this terminal flip.
+    await this.withdrawService.updateStatus(
+      w.id,
+      { action: WithdrawTransactionAction.RETURN, reason },
+      this.systemCtx,
+    );
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_BOUNCED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Payout bounced: ${reason} — fee retained (not refunded)`,
+        metadata: { reason },
+        sourcePlatform: 'ADMIN_API',
+      },
+      actorCtx,
+    );
+
+    this.logger.log(`Withdrawal ${withdrawId} bounced by bank/network — reversed net leg, status RETURNED`);
+  }
+
   // ── L3: Post-Tx Archive — fire-and-forget ──
 
+  /**
+   * Archives the withdrawal's on-chain txHash into Sumsub KYT (PATCH
+   * /resources/kyt/txns/{txnId}/data/info) so the transaction record carries
+   * the real crossing reference for future tracing. Guards on both
+   * sumsubTxnId and txHash being present — a withdrawal never submitted to
+   * Sumsub (no applicant / submit failure) or without a chain txHash (FIAT,
+   * or crypto still pending) has nothing to archive yet.
+   */
   private async archivePostKyt(withdrawal: {
     id: string;
     withdrawNo: string;
     txHash: string | null;
+    sumsubTxnId?: string | null;
   }): Promise<void> {
-    // Stub: when Sumsub KYT is integrated, this becomes a PATCH /kyt/txns/{id}/data/info
-    // to archive the txHash for on-chain tracing.
+    if (!withdrawal.sumsubTxnId || !withdrawal.txHash) {
+      this.logger.warn(
+        `Post-KYT archive skipped for withdrawal ${withdrawal.withdrawNo}: ` +
+        `sumsubTxnId=${withdrawal.sumsubTxnId ?? 'MISSING'} txHash=${withdrawal.txHash ?? 'MISSING'}`,
+      );
+      return;
+    }
+
+    await this.sumsubTxnClient.archiveTxHash(withdrawal.sumsubTxnId, withdrawal.txHash);
     this.logger.log(
-      `Post-KYT archive stub: withdrawal ${withdrawal.withdrawNo} txHash=${withdrawal.txHash}`,
+      `Post-KYT archive: withdrawal ${withdrawal.withdrawNo} txHash=${withdrawal.txHash} archived to Sumsub txn ${withdrawal.sumsubTxnId}`,
     );
   }
 
