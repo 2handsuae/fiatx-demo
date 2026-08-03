@@ -780,6 +780,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       case FundsOrderStatus.TIMEOUT:
         if (event.legSeq === PAYOUT_LEG_SEQ) {
           await this.onPayoutLegFailed(withdrawId, event.fundsOrderId, event.newStatus);
+        } else if (event.legSeq === FEE_LEG_SEQ) {
+          await this.onFeeLegFailed(withdrawId, event.fundsOrderId, event.newStatus);
         }
         break;
     }
@@ -981,6 +983,23 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
     this.logger.log(`Withdrawal ${withdrawId} payout leg posted (NET) → CLEARED`);
+
+    // 回捞 (Task 6): the order guard at the top of onFeeLegConfirmed defers fee
+    // settlement whenever the fee leg reaches CONFIRMED before the principal leg
+    // does — that deferred fee leg never gets its own retriggering event once the
+    // principal finally clears. Pick it up here: if a fee leg exists, is still
+    // sitting CONFIRMED (not yet posted/CLEARED), settle it now that the
+    // principal is CLEARED. Safe to call unconditionally on every principal
+    // CLEAR (idempotent replay) — postPendingTransfer's already_posted amnesty
+    // and advance's terminal-status guard make a redundant call a no-op.
+    const feeLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: FEE_LEG_SEQ });
+    const feeLeg = feeLegs[feeLegs.length - 1];
+    if (feeLeg && feeLeg.status === FundsOrderStatus.CONFIRMED) {
+      this.logger.log(
+        `Withdrawal ${withdrawId}: principal leg CLEARED — picking up deferred fee leg ${feeLeg.fundsOrderNo}`,
+      );
+      await this.onFeeLegConfirmed(withdrawId, feeLeg.id, effectiveDate);
+    }
   }
 
   /**
@@ -989,8 +1008,36 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * FIRM_FEE), then CLEAR the leg. Fail-closed: aborts BEFORE any post if the
    * firm-fee ledger cannot resolve — the leg stays CONFIRMED for operator repair,
    * so the customer is never charged a fee the firm can't book.
+   *
+   * Order guard (Task 6): the fee leg must never settle before the payout
+   * principal leg (legSeq 1) does — reads as "fee before principal" if a fee
+   * webhook races ahead of the principal's. Defers (log + return, no throw) when
+   * the principal isn't at least CONFIRMED yet; the fee funds order stays
+   * CONFIRMED and is picked up later by onPayoutLegConfirmed's 回捞.
+   *
+   * Settle-failure retry (Task 6, three-rung ladder rung 1): the settlement body
+   * (POST + firm-fee collect + CLEAR) is wrapped in try/catch. A transient TB
+   * failure increments withdrawTransaction.feeSettleAttempts and returns without
+   * throwing — the fee leg stays CONFIRMED, so the next redelivered webhook or an
+   * admin re-advance naturally retries. At the 3rd failed attempt the withdrawal
+   * is flagged needsReview + WITHDRAW_FEE_SETTLE_STUCK and stays PAYOUT_PENDING
+   * (never touches withdraw status, never releases the lock). A successful
+   * settle resets the counter to 0.
    */
   private async onFeeLegConfirmed(withdrawId: string, fundsOrderId: string, effectiveDate?: string) {
+    const principalLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: PAYOUT_LEG_SEQ });
+    const principalLeg = principalLegs[principalLegs.length - 1];
+    const principalSettled =
+      !!principalLeg &&
+      (principalLeg.status === FundsOrderStatus.CONFIRMED || principalLeg.status === FundsOrderStatus.CLEARED);
+    if (!principalSettled) {
+      this.logger.log(
+        `Withdrawal ${withdrawId}: fee leg ${fundsOrderId} CONFIRMED before principal leg ` +
+        `(principal status=${principalLeg?.status ?? 'MISSING'}) — deferring fee settle until principal lands`,
+      );
+      return;
+    }
+
     const w = await this.withdrawService.findOneInternal(withdrawId);
     const decimals = w.asset?.decimals ?? 8;
     const feeBigint = this.decimalToBigint(w.feeAmount, decimals);
@@ -1000,103 +1047,134 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
-    const ledger = w.asset?.currency
-      ? TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS]
-      : undefined;
-    if (!ledger) {
-      throw new Error(
-        `Withdraw ${w.withdrawNo}: cannot collect firm fee — no TB ledger for ` +
-        `'${w.asset?.currency ?? 'UNKNOWN'}'. Refusing to post fee leg.`,
-      );
-    }
+    try {
+      const ledger = w.asset?.currency
+        ? TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS]
+        : undefined;
+      if (!ledger) {
+        throw new Error(
+          `Withdraw ${w.withdrawNo}: cannot collect firm fee — no TB ledger for ` +
+          `'${w.asset?.currency ?? 'UNKNOWN'}'. Refusing to post fee leg.`,
+        );
+      }
 
-    const fo = await this.fundsOrders.findById(fundsOrderId);
-    const { walletRef, externalRef } = this.recognitionRefs(w, fo);
+      const fo = await this.fundsOrders.findById(fundsOrderId);
+      const { walletRef, externalRef } = this.recognitionRefs(w, fo);
 
-    // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
-    if (w.tbPendingFeeId) {
-      const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
-      await this.accountingService.postPendingTransfer({
-        pendingTransferId: pendingFeeBigint,
-        amount: feeBigint,
-        evidence: {
-          sourceType: 'WITHDRAWAL',
-          sourceNo: w.withdrawNo,
+      // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_ASSET, real-time 1:1)
+      if (w.tbPendingFeeId) {
+        const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
+        await this.accountingService.postPendingTransfer({
+          pendingTransferId: pendingFeeBigint,
+          amount: feeBigint,
+          evidence: {
+            sourceType: 'WITHDRAWAL',
+            sourceNo: w.withdrawNo,
+            eventCode: 'WITHDRAW_FEE_POST',
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+            creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+            assetCurrency: w.asset?.currency || '',
+            traceId: w.traceId || w.id,
+            actorType: 'SYSTEM',
+            actorId: 'WITHDRAW_WORKFLOW',
+            memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET',
+            // Phase B: client-side fee leg of the cross-wallet same-ref pair —
+            // FEE_POST and FEE_FIRM share externalRef so recon can match them.
+            debitWalletRef: walletRef,
+            creditWalletRef: walletRef,
+            externalRef,
+            isExternalCrossing: true,
+          },
+        });
+        // Same as NET_POST: enrich the LOCK_FEE row to record FEE_POST semantics.
+        await this.tbEvidenceService.enrichForPost(w.tbPendingFeeId, {
           eventCode: 'WITHDRAW_FEE_POST',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
-          assetCurrency: w.asset?.currency || '',
-          traceId: w.traceId || w.id,
-          actorType: 'SYSTEM',
-          actorId: 'WITHDRAW_WORKFLOW',
           memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET',
-          // Phase B: client-side fee leg of the cross-wallet same-ref pair —
-          // FEE_POST and FEE_FIRM share externalRef so recon can match them.
           debitWalletRef: walletRef,
           creditWalletRef: walletRef,
           externalRef,
           isExternalCrossing: true,
+          ...(effectiveDate && { effectiveDate }),
+        });
+      }
+
+      // Firm-side fee collect: DR FIRM_ASSET / CR FIRM_FEE (direct transfer, same ledger as asset)
+      const firmAssetId = await this.accountingService.resolveTbAccountId({
+        code: TB_ACCOUNT_CODES.FIRM_ASSET,
+        ledger,
+        ownerType: 'SYSTEM',
+      });
+      const firmFeeId = await this.accountingService.resolveTbAccountId({
+        code: TB_ACCOUNT_CODES.FIRM_FEE,
+        ledger,
+        ownerType: 'SYSTEM',
+      });
+
+      // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
+      // FIRM_FEE is the platform's F_FEE wallet for this asset.
+      const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
+
+      await this.accountingService.executeTransfer({
+        debitAccountId: firmAssetId,
+        creditAccountId: firmFeeId,
+        amount: feeBigint,
+        ledger,
+        code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
+        evidence: {
+          sourceType: 'WITHDRAWAL',
+          sourceNo: w.withdrawNo,
+          eventCode: 'WITHDRAW_FEE_FIRM',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+          assetCurrency: w.asset!.currency,
+          traceId: w.traceId || w.id,
+          actorType: 'SYSTEM',
+          actorId: 'WITHDRAW_WORKFLOW',
+          memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
+          // Phase B firm-side fee leg of the cross-wallet same-ref pair.
+          // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
+          // creditWalletRef points at the platform's F_FEE wallet so recon can
+          // tie this row to the matching FEE_POST row by externalRef.
+          debitWalletRef: null,
+          creditWalletRef: firmFeeWalletRef,
+          externalRef,
+          isExternalCrossing: true,
+          ...(effectiveDate && { effectiveDate }),
         },
       });
-      // Same as NET_POST: enrich the LOCK_FEE row to record FEE_POST semantics.
-      await this.tbEvidenceService.enrichForPost(w.tbPendingFeeId, {
-        eventCode: 'WITHDRAW_FEE_POST',
-        memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET',
-        debitWalletRef: walletRef,
-        creditWalletRef: walletRef,
-        externalRef,
-        isExternalCrossing: true,
-        ...(effectiveDate && { effectiveDate }),
+
+      await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
+      this.logger.log(`Withdrawal ${withdrawId} fee leg posted (FEE_POST + FEE_FIRM) → CLEARED`);
+
+      // Rung 1 resolved: a prior transient failure (if any) is behind us.
+      await this.withdrawService.resetFeeSettleAttempts(w.id);
+    } catch (err) {
+      const attempts = await this.withdrawService.incrementFeeSettleAttempts(w.id);
+      if (attempts < 3) {
+        this.logger.error(
+          `Withdrawal ${withdrawId} fee settle attempt ${attempts}/3 failed: ${(err as Error).message} — ` +
+          `fee leg stays CONFIRMED, will retry on redelivery/re-advance`,
+        );
+        return;
+      }
+
+      await this.withdrawService.markNeedsReview(w.id);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_FEE_SETTLE_STUCK,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Fee settle failed ${attempts}/3 attempts: ${(err as Error).message} — manual intervention required (withdrawal stays PAYOUT_PENDING)`,
+        sourcePlatform: 'SYSTEM',
       });
+      this.logger.error(
+        `Withdrawal ${withdrawId} fee settle STUCK after ${attempts} attempts: ${(err as Error).message}`,
+      );
     }
-
-    // Firm-side fee collect: DR FIRM_ASSET / CR FIRM_FEE (direct transfer, same ledger as asset)
-    const firmAssetId = await this.accountingService.resolveTbAccountId({
-      code: TB_ACCOUNT_CODES.FIRM_ASSET,
-      ledger,
-      ownerType: 'SYSTEM',
-    });
-    const firmFeeId = await this.accountingService.resolveTbAccountId({
-      code: TB_ACCOUNT_CODES.FIRM_FEE,
-      ledger,
-      ownerType: 'SYSTEM',
-    });
-
-    // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
-    // FIRM_FEE is the platform's F_FEE wallet for this asset.
-    const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
-
-    await this.accountingService.executeTransfer({
-      debitAccountId: firmAssetId,
-      creditAccountId: firmFeeId,
-      amount: feeBigint,
-      ledger,
-      code: TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM,
-      evidence: {
-        sourceType: 'WITHDRAWAL',
-        sourceNo: w.withdrawNo,
-        eventCode: 'WITHDRAW_FEE_FIRM',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
-        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
-        assetCurrency: w.asset!.currency,
-        traceId: w.traceId || w.id,
-        actorType: 'SYSTEM',
-        actorId: 'WITHDRAW_WORKFLOW',
-        memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
-        // Phase B firm-side fee leg of the cross-wallet same-ref pair.
-        // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
-        // creditWalletRef points at the platform's F_FEE wallet so recon can
-        // tie this row to the matching FEE_POST row by externalRef.
-        debitWalletRef: null,
-        creditWalletRef: firmFeeWalletRef,
-        externalRef,
-        isExternalCrossing: true,
-        ...(effectiveDate && { effectiveDate }),
-      },
-    });
-
-    await this.fundsOrders.advance(fundsOrderId, FundsOrderAction.CLEAR, 'SYSTEM');
-    this.logger.log(`Withdrawal ${withdrawId} fee leg posted (FEE_POST + FEE_FIRM) → CLEARED`);
   }
 
   /**
@@ -1322,6 +1400,90 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     // P6: void the customer's pending net+fee TB lock so the balance is returned.
     await this.releaseLock(w, reason);
+  }
+
+  /**
+   * Fee leg FAILED / TIMEOUT (legSeq 2, Task 6 — closes the zero-handler gap:
+   * before this existed a fee-leg failure had no handler at all and just sat
+   * silently). Unlike a failed principal leg, a failed fee leg is NEVER fatal to
+   * the withdrawal — the fee's TB pending lock stays put either way (it's posted
+   * only at settle, never at CONFIRM), so there is nothing to void here. Whether
+   * the principal has already CLEARED or is still in flight, the remedy is the
+   * same: rebuild a fresh legSeq-2 attempt (mirrors deposit's
+   * buildReturnLegInput/onReturnLegFailed rebuild-on-retry pattern) up to 3
+   * attempts, WITHDRAW_FEE_LEG_REBUILT audited each time; once exhausted, flag
+   * needsReview + audit WITHDRAW_FEE_SETTLE_STUCK. Never transitions withdraw
+   * status, never calls releaseLock — the withdrawal stays PAYOUT_PENDING.
+   */
+  private async onFeeLegFailed(withdrawId: string, fundsOrderId: string, newStatus: string) {
+    const w = await this.withdrawService.findOneInternal(withdrawId);
+    if (w.status !== WithdrawTransactionStatus.PAYOUT_PENDING) {
+      this.logger.warn(
+        `onFeeLegFailed no-op: withdrawal ${withdrawId} is ${w.status}, not PAYOUT_PENDING`,
+      );
+      return;
+    }
+
+    const fo = await this.fundsOrders.findById(fundsOrderId);
+    const attempt = fo?.attempt ?? 1;
+    const reason = `Fee funds order ${fundsOrderId} ${newStatus} (attempt ${attempt})`;
+    const MAX_FEE_LEG_ATTEMPTS = 3;
+
+    if (attempt < MAX_FEE_LEG_ATTEMPTS) {
+      const nextAttempt = attempt + 1;
+      const newLeg = await this.fundsOrders.create({
+        withdrawTransactionId: w.id,
+        legSeq: FEE_LEG_SEQ,
+        attempt: nextAttempt,
+        initialStatus: FundsOrderStatus.CREATED,
+        assetId: w.assetId,
+        amount: String(w.feeAmount),
+        netAmount: String(w.feeAmount),
+        fromWalletId: fo?.fromWalletId ?? null,
+        fromAddress: fo?.fromAddress ?? null,
+        fromIban: fo?.fromIban ?? null,
+        toWalletId: fo?.toWalletId ?? null,
+        toAddress: fo?.toAddress ?? null,
+        toIban: fo?.toIban ?? null,
+        traceId: w.traceId || undefined,
+      });
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_FEE_LEG_REBUILT,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `${reason} — rebuilt attempt ${nextAttempt} (${newLeg.fundsOrderNo})`,
+        sourcePlatform: 'SYSTEM',
+      });
+
+      this.logger.log(
+        `Withdrawal ${withdrawId}: fee leg attempt ${attempt} ${newStatus} — rebuilt attempt ${nextAttempt} (${newLeg.fundsOrderNo})`,
+      );
+      return;
+    }
+
+    // Attempts exhausted — flag for operator review, stay PAYOUT_PENDING.
+    await this.withdrawService.markNeedsReview(w.id);
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_FEE_SETTLE_STUCK,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `${reason} — fee leg failed after ${attempt} attempts, manual intervention required (withdrawal stays PAYOUT_PENDING)`,
+      sourcePlatform: 'SYSTEM',
+    });
+    this.logger.error(
+      `Withdrawal ${withdrawId}: fee leg attempts exhausted (${attempt}) — flagged needsReview, STUCK`,
+    );
   }
 
   // ── L3: Post-Tx Archive — fire-and-forget ──

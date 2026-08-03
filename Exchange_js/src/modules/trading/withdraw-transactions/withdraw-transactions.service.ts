@@ -692,6 +692,32 @@ export class WithdrawTransactionsService {
   }
 
   /**
+   * Task 6 settle-failure retry (three-rung ladder rung 1): increments
+   * feeSettleAttempts on a transient TB failure inside
+   * WithdrawWorkflowService#onFeeLegConfirmed's settlement body. Returns the
+   * new count so the caller can decide retry (< 3) vs STUCK (=== 3).
+   */
+  async incrementFeeSettleAttempts(id: string): Promise<number> {
+    const row = await (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { feeSettleAttempts: { increment: 1 } },
+      select: { feeSettleAttempts: true },
+    });
+    return row.feeSettleAttempts;
+  }
+
+  /**
+   * Resets feeSettleAttempts to 0 after a successful fee settle, so a later
+   * unrelated failure starts counting fresh.
+   */
+  async resetFeeSettleAttempts(id: string) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { feeSettleAttempts: 0 },
+    });
+  }
+
+  /**
    * SLA timer (WithdrawSlaService) scan: onHold(COMPLIANCE_PENDING) and
    * ACTION_PENDING withdrawals whose slaDeadline has passed and haven't been
    * flagged yet.

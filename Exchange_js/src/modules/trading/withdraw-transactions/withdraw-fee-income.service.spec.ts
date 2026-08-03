@@ -261,6 +261,11 @@ function buildWorkflowMocks() {
   const withdrawService = {
     findOneInternal: jest.fn(() => Promise.resolve(fullRecord)),
     updateStatus: jest.fn(() => Promise.resolve({ ...fullRecord, status: 'SUCCESS' })),
+    // Task 6 settle-failure retry rung: onFeeLegConfirmed resets the counter on
+    // every successful settle (these tests exercise the happy path only).
+    resetFeeSettleAttempts: jest.fn(() => Promise.resolve()),
+    incrementFeeSettleAttempts: jest.fn(() => Promise.resolve(1)),
+    markNeedsReview: jest.fn(() => Promise.resolve()),
   };
 
   // FundsOrderService: the per-leg confirm handlers CLEAR each leg via advance().
@@ -271,7 +276,15 @@ function buildWorkflowMocks() {
   // type-based logic: CRYPTO → txHash, FIAT → referenceNo (default CRYPTO).
   const fundsOrders = {
     advance: jest.fn(() => Promise.resolve({})),
-    findByParent: jest.fn(() => Promise.resolve([])),
+    // Task 6 order guard: onFeeLegConfirmed looks up the principal leg (legSeq 1)
+    // and defers unless it's at least CONFIRMED. Every test in this file calls
+    // onPayoutLegConfirmed('wd-1', 'fo-net-1') before onFeeLegConfirmed — by then
+    // the principal leg is CLEARED in reality, so the guard mock reflects that.
+    findByParent: jest.fn((_parent: any, filter?: { legSeq?: number }) =>
+      filter?.legSeq === 1
+        ? Promise.resolve([{ id: 'fo-net-1', status: 'CLEARED' }])
+        : Promise.resolve([]),
+    ),
     findById: jest.fn(async () => {
       const w: any = await withdrawService.findOneInternal();
       return { asset: w.asset, txHash: w.txHash ?? null, referenceNo: w.referenceNo ?? null };

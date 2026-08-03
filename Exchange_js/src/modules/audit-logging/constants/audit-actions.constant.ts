@@ -342,6 +342,9 @@ export const AuditActions = {
   // Review Fix 2 (Important): a KYT verdict arriving after the payout already
   // broadcast (PAYOUT_PENDING) — evidence recorded, no state-machine action.
   WITHDRAW_POST_BROADCAST_VERDICT: 'WITHDRAW_POST_BROADCAST_VERDICT',
+  // Task 6: fee-leg order guard + failure three-rung ladder.
+  WITHDRAW_FEE_LEG_REBUILT: 'WITHDRAW_FEE_LEG_REBUILT',
+  WITHDRAW_FEE_SETTLE_STUCK: 'WITHDRAW_FEE_SETTLE_STUCK',
   KYT_CASE_CREATED: 'KYT_CASE_CREATED',
   KYT_CASE_UPDATED: 'KYT_CASE_UPDATED',
   TRAVEL_RULE_UPDATED: 'TRAVEL_RULE_UPDATED',
