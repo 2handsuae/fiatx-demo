@@ -678,6 +678,20 @@ export class WithdrawTransactionsService {
   }
 
   /**
+   * Flags a withdrawal for operator review without touching its status.
+   * Used by WithdrawWorkflowService.applyKytVerdict's PAYOUT_PENDING
+   * post-broadcast branch (review Fix 2): a rejected KYT verdict arriving
+   * after the payout already broadcast has no state-machine action to take
+   * (the funds are already in flight), so it's surfaced via this flag instead.
+   */
+  async markNeedsReview(id: string) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { needsReview: true },
+    });
+  }
+
+  /**
    * SLA timer (WithdrawSlaService) scan: onHold(COMPLIANCE_PENDING) and
    * ACTION_PENDING withdrawals whose slaDeadline has passed and haven't been
    * flagged yet.

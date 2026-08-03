@@ -565,6 +565,7 @@ function buildFullWorkflow(overrides: {
     saveSumsubVerdict: jest.fn().mockResolvedValue(undefined),
     setSlaDeadline: jest.fn().mockResolvedValue(undefined),
     updateStatus: jest.fn().mockResolvedValue(undefined),
+    markNeedsReview: jest.fn().mockResolvedValue(undefined),
     ...overrides.withdrawService,
   };
   const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
@@ -966,6 +967,55 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
     });
 
+    // Review Fix 1 (Critical): REJECT_REFUND must not bypass the FROZEN maker-checker.
+    it('dispoTag=REJECT_REFUND from FROZEN → full no-op (no status change, no releaseLock) + WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED audit', async () => {
+      const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          status: WithdrawTransactionStatus.FROZEN,
+          tbPendingNetId: '01',
+          tbPendingFeeId: '02',
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'REJECT_REFUND' });
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_REFUNDED_BY_TAG }),
+      );
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED }),
+      );
+    });
+
+    // Review Fix 1: REJECT_REFUND has no transition edge from COMPLIANCE_PENDING/
+    // ACTION_PENDING — land on KYT_REJECTED (→ MANUAL_CHECKING) instead of throwing.
+    it('dispoTag=REJECT_REFUND from COMPLIANCE_PENDING → lands KYT_REJECTED (MANUAL_CHECKING), no releaseLock', async () => {
+      const { workflow, withdrawService, accountingService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'REJECT_REFUND' });
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.KYT_REJECTED }),
+        expect.anything(),
+      );
+      expect(withdrawService.updateStatus).not.toHaveBeenCalledWith(
+        'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.REJECT_REFUND }),
+        expect.anything(),
+      );
+      expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+    });
+
     it('no tag from COMPLIANCE_PENDING → KYT_REJECTED action (routes to MANUAL_CHECKING)', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
@@ -990,6 +1040,103 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected' });
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('no tag from FROZEN → no-op (no throw despite missing KYT_REJECTED edge from FROZEN)', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
+      );
+
+      await expect(
+        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected' }),
+      ).resolves.toBeUndefined();
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      // Evidence is still written (saveSumsubVerdict happens before the branch dispatch).
+      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED }),
+      );
+    });
+  });
+
+  describe('awaitUser on FROZEN — no ACTION_PENDING edge, must not throw', () => {
+    it('awaitUser verdict while FROZEN → no-op (evidence written, status unchanged, no throw)', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
+      );
+
+      await expect(
+        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser', sceneTag: 'PEP' }),
+      ).resolves.toBeUndefined();
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+    });
+  });
+
+  // Review Fix 2 (Important): PAYOUT_PENDING post-broadcast verdicts must not dead-letter.
+  describe('applyKytVerdict — PAYOUT_PENDING post-broadcast verdicts (Fix 2)', () => {
+    it('approved verdict on PAYOUT_PENDING → evidence written, audited, no branch dispatch (no throw retrying APPROVE)', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.PAYOUT_PENDING }),
+      );
+      const initiateSpy = jest
+        .spyOn(workflow as any, 'initiatePayoutPhase')
+        .mockResolvedValue(undefined);
+
+      await expect(
+        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'approved', riskScore: 1 }),
+      ).resolves.toBeUndefined();
+
+      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+      expect(initiateSpy).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(withdrawService.markNeedsReview).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
+          metadata: { verdict: 'approved' },
+        }),
+      );
+    });
+
+    it('rejected verdict on PAYOUT_PENDING → evidence + audit + needsReview flagged, no status change', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.PAYOUT_PENDING }),
+      );
+
+      await expect(
+        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected' }),
+      ).resolves.toBeUndefined();
+
+      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(withdrawService.markNeedsReview).toHaveBeenCalledWith('wd-sumsub-1');
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
+          metadata: { verdict: 'rejected' },
+        }),
+      );
+    });
+
+    it('awaitUser verdict on PAYOUT_PENDING → evidence + audit, no needsReview (only rejected sets it), no throw', async () => {
+      const { workflow, withdrawService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({ status: WithdrawTransactionStatus.PAYOUT_PENDING }),
+      );
+
+      await expect(
+        workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'awaitUser' }),
+      ).resolves.toBeUndefined();
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(withdrawService.markNeedsReview).not.toHaveBeenCalled();
     });
   });
 });

@@ -1480,6 +1480,35 @@ export class WithdrawWorkflowService implements OnModuleInit {
       ...(input.detailRaw !== undefined && { detailJson: JSON.stringify(input.detailRaw) }),
     });
 
+    // Review Fix 2 (Important): PAYOUT_PENDING post-broadcast verdicts must not
+    // dead-letter. PAYOUT_PENDING is deliberately NOT in KYT_VERDICT_TERMINAL_STATUSES
+    // (the withdrawal is still active, not terminal) — but none of the four verdict
+    // branches below have a legal transition from PAYOUT_PENDING (the payout already
+    // broadcast; funds are in flight). Left to the switch, 'approved' would retry
+    // initiatePayoutPhase's APPROVE action (no such edge from PAYOUT_PENDING) and
+    // throw; 'awaitUser'/rejected's untagged branch would do the same. Evidence is
+    // already saved above; just audit the post-broadcast verdict and, for a rejected
+    // one, flag the withdrawal for operator review — no branch dispatch.
+    if (status === WithdrawTransactionStatus.PAYOUT_PENDING) {
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `KYT verdict '${input.verdict}' received after payout broadcast — no state-machine action taken`,
+        metadata: { verdict: input.verdict },
+        sourcePlatform: 'SYSTEM',
+      });
+      if (input.verdict === 'rejected') {
+        await this.withdrawService.markNeedsReview(w.id);
+      }
+      return;
+    }
+
     switch (input.verdict) {
       case 'approved':
         await this.applyKytApproved(w);
@@ -1530,6 +1559,17 @@ export class WithdrawWorkflowService implements OnModuleInit {
   private async applyKytAwaitUser(w: any, sceneTag?: 'SANCTION' | 'PEP'): Promise<void> {
     if (w.status === WithdrawTransactionStatus.ACTION_PENDING) {
       return; // already in target state — repeat webhook
+    }
+
+    // FROZEN has no ACTION_PENDING edge (it exits only via RESUME / REJECT_REFUND —
+    // and, per Fix 1, REJECT_REFUND itself is now gated behind Task 9's
+    // double-approval). A stale/late awaitUser verdict arriving after the sanctions
+    // freeze must not throw; treat it as an idempotent no-op.
+    if (w.status === WithdrawTransactionStatus.FROZEN) {
+      this.logger.debug(
+        `applyKytAwaitUser no-op: withdrawal ${w.id} is FROZEN, ignoring awaitUser verdict`,
+      );
+      return;
     }
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
@@ -1613,29 +1653,85 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     if (dispoTag === 'REJECT_REFUND') {
+      // Sanctioned free-of-approval path: an officer already tagged this case for
+      // refund during manual compliance review — MANUAL_CHECKING carries the
+      // REJECT_REFUND edge (Task 1's transitions table) for exactly this.
+      if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) {
+        await this.withdrawService.updateStatus(
+          w.id,
+          { action: WithdrawTransactionAction.REJECT_REFUND, reason: 'KYT verdict: rejected, officer refund tag' },
+          this.systemCtx,
+        );
+        await this.releaseLock(w, 'Officer refund tag');
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.WITHDRAW_REFUNDED_BY_TAG,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: w.id,
+          entityNo: w.withdrawNo,
+          entityOwnerType: w.ownerType,
+          entityOwnerId: w.ownerId,
+          traceId: w.traceId || undefined,
+          workflowType: AuditWorkflowTypes.WITHDRAW,
+          reason: 'KYT verdict rejected: officer REJECT_REFUND tag — void pending locks, refund to available balance',
+          sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
+
+      // Review Fix 1 (Critical): FROZEN is a sanctions/MLRO hold. The transitions
+      // table structurally also carries a FROZEN --REJECT_REFUND--> REJECTED edge
+      // (added for the MANUAL_CHECKING case above, shared by the same action), but
+      // letting this tag drive it here would let a single system-applied tag exit
+      // a sanctions freeze with NO maker-checker — defeating the entire point of
+      // freezing. A FROZEN withdrawal must exit ONLY via the WITHDRAW_UNFREEZE /
+      // WITHDRAW_SANCTION_REFUND double-approval arcs (Task 8-9, not yet built).
+      // Ignore the tag: no status change, no releaseLock — just an audit trail so
+      // an officer can see the attempt and route it through the approval flow.
+      if (w.status === WithdrawTransactionStatus.FROZEN) {
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: w.id,
+          entityNo: w.withdrawNo,
+          entityOwnerType: w.ownerType,
+          entityOwnerId: w.ownerId,
+          traceId: w.traceId || undefined,
+          workflowType: AuditWorkflowTypes.WITHDRAW,
+          reason: 'KYT verdict rejected: officer REJECT_REFUND tag ignored — withdrawal is FROZEN, exits only via WITHDRAW_UNFREEZE / WITHDRAW_SANCTION_REFUND maker-checker approvals (Task 9)',
+          sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
+
+      // Landing pad: REJECT_REFUND has no transition edge from COMPLIANCE_PENDING /
+      // ACTION_PENDING (only MANUAL_CHECKING/FROZEN do). Land on KYT_REJECTED →
+      // MANUAL_CHECKING instead of letting updateStatus throw on the missing edge;
+      // keep the tag in the reason so an officer can re-drive the refund once the
+      // case is in manual review.
       await this.withdrawService.updateStatus(
         w.id,
-        { action: WithdrawTransactionAction.REJECT_REFUND, reason: 'KYT verdict: rejected, officer refund tag' },
+        {
+          action: WithdrawTransactionAction.KYT_REJECTED,
+          reason: `KYT verdict: rejected, officer refund tag arrived early (status=${w.status}) — landed in manual review for re-drive`,
+        },
         this.systemCtx,
       );
-      await this.releaseLock(w, 'Officer refund tag');
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.WITHDRAW_REFUNDED_BY_TAG,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
-        traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
-        reason: 'KYT verdict rejected: officer REJECT_REFUND tag — void pending locks, refund to available balance',
-        sourcePlatform: 'SYSTEM',
-      });
       return;
     }
 
     // no tag → routed to manual compliance review
     if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) return; // already there — repeat webhook
+
+    // FROZEN has no KYT_REJECTED edge (exits only via RESUME / REJECT_REFUND, and
+    // REJECT_REFUND is now gated behind Task 9 per Fix 1 above). An untagged
+    // rejected verdict arriving after the sanctions freeze is idempotent
+    // confirmation of the existing hold — no-op rather than throw.
+    if (w.status === WithdrawTransactionStatus.FROZEN) {
+      this.logger.debug(
+        `applyKytRejected no-op: withdrawal ${w.id} is FROZEN, ignoring untagged rejected verdict`,
+      );
+      return;
+    }
 
     await this.withdrawService.updateStatus(
       w.id,
