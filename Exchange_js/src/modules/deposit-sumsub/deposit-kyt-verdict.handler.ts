@@ -57,7 +57,7 @@ export class DepositKytVerdictHandler {
     }
 
     if (!deposit) {
-      this.logger.warn(`orphan KYT verdict webhook, no deposit for kytTxnId=${kytTxnId}`);
+      this.logger.debug(`no deposit for kytTxnId=${kytTxnId} — cascading to withdraw router`);
       return false;
     }
 

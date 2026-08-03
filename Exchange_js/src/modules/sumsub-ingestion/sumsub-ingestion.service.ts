@@ -132,12 +132,13 @@ export class SumsubIngestionService {
         // webhooks); only when it reports no ownership (hit=false) does the same
         // payload fall through to withdraw-sumsub. Both domains key off the same
         // kytTxnId, so at most one of them ever owns a given event.
-        const hit = await this.depositWebhookRouter.route(payload);
-        if (!hit) {
-          await this.withdrawWebhookRouter.route(payload);
+        const depositHit = await this.depositWebhookRouter.route(payload);
+        let withdrawHit = false;
+        if (!depositHit) {
+          withdrawHit = await this.withdrawWebhookRouter.route(payload);
         }
-        result = { routedTo: hit ? 'deposit-sumsub' : 'withdraw-sumsub', type: depositWebhookType };
-        dispatchedContext = hit ? 'DEPOSIT_SUMSUB' : 'WITHDRAW_SUMSUB';
+        result = { routedTo: depositHit ? 'deposit-sumsub' : (withdrawHit ? 'withdraw-sumsub' : 'orphan'), type: depositWebhookType };
+        dispatchedContext = depositHit ? 'DEPOSIT_SUMSUB' : (withdrawHit ? 'WITHDRAW_SUMSUB' : 'SUMSUB_KYT_ORPHAN');
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
       else if (event.eventType === 'withdrawKytCheckSimulated') {

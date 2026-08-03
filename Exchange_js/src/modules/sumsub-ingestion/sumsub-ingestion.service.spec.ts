@@ -96,17 +96,23 @@ describe('SumsubIngestionService — deposit/withdraw KYT cascade (Task 4)', () 
     );
   });
 
-  it('deposit + withdraw both miss (true orphan) → no throw, still marks PROCESSED', async () => {
+  it('deposit + withdraw both miss (true orphan) → dispatchedTo=SUMSUB_KYT_ORPHAN, still marks PROCESSED', async () => {
     depositWebhookRouter.route.mockResolvedValue(false);
     withdrawWebhookRouter.route.mockResolvedValue(false);
     const event = buildEvent('applicantKytOnHold', 'UNKNOWN');
 
-    await expect(service.dispatch(event)).resolves.toBeDefined();
+    const result = await service.dispatch(event);
 
     expect(depositWebhookRouter.route).toHaveBeenCalledTimes(1);
     expect(withdrawWebhookRouter.route).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ routedTo: 'orphan', type: 'applicantKytOnHold' });
     expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'PROCESSED' }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'PROCESSED',
+          dispatchedTo: 'SUMSUB_KYT_ORPHAN',
+        }),
+      }),
     );
   });
 });
