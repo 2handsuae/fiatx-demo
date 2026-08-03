@@ -11,6 +11,7 @@
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { Prisma } from '@prisma/client';
+import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -287,7 +288,7 @@ function buildWorkflowMocks() {
     ),
     findById: jest.fn(async () => {
       const w: any = await withdrawService.findOneInternal();
-      return { asset: w.asset, txHash: w.txHash ?? null, referenceNo: w.referenceNo ?? null };
+      return { status: FundsOrderStatus.CONFIRMED, asset: w.asset, txHash: w.txHash ?? null, referenceNo: w.referenceNo ?? null };
     }),
     resolveExternalRef: jest.fn((row) =>
       ((row?.asset?.type ?? 'CRYPTO').toUpperCase() === 'CRYPTO'
