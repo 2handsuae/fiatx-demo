@@ -43,53 +43,47 @@ export class WithdrawTransactionsService {
     return String(assetType || '').toUpperCase() === 'FIAT' ? 'fiat' : 'crypto';
   }
 
-  // Define state machine transitions
+  // 状态机收窄(10 状态/13 动作/20 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1)。
+  // 终态集合 TERMINAL = SUCCESS/REJECTED/FAILED/RETURNED,零出边——不再有 SUCCESS→
+  // RETURNED 或终态自环(旧表里"for logging"的边全删)。守则性测试见
+  // withdraw-transactions.service.spec.ts 的「state machine integrity guard」。
   private readonly transitions: Record<WithdrawTransactionStatus, Partial<Record<WithdrawTransactionAction, WithdrawTransactionStatus>>> = {
-    // Legacy compatibility branch: retained for historical replay/query readability only.
-    [WithdrawTransactionStatus.CREATED]: {
-      [WithdrawTransactionAction.REQUIRE_APPROVAL]: WithdrawTransactionStatus.PENDING_APPROVAL,
-      [WithdrawTransactionAction.CHECK]: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-      [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
-    },
     [WithdrawTransactionStatus.PENDING_APPROVAL]: {
-      [WithdrawTransactionAction.GATE_APPROVE]: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      [WithdrawTransactionAction.GATE_APPROVE]: WithdrawTransactionStatus.COMPLIANCE_PENDING,
       [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
-      [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
     },
-    [WithdrawTransactionStatus.PENDING_COMPLIANCE]: {
-      [WithdrawTransactionAction.FLAG]: WithdrawTransactionStatus.UNDER_REVIEW,
-      [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
+    [WithdrawTransactionStatus.COMPLIANCE_PENDING]: {
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,
-      [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
+      [WithdrawTransactionAction.ACTION_PENDING]: WithdrawTransactionStatus.ACTION_PENDING,
+      [WithdrawTransactionAction.KYT_REJECTED]: WithdrawTransactionStatus.MANUAL_CHECKING,
+      [WithdrawTransactionAction.SLA_BREACH]: WithdrawTransactionStatus.MANUAL_CHECKING,
+      [WithdrawTransactionAction.FREEZE]: WithdrawTransactionStatus.FROZEN,
     },
-    [WithdrawTransactionStatus.UNDER_REVIEW]: {
+    [WithdrawTransactionStatus.ACTION_PENDING]: {
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,
-      [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
-      [WithdrawTransactionAction.CANCEL]: WithdrawTransactionStatus.CANCELLED,
+      [WithdrawTransactionAction.KYT_REJECTED]: WithdrawTransactionStatus.MANUAL_CHECKING,
+      [WithdrawTransactionAction.FREEZE]: WithdrawTransactionStatus.FROZEN,
+      [WithdrawTransactionAction.SLA_BREACH]: WithdrawTransactionStatus.MANUAL_CHECKING,
     },
-    [WithdrawTransactionStatus.APPROVED]: {
-      // Legacy compatibility transition. New withdraw flows should not settle here.
+    [WithdrawTransactionStatus.MANUAL_CHECKING]: {
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,
+      [WithdrawTransactionAction.ACTION_PENDING]: WithdrawTransactionStatus.ACTION_PENDING,
+      [WithdrawTransactionAction.FREEZE]: WithdrawTransactionStatus.FROZEN,
+      [WithdrawTransactionAction.REJECT_REFUND]: WithdrawTransactionStatus.REJECTED,
+    },
+    [WithdrawTransactionStatus.FROZEN]: {
+      [WithdrawTransactionAction.RESUME]: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+      [WithdrawTransactionAction.REJECT_REFUND]: WithdrawTransactionStatus.REJECTED,
     },
     [WithdrawTransactionStatus.PAYOUT_PENDING]: {
-      [WithdrawTransactionAction.FLAG]: WithdrawTransactionStatus.UNDER_REVIEW,
-      [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
       [WithdrawTransactionAction.SUCCESS]: WithdrawTransactionStatus.SUCCESS,
       [WithdrawTransactionAction.FAIL]: WithdrawTransactionStatus.FAILED,
-      [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING, // Allow re-approval for logging
-    },
-    [WithdrawTransactionStatus.SUCCESS]: {
       [WithdrawTransactionAction.RETURN]: WithdrawTransactionStatus.RETURNED,
-      [WithdrawTransactionAction.SUCCESS]: WithdrawTransactionStatus.SUCCESS, // For logging
     },
-    [WithdrawTransactionStatus.FAILED]: {
-      [WithdrawTransactionAction.FAIL]: WithdrawTransactionStatus.FAILED, // For logging
-    },
+    [WithdrawTransactionStatus.SUCCESS]: {},
     [WithdrawTransactionStatus.REJECTED]: {},
-    [WithdrawTransactionStatus.CANCELLED]: {},
+    [WithdrawTransactionStatus.FAILED]: {},
     [WithdrawTransactionStatus.RETURNED]: {},
-    // Legacy compatibility state only.
-    [WithdrawTransactionStatus.HELD]: {},
   };
 
   constructor(
@@ -156,7 +150,7 @@ export class WithdrawTransactionsService {
   ): 'PENDING' | 'CLEAR' | 'UNDER_REVIEW' | 'REJECTED' {
     const current = String(status || '').trim().toUpperCase();
 
-    if (current === WithdrawTransactionStatus.UNDER_REVIEW) {
+    if (current === WithdrawTransactionStatus.MANUAL_CHECKING) {
       return 'UNDER_REVIEW';
     }
 
@@ -181,7 +175,7 @@ export class WithdrawTransactionsService {
   ): 'PENDING' | 'CLEAR' | 'HOLD' | 'REJECT' {
     const current = String(status || '').trim().toUpperCase();
 
-    if (current === WithdrawTransactionStatus.UNDER_REVIEW) {
+    if (current === WithdrawTransactionStatus.MANUAL_CHECKING) {
       return 'HOLD';
     }
 
@@ -509,8 +503,7 @@ export class WithdrawTransactionsService {
           complianceStatus:
             this.deriveWithdrawComplianceSnapshotFromStatus(nextStatus),
           approvedAt:
-            (nextStatus === WithdrawTransactionStatus.APPROVED ||
-              nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING) &&
+            nextStatus === WithdrawTransactionStatus.PAYOUT_PENDING &&
             !item.approvedAt
               ? new Date()
               : item.approvedAt,
@@ -518,7 +511,6 @@ export class WithdrawTransactionsService {
             WithdrawTransactionStatus.SUCCESS,
             WithdrawTransactionStatus.FAILED,
             WithdrawTransactionStatus.REJECTED,
-            WithdrawTransactionStatus.CANCELLED,
             WithdrawTransactionStatus.RETURNED,
           ].includes(nextStatus)
             ? new Date()
@@ -609,7 +601,7 @@ export class WithdrawTransactionsService {
           ownerType: 'CUSTOMER',
           ownerId: customer.id,
           ownerNo: customer.customerNo,
-          status: WithdrawTransactionStatus.CREATED,
+          status: WithdrawTransactionStatus.PENDING_APPROVAL,
           assetId: asset.id,
           amount: new Prisma.Decimal(amount),
           netAmount: new Prisma.Decimal(amount),
@@ -623,7 +615,7 @@ export class WithdrawTransactionsService {
           complianceStatus: 'PENDING',
           statusHistory: JSON.stringify([{
             from: 'NONE',
-            to: WithdrawTransactionStatus.CREATED,
+            to: WithdrawTransactionStatus.PENDING_APPROVAL,
             action: 'CREATE',
             timestamp: new Date(),
           }]),

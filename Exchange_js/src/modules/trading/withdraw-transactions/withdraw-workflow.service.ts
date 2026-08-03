@@ -264,7 +264,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
             ownerType,
             ownerId: userId,
             ownerNo,
-            status: WithdrawTransactionStatus.CREATED,
+            // Birth state under the 10-state/20-edge rewrite (Task 1): PENDING_APPROVAL
+            // has zero incoming edges, so a withdrawal is created directly on it.
+            status: WithdrawTransactionStatus.PENDING_APPROVAL,
             assetId,
             amount: amountDecimal,
             netAmount,
@@ -286,7 +288,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             parentId,
             pricingQuoteId: consumedQuoteId,
             statusHistory: JSON.stringify([{
-              status: WithdrawTransactionStatus.CREATED,
+              status: WithdrawTransactionStatus.PENDING_APPROVAL,
               timestamp: new Date().toISOString(),
               operator: 'SYSTEM',
               note: 'Withdrawal created — awaiting approval-gate valuation'
@@ -474,7 +476,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }) {
     try {
       const w = await this.withdrawService.findOneInternal(event.withdrawId);
-      if (w.status !== WithdrawTransactionStatus.CREATED) {
+      if (w.status !== WithdrawTransactionStatus.PENDING_APPROVAL) {
         this.logger.debug(`Skip branch: withdrawal ${event.withdrawId} already ${w.status}`);
         return;
       }
@@ -487,11 +489,15 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.openApprovalGate(w, valuation, threshold);
       } else {
         this.logger.log(`Withdrawal ${event.withdrawId} below approval threshold — proceeding to compliance`);
-        await this.withdrawService.updateStatus(
-          w.id,
-          { action: WithdrawTransactionAction.CHECK },
-          this.systemCtx,
-        );
+        // TASK2-TODO: CHECK action removed by the 10-state/20-edge rewrite (Task 1).
+        // There is no longer a compiling transition straight to COMPLIANCE_PENDING
+        // here — Task 2 ("出生即着陆") rewrites handleWithdrawalCreated's birth-landing
+        // logic against the new state machine (see .superpowers/sdd/task-1-brief.md).
+        // await this.withdrawService.updateStatus(
+        //   w.id,
+        //   { action: WithdrawTransactionAction.CHECK },
+        //   this.systemCtx,
+        // );
         await this.initializeTransactionScreen(w.id);
       }
     } catch (err) {
@@ -787,7 +793,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   private async checkScreenPass(withdrawId: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
 
-    if (w.status !== WithdrawTransactionStatus.PENDING_COMPLIANCE) {
+    if (w.status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
       this.logger.debug(`Skip gate check: withdrawal ${withdrawId} status is ${w.status}`);
       return;
     }

@@ -138,7 +138,7 @@ describe('WithdrawTransactionsService', () => {
   // V2 balance check removed — migrated to TigerBeetle
   // Balance guard test removed; re-add when TigerBeetle adapter is wired
 
-  it('should create withdraw in PENDING_COMPLIANCE with CRYPTO compliance statuses', async () => {
+  it('should create withdraw in PENDING_APPROVAL with CRYPTO compliance statuses', async () => {
     prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
     prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
     mockTx.withdrawTransaction.create.mockResolvedValue({
@@ -169,7 +169,7 @@ describe('WithdrawTransactionsService', () => {
     expect(mockTx.withdrawTransaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          status: WithdrawTransactionStatus.CREATED,
+          status: WithdrawTransactionStatus.PENDING_APPROVAL,
           preKytStatus: 'PENDING',
           kytStatus: '',
           travelRuleStatus: 'PENDING',
@@ -257,7 +257,7 @@ describe('WithdrawTransactionsService', () => {
   it('should block admin approve because payout progression is workflow-driven', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-1',
-      status: 'PENDING_COMPLIANCE',
+      status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
       statusHistory: '[]',
       asset: {
         type: 'CRYPTO',
@@ -292,10 +292,10 @@ describe('WithdrawTransactionsService', () => {
   ])('should block admin direct terminal action %s', async (action) => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-terminal-1',
-      status:
-        action === WithdrawTransactionAction.RETURN
-          ? WithdrawTransactionStatus.SUCCESS
-          : WithdrawTransactionStatus.PAYOUT_PENDING,
+      // All three terminal actions (success/fail/return) now share the same single
+      // source edge in the 20-edge table: PAYOUT_PENDING. (The old SUCCESS→RETURNED
+      // "logging" edge was removed — SUCCESS is now a true zero-out-edge terminal.)
+      status: WithdrawTransactionStatus.PAYOUT_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       assetId: 'asset-1',
@@ -331,50 +331,15 @@ describe('WithdrawTransactionsService', () => {
     });
   });
 
-  it('should not auto-create compliance case when moving to PENDING_COMPLIANCE', async () => {
-    mockTx.withdrawTransaction.findUnique
-      .mockResolvedValueOnce({
-        id: 'wd-2',
-        status: WithdrawTransactionStatus.CREATED,
-        ownerType: 'CUSTOMER',
-        ownerId: 'cust-1',
-        assetId: 'asset-1',
-        type: 'crypto',
-        amount: new Prisma.Decimal(100),
-        netAmount: new Prisma.Decimal(100),
-        feeAmount: new Prisma.Decimal(0),
-        withdrawNo: 'WD0002',
-        statusHistory: '[]',
-        auditLogs: [],
-        payout: null,
-        customer: null,
-        asset: {
-          type: 'CRYPTO',
-        },
-      })
-      .mockResolvedValueOnce(null);
-
-    mockTx.withdrawTransaction.update.mockResolvedValue({
-      id: 'wd-2',
-      status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
-      type: 'crypto',
-      asset: {
-        type: 'CRYPTO',
-      },
-    });
-    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-2' });
-
-    const result = await service.updateStatus('wd-2', {
-      action: WithdrawTransactionAction.CHECK,
-    });
-
-    expect(result.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
-  });
+  // NOTE: the CREATED --check--> PENDING_COMPLIANCE edge this test covered was
+  // deleted by the 10-state/20-edge rewrite (Task 1) — CHECK is no longer a valid
+  // action and CREATED is no longer a valid status. Removed rather than renamed;
+  // the birth-state transition is now covered by the guard-rail edge tests below.
 
   it('should transition crypto approval via external tx', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-3',
-      status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       assetId: 'asset-1',
@@ -424,7 +389,7 @@ describe('WithdrawTransactionsService', () => {
   it('should transition fiat approval based on asset.type', async () => {
     mockTx.withdrawTransaction.findUnique.mockResolvedValue({
       id: 'wd-4',
-      status: WithdrawTransactionStatus.PENDING_COMPLIANCE,
+      status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       assetId: 'asset-fiat',
@@ -468,7 +433,7 @@ describe('WithdrawTransactionsService', () => {
       {
         id: 'wd-list-1',
         withdrawNo: 'WDLIST1',
-        status: WithdrawTransactionStatus.UNDER_REVIEW,
+        status: WithdrawTransactionStatus.MANUAL_CHECKING,
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
         asset: { type: 'CRYPTO', code: 'BTC', network: 'BITCOIN' },
@@ -549,16 +514,15 @@ describe('WithdrawTransactionsService', () => {
       );
     }
 
-    it('CREATED → REQUIRE_APPROVAL → PENDING_APPROVAL', async () => {
-      arrangeItem(WithdrawTransactionStatus.CREATED);
-      const res = await service.updateStatus('w1', { action: WithdrawTransactionAction.REQUIRE_APPROVAL }, { source: 'WORKFLOW' });
-      expect(res.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
-    });
+    // NOTE: the CREATED --require_approval--> PENDING_APPROVAL edge this covered
+    // was deleted by the 10-state/20-edge rewrite (Task 1) — PENDING_APPROVAL is
+    // now the birth state itself (no incoming edges), and REQUIRE_APPROVAL has no
+    // edge in the new table. Removed rather than renamed.
 
-    it('PENDING_APPROVAL → GATE_APPROVE → PENDING_COMPLIANCE', async () => {
+    it('PENDING_APPROVAL → GATE_APPROVE → COMPLIANCE_PENDING', async () => {
       arrangeItem(WithdrawTransactionStatus.PENDING_APPROVAL);
       const res = await service.updateStatus('w1', { action: WithdrawTransactionAction.GATE_APPROVE }, { source: 'WORKFLOW' });
-      expect(res.status).toBe(WithdrawTransactionStatus.PENDING_COMPLIANCE);
+      expect(res.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
     });
 
     it('PENDING_APPROVAL → REJECT → REJECTED', async () => {
@@ -567,12 +531,9 @@ describe('WithdrawTransactionsService', () => {
       expect(res.status).toBe(WithdrawTransactionStatus.REJECTED);
     });
 
-    it('rejects GATE_APPROVE from CREATED', async () => {
-      arrangeItem(WithdrawTransactionStatus.CREATED);
-      await expect(
-        service.updateStatus('w1', { action: WithdrawTransactionAction.GATE_APPROVE }, { source: 'WORKFLOW' }),
-      ).rejects.toThrow(BadRequestException);
-    });
+    // NOTE: 'rejects GATE_APPROVE from CREATED' removed (CREATED no longer exists);
+    // the exhaustive negative sweep in the guard-rail describe block below now
+    // covers every undocumented (status, action) pair, including this one.
   });
 
   it('should transition to FAILED when payout fails', async () => {
@@ -743,6 +704,91 @@ describe('WithdrawTransactionsService', () => {
           data: expect.objectContaining({ grossAedValue: fresh, rateFetchFailed: false }),
         }),
       );
+    });
+  });
+
+  // 守则性测试(防转移表再次漂移):brief `.superpowers/sdd/task-1-brief.md` Step 1 定稿的
+  // 20 条边逐条列出——多一条、少一条、边指向变了,这里都会红。同时用穷举(10 状态 ×
+  // 13 动作)反向断言:凡不在这 20 条边名单里的组合,一律必须抛 Invalid action(即没有
+  // 偷偷长出的第 21 条边)。照抄充值 deposit-transactions.service.spec.ts 的写法。
+  describe('state machine integrity guard (20-edge spec)', () => {
+    const mockId = 'wd-edge-1';
+
+    function setupMock(status: WithdrawTransactionStatus) {
+      mockTx.withdrawTransaction.findUnique.mockResolvedValue({
+        id: mockId,
+        withdrawNo: 'WD-EDGE',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-edge',
+        assetId: 'asset-edge',
+        status,
+        statusHistory: '[]',
+        approvedAt: null,
+        payoutRequestedAt: null,
+        completedAt: null,
+        asset: { type: 'CRYPTO' },
+      });
+      mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: mockId, status: data.status }),
+      );
+    }
+
+    const EDGES: Array<
+      [WithdrawTransactionStatus, WithdrawTransactionAction, WithdrawTransactionStatus]
+    > = [
+      [WithdrawTransactionStatus.PENDING_APPROVAL, WithdrawTransactionAction.GATE_APPROVE, WithdrawTransactionStatus.COMPLIANCE_PENDING],
+      [WithdrawTransactionStatus.PENDING_APPROVAL, WithdrawTransactionAction.REJECT, WithdrawTransactionStatus.REJECTED],
+
+      [WithdrawTransactionStatus.COMPLIANCE_PENDING, WithdrawTransactionAction.APPROVE, WithdrawTransactionStatus.PAYOUT_PENDING],
+      [WithdrawTransactionStatus.COMPLIANCE_PENDING, WithdrawTransactionAction.ACTION_PENDING, WithdrawTransactionStatus.ACTION_PENDING],
+      [WithdrawTransactionStatus.COMPLIANCE_PENDING, WithdrawTransactionAction.KYT_REJECTED, WithdrawTransactionStatus.MANUAL_CHECKING],
+      [WithdrawTransactionStatus.COMPLIANCE_PENDING, WithdrawTransactionAction.SLA_BREACH, WithdrawTransactionStatus.MANUAL_CHECKING],
+      [WithdrawTransactionStatus.COMPLIANCE_PENDING, WithdrawTransactionAction.FREEZE, WithdrawTransactionStatus.FROZEN],
+
+      [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.APPROVE, WithdrawTransactionStatus.PAYOUT_PENDING],
+      [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.KYT_REJECTED, WithdrawTransactionStatus.MANUAL_CHECKING],
+      [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.FREEZE, WithdrawTransactionStatus.FROZEN],
+      [WithdrawTransactionStatus.ACTION_PENDING, WithdrawTransactionAction.SLA_BREACH, WithdrawTransactionStatus.MANUAL_CHECKING],
+
+      [WithdrawTransactionStatus.MANUAL_CHECKING, WithdrawTransactionAction.APPROVE, WithdrawTransactionStatus.PAYOUT_PENDING],
+      [WithdrawTransactionStatus.MANUAL_CHECKING, WithdrawTransactionAction.ACTION_PENDING, WithdrawTransactionStatus.ACTION_PENDING],
+      [WithdrawTransactionStatus.MANUAL_CHECKING, WithdrawTransactionAction.FREEZE, WithdrawTransactionStatus.FROZEN],
+      [WithdrawTransactionStatus.MANUAL_CHECKING, WithdrawTransactionAction.REJECT_REFUND, WithdrawTransactionStatus.REJECTED],
+
+      [WithdrawTransactionStatus.FROZEN, WithdrawTransactionAction.RESUME, WithdrawTransactionStatus.COMPLIANCE_PENDING],
+      [WithdrawTransactionStatus.FROZEN, WithdrawTransactionAction.REJECT_REFUND, WithdrawTransactionStatus.REJECTED],
+
+      [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.SUCCESS, WithdrawTransactionStatus.SUCCESS],
+      [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.FAIL, WithdrawTransactionStatus.FAILED],
+      [WithdrawTransactionStatus.PAYOUT_PENDING, WithdrawTransactionAction.RETURN, WithdrawTransactionStatus.RETURNED],
+    ];
+
+    it('brief lists exactly the 20 spec edges', () => {
+      expect(EDGES).toHaveLength(20);
+    });
+
+    it.each(
+      EDGES.map(([from, action, to]) => [`${from} --${action}--> ${to}`, from, action, to] as const),
+    )('%s', async (_label, from, action, to) => {
+      setupMock(from);
+      const result = await service.updateStatus(mockId, { action });
+      expect(result.status).toBe(to);
+    });
+
+    it('rejects every (status,action) pair NOT in the 20-edge list (no undocumented edge exists)', async () => {
+      const edgeKeys = new Set(EDGES.map(([from, action]) => `${from}::${action}`));
+      const allStatuses = Object.values(WithdrawTransactionStatus);
+      const allActions = Object.values(WithdrawTransactionAction);
+
+      for (const status of allStatuses) {
+        for (const action of allActions) {
+          if (edgeKeys.has(`${status}::${action}`)) continue;
+          setupMock(status);
+          await expect(
+            service.updateStatus(mockId, { action }),
+          ).rejects.toThrow(BadRequestException);
+        }
+      }
     });
   });
 });

@@ -405,7 +405,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — D1 threshold sourc
     const row = {
       id: 'wd-hc-1',
       withdrawNo: 'WD7001',
-      status: WithdrawTransactionStatus.CREATED,
+      status: WithdrawTransactionStatus.PENDING_APPROVAL,
       ownerType: 'CUSTOMER',
       ownerId: 'cust-hc',
       traceId: 'trace-hc',
