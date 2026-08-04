@@ -141,7 +141,7 @@ interface WithdrawDetail {
 const APPROVAL_ACTION_LABELS: Record<string, string> = {
   WITHDRAW_LARGE_VALUE_APPROVAL: 'Large-Value Approval',
   WITHDRAW_UNFREEZE: 'Unfreeze',
-  WITHDRAW_SANCTION_REFUND: 'Sanction Refund',
+  WITHDRAW_SANCTION_REFUND: 'Reject & Freeze Customer',
 };
 
 /* ── Page Component ─────────────────────────────────────────── */
@@ -283,7 +283,7 @@ const WithdrawTransactionDetail = () => {
         return;
       }
       const result = await response.json();
-      setNotice(`Refund submitted for approval — ${result.approvalNo}`);
+      setNotice(`Reject & freeze submitted for approval — ${result.approvalNo}`);
       setIsRefundModalOpen(false);
       setRefundReason('');
       await fetchData();
@@ -621,7 +621,7 @@ const WithdrawTransactionDetail = () => {
                   disabled={dispositionSubmitting}
                   className={adminButtonClass('workflowNegative')}
                 >
-                  Initiate Refund
+                  Reject & Freeze Customer
                 </button>
               </div>
             </SidebarGroup>
@@ -743,14 +743,14 @@ const WithdrawTransactionDetail = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md overflow-hidden rounded-xl border border-adm-border bg-adm-panel shadow-xl">
             <div className="border-b border-adm-border bg-adm-card px-5 py-4">
-              <p className="font-mono text-[11px] font-semibold text-adm-t1">Initiate Refund</p>
+              <p className="font-mono text-[11px] font-semibold text-adm-t1">Reject &amp; Freeze Customer</p>
             </div>
             <div className="px-5 py-4 space-y-3">
               {dispositionError && <p className="text-[11px] text-adm-red">{dispositionError}</p>}
               <textarea
                 className="w-full rounded border border-adm-border bg-adm-bg px-3 py-2 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 focus:border-adm-amber focus:outline-none"
                 rows={3}
-                placeholder="Enter reason for refunding this withdrawal to sender (required)..."
+                placeholder="Enter reason for rejecting this withdrawal and freezing the customer (required)..."
                 value={refundReason}
                 onChange={(e) => setRefundReason(e.target.value)}
               />
