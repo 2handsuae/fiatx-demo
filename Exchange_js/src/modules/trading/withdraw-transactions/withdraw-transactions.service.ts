@@ -826,6 +826,16 @@ export class WithdrawTransactionsService {
   }
 
   /**
+   * Clears needsReview flag on SUCCESS settle completion (ops-hygiene).
+   */
+  async clearNeedsReview(id: string) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { needsReview: false },
+    });
+  }
+
+  /**
    * Task 6 settle-failure retry (three-rung ladder rung 1): increments
    * feeSettleAttempts on a transient TB failure inside
    * WithdrawWorkflowService#onFeeLegConfirmed's settlement body. Returns the

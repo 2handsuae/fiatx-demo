@@ -2322,4 +2322,82 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });
   });
+
+  describe('WithdrawWorkflowService — onLegCleared clears needsReview', () => {
+    it('SUCCESS settle with needsReview=true → clearNeedsReview called', async () => {
+      const successWithdrawal = {
+        id: 'w-success-1',
+        withdrawNo: 'WD-SUCCESS-1',
+        status: WithdrawTransactionStatus.PAYOUT_PENDING,
+        needsReview: true,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-123',
+        asset: { type: 'CRYPTO', decimals: 8 },
+        feeAmount: '10',
+        traceId: 'trace-success-1',
+      };
+
+      const withdrawService = {
+        findOneInternal: jest.fn().mockResolvedValue(successWithdrawal),
+        updateStatus: jest.fn().mockResolvedValue(successWithdrawal),
+        clearNeedsReview: jest.fn().mockResolvedValue({}),
+      };
+
+      const fundsOrderService = {
+        findByParent: jest.fn().mockResolvedValue([
+          { legSeq: 1, status: FundsOrderStatus.CLEARED, attempt: 1 },
+          { legSeq: 2, status: FundsOrderStatus.CLEARED, attempt: 1 },
+        ]),
+      };
+
+      const auditLogsService = {
+        recordSystem: jest.fn().mockResolvedValue({}),
+      };
+
+      const accountingService = {
+        assertWithdrawSettled: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const prismaService = {
+        tbTransferEvidence: {
+          findMany: jest.fn().mockResolvedValue([
+            { eventCode: 'WITHDRAW_FEE_POST' },
+            { eventCode: 'WITHDRAW_FEE_FIRM' },
+            { eventCode: 'WITHDRAW_PAYOUT_POST' },
+          ]),
+        },
+      };
+
+      const workflow = new WithdrawWorkflowService(
+        prismaService as any, // prisma
+        {} as any, // eventEmitter
+        withdrawService as any,
+        {} as any, // withdrawQuoteService
+        auditLogsService as any,
+        accountingService as any,
+        fundsOrderService as any,
+        {} as any, // approvalsService
+        {} as any, // binanceRateProvider
+        {} as any, // systemWalletResolver
+        {} as any, // tbEvidenceService
+        {} as any, // limitGateService
+        {} as any, // limitRulesService
+        {} as any, // sumsubTxnClient
+      );
+
+      // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)
+      await workflow.handleFundsOrderChanged({
+        fundsOrderId: 'fo-leg-2',
+        fundsOrderNo: 'FO-LEG-2',
+        parent: { withdrawTransactionId: 'w-success-1' },
+        legSeq: 2,
+        attempt: 1,
+        oldStatus: FundsOrderStatus.CONFIRMED,
+        newStatus: FundsOrderStatus.CLEARED,
+      });
+
+      // Verify clearNeedsReview was called
+      expect(withdrawService.clearNeedsReview).toHaveBeenCalledWith('w-success-1');
+    });
+  });
 });

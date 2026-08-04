@@ -528,6 +528,10 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
 
     const repairedLegReloaded = await fundsOrders.findById(repairedLeg.id);
     expect(repairedLegReloaded!.status).toBe(FundsOrderStatus.CLEARED);
+
+    // Verify needsReview flag was cleared on SUCCESS
+    const wSuccess = await withdrawService.findOneInternal(w.id);
+    expect(wSuccess.needsReview).toBe(false);
   });
 
   it('4. sanctions → FROZEN → unfreeze approval (MLRO) → COMPLIANCE_PENDING + rescore invoked → re-approved → SUCCESS', async () => {

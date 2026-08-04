@@ -123,6 +123,7 @@ Last Updated: 2026-07-31
 - [ ] **真实 VASP 归因服务未接**：`counterpartyIsVasp` 由客户自己注册地址时的 `addressType==='VASP'` 自报，无外部 VASP 名录/归属服务校验真实性（与充值 §4.5 同一性质缺口，提现从已注册地址派生，非每笔手选）｜来源: 2026-08-04 Task 12 truth 核对
 - [ ] **SUCCESS 后退汇无处理**：`onBounce()` 硬性要求 `PAYOUT_PENDING`，一笔已 `SUCCESS` 的提现若数日后被银行/链上退汇，本域没有对应入口，应走对账（recon）子系统匹配外部退汇流水而非 withdraw workflow 自身处理 ｜来源: 2026-08-04 Task 12 truth 核对
 - [ ] **看门狗①「Created 回执丢单锚」未做（deposit/withdraw 两域共有）**：`funds_order` 建单后若外部回执（链上确认/银行到账信号）从未真正抵达，该腿永久停 `CREATED`/`SUBMITTED`，无定时巡检任务扫描"创建超过 N 分钟仍未推进"的孤儿腿并重新锚定/告警——两域将来一起补 ｜来源: 2026-08-04 Task 12 truth 核对
+- [x] ~~**needsReview 复位待做**~~ **已完成（2026-08-04 Fix Round 1）**：SUCCESS 结算时清 needsReview 旗；FAILED/REJECTED 终态路径的 needsReview 残留是否需同样清旗待定 ｜来源: 2026-08-04 Task 12 review
 
 ## 技术债 — V6 兑换
 
@@ -188,10 +189,6 @@ Last Updated: 2026-07-31
 - [ ] **⚠待定：受众（requiredTags/window）变更口径**：现变更流只覆盖 `tiersJson`（configHash 保护费率本身）；受众字段变更是否也走 configHash + 审批链未定 ｜来源: 2026-07-11 费率 V3 §4.2
 - [ ] **费率变更 30 日历日生效闸 + 通知客户**：现即改即生效；与提现/兑换 backlog 的 30 日闸同源（MC II.A.7/8），费率治理统一落 ｜来源: 2026-07-11 费率 V3 §1.2
 - [ ] **待决策：cheapest 只减免不加价**：命中集合取最低费 → 更贵的级永不胜出；若将来要"VIP 必走 VIP（即便更贵）"或高风险客户加附加费，须改**优先级选级引擎**（V3 明确不做，留此账）｜来源: 2026-07-11 费率 V3 §5.5
-
-## 工具链 — CI gate 覆盖范围
-
-- [ ] **`scripts/**` 不在 `npx tsc --noEmit` gate 内**：`tsconfig.json` 的 `include` 仅 `["src/**/*"]`（`test/**`/`scripts/**` 均不在内，`test/` 由各自 e2e/jest 配置里的 ts-jest 独立类型检查覆盖，但 `scripts/**` 的一次性/运维脚本没有任何类型检查兜底）——一个 `scripts/*.ts` 里的类型错误不会被任何 gate 拦下，只会在实际运行时才暴露 ｜来源: 2026-08-04 Task 12 e2e 收官核对 gate 范围
 
 ## 待决策（等业主拍板）
 

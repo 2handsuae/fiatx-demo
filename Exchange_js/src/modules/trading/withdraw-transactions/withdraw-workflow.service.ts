@@ -1312,6 +1312,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
       sourcePlatform: 'SYSTEM',
     });
 
+    // Clear needsReview flag if set (ops-hygiene)
+    if (w.needsReview) {
+      await this.withdrawService.clearNeedsReview(w.id);
+      this.logger.log(`Withdrawal ${withdrawId}: cleared needsReview flag on SUCCESS`);
+    }
+
     // L3: Post-Tx Archive — fire-and-forget txHash archival (crypto only)
     if (w.asset?.type !== 'FIAT' && w.txHash) {
       this.archivePostKyt(w).catch(err =>
