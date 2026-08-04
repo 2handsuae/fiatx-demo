@@ -29,23 +29,57 @@ import { ApprovalsService } from '../../governance/approvals/approvals.service';
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
 // 客户面筛选桶：必须与 client-web/src/utils/depositStatusView.ts 渲染出的
-// label 一一对应。ACTION_PENDING 按「是否已提交」劈成两半——已提交的渲染成
-// PROCESSING，就必须归进 PROCESSING 桶；否则该单被冻时会从 ACTION_REQUIRED
-// 桶里消失，客户用筛选器就能看出自己这单出事了。仅 customerScope 生效，
-// admin 侧的 status 参数行为不受影响。
+// label 一一对应。仅 customerScope 生效，admin 侧的 status 参数行为不受
+// 影响。
+//
+// PROCESSING 桶用补集定义（评审 Important 2），不是白名单枚举。白名单式
+// 定义曾经漏掉 OPERATION_PENDING——它是合规已通过、金额低于下限等运营处置
+// 的中间态，渲染层 getDepositStatusView 靠 DEFAULT_VIEW 兜底把它渲染成
+// PROCESSING，但它不在任何桶里：客户在 All Status 里看得到这单（badge 显示
+// PROCESSING），切到 PROCESSING 筛选却找不到它——这本身就是一个可探测信号。
+// CONFISCATING/CONFISCATED 同理，只是恰好总是带 limitHoldReason 才没在
+// 客户面暴露过。根因是白名单枚举必然滞后于状态机：新增状态时如果没人记得
+// 手工把它加进 PROCESSING，它就自动落在桶外。改成补集——PROCESSING =
+// 「不落在另外五个桶里的一切」——后，这类状态（含未来任何新增状态）天生
+// 落进 PROCESSING，与前端 DEFAULT_VIEW 兜底行为天然对齐，不需要再靠人记得
+// 同步两处。
+const ACTION_REQUIRED_BUCKET_WHERE = { status: 'ACTION_PENDING', actionSubmittedAt: null };
+const RETURNING_BUCKET_WHERE = { status: 'RETURNING' };
+const RETURNED_BUCKET_WHERE = { status: 'RETURNED' };
+const SUCCESS_BUCKET_WHERE = { status: 'SUCCESS' };
+const FAILED_BUCKET_WHERE = { status: 'FAILED' };
+
 const CUSTOMER_BUCKETS: Record<string, any> = {
   PROCESSING: {
-    OR: [
-      { status: { in: ['PAYIN_PENDING', 'COMPLIANCE_PENDING', 'FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'] } },
-      { status: 'ACTION_PENDING', actionSubmittedAt: { not: null } },
-    ],
+    NOT: {
+      OR: [
+        ACTION_REQUIRED_BUCKET_WHERE,
+        RETURNING_BUCKET_WHERE,
+        RETURNED_BUCKET_WHERE,
+        SUCCESS_BUCKET_WHERE,
+        FAILED_BUCKET_WHERE,
+      ],
+    },
   },
-  ACTION_REQUIRED: { status: 'ACTION_PENDING', actionSubmittedAt: null },
-  RETURNING: { status: 'RETURNING' },
-  RETURNED: { status: 'RETURNED' },
-  SUCCESS: { status: 'SUCCESS' },
-  FAILED: { status: 'FAILED' },
+  ACTION_REQUIRED: ACTION_REQUIRED_BUCKET_WHERE,
+  RETURNING: RETURNING_BUCKET_WHERE,
+  RETURNED: RETURNED_BUCKET_WHERE,
+  SUCCESS: SUCCESS_BUCKET_WHERE,
+  FAILED: FAILED_BUCKET_WHERE,
 };
+
+// 客户面 status 收敛集（评审 Important 1，安全洞）。见 toCustomerDepositView
+// 的注释——这七个状态原样下发会让客户开 DevTools 直接读到真实状态字符串，
+// 即便渲染层已经把它们都渲染成同一个 "PROCESSING" 标签。
+const CUSTOMER_STATUS_COLLAPSE = new Set<string>([
+  'FROZEN',
+  'SEIZING',
+  'SEIZED',
+  'MANUAL_CHECKING',
+  'CONFISCATING',
+  'CONFISCATED',
+  'OPERATION_PENDING',
+]);
 
 export interface DepositStatusUpdateActorContext {
   actorType: string;
@@ -120,7 +154,15 @@ export class DepositTransactionsService {
     if (ownerType) where.ownerType = ownerType;
     if (assetId) where.assetId = assetId;
     if (toWalletId) where.toWalletId = toWalletId;
-    if (status) where.status = Array.isArray(status) ? { in: status } : status;
+    // 评审 Important 1(a)，安全洞：customerScope 下完全忽略 status 查询参数
+    // （客户面只认 bucket）。不这样做的话 GET /deposit-transactions/my?
+    // status=FROZEN 直接把状态过滤器交给客户操控——返回非空就等于确认自己
+    // 被冻，是比响应体里原样输出 status（见 toCustomerDepositView）更直接
+    // 的一个探测面。静默忽略、不报错——报错本身又是一个可探测面。admin 侧
+    // 行为不受影响。
+    if (status && !options?.customerScope) {
+      where.status = Array.isArray(status) ? { in: status } : status;
+    }
 
     if (startDate || endDate) {
       where.createdAt = {};
@@ -206,12 +248,47 @@ export class DepositTransactionsService {
    * 与正常态一视同仁地存在（提交过的单无论后来是 FROZEN 还是
    * COMPLIANCE_PENDING 该值都在），因此不产生新的可辨识信号。
    * `manualReason` 不可比照办理——它取值 EDD_PEP 时等同于告知客户其 PEP 判定。
+   *
+   * `status`（评审 Important 1，安全洞）—— 这是白名单里唯一一个原样值本身
+   * 就可能泄密的字段：`id`/`depositNo`/`amount`/`createdAt` 这些字段的取值
+   * 对客户不构成新信息，但 `status` 的原始取值直接就是 FROZEN/SEIZED/…，
+   * 等同于把"这单被制裁/在办案"这件事写进 JSON。渲染层
+   * （client-web/src/utils/depositStatusView.ts）已经把这些状态渲染成和
+   * COMPLIANCE_PENDING 一样的 "PROCESSING"，但客户打开 DevTools → Network
+   * 面板能直接看到这个接口吐出的原始响应体，不需要依赖前端有没有正确渲染
+   * ——设计 §5.2：接口必须服从和渲染层一样的不可区分规则。所以 `status`
+   * 在进入这个白名单前必须先经 `CUSTOMER_STATUS_COLLAPSE` 收敛，不能直接
+   * 透传 `item.status`。
+   *
+   * 收敛集为什么恰好是这七个（`FROZEN`/`SEIZING`/`SEIZED`/`MANUAL_CHECKING`/
+   * `CONFISCATING`/`CONFISCATED`/`OPERATION_PENDING`）：
+   *   - FROZEN / SEIZING / SEIZED —— 制裁/执法处置弧，规则 A（tipping-off
+   *     防线）保护的核心对象。
+   *   - MANUAL_CHECKING —— 人工复核态，同样不能让客户知道自己的单被单独
+   *     拎出来复核。
+   *   - CONFISCATING / CONFISCATED —— 没收弧的两个状态；这两个态本来就不在
+   *     depositStatusView.ts 的 VIEW_MAP 里，靠 DEFAULT_VIEW 兜底渲染成
+   *     "PROCESSING"——如果接口层不提前收敛，会先于前端把原始状态字符串
+   *     泄漏出去，服务端必须比前端更早挡住，不能指望"前端不认识这个态就
+   *     不显示"当防线。
+   *   - OPERATION_PENDING —— 合规已通过、金额低于下限等运营处置的中间态，
+   *     同样不在 VIEW_MAP 里、同样渲染成 PROCESSING，同样要提前收敛。
+   * 这七个状态收敛后统一输出字符串 `'COMPLIANCE_PENDING'`——前端拿到后走
+   * VIEW_MAP 的显式映射（PROCESSING / neutral），与数据库里原生就是
+   * COMPLIANCE_PENDING 的单逐字节相同的呈现，不会分叉出第三种路径。
+   * ⚠️ 除这七个以外的状态原样输出——`ACTION_PENDING`/`SUCCESS`/`FAILED`/
+   * `RETURNING`/`RETURNED`/`PAYIN_PENDING` 在 VIEW_MAP 里本来就有自己的
+   * 呈现，客户本就该看到真实结果；收敛它们没有意义，反而会把 SUCCESS 这类
+   * 终态也伪装成"处理中"，制造新的误导。
+   * ⚠️ 别把这条"修回去"：下一个人如果看见"服务端返回的 status 字符串跟
+   * 数据库存的不一样"觉得像 bug、想改成原样输出——那正是这段注释要拦住的
+   * 那次修改。
    */
   private toCustomerDepositView(item: any) {
     return {
       id: item.id,
       depositNo: item.depositNo,
-      status: item.status,
+      status: this.toCustomerStatus(item.status),
       amount: item.amount,
       createdAt: item.createdAt,
       completedAt: item.completedAt,
@@ -229,6 +306,11 @@ export class DepositTransactionsService {
         : null,
       actionSubmittedAt: item.actionSubmittedAt,
     };
+  }
+
+  /** `status` 收敛的具体实现，见上方 `toCustomerDepositView` 文档注释。 */
+  private toCustomerStatus(status: string): string {
+    return CUSTOMER_STATUS_COLLAPSE.has(status) ? 'COMPLIANCE_PENDING' : status;
   }
 
   async findOne(id: string) {

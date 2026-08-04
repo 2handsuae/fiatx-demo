@@ -133,6 +133,35 @@ describe('DepositTransactionsService', () => {
       const call = calls[calls.length - 1][0];
       expect(call.where?.limitHoldReason).toBeUndefined();
     });
+
+    // 评审 Important 1(a)，安全洞：customerScope 下 status 查询参数必须被
+    // 静默忽略——否则 GET /deposit-transactions/my?status=FROZEN 直接把
+    // 状态过滤器交给客户操控，返回非空就等于确认自己被冻。admin 侧的
+    // status 参数行为必须一字不动。
+    it('customerScope 下传 status=FROZEN 不会进 where 条件', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll(
+        { status: DepositTransactionStatus.FROZEN } as any,
+        { customerScope: true },
+      );
+
+      const calls = ((prisma as any).depositTransaction.findMany as jest.Mock).mock.calls;
+      const where = calls[calls.length - 1][0].where;
+      expect(where.status).toBeUndefined();
+    });
+
+    it('admin scope 下传 status=FROZEN 仍然进 where 条件', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll({ status: DepositTransactionStatus.FROZEN } as any);
+
+      const calls = ((prisma as any).depositTransaction.findMany as jest.Mock).mock.calls;
+      const where = calls[calls.length - 1][0].where;
+      expect(where.status).toBe(DepositTransactionStatus.FROZEN);
+    });
   });
 
   // Fix 1 (final review, tipping-off): a row carrying every investigation-only
@@ -219,7 +248,10 @@ describe('DepositTransactionsService', () => {
       expect(item).toEqual({
         id: 'd-sensitive-1',
         depositNo: 'DEP-SENS-1',
-        status: 'SEIZED',
+        // 评审 Important 1(b)，安全洞：SENSITIVE_FULL_ROW.status 是 'SEIZED'，
+        // 但客户面必须收敛成 'COMPLIANCE_PENDING'——原样输出 'SEIZED' 正是
+        // 本次要修的那个安全洞，见下方专门的 status 收敛 describe 块。
+        status: 'COMPLIANCE_PENDING',
         amount: '500.00',
         createdAt: SENSITIVE_FULL_ROW.createdAt,
         completedAt: SENSITIVE_FULL_ROW.completedAt,
@@ -233,6 +265,65 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  // 评审 Important 1(b)，安全洞：客户面响应体里的 status 必须先经收敛，
+  // 不能原样透传数据库里的真实状态字符串——否则渲染层（depositStatusView.ts）
+  // 把 FROZEN/SEIZED/… 都渲染成 "PROCESSING" 的功夫全部作废，客户开
+  // DevTools 直接读 Network 面板就能看到真实状态。见
+  // deposit-transactions.service.ts 里 toCustomerDepositView 的文档注释。
+  describe('toCustomerDepositView status 收敛 (Important 1，安全洞)', () => {
+    const buildCustomerRow = (status: string) => ({
+      id: 'd-collapse-1',
+      depositNo: 'DEP-COLLAPSE-1',
+      ownerId: 'cust-1',
+      status,
+      amount: '10.00',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      completedAt: null,
+      txHash: null,
+      referenceNo: null,
+      fromAddress: null,
+      fromIban: null,
+      asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
+      limitHoldReason: null,
+      actionSubmittedAt: null,
+    });
+
+    it.each([
+      'FROZEN',
+      'SEIZING',
+      'SEIZED',
+      'MANUAL_CHECKING',
+      'CONFISCATING',
+      'CONFISCATED',
+      'OPERATION_PENDING',
+    ])('%s → COMPLIANCE_PENDING（必须与正常处理中逐字段一致，不能原样下发）', async (rawStatus) => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        buildCustomerRow(rawStatus),
+      );
+
+      const result = (await service.findOneForCustomer('d-collapse-1', 'cust-1')) as any;
+
+      expect(result.status).toBe('COMPLIANCE_PENDING');
+    });
+
+    it.each([
+      'ACTION_PENDING',
+      'SUCCESS',
+      'FAILED',
+      'RETURNING',
+      'RETURNED',
+      'PAYIN_PENDING',
+    ])('%s 原样输出（不在收敛集里，客户本就该看到真实结果）', async (rawStatus) => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        buildCustomerRow(rawStatus),
+      );
+
+      const result = (await service.findOneForCustomer('d-collapse-1', 'cust-1')) as any;
+
+      expect(result.status).toBe(rawStatus);
+    });
+  });
+
   // 客户面历史筛选下拉改按「渲染出的桶」而非原始 status 过滤（2026-08-04，
   // task-6 增补）：ACTION_PENDING 按「是否已提交」劈成两半，已提交的渲染成
   // PROCESSING（getDepositStatusView 的短路），必须归进 PROCESSING 桶，
@@ -243,10 +334,15 @@ describe('DepositTransactionsService', () => {
   describe('findAll 客户面筛选桶 (bucket)', () => {
     type BucketRow = { status: string; actionSubmittedAt: Date | null };
 
+    // 评审 Important 2：PROCESSING 桶从白名单枚举改成补集定义（NOT{OR:[...]}），
+    // 求值器要能读懂 NOT，否则测不出补集语义。
     const matchesBucketWhere = (row: BucketRow, where: Record<string, any>): boolean =>
       Object.entries(where).every(([key, cond]) => {
         if (key === 'OR') {
           return (cond as any[]).some((sub) => matchesBucketWhere(row, sub));
+        }
+        if (key === 'NOT') {
+          return !matchesBucketWhere(row, cond as Record<string, any>);
         }
         const actual = (row as any)[key];
         if (cond && typeof cond === 'object') {
@@ -300,6 +396,26 @@ describe('DepositTransactionsService', () => {
       }
       // 未提交的 ACTION_PENDING 渲染成 ACTION REQUIRED，不属于 PROCESSING。
       expect(matchesBucketWhere(ACTION_PENDING_UNSUBMITTED, where)).toBe(false);
+    });
+
+    // 评审 Important 2：PROCESSING 桶此前是白名单枚举，漏了 OPERATION_PENDING
+    // ——它渲染成 PROCESSING（getDepositStatusView 的 DEFAULT_VIEW 兜底），
+    // 却不在任何桶里；CONFISCATING/CONFISCATED 同理。改成补集定义（不落在
+    // 另外五个桶里的一切）后，这三个状态、以及任何未来新增的未映射状态，
+    // 都天生落进 PROCESSING，不需要再靠人手工补一条。
+    it('PROCESSING 桶是补集定义——OPERATION_PENDING/CONFISCATING/CONFISCATED/假想的未来状态都落进来', async () => {
+      const where = await captureWhere({ bucket: 'PROCESSING' } as any, { customerScope: true });
+
+      const OPERATION_PENDING: BucketRow = { status: 'OPERATION_PENDING', actionSubmittedAt: null };
+      const CONFISCATING: BucketRow = { status: 'CONFISCATING', actionSubmittedAt: null };
+      const CONFISCATED: BucketRow = { status: 'CONFISCATED', actionSubmittedAt: null };
+      // 白名单式定义永远漏不掉的类别：一个状态机里还不存在、测试写下这行时
+      // 才假想出来的状态。补集定义天然接住它，不需要有人记得手工加进桶里。
+      const HYPOTHETICAL_FUTURE_STATUS: BucketRow = { status: 'SOME_FUTURE_STATUS', actionSubmittedAt: null };
+
+      for (const row of [OPERATION_PENDING, CONFISCATING, CONFISCATED, HYPOTHETICAL_FUTURE_STATUS]) {
+        expect(matchesBucketWhere(row, where)).toBe(true);
+      }
     });
 
     it('ACTION_REQUIRED 桶只含未提交的 ACTION_PENDING', async () => {
@@ -383,7 +499,8 @@ describe('DepositTransactionsService', () => {
       expect(result).toEqual({
         id: 'd-sensitive-1',
         depositNo: 'DEP-SENS-1',
-        status: 'SEIZED',
+        // 同上：'SEIZED' 收敛成 'COMPLIANCE_PENDING'。
+        status: 'COMPLIANCE_PENDING',
         amount: '500.00',
         createdAt: SENSITIVE_FULL_ROW.createdAt,
         completedAt: SENSITIVE_FULL_ROW.completedAt,
