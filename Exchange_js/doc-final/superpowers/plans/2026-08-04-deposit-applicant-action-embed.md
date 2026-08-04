@@ -893,6 +893,68 @@ npx jest src/modules/trading/deposit-transactions/deposit-verification-session.s
 
 预期：6 passed
 
+- [ ] **Step 4b: 把 `markActionSubmitted` 改成原子更新（承接 Task 1 评审的 Minor）**
+
+Task 1 的实现是 `findUnique` 读一次、再 `update` 写一次——两步之间有 TOCTOU 窗口：两个并发提交都可能读到 `actionSubmittedAt === null`，于是**都**返回 `changed: true`。本任务正是**靠 `changed` 决定要不要写审计**，所以这个竞态会让同一次提交记出两条审计。
+
+先加一条测试到 `deposit-transactions.service.spec.ts` 的 `applicant action 字段读写` 块里：
+
+```ts
+  it('markActionSubmitted 用单条带条件的更新（无 TOCTOU 窗口）', async () => {
+    ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+    const r = await service.markActionSubmitted('d-1', DEADLINE);
+
+    expect(r.changed).toBe(true);
+    expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd-1', actionSubmittedAt: null },   // ← 条件写在 where 里，由 DB 保证互斥
+      data: expect.objectContaining({ slaDeadline: DEADLINE, slaBreached: false }),
+    });
+    // 读-改-写的两步式已被取代，不应再有先读一次的动作
+    expect((prisma as any).depositTransaction.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('markActionSubmitted 并发落败方拿到 changed:false（匹配 0 行）', async () => {
+    ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+    await expect(service.markActionSubmitted('d-1', DEADLINE)).resolves.toEqual({ changed: false });
+  });
+```
+
+（prisma mock 工厂里若无 `updateMany`，补 `updateMany: jest.fn()`。）
+
+实现替换为：
+
+```ts
+  /**
+   * 客户提交材料。幂等——重复提交不刷新时间戳，避免客户狂点按钮把
+   * SLA 表无限续期。**不碰 status**：客户的动作不驱动状态机（真实世界
+   * 里也是等 Sumsub 重评后发 webhook 才动）。
+   *
+   * 用**单条带条件的 updateMany** 而非「先读后写」：调用方靠返回的 `changed`
+   * 决定是否写审计，两步式在并发下两个请求都会读到 null、都返回 true，
+   * 同一次提交会记出两条审计。条件放进 where 交给 DB 保证互斥后，
+   * 只有一个请求能匹配到行。
+   */
+  async markActionSubmitted(id: string, slaDeadline: Date): Promise<{ changed: boolean }> {
+    const res = await (this.prisma as any).depositTransaction.updateMany({
+      where: { id, actionSubmittedAt: null },
+      data: { actionSubmittedAt: new Date(), slaDeadline, slaBreached: false },
+    });
+    return { changed: res.count > 0 };
+  }
+```
+
+Task 1 遗留的三条旧测试里，「首次盖戳」与「幂等：已有提交戳则不覆写」两条是按 `findUnique`+`update` 写的，改为按 `updateMany` 的 `count` 断言（语义不变：能盖 → `count: 1` → `changed: true`；已盖过 → `count: 0` → `changed: false`）。**不要**删掉这两条，它们仍是幂等性的回归防护。
+
+跑：
+
+```bash
+npx jest src/modules/trading/deposit-transactions/deposit-transactions.service.spec.ts -t "applicant action"
+```
+
+预期：5 passed（原 3 条改写后 + 新 2 条）
+
 - [ ] **Step 5: 挂 controller 与 module**
 
 `deposit-transactions.controller.ts` 在 `@Post('my/inbound-signals/scan')` 之后加：
