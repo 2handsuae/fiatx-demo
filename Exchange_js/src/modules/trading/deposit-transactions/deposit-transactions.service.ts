@@ -618,6 +618,48 @@ export class DepositTransactionsService {
   }
 
   /**
+   * 落 Sumsub applicant action 引用。三件事一次写完：换 action 引用、
+   * 清掉上一轮的客户提交戳（新 action = 客户要重新交东西）、重置 SLA 表。
+   * 缺任一件都会让客户端停在"已收到，审核中"而不知道又被要材料了。
+   */
+  async setActionRefs(
+    id: string,
+    actionId: string,
+    externalActionId: string,
+    slaDeadline: Date,
+  ) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: {
+        sumsubActionId: actionId,
+        sumsubExternalActionId: externalActionId,
+        actionSubmittedAt: null,
+        slaDeadline,
+        slaBreached: false,
+      },
+    });
+  }
+
+  /**
+   * 客户提交材料。幂等——重复提交不刷新时间戳，避免客户狂点按钮把
+   * SLA 表无限续期。**不碰 status**：客户的动作不驱动状态机（真实世界
+   * 里也是等 Sumsub 重评后发 webhook 才动）。
+   */
+  async markActionSubmitted(id: string, slaDeadline: Date): Promise<{ changed: boolean }> {
+    const row = await (this.prisma as any).depositTransaction.findUnique({
+      where: { id },
+      select: { id: true, actionSubmittedAt: true },
+    });
+    if (!row || row.actionSubmittedAt) return { changed: false };
+
+    await (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { actionSubmittedAt: new Date(), slaDeadline, slaBreached: false },
+    });
+    return { changed: true };
+  }
+
+  /**
    * SLA timer (Task 10) scan: onHold(COMPLIANCE_PENDING) and ACTION_PENDING
    * deposits whose slaDeadline has passed and haven't been flagged yet.
    */

@@ -1187,4 +1187,56 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  describe('applicant action 字段读写', () => {
+    const DEADLINE = new Date('2026-08-11T00:00:00Z');
+
+    it('setActionRefs 写两个 id、清提交戳、重置 SLA', async () => {
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
+
+      await service.setActionRefs('d-1', 'aa-1', 'EXT-1', DEADLINE);
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'd-1' },
+        data: {
+          sumsubActionId: 'aa-1',
+          sumsubExternalActionId: 'EXT-1',
+          actionSubmittedAt: null,
+          slaDeadline: DEADLINE,
+          slaBreached: false,
+        },
+      });
+    });
+
+    it('markActionSubmitted 首次盖戳并重置 SLA', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'd-1',
+        actionSubmittedAt: null,
+      });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
+
+      const r = await service.markActionSubmitted('d-1', DEADLINE);
+
+      expect(r.changed).toBe(true);
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'd-1' },
+          data: expect.objectContaining({ slaDeadline: DEADLINE, slaBreached: false }),
+        }),
+      );
+    });
+
+    it('markActionSubmitted 幂等：已有提交戳则不覆写', async () => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+        id: 'd-1',
+        actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
+      });
+      ((prisma as any).depositTransaction.update as jest.Mock).mockClear();
+
+      const r = await service.markActionSubmitted('d-1', DEADLINE);
+
+      expect(r.changed).toBe(false);
+      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+    });
+  });
+
 });
