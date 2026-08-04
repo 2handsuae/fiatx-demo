@@ -1837,11 +1837,19 @@ describe('DepositWorkflowService', () => {
 
       // Minor a: slaDeadline is folded into the same updateStatus extraData write
       // (one atomic write), not a separate setSlaDeadline call.
+      // Important: actionSubmittedAt/slaBreached are also unconditionally cleared here
+      // (see applyKytAwaitUser's Important-fix comment) — this deposit has neither set,
+      // but the extraData write still carries the clears every time.
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-3',
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
         expect.objectContaining({
-          extraData: { manualReason: 'EDD_PEP', slaDeadline: expect.any(Date) },
+          extraData: {
+            manualReason: 'EDD_PEP',
+            slaDeadline: expect.any(Date),
+            actionSubmittedAt: null,
+            slaBreached: false,
+          },
         }),
       );
       expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
@@ -1868,7 +1876,12 @@ describe('DepositWorkflowService', () => {
         'dep-3b',
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
         expect.objectContaining({
-          extraData: { manualReason: 'CLIENT_ACTION', slaDeadline: expect.any(Date) },
+          extraData: {
+            manualReason: 'CLIENT_ACTION',
+            slaDeadline: expect.any(Date),
+            actionSubmittedAt: null,
+            slaBreached: false,
+          },
         }),
       );
       expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
@@ -3575,6 +3588,37 @@ describe('DepositWorkflowService', () => {
           extraData: expect.objectContaining({
             sumsubActionId: 'aa-1',
             sumsubExternalActionId: 'EXT-1',
+          }),
+        }),
+      );
+    });
+
+    it('Important 修复:跨状态弧(MANUAL_CHECKING → ACTION_PENDING)也要清 actionSubmittedAt/slaBreached,不能只在同状态分支清', async () => {
+      // MANUAL_CHECKING 单常见带着旧的 actionSubmittedAt(客户此前交过材料)和
+      // slaBreached=true(被 SLA 定时器打进来的)。officer 重发 action 后单子回到
+      // ACTION_PENDING——这两个字段若不清,客户端 getSession 会一直显示"已收到,
+      // 审核中"(actionSubmittedAt 有值),客户永久卡死,见 applyKytAwaitUser 内注释。
+      const deposit = {
+        id: 'd-1',
+        status: 'MANUAL_CHECKING',
+        sumsubActionId: 'aa-OLD',
+        actionSubmittedAt: new Date('2026-01-01T00:00:00Z'),
+        slaBreached: true,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({ ...deposit, status: 'ACTION_PENDING' });
+
+      await service.applyKytVerdict('d-1', {
+        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
+      } as any);
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'd-1',
+        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+        expect.objectContaining({
+          extraData: expect.objectContaining({
+            actionSubmittedAt: null,
+            slaBreached: false,
           }),
         }),
       );

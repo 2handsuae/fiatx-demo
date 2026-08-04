@@ -15,6 +15,7 @@ describe('DepositVerificationSessionService', () => {
     sumsubActionId: 'aa-1',
     sumsubExternalActionId: 'EXT-1',
     actionSubmittedAt: null,
+    slaBreached: false,
     ...over,
   });
 
@@ -97,6 +98,9 @@ describe('DepositVerificationSessionService', () => {
     const b = await svc.getSession('cust-1', 'DEP1');
 
     expect(b).toEqual(a);
+    // 评审 Minor 3：key 集合白名单此前只钉了"未提交+有 action"分支，
+    // submitted:true 这个分支没人钉——复用同一条断言堵上。
+    expect(Object.keys(a).sort()).toEqual(['embedUrl', 'materialKind', 'submitted']);
   });
 
   // 评审 Important 3：真正高危的路径——单子还没提交就被冻，客户端此时仍在
@@ -163,9 +167,11 @@ describe('DepositVerificationSessionService', () => {
   });
 
   // ── 评审 Important 2：客户提交不能单方面抹掉 operator 可见的 SLA 违约旗 ──
-  describe('submit 对 SLA 字段的重置——只在仍是 ACTION_PENDING 时才重置', () => {
-    it('单子仍是 ACTION_PENDING → markActionSubmitted 收到 resetSla=true', async () => {
-      prisma.depositTransaction.findFirst.mockResolvedValue(ROW({ status: 'ACTION_PENDING' }));
+  describe('submit 对 SLA 字段的重置——只在仍是 ACTION_PENDING 且未违约时才重置', () => {
+    it('单子仍是 ACTION_PENDING 且 slaBreached=false → markActionSubmitted 收到 resetSla=true', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'ACTION_PENDING', slaBreached: false }),
+      );
 
       await svc.submit('cust-1', 'DEP1');
 
@@ -176,8 +182,28 @@ describe('DepositVerificationSessionService', () => {
       );
     });
 
+    // 评审 Minor 1：判据看旗而非单看状态——ACTION_PENDING 本身也可能带
+    // slaBreached=true，此时不该重置（否则 operator 的违约旗仍会被抹掉）。
+    // 这条是本次修复的核心红灯：仅按 status === ACTION_PENDING 判定时，
+    // 这条会误判 resetSla=true。
+    it('单子是 ACTION_PENDING 但 slaBreached=true → resetSla=false（不抹违约旗）', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'ACTION_PENDING', slaBreached: true }),
+      );
+
+      await svc.submit('cust-1', 'DEP1');
+
+      expect(deposits.markActionSubmitted).toHaveBeenCalledWith(
+        'd-1',
+        expect.any(Date),
+        false,
+      );
+    });
+
     it('单子已被 SLA 定时器打成 MANUAL_CHECKING → resetSla=false（不抹违约旗）', async () => {
-      prisma.depositTransaction.findFirst.mockResolvedValue(ROW({ status: 'MANUAL_CHECKING' }));
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'MANUAL_CHECKING', slaBreached: true }),
+      );
 
       await svc.submit('cust-1', 'DEP1');
 
@@ -198,6 +224,51 @@ describe('DepositVerificationSessionService', () => {
         expect.any(Date),
         false,
       );
+    });
+  });
+
+  // ── 评审 Minor 2：审计要如实反映本次到底有没有重置 SLA 表，不许恒定声称 ──
+  describe('submit 的审计 reason/metadata 须与 resetSla 是否发生一致', () => {
+    it('resetSla=true → 审计写"switched to provider re-review"，metadata 带 slaDeadline', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'ACTION_PENDING', slaBreached: false }),
+      );
+
+      await svc.submit('cust-1', 'DEP1');
+
+      expect(auditLogs.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: 'Customer submitted applicant-action materials; SLA clock switched to provider re-review',
+          metadata: expect.objectContaining({
+            actionId: 'aa-1',
+            slaDeadline: expect.any(Date),
+            waitingOn: 'PROVIDER',
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it('resetSla=false（已被打成 MANUAL_CHECKING） → 审计如实写"未重置"，metadata 不带 slaDeadline；对外响应仍 {ok:true}', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'MANUAL_CHECKING', slaBreached: true }),
+      );
+
+      const result = await svc.submit('cust-1', 'DEP1');
+
+      expect(result).toEqual({ ok: true });
+      expect(auditLogs.recordByActor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: 'Customer submitted applicant-action materials; SLA clock left untouched (deposit no longer ACTION_PENDING or already SLA-breached)',
+          metadata: {
+            actionId: 'aa-1',
+            waitingOn: 'PROVIDER',
+          },
+        }),
+        expect.anything(),
+      );
+      const metadata = auditLogs.recordByActor.mock.calls[0][0].metadata;
+      expect(metadata).not.toHaveProperty('slaDeadline');
     });
   });
 });

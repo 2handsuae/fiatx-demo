@@ -537,6 +537,20 @@ export class DepositWorkflowService implements OnModuleInit {
     const oldStatus = deposit.status;
     // Minor a 修复:slaDeadline 折进同一次 updateStatus 的 extraData,与 manualReason
     // 一次原子写(避免两步写中间失败,留 ACTION_PENDING 无 slaDeadline 永不被 SLA 扫)。
+    //
+    // Important 修复:actionSubmittedAt/slaBreached 必须在这条跨状态弧(常见于
+    // MANUAL_CHECKING → ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回
+    // awaitingUser,2026-07-31 沙盒实测过)里一并清掉,不能只在"已在 ACTION_PENDING
+    // 收新 action"的同状态分支(见上面 setActionRefs 调用)里清。
+    // 客户端 getSession 完全靠 actionSubmittedAt 是否有值决定显示"请提供材料"还是
+    // "已收到,审核中";markActionSubmitted 靠 actionSubmittedAt:null 做幂等 where 条件。
+    // 若这里不清:客户此前交过的材料让 actionSubmittedAt 留着旧值 → 单子明明又要
+    // 客户补材料,客户端却一直显示"已收到,审核中",客户永远不知道要再交一次,
+    // 也永远点不动提交(where 条件永不匹配)——被永久卡死。slaBreached 同理需要
+    // 清掉(对齐同状态分支的 setActionRefs 行为),否则从 MANUAL_CHECKING(通常
+    // slaBreached=true)转入的 ACTION_PENDING 会带着一面过期的违约旗,干扰这一轮
+    // 全新的 SLA 计时语义。别看"状态都变了"就觉得这两个字段无所谓——它们是两个
+    // 独立的持久字段,updateStatus 不会替你清,不显式写就会原样带过去。
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
@@ -549,6 +563,8 @@ export class DepositWorkflowService implements OnModuleInit {
         extraData: {
           manualReason,
           slaDeadline,
+          actionSubmittedAt: null,
+          slaBreached: false,
           ...(action && {
             sumsubActionId: action.applicantActionId,
             sumsubExternalActionId: action.externalActionId,

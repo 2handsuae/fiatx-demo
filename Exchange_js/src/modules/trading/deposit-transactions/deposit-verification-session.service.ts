@@ -70,6 +70,7 @@ export class DepositVerificationSessionService {
         manualReason: true,
         sumsubActionId: true,
         actionSubmittedAt: true,
+        slaBreached: true,
       },
     });
     if (!row) throw new NotFoundException('Deposit not found');
@@ -124,13 +125,25 @@ export class DepositVerificationSessionService {
       // 的违约旗单方面抹掉（该状态不在 findSlaBreachCandidates 的扫描范围
       // 内，抹掉后永远发现不了）。actionSubmittedAt 本身不受此条件影响，
       // 见 markActionSubmitted 的注释。
-      const resetSla = row.status === DepositTransactionStatus.ACTION_PENDING;
+      //
+      // 评审 Minor 1：判据看旗而非单看状态——ACTION_PENDING 本身也可能带
+      // slaBreached=true，此时仍不该重置，故加 `&& !row.slaBreached`，
+      // 更贴合"别抹掉 operator 的违约旗"这个真实意图，也顺带减少 status
+      // 作为行为输入。
+      const resetSla =
+        row.status === DepositTransactionStatus.ACTION_PENDING && !row.slaBreached;
       const { changed } = await this.deposits.markActionSubmitted(
         row.id,
         deadline,
         resetSla,
       );
       if (changed) {
+        // 评审 Minor 2：审计必须如实反映这次提交到底有没有重置 SLA 表——
+        // resetSla=false 时 slaDeadline/slaBreached 根本没被写（见
+        // markActionSubmitted），审计若仍恒定说"SLA clock switched to
+        // provider re-review"并带上 slaDeadline，就是在持牌机构的审计
+        // 流水里记一件没发生的事。这个差异只留在 operator 面的审计里，
+        // 不外泄到对外响应（下面 `return { ok: true }` 恒定不变）。
         await this.auditLogs.recordByActor(
           {
             action: AuditActions.DEPOSIT_ACTION_SUBMITTED,
@@ -141,11 +154,12 @@ export class DepositVerificationSessionService {
             entityOwnerId: row.ownerId,
             traceId: row.traceId || undefined,
             workflowType: 'DEPOSIT',
-            reason:
-              'Customer submitted applicant-action materials; SLA clock switched to provider re-review',
+            reason: resetSla
+              ? 'Customer submitted applicant-action materials; SLA clock switched to provider re-review'
+              : 'Customer submitted applicant-action materials; SLA clock left untouched (deposit no longer ACTION_PENDING or already SLA-breached)',
             metadata: {
               actionId: row.sumsubActionId,
-              slaDeadline: deadline,
+              ...(resetSla && { slaDeadline: deadline }),
               waitingOn: 'PROVIDER',
             },
             sourcePlatform: 'CUSTOMER_API',
