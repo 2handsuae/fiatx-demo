@@ -3593,6 +3593,18 @@ describe('DepositWorkflowService', () => {
         'd-1', 'aa-1', 'EXT-1', expect.any(Date),
       );
       expect(depositService.updateStatus).not.toHaveBeenCalled();
+      // DEPOSIT_ACTION_REISSUED 审计是这次修复的 operator 可见落地证据——必须真的
+      // 写了,且带上新旧 action id,不能只验 setActionRefs 被调而漏了审计本身。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_ACTION_REISSUED,
+          entityId: 'd-1',
+          metadata: expect.objectContaining({
+            previousActionId: 'aa-OLD',
+            actionId: 'aa-1',
+          }),
+        }),
+      );
     });
 
     it('已在 ACTION_PENDING + 同一个 action id:真 no-op(重复 webhook)', async () => {
@@ -3606,6 +3618,10 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.setActionRefs).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
+      // 真 no-op 必须连审计都不写,否则"重复 webhook 不该产生噪音"这条不变量测不出来。
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED }),
+      );
     });
   });
 });

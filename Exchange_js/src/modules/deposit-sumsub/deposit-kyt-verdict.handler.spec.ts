@@ -34,6 +34,7 @@ describe('DepositKytVerdictHandler', () => {
   function txnDetail(
     tags: { label: string; type?: 'system' | 'userDefined' }[],
     riskScore: number | null = 87,
+    applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ): SumsubTxnDetail {
     return {
       txnId: 'T1',
@@ -42,6 +43,7 @@ describe('DepositKytVerdictHandler', () => {
       riskScore,
       typedTags: tags.map((t) => ({ label: t.label, type: t.type ?? 'userDefined' })),
       raw: { txnId: 'T1', reviewResult: { reviewAnswer: 'RED' } },
+      ...(applicantActions && { applicantActions }),
     };
   }
 
@@ -103,6 +105,22 @@ describe('DepositKytVerdictHandler', () => {
       riskScore: 87,
       sceneTag: 'PEP',
       detailRaw: detail.raw,
+    });
+  });
+
+  it('AwaitingUser + getTxn returns applicantActions → 透传进 applyKytVerdict 第二参数(此前误删两行测不出来)', async () => {
+    const actions = [{ applicantActionId: 'aa-1', externalActionId: 'EXT-1' }];
+    const detail = txnDetail([{ label: 'PEP' }], 87, actions);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
+
+    await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
+
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
+      verdict: 'awaitUser',
+      riskScore: 87,
+      sceneTag: 'PEP',
+      detailRaw: detail.raw,
+      applicantActions: actions,
     });
   });
 
