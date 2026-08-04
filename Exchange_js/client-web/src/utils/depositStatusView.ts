@@ -73,13 +73,32 @@ const VIEW_MAP: Record<string, DepositStatusView> = {
 
 const DEFAULT_VIEW: DepositStatusView = { label: 'PROCESSING', tone: 'neutral' };
 
+/** 客户已提交补料后的统一呈现——绑提交事实，不绑当前状态（见下方注释） */
+const SUBMITTED_VIEW: DepositStatusView = {
+  label: 'PROCESSING',
+  note: 'We have received your information and it is being reviewed',
+  tone: 'neutral',
+};
+
 /**
  * Returns the customer-facing view for a deposit status. Unknown or
  * unmapped statuses (including CONFISCATING/CONFISCATED, which the
  * server should already have filtered out) fall back to the neutral
  * "Processing" default rather than ever rendering enforcement wording.
+ *
+ * `opts.submitted` = 该单的 `actionSubmittedAt` 非空。
+ *
+ * ⚠️ 规则 4（2026-08-04）：只要客户提交过补料，**一律**走 SUBMITTED_VIEW，
+ * 与当前 status 无关。这不是偷懒，是防线：若按 status 给这条 note，则
+ * 「提交 → 见'已收到' → 被冻 → 该句消失」构成一次客户可观测的状态变化，
+ * 等于在规则 1 刚补好的防线上重新开洞。绑提交事实后，冻结时刻客户端零变化。
+ * 勿"优化"成按 status 分支。
  */
-export function getDepositStatusView(status: string): DepositStatusView {
+export function getDepositStatusView(
+  status: string,
+  opts?: { submitted?: boolean },
+): DepositStatusView {
+  if (opts?.submitted) return SUBMITTED_VIEW;
   const key = String(status || '').toUpperCase();
   return VIEW_MAP[key] ?? DEFAULT_VIEW;
 }

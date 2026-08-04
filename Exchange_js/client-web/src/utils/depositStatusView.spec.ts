@@ -104,4 +104,53 @@ describe('depositStatusView (client, tipping-off safe)', () => {
     const text = `${v.label} ${v.note ?? ''}`;
     expect(text).not.toMatch(FORBIDDEN);
   });
+
+  // ── applicant action 三展示态 + 泄密口 ──────────────────────
+  //
+  // 态③（客户已提交）要显示"已收到，审核中"。若该 note 按 **status** 给出，
+  // 则：客户提交 → 见"已收到" → Sumsub 判回制裁 → 单子进 FROZEN → 该句
+  // **凭空消失**。客户盯着自己那单，眼看一句话没了——这正是 2026-08-02
+  // 收敛要堵的"一眼看出自己这单与众不同"。
+  //
+  // 故：该 note 绑 `submitted`，**不绑 status**。提交过即恒显，冻结时刻
+  // 客户端零变化。
+  describe('applicant action 展示态', () => {
+    it('态①未提交：ACTION REQUIRED + 索要文案', () => {
+      const v = getDepositStatusView('ACTION_PENDING', { submitted: false });
+      expect(v.label).toBe('ACTION REQUIRED');
+      expect(v.tone).toBe('warning');
+    });
+
+    it('态③已提交：收敛成 PROCESSING + 已收到文案', () => {
+      const v = getDepositStatusView('ACTION_PENDING', { submitted: true });
+      expect(v.label).toBe('PROCESSING');
+      expect(v.tone).toBe('neutral');
+      expect(v.note).toMatch(/received/i);
+    });
+
+    it.each([true, false])(
+      '执法四态与 COMPLIANCE_PENDING 逐字段一致（submitted=%s 两个取值都要成立）',
+      (submitted) => {
+        for (const s of ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING']) {
+          expect(getDepositStatusView(s, { submitted })).toEqual(
+            getDepositStatusView('COMPLIANCE_PENDING', { submitted }),
+          );
+        }
+      },
+    );
+
+    // 时序不变量：这才是客户实际观察到的东西
+    it('提交后被冻——客户端渲染逐字段不变', () => {
+      const before = getDepositStatusView('ACTION_PENDING', { submitted: true });
+      const after = getDepositStatusView('FROZEN', { submitted: true });
+      expect(after).toEqual(before);
+    });
+
+    it('已提交的文案里同样不得出现执法字样', () => {
+      for (const s of ALL_STATUSES) {
+        const v = getDepositStatusView(s, { submitted: true });
+        expect(`${v.label} ${v.note ?? ''}`).not.toMatch(FORBIDDEN);
+      }
+    });
+  });
 });
