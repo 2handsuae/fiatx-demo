@@ -1235,6 +1235,16 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * (payout principal + fee when charged), the whole settlement is on the books:
    * audit WITHDRAW_ACCOUNTING_POSTED, assert settled (fail-closed), flip the
    * withdrawal to SUCCESS, audit WITHDRAW_SUCCESS. No-op until every leg CLEARs.
+   *
+   * Task 12 e2e fix: `findByParent` with no filter returns EVERY attempt row of
+   * a retried leg (Task 6's fee-leg rebuild-on-FAILED ladder creates a new
+   * funds_order row per attempt, same legSeq). Checking `every()` over the raw
+   * list meant a fee leg that ever failed even once — then successfully
+   * rebuilt and CLEARed — could never reach "all cleared": the old FAILED
+   * attempt row(s) are permanent, so the naive check would block SUCCESS
+   * forever. Only the LATEST attempt per legSeq represents that leg's current
+   * outcome (mirrors onPayoutLegConfirmed's own `feeLegs[feeLegs.length - 1]`
+   * 回捞 pattern) — older attempts are retry history, not still-open legs.
    */
   private async onLegCleared(withdrawId: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
@@ -1245,10 +1255,16 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     const legs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, {});
     if (legs.length === 0) return;
-    const allCleared = legs.every((l: any) => l.status === FundsOrderStatus.CLEARED);
+    const latestByLegSeq = new Map<number, any>();
+    for (const leg of legs) {
+      const existing = latestByLegSeq.get(leg.legSeq);
+      if (!existing || leg.attempt > existing.attempt) latestByLegSeq.set(leg.legSeq, leg);
+    }
+    const latestLegs = Array.from(latestByLegSeq.values());
+    const allCleared = latestLegs.every((l: any) => l.status === FundsOrderStatus.CLEARED);
     if (!allCleared) {
       this.logger.debug(
-        `Withdrawal ${withdrawId}: ${legs.filter((l: any) => l.status === FundsOrderStatus.CLEARED).length}/${legs.length} legs CLEARED — awaiting the rest`,
+        `Withdrawal ${withdrawId}: ${latestLegs.filter((l: any) => l.status === FundsOrderStatus.CLEARED).length}/${latestLegs.length} legs CLEARED — awaiting the rest`,
       );
       return;
     }
