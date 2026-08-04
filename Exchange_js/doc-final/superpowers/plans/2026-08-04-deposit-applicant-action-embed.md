@@ -646,7 +646,7 @@ Provider 还没重评完时超时,会以'客户未响应'的名义把人踢进�
 **Interfaces:**
 - Consumes（T1）：`markActionSubmitted(id, slaDeadline)`
 - Produces（T6 依赖）：
-  - `GET  deposit-transactions/my/:depositNo/verification-session` → `{ submitted: boolean; embedUrl: string | null; materialKind: 'SOURCE_OF_FUNDS' | 'SUPPORTING_DOCUMENTS' | null; actionId: string | null }`
+  - `GET  deposit-transactions/my/:depositNo/verification-session` → `{ submitted: boolean; embedUrl: string | null; materialKind: 'SOURCE_OF_FUNDS' | 'SUPPORTING_DOCUMENTS' | null }`
   - `POST deposit-transactions/my/:depositNo/verification-session/submit` → `{ ok: true }`
 
 - [ ] **Step 1: 写失败测试**
@@ -752,7 +752,9 @@ export interface VerificationSessionView {
   submitted: boolean;
   embedUrl: string | null;
   materialKind: MaterialKind | null;
-  actionId: string | null;
+  // ⚠️ 不要加 actionId：demo fixture 的 id 带语义（PEP 场景是 aa-edd-…），
+  // 下发即等于泄露 materialKind 想封的那 1 比特。spec 已同步删除该契约字段，
+  // 且 spec 文件里有一条钉死响应 key 集合的断言会拦住任何新增字段。
 }
 
 /** 客户提交后重新计时的窗口，与 ACTION_SLA_DAYS 同为 7 天（换语义不换数字） */
@@ -796,18 +798,17 @@ export class DepositVerificationSessionService {
 
     // 已提交：无论此刻是 ACTION_PENDING 还是已被冻，一律同一个响应体。
     if (row.actionSubmittedAt) {
-      return { submitted: true, embedUrl: null, materialKind: null, actionId: null };
+      return { submitted: true, embedUrl: null, materialKind: null };
     }
 
     if (!row.sumsubActionId) {
-      return { submitted: false, embedUrl: null, materialKind: null, actionId: null };
+      return { submitted: false, embedUrl: null, materialKind: null };
     }
 
     return {
       submitted: false,
       embedUrl: `/mock-verification?deposit=${encodeURIComponent(row.depositNo)}`,
       materialKind: this.materialKindOf(row.manualReason),
-      actionId: row.sumsubActionId,
     };
   }
 
