@@ -189,12 +189,26 @@ Sumsub 在客户交完第一份后可再发一个带**新 `applicantActionId`** 
 | ② 认证中 | 按钮点开 | 宽版容器 + loading 遮罩 → 认证界面 |
 | ③ 已提交 | `actionSubmittedAt != null` | `PROCESSING` + 「已收到，审核中」 |
 
-①文案按 `manualReason` 分岔，只说要什么、不说为什么：
+①文案按 **`materialKind`** 分岔（由 §5.1 的 session 端点返回），只说要什么、不说为什么：
 
-- `CLIENT_ACTION` → *Please provide proof of source of funds*
-- `EDD_PEP` → *Please provide additional supporting documents*
+| `manualReason`（服务端） | `materialKind`（下发客户端） | 客户看到 |
+|---|---|---|
+| `CLIENT_ACTION` | `SOURCE_OF_FUNDS` | *Please provide proof of source of funds* |
+| `EDD_PEP` | `SUPPORTING_DOCUMENTS` | *Please provide additional supporting documents* |
 
 > 两种文案不同是可接受的：要求不同材料属标准尽调，客户可见属正常。不可露的是「因为你是 PEP」。
+
+⚠️ **`manualReason` 本身绝不下发**。`toCustomerDepositView()`（`deposit-transactions.service.ts:177`）是客户面字段白名单，其注释明确列出 `manualReason` / sumsub 元数据 / `limitHoldReason` / `slaDeadline` / `slaBreached` 均不得到达客户浏览器——DevTools 查看 JSON 即足以对被调查人通风报信。故服务端在 session 端点内把 `manualReason` 映射成中性的 `materialKind` 再下发，映射表不出现在前端。
+
+### 4.2.1 白名单要开一个口子：`actionSubmittedAt`
+
+态①/③ 的判据是 `actionSubmittedAt`，而**列表页**也要按它渲染徽章（否则列表显示 `ACTION REQUIRED`、弹窗显示 `PROCESSING`，自相矛盾）。故须把 `actionSubmittedAt` 加进 `toCustomerDepositView()` 白名单。
+
+**这是一次有意开口，理由**：该字段记录的是**客户自己的动作**，客户本就知道自己交没交，不构成新信息；且它对执法态与正常态**一视同仁地存在**（提交过的单无论后来是 FROZEN 还是 COMPLIANCE_PENDING，该值都在），因此不产生新的可辨识信号。
+
+**同时须改的两处**：
+- 白名单注释补一句说明为何 `actionSubmittedAt` 可以在、`manualReason` 不可以
+- `client-web/src/pages/Deposit.tsx` 的 `Transaction` 接口（注释里点名该表是"实际字段合同"，须同步）
 
 ### 4.3 泄密口：「已收到」必须绑时间戳，不绑状态
 
