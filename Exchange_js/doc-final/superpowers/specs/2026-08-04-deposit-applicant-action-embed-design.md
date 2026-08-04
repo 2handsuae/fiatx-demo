@@ -223,6 +223,25 @@ Sumsub 在客户交完第一份后可再发一个带**新 `applicantActionId`** 
 
 **堵法**：态③的 note 绑 `actionSubmittedAt`，**不绑当前状态**。提交过即恒显该句，无论该单后来是真在审还是已被冻。冻结时刻客户端**零变化**。
 
+### 4.3.1 ⚠️ 但这条规则不能推到终态（2026-08-04 实施期评审发现，本节曾写错）
+
+上面那句「提交过即恒显」若**无条件**执行，会吃掉终态：`actionSubmittedAt` 在终态从不清空，于是
+
+- 本功能自己的 happy path（补料 → Sumsub 放行 → `ACTION_PENDING --APPROVE--> SUCCESS`）**客户永远看不到 SUCCESS**，列表按原始 status 归进 SUCCESS 分组却挂 PROCESSING 徽章，自相矛盾；
+- `MANUAL_CHECKING --RETURN--> RETURNING/RETURNED` 时，客户的钱已经退回，页面还在说「已收到，审核中」。
+
+**遮蔽终态对 §4.3 的防线毫无必要**：干净单走 SUCCESS、被冻的单停在 PROCESSING —— 被冻的单根本到不了 SUCCESS，冻结那一刻仍是零变化。
+
+**正确口径**：短路只覆盖「在审」集合，排除四个**客户本来就该看到真实结果**的状态：
+
+```
+SUCCESS · FAILED · RETURNING · RETURNED
+```
+
+⚠️ **`SEIZING` / `SEIZED` 绝不能加进这张排除表**——它们虽然也是终态/近终态，但属执法态，必须继续与 `COMPLIANCE_PENDING` 逐字段一致。`CONFISCATING`/`CONFISCATED` 不在 `VIEW_MAP` 里（走兜底），同样不加。下一个人「顺手补全终态」就会把防线捅穿，故实现处必须有注释写明这一点。
+
+双向变异验证已做：把 `FROZEN` 加进排除表 → §4.3 的防线断言变红；把排除表整个删掉 → 终态断言变红。
+
 ### 4.4 mock 认证页
 
 新增不带后台外壳的路由（与 `/login` 同级）：`/mock-verification?deposit=DEP…`
