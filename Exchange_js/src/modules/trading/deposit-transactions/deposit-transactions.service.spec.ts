@@ -172,6 +172,7 @@ describe('DepositTransactionsService', () => {
     counterpartyVasp: 'Some VASP Inc.',
     slaDeadline: new Date('2026-01-03T00:00:00Z'),
     slaBreached: true,
+    actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
   };
 
   const SENSITIVE_KEYS = [
@@ -227,6 +228,7 @@ describe('DepositTransactionsService', () => {
         fromAddress: 'T_FROM',
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+        actionSubmittedAt: SENSITIVE_FULL_ROW.actionSubmittedAt,
       });
     });
   });
@@ -278,6 +280,7 @@ describe('DepositTransactionsService', () => {
         fromAddress: 'T_FROM',
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+        actionSubmittedAt: SENSITIVE_FULL_ROW.actionSubmittedAt,
       });
     });
   });
@@ -1208,34 +1211,45 @@ describe('DepositTransactionsService', () => {
     });
 
     it('markActionSubmitted 首次盖戳并重置 SLA', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'd-1',
-        actionSubmittedAt: null,
-      });
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
+      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
       const r = await service.markActionSubmitted('d-1', DEADLINE);
 
       expect(r.changed).toBe(true);
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith(
+      expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'd-1' },
+          where: { id: 'd-1', actionSubmittedAt: null },
           data: expect.objectContaining({ slaDeadline: DEADLINE, slaBreached: false }),
         }),
       );
     });
 
     it('markActionSubmitted 幂等：已有提交戳则不覆写', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'd-1',
-        actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
-      });
-      ((prisma as any).depositTransaction.update as jest.Mock).mockClear();
+      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       const r = await service.markActionSubmitted('d-1', DEADLINE);
 
       expect(r.changed).toBe(false);
-      expect((prisma as any).depositTransaction.update).not.toHaveBeenCalled();
+    });
+
+    it('markActionSubmitted 用单条带条件的更新（无 TOCTOU 窗口）', async () => {
+      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      const r = await service.markActionSubmitted('d-1', DEADLINE);
+
+      expect(r.changed).toBe(true);
+      expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith({
+        where: { id: 'd-1', actionSubmittedAt: null },   // ← 条件写在 where 里，由 DB 保证互斥
+        data: expect.objectContaining({ slaDeadline: DEADLINE, slaBreached: false }),
+      });
+      // 读-改-写的两步式已被取代，不应再有先读一次的动作
+      expect((prisma as any).depositTransaction.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('markActionSubmitted 并发落败方拿到 changed:false（匹配 0 行）', async () => {
+      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+
+      await expect(service.markActionSubmitted('d-1', DEADLINE)).resolves.toEqual({ changed: false });
     });
   });
 

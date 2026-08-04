@@ -15,6 +15,7 @@ import { DepositConfiscationApprovalService } from './deposit-confiscation-appro
 import { DepositReturnApprovalService } from './deposit-return-approval.service';
 import { DepositSeizeApprovalService } from './deposit-seize-approval.service';
 import { DepositUnfreezeApprovalService } from './deposit-unfreeze-approval.service';
+import { DepositVerificationSessionService } from './deposit-verification-session.service';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { DepositUnfreezeApprovalService } from './deposit-unfreeze-approval.serv
     DepositReturnApprovalService,
     DepositSeizeApprovalService,
     DepositUnfreezeApprovalService,
+    DepositVerificationSessionService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService],
 })

@@ -34,6 +34,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { DepositVerificationSessionService } from './deposit-verification-session.service';
 
 @ApiTags('Deposit Transactions')
 @ApiBearerAuth()
@@ -44,6 +45,7 @@ export class DepositTransactionsController {
     private readonly service: DepositTransactionsService,
     private readonly inboundTransferSignalsService: InboundTransferSignalsService,
     private readonly workflow: DepositWorkflowService,
+    private readonly verificationSessions: DepositVerificationSessionService,
   ) {}
 
   private assertAdmin(req: any) {
@@ -91,6 +93,18 @@ export class DepositTransactionsController {
   ) {
     const userId = req.user.userId;
     return this.inboundTransferSignalsService.scanForCustomer(userId, dto);
+  }
+
+  @Get('my/:depositNo/verification-session')
+  @ApiOperation({ summary: 'Get my deposit verification session' })
+  getMyVerificationSession(@Req() req: any, @Param('depositNo') depositNo: string) {
+    return this.verificationSessions.getSession(req.user.userId, depositNo);
+  }
+
+  @Post('my/:depositNo/verification-session/submit')
+  @ApiOperation({ summary: 'Mark my deposit verification materials as submitted' })
+  submitMyVerification(@Req() req: any, @Param('depositNo') depositNo: string) {
+    return this.verificationSessions.submit(req.user.userId, depositNo);
   }
 
   @Get()

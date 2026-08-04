@@ -173,6 +173,12 @@ export class DepositTransactionsService {
    * are returned; this list must stay in lockstep with the `Transaction`
    * interface in client-web/src/pages/Deposit.tsx, which is the actual field
    * contract the client reads.
+   *
+   * 例外 —— `actionSubmittedAt` 是本白名单唯一有意开的口子：它记录的是
+   * **客户自己的动作**（客户本就知道自己交没交，不构成新信息），且对执法态
+   * 与正常态一视同仁地存在（提交过的单无论后来是 FROZEN 还是
+   * COMPLIANCE_PENDING 该值都在），因此不产生新的可辨识信号。
+   * `manualReason` 不可比照办理——它取值 EDD_PEP 时等同于告知客户其 PEP 判定。
    */
   private toCustomerDepositView(item: any) {
     return {
@@ -194,6 +200,7 @@ export class DepositTransactionsService {
             decimals: item.asset.decimals,
           }
         : null,
+      actionSubmittedAt: item.actionSubmittedAt,
     };
   }
 
@@ -644,19 +651,18 @@ export class DepositTransactionsService {
    * 客户提交材料。幂等——重复提交不刷新时间戳，避免客户狂点按钮把
    * SLA 表无限续期。**不碰 status**：客户的动作不驱动状态机（真实世界
    * 里也是等 Sumsub 重评后发 webhook 才动）。
+   *
+   * 用**单条带条件的 updateMany** 而非「先读后写」：调用方靠返回的 `changed`
+   * 决定是否写审计，两步式在并发下两个请求都会读到 null、都返回 true，
+   * 同一次提交会记出两条审计。条件放进 where 交给 DB 保证互斥后，
+   * 只有一个请求能匹配到行。
    */
   async markActionSubmitted(id: string, slaDeadline: Date): Promise<{ changed: boolean }> {
-    const row = await (this.prisma as any).depositTransaction.findUnique({
-      where: { id },
-      select: { id: true, actionSubmittedAt: true },
-    });
-    if (!row || row.actionSubmittedAt) return { changed: false };
-
-    await (this.prisma as any).depositTransaction.update({
-      where: { id },
+    const res = await (this.prisma as any).depositTransaction.updateMany({
+      where: { id, actionSubmittedAt: null },
       data: { actionSubmittedAt: new Date(), slaDeadline, slaBreached: false },
     });
-    return { changed: true };
+    return { changed: res.count > 0 };
   }
 
   /**
