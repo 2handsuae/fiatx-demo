@@ -108,14 +108,21 @@ Last Updated: 2026-07-31
 ## 技术债 — V5 提现
 
 - [ ] **提现报价审计未落地**：报价流程（`WithdrawQuoteService.createQuote/consumeQuote/cancelQuote`）零打点——常量 `WITHDRAW_PRICING_QUOTE_CREATED/_USED/_CANCELLED`（entityType `WITHDRAW_PRICING_QUOTE`）已定义但 `withdraw-quote.service.ts` 从不调用（grep 实证 0 命中，该文件无任何 audit 引用）；对比兑换 `SWAP_QUOTE_CREATED/USED/CANCELLED` 已在 `swap-quote.service.ts:249/319/364` 落地。应补打 QUOTE_CREATED/USED/CANCELLED（workflowType `WITHDRAW_QUOTE`），与兑换对齐 ｜来源: 2026-07-11 提现报价单文档 v2 §4.1.3
-- [ ] Sumsub KYT/TR 真实集成未做：仅模拟端点；`archivePostKyt()` 明确注释为 stub，待替换真实 PATCH /kyt/txns 调用 ｜来源: 2026-07-03 V5 体检
+- [x] ~~Sumsub KYT/TR 真实集成未做：仅模拟端点；`archivePostKyt()` 明确注释为 stub，待替换真实 PATCH /kyt/txns 调用~~ **已兑现（2026-08-03/04，Task 3-5 + 12）**：真实单笔 Sumsub KYT 提交引擎已落地（`submitSumsubTxn()`/`WithdrawKytVerdictHandler`/`applyKytVerdict()`，复用充值域 `resolveKytTxnType()` 判定器），`archivePostKyt()` 也已接真实 `sumsubTxnClient.archiveTxHash()` PATCH 调用（非 stub）。详见 truth/v5-withdraw.md §4 ｜来源: 2026-07-03 V5 体检 → 2026-08-03 Task 3-5 收口
 - [ ] 热钱包余额校验无：Payout 前不查 Outbound Wallet 余额，不足不显式失败 ｜来源: 2026-07-03 V5 体检
 - [ ] 提现成功通知未接：SUCCESS 时不调 `NotificationsGateway`（基础设施在、workflow 没调）｜来源: 2026-07-03 V5 体检
-- [ ] TB 记账失败 repair surface 偏薄：靠 `assertWithdrawSettled()` fail-closed 卡在 PAYOUT_PENDING 等人工，无专用修复 UI/端点 ｜来源: 2026-07-03 V5 体检
-- [ ] 前后端 FROZEN 漂移：前端 `Withdraw.tsx` tipping-off 过滤引用 FROZEN，但后端 withdraw 枚举无此态（映射本身正常）｜来源: 2026-07-03 V5 体检
-- [ ] 模拟端点缺 `simulate/payout-confirmed`：只有 kyt-phase1/2 + travel-rule，payout 确认改走 funds_order advance（非缺失，记录以免误判）｜来源: 2026-07-03 V5 体检
+- [ ] TB 记账失败 repair surface 偏薄：靠 `assertWithdrawSettled()` fail-closed 卡在 PAYOUT_PENDING 等人工，无专用修复 UI/端点；**费腿两种三级梯（FAILED 重建 / TB settle 瞬时故障）耗尽后同样无专用 repair 端点**，仅 `needsReview`+审计留痕，见 truth/v5-withdraw.md §5/§9 ｜来源: 2026-07-03 V5 体检 → 2026-08-04 Task 12 e2e 补充
+- [x] ~~前后端 FROZEN 漂移：前端 `Withdraw.tsx` tipping-off 过滤引用 FROZEN，但后端 withdraw 枚举无此态~~ **已兑现（2026-08-03，Task 1-2）**：`FROZEN` 现已是后端 10 态状态机的真实一员（制裁/MLRO 冻结，双审批弧唯二出口），不再是漂移，详见 truth/v5-withdraw.md §2/§6 ｜来源: 2026-07-03 V5 体检 → 2026-08-03 Task 1-2 收口
+- [x] ~~模拟端点缺 `simulate/payout-confirmed`：只有 kyt-phase1/2 + travel-rule~~ **已由新架构取代（2026-08-03，Task 4/10）**：老 kyt-phase1/2/travel-rule 模拟端点已随真实 Sumsub 单笔引擎整体退役，取而代之的是真实 ingest 管道 + `⚡ Simulation` 面板（9 个裁决按钮，`POST /admin/withdraw-sumsub/demo/run-verdict`），payout 确认仍走 `funds_order advance`（不变）｜来源: 2026-07-03 V5 体检 → 2026-08-03 Task 4/10 收口
 - [ ] 在途提现守卫（deactivate 的 `ADDRESS_HAS_INFLIGHT_WITHDRAWAL`）靠 `toIban/toAddress` 字符串匹配，`Withdraw.tsx` 手输地址模式下会漏配（无 addressNo FK 关联提现与地址）→ 假阴性可绕过守卫；正解需给 WithdrawTransaction 加 addressNo/addressId FK ｜来源: 2026-07-11 Task 6 spec 审
-- [ ] **旧 "L3: Post-Tx Archive" 命名与交易风控 L3 撞名**：`withdraw-workflow.service.ts:1237/1368` 的 `archivePostKyt()` 注释标 `// L3: Post-Tx Archive`；交易风控 spec（2026-07-12）把 **L3 定义为「行为监测」**，此 txHash 归档实为 L3 的数据上游（喂 Sumsub TM），落地时改名（如 "Post-Tx txHash 归档"），勿再叫 L3 ｜来源: 2026-07-12 交易风控三闸门 spec §1
+- [ ] **旧 "L3: Post-Tx Archive" 命名与交易风控 L3 撞名**：`withdraw-workflow.service.ts → archivePostKyt()` 注释标 `// L3: Post-Tx Archive`；交易风控 spec（2026-07-12）把 **L3 定义为「行为监测」**，此 txHash 归档实为 L3 的数据上游（喂 Sumsub TM），落地时改名（如 "Post-Tx txHash 归档"），勿再叫 L3 ｜来源: 2026-07-12 交易风控三闸门 spec §1
+- [ ] **`require_approval` 死枚举待清**：`WithdrawTransactionAction.REQUIRE_APPROVAL` 转移表零引用、代码零调用点（Task 1 状态机重写遗留），应删 ｜来源: 2026-08-04 Task 12 e2e 排查
+- [ ] **`POST /client/withdraw-transactions` 创建响应未过白名单**：`CustomerWithdrawController.create()` 直接返回 `workflow.createWithdrawal()` 的原始行（含 `sumsubTxnId`/`manualReason`/`slaDeadline`/`statusHistory`/`tbPendingNetId`/`tbPendingFeeId`/`approvalNo`/`traceId` 等调查性字段），列表/详情两个读端点均已正确走 `toCustomerWithdrawView()` 白名单，仅创建这一个响应体漏网；真机验证实测复现（见 `.superpowers/sdd/task-12-report.md`）｜来源: 2026-08-04 Task 12 真机验证
+- [ ] **`slaBreached` 不复位（两域 parity）**：`WithdrawSlaService` 只把它从 `false` 置 `true`，无任何路径复位；一笔单解冻/翻案回 `COMPLIANCE_PENDING` 后重新进 onHold 拿到全新 `slaDeadline`，SLA 扫描器仍因 `slaBreached=true` 永久跳过——充值 `DepositSlaService` 同一设计同一缺口 ｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **STUCK 费腿 funds_order 可停 CONFIRMED 视图残留**：`onFeeLegConfirmed()` 的 TB settle 瞬时故障三级梯耗尽后，费腿 `funds_order.status` 永久停在 `CONFIRMED`（从未真正 FAIL 过），Linked Funds Orders 卡片视觉上像"一直在途"，无独立 STUCK 标记（信号只在 withdraw 的 `needsReview`+审计里）｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **真实 VASP 归因服务未接**：`counterpartyIsVasp` 由客户自己注册地址时的 `addressType==='VASP'` 自报，无外部 VASP 名录/归属服务校验真实性（与充值 §4.5 同一性质缺口，提现从已注册地址派生，非每笔手选）｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **SUCCESS 后退汇无处理**：`onBounce()` 硬性要求 `PAYOUT_PENDING`，一笔已 `SUCCESS` 的提现若数日后被银行/链上退汇，本域没有对应入口，应走对账（recon）子系统匹配外部退汇流水而非 withdraw workflow 自身处理 ｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **看门狗①「Created 回执丢单锚」未做（deposit/withdraw 两域共有）**：`funds_order` 建单后若外部回执（链上确认/银行到账信号）从未真正抵达，该腿永久停 `CREATED`/`SUBMITTED`，无定时巡检任务扫描"创建超过 N 分钟仍未推进"的孤儿腿并重新锚定/告警——两域将来一起补 ｜来源: 2026-08-04 Task 12 truth 核对
 
 ## 技术债 — V6 兑换
 
@@ -156,7 +163,7 @@ Last Updated: 2026-07-31
 
 ## 技术债 — V2 客户合规
 
-- [ ] 🔴 **冻结/解冻无统一 workflow + 无 MLRO 解冻门**：冻结散在多处自动触发（material BLOCKING / tier upgrade / CRA 制裁），无独立 freeze workflow、无解冻审批门（`UNFREEZE` 常量定义未用）、无 freeze/unfreeze API（DTO 有 handler 无）；roadmap 要求的"手动先审批后冻结 + 解冻统一 MLRO 审批"未实现 ｜来源: 2026-07-04 V2 体检
+- [ ] 🔴 **冻结/解冻无统一 workflow + 无 MLRO 解冻门**：冻结散在多处自动触发（material BLOCKING / tier upgrade / CRA 制裁），无独立 freeze workflow、无解冻审批门（`UNFREEZE` 常量定义未用）、无 freeze/unfreeze API（DTO 有 handler 无）；roadmap 要求的"手动先审批后冻结 + 解冻统一 MLRO 审批"未实现 ｜来源: 2026-07-04 V2 体检 ｜**关联（2026-08-04）**：提现 `WithdrawSanctionRefundApprovalService` 批准后的"客户账户层面升级"（`onRefundApproved()`）撞的正是同一个洞——审计 reason 里注明"manual, V2 freeze API not yet built"，此条落地后提现那一处可接真实调用
 - [ ] **Tier Upgrade ⛔ 缺客户端 UI**：后端全建（createFromCra→Level2→MLRO+SMO 审批），缺客户材料提交前端（真实卡点，roadmap 已标 BLOCKED）｜来源: 2026-07-04 V2 体检
 - [ ] **Corporate/机构客户 stub**：CorporateProfile/UboProfile 表+关系连但无业务逻辑，onboarding 两处显式 disabled；机构客户全 ADVANCED ｜来源: 2026-07-04 V2 体检
 - [ ] **Material Refresh 状态名不符**：代码 NUDGE_ONLY/CLEARED vs roadmap NUDGE/RESOLVED（文档订正即可）｜来源: 2026-07-04 V2 体检
@@ -181,6 +188,10 @@ Last Updated: 2026-07-31
 - [ ] **⚠待定：受众（requiredTags/window）变更口径**：现变更流只覆盖 `tiersJson`（configHash 保护费率本身）；受众字段变更是否也走 configHash + 审批链未定 ｜来源: 2026-07-11 费率 V3 §4.2
 - [ ] **费率变更 30 日历日生效闸 + 通知客户**：现即改即生效；与提现/兑换 backlog 的 30 日闸同源（MC II.A.7/8），费率治理统一落 ｜来源: 2026-07-11 费率 V3 §1.2
 - [ ] **待决策：cheapest 只减免不加价**：命中集合取最低费 → 更贵的级永不胜出；若将来要"VIP 必走 VIP（即便更贵）"或高风险客户加附加费，须改**优先级选级引擎**（V3 明确不做，留此账）｜来源: 2026-07-11 费率 V3 §5.5
+
+## 工具链 — CI gate 覆盖范围
+
+- [ ] **`scripts/**` 不在 `npx tsc --noEmit` gate 内**：`tsconfig.json` 的 `include` 仅 `["src/**/*"]`（`test/**`/`scripts/**` 均不在内，`test/` 由各自 e2e/jest 配置里的 ts-jest 独立类型检查覆盖，但 `scripts/**` 的一次性/运维脚本没有任何类型检查兜底）——一个 `scripts/*.ts` 里的类型错误不会被任何 gate 拦下，只会在实际运行时才暴露 ｜来源: 2026-08-04 Task 12 e2e 收官核对 gate 范围
 
 ## 待决策（等业主拍板）
 
