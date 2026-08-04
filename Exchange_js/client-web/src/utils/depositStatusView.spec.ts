@@ -152,5 +152,54 @@ describe('depositStatusView (client, tipping-off safe)', () => {
         expect(`${v.label} ${v.note ?? ''}`).not.toMatch(FORBIDDEN);
       }
     });
+
+    // ── Critical 回归：终态不能被"已提交"短路吞掉 ──────────────
+    //
+    // actionSubmittedAt 在终态从不清空。若短路不排除终态，本功能自己的
+    // happy path（补料 → 放行 → SUCCESS）和退款路径（MANUAL_CHECKING →
+    // RETURNING/RETURNED）都会被永远卡在"审核中"，客户看不到真实结果。
+    it("SUCCESS: submitted=true 仍显示真实结果 SUCCESS，不被'已收到'文案吞掉", () => {
+      const v = getDepositStatusView('SUCCESS', { submitted: true });
+      expect(v.label).toBe('SUCCESS');
+      expect(v.tone).toBe('positive');
+      expect(v.note).toBeUndefined();
+    });
+
+    it.each([
+      ['FAILED', 'FAILED', 'danger'],
+      ['RETURNING', 'RETURNING', 'warning'],
+      ['RETURNED', 'RETURNED', 'neutral'],
+    ] as const)(
+      '%s: submitted 两个取值下都给真实呈现，而非"已收到"文案',
+      (status, label, tone) => {
+        for (const submitted of [true, false]) {
+          const v = getDepositStatusView(status, { submitted });
+          expect(v.label).toBe(label);
+          expect(v.tone).toBe(tone);
+          expect(v.note ?? '').not.toMatch(/received/i);
+        }
+      },
+    );
+
+    it.each(['SUCCESS', 'FAILED', 'RETURNING', 'RETURNED'])(
+      '%s: submitted=true 与 submitted=false 逐字段相同（终态不受提交状态影响）',
+      (status) => {
+        expect(getDepositStatusView(status, { submitted: true })).toEqual(
+          getDepositStatusView(status, { submitted: false }),
+        );
+      },
+    );
+
+    // ── Minor 1 回归：SUBMITTED_VIEW 必须是冻结对象 ────────────
+    it('SUBMITTED_VIEW 已冻结——调用方无法篡改，避免污染所有单子的展示', () => {
+      const v = getDepositStatusView('ACTION_PENDING', { submitted: true });
+      expect(Object.isFrozen(v)).toBe(true);
+      expect(() => {
+        (v as { note?: string }).note = 'tampered';
+      }).toThrow();
+      // 篡改被拒绝后，另一单子的视图应仍是原文案
+      const other = getDepositStatusView('MANUAL_CHECKING', { submitted: true });
+      expect(other.note).toBe('We have received your information and it is being reviewed');
+    });
   });
 });
