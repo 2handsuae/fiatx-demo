@@ -42,12 +42,19 @@ export class DepositSlaService {
 
   private async breach(deposit: any): Promise<void> {
     const oldStatus = deposit.status;
+    // 这块表量的是"等谁"：客户没交 → 等客户；交了 → 等 Provider 重评。
+    // 理由必须跟着换，否则一个已经配合交了材料的客户会被以"未响应"的名义
+    // 踢进人工复核，而这条会进审计。
+    const submitted = !!deposit.actionSubmittedAt;
+    const reason = submitted
+      ? 'SLA breached: provider re-review exceeded deadline after customer submission'
+      : 'SLA breached: no compliance action before deadline';
 
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
         action: DepositTransactionAction.SLA_BREACH,
-        reason: 'SLA breached: no compliance action before deadline',
+        reason,
       },
       {
         actor: { actorType: 'SYSTEM', actorId: 'SLA_TIMER' },
@@ -69,8 +76,8 @@ export class DepositSlaService {
       entityOwnerId: deposit.ownerId,
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
-      reason: `SLA breached: deposit was ${oldStatus} past its slaDeadline, routed to manual review`,
-      metadata: { fromStatus: oldStatus, slaDeadline: deposit.slaDeadline },
+      reason: `${reason} (deposit was ${oldStatus})`,
+      metadata: { fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: submitted ? 'PROVIDER' : 'CUSTOMER' },
       sourcePlatform: 'SYSTEM',
     });
   }
