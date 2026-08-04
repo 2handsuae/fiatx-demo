@@ -92,13 +92,21 @@ const SUBMITTED_VIEW: DepositStatusView = Object.freeze({
 //                 自己把自己的成功结果吞掉）。
 //   FAILED / RETURNING / RETURNED —— 钱已经退回/失败，客户必须看到真实结果，
 //                 继续显示"已收到，审核中"是明确的误导。
-// 遮蔽终态对规则 A（tipping-off）没有任何帮助：干净单走向这四个终态、
-// 被冻的单根本到不了这里——冻结那一刻依旧是零变化，不受此排除影响。
+// 排除这四个为什么不破规则 A：**因为它们在基线 VIEW_MAP 里本来就对客户
+// 可见**（各有自己的 label/note/tone），本就不属于"必须与 COMPLIANCE_PENDING
+// 不可区分"的那个集合。所以把它们从短路里放出来，只是让它们回到基线呈现，
+// 没有新增任何区分度。
+//   ⚠️ 别把理由写成"被冻的单到不了这几个态"——那是错的：
+//   MANUAL_CHECKING / FROZEN --RETURN--> RETURNING/RETURNED 是真实存在的弧
+//   （MLRO 退款处置）。结论不变，但理由必须是上面那条。
 //
-// ⚠️ SEIZED / SEIZING 绝对不能加进来：它们也是终态，但属于执法态，必须
-// 继续与 COMPLIANCE_PENDING 逐字段一致（规则 1）。这里的排除列表只放
-// "客户本来就该看到真实结果"的几个，不是"终态就排除"。同理
-// CONFISCATING/CONFISCATED 不在 VIEW_MAP 里（走兜底默认值），也不要加进来。
+// ⚠️ SEIZED 绝对不能加进来：它是终态但属执法态，必须
+// 继续与 COMPLIANCE_PENDING 逐字段一致（规则 1）。SEIZING 不是终态
+// （后端终态集只含 SEIZED），但同属执法态，同样不排除。这里的排除列表只放
+// "客户本来就该看到真实结果"的几个，不是"终态就排除"。
+//   ⚠️ CONFISCATING/CONFISCATED 更加不能加：它们不在 VIEW_MAP 里、走兜底
+//   默认值（无 note），一旦被排除，submitted=true 时就会退回 DEFAULT_VIEW，
+//   与 COMPLIANCE_PENDING 的 SUBMITTED_VIEW（有 note）不再相等，直接捅穿规则 1。
 const REAL_OUTCOME_STATUSES = new Set(['SUCCESS', 'FAILED', 'RETURNING', 'RETURNED']);
 
 /**

@@ -128,10 +128,23 @@ describe('depositStatusView (client, tipping-off safe)', () => {
       expect(v.note).toMatch(/received/i);
     });
 
+    // 复审补:原先只列执法四态,于是"把 CONFISCATING/CONFISCATED 或任意未知态
+    // 加进 REAL_OUTCOME_STATUSES 排除表"这个改动**没有任何测试能抓到** ——
+    // 它们不在 VIEW_MAP 里,一旦被排除,submitted=true 时会退回 DEFAULT_VIEW
+    // (无 note),与 COMPLIANCE_PENDING 的 SUBMITTED_VIEW(有 note)不再相等,
+    // 直接捅穿防线。故把兜底态和一个未知态一并纳入这条不可区分断言。
     it.each([true, false])(
-      '执法四态与 COMPLIANCE_PENDING 逐字段一致（submitted=%s 两个取值都要成立）',
+      '敏感态+兜底态与 COMPLIANCE_PENDING 逐字段一致（submitted=%s 两个取值都要成立）',
       (submitted) => {
-        for (const s of ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING']) {
+        for (const s of [
+          'FROZEN',
+          'SEIZING',
+          'SEIZED',
+          'MANUAL_CHECKING',
+          'CONFISCATING',
+          'CONFISCATED',
+          'SOME_FUTURE_STATUS',
+        ]) {
           expect(getDepositStatusView(s, { submitted })).toEqual(
             getDepositStatusView('COMPLIANCE_PENDING', { submitted }),
           );
