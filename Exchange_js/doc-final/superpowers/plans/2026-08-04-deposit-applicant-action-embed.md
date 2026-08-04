@@ -814,6 +814,11 @@ export class DepositVerificationSessionService {
   /**
    * 客户提交。幂等、恒 200、不碰状态机。
    * 冻结单上提交照收——收下不做事，好过返错误码告诉对方"你这单不一样了"。
+   *
+   * 审计：CLAUDE.md 铁律 1「有持久状态、operator 可见操作 → 必须写
+   * AuditLogsService」。本操作既改持久状态（actionSubmittedAt / slaDeadline），
+   * 又对 operator 可见（admin 详情有 Customer submitted at 一行），故必须落审计。
+   * 只在**真正落库那一次**记（`changed === true`），幂等的重复提交不刷屏。
    */
   async submit(customerId: string, depositNo: string): Promise<{ ok: true }> {
     const row = await this.mustFindOwn(customerId, depositNo);
@@ -821,12 +826,64 @@ export class DepositVerificationSessionService {
       const deadline = new Date(
         Date.now() + PROVIDER_REVIEW_SLA_DAYS * 24 * 60 * 60 * 1000,
       );
-      await this.deposits.markActionSubmitted(row.id, deadline);
+      const { changed } = await this.deposits.markActionSubmitted(row.id, deadline);
+      if (changed) {
+        await this.auditLogs.recordByActor(
+          {
+            action: AuditActions.DEPOSIT_ACTION_SUBMITTED,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: row.id,
+            entityNo: row.depositNo,
+            entityOwnerType: row.ownerType,
+            entityOwnerId: row.ownerId,
+            traceId: row.traceId || undefined,
+            workflowType: 'DEPOSIT',
+            reason:
+              'Customer submitted applicant-action materials; SLA clock switched to provider re-review',
+            metadata: {
+              actionId: row.sumsubActionId,
+              slaDeadline: deadline,
+              waitingOn: 'PROVIDER',
+            },
+            sourcePlatform: 'CUSTOMER_API',
+          },
+          { actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER' },
+        );
+      }
     }
     return { ok: true };
   }
 }
 ```
+
+构造函数同时注入 `private readonly auditLogs: AuditLogsService,`（**DI 注入，禁止 `new`**——CLAUDE.md 铁律 1）。
+
+`audit-actions.constant.ts` 加：
+
+```ts
+  DEPOSIT_ACTION_SUBMITTED: 'DEPOSIT_ACTION_SUBMITTED',
+```
+
+spec 里对应加一条断言：
+
+```ts
+  it('落库那次记审计；幂等的重复提交不重复记', async () => {
+    prisma.depositTransaction.findFirst.mockResolvedValue(ROW());
+
+    deposits.markActionSubmitted.mockResolvedValue({ changed: true });
+    await svc.submit('cust-1', 'DEP1');
+    expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+    expect(auditLogs.recordByActor.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ actorType: 'CUSTOMER', actorId: 'cust-1' }),
+    );
+
+    deposits.markActionSubmitted.mockResolvedValue({ changed: false });
+    await svc.submit('cust-1', 'DEP1');
+    expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);   // 没涨
+  });
+```
+
+（`beforeEach` 里补 `auditLogs = { recordByActor: jest.fn() };` 并传入构造函数。）
 
 - [ ] **Step 4: 跑测试确认通过**
 
@@ -1127,12 +1184,22 @@ git commit -m "feat(client): 充值补料三展示态——已收到文案绑提
 
 ```tsx
   const openVerification = async (tx: Transaction) => {
-    const r = await withAuth(
-      `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${tx.depositNo}/verification-session`,
-    );
-    const s = await r.json();
-    setSession(s);
-    if (s.embedUrl) setEmbedOpen(true);
+    setEmbedError(false);
+    setEmbedLoading(true);
+    try {
+      const r = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${tx.depositNo}/verification-session`,
+      );
+      if (!r.ok) throw new Error('session fetch failed');
+      const s = await r.json();
+      setSession(s);
+      if (s.embedUrl) setEmbedOpen(true);
+      else setEmbedError(true);
+    } catch {
+      // §6：加载失败必须给可重试 CTA，不能只 console.error 让客户卡在 loading
+      setEmbedOpen(true);
+      setEmbedError(true);
+    }
   };
 ```
 
@@ -1169,7 +1236,8 @@ className={`bg-fx-ink rounded-2xl shadow-xl w-full max-h-[90vh] overflow-y-auto 
     ) : null}
     {embedError ? (
       <div className="absolute inset-0 grid place-items-center bg-fx-ink">
-        <button onClick={() => { setEmbedError(false); setEmbedLoading(true); }}
+        {/* 重试必须真的重新拉会话——只清 error 标志是个假按钮 */}
+        <button onClick={() => selectedTx && void openVerification(selectedTx)}
                 className="fx-btn-ghost">
           Verification failed to load — retry
         </button>
@@ -1209,6 +1277,7 @@ className={`bg-fx-ink rounded-2xl shadow-xl w-full max-h-[90vh] overflow-y-auto 
 ```tsx
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { customerFetch } from '../utils/customerFetch';
 
 /**
  * Mock 认证页——演示期占住真实 Sumsub WebSDK 将来要占的那块容器。
@@ -1225,10 +1294,12 @@ export default function MockVerification() {
     setBusy(true);
     setErr('');
     try {
-      const token = localStorage.getItem('token');
-      const r = await fetch(
+      // 用项目既有的 customerFetch（它读 localStorage 的 `customer_token`
+      // 并统一挂 Authorization）。**不要**自己拼 token：本项目客户端 token
+      // 的 key 是 `customer_token` 而非 `token`，手拼必 401。
+      const r = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${depositNo}/verification-session/submit`,
-        { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+        { method: 'POST' },
       );
       if (!r.ok) throw new Error('submit failed');
       window.parent.postMessage(
