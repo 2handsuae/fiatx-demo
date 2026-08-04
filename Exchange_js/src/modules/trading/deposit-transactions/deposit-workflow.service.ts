@@ -304,6 +304,7 @@ export class DepositWorkflowService implements OnModuleInit {
       sceneTag?: 'SANCTION' | 'PEP';
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
       detailRaw?: unknown;
+      applicantActions?: { applicantActionId: string; externalActionId: string }[];
     },
   ): Promise<void> {
     const deposit = await this.depositService.findOne(depositId);
@@ -346,7 +347,7 @@ export class DepositWorkflowService implements OnModuleInit {
         await this.applyKytApproved(deposit);
         return;
       case 'awaitUser':
-        await this.applyKytAwaitUser(deposit, v.sceneTag);
+        await this.applyKytAwaitUser(deposit, v.sceneTag, v.applicantActions);
         return;
       case 'onHold':
         await this.applyKytOnHold(deposit);
@@ -488,18 +489,54 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.approveDeposit(deposit.id);
   }
 
-  private async applyKytAwaitUser(deposit: any, sceneTag?: 'SANCTION' | 'PEP') {
+  private async applyKytAwaitUser(
+    deposit: any,
+    sceneTag?: 'SANCTION' | 'PEP',
+    applicantActions?: { applicantActionId: string; externalActionId: string }[],
+  ) {
+    const action = applicantActions?.[0];
+    const slaDeadline = new Date(
+      Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
+
     if (deposit.status === DepositTransactionStatus.ACTION_PENDING) {
-      return; // 已在目标态,防重复 webhook
+      // 已在目标态。两种情况必须分开:
+      //  · 同一个 action id → 真·重复 webhook,no-op
+      //  · 新的 action id   → Sumsub 又要客户补一份("还不够,再交")。状态确实
+      //    不动,但引用必须换、上一轮提交戳必须清、表必须重置——否则客户点进去
+      //    看到的是上一份材料的界面,且客户端仍显示"已收到,审核中",
+      //    客户根本不知道又被要东西了。
+      if (action && action.applicantActionId !== deposit.sumsubActionId) {
+        await this.depositService.setActionRefs(
+          deposit.id,
+          action.applicantActionId,
+          action.externalActionId,
+          slaDeadline,
+        );
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_ACTION_REISSUED,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          traceId: deposit.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          reason: `Sumsub issued a new applicant action while already ACTION_PENDING`,
+          metadata: {
+            previousActionId: deposit.sumsubActionId ?? null,
+            actionId: action.applicantActionId,
+          },
+          sourcePlatform: 'SYSTEM',
+        });
+      }
+      return;
     }
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
     // Minor a 修复:slaDeadline 折进同一次 updateStatus 的 extraData,与 manualReason
     // 一次原子写(避免两步写中间失败,留 ACTION_PENDING 无 slaDeadline 永不被 SLA 扫)。
-    const slaDeadline = new Date(
-      Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
@@ -509,7 +546,14 @@ export class DepositWorkflowService implements OnModuleInit {
       {
         actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
         sourcePlatform: 'SYSTEM',
-        extraData: { manualReason, slaDeadline },
+        extraData: {
+          manualReason,
+          slaDeadline,
+          ...(action && {
+            sumsubActionId: action.applicantActionId,
+            sumsubExternalActionId: action.externalActionId,
+          }),
+        },
       },
     );
 

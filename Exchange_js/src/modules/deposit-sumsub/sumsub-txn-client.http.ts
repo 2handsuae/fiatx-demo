@@ -15,6 +15,7 @@ interface SumsubKytTxnResponse {
   scoringResult?: {
     action?: KytVerdict;
     score?: number;
+    applicantActions?: { applicantActionId?: string; externalActionId?: string }[];
   };
 }
 
@@ -70,6 +71,12 @@ export class HttpSumsubTxnClient implements SumsubTxnClient {
       reviewAnswer: data.review?.reviewResult?.reviewAnswer ?? null,
       riskScore: data.scoringResult?.score ?? null,
       typedTags: data.typedTags ?? [],
+      applicantActions: Array.isArray(data?.scoringResult?.applicantActions)
+        ? data.scoringResult.applicantActions.map((a: any) => ({
+            applicantActionId: String(a.applicantActionId ?? ''),
+            externalActionId: String(a.externalActionId ?? ''),
+          }))
+        : undefined,
       raw: data,
     };
   }

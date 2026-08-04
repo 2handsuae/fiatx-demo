@@ -48,6 +48,7 @@ describe('DepositWorkflowService', () => {
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
+      setActionRefs: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -3546,6 +3547,65 @@ describe('DepositWorkflowService', () => {
           data: expect.objectContaining({ status: DepositTransactionStatus.OPERATION_PENDING }),
         }),
       );
+    });
+  });
+
+  describe('applyKytAwaitUser — applicant action 引用', () => {
+    const ACTIONS = [{ applicantActionId: 'aa-1', externalActionId: 'EXT-1' }];
+
+    it('首次进 ACTION_PENDING:action 引用随状态一次写入', async () => {
+      const deposit = { id: 'd-1', status: 'COMPLIANCE_PENDING' };
+      depositService.findOne.mockResolvedValue(deposit);
+      // brief 原测试片段漏了这行:updateStatus 不 mock 返回值时默认 resolve undefined,
+      // recordStateTransitionAudit(updated, ..., updated.status, ...) 会在 updated.status
+      // 上抛 TypeError——与本用例要验证的 extraData 内容无关,补齐让测试跑到真正的断言。
+      depositService.updateStatus.mockResolvedValue({ ...deposit, status: 'ACTION_PENDING' });
+
+      await service.applyKytVerdict('d-1', {
+        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
+      } as any);
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'd-1',
+        // brief 原片段硬编码字面量 'ACTION_PENDING',但 DepositTransactionAction.ACTION_PENDING
+        // 实值是 'action_pending'(小写)——见 dto/deposit-transaction.dto.ts:80,与本文件其它
+        // awaitUser 用例(如上方 'awaitUser + PEP' 一条)一致改用枚举常量。
+        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+        expect.objectContaining({
+          extraData: expect.objectContaining({
+            sumsubActionId: 'aa-1',
+            sumsubExternalActionId: 'EXT-1',
+          }),
+        }),
+      );
+    });
+
+    it('已在 ACTION_PENDING + 新 action id:刷新引用、清提交戳、重置表,状态不动', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'd-1', status: 'ACTION_PENDING', sumsubActionId: 'aa-OLD',
+      });
+
+      await service.applyKytVerdict('d-1', {
+        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
+      } as any);
+
+      expect(depositService.setActionRefs).toHaveBeenCalledWith(
+        'd-1', 'aa-1', 'EXT-1', expect.any(Date),
+      );
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('已在 ACTION_PENDING + 同一个 action id:真 no-op(重复 webhook)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'd-1', status: 'ACTION_PENDING', sumsubActionId: 'aa-1',
+      });
+
+      await service.applyKytVerdict('d-1', {
+        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
+      } as any);
+
+      expect(depositService.setActionRefs).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
   });
 });

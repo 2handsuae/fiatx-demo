@@ -42,7 +42,18 @@ export class MockSumsubTxnClient implements SumsubTxnClient {
     if (!detail) {
       throw new Error(`Unknown txn: ${txnId}`);
     }
-    return detail;
+    // applicantActions 从 raw(fixture 报告,buildTxnReport 现生成)的
+    // scoringResult.applicantActions 透传,与 HttpSumsubTxnClient 读法对称。
+    const body = detail.raw as any;
+    return {
+      ...detail,
+      applicantActions: Array.isArray(body?.scoringResult?.applicantActions)
+        ? body.scoringResult.applicantActions.map((a: any) => ({
+            applicantActionId: String(a.applicantActionId ?? ''),
+            externalActionId: String(a.externalActionId ?? ''),
+          }))
+        : undefined,
+    };
   }
 
   async rescore(_txnId: string): Promise<void> {
