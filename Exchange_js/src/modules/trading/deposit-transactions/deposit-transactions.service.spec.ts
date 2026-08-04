@@ -1210,10 +1210,10 @@ describe('DepositTransactionsService', () => {
       });
     });
 
-    it('markActionSubmitted 首次盖戳并重置 SLA', async () => {
+    it('markActionSubmitted 首次盖戳并重置 SLA（resetSla=true）', async () => {
       ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
-      const r = await service.markActionSubmitted('d-1', DEADLINE);
+      const r = await service.markActionSubmitted('d-1', DEADLINE, true);
 
       expect(r.changed).toBe(true);
       expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith(
@@ -1227,7 +1227,7 @@ describe('DepositTransactionsService', () => {
     it('markActionSubmitted 幂等：已有提交戳则不覆写', async () => {
       ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
-      const r = await service.markActionSubmitted('d-1', DEADLINE);
+      const r = await service.markActionSubmitted('d-1', DEADLINE, true);
 
       expect(r.changed).toBe(false);
     });
@@ -1235,7 +1235,7 @@ describe('DepositTransactionsService', () => {
     it('markActionSubmitted 用单条带条件的更新（无 TOCTOU 窗口）', async () => {
       ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
-      const r = await service.markActionSubmitted('d-1', DEADLINE);
+      const r = await service.markActionSubmitted('d-1', DEADLINE, true);
 
       expect(r.changed).toBe(true);
       expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith({
@@ -1249,7 +1249,24 @@ describe('DepositTransactionsService', () => {
     it('markActionSubmitted 并发落败方拿到 changed:false（匹配 0 行）', async () => {
       ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
-      await expect(service.markActionSubmitted('d-1', DEADLINE)).resolves.toEqual({ changed: false });
+      await expect(service.markActionSubmitted('d-1', DEADLINE, true)).resolves.toEqual({ changed: false });
+    });
+
+    // 评审 Important 2：resetSla=false 时，actionSubmittedAt 仍要无条件盖上
+    // （客户端"已收到"文案绑它），但 slaDeadline/slaBreached 这两个 operator
+    // 可见字段必须原样保留——不能因为客户点了提交，就把 SLA 定时器已经打上的
+    // 违约旗（slaBreached=true）冲掉。冲掉后 findSlaBreachCandidates 不扫
+    // MANUAL_CHECKING，这条违约记录就永久消失了。
+    it('markActionSubmitted resetSla=false → 只盖 actionSubmittedAt，不碰 slaDeadline/slaBreached', async () => {
+      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      const r = await service.markActionSubmitted('d-1', DEADLINE, false);
+
+      expect(r.changed).toBe(true);
+      expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith({
+        where: { id: 'd-1', actionSubmittedAt: null },
+        data: { actionSubmittedAt: expect.any(Date) },
+      });
     });
   });
 
