@@ -122,7 +122,7 @@ Last Updated: 2026-07-31
 - [ ] **STUCK 费腿 funds_order 可停 CONFIRMED 视图残留**：`onFeeLegConfirmed()` 的 TB settle 瞬时故障三级梯耗尽后，费腿 `funds_order.status` 永久停在 `CONFIRMED`（从未真正 FAIL 过），Linked Funds Orders 卡片视觉上像"一直在途"，无独立 STUCK 标记（信号只在 withdraw 的 `needsReview`+审计里）｜来源: 2026-08-04 Task 12 truth 核对
 - [ ] **真实 VASP 归因服务未接**：`counterpartyIsVasp` 由客户自己注册地址时的 `addressType==='VASP'` 自报，无外部 VASP 名录/归属服务校验真实性（与充值 §4.5 同一性质缺口，提现从已注册地址派生，非每笔手选）｜来源: 2026-08-04 Task 12 truth 核对
 - [ ] **SUCCESS 后退汇无处理**：`onBounce()` 硬性要求 `PAYOUT_PENDING`，一笔已 `SUCCESS` 的提现若数日后被银行/链上退汇，本域没有对应入口，应走对账（recon）子系统匹配外部退汇流水而非 withdraw workflow 自身处理 ｜来源: 2026-08-04 Task 12 truth 核对
-- [ ] **看门狗①「Created 回执丢单锚」未做（deposit/withdraw 两域共有）**：`funds_order` 建单后若外部回执（链上确认/银行到账信号）从未真正抵达，该腿永久停 `CREATED`/`SUBMITTED`，无定时巡检任务扫描"创建超过 N 分钟仍未推进"的孤儿腿并重新锚定/告警——两域将来一起补 ｜来源: 2026-08-04 Task 12 truth 核对
+- [ ] **看门狗①「Sumsub 回执丢单重提」未做（deposit/withdraw 两域共有）**：spec §2 定义的两只看门狗之一——单笔交易提交 Sumsub KYT 后若 N 分钟内未收到 `applicantKytTxnCreated` 回执，视为丢单，需定时巡检扫描 + 告警重提（幂等）；两域目前均无此定时任务 ｜来源: 2026-08-04 Task 12 truth 核对
 - [x] ~~**needsReview 复位待做**~~ **已完成（2026-08-04 Fix Round 1）**：SUCCESS 结算时清 needsReview 旗；FAILED/REJECTED 终态路径的 needsReview 残留是否需同样清旗待定 ｜来源: 2026-08-04 Task 12 review
 
 ## 技术债 — V6 兑换

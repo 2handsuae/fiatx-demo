@@ -300,10 +300,17 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/withdraw-transactions/:id', 'Get withdraw transaction detail', ['TRADING_WITHDRAW_READ']),
   route('POST', '/withdraw-transactions', 'Create withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/mock', 'Mock withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
-  route('PATCH', '/withdraw-transactions/:id/status', 'Update withdraw transaction status', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/:id/bounce', 'Bounce (return) withdraw transaction payout', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/:id/unfreeze', 'Unfreeze a FROZEN withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
   route('POST', '/withdraw-transactions/:id/refund', 'Sanction-refund a FROZEN withdraw transaction', ['TRADING_WITHDRAW_WRITE']),
+  // Demo verdict runner (Task 10, mirror of deposit's demo twin) — controller
+  // only registered when SUMSUB_MOCK_MODE=true
+  route(
+    'POST',
+    '/admin/withdraw-sumsub/demo/run-verdict',
+    'Feed one Sumsub KYT verdict webhook into a withdrawal (demo only)',
+    ['TRADING_WITHDRAW_WRITE'],
+  ),
 
   // Swap admin
   route('POST', '/admin/swap-transactions', 'Create admin swap transaction', ['TRADING_SWAP_WRITE']),

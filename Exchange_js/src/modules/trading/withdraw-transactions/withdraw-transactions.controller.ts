@@ -5,7 +5,6 @@ import {
   Body,
   Param,
   Query,
-  Patch,
   UsePipes,
   ValidationPipe,
   UseGuards,
@@ -16,11 +15,9 @@ import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import {
   WithdrawTransactionQueryDto,
-  AdminUpdateWithdrawTransactionStatusDto,
   BounceWithdrawTransactionDto,
   UnfreezeWithdrawTransactionDto,
   SanctionRefundWithdrawTransactionDto,
-  WithdrawTransactionAction,
 } from './dto/withdraw-transaction.dto';
 import {
   ApiTags,
@@ -67,30 +64,6 @@ export class WithdrawTransactionsController {
   findOne(@Req() req: any, @Param('id') id: string) {
     this.assertAdmin(req);
     return this.service.findOneForAdmin(id);
-  }
-
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Update withdraw transaction status' })
-  updateStatus(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() dto: AdminUpdateWithdrawTransactionStatusDto,
-  ) {
-    this.assertAdmin(req);
-    return this.service.updateStatus(
-      id,
-      {
-        action: dto.action as unknown as WithdrawTransactionAction,
-        reason: dto.reason,
-      },
-      {
-        source: 'ADMIN_API',
-        actorType: 'ADMIN',
-        actorId: req.user?.userId || 'ADMIN_SYSTEM',
-        actorRole: req.user?.role || 'ADMIN',
-        sourcePlatform: 'ADMIN_API',
-      },
-    );
   }
 
   @Post(':id/bounce')

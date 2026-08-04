@@ -153,7 +153,7 @@ attempt 3 FAILED → 耗尽：markNeedsReview() + WITHDRAW_FEE_SETTLE_STUCK 审�
 | SUCCESS 后退汇 | ❌ | 无（`onBounce()` 硬性要求 `PAYOUT_PENDING`，SUCCESS 已终态无法二次进入） | — | — |
 | 热钱包余额不足 | ❌ | 无（Payout 前不查 Outbound Wallet 余额） | — | — |
 
-- **PATCH `:id/status` 侧门**：仅保留 `AdminWithdrawTransactionAction.REJECT`（历史兼容残留，其余 action 已随 10 态收窄整体删除，`updateStatus()` 走真实转移表，非法 action 直接 400）；`ADMIN_API` 来源额外挡 `PAYOUT_PENDING`/三个终态直推（`assertStatusUpdateSourceAllowed()`）——admin 无法用 PATCH 绕过 workflow 正门跳到 payout/终态。
+- **admin 无直接拒绝能力**：`PATCH :id/status` 侧门连同其唯一动作 `AdminWithdrawTransactionAction.REJECT` 已整体删除（该动作绕过 `releaseLock()`，会把净额+费两笔 TB pending 锁永久搁置，违反「REJECTED=解锁退回」不变量；镜像充值域同期的 admin 无拒绝能力收窄）。合法的拒绝/终止路径改走各自 workflow 端点，均正确释放锁：大额审批拒绝（`onLargeValueApprovalDecided()` → `REJECT` → `releaseLock()`）、官方 `REJECT_REFUND` tag（`applyKytVerdict()`）、`WITHDRAW_SANCTION_REFUND` 双审批批准（`onRefundApproved()`）。`assertStatusUpdateSourceAllowed()` 仍在，继续挡 `ADMIN_API` 来源直推 `PAYOUT_PENDING`/三个终态。
 - **锚点**：`withdraw-workflow.service.ts`（全部分支逻辑，见第 2/4/5/6 节锚点汇总）｜ `withdraw-transactions.service.ts → assertStatusUpdateSourceAllowed()`
 
 ## 8. 支撑项（均 ✅ 存活）

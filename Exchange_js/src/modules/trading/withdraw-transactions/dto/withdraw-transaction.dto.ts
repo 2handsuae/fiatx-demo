@@ -36,24 +36,9 @@ export enum WithdrawTransactionAction {
   RESUME = 'resume',
 }
 
-export enum AdminWithdrawTransactionAction {
-  // Admin surface keeps only the residual historical compatibility action.
-  // CHECK/FLAG/CANCEL removed with the 10-state rewrite (Task 1).
-  REJECT = 'reject',
-}
-
 export class UpdateWithdrawTransactionStatusDto {
   @IsEnum(WithdrawTransactionAction)
   action!: WithdrawTransactionAction;
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-}
-
-export class AdminUpdateWithdrawTransactionStatusDto {
-  @IsEnum(AdminWithdrawTransactionAction)
-  action!: AdminWithdrawTransactionAction;
 
   @IsOptional()
   @IsString()
