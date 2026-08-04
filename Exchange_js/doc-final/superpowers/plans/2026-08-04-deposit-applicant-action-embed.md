@@ -1234,12 +1234,27 @@ git commit -m "feat(client): 充值补料三展示态——已收到文案绑提
             onClick={() => void openVerification(tx)}
             className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-3 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20"
           >
-            {session?.materialKind === 'SUPPORTING_DOCUMENTS'
-              ? 'Please provide additional supporting documents'
-              : 'Please provide proof of source of funds'}
+            Provide the requested documents
           </button>
         ) : null}
 ```
+
+**⚠️ 两种场景共用同一句文案，不按材料类型分岔（2026-08-04 业主定稿，取代本计划早先的写法）。**
+原设计按 `materialKind` 给两句不同文案（`SOURCE_OF_FUNDS` → "proof of source of funds"、
+`SUPPORTING_DOCUMENTS` → "additional supporting documents"）。评审指出：`manualReason`
+的值域只有 `{CLIENT_ACTION, EDD_PEP}` 两个，映射到两个 `materialKind` 是**双射** ——
+"是不是 PEP" 这 1 个比特被无损保留，只换了措辞，等于没脱敏。
+
+改为统一文案后，**我方接口一个比特都不带**；具体要什么材料由验证组件自己告诉客户
+（真接 Sumsub 后本就如此，泄露源在 Sumsub 侧而非我方）。代价是客户点进去之前
+不知道要准备什么，这是有意接受的取舍。
+
+因此本任务还要**回改 Task 4 已发的后端**（`deposit-verification-session.service.ts`）：
+- 删掉 `MaterialKind` 类型、`materialKindOf()` 私有方法、`VerificationSessionView.materialKind` 字段
+- 三个 return 分支同步去掉该键
+- spec 里那两条钉死响应 key 集合的断言（两个分支各一条）同步更新期望值；
+  断言 `manualReason` 不出现在响应里的那条**保留**
+- 该 service 从此**完全不读 `manualReason`**，`mustFindOwn` 的 `select` 里也去掉它
 
 其中 `needsAction = tx.status.toUpperCase() === 'ACTION_PENDING' && !tx.actionSubmittedAt`。
 
@@ -1442,6 +1457,82 @@ mock 页提交后 postMessage 真实 SDK 事件名 idCheck.onApplicantSubmitted,
 
 ---
 
+- [ ] **Step 9（增补）：修历史筛选下拉——它把视图层刚收敛掉的区分度原样还了回去**
+
+`client-web/src/pages/Deposit.tsx:137` 的 `HISTORY_STATUS_FILTERS` 现在长这样：
+
+```ts
+  { label: getDepositStatusView('PAYIN_PENDING').label, statuses: ['PAYIN_PENDING', 'COMPLIANCE_PENDING'] },
+  { label: getDepositStatusView('ACTION_PENDING').label, statuses: ['ACTION_PENDING'] },
+  { label: getDepositStatusView('FROZEN').label, statuses: ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'] },
+```
+
+第 1 条和第 3 条的 `label` **都是 `'PROCESSING'`**（因为视图层已把这些态收敛成同一个词），
+但 `statuses` 不同。于是下拉里出现两个同名选项，客户选第一个自己那单消失、选第三个才出现
+——**页面层把视图层花大力气收敛掉的区分度原样还了回去**。顺带 `key={filter.label}` 重复。
+（既有缺陷，来自 2026-07-29 的 `145df175`，已在 main。）
+
+**还有第二层，是本功能引入的**：单子提交后徽章变 `PROCESSING`，但它仍归在 `ACTION REQUIRED`
+桶里。于是「已提交 → 被冻」时，在 `ACTION REQUIRED` 筛选下这单**会消失** —— 与上面同一类洞。
+
+**修法：筛选桶必须与「渲染出来的标签」一一对应，而不是与原始 status 对应。**
+改成发**桶名**而非 status 列表，由后端把桶映射成 where 条件：
+
+前端：
+
+```ts
+/** 桶名与 getDepositStatusView 渲染出的 label 一一对应——凡是渲染成同一个词的，
+ *  必须落在同一个桶里，否则客户能用筛选器把视图层遮蔽掉的差别问出来。 */
+const HISTORY_STATUS_FILTERS: Array<{ label: string; bucket: string }> = [
+  { label: 'PROCESSING', bucket: 'PROCESSING' },
+  { label: 'ACTION REQUIRED', bucket: 'ACTION_REQUIRED' },
+  { label: 'RETURNING', bucket: 'RETURNING' },
+  { label: 'RETURNED', bucket: 'RETURNED' },
+  { label: 'SUCCESS', bucket: 'SUCCESS' },
+  { label: 'FAILED', bucket: 'FAILED' },
+];
+```
+
+`<option key={filter.bucket} value={filter.bucket}>`；请求参数从 `status` 改为 `bucket`。
+
+后端（`deposit-transactions.service.ts` 的 `findAll`，**仅 customerScope 生效**）：
+
+```ts
+    // 客户面筛选桶：必须与 client-web/src/utils/depositStatusView.ts 渲染出的
+    // label 一一对应。ACTION_PENDING 按「是否已提交」劈成两半——已提交的渲染成
+    // PROCESSING，就必须归进 PROCESSING 桶；否则该单被冻时会从 ACTION_REQUIRED
+    // 桶里消失，客户用筛选器就能看出自己这单出事了。
+    const CUSTOMER_BUCKETS: Record<string, any> = {
+      PROCESSING: {
+        OR: [
+          { status: { in: ['PAYIN_PENDING', 'COMPLIANCE_PENDING', 'FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'] } },
+          { status: 'ACTION_PENDING', actionSubmittedAt: { not: null } },
+        ],
+      },
+      ACTION_REQUIRED: { status: 'ACTION_PENDING', actionSubmittedAt: null },
+      RETURNING: { status: 'RETURNING' },
+      RETURNED: { status: 'RETURNED' },
+      SUCCESS: { status: 'SUCCESS' },
+      FAILED: { status: 'FAILED' },
+    };
+```
+
+customerScope 下收到 `bucket` 就并进 `where`；未知桶名 → 忽略（等同 All Status），**不要报错**
+（报错本身又是一个可探测面）。admin 侧的 `status` 参数行为**一字不动**。
+
+必须加的测试（`deposit-transactions.service.spec.ts`）：
+
+```ts
+  it('PROCESSING 桶覆盖全部渲染成 PROCESSING 的态（含已提交的 ACTION_PENDING）', async () => { … });
+  it('ACTION_REQUIRED 桶只含未提交的 ACTION_PENDING', async () => { … });
+  it('提交过的单从 ACTION_PENDING 变 FROZEN，前后都落在 PROCESSING 桶里（筛选器不泄密）', async () => { … });
+  it('未知桶名 → 不加 status 约束、不抛错', async () => { … });
+  it('admin scope 不受桶映射影响，仍按 status 参数过滤', async () => { … });
+```
+
+并做变异验证：把 `ACTION_REQUIRED` 桶改成 `{ status: 'ACTION_PENDING' }`（去掉
+`actionSubmittedAt: null`），确认第 3 条测试变红。用 python，**禁止 perl / `git checkout`**。
+
 ## Task 7: admin 两行 + e2e + 文档同步 + 硬闸
 
 **Files:**
@@ -1562,6 +1653,57 @@ websdkLink iframe 可行性未实测。"
 ```
 
 ---
+
+- [ ] **Step 8（增补）：把客户端测试真正接进项目——现在那道闸门是假的**
+
+实施期核查发现：`client-web` **没有 `test` 脚本、`vitest` 不在 `devDependencies`、没有任何
+vitest 配置**。也就是说 `depositStatusView.spec.ts`（含本次那条经双向变异验证的 tipping-off
+守卫）以及**已经合进 main 的 `withdrawStatusView.spec.ts`**，从来没有被任何项目命令跑过 ——
+只有人手动敲 `npx vitest run --globals` 才有信号。
+
+**没人跑的守卫不是守卫。** 将来谁把 `note: 'Please contact support'` 加回 `VIEW_MAP`，
+不会有任何红灯。本任务的交付物之一恰好就是这条守卫，所以必须把闸门做成真的。
+
+改 `client-web/package.json`：
+
+```json
+  "scripts": {
+    …
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    …
+    "vitest": "^3.2.4"
+  }
+```
+
+新建 `client-web/vitest.config.ts`：
+
+```ts
+import { defineConfig } from 'vitest/config';
+
+// spec 文件不 import { describe, it, expect }（沿用 jest 风格的全局），
+// 故必须开 globals；不开的话所有 spec 会以 "describe is not defined" 整体失败。
+export default defineConfig({
+  test: {
+    globals: true,
+    include: ['src/**/*.spec.ts'],
+  },
+});
+```
+
+装依赖并验证（**只在 `client-web/` 目录内跑 npm，别动仓库根或后端的 lockfile**）：
+
+```bash
+cd client-web && npm install
+npm test
+```
+
+预期：两个 spec 文件都被收进来并全绿（`depositStatusView.spec.ts` + `withdrawStatusView.spec.ts`），
+且**不再需要 `--globals`**。若 `withdrawStatusView.spec.ts` 有失败，**不要改它**——
+那是 main 上既有的问题，如实写进报告由我裁决。
+
+装完确认 `client-web/package-lock.json` 的改动只有 vitest 及其传递依赖，没有把别的包顺手升级。
 
 ## 自查清单（执行完全部任务后逐条核对）
 
