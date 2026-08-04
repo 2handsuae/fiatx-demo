@@ -52,6 +52,12 @@ interface Transaction {
     referenceNo: string | null;
     fromAddress: string | null;
     fromIban: string | null;
+    actionSubmittedAt?: string | null;
+}
+
+interface VerificationSession {
+  submitted: boolean;
+  embedUrl: string | null;
 }
 
 interface ScanInboundSignalsResult {
@@ -126,22 +132,28 @@ const STATUS_TONE_CLASS: Record<DepositStatusView['tone'], string> = {
 };
 
 /**
- * History filter groups, customer-facing wording. Labels come from getDepositStatusView
- * so filter text always matches the badge text; `statuses` are the raw
- * backend codes sent as a comma-separated `status` query value (supported by
- * DepositTransactionQueryDto). REJECTED/EXPIRED intentionally excluded —
- * those two statuses are slated for removal (BACKLOG d7b4456e / design
- * decision #5) and get no new filter UI, mirroring admin's
- * DEPOSIT_STATUS_FILTERS (admin-web/src/utils/depositStatusMap.ts).
+ * History filter groups, customer-facing wording. `bucket` is sent as the
+ * `bucket` query param and mapped server-side (deposit-transactions.service
+ * .ts CUSTOMER_BUCKETS) to the actual status predicate — NOT sent as a raw
+ * status list. This indirection exists because getDepositStatusView collapses
+ * several backend statuses into the same rendered label (e.g. PAYIN_PENDING /
+ * COMPLIANCE_PENDING / FROZEN / SEIZING / SEIZED / MANUAL_CHECKING, plus a
+ * submitted ACTION_PENDING, all render "PROCESSING"): the filter bucket must
+ * line up 1:1 with the rendered label, or the dropdown re-exposes the exact
+ * distinction getDepositStatusView exists to hide (2026-08-04, task-6 增补—
+ * this replaces the earlier `statuses` design, which put two menu entries
+ * both labelled "PROCESSING" pointing at different status sets). REJECTED /
+ * EXPIRED intentionally excluded — those two statuses are slated for removal
+ * (BACKLOG d7b4456e / design decision #5) and get no new filter UI, mirroring
+ * admin's DEPOSIT_STATUS_FILTERS (admin-web/src/utils/depositStatusMap.ts).
  */
-const HISTORY_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
-  { label: getDepositStatusView('PAYIN_PENDING').label, statuses: ['PAYIN_PENDING', 'COMPLIANCE_PENDING'] },
-  { label: getDepositStatusView('ACTION_PENDING').label, statuses: ['ACTION_PENDING'] },
-  { label: getDepositStatusView('FROZEN').label, statuses: ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'] },
-  { label: getDepositStatusView('RETURNING').label, statuses: ['RETURNING'] },
-  { label: getDepositStatusView('RETURNED').label, statuses: ['RETURNED'] },
-  { label: getDepositStatusView('SUCCESS').label, statuses: ['SUCCESS'] },
-  { label: getDepositStatusView('FAILED').label, statuses: ['FAILED'] },
+const HISTORY_STATUS_FILTERS: Array<{ label: string; bucket: string }> = [
+  { label: 'PROCESSING', bucket: 'PROCESSING' },
+  { label: 'ACTION REQUIRED', bucket: 'ACTION_REQUIRED' },
+  { label: 'RETURNING', bucket: 'RETURNING' },
+  { label: 'RETURNED', bucket: 'RETURNED' },
+  { label: 'SUCCESS', bucket: 'SUCCESS' },
+  { label: 'FAILED', bucket: 'FAILED' },
 ];
 
 const Deposit = () => {
@@ -160,7 +172,11 @@ const Deposit = () => {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  
+  const [embedOpen, setEmbedOpen] = useState(false);
+  const [embedLoading, setEmbedLoading] = useState(true);
+  const [embedError, setEmbedError] = useState(false);
+  const [session, setSession] = useState<VerificationSession | null>(null);
+
   const [historyStatus, setHistoryStatus] = useState('');
   const [historyAssetId, setHistoryAssetId] = useState('');
   const [simulatingSignal, setSimulatingSignal] = useState(false);
@@ -257,7 +273,7 @@ const Deposit = () => {
               skip: ((page - 1) * 10).toString(),
               take: '10',
           });
-          if (historyStatus) params.append('status', historyStatus);
+          if (historyStatus) params.append('bucket', historyStatus);
           if (historyAssetId) params.append('assetId', historyAssetId);
 
           const response = await customerFetch(
@@ -276,6 +292,27 @@ const Deposit = () => {
           setHistoryLoading(false);
       }
   };
+
+  // 事件名故意用真实 SDK 的 idCheck.onApplicantSubmitted。将来换真 SDK,这个
+  // handler 从 postMessage 监听改成 .on('idCheck.onApplicantSubmitted', …),
+  // 里面逻辑不变。e.origin 校验必须有:不校验就等于任何页面都能伪造提交。
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type !== 'idCheck.onApplicantSubmitted') return;
+      setEmbedOpen(false);
+      setSession(null);
+      // 乐观更新当前打开的详情弹窗,不等列表整体刷新回来就先切到"已收到"态
+      // ——用函数式更新读最新的 selectedTx,规避这个 effect 依赖数组为 []
+      // 带来的闭包过期问题。
+      setSelectedTx((prev) =>
+        prev ? { ...prev, actionSubmittedAt: new Date().toISOString() } : prev,
+      );
+      void fetchHistory(); // 重拉列表，拿到服务端权威的 actionSubmittedAt → 切态③
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
 
   const handleGenerate = async () => {
     if (!selectedAssetId || !user) return;
@@ -330,8 +367,11 @@ const Deposit = () => {
     setSelectedAssetId(filteredAssets[0]?.id || '');
   }, [activeTab, filteredAssets, selectedAssetId]);
 
-  const renderStatusBadge = (status: string) => {
-    const view = getDepositStatusView(status);
+  const viewOf = (tx: Transaction) =>
+    getDepositStatusView(tx.status, { submitted: !!tx.actionSubmittedAt });
+
+  const renderStatusBadge = (tx: Transaction) => {
+    const view = viewOf(tx);
     return (
       <span
         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${STATUS_TONE_CLASS[view.tone]}`}
@@ -341,27 +381,44 @@ const Deposit = () => {
     );
   };
 
-  const renderStatusDetail = (status: string) => {
-    const view = getDepositStatusView(status);
-    const isActionPending = status.toUpperCase() === 'ACTION_PENDING';
+  const openVerification = async (tx: Transaction) => {
+    setEmbedError(false);
+    setEmbedLoading(true);
+    try {
+      const r = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${tx.depositNo}/verification-session`,
+      );
+      if (!r.ok) throw new Error('session fetch failed');
+      const s = await r.json();
+      setSession(s);
+      if (s.embedUrl) setEmbedOpen(true);
+      else setEmbedError(true);
+    } catch {
+      // §6：加载失败必须给可重试 CTA，不能只 console.error 让客户卡在 loading
+      setEmbedOpen(true);
+      setEmbedError(true);
+    }
+  };
 
-    if (!view.note && !isActionPending) return null;
+  const renderStatusDetail = (tx: Transaction) => {
+    const view = viewOf(tx);
+    // 未提交才索要材料——已提交的单即便仍卡在 ACTION_PENDING（状态机不因
+    // 客户提交而动，见 depositStatusView.ts 文件头注释），也不再显示这个
+    // 按钮，否则客户会重复点进已经交过材料的验证会话。
+    const needsAction = tx.status.toUpperCase() === 'ACTION_PENDING' && !tx.actionSubmittedAt;
+
+    if (!view.note && !needsAction) return null;
 
     return (
       <div className="mt-3 space-y-2 text-center">
         {view.note ? <p className="text-sm text-fx-dust">{view.note}</p> : null}
-        {isActionPending ? (
-          // The ACTION_PENDING CTA is designed (spec §3.C) to deep-link into a
-          // Sumsub verification link / questionnaire, but the deposit
-          // transaction API exposes no SDK token or verification-link field
-          // for the client to jump to (confirmed by inspection — no such
-          // field on DepositTransaction/its DTOs). Degraded to a static
-          // "contact support" message per the owner-approved fallback; do
-          // not invent a link/route here — wire a real CTA once the backend
-          // exposes one.
-          <div className="rounded-xl border border-fx-brass/30 bg-fx-brass/10 px-4 py-3 text-sm font-semibold text-fx-brass">
-            Please contact support
-          </div>
+        {needsAction ? (
+          <button
+            onClick={() => void openVerification(tx)}
+            className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-3 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20"
+          >
+            Provide the requested documents
+          </button>
         ) : null}
       </div>
     );
@@ -517,6 +574,16 @@ const Deposit = () => {
     setHistoryAssetId('');
     setPage(1);
     setActiveTab('history');
+  };
+
+  // 关闭详情弹窗时,连带把认证容器 stage 的状态一起清空——否则下次打开
+  // 别的单子,弹窗会残留上一单的宽版/加载/错误状态。
+  const closeTxDetails = () => {
+    setSelectedTx(null);
+    setEmbedOpen(false);
+    setEmbedLoading(true);
+    setEmbedError(false);
+    setSession(null);
   };
 
   const renderSimulationFeedback = (feedback: SimulationFeedback) => {
@@ -762,7 +829,7 @@ const Deposit = () => {
                         >
                             <option value="">All Status</option>
                             {HISTORY_STATUS_FILTERS.map((filter) => (
-                                <option key={filter.label} value={filter.statuses.join(',')}>
+                                <option key={filter.bucket} value={filter.bucket}>
                                     {filter.label}
                                 </option>
                             ))}
@@ -844,7 +911,7 @@ const Deposit = () => {
                                             </div>
                                         </td>
                                         <td className="px-4 py-3">
-                                            {renderStatusBadge(tx.status)}
+                                            {renderStatusBadge(tx)}
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <button
@@ -1155,11 +1222,13 @@ const Deposit = () => {
       {/* Transaction Details Modal */}
       {selectedTx && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-fx-rule">
+            <div className={`bg-fx-ink rounded-2xl shadow-xl w-full max-h-[90vh] overflow-y-auto border border-fx-rule ${
+              embedOpen ? 'max-w-3xl' : 'max-w-lg'
+            }`}>
                 <div className="flex justify-between items-center p-6 border-b border-fx-rule">
                     <h3 className="text-xl font-bold text-fx-sand">Transaction Details</h3>
                     <button
-                        onClick={() => setSelectedTx(null)}
+                        onClick={closeTxDetails}
                         className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust"
                     >
                         <X size={20} />
@@ -1171,10 +1240,40 @@ const Deposit = () => {
                             {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.currency}</span>
                         </div>
                         <div className="mt-2">
-                             {renderStatusBadge(selectedTx.status)}
+                             {renderStatusBadge(selectedTx)}
                         </div>
-                        {renderStatusDetail(selectedTx.status)}
+                        {renderStatusDetail(selectedTx)}
                     </div>
+
+                    {embedOpen && session?.embedUrl ? (
+                      <div className="relative min-h-[680px] border border-fx-rule rounded-xl overflow-hidden">
+                        {/* 这块地方是"第三方验证组件渲染的舞台"，不是"我们设 src 的 iframe"。
+                            演示放 mock 页；真接 Sumsub 时改成 snsWebSdk.launch('#sumsub-websdk-container')，
+                            布局/高度/遮罩与周边文案一行不用动。 */}
+                        <div id="sumsub-websdk-container" className="h-full">
+                          <iframe
+                            src={session.embedUrl}
+                            title="Verification"
+                            className="w-full h-[680px] border-0"
+                            onLoad={() => setEmbedLoading(false)}
+                          />
+                        </div>
+                        {embedLoading ? (
+                          <div className="absolute inset-0 grid place-items-center bg-fx-ink text-fx-dust text-sm">
+                            Loading verification…
+                          </div>
+                        ) : null}
+                        {embedError ? (
+                          <div className="absolute inset-0 grid place-items-center bg-fx-ink">
+                            {/* 重试必须真的重新拉会话——只清 error 标志是个假按钮 */}
+                            <button onClick={() => selectedTx && void openVerification(selectedTx)}
+                                    className="fx-btn-ghost">
+                              Verification failed to load — retry
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="space-y-3 bg-fx-charcoal/50 p-4 rounded-xl border border-fx-rule">
                         <div className="flex justify-between text-sm">
@@ -1218,7 +1317,7 @@ const Deposit = () => {
                 </div>
                 <div className="p-6 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl">
                     <button
-                        onClick={() => setSelectedTx(null)}
+                        onClick={closeTxDetails}
                         className="w-full py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
                     >
                         Close

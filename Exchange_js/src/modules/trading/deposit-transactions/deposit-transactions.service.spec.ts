@@ -233,6 +233,118 @@ describe('DepositTransactionsService', () => {
     });
   });
 
+  // 客户面历史筛选下拉改按「渲染出的桶」而非原始 status 过滤（2026-08-04，
+  // task-6 增补）：ACTION_PENDING 按「是否已提交」劈成两半，已提交的渲染成
+  // PROCESSING（getDepositStatusView 的短路），必须归进 PROCESSING 桶，
+  // 否则该单被冻时会从 ACTION_REQUIRED 桶里消失，客户用筛选器就能看出自己
+  // 这单出事了。下面用一个最小 Prisma-where 求值器，直接拿 findAll 真正
+  // 构造出的 where 片段去匹配虚构行，而不是仅断言 where 的字面结构——这样
+  // 才能在「桶定义漏写一个条件」时被测试真正抓到。
+  describe('findAll 客户面筛选桶 (bucket)', () => {
+    type BucketRow = { status: string; actionSubmittedAt: Date | null };
+
+    const matchesBucketWhere = (row: BucketRow, where: Record<string, any>): boolean =>
+      Object.entries(where).every(([key, cond]) => {
+        if (key === 'OR') {
+          return (cond as any[]).some((sub) => matchesBucketWhere(row, sub));
+        }
+        const actual = (row as any)[key];
+        if (cond && typeof cond === 'object') {
+          if ('in' in cond) return (cond.in as any[]).includes(actual);
+          if ('not' in cond) return actual !== cond.not;
+          throw new Error(`matchesBucketWhere: unsupported operator for ${key}: ${JSON.stringify(cond)}`);
+        }
+        return actual === cond;
+      });
+
+    const captureWhere = async (query: any, options?: { customerScope?: boolean }) => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(0);
+
+      await service.findAll(query, options);
+
+      const calls = ((prisma as any).depositTransaction.findMany as jest.Mock).mock.calls;
+      const where = { ...calls[calls.length - 1][0].where };
+      // limitHoldReason/ownerId 是 customerScope 的通用副产物，与桶映射逻辑
+      // 无关，测行匹配前先剥掉，避免虚构行需要无谓地携带这两个字段。
+      delete where.limitHoldReason;
+      delete where.ownerId;
+      return where;
+    };
+
+    const PAYIN_PENDING: BucketRow = { status: 'PAYIN_PENDING', actionSubmittedAt: null };
+    const COMPLIANCE_PENDING: BucketRow = { status: 'COMPLIANCE_PENDING', actionSubmittedAt: null };
+    const FROZEN: BucketRow = { status: 'FROZEN', actionSubmittedAt: null };
+    const SEIZING: BucketRow = { status: 'SEIZING', actionSubmittedAt: null };
+    const SEIZED: BucketRow = { status: 'SEIZED', actionSubmittedAt: null };
+    const MANUAL_CHECKING: BucketRow = { status: 'MANUAL_CHECKING', actionSubmittedAt: null };
+    const ACTION_PENDING_UNSUBMITTED: BucketRow = { status: 'ACTION_PENDING', actionSubmittedAt: null };
+    const submittedAt = new Date('2026-08-01T00:00:00Z');
+    const ACTION_PENDING_SUBMITTED: BucketRow = { status: 'ACTION_PENDING', actionSubmittedAt: submittedAt };
+    const FROZEN_SUBMITTED: BucketRow = { status: 'FROZEN', actionSubmittedAt: submittedAt };
+    const SUCCESS: BucketRow = { status: 'SUCCESS', actionSubmittedAt: null };
+
+    it('PROCESSING 桶覆盖全部渲染成 PROCESSING 的态（含已提交的 ACTION_PENDING）', async () => {
+      const where = await captureWhere({ bucket: 'PROCESSING' } as any, { customerScope: true });
+
+      for (const row of [
+        PAYIN_PENDING,
+        COMPLIANCE_PENDING,
+        FROZEN,
+        SEIZING,
+        SEIZED,
+        MANUAL_CHECKING,
+        ACTION_PENDING_SUBMITTED,
+      ]) {
+        expect(matchesBucketWhere(row, where)).toBe(true);
+      }
+      // 未提交的 ACTION_PENDING 渲染成 ACTION REQUIRED，不属于 PROCESSING。
+      expect(matchesBucketWhere(ACTION_PENDING_UNSUBMITTED, where)).toBe(false);
+    });
+
+    it('ACTION_REQUIRED 桶只含未提交的 ACTION_PENDING', async () => {
+      const where = await captureWhere({ bucket: 'ACTION_REQUIRED' } as any, { customerScope: true });
+
+      expect(matchesBucketWhere(ACTION_PENDING_UNSUBMITTED, where)).toBe(true);
+      expect(matchesBucketWhere(ACTION_PENDING_SUBMITTED, where)).toBe(false);
+      expect(matchesBucketWhere(FROZEN, where)).toBe(false);
+      expect(matchesBucketWhere(SUCCESS, where)).toBe(false);
+    });
+
+    it('提交过的单从 ACTION_PENDING 变 FROZEN，前后都落在 PROCESSING 桶里（筛选器不泄密）', async () => {
+      const processingWhere = await captureWhere({ bucket: 'PROCESSING' } as any, { customerScope: true });
+      const actionRequiredWhere = await captureWhere({ bucket: 'ACTION_REQUIRED' } as any, { customerScope: true });
+
+      // 提交后，无论此刻状态机是仍卡在 ACTION_PENDING 还是已经被冻，都必须
+      // 落在 PROCESSING 桶——与 depositStatusView 的短路（绑 actionSubmittedAt
+      // 而非 status）保持一致。
+      expect(matchesBucketWhere(ACTION_PENDING_SUBMITTED, processingWhere)).toBe(true);
+      expect(matchesBucketWhere(FROZEN_SUBMITTED, processingWhere)).toBe(true);
+
+      // 核心防线：提交过的单绝不能再落回 ACTION_REQUIRED 桶——否则客户在
+      // "补料请求" 筛选器下仍能看到这单，从而分辨出它和别的单不一样。
+      expect(matchesBucketWhere(ACTION_PENDING_SUBMITTED, actionRequiredWhere)).toBe(false);
+      expect(matchesBucketWhere(FROZEN_SUBMITTED, actionRequiredWhere)).toBe(false);
+    });
+
+    it('未知桶名 → 不加 status 约束、不抛错', async () => {
+      const where = await captureWhere({ bucket: 'NOT_A_REAL_BUCKET' } as any, { customerScope: true });
+
+      expect(where.status).toBeUndefined();
+      expect(where.OR).toBeUndefined();
+    });
+
+    it('admin scope 不受桶映射影响，仍按 status 参数过滤', async () => {
+      const where = await captureWhere({
+        status: DepositTransactionStatus.ACTION_PENDING,
+        bucket: 'PROCESSING',
+      } as any);
+
+      expect(where.status).toBe(DepositTransactionStatus.ACTION_PENDING);
+      expect(where.OR).toBeUndefined();
+    });
+  });
+
   describe('findOneForCustomer', () => {
     it('customer detail: BELOW_MIN deposit → NotFound (treated as non-existent)', async () => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({

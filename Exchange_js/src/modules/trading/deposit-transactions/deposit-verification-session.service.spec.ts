@@ -26,22 +26,24 @@ describe('DepositVerificationSessionService', () => {
     svc = new DepositVerificationSessionService(prisma, deposits, auditLogs);
   });
 
-  it('未提交 + 有 action → 给 embedUrl 与中性 materialKind', async () => {
+  it('未提交 + 有 action → 给 embedUrl', async () => {
     prisma.depositTransaction.findFirst.mockResolvedValue(ROW());
 
     const r = await svc.getSession('cust-1', 'DEP1');
 
     expect(r.submitted).toBe(false);
-    expect(r.materialKind).toBe('SOURCE_OF_FUNDS');
     expect(r.embedUrl).toContain('DEP1');
   });
 
-  it('EDD_PEP 映射成中性 SUPPORTING_DOCUMENTS —— 不下发 manualReason', async () => {
+  // 2026-08-04 业主定稿（回改自 Task 4）：manualReason → materialKind 的映射
+  // 在两值域上是双射，"是不是 PEP" 这 1 比特被无损保留，等于没脱敏。已删除
+  // 该映射，本 service 从此完全不读 manualReason；这条断言直接盯着响应体
+  // 不出现 EDD_PEP/PEP 字样，manualReason 取什么值都不影响响应体。
+  it('EDD_PEP 的单 —— 响应体不下发 manualReason，也不含 EDD_PEP/PEP 字样', async () => {
     prisma.depositTransaction.findFirst.mockResolvedValue(ROW({ manualReason: 'EDD_PEP' }));
 
     const r = await svc.getSession('cust-1', 'DEP1');
 
-    expect(r.materialKind).toBe('SUPPORTING_DOCUMENTS');
     expect(JSON.stringify(r)).not.toMatch(/EDD_PEP|PEP/);
   });
 
@@ -53,23 +55,24 @@ describe('DepositVerificationSessionService', () => {
 
     const r = await svc.getSession('cust-1', 'DEP1');
 
-    expect(r).toEqual({ submitted: false, embedUrl: null, materialKind: null });
+    expect(r).toEqual({ submitted: false, embedUrl: null });
   });
 
   // ── Critical 修复的直接产物 ──────────────────────────────────
   // 此前响应体带一个 actionId 字段原样透传 sumsubActionId。demo fixture 里
   // PEP 场景发 aa-edd-0002、非 PEP 场景发 aa-sof-0001（deposit-sumsub/fixtures/
   // verdict-buttons.ts），客户开 DevTools 从 id 前缀（edd = enhanced due
-  // diligence）就能反推出 materialKind 想封的 PEP 判定，中性化形同虚设。
-  // 这条断言把响应体的 key 集合钉死成白名单：以后谁往 getSession 的返回值里
-  // 加字段（无论叫什么名字），都会先在这里炸掉，逼着回答"这个新字段会不会
-  // 泄露同等信息"，而不是像 actionId 那样悄悄溜过去。
-  it('响应体字段白名单——只有这三个 key，新增字段必须先过这条断言', async () => {
+  // diligence）就能反推出 PEP 判定，中性化形同虚设。materialKind 字段本身
+  // 后来也被删除（2026-08-04 业主定稿——它是 manualReason 两值域上的双射，
+  // 同样的洞）。这条断言把响应体的 key 集合钉死成白名单：以后谁往 getSession
+  // 的返回值里加字段（无论叫什么名字），都会先在这里炸掉，逼着回答"这个新
+  // 字段会不会泄露同等信息"，而不是像 actionId/materialKind 那样悄悄溜过去。
+  it('响应体字段白名单——只有这两个 key，新增字段必须先过这条断言', async () => {
     prisma.depositTransaction.findFirst.mockResolvedValue(ROW());
 
     const r = await svc.getSession('cust-1', 'DEP1');
 
-    expect(Object.keys(r).sort()).toEqual(['embedUrl', 'materialKind', 'submitted']);
+    expect(Object.keys(r).sort()).toEqual(['embedUrl', 'submitted']);
   });
 
   it('actionId 不再下发（即便 sumsubActionId 本身就是 aa-edd-… 这类携带信息的 id）', async () => {
@@ -100,7 +103,7 @@ describe('DepositVerificationSessionService', () => {
     expect(b).toEqual(a);
     // 评审 Minor 3：key 集合白名单此前只钉了"未提交+有 action"分支，
     // submitted:true 这个分支没人钉——复用同一条断言堵上。
-    expect(Object.keys(a).sort()).toEqual(['embedUrl', 'materialKind', 'submitted']);
+    expect(Object.keys(a).sort()).toEqual(['embedUrl', 'submitted']);
   });
 
   // 评审 Important 3：真正高危的路径——单子还没提交就被冻，客户端此时仍在

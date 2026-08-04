@@ -28,6 +28,25 @@ import { ApprovalsService } from '../../governance/approvals/approvals.service';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
+// 客户面筛选桶：必须与 client-web/src/utils/depositStatusView.ts 渲染出的
+// label 一一对应。ACTION_PENDING 按「是否已提交」劈成两半——已提交的渲染成
+// PROCESSING，就必须归进 PROCESSING 桶；否则该单被冻时会从 ACTION_REQUIRED
+// 桶里消失，客户用筛选器就能看出自己这单出事了。仅 customerScope 生效，
+// admin 侧的 status 参数行为不受影响。
+const CUSTOMER_BUCKETS: Record<string, any> = {
+  PROCESSING: {
+    OR: [
+      { status: { in: ['PAYIN_PENDING', 'COMPLIANCE_PENDING', 'FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING'] } },
+      { status: 'ACTION_PENDING', actionSubmittedAt: { not: null } },
+    ],
+  },
+  ACTION_REQUIRED: { status: 'ACTION_PENDING', actionSubmittedAt: null },
+  RETURNING: { status: 'RETURNING' },
+  RETURNED: { status: 'RETURNED' },
+  SUCCESS: { status: 'SUCCESS' },
+  FAILED: { status: 'FAILED' },
+};
+
 export interface DepositStatusUpdateActorContext {
   actorType: string;
   actorId: string;
@@ -92,6 +111,7 @@ export class DepositTransactionsService {
       status,
       startDate,
       endDate,
+      bucket,
     } = query;
     const where: any = {};
 
@@ -111,6 +131,13 @@ export class DepositTransactionsService {
     // BELOW_MIN deposits are hold-pending admin disposition; the customer
     // must never see them (server-side, not a frontend hide).
     if (options?.customerScope) where.limitHoldReason = null;
+
+    // 客户面筛选桶，仅 customerScope 生效。未知桶名 → 忽略（等同 All
+    // Status），不报错——报错本身又是一个可探测面。
+    if (options?.customerScope && bucket) {
+      const bucketWhere = CUSTOMER_BUCKETS[bucket];
+      if (bucketWhere) Object.assign(where, bucketWhere);
+    }
 
     const [items, total] = await Promise.all([
       (this.prisma as any).depositTransaction.findMany({

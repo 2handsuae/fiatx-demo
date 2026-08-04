@@ -71,6 +71,13 @@ export class DepositTransactionQueryDto {
   @IsOptional()
   @IsString()
   endDate?: string;
+
+  // Customer-facing filter bucket (see DepositTransactionsService.findAll's
+  // CUSTOMER_BUCKETS). Ignored on the admin scope — admin keeps filtering by
+  // the raw `status` param above.
+  @IsOptional()
+  @IsString()
+  bucket?: string;
 }
 
 export enum DepositTransactionAction {

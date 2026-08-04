@@ -8,22 +8,26 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 
-export type MaterialKind = 'SOURCE_OF_FUNDS' | 'SUPPORTING_DOCUMENTS';
-
 /**
  * **不含 `actionId`（评审 Critical，勿加回来）。** demo fixture 里
  * `sumsubActionId` 本身携带信息：PEP 场景发 `aa-edd-0002`、非 PEP 场景发
- * `aa-sof-0001`（见 deposit-sumsub/fixtures/verdict-buttons.ts）。哪怕
- * `manualReason` 被映射成中性的 `materialKind` 不下发原值，客户开 DevTools
- * 看这个 id 前缀（edd = enhanced due diligence）也能反推出同等信息，
- * `materialKind` 的中性化就白做了。前端不需要它（只用 `embedUrl` 和
- * `materialKind`），admin 侧可以从 `findOneForAdmin` 已经下发的整行原始数据
- * 里看 `sumsubActionId`，不需要客户面这个端点重复暴露。
+ * `aa-sof-0001`（见 deposit-sumsub/fixtures/verdict-buttons.ts）。客户开
+ * DevTools 看这个 id 前缀（edd = enhanced due diligence）就能反推出 PEP
+ * 判定，故该字段绝不下发。前端不需要它（只用 `embedUrl`），admin 侧可以从
+ * `findOneForAdmin` 已经下发的整行原始数据里看 `sumsubActionId`，不需要
+ * 客户面这个端点重复暴露。
+ *
+ * **不含 `materialKind`（2026-08-04 业主定稿，回改自 Task 4）。** 原设计按
+ * `manualReason` 映射出 `materialKind`（`EDD_PEP` → `SUPPORTING_DOCUMENTS`，
+ * 否则 → `SOURCE_OF_FUNDS`）想借此中性化措辞，但 `manualReason` 的值域只有
+ * 这两个值，映射到两个 `materialKind` 是双射——"是不是 PEP" 这 1 个比特被
+ * 无损保留，等于没脱敏。改为客户面接口一个比特都不带；具体要什么材料由
+ * 验证组件自己告诉客户（真接 Sumsub 后本就如此，泄露源在 Sumsub 侧而非
+ * 我方）。本 service 从此完全不读 `manualReason`。
  */
 export interface VerificationSessionView {
   submitted: boolean;
   embedUrl: string | null;
-  materialKind: MaterialKind | null;
 }
 
 /** 客户提交后重新计时的窗口，与 ACTION_SLA_DAYS 同为 7 天（换语义不换数字） */
@@ -55,7 +59,9 @@ export class DepositVerificationSessionService {
    * 单号 `DEP+YYMMDD+4位随机` 一天空间只有 1 万、又没有限流，枚举成本很低。
    *
    * `select`（评审 Minor）：只取两个业务方法真正用到的列，不把
-   * `statusHistory`/`manualReason` 之外的 investigation-only 字段整行带进内存。
+   * `statusHistory` 之外的 investigation-only 字段整行带进内存。`manualReason`
+   * 同理不选——本 service 从此完全不读它（见 `VerificationSessionView` 头部
+   * 注释：materialKind 已删，manualReason 没有别的用途）。
    */
   private async mustFindOwn(customerId: string, depositNo: string) {
     const row = await (this.prisma as any).depositTransaction.findFirst({
@@ -67,7 +73,6 @@ export class DepositVerificationSessionService {
         ownerId: true,
         traceId: true,
         status: true,
-        manualReason: true,
         sumsubActionId: true,
         actionSubmittedAt: true,
         slaBreached: true,
@@ -77,30 +82,21 @@ export class DepositVerificationSessionService {
     return row;
   }
 
-  /**
-   * manualReason → 中性材料类型。**manualReason 本身绝不下发**：它取值
-   * EDD_PEP 时等同于告诉客户"你被判定为 PEP"。
-   */
-  private materialKindOf(manualReason: string | null): MaterialKind {
-    return manualReason === 'EDD_PEP' ? 'SUPPORTING_DOCUMENTS' : 'SOURCE_OF_FUNDS';
-  }
-
   async getSession(customerId: string, depositNo: string): Promise<VerificationSessionView> {
     const row = await this.mustFindOwn(customerId, depositNo);
 
     // 已提交：无论此刻是 ACTION_PENDING 还是已被冻，一律同一个响应体。
     if (row.actionSubmittedAt) {
-      return { submitted: true, embedUrl: null, materialKind: null };
+      return { submitted: true, embedUrl: null };
     }
 
     if (!row.sumsubActionId) {
-      return { submitted: false, embedUrl: null, materialKind: null };
+      return { submitted: false, embedUrl: null };
     }
 
     return {
       submitted: false,
       embedUrl: `/mock-verification?deposit=${encodeURIComponent(row.depositNo)}`,
-      materialKind: this.materialKindOf(row.manualReason),
     };
   }
 
