@@ -93,6 +93,13 @@ const CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
   'RETURNED',
 ]);
 
+// 客户面 completedAt 白名单（终审 Critical，见 toCustomerDepositView 文档
+// 注释）：只有这几个态,「完成时间」对客户才是真实且应当可见的事实。不能
+// 反过来问"status 有没有被收敛"——那个判据只在单子仍处于敏感态时成立,
+// 单子冻结后又被解冻回 COMPLIANCE_PENDING 时会失效,把冻结期间写下的
+// completedAt 原样漏给客户。
+const CUSTOMER_COMPLETED_STATUSES = new Set<string>(['SUCCESS', 'FAILED', 'RETURNED']);
+
 export interface DepositStatusUpdateActorContext {
   actorType: string;
   actorId: string;
@@ -298,30 +305,38 @@ export class DepositTransactionsService {
    * 数据库存的不一样"觉得像 bug、想改成原样输出——那正是这段注释要拦住的
    * 那次修改。
    *
-   * `completedAt`（复审 Critical 1，规则 A 的另一处漏洞）—— `status` 被收敛
-   * 掉之后，`completedAt` 若仍原样透传就会重新捅穿规则 A：真实
-   * `adminFreeze`/没收/没收结算走的是 `updateStatus`，其中 FROZEN/SEIZED/
-   * CONFISCATED 都会把 `completedAt` 写成 `new Date()`（见下方
-   * `updateStatus` 里 `TERMINAL.has(nextStatus) || nextStatus ===
-   * DepositTransactionStatus.FROZEN` 那段）。客户面响应体因此会出现
-   * "status 显示 COMPLIANCE_PENDING，但 completedAt 非空"——而一笔真正在
-   * 处理中的单 `completedAt` 恒为 null，这个组合本身就是一个新的可辨识
-   * 信号（Deposit.tsx 还会因此多渲染一行 "Completed"）。判据必须与
-   * `status` 收敛用同一个——`customerStatus !== item.status`，即
-   * `toCustomerStatus` 是否把这行"改写"过——而不是另起一份状态清单，两份
-   * 清单迟早漂移。SUCCESS/FAILED/RETURNED 等白名单内的正常终态不受影响，
-   * `completedAt` 照常输出，不能把正常的完成时间也吞掉。
+   * `completedAt`（复审 Critical 1，规则 A 的另一处漏洞；终审二次修复）——
+   * `status` 被收敛掉之后，`completedAt` 若仍原样透传就会重新捅穿规则 A：
+   * 真实 `adminFreeze`/没收/没收结算走的是 `updateStatus`，其中
+   * FROZEN/SEIZED/CONFISCATED 都会把 `completedAt` 写成 `new Date()`
+   * （见下方 `updateStatus` 里 `TERMINAL.has(nextStatus) || nextStatus ===
+   * DepositTransactionStatus.FROZEN` 那段），且**从不清除**。
+   *
+   * ⚠️ 判据不能用 `statusWasCollapsed`（即 `customerStatus !== item.status`，
+   * 判 `status` 是否被 `toCustomerStatus` 改写过）——这只在单子**仍处于**
+   * 敏感态时成立，解冻之后就会失效：`deposit-workflow.service.ts` 的
+   * `onUnfreezeApproved` 批准解冻后调 `updateStatus(RESUME)`，单子从
+   * `FROZEN` 回到 `COMPLIANCE_PENDING`，没有传 `extraData` 去清
+   * `completedAt`；而 `COMPLIANCE_PENDING` 本身在 `CUSTOMER_STATUS_PASSTHROUGH`
+   * 白名单里原样放行，此时 `customerStatus === item.status`（都是
+   * `COMPLIANCE_PENDING`），`statusWasCollapsed` 判 false，冻结期间写下的
+   * 时间戳就原样漏给客户——"被冻过又解冻"的客户由此能看出自己被冻过，
+   * 恰恰是最不该被通风报信的人群。
+   *
+   * 改为白名单 `CUSTOMER_COMPLETED_STATUSES`（`SUCCESS`/`FAILED`/
+   * `RETURNED`）：只有这几个态,「完成时间」对客户才是真实且应当可见的
+   * 事实，其余情况（含"仍在敏感态"与"被冻过又解冻回 COMPLIANCE_PENDING"
+   * 这两类）一律输出 null，不能把正常的完成时间也吞掉。
    */
   private toCustomerDepositView(item: any) {
     const customerStatus = this.toCustomerStatus(item.status);
-    const statusWasCollapsed = customerStatus !== item.status;
     return {
       id: item.id,
       depositNo: item.depositNo,
       status: customerStatus,
       amount: item.amount,
       createdAt: item.createdAt,
-      completedAt: statusWasCollapsed ? null : item.completedAt,
+      completedAt: CUSTOMER_COMPLETED_STATUSES.has(customerStatus) ? item.completedAt : null,
       txHash: item.txHash,
       referenceNo: item.referenceNo,
       fromAddress: item.fromAddress,

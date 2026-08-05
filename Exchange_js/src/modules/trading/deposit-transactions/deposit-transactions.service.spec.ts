@@ -389,7 +389,7 @@ describe('DepositTransactionsService', () => {
       },
     );
 
-    it.each(['SUCCESS', 'RETURNED'])(
+    it.each(['SUCCESS', 'FAILED', 'RETURNED'])(
       '%s（正常终态，白名单内）：completedAt 照常输出，不能把正常的完成时间也吞掉',
       async (rawStatus) => {
         const completedAt = new Date('2026-01-05T00:00:00Z');
@@ -403,6 +403,30 @@ describe('DepositTransactionsService', () => {
         )) as any;
 
         expect(result.completedAt).toEqual(completedAt);
+      },
+    );
+
+    // 终审 Critical（解冻后遗漏的一条弧）：`PAYIN_PENDING`/`COMPLIANCE_PENDING`/
+    // `ACTION_PENDING`/`RETURNING` 都在 `CUSTOMER_STATUS_PASSTHROUGH` 白名单
+    // 里、`status` 不会被收敛——但它们不是"完成态"，`completedAt` 仍必须是
+    // null。这正是判据不能用 `statusWasCollapsed` 的地方：一笔真正冻结过又
+    // 解冻回 `COMPLIANCE_PENDING` 的单，`status` 从未被收敛（进出都是
+    // `COMPLIANCE_PENDING`），但底层行的 `completedAt` 是 `updateStatus`
+    // 进 `FROZEN` 时写下、解冻时从未清除的非空时间戳；旧判据会把它原样
+    // 透传出去。
+    it.each(['PAYIN_PENDING', 'COMPLIANCE_PENDING', 'ACTION_PENDING', 'RETURNING'])(
+      '%s（放行态但非完成态）：即便底层行 completedAt 非空（如解冻后遗留的旧时间戳），客户面仍输出 null',
+      async (rawStatus) => {
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+          buildRow(rawStatus, new Date('2026-01-05T00:00:00Z')),
+        );
+
+        const result = (await service.findOneForCustomer(
+          'd-completedat-1',
+          'cust-1',
+        )) as any;
+
+        expect(result.completedAt).toBeNull();
       },
     );
 
@@ -465,6 +489,84 @@ describe('DepositTransactionsService', () => {
       const frozenView = await service.findOneForCustomer('d-indist-1', 'cust-1');
 
       expect(frozenView).toEqual(normalView);
+    });
+
+    // 终审 Critical：解冻之后的那条弧。同一笔单，一份从未被冻，一份走真实
+    // 冻结(FREEZE)再真实解冻(RESUME)——复刻 `onUnfreezeApproved` 会调用的
+    // 那条路径（`updateStatus(RESUME)`，不传 `extraData`）。断言两份客户面
+    // 输出**逐字段全等**：这是"被冻过又解冻"的客户不能通过响应体看出自己
+    // 被冻过的唯一保证。
+    it('走真实冻结→解冻路径(updateStatus FREEZE 然后 RESUME)：客户面输出与一笔从未被冻的单逐字段全等', async () => {
+      const baseFields = {
+        id: 'd-unfreeze-1',
+        depositNo: 'DEP-UNFREEZE-1',
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        amount: '250.00',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        txHash: null,
+        referenceNo: 'REF-UNFREEZE',
+        fromAddress: null,
+        fromIban: 'IBAN-1',
+        asset: { currency: 'EUR', code: 'EUR', network: null, decimals: 2, type: 'FIAT' },
+        limitHoldReason: null,
+        actionSubmittedAt: null,
+        statusHistory: null,
+      };
+
+      // 甲：一笔真正从未被冻的处理中单。
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+        ...baseFields,
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        completedAt: null,
+      });
+      const neverFrozenView = await service.findOneForCustomer('d-unfreeze-1', 'cust-1');
+
+      // 乙：同一笔单，先真实冻结(FREEZE)，再真实解冻(RESUME)——两次都经
+      // `updateStatus`，不是直接改库。
+      let currentRow: any = {
+        ...baseFields,
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        completedAt: null,
+      };
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce(
+        currentRow,
+      );
+      ((prisma as any).depositTransaction.update as jest.Mock).mockImplementationOnce(
+        ({ data }: any) => {
+          currentRow = { ...currentRow, ...data };
+          return Promise.resolve(currentRow);
+        },
+      );
+      await service.updateStatus('d-unfreeze-1', {
+        action: DepositTransactionAction.FREEZE,
+      });
+
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce(
+        currentRow,
+      );
+      ((prisma as any).depositTransaction.update as jest.Mock).mockImplementationOnce(
+        ({ data }: any) => {
+          currentRow = { ...currentRow, ...data };
+          return Promise.resolve(currentRow);
+        },
+      );
+      await service.updateStatus('d-unfreeze-1', {
+        action: DepositTransactionAction.RESUME,
+      });
+
+      // 解冻落库之后，底层行的 completedAt 仍是冻结时写下的非空时间戳——
+      // RESUME 没有传 extraData 去清它，这正是本 bug 的成因。
+      expect(currentRow.status).toBe(DepositTransactionStatus.COMPLIANCE_PENDING);
+      expect(currentRow.completedAt).not.toBeNull();
+
+      // 客户再打开详情页——重读的是真实写入的行。
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce(
+        currentRow,
+      );
+      const unfrozenView = await service.findOneForCustomer('d-unfreeze-1', 'cust-1');
+
+      expect(unfrozenView).toEqual(neverFrozenView);
     });
   });
 

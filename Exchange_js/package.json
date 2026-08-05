@@ -64,6 +64,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:client": "npm test --prefix client-web",
     "db:setup": "bash scripts/db-setup.sh",
     "package:release": "bash scripts/package-release.sh"
   },
