@@ -273,6 +273,14 @@ ensure_env_files() {
   # 演示开关:仅在缺失时补默认,不覆盖操作者已设的值。
   grep -qE "^GOVERNANCE_DEMO_ENABLED=" "${backend_env}" \
     || printf 'GOVERNANCE_DEMO_ENABLED=true\n' >>"${backend_env}"
+  # 同上。缺它的后果不显眼但很致命:充值/提现的 demo 裁决 controller 是**条件注册**的
+  # (见 deposit-sumsub.module.ts 的条件 controllers 数组——生产下这些路由压根不存在,
+  # 不是靠 guard 拦),SUMSUB_MOCK_MODE 不为 true 时整条演示链路的路由返回 404,
+  # 且 SumsubClient 会因为没有 APP_TOKEN/SECRET_KEY 抛错。
+  # 上面第 263 行的注释一直把它列为"要保留的键",却从没有任何地方创建过它,
+  # 于是每个新 worktree 的栈都不在演示模式下(2026-08-05 验收时发现)。
+  grep -qE "^SUMSUB_MOCK_MODE=" "${backend_env}" \
+    || printf 'SUMSUB_MOCK_MODE=true\n' >>"${backend_env}"
 
   upsert_env_key "${admin_env}"  "VITE_API_URL" "${BACKEND_URL}"
   upsert_env_key "${client_env}" "VITE_API_URL" "${BACKEND_URL}"
