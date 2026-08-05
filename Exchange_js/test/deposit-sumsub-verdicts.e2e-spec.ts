@@ -27,6 +27,15 @@ if (!process.env.DATABASE_URL?.includes('e2e-')) {
   );
 }
 
+// 同样必须在任何 import 之前。本 suite 全程走 mock 的 Sumsub 交易客户端，不打真实
+// api.sumsub.com；缺这个开关时 SumsubClient 会因为没有 APP_TOKEN/SECRET_KEY 抛错，
+// travelRule 分型那条用例随之红。
+//
+// ⚠️ 不能靠 .env：worktree 的 .env 由 scripts/stack.sh 每次 up 重新生成，从不写
+// SUMSUB_*（main 与各 worktree 均已核实为空）。所以这里与上面的 DATABASE_URL 一样
+// 硬编码——测试自带的运行前提不该依赖一个会被工具重写的文件。
+process.env.SUMSUB_MOCK_MODE = 'true';
+
 // Loaded before any other import so PrismaService / TigerBeetleService see the
 // worktree's own DATABASE_URL / TB_ADDRESS regardless of ConfigModule's
 // internal load timing (belt-and-braces — ConfigModule.forRoot() in
