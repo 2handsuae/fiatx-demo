@@ -76,6 +76,7 @@ interface ScanInboundSignalsResult {
     depositId: string | null;
     depositNo: string | null;
     depositStatus: string | null;
+    depositSubmitted: boolean;
   }>;
 }
 
@@ -90,6 +91,7 @@ interface SimulationResultSummary {
   payinStatus: string | null;
   depositNo: string | null;
   depositStatus: string | null;
+  depositSubmitted: boolean;
   assetCode: string;
   assetType: DepositAssetType;
 }
@@ -560,6 +562,10 @@ const Deposit = () => {
             payinStatus: createdSignal.payin.status || null,
             depositNo: createdSignal.payin.deposit?.depositNo || null,
             depositStatus: createdSignal.payin.deposit?.status || null,
+            // createForCustomer 的返回只 include 了 asset/wallet，不含 payin，
+            // 故这条 fallback 实际不会命中（scan 无 record 时上面会直接抛）。
+            // 保守取 false：新建信号刚生成的单不可能已提交过补料。
+            depositSubmitted: false,
           }
         : null;
       const resolvedRecord = firstRecord || fallbackRecord;
@@ -575,6 +581,7 @@ const Deposit = () => {
         payinStatus: resolvedRecord.payinStatus || 'DETECTED',
         depositNo: resolvedRecord.depositNo || null,
         depositStatus: resolvedRecord.depositStatus || 'PAYIN_PENDING',
+        depositSubmitted: !!resolvedRecord.depositSubmitted,
         assetCode: depositWallet.asset.code,
         assetType: normalizeSimulationAssetType(depositWallet.asset.type),
       });
@@ -684,10 +691,14 @@ const Deposit = () => {
                   inbound-transfer-signals.service.ts processSignal），这里
                   仍统一走 getDepositStatusView，与页面其它状态渲染
                   （viewOf/renderStatusBadge）走同一条路径，不留第二条裸显
-                  的口子。 */}
+                  的口子。
+                  ⚠️ 必须连 submitted 一起传：只传 status 的话，已提交的
+                  ACTION_PENDING 在这里显示 ACTION REQUIRED、在列表/弹窗显示
+                  PROCESSING，同一笔单两个地方说法不一；且该单被冻时这里的
+                  标签会变，与规则 A（冻结时刻客户端零变化）冲突。 */}
               Status:{' '}
               {summary.depositStatus
-                ? getDepositStatusView(summary.depositStatus).label
+                ? getDepositStatusView(summary.depositStatus, { submitted: summary.depositSubmitted }).label
                 : '-'}
             </div>
           </div>
