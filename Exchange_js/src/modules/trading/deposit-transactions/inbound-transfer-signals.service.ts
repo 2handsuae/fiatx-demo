@@ -439,7 +439,14 @@ export class InboundTransferSignalsService {
       payinStatus: fundsOrder?.status || null,
       depositId: deposit?.id || null,
       depositNo: deposit?.depositNo || null,
-      depositStatus: deposit?.status || null,
+      // 复审 Critical 2（规则 A，tipping-off 防线）：这个 summary 是
+      // POST /deposit-transactions/my/inbound-signals/scan 的响应体，直接
+      // 到客户浏览器。`deposit` 是驱动后重读拿到的真实行，`deposit.status`
+      // 未经收敛就可能是 FROZEN/SEIZED/… 原始值——绕开了
+      // DepositTransactionsService#toCustomerDepositView 那道收敛防线。
+      // 复用同一个判据（DepositTransactionsService#toCustomerStatus），
+      // 不再写第二份状态清单。
+      depositStatus: deposit ? this.depositService.toCustomerStatus(deposit.status) : null,
     };
   }
 

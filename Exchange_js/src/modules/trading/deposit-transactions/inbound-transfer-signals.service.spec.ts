@@ -64,6 +64,24 @@ describe('InboundTransferSignalsService', () => {
 
     depositService = {
       detected: jest.fn(),
+      // 复审 Critical 2：processSignal() 的 depositStatus 收敛复用
+      // DepositTransactionsService#toCustomerStatus 这同一个判据（见
+      // deposit-transactions.service.ts 的 CUSTOMER_STATUS_PASSTHROUGH 白
+      // 名单）。这里原样照抄同一份白名单，而不是随便返回原值/固定值——
+      // 否则测不出"服务真的调用并使用了收敛结果"，也测不出白名单本身对不对。
+      toCustomerStatus: jest.fn((status: string) =>
+        [
+          'PAYIN_PENDING',
+          'COMPLIANCE_PENDING',
+          'ACTION_PENDING',
+          'SUCCESS',
+          'FAILED',
+          'RETURNING',
+          'RETURNED',
+        ].includes(status)
+          ? status
+          : 'COMPLIANCE_PENDING',
+      ),
     };
 
     fundsOrderService = {
@@ -490,6 +508,70 @@ describe('InboundTransferSignalsService', () => {
     expect(depositService.detected).toHaveBeenCalledWith(
       expect.objectContaining({ counterpartyIsVasp: true }),
     );
+  });
+
+  // 复审 Critical 2（规则 A，tipping-off 防线）：POST
+  // /deposit-transactions/my/inbound-signals/scan 直接面向客户浏览器。驱动
+  // 后重读拿到的 deposit 行如果真实状态是 FROZEN（例如驱动过程中撞上了
+  // KYT/制裁复核），返回体里的 depositStatus 必须经收敛，不能把
+  // 'FROZEN' 原样吐给客户——那会绕开 DepositTransactionsService
+  // #toCustomerDepositView 那道防线（Deposit.tsx 此前是 `Status:
+  // {summary.depositStatus}` 裸显，完全绕开视图层）。
+  it('scan 返回的 depositStatus 必须经收敛——重读到的 FROZEN 不能原样下发', async () => {
+    prisma.wallet.findUnique.mockResolvedValue({
+      id: 'wallet-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      direction: 'INBOUND',
+      walletRole: 'C_DEP',
+      status: 'ACTIVE',
+      assetId: 'asset-1',
+      asset: { type: 'CRYPTO' },
+    });
+    onboardingService.assertTradingEligibility.mockResolvedValue(undefined);
+    prisma.inboundTransferSignal.findMany.mockResolvedValue([
+      {
+        id: 'sig-frozen-1',
+        signalNo: 'SIG-FROZEN-1',
+        ownerId: 'cust-1',
+        walletId: 'wallet-1',
+        assetId: 'asset-1',
+        amount: { toString: () => '100.00' },
+        channelType: 'CRYPTO',
+        txHash: '0xfrozen',
+        fromAddress: '0xfrom',
+        counterpartyIsVasp: true,
+        submittedAt: new Date(),
+      },
+    ]);
+    prisma.fundsOrder.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    depositService.detected.mockResolvedValue({
+      deposit: { id: 'dep-frozen-1', depositNo: 'DEP-FROZEN-1', status: 'PAYIN_PENDING' },
+      fundsOrder: { id: 'fo-frozen-1', fundsOrderNo: 'FO-FROZEN-1', status: FundsOrderStatus.SUBMITTED },
+    });
+    fundsOrderService.findById
+      .mockResolvedValueOnce({ id: 'fo-frozen-1', fundsOrderNo: 'FO-FROZEN-1', status: FundsOrderStatus.SUBMITTED })
+      .mockResolvedValueOnce({ id: 'fo-frozen-1', fundsOrderNo: 'FO-FROZEN-1', status: FundsOrderStatus.CONFIRMING })
+      .mockResolvedValueOnce({ id: 'fo-frozen-1', fundsOrderNo: 'FO-FROZEN-1', status: FundsOrderStatus.CONFIRMED });
+    fundsOrderService.advance.mockResolvedValue({});
+    // 驱动后重读——真实状态是 FROZEN（撞上制裁/KYT 复核），不是正常的
+    // COMPLIANCE_PENDING。
+    prisma.depositTransaction.findUnique.mockResolvedValue({
+      id: 'dep-frozen-1',
+      depositNo: 'DEP-FROZEN-1',
+      status: 'FROZEN',
+    });
+    prisma.inboundTransferSignal.update.mockResolvedValue({});
+
+    const result = await service.scanForCustomer('cust-1', { walletId: 'wallet-1' });
+
+    expect(depositService.toCustomerStatus).toHaveBeenCalledWith('FROZEN');
+    expect(result.records).toEqual([
+      expect.objectContaining({
+        depositId: 'dep-frozen-1',
+        depositStatus: 'COMPLIANCE_PENDING',
+      }),
+    ]);
   });
 
   it('should reuse an existing deposit funds order on repeated scan without creating duplicates', async () => {

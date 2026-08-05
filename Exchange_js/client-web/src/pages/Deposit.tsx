@@ -679,7 +679,16 @@ const Deposit = () => {
               {summary.depositNo || '-'}
             </div>
             <div className="mt-1 text-xs text-fx-dust">
-              Status: {summary.depositStatus || '-'}
+              {/* 复审 Critical 2（规则 A）：不裸显 depositStatus 原始状态串——
+                  即便后端 scan 端点已经把它收敛过（见
+                  inbound-transfer-signals.service.ts processSignal），这里
+                  仍统一走 getDepositStatusView，与页面其它状态渲染
+                  （viewOf/renderStatusBadge）走同一条路径，不留第二条裸显
+                  的口子。 */}
+              Status:{' '}
+              {summary.depositStatus
+                ? getDepositStatusView(summary.depositStatus).label
+                : '-'}
             </div>
           </div>
         </div>

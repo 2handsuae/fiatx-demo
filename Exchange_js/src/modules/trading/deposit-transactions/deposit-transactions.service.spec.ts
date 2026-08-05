@@ -254,7 +254,13 @@ describe('DepositTransactionsService', () => {
         status: 'COMPLIANCE_PENDING',
         amount: '500.00',
         createdAt: SENSITIVE_FULL_ROW.createdAt,
-        completedAt: SENSITIVE_FULL_ROW.completedAt,
+        // 复审 Critical 1：status 被收敛掉的同时，completedAt 也必须清空成
+        // null——SENSITIVE_FULL_ROW.completedAt 是非空的
+        // 2026-01-02T00:00:00Z（模拟真实 SEIZED 单落库后的样子），如果这里
+        // 原样透传，客户面会看到"status=COMPLIANCE_PENDING 但已完成"这个
+        // 正常处理中的单不可能出现的组合，本身就是可辨识信号。见下方
+        // 「completedAt 收敛 (Critical 1)」describe 块。
+        completedAt: null,
         txHash: '0xabc',
         referenceNo: 'REF-1',
         fromAddress: 'T_FROM',
@@ -306,14 +312,17 @@ describe('DepositTransactionsService', () => {
       expect(result.status).toBe('COMPLIANCE_PENDING');
     });
 
+    // 复审 Important 1：收敛集从黑名单反转成白名单，这七个是白名单——只有
+    // 它们原样输出，其余（含下面这组遗留/假想未来态）一律收敛。
     it.each([
+      'PAYIN_PENDING',
+      'COMPLIANCE_PENDING',
       'ACTION_PENDING',
       'SUCCESS',
       'FAILED',
       'RETURNING',
       'RETURNED',
-      'PAYIN_PENDING',
-    ])('%s 原样输出（不在收敛集里，客户本就该看到真实结果）', async (rawStatus) => {
+    ])('%s 原样输出（白名单放行的七个态之一，客户本就该看到真实结果）', async (rawStatus) => {
       ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
         buildCustomerRow(rawStatus),
       );
@@ -321,6 +330,141 @@ describe('DepositTransactionsService', () => {
       const result = (await service.findOneForCustomer('d-collapse-1', 'cust-1')) as any;
 
       expect(result.status).toBe(rawStatus);
+    });
+
+    // 复审 Important 1（本轮新增）：白名单放行制下，遗留的 REJECTED/EXPIRED
+    // 行（状态机收窄前的产物）、以及任何假想的未来执法态，都不在白名单里，
+    // 必须一律收敛——这正是黑名单版本会漏掉的那类洞：黑名单只挡它认识的
+    // 七个态，遗留态和未来新增态都不在其中，会原样下发。
+    it.each([
+      'REJECTED',
+      'EXPIRED',
+      'SOME_FUTURE_ENFORCEMENT_STATE',
+    ])('%s（不在白名单里，遗留态/假想未来态）→ COMPLIANCE_PENDING', async (rawStatus) => {
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+        buildCustomerRow(rawStatus),
+      );
+
+      const result = (await service.findOneForCustomer('d-collapse-1', 'cust-1')) as any;
+
+      expect(result.status).toBe('COMPLIANCE_PENDING');
+    });
+  });
+
+  // 复审 Critical 1（规则 A 的另一处漏洞）：status 被收敛掉的同时，
+  // completedAt 也必须清空成 null，否则"status=COMPLIANCE_PENDING 但
+  // completedAt 非空"这个正常处理中的单不可能出现的组合，本身就是一个新的
+  // 可辨识信号（Deposit.tsx 还会因此多渲染一行 "Completed"）。
+  describe('completedAt 收敛 (Critical 1，复审)', () => {
+    const buildRow = (status: string, completedAt: Date | null) => ({
+      id: 'd-completedat-1',
+      depositNo: 'DEP-COMPLETEDAT-1',
+      ownerId: 'cust-1',
+      status,
+      amount: '10.00',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      completedAt,
+      txHash: null,
+      referenceNo: null,
+      fromAddress: null,
+      fromIban: null,
+      asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
+      limitHoldReason: null,
+      actionSubmittedAt: null,
+    });
+
+    it.each(['FROZEN', 'SEIZED', 'CONFISCATED'])(
+      '%s（被收敛的状态）：completedAt 输出 null，即便底层行确实非空',
+      async (rawStatus) => {
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+          buildRow(rawStatus, new Date('2026-01-05T00:00:00Z')),
+        );
+
+        const result = (await service.findOneForCustomer(
+          'd-completedat-1',
+          'cust-1',
+        )) as any;
+
+        expect(result.completedAt).toBeNull();
+      },
+    );
+
+    it.each(['SUCCESS', 'RETURNED'])(
+      '%s（正常终态，白名单内）：completedAt 照常输出，不能把正常的完成时间也吞掉',
+      async (rawStatus) => {
+        const completedAt = new Date('2026-01-05T00:00:00Z');
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(
+          buildRow(rawStatus, completedAt),
+        );
+
+        const result = (await service.findOneForCustomer(
+          'd-completedat-1',
+          'cust-1',
+        )) as any;
+
+        expect(result.completedAt).toEqual(completedAt);
+      },
+    );
+
+    // 本轮核心防护：同一笔单，一份走真实的 COMPLIANCE_PENDING（正常处理中），
+    // 一份走真实冻结路径（service.updateStatus + FREEZE 动作——不是
+    // `UPDATE ... SET status='FROZEN'` 直接改库；上一轮验收就是因为绕过了
+    // updateStatus，completedAt 根本没被写，才没测出这个洞）。断言两份客户面
+    // 输出**逐字段全等**，不只是比 status 一个字段——前几轮复审反复漏就是
+    // 因为只盯单个字段。
+    it('走真实冻结路径(updateStatus + freeze)：客户面输出与一笔正常处理中的单逐字段全等', async () => {
+      const baseFields = {
+        id: 'd-indist-1',
+        depositNo: 'DEP-INDIST-1',
+        ownerId: 'cust-1',
+        ownerType: 'CUSTOMER',
+        amount: '250.00',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        txHash: null,
+        referenceNo: 'REF-INDIST',
+        fromAddress: null,
+        fromIban: 'IBAN-1',
+        asset: { currency: 'EUR', code: 'EUR', network: null, decimals: 2, type: 'FIAT' },
+        limitHoldReason: null,
+        actionSubmittedAt: null,
+        statusHistory: null,
+      };
+
+      // 甲：一笔真正在处理中的单，从未被冻。
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+        ...baseFields,
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        completedAt: null,
+      });
+      const normalView = await service.findOneForCustomer('d-indist-1', 'cust-1');
+
+      // 乙：同一笔单的字段起点，走真实的 updateStatus(FREEZE) 冻结路径。
+      const preFreezeRow = {
+        ...baseFields,
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        completedAt: null,
+      };
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce(
+        preFreezeRow,
+      );
+      let persistedRow: any;
+      ((prisma as any).depositTransaction.update as jest.Mock).mockImplementationOnce(
+        ({ data }: any) => {
+          persistedRow = { ...preFreezeRow, ...data };
+          return Promise.resolve(persistedRow);
+        },
+      );
+      await service.updateStatus('d-indist-1', {
+        action: DepositTransactionAction.FREEZE,
+      });
+
+      // 冻结落库之后，客户再打开详情页——重读的是 updateStatus 真实写入的行。
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce(
+        persistedRow,
+      );
+      const frozenView = await service.findOneForCustomer('d-indist-1', 'cust-1');
+
+      expect(frozenView).toEqual(normalView);
     });
   });
 
@@ -503,7 +647,9 @@ describe('DepositTransactionsService', () => {
         status: 'COMPLIANCE_PENDING',
         amount: '500.00',
         createdAt: SENSITIVE_FULL_ROW.createdAt,
-        completedAt: SENSITIVE_FULL_ROW.completedAt,
+        // 复审 Critical 1：status 被收敛的同时 completedAt 也必须清空，见
+        // findAllForCustomer 那份同名断言上的注释。
+        completedAt: null,
         txHash: '0xabc',
         referenceNo: 'REF-1',
         fromAddress: 'T_FROM',

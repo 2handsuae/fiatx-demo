@@ -68,17 +68,29 @@ const CUSTOMER_BUCKETS: Record<string, any> = {
   FAILED: FAILED_BUCKET_WHERE,
 };
 
-// 客户面 status 收敛集（评审 Important 1，安全洞）。见 toCustomerDepositView
-// 的注释——这七个状态原样下发会让客户开 DevTools 直接读到真实状态字符串，
-// 即便渲染层已经把它们都渲染成同一个 "PROCESSING" 标签。
-const CUSTOMER_STATUS_COLLAPSE = new Set<string>([
-  'FROZEN',
-  'SEIZING',
-  'SEIZED',
-  'MANUAL_CHECKING',
-  'CONFISCATING',
-  'CONFISCATED',
-  'OPERATION_PENDING',
+// 客户面 status 白名单（复审 Important 1：黑名单反转成白名单）。见
+// toCustomerDepositView 的注释——原样下发真实状态字符串会让客户开
+// DevTools 直接读到，即便渲染层已经把它们都渲染成同一个 "PROCESSING" 标签。
+//
+// 为什么是白名单而不是黑名单：`status` 在 DB 里是自由 String 列，不是受约束
+// 的枚举。之前这里叫 CUSTOMER_STATUS_COLLAPSE，是个七态黑名单——但黑名单
+// 必然滞后：遗留的 REJECTED/EXPIRED 行（状态机收窄前的产物，见
+// doc-final/reference/truth/v4-deposit.md 第 2 节）、以及状态机将来任何新增
+// 的执法态，只要没人记得手工把它加进黑名单，就会原样下发。这与刚做完的
+// CUSTOMER_BUCKETS.PROCESSING 补集化（评审 Important 2，见上方注释）方向直接
+// 矛盾——那边刚把"新状态默认落在桶外"的滞后洞堵上，这里的黑名单还是同一种
+// 会滞后的设计，必须反过来：只有下面这七个"客户本就该看到真实结果"的态
+// 原样输出，其余任何状态——现在的、遗留的、未来新增的——一律收敛成
+// 'COMPLIANCE_PENDING'。宁可错杀（未来某个良性新状态也被暂时收敛成"处理
+// 中"），不可放过（未来某个执法新状态原样吐给客户）。
+const CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
+  'PAYIN_PENDING',
+  'COMPLIANCE_PENDING',
+  'ACTION_PENDING',
+  'SUCCESS',
+  'FAILED',
+  'RETURNING',
+  'RETURNED',
 ]);
 
 export interface DepositStatusUpdateActorContext {
@@ -257,11 +269,13 @@ export class DepositTransactionsService {
    * COMPLIANCE_PENDING 一样的 "PROCESSING"，但客户打开 DevTools → Network
    * 面板能直接看到这个接口吐出的原始响应体，不需要依赖前端有没有正确渲染
    * ——设计 §5.2：接口必须服从和渲染层一样的不可区分规则。所以 `status`
-   * 在进入这个白名单前必须先经 `CUSTOMER_STATUS_COLLAPSE` 收敛，不能直接
-   * 透传 `item.status`。
+   * 在进入这个白名单前必须先经 `CUSTOMER_STATUS_PASSTHROUGH` 收敛，不能
+   * 直接透传 `item.status`。
    *
-   * 收敛集为什么恰好是这七个（`FROZEN`/`SEIZING`/`SEIZED`/`MANUAL_CHECKING`/
-   * `CONFISCATING`/`CONFISCATED`/`OPERATION_PENDING`）：
+   * 白名单为什么恰好是这七个（`PAYIN_PENDING`/`COMPLIANCE_PENDING`/
+   * `ACTION_PENDING`/`SUCCESS`/`FAILED`/`RETURNING`/`RETURNED`）——即为什么
+   * 除它们以外的一切都要收敛（`FROZEN`/`SEIZING`/`SEIZED`/`MANUAL_CHECKING`/
+   * `CONFISCATING`/`CONFISCATED`/`OPERATION_PENDING`，以及任何未来新增状态）：
    *   - FROZEN / SEIZING / SEIZED —— 制裁/执法处置弧，规则 A（tipping-off
    *     防线）保护的核心对象。
    *   - MANUAL_CHECKING —— 人工复核态，同样不能让客户知道自己的单被单独
@@ -273,25 +287,41 @@ export class DepositTransactionsService {
    *     不显示"当防线。
    *   - OPERATION_PENDING —— 合规已通过、金额低于下限等运营处置的中间态，
    *     同样不在 VIEW_MAP 里、同样渲染成 PROCESSING，同样要提前收敛。
-   * 这七个状态收敛后统一输出字符串 `'COMPLIANCE_PENDING'`——前端拿到后走
-   * VIEW_MAP 的显式映射（PROCESSING / neutral），与数据库里原生就是
-   * COMPLIANCE_PENDING 的单逐字节相同的呈现，不会分叉出第三种路径。
-   * ⚠️ 除这七个以外的状态原样输出——`ACTION_PENDING`/`SUCCESS`/`FAILED`/
-   * `RETURNING`/`RETURNED`/`PAYIN_PENDING` 在 VIEW_MAP 里本来就有自己的
-   * 呈现，客户本就该看到真实结果；收敛它们没有意义，反而会把 SUCCESS 这类
-   * 终态也伪装成"处理中"，制造新的误导。
+   *   - 白名单以外的任何状态（REJECTED/EXPIRED 这类遗留行、以及状态机将来
+   *     任何新增的执法态）——同样收敛，不需要等人手工把它加进黑名单，
+   *     这正是复审要求把黑名单反转成白名单的原因，见上方
+   *     `CUSTOMER_STATUS_PASSTHROUGH` 的定义处注释。
+   * 收敛后统一输出字符串 `'COMPLIANCE_PENDING'`——前端拿到后走 VIEW_MAP 的
+   * 显式映射（PROCESSING / neutral），与数据库里原生就是 COMPLIANCE_PENDING
+   * 的单逐字节相同的呈现，不会分叉出第三种路径。
    * ⚠️ 别把这条"修回去"：下一个人如果看见"服务端返回的 status 字符串跟
    * 数据库存的不一样"觉得像 bug、想改成原样输出——那正是这段注释要拦住的
    * 那次修改。
+   *
+   * `completedAt`（复审 Critical 1，规则 A 的另一处漏洞）—— `status` 被收敛
+   * 掉之后，`completedAt` 若仍原样透传就会重新捅穿规则 A：真实
+   * `adminFreeze`/没收/没收结算走的是 `updateStatus`，其中 FROZEN/SEIZED/
+   * CONFISCATED 都会把 `completedAt` 写成 `new Date()`（见下方
+   * `updateStatus` 里 `TERMINAL.has(nextStatus) || nextStatus ===
+   * DepositTransactionStatus.FROZEN` 那段）。客户面响应体因此会出现
+   * "status 显示 COMPLIANCE_PENDING，但 completedAt 非空"——而一笔真正在
+   * 处理中的单 `completedAt` 恒为 null，这个组合本身就是一个新的可辨识
+   * 信号（Deposit.tsx 还会因此多渲染一行 "Completed"）。判据必须与
+   * `status` 收敛用同一个——`customerStatus !== item.status`，即
+   * `toCustomerStatus` 是否把这行"改写"过——而不是另起一份状态清单，两份
+   * 清单迟早漂移。SUCCESS/FAILED/RETURNED 等白名单内的正常终态不受影响，
+   * `completedAt` 照常输出，不能把正常的完成时间也吞掉。
    */
   private toCustomerDepositView(item: any) {
+    const customerStatus = this.toCustomerStatus(item.status);
+    const statusWasCollapsed = customerStatus !== item.status;
     return {
       id: item.id,
       depositNo: item.depositNo,
-      status: this.toCustomerStatus(item.status),
+      status: customerStatus,
       amount: item.amount,
       createdAt: item.createdAt,
-      completedAt: item.completedAt,
+      completedAt: statusWasCollapsed ? null : item.completedAt,
       txHash: item.txHash,
       referenceNo: item.referenceNo,
       fromAddress: item.fromAddress,
@@ -308,9 +338,15 @@ export class DepositTransactionsService {
     };
   }
 
-  /** `status` 收敛的具体实现，见上方 `toCustomerDepositView` 文档注释。 */
-  private toCustomerStatus(status: string): string {
-    return CUSTOMER_STATUS_COLLAPSE.has(status) ? 'COMPLIANCE_PENDING' : status;
+  /**
+   * `status` 收敛的具体实现（白名单放行制，评审 Important 1），见上方
+   * `toCustomerDepositView` 文档注释。刻意不是 `private`——
+   * inbound-transfer-signals.service.ts 的 scan 端点（复审 Critical 2）
+   * 复用这同一个判据收敛它自己返回的 `depositStatus`，不再另写第二份
+   * 状态清单。
+   */
+  toCustomerStatus(status: string): string {
+    return CUSTOMER_STATUS_PASSTHROUGH.has(status) ? status : 'COMPLIANCE_PENDING';
   }
 
   async findOne(id: string) {
