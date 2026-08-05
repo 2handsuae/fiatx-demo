@@ -60,6 +60,7 @@ import { DepositTransactionStatus } from '../src/modules/trading/deposit-transac
 import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
 import { DepositDemoScenarioService } from '../src/modules/deposit-sumsub/demo-scenario.service';
+import { DepositVerificationSessionService } from '../src/modules/trading/deposit-transactions/deposit-verification-session.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { WithdrawalAddressService } from '../src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
@@ -98,6 +99,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   let workflow: DepositWorkflowService;
   let depositService: DepositTransactionsService;
   let demoService: DepositDemoScenarioService;
+  let verificationSessions: DepositVerificationSessionService;
   let accounting: AccountingService;
   let approvalsService: ApprovalsService;
   let mockSumsubTxnClient: MockSumsubTxnClient;
@@ -149,6 +151,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     workflow = app.get(DepositWorkflowService);
     depositService = app.get(DepositTransactionsService);
     demoService = app.get(DepositDemoScenarioService);
+    verificationSessions = app.get(DepositVerificationSessionService);
     accounting = app.get(AccountingService);
     approvalsService = app.get(ApprovalsService);
     mockSumsubTxnClient = app.get(SUMSUB_TXN_CLIENT) as unknown as MockSumsubTxnClient;
@@ -543,5 +546,52 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     const actionsAfterSecond = await auditActionsFor(deposit.id);
     const completedAfterSecond = actionsAfterSecond.filter((a) => a === AuditActions.DEPOSIT_COMPLETED).length;
     expect(completedAfterSecond).toBe(1); // unchanged — 2nd delivery was a no-op
+  });
+
+  // ── Task 7: 补料 embed 弧 + 接口层不可区分 ──────────────────────────────
+  //
+  // 这套 e2e 没有 supertest/HTTP 层（全文件同款：直接调 service，与生产
+  // controller 路由等价的最小切片），故不像 brief 草稿那样打 `api.get(...)`，
+  // 而是直接调 `DepositVerificationSessionService`（controller
+  // `getMyVerificationSession`/`submitMyVerification` 背后就是这两个方法，
+  // 见 deposit-transactions.controller.ts:98-108）与
+  // `DepositWorkflowService.adminFreeze()`（`PATCH :id/status {action:'freeze'}`
+  // 背后同一个方法，见 controller.ts:153）。
+
+  it('补料完整弧：awaitUser → 取会话 → 提交 → 状态未动 → 操作员放行 → SUCCESS', async () => {
+    const deposit = await createDeposit({ isCrypto: false, amount: '120.00' });
+
+    await deliver(deposit.id, 'V2_AWAIT_USER');
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
+
+    const session1 = await verificationSessions.getSession(customerId, deposit.depositNo);
+    expect(session1.submitted).toBe(false);
+    expect(session1.embedUrl).toBeTruthy();
+
+    await verificationSessions.submit(customerId, deposit.depositNo);
+
+    const after = (await depositService.findOne(deposit.id)) as any;
+    expect(after.status).toBe(DepositTransactionStatus.ACTION_PENDING); // 状态没动
+    expect(after.actionSubmittedAt).toBeTruthy(); // 戳落了
+    expect(new Date(after.slaDeadline).getTime()) // 表重置了
+      .toBeGreaterThan(Date.now() + 6 * 24 * 3600 * 1000);
+
+    await deliver(deposit.id, 'V1_APPROVED');
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
+  });
+
+  it('接口不可区分：已提交的单，ACTION_PENDING 与 FROZEN 的会话响应体全等', async () => {
+    const deposit = await createDeposit({ isCrypto: false, amount: '130.00' });
+
+    await deliver(deposit.id, 'V2_AWAIT_USER');
+    await verificationSessions.submit(customerId, deposit.depositNo);
+
+    const before = await verificationSessions.getSession(customerId, deposit.depositNo);
+
+    await workflow.adminFreeze(deposit.id, 'E2E: tipping-off equality check', HARNESS_ACTOR);
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
+
+    const after = await verificationSessions.getSession(customerId, deposit.depositNo);
+    expect(after).toEqual(before);
   });
 });

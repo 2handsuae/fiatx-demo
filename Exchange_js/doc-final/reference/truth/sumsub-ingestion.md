@@ -1,6 +1,6 @@
 # Sumsub 合规信号翻译层 — 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 truth，查出三处漂移并修：①前置分流仍写 startsWith 前缀匹配（实为 KYT_VERDICT_TYPES 显式集合）②类型清单写 applicantKytTxnOnHold（官方无 Txn，正是本轮修掉的真接入必失效 bug）③第 4 节仍称充值新旧两条路径并存（applyKytResult/applyTrResult 已全仓零残留）。前序核对方式：符号级 grep + V2/V4/V5/V6 体检交叉佐证；本次补充充值 KYT-txn webhook 前置分流段，见第 3 节）
+Last Verified: 2026-08-05（核对方式：补料 Embed 功能收尾（deposit-action-embed 分支 Task 7），补第 3 节 `applicantActions[]` 从 `getTxn` 经 handler 透传到充值单的完整链路 + 第 4 节新增 `createActionSdkToken()` 两处缺陷条目，均回代码逐符号核实。前序核对方式：2026-08-03 业主要求逐份核充值相关 truth，查出三处漂移并修：①前置分流仍写 startsWith 前缀匹配（实为 KYT_VERDICT_TYPES 显式集合）②类型清单写 applicantKytTxnOnHold（官方无 Txn，正是本轮修掉的真接入必失效 bug）③第 4 节仍称充值新旧两条路径并存（applyKytResult/applyTrResult 已全仓零残留）。更早核对方式：符号级 grep + V2/V4/V5/V6 体检交叉佐证；本次补充充值 KYT-txn webhook 前置分流段，见第 3 节）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V2(onboarding/CRA/材料时效)/V4(充值 KYT)/V5(提现 KYT)/V6(兑换) 引用——外部合规信号进平台的**唯一入口**。各版本文档只描述"自己消费哪个事件"，翻译层机制链到此。
 
@@ -34,11 +34,13 @@ Sumsub（KYC/KYT/Travel Rule/制裁筛查/持续监控）的 webhook → 翻译�
   - applicant 事件 → 按 onboardingStatus：PENDING_VERIFICATION→V2 onboarding；APPROVED+WorkflowCompleted→V2 tierUpgrade；APPROVED+Reviewed(RED)→V2 CRA
 - **韧性**：`sumsub-ingestion-retry.service.ts` `@Cron('*/2 * * * *')` 扫 FAILED，退避 [30s/5m/30m]，超 3 次 → DEAD
 - **模拟端点**：`simulate()`（DEV 阶段注入合规结果，走同 ingest 管道）；admin `list()/findOne()/replay()`（Sumsub Events 页）
+- **`applicantActions[]` 透传（充值补料，2026-08-04/05 落地）**：`SumsubTxnClient.getTxn()` 的返回体（`sumsub-txn.types.ts → SumsubTxnDetail`）带 `applicantActions?: {applicantActionId, externalActionId}[]`（`scoringResult.applicantActions`，`awaitUser` 裁决时 Sumsub 告诉我方要客户补什么）；`sumsub-txn-client.mock.ts`/`sumsub-txn-client.http.ts` 两个实现各自把原始报文的 `scoringResult.applicantActions` 映射成这个数组（两处映射逻辑手写重复，未共享 helper，见 BACKLOG）。`DepositKytVerdictHandler.handle()`（`awaitUser` 裁决分支）从 `getTxn` 存证结果里取出 `detail.applicantActions` 原样透传给 `DepositWorkflowService.applyKytVerdict()` 的 `applicantActions` 参数，最终落进 `applyKytAwaitUser()`——只取数组第一个（`applicantActions?.[0]`）写进 deposit 的 `sumsubActionId`/`sumsubExternalActionId` 两列；多个 action 只处理第一个是已知缺口，详见 `v4-deposit.md` §4.6"已知缺口"。`applicantAction*` webhook 事件本身（如 §3 上方所述）**不**触发这条链路——补料后 Sumsub 自动重评发出的仍是 `applicantKytTxn*`，走的是本节前置分流那条路，不需要专门的 action-event handler。
 - 锚点：`sumsub-ingestion.controller.ts → handleWebhook()` ｜ `sumsub-ingestion.service.ts → ingest()/dispatch()/simulate()/replay()` ｜ `sumsub-ingestion-retry.service.ts` ｜ `admin-sumsub-simulation.controller.ts`（各交易的 kyt/tr 模拟端点）｜ `deposit-sumsub/deposit-webhook.router.ts`（充值 KYT-txn webhook 前置分流）｜ `deposit-sumsub/deposit-kyt-verdict.handler.ts`
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
 
 - 🔴 **真实 Sumsub KYT/TR 集成未做（V5/V6）**：V5（提现）/V6（兑换）的 KYT/Travel Rule 门仍**靠模拟端点驱动**，真实 webhook 消费链路未见部署；V5 `archivePostKyt()` stub（待替换真实 PATCH /kyt/txns 调用）。**V4（充值）已接真实 webhook**（`KYT_VERDICT_TYPES` → `DepositWebhookRouter`，见第 3 节 + `v4-deposit.md` §4.1）。~~老 mock kyt-check/tr-check 路径并未删除，新旧两条路径并存~~ —— **该路径已于 2026-07-31 单笔提交改造中整体删除**（`applyKytResult()`/`applyTrResult()` 全仓零残留，已 grep 核实），充值侧不再并存两条路径，见 `v4-deposit.md` §4.2 的作废声明。
+- 🔴 **`createActionSdkToken()` 真接 Sumsub 必炸**（`identity/onboarding/providers/sumsub/sumsub.client.ts:118`，充值补料 Embed 换真 SDK 时会用到这个方法签发短时 token）：两处缺陷——① `userId` 参数当前传的是 Sumsub 侧 `applicantId`，官方接口定义要求传我方 `externalUserId`（真实数据里两者不同，不可互换）；② 缺 applicant action 场景必填的 `externalActionId`（该方法目前只接 `applicantId`/`levelName`/`ttlInSecs` 三个参数，未接收/透传 action 级别的 `externalActionId`）。当前被 `SUMSUB_MOCK_MODE=true` 时的假返回（`mock-sdk-token-...`）掩盖，未在任何真实调用路径上暴露；详见 `v4-deposit.md` §4.6"已知缺口"。
 - 消费方处置见各版本：V2 onboarding/CRA/材料时效（v2-customer-compliance.md）、V4-V6 合规门（各自 truth）
 
 ## 5. 锚点汇总

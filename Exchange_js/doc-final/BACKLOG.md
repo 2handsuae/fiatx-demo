@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-07-31
+Last Updated: 2026-08-05
 
 ---
 
@@ -96,6 +96,16 @@ Last Updated: 2026-07-31
 - [ ] **RBAC 非超管验证未做（F6）**：`POST /admin/deposit-sumsub/demo/run-scenario` 已在 `rbac.catalog.ts` 登记 `TRADING_DEPOSIT_WRITE` 权限，但 Task 6 只用 SUPER_ADMIN token 验证过（该角色走 `access-control.service.ts` 的硬编码 bypass，天然绕过权限表检查），未验证一个只有 `TRADING_DEPOSIT_WRITE`（或没有该权限）的真实自定义角色调用该端点时，权限门是否真的生效（需要 `db:base:sync` + 重启后端才能让新 RBAC code 对非超管角色生效，Task 6 报告已提醒但未做）｜来源: 2026-07-29 Task 6 报告遗留
 - [ ] **`linkedFundOrders` 的 `kind` 把没收/退回/上缴三条弧全部误标成同一个 `CONFISCATION`（Task 8 真机渲染发现的真 bug）**：`deposit-transactions.service.ts`（约 L201）`isConfiscation = fo.legSeq != null && fo.legSeq > 1` 只按"是否 legSeq>1"二分，把 legSeq=2（没收动腿）/legSeq=3（**计划2·A3 退回**动腿）/legSeq=4（**计划2·A4 上缴**动腿）全部归为 `kind: 'CONFISCATION'`；前端 `DepositTransactionDetail.tsx:543` 相应把三者的 "Linked Funds Orders" 卡片全部渲染成 `Fee · Confiscation`。Task 8 真机渲染验证时在一笔真实 SEIZE（政府上缴）流程里截图证实：legSeq=4 的资金单被标成"Fee · Confiscation"，对 operator 是误导性文案（这是政府移交，不是没收手续费）。**渲染层已把关的其它维度不受影响**（状态徽章/门控/Sumsub 引用区/演示面板均正确，只有这一处 kind 标签是历史遗留，早于本轮但被本轮新增的 legSeq=3/4 弧放大暴露）。修法：`LinkedFundOrder.kind` 类型 + 后端判定逻辑改按 legSeq 精确映射（2→CONFISCATION，3→RETURN，4→SEIZE），前端 `cap` 文案随之加 `RETURN`/`SEIZE` 两个新分支 ｜来源: 2026-07-29 Task 8 真机渲染验证发现，按硬约束未修（渲染暴露的真 bug，停手报告）
 - [ ] **SEIZE 弧 e2e 场景 2 间歇性断言不到 `DEPOSIT_SEIZE_STARTED` 审计（既存 flaky race，与终审四修无关）**：`test/deposit-money-arcs.e2e-spec.ts` 场景 2 在两步审批（SENIOR_MANAGEMENT_OFFICER→MLRO）批准后用 `waitUntil()` 每 50ms 轮询 `finalStatusOf(deposit.id)===SEIZING`，一旦轮到即断言 `auditActionsFor(deposit.id)` 包含 `DEPOSIT_SEIZE_STARTED`；但 `deposit-workflow.service.ts → onSeizeApproved()` 里状态先经 `updateStatus(SEIZE)` 落库、审计 `recordSystem(DEPOSIT_SEIZE_STARTED)` 紧随其后才写，且触发链是 `approvalsService.approve()` 内 `emit()`（非 `emitAsync`）fire-and-forget 派发 `workflow.deposit-seize.decided` 事件——测试的 `await approve()` 返回时监听器可能仍在途，`waitUntil` 抓到状态已翻但审计尚未落库的窗口即断言失败。**已用 `git stash` 对照清本 HEAD 反复实测确认为既存问题**：干净 HEAD（无终审四修改动）5 次里失败 3 次，与本次 Fix 1-4 无因果关系（bisect 逐文件隔离复测同样验证过 Fix 1/2/3/4 单独套用均不改变该题的间歇性）。修法方向：`onSeizeApproved()` 改成先写审计再切状态（或同一事务内原子提交两者），或测试改用 `emitAsync`/直接 `await` 事件处理完成而非轮询状态字段 ｜来源: 2026-07-29 终审四修 task-9 验证阶段发现，e2e 反复跑触发（15/15 并非每次稳定，取决于该题命中与否）
+
+## 技术债 — 充值补料 Embed（deposit-action-embed，2026-08-04/05 落地）
+
+> 来源统一：spec `2026-08-04-deposit-applicant-action-embed-design.md` + 8-task 实施计划。现状见 `truth/v4-deposit.md` §4.6、`truth/sumsub-ingestion.md` 第 3/4 节。
+
+- **`createActionSdkToken()` 真接 Sumsub 必炸**（`identity/onboarding/providers/sumsub/sumsub.client.ts:118`）：`userId` 传的是 Sumsub 侧 `applicantId`，官方定义要求传我方 `externalUserId`（真实数据里两者不同）；且缺 applicant action 场景必填的 `externalActionId`。现被 `SUMSUB_MOCK_MODE=true` 假返回掩盖。属 V2 材料重检路径，接真实 Sumsub 前必修。
+- **未提交即被冻时 `ACTION REQUIRED` 消失可被观测**（`client-web/src/utils/depositStatusView.ts`）：客户尚未提交就被冻结时，索要材料的提示会消失。2026-08-04 有意不堵——要堵只能在冻结后继续向客户索要我方根本不会审阅的文件。属合规口径，业主可覆盖。
+- **`websdkLink` 返回 url 的 iframe 可行性未实测**：身份验证类托管页通常设 `X-Frame-Options`。当前走 `accessTokens/sdk` token 路线不依赖它；若将来改跳转路线需实测。
+- **一次多个 `applicantAction` 只处理第一个**：`deposit-workflow.service.ts → applyKytAwaitUser()` 用 `applicantActions?.[0]`，若 Sumsub 一次要求补多项材料（数组长度 >1），第一个之后的全部被丢弃——deposit 只落一个 `sumsubActionId`/`sumsubExternalActionId`，客户端也只能看到并提交这一项。真实 Sumsub 场景是否会一次挂多项待确认；沙盒 fixture 目前只喂单元素数组，未触发过 ｜来源: 2026-08-05 Task 7 code 走查
+- **两个 `sumsub-txn-client` 的 `applicantActions` 数组映射逻辑重复**：`sumsub-txn-client.mock.ts` 与 `sumsub-txn-client.http.ts` 各自手写一份 `scoringResult.applicantActions.map((a:any) => ({applicantActionId: String(a.applicantActionId ?? ''), ...}))`，未共享同一个 helper/类型，两处将来各自改动容易漂移（类似 BACKLOG 里已登记的 `sumsub-txn-client.http.ts` 三处 minor 手工同步问题）｜来源: 2026-08-05 Task 7 code 走查
 
 ## 技术债 — V3 财务配置
 
@@ -216,6 +226,7 @@ Last Updated: 2026-07-31
 - [ ] 提现后端补提现地址 ACTIVE 校验（绕过前端可用任意地址提现）｜卡片 task_20678a2c ｜来源: 2026-07-03 V3 体检
 - [ ] 充值"已记账不可直转终态"守卫（回退分录未实现前，拦住对已入暂扣充值的拒绝）｜卡片 task_16af8187 ｜来源: 2026-07-03 V4 体检
 - [ ] **`DepositTransactionsController` 兄弟 admin 端点缺 `assertAdmin` 授权洞（PRE-EXISTING，早于 deposit-min）**：`AdminPermissionGuard.canActivate` 对非 ADMIN token 直接 `return true`（NO-OP），控制器需各 admin 路由自己调 `assertAdmin(req)` 才真拦。`GET /deposit-transactions`(findAll)、`GET /deposit-transactions/export`、`PATCH /deposit-transactions/:id/status`(updateStatus) 三个端点均缺此调用 → **今天客户 token 即可列出/导出全部客户的充值、乱推状态机**（越权读他人数据 + 篡改）。本轮仅修了新增的 `POST :id/waive-limit`（已加 assertAdmin）；这三个同源兄弟洞属既存债，需一次 DepositTransactionsController 全量硬化补齐（对齐 `withdraw-transactions.controller.ts` 每路由 assertAdmin 模式）｜来源: 2026-07-16 D5 review
+- [ ] **同一洞第四个成员 + 已实测证据 + 已另开专修分支（2026-08-05 补）**：`deposit-transactions.controller.ts` 缺 `assertAdmin` 的完整清单是四条，不是三条——上一行漏记了 `GET /deposit-transactions/:id`（`findOne`，第 117 行；`GET /deposit-transactions`(`findAll`，第 110 行)/`PATCH /:id/status`(`updateStatus`，第 139 行)/`GET /export`(`export`，第 247 行) 同上一行）。**已在干净 `main` 上实测坐实**：新注册客户 token 打 `GET /deposit-transactions` 得 HTTP 200（应得 403）；对照有闸的 `POST :id/seize` 同 token 得 403 `"Admin only"`——证明问题确实是"这四条路由各自漏调 `assertAdmin(req)`"而非 guard 整体失效。业主已决定本轮（deposit-action-embed）不顺手修，另开专修分支 `fix/deposit-transactions-authz` 处理，本任务未触碰 `deposit-transactions.controller.ts` 的权限代码 ｜来源: 2026-08-05 Task 7 验收前置排查，另开分支 `fix/deposit-transactions-authz`
 
 ## 交付 / 可移植 Docker（2026-07-04 本会话新增）
 

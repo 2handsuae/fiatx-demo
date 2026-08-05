@@ -91,6 +91,8 @@ interface DepositDetail {
   sumsubVerdict?: string | null;
   sumsubScore?: number | null;
   slaDeadline?: string | null;
+  sumsubActionId?: string | null;
+  actionSubmittedAt?: string | null;
   asset: {
     code: string;
     type: string;
@@ -542,6 +544,11 @@ const DepositTransactionDetail = () => {
               <InfoField
                 label="Received At"
                 value={data.latestSumsubWebhook?.receivedAt ? new Date(data.latestSumsubWebhook.receivedAt).toLocaleString() : null}
+              />
+              <InfoField label="Applicant Action ID" value={data.sumsubActionId} mono />
+              <InfoField
+                label="Customer Submitted At"
+                value={data.actionSubmittedAt ? new Date(data.actionSubmittedAt).toLocaleString() : null}
               />
             </div>
           </DetailCard>
