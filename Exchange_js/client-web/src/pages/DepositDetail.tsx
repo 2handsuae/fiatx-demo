@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
-import { getDepositStatusView } from '../utils/depositStatusView';
+import { getDepositStatusView, REAL_OUTCOME_STATUSES } from '../utils/depositStatusView';
+import { formatAssetAmount } from '../utils/number-format';
 
 interface ActionRow { seq: number; submittedAt: string | null }
 interface DepositDetailData {
@@ -58,7 +59,7 @@ const DepositDetail = () => {
       <div className="flex items-start justify-between gap-4 pb-6 border-b border-fx-rule">
         <div>
           <div className="text-3xl font-bold text-fx-sand">
-            {tx.amount} <span className="text-lg text-fx-dust">{tx.asset?.code}</span>
+            {formatAssetAmount(tx.amount, tx.asset?.decimals)} <span className="text-lg text-fx-dust">{tx.asset?.currency}</span>
           </div>
           <div className="font-mono text-xs text-fx-dust mt-1">
             {tx.depositNo}{tx.asset?.network ? ` · ${tx.asset.network}` : ''}
@@ -69,7 +70,13 @@ const DepositDetail = () => {
         </span>
       </div>
 
-      {tx.actions.length > 0 && (
+      {/* 单子已经有真实结果（SUCCESS/FAILED/RETURNING/RETURNED）时，不再展示这块——
+          否则一笔已 SUCCESS 的单，只因子表里还留着一条从未清理的旧 action 行，
+          就会一直对客户喊"请提供材料"。判据集合与 depositStatusView.ts 的
+          REAL_OUTCOME_STATUSES 共用同一份，禁止在这里另写一份状态清单（两份
+          必然漂移）。执法四态（FROZEN/SEIZING/SEIZED/MANUAL_CHECKING）绝不能
+          出现在这个集合里，理由见该文件内注释。 */}
+      {tx.actions.length > 0 && !REAL_OUTCOME_STATUSES.has(tx.status.toUpperCase()) && (
         <section className="mt-8">
           <h2 className="text-sm font-semibold text-fx-sand mb-3">Outstanding verification</h2>
           <div className="space-y-2">

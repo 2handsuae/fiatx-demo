@@ -107,7 +107,18 @@ const SUBMITTED_VIEW: DepositStatusView = Object.freeze({
 //   ⚠️ CONFISCATING/CONFISCATED 更加不能加：它们不在 VIEW_MAP 里、走兜底
 //   默认值（无 note），一旦被排除，submitted=true 时就会退回 DEFAULT_VIEW，
 //   与 COMPLIANCE_PENDING 的 SUBMITTED_VIEW（有 note）不再相等，直接捅穿规则 1。
-const REAL_OUTCOME_STATUSES = new Set(['SUCCESS', 'FAILED', 'RETURNING', 'RETURNED']);
+// export：详情页（DepositDetail.tsx）复用同一份集合来判断"是否已有真实结果、
+// 该收起 Outstanding verification 区块"——不允许详情页另写一份状态清单，
+// 两份必然漂移（写死的第二份不会随这里的收窄/放宽同步更新）。
+//
+// 为什么恰好这四个、为什么绝不能顺手加执法四态（FROZEN/SEIZING/SEIZED/
+// MANUAL_CHECKING）进来：这四个在基线 VIEW_MAP 里本来就对客户可见（各有
+// 自己的 label/note/tone），不属于"必须与 COMPLIANCE_PENDING 不可区分"的
+// 那个集合（规则 1）。而执法四态必须继续与 COMPLIANCE_PENDING 逐字段一致
+// ——把它们加进这个集合，等于让"被冻的单"在 Outstanding verification 区块
+// 上表现得和"正常处理中的单"不一样（一个收起了、一个没收起），这本身就是
+// 一次可被客户观察到的差异，直接捅穿 tipping-off 防线。
+export const REAL_OUTCOME_STATUSES = new Set(['SUCCESS', 'FAILED', 'RETURNING', 'RETURNED']);
 
 /**
  * Returns the customer-facing view for a deposit status. Unknown or

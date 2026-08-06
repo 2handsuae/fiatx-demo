@@ -1,6 +1,6 @@
 // client-web/src/utils/depositStatusView.spec.ts
 
-import { getDepositStatusView } from './depositStatusView';
+import { getDepositStatusView, REAL_OUTCOME_STATUSES } from './depositStatusView';
 
 /**
  * Client-facing deposit status view — the tipping-off-safe table.
@@ -213,6 +213,22 @@ describe('depositStatusView (client, tipping-off safe)', () => {
       // 篡改被拒绝后，另一单子的视图应仍是原文案
       const other = getDepositStatusView('MANUAL_CHECKING', { submitted: true });
       expect(other.note).toBe('We have received your information and it is being reviewed');
+    });
+
+    // ── Important 回归：DepositDetail.tsx 复用的导出集合本身 ────────
+    // 详情页拿这份集合来判断"该不该收起 Outstanding verification 区块"，
+    // 集合本身必须恰好是这四个真实结果态，一个不多一个不少——尤其是绝不能
+    // 混进任何执法态（FROZEN/SEIZING/SEIZED/MANUAL_CHECKING），否则被冻的
+    // 单会在这块区域上表现得和正常处理中的单不一样，直接捅穿 tipping-off
+    // 防线。这条断言逐值比对，未来谁把 FROZEN 加进 REAL_OUTCOME_STATUSES
+    // 本条即红。
+    it('REAL_OUTCOME_STATUSES 导出恰好是 SUCCESS/FAILED/RETURNING/RETURNED 四个，不含任何执法态', () => {
+      expect([...REAL_OUTCOME_STATUSES].sort()).toEqual(
+        ['FAILED', 'RETURNED', 'RETURNING', 'SUCCESS'].sort(),
+      );
+      for (const enforcementStatus of ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING']) {
+        expect(REAL_OUTCOME_STATUSES.has(enforcementStatus)).toBe(false);
+      }
     });
   });
 });
