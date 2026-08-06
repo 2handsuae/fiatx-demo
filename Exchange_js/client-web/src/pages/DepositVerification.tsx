@@ -13,10 +13,13 @@ const DepositVerification = () => {
   const [submitted, setSubmitted] = useState(false);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [busy, setBusy] = useState(false);
+  // Important 1（评审）：提交失败要能在原地重试，不能被误当成"加载失败"整页切换。
+  const [submitError, setSubmitError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
     setState('loading');
+    setSubmitError(false);
     try {
       const r = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${depositNo}/verification-session/${seq}`,
@@ -25,13 +28,41 @@ const DepositVerification = () => {
       const s = await r.json();
       setSubmitted(s.submitted);
       setToken(s.sdkToken);
-      setState('ready');
+      // (c) 真接分支专属：submitted===false 却拿不到 sdkToken，说明这条 action 眼下
+      // 打不开验证（客户还没有可用的 applicant）。不特殊处理的话，真接分支下面那个
+      // useEffect 会因 !token 提前 return（不设 error、不发起任何 SDK 调用），render
+      // 落进 else 分支渲染一个空的 <div id="sumsub-container">，而 state 还是 'ready'
+      // 不是 'loading' —— 既不显示遮罩也不显示错误重试，标题下面就是一片空白、无任何
+      // 可操作入口。demo 分支不受影响：MockUploader 本来就不读 token。
+      if (!simulation && !s.submitted && !s.sdkToken) {
+        setState('error');
+        return;
+      }
+      // (b) 演示分支没有 iframe 空窗，会话数据一到就绪。真接分支不能这样处理：token
+      // 到手只表示"可以开始加载 iframe 了"，不代表 iframe 内容已经渲染出来。这里如果
+      // 无条件置 'ready'，专门为那 1-3 秒空窗准备的 Loading 遮罩（渲染在下面真 SDK 容器
+      // 分支里）就永远不会出现——因为它早于 sdk.launch() 真正被调用，而 idCheck.onReady
+      // 回调也就变成把已经是 'ready' 的状态再设一次的空操作。这正是 Sumsub 官方文档点名
+      // 的"组件看起来是空的"典型误用。真接分支必须保持 'loading'，交给下面 useEffect 里
+      // 的 idCheck.onReady 回调来置——那才是"内容真的渲染出来了"的信号。
+      if (simulation) setState('ready');
     } catch {
       setState('error');
     }
   };
 
   useEffect(() => { void load(); }, [depositNo, seq]);
+
+  // (a) token 刷新回调：SDK 在当前 token 到期时会调用这个函数换新的，官方契约要求它
+  // 真的返回一个新 token——原写法是 `() => Promise.resolve(token)`，把已经过期的那个
+  // 原样递回去，SDK 会挂死。这里重新打一次会话接口，拿新签发的 sdkToken 返回。
+  const refreshToken = async () => {
+    const r = await customerFetch(
+      `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${depositNo}/verification-session/${seq}`,
+    );
+    const s = await r.json();
+    return s.sdkToken as string;
+  };
 
   // 真接 Sumsub：token 到手后由 SDK 自己往容器里塞 iframe。
   // demo 模式不走这条——见下方的假上传组件。
@@ -40,7 +71,7 @@ const DepositVerification = () => {
     const sdk = (window as any).snsWebSdk;
     if (!sdk) { setState('error'); return; }
     const inst = sdk
-      .init(token, () => Promise.resolve(token))
+      .init(token, () => refreshToken())
       .withOptions({ addViewportTag: false, adaptIframeHeight: true })
       .on('idCheck.onReady', () => setState('ready'))
       .on('idCheck.onApplicantSubmitted', () => { void doSubmit(); })
@@ -52,12 +83,19 @@ const DepositVerification = () => {
 
   const doSubmit = async () => {
     setBusy(true);
+    setSubmitError(false);
     try {
-      await customerFetch(
+      const r = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${depositNo}/verification-session/${seq}/submit`,
         { method: 'POST' },
       );
+      // Important 1（评审）：原来不检查 r.ok 就直接 navigate()——后端返 404/500（seq
+      // 失效、并发边界等）时，客户端会静默把用户导回详情页，让他误以为提交成功了。
+      // 失败必须留在原地，交给下面的错误提示 + 现成的提交按钮承担"重试"。
+      if (!r.ok) throw new Error('submit failed');
       navigate(`/deposit/${depositNo}`);
+    } catch {
+      setSubmitError(true);
     } finally {
       setBusy(false);
     }
@@ -72,6 +110,12 @@ const DepositVerification = () => {
       <h1 className="text-xl font-bold text-fx-sand mb-1">Document request {seq}</h1>
       <p className="text-sm text-fx-dust mb-6">Provide the requested documents to continue.</p>
 
+      {submitError && (
+        <div className="rounded-xl border border-fx-rust/30 bg-fx-rust/5 px-4 py-3 mb-4 text-sm text-fx-rust">
+          Could not submit your documents. Please try again.
+        </div>
+      )}
+
       {submitted ? (
         <div className="rounded-xl border border-fx-rule bg-fx-charcoal/40 px-4 py-4 text-sm text-fx-dust">
           We have received your information and it is being reviewed.
@@ -80,6 +124,16 @@ const DepositVerification = () => {
         <div className="rounded-xl border border-fx-rust/30 bg-fx-rust/5 px-4 py-4">
           <p className="text-sm text-fx-rust mb-3">Verification failed to load.</p>
           <button onClick={() => void load()} className="fx-btn-ghost">Retry</button>
+        </div>
+      ) : state === 'loading' && simulation ? (
+        // Important 2（评审）：demo 分支原来没有加载态——会话 GET 还在飞时（state 仍是
+        // 初始 'loading'）假上传组件已经可点。配合 Important 1，这期间点提交、而该 seq
+        // 其实无效的话，前端会静默"成功"跳走。真接分支的加载态自己在下面容器里处理，
+        // 这里不重复也不能顶掉它：(b) 修完之后真接分支要一直等到 idCheck.onReady 才离开
+        // 'loading'，容器 DOM 节点必须全程挂着让 sdk.launch() 能找到它，所以这条分支只
+        // 拦截 simulation，不拦截真接分支。
+        <div className="rounded-xl border border-fx-rule bg-fx-charcoal/40 px-4 py-4 text-sm text-fx-dust">
+          Loading verification…
         </div>
       ) : simulation ? (
         <MockUploader busy={busy} onSubmit={() => void doSubmit()} />
