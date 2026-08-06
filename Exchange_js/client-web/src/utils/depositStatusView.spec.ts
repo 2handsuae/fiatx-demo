@@ -1,6 +1,6 @@
 // client-web/src/utils/depositStatusView.spec.ts
 
-import { getDepositStatusView, REAL_OUTCOME_STATUSES } from './depositStatusView';
+import { getDepositStatusView } from './depositStatusView';
 
 /**
  * Client-facing deposit status view — the tipping-off-safe table.
@@ -105,130 +105,26 @@ describe('depositStatusView (client, tipping-off safe)', () => {
     expect(text).not.toMatch(FORBIDDEN);
   });
 
-  // ── applicant action 三展示态 + 泄密口 ──────────────────────
+  // ── 业主定稿（2026-08-06，减法）回归 ──────────────────────────
   //
-  // 态③（客户已提交）要显示"已收到，审核中"。若该 note 按 **status** 给出，
-  // 则：客户提交 → 见"已收到" → Sumsub 判回制裁 → 单子进 FROZEN → 该句
-  // **凭空消失**。客户盯着自己那单，眼看一句话没了——这正是 2026-08-02
-  // 收敛要堵的"一眼看出自己这单与众不同"。
-  //
-  // 故：该 note 绑 `submitted`，**不绑 status**。提交过即恒显，冻结时刻
-  // 客户端零变化。
-  describe('applicant action 展示态', () => {
-    it('态①未提交：ACTION REQUIRED + 索要文案', () => {
-      const v = getDepositStatusView('ACTION_PENDING', { submitted: false });
-      expect(v.label).toBe('ACTION REQUIRED');
-      expect(v.tone).toBe('warning');
+  // 此前这里有一整套"客户是否已提交补料"（`opts.submitted`）改写渲染结果
+  // 的机制（`SUBMITTED_VIEW` + `REAL_OUTCOME_STATUSES` 排除表），已随
+  // `getDepositStatusView` 收口成单参纯查表一并删除，见文件头注释。以下
+  // 钉住新口径本身，防止有人手滑把第二参数/短路加回来：`ACTION_PENDING`
+  // 只有一种呈现，`toCustomerStatus`（接口层，见
+  // deposit-transactions.service.spec.ts）无论 `actionSubmittedAt` 是否为空
+  // 都原样下发 `ACTION_PENDING`，两层此后天然一致，不再需要分别钉两遍。
+  it('ACTION_PENDING 恒为 ACTION REQUIRED——渲染层不再有第二个判据（钉住新口径）', () => {
+    expect(getDepositStatusView('ACTION_PENDING')).toEqual({
+      label: 'ACTION REQUIRED',
+      note: 'Please provide additional information',
+      tone: 'warning',
     });
+  });
 
-    it('态③已提交：收敛成 PROCESSING + 已收到文案', () => {
-      const v = getDepositStatusView('ACTION_PENDING', { submitted: true });
-      expect(v.label).toBe('PROCESSING');
-      expect(v.tone).toBe('neutral');
-      expect(v.note).toMatch(/received/i);
-    });
-
-    // 复审补:原先只列执法四态,于是"把 CONFISCATING/CONFISCATED 或任意未知态
-    // 加进 REAL_OUTCOME_STATUSES 排除表"这个改动**没有任何测试能抓到** ——
-    // 它们不在 VIEW_MAP 里,一旦被排除,submitted=true 时会退回 DEFAULT_VIEW
-    // (无 note),与 COMPLIANCE_PENDING 的 SUBMITTED_VIEW(有 note)不再相等,
-    // 直接捅穿防线。故把兜底态和一个未知态一并纳入这条不可区分断言。
-    it.each([true, false])(
-      '敏感态+兜底态与 COMPLIANCE_PENDING 逐字段一致（submitted=%s 两个取值都要成立）',
-      (submitted) => {
-        for (const s of [
-          'FROZEN',
-          'SEIZING',
-          'SEIZED',
-          'MANUAL_CHECKING',
-          'CONFISCATING',
-          'CONFISCATED',
-          'SOME_FUTURE_STATUS',
-        ]) {
-          expect(getDepositStatusView(s, { submitted })).toEqual(
-            getDepositStatusView('COMPLIANCE_PENDING', { submitted }),
-          );
-        }
-      },
-    );
-
-    // 时序不变量：这才是客户实际观察到的东西
-    it('提交后被冻——客户端渲染逐字段不变', () => {
-      const before = getDepositStatusView('ACTION_PENDING', { submitted: true });
-      const after = getDepositStatusView('FROZEN', { submitted: true });
-      expect(after).toEqual(before);
-    });
-
-    it('已提交的文案里同样不得出现执法字样', () => {
-      for (const s of ALL_STATUSES) {
-        const v = getDepositStatusView(s, { submitted: true });
-        expect(`${v.label} ${v.note ?? ''}`).not.toMatch(FORBIDDEN);
-      }
-    });
-
-    // ── Critical 回归：终态不能被"已提交"短路吞掉 ──────────────
-    //
-    // actionSubmittedAt 在终态从不清空。若短路不排除终态，本功能自己的
-    // happy path（补料 → 放行 → SUCCESS）和退款路径（MANUAL_CHECKING →
-    // RETURNING/RETURNED）都会被永远卡在"审核中"，客户看不到真实结果。
-    it("SUCCESS: submitted=true 仍显示真实结果 SUCCESS，不被'已收到'文案吞掉", () => {
-      const v = getDepositStatusView('SUCCESS', { submitted: true });
-      expect(v.label).toBe('SUCCESS');
-      expect(v.tone).toBe('positive');
-      expect(v.note).toBeUndefined();
-    });
-
-    it.each([
-      ['FAILED', 'FAILED', 'danger'],
-      ['RETURNING', 'RETURNING', 'warning'],
-      ['RETURNED', 'RETURNED', 'neutral'],
-    ] as const)(
-      '%s: submitted 两个取值下都给真实呈现，而非"已收到"文案',
-      (status, label, tone) => {
-        for (const submitted of [true, false]) {
-          const v = getDepositStatusView(status, { submitted });
-          expect(v.label).toBe(label);
-          expect(v.tone).toBe(tone);
-          expect(v.note ?? '').not.toMatch(/received/i);
-        }
-      },
-    );
-
-    it.each(['SUCCESS', 'FAILED', 'RETURNING', 'RETURNED'])(
-      '%s: submitted=true 与 submitted=false 逐字段相同（终态不受提交状态影响）',
-      (status) => {
-        expect(getDepositStatusView(status, { submitted: true })).toEqual(
-          getDepositStatusView(status, { submitted: false }),
-        );
-      },
-    );
-
-    // ── Minor 1 回归：SUBMITTED_VIEW 必须是冻结对象 ────────────
-    it('SUBMITTED_VIEW 已冻结——调用方无法篡改，避免污染所有单子的展示', () => {
-      const v = getDepositStatusView('ACTION_PENDING', { submitted: true });
-      expect(Object.isFrozen(v)).toBe(true);
-      expect(() => {
-        (v as { note?: string }).note = 'tampered';
-      }).toThrow();
-      // 篡改被拒绝后，另一单子的视图应仍是原文案
-      const other = getDepositStatusView('MANUAL_CHECKING', { submitted: true });
-      expect(other.note).toBe('We have received your information and it is being reviewed');
-    });
-
-    // ── Important 回归：DepositDetail.tsx 复用的导出集合本身 ────────
-    // 详情页拿这份集合来判断"该不该收起 Outstanding verification 区块"，
-    // 集合本身必须恰好是这四个真实结果态，一个不多一个不少——尤其是绝不能
-    // 混进任何执法态（FROZEN/SEIZING/SEIZED/MANUAL_CHECKING），否则被冻的
-    // 单会在这块区域上表现得和正常处理中的单不一样，直接捅穿 tipping-off
-    // 防线。这条断言逐值比对，未来谁把 FROZEN 加进 REAL_OUTCOME_STATUSES
-    // 本条即红。
-    it('REAL_OUTCOME_STATUSES 导出恰好是 SUCCESS/FAILED/RETURNING/RETURNED 四个，不含任何执法态', () => {
-      expect([...REAL_OUTCOME_STATUSES].sort()).toEqual(
-        ['FAILED', 'RETURNED', 'RETURNING', 'SUCCESS'].sort(),
-      );
-      for (const enforcementStatus of ['FROZEN', 'SEIZING', 'SEIZED', 'MANUAL_CHECKING']) {
-        expect(REAL_OUTCOME_STATUSES.has(enforcementStatus)).toBe(false);
-      }
-    });
+  it('已知取舍：ACTION_PENDING 被冻后与 COMPLIANCE_PENDING 逐字段一致，对所有客户一视同仁', () => {
+    // 规则 1 的另一种表述——不再区分"提交过/没提交过"两类客户，冻结后的
+    // 呈现都收敛到同一处，不再有一半客户经历可观测变化、另一半没有的不对称。
+    expect(getDepositStatusView('FROZEN')).toEqual(getDepositStatusView('COMPLIANCE_PENDING'));
   });
 });

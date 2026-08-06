@@ -43,7 +43,13 @@ type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 // 「不落在另外五个桶里的一切」——后，这类状态（含未来任何新增状态）天生
 // 落进 PROCESSING，与前端 DEFAULT_VIEW 兜底行为天然对齐，不需要再靠人记得
 // 同步两处。
-const ACTION_REQUIRED_BUCKET_WHERE = { status: 'ACTION_PENDING', actionSubmittedAt: null };
+//
+// 业主定稿（2026-08-06，减法）：ACTION_REQUIRED 桶不再按 actionSubmittedAt
+// 拆成"已提交/未提交"两半——渲染层已经不再有这个二元判据（见
+// depositStatusView.ts），筛选桶必须跟着一起收口，否则筛选器会重新暴露一个
+// 渲染层刻意抹掉的区分：全部 ACTION_PENDING 的单，不论客户交没交材料，一律
+// 落在这个桶。
+const ACTION_REQUIRED_BUCKET_WHERE = { status: 'ACTION_PENDING' };
 const RETURNING_BUCKET_WHERE = { status: 'RETURNING' };
 const RETURNED_BUCKET_WHERE = { status: 'RETURNED' };
 const SUCCESS_BUCKET_WHERE = { status: 'SUCCESS' };
@@ -263,11 +269,19 @@ export class DepositTransactionsService {
    * interface in client-web/src/pages/Deposit.tsx, which is the actual field
    * contract the client reads.
    *
-   * 例外 —— `actionSubmittedAt` 是本白名单唯一有意开的口子：它记录的是
-   * **客户自己的动作**（客户本就知道自己交没交，不构成新信息），且对执法态
-   * 与正常态一视同仁地存在（提交过的单无论后来是 FROZEN 还是
-   * COMPLIANCE_PENDING 该值都在），因此不产生新的可辨识信号。
-   * `manualReason` 不可比照办理——它取值 EDD_PEP 时等同于告知客户其 PEP 判定。
+   * 例外 —— `actions`（子表逐条 action 的 `{seq, submittedAt}`）是本白名单
+   * 唯一有意开的口子：它记录的是**客户自己的动作**（客户本就知道自己交没交
+   * 哪一条，不构成新信息），且对执法态与正常态一视同仁地存在（提交过的行
+   * 无论单子后来是 FROZEN 还是 COMPLIANCE_PENDING 都在），因此不产生新的
+   * 可辨识信号。`manualReason` 不可比照办理——它取值 EDD_PEP 时等同于告知
+   * 客户其 PEP 判定。
+   *
+   * ⚠️ 2026-08-06 已删掉顶层 `actionSubmittedAt`（"全部交齐"缓存）这个口子：
+   * 它此前唯一的消费者是客户端拿去改写徽章/收起区块（`getDepositStatusView`
+   * 的 submitted 短路 + 详情页的显隐判据），业主定稿拆掉那套机制后，前端
+   * 已经不读这个字段——客户面每多一个键就多一分泄漏面，没有消费者就删，
+   * 不留着"以防将来用得上"。要看"是否全部交齐"，从 `actions[].submittedAt`
+   * 逐条推导即可，不需要服务端额外算好一个聚合布尔值再开一个口子。
    *
    * `status`（评审 Important 1，安全洞）—— 这是白名单里唯一一个原样值本身
    * 就可能泄密的字段：`id`/`depositNo`/`amount`/`createdAt` 这些字段的取值
@@ -330,7 +344,7 @@ export class DepositTransactionsService {
    * 这两类）一律输出 null，不能把正常的完成时间也吞掉。
    */
   private toCustomerDepositView(item: any) {
-    const customerStatus = this.toCustomerStatus(item.status, item.actionSubmittedAt);
+    const customerStatus = this.toCustomerStatus(item.status);
     return {
       id: item.id,
       depositNo: item.depositNo,
@@ -350,10 +364,9 @@ export class DepositTransactionsService {
             decimals: item.asset.decimals,
           }
         : null,
-      actionSubmittedAt: item.actionSubmittedAt,
-      // 客户面白名单再开一个口（与当初开 actionSubmittedAt 同等对待）。
-      // **只有 seq 与 submittedAt 两个键**——无 id、无类型、无理由。够画那个
-      // 列表和各自状态，多一个字段都是风险面（上一轮的 Critical 正是这么来的）。
+      // 客户面白名单开的口子（见上方文档注释）。**只有 seq 与 submittedAt
+      // 两个键**——无 id、无类型、无理由。够画补料卡片和各自的提交状态，
+      // 多一个字段都是风险面（上一轮的 Critical 正是这么来的）。
       actions: (item.applicantActions ?? []).map((a: any) => ({
         seq: a.seq,
         submittedAt: a.submittedAt,
@@ -368,30 +381,15 @@ export class DepositTransactionsService {
    * 复用这同一个判据收敛它自己返回的 `depositStatus`，不再另写第二份
    * 状态清单。
    *
-   * I3 修复（反直觉，细说原因）：渲染层 depositStatusView.ts 的收敛判据是
-   * "submitted && !REAL_OUTCOME_STATUSES.has(key)"——已交齐材料的单，无论
-   * status 是 ACTION_PENDING 还是 FROZEN，客户端展示逐字段相同
-   * （SUBMITTED_VIEW）。但这里（接口层）此前只看 CUSTOMER_STATUS_PASSTHROUGH
-   * 白名单，而 ACTION_PENDING 恰好在白名单里——于是一个已把材料全部交齐、
-   * 仍在等 Sumsub 出下一轮裁决的客户，JSON 里的 status 会诚实地停在
-   * 'ACTION_PENDING'；一旦单子被 freeze，status 立刻跳成
-   * 'COMPLIANCE_PENDING'——渲染层因为有 submitted 短路完全感觉不到这次
-   * 变化，接口层却让客户开 DevTools 看到一次可辨识的字段跳变，直接捅穿
-   * 设计 §5.2 要求的"接口必须服从和渲染层一样的不可区分规则"。
-   * 所以这里加同款短路：`actionSubmittedAt` 非空时，ACTION_PENDING 也收敛成
-   * COMPLIANCE_PENDING。只特判 ACTION_PENDING 一个态——因为只有它的语义
-   * 本身就是"等客户交材料"，材料交齐后才失真；白名单里其余六个态
-   * （PAYIN_PENDING/SUCCESS/…）不受这条短路影响，原样放行。
-   * `actionSubmittedAt` 省略时（inbound-transfer-signals.service.ts 目前的
-   * 调用方式）行为不变，不强制所有调用方都得跟着传这个参数。
+   * 业主定稿（2026-08-06，减法）：此前这里在 `actionSubmittedAt` 非空时对
+   * `ACTION_PENDING` 单独加过一道短路（收敛成 `COMPLIANCE_PENDING`），是为
+   * 了追平渲染层 `depositStatusView.ts` 当时的"已提交即收敛"短路——两层各
+   * 写一份、必须逐字保持同步的判据，正是最近两轮 Critical 的根源。渲染层
+   * 那套机制已被业主拆掉（见 depositStatusView.ts 文件头），这里的短路失去
+   * 了存在理由，一并删除：`status` 就是白名单判据本身，`ACTION_PENDING`
+   * 不论客户交没交材料，原样下发。
    */
-  toCustomerStatus(status: string, actionSubmittedAt?: unknown): string {
-    if (
-      status === DepositTransactionStatus.ACTION_PENDING &&
-      actionSubmittedAt != null
-    ) {
-      return DepositTransactionStatus.COMPLIANCE_PENDING;
-    }
+  toCustomerStatus(status: string): string {
     return CUSTOMER_STATUS_PASSTHROUGH.has(status)
       ? status
       : DepositTransactionStatus.COMPLIANCE_PENDING;

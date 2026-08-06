@@ -42,11 +42,6 @@ export interface ScanSummaryRecord {
   depositId: string | null;
   depositNo: string | null;
   depositStatus: string | null;
-  // 客户是否已为该单提交补料。前端渲染状态标签必须与列表/弹窗走同一条路径
-  // （getDepositStatusView(status, { submitted })）——只给 status 不给这个标志，
-  // 已提交的 ACTION_PENDING 在这里会显示 ACTION REQUIRED、在别处显示 PROCESSING，
-  // 同一笔单两个地方说法不一；且该单被冻时这里的标签会变，与规则 A 冲突。
-  depositSubmitted: boolean;
 }
 
 export interface ScanSummary {
@@ -329,7 +324,6 @@ export class InboundTransferSignalsService {
           depositId: processed.depositId,
           depositNo: processed.depositNo,
           depositStatus: processed.depositStatus,
-          depositSubmitted: processed.depositSubmitted,
         });
       } catch (error) {
         const failureReason = this.describeError(error);
@@ -453,7 +447,6 @@ export class InboundTransferSignalsService {
       // 复用同一个判据（DepositTransactionsService#toCustomerStatus），
       // 不再写第二份状态清单。
       depositStatus: deposit ? this.depositService.toCustomerStatus(deposit.status) : null,
-      depositSubmitted: deposit ? !!deposit.actionSubmittedAt : false,
     };
   }
 

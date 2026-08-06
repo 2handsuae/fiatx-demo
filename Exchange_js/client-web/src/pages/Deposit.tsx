@@ -53,7 +53,6 @@ interface Transaction {
     referenceNo: string | null;
     fromAddress: string | null;
     fromIban: string | null;
-    actionSubmittedAt?: string | null;
 }
 
 interface ScanInboundSignalsResult {
@@ -72,7 +71,6 @@ interface ScanInboundSignalsResult {
     depositId: string | null;
     depositNo: string | null;
     depositStatus: string | null;
-    depositSubmitted: boolean;
   }>;
 }
 
@@ -87,7 +85,6 @@ interface SimulationResultSummary {
   payinStatus: string | null;
   depositNo: string | null;
   depositStatus: string | null;
-  depositSubmitted: boolean;
   assetCode: string;
   assetType: DepositAssetType;
 }
@@ -135,13 +132,15 @@ const STATUS_TONE_CLASS: Record<DepositStatusView['tone'], string> = {
  * .ts CUSTOMER_BUCKETS) to the actual status predicate — NOT sent as a raw
  * status list. This indirection exists because getDepositStatusView collapses
  * several backend statuses into the same rendered label (e.g. PAYIN_PENDING /
- * COMPLIANCE_PENDING / FROZEN / SEIZING / SEIZED / MANUAL_CHECKING, plus a
- * submitted ACTION_PENDING, all render "PROCESSING"): the filter bucket must
- * line up 1:1 with the rendered label, or the dropdown re-exposes the exact
- * distinction getDepositStatusView exists to hide (2026-08-04, task-6 增补—
- * this replaces the earlier `statuses` design, which put two menu entries
- * both labelled "PROCESSING" pointing at different status sets). REJECTED /
- * EXPIRED intentionally excluded — those two statuses are slated for removal
+ * COMPLIANCE_PENDING / FROZEN / SEIZING / SEIZED / MANUAL_CHECKING all render
+ * "PROCESSING"): the filter bucket must line up 1:1 with the rendered label,
+ * or the dropdown re-exposes the exact distinction getDepositStatusView
+ * exists to hide (2026-08-04, task-6 增补 — this replaces the earlier
+ * `statuses` design, which put two menu entries both labelled "PROCESSING"
+ * pointing at different status sets). 2026-08-06 简化：ACTION_PENDING 不再
+ * 按是否已提交拆成两半，ACTION_REQUIRED 桶恒装全部 ACTION_PENDING，PROCESSING
+ * 桶不再需要额外接住"已提交的 ACTION_PENDING"这个特例。REJECTED / EXPIRED
+ * intentionally excluded — those two statuses are slated for removal
  * (BACKLOG d7b4456e / design decision #5) and get no new filter UI, mirroring
  * admin's DEPOSIT_STATUS_FILTERS (admin-web/src/utils/depositStatusMap.ts).
  */
@@ -340,8 +339,7 @@ const Deposit = () => {
     setSelectedAssetId(filteredAssets[0]?.id || '');
   }, [activeTab, filteredAssets, selectedAssetId]);
 
-  const viewOf = (tx: Transaction) =>
-    getDepositStatusView(tx.status, { submitted: !!tx.actionSubmittedAt });
+  const viewOf = (tx: Transaction) => getDepositStatusView(tx.status);
 
   const renderStatusBadge = (tx: Transaction) => {
     const view = viewOf(tx);
@@ -463,10 +461,6 @@ const Deposit = () => {
             payinStatus: createdSignal.payin.status || null,
             depositNo: createdSignal.payin.deposit?.depositNo || null,
             depositStatus: createdSignal.payin.deposit?.status || null,
-            // createForCustomer 的返回只 include 了 asset/wallet，不含 payin，
-            // 故这条 fallback 实际不会命中（scan 无 record 时上面会直接抛）。
-            // 保守取 false：新建信号刚生成的单不可能已提交过补料。
-            depositSubmitted: false,
           }
         : null;
       const resolvedRecord = firstRecord || fallbackRecord;
@@ -482,7 +476,6 @@ const Deposit = () => {
         payinStatus: resolvedRecord.payinStatus || 'DETECTED',
         depositNo: resolvedRecord.depositNo || null,
         depositStatus: resolvedRecord.depositStatus || 'PAYIN_PENDING',
-        depositSubmitted: !!resolvedRecord.depositSubmitted,
         assetCode: depositWallet.asset.code,
         assetType: normalizeSimulationAssetType(depositWallet.asset.type),
       });
@@ -582,15 +575,11 @@ const Deposit = () => {
                   inbound-transfer-signals.service.ts processSignal），这里
                   仍统一走 getDepositStatusView，与页面其它状态渲染
                   （viewOf/renderStatusBadge）走同一条路径，不留第二条裸显
-                  的口子。
-                  ⚠️ 必须连 submitted 一起传：只传 status 的话，已提交的
-                  ACTION_PENDING 在这里显示 ACTION REQUIRED、在列表/弹窗显示
-                  PROCESSING，同一笔单两个地方说法不一；且该单被冻时这里的
-                  标签会变，与规则 A（冻结时刻客户端零变化）冲突。 */}
+                  的口子。业主定稿（2026-08-06）：单参纯查表，不再需要额外
+                  传是否已提交——ACTION_PENDING 不论提交与否都显示同一个
+                  ACTION REQUIRED，这里与列表/详情页天然一致。 */}
               Status:{' '}
-              {summary.depositStatus
-                ? getDepositStatusView(summary.depositStatus, { submitted: summary.depositSubmitted }).label
-                : '-'}
+              {summary.depositStatus ? getDepositStatusView(summary.depositStatus).label : '-'}
             </div>
           </div>
         </div>

@@ -11,7 +11,6 @@ interface DepositDetailData {
   createdAt: string; completedAt: string | null;
   txHash: string | null; referenceNo: string | null;
   fromAddress: string | null; fromIban: string | null;
-  actionSubmittedAt: string | null;
   actions: ActionRow[];
   asset: { code: string; currency: string; network: string | null; decimals: number } | null;
 }
@@ -45,10 +44,9 @@ const DepositDetail = () => {
   if (err) return <div className="p-6 text-fx-dust">{err}</div>;
   if (!tx) return <div className="p-6 text-fx-dust">Loading…</div>;
 
-  // 徽章与文案必须与列表页走同一条路径（连 submitted 一起传）——只传 status
-  // 的话，已提交的 ACTION_PENDING 在这里显示 ACTION REQUIRED、在列表显示
-  // PROCESSING，同一笔单两处说法不一；且该单被冻时这里的标签会变。
-  const view = getDepositStatusView(tx.status, { submitted: !!tx.actionSubmittedAt });
+  // 业主定稿（2026-08-06）：徽章纯按 status 查表，不再关心是否已提交
+  // 补料——与列表页走同一条单参路径（见 depositStatusView.ts 文件头）。
+  const view = getDepositStatusView(tx.status);
 
   return (
     <div className="p-6 max-w-4xl">
@@ -70,24 +68,19 @@ const DepositDetail = () => {
         </span>
       </div>
 
-      {/* 业主定稿（2026-08-06）：**只有 ACTION_PENDING 且确实还有未提交项时**才展示
-          这块。两个条件缺一不可，理由不同：
+      {/* 业主定稿（2026-08-06，减法）：区块显示条件只看"ACTION_PENDING 且有
+          action 行"，不再要求"有未提交项"——状态就是状态，按钮归按钮。
 
           · 限定 ACTION_PENDING —— 单子已经有别的结局时不该再对客户喊"请提供材料"。
-            此前只排除 SUCCESS/FAILED/RETURNING/RETURNED，可 approveDeposit 接受
-            ACTION_PENDING 直推 SUCCESS 且从不清理未提交的 action 行，于是一笔已成功
-            的单会一直挂着可点的补料入口。
+            approveDeposit 接受 ACTION_PENDING 直推 SUCCESS 且从不清理已提交的
+            action 行，若只看 actions.length，一笔已成功的单会一直挂着这块区域。
 
-          · 还要求"有未提交项" —— 这条是 tipping-off 防线要的，别当成冗余删掉。
-            若只按状态判：一个**已把材料交齐**的客户，单子被冻时会看到这片卡片凭空
-            消失（徽章本身不变，那是专门做的不变量）。而"提交过的单在冻结时刻零变化"
-            正是这条防线的核心。全部交齐后这片卡片没有任何可点入口、只是重复徽章
-            已经说过的"已收到"，收起它既符合业主口径，又让冻结前后零变化。
-
-          ⚠️ 别把判据改回"按状态排除某几个"——那要求维护第二份状态清单，且上面第二条
-          的不变量会随之丢失。 */}
-      {tx.status.toUpperCase() === 'ACTION_PENDING' &&
-        tx.actions.some((a) => !a.submittedAt) && (
+          · 不再要求"有未提交项"：此前这条是为了让"全部交齐"的客户在区块层面也
+            零变化——但那套判据正是本轮要拆的机制的一部分，且有反效果：全部交齐
+            时区块整个消失，徽章却仍是 ACTION REQUIRED，一张卡都没有反而更让人
+            糊涂。新口径下每张卡自己决定按钮是否可点（见下方），区块本身只要
+            "这单确实挂过 action" 就一直显示，交没交齐不影响区块存在与否。 */}
+      {tx.status.toUpperCase() === 'ACTION_PENDING' && tx.actions.length > 0 && (
         <section className="mt-8">
           <h2 className="text-sm font-semibold text-fx-sand mb-3">Outstanding verification</h2>
           <div className="space-y-2">
@@ -99,14 +92,16 @@ const DepositDetail = () => {
                     {a.submittedAt ? 'Received · under review' : 'Awaiting your documents'}
                   </div>
                 </div>
-                {!a.submittedAt && (
-                  <button
-                    onClick={() => navigate(`/deposit/${tx.depositNo}/verification/${a.seq}`)}
-                    className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-2 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20"
-                  >
-                    Provide documents
-                  </button>
-                )}
+                {/* 业主原话："根据 applicant action 的状态来改变跳转按钮是否
+                    生效"——按钮恒渲染，只按这一条自己的 submittedAt 禁用，
+                    不再整条从 DOM 里消失。 */}
+                <button
+                  onClick={() => navigate(`/deposit/${tx.depositNo}/verification/${a.seq}`)}
+                  disabled={!!a.submittedAt}
+                  className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-2 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fx-brass/10"
+                >
+                  Provide documents
+                </button>
               </div>
             ))}
           </div>

@@ -617,15 +617,17 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
       customerId,
     )) as any;
     expect(detail1.actions.map((a: any) => a.seq)).toEqual([1, 2, 3]);
-    expect(detail1.actionSubmittedAt).toBeNull();
+    // 2026-08-06 减法：客户面白名单已删掉顶层 actionSubmittedAt（"全部交齐"
+    // 缓存）——前端已无消费者（渲染层不再按提交状态改写徽章/区块），客户面
+    // 每多一个键就多一分泄漏面，没有消费者就删。这里改读内部原始行
+    // （depositService.findOne，未经客户面收敛）验证缓存字段本身仍然正确
+    // 落库/清理，只是不再对外暴露；"是否全部交齐"这件事，客户面改由
+    // `actions[]` 逐条的 submittedAt 自行推导（见下方）。
+    expect(((await depositService.findOne(deposit.id)) as any).actionSubmittedAt).toBeNull();
 
     await verificationSessions.submit(customerId, deposit.depositNo, 1);
     await verificationSessions.submit(customerId, deposit.depositNo, 2);
-    const detail2 = (await depositService.findOneForCustomerByDepositNo(
-      deposit.depositNo,
-      customerId,
-    )) as any;
-    expect(detail2.actionSubmittedAt).toBeNull(); // 还没交齐
+    expect(((await depositService.findOne(deposit.id)) as any).actionSubmittedAt).toBeNull(); // 还没交齐
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
     await verificationSessions.submit(customerId, deposit.depositNo, 3);
@@ -633,7 +635,8 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
       deposit.depositNo,
       customerId,
     )) as any;
-    expect(detail3.actionSubmittedAt).not.toBeNull(); // 交齐了
+    expect(detail3.actions.every((a: any) => !!a.submittedAt)).toBe(true); // 客户面：三条逐条都已提交
+    expect(((await depositService.findOne(deposit.id)) as any).actionSubmittedAt).not.toBeNull(); // 内部缓存也落了
 
     await deliver(deposit.id, 'V1_APPROVED');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);

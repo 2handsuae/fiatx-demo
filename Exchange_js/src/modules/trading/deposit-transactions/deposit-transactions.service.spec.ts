@@ -266,7 +266,9 @@ describe('DepositTransactionsService', () => {
         fromAddress: 'T_FROM',
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
-        actionSubmittedAt: SENSITIVE_FULL_ROW.actionSubmittedAt,
+        // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除（前端已无
+        // 消费者），这里的 toEqual 精确等值断言随之变红是预期的——不是漏了
+        // 加回来，是显式确认它已经不在客户面响应体里。
         actions: [],
       });
     });
@@ -379,64 +381,35 @@ describe('DepositTransactionsService', () => {
       expect(result.status).toBe('COMPLIANCE_PENDING');
     });
 
-    // I3 修复：渲染层 depositStatusView.ts 的收敛判据是
-    // "submitted && !REAL_OUTCOME_STATUSES.has(key)"——已交齐材料的单，
-    // 无论 status 是 ACTION_PENDING 还是 FROZEN，客户端展示逐字段相同。
-    // 但接口层此前只按 CUSTOMER_STATUS_PASSTHROUGH 白名单判定，ACTION_PENDING
-    // 恰好在白名单里，即便材料已交齐（actionSubmittedAt 非空）也原样输出；
-    // 单子一旦被冻，status 立刻从 ACTION_PENDING 跳到 COMPLIANCE_PENDING——
-    // 这次跳变本身就是客户可在 DevTools Network 面板里观察到的信号，渲染层
-    // 因为有 submitted 短路完全无感，两层口径不一致，违反设计 §5.2「接口必须
-    // 服从和渲染层一样的不可区分规则」。
-    it('toCustomerStatus：actionSubmittedAt 非空时，ACTION_PENDING 也收敛成 COMPLIANCE_PENDING', () => {
-      expect(service.toCustomerStatus('ACTION_PENDING', new Date())).toBe('COMPLIANCE_PENDING');
-      // 未交齐材料时 ACTION_PENDING 必须原样放行——不能连带把正常的
-      // "等客户补料"提示也收敛掉。
-      expect(service.toCustomerStatus('ACTION_PENDING', null)).toBe('ACTION_PENDING');
+    // 业主定稿（2026-08-06，减法）：此前这里有一条短路——actionSubmittedAt
+    // 非空时 ACTION_PENDING 也收敛成 COMPLIANCE_PENDING，是为了追平渲染层
+    // 当时的 submitted 短路（两层判据必须逐字保持同步，这套机制在最近两轮
+    // 里连续制造了三个 Critical）。渲染层那条短路已被业主拆掉（见
+    // depositStatusView.ts 文件头注释），这里的短路失去存在理由，一并删除：
+    // toCustomerStatus 现在只接受 status 一个参数，ACTION_PENDING 不论客户
+    // 交没交材料，原样下发。
+    it('toCustomerStatus：ACTION_PENDING 原样输出，不再有第二参数或短路', () => {
       expect(service.toCustomerStatus('ACTION_PENDING')).toBe('ACTION_PENDING');
-      // 白名单里其余态不受这条短路影响，即便 actionSubmittedAt 非空也原样放行——
-      // 只有 ACTION_PENDING 本身的语义是"等客户交材料"，材料交齐后才失真。
-      expect(service.toCustomerStatus('SUCCESS', new Date())).toBe('SUCCESS');
+      expect(service.toCustomerStatus('SUCCESS')).toBe('SUCCESS');
     });
 
-    // 核心防护：同一笔已交齐材料的单，一份底层 status 是 ACTION_PENDING
-    // （合规裁决还没落地），一份是 FROZEN（合规裁决落成了制裁冻结）。断言两份
-    // 客户面视图**逐字段全等**——这是"交齐材料后被冻的客户"不能通过响应体
-    // 看出自己被冻过的唯一保证。只比 status 一个字段不够，前几轮复审反复漏
-    // 就是因为只盯单个字段。
-    it('已交齐材料(actionSubmittedAt 非空)：ACTION_PENDING 与 FROZEN 客户面视图逐字段全等', async () => {
-      const submittedAt = new Date('2026-08-05T00:00:00Z');
-      const baseFields = {
-        id: 'd-submitted-1',
-        depositNo: 'DEP-SUBMITTED-1',
-        ownerId: 'cust-1',
-        amount: '10.00',
-        createdAt: new Date('2026-01-01T00:00:00Z'),
-        completedAt: null,
-        txHash: null,
-        referenceNo: null,
-        fromAddress: null,
-        fromIban: null,
-        asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
-        limitHoldReason: null,
-        actionSubmittedAt: submittedAt,
-      };
+    // 新增回归（钉住新口径，防止有人手滑把短路加回来）：同一笔单，不论子表
+    // 汇总出的 actionSubmittedAt（"是否已全部交齐"）是否非空，只要底层
+    // status 仍是 ACTION_PENDING，客户面 status 都原样是 ACTION_PENDING——
+    // 状态就是状态，不再因为一个客户看不见的字段在两种呈现之间跳变。
+    it.each([null, new Date('2026-08-05T00:00:00Z')])(
+      '新口径：ACTION_PENDING 原样下发，与 actionSubmittedAt 是否非空无关（actionSubmittedAt=%s）',
+      async (actionSubmittedAt) => {
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+          ...buildCustomerRow('ACTION_PENDING'),
+          actionSubmittedAt,
+        });
 
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
-        ...baseFields,
-        status: 'ACTION_PENDING',
-      });
-      const actionPendingView = (await service.findOneForCustomer('d-submitted-1', 'cust-1')) as any;
+        const result = (await service.findOneForCustomer('d-collapse-1', 'cust-1')) as any;
 
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
-        ...baseFields,
-        status: 'FROZEN',
-      });
-      const frozenView = (await service.findOneForCustomer('d-submitted-1', 'cust-1')) as any;
-
-      expect(actionPendingView).toEqual(frozenView);
-      expect(actionPendingView.status).toBe('COMPLIANCE_PENDING');
-    });
+        expect(result.status).toBe('ACTION_PENDING');
+      },
+    );
   });
 
   // 复审 Critical 1（规则 A 的另一处漏洞）：status 被收敛掉的同时，
@@ -659,14 +632,14 @@ describe('DepositTransactionsService', () => {
   });
 
   // 客户面历史筛选下拉改按「渲染出的桶」而非原始 status 过滤（2026-08-04，
-  // task-6 增补）：ACTION_PENDING 按「是否已提交」劈成两半，已提交的渲染成
-  // PROCESSING（getDepositStatusView 的短路），必须归进 PROCESSING 桶，
-  // 否则该单被冻时会从 ACTION_REQUIRED 桶里消失，客户用筛选器就能看出自己
-  // 这单出事了。下面用一个最小 Prisma-where 求值器，直接拿 findAll 真正
+  // task-6 增补）。业主定稿（2026-08-06，减法）：ACTION_PENDING 不再按
+  // 「是否已提交」拆成两半——渲染层/接口层都已删掉 actionSubmittedAt 短路，
+  // 筛选桶跟着收口：ACTION_REQUIRED 桶恒装全部 ACTION_PENDING，不再区分
+  // 提交与否。下面用一个最小 Prisma-where 求值器，直接拿 findAll 真正
   // 构造出的 where 片段去匹配虚构行，而不是仅断言 where 的字面结构——这样
   // 才能在「桶定义漏写一个条件」时被测试真正抓到。
   describe('findAll 客户面筛选桶 (bucket)', () => {
-    type BucketRow = { status: string; actionSubmittedAt: Date | null };
+    type BucketRow = { status: string };
 
     // 评审 Important 2：PROCESSING 桶从白名单枚举改成补集定义（NOT{OR:[...]}），
     // 求值器要能读懂 NOT，否则测不出补集语义。
@@ -702,34 +675,24 @@ describe('DepositTransactionsService', () => {
       return where;
     };
 
-    const PAYIN_PENDING: BucketRow = { status: 'PAYIN_PENDING', actionSubmittedAt: null };
-    const COMPLIANCE_PENDING: BucketRow = { status: 'COMPLIANCE_PENDING', actionSubmittedAt: null };
-    const FROZEN: BucketRow = { status: 'FROZEN', actionSubmittedAt: null };
-    const SEIZING: BucketRow = { status: 'SEIZING', actionSubmittedAt: null };
-    const SEIZED: BucketRow = { status: 'SEIZED', actionSubmittedAt: null };
-    const MANUAL_CHECKING: BucketRow = { status: 'MANUAL_CHECKING', actionSubmittedAt: null };
-    const ACTION_PENDING_UNSUBMITTED: BucketRow = { status: 'ACTION_PENDING', actionSubmittedAt: null };
-    const submittedAt = new Date('2026-08-01T00:00:00Z');
-    const ACTION_PENDING_SUBMITTED: BucketRow = { status: 'ACTION_PENDING', actionSubmittedAt: submittedAt };
-    const FROZEN_SUBMITTED: BucketRow = { status: 'FROZEN', actionSubmittedAt: submittedAt };
-    const SUCCESS: BucketRow = { status: 'SUCCESS', actionSubmittedAt: null };
+    const PAYIN_PENDING: BucketRow = { status: 'PAYIN_PENDING' };
+    const COMPLIANCE_PENDING: BucketRow = { status: 'COMPLIANCE_PENDING' };
+    const FROZEN: BucketRow = { status: 'FROZEN' };
+    const SEIZING: BucketRow = { status: 'SEIZING' };
+    const SEIZED: BucketRow = { status: 'SEIZED' };
+    const MANUAL_CHECKING: BucketRow = { status: 'MANUAL_CHECKING' };
+    const ACTION_PENDING: BucketRow = { status: 'ACTION_PENDING' };
+    const SUCCESS: BucketRow = { status: 'SUCCESS' };
 
-    it('PROCESSING 桶覆盖全部渲染成 PROCESSING 的态（含已提交的 ACTION_PENDING）', async () => {
+    it('PROCESSING 桶覆盖全部渲染成 PROCESSING 的态，不含 ACTION_PENDING', async () => {
       const where = await captureWhere({ bucket: 'PROCESSING' } as any, { customerScope: true });
 
-      for (const row of [
-        PAYIN_PENDING,
-        COMPLIANCE_PENDING,
-        FROZEN,
-        SEIZING,
-        SEIZED,
-        MANUAL_CHECKING,
-        ACTION_PENDING_SUBMITTED,
-      ]) {
+      for (const row of [PAYIN_PENDING, COMPLIANCE_PENDING, FROZEN, SEIZING, SEIZED, MANUAL_CHECKING]) {
         expect(matchesBucketWhere(row, where)).toBe(true);
       }
-      // 未提交的 ACTION_PENDING 渲染成 ACTION REQUIRED，不属于 PROCESSING。
-      expect(matchesBucketWhere(ACTION_PENDING_UNSUBMITTED, where)).toBe(false);
+      // ACTION_PENDING 恒渲染成 ACTION REQUIRED（不论是否已提交），2026-08-06
+      // 简化后不再有"已提交的 ACTION_PENDING 算 PROCESSING"这个特例。
+      expect(matchesBucketWhere(ACTION_PENDING, where)).toBe(false);
     });
 
     // 评审 Important 2：PROCESSING 桶此前是白名单枚举，漏了 OPERATION_PENDING
@@ -740,41 +703,24 @@ describe('DepositTransactionsService', () => {
     it('PROCESSING 桶是补集定义——OPERATION_PENDING/CONFISCATING/CONFISCATED/假想的未来状态都落进来', async () => {
       const where = await captureWhere({ bucket: 'PROCESSING' } as any, { customerScope: true });
 
-      const OPERATION_PENDING: BucketRow = { status: 'OPERATION_PENDING', actionSubmittedAt: null };
-      const CONFISCATING: BucketRow = { status: 'CONFISCATING', actionSubmittedAt: null };
-      const CONFISCATED: BucketRow = { status: 'CONFISCATED', actionSubmittedAt: null };
+      const OPERATION_PENDING: BucketRow = { status: 'OPERATION_PENDING' };
+      const CONFISCATING: BucketRow = { status: 'CONFISCATING' };
+      const CONFISCATED: BucketRow = { status: 'CONFISCATED' };
       // 白名单式定义永远漏不掉的类别：一个状态机里还不存在、测试写下这行时
       // 才假想出来的状态。补集定义天然接住它，不需要有人记得手工加进桶里。
-      const HYPOTHETICAL_FUTURE_STATUS: BucketRow = { status: 'SOME_FUTURE_STATUS', actionSubmittedAt: null };
+      const HYPOTHETICAL_FUTURE_STATUS: BucketRow = { status: 'SOME_FUTURE_STATUS' };
 
       for (const row of [OPERATION_PENDING, CONFISCATING, CONFISCATED, HYPOTHETICAL_FUTURE_STATUS]) {
         expect(matchesBucketWhere(row, where)).toBe(true);
       }
     });
 
-    it('ACTION_REQUIRED 桶只含未提交的 ACTION_PENDING', async () => {
+    it('ACTION_REQUIRED 桶装全部 ACTION_PENDING，不再区分是否已提交（2026-08-06 简化）', async () => {
       const where = await captureWhere({ bucket: 'ACTION_REQUIRED' } as any, { customerScope: true });
 
-      expect(matchesBucketWhere(ACTION_PENDING_UNSUBMITTED, where)).toBe(true);
-      expect(matchesBucketWhere(ACTION_PENDING_SUBMITTED, where)).toBe(false);
+      expect(matchesBucketWhere(ACTION_PENDING, where)).toBe(true);
       expect(matchesBucketWhere(FROZEN, where)).toBe(false);
       expect(matchesBucketWhere(SUCCESS, where)).toBe(false);
-    });
-
-    it('提交过的单从 ACTION_PENDING 变 FROZEN，前后都落在 PROCESSING 桶里（筛选器不泄密）', async () => {
-      const processingWhere = await captureWhere({ bucket: 'PROCESSING' } as any, { customerScope: true });
-      const actionRequiredWhere = await captureWhere({ bucket: 'ACTION_REQUIRED' } as any, { customerScope: true });
-
-      // 提交后，无论此刻状态机是仍卡在 ACTION_PENDING 还是已经被冻，都必须
-      // 落在 PROCESSING 桶——与 depositStatusView 的短路（绑 actionSubmittedAt
-      // 而非 status）保持一致。
-      expect(matchesBucketWhere(ACTION_PENDING_SUBMITTED, processingWhere)).toBe(true);
-      expect(matchesBucketWhere(FROZEN_SUBMITTED, processingWhere)).toBe(true);
-
-      // 核心防线：提交过的单绝不能再落回 ACTION_REQUIRED 桶——否则客户在
-      // "补料请求" 筛选器下仍能看到这单，从而分辨出它和别的单不一样。
-      expect(matchesBucketWhere(ACTION_PENDING_SUBMITTED, actionRequiredWhere)).toBe(false);
-      expect(matchesBucketWhere(FROZEN_SUBMITTED, actionRequiredWhere)).toBe(false);
     });
 
     it('未知桶名 → 不加 status 约束、不抛错', async () => {
@@ -845,7 +791,8 @@ describe('DepositTransactionsService', () => {
         fromAddress: 'T_FROM',
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
-        actionSubmittedAt: SENSITIVE_FULL_ROW.actionSubmittedAt,
+        // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除，见
+        // findAllForCustomer 那份同名断言上的注释。
         actions: [],
       });
     });
