@@ -330,7 +330,7 @@ export class DepositTransactionsService {
    * 这两类）一律输出 null，不能把正常的完成时间也吞掉。
    */
   private toCustomerDepositView(item: any) {
-    const customerStatus = this.toCustomerStatus(item.status);
+    const customerStatus = this.toCustomerStatus(item.status, item.actionSubmittedAt);
     return {
       id: item.id,
       depositNo: item.depositNo,
@@ -367,9 +367,34 @@ export class DepositTransactionsService {
    * inbound-transfer-signals.service.ts 的 scan 端点（复审 Critical 2）
    * 复用这同一个判据收敛它自己返回的 `depositStatus`，不再另写第二份
    * 状态清单。
+   *
+   * I3 修复（反直觉，细说原因）：渲染层 depositStatusView.ts 的收敛判据是
+   * "submitted && !REAL_OUTCOME_STATUSES.has(key)"——已交齐材料的单，无论
+   * status 是 ACTION_PENDING 还是 FROZEN，客户端展示逐字段相同
+   * （SUBMITTED_VIEW）。但这里（接口层）此前只看 CUSTOMER_STATUS_PASSTHROUGH
+   * 白名单，而 ACTION_PENDING 恰好在白名单里——于是一个已把材料全部交齐、
+   * 仍在等 Sumsub 出下一轮裁决的客户，JSON 里的 status 会诚实地停在
+   * 'ACTION_PENDING'；一旦单子被 freeze，status 立刻跳成
+   * 'COMPLIANCE_PENDING'——渲染层因为有 submitted 短路完全感觉不到这次
+   * 变化，接口层却让客户开 DevTools 看到一次可辨识的字段跳变，直接捅穿
+   * 设计 §5.2 要求的"接口必须服从和渲染层一样的不可区分规则"。
+   * 所以这里加同款短路：`actionSubmittedAt` 非空时，ACTION_PENDING 也收敛成
+   * COMPLIANCE_PENDING。只特判 ACTION_PENDING 一个态——因为只有它的语义
+   * 本身就是"等客户交材料"，材料交齐后才失真；白名单里其余六个态
+   * （PAYIN_PENDING/SUCCESS/…）不受这条短路影响，原样放行。
+   * `actionSubmittedAt` 省略时（inbound-transfer-signals.service.ts 目前的
+   * 调用方式）行为不变，不强制所有调用方都得跟着传这个参数。
    */
-  toCustomerStatus(status: string): string {
-    return CUSTOMER_STATUS_PASSTHROUGH.has(status) ? status : 'COMPLIANCE_PENDING';
+  toCustomerStatus(status: string, actionSubmittedAt?: unknown): string {
+    if (
+      status === DepositTransactionStatus.ACTION_PENDING &&
+      actionSubmittedAt != null
+    ) {
+      return DepositTransactionStatus.COMPLIANCE_PENDING;
+    }
+    return CUSTOMER_STATUS_PASSTHROUGH.has(status)
+      ? status
+      : DepositTransactionStatus.COMPLIANCE_PENDING;
   }
 
   async findOne(id: string) {

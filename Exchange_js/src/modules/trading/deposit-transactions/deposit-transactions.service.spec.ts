@@ -378,6 +378,65 @@ describe('DepositTransactionsService', () => {
 
       expect(result.status).toBe('COMPLIANCE_PENDING');
     });
+
+    // I3 修复：渲染层 depositStatusView.ts 的收敛判据是
+    // "submitted && !REAL_OUTCOME_STATUSES.has(key)"——已交齐材料的单，
+    // 无论 status 是 ACTION_PENDING 还是 FROZEN，客户端展示逐字段相同。
+    // 但接口层此前只按 CUSTOMER_STATUS_PASSTHROUGH 白名单判定，ACTION_PENDING
+    // 恰好在白名单里，即便材料已交齐（actionSubmittedAt 非空）也原样输出；
+    // 单子一旦被冻，status 立刻从 ACTION_PENDING 跳到 COMPLIANCE_PENDING——
+    // 这次跳变本身就是客户可在 DevTools Network 面板里观察到的信号，渲染层
+    // 因为有 submitted 短路完全无感，两层口径不一致，违反设计 §5.2「接口必须
+    // 服从和渲染层一样的不可区分规则」。
+    it('toCustomerStatus：actionSubmittedAt 非空时，ACTION_PENDING 也收敛成 COMPLIANCE_PENDING', () => {
+      expect(service.toCustomerStatus('ACTION_PENDING', new Date())).toBe('COMPLIANCE_PENDING');
+      // 未交齐材料时 ACTION_PENDING 必须原样放行——不能连带把正常的
+      // "等客户补料"提示也收敛掉。
+      expect(service.toCustomerStatus('ACTION_PENDING', null)).toBe('ACTION_PENDING');
+      expect(service.toCustomerStatus('ACTION_PENDING')).toBe('ACTION_PENDING');
+      // 白名单里其余态不受这条短路影响，即便 actionSubmittedAt 非空也原样放行——
+      // 只有 ACTION_PENDING 本身的语义是"等客户交材料"，材料交齐后才失真。
+      expect(service.toCustomerStatus('SUCCESS', new Date())).toBe('SUCCESS');
+    });
+
+    // 核心防护：同一笔已交齐材料的单，一份底层 status 是 ACTION_PENDING
+    // （合规裁决还没落地），一份是 FROZEN（合规裁决落成了制裁冻结）。断言两份
+    // 客户面视图**逐字段全等**——这是"交齐材料后被冻的客户"不能通过响应体
+    // 看出自己被冻过的唯一保证。只比 status 一个字段不够，前几轮复审反复漏
+    // 就是因为只盯单个字段。
+    it('已交齐材料(actionSubmittedAt 非空)：ACTION_PENDING 与 FROZEN 客户面视图逐字段全等', async () => {
+      const submittedAt = new Date('2026-08-05T00:00:00Z');
+      const baseFields = {
+        id: 'd-submitted-1',
+        depositNo: 'DEP-SUBMITTED-1',
+        ownerId: 'cust-1',
+        amount: '10.00',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        completedAt: null,
+        txHash: null,
+        referenceNo: null,
+        fromAddress: null,
+        fromIban: null,
+        asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6, type: 'CRYPTO' },
+        limitHoldReason: null,
+        actionSubmittedAt: submittedAt,
+      };
+
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+        ...baseFields,
+        status: 'ACTION_PENDING',
+      });
+      const actionPendingView = (await service.findOneForCustomer('d-submitted-1', 'cust-1')) as any;
+
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+        ...baseFields,
+        status: 'FROZEN',
+      });
+      const frozenView = (await service.findOneForCustomer('d-submitted-1', 'cust-1')) as any;
+
+      expect(actionPendingView).toEqual(frozenView);
+      expect(actionPendingView.status).toBe('COMPLIANCE_PENDING');
+    });
   });
 
   // 复审 Critical 1（规则 A 的另一处漏洞）：status 被收敛掉的同时，
