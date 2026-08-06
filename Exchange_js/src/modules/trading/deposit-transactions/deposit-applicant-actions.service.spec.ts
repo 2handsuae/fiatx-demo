@@ -141,6 +141,25 @@ describe('DepositApplicantActionsService', () => {
     await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(boom);
   });
 
+  // 评审 Important 1(b)：externalActionId 为空的 incoming 项不能静默入库——
+  // 它会一路流到 SumsubClient.createActionSdkToken，真接时铸出一个不绑任何
+  // action 的 token，且没人发现。入库处直接拦，并 warn 留痕。
+  it('incoming 混一条 externalActionId 为空的 → 该条不入库、不影响其它条正常入库，并 warn 一条', async () => {
+    const BAD = { applicantActionId: 'aa-bad', externalActionId: '' };
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+
+    const r = await svc.syncApplicantActions('d-1', [A1, BAD]);
+
+    expect(r).toEqual({ added: [1], retired: [] });
+    expect(prisma.depositApplicantAction.createMany).toHaveBeenCalledWith({
+      data: [
+        { depositTransactionId: 'd-1', applicantActionId: 'aa-1', externalActionId: 'EXT-1', seq: 1 },
+      ],
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('aa-bad');
+  });
+
   describe('逐条提交与充值单缓存', () => {
     const DEADLINE = new Date('2026-08-13T00:00:00Z');
 

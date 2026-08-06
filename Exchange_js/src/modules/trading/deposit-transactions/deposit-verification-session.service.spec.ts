@@ -79,6 +79,54 @@ describe('DepositVerificationSessionService', () => {
     await expect(svc.getSession('cust-1', 'NOPE', 1)).rejects.toThrow(NotFoundException);
   });
 
+  // 806812d3 整体替换本文件时连带删掉的回归覆盖，评审补回：BELOW_MIN
+  // 隐藏单的存在性预言机。findAll 的 customerScope 与 findOneForCustomer
+  // 都把这类单当不存在处理（limitHoldReason != null → 404），本端点必须
+  // 对齐——否则客户能借此探出"我有一笔列表里看不到的单"，而单号
+  // `DEP+YYMMDD+4位随机` 一天空间只有 1 万、又没有限流，枚举成本很低。
+  it('mustFindOwn 的查询条件带 limitHoldReason:null，与客户面其它两条口子对齐', async () => {
+    await svc.getSession('cust-1', 'DEP1', 1);
+
+    expect(prisma.depositTransaction.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { depositNo: 'DEP1', ownerId: 'cust-1', limitHoldReason: null },
+      }),
+    );
+  });
+
+  // 806812d3 整体替换本文件时连带删掉的回归覆盖，评审补回：客户一次提交
+  // 不能单方面抹掉 operator 可见的 SLA 违约旗——该状态不在 SLA 扫描范围内，
+  // 抹掉后永远发现不了。判据是 status === ACTION_PENDING && !slaBreached。
+  describe('submit 对 SLA 字段的重置——只在仍是 ACTION_PENDING 且未违约时才重置', () => {
+    it('ACTION_PENDING 且 slaBreached=false → submitBySeq 收到 resetSla=true', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'ACTION_PENDING', slaBreached: false }),
+      );
+
+      await svc.submit('cust-1', 'DEP1', 1);
+
+      expect(actions.submitBySeq).toHaveBeenCalledWith('d-1', 1, expect.any(Date), true);
+    });
+
+    it('ACTION_PENDING 但 slaBreached=true → submitBySeq 收到 resetSla=false（不抹违约旗）', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(
+        ROW({ status: 'ACTION_PENDING', slaBreached: true }),
+      );
+
+      await svc.submit('cust-1', 'DEP1', 1);
+
+      expect(actions.submitBySeq).toHaveBeenCalledWith('d-1', 1, expect.any(Date), false);
+    });
+
+    it('FROZEN → submitBySeq 收到 resetSla=false（同上，冻结态同样不许被客户提交清旗）', async () => {
+      prisma.depositTransaction.findFirst.mockResolvedValue(ROW({ status: 'FROZEN' }));
+
+      await svc.submit('cust-1', 'DEP1', 1);
+
+      expect(actions.submitBySeq).toHaveBeenCalledWith('d-1', 1, expect.any(Date), false);
+    });
+  });
+
   it('submit 恒返 {ok:true}，冻结单也照收', async () => {
     prisma.depositTransaction.findFirst.mockResolvedValue(ROW({ status: 'FROZEN' }));
     await expect(svc.submit('cust-1', 'DEP1', 1)).resolves.toEqual({ ok: true });

@@ -211,7 +211,7 @@ describe('SumsubClient', () => {
       expect(r1.token).not.toEqual(r2.token);
     });
 
-    it('token 不包含 externalActionId 的任何片段（两个候选值都试）', async () => {
+    it('token 前缀之后是合法 UUID v4，且不包含 externalActionId 的任何片段（两个候选值都试）', async () => {
       const client = new SumsubClient();
 
       for (const externalActionId of ['EXT-EDD-0002', 'EXT-SOF-0001']) {
@@ -220,7 +220,15 @@ describe('SumsubClient', () => {
           levelName: 'wave3-level-1',
           externalActionId,
         });
-        expect(token).not.toMatch(/edd|sof/i);
+        // 评审 Minor：此前用 `not.toMatch(/edd|sof/i)` 断言，但 uuid 十六进
+        // 制字符集含 e/d，随机拼出子串 "edd" 的概率约 22/4096 ≈ 0.5%，两个
+        // token 合起来单次运行约 1% 变红——安全测试偶发变红比没有更糟，会
+        // 训练人忽略红灯。改断言"前缀之后是合法 UUID v4 格式"：UUID 与输入
+        // 无关这件事，由"格式正确 + 上一条用例证明的两次不等"就足以证明，
+        // 不必再赌字符串不包含特定字母。
+        expect(token).toMatch(
+          /^mock-sdk-token-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
         expect(token.toLowerCase()).not.toContain(externalActionId.toLowerCase());
         // 也不是该值的确定性摘要——两个候选各自哈希一次比对不上。
         const digest = createHash('sha256').update(externalActionId).digest('hex').slice(0, 16);

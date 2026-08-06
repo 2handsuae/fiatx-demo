@@ -86,7 +86,7 @@ export class MaterialRefreshCyclesController {
     if (cycle.status !== 'PENDING_CUSTOMER_EVIDENCE') {
       throw new ForbiddenException(`Cycle is ${cycle.status}`);
     }
-    if (!cycle.sumsubActionLevelName || !cycle.sumsubActionId) {
+    if (!cycle.sumsubActionLevelName) {
       throw new ForbiddenException('Sumsub action not yet created');
     }
 

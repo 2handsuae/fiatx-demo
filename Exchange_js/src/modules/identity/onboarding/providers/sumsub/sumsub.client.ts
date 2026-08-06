@@ -144,7 +144,15 @@ export class SumsubClient {
       applicantId: input.applicantId,
       levelName: input.levelName,
       // applicant action 场景官方必填。
-      ...(input.externalActionId && { externalActionId: input.externalActionId }),
+      // ⚠️ 判据用 `!== undefined` 而不是真值判断：调用方传 `''`（空串）说明
+      // 它手里就是拿不到合法 external id，这本身是个错误状态，应该让这次
+      // POST 照样带上空串发出去、由 Sumsub 明确报错，逼错误在真接时刻暴露。
+      // 若改回真值判断（`input.externalActionId &&`），空串会被这里悄悄
+      // 吞掉——铸出一个不绑任何 action 的 token，且没有任何报错，是静默
+      // 降级而不是拒绝。真正“调用方就是不想传”的场景走的是 `undefined`
+      // （字段整个不传，如 material-refresh-cycles.controller 那条调用），
+      // 那种情况下这里也确实不该加进 body。
+      ...(input.externalActionId !== undefined && { externalActionId: input.externalActionId }),
       ttlInSecs: input.ttlInSecs ?? 600,
     });
   }

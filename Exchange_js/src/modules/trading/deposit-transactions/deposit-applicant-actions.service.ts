@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 
 export interface IncomingApplicantAction {
@@ -16,6 +16,8 @@ export interface IncomingApplicantAction {
  */
 @Injectable()
 export class DepositApplicantActionsService {
+  private readonly logger = new Logger(DepositApplicantActionsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -59,6 +61,19 @@ export class DepositApplicantActionsService {
     // 记录——而 seq 是客户面唯一定位符（进 URL），撞了会让 findBySeq 变成不确定
     // 查询。包一层事务把这三步锁成一个原子操作；@@unique([depositTransactionId,
     // seq]) 是 DB 层最后兜底，事务是尽量避免真撞上这道底线。
+    // 空 externalActionId 在入库处直接拦：与其让空串一路流到 SumsubClient.
+    // createActionSdkToken（那里 `!== undefined` 判断会把空串照样发给
+    // Sumsub 求一个明确报错），不如在源头就不让这种脏数据入库——一条脏
+    // action 没有 externalActionId 意味着我方从此拿它铸不出任何合法 token，
+    // 留在库里只会在客户点开这条 action 时才炸，不如同步时就丢弃并留痕。
+    const valid = incoming.filter((a) => {
+      if (a.externalActionId) return true;
+      this.logger.warn(
+        `丢弃 externalActionId 为空的 applicant action：depositId=${depositId} applicantActionId=${a.applicantActionId}`,
+      );
+      return false;
+    });
+
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.depositApplicantAction.findMany({
         where: { depositTransactionId: depositId },
@@ -67,9 +82,9 @@ export class DepositApplicantActionsService {
       });
 
       const existingIds = new Set(existing.map((r) => r.applicantActionId));
-      const incomingIds = new Set(incoming.map((a) => a.applicantActionId));
+      const incomingIds = new Set(valid.map((a) => a.applicantActionId));
 
-      const toAdd = incoming.filter((a) => !existingIds.has(a.applicantActionId));
+      const toAdd = valid.filter((a) => !existingIds.has(a.applicantActionId));
       const toRetire = existing.filter(
         (r) => !incomingIds.has(r.applicantActionId) && r.submittedAt === null,
       );
