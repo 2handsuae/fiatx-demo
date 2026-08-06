@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-08-05
+Last Updated: 2026-08-06
 
 ---
 
@@ -106,6 +106,9 @@ Last Updated: 2026-08-05
 - **`websdkLink` 返回 url 的 iframe 可行性未实测**：身份验证类托管页通常设 `X-Frame-Options`。当前走 `accessTokens/sdk` token 路线不依赖它；若将来改跳转路线需实测。
 - **一次多个 `applicantAction` 只处理第一个**：`deposit-workflow.service.ts → applyKytAwaitUser()` 用 `applicantActions?.[0]`，若 Sumsub 一次要求补多项材料（数组长度 >1），第一个之后的全部被丢弃——deposit 只落一个 `sumsubActionId`/`sumsubExternalActionId`，客户端也只能看到并提交这一项。真实 Sumsub 场景是否会一次挂多项待确认；沙盒 fixture 目前只喂单元素数组，未触发过 ｜来源: 2026-08-05 Task 7 code 走查
 - **两个 `sumsub-txn-client` 的 `applicantActions` 数组映射逻辑重复**：`sumsub-txn-client.mock.ts` 与 `sumsub-txn-client.http.ts` 各自手写一份 `scoringResult.applicantActions.map((a:any) => ({applicantActionId: String(a.applicantActionId ?? ''), ...}))`，未共享同一个 helper/类型，两处将来各自改动容易漂移（类似 BACKLOG 里已登记的 `sumsub-txn-client.http.ts` 三处 minor 手工同步问题）｜来源: 2026-08-05 Task 7 code 走查
+- **旧契约调用方仍在树里,且被编译门天然绕开**：`test/deposit-sumsub-verdicts.e2e-spec.ts`（578 行 `session1.embedUrl`、`verificationSessions.getSession(customerId, depositNo)`/`.submit(customerId, depositNo)` 两参调用）、`client-web/src/pages/Deposit.tsx`（`Transaction.embedUrl` 字段 + `GET .../verification-session`、`POST .../verification-session/submit` 两条不带 `seq` 的 URL）、`client-web/src/pages/MockVerification.tsx`（同款不带 `seq` 的 submit URL）三个文件仍在用 806812d3 之前的旧契约——GET/POST 不带 `:seq` 段、响应体是 `{submitted, embedUrl}`。806812d3 把客户面接口改成按 `seq` 定位（`.../verification-session/:seq`、`.../verification-session/:seq/submit`）、响应体改 `{submitted, sdkToken}` 后，这三处调用方全部对不上新契约，demo 路径实际是断的，但 `npx tsc --noEmit -p .` 测不出来——根仓 `tsconfig.json` 的 `include` 只有 `src/**/*`，`exclude` 显式排掉 `client-web`/`admin-web`/`frontend`，`test/*.e2e-spec.ts` 也不在 include 范围内，三个文件都游离在这道硬门之外。由 `superpowers/plans/2026-08-06-deposit-detail-page-multi-action.md` 的 Task 5（详情独立页 + 删弹窗，接 `Deposit.tsx`）、Task 6（认证独立页 + 删 `/mock-verification`，接 `MockVerification.tsx`）、Task 7（多条 fixture + e2e，接 `deposit-sumsub-verdicts.e2e-spec.ts` 一类的旧 e2e）负责修复 ｜来源: 2026-08-06 评审 Important 4
+- **材料重检流程建 action 时未提交我方 external id，其 SDK token 路径无法正确绑定**：`material-refresh.service.ts` 的 `createApplicantAction()` 调用 POST 的是 `{}`，从未提交过我方 `externalActionId`，只拿到 Sumsub 返回的 `action.id` 存进 `sumsubActionId`（Sumsub 侧 id）。`material-refresh-cycles.controller.ts → getSdkToken()` 此前误把 `cycle.sumsubActionId` 当 `externalActionId` 传给 `createActionSdkToken()`，真接会绑到不匹配（或新建）的 action。已把 `SumsubClient.createActionSdkToken()` 的 `externalActionId` 改成可选、`material-refresh-cycles.controller.ts` 恢复成不传，消除了当下的错绑风险，但材料重检流程本身仍未接入我方 external id——真接 Sumsub 前需要先让 `createApplicantAction()` 建 action 时就带上我方生成的 external id 并落库，`getSdkToken()` 才能传对值 ｜来源: 2026-08-06 评审 Important 1
+- **`SUMSUB_ACTION_LEVEL` 现为占位常量，应取客户当前等级或从裁决报文读**：`deposit-verification-session.service.ts` 的补料 action SDK token 走 `SUMSUB_ACTION_LEVEL`（现从 `process.env.SUMSUB_ACTION_LEVEL` 读，默认 `wave3-level-1`），真实等级应取客户当前等级（`onboarding.service.ts` 的 `sumsubCurrentLevelName`）或从 Sumsub KYT 裁决报文里读，不该写死/环境变量兜底 ｜来源: 2026-08-06 评审 Important 2
 
 ## 技术债 — V3 财务配置
 

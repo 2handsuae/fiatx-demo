@@ -270,6 +270,34 @@ describe('DepositTransactionsService', () => {
         actions: [],
       });
     });
+
+    // 评审 Important 3：上面那条断言的 fixture 不带 applicantActions，
+    // 期望值恒为 actions: []——今天谁把 applicantActionId 加回 .map() 里，
+    // 那条断言照样绿，测了个寂寞（上一轮 Critical 正是这么漏过的）。这条
+    // 用真实高危值（aa-edd-0002 / EXT-EDD-0002）造一行 action，钉住键集
+    // 白名单 + 序列化结果不含高危片段。
+    it('评审 Important 3：actions 元素的键集不携带高危 action id（真实值域造数据）', async () => {
+      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([
+        {
+          ...SENSITIVE_FULL_ROW,
+          applicantActions: [
+            {
+              seq: 1,
+              submittedAt: null,
+              applicantActionId: 'aa-edd-0002',
+              externalActionId: 'EXT-EDD-0002',
+            },
+          ],
+        },
+      ]);
+      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.findAllForCustomer('cust-1', {} as any);
+      const item = result.items[0] as any;
+
+      expect(Object.keys(item.actions[0]).sort()).toEqual(['seq', 'submittedAt']);
+      expect(JSON.stringify(item)).not.toMatch(/aa-edd|EXT-EDD|edd/i);
+    });
   });
 
   // 评审 Important 1(b)，安全洞：客户面响应体里的 status 必须先经收敛，

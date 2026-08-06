@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import {
   SumsubApplicantResponse,
@@ -118,16 +118,25 @@ export class SumsubClient {
   async createActionSdkToken(input: {
     applicantId: string;
     levelName: string;
-    externalActionId: string;
+    /**
+     * applicant action 场景官方必填。可选是因为**材料重检那条流程的 action 是
+     * 用 createApplicantAction 建的,而它 POST 的是 `{}`,从来没提交过
+     * external id** —— 我方手里根本没有这个值,传 sumsubActionId 是传错类型
+     * (那是 Sumsub 侧 id),会绑到不匹配的 action。该流程真接前需要先改成
+     * 建 action 时就带上我方 external id,已登记 BACKLOG。
+     */
+    externalActionId?: string;
     ttlInSecs?: number;
   }): Promise<{ token: string }> {
     if (process.env.SUMSUB_MOCK_MODE === 'true') {
-      // ⚠️ 占位 token **不得**嵌入 externalActionId：demo fixture 的值形如
-      // `EXT-EDD-0002`，`EDD`（enhanced due diligence）会随 token 一路下发到
-      // 客户端，等于把上一轮封掉的 PEP 那 1 比特换个载体又漏出去。用不可逆
-      // 摘要，既保持"同一条 action 拿到同一个 token"又不携带原文。
-      const digest = createHash('sha256').update(input.externalActionId).digest('hex').slice(0, 16);
-      return { token: `mock-sdk-token-${digest}` };
+      // ⚠️ 占位 token **不得从 externalActionId 派生**——哪怕是哈希。
+      // fixture 的值域只有两个(EXT-SOF-0001 / EXT-EDD-0002),无盐确定性摘要
+      // 在这个值域上是双射,客户对着两个候选各哈希一次就反推出 PEP 判定。
+      // 这与当初判 materialKind 死刑是同一条推理,只是换成哈希载体。
+      // 纯随机 = 零比特。真实 token 本身也是短时效、每次重取都不同的,
+      // 所以"同一条 action 拿同一个 token"从来就不是真实语义,不必模拟。
+      const { randomUUID } = await import('crypto');
+      return { token: `mock-sdk-token-${randomUUID()}` };
     }
     return this.post('/resources/accessTokens/sdk', {
       // applicantId 是 Sumsub 侧 id，必须走这个字段；userId 是我方 externalUserId，
@@ -135,7 +144,7 @@ export class SumsubClient {
       applicantId: input.applicantId,
       levelName: input.levelName,
       // applicant action 场景官方必填。
-      externalActionId: input.externalActionId,
+      ...(input.externalActionId && { externalActionId: input.externalActionId }),
       ttlInSecs: input.ttlInSecs ?? 600,
     });
   }

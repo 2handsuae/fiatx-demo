@@ -9,8 +9,13 @@ import {
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 import { SumsubClient } from '../../identity/onboarding/providers/sumsub/sumsub.client';
 
-/** 补料 action 走的验证等级。真接 Sumsub 时按租户配置调整。 */
-const SUMSUB_ACTION_LEVEL = 'basic-kyc-level';
+/**
+ * 补料 action 走的验证等级。
+ * ⚠️ 这是占位:充值这条 action 是 Sumsub KYT 规则侧生成的,正确做法是取客户
+ * 当前等级或从裁决报文里读,不该写死。本租户真实等级见 onboarding.service.ts
+ * (wave3-level-*)。真接前必须改,已登记 BACKLOG。
+ */
+const SUMSUB_ACTION_LEVEL = process.env.SUMSUB_ACTION_LEVEL || 'wave3-level-1';
 
 /**
  * 客户面能看到的全部内容。**只有这两个键。**

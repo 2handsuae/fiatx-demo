@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createHmac } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { SumsubClient } from './sumsub.client';
 
 jest.mock('axios');
@@ -177,6 +177,56 @@ describe('SumsubClient', () => {
         }),
       }),
     );
+  });
+
+  // 评审 Critical：mock 分支此前用 sha256(externalActionId) 取前 16 位,
+  // 无盐且确定性——demo fixture 的 externalActionId 值域只有两个
+  // (EXT-SOF-0001 / EXT-EDD-0002),客户开 DevTools 对着两个候选值各哈希
+  // 一次就能反推出是哪一个,等于 PEP 判定那 1 个比特换了个哈希载体又漏出去。
+  // 这条钉住:同一个 externalActionId 连续两次调用,token 不相等,且都不
+  // 包含 externalActionId 的任何片段。
+  describe('createActionSdkToken mock 分支不得从 externalActionId 派生 token', () => {
+    beforeEach(() => {
+      process.env.SUMSUB_MOCK_MODE = 'true';
+    });
+
+    afterEach(() => {
+      delete process.env.SUMSUB_MOCK_MODE;
+    });
+
+    it('同一个 externalActionId 连续调用两次，两个 token 不相等', async () => {
+      const client = new SumsubClient();
+
+      const r1 = await client.createActionSdkToken({
+        applicantId: 'appl-1',
+        levelName: 'wave3-level-1',
+        externalActionId: 'EXT-EDD-0002',
+      });
+      const r2 = await client.createActionSdkToken({
+        applicantId: 'appl-1',
+        levelName: 'wave3-level-1',
+        externalActionId: 'EXT-EDD-0002',
+      });
+
+      expect(r1.token).not.toEqual(r2.token);
+    });
+
+    it('token 不包含 externalActionId 的任何片段（两个候选值都试）', async () => {
+      const client = new SumsubClient();
+
+      for (const externalActionId of ['EXT-EDD-0002', 'EXT-SOF-0001']) {
+        const { token } = await client.createActionSdkToken({
+          applicantId: 'appl-1',
+          levelName: 'wave3-level-1',
+          externalActionId,
+        });
+        expect(token).not.toMatch(/edd|sof/i);
+        expect(token.toLowerCase()).not.toContain(externalActionId.toLowerCase());
+        // 也不是该值的确定性摘要——两个候选各自哈希一次比对不上。
+        const digest = createHash('sha256').update(externalActionId).digest('hex').slice(0, 16);
+        expect(token).not.toContain(digest);
+      }
+    });
   });
 
   it('verifies webhook signatures against the raw payload bytes', () => {
