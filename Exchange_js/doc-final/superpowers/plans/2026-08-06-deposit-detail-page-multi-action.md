@@ -699,6 +699,66 @@ npx jest src/modules/trading/deposit-transactions/deposit-workflow.service.spec.
 
 预期：FAIL（`syncApplicantActions` 未被调用 / DI 解析不到新 provider）。
 
+- [ ] **Step 2b（前置）：让 `syncApplicantActions` 幂等吞掉唯一约束冲突**
+
+Task 1 的复审指出：SQLite 下 Prisma 的 `$transaction` 是文件锁语义——多个读事务能
+并发拿 SHARED 锁互不阻塞，两个并发调用完全可能各自读到同一份 `existing`，只在写入时
+才被串行化。**真正兜底的是 `@@unique([depositTransactionId, seq])` 约束，不是事务。**
+
+Task 1 时该 service 还没有调用方，所以冲突抛出去无所谓；**本任务把它接进 webhook
+handler 之后就有所谓了**——并发或重复投递会让一次合法的 Sumsub webhook 投递变成裸
+500，而 webhook 的正确语义是幂等。
+
+在 `deposit-applicant-actions.service.ts` 的 `syncApplicantActions` 外层包一次重试：
+
+```ts
+  async syncApplicantActions(
+    depositId: string,
+    incoming: IncomingApplicantAction[],
+  ): Promise<{ added: number[]; retired: number[] }> {
+    try {
+      return await this.syncOnce(depositId, incoming);
+    } catch (e: any) {
+      // P2002 = 唯一约束冲突。并发/重复 webhook 下两个调用算出同一个 nextSeq，
+      // 一个成功一个撞约束——这是**预期内**的竞态结果，不是错误：重读一次即可，
+      // 此时对方已经把行插好了，第二遍算出来的 toAdd 通常为空，天然幂等。
+      // 不重试的话，一次合法投递会被打成 500 抛回 Sumsub，而 webhook 要求幂等。
+      if (e?.code !== 'P2002') throw e;
+      return this.syncOnce(depositId, incoming);
+    }
+  }
+
+  private async syncOnce(
+    depositId: string,
+    incoming: IncomingApplicantAction[],
+  ): Promise<{ added: number[]; retired: number[] }> {
+    // …原 syncApplicantActions 的函数体原样搬进来，一行不改…
+  }
+```
+
+加两条测试到 `deposit-applicant-actions.service.spec.ts`：
+
+```ts
+    it('撞唯一约束(P2002) → 重读一次,不把异常抛给调用方', async () => {
+      const conflict = Object.assign(new Error('unique'), { code: 'P2002' });
+      prisma.depositApplicantAction.createMany
+        .mockRejectedValueOnce(conflict)
+        .mockResolvedValueOnce({ count: 0 });
+      // 第二遍读到对方已插好的行 → toAdd 为空
+      prisma.depositApplicantAction.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null }]);
+
+      await expect(svc.syncApplicantActions('d-1', [A1])).resolves.toEqual({ added: [], retired: [] });
+    });
+
+    it('非 P2002 的错误原样抛出,不吞', async () => {
+      const boom = Object.assign(new Error('disk full'), { code: 'P9999' });
+      prisma.depositApplicantAction.createMany.mockRejectedValue(boom);
+      await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(boom);
+    });
+```
+
 - [ ] **Step 3: 实现**
 
 把 `applyKytAwaitUser` 整个替换为：
@@ -1771,6 +1831,10 @@ npx jest --config test/jest-e2e.json test/deposit-sumsub-verdicts.e2e-spec.ts
   （按前缀猜标签等于把已封掉的 PEP 那 1 比特从后门放回来）。
 - 【充值补料】真接 Sumsub 时 `SUMSUB_ACTION_LEVEL` 需按租户实际等级名配置，
   现为硬编码占位（`deposit-verification-session.service.ts`）。
+- 【充值补料】`DepositApplicantAction` 上 `@@index([depositTransactionId, seq])` 与
+  `@@unique([depositTransactionId, seq])` 完全冗余（已用 sqlite3 确认磁盘上两个索引
+  并存），每次 insert/delete 多维护一棵无查询收益的 B-tree。删除需要一次纯 DROP INDEX
+  迁移，2026-08-06 未授权清理故保留。
 ```
 
 - [ ] **Step 6: 四道硬闸**
