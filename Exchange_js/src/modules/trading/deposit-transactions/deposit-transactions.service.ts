@@ -220,6 +220,7 @@ export class DepositTransactionsService {
               complianceStatus: true,
             },
           },
+          applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
         },
       }),
       (this.prisma as any).depositTransaction.count({ where }),
@@ -350,6 +351,13 @@ export class DepositTransactionsService {
           }
         : null,
       actionSubmittedAt: item.actionSubmittedAt,
+      // 客户面白名单再开一个口（与当初开 actionSubmittedAt 同等对待）。
+      // **只有 seq 与 submittedAt 两个键**——无 id、无类型、无理由。够画那个
+      // 列表和各自状态，多一个字段都是风险面（上一轮的 Critical 正是这么来的）。
+      actions: (item.applicantActions ?? []).map((a: any) => ({
+        seq: a.seq,
+        submittedAt: a.submittedAt,
+      })),
     };
   }
 
@@ -384,6 +392,7 @@ export class DepositTransactionsService {
             sumsubApplicantId: true,
           },
         },
+        applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
       },
     });
     if (!item) throw new NotFoundException('Deposit transaction not found');
@@ -782,66 +791,6 @@ export class DepositTransactionsService {
       where: { id },
       data: { slaDeadline },
     });
-  }
-
-  /**
-   * 落 Sumsub applicant action 引用。三件事一次写完：换 action 引用、
-   * 清掉上一轮的客户提交戳（新 action = 客户要重新交东西）、重置 SLA 表。
-   * 缺任一件都会让客户端停在"已收到，审核中"而不知道又被要材料了。
-   */
-  async setActionRefs(
-    id: string,
-    actionId: string,
-    externalActionId: string,
-    slaDeadline: Date,
-  ) {
-    return (this.prisma as any).depositTransaction.update({
-      where: { id },
-      data: {
-        sumsubActionId: actionId,
-        sumsubExternalActionId: externalActionId,
-        actionSubmittedAt: null,
-        slaDeadline,
-        slaBreached: false,
-      },
-    });
-  }
-
-  /**
-   * 客户提交材料。幂等——重复提交不刷新时间戳，避免客户狂点按钮把
-   * SLA 表无限续期。**不碰 status**：客户的动作不驱动状态机（真实世界
-   * 里也是等 Sumsub 重评后发 webhook 才动）。
-   *
-   * 用**单条带条件的 updateMany** 而非「先读后写」：调用方靠返回的 `changed`
-   * 决定是否写审计，两步式在并发下两个请求都会读到 null、都返回 true，
-   * 同一次提交会记出两条审计。条件放进 where 交给 DB 保证互斥后，
-   * 只有一个请求能匹配到行。
-   *
-   * `resetSla`（评审 Important 2）：`actionSubmittedAt` 本身**无条件**盖上——
-   * 客户端"已收到"的文案就绑它，冻结态若不盖会产生可观测差异，破坏不可区分性。
-   * 但 `slaDeadline`/`slaBreached` 这两个 operator 可见字段只在调用方确认单子
-   * 仍处于 ACTION_PENDING 时才重置：SLA 定时器会把超时单打成 MANUAL_CHECKING
-   * 且 `slaBreached=true`，而 `findSlaBreachCandidates` 不扫 MANUAL_CHECKING——
-   * 若这里无条件清 `slaBreached`，客户单方面一次提交就能把 operator 眼里的
-   * 违约旗永久抹掉、且系统再也发现不了。调用方在同一次请求里已经读过该单的
-   * status（就是判定要不要走这条提交逻辑的那次读），把判断结果以布尔值传进来，
-   * 不引入新的读-改-写。
-   */
-  async markActionSubmitted(
-    id: string,
-    slaDeadline: Date,
-    resetSla: boolean,
-  ): Promise<{ changed: boolean }> {
-    const data: Record<string, unknown> = { actionSubmittedAt: new Date() };
-    if (resetSla) {
-      data.slaDeadline = slaDeadline;
-      data.slaBreached = false;
-    }
-    const res = await (this.prisma as any).depositTransaction.updateMany({
-      where: { id, actionSubmittedAt: null },
-      data,
-    });
-    return { changed: res.count > 0 };
   }
 
   /**

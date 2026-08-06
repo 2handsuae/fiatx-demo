@@ -86,7 +86,7 @@ export class MaterialRefreshCyclesController {
     if (cycle.status !== 'PENDING_CUSTOMER_EVIDENCE') {
       throw new ForbiddenException(`Cycle is ${cycle.status}`);
     }
-    if (!cycle.sumsubActionLevelName) {
+    if (!cycle.sumsubActionLevelName || !cycle.sumsubActionId) {
       throw new ForbiddenException('Sumsub action not yet created');
     }
 
@@ -103,6 +103,8 @@ export class MaterialRefreshCyclesController {
     const result = await this.sumsubClient.createActionSdkToken({
       applicantId: customer.sumsubApplicantId,
       levelName: cycle.sumsubActionLevelName,
+      // 该流程的 action 由我方 createApplicantAction 创建，两个 id 同源。
+      externalActionId: cycle.sumsubActionId,
       ttlInSecs: 600,
     });
 

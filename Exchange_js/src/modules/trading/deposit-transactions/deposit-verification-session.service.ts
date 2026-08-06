@@ -1,33 +1,33 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { DepositTransactionsService } from './deposit-transactions.service';
 import { DepositTransactionStatus } from './dto/deposit-transaction.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
+import { SumsubClient } from '../../identity/onboarding/providers/sumsub/sumsub.client';
+
+/** 补料 action 走的验证等级。真接 Sumsub 时按租户配置调整。 */
+const SUMSUB_ACTION_LEVEL = 'basic-kyc-level';
 
 /**
- * **不含 `actionId`（评审 Critical，勿加回来）。** demo fixture 里
- * `sumsubActionId` 本身携带信息：PEP 场景发 `aa-edd-0002`、非 PEP 场景发
- * `aa-sof-0001`（见 deposit-sumsub/fixtures/verdict-buttons.ts）。客户开
- * DevTools 看这个 id 前缀（edd = enhanced due diligence）就能反推出 PEP
- * 判定，故该字段绝不下发。前端不需要它（只用 `embedUrl`），admin 侧可以从
- * `findOneForAdmin` 已经下发的整行原始数据里看 `sumsubActionId`，不需要
- * 客户面这个端点重复暴露。
+ * 客户面能看到的全部内容。**只有这两个键。**
  *
- * **不含 `materialKind`（2026-08-04 业主定稿，回改自 Task 4）。** 原设计按
- * `manualReason` 映射出 `materialKind`（`EDD_PEP` → `SUPPORTING_DOCUMENTS`，
- * 否则 → `SOURCE_OF_FUNDS`）想借此中性化措辞，但 `manualReason` 的值域只有
- * 这两个值，映射到两个 `materialKind` 是双射——"是不是 PEP" 这 1 个比特被
- * 无损保留，等于没脱敏。改为客户面接口一个比特都不带；具体要什么材料由
- * 验证组件自己告诉客户（真接 Sumsub 后本就如此，泄露源在 Sumsub 侧而非
- * 我方）。本 service 从此完全不读 `manualReason`。
+ * **不含 action id（上一轮的 Critical，勿加回来）**：demo fixture 的
+ * `applicantActionId` 本身携带信息——PEP 场景是 `aa-edd-0002`、非 PEP 是
+ * `aa-sof-0001`。客户开 DevTools 看 `edd`（enhanced due diligence）就能
+ * 反推 PEP 判定。前端不需要它：定位一条 action 用 `seq`，服务端自己查表
+ * 换真 id 去铸 token。
+ *
+ * **不含 materialKind**：`manualReason` 值域只有两个值，映射成两个
+ * materialKind 是双射，"是不是 PEP" 这 1 比特被无损保留，等于没脱敏。
+ * 客户要交什么由验证组件自己告诉他。
  */
 export interface VerificationSessionView {
   submitted: boolean;
-  embedUrl: string | null;
+  sdkToken: string | null;
 }
 
 /** 客户提交后重新计时的窗口，与 ACTION_SLA_DAYS 同为 7 天（换语义不换数字） */
@@ -47,8 +47,9 @@ const PROVIDER_REVIEW_SLA_DAYS = 7;
 export class DepositVerificationSessionService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly deposits: DepositTransactionsService,
+    private readonly applicantActions: DepositApplicantActionsService,
     private readonly auditLogs: AuditLogsService,
+    private readonly sumsubClient: SumsubClient,
   ) {}
 
   /**
@@ -67,102 +68,82 @@ export class DepositVerificationSessionService {
     const row = await (this.prisma as any).depositTransaction.findFirst({
       where: { depositNo, ownerId: customerId, limitHoldReason: null },
       select: {
-        id: true,
-        depositNo: true,
-        ownerType: true,
-        ownerId: true,
-        traceId: true,
-        status: true,
-        sumsubActionId: true,
-        actionSubmittedAt: true,
-        slaBreached: true,
+        id: true, depositNo: true, ownerType: true, ownerId: true,
+        traceId: true, status: true, slaBreached: true,
+        customer: { select: { sumsubApplicantId: true } },
       },
     });
     if (!row) throw new NotFoundException('Deposit not found');
     return row;
   }
 
-  async getSession(customerId: string, depositNo: string): Promise<VerificationSessionView> {
+  /**
+   * 响应体只由**这一条 action** 的 submittedAt 决定，绝不由充值单 status 决定。
+   * seq 不存在时抛与「单子不存在」完全相同的 404——不给新的探测面。
+   */
+  async getSession(
+    customerId: string,
+    depositNo: string,
+    seq: number,
+  ): Promise<VerificationSessionView> {
     const row = await this.mustFindOwn(customerId, depositNo);
+    const action = await this.applicantActions.findBySeq(row.id, seq);
+    if (!action) throw new NotFoundException('Deposit not found');
 
-    // 已提交：无论此刻是 ACTION_PENDING 还是已被冻，一律同一个响应体。
-    if (row.actionSubmittedAt) {
-      return { submitted: true, embedUrl: null };
-    }
+    if (action.submittedAt) return { submitted: true, sdkToken: null };
 
-    if (!row.sumsubActionId) {
-      return { submitted: false, embedUrl: null };
-    }
+    // applicantId 必须是**客户的** sumsubApplicantId，不是充值单 id。
+    const applicantId = row.customer?.sumsubApplicantId;
+    if (!applicantId) return { submitted: false, sdkToken: null };
 
-    return {
-      submitted: false,
-      embedUrl: `/mock-verification?deposit=${encodeURIComponent(row.depositNo)}`,
-    };
+    const { token } = await this.sumsubClient.createActionSdkToken({
+      applicantId,
+      levelName: SUMSUB_ACTION_LEVEL,
+      externalActionId: action.externalActionId,
+    });
+    return { submitted: false, sdkToken: token };
   }
 
-  /**
-   * 客户提交。幂等、恒 200、不碰状态机。
-   * 冻结单上提交照收——收下不做事，好过返错误码告诉对方"你这单不一样了"。
-   *
-   * 审计：CLAUDE.md 铁律 1「有持久状态、operator 可见操作 → 必须写
-   * AuditLogsService」。本操作既改持久状态（actionSubmittedAt / slaDeadline），
-   * 又对 operator 可见（admin 详情有 Customer submitted at 一行），故必须落审计。
-   * 只在**真正落库那一次**记（`changed === true`），幂等的重复提交不刷屏。
-   */
-  async submit(customerId: string, depositNo: string): Promise<{ ok: true }> {
+  /** 幂等、恒 2xx、不碰状态机。冻结单上提交照收——返错误码等于告诉对方"你这单不一样了"。 */
+  async submit(customerId: string, depositNo: string, seq: number): Promise<{ ok: true }> {
     const row = await this.mustFindOwn(customerId, depositNo);
-    if (row.sumsubActionId) {
-      const deadline = new Date(
-        Date.now() + PROVIDER_REVIEW_SLA_DAYS * 24 * 60 * 60 * 1000,
-      );
-      // 评审 Important 2：SLA 表(slaDeadline/slaBreached)只在单子仍是
-      // ACTION_PENDING 时才跟着这次提交重置——否则单子已被 SLA 定时器打成
-      // MANUAL_CHECKING(slaBreached=true)后，客户一次提交就把 operator 眼里
-      // 的违约旗单方面抹掉（该状态不在 findSlaBreachCandidates 的扫描范围
-      // 内，抹掉后永远发现不了）。actionSubmittedAt 本身不受此条件影响，
-      // 见 markActionSubmitted 的注释。
-      //
-      // 评审 Minor 1：判据看旗而非单看状态——ACTION_PENDING 本身也可能带
-      // slaBreached=true，此时仍不该重置，故加 `&& !row.slaBreached`，
-      // 更贴合"别抹掉 operator 的违约旗"这个真实意图，也顺带减少 status
-      // 作为行为输入。
-      const resetSla =
-        row.status === DepositTransactionStatus.ACTION_PENDING && !row.slaBreached;
-      const { changed } = await this.deposits.markActionSubmitted(
-        row.id,
-        deadline,
-        resetSla,
-      );
-      if (changed) {
-        // 评审 Minor 2：审计必须如实反映这次提交到底有没有重置 SLA 表——
-        // resetSla=false 时 slaDeadline/slaBreached 根本没被写（见
-        // markActionSubmitted），审计若仍恒定说"SLA clock switched to
-        // provider re-review"并带上 slaDeadline，就是在持牌机构的审计
-        // 流水里记一件没发生的事。这个差异只留在 operator 面的审计里，
-        // 不外泄到对外响应（下面 `return { ok: true }` 恒定不变）。
-        await this.auditLogs.recordByActor(
-          {
-            action: AuditActions.DEPOSIT_ACTION_SUBMITTED,
-            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-            entityId: row.id,
-            entityNo: row.depositNo,
-            entityOwnerType: row.ownerType,
-            entityOwnerId: row.ownerId,
-            traceId: row.traceId || undefined,
-            workflowType: 'DEPOSIT',
-            reason: resetSla
-              ? 'Customer submitted applicant-action materials; SLA clock switched to provider re-review'
-              : 'Customer submitted applicant-action materials; SLA clock left untouched (deposit no longer ACTION_PENDING or already SLA-breached)',
-            metadata: {
-              actionId: row.sumsubActionId,
-              ...(resetSla && { slaDeadline: deadline }),
-              waitingOn: 'PROVIDER',
-            },
-            sourcePlatform: 'CUSTOMER_API',
+    const action = await this.applicantActions.findBySeq(row.id, seq);
+    if (!action) throw new NotFoundException('Deposit not found');
+
+    const deadline = new Date(Date.now() + PROVIDER_REVIEW_SLA_DAYS * 24 * 60 * 60 * 1000);
+    const resetSla =
+      row.status === DepositTransactionStatus.ACTION_PENDING && !row.slaBreached;
+
+    const { changed, allSubmitted } = await this.applicantActions.submitBySeq(
+      row.id, seq, deadline, resetSla,
+    );
+
+    if (changed) {
+      await this.auditLogs.recordByActor(
+        {
+          action: AuditActions.DEPOSIT_ACTION_SUBMITTED,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: row.id,
+          entityNo: row.depositNo,
+          entityOwnerType: row.ownerType,
+          entityOwnerId: row.ownerId,
+          traceId: row.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          reason: allSubmitted
+            ? 'Customer submitted the last outstanding applicant action; all materials received'
+            : 'Customer submitted one applicant action; others still outstanding',
+          metadata: {
+            seq,
+            // 审计是 operator 面，必须带真 id 否则对不上 Sumsub 后台。
+            // 与客户面正好相反——别看混。
+            actionId: action.applicantActionId,
+            allSubmitted,
+            ...(allSubmitted && resetSla && { slaDeadline: deadline }),
           },
-          { actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER' },
-        );
-      }
+          sourcePlatform: 'CUSTOMER_API',
+        },
+        { actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER' },
+      );
     }
     return { ok: true };
   }

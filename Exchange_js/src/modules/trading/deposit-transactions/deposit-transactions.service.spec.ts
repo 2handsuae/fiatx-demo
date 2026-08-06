@@ -267,6 +267,7 @@ describe('DepositTransactionsService', () => {
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
         actionSubmittedAt: SENSITIVE_FULL_ROW.actionSubmittedAt,
+        actions: [],
       });
     });
   });
@@ -758,6 +759,7 @@ describe('DepositTransactionsService', () => {
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
         actionSubmittedAt: SENSITIVE_FULL_ROW.actionSubmittedAt,
+        actions: [],
       });
     });
   });
@@ -1664,86 +1666,6 @@ describe('DepositTransactionsService', () => {
         expect(a).not.toHaveProperty('steps');
         expect(a).not.toHaveProperty('step');
       }
-    });
-  });
-
-  describe('applicant action 字段读写', () => {
-    const DEADLINE = new Date('2026-08-11T00:00:00Z');
-
-    it('setActionRefs 写两个 id、清提交戳、重置 SLA', async () => {
-      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({});
-
-      await service.setActionRefs('d-1', 'aa-1', 'EXT-1', DEADLINE);
-
-      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'd-1' },
-        data: {
-          sumsubActionId: 'aa-1',
-          sumsubExternalActionId: 'EXT-1',
-          actionSubmittedAt: null,
-          slaDeadline: DEADLINE,
-          slaBreached: false,
-        },
-      });
-    });
-
-    it('markActionSubmitted 首次盖戳并重置 SLA（resetSla=true）', async () => {
-      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
-
-      const r = await service.markActionSubmitted('d-1', DEADLINE, true);
-
-      expect(r.changed).toBe(true);
-      expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'd-1', actionSubmittedAt: null },
-          data: expect.objectContaining({ slaDeadline: DEADLINE, slaBreached: false }),
-        }),
-      );
-    });
-
-    it('markActionSubmitted 幂等：已有提交戳则不覆写', async () => {
-      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
-
-      const r = await service.markActionSubmitted('d-1', DEADLINE, true);
-
-      expect(r.changed).toBe(false);
-    });
-
-    it('markActionSubmitted 用单条带条件的更新（无 TOCTOU 窗口）', async () => {
-      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
-
-      const r = await service.markActionSubmitted('d-1', DEADLINE, true);
-
-      expect(r.changed).toBe(true);
-      expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith({
-        where: { id: 'd-1', actionSubmittedAt: null },   // ← 条件写在 where 里，由 DB 保证互斥
-        data: expect.objectContaining({ slaDeadline: DEADLINE, slaBreached: false }),
-      });
-      // 读-改-写的两步式已被取代，不应再有先读一次的动作
-      expect((prisma as any).depositTransaction.findUnique).not.toHaveBeenCalled();
-    });
-
-    it('markActionSubmitted 并发落败方拿到 changed:false（匹配 0 行）', async () => {
-      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
-
-      await expect(service.markActionSubmitted('d-1', DEADLINE, true)).resolves.toEqual({ changed: false });
-    });
-
-    // 评审 Important 2：resetSla=false 时，actionSubmittedAt 仍要无条件盖上
-    // （客户端"已收到"文案绑它），但 slaDeadline/slaBreached 这两个 operator
-    // 可见字段必须原样保留——不能因为客户点了提交，就把 SLA 定时器已经打上的
-    // 违约旗（slaBreached=true）冲掉。冲掉后 findSlaBreachCandidates 不扫
-    // MANUAL_CHECKING，这条违约记录就永久消失了。
-    it('markActionSubmitted resetSla=false → 只盖 actionSubmittedAt，不碰 slaDeadline/slaBreached', async () => {
-      ((prisma as any).depositTransaction.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
-
-      const r = await service.markActionSubmitted('d-1', DEADLINE, false);
-
-      expect(r.changed).toBe(true);
-      expect((prisma as any).depositTransaction.updateMany).toHaveBeenCalledWith({
-        where: { id: 'd-1', actionSubmittedAt: null },
-        data: { actionSubmittedAt: expect.any(Date) },
-      });
     });
   });
 

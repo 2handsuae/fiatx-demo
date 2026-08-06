@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import {
   SumsubApplicantResponse,
@@ -118,14 +118,24 @@ export class SumsubClient {
   async createActionSdkToken(input: {
     applicantId: string;
     levelName: string;
+    externalActionId: string;
     ttlInSecs?: number;
   }): Promise<{ token: string }> {
     if (process.env.SUMSUB_MOCK_MODE === 'true') {
-      return { token: `mock-sdk-token-${input.applicantId}-${Date.now()}` };
+      // ⚠️ 占位 token **不得**嵌入 externalActionId：demo fixture 的值形如
+      // `EXT-EDD-0002`，`EDD`（enhanced due diligence）会随 token 一路下发到
+      // 客户端，等于把上一轮封掉的 PEP 那 1 比特换个载体又漏出去。用不可逆
+      // 摘要，既保持"同一条 action 拿到同一个 token"又不携带原文。
+      const digest = createHash('sha256').update(input.externalActionId).digest('hex').slice(0, 16);
+      return { token: `mock-sdk-token-${digest}` };
     }
     return this.post('/resources/accessTokens/sdk', {
-      userId: input.applicantId,
+      // applicantId 是 Sumsub 侧 id，必须走这个字段；userId 是我方 externalUserId，
+      // 两者不可混用（此前传的是 userId: applicantId，会绑到错的 applicant）。
+      applicantId: input.applicantId,
       levelName: input.levelName,
+      // applicant action 场景官方必填。
+      externalActionId: input.externalActionId,
       ttlInSecs: input.ttlInSecs ?? 600,
     });
   }

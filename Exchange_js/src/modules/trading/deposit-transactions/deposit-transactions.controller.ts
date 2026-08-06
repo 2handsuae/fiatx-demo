@@ -3,6 +3,7 @@ import {
   Get,
   Body,
   Param,
+  ParseIntPipe,
   Query,
   Patch,
   Post,
@@ -95,16 +96,24 @@ export class DepositTransactionsController {
     return this.inboundTransferSignalsService.scanForCustomer(userId, dto);
   }
 
-  @Get('my/:depositNo/verification-session')
+  @Get('my/:depositNo/verification-session/:seq')
   @ApiOperation({ summary: 'Get my deposit verification session' })
-  getMyVerificationSession(@Req() req: any, @Param('depositNo') depositNo: string) {
-    return this.verificationSessions.getSession(req.user.userId, depositNo);
+  getMyVerificationSession(
+    @Req() req: any,
+    @Param('depositNo') depositNo: string,
+    @Param('seq', ParseIntPipe) seq: number,
+  ) {
+    return this.verificationSessions.getSession(req.user.userId, depositNo, seq);
   }
 
-  @Post('my/:depositNo/verification-session/submit')
+  @Post('my/:depositNo/verification-session/:seq/submit')
   @ApiOperation({ summary: 'Mark my deposit verification materials as submitted' })
-  submitMyVerification(@Req() req: any, @Param('depositNo') depositNo: string) {
-    return this.verificationSessions.submit(req.user.userId, depositNo);
+  submitMyVerification(
+    @Req() req: any,
+    @Param('depositNo') depositNo: string,
+    @Param('seq', ParseIntPipe) seq: number,
+  ) {
+    return this.verificationSessions.submit(req.user.userId, depositNo, seq);
   }
 
   @Get()
