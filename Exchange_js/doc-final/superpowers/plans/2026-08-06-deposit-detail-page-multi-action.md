@@ -353,7 +353,7 @@ git commit -m "feat(deposit): applicant action 子表 + 集合同步(撤回未�
 - Modify: `src/modules/trading/deposit-transactions/deposit-applicant-actions.service.spec.ts`
 
 **Interfaces:**
-- Consumes: Task 1 的 `syncApplicantActions` / `hasOutstanding`
+- Consumes: Task 1 的 `syncApplicantActions` / `findBySeq`
 - Produces:
   - `submitBySeq(depositId: string, seq: number, slaDeadline: Date, resetSla: boolean): Promise<{ changed: boolean; allSubmitted: boolean }>`
   - `clearDepositCache(depositId: string, slaDeadline: Date): Promise<void>`
