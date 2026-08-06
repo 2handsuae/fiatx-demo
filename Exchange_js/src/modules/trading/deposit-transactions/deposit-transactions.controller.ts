@@ -116,6 +116,14 @@ export class DepositTransactionsController {
     return this.verificationSessions.submit(req.user.userId, depositNo, seq);
   }
 
+  // ⚠️ 必须声明在 'my/:depositNo/verification-session/:seq' 之后——Nest 按声明
+  // 顺序匹配路由，这条 'my/:depositNo' 段数更短，写前面会抢占上面那条。
+  @Get('my/:depositNo')
+  @ApiOperation({ summary: 'Get my deposit transaction detail' })
+  getMyDeposit(@Req() req: any, @Param('depositNo') depositNo: string) {
+    return this.service.findOneForCustomerByDepositNo(depositNo, req.user.userId);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List deposit transactions' })
   @UsePipes(new ValidationPipe({ transform: true }))

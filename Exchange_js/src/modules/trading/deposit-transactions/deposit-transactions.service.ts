@@ -552,6 +552,22 @@ export class DepositTransactionsService {
     return this.toCustomerDepositView(item);
   }
 
+  /**
+   * 详情独立页用：客户面按业务键 `depositNo` 取单条（规则 3，禁止以 id 作
+   * 对外主查询合同）。先按 `depositNo` + `ownerId` + `limitHoldReason: null`
+   * 解出内部 id 再复用 `findOneForCustomer`，与 `deposit-verification-session
+   * .service.ts` 的 `mustFindOwn` 同一套判据——BELOW_MIN 隐藏单同样当不存在
+   * 处理，否则本端点会成为「我有一笔列表里看不到的单」的探测面。
+   */
+  async findOneForCustomerByDepositNo(depositNo: string, customerId: string) {
+    const row = await (this.prisma as any).depositTransaction.findFirst({
+      where: { depositNo, ownerId: customerId, limitHoldReason: null },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Deposit transaction not found');
+    return this.findOneForCustomer(row.id, customerId);
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateDepositTransactionStatusDto,

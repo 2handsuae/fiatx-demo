@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Copy, RefreshCw, Check, Wallet, Building2, Info, AlertTriangle, History, X, Filter, ShieldCheck, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
@@ -53,11 +54,6 @@ interface Transaction {
     fromAddress: string | null;
     fromIban: string | null;
     actionSubmittedAt?: string | null;
-}
-
-interface VerificationSession {
-  submitted: boolean;
-  embedUrl: string | null;
 }
 
 interface ScanInboundSignalsResult {
@@ -160,6 +156,7 @@ const HISTORY_STATUS_FILTERS: Array<{ label: string; bucket: string }> = [
 
 const Deposit = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { enabled: simulationModeEnabled } = useSimulationMode();
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -173,11 +170,6 @@ const Deposit = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [embedOpen, setEmbedOpen] = useState(false);
-  const [embedLoading, setEmbedLoading] = useState(true);
-  const [embedError, setEmbedError] = useState(false);
-  const [session, setSession] = useState<VerificationSession | null>(null);
 
   const [historyStatus, setHistoryStatus] = useState('');
   const [historyAssetId, setHistoryAssetId] = useState('');
@@ -295,39 +287,6 @@ const Deposit = () => {
       }
   };
 
-  // 评审 Important 4：这个 effect 依赖数组是 []，只在挂载时注册一次监听器，
-  // handler 内部直接闭包 fetchHistory 会拿到首渲染那份闭包（page=1、
-  // historyStatus=''、historyAssetId=''）——客户在筛选/翻页之后提交材料，
-  // 列表会被这份过期闭包发出的「无筛选第一页」请求整体替换，下拉与分页控件
-  // 却仍显示当前筛选，数据与筛选器不符。用 ref 存最新的 fetchHistory，
-  // effect 里只从 ref 读，保证调到的是当前那份闭包。
-  const fetchHistoryRef = useRef(fetchHistory);
-  useEffect(() => {
-    fetchHistoryRef.current = fetchHistory;
-  });
-
-  // 事件名故意用真实 SDK 的 idCheck.onApplicantSubmitted。将来换真 SDK,这个
-  // handler 从 postMessage 监听改成 .on('idCheck.onApplicantSubmitted', …),
-  // 里面逻辑不变。e.origin 校验必须有:不校验就等于任何页面都能伪造提交。
-  useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
-      if (e.data?.type !== 'idCheck.onApplicantSubmitted') return;
-      setEmbedOpen(false);
-      setSession(null);
-      // 乐观更新当前打开的详情弹窗,不等列表整体刷新回来就先切到"已收到"态
-      // ——用函数式更新读最新的 selectedTx。注意:这只解决了 selectedTx 的
-      // 闭包过期问题,不解决 fetchHistory 的——下面改用 fetchHistoryRef.current()
-      // 才是 fetchHistory 那部分的修法(见上方 ref 注释)。
-      setSelectedTx((prev) =>
-        prev ? { ...prev, actionSubmittedAt: new Date().toISOString() } : prev,
-      );
-      void fetchHistoryRef.current(); // 重拉列表，拿到服务端权威的 actionSubmittedAt → 切态③
-    };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, []);
-
   const handleGenerate = async () => {
     if (!selectedAssetId || !user) return;
     setGenerating(true);
@@ -392,64 +351,6 @@ const Deposit = () => {
       >
         {view.label}
       </span>
-    );
-  };
-
-  // 评审 Important 3：容器的渲染门必须只看 embedOpen，不能再搭上
-  // session?.embedUrl——否则两条路径都会渲染不出容器：Case B（拉到 200 但
-  // embedUrl 为 null）此前不置 embedOpen，容器不渲染；catch 路径虽然置了
-  // embedOpen=true，但 session 仍是 null，同样因为 && session?.embedUrl 落空
-  // 而不渲染。改法：一开始（发请求前）就 setEmbedOpen(true)，让容器先以
-  // 「舞台」的身份出现，内部再按 loading/error/embedUrl 三态切内容——这样
-  // 会话拉取期间（网络还没回来）也有固定高度的容器 + loading 反馈，不是
-  // 一片空白。
-  const openVerification = async (tx: Transaction) => {
-    setEmbedOpen(true);
-    setSession(null);
-    setEmbedError(false);
-    setEmbedLoading(true);
-    try {
-      const r = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/deposit-transactions/my/${tx.depositNo}/verification-session`,
-      );
-      if (!r.ok) throw new Error('session fetch failed');
-      const s = await r.json();
-      setSession(s);
-      if (!s.embedUrl) {
-        // Case B：200 但没有 embedUrl——同样是"加载失败"，给可重试 CTA，
-        // 不是留客户对着一片空白干等。
-        setEmbedError(true);
-        setEmbedLoading(false);
-      }
-      // 有 embedUrl 时 embedLoading 留 true，等 iframe onLoad 回调再关掉。
-    } catch {
-      // §6：加载失败必须给可重试 CTA，不能只 console.error 让客户卡在 loading
-      setEmbedError(true);
-      setEmbedLoading(false);
-    }
-  };
-
-  const renderStatusDetail = (tx: Transaction) => {
-    const view = viewOf(tx);
-    // 未提交才索要材料——已提交的单即便仍卡在 ACTION_PENDING（状态机不因
-    // 客户提交而动，见 depositStatusView.ts 文件头注释），也不再显示这个
-    // 按钮，否则客户会重复点进已经交过材料的验证会话。
-    const needsAction = tx.status.toUpperCase() === 'ACTION_PENDING' && !tx.actionSubmittedAt;
-
-    if (!view.note && !needsAction) return null;
-
-    return (
-      <div className="mt-3 space-y-2 text-center">
-        {view.note ? <p className="text-sm text-fx-dust">{view.note}</p> : null}
-        {needsAction ? (
-          <button
-            onClick={() => void openVerification(tx)}
-            className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-3 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20"
-          >
-            Provide the requested documents
-          </button>
-        ) : null}
-      </div>
     );
   };
 
@@ -608,16 +509,6 @@ const Deposit = () => {
     setHistoryAssetId('');
     setPage(1);
     setActiveTab('history');
-  };
-
-  // 关闭详情弹窗时,连带把认证容器 stage 的状态一起清空——否则下次打开
-  // 别的单子,弹窗会残留上一单的宽版/加载/错误状态。
-  const closeTxDetails = () => {
-    setSelectedTx(null);
-    setEmbedOpen(false);
-    setEmbedLoading(true);
-    setEmbedError(false);
-    setSession(null);
   };
 
   const renderSimulationFeedback = (feedback: SimulationFeedback) => {
@@ -962,7 +853,7 @@ const Deposit = () => {
                                         </td>
                                         <td className="px-4 py-3 text-right">
                                             <button
-                                              onClick={() => setSelectedTx(tx)}
+                                              onClick={() => navigate(`/deposit/${tx.depositNo}`)}
                                               className="text-fx-brass hover:text-fx-brass/80 text-xs font-medium px-3 py-1.5 bg-fx-brass/10 rounded hover:bg-fx-brass/20 transition-colors"
                                             >
                                                 Details
@@ -1266,121 +1157,6 @@ const Deposit = () => {
         </div>
       )}
 
-      {/* Transaction Details Modal */}
-      {selectedTx && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <div className={`bg-fx-ink rounded-2xl shadow-xl w-full max-h-[90vh] overflow-y-auto border border-fx-rule ${
-              embedOpen ? 'max-w-3xl' : 'max-w-lg'
-            }`}>
-                <div className="flex justify-between items-center p-6 border-b border-fx-rule">
-                    <h3 className="text-xl font-bold text-fx-sand">Transaction Details</h3>
-                    <button
-                        onClick={closeTxDetails}
-                        className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-                <div className="p-6 space-y-6">
-                    <div className="text-center">
-                        <div className="text-3xl font-bold text-fx-sand mb-2">
-                            {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.currency}</span>
-                        </div>
-                        <div className="mt-2">
-                             {renderStatusBadge(selectedTx)}
-                        </div>
-                        {renderStatusDetail(selectedTx)}
-                    </div>
-
-                    {/* 评审 Important 3：渲染门只看 embedOpen，与"内容是否就绪"
-                        （session?.embedUrl）解耦——容器（固定高度的舞台）先出现，
-                        内部再按三态给内容：加载中(embedLoading) → 遮罩；失败或
-                        无 embedUrl(embedError) → 可重试 CTA；拿到 embedUrl →
-                        iframe。会话拉取期间 session 还是 null、embedError 还是
-                        false，此时只有 embedLoading 的遮罩，不会是一片空白。 */}
-                    {embedOpen ? (
-                      <div className="relative min-h-[680px] border border-fx-rule rounded-xl overflow-hidden">
-                        {/* 这块地方是"第三方验证组件渲染的舞台"，不是"我们设 src 的 iframe"。
-                            演示放 mock 页；真接 Sumsub 时改成 snsWebSdk.launch('#sumsub-websdk-container')，
-                            布局/高度/遮罩与周边文案一行不用动。 */}
-                        {session?.embedUrl ? (
-                          <div id="sumsub-websdk-container" className="h-full">
-                            <iframe
-                              src={session.embedUrl}
-                              title="Verification"
-                              className="w-full h-[680px] border-0"
-                              onLoad={() => setEmbedLoading(false)}
-                            />
-                          </div>
-                        ) : null}
-                        {embedLoading ? (
-                          <div className="absolute inset-0 grid place-items-center bg-fx-ink text-fx-dust text-sm">
-                            Loading verification…
-                          </div>
-                        ) : null}
-                        {embedError ? (
-                          <div className="absolute inset-0 grid place-items-center bg-fx-ink">
-                            {/* 重试必须真的重新拉会话——只清 error 标志是个假按钮 */}
-                            <button onClick={() => selectedTx && void openVerification(selectedTx)}
-                                    className="fx-btn-ghost">
-                              Verification failed to load — retry
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    <div className="space-y-3 bg-fx-charcoal/50 p-4 rounded-xl border border-fx-rule">
-                        <div className="flex justify-between text-sm">
-                            <span className="text-fx-dust">Transaction No</span>
-                            <span className="font-mono font-semibold text-fx-sand">{selectedTx.depositNo}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                            <span className="text-fx-dust">Date</span>
-                            <span className="font-semibold text-fx-sand">{new Date(selectedTx.createdAt).toLocaleString()}</span>
-                        </div>
-                        {selectedTx.completedAt && (
-                            <div className="flex justify-between text-sm">
-                                <span className="text-fx-dust">Completed</span>
-                                <span className="font-semibold text-fx-sand">{new Date(selectedTx.completedAt).toLocaleString()}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="space-y-4">
-                        <h4 className="font-bold text-sm uppercase tracking-wider text-fx-dust">Source Details</h4>
-                        {selectedTx.fromAddress && (
-                            <div>
-                                <label className="text-xs text-fx-dust font-medium block mb-1">From Address</label>
-                                <div className="bg-fx-charcoal/50 p-2 rounded text-sm font-mono break-all border border-fx-rule text-fx-sand">
-                                    {selectedTx.fromAddress}
-                                </div>
-                            </div>
-                        )}
-                        {selectedTx.txHash && (
-                            <div>
-                                <label className="text-xs text-fx-dust font-medium block mb-1">Transaction Hash</label>
-                                <div className="bg-fx-charcoal/50 p-2 rounded text-sm font-mono break-all border border-fx-rule flex items-center justify-between text-fx-sand">
-                                    <span>{selectedTx.txHash}</span>
-                                    <button onClick={() => copyToClipboard(selectedTx.txHash!)} className="text-fx-brass">
-                                        <Copy size={14} />
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-                <div className="p-6 border-t border-fx-rule bg-fx-charcoal/50 rounded-b-2xl">
-                    <button
-                        onClick={closeTxDetails}
-                        className="w-full py-3 bg-fx-ink border border-fx-rule text-fx-dune font-bold rounded-xl hover:bg-fx-charcoal transition-colors"
-                    >
-                        Close
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
     </div>
   );
 };
