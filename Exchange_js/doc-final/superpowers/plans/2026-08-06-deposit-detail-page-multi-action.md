@@ -855,15 +855,21 @@ import：
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 ```
 
-- [ ] **Step 4: 删掉被取代的两个方法**
-
-从 `deposit-transactions.service.ts` 删除 `setActionRefs` 与 `markActionSubmitted` 两个方法及其注释块（已被 Task 1/2 的子表方法取代）。用 grep 确认没有别的调用方：
+- [ ] **Step 4: 确认 `deposit-workflow.service.ts` 已不再调用旧的两个方法**
 
 ```bash
-grep -rn "setActionRefs\|markActionSubmitted" src client-web/src test | grep -v node_modules
+grep -rn "setActionRefs\|markActionSubmitted" src/modules/trading/deposit-transactions/deposit-workflow.service.ts
 ```
 
-预期：无输出（若有残留调用点，一并改掉）。同时删除 `deposit-transactions.service.spec.ts` 里针对这两个方法的既有测试块（它们测的是已删除的代码）。
+预期：**无输出**（本任务已改为走子表方法）。
+
+⚠️ **本任务不删除 `setActionRefs` / `markActionSubmitted` 本身。**
+计划早先版本要求在这里删，那是**排序错误**：`deposit-verification-session.service.ts`
+仍在调用 `markActionSubmitted`，而重写该 service 是 **Task 4** 的范围（它会把
+`getSession`/`submit` 改成按 `seq` 走 `findBySeq`/`submitBySeq`）。此刻删除会让
+out-of-scope 文件 tsc 变红，或逼本任务提前吞掉 Task 4 的全部工作量。
+
+删除动作已移交 Task 4 Step 4b —— 那时它才真的没有调用方。全仓 grep 也留到那时做。
 
 - [ ] **Step 5: 跑测试确认通过**
 
@@ -1260,6 +1266,24 @@ const SUMSUB_ACTION_LEVEL = 'basic-kyc-level';
 ```
 
 并在 `deposit-transactions.service.spec.ts` 的 tipping-off 白名单精确断言里，把 `actions: []` 加进期望对象（**必须显式加，不能改成 objectContaining**——白名单开口子要是显式决定，不能悄悄混过去）。
+
+- [ ] **Step 4b: 删掉被取代的两个方法（自 Task 3 移交）**
+
+本任务把 `deposit-verification-session.service.ts` 改成走 `findBySeq`/`submitBySeq`
+之后，`setActionRefs` / `markActionSubmitted` 才真正没有调用方（Task 3 已让
+`deposit-workflow.service.ts` 不再调它们）。现在删：
+
+从 `deposit-transactions.service.ts` 删除这两个方法及其注释块，并删除
+`deposit-transactions.service.spec.ts` 里针对它们的既有测试块（测的是已删除的代码）。
+
+全仓确认无残留调用方：
+
+```bash
+grep -rn "setActionRefs\|markActionSubmitted" src client-web/src test | grep -v node_modules
+```
+
+预期：**无输出**。若仍有命中，说明还有本计划没覆盖到的调用点——停下报告，不要
+擅自改那个文件。
 
 - [ ] **Step 5: controller 路由加 :seq**
 
