@@ -1014,7 +1014,12 @@ access token for applicant actions."* 缺它这个场景直接不成立。
     ttlInSecs?: number;
   }): Promise<{ token: string }> {
     if (process.env.SUMSUB_MOCK_MODE === 'true') {
-      return { token: `mock-sdk-token-${input.externalActionId}-${Date.now()}` };
+      // ⚠️ 占位 token **不得**嵌入 externalActionId：demo fixture 的值形如
+      // `EXT-EDD-0002`，`EDD`（enhanced due diligence）会随 token 一路下发到
+      // 客户端，等于把上一轮封掉的 PEP 那 1 比特换个载体又漏出去。用不可逆
+      // 摘要，既保持"同一条 action 拿到同一个 token"又不携带原文。
+      const digest = createHash('sha256').update(input.externalActionId).digest('hex').slice(0, 16);
+      return { token: `mock-sdk-token-${digest}` };
     }
     return this.post('/resources/accessTokens/sdk', {
       // applicantId 是 Sumsub 侧 id，必须走这个字段；userId 是我方 externalUserId，
@@ -1027,6 +1032,8 @@ access token for applicant actions."* 缺它这个场景直接不成立。
     });
   }
 ```
+
+`createHash` 从 `crypto` import（该文件已 import `createHmac`/`timingSafeEqual`，加进同一行即可）。
 
 改完后 grep 既有调用方并补齐新必填参数：
 
