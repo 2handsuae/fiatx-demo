@@ -995,6 +995,7 @@ model DepositTransaction {
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
   customer             CustomerMain      @relation(fields: [ownerId], references: [id])
   fundsOrders          FundsOrder[]      @relation("DepositFundsOrders")
+  applicantActions      DepositApplicantAction[] @relation("DepositApplicantActions")
 
   @@index([depositNo])
   @@index([ownerType, ownerId])
@@ -1884,4 +1885,20 @@ model ExternalStatementLine {
   @@index([channelRef])
   @@index([subAccount])
   @@map("external_statement_lines")
+}
+
+model DepositApplicantAction {
+  id                    String   @id @default(uuid())
+  depositTransactionId  String
+  applicantActionId     String   // Sumsub 侧 id。**只在服务端与审计出现，绝不下发客户端**
+  externalActionId      String   // 铸 SDK token 的钥匙，一条 action 一个
+  seq                   Int      // 客户面唯一可见的定位符；一旦分配不再变（进 URL）
+  createdAt             DateTime @default(now())
+  submittedAt           DateTime?
+
+  deposit DepositTransaction @relation("DepositApplicantActions", fields: [depositTransactionId], references: [id], onDelete: Cascade)
+
+  @@unique([depositTransactionId, applicantActionId])
+  @@index([depositTransactionId, seq])
+  @@map("deposit_applicant_actions")
 }
