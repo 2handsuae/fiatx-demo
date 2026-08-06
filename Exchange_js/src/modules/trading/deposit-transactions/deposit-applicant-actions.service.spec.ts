@@ -97,4 +97,46 @@ describe('DepositApplicantActionsService', () => {
     expect(prisma.depositApplicantAction.deleteMany).not.toHaveBeenCalled();
   });
 
+  // nextSeq 是对撤回前的全量 existing 取 max，所以同一次调用里新增的行才不会
+  // 复用被删行腾出来的 seq——这条路径 add-only/retire-only 两组测试都盖不到。
+  it('同一次调用既新增又撤回：aa-1(未提交)被撤回，新增的 aa-3 不复用 aa-1 腾出的 seq=1', async () => {
+    const A3 = { applicantActionId: 'aa-3', externalActionId: 'EXT-3' };
+    prisma.depositApplicantAction.findMany.mockResolvedValue([
+      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
+      { id: 'r2', applicantActionId: 'aa-2', seq: 2, submittedAt: new Date('2026-08-06') },
+    ]);
+
+    const r = await svc.syncApplicantActions('d-1', [A2, A3]);
+
+    expect(r).toEqual({ added: [3], retired: [1] });
+    expect(prisma.depositApplicantAction.createMany).toHaveBeenCalledWith({
+      data: [
+        { depositTransactionId: 'd-1', applicantActionId: 'aa-3', externalActionId: 'EXT-3', seq: 3 },
+      ],
+    });
+    expect(prisma.depositApplicantAction.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['r1'] } },
+    });
+  });
+
+  // seq 唯一性最终靠 @@unique([depositTransactionId, seq]) 兜底。这里模拟两次
+  // 调用读到同一份陈旧 existing（并发/重复 webhook 场景下事务无法完全避免
+  // 的那种撞法）：第一次落库成功，第二次落库时撞唯一约束——断言这个错误必须
+  // 原样往上抛，不能被这层代码悄悄吞掉（吞掉的话 findBySeq 会查到"消失的"行）。
+  it('并发下两次调用读到同一份陈旧 existing → 第二次落库撞唯一约束时错误必须原样传播', async () => {
+    prisma.depositApplicantAction.findMany.mockResolvedValue([]);
+
+    const uniqueViolation = Object.assign(new Error('Unique constraint failed on the fields: (`depositTransactionId`,`seq`)'), {
+      code: 'P2002',
+    });
+    prisma.depositApplicantAction.createMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockRejectedValueOnce(uniqueViolation);
+
+    const r1 = await svc.syncApplicantActions('d-1', [A1]);
+    expect(r1).toEqual({ added: [1], retired: [] });
+
+    await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(uniqueViolation);
+  });
+
 });

@@ -37,48 +37,56 @@ export class DepositApplicantActionsService {
     depositId: string,
     incoming: IncomingApplicantAction[],
   ): Promise<{ added: number[]; retired: number[] }> {
-    const existing = await (this.prisma as any).depositApplicantAction.findMany({
-      where: { depositTransactionId: depositId },
-      select: { id: true, applicantActionId: true, seq: true, submittedAt: true },
-      orderBy: { seq: 'asc' },
-    });
-
-    const existingIds = new Set(existing.map((r: any) => r.applicantActionId));
-    const incomingIds = new Set(incoming.map((a) => a.applicantActionId));
-
-    const toAdd = incoming.filter((a) => !existingIds.has(a.applicantActionId));
-    const toRetire = existing.filter(
-      (r: any) => !incomingIds.has(r.applicantActionId) && r.submittedAt === null,
-    );
-
-    let nextSeq = existing.reduce((m: number, r: any) => Math.max(m, r.seq), 0) + 1;
-    const added: number[] = [];
-    const rows = toAdd.map((a) => {
-      const seq = nextSeq++;
-      added.push(seq);
-      return {
-        depositTransactionId: depositId,
-        applicantActionId: a.applicantActionId,
-        externalActionId: a.externalActionId,
-        seq,
-      };
-    });
-
-    if (rows.length) {
-      await (this.prisma as any).depositApplicantAction.createMany({ data: rows });
-    }
-    if (toRetire.length) {
-      await (this.prisma as any).depositApplicantAction.deleteMany({
-        where: { id: { in: toRetire.map((r: any) => r.id) } },
+    // 「读 existing → 算 nextSeq → 插入/删除」是 read-modify-write：同一充值单
+    // 上两次并发（或重复投递）的 webhook 若各自裸跑这三步，会各自读到同一份
+    // existing、算出相同的 nextSeq，插出两行 applicantActionId 不同但 seq 相同的
+    // 记录——而 seq 是客户面唯一定位符（进 URL），撞了会让 findBySeq 变成不确定
+    // 查询。包一层事务把这三步锁成一个原子操作；@@unique([depositTransactionId,
+    // seq]) 是 DB 层最后兜底，事务是尽量避免真撞上这道底线。
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.depositApplicantAction.findMany({
+        where: { depositTransactionId: depositId },
+        select: { id: true, applicantActionId: true, seq: true, submittedAt: true },
+        orderBy: { seq: 'asc' },
       });
-    }
 
-    return { added, retired: toRetire.map((r: any) => r.seq) };
+      const existingIds = new Set(existing.map((r) => r.applicantActionId));
+      const incomingIds = new Set(incoming.map((a) => a.applicantActionId));
+
+      const toAdd = incoming.filter((a) => !existingIds.has(a.applicantActionId));
+      const toRetire = existing.filter(
+        (r) => !incomingIds.has(r.applicantActionId) && r.submittedAt === null,
+      );
+
+      let nextSeq = existing.reduce((m, r) => Math.max(m, r.seq), 0) + 1;
+      const added: number[] = [];
+      const rows = toAdd.map((a) => {
+        const seq = nextSeq++;
+        added.push(seq);
+        return {
+          depositTransactionId: depositId,
+          applicantActionId: a.applicantActionId,
+          externalActionId: a.externalActionId,
+          seq,
+        };
+      });
+
+      if (rows.length) {
+        await tx.depositApplicantAction.createMany({ data: rows });
+      }
+      if (toRetire.length) {
+        await tx.depositApplicantAction.deleteMany({
+          where: { id: { in: toRetire.map((r) => r.id) } },
+        });
+      }
+
+      return { added, retired: toRetire.map((r) => r.seq) };
+    });
   }
 
   /** 服务端按 seq 换回真 id（用于铸 token）。返回 null 交由调用方转成 404。 */
   async findBySeq(depositId: string, seq: number) {
-    return (this.prisma as any).depositApplicantAction.findFirst({
+    return this.prisma.depositApplicantAction.findFirst({
       where: { depositTransactionId: depositId, seq },
       select: {
         id: true,

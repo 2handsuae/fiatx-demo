@@ -1899,6 +1899,9 @@ model DepositApplicantAction {
   deposit DepositTransaction @relation("DepositApplicantActions", fields: [depositTransactionId], references: [id], onDelete: Cascade)
 
   @@unique([depositTransactionId, applicantActionId])
+  // seq 是客户端唯一可见的定位符、且进 URL——同一充值单下必须唯一，
+  // 不能只靠应用层算 nextSeq 保证（并发/重复 webhook 会算出相同值），DB 层兜底。
+  @@unique([depositTransactionId, seq])
   @@index([depositTransactionId, seq])
   @@map("deposit_applicant_actions")
 }
