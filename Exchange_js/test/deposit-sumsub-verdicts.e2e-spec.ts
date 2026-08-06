@@ -573,11 +573,11 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     await deliver(deposit.id, 'V2_AWAIT_USER');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
-    const session1 = await verificationSessions.getSession(customerId, deposit.depositNo);
+    const session1 = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
     expect(session1.submitted).toBe(false);
-    expect(session1.embedUrl).toBeTruthy();
+    expect(session1.sdkToken).toBeTruthy();
 
-    await verificationSessions.submit(customerId, deposit.depositNo);
+    await verificationSessions.submit(customerId, deposit.depositNo, 1);
 
     const after = (await depositService.findOne(deposit.id)) as any;
     expect(after.status).toBe(DepositTransactionStatus.ACTION_PENDING); // 状态没动
@@ -593,14 +593,64 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '130.00' });
 
     await deliver(deposit.id, 'V2_AWAIT_USER');
-    await verificationSessions.submit(customerId, deposit.depositNo);
+    await verificationSessions.submit(customerId, deposit.depositNo, 1);
 
-    const before = await verificationSessions.getSession(customerId, deposit.depositNo);
+    const before = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
 
     await workflow.adminFreeze(deposit.id, 'E2E: tipping-off equality check', HARNESS_ACTOR);
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
 
-    const after = await verificationSessions.getSession(customerId, deposit.depositNo);
+    const after = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+    expect(after).toEqual(before);
+  });
+
+  // ── Task 7: 多条 action（子表 + "全部交齐" 缓存）──────────────────────────
+
+  it('多条 action：交完前两条仍 ACTION REQUIRED，交完第三条才算全部交齐', async () => {
+    const deposit = await createDeposit({ isCrypto: false, amount: '170.00' });
+
+    await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
+
+    const detail1 = (await depositService.findOneForCustomerByDepositNo(
+      deposit.depositNo,
+      customerId,
+    )) as any;
+    expect(detail1.actions.map((a: any) => a.seq)).toEqual([1, 2, 3]);
+    expect(detail1.actionSubmittedAt).toBeNull();
+
+    await verificationSessions.submit(customerId, deposit.depositNo, 1);
+    await verificationSessions.submit(customerId, deposit.depositNo, 2);
+    const detail2 = (await depositService.findOneForCustomerByDepositNo(
+      deposit.depositNo,
+      customerId,
+    )) as any;
+    expect(detail2.actionSubmittedAt).toBeNull(); // 还没交齐
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
+
+    await verificationSessions.submit(customerId, deposit.depositNo, 3);
+    const detail3 = (await depositService.findOneForCustomerByDepositNo(
+      deposit.depositNo,
+      customerId,
+    )) as any;
+    expect(detail3.actionSubmittedAt).not.toBeNull(); // 交齐了
+
+    await deliver(deposit.id, 'V1_APPROVED');
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
+  });
+
+  it('逐条不可区分：同一条 action 在 ACTION_PENDING 与 FROZEN 下会话响应体全等', async () => {
+    const deposit = await createDeposit({ isCrypto: false, amount: '175.00' });
+
+    await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
+    await verificationSessions.submit(customerId, deposit.depositNo, 1);
+
+    const before = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+
+    await workflow.adminFreeze(deposit.id, 'E2E: multi-action tipping-off equality check', HARNESS_ACTOR);
+    expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
+
+    const after = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
     expect(after).toEqual(before);
   });
 });
