@@ -41,6 +41,7 @@ import {
   ApprovalStatuses,
 } from '../../governance/approvals/constants/approval.constants';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
+import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -88,6 +89,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly approvalsService: ApprovalsService,
     private readonly systemWalletResolver: SystemWalletResolver,
     private readonly tbEvidenceService: TbEvidenceService,
+    private readonly applicantActions: DepositApplicantActionsService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -494,63 +496,53 @@ export class DepositWorkflowService implements OnModuleInit {
     sceneTag?: 'SANCTION' | 'PEP',
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ) {
-    const action = applicantActions?.[0];
+    const incoming = applicantActions ?? [];
     const slaDeadline = new Date(
       Date.now() + DepositWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
     );
 
+    // 集合同步先做:无论状态动不动,子表都必须与报文的**全量列表**对齐。
+    const { added, retired } = await this.applicantActions.syncApplicantActions(
+      deposit.id,
+      incoming,
+    );
+
     if (deposit.status === DepositTransactionStatus.ACTION_PENDING) {
-      // 已在目标态。两种情况必须分开:
-      //  · 同一个 action id → 真·重复 webhook,no-op
-      //  · 新的 action id   → Sumsub 又要客户补一份("还不够,再交")。状态确实
-      //    不动,但引用必须换、上一轮提交戳必须清、表必须重置——否则客户点进去
-      //    看到的是上一份材料的界面,且客户端仍显示"已收到,审核中",
-      //    客户根本不知道又被要东西了。
-      if (action && action.applicantActionId !== deposit.sumsubActionId) {
-        await this.depositService.setActionRefs(
-          deposit.id,
-          action.applicantActionId,
-          action.externalActionId,
-          slaDeadline,
-        );
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_ACTION_REISSUED,
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: deposit.id,
-          entityNo: deposit.depositNo,
-          entityOwnerType: deposit.ownerType,
-          entityOwnerId: deposit.ownerId,
-          traceId: deposit.traceId || undefined,
-          workflowType: 'DEPOSIT',
-          reason: `Sumsub issued a new applicant action while already ACTION_PENDING`,
-          metadata: {
-            previousActionId: deposit.sumsubActionId ?? null,
-            actionId: action.applicantActionId,
-          },
-          sourcePlatform: 'SYSTEM',
-        });
-      }
+      // 已在目标态。集合没变 → 真·重复 webhook,no-op。
+      if (added.length === 0 && retired.length === 0) return;
+
+      // 集合变了:状态确实不动,但「全部交齐」缓存必须清、表必须重置——
+      // 否则客户端仍显示"已收到,审核中",客户根本不知道又被要东西了。
+      await this.applicantActions.clearDepositCache(deposit.id, slaDeadline);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_ACTION_REISSUED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason: 'Sumsub changed the applicant-action set while already ACTION_PENDING',
+        metadata: {
+          addedSeqs: added,
+          retiredSeqs: retired,
+          // 审计是 operator 面,**必须**带真 id,否则运营对不上 Sumsub 后台。
+          // 与客户面正好相反(客户面永不下发 id)——别看混。
+          incomingActionIds: incoming.map((a) => a.applicantActionId),
+        },
+        sourcePlatform: 'SYSTEM',
+      });
       return;
     }
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
     const oldStatus = deposit.status;
-    // Minor a 修复:slaDeadline 折进同一次 updateStatus 的 extraData,与 manualReason
-    // 一次原子写(避免两步写中间失败,留 ACTION_PENDING 无 slaDeadline 永不被 SLA 扫)。
-    //
-    // Important 修复:actionSubmittedAt/slaBreached 必须在这条跨状态弧(常见于
-    // MANUAL_CHECKING → ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回
-    // awaitingUser,2026-07-31 沙盒实测过)里一并清掉,不能只在"已在 ACTION_PENDING
-    // 收新 action"的同状态分支(见上面 setActionRefs 调用)里清。
-    // 客户端 getSession 完全靠 actionSubmittedAt 是否有值决定显示"请提供材料"还是
-    // "已收到,审核中";markActionSubmitted 靠 actionSubmittedAt:null 做幂等 where 条件。
-    // 若这里不清:客户此前交过的材料让 actionSubmittedAt 留着旧值 → 单子明明又要
-    // 客户补材料,客户端却一直显示"已收到,审核中",客户永远不知道要再交一次,
-    // 也永远点不动提交(where 条件永不匹配)——被永久卡死。slaBreached 同理需要
-    // 清掉(对齐同状态分支的 setActionRefs 行为),否则从 MANUAL_CHECKING(通常
-    // slaBreached=true)转入的 ACTION_PENDING 会带着一面过期的违约旗,干扰这一轮
-    // 全新的 SLA 计时语义。别看"状态都变了"就觉得这两个字段无所谓——它们是两个
-    // 独立的持久字段,updateStatus 不会替你清,不显式写就会原样带过去。
+    // actionSubmittedAt/slaBreached 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
+    // ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回 awaitingUser,
+    // 2026-07-31 沙盒实测过)里一并清掉。它们是两个独立的持久字段,updateStatus
+    // 不会替你清,不显式写就会原样带过去——客户此前交过的材料让缓存留着旧值,
+    // 客户端会一直显示"已收到,审核中",客户被永久卡死。
     const updated = await this.depositService.updateStatus(
       deposit.id,
       {
@@ -565,10 +557,6 @@ export class DepositWorkflowService implements OnModuleInit {
           slaDeadline,
           actionSubmittedAt: null,
           slaBreached: false,
-          ...(action && {
-            sumsubActionId: action.applicantActionId,
-            sumsubExternalActionId: action.externalActionId,
-          }),
         },
       },
     );

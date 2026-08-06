@@ -119,24 +119,26 @@ describe('DepositApplicantActionsService', () => {
     });
   });
 
-  // seq 唯一性最终靠 @@unique([depositTransactionId, seq]) 兜底。这里模拟两次
-  // 调用读到同一份陈旧 existing（并发/重复 webhook 场景下事务无法完全避免
-  // 的那种撞法）：第一次落库成功，第二次落库时撞唯一约束——断言这个错误必须
-  // 原样往上抛，不能被这层代码悄悄吞掉（吞掉的话 findBySeq 会查到"消失的"行）。
-  it('并发下两次调用读到同一份陈旧 existing → 第二次落库撞唯一约束时错误必须原样传播', async () => {
-    prisma.depositApplicantAction.findMany.mockResolvedValue([]);
-
-    const uniqueViolation = Object.assign(new Error('Unique constraint failed on the fields: (`depositTransactionId`,`seq`)'), {
-      code: 'P2002',
-    });
+  // Task 3 前置修复:该 service 一旦接进 webhook handler,并发/重复投递撞
+  // P2002 就不再是"无所谓"——webhook 语义要求幂等,冲突必须被吞掉重读一次,
+  // 不能原样抛成 500。
+  it('撞唯一约束(P2002) → 重读一次,不把异常抛给调用方', async () => {
+    const conflict = Object.assign(new Error('unique'), { code: 'P2002' });
     prisma.depositApplicantAction.createMany
-      .mockResolvedValueOnce({ count: 1 })
-      .mockRejectedValueOnce(uniqueViolation);
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ count: 0 });
+    // 第二遍读到对方已插好的行 → toAdd 为空
+    prisma.depositApplicantAction.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null }]);
 
-    const r1 = await svc.syncApplicantActions('d-1', [A1]);
-    expect(r1).toEqual({ added: [1], retired: [] });
+    await expect(svc.syncApplicantActions('d-1', [A1])).resolves.toEqual({ added: [], retired: [] });
+  });
 
-    await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(uniqueViolation);
+  it('非 P2002 的错误原样抛出,不吞', async () => {
+    const boom = Object.assign(new Error('disk full'), { code: 'P9999' });
+    prisma.depositApplicantAction.createMany.mockRejectedValue(boom);
+    await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(boom);
   });
 
   describe('逐条提交与充值单缓存', () => {

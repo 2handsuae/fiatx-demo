@@ -37,6 +37,22 @@ export class DepositApplicantActionsService {
     depositId: string,
     incoming: IncomingApplicantAction[],
   ): Promise<{ added: number[]; retired: number[] }> {
+    try {
+      return await this.syncOnce(depositId, incoming);
+    } catch (e: any) {
+      // P2002 = 唯一约束冲突。并发/重复 webhook 下两个调用算出同一个 nextSeq，
+      // 一个成功一个撞约束——这是**预期内**的竞态结果，不是错误：重读一次即可，
+      // 此时对方已经把行插好了，第二遍算出来的 toAdd 通常为空，天然幂等。
+      // 不重试的话，一次合法投递会被打成 500 抛回 Sumsub，而 webhook 要求幂等。
+      if (e?.code !== 'P2002') throw e;
+      return this.syncOnce(depositId, incoming);
+    }
+  }
+
+  private async syncOnce(
+    depositId: string,
+    incoming: IncomingApplicantAction[],
+  ): Promise<{ added: number[]; retired: number[] }> {
     // 「读 existing → 算 nextSeq → 插入/删除」是 read-modify-write：同一充值单
     // 上两次并发（或重复投递）的 webhook 若各自裸跑这三步，会各自读到同一份
     // existing、算出相同的 nextSeq，插出两行 applicantActionId 不同但 seq 相同的

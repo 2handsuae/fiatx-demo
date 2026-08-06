@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DepositWorkflowService } from './deposit-workflow.service';
 import { DepositTransactionsService } from './deposit-transactions.service';
+import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -37,6 +38,7 @@ describe('DepositWorkflowService', () => {
   let approvalsService: Record<string, jest.Mock>;
   let systemWalletResolver: Record<string, jest.Mock>;
   let tbEvidenceService: Record<string, jest.Mock>;
+  let actionsService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     depositService = {
@@ -48,7 +50,14 @@ describe('DepositWorkflowService', () => {
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
-      setActionRefs: jest.fn().mockResolvedValue(undefined),
+    };
+    actionsService = {
+      syncApplicantActions: jest.fn().mockResolvedValue({ added: [], retired: [] }),
+      clearDepositCache: jest.fn(),
+      listForCustomer: jest.fn().mockResolvedValue([]),
+      findBySeq: jest.fn(),
+      hasOutstanding: jest.fn().mockResolvedValue(false),
+      submitBySeq: jest.fn(),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -98,6 +107,7 @@ describe('DepositWorkflowService', () => {
         { provide: ApprovalsService, useValue: approvalsService },
         { provide: SystemWalletResolver, useValue: systemWalletResolver },
         { provide: TbEvidenceService, useValue: tbEvidenceService },
+        { provide: DepositApplicantActionsService, useValue: actionsService },
       ],
     }).compile();
 
@@ -1364,6 +1374,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -2252,6 +2263,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -2511,6 +2523,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -2623,6 +2636,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -2788,6 +2802,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -2981,6 +2996,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -3181,6 +3197,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
         ],
       }).compile();
 
@@ -3514,6 +3531,7 @@ describe('DepositWorkflowService', () => {
           { provide: ApprovalsService, useValue: approvalsService },
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
+          { provide: DepositApplicantActionsService, useValue: actionsService },
           {
             provide: TransactionLimitRulesService,
             useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },
@@ -3563,109 +3581,84 @@ describe('DepositWorkflowService', () => {
     });
   });
 
-  describe('applyKytAwaitUser — applicant action 引用', () => {
-    const ACTIONS = [{ applicantActionId: 'aa-1', externalActionId: 'EXT-1' }];
+  describe('applyKytAwaitUser：多条 action 集合比对', () => {
+    const ACTIONS = [
+      { applicantActionId: 'aa-1', externalActionId: 'EXT-1' },
+      { applicantActionId: 'aa-2', externalActionId: 'EXT-2' },
+    ];
 
-    it('首次进 ACTION_PENDING:action 引用随状态一次写入', async () => {
-      const deposit = { id: 'd-1', status: 'COMPLIANCE_PENDING' };
-      depositService.findOne.mockResolvedValue(deposit);
-      // brief 原测试片段漏了这行:updateStatus 不 mock 返回值时默认 resolve undefined,
-      // recordStateTransitionAudit(updated, ..., updated.status, ...) 会在 updated.status
-      // 上抛 TypeError——与本用例要验证的 extraData 内容无关,补齐让测试跑到真正的断言。
-      depositService.updateStatus.mockResolvedValue({ ...deposit, status: 'ACTION_PENDING' });
+    it('从 COMPLIANCE_PENDING 首次进态：同步集合 + 状态迁移', async () => {
+      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      depositService.updateStatus.mockResolvedValue({ ...dep, status: 'ACTION_PENDING' });
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [1, 2], retired: [] });
 
-      await service.applyKytVerdict('d-1', {
-        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
-      } as any);
+      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'd-1',
-        // brief 原片段硬编码字面量 'ACTION_PENDING',但 DepositTransactionAction.ACTION_PENDING
-        // 实值是 'action_pending'(小写)——见 dto/deposit-transaction.dto.ts:80,与本文件其它
-        // awaitUser 用例(如上方 'awaitUser + PEP' 一条)一致改用枚举常量。
-        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
-        expect.objectContaining({
-          extraData: expect.objectContaining({
-            sumsubActionId: 'aa-1',
-            sumsubExternalActionId: 'EXT-1',
-          }),
-        }),
+      expect(actionsService.syncApplicantActions).toHaveBeenCalledWith('d-1', ACTIONS);
+      expect(depositService.updateStatus).toHaveBeenCalled();
+      const [, , opts] = depositService.updateStatus.mock.calls[0];
+      expect(opts.extraData).toEqual(
+        expect.objectContaining({ actionSubmittedAt: null, slaBreached: false }),
       );
     });
 
-    it('Important 修复:跨状态弧(MANUAL_CHECKING → ACTION_PENDING)也要清 actionSubmittedAt/slaBreached,不能只在同状态分支清', async () => {
-      // MANUAL_CHECKING 单常见带着旧的 actionSubmittedAt(客户此前交过材料)和
-      // slaBreached=true(被 SLA 定时器打进来的)。officer 重发 action 后单子回到
-      // ACTION_PENDING——这两个字段若不清,客户端 getSession 会一直显示"已收到,
-      // 审核中"(actionSubmittedAt 有值),客户永久卡死,见 applyKytAwaitUser 内注释。
-      const deposit = {
-        id: 'd-1',
-        status: 'MANUAL_CHECKING',
-        sumsubActionId: 'aa-OLD',
-        actionSubmittedAt: new Date('2026-01-01T00:00:00Z'),
-        slaBreached: true,
-      };
-      depositService.findOne.mockResolvedValue(deposit);
-      depositService.updateStatus.mockResolvedValue({ ...deposit, status: 'ACTION_PENDING' });
+    it('已在 ACTION_PENDING 且集合有新增：不动状态，清缓存，记审计', async () => {
+      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
 
-      await service.applyKytVerdict('d-1', {
-        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
-      } as any);
+      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
-      expect(depositService.updateStatus).toHaveBeenCalledWith(
-        'd-1',
-        expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
-        expect.objectContaining({
-          extraData: expect.objectContaining({
-            actionSubmittedAt: null,
-            slaBreached: false,
-          }),
-        }),
-      );
-    });
-
-    it('已在 ACTION_PENDING + 新 action id:刷新引用、清提交戳、重置表,状态不动', async () => {
-      depositService.findOne.mockResolvedValue({
-        id: 'd-1', status: 'ACTION_PENDING', sumsubActionId: 'aa-OLD',
-      });
-
-      await service.applyKytVerdict('d-1', {
-        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
-      } as any);
-
-      expect(depositService.setActionRefs).toHaveBeenCalledWith(
-        'd-1', 'aa-1', 'EXT-1', expect.any(Date),
-      );
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      // DEPOSIT_ACTION_REISSUED 审计是这次修复的 operator 可见落地证据——必须真的
-      // 写了,且带上新旧 action id,不能只验 setActionRefs 被调而漏了审计本身。
+      expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
           action: AuditActions.DEPOSIT_ACTION_REISSUED,
           entityId: 'd-1',
-          metadata: expect.objectContaining({
-            previousActionId: 'aa-OLD',
-            actionId: 'aa-1',
-          }),
+          metadata: expect.objectContaining({ addedSeqs: [2], retiredSeqs: [] }),
         }),
       );
     });
 
-    it('已在 ACTION_PENDING + 同一个 action id:真 no-op(重复 webhook)', async () => {
-      depositService.findOne.mockResolvedValue({
-        id: 'd-1', status: 'ACTION_PENDING', sumsubActionId: 'aa-1',
-      });
+    it('已在 ACTION_PENDING 且集合完全一致：真 no-op', async () => {
+      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
 
-      await service.applyKytVerdict('d-1', {
-        verdict: 'awaitUser', riskScore: 40, applicantActions: ACTIONS,
-      } as any);
+      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
-      expect(depositService.setActionRefs).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      // 真 no-op 必须连审计都不写,否则"重复 webhook 不该产生噪音"这条不变量测不出来。
+      expect(actionsService.clearDepositCache).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED }),
       );
+    });
+
+    // 撤回同样要清缓存：3 条里撤掉 1 条未提交的之后，剩下 2 条若已交齐，
+    // 缓存该盖上；反之若还有未交的，缓存必须是空。统一靠 clearDepositCache
+    // + 下一次 submitBySeq 重算，不在这里各自算一遍。
+    it('已在 ACTION_PENDING 且有撤回：清缓存并把撤回的 seq 记进审计', async () => {
+      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [2] });
+
+      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
+
+      expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [2] }),
+        }),
+      );
+    });
+
+    it('审计带真 applicantActionId（operator 面需要，与客户面相反）', async () => {
+      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
+
+      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
+
+      const call = auditLogsService.recordSystem.mock.calls.find(
+        ([a]: any[]) => a.action === AuditActions.DEPOSIT_ACTION_REISSUED,
+      );
+      expect(call[0].metadata.incomingActionIds).toEqual(['aa-1', 'aa-2']);
     });
   });
 });
