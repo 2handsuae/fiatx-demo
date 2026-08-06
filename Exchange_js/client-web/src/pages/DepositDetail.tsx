@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
-import { getDepositStatusView, REAL_OUTCOME_STATUSES } from '../utils/depositStatusView';
+import { getDepositStatusView } from '../utils/depositStatusView';
 import { formatAssetAmount } from '../utils/number-format';
 
 interface ActionRow { seq: number; submittedAt: string | null }
@@ -70,13 +70,24 @@ const DepositDetail = () => {
         </span>
       </div>
 
-      {/* 单子已经有真实结果（SUCCESS/FAILED/RETURNING/RETURNED）时，不再展示这块——
-          否则一笔已 SUCCESS 的单，只因子表里还留着一条从未清理的旧 action 行，
-          就会一直对客户喊"请提供材料"。判据集合与 depositStatusView.ts 的
-          REAL_OUTCOME_STATUSES 共用同一份，禁止在这里另写一份状态清单（两份
-          必然漂移）。执法四态（FROZEN/SEIZING/SEIZED/MANUAL_CHECKING）绝不能
-          出现在这个集合里，理由见该文件内注释。 */}
-      {tx.actions.length > 0 && !REAL_OUTCOME_STATUSES.has(tx.status.toUpperCase()) && (
+      {/* 业主定稿（2026-08-06）：**只有 ACTION_PENDING 且确实还有未提交项时**才展示
+          这块。两个条件缺一不可，理由不同：
+
+          · 限定 ACTION_PENDING —— 单子已经有别的结局时不该再对客户喊"请提供材料"。
+            此前只排除 SUCCESS/FAILED/RETURNING/RETURNED，可 approveDeposit 接受
+            ACTION_PENDING 直推 SUCCESS 且从不清理未提交的 action 行，于是一笔已成功
+            的单会一直挂着可点的补料入口。
+
+          · 还要求"有未提交项" —— 这条是 tipping-off 防线要的，别当成冗余删掉。
+            若只按状态判：一个**已把材料交齐**的客户，单子被冻时会看到这片卡片凭空
+            消失（徽章本身不变，那是专门做的不变量）。而"提交过的单在冻结时刻零变化"
+            正是这条防线的核心。全部交齐后这片卡片没有任何可点入口、只是重复徽章
+            已经说过的"已收到"，收起它既符合业主口径，又让冻结前后零变化。
+
+          ⚠️ 别把判据改回"按状态排除某几个"——那要求维护第二份状态清单，且上面第二条
+          的不变量会随之丢失。 */}
+      {tx.status.toUpperCase() === 'ACTION_PENDING' &&
+        tx.actions.some((a) => !a.submittedAt) && (
         <section className="mt-8">
           <h2 className="text-sm font-semibold text-fx-sand mb-3">Outstanding verification</h2>
           <div className="space-y-2">
