@@ -98,4 +98,61 @@ export class DepositApplicantActionsService {
     });
   }
 
+  /**
+   * 提交某一条 action，并按需重算充值单上的「全部交齐」缓存。
+   *
+   * 两表都要写，故必须包 `$transaction`（CLAUDE.md 铁律 2）。
+   *
+   * 幂等靠 `updateMany` 的 where 条件交给 DB 保证互斥——不能退回"先读后写"，
+   * 那样并发下两个请求都会读到 submittedAt=null、都返回 changed:true，
+   * 调用方据此写审计就会记重。
+   *
+   * `allSubmitted` 只在真正交完最后一条时为 true（spec §D4：交一条就算完
+   * 会让客户以为交完了、剩下的永远不动，那是 bug 不是选项）。
+   */
+  async submitBySeq(
+    depositId: string,
+    seq: number,
+    slaDeadline: Date,
+    resetSla: boolean,
+  ): Promise<{ changed: boolean; allSubmitted: boolean }> {
+    return this.prisma.$transaction(async (tx: any) => {
+      const res = await tx.depositApplicantAction.updateMany({
+        where: { depositTransactionId: depositId, seq, submittedAt: null },
+        data: { submittedAt: new Date() },
+      });
+      if (res.count === 0) return { changed: false, allSubmitted: false };
+
+      const outstanding = await tx.depositApplicantAction.count({
+        where: { depositTransactionId: depositId, submittedAt: null },
+      });
+      if (outstanding > 0) return { changed: true, allSubmitted: false };
+
+      // 全部交齐 → 盖充值单缓存。SLA 两字段只在 resetSla 时写：单子已被 SLA
+      // 定时器打成 MANUAL_CHECKING(slaBreached=true)后，客户一次提交不该把
+      // operator 眼里的违约旗单方面抹掉（该状态不在 findSlaBreachCandidates
+      // 的扫描范围内，抹掉后永远发现不了）。
+      await tx.depositTransaction.updateMany({
+        where: { id: depositId },
+        data: {
+          actionSubmittedAt: new Date(),
+          ...(resetSla && { slaDeadline, slaBreached: false }),
+        },
+      });
+      return { changed: true, allSubmitted: true };
+    });
+  }
+
+  /**
+   * 新 action 进来时清掉充值单的「全部交齐」缓存并重置 SLA 表。
+   * 不清的话：客户此前交过的材料让 actionSubmittedAt 留着旧值 → 单子明明又要
+   * 客户补材料，客户端却一直显示"已收到，审核中"，客户永远不知道要再交一次。
+   */
+  async clearDepositCache(depositId: string, slaDeadline: Date): Promise<void> {
+    await (this.prisma as any).depositTransaction.update({
+      where: { id: depositId },
+      data: { actionSubmittedAt: null, slaDeadline, slaBreached: false },
+    });
+  }
+
 }

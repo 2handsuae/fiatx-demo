@@ -139,4 +139,90 @@ describe('DepositApplicantActionsService', () => {
     await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(uniqueViolation);
   });
 
+  describe('逐条提交与充值单缓存', () => {
+    const DEADLINE = new Date('2026-08-13T00:00:00Z');
+
+    it('交完最后一条 → 盖上充值单的 actionSubmittedAt', async () => {
+      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.depositApplicantAction.count.mockResolvedValue(0);   // 已无未提交
+
+      const r = await svc.submitBySeq('d-1', 2, DEADLINE, true);
+
+      expect(r).toEqual({ changed: true, allSubmitted: true });
+      expect(prisma.depositApplicantAction.updateMany).toHaveBeenCalledWith({
+        where: { depositTransactionId: 'd-1', seq: 2, submittedAt: null },
+        data: { submittedAt: expect.any(Date) },
+      });
+      const [[arg]] = prisma.depositTransaction.updateMany.mock.calls;
+      expect(arg.data.actionSubmittedAt).toEqual(expect.any(Date));
+      expect(arg.data.slaDeadline).toEqual(DEADLINE);
+      expect(arg.data.slaBreached).toBe(false);
+    });
+
+    it('还剩未提交的 → 充值单缓存**不**盖，客户仍要继续交', async () => {
+      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.depositApplicantAction.count.mockResolvedValue(1);   // 还有 1 条没交
+
+      const r = await svc.submitBySeq('d-1', 1, DEADLINE, true);
+
+      expect(r).toEqual({ changed: true, allSubmitted: false });
+      expect(prisma.depositTransaction.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('重复提交同一条 → changed:false，不重算不写库', async () => {
+      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+
+      const r = await svc.submitBySeq('d-1', 1, DEADLINE, true);
+
+      expect(r).toEqual({ changed: false, allSubmitted: false });
+      expect(prisma.depositApplicantAction.count).not.toHaveBeenCalled();
+      expect(prisma.depositTransaction.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('resetSla=false 时只盖 actionSubmittedAt，不碰 operator 的 SLA 两字段', async () => {
+      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.depositApplicantAction.count.mockResolvedValue(0);
+
+      await svc.submitBySeq('d-1', 1, DEADLINE, false);
+
+      const [[arg]] = prisma.depositTransaction.updateMany.mock.calls;
+      expect(arg.data).toEqual({ actionSubmittedAt: expect.any(Date) });
+    });
+
+    it('clearDepositCache 把 actionSubmittedAt 清空并重置 SLA 表', async () => {
+      await svc.clearDepositCache('d-1', DEADLINE);
+      expect(prisma.depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'd-1' },
+        data: { actionSubmittedAt: null, slaDeadline: DEADLINE, slaBreached: false },
+      });
+    });
+  });
+
+  // 缓存式设计（spec §2.2）的代价是可能漂移：子表说还有未交的，充值单标量
+  // 却显示已交齐。这条直接把两种表示绑死——对随机构造的提交组合，断言
+  // 「标量该不该有值」与「子表还有没有未提交行」结论一致。漂了就红。
+  describe('绑死两种表示（防缓存漂移）', () => {
+    const DEADLINE = new Date('2026-08-13T00:00:00Z');
+
+    it.each([
+      [3, 0],  // 3 条全未交
+      [3, 1],
+      [3, 2],
+      [3, 3],  // 3 条全交齐
+      [1, 0],
+      [1, 1],
+    ])('%i 条 action 交了 %i 条：缓存与子表结论一致', async (total, submittedCount) => {
+      const outstanding = total - submittedCount;
+      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.depositApplicantAction.count.mockResolvedValue(outstanding);
+      prisma.depositTransaction.updateMany.mockClear();
+
+      const r = await svc.submitBySeq('d-1', 1, DEADLINE, true);
+
+      const cacheWritten = prisma.depositTransaction.updateMany.mock.calls.length > 0;
+      expect(r.allSubmitted).toBe(outstanding === 0);
+      expect(cacheWritten).toBe(outstanding === 0);
+    });
+  });
+
 });
