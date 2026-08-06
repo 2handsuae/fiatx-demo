@@ -13,12 +13,12 @@ const Verification = lazy(() => import('./pages/Verification'));
 const WalletManagement = lazy(() => import('./pages/WalletManagement'));
 const Deposit = lazy(() => import('./pages/Deposit'));
 const DepositDetail = lazy(() => import('./pages/DepositDetail'));
+const DepositVerification = lazy(() => import('./pages/DepositVerification'));
 const Withdraw = lazy(() => import('./pages/Withdraw'));
 const Swap = lazy(() => import('./pages/Swap'));
 const DashboardOverview = lazy(() => import('./pages/DashboardOverview'));
 const TransactionHistory = lazy(() => import('./pages/TransactionHistory'));
 const WithdrawalAddresses = lazy(() => import('./pages/WithdrawalAddresses'));
-const MockVerification = lazy(() => import('./pages/MockVerification'));
 
 const RouteLoading = () => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
@@ -39,7 +39,6 @@ function App() {
               <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<CustomerLogin />} />
               <Route path="/register" element={<CustomerRegister />} />
-              <Route path="/mock-verification" element={<MockVerification />} />
 
               {/* Dashboard Routes (No /dashboard prefix) */}
               <Route element={<CustomerDashboardLayout />}>
@@ -48,6 +47,7 @@ function App() {
                  <Route path="/wallet" element={<AuthGuard><WalletManagement /></AuthGuard>} />
                  <Route path="/deposit" element={<AuthGuard><Deposit /></AuthGuard>} />
                  <Route path="/deposit/:depositNo" element={<AuthGuard><DepositDetail /></AuthGuard>} />
+                 <Route path="/deposit/:depositNo/verification/:seq" element={<AuthGuard><DepositVerification /></AuthGuard>} />
                  <Route path="/swap" element={<AuthGuard><Swap /></AuthGuard>} />
                  <Route path="/withdraw" element={<AuthGuard><Withdraw /></AuthGuard>} />
                  <Route path="/transactions" element={<AuthGuard><TransactionHistory /></AuthGuard>} />
