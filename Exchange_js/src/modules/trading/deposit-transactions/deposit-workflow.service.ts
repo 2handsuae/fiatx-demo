@@ -507,12 +507,55 @@ export class DepositWorkflowService implements OnModuleInit {
       incoming,
     );
 
-    if (deposit.status === DepositTransactionStatus.ACTION_PENDING) {
-      // 已在目标态。集合没变 → 真·重复 webhook,no-op。
-      if (added.length === 0 && retired.length === 0) return;
+    // I1 修复(反直觉,细说原因):两个 Sumsub client 在
+    // scoringResult.applicantActions 缺席时都返回 undefined,handler 组装报文时
+    // `...(applicantActions?.length && {...})` 又把空数组拍成 undefined——于是这里
+    // 的 incoming 完全可能是 []。若同步之后这笔单一条未提交行都没有,绝不能放它
+    // 进入/停留在 ACTION_PENDING:那是一个"ACTION_PENDING 但零条可提交项"的死角——
+    // 客户列表徽章显示 ACTION REQUIRED、落 ACTION_REQUIRED 桶,但详情页因
+    // `actions.some(a => !a.submittedAt)` 为 false 不渲染任何入口,7 天后 SLA 定时器
+    // 还会把它打成 MANUAL_CHECKING、理由写"客户未按时补料"——把锅扣在一个根本无从
+    // 操作的客户头上。判据必须是"同步后是否还有未提交行"(hasOutstanding),不能只
+    // 看 incoming 是否为空:报文也可能带的全是已经提交过的旧 id,同样零未提交。
+    const hasOutstanding = await this.applicantActions.hasOutstanding(deposit.id);
 
-      // 集合变了:状态确实不动,但「全部交齐」缓存必须清、表必须重置——
-      // 否则客户端仍显示"已收到,审核中",客户根本不知道又被要东西了。
+    if (deposit.status === DepositTransactionStatus.ACTION_PENDING) {
+      if (!hasOutstanding) {
+        // 同状态分支同款死角:"全删成空集"不能当正常的 reissue 处理——
+        // 不清缓存、不推进,只记一条 warn 留痕,供排查上游报文异常。
+        this.logger.warn(
+          `applyKytAwaitUser: deposit ${deposit.id} synced to zero outstanding actions while already ACTION_PENDING, refusing to treat as reissue`,
+        );
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          traceId: deposit.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          reason:
+            'Sumsub awaitUser synced to zero outstanding actions while already ACTION_PENDING — kept existing cache, not treated as reissue',
+          metadata: { addedSeqs: added, retiredSeqs: retired },
+          sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
+
+      // I2 修复(反直觉,细说原因):「要不要清缓存」的判据必须读持久状态
+      // (actionSubmittedAt 是否还残留旧的"已交齐"值),不能用本次
+      // syncApplicantActions 返回的 added/retired 是否为空来判断。
+      // syncApplicantActions 自带事务、与随后的 clearDepositCache/审计写入是两次
+      // 独立事务——若第一次投递里 syncOnce 已提交,而 clearDepositCache 或审计
+      // 写入抛错(SQLITE_BUSY、进程重启),webhook 重试时 syncOnce 已是
+      // no-op(added=retired=[]),旧判据会在这里提前 return,actionSubmittedAt
+      // 永远清不掉——客户端徽章永久卡在"已收到,审核中",而实际有新 action 待办。
+      // 改用持久状态:只要还有未提交行(上面已判定)且缓存里还留着"已交齐"的旧值
+      // 就该清,与这次 webhook 自己带没带来集合变化无关。同模块的 submitBySeq
+      // 本就是把两表包进事务写的,这里的判据口径要跟它对齐。
+      if (deposit.actionSubmittedAt == null) return; // 缓存本就干净,真 no-op
+
       await this.applicantActions.clearDepositCache(deposit.id, slaDeadline);
       await this.auditLogsService.recordSystem({
         action: AuditActions.DEPOSIT_ACTION_REISSUED,
@@ -531,6 +574,30 @@ export class DepositWorkflowService implements OnModuleInit {
           // 与客户面正好相反(客户面永不下发 id)——别看混。
           incomingActionIds: incoming.map((a) => a.applicantActionId),
         },
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
+    if (!hasOutstanding) {
+      // 跨状态弧(COMPLIANCE_PENDING/MANUAL_CHECKING → ACTION_PENDING)同款死角:
+      // 同步之后没有任何未提交行,不能推进到 ACTION_PENDING——单子留在原状态,
+      // 只记一条 warn 留痕。
+      this.logger.warn(
+        `applyKytAwaitUser: deposit ${deposit.id} received awaitUser verdict with zero outstanding actions after sync, keeping status ${deposit.status}`,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        reason:
+          'Sumsub sent awaitUser verdict with no outstanding applicant actions — refused to move into ACTION_PENDING with nothing for the customer to act on',
+        metadata: { fromStatus: deposit.status, incomingCount: incoming.length },
         sourcePlatform: 'SYSTEM',
       });
       return;

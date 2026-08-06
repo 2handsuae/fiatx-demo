@@ -239,6 +239,10 @@ export const AuditActions = {
   // 已在 ACTION_PENDING 时 Sumsub 又发一个新 applicantActionId(客户交的材料不够,
   // 还要再补)——状态不动,但引用/提交戳/SLA 表刷新(AE-T2)
   DEPOSIT_ACTION_REISSUED: 'DEPOSIT_ACTION_REISSUED',
+  // I1 修复:awaitUser 裁决同步之后该单没有任何未提交行(报文整个不带
+  // applicantActions,或撤回的恰好是全部未提交行)——拒绝进入/停留 ACTION_PENDING,
+  // 单子保持原状态,留痕供排查上游报文异常
+  DEPOSIT_AWAITUSER_EMPTY_ACTIONS: 'DEPOSIT_AWAITUSER_EMPTY_ACTIONS',
   // onHold/ACTION_PENDING SLA breach timer (Task 10)
   DEPOSIT_SLA_BREACHED: 'DEPOSIT_SLA_BREACHED',
   DEPOSIT_HELD_BELOW_MIN: 'DEPOSIT_HELD_BELOW_MIN',   // L1 金额下限挂起(不自动放行)

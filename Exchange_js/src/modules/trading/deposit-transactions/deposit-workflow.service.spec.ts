@@ -1843,6 +1843,7 @@ describe('DepositWorkflowService', () => {
         ...deposit,
         status: DepositTransactionStatus.ACTION_PENDING,
       });
+      actionsService.hasOutstanding.mockResolvedValue(true); // 同步后仍有未提交行,正常推进(I1 guard)
 
       await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag: 'PEP' });
 
@@ -1880,6 +1881,7 @@ describe('DepositWorkflowService', () => {
         ...deposit,
         status: DepositTransactionStatus.ACTION_PENDING,
       });
+      actionsService.hasOutstanding.mockResolvedValue(true); // 同步后仍有未提交行,正常推进(I1 guard)
 
       await service.applyKytVerdict('dep-3b', { verdict: 'awaitUser' });
 
@@ -2123,6 +2125,7 @@ describe('DepositWorkflowService', () => {
         ownerId: 'cust-1',
         traceId: null,
       });
+      actionsService.hasOutstanding.mockResolvedValue(true); // 客户仍有未提交行,不是 I1 那种死角
 
       await service.applyKytVerdict('dep-11', { verdict: 'awaitUser', sceneTag: 'PEP' });
 
@@ -3591,6 +3594,7 @@ describe('DepositWorkflowService', () => {
       const dep = { id: 'd-1', depositNo: 'DEP1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
       depositService.updateStatus.mockResolvedValue({ ...dep, status: 'ACTION_PENDING' });
       actionsService.syncApplicantActions.mockResolvedValue({ added: [1, 2], retired: [] });
+      actionsService.hasOutstanding.mockResolvedValue(true); // 同步后还有未提交行，正常推进
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
@@ -3602,9 +3606,33 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('已在 ACTION_PENDING 且集合有新增：不动状态，清缓存，记审计', async () => {
-      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+    // I1：两个 Sumsub client 在 scoringResult.applicantActions 缺席时都返回
+    // undefined，handler 组装报文时又把空数组拍成 undefined——incoming 可能是
+    // []。同步之后若这笔单零未提交行，绝不能推进到 ACTION_PENDING（那是一个
+    // "ACTION_PENDING 但零条可提交项"的死角，客户永久卡死、SLA 还会把锅扣给他）。
+    it('I1：跨状态弧收到空 applicantActions（同步后零未提交行）——不推进状态，只记 warn 审计', async () => {
+      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
+      actionsService.hasOutstanding.mockResolvedValue(false);
+
+      await (service as any).applyKytAwaitUser(dep, undefined, undefined);
+
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
+          entityId: 'd-1',
+        }),
+      );
+    });
+
+    it('已在 ACTION_PENDING 且集合有新增、缓存里还留着旧的"已交齐"值：不动状态，清缓存，记审计', async () => {
+      const dep = {
+        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
+        actionSubmittedAt: new Date('2026-08-01'), // 缓存残留上一轮"已交齐"，需要清
+      };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
+      actionsService.hasOutstanding.mockResolvedValue(true);
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
@@ -3619,9 +3647,10 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('已在 ACTION_PENDING 且集合完全一致：真 no-op', async () => {
+    it('已在 ACTION_PENDING 且集合完全一致、缓存本就干净：真 no-op', async () => {
       const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
+      actionsService.hasOutstanding.mockResolvedValue(true);
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
@@ -3632,12 +3661,37 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    // I2 的核心回归用例：webhook 重试场景——第一次投递里 syncOnce 已经把子表
+    // 同步完（本次 added/retired 因此都是空），但随后的 clearDepositCache/审计写入
+    // 抛错（SQLITE_BUSY、进程重启），缓存里 actionSubmittedAt 仍残留旧值。旧判据
+    // （added.length===0 && retired.length===0 → return）会在这里提前退出，
+    // 缓存永远清不掉；新判据改读持久状态，与本次 diff 是否为空无关，必须清掉。
+    it('I2：webhook 重试——diff 为空但缓存里 actionSubmittedAt 残留旧值，仍要清掉', async () => {
+      const dep = {
+        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
+        actionSubmittedAt: new Date('2026-08-01'),
+      };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
+      actionsService.hasOutstanding.mockResolvedValue(true);
+
+      await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
+
+      expect(actionsService.clearDepositCache).toHaveBeenCalledWith('d-1', expect.any(Date));
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_ACTION_REISSUED, entityId: 'd-1' }),
+      );
+    });
+
     // 撤回同样要清缓存：3 条里撤掉 1 条未提交的之后，剩下 2 条若已交齐，
     // 缓存该盖上；反之若还有未交的，缓存必须是空。统一靠 clearDepositCache
     // + 下一次 submitBySeq 重算，不在这里各自算一遍。
-    it('已在 ACTION_PENDING 且有撤回：清缓存并把撤回的 seq 记进审计', async () => {
-      const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+    it('已在 ACTION_PENDING 且有撤回（仍有其它未提交行）：清缓存并把撤回的 seq 记进审计', async () => {
+      const dep = {
+        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
+        actionSubmittedAt: new Date('2026-08-01'),
+      };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [2] });
+      actionsService.hasOutstanding.mockResolvedValue(true);
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 
@@ -3649,9 +3703,35 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('审计带真 applicantActionId（operator 面需要，与客户面相反）', async () => {
+    // I1 的另一半死角：报文把全部未提交行都撤空了（同步后 hasOutstanding=false）。
+    // 不能把这当正常 reissue 处理——不清缓存、不推进，只留痕，
+    // 否则一个原本可用的 ACTION_PENDING（还有未提交行）会被改造成死角
+    // （还是 ACTION_PENDING，却零条可提交项）。
+    it('I1：已在 ACTION_PENDING，报文把全部未提交行撤空——不清缓存不推进，只记 warn 审计', async () => {
       const dep = { id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1' };
+      actionsService.syncApplicantActions.mockResolvedValue({ added: [], retired: [1, 2] });
+      actionsService.hasOutstanding.mockResolvedValue(false);
+
+      await (service as any).applyKytAwaitUser(dep, undefined, []);
+
+      expect(actionsService.clearDepositCache).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_AWAITUSER_EMPTY_ACTIONS,
+          entityId: 'd-1',
+          metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [1, 2] }),
+        }),
+      );
+    });
+
+    it('审计带真 applicantActionId（operator 面需要，与客户面相反）', async () => {
+      const dep = {
+        id: 'd-1', depositNo: 'DEP1', status: 'ACTION_PENDING', ownerType: 'CUSTOMER', ownerId: 'c-1',
+        actionSubmittedAt: new Date('2026-08-01'),
+      };
       actionsService.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
+      actionsService.hasOutstanding.mockResolvedValue(true);
 
       await (service as any).applyKytAwaitUser(dep, undefined, ACTIONS);
 

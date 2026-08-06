@@ -115,6 +115,24 @@ export class DepositApplicantActionsService {
     });
   }
 
+  /**
+   * 该单同步后是否还有未提交行。applyKytAwaitUser 用它做 guard（I1 修复）：
+   * 报文可能整个不带 applicantActions（两个 Sumsub client 在
+   * scoringResult.applicantActions 缺席时都返回 undefined），或者报文撤回的
+   * 恰好是全部未提交行——这两种情形同步之后都是"零条可提交项"，绝不能让单子
+   * 因此进入/停留在 ACTION_PENDING（否则详情页因 `actions.some(a =>
+   * !a.submittedAt)` 为 false 不渲染任何入口，客户永久卡死，SLA 定时器还会
+   * 把锅扣在客户头上）。判据必须读同步后的持久状态，不能用本次 diff（added/
+   * retired）代替——原因见 deposit-workflow.service.ts 里 applyKytAwaitUser 的
+   * 同名 I2 注释。
+   */
+  async hasOutstanding(depositId: string): Promise<boolean> {
+    const count = await this.prisma.depositApplicantAction.count({
+      where: { depositTransactionId: depositId, submittedAt: null },
+    });
+    return count > 0;
+  }
+
   /** 服务端按 seq 换回真 id（用于铸 token）。返回 null 交由调用方转成 404。 */
   async findBySeq(depositId: string, seq: number) {
     return this.prisma.depositApplicantAction.findFirst({
