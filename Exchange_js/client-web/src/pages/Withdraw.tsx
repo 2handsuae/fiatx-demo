@@ -139,7 +139,6 @@ const Withdraw = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [selectedTx, setSelectedTx] = useState<WithdrawTransaction | null>(null);
   const [historyStatus, setHistoryStatus] = useState('');
   const [historyAssetId, setHistoryAssetId] = useState('');
 
@@ -431,12 +430,6 @@ const Withdraw = () => {
     );
   };
 
-  const renderStatusNote = (status: string) => {
-    const view = getWithdrawStatusView(status);
-    if (!view.note) return null;
-    return <p className="mt-3 text-sm text-fx-dust text-center">{view.note}</p>;
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -595,7 +588,7 @@ const Withdraw = () => {
                                           </td>
                                           <td className="px-4 py-3 text-right">
                                               <button
-                                                onClick={() => setSelectedTx(tx)}
+                                                onClick={() => navigate('/withdraw/' + tx.withdrawNo)}
                                                 className="text-fx-brass hover:text-fx-brass/80 text-xs font-medium px-3 py-1.5 bg-fx-brass/10 rounded-lg hover:bg-fx-brass/20 transition-colors"
                                               >
                                                   Details
@@ -1060,55 +1053,6 @@ const Withdraw = () => {
               </div>
           </div>
       ) : null}
-
-      {/* Detail Modal (Simplified) */}
-      {selectedTx && (() => {
-          return (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-              <div className="bg-fx-ink rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-fx-rule">
-                  <div className="flex justify-between items-center p-6 border-b border-fx-rule">
-                      <h3 className="text-xl font-bold text-fx-sand">Withdrawal Details</h3>
-                      <button onClick={() => setSelectedTx(null)} className="p-2 hover:bg-fx-charcoal rounded-full transition-colors text-fx-dust">
-                          <X size={20} />
-                      </button>
-                  </div>
-                  <div className="p-6 space-y-6">
-                      <div className="text-center">
-                          <div className="text-3xl font-bold text-fx-sand mb-1">
-                              {formatAssetAmount(selectedTx.amount, selectedTx.asset.decimals)} <span className="text-fx-dust text-xl">{selectedTx.asset.currency}</span>
-                          </div>
-                          <div className="mt-2">
-                              {renderStatusBadge(selectedTx.status)}
-                          </div>
-                          {renderStatusNote(selectedTx.status)}
-                      </div>
-                      <div className="space-y-4 bg-fx-charcoal p-4 rounded-xl border border-fx-rule">
-                          <div className="flex justify-between text-sm">
-                              <span className="text-fx-dust">Withdraw No</span>
-                              <span className="font-mono font-medium text-fx-sand">{selectedTx.withdrawNo}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                              <span className="text-fx-dust">Date</span>
-                              <span className="font-medium text-fx-sand">{new Date(selectedTx.createdAt).toLocaleString()}</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                              <span className="text-fx-dust">Destination</span>
-                              <span className="font-medium text-fx-sand truncate max-w-[200px]" title={selectedTx.toAddress || selectedTx.toIban || ''}>
-                                  {selectedTx.toAddress || selectedTx.toIban || 'N/A'}
-                              </span>
-                          </div>
-                      </div>
-                      <button
-                        onClick={() => setSelectedTx(null)}
-                        className="mt-4 w-full rounded-xl bg-fx-charcoal py-2.5 text-sm font-medium text-fx-sand hover:bg-fx-charcoal/80"
-                      >
-                        Close
-                      </button>
-                  </div>
-              </div>
-          </div>
-          );
-      })()}
     </div>
   );
 };
