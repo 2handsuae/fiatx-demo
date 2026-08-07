@@ -1,0 +1,249 @@
+import { Test } from '@nestjs/testing';
+import { PrismaService } from '../../../core/prisma/prisma.service';
+import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
+
+const A1 = { applicantActionId: 'aa-1', externalActionId: 'EXT-1' };
+const A2 = { applicantActionId: 'aa-2', externalActionId: 'EXT-2' };
+
+describe('WithdrawApplicantActionsService', () => {
+  let svc: WithdrawApplicantActionsService;
+  let prisma: any;
+
+  beforeEach(async () => {
+    prisma = {
+      withdrawApplicantAction: {
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findFirst: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      withdrawTransaction: { update: jest.fn(), updateMany: jest.fn() },
+      $transaction: jest.fn(async (fn: any) => fn(prisma)),
+    };
+    const mod = await Test.createTestingModule({
+      providers: [
+        WithdrawApplicantActionsService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    svc = mod.get(WithdrawApplicantActionsService);
+  });
+
+  it('全新单：两条都插入，seq 从 1 开始递增', async () => {
+    const r = await svc.syncApplicantActions('w-1', [A1, A2]);
+
+    expect(r).toEqual({ added: [1, 2], retired: [] });
+    expect(prisma.withdrawApplicantAction.createMany).toHaveBeenCalledWith({
+      data: [
+        { withdrawTransactionId: 'w-1', applicantActionId: 'aa-1', externalActionId: 'EXT-1', seq: 1 },
+        { withdrawTransactionId: 'w-1', applicantActionId: 'aa-2', externalActionId: 'EXT-2', seq: 2 },
+      ],
+    });
+  });
+
+  it('已有 aa-1(seq=1)，报文含 aa-1+aa-2 → 只插 aa-2，seq 接续为 2', async () => {
+    prisma.withdrawApplicantAction.findMany.mockResolvedValue([
+      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
+    ]);
+
+    const r = await svc.syncApplicantActions('w-1', [A1, A2]);
+
+    expect(r).toEqual({ added: [2], retired: [] });
+    expect(prisma.withdrawApplicantAction.createMany).toHaveBeenCalledWith({
+      data: [
+        { withdrawTransactionId: 'w-1', applicantActionId: 'aa-2', externalActionId: 'EXT-2', seq: 2 },
+      ],
+    });
+  });
+
+  it('集合完全一致 → 真 no-op，不插不删', async () => {
+    prisma.withdrawApplicantAction.findMany.mockResolvedValue([
+      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
+    ]);
+
+    const r = await svc.syncApplicantActions('w-1', [A1]);
+
+    expect(r).toEqual({ added: [], retired: [] });
+    expect(prisma.withdrawApplicantAction.createMany).not.toHaveBeenCalled();
+    expect(prisma.withdrawApplicantAction.deleteMany).not.toHaveBeenCalled();
+  });
+
+  // Sumsub 报文带的是**当前全量列表**。它撤回一条而我方保留，该行永远算作
+  // 未提交 →「全部交齐」永不成立 → 客户永久卡死（与 applyKytAwaitUser 早退
+  // 那个 bug 同款形状、不同入口）。已提交的行不删——那是历史。
+  it('报文撤回了未提交的 aa-2 → 删掉它；已提交的 aa-1 不动', async () => {
+    prisma.withdrawApplicantAction.findMany.mockResolvedValue([
+      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: new Date('2026-08-06') },
+      { id: 'r2', applicantActionId: 'aa-2', seq: 2, submittedAt: null },
+    ]);
+
+    const r = await svc.syncApplicantActions('w-1', [A1]);
+
+    expect(r).toEqual({ added: [], retired: [2] });
+    expect(prisma.withdrawApplicantAction.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['r2'] } },
+    });
+  });
+
+  it('报文里已提交的那条被撤回 → 不删（历史保留）', async () => {
+    prisma.withdrawApplicantAction.findMany.mockResolvedValue([
+      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: new Date('2026-08-06') },
+    ]);
+
+    const r = await svc.syncApplicantActions('w-1', []);
+
+    expect(r).toEqual({ added: [], retired: [] });
+    expect(prisma.withdrawApplicantAction.deleteMany).not.toHaveBeenCalled();
+  });
+
+  // nextSeq 是对撤回前的全量 existing 取 max，所以同一次调用里新增的行才不会
+  // 复用被删行腾出来的 seq——这条路径 add-only/retire-only 两组测试都盖不到。
+  it('同一次调用既新增又撤回：aa-1(未提交)被撤回，新增的 aa-3 不复用 aa-1 腾出的 seq=1', async () => {
+    const A3 = { applicantActionId: 'aa-3', externalActionId: 'EXT-3' };
+    prisma.withdrawApplicantAction.findMany.mockResolvedValue([
+      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
+      { id: 'r2', applicantActionId: 'aa-2', seq: 2, submittedAt: new Date('2026-08-06') },
+    ]);
+
+    const r = await svc.syncApplicantActions('w-1', [A2, A3]);
+
+    expect(r).toEqual({ added: [3], retired: [1] });
+    expect(prisma.withdrawApplicantAction.createMany).toHaveBeenCalledWith({
+      data: [
+        { withdrawTransactionId: 'w-1', applicantActionId: 'aa-3', externalActionId: 'EXT-3', seq: 3 },
+      ],
+    });
+    expect(prisma.withdrawApplicantAction.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['r1'] } },
+    });
+  });
+
+  // Task 3 前置修复:该 service 一旦接进 webhook handler,并发/重复投递撞
+  // P2002 就不再是"无所谓"——webhook 语义要求幂等,冲突必须被吞掉重读一次,
+  // 不能原样抛成 500。
+  it('撞唯一约束(P2002) → 重读一次,不把异常抛给调用方', async () => {
+    const conflict = Object.assign(new Error('unique'), { code: 'P2002' });
+    prisma.withdrawApplicantAction.createMany
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ count: 0 });
+    // 第二遍读到对方已插好的行 → toAdd 为空
+    prisma.withdrawApplicantAction.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null }]);
+
+    await expect(svc.syncApplicantActions('w-1', [A1])).resolves.toEqual({ added: [], retired: [] });
+  });
+
+  it('非 P2002 的错误原样抛出,不吞', async () => {
+    const boom = Object.assign(new Error('disk full'), { code: 'P9999' });
+    prisma.withdrawApplicantAction.createMany.mockRejectedValue(boom);
+    await expect(svc.syncApplicantActions('w-1', [A1])).rejects.toBe(boom);
+  });
+
+  // 评审 Important 1(b)：externalActionId 为空的 incoming 项不能静默入库——
+  // 它会一路流到 SumsubClient.createActionSdkToken，真接时铸出一个不绑任何
+  // action 的 token，且没人发现。入库处直接拦，并 warn 留痕。
+  it('incoming 混一条 externalActionId 为空的 → 该条不入库、不影响其它条正常入库，并 warn 一条', async () => {
+    const BAD = { applicantActionId: 'aa-bad', externalActionId: '' };
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+
+    const r = await svc.syncApplicantActions('w-1', [A1, BAD]);
+
+    expect(r).toEqual({ added: [1], retired: [] });
+    expect(prisma.withdrawApplicantAction.createMany).toHaveBeenCalledWith({
+      data: [
+        { withdrawTransactionId: 'w-1', applicantActionId: 'aa-1', externalActionId: 'EXT-1', seq: 1 },
+      ],
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('aa-bad');
+  });
+
+  describe('逐条提交与提现单缓存', () => {
+    const DEADLINE = new Date('2026-08-13T00:00:00Z');
+
+    it('交完最后一条 → 盖上提现单的 actionSubmittedAt', async () => {
+      prisma.withdrawApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.withdrawApplicantAction.count.mockResolvedValue(0);   // 已无未提交
+
+      const r = await svc.submitBySeq('w-1', 2, DEADLINE, true);
+
+      expect(r).toEqual({ changed: true, allSubmitted: true });
+      expect(prisma.withdrawApplicantAction.updateMany).toHaveBeenCalledWith({
+        where: { withdrawTransactionId: 'w-1', seq: 2, submittedAt: null },
+        data: { submittedAt: expect.any(Date) },
+      });
+      const [[arg]] = prisma.withdrawTransaction.updateMany.mock.calls;
+      expect(arg.data.actionSubmittedAt).toEqual(expect.any(Date));
+      expect(arg.data.slaDeadline).toEqual(DEADLINE);
+      expect(arg.data.slaBreached).toBe(false);
+    });
+
+    it('还剩未提交的 → 提现单缓存**不**盖，客户仍要继续交', async () => {
+      prisma.withdrawApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.withdrawApplicantAction.count.mockResolvedValue(1);   // 还有 1 条没交
+
+      const r = await svc.submitBySeq('w-1', 1, DEADLINE, true);
+
+      expect(r).toEqual({ changed: true, allSubmitted: false });
+      expect(prisma.withdrawTransaction.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('重复提交同一条 → changed:false，不重算不写库', async () => {
+      prisma.withdrawApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+
+      const r = await svc.submitBySeq('w-1', 1, DEADLINE, true);
+
+      expect(r).toEqual({ changed: false, allSubmitted: false });
+      expect(prisma.withdrawApplicantAction.count).not.toHaveBeenCalled();
+      expect(prisma.withdrawTransaction.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('resetSla=false 时只盖 actionSubmittedAt，不碰 operator 的 SLA 两字段', async () => {
+      prisma.withdrawApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.withdrawApplicantAction.count.mockResolvedValue(0);
+
+      await svc.submitBySeq('w-1', 1, DEADLINE, false);
+
+      const [[arg]] = prisma.withdrawTransaction.updateMany.mock.calls;
+      expect(arg.data).toEqual({ actionSubmittedAt: expect.any(Date) });
+    });
+
+    it('clearWithdrawCache 把 actionSubmittedAt 清空并重置 SLA 表', async () => {
+      await svc.clearWithdrawCache('w-1', DEADLINE);
+      expect(prisma.withdrawTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'w-1' },
+        data: { actionSubmittedAt: null, slaDeadline: DEADLINE, slaBreached: false },
+      });
+    });
+  });
+
+  // 缓存式设计（spec §2.2）的代价是可能漂移：子表说还有未交的，提现单标量
+  // 却显示已交齐。这条直接把两种表示绑死——对随机构造的提交组合，断言
+  // 「标量该不该有值」与「子表还有没有未提交行」结论一致。漂了就红。
+  describe('绑死两种表示（防缓存漂移）', () => {
+    const DEADLINE = new Date('2026-08-13T00:00:00Z');
+
+    it.each([
+      [3, 0],  // 3 条全未交
+      [3, 1],
+      [3, 2],
+      [3, 3],  // 3 条全交齐
+      [1, 0],
+      [1, 1],
+    ])('%i 条 action 交了 %i 条：缓存与子表结论一致', async (total, submittedCount) => {
+      const outstanding = total - submittedCount;
+      prisma.withdrawApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      prisma.withdrawApplicantAction.count.mockResolvedValue(outstanding);
+      prisma.withdrawTransaction.updateMany.mockClear();
+
+      const r = await svc.submitBySeq('w-1', 1, DEADLINE, true);
+
+      const cacheWritten = prisma.withdrawTransaction.updateMany.mock.calls.length > 0;
+      expect(r.allSubmitted).toBe(outstanding === 0);
+      expect(cacheWritten).toBe(outstanding === 0);
+    });
+  });
+
+});

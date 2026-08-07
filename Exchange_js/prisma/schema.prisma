@@ -1224,10 +1224,12 @@ model WithdrawTransaction {
   completedAt          DateTime?
   statusHistory        String?
   updatedAt            DateTime              @updatedAt
+  actionSubmittedAt    DateTime?
   fundsOrders          FundsOrder[]          @relation("WithdrawFundsOrders")
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain          @relation(fields: [ownerId], references: [id])
+  applicantActions     WithdrawApplicantAction[] @relation("WithdrawApplicantActions")
 
   @@index([withdrawNo])
   @@index([ownerId])
@@ -1904,4 +1906,23 @@ model DepositApplicantAction {
   @@unique([depositTransactionId, seq])
   @@index([depositTransactionId, seq])
   @@map("deposit_applicant_actions")
+}
+
+model WithdrawApplicantAction {
+  id                     String   @id @default(uuid())
+  withdrawTransactionId  String
+  applicantActionId      String   // Sumsub 侧 id。**只在服务端与审计出现，绝不下发客户端**
+  externalActionId       String   // 铸 SDK token 的钥匙，一条 action 一个
+  seq                    Int      // 客户面唯一可见的定位符；一旦分配不再变（进 URL）
+  createdAt              DateTime @default(now())
+  submittedAt            DateTime?
+
+  withdraw WithdrawTransaction @relation("WithdrawApplicantActions", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
+
+  @@unique([withdrawTransactionId, applicantActionId])
+  // seq 是客户端唯一可见的定位符、且进 URL——同一提现单下必须唯一，
+  // 不能只靠应用层算 nextSeq 保证（并发/重复 webhook 会算出相同值），DB 层兜底。
+  @@unique([withdrawTransactionId, seq])
+  @@index([withdrawTransactionId, seq])
+  @@map("withdraw_applicant_actions")
 }

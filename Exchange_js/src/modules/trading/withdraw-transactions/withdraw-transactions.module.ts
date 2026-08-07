@@ -12,6 +12,7 @@ import { PricingCenterModule } from '../pricing-center/pricing-center.module';
 import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approval.service';
 import { WithdrawUnfreezeApprovalService } from './withdraw-unfreeze-approval.service';
 import { WithdrawSanctionRefundApprovalService } from './withdraw-sanction-refund-approval.service';
+import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
@@ -41,10 +42,12 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     WithdrawLargeValueApprovalService,
     WithdrawUnfreezeApprovalService,
     WithdrawSanctionRefundApprovalService,
+    WithdrawApplicantActionsService,
   ],
   exports: [
     WithdrawTransactionsService,
     WithdrawWorkflowService,
+    WithdrawApplicantActionsService,
   ],
 })
 export class WithdrawTransactionsModule {}
