@@ -176,4 +176,26 @@ export const WITHDRAW_VERDICT_BUTTONS: Record<string, WithdrawVerdictButton> = {
       typedTags: [TAG('SLA_BREACH')],
     },
   },
+
+  V10_AWAIT_USER_MULTI: {
+    key: 'V10_AWAIT_USER_MULTI',
+    label: '⑩ Awaiting user · 多条',
+    webhookType: 'applicantKytTxnAwaitingUser',
+    verdict: {
+      reviewStatus: 'awaitingUser',
+      reviewAnswer: null,
+      action: 'awaitUser',
+      score: 45,
+      matchedRules: [
+        RULE('KYC9', 'Multiple documents required', 45, 'awaitUser', 'Several items required from the applicant.'),
+      ],
+      // 三条一次性下发,用于验证"点哪条看哪条"以及"交完前两条徽章仍是
+      // ACTION REQUIRED、交完第三条才切已收到"(逐字同源充值版)。
+      applicantActions: [
+        { applicantActionId: 'aa-multi-0001', externalActionId: 'EXT-MULTI-0001' },
+        { applicantActionId: 'aa-multi-0002', externalActionId: 'EXT-MULTI-0002' },
+        { applicantActionId: 'aa-multi-0003', externalActionId: 'EXT-MULTI-0003' },
+      ],
+    },
+  },
 };

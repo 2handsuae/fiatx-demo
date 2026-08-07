@@ -31,8 +31,10 @@ import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-/* 9 个单步裁决按钮,与充值版镜像(去掉充值独有的 below-min)。key 必须与后端
-   src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts 的 WITHDRAW_VERDICT_BUTTONS 一致。 */
+/* 10 个单步裁决按钮,与充值版镜像(去掉充值独有的 below-min)。key/label 必须与后端
+   src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts 的 WITHDRAW_VERDICT_BUTTONS
+   逐一对齐 —— 这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步改另一侧,
+   否则 operator 会点不出新场景。 */
 const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V1_APPROVED', label: '① Approved' },
   { key: 'V2_AWAIT_USER', label: '② Awaiting user' },
@@ -43,6 +45,7 @@ const WITHDRAW_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V7_REJECTED_NO_TAG', label: '⑦ Rejected · no disposition tag' },
   { key: 'V8_ONHOLD', label: '⑧ On hold' },
   { key: 'V9_REJECTED_SLA', label: '⑨ Rejected · SLA breach' },
+  { key: 'V10_AWAIT_USER_MULTI', label: '⑩ Awaiting user · 多条' },
 ];
 
 interface LinkedFundOrder {

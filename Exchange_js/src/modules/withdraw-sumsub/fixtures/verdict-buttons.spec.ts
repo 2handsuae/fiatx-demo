@@ -4,8 +4,8 @@ import { KYT_VERDICT_TYPES } from '../../deposit-sumsub/kyt-webhook-types';
 describe('WITHDRAW_VERDICT_BUTTONS', () => {
   const buttons = Object.values(WITHDRAW_VERDICT_BUTTONS);
 
-  it('共 9 个按钮,key 与 map 键一致', () => {
-    expect(buttons).toHaveLength(9);
+  it('共 10 个按钮,key 与 map 键一致', () => {
+    expect(buttons).toHaveLength(10);
     for (const [k, b] of Object.entries(WITHDRAW_VERDICT_BUTTONS)) expect(b.key).toBe(k);
   });
 
