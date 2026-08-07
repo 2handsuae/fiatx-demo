@@ -176,6 +176,7 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
     { evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })) } as any, // limitGateService
     {} as any, // limitRulesService
     {} as any, // sumsubTxnClient
+    {} as any, // applicantActions
   );
 }
 
@@ -346,6 +347,7 @@ function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
     {} as any, // limitGateService
     {} as any, // limitRulesService
     {} as any, // sumsubTxnClient
+    {} as any, // applicantActions
   );
 }
 
@@ -421,6 +423,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
       {} as any, // limitGateService
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
   }
 

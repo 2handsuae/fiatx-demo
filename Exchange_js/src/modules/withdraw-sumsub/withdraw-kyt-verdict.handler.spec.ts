@@ -34,6 +34,7 @@ describe('WithdrawKytVerdictHandler', () => {
   function txnDetail(
     tags: { label: string; type?: 'system' | 'userDefined' }[],
     riskScore: number | null = 87,
+    applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ): SumsubTxnDetail {
     return {
       txnId: 'T1',
@@ -42,6 +43,7 @@ describe('WithdrawKytVerdictHandler', () => {
       riskScore,
       typedTags: tags.map((t) => ({ label: t.label, type: t.type ?? 'userDefined' })),
       raw: { txnId: 'T1', reviewResult: { reviewAnswer: 'RED' } },
+      ...(applicantActions && { applicantActions }),
     };
   }
 
@@ -91,6 +93,21 @@ describe('WithdrawKytVerdictHandler', () => {
       detailRaw: detail.raw,
     });
     expect(result).toBe(true);
+  });
+
+  it('AwaitingUser + getTxn returns applicantActions → 透传进 applyKytVerdict 第二参数(mirrors deposit handler)', async () => {
+    const actions = [{ applicantActionId: 'aa-1', externalActionId: 'EXT-1' }];
+    const detail = txnDetail([], 10, actions);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
+
+    await handler.handle({ type: 'applicantKytTxnAwaitingUser', kytTxnId: 'T1' });
+
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(WITHDRAW_ID, {
+      verdict: 'awaitUser',
+      riskScore: 10,
+      detailRaw: detail.raw,
+      applicantActions: actions,
+    });
   });
 
   it('onHold(applicantKytOnHold,官方命名无 Txn): 也拉 getTxn 存证(分数+报文),但不读处置 tag', async () => {

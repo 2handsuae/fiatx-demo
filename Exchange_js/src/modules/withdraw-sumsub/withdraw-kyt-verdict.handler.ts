@@ -69,11 +69,13 @@ export class WithdrawKytVerdictHandler {
     // 换一个展示数字(留 null,前端显示 —)。
     let riskScore: number | null = null;
     let detailRaw: unknown;
+    let applicantActions: { applicantActionId: string; externalActionId: string }[] | undefined;
 
     if (DETAIL_LOOKUP_VERDICTS.has(verdict)) {
       const detail = await this.sumsubTxnClient.getTxn(kytTxnId);
       riskScore = detail.riskScore ?? null;
       detailRaw = detail.raw;
+      applicantActions = detail.applicantActions;
       if (TAG_LOOKUP_VERDICTS.has(verdict)) {
         for (const tag of detail.typedTags) {
           if (tag.type !== 'userDefined') continue;
@@ -89,6 +91,7 @@ export class WithdrawKytVerdictHandler {
       ...(sceneTag && { sceneTag }),
       ...(dispoTag && { dispoTag }),
       ...(detailRaw !== undefined && { detailRaw }),
+      ...(applicantActions?.length && { applicantActions }),
     });
     return true;
   }

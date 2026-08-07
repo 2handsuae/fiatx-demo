@@ -62,6 +62,7 @@ import {
   SumsubTxnClient,
 } from '../../deposit-sumsub/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../deposit-sumsub/kyt-txn-type.resolver';
+import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -145,6 +146,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly limitGateService: TransactionLimitGateService,
     private readonly limitRulesService: TransactionLimitRulesService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
+    private readonly applicantActions: WithdrawApplicantActionsService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -2224,6 +2226,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       sceneTag?: 'SANCTION' | 'PEP';
       dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
       detailRaw?: unknown;
+      applicantActions?: { applicantActionId: string; externalActionId: string }[];
     },
   ): Promise<void> {
     const w = await this.withdrawService.findOneInternal(withdrawId);
@@ -2292,7 +2295,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.applyKytApproved(w);
         return;
       case 'awaitUser':
-        await this.applyKytAwaitUser(w, input.sceneTag);
+        await this.applyKytAwaitUser(w, input.sceneTag, input.applicantActions);
         return;
       case 'onHold':
         await this.applyKytOnHold(w);
@@ -2331,18 +2334,89 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   /**
    * awaitUser: ACTION_PENDING (manualReason by sceneTag, slaDeadline+7d atomic
-   * write via updateStatus's extraData). Idempotent when already ACTION_PENDING
-   * (repeat webhook).
+   * write via updateStatus's extraData). Mirrors
+   * DepositWorkflowService.applyKytAwaitUser (集合同步 + 零未提交行 guard +
+   * 同状态重入清缓存/REISSUED 审计 + 跨状态弧清缓存) — see that method's I1/I2
+   * comments for the reasoning; kept identical here since the same two Sumsub
+   * clients both return undefined when scoringResult.applicantActions is absent.
    */
-  private async applyKytAwaitUser(w: any, sceneTag?: 'SANCTION' | 'PEP'): Promise<void> {
+  private async applyKytAwaitUser(
+    w: any,
+    sceneTag?: 'SANCTION' | 'PEP',
+    applicantActions?: { applicantActionId: string; externalActionId: string }[],
+  ): Promise<void> {
+    const incoming = applicantActions ?? [];
+    const slaDeadline = new Date(
+      Date.now() + WithdrawWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    // 集合同步先做:无论状态动不动,子表都必须与报文的**全量列表**对齐。
+    const { added, retired } = await this.applicantActions.syncApplicantActions(
+      w.id,
+      incoming,
+    );
+
+    // I1(mirrors deposit):判据必须是"同步后是否还有未提交行"(hasOutstanding),
+    // 不能只看 incoming 是否为空——报文也可能带的全是已经提交过的旧 id。
+    const hasOutstanding = await this.applicantActions.hasOutstanding(w.id);
+
     if (w.status === WithdrawTransactionStatus.ACTION_PENDING) {
-      return; // already in target state — repeat webhook
+      if (!hasOutstanding) {
+        // 同状态分支同款死角:"全删成空集"不能当正常的 reissue 处理——
+        // 不清缓存、不推进,只记一条 warn 留痕,供排查上游报文异常。
+        this.logger.warn(
+          `applyKytAwaitUser: withdrawal ${w.id} synced to zero outstanding actions while already ACTION_PENDING, refusing to treat as reissue`,
+        );
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: w.id,
+          entityNo: w.withdrawNo,
+          entityOwnerType: w.ownerType,
+          entityOwnerId: w.ownerId,
+          traceId: w.traceId || undefined,
+          workflowType: AuditWorkflowTypes.WITHDRAW,
+          reason:
+            'Sumsub awaitUser synced to zero outstanding actions while already ACTION_PENDING — kept existing cache, not treated as reissue',
+          metadata: { addedSeqs: added, retiredSeqs: retired },
+          sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
+
+      // I2(mirrors deposit):判据必须读持久状态(actionSubmittedAt 是否还残留旧的
+      // "已交齐"值),不能用本次 syncApplicantActions 返回的 added/retired 是否为空
+      // 来判断——webhook 重试场景下 syncOnce 可能已 no-op,但缓存仍需清。
+      if (w.actionSubmittedAt == null) return; // 缓存本就干净,真 no-op
+
+      await this.applicantActions.clearWithdrawCache(w.id, slaDeadline);
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_ACTION_REISSUED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: 'Sumsub changed the applicant-action set while already ACTION_PENDING',
+        metadata: {
+          addedSeqs: added,
+          retiredSeqs: retired,
+          // 审计是 operator 面,必须带真 id,否则运营对不上 Sumsub 后台。
+          incomingActionIds: incoming.map((a) => a.applicantActionId),
+        },
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
     }
 
     // FROZEN has no ACTION_PENDING edge (it exits only via RESUME / REJECT_REFUND —
     // and, per Fix 1, REJECT_REFUND itself is now gated behind Task 9's
     // double-approval). A stale/late awaitUser verdict arriving after the sanctions
-    // freeze must not throw; treat it as an idempotent no-op.
+    // freeze must not throw; treat it as an idempotent no-op. Sub-table is still
+    // synced above (mirrors deposit's "无论状态动不动都同步" invariant) — only the
+    // status transition itself is skipped.
     if (w.status === WithdrawTransactionStatus.FROZEN) {
       this.logger.debug(
         `applyKytAwaitUser no-op: withdrawal ${w.id} is FROZEN, ignoring awaitUser verdict`,
@@ -2350,14 +2424,43 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
+    if (!hasOutstanding) {
+      // 跨状态弧(COMPLIANCE_PENDING/MANUAL_CHECKING → ACTION_PENDING)同款死角:
+      // 同步之后没有任何未提交行,不能推进到 ACTION_PENDING——单子留在原状态,
+      // 只记一条 warn 留痕。
+      this.logger.warn(
+        `applyKytAwaitUser: withdrawal ${w.id} received awaitUser verdict with zero outstanding actions after sync, keeping status ${w.status}`,
+      );
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason:
+          'Sumsub sent awaitUser verdict with no outstanding applicant actions — refused to move into ACTION_PENDING with nothing for the customer to act on',
+        metadata: { fromStatus: w.status, incomingCount: incoming.length },
+        sourcePlatform: 'SYSTEM',
+      });
+      return;
+    }
+
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
-    const slaDeadline = new Date(
-      Date.now() + WithdrawWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
+    // actionSubmittedAt/slaBreached 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
+    // ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回 awaitingUser)里
+    // 一并清掉——它们是两个独立的持久字段,updateStatus 不会替你清,不显式写就会
+    // 原样带过去,客户此前交过的材料让缓存留着旧值,客户端会一直显示"已收到,
+    // 审核中",客户被永久卡死。single atomic updateStatus call(mirrors deposit)。
     await this.withdrawService.updateStatus(
       w.id,
       { action: WithdrawTransactionAction.ACTION_PENDING, reason: 'KYT verdict: awaitUser' },
-      { ...this.systemCtx, extraData: { manualReason, slaDeadline } },
+      {
+        ...this.systemCtx,
+        extraData: { manualReason, slaDeadline, actionSubmittedAt: null, slaBreached: false },
+      },
     );
   }
 

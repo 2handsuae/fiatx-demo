@@ -344,6 +344,13 @@ export const AuditActions = {
   // Task 5: Sumsub single-txn submit + applyKytVerdict branches + SLA cron
   WITHDRAW_SUMSUB_SUBMITTED: 'WITHDRAW_SUMSUB_SUBMITTED',
   WITHDRAW_ONHOLD: 'WITHDRAW_ONHOLD',
+  // 已在 ACTION_PENDING 时 Sumsub 又发一个新 applicantActionId(客户交的材料不够,
+  // 还要再补)——状态不动,但缓存/SLA 表刷新。mirrors DEPOSIT_ACTION_REISSUED。
+  WITHDRAW_ACTION_REISSUED: 'WITHDRAW_ACTION_REISSUED',
+  // awaitUser 裁决同步之后该单没有任何未提交行(报文整个不带 applicantActions,
+  // 或撤回的恰好是全部未提交行)——拒绝进入/停留 ACTION_PENDING,单子保持原状态,
+  // 留痕供排查上游报文异常。mirrors DEPOSIT_AWAITUSER_EMPTY_ACTIONS。
+  WITHDRAW_AWAITUSER_EMPTY_ACTIONS: 'WITHDRAW_AWAITUSER_EMPTY_ACTIONS',
   WITHDRAW_SLA_BREACHED: 'WITHDRAW_SLA_BREACHED',
   WITHDRAW_MANUAL_APPROVED: 'WITHDRAW_MANUAL_APPROVED',
   WITHDRAW_FROZEN: 'WITHDRAW_FROZEN',
@@ -365,6 +372,9 @@ export const AuditActions = {
   // Task 9: FROZEN maker-checker gates (execution side) — decided-event handlers.
   WITHDRAW_UNFROZEN: 'WITHDRAW_UNFROZEN',
   WITHDRAW_SANCTION_REFUNDED: 'WITHDRAW_SANCTION_REFUNDED',
+  // 客户提交补料材料(Task 3, action-embed)——SLA 表由"等客户"切到"等 Provider 重评"。
+  // mirrors DEPOSIT_ACTION_SUBMITTED。
+  WITHDRAW_ACTION_SUBMITTED: 'WITHDRAW_ACTION_SUBMITTED',
   // Task 10: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN. Feeds a
   // withdrawal through a Sumsub mock verdict fixture (SUMSUB_MOCK_MODE only —
   // endpoint doesn't exist otherwise).

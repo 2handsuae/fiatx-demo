@@ -59,6 +59,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // limitGateService
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
   });
 
@@ -127,6 +128,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // limitGateService
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
   });
 
@@ -186,6 +188,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // limitGateService
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
   });
 
@@ -257,6 +260,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // limitGateService
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
   });
 
@@ -461,6 +465,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       {} as any, // limitGateService
       limitRulesService as any,
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -563,6 +568,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
 function buildFullWorkflow(overrides: {
   withdrawService?: Partial<Record<string, jest.Mock>>;
   sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
+  applicantActions?: Partial<Record<string, jest.Mock>>;
 } = {}) {
   const withdrawService = {
     findOneInternal: jest.fn(),
@@ -582,6 +588,18 @@ function buildFullWorkflow(overrides: {
     reviewComplete: jest.fn(),
     ...overrides.sumsubTxnClient,
   };
+  // Default hasOutstanding=true so the pre-existing awaitUser-progression tests
+  // (written before the 集合同步/zero-outstanding guard existed) keep exercising
+  // the "enters ACTION_PENDING" path without each test having to opt in; the new
+  // zero-outstanding tests below override it explicitly per case.
+  const applicantActions = {
+    syncApplicantActions: jest.fn().mockResolvedValue({ added: [], retired: [] }),
+    hasOutstanding: jest.fn().mockResolvedValue(true),
+    clearWithdrawCache: jest.fn().mockResolvedValue(undefined),
+    findBySeq: jest.fn(),
+    submitBySeq: jest.fn(),
+    ...overrides.applicantActions,
+  };
 
   const workflow = new WithdrawWorkflowService(
     {} as any, // prisma
@@ -598,9 +616,10 @@ function buildFullWorkflow(overrides: {
     {} as any, // limitGateService
     {} as any, // limitRulesService
     sumsubTxnClient as any,
+    applicantActions as any,
   );
 
-  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient };
+  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions };
 }
 
 function baseWithdrawRow(overrides: Record<string, any> = {}) {
@@ -1082,6 +1101,136 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
   });
 
+  // Task 2 (withdraw action-embed): applyKytAwaitUser 改集合同步 + 零未提交行 guard +
+  // 同状态重入清缓存/REISSUED 审计 + 跨状态弧清缓存——mirrors
+  // deposit-workflow.service.spec.ts 的『applyKytAwaitUser：多条 action 集合比对』。
+  // 直调私有方法(绕开 applyKytVerdict 外层的 findOneInternal/saveSumsubVerdict 等
+  // 无关逻辑),与 deposit 那组测试同一测法。
+  describe('applyKytAwaitUser — 多条 action 集合比对 (mirrors deposit)', () => {
+    const ACTIONS = [
+      { applicantActionId: 'aa-1', externalActionId: 'EXT-1' },
+      { applicantActionId: 'aa-2', externalActionId: 'EXT-2' },
+    ];
+
+    it('从 COMPLIANCE_PENDING 首次进态:同步集合 + 状态迁移', async () => {
+      const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
+      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING });
+      applicantActions.syncApplicantActions.mockResolvedValue({ added: [1, 2], retired: [] });
+      applicantActions.hasOutstanding.mockResolvedValue(true);
+
+      await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
+
+      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS);
+      expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+      const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
+      expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
+      expect((ctx as any).extraData).toEqual(
+        expect.objectContaining({ actionSubmittedAt: null, slaBreached: false }),
+      );
+    });
+
+    it('重复 webhook,集合完全一致、缓存本就干净:真 no-op', async () => {
+      const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
+      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.ACTION_PENDING });
+      applicantActions.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
+      applicantActions.hasOutstanding.mockResolvedValue(true);
+
+      await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(applicantActions.clearWithdrawCache).not.toHaveBeenCalled();
+    });
+
+    it('已在 ACTION_PENDING 且集合有变、缓存里还留着旧的"已交齐"值:不动状态,清缓存,记 REISSUED 审计', async () => {
+      const { workflow, withdrawService, applicantActions, auditLogsService } = buildFullWorkflow();
+      const w = baseWithdrawRow({
+        status: WithdrawTransactionStatus.ACTION_PENDING,
+        actionSubmittedAt: new Date('2026-08-01'),
+      });
+      applicantActions.syncApplicantActions.mockResolvedValue({ added: [2], retired: [] });
+      applicantActions.hasOutstanding.mockResolvedValue(true);
+
+      await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(applicantActions.clearWithdrawCache).toHaveBeenCalledWith(w.id, expect.any(Date));
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_ACTION_REISSUED,
+          entityId: w.id,
+          metadata: expect.objectContaining({ addedSeqs: [2], retiredSeqs: [] }),
+        }),
+      );
+    });
+
+    it('零未提交行(跨状态,COMPLIANCE_PENDING 收到空 applicantActions):状态不变,记 EMPTY_ACTIONS 审计,不进 ACTION_PENDING', async () => {
+      const { workflow, withdrawService, applicantActions, auditLogsService } = buildFullWorkflow();
+      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING });
+      applicantActions.syncApplicantActions.mockResolvedValue({ added: [], retired: [] });
+      applicantActions.hasOutstanding.mockResolvedValue(false);
+
+      await (workflow as any).applyKytAwaitUser(w, undefined, undefined);
+
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
+          entityId: w.id,
+        }),
+      );
+    });
+
+    it('已在 ACTION_PENDING,报文把全部未提交行撤空:不清缓存不推进,只记 EMPTY_ACTIONS 审计', async () => {
+      const { workflow, withdrawService, applicantActions, auditLogsService } = buildFullWorkflow();
+      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.ACTION_PENDING });
+      applicantActions.syncApplicantActions.mockResolvedValue({ added: [], retired: [1, 2] });
+      applicantActions.hasOutstanding.mockResolvedValue(false);
+
+      await (workflow as any).applyKytAwaitUser(w, undefined, []);
+
+      expect(applicantActions.clearWithdrawCache).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_AWAITUSER_EMPTY_ACTIONS,
+          entityId: w.id,
+          metadata: expect.objectContaining({ addedSeqs: [], retiredSeqs: [1, 2] }),
+        }),
+      );
+    });
+
+    it('MANUAL_CHECKING → ACTION_PENDING 跨状态弧:清缓存(actionSubmittedAt/slaBreached 随原子写归零)', async () => {
+      const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
+      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.MANUAL_CHECKING });
+      applicantActions.syncApplicantActions.mockResolvedValue({ added: [1], retired: [] });
+      applicantActions.hasOutstanding.mockResolvedValue(true);
+
+      await (workflow as any).applyKytAwaitUser(w, 'PEP', ACTIONS);
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+      const [, dto, ctx] = withdrawService.updateStatus.mock.calls[0];
+      expect(dto.action).toBe(WithdrawTransactionAction.ACTION_PENDING);
+      expect((ctx as any).extraData).toEqual(
+        expect.objectContaining({
+          manualReason: 'EDD_PEP',
+          actionSubmittedAt: null,
+          slaBreached: false,
+        }),
+      );
+    });
+
+    it('FROZEN:子表仍同步,但不推进状态(no ACTION_PENDING edge)', async () => {
+      const { workflow, withdrawService, applicantActions } = buildFullWorkflow();
+      const w = baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN });
+      applicantActions.hasOutstanding.mockResolvedValue(true);
+
+      await (workflow as any).applyKytAwaitUser(w, undefined, ACTIONS);
+
+      expect(applicantActions.syncApplicantActions).toHaveBeenCalledWith(w.id, ACTIONS);
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+  });
+
   // Review Fix 2 (Important): PAYOUT_PENDING post-broadcast verdicts must not dead-letter.
   describe('applyKytVerdict — PAYOUT_PENDING post-broadcast verdicts (Fix 2)', () => {
     it('approved verdict on PAYOUT_PENDING → evidence written, audited, no branch dispatch (no throw retrying APPROVE)', async () => {
@@ -1209,6 +1358,7 @@ function buildFeeWorkflow(overrides: {
     {} as any, // limitGateService
     {} as any, // limitRulesService
     {} as any, // sumsubTxnClient
+    {} as any, // applicantActions
   );
 
   return {
@@ -1552,6 +1702,7 @@ function buildBounceWorkflow(overrides: {
     {} as any, // limitGateService
     {} as any, // limitRulesService
     sumsubTxnClient as any,
+    {} as any, // applicantActions
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -1911,6 +2062,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       {} as any, // limitGateService
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2144,6 +2296,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       {} as any, // limitGateService
       {} as any, // limitRulesService
       sumsubTxnClient as any,
+      {} as any, // applicantActions
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -2383,6 +2536,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         {} as any, // limitGateService
         {} as any, // limitRulesService
         {} as any, // sumsubTxnClient
+        {} as any, // applicantActions
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)

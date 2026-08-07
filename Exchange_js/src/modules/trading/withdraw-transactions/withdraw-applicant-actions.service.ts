@@ -123,8 +123,8 @@ export class WithdrawApplicantActionsService {
    * 因此进入/停留在 ACTION_PENDING（否则详情页因 `actions.some(a =>
    * !a.submittedAt)` 为 false 不渲染任何入口，客户永久卡死，SLA 定时器还会
    * 把锅扣在客户头上）。判据必须读同步后的持久状态，不能用本次 diff（added/
-   * retired）代替——原因见 deposit-workflow.service.ts 里 applyKytAwaitUser 的
-   * 同名 I2 注释。
+   * retired）代替——原因见 withdraw-workflow.service.ts 里 applyKytAwaitUser 的
+   * 同名 I2 注释（guard 现已落地在 withdraw-workflow，不再是 deposit 独有）。
    */
   async hasOutstanding(withdrawId: string): Promise<boolean> {
     const count = await this.prisma.withdrawApplicantAction.count({
