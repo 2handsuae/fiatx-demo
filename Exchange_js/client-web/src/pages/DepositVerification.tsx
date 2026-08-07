@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { customerFetch } from '../utils/customerFetch';
 import { useSimulationMode } from '../utils/simulationMode';
@@ -7,6 +7,12 @@ import { useSimulationMode } from '../utils/simulationMode';
 const DepositVerification = () => {
   const { depositNo, seq } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  /** 返回「从哪来回哪去」；直接输 URL / 刷新进来时(location.key==='default')
+   *  栈里没有站内上一页，退回本单详情兜底。 */
+  const goBack = () =>
+    location.key === 'default' ? navigate(`/deposit/${depositNo}`) : navigate(-1);
   // useSimulationMode 返回 { enabled }，不是布尔值本身——直接当布尔用会永远真值。
   const { enabled: simulation } = useSimulationMode();
   const [token, setToken] = useState<string | null>(null);
@@ -93,7 +99,13 @@ const DepositVerification = () => {
       // 失效、并发边界等）时，客户端会静默把用户导回详情页，让他误以为提交成功了。
       // 失败必须留在原地，交给下面的错误提示 + 现成的提交按钮承担"重试"。
       if (!r.ok) throw new Error('submit failed');
-      navigate(`/deposit/${depositNo}`);
+      // 提交成功后走 goBack 而不是 navigate(详情页)：
+      //  · push  → 认证页留在历史里，用户在详情页按返回会被弹回一个已经交完的认证页
+      //  · replace → 用详情页 URL 顶掉认证页那条，历史里就出现**两条相邻且相同**的
+      //    详情页条目，再按返回等于原地不动（看着像按钮坏了）
+      // goBack 是 navigate(-1)（把认证页这条弹掉，自然回到进来时那张详情页），
+      // 深链直接进认证页时无站内上一页，退回本单详情兜底。
+      goBack();
     } catch {
       setSubmitError(true);
     } finally {
@@ -102,8 +114,8 @@ const DepositVerification = () => {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
-      <button onClick={() => navigate(`/deposit/${depositNo}`)} className="flex items-center gap-2 text-sm text-fx-dust hover:text-fx-brass mb-6">
+    <div className="max-w-3xl mx-auto">
+      <button onClick={goBack} className="flex items-center gap-2 text-sm text-fx-dust hover:text-fx-brass mb-6">
         <ArrowLeft size={16} /> Deposit {depositNo}
       </button>
 

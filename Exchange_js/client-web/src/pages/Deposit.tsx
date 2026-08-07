@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Copy, RefreshCw, Check, Wallet, Building2, Info, AlertTriangle, History, X, Filter, ShieldCheck, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../context/AuthContext';
@@ -157,7 +157,17 @@ const Deposit = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { enabled: simulationModeEnabled } = useSimulationMode();
-  const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
+  // tab 放进 URL 而不是组件 state：详情页返回时是 navigate(-1) 回到本路由，
+  // 若 tab 只存在组件里，重新挂载就会掉回默认的 crypto——用户明明是从 History
+  // 点进去的，回来却站在 Crypto，那不叫"从哪来回哪去"。放进查询参数后，
+  // 历史条目自带 tab，返回即还原；顺带 tab 也变成可分享/可收藏的链接。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: 'crypto' | 'fiat' | 'history' =
+    tabParam === 'fiat' || tabParam === 'history' ? tabParam : 'crypto';
+  const setActiveTab = (tab: 'crypto' | 'fiat' | 'history') =>
+    // replace：切 tab 不该往历史里堆条目，否则从详情返回要连按好几次才退得出去
+    setSearchParams(tab === 'crypto' ? {} : { tab }, { replace: true });
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
   const [depositWallet, setDepositWallet] = useState<WalletItem | null>(null);
