@@ -13,6 +13,7 @@ import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approv
 import { WithdrawUnfreezeApprovalService } from './withdraw-unfreeze-approval.service';
 import { WithdrawSanctionRefundApprovalService } from './withdraw-sanction-refund-approval.service';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
+import { WithdrawVerificationSessionService } from './withdraw-verification-session.service';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
@@ -43,6 +44,7 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     WithdrawUnfreezeApprovalService,
     WithdrawSanctionRefundApprovalService,
     WithdrawApplicantActionsService,
+    WithdrawVerificationSessionService,
   ],
   exports: [
     WithdrawTransactionsService,
