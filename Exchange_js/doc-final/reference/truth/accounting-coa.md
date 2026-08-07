@@ -1,6 +1,6 @@
 # 记账与 COA — 当前实现真相（跨版本共享域）
 
-Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 truth，查出一处漂移并修：§1 标题与清单写"8 码 COA"，实为 9 码——FIRM_SEIZED(204) 由 2026-07-28 计划2·A4 上缴落地新增，文档漏收。前序核对方式：符号级 grep + V3-V8 体检交叉佐证；2026-07-12 账本细化落地补 §2 `balanceAfter` + 新 §3.5 账本 admin 呈现层）
+Last Verified: 2026-08-07（核对方式：业主要求逐条拿代码核对充值相关 truth 四份，本文查出两处遗留漂移并修：①§1 已在上一轮订正为"9 码"，但 §0 一句话定位与 §6 锚点汇总两处仍留着"8 码 COA"字样，未同步改过来——已订正为 9 码；②§3"两阶段（提现/swap/充值没收 用）"的适用范围表述漏列了充值退回（A3）/上缴（A4）两条弧——`onReturnApproved()`/`pendReturnSuspense()`（`deposit-workflow.service.ts` L1981/L2017）与 `onSeizeApproved()`/`pendSeizeSuspense()`（L2320/L2378）均调用同一套 `executePendingTransfer()`/`postPendingTransfer()`/`voidPendingTransfer()`，与没收共享两阶段机制，已补齐。前序核对方式：2026-08-03 业主要求逐份核充值相关 truth，查出一处漂移并修：§1 标题与清单写"8 码 COA"，实为 9 码——FIRM_SEIZED(204) 由 2026-07-28 计划2·A4 上缴落地新增，文档漏收。更早核对方式：符号级 grep + V3-V8 体检交叉佐证；2026-07-12 账本细化落地补 §2 `balanceAfter` + 新 §3.5 账本 admin 呈现层）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。**跨版本共享域**：被 V3(账户开设)/V4(充值)/V5(提现)/V6(兑换)/V8(对账) 全部引用——记账口径的唯一真相，各版本文档链到此、不各写一遍。
 
@@ -8,7 +8,7 @@ Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 tru
 
 ## 0. 一句话定位
 
-**TigerBeetle 是余额唯一真相；Prisma 只留人类可读凭证与投影。** 实时 1:1 镜像账本：客户资产与负债内部恒等，每笔交易就地记账（无延迟结算/EOD 轧差）。本文管：8 码 COA、TB 记账机制（转账/两阶段/凭证）、AccountFlow 投影、记账不变量。**不**管：各交易流怎么调用记账（去 v4/v5/v6）。
+**TigerBeetle 是余额唯一真相；Prisma 只留人类可读凭证与投影。** 实时 1:1 镜像账本：客户资产与负债内部恒等，每笔交易就地记账（无延迟结算/EOD 轧差）。本文管：9 码 COA、TB 记账机制（转账/两阶段/凭证）、AccountFlow 投影、记账不变量。**不**管：各交易流怎么调用记账（去 v4/v5/v6）。
 
 ## 1. 9 码 COA（`tb-account-codes.constant.ts`）
 
@@ -39,7 +39,7 @@ Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 tru
 
 - **建账**：`createAccounts()`（批量 provision TB 账户 + registry）
 - **实时转账**：`executeTransfer()`（单笔即时借贷，写 evidence）
-- **两阶段（提现/swap/充值没收 用）**：`executePendingTransfer()`（锁定，create pending）→ `postPendingTransfer()`（结算）/ `voidPendingTransfer()` / `voidPendingTransferBestEffort()`（失败解锁，best-effort 补偿）。**post/void 幂等**：`postPendingTransfer`/`voidPendingTransfer` 对 TB 的 `pending_transfer_already_posted`/`pending_transfer_already_voided` 放行为干净 no-op（不重写凭证、不盖假 postId/voidId），故重放安全——充值没收结算的 3 重试可自愈"leg1 已 post、leg2 瞬断"的半截 split（见 [v4-deposit.md](v4-deposit.md) §6）
+- **两阶段（提现/swap/充值没收·退回·上缴 用）**：`executePendingTransfer()`（锁定，create pending）→ `postPendingTransfer()`（结算）/ `voidPendingTransfer()` / `voidPendingTransferBestEffort()`（失败解锁，best-effort 补偿）。充值侧没收（`startConfiscation`/`settleConfiscation`）、退回（`onReturnApproved`/`settleReturn`）、上缴（`onSeizeApproved`/`settleSeize`）三条处置弧均走同一套两阶段机制（`deposit-workflow.service.ts`，2026-08-07 复核补齐后两条，此前本条只列了没收）。**post/void 幂等**：`postPendingTransfer`/`voidPendingTransfer` 对 TB 的 `pending_transfer_already_posted`/`pending_transfer_already_voided` 放行为干净 no-op（不重写凭证、不盖假 postId/voidId），故重放安全——充值没收结算的 3 重试可自愈"leg1 已 post、leg2 瞬断"的半截 split（见 [v4-deposit.md](v4-deposit.md) §6）
 - **凭证漏斗**：`tb-evidence.service.ts → writeEvidence()` 是**唯一写入漏斗**——打 `effectiveDate`（不传=`toBusinessDate(now)` 写当天）+ 触发 `flowProjector.persist()` 投影 AccountFlow。**平账回填经此透传**（advance→writeEvidence→account_flows）。
 - **余额读**：`lookupBalance()` / `getCustomerAvailableBalance()`（客户可用余额，扣 pending）
 - **记账铁律**：workflow 同步调 accounting，记账失败则业务状态不许推进（绝不事件异步记账，保 ACID）。
@@ -78,5 +78,5 @@ Last Verified: 2026-08-03（核对方式：业主要求逐份核充值相关 tru
 
 ## 6. 锚点汇总
 
-`accounting/tigerbeetle/`：`accounting.service.ts`（记账主）｜ `tb-evidence.service.ts`（凭证漏斗）｜ `tb-account-registry.service.ts` ｜ `tb-manual-account.service.ts` ｜ `tb-admin.controller.ts` ｜ `constants/tb-account-codes.constant.ts`（8 码）+ `tb-transfer-codes.constant.ts` ｜ `tigerbeetle.service.ts`（TB client）
+`accounting/tigerbeetle/`：`accounting.service.ts`（记账主）｜ `tb-evidence.service.ts`（凭证漏斗）｜ `tb-account-registry.service.ts` ｜ `tb-manual-account.service.ts` ｜ `tb-admin.controller.ts` ｜ `constants/tb-account-codes.constant.ts`（9 码）+ `tb-transfer-codes.constant.ts` ｜ `tigerbeetle.service.ts`（TB client）
 `accounting/tigerbeetle/projector/account-flow-projector.service.ts`（AccountFlow 投影）｜ `scripts/verify-realtime-coa.ts`（四式验证）
