@@ -1,6 +1,8 @@
 # Product Roadmap
 
-Last Updated: 2026-08-07（本轮只动 V4/V5 两段——V5 提现全流转升级（12 任务，2026-08-04 合 main）+ 提现补料 Embed（6 任务，2026-08-07 合 main）+ V4 补料 Embed（2026-08-06 合 main）落地后逐条回代码核状态：V5 MVP 新增两条 `[x]`；P0 制裁冻结 `[ ]→[x]`、P0 TR 发送/KYT-MLRO `[ ]→[~]`；P1 stuck 追踪/法币退回/tipping-off `[ ]→[~]`；V4 P1 补材料闭环 `[ ]→[x]`。**未做的照旧标未做**，且对每条 `[~]` 明写"还差什么"；goAML/STR、对手方 VASP 尽调门、通知本体三处经 grep 实证仍零代码。V1/V2/V3/V6-V9 本轮未复核，状态可能滞后）
+Last Updated: 2026-08-10（上一轮 08-07 只动 V4/V5 两段——V5 提现全流转升级（12 任务，2026-08-04 合 main）+ 提现补料 Embed（6 任务，2026-08-07 合 main）+ V4 补料 Embed（2026-08-06 合 main）落地后逐条回代码核状态：V5 MVP 新增两条 `[x]`；P0 制裁冻结 `[ ]→[x]`、P0 TR 发送/KYT-MLRO `[ ]→[~]`；P1 stuck 追踪/法币退回/tipping-off `[ ]→[~]`；V4 P1 补材料闭环 `[ ]→[x]`。**未做的照旧标未做**，且对每条 `[~]` 明写"还差什么"；goAML/STR、对手方 VASP 尽调门、通知本体三处经 grep 实证仍零代码。V1/V2/V3/V6-V9 本轮未复核，状态可能滞后）
+
+**2026-08-10 补完**：接上一轮「V1/V2/V3/V6-V9 未复核」的自陈，本轮把**全九版**对照 07-17 以来 main 上 230 个 commit 补齐——新增下方进度总览表；**V4 五条回代码翻勾**（P0 已记账异常终态收口 / P0 制裁冻结闭环转 `[~]` / P0 KYT FAILED 转 `[~]` / P1 TR 阈值闸转 `[~]` / P2 EXPIRED 条目作废）+ 支撑项补三项；**V3 一条**（地址 hosted/unhosted 分类转 `[~]`）；**V6–V9 经模块级 commit 计数实证零改动**，状态与 07-17 相同。
 
 **三层分类**（按需求来源）：
 - **MVP** — 领导定义的基础必须（非常基础，未必行业惯例，但领导要）
@@ -10,6 +12,24 @@ Last Updated: 2026-08-07（本轮只动 V4/V5 两段——V5 提现全流转升�
 **每条标注**：`来源:`（领导/VARA 条款/行业）｜ `配对:`（正逆操作互链，防逆向遗忘）｜ 状态 `[x]`交付 `[~]`部分 `[ ]`待做 + 日期。
 **实现细节与当前真相** → `reference/truth/`（改代码同步那里，不改这里）｜ **技术债/死码/待决策** → `../BACKLOG.md`。
 > ⚠️ 三层分类 + truth 外置已应用于 **V1–V6**；深度调研级 P0/P1/P2 + `⚖️P0` 重排 + `superpowers/specs/` 调研留底已覆盖 **V1–V9 全部九版**（2026-07-06 收官；各版 spec 见 `superpowers/specs/2026-07-0*-v*-research.md`）。
+
+### 📊 版本进度总览（2026-08-10 全九版体检）
+
+> 依据：07-17 以来 main 上 230 个 commit 的**模块级归属计数** + 已验证的 `truth/`（**不取 commit message**——本项目出现过多次 commit 写「落地」而 truth 记「仍是桩」）。
+
+| 版本 | MVP | ADVANCED · P0 现状 | 本窗口（07-17 → 08-10） |
+|---|---|---|---|
+| V1 审计底座 | 10/10 ✅ | 8 条 ⚖️P0 **全未做** | — |
+| V2 客户合规 | 1 ✅ + 5 `[~]` | 3 条 ⚖️P0 **全未做** | — |
+| V3 财务配置 | 7 ✅ + 1 `[~]` | 全未做 | 地址 hosted/unhosted 分类 `[ ]→[~]` |
+| **V4 充值** | 3/3 ✅ | 3 条 P0：**1 收口** + 2 转 `[~]` | **204 commit**：Sumsub KYT 真集成 · 四条异常动钱弧 · 状态机收窄 14 态 · 补料闭环 |
+| **V5 提现** | 4/4 ✅ + 2 新增 | 5 条 P0：**1 收口** + 2 转 `[~]`；TR 发送 / 对手方尽调仍空白 | **74 commit**：全流转重写（10 态 20 边）· FROZEN 双审批弧 · bounce 退汇 · 补料闭环 |
+| V6 兑换 | 3/3 ✅ | 3 根 P0 支柱**全未做** | **0 commit** |
+| V7 财资 | 无 MVP（已被实时 1:1 吸收） | 全未做 | **0 commit** |
+| V8 对账 | 7/7 ✅ | 全 deferred | **0 commit** |
+| V9 合规治理 | **14 条 P0 全未做** | 全未做 | **0 commit** |
+
+> **两句话结论**：① 这三周把**充值与提现两条主干做深了**——合规裁决 → 异常处置 → 客户补料全线打通，两域现已同构；② 但 **V9 那 14 条牌照级 P0 一条没动**，且它们**不依赖前面任何版本**（不是「等 V1-V8 做完才能做」），是当前最大且最独立的合规敞口。次大是 V1 的 8 条 ⚖️P0（审计留存 8 年 / 权限复审 / 密钥治理 / WORM），同样上线前必须。
 
 ---
 
@@ -167,7 +187,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️ 阈值参数配置治理 — 归集/dust/大额线/TR 阈值走 Maker-Checker，出硬编码 ｜VARA Company(职责分离，硬编码绕过四眼) ｜自 V7 移入
 - [ ] ⚖️P1 稳定币兑换对 CBUAE 牌照门 — AED↔支付型代币(USDT/USDC)兑换对**开通前**登记 CBUAE 授权/非异议注册状态,无则禁开该对——央行 2024 条例明文"含 VARA 持牌人",VARA 牌照不覆盖法币↔支付代币换汇 ｜CBUAE Payment Token Services Regulation(Circular 2/2024,条款原文待核) ｜来源:2026-07-06 V6 复查分拣归 V3
 - [ ] ⚖️P1 VA Standards 存续复审+币对急停 — 上线尽调只是"prior to"半句,"**at all times during**"要求在售币对存续符合:跌出标准(列禁/失监管认可)→暂停该币对报价成交+留痕;VA Standards 文本挂官网随修订更新;V6 报价引擎消费暂停标记 ｜Market Conduct VIII.A.2/A.3/A.4(n) ｜来源:2026-07-06 V6 复查分拣归 V3
-- [ ] ⚖️P1 提现地址所有权验证 + hosted/unhosted 分类打标记 — 登记时验证客户控制自托管钱包(验一次永久) + 分类 hosted/unhosted + 对手方 VASP 初次尽调 → 打标记供 V5 每笔消费；TravelRuleAdapter 归因已有地基 ｜CRM III.G.7 + FATF(2026-07-04 V5 调研确认，原"待核"已坐实) ｜**地址级一次性控制归 V3**；交易级(制裁重筛/TR 发送/差异化 EDD)在 V5
+- [~] ⚖️P1 提现地址所有权验证 + hosted/unhosted 分类打标记 — 登记时验证客户控制自托管钱包(验一次永久) + 分类 hosted/unhosted + 对手方 VASP 初次尽调 → 打标记供 V5 每笔消费；TravelRuleAdapter 归因已有地基 ｜CRM III.G.7 + FATF(2026-07-04 V5 调研确认，原"待核"已坐实) ｜**地址级一次性控制归 V3**；交易级(制裁重筛/TR 发送/差异化 EDD)在 V5 ｜**分类打标记这半边已被消费（2026-08-04）**：提现建单时 `withdraw-workflow.service.ts` 由 `registeredAddress.addressType === 'VASP'` 推导 `counterpartyIsVasp` 落库，并被 V4/V5 的 TR 类型判定器实际读取——标记链路已通。**仍差两件**：① **所有权验证零实现**（登记时不验证客户是否真控制该自托管钱包）；② 分类值是**客户自报**，无外部 VASP 名录/归属服务校验（truth/v5-withdraw §9「真实 VASP 归因服务未接」）——自报 false 即可让整笔交易绕开 TR 判定
 - [ ] 提现地址停用归档 — 确认无在途提现→停用（8 年保留，不物理删）｜来源:领导 ｜配对:地址登记(MVP)
 - [ ] ⚖️P1 第三方银行客户资金确认函 — 存客户法币前须取银行书面确认(资金以 agent 身份持有/银行无抵销·扣押权/账户名可区分自有资金)；不出函则不许再存并撤出已存(IV.C.4 有牙齿) ｜CRM IV.C.3/C.4(一手核) ｜来源:2026-07-06 V8 审计分拣归 V3(账户配置门；V8 只消费"该账户已挂确认函证据")
 
@@ -214,12 +234,12 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### ADVANCED（VARA gap + 异常分支；括号内 P0/P1/P2 = 实施优先级）
 
 **P0（硬条款欠账 + 已上线按钮钱路未通）：**
-- [ ] ⚖️ 制裁冻结完整闭环 — KYT/制裁命中→FROZEN→MLRO 审批门→放行/没收(CONFISCATE 治理化) ｜VARA CRM III.H(命中即冻结、记录 8 年) ｜(P0)
-- [~] ⚖️ 已记账异常终态 TB 回退 — REJECTED/FAILED/EXPIRED 若已过 Step1 须反向 SUSPENSE→CLIENT_ASSET ｜VARA BD(禁止不当处置客户资产) ｜(P0，临时守卫见 BACKLOG task_16af8187) ｜**部分兑现 2026-07-17**：BELOW_MIN 没收路径补上了这条反向分录(`DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET`，见 truth/v4-deposit.md §6 Leg1)——是这个 P0 条款的第一块砖，但只覆盖"没收"一种异常终态；REJECTED/FAILED/EXPIRED 仍零回退分录，P0 未整体收口
-- [ ] KYT FAILED 消化路径 — 失败不能永挂 COMPLIANCE_PENDING ｜来源:业务 ｜(P0)
+- [~] ⚖️ 制裁冻结完整闭环 — KYT/制裁命中→FROZEN→MLRO 审批门→放行/没收(CONFISCATE 治理化) ｜VARA CRM III.H(命中即冻结、记录 8 年) ｜(P0) ｜**2026-07-28 大幅兑现**：四段链条全建成、执行侧全是真结算——命中（`rejected` 带 SANCTION tag／officer 打 `FROZEN_BY_MLRO`）→ `FROZEN` → 三道 maker-checker 正门（`:id/seize` SMO→MLRO 双步／`:id/unfreeze` MLRO 单步／`:id/confiscate` OPS 两步）→ 放行（A5 解冻回炉，零记账 + 触发 Sumsub rescore）或没收（A4 上缴单腿真结算／没收异步两阶段两腿）；`CONFISCATED`/`CONFISCATING` 已进 `ACCOUNTING_TERMINALS`，挡住 PATCH 裸拍终态。**仍差**：`freeze`/`return`/`seize` 三个 PATCH 动作未进 controller allowlist，admin 仍可裸 PATCH 绕过这三道门直改状态（`return`/`seize` 绕过还会造出无资金单、永远结不了的幽灵在途态）——**门可绕就不算闭环**，故记 `[~]` 不记 `[x]` ｜truth/v4-deposit §7 + BACKLOG
+- [x] ⚖️ 已记账异常终态 TB 回退 — REJECTED/FAILED/EXPIRED 若已过 Step1 须反向 SUSPENSE→CLIENT_ASSET ｜VARA BD(禁止不当处置客户资产) ✅**2026-07-31 收口** ｜收口方式不是「给这三个态补回退分录」，而是**把答不出资金去向的终态删掉**：状态机收窄时立下不变量「**每个终态都必须回答钱去哪了**」，`REJECTED`/`EXPIRED`（钱已到账却「拒绝」/「过期」、资金悬空）双双删除；`FAILED` 的唯一入口收窄为 `PAYIN_PENDING`——该阶段 Step1 尚未记账，是「从未入账」而非「已入账无法回退」。剩下三条已入账后的出口全部带真反向分录：没收两腿(§6 Leg1)／退回单腿 `DEPOSIT_SUSPENSE→CLIENT_ASSET`(A3)／上缴单腿(A4)。原临时守卫卡片 task_16af8187 可关 ｜锚点 `deposit-transactions.service.ts → getNextStatus()` 注释 + truth/v4-deposit §2/§6/§7
+- [~] KYT FAILED 消化路径 — 失败不能永挂 COMPLIANCE_PENDING ｜来源:业务 ｜(P0) ｜**新管道已消化、老管道仍是死胡同**：Sumsub 裁决管道下 `rejected` 有明确去处（带 SANCTION tag → `FROZEN`；无 tag → `MANUAL_CHECKING` 人工复核，翻案/冻结/退回三条出边齐全），不再永挂。但 §4.2 **老 mock 路径未碰**——`checkAutoApproval()` 仍只在 `financeStatus==='PASSED'` 才继续，`FAILED` 既不转 FROZEN 也不转终态，仍永挂 `COMPLIANCE_PENDING`；该路径退役或补出口前，这条 P0 不能记 `[x]` ｜truth/v4-deposit §7 末行
 
 **P1（有具体数字/字段的条款欠账）：**
-- [ ] ⚖️ TR 阈值 3,500 闸门 + 数据缺失分支 — 单笔/分方向/严格大于；缺对手方数据→等待时限→处置 ｜VARA CRM III.G ｜(P1，并入金额闸门矩阵)
+- [~] ⚖️ TR 阈值 3,500 闸门 + 数据缺失分支 — 单笔/分方向；缺对手方数据→等待时限→处置 ｜VARA CRM III.G ｜(P1，并入金额闸门矩阵) ｜**阈值闸已落 2026-07-31**：`kyt-txn-type.resolver.ts → resolveKytTxnType()` 三条件判定（`assetType==CRYPTO` ∧ `counterpartyIsVasp===true` ∧ `amount >= 阈值`）决定这笔报 Sumsub 的 `finance` 还是 `travelRule` 类型；阈值按币种写死代码（**AED 3500 / USDT 1000**，业主定：监管数值不做管理台可配，改动须走发版 + review），漏配币种回落 `finance` 但打 warn（静默漏报比报错危险）。⚠️**边界口径已变更**：本条原写「严格大于」，代码实取 **`>=`**（正好 3500 AED 要走 TR，业主 2026-07-31 定）——两处不一致**以代码为准**，条款原文待复核。**仍差**：① 数据缺失分支（缺对手方数据→等待时限→处置）零实现；② `counterpartyIsVasp` 是**客户自报**（充值靠弹窗自选、提现靠地址 `addressType` 推导），无外部 VASP 名录校验——自报 false 即可绕开整个 TR 判定
 - [ ] ⚖️ 拆单聚合监控 — 关联交易识别，防规避阈值 ｜VARA CRM III.G.9 + FATF 红旗指标 ｜(P1)
 - [ ] ⚖️ 法币名义不符核验 — senderName 字段+比对，first-party 付款人核验 ｜VARA CRM III.E(SoF/首笔经持牌账户) ｜(P1)
 - [ ] 按链确认数配置 + 区块重组回退 — 确认数按链差异化（非全局常量）｜来源:行业(Coinbase/Kraken) ｜(P1)
@@ -228,7 +248,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 **P2（依赖真实银行集成或低频）：**
 - [ ] ⚖️ 稳定币发行方冻结应对 — USDT 黑名单事件 runbook + 资产暂停联动 ｜FATF 2025(非法活动多涉稳定币) ｜(P2)
 - [ ] 法币银行退汇/冲正 — bounce→FAILED；到账后 reversal→扣回/催收 ｜来源:业务 ｜(P2)
-- [ ] EXPIRED 超时回退 — 补材料超时→回退 ｜来源:业务 ｜(P2)
+- [x] ~~EXPIRED 超时回退 — 补材料超时→回退~~ → **2026-07-31 条目作废**：`EXPIRED` 状态已随状态机收窄删除（理由同上「已记账异常终态」——它答不出钱去哪了）。补材料超时现走 `SLA_BREACH → MANUAL_CHECKING` 转人工，不再有「过期」这个终态，本条无对象可做 ｜来源:业务 ｜(原 P2)
 - [ ] 孤儿充值处理 — 无主资金→suspense→人工归属/MLRO；VIBAN 归属校验建议先补 ｜VARA CRM III.A ｜(P2)
 - [ ] 充值渠道暂停/恢复 — 指定链/token/法币渠道 + 审批 ｜来源:业务 ｜(P2)
 
@@ -239,7 +259,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 Unhosted 来源充值差异化处置 — 来源判定 unhosted 时**不进"等对手方数据"分支**(没有对手方永远等不来)，改走独立政策:所有权自证/增强监控/限额/退回，接受与退回均留痕；⚠️现设计反把 unhosted 判 NOT_REQUIRED 自动放行(比 hosted 更松、管反了) ｜CRM III.G.7(a)(一手核)
 - [ ] ⚖️P1 收款侧对手方 VASP 尽调入账门 — 来自某 hosted 钱包(=某外部 VASP)的充值，该 VASP 首次交易前须完成 risk-based 尽调、未尽调不得直接入账(查一次即可，除非风险升高)；V5 只落了发送侧对手方尽调 ｜CRM III.G.6(一手核)
 - [ ] ⚖️P1 法币到账 1 日入 Client Account — 收到客户法币须 **1 个自然日内**存入 Client Account，**暂扣审查不豁免隔离**(境外 24h 汇回境内已在 V3 银行配置) ｜CRM IV.B.5.a(一手核)
-- [ ] ⚖️P1 拒收充值原路退回(return-to-source) — 可退回的拒收(KYT FAILED/合规拒绝/孤儿到期)**只可退回原来源**(链上退原 originator 地址、法币退原汇出账户)，禁退客户指定的第三方——否则平台成洗白通道 ｜CRM III.G.4(b)+G.9(一手核) ｜与 P0 制裁禁退不同分支 ｜⚠️2026-07-17 deposit-min 复核仍 deferred：below-min 的两个处置动作(PASS/没收)均不做退回，原路退回依赖真实出金能力(等于半个提现流程)，本轮未做
+- [~] ⚖️P1 拒收充值原路退回(return-to-source) — 可退回的拒收(KYT FAILED/合规拒绝/孤儿到期)**只可退回原来源**(链上退原 originator 地址、法币退原汇出账户)，禁退客户指定的第三方——否则平台成洗白通道 ｜CRM III.G.4(b)+G.9(一手核) ｜与 P0 制裁禁退不同分支 ｜⚠️2026-07-17 deposit-min 复核仍 deferred：below-min 的两个处置动作(PASS/没收)均不做退回，原路退回依赖真实出金能力(等于半个提现流程)，本轮未做 ｜**✅ 2026-07-28 计划2·A3 落地退回弧**：`initiateReturn()`（MLRO 单步审批）→ 批准后 pending 锁单腿 `DEPOSIT_SUSPENSE→CLIENT_ASSET` + 建 legSeq=3 资金单，**目的地取原发款方**（`fromAddress`/`fromIban`，正是 return-to-source 要求的「只可退原来源」）→ 该腿 `CONFIRMED` 即 post 落 `RETURNED`（3 重试，耗尽停 `RETURNING` + `DEPOSIT_RETURN_STUCK`）。**仍差**：入口只有 `MANUAL_CHECKING` 一个（由 KYT `RETURN_TO_SENDER` tag 自动触发），**below-min 的两个处置动作（PASS／没收）依旧不含退回**；孤儿到期退回亦未做
 - [ ] ⚖️P1 充值记录法定字段集 + 来源画像留存 — 每笔充值留存 I.F.1 最低字段(金额/时间/payment instruction[txHash+来源地址/银行汇款参考]/费用总额/客户+居住国/对手方 VASP·托管方)，含 originator 三要素 obtain-and-hold、≥8y、监管索取即出 ｜CRM I.F.1-2 + III.G.3/G.4(一手核) ｜与 V5/V6/V8 记录字段集同源
 
 **P2（低频/披露）：**
@@ -250,7 +270,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 - [ ] 充值成功通知 — 到账推送客户，复用 V1 Notification ｜来源:行业(UX)
 
-> **支撑项**（事件驱动编排 / KYT-TR 模拟端点 / Admin 充值页 / Client 三 Tab / Tipping-off 映射 / Overview 读 TB）均已交付；现状见 [truth/v4-deposit.md](truth/v4-deposit.md)。**技术债**（txHash 去重、repair surface、emit vs emitAsync、PATCH 绕过等）见 [BACKLOG.md](../BACKLOG.md)。**TransactionComplianceService 废弃** — 已确认全仓 0 命中（删干净）。
+> **支撑项**（事件驱动编排 / **Sumsub KYT 单笔交易引擎（真集成，2026-07-31 取代老 mock 管道：Gate 0 提交存 txnId + webhook 强类型路由 + `applyKytVerdict` 四裁决驱动 + SLA 定时器 + getTxn 报文存证）** / **`SUMSUB_MOCK_MODE` 开关 + 10 个原子裁决按钮的场景一键喂端点**（业主 2026-07-29 定的甲方案：sandbox 演不出制裁/PEP/慢 case，故 fixture 驱动）/ **四条异常动钱弧（没收异步两阶段 / 退回 A3 / 上缴 A4 / 解冻回炉 A5，均真结算 + maker-checker 正门）** / KYT-TR 模拟端点 / Admin 充值页 / Client 三 Tab / Tipping-off 映射 / Overview 读 TB）均已交付；现状见 [truth/v4-deposit.md](truth/v4-deposit.md)。**技术债**（txHash 去重、repair surface、emit vs emitAsync、PATCH 绕过等）见 [BACKLOG.md](../BACKLOG.md)。**TransactionComplianceService 废弃** — 已确认全仓 0 命中（删干净）。
 
 ---
 
