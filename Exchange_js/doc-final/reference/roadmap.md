@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Last Updated: 2026-07-17
+Last Updated: 2026-08-07（本轮只动 V4/V5 两段——V5 提现全流转升级（12 任务，2026-08-04 合 main）+ 提现补料 Embed（6 任务，2026-08-07 合 main）+ V4 补料 Embed（2026-08-06 合 main）落地后逐条回代码核状态：V5 MVP 新增两条 `[x]`；P0 制裁冻结 `[ ]→[x]`、P0 TR 发送/KYT-MLRO `[ ]→[~]`；P1 stuck 追踪/法币退回/tipping-off `[ ]→[~]`；V4 P1 补材料闭环 `[ ]→[x]`。**未做的照旧标未做**，且对每条 `[~]` 明写"还差什么"；goAML/STR、对手方 VASP 尽调门、通知本体三处经 grep 实证仍零代码。V1/V2/V3/V6-V9 本轮未复核，状态可能滞后）
 
 **三层分类**（按需求来源）：
 - **MVP** — 领导定义的基础必须（非常基础，未必行业惯例，但领导要）
@@ -223,7 +223,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️ 拆单聚合监控 — 关联交易识别，防规避阈值 ｜VARA CRM III.G.9 + FATF 红旗指标 ｜(P1)
 - [ ] ⚖️ 法币名义不符核验 — senderName 字段+比对，first-party 付款人核验 ｜VARA CRM III.E(SoF/首笔经持牌账户) ｜(P1)
 - [ ] 按链确认数配置 + 区块重组回退 — 确认数按链差异化（非全局常量）｜来源:行业(Coinbase/Kraken) ｜(P1)
-- [ ] ACTION_PENDING 补材料闭环 — 接 Sumsub 复审 webhook ｜来源:业务 ｜配对:L2 筛查 ｜(P1)
+- [x] ACTION_PENDING 补材料闭环 — 接 Sumsub 复审 webhook ｜来源:业务 ｜配对:L2 筛查 ｜(P1) ✅2026-08-06（deposit-action-embed）：`deposit_applicant_actions` 子表（多条 action 集合比对同步、`seq` 稳定进 URL、零未提交行 guard）+ verification-session 会话接口（铸 SDK token / 幂等 submit / 接口不可区分）+ client 详情独立页 + 认证独立页（demo MockUploader / 真接 snsWebSdk）；客户补料后 Sumsub 自动重评发 `applicantKytTxn*` 回流状态机 ｜现状见 truth/v4-deposit.md §4.6 ｜⚠️剩余：admin 侧子表逐条视图未做（两域一起后置，见 BACKLOG）
 
 **P2（依赖真实银行集成或低频）：**
 - [ ] ⚖️ 稳定币发行方冻结应对 — USDT 黑名单事件 runbook + 资产暂停联动 ｜FATF 2025(非法活动多涉稳定币) ｜(P2)
@@ -266,6 +266,8 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [x] 法币提现 Happy Path — 同链路；TR 自动 NOT_REQUIRED、无 L3、银行到账确认(走 funds_order CONFIRMED) ｜来源:领导+VARA CRM II.A ✅2026-05-31
 - [x] 大额审批门 — 毛额 ≥20 万 AED(fail-closed 估值)触发 SMO 单步 48h，门置于 L2 之前 ｜来源:领导+VARA ✅2026-06-01（**现役唯一金额闸门**）
 - [x] 提现费率等级 创建/变更/绑定 — 3 独立工作流；创建/变更走审批(现状 OPS_OFFICER 单步)、变更 request-record+configHash 冲突检测、绑定无门直接生效 ｜来源:领导+VARA CRM II.C ✅2026-05-30
+- [x] **提现状态机重写 + 真 Sumsub 单笔引擎（全流转升级，12 任务）** — 10 态/13 动作/20 边（删 CREATED/CANCELLED/UNDER_REVIEW/HELD，出生即着陆 COMPLIANCE_PENDING 或 PENDING_APPROVAL）；老 mock Pre-KYT/TR 管道整体退役，换 `withdraw-sumsub/` 真实 webhook 引擎（判定器单笔提交 direction=out + KYT-only 裁决驱动 + SLA cron + 双域级联分流）；提现地址登记硬校验（闭 task_20678a2c 安全缺口）；费腿顺序守卫+失败三级梯；bounce 退汇；L3 归档真调用 ｜来源:领导 ✅2026-08-04 ｜现状见 truth/v5-withdraw.md §2/§4/§5
+- [x] **提现补料 Embed + 客户端独立页** — `withdraw_applicant_actions` 子表（多条 action 集合同步、seq 稳定、零未提交行 guard）+ verification-session 接口（接口不可区分、白名单仅 seq/submittedAt）+ 详情独立页 `/withdraw/:withdrawNo`（替代弹窗）+ 认证独立页四态渲染（demo/真接分支）｜来源:领导（对齐充值 §4.6 终局）✅2026-08-07 ｜现状见 truth/v5-withdraw.md §4.6
 
 ### ADVANCED（VARA gap + 异常分支）
 
@@ -274,25 +276,25 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 **P0（VARA 牌照级，现有几乎空白）：**
 
-- [ ] ⚖️P0 Travel Rule 发起方**发送** — **单笔或关联交易累计 >AED 3,500**（按 VARA 口径，2026-07-06 甲方定；非"按自然日"，关联交易合并沿用 III.G.9 拆单监控）发起前向受益方 VASP 发送 originator(name+钱包地址+住址)+beneficiary(name+钱包地址) payload；⚠️现有 L2 只是筛查状态位、**无发送环节** ｜CRM III.G.2/4/5
-- [ ] ⚖️P0 对手方 VASP 尽调 — 新对手方 VASP 首次交易前风险尽调(核受监管+能收 TR)，pre-send gating；⚠️2026-02-24 VARA Circular **禁止向未受监管对手方转账** ｜CRM III.G.6
-- [ ] ⚖️P0 制裁命中→BLOCK/FROZEN — ⚠️纠偏:命中 BLOCK 须**冻结原地+拒绝各方访问+上报**，**非取消退回客户**(与 block 义务冲突)；后端需补 FROZEN 态 ｜CRM III.H + OFAC FAQ 646
+- [~] ⚖️P0 Travel Rule 发起方**发送** — **单笔或关联交易累计 >AED 3,500**（按 VARA 口径，2026-07-06 甲方定；非"按自然日"，关联交易合并沿用 III.G.9 拆单监控）发起前向受益方 VASP 发送 originator(name+钱包地址+住址)+beneficiary(name+钱包地址) payload ｜CRM III.G.2/4/5 ｜**部分兑现 2026-08-04**：判定器 `resolveKytTxnType()` 已按 crypto ∧ 收款方 VASP ∧ 金额≥阈值 判 `travelRule` 类型单笔报送 Sumsub（协议层报文收发由 Sumsub 承担，我方"提交+持有引用"），阈值写死 `USDT=1000/AED=3500`；⚠️**三处未收口**：① 边界用 `>=`（正好 3,500 走 TR），与本条"严格大于"措辞有出入，需业主统一口径；② 真实租户须先把 Sumsub 规则作用域挂 `types:["finance","travelRule"]` 才可翻开 `SUMSUB_SINGLE_TXN_SUBMIT`（否则最大额那批反而不进筛查规则，见 truth §4）；③ **关联交易累计**（拆单合并判定）未做，仍是单笔口径
+- [ ] ⚖️P0 对手方 VASP 尽调 — 新对手方 VASP 首次交易前风险尽调(核受监管+能收 TR)，pre-send gating；⚠️2026-02-24 VARA Circular **禁止向未受监管对手方转账** ｜CRM III.G.6 ｜⚠️2026-08-04 起 `counterpartyIsVasp` 已能从提现地址 `addressType` 派生（地址登记时经 `TravelRuleAdapter` 归因），但**归因源仍是 mock、且无尽调门**：判出是 VASP 只影响报 TR 类型，不拦截未受监管对手方——本条实质未做
+- [x] ⚖️P0 制裁命中→BLOCK/FROZEN — ⚠️纠偏:命中 BLOCK 须**冻结原地+拒绝各方访问+上报**，**非取消退回客户**(与 block 义务冲突) ｜CRM III.H + OFAC FAQ 646 ✅2026-08-04：`FROZEN` 半终态已建（`rejected`+SANCTION/FROZEN_BY_MLRO tag 免审批即冻，钱原地锁在 TB pending 不反转不释放）；**出口仅双 maker-checker 审批弧**（`WITHDRAW_UNFREEZE` 解冻回炉+rescore / `WITHDRAW_SANCTION_REFUND` 坐实退回+releaseLock，均 MLRO 单步 48h），officer tag 无法单方面解冻（`WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 守卫）；迟到 approved 裁决跳过写回保护制裁证据 ｜现状见 truth/v5-withdraw.md §6 ｜⚠️剩余：**上报（goAML/STR）仍未接**（见下条 + V9）；客户账户层面升级冻结仅审计留痕（V2 freeze API 未建）
 - [ ] ⚖️P0 失败/未授权提现处置+退回 — 未授权/偏离指示→尽快退款或恢复账户；⚠️2026-07-06 牌照订正:平台仅 BD(无 T&S),II.C.2 硬 24h 约束的是执行转账的 HexTrust——平台侧=合同传导 24h SLA+监督跟踪 ｜CRM I.E.4(客户资产保护) + BD I.A.1.c ｜HexTrust 合同(原锚 T&S II.C.2 撤)
-- [ ] ⚖️P0 KYT 高风险/可疑→MLRO→STR — 挂起→MLRO 门→goAML **立即上报**(联动 V9 STR) ｜CRM III.F.3.a
+- [~] ⚖️P0 KYT 高风险/可疑→MLRO→STR — 挂起→MLRO 门→goAML **立即上报**(联动 V9 STR) ｜CRM III.F.3.a ｜**部分兑现 2026-08-04**：挂起与人工门已全建——`rejected` 无 tag → `MANUAL_CHECKING`（officer 在 Sumsub 侧调查处置）、`onHold` 原地留+SLA 到期转人工、制裁类 → `FROZEN` + MLRO 双审批弧；⚠️**goAML/STR 上报整段未做**（全仓零 goAML/STR 集成代码，实测 grep 零命中），MLRO 裁定后只有内部审计留痕，无监管报送通道——收口依赖 V9
 
 **P1（VARA 强制但相对次级）：**
 
-- [ ] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须追踪+查因+通知客户；⚠️2026-07-06 牌照订正:II.C.3 直接义务方是 HexTrust,平台侧=合同要求追踪+对客通知与留痕 ｜CRM I.E.1 + HexTrust 合同(原锚 T&S II.C.3 撤)
+- [~] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须追踪+查因+通知客户；⚠️2026-07-06 牌照订正:II.C.3 直接义务方是 HexTrust,平台侧=合同要求追踪+对客通知与留痕 ｜CRM I.E.1 + HexTrust 合同(原锚 T&S II.C.3 撤) ｜**部分兑现 2026-08-03**：卡单可见性已建——本金腿 FAILED→整单 `FAILED`+双锁 void 归还；费腿失败三级梯（重建 ≤3 次→耗尽打 `needsReview` 旗 + `WITHDRAW_FEE_SETTLE_STUCK` 审计，单留 `PAYOUT_PENDING` 等人工，SUCCESS 结算自动清旗）；⚠️**缺**：无专用 repair admin 端点（现靠资金单 ⚡ 步进恢复）、无对客通知（通知本体仍是 stub，见 OPTIMIZED）、无自动追踪/定因（链上/银行侧查因未接）
 - [ ] ⚖️P1 自托管钱包差异化 EDD/限额 — **消费 V3 打的自托管标记**，按金额应用 EDD/额度限制(所有权验证已在 V3 登记时做) ｜FATF/VARA III.G.7
 - [ ] ⚖️P1 大额提现增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO 门(阈值按 tradingTier) ｜CRM III.B
-- [ ] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce
+- [~] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce ｜**主体兑现 2026-08-03**：admin `POST :id/bounce`（理由必填）——守卫仅 `PAYOUT_PENDING` 且本金已 POST（未发出的失败走 `FAIL` 不走 bounce）→ 反向分录 `DR CLIENT_ASSET/CR CLIENT_PAYABLE`（先账后状态）→ `RETURNED`；费腿双支处置（已 POST=归公司 / 未 POST=void 退还客户，防孤儿锁）｜⚠️**缺**：无对客通知、24h SLA 无计时器、**SUCCESS 后退汇无入口**（终态零出边，须走对账子系统匹配外部退汇流水，见 truth §7/§9）
 
 > 🔄 **2026-07-06 遗漏复查追补**（fable-5，11 存活→分拣后 9 留 V5、对账单归 V2）。下列 Client Money(CRM Part IV) 条款号系 gap-audit 溯源，**一手复核前当"很可能对"**（见 spec caveat）。
 - [ ] ⚖️P1 🔄 提现划账授权 + 指令绑定存证 — 客户账户每笔划出须绑客户提现指令(指令ID+客户ID+收款账户/地址+白名单肢分类)方可打款；付第三方须留客户指令原文 ｜CRM IV.B.10
 - [ ] ⚖️P1 🔄 payout 失败资金 1 日再隔离 — 法币提现被退回/撤销、资金回平台账户→**1 个自然日内**回存客户隔离账户+恢复余额，禁滞留运营账户 ｜CRM IV.B.5.a ｜挂靠:法币银行退回
 - [ ] ⚖️P1 🔄 Client Money 违规 1 日报 VARA — 无凭据划账/退回超1日未回存/跨客户垫付 任一→提现流内检测→**1 个自然日内**书面报 VARA(发函走 V9 通道) ｜CRM IV.F.1
 - [ ] ⚖️P1 🔄 提现暂停牌照级窄化约束 — "客户极端行情也须能提"→暂停须选法定事由+限范围/时限+**禁行情异动全面停提**+每年政策有效性复查；违约经 CRM I.2 通报 VARA（P2 渠道暂停功能须套此护栏）｜BD I.A.1.c + I.A.2
-- [ ] ⚖️P1 🔄 合规冻结 tipping-off 内外双轨 — 制裁/KYT 卡住的提现：内部原因码(SANCTIONS_HIT/KYT_STR)仅合规可见，客户端统一映射中性文案("处理中")，对客话术 MLRO 预审；**禁客户可见渠道输出真实冻结原因(刑事红线)** ｜CRM III.F.1/F.3.d + 联邦法 20/2018 Art.25
+- [~] ⚖️P1 🔄 合规冻结 tipping-off 内外双轨 — 制裁/KYT 卡住的提现：内部原因码(SANCTIONS_HIT/KYT_STR)仅合规可见，客户端统一映射中性文案("处理中")，对客话术 MLRO 预审；**禁客户可见渠道输出真实冻结原因(刑事红线)** ｜CRM III.F.1/F.3.d + 联邦法 20/2018 Art.25 ｜**部分兑现 2026-08-04**：渲染层与字段层已双防——`getWithdrawStatusView()` 把 `FROZEN`/`MANUAL_CHECKING`/`PENDING_APPROVAL` **逐字段收敛**成与 `COMPLIANCE_PENDING` 完全一致的中性 `PROCESSING`（无 note，违禁词单测全态零命中 + 三态 `toEqual` 防回退）；`toCustomerWithdrawView()` 白名单裁掉全部调查性字段（sumsub*/manualReason/slaDeadline/needsReview/statusHistory 等）；⚠️**接口层未收口（业主 2026-08-07 拍板缓做，两域一起）**：客户端 JSON 响应体仍原样携带真实 `status` 值（开 DevTools 可见 `"status":"FROZEN"`），且 `?status=` 查询参数未忽略（可当冻结预言机）——与充值域同一设计缺口，待充值那套定稿后两域对齐；另 `POST /client/withdraw-transactions` 创建响应未过白名单（见 BACKLOG）
 - [ ] ⚖️P1 🔄 提现费率 30 日历日生效闸 — WithdrawalFeeLevel 变更强制生效日 ≥T+30 + 通知客户(费率属协议内容、改即改协议)；现"即改即生效"撞线 ｜MC II.A.7/8 + II.B.1(e) ｜与 V6 markup 同源
 - [ ] ⚖️P1 🔄 提现记录法定字段集 — 提现单落库固化 CRM I.F.1 最低字段(金额/时间戳/支付指令/费用总额/客户+居住国快照/收款账户或地址/HexTrust 执行方)，native 格式 ≥8y、VARA 索取即出；供 V2 对账单取数 ｜CRM I.F.1-3 ｜与 V6 swap 同源
 - [ ] ⚖️P1 🔄 Sunrise 分支(对手方受监管但收不了 TR) — 非"禁转"：尝试替代安全通道→留 best-efforts 证据→合规风险相称放行/拒绝决策留痕→同对手方持续失败触发关系复评(回写 V3 尽调档) ｜Circular 2026-02-24 §2.c + CRM III.G.8
@@ -307,7 +309,8 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 - [ ] 提现成功通知 — SUCCESS 推送客户，复用 V1 Notification（基础设施在、未接）｜来源:行业(UX)
 
-> **支撑项**（事件驱动编排 / TB pending-post-void 记账 / 模拟端点 / Admin+Client 页 / Tipping-off 映射 / WithdrawQuote 取最优 / 费率 seed）均已交付；现状见 [truth/v5-withdraw.md](truth/v5-withdraw.md)。**技术债**（Sumsub 真集成 / 热钱包校验 / 通知 / repair surface）见 [BACKLOG.md](../BACKLOG.md)。
+> **支撑项**（事件驱动编排 / TB pending-post-void 记账 / Admin+Client 页 / Tipping-off 映射 / WithdrawQuote 取最优 / 费率 seed）均已交付；**2026-08-03~07 新增**：`withdraw-sumsub/` 真实引擎（router/handler/SLA/demo-scenario）、admin 详情页 9 区块 + Frozen/Payout Disposition 组 + ⚡Simulation 10 按钮、client 详情/认证独立页、e2e（money-arcs 7 + scenarios 13）；~~模拟端点~~ 老 mock kyt/tr simulate 端点已随真实引擎退役删除。现状见 [truth/v5-withdraw.md](truth/v5-withdraw.md)。
+> **技术债**（~~Sumsub 真集成~~ ✅2026-08-04 已接 / 热钱包校验 / 通知 / repair surface / STUCK 无自动重触发 / slaBreached 不复位 / 创建响应未白名单）见 [BACKLOG.md](../BACKLOG.md)。
 > ⚠️ **措辞订正（2026-07-03 体检）**：费率审批已从 MLRO+SMO 简化为 OPS_OFFICER 单步（2026-06-01）；REJECTED/大额否决的 void 解锁**已实现**（异常分支非全空）；提现资金单 = 2 腿 funds_order（payout+fee），FUND_OUT 预归集已退役。
 
 ---
