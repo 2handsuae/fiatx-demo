@@ -89,6 +89,9 @@ export enum DepositTransactionAction {
   RESUME = 'resume',
   CONFISCATE_START = 'confiscate_start',
   CONFISCATE_SETTLE = 'confiscate_settle',
+  // 没收腿 FAILED/TIMEOUT → 解锁两笔 pending 后退回待处置(A1)。不做重建重试:
+  // 没收腿的 deterministicTransferId 第 4 参是常量 1(非 attempt),抄不了退回弧的三级梯。
+  CONFISCATE_FAILED = 'confiscate_failed',
   FAIL = 'fail',
   SLA_BREACH = 'sla_breach',
   KYT_REJECTED = 'kyt_rejected',

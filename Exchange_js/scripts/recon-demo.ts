@@ -336,8 +336,8 @@ async function planWallets(
   //
   // Result: closing = opening(0) + Σ(IN − OUT) = TB net, by construction,
   // for every wallet.
-  // COA v2 (2026-08-13): 202 FIRM_FEE 拆成 210/211/212,202/203 退役但保留(历史流水仍需镜像)。
-  const FIRM_CODES = new Set<number>([200, 201, 202, 203, 210, 211, 212]);
+  // COA v2 (2026-08-13): 收入段 210/211/212;202/203/204 已废弃且无兼容层(demo 随时 reset)。
+  const FIRM_CODES = new Set<number>([200, 201, 210, 211, 212]);
   const CUSTOMER_CODES = new Set<number>([100, 101]);
   const allActiveWallets = (await (prisma as any).wallet.findMany({
     where: { status: 'ACTIVE' },

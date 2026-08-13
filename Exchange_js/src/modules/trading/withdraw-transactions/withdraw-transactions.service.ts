@@ -52,7 +52,8 @@ export class WithdrawTransactionsService {
     return String(assetType || '').toUpperCase() === 'FIAT' ? 'fiat' : 'crypto';
   }
 
-  // 状态机收窄(10 状态/13 动作/20 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1)。
+  // 状态机收窄(10 状态/13 动作/21 边,定稿于 .superpowers/sdd/task-1-brief.md Step 1;
+  // 2026-08-13 补 PENDING_APPROVAL --freeze--> FROZEN 一条,20→21)。
   // 终态集合 TERMINAL = SUCCESS/REJECTED/FAILED/RETURNED,零出边——不再有 SUCCESS→
   // RETURNED 或终态自环(旧表里"for logging"的边全删)。守则性测试见
   // withdraw-transactions.service.spec.ts 的「state machine integrity guard」。
@@ -60,6 +61,11 @@ export class WithdrawTransactionsService {
     [WithdrawTransactionStatus.PENDING_APPROVAL]: {
       [WithdrawTransactionAction.GATE_APPROVE]: WithdrawTransactionStatus.COMPLIANCE_PENDING,
       [WithdrawTransactionAction.REJECT]: WithdrawTransactionStatus.REJECTED,
+      // 大额审批可挂数天,期间客户可能被冻(材料到期是定时任务自动触发,无人干预即可发生)。
+      // 客户的钱此刻已在 TB pending 锁里 → 冻得住、也该冻。
+      // (PAYOUT_PENDING 不给这条边:钱已广播上链/发了银行指令,冻不回来——那里保持
+      //  既有的「只记 WITHDRAW_POST_BROADCAST_VERDICT 审计 + markNeedsReview」。)
+      [WithdrawTransactionAction.FREEZE]: WithdrawTransactionStatus.FROZEN,
     },
     [WithdrawTransactionStatus.COMPLIANCE_PENDING]: {
       [WithdrawTransactionAction.APPROVE]: WithdrawTransactionStatus.PAYOUT_PENDING,

@@ -6,9 +6,20 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-08-06
+Last Updated: 2026-08-13
 
 ---
+
+## 演示/测试环境卫生（2026-08-13 A1-A6 收官实跑发现，均为既存问题非本轮引入）
+
+> 来源统一：`superpowers/plans/2026-08-13-deposit-withdraw-a1a6-coa-cleanup.md` T11 收官验收。
+> 这批是"跑一次干净验收"路上被绊到的坑，逐个记账，免得下次再花一轮排查。
+
+- [ ] **`db:biz:reset` 不重置 TigerBeetle → 重铺后 COA 恒等式必然破**：reset 清 Prisma 行 + `tbAccountRegistry`，`db:biz:init` 再建时**客户级**科目（`CLIENT_PAYABLE`/`DEPOSIT_SUSPENSE`，按新客户 UUID）拿到全新 TB 账户余额归零，而**系统级**科目（`CLIENT_ASSET`/`FIRM_*`，四元组不含 ownerUuid）解析到**同一个** TB 账户、余额从上一轮累加。实测：重铺后再跑 demo，`CLIENT_ASSET` 是负债侧的 2 倍多。当前唯一干净做法＝`stack.sh down` → `rm -rf /tmp/exchange_js_wt_<名>` → `stack.sh up`。建议给 self 栈补一个等价于 `reset-main` 的入口（连 TB 数据文件一起清）｜来源: 2026-08-13 T11
+- [ ] **money-arcs 两个 e2e spec 会把 worktree 常驻栈的验收库搞脏**：`test/deposit-money-arcs.e2e-spec.ts` / `withdraw-money-arcs.e2e-spec.ts` 直接在 `MANUAL_CHECKING`/`FROZEN` 等态建 fixture 单**不跑 STEP_1**，随后走退回/上缴弧 post `DEPOSIT_SUSPENSE→CLIENT_ASSET`，把从未入账的科目扣成负数。实测跑完 4 个 e2e suite 后 `verify:coa` 报 5 处负余额（`CLIENT_ASSET` −118000 / 某客户 `DEPOSIT_SUSPENSE` −1e12 等），而**两条恒等式照常全绿**（两边同减正负相消）——正是本轮新增负余额断言首次逮到的实例。对照：`deposit-sumsub-verdicts.e2e-spec.ts` 有物理拦截、跑在专用 `e2e-` 库上。建议这两个 spec 同样切专用库 ｜来源: 2026-08-13 T11
+- [ ] **`deposit-sumsub-verdicts.e2e-spec.ts` 把 DB 路径硬编码成一个早已删除的 worktree 目录**：`process.env.DATABASE_URL = 'file:/tmp/exchange_js_wt_deposit_arcs/e2e-deposit-verdicts.db'`（第 17 行）。任何新 worktree 首跑必挂 `Error code 14: Unable to open the database file`，且需要手动 `mkdir` + `migrate deploy` + `db:base:sync` + `db:biz:init` 才能起。隔离意图正确（防止误清常驻栈，第 22 行还有二道保险），但路径应改成按当前 worktree 派生 ｜来源: 2026-08-13 T11
+- [ ] **全新栈跑 `demo:all` 缺提现地址前置**：`db:biz:init` 与 `demo:setup` 都不建 `withdrawal_addresses`，而 2026-07-11 上线的 trading-ready 闸要求客户有 active 法币提现地址 → 全新栈上 `demo:all` 必卡在第一笔充值（`Trading-ready gate hold`）。main 栈上那 8 条是历史手工建的。建议 `demo:setup` 补建（法币按客户 `C_VIBAN` 的 IBAN、虚拟币按 `T+sha256('DEMO'+'wd'+idx)[:33]`，即 `demo-lib.ts → runWithdraws` 实际使用的值）｜来源: 2026-08-13 T11
+- [ ] **4 个 e2e suite 共库串跑时 `withdrawNo` 唯一约束偶发冲突**：`--runInBand` 全量跑偶现 `Unique constraint failed on the fields: (withdrawNo)`（`withdraw-sumsub-scenarios` ③ PEP 用例），单跑该 suite 连续 2 次均通过。根因是 `generateReferenceNo('WD')` 只带 4 位随机、同日命名空间拥挤时撞车（`demo-lib.ts:401` 注释已知此事并对 demo 侧加了重试，测试侧没有）｜来源: 2026-08-13 T11
 
 ## 死码清理（Phase C 统一清扫）
 

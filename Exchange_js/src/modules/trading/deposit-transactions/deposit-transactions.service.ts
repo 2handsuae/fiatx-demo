@@ -751,13 +751,17 @@ export class DepositTransactionsService {
           DepositTransactionStatus.COMPLIANCE_PENDING,
       },
       [DepositTransactionStatus.OPERATION_PENDING]: {
-        // 只有 2 条,Sumsub 已通过、异步反转暂不考虑(迟到的制裁裁决按业主口径不给边,
+        // Sumsub 已通过、异步反转暂不考虑(迟到的 rejected/awaitUser 裁决按业主口径不给边,
         // 见 BACKLOG)。放行:直接入账。没收:异步两阶段(C1)——OPERATION_PENDING →
         // CONFISCATING(资金在途、记账 pending 锁)→ ops 推资金单 → CONFISCATE_SETTLE
         // 落 CONFISCATED。
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
         [DepositTransactionAction.CONFISCATE_START]:
           DepositTransactionStatus.CONFISCATING,
+        // 钱躺在 DEPOSIT_SUSPENSE 里等运营处置 → 制裁/MLRO 命中必须冻得住。
+        // (判据:钱在哪决定能不能冻。PAYIN_PENDING 不给边——那时 SUSPENSE 是空的,
+        //  冻了下游 seize 反冲空账户走不通。)
+        [DepositTransactionAction.FREEZE]: DepositTransactionStatus.FROZEN,
       },
       [DepositTransactionStatus.MANUAL_CHECKING]: {
         [DepositTransactionAction.APPROVE]: DepositTransactionStatus.SUCCESS,
@@ -787,6 +791,11 @@ export class DepositTransactionsService {
       [DepositTransactionStatus.CONFISCATING]: {
         [DepositTransactionAction.CONFISCATE_SETTLE]:
           DepositTransactionStatus.CONFISCATED,
+        // A1: 没收腿 FAILED/TIMEOUT — 此前这条信号掉地上(onConfiscationLegChanged 只认
+        // CONFIRMED),deposit 永停 CONFISCATING、两笔 pending 锁永不释放、四条恢复路径全堵。
+        // 现在解锁两笔后退回 OPERATION_PENDING,运营可重新发起没收。
+        [DepositTransactionAction.CONFISCATE_FAILED]:
+          DepositTransactionStatus.OPERATION_PENDING,
       },
       [DepositTransactionStatus.RETURNING]: {
         [DepositTransactionAction.RETURNED_DONE]:

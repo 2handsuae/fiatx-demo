@@ -34,8 +34,7 @@
 //   (a) isExternalCrossing=true — internal reclasses (e.g.
 //       DEPOSIT_SUSPENSE_TO_PAYABLE) live entirely inside the ledger; the
 //       external statement is not expected to mention them.
-//   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 210, 211, 212, 202,
-//       203 (retired, kept for history)} — drop
+//   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 210, 211, 212} — drop
 //       aggregate legs (CLIENT_ASSET=1 / FIRM_ASSET=50) and any row whose
 //       tbAccountId isn't in the registry. Aggregate legs share walletRef
 //       purely for traceability; they belong to the aggregate book, not
@@ -71,8 +70,6 @@ const OWNED_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.INCOME_SWAP_FEE,   // 210
   TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, // 211
   TB_ACCOUNT_CODES.INCOME_OTHER,      // 212
-  202, // FIRM_FEE(退役)——历史 account_flows 行仍须被认领,保 F_FEE 钱包对账连续性
-  203, // FIRM_LIQ(退役)——同上
 ]);
 
 export interface ExternalStatementLineInput {

@@ -45,11 +45,16 @@ Last Verified: 2026-08-07（核对方式：② 提现补料 Embed 合并后关�
   | legSeq | 归属 | handler | `CONFIRMED` 时做什么 |
   |---|---|---|---|
   | 1 | payin 本体 | `onPayinConfirmed` / `onPayinFailed` | 记账 STEP_1 + deposit→`COMPLIANCE_PENDING` + **该腿 `CLEAR`** |
-  | 2 | 没收内部单（C2/C3） | `onConfiscationLegChanged` | `settleConfiscation()` post 两腿 + deposit→`CONFISCATED` |
+  | 2 | 没收内部单（C2/C3） | `onConfiscationLegChanged` | `settleConfiscation()` post 两腿 + deposit→`CONFISCATED`；**`FAILED`/`TIMEOUT` → `onConfiscationLegFailed()` void 两腿 + deposit→`OPERATION_PENDING`**（A1，2026-08-13） |
   | 3 | 退回单（A3） | `onReturnLegChanged` | `settleReturn()` post + deposit→`RETURNED`；`FAILED`/`TIMEOUT` → void + 以新 `attempt` 重建重试 |
   | 4 | 上缴单（A4） | `onSeizeLegChanged` | `settleSeize()` post + deposit→`SEIZED`；失败处理同 legSeq 3 |
 
   其余 legSeq 直接 `return`。
+
+  **A1（2026-08-13）没收腿失败弧**：此前 `onConfiscationLegChanged` 首行是 `if (newStatus !== CONFIRMED) return`，FAILED/TIMEOUT 信号直接掉地上 —— deposit 永停 `CONFISCATING`、C2 下的两笔 TB pending 锁永不释放，且四条恢复路径全堵（资金单已终态不再发事件 / `CONFISCATING` 当时只有 `confiscate_settle` 一条出边 / ADMIN_API 被 `ACCOUNTING_TERMINALS` 守卫挡 / 无重结算入口）。而 admin 资金单详情页的 `⚡失败`/`⚡超时` 红按钮对没收腿照常渲染（`getFundsOrderSimActions(status, assetType)` 只看状态与资产类型、**不看 legSeq**），一点即死。
+  现改为 switch 接住，新增 `onConfiscationLegFailed()`：void 两腿 pending（pending id 必须与 `startConfiscation` 逐字一致：eventCode `CONFISCATE_REVERSE_SUSPENSE` / `CONFISCATE_INCOME_OTHER` + legIndex `1`）→ `CONFISCATE_FAILED` 边回 `OPERATION_PENDING` → 落 `DEPOSIT_CONFISCATION_LEG_FAILED` 审计，运营可重新发起没收。
+  **不做重建重试**（区别于退回/上缴弧的三级梯）：没收腿的 `deterministicTransferId` 第 4 参写死常量 `1`（非 `attempt`），重建的新腿会算出同一个 pending id 撞车。整体 try/catch 不上抛（`@OnEvent` 里抛没人接），解锁失败时 deposit 留 `CONFISCATING` + 落 `DEPOSIT_CONFISCATION_UNLOCK_FAILED` 待人工介入。
+  **红按钮刻意保留**：后端接住之后，`⚡失败` 从"一点即死"变成可演示的异常弧素材。
 
 - **处置腿结算后必须收口到 `CLEARED`（2026-08-02 修，真机发现）**：`settleConfiscation` / `settleReturn` / `settleSeize` 三者在记账 post 与 deposit 状态落定后，统一调 `clearDispositionLeg()` 把该腿推到 `CLEARED`。
   ~~此前 `FundsOrderAction.CLEAR` 在充值域只有一处调用——payin 确认（硬绑 legSeq=1）~~；三条处置弧由 C3/A3/A4 三轮分别实现，每个 settle 都只做「记账 + deposit 状态 + 审计」三件事，**三次都漏了「资金单本身也是个状态机」这第四件**。真机实证：`FO2608024242`（legSeq=4）分录已 POSTED、deposit 已 `SEIZED`，资金单永停 `CONFIRMED`；全库统计 legSeq=1 共 12 笔全 `CLEARED`，唯一的 legSeq=4 停 `CONFIRMED`。**不影响资金安全**（`verify:coa` 恒等式照常 PASS），影响运营视图与任何按 `status=CLEARED` 取数的对账口径——会漏掉全部处置腿。

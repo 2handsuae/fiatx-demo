@@ -119,6 +119,54 @@ export class WithdrawWorkflowService implements OnModuleInit {
     sourcePlatform: 'SYSTEM',
   };
 
+  /**
+   * A4(2026-08-13):客户级异常合规态。逐字抄充值域 DepositWorkflowService.ABNORMAL_COMPLIANCE。
+   * 提现此前**只在下单那一刻查一次**客户资格,之后全程不复查——而
+   * `withdraw-transactions.service.ts → getOwnerComplianceStatus()` 早就写好了,却是个
+   * 零调用方的孤儿方法。客户在大额审批期间(可挂数天)或等 KYT 裁决期间被冻(材料到期是
+   * 定时任务自动触发,无人干预即可发生),提现照样一路推到只差运营放款,还会写下一条
+   * WITHDRAW_COMPLIANCE_PASSED 审计。提现是不可逆出金,出去追不回。
+   */
+  private static readonly ABNORMAL_COMPLIANCE = new Set([
+    'FROZEN', 'SUSPENDED', 'BLOCKED', 'REJECTED',
+  ]);
+
+  /**
+   * A4 客户级合规闸:异常则把这笔提现冻住并返回 false(调用方须立即 return),正常返回 true。
+   * 放在每个"推进前"的节点上——尤其必须早于 initiatePayoutPhase 写
+   * WITHDRAW_COMPLIANCE_PASSED 审计,否则审计会替一个已冻客户背书。
+   */
+  private async assertCustomerComplianceOrFreeze(w: any, stage: string): Promise<boolean> {
+    const complianceStatus = await this.withdrawService.getOwnerComplianceStatus(w.id);
+    if (!WithdrawWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) return true;
+
+    this.logger.warn(
+      `A4 compliance gate FAIL at ${stage}: withdrawal ${w.withdrawNo} — customer compliance status ${complianceStatus} → freezing`,
+    );
+    await this.withdrawService.updateStatus(
+      w.id,
+      {
+        action: WithdrawTransactionAction.FREEZE,
+        reason: `Customer compliance status ${complianceStatus} detected at ${stage}`,
+      },
+      this.systemCtx,
+    );
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.WITHDRAW_FROZEN,
+      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+      entityId: w.id,
+      entityNo: w.withdrawNo,
+      entityOwnerType: w.ownerType,
+      entityOwnerId: w.ownerId,
+      traceId: w.traceId || undefined,
+      workflowType: AuditWorkflowTypes.WITHDRAW,
+      reason: `Customer-level compliance gate (A4) failed at ${stage}: customer is ${complianceStatus} — in-flight withdrawal frozen`,
+      metadata: { withdrawNo: w.withdrawNo, complianceStatus, stage },
+      sourcePlatform: 'SYSTEM',
+    });
+    return false;
+  }
+
   // applyKytVerdict no-ops on these — every terminal state already answers "钱去哪了"
   // (spec §5) and must not be reopened by a late/replayed KYT webhook.
   private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
@@ -540,6 +588,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
         return;
       }
 
+      // A4 客户级合规闸(1/3):建单与本 handler 之间是 fire-and-forget emit,中间客户
+      // 可能已被冻(制裁命中/风评/材料到期 cron)。
+      if (!(await this.assertCustomerComplianceOrFreeze(w, 'withdrawal-created'))) return;
+
       const valuation = await this.valuateAed(w);
       await this.withdrawService.saveValuationSnapshot(w.id, valuation);
 
@@ -654,6 +706,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     if (payload.decision === 'APPROVED') {
+      // A4 客户级合规闸(2/3):大额审批可挂数天,期间客户被冻是最容易踩的一条。
+      // 上面的 `status !== PENDING_APPROVAL` 早退只能挡"提现单自己已被冻"的情况,
+      // 挡不住"提现单还在 PENDING_APPROVAL、但客户账号已被冻"。
+      // (批次B 已给 PENDING_APPROVAL 补上 freeze 边,这里才冻得动。)
+      if (!(await this.assertCustomerComplianceOrFreeze(w, 'large-value-approval-granted'))) return;
+
       await this.withdrawService.updateStatus(
         w.id,
         { action: WithdrawTransactionAction.GATE_APPROVE },
@@ -799,6 +857,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   private async initiatePayoutPhase(withdrawId: string) {
     let w = await this.withdrawService.findOneInternal(withdrawId);
+
+    // A4 客户级合规闸(3/3):最后一道,且**必须早于下面的 WITHDRAW_COMPLIANCE_PASSED 审计**
+    // ——否则那条审计会替一个已冻客户背书("合规闸门已通过"),而钱下一步就要出去。
+    if (!(await this.assertCustomerComplianceOrFreeze(w, 'payout-phase'))) return;
 
     // Bind the source wallet on the withdrawal itself BEFORE creating the Payout
     // / fee fund. This was previously done by the (now-deleted) orchestrator on a
@@ -1449,6 +1511,26 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     // P6: void the customer's pending net+fee TB lock so the balance is returned.
     await this.releaseLock(w, reason);
+
+    // A6(2026-08-13):releaseLock 只解 TB 的锁,费腿这张**资金单**没人终结——一笔终态
+    // FAILED 的提现底下会永久挂一条非终态费腿:对账在途桶只增不减,且能被推单推成
+    // "已结清"(自称收了费、实际客户的钱已解锁退回)。此刻 withdraw 已是 FAILED,
+    // onFeeLegFailed 的 PAYOUT_PENDING 守卫会 no-op,不会触发三级梯重建。
+    // Best-effort:吞掉 already-terminal/非法转移,钱的路径(releaseLock)已完成,
+    // 绝不能被资金单状态机的小毛病回滚(同 onBounce / clearDispositionLeg 的口径)。
+    const feeLeg = (
+      await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: FEE_LEG_SEQ })
+    ).slice(-1)[0];
+    if (feeLeg) {
+      try {
+        await this.fundsOrders.advance(feeLeg.id, FundsOrderAction.FAIL, 'SYSTEM');
+      } catch (err: any) {
+        this.logger.warn(
+          `Payout failure ${w.withdrawNo}: could not FAIL fee leg ${feeLeg.id} (${(err as Error).message}) — ` +
+          `TB locks already released, funds order status merely lags`,
+        );
+      }
+    }
   }
 
   /**
@@ -1635,6 +1717,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // audit when the fee was never actually collected. Resolve the fee's real
     // disposition before flipping the terminal status.
     let feeDisposition = 'fee retained (collected)';
+    // A6: 费腿的 FAIL 推迟到 RETURN 落地之后执行(见下方注释),这里只记住要 FAIL 哪条腿。
+    let feeLegToFail: { id: string } | null = null;
     if (w.tbPendingFeeId) {
       const feePostedEvidence = await (this.prisma as any).tbTransferEvidence.findMany({
         where: { sourceType: 'WITHDRAWAL', sourceNo: w.withdrawNo, eventCode: 'WITHDRAW_FEE_POST' },
@@ -1654,24 +1738,16 @@ export class WithdrawWorkflowService implements OnModuleInit {
           );
         }
 
-        // Best-effort: FAIL the fee funds order too, for view consistency
-        // (admin/recon read the funds order table). Swallow already-terminal /
-        // invalid-transition — the money path (TB void above) must never be
-        // blocked by a funds-order state-machine hiccup (mirrors
-        // DepositWorkflowService#clearDispositionLeg's swallow rationale: a
-        // lagging view must not roll back an already-completed money move).
-        const feeLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: FEE_LEG_SEQ });
-        const feeLeg = feeLegs[feeLegs.length - 1];
-        if (feeLeg) {
-          try {
-            await this.fundsOrders.advance(feeLeg.id, FundsOrderAction.FAIL, 'SYSTEM');
-          } catch (err: any) {
-            this.logger.warn(
-              `Bounce ${w.withdrawNo}: could not FAIL fee leg ${feeLeg.id} (${(err as Error).message}) — ` +
-              `TB void already applied, funds order status merely lags`,
-            );
-          }
-        }
+        // A6(2026-08-13):费腿的 FAIL **必须推迟到状态翻 RETURNED 之后**,不能在这里做。
+        // 原因:advance(FAIL) 会发 funds_order.status.changed → onFeeLegFailed,而后者的
+        // 守卫是 `w.status !== PAYOUT_PENDING → no-op`。此刻 RETURN 还没落,状态仍是
+        // PAYOUT_PENDING → 守卫放行 → 走三级梯**重建一条 attempt+1 的新费腿**(CREATED)。
+        // 净结果:一笔已退汇的终态订单底下永久挂着一条活费腿,对账在途桶只增不减,
+        // 还能被推单推成"已结清"(自称收了费、实际已退给客户)。
+        // 只挪"资金单视图更新",TB 反向分录与 fee 解锁仍在状态翻转之前 → 先账后状态不破。
+        feeLegToFail = (
+          await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: FEE_LEG_SEQ })
+        ).slice(-1)[0] ?? null;
 
         feeDisposition = 'uncollected fee lock voided — fee returned to customer';
       }
@@ -1684,6 +1760,20 @@ export class WithdrawWorkflowService implements OnModuleInit {
       { action: WithdrawTransactionAction.RETURN, reason },
       this.systemCtx,
     );
+
+    // A6: 状态已是 RETURNED,此时 FAIL 费腿,onFeeLegFailed 的 PAYOUT_PENDING 守卫会
+    // no-op,不再重建。Best-effort:吞掉 already-terminal/非法转移——钱的路径(上面的 TB
+    // void)绝不能被资金单状态机的小毛病回滚(同 DepositWorkflowService#clearDispositionLeg)。
+    if (feeLegToFail) {
+      try {
+        await this.fundsOrders.advance(feeLegToFail.id, FundsOrderAction.FAIL, 'SYSTEM');
+      } catch (err: any) {
+        this.logger.warn(
+          `Bounce ${w.withdrawNo}: could not FAIL fee leg ${feeLegToFail.id} (${(err as Error).message}) — ` +
+          `TB void already applied, funds order status merely lags`,
+        );
+      }
+    }
 
     await this.auditLogsService.recordByActor(
       {

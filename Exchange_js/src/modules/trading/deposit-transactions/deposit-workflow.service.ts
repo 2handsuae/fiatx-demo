@@ -282,13 +282,28 @@ export class DepositWorkflowService implements OnModuleInit {
     );
   }
 
-  // 已终态:进入 applyKytVerdict 时直接 no-op(幂等,防终态后迟到的 webhook)。
-  private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
+  /**
+   * 进入 applyKytVerdict 时直接 no-op(幂等,接住迟到的 webhook)。
+   *
+   * A5(2026-08-13)扩容 + 改名:原名 KYT_VERDICT_TERMINAL_STATUSES 只装 5 个终态,
+   * 三个**在途处置态**(CONFISCATING/RETURNING/SEIZING)不在里面 → 一笔正在没收/退回/
+   * 上缴的单收到迟到裁决时,会**先执行闸门回写 + 存证**(把原制裁裁决/风险分/原始报文整份
+   * 覆盖掉),然后才因为状态机没有对应边而抛错、webhook 重试进死信。最隐蔽的是"迟到的
+   * approved"——它连错都不报,静默把上缴中订单的裁决改成通过。
+   * 这三个态是「几步之内自动收敛的过渡态」,处置期间不该被任何裁决打断,故一并忽略。
+   * 集合已不全是终态,遂改名 IGNORED。
+   */
+  private static readonly KYT_VERDICT_IGNORED_STATUSES = new Set([
+    // 终态
     DepositTransactionStatus.SUCCESS,
     DepositTransactionStatus.FAILED,
     DepositTransactionStatus.CONFISCATED,
     DepositTransactionStatus.RETURNED,
     DepositTransactionStatus.SEIZED,
+    // 在途处置态(A5)
+    DepositTransactionStatus.CONFISCATING,
+    DepositTransactionStatus.RETURNING,
+    DepositTransactionStatus.SEIZING,
   ]);
 
   private static readonly ONHOLD_SLA_DAYS = 7;
@@ -316,10 +331,29 @@ export class DepositWorkflowService implements OnModuleInit {
     }
 
     const status = deposit.status as DepositTransactionStatus;
-    if (DepositWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) {
+    if (DepositWorkflowService.KYT_VERDICT_IGNORED_STATUSES.has(status)) {
       this.logger.debug(
-        `applyKytVerdict no-op: deposit ${depositId} already terminal (${status})`,
+        `applyKytVerdict no-op: deposit ${depositId} in ignored status (${status})`,
       );
+      // A5:忽略 ≠ 静默。落一条审计,演示/取证时能指着说"系统收到了、判定不适用、记下来了",
+      // 而不是只有服务端日志。best-effort:审计写失败不该把一个本就 no-op 的裁决变成异常。
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          traceId: deposit.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          result: AuditResult.SUCCESS,
+          reason: `Late KYT verdict '${v.verdict}' ignored — deposit is ${status} (terminal or disposition in flight); existing verdict/evidence left untouched`,
+          metadata: { depositNo: deposit.depositNo, verdict: v.verdict, status, riskScore: v.riskScore ?? null },
+          requestId: `DEPOSIT_KYT_VERDICT_IGNORED_${deposit.depositNo}_${randomUUID()}`,
+          sourcePlatform: 'SYSTEM',
+        })
+        .catch(() => undefined);
       return;
     }
 
@@ -701,6 +735,40 @@ export class DepositWorkflowService implements OnModuleInit {
 
     if (dispoTag === 'RETURN_TO_SENDER') {
       if (deposit.status === DepositTransactionStatus.RETURNING) return; // 已在目标态,防重复 webhook
+
+      // A2 着陆垫(2026-08-13):initiateReturn 只接受 MANUAL_CHECKING,非该态一律抛
+      // BadRequestException——而本方法下面只 catch ConflictException,异常会一路上抛,
+      // webhook 三次重试后进死信:不开审批、不流转、不记审计,界面上"点了没反应",
+      // 钱一直压在 DEPOSIT_SUSPENSE 里。而合规官最标准的操作恰恰是「一边打 RETURN_TO_SENDER
+      // tag 一边驳回」,此刻单子还在 COMPLIANCE_PENDING/ACTION_PENDING。
+      // 修法:先落 MANUAL_CHECKING(tag 写进 reason 供合规官重驱),与提现域
+      // withdraw-workflow.service.ts 的同名着陆垫同构。
+      if (deposit.status !== DepositTransactionStatus.MANUAL_CHECKING) {
+        await this.depositService.updateStatus(
+          deposit.id,
+          {
+            action: DepositTransactionAction.KYT_REJECTED,
+            reason: `KYT verdict: rejected, officer RETURN_TO_SENDER tag arrived early (status=${deposit.status}) — landed in manual review for re-drive`,
+          },
+          {
+            actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
+            sourcePlatform: 'SYSTEM',
+          },
+        );
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_MANUAL_CHECKING,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id,
+          entityNo: deposit.depositNo,
+          entityOwnerType: deposit.ownerType,
+          entityOwnerId: deposit.ownerId,
+          traceId: deposit.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          reason: `RETURN_TO_SENDER tag arrived while status=${deposit.status} — landed in manual review; officer can re-drive the return from there`,
+          sourcePlatform: 'SYSTEM',
+        });
+        return;
+      }
 
       // A2: 不再直推 RETURNING——改开 maker-checker 审批(MLRO 单步),deposit 留
       // MANUAL_CHECKING;批准后的实际结算(出场腿/记账)留 A3(见 initiateReturn/onReturnDecided)。
@@ -1268,9 +1336,9 @@ export class DepositWorkflowService implements OnModuleInit {
     });
     await this.accountingService.executePendingTransfer({
       debitAccountId: firmAssetId, creditAccountId: incomeOtherId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE, timeout: 0, legIndex: 1,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER, timeout: 0, legIndex: 1,
       evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
         assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
@@ -1296,12 +1364,105 @@ export class DepositWorkflowService implements OnModuleInit {
    * confiscation) is a no-op, so a replayed CONFIRMED never double-settles.
    */
   private async onConfiscationLegChanged(event: FundsOrderStatusChangedEvent) {
-    if (event.newStatus !== FundsOrderStatus.CONFIRMED) return; // only settle on CONFIRMED
     const depositId = event.parent.depositTransactionId;
     if (!depositId) return;
+
+    // A1(2026-08-13):此前这里是 `if (newStatus !== CONFIRMED) return`——FAILED/TIMEOUT
+    // 直接掉地上,deposit 永停 CONFISCATING、两笔 pending 锁永不释放,且四条恢复路径全堵
+    // (资金单已终态不再发事件 / CONFISCATING 只有 settle 一条出边 / ADMIN_API 被
+    // ACCOUNTING_TERMINALS 守卫挡 / 无重结算入口)。现在 FAILED/TIMEOUT 也接住。
+    // 途中态(SUBMITTED/CONFIRMING…)仍在读库前就返回——既省一次 DB 读,也保持原有语义。
+    const TERMINAL_LEG_STATUSES: string[] = [
+      FundsOrderStatus.CONFIRMED,
+      FundsOrderStatus.FAILED,
+      FundsOrderStatus.TIMEOUT,
+    ];
+    if (!TERMINAL_LEG_STATUSES.includes(event.newStatus)) return;
+
     const deposit = await this.depositService.findOne(depositId);
+    if (!deposit) return;
     if (deposit.status !== DepositTransactionStatus.CONFISCATING) return; // already settled / not in transit
-    await this.settleConfiscation(deposit, event.fundsOrderId);
+
+    switch (event.newStatus) {
+      case FundsOrderStatus.CONFIRMED:
+        await this.settleConfiscation(deposit, event.fundsOrderId);
+        break;
+      case FundsOrderStatus.FAILED:
+      case FundsOrderStatus.TIMEOUT:
+        await this.onConfiscationLegFailed(deposit, event.fundsOrderId, event.newStatus);
+        break;
+    }
+  }
+
+  /**
+   * A1: 没收腿 FAILED/TIMEOUT — 解锁 C2 下的两笔 pending,把 deposit 退回
+   * OPERATION_PENDING(待运营处置),运营可重新发起没收。
+   *
+   * **不做重建重试**(区别于退回/上缴弧的三级梯):没收腿的 deterministicTransferId 第 4 参
+   * 写死常量 1(非 attempt),重建的新腿会算出同一个 pending id 撞车。demo 口径下
+   * 「解锁 → 回待处置 → 运营重点一次」更简单也更好演。
+   *
+   * 两笔 void 的 pending id 必须与 startConfiscation 逐字一致
+   * (eventCode CONFISCATE_REVERSE_SUSPENSE / CONFISCATE_INCOME_OTHER + legIndex 1)。
+   * 整体 try/catch 不上抛(@OnEvent 异步监听器里抛没人接);解锁失败时 deposit 留在
+   * CONFISCATING + 落 DEPOSIT_CONFISCATION_UNLOCK_FAILED 待人工介入。
+   */
+  private async onConfiscationLegFailed(
+    deposit: any,
+    fundsOrderId: string,
+    legStatus: string,
+  ) {
+    const asset = deposit.asset;
+    const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
+    const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
+    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', 1);
+
+    try {
+      await this.accountingService.voidPendingTransfer({
+        pendingTransferId: pend1, amount: amountBigint,
+        evidence: {
+          sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_REVERSE_SUSPENSE_VOID',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+          assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        },
+      });
+      await this.accountingService.voidPendingTransfer({
+        pendingTransferId: pend2, amount: amountBigint,
+        evidence: {
+          sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER_VOID',
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
+          assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
+        },
+      });
+
+      await this.depositService.updateStatus(deposit.id, {
+        action: DepositTransactionAction.CONFISCATE_FAILED,
+        reason: `Confiscation leg ${legStatus} — both pending legs voided, back to operation pending for re-disposition`,
+      });
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.DEPOSIT_CONFISCATION_LEG_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+        workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.SUCCESS,
+        reason: `Confiscation funds order ${legStatus} — pending legs released, deposit returned to OPERATION_PENDING`,
+        metadata: { depositNo: deposit.depositNo, fundsOrderId, legStatus },
+        requestId: `DEPOSIT_CONFISCATION_LEG_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+      });
+    } catch (err: any) {
+      this.logger.error(
+        `onConfiscationLegFailed crashed for deposit ${deposit.depositNo}: ${err.message} — deposit stays CONFISCATING, pending legs may still be locked`,
+      );
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.DEPOSIT_CONFISCATION_UNLOCK_FAILED, entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: deposit.id, entityNo: deposit.depositNo, entityOwnerType: deposit.ownerType, entityOwnerId: deposit.ownerId,
+          workflowType: 'DEPOSIT_CONFISCATION', traceId: deposit.traceId || undefined, result: AuditResult.FAILED,
+          reason: `Failed to release confiscation pending legs — manual intervention required (deposit stays CONFISCATING)`,
+          metadata: { depositNo: deposit.depositNo, fundsOrderId, legStatus, error: err.message },
+          requestId: `DEPOSIT_CONFISCATION_UNLOCK_FAILED_${deposit.depositNo}_${randomUUID()}`, sourcePlatform: 'SYSTEM',
+        })
+        .catch(() => undefined);
+    }
   }
 
   /**
@@ -1309,7 +1470,7 @@ export class DepositWorkflowService implements OnModuleInit {
    * CONFISCATED. Each pending id is reproduced deterministically from the SAME business key
    * C2 used — deterministicTransferId('DEPOSIT', depositNo, eventCode, 1) — so the eventCodes +
    * legIndex(=1) MUST match startConfiscation exactly (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2
-   * CONFISCATE_FIRM_FEE). 3× retry on a transient TB failure; if every attempt fails the deposit
+   * CONFISCATE_INCOME_OTHER). 3× retry on a transient TB failure; if every attempt fails the deposit
    * stays CONFISCATING (no revert, no rethrow — silent stop in the async listener) with a
    * DEPOSIT_CONFISCATION_FAILED audit flagging it for manual intervention.
    */
@@ -1317,7 +1478,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const asset = deposit.asset;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
     const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_FIRM_FEE', 1);
+    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', 1);
     const MAX = 3;
     for (let attempt = 1; attempt <= MAX; attempt++) {
       try {
@@ -1334,7 +1495,7 @@ export class DepositWorkflowService implements OnModuleInit {
         await this.accountingService.postPendingTransfer({
           pendingTransferId: pend2, amount: amountBigint,
           evidence: {
-            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
             debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
             assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
           },

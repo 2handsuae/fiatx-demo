@@ -26,8 +26,8 @@ Last Verified: 2026-08-13（核对方式：COA v2 科目表重构（退役 202 `
 
 - 系统级（CLIENT_ASSET/FIRM_ASSET/FIRM_OPS/INCOME_SWAP_FEE/INCOME_WITHDRAW_FEE/INCOME_OTHER + 法币 FIRM_SET）在资产创建**同事务** provision；客户级（CLIENT_PAYABLE/DEPOSIT_SUSPENSE）**首笔交易懒解析**。
 - 账户映射：`TbAccountRegistry` 按 `(code, ledger, ownerType, ownerUuid)` 四元组唯一。
-- **退役户（2026-08-13 COA v2）**：202 `FIRM_FEE`（由 210/211/212 接班）/203 `FIRM_LIQ`/204 `FIRM_SEIZED` 三户退役——**TigerBeetle 账户物理不可删**，退役指的是：①`TB_ACCOUNT_CODES` 常量已移除这三个键，改放进 `RETIRED_TB_CODES: readonly number[] = [202, 203, 204]`；②对应 `TbAccountRegistry` 行 `status` 置 `RETIRED`（一次性迁移脚本执行，见下）；③`verify:coa` 新增断言——这三户任何状态下 TB 余额都必须为 0，且 registry 行不得仍是 `ACTIVE`（命中即 FAIL，提示先跑 `migrate:coa-v2`）；④**读侧例外**：对账引擎 `wallet-balance-checker.service.ts → FIRM_CODES` 与 `wallet-flow-matcher.service.ts → OWNED_CODES` 仍各自保留 202/203 两个数字字面量——历史 `account_flows` 行仍挂在这两个退役账户上，读侧不认它们会导致 F_FEE 钱包对账断裂（204 从未真正被记账使用过，故不需要保留识别）；⑤历史 `tb_transfer_evidence` 行里的 `creditCode='E.FIRM_FEE'` 字符串是不可变历史事实，不改写、不回填。**切勿**把"退役"理解成"可以物理删除"或"可以从读侧代码里摘掉"。
-- 锚点：`tb-account-codes.constant.ts`（`TB_ACCOUNT_CODES` + `RETIRED_TB_CODES`）｜ `tb-account-registry.service.ts → TbAccountRegistry` ｜ `tb-manual-account.service.ts`（手动建账 `POST /admin/tb/accounts`）｜ `scripts/migrate-coa-v2.ts`（`npm run migrate:coa-v2`，历史 202 存量按类型码精确拆分迁移 + 退役封户，一次性、幂等）
+- **退役户（2026-08-13 COA v2）**：202 `FIRM_FEE`（由 210/211/212 接班）/203 `FIRM_LIQ`/204 `FIRM_SEIZED` 三户已废弃。**2026-08-13 同日删净兼容层**（判据：demo 数据随时 reset，不留过渡层）——`RETIRED_TB_CODES` / `RETIRED_TB_CODE_TO_COA` 两个常量、转移码 `COA_V2_INCOME_RECLASS`(71)、对账读侧 `wallet-balance-checker.service.ts → FIRM_CODES` 与 `wallet-flow-matcher.service.ts → OWNED_CODES` 里的裸数字 202/203、`scripts/recon-demo.ts` 的第四份硬编码公司科目集合、`verify:coa` 的退役户恒零断言、整个 `scripts/migrate-coa-v2.ts` + `package.json` 的 `migrate:coa-v2`，**全部物理删除**。TigerBeetle 账户物理仍在（TB 不可删），但代码里不再有任何一处认识它们。**唯一保留**：`tb-account-codes.constant.ts.spec.ts` 的死名单断言（`FIRM_FEE`/`FIRM_LIQ`/`FIRM_SEIZED` 不得回到 `TB_ACCOUNT_CODES` 主表）——防回归闸，与历史数据无关。
+- 锚点：`tb-account-codes.constant.ts`（`TB_ACCOUNT_CODES`，9 码）｜ `tb-account-registry.service.ts → TbAccountRegistry` ｜ `tb-manual-account.service.ts`（手动建账 `POST /admin/tb/accounts`）｜ 四处注册清单同步：`asset-provisioning.service.ts` / `asset-activation-workflow.service.ts → checkReadiness()` / `tb-manual-account.service.ts → SYSTEM_CODES` / `wallet-recon-run.service.ts`（对账恒等式）
 
 ## 2. 数据模型要点
 
@@ -68,9 +68,9 @@ Last Verified: 2026-08-13（核对方式：COA v2 科目表重构（退役 202 `
 ## 4. 不变量与验证
 
 - **核心不变量**（实时 1:1）：客户侧 `Σ CLIENT_ASSET == Σ (CLIENT_PAYABLE + DEPOSIT_SUSPENSE)`（客户资产=客户负债，按币种）；公司侧 `Σ FIRM_ASSET == Σ (FIRM_OPS + FIRM_SET + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER)`（2026-08-13 COA v2：收入段由旧 `FIRM_FEE`+`FIRM_LIQ` 换成三个新收入户，公式两侧同增减仍平）；均按 ledger（币种）各自守恒。
-- **验证**：`scripts/verify-realtime-coa.ts`（四式不变量，`ALL INVARIANTS PASS`/`FAIL: N invariant breaks`；另附**退役户恒零断言**——202/203/204 的 registry 行任何状态下 TB 余额都必须为 0、且不得仍是 `ACTIVE`，否则提示先跑 `migrate:coa-v2`），V8 对账的内部恒等预门复用同一新公式（`wallet-recon-run.service.ts → computeInternalIdentity()`），`scripts/demo-lib.ts` 的 COA 守恒断言同款。
-- **迁移**：`scripts/migrate-coa-v2.ts`（`npm run migrate:coa-v2`）——COA v2 一次性历史迁移：把旧 202 `FIRM_FEE` 存量余额，按 `tb_transfer_evidence.eventCode` 精确对应回历史转账类型码（`SWAP_FEE_FIRM`=36→210、`WITHDRAW_FEE_FIRM`=16→211、`CONFISCATE_FIRM_FEE`=4→212）分组求和后拆分过去（新转账类型码 `COA_V2_INCOME_RECLASS`=71：`DR FIRM_FEE(202) / CR 210|211|212`），三组历史证据之和与 202 当前余额对不上就抛错拒跑、绝不猜数；再把 202/203/204 registry 行置 `RETIRED`。幂等（中途失败可安全重跑，已迁移部分自动跳过）；两腿同盖迁移前的 F_FEE 物理钱包 ref，钱物理上没挪动，只是会计分类变了，对账连续性不受影响。
-- 锚点：`scripts/verify-realtime-coa.ts` ｜ `npm run verify:coa` ｜ `scripts/migrate-coa-v2.ts` ｜ `npm run migrate:coa-v2`
+- **验证**：`scripts/verify-realtime-coa.ts`（四式不变量，`ALL INVARIANTS PASS`/`FAIL: N invariant breaks`；**2026-08-13 新增负余额断言**——遍历全部 ACTIVE registry 科目，按 class-aware 口径算余额，**任何科目 < 0 即 FAIL**，打印 `科目名/ledger/归属/余额`。加它的理由：四条恒等式只比"总数对不对"，对「凭空造余额」「超额提现」这两类错账**完全失明**——两边同增同减正负相消，恒等式照常全绿。首次实跑即逮到实例：money-arcs 两个 e2e spec 建 fixture 不跑 STEP_1，把 `CLIENT_ASSET` 与某客户 `DEPOSIT_SUSPENSE` 扣成负数，而两条恒等式仍然通过，详见 BACKLOG「演示/测试环境卫生」节；退役户恒零断言已随兼容层一并删除），V8 对账的内部恒等预门复用此逻辑（`wallet-recon-run.service.ts → computeInternalIdentity()`）。
+- ~~**迁移**：`scripts/migrate-coa-v2.ts`~~ —— **2026-08-13 已物理删除**（含 `package.json` 的 `migrate:coa-v2`）。demo 数据随时 reset，不保留历史迁移脚本；需要干净基线时走 `stack.sh down` → `rm -rf /tmp/exchange_js_wt_<名>` → `stack.sh up` → `db:biz:init`。
+- 锚点：`scripts/verify-realtime-coa.ts` ｜ `npm run verify:coa`
 
 ## 5. ⚠️ 已知缺口（详见 BACKLOG.md）
 
