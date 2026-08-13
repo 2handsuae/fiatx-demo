@@ -38,9 +38,13 @@ clean="$(printf '%s' "${body}" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=
 
 echo "[on-stack/${stack}] DATABASE_URL=${db_url}"
 echo "[on-stack/${stack}] TB_ADDRESS=${TB_ADDRESS}"
+echo "[on-stack/${stack}] TB_DATA_FILE=${TB_DATA_FILE}"
 echo "[on-stack/${stack}] script '${script}' -> ${clean} $*"
 
 cd "${APP_DIR}"
 # npm run injects node_modules/.bin into PATH; we bypass npm by running the script body
 # ourselves, so we must inject it too — else every ts-node script dies with "command not found".
-exec env PATH="${APP_DIR}/node_modules/.bin:${PATH}" DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" bash -c "${clean} \"\$@\"" _ "$@"
+# TB_DATA_FILE (Task 12 fix): scripts/dev-tigerbeetle.sh (invoked by db:reset:business)
+# now reads this to target the right stack's TB instance instead of always main's —
+# see that script's header comment for the incident that made this necessary.
+exec env PATH="${APP_DIR}/node_modules/.bin:${PATH}" DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" TB_DATA_FILE="${TB_DATA_FILE}" bash -c "${clean} \"\$@\"" _ "$@"

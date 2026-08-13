@@ -222,6 +222,49 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
         bankName: cmaTpl?.bankName ?? 'Zand Bank PJSC', accountName: cmaTpl?.accountName ?? 'FiatX Ltd', status: 'ACTIVE',
       },
     });
+
+    // Registered fiat withdrawal address (BANK/ACTIVE) — the 2026-07-11
+    // trading-start precondition gate (deposit-workflow.service.ts
+    // #assertTradingReadyOrHold + onboarding.service.ts#assertTradingReady)
+    // holds deposit/swap/withdraw for any customer without one on file. This
+    // step was missing here — a fresh (never-demo'd-before) DB stalls on the
+    // very first deposit approval, which is what actually surfaces the gap
+    // (an existing worktree with accumulated prior demo runs already has one
+    // from an earlier successful withdrawal and never notices).
+    const wdAddrNo = buildDeterministicNo('WA', SIM, 'WD_BANK', c.customerNo);
+    await ctx.prisma.withdrawalAddress.upsert({
+      where: { customerId_assetId_address: { customerId: c.id, assetId: ctx.aed.id, address: vibanIban } },
+      update: { status: 'ACTIVE' },
+      create: {
+        addressNo: wdAddrNo, customerId: c.id, customerNo: c.customerNo,
+        assetId: ctx.aed.id, network: 'FIAT', address: vibanIban, addressType: 'BANK', iban: vibanIban,
+        ownershipDeclaredAt: new Date(), ownershipProofType: 'DEMO_FIXTURE',
+        status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
+        traceId: `demo-setup-withdrawal-address-${c.customerNo}`,
+      },
+    });
+
+    // Registered crypto withdrawal destination — Task 3's per-transaction hard
+    // guard (createWithdrawal requires the EXACT target address on file, on
+    // top of the trading-ready "has ≥1 BANK address" gate above). Only
+    // WITHDRAW_PLAN entries with a `cryptoUsdt` leg (alice/bob) need one;
+    // must match runWithdraws' own deterministic address derivation exactly.
+    if (WITHDRAW_PLAN[c.email]?.cryptoUsdt) {
+      const idx = customerIdx(c.email);
+      const cryptoWdAddr = `T${createHash('sha256').update(`${SIM}wd${idx}`).digest('hex').slice(0, 33)}`;
+      const cryptoWdAddrNo = buildDeterministicNo('WA', SIM, 'WD_CRYPTO', c.customerNo);
+      await ctx.prisma.withdrawalAddress.upsert({
+        where: { customerId_assetId_address: { customerId: c.id, assetId: ctx.usdt.id, address: cryptoWdAddr } },
+        update: { status: 'ACTIVE' },
+        create: {
+          addressNo: cryptoWdAddrNo, customerId: c.id, customerNo: c.customerNo,
+          assetId: ctx.usdt.id, network: ctx.usdt.network || 'TRON', address: cryptoWdAddr, addressType: 'SELF_CUSTODY',
+          ownershipDeclaredAt: new Date(), ownershipProofType: 'DEMO_FIXTURE',
+          status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
+          traceId: `demo-setup-withdrawal-address-crypto-${c.customerNo}`,
+        },
+      });
+    }
   }
 
   await provisionTbAccounts(ctx.prisma);
@@ -291,9 +334,10 @@ export async function runDeposits(ctx: DemoCtx): Promise<void> {
  *  the leg's funds_order through the per-asset-type state machine (spec §5.3).
  *  CRYPTO: CREATED→SUBMIT→SUBMITTED→OBSERVE_CONFIRMING→CONFIRMING→CONFIRM→CONFIRMED→CLEAR→CLEARED.
  *  FIAT:   CREATED→SUBMIT→SUBMITTED→CONFIRM→CONFIRMED→CLEAR→CLEARED.
- *  Each leg's funds_order is created in CREATED (leg 1 by executeSwap, legs 2-4
- *  chained by the handler on the prior leg's CLEARED). Drives via advanceLeg —
- *  the real controller path (sell-first guard + funds_order.advance). */
+ *  Each leg's funds_order is created in CREATED (leg 1 by applyKytVerdict on an
+ *  approving KYT verdict — initiateSwap itself books nothing, see runSwaps
+ *  below; legs 2-4 chained by the handler on the prior leg's CLEARED). Drives
+ *  via advanceLeg — the real controller path (sell-first guard + funds_order.advance). */
 async function driveSwapLegToClear(ctx: DemoCtx, swapId: string, swapNo: string, legSeq: number): Promise<void> {
   // Legs 2-4 are chained by the (async) handler once the prior leg CLEARs — wait
   // for this leg's funds_order to materialise before driving it.
@@ -379,8 +423,14 @@ export async function runSwaps(ctx: DemoCtx): Promise<void> {
       toAssetId: to.id, toAssetCode: to.currency,
       amount: new Prisma.Decimal(plan.amount), customerId: c.id,
     } as any);
-    const swap: any = await ctx.swapWf.executeSwap(c.id, quote.id);
-    console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount ?? swap.toAmount} ${to.currency} (PROCESSING)`);
+    // initiateSwap (Task 4) books nothing — swap sits COMPLIANCE_PENDING until a
+    // Sumsub KYT verdict lands (Task 6). No real Sumsub webhook in demo/local, so
+    // the approving verdict is applied directly, mirroring driveDeposit/driveWithdraw's
+    // own applyKytVerdict calls above.
+    const swap: any = await ctx.swapWf.initiateSwap(c.id, quote.id);
+    console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} ${usdtToAed ? 'USDT→AED' : 'AED→USDT'} ${plan.amount} → ${swap.netToAmount ?? swap.toAmount} ${to.currency} (COMPLIANCE_PENDING)`);
+    await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved' });
+    console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} KYT approved → PROCESSING, leg1 booked`);
     await driveSwapToSuccess(ctx, { id: swap.id, swapNo: swap.swapNo });
     console.log(`  ${c.customerNo} ${c.firstName}: ${swap.swapNo} 4 legs CLEAR → SUCCESS`);
     driven++;
