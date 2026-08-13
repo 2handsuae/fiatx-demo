@@ -251,6 +251,18 @@ export class SwapWorkflowService {
               message: `请先为 ${asset.code} 创建收款账户再兑换`,
             });
           }
+          // Ledger precheck: fail fast (and roll back the quote consume + swap
+          // row together with the rest of this transaction) if the asset's
+          // settlement currency isn't registered in TB_LEDGERS. Without this,
+          // the same miss only surfaces later inside applyKytVerdict's
+          // buildLegContext — by then the compliance verdict has already been
+          // written outside that transaction, leaving the swap stuck in
+          // COMPLIANCE_PENDING with the quote burned and the KYT check wasted.
+          const assetRow = await tx.asset.findUnique({
+            where: { id: asset.id },
+            select: { currency: true },
+          });
+          this.resolveLedger(assetRow?.currency || asset.code);
         }
 
         const fromAmount = new Prisma.Decimal(quote.amountIn);
@@ -343,6 +355,8 @@ export class SwapWorkflowService {
 
     // Submit the sell leg to Sumsub KYT. The order stays COMPLIANCE_PENDING —
     // only the webhook verdict handler (Task 5/6) may advance status from here.
+    // submitSumsubTxnOut never throws (I2, see its own doc comment) — a
+    // Sumsub outage here must not 500 the customer or strand the swap.
     await this.submitSumsubTxnOut(swap.id);
     return swap;
   }
@@ -351,48 +365,85 @@ export class SwapWorkflowService {
    * Submit the sell leg (fromAsset, direction=out) to Sumsub KYT right after
    * the swap is created COMPLIANCE_PENDING. Public (not private): the SLA
    * watchdog (Task 8) retries this directly, so it must be safe to call twice —
-   * if the swap already has an outbound Sumsub txn id, this is a no-op.
+   * if the swap already has an outbound Sumsub txn id, this is a no-op. If the
+   * customer has no sumsubApplicantId yet, warns and skips — the swap stays
+   * COMPLIANCE_PENDING awaiting manual handling rather than submitting an
+   * empty applicantId that Sumsub would reject.
+   *
+   * I2 (充值教训): the ENTIRE call is wrapped in try/catch — a submit failure
+   * (Sumsub down, network error) must never strand the swap; it just stays
+   * in COMPLIANCE_PENDING for retry (there is no caller-side try/catch here,
+   * mirrors WithdrawWorkflowService.submitSumsubTxn).
    */
   async submitSumsubTxnOut(swapId: string): Promise<void> {
-    const swap = await this.prisma.swapTransaction.findUnique({
-      where: { id: swapId },
-      include: { customer: true, fromAsset: true },
-    });
-    if (!swap) throw new NotFoundException(`Swap not found: ${swapId}`);
-    if (swap.sumsubTxnIdOut) return; // 幂等：看门狗重试安全
+    let swap: any = null;
+    try {
+      swap = await this.prisma.swapTransaction.findUnique({
+        where: { id: swapId },
+        include: { customer: true, fromAsset: true },
+      });
+      if (!swap) throw new NotFoundException(`Swap not found: ${swapId}`);
+      if (swap.sumsubTxnIdOut) return; // 幂等：看门狗重试安全
 
-    const res = await this.sumsubTxnClient.submitTxn({
-      applicantId: swap.customer?.sumsubApplicantId ?? '',
-      clientTxnId: `${swap.swapNo}-OUT`,
-      type: 'finance',
-      direction: 'out',
-      amount: Number(swap.fromAmount),
-      currencyCode: swap.fromAsset.currency,
-      currencyType: swap.fromAsset.type === 'CRYPTO' ? 'crypto' : 'fiat',
-      orderId: swap.swapNo ?? undefined,
-      props: { txType: 'exchange' },
-      infoType: 'exchange',
-    });
+      const applicantId = swap.customer?.sumsubApplicantId;
+      if (!applicantId) {
+        this.logger.warn(
+          `submitSumsubTxnOut skip: swap ${swapId} owner ${swap.ownerId} has no sumsubApplicantId — staying in COMPLIANCE_PENDING for manual handling`,
+        );
+        return;
+      }
 
-    await this.prisma.swapTransaction.update({
-      where: { id: swapId },
-      data: {
-        sumsubTxnIdOut: res.txnId,
-        // 同步响应只作证据快照，绝不写 status —— 状态唯一写入口是 webhook handler
-        complianceAction: res.scoringResult?.action ?? null,
-        complianceRuleNames: res.scoringResult?.matchedRuleNames?.join(',') ?? null,
-      },
-    });
+      const res = await this.sumsubTxnClient.submitTxn({
+        applicantId,
+        clientTxnId: `${swap.swapNo}-OUT`,
+        type: 'finance',
+        direction: 'out',
+        amount: Number(swap.fromAmount),
+        currencyCode: swap.fromAsset.currency,
+        currencyType: swap.fromAsset.type === 'CRYPTO' ? 'crypto' : 'fiat',
+        orderId: swap.swapNo ?? undefined,
+        props: { txType: 'exchange' },
+        infoType: 'exchange',
+      });
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.SWAP_KYT_SUBMITTED,
-      entityType: AuditEntityTypes.SWAP_TRANSACTION,
-      entityId: swap.id,
-      entityNo: swap.swapNo || undefined,
-      result: AuditResult.SUCCESS,
-      reason: 'Swap sell-leg submitted to Sumsub KYT',
-      metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action },
-    });
+      await this.prisma.swapTransaction.update({
+        where: { id: swapId },
+        data: {
+          sumsubTxnIdOut: res.txnId,
+          // 同步响应只作证据快照，绝不写 status —— 状态唯一写入口是 webhook handler
+          complianceAction: res.scoringResult?.action ?? null,
+          complianceRuleNames: res.scoringResult?.matchedRuleNames?.join(',') ?? null,
+        },
+      });
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.SWAP_KYT_SUBMITTED,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: swap.id,
+        entityNo: swap.swapNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap sell-leg submitted to Sumsub KYT',
+        metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action },
+      });
+    } catch (err) {
+      this.logger.error(
+        `submitSumsubTxnOut failed for swap ${swapId}: ${(err as Error).message} — staying in COMPLIANCE_PENDING for retry`,
+      );
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.SWAP_KYT_SUBMIT_FAILED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap?.id,
+          entityNo: swap?.swapNo || undefined,
+          entityOwnerType: swap?.ownerType,
+          entityOwnerId: swap?.ownerId,
+          traceId: swap?.traceId ?? undefined,
+          workflowType: AuditWorkflowTypes.SWAP,
+          reason: err instanceof Error ? err.message : 'Sumsub KYT submit failed',
+          sourcePlatform: 'SYSTEM',
+        })
+        .catch(() => undefined);
+    }
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {

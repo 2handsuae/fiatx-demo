@@ -254,6 +254,26 @@ describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () 
     expect(mocks.prisma.swapTransaction.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ sumsubTxnIdOut: expect.any(String) }) }),
     );
+    // 同步响应只作证据快照，绝不写 status —— 状态唯一写入口是 webhook handler.
+    // This is the safety-critical invariant a later task's second writer relies on.
+    const updateData = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty('status');
+  });
+
+  it('submitSumsubTxnOut 携带 scoringResult 时把 complianceAction/complianceRuleNames 原样落回该行（且仍不写 status）', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.sumsubTxnClient.submitTxn as jest.Mock).mockResolvedValueOnce({
+      txnId: 'txn-mock-out',
+      scoringResult: { action: 'onHold', matchedRuleNames: ['RULE_A', 'RULE_B'] },
+    });
+    const service = makeService(mocks);
+
+    await service.submitSumsubTxnOut('swap-1');
+
+    const updateData = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData.complianceAction).toBe('onHold');
+    expect(updateData.complianceRuleNames).toBe('RULE_A,RULE_B');
+    expect(updateData).not.toHaveProperty('status');
   });
 
   it('submitSumsubTxnOut 幂等：已有 sumsubTxnIdOut 时不重复提交', async () => {
@@ -1059,12 +1079,29 @@ describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () =
     const ctx = await (service as any).buildLegContext(swapRow, tx);
     const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
 
-    await (service as any).createLeg(swapRow, legSpecs[0]!, ctx, 1, 1, undefined, tx);
+    await (service as any).createLeg(swapRow, legSpecs[0]!, ctx, 1, 1, 'TRACE-CREATELEG-1', tx);
 
     expect((mocks as any).legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
     const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
     expect(createLegArg.fromWalletId).toBe('w-from');
     expect(createLegArg.toWalletId).toBe('w-to');
+
+    // Coverage dropped in the earlier test rewrite (finding 5):
+    expect(createLegArg.swapTransactionId).toBe(swapRow.id);
+    expect(createLegArg.legSeq).toBe(1);
+    expect(createLegArg.attempt).toBe(1);
+    // An unguarded change to SUBMITTED here would currently pass green without this.
+    expect(createLegArg.initialStatus).toBe(FundsOrderStatus.CREATED);
+    // traceId propagates onto the created funds order.
+    expect(createLegArg.traceId).toBe('TRACE-CREATELEG-1');
+
+    // legAccounting.initiateLegPending called once (positive assertion).
+    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
+    // createLeg's per-attempt context enrichment sets `attempt` on the leg context.
+    expect((mocks as any).legAccounting.initiateLegPending.mock.calls[0][0].attempt).toBe(1);
+
+    // createLeg must not auto-advance the leg.
+    expect((mocks as any).fundsOrders.advance).not.toHaveBeenCalled();
   });
 
   it('createLeg throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
