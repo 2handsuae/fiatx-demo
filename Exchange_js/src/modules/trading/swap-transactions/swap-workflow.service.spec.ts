@@ -201,6 +201,8 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     (mocks as any).walletQuery,
     mocks.limitGateService as any,
     mocks.sumsubTxnClient as any,
+    {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
+    {} as any, // pendingActionService — not on this path
   );
 }
 
@@ -639,6 +641,8 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.walletQuery as any,
     {} as any,
     {} as any,
+    {} as any, // customerRestrictionsService — not on this path (advanceLeg never rejects)
+    {} as any, // pendingActionService — not on this path
   );
 }
 
@@ -1127,6 +1131,8 @@ describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () =
 // ── applyKytVerdict (Task 6) — approved → PROCESSING+leg1+buy-leg submit; ──
 // ── rejected → REJECTED with zero accounting trace; both idempotent ────────
 
+import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
+
 describe('SwapWorkflowService.applyKytVerdict', () => {
   function buildApplyKytVerdictMocks(overrides: { status?: string } = {}) {
     const swapRow = {
@@ -1214,6 +1220,41 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       },
     };
 
+    // Task 7: CustomerRestrictionsService stays a jest mock here — its own
+    // idempotency (dedup per capability) is already proven in
+    // customer-restrictions.service.spec.ts (Task 1); these tests only need
+    // to assert swap-workflow *calls* it correctly.
+    const customerRestrictionsService = {
+      add: jest.fn(() => Promise.resolve()),
+    };
+
+    // Task 7: CustomerPendingActionService is the REAL implementation wired
+    // to a small stateful customerMain fake, not a jest mock. The whole point
+    // of the tipping-off split is that the read side (.get()) is a dumb
+    // accessor with no logic of its own — mocking .get() would just assert
+    // our own assumption back at us instead of proving the write landed
+    // right. Deliberately a separate prisma-like object from `prisma` above
+    // (real production code injects two separate services, both ultimately
+    // backed by the same PrismaService — test isolation mirrors that).
+    const customerMainRow: any = {
+      id: 'cust-1',
+      customerNo: 'C0001',
+      pendingActionExternalId: null,
+      pendingActionReason: null,
+    };
+    const pendingActionPrisma: any = {
+      customerMain: {
+        findUnique: jest.fn(({ where }: any) =>
+          Promise.resolve(where.id === customerMainRow.id ? { ...customerMainRow } : null),
+        ),
+        update: jest.fn(({ data }: any) => {
+          Object.assign(customerMainRow, data);
+          return Promise.resolve({ ...customerMainRow });
+        }),
+      },
+    };
+    const pendingActionService = new CustomerPendingActionService(pendingActionPrisma);
+
     return {
       swapRow,
       txClient,
@@ -1224,6 +1265,9 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       sumsubTxnClient,
       accountingService,
       prisma,
+      customerRestrictionsService,
+      pendingActionService,
+      customerMainRow,
     };
   }
 
@@ -1241,6 +1285,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       {} as any, // walletQuery — not on this path
       {} as any, // limitGateService — not on this path
       mocks.sumsubTxnClient as any,
+      mocks.customerRestrictionsService as any,
+      mocks.pendingActionService as any,
     );
   }
 
@@ -1476,5 +1522,135 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect.anything(),
     );
     expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
+  });
+
+  // ── handleRejectDisposition (Task 7) — soft/hard line split + tipping-off ──
+  //
+  // The tipping-off decision is made exactly once, on the write side, inside
+  // handleRejectDisposition. CustomerPendingActionService.get() (see
+  // customer-pending-action.service.ts) is a dumb accessor with no logic of
+  // its own — these tests read the disposition back through the REAL service
+  // (not a mock) to prove the split actually happened on the write side, not
+  // just that we asserted our own assumption back at ourselves. Nested here
+  // (not a sibling top-level describe) so it can reuse
+  // buildApplyKytVerdictMocks/makeApplyKytVerdictService via closure.
+  describe('→ handleRejectDisposition (Task 7)', () => {
+    it('软线（有 applicantActions，无 SANCTION）→ 写 restrictions(SWAP,WITHDRAW) + pendingAction 可见', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
+        'cust-1',
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
+      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
+        externalActionId: 'EA1',
+        reason: 'KYT_REJECTED',
+      });
+    });
+
+    it('硬线（SANCTION tag）→ 写 restrictions 但 pendingAction 为 null（tipping-off，即使有 action 也不暴露）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+        typedTags: ['SANCTION'],
+      });
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalled();
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    });
+
+    it('硬线（无 applicantActions）→ 写 restrictions，pendingAction 为 null（没有可做的动作，不给入口）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalled();
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    });
+
+    it('降级覆盖：客户已有软线 pendingAction，之后一次硬线（SANCTION）裁决必须把它清空，不留旧入口', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      // Simulate a prior soft-line disposition that already stored a pendingAction.
+      mocks.customerMainRow.pendingActionExternalId = 'STALE';
+      mocks.customerMainRow.pendingActionReason = 'KYT_REJECTED';
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
+        typedTags: ['SANCTION'],
+      });
+
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    });
+
+    it('幂等：webhook 重投/人工重放 handleRejectDisposition 两次，restrictions 每次都调（Task 1 已证幂等）且 pendingAction 保持单一值，不讹误', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      const input = {
+        verdict: 'rejected' as const,
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+      };
+
+      // Calls the private disposition method directly twice — this is the
+      // scenario a manual replay tool would hit (applyKytVerdict's own
+      // terminal-status guard would normally block a second webhook redelivery
+      // once the swap is REJECTED; a direct replay of disposition itself must
+      // still be safe).
+      await (service as any).handleRejectDisposition(mocks.swapRow, input);
+      await (service as any).handleRejectDisposition(mocks.swapRow, input);
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalledTimes(2);
+      expect(mocks.customerRestrictionsService.add).toHaveBeenNthCalledWith(
+        1,
+        'cust-1',
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
+      expect(mocks.customerRestrictionsService.add).toHaveBeenNthCalledWith(
+        2,
+        'cust-1',
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
+      // Re-running left exactly the same single pendingAction — not duplicated,
+      // not nulled out by the replay.
+      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
+        externalActionId: 'EA1',
+        reason: 'KYT_REJECTED',
+      });
+    });
+
+    it('审计记录能区分软硬线 —— reviewer 事后能看出客户是否被告知及原因', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+        typedTags: ['SANCTION'],
+      });
+
+      const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(dispositionAudit).toBeDefined();
+      expect(dispositionAudit.metadata).toMatchObject({ hasSanction: true, exposeToCustomer: false });
+      expect(dispositionAudit.reason).toMatch(/not notified|tipping/i);
+    });
   });
 });

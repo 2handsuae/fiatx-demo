@@ -321,6 +321,10 @@ export const AuditActions = {
   // entered PROCESSING (mirrors WITHDRAW_POST_BROADCAST_VERDICT) — evidence
   // recorded, no state-machine action taken.
   SWAP_POST_APPROVAL_VERDICT: 'SWAP_POST_APPROVAL_VERDICT',
+  // Task 7: handleRejectDisposition's single audit record — carries the
+  // soft/hard (tipping-off) decision so an investigator can tell after the
+  // fact whether the customer was informed and why.
+  SWAP_KYT_REJECTED_DISPOSED: 'SWAP_KYT_REJECTED_DISPOSED',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',

@@ -15,6 +15,7 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WalletsModule } from '../../asset-treasury/wallets/wallets.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
+import { CustomersModule } from '../../identity/customers/customers.module';
 
 @Module({
   imports: [
@@ -44,6 +45,12 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     // WithdrawTransactionsModule's identical import (future SwapSumsubModule →
     // SumsubIngestionModule → SwapTransactionsModule would otherwise cycle).
     forwardRef(() => DepositSumsubModule),
+    // Task 7: SwapWorkflowService injects CustomerRestrictionsService +
+    // CustomerPendingActionService (handleRejectDisposition). Plain import
+    // (no forwardRef) — CustomersModule only depends on PrismaModule
+    // (@Global) and NotificationsModule (a leaf module), so there is no path
+    // back from CustomersModule to SwapTransactionsModule to cycle on.
+    CustomersModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],

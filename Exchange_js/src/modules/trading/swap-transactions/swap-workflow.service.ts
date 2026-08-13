@@ -39,6 +39,8 @@ import {
   TransactionLimitGateService,
   GateValuation,
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
+import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -182,6 +184,8 @@ export class SwapWorkflowService {
     private readonly walletQuery: WalletQueryService,
     private readonly limitGateService: TransactionLimitGateService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
+    private readonly customerRestrictionsService: CustomerRestrictionsService,
+    private readonly customerPendingActionService: CustomerPendingActionService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -663,12 +667,39 @@ export class SwapWorkflowService {
   }
 
   /**
-   * STUB — Task 7's job. On a rejected KYT verdict this decides disposition:
-   * writing customer restrictions, whether to expose a re-verification prompt
-   * to the customer, and the sanctions/tipping-off split (silent for SANCTION
-   * hits, customer-visible otherwise). By the time this runs the swap is
-   * already REJECTED with zero accounting trace — Task 7 only adds side
-   * effects on top and must never touch funds, legs, or accounting.
+   * On a rejected KYT verdict this decides disposition: writing customer
+   * restrictions, whether to expose a re-verification prompt to the
+   * customer, and the sanctions/tipping-off split (silent for SANCTION hits,
+   * customer-visible otherwise). By the time this runs the swap is already
+   * REJECTED with zero accounting trace — this only adds side effects on top
+   * and must never touch funds, legs, or accounting.
+   *
+   * Runs OUTSIDE the $transaction that committed REJECTED (that transaction
+   * is long closed by the time applyKytVerdict calls this) — so every write
+   * here must be independently idempotent and safe to re-run (webhook
+   * redelivery, retry, or a manual replay must never duplicate restrictions
+   * or corrupt state):
+   *   - customerRestrictionsService.add is dedup'd per capability (Task 1) —
+   *     re-adding SWAP/WITHDRAW is a no-op on repeat calls.
+   *   - customerPendingActionService.set is an unconditional overwrite of two
+   *     scalar columns — calling it twice with the same input is a no-op,
+   *     and calling it with a different input (e.g. a later, more severe
+   *     verdict) correctly replaces rather than accumulates.
+   *
+   * Two situations, and telling them apart correctly is the whole point:
+   *   - soft line: Sumsub attached ≥1 applicantActions and no SANCTION tag —
+   *     the customer can fix this (submit source-of-funds, a liveness check,
+   *     etc.), so pendingAction is exposed.
+   *   - hard line: no actions attached, OR a SANCTION scene tag is present —
+   *     nothing the customer can submit will fix it, and in the sanctions
+   *     case the customer must not be told anything at all (tipping-off is a
+   *     criminal offence in most AML regimes). pendingAction is stored null.
+   *
+   * The tipping-off decision is made exactly ONCE, here, on the write side.
+   * CustomerPendingActionService.get() (the read side, consumed by the
+   * client-facing endpoint) is a dumb accessor with no conditional logic of
+   * its own — see that service's class comment for why the decision must
+   * never be re-derived on the read side.
    */
   private async handleRejectDisposition(
     swap: any,
@@ -679,7 +710,46 @@ export class SwapWorkflowService {
       typedTags?: string[];
     },
   ): Promise<void> {
-    // Task 7: CustomerRestrictionsService write + sanctions/tipping-off split.
+    // 收紧方向、免事前审批：无论软硬线都先限制 SWAP/WITHDRAW。DEPOSIT 故意不
+    // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
+    await this.customerRestrictionsService.add(
+      swap.ownerId,
+      ['SWAP', 'WITHDRAW'],
+      'KYT_REJECTED',
+      'system',
+    );
+
+    const hasSanction = (input.typedTags ?? []).includes('SANCTION');
+    const actions = input.applicantActions ?? [];
+
+    // tipping-off 线：制裁调查绝不能提示客户；只有「确实有补料动作可做」的
+    // 软线才暴露入口。无条件调用 set（而非只在软线时才调用），这样硬线裁决
+    // 也会把客户此前可能留下的软线 pendingAction 一并清空，不留旧入口。
+    const exposeToCustomer = actions.length > 0 && !hasSanction;
+    await this.customerPendingActionService.set(
+      swap.ownerId,
+      exposeToCustomer
+        ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED' }
+        : null,
+    );
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.SWAP_KYT_REJECTED_DISPOSED,
+      entityType: AuditEntityTypes.SWAP_TRANSACTION,
+      entityId: swap.id,
+      entityNo: swap.swapNo || undefined,
+      traceId: swap.traceId ?? undefined,
+      workflowType: AuditWorkflowTypes.SWAP,
+      entityOwnerType: swap.ownerType,
+      entityOwnerId: swap.ownerId,
+      reason: hasSanction
+        ? 'Sanction hit — customer not notified (tipping-off)'
+        : exposeToCustomer
+        ? 'Restricted; re-verification action exposed to customer'
+        : 'Restricted; no action available — customer not notified',
+      metadata: { hasSanction, actionCount: actions.length, exposeToCustomer },
+      sourcePlatform: 'SYSTEM',
+    });
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {

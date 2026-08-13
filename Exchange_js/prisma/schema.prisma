@@ -223,6 +223,13 @@ model CustomerMain {
   // ═══ 细粒度限制 ═══
   restrictions String @default("[]")
 
+  // Task 7 (swap-sumsub): KYT 拒绝后暴露给客户的待办事项。软线（有补料动作且
+  // 非制裁）才非 null；硬线（含制裁 tipping-off）恒为 null —— 写入方
+  // CustomerPendingActionService，判断只在 swap-workflow 的
+  // handleRejectDisposition 做一次。
+  pendingActionExternalId String? @map("pending_action_external_id")
+  pendingActionReason     String? @map("pending_action_reason")
+
   // ═══ 产品属性 ═══
   investorTier          String    @default("STANDARD")
   investorTierSource    String    @default("ONBOARDING")
