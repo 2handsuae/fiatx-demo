@@ -1429,6 +1429,10 @@ git commit -m "feat(client): 兑换四态展示 + 认证 banner（tipping-off �
 **Files:**
 - Create: `test/swap-sumsub-scenarios.e2e-spec.ts`
 - Create: `test/swap-money-arc.e2e-spec.ts`
+- **Modify: `scripts/demo-lib.ts:382`、`scripts/demo-fixtures.ts:316`、`scripts/verify-swap-self-heal.ts:40`、`scripts/verify-swap-redesign-happy.ts:48`**
+  —— 这四处仍调用 Task 4 已删除的 `executeSwap`。它们在 `tsc` 的 `src/**` 范围外，编译通过但**运行时必炸**，
+  且 `demo-lib.ts` 支撑 `demo:all` 闸门（可移植 Docker 交付靠它）。改名不够：`runSwaps` 断言"建单后 leg1 立即存在"，
+  而该行为已随合规等待移除，须改为「initiateSwap → 喂 approved 裁决 → 再断言四腿」。
 - Modify: `doc-final/reference/truth/v6-swap.md`
 - Modify: `doc-final/BACKLOG.md`
 
@@ -1474,8 +1478,10 @@ npm run build
 npx jest
 npx jest --config ./test/jest-e2e.json
 bash scripts/on-stack.sh self verify:coa
+bash scripts/on-stack.sh self demo:all
 ```
-Expected: build 通过；单测净新失败 0；两个新 e2e 全绿；`verify:coa` 输出 `ALL INVARIANTS PASS`
+Expected: build 通过；单测净新失败 0；两个新 e2e 全绿；`verify:coa` 输出 `ALL INVARIANTS PASS`；
+**`demo:all` 8/8 PASS**（Task 4 改造后此闸门一度断裂，本任务须修复脚本使其恢复）
 
 - [ ] **Step 4: 同步 truth**
 
