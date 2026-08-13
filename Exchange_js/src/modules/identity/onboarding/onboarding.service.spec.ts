@@ -890,6 +890,52 @@ describe('OnboardingService', () => {
     expect(result.blockedReason).toContain('SOMETHING_UNKNOWN');
   });
 
+  // ── Finding 1（Important，终审 swap-sumsub 复核）：tipping-off 泄漏 ────────
+  // getMyOnboarding 历史上直接 `...customer` spread 整行 CustomerMain 进响应
+  // 体。hardLineDispositionedAt 只在客户被硬线（含制裁）永久沉默时非
+  // null——原样回显给被沉默的本人就是 tipping-off；passwordHash 是同一个
+  // spread 顺手带上的另一条绝不能面向客户的字段。
+  it('getMyOnboarding 响应体不得包含 hardLineDispositionedAt / passwordHash（tipping-off 泄漏，Finding 1）', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'REJECTED',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
+      passwordHash: 'bcrypt-hash-should-never-leave-the-server',
+      hardLineDispositionedAt: new Date('2026-08-01T00:00:00.000Z'),
+    });
+
+    const result = await service.getMyOnboarding('c1');
+
+    expect(result).not.toHaveProperty('hardLineDispositionedAt');
+    expect(result).not.toHaveProperty('passwordHash');
+  });
+
+  it('upsertEntity 响应体同样不得包含 hardLineDispositionedAt / passwordHash（同一 spread 泄漏点，Finding 1）', async () => {
+    const rawCustomer = {
+      id: 'c1',
+      customerNo: 'CU0001',
+      customerType: 'INDIVIDUAL',
+      onboardingStatus: 'PENDING_CDD_INPUT',
+      adminStatus: 'INACTIVE',
+      complianceStatus: 'CLEAR',
+      eddRequired: false,
+      passwordHash: 'bcrypt-hash-should-never-leave-the-server',
+      hardLineDispositionedAt: new Date('2026-08-01T00:00:00.000Z'),
+      corporateProfile: null,
+      uboProfiles: [],
+    };
+    prismaMock.customerMain.findUnique.mockResolvedValue(rawCustomer);
+    prismaMock.customerMain.update.mockResolvedValue(rawCustomer);
+
+    const result = await service.upsertEntity('c1', 'c1', { customerType: 'INDIVIDUAL' } as any);
+
+    expect(result).not.toHaveProperty('hardLineDispositionedAt');
+    expect(result).not.toHaveProperty('passwordHash');
+  });
+
   it('should create Sumsub applicant and return sdk token when starting verification', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',

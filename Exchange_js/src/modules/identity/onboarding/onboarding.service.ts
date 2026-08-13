@@ -913,6 +913,26 @@ export class OnboardingService {
     return customer;
   }
 
+  /**
+   * Review Fix（终审 Finding 1，tipping-off 泄漏）：customer-facing 读端点
+   * （getMyOnboarding / upsertEntity）历史上直接 `...customer` 把 CustomerMain
+   * 整行 spread 进响应体。两个字段绝不能这样流出去：
+   *   - passwordHash：认证凭据，任何业务响应都不该带它（顺手一并堵上，同一处
+   *     spread 就是泄漏点）。
+   *   - hardLineDispositionedAt：swap KYT 硬线处置的 sticky 标记，只在客户被
+   *     永久沉默（含制裁调查）时非 null —— 把这个事实原样回显给被沉默的本人
+   *     就是 tipping-off。
+   * 集中在这一处剔除，而不是让每个客户端读接口各自记一遍"这个字段不能给客户
+   * 看"——hardLineDispositionedAt 本身就是后一种写法漏挡的例子。新增的内部
+   * 专用列如果同样不能面向客户，加进这里的剔除表。
+   */
+  private omitCustomerInternalOnlyFields<T extends Record<string, any>>(
+    customer: T,
+  ): Omit<T, 'passwordHash' | 'hardLineDispositionedAt'> {
+    const { passwordHash, hardLineDispositionedAt, ...safe } = customer;
+    return safe;
+  }
+
   private async autoExpireIfNeeded(customerId: string): Promise<void> {
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
@@ -1029,7 +1049,7 @@ export class OnboardingService {
     const canonical = this.getCanonicalState(customer);
 
     return {
-      ...customer,
+      ...this.omitCustomerInternalOnlyFields(customer),
       onboardingStatus: canonical.onboardingStatus,
       adminStatus: canonical.adminStatus,
       complianceStatus: canonical.complianceStatus,
@@ -1275,7 +1295,7 @@ export class OnboardingService {
     });
 
     return {
-      ...updated,
+      ...this.omitCustomerInternalOnlyFields(updated),
       actions: this.mapActionsByStatus(updated),
     };
   }

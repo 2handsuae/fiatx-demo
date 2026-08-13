@@ -61,18 +61,33 @@ export class CustomerPendingActionService {
    * true，本方法据此额外盖章 hardLineDispositionedAt——同样只是记录调用方
    * 已经做完的判断，不在这里重新推导。sticky：只会被置真，本方法不提供清除
    * 入口。
+   *
+   * Finding 4（Minor，终审）：write-once —— 这个时间戳要记的是"客户第一次被
+   * 硬线沉默"的时刻，不是"最近一次硬线裁决"。webhook 重投或同一客户后续又
+   * 命中一次硬线，都不能把它推后：markHardLine 为真时先查一次现状，只有从未
+   * 盖过章才写当次时间；已经盖过的直接跳过（不写、不覆盖）。
    */
   async set(
     customerId: string,
     action: CustomerPendingAction | null,
     markHardLine = false,
   ): Promise<void> {
+    let hardLineDispositionPatch: { hardLineDispositionedAt?: Date } = {};
+    if (markHardLine) {
+      const existing = await this.prisma.customerMain.findUnique({
+        where: { id: customerId },
+        select: { hardLineDispositionedAt: true },
+      });
+      if (!existing?.hardLineDispositionedAt) {
+        hardLineDispositionPatch = { hardLineDispositionedAt: new Date() };
+      }
+    }
     await this.prisma.customerMain.update({
       where: { id: customerId },
       data: {
         pendingActionExternalId: action?.externalActionId ?? null,
         pendingActionReason: action?.reason ?? null,
-        ...(markHardLine ? { hardLineDispositionedAt: new Date() } : {}),
+        ...hardLineDispositionPatch,
       },
     });
   }

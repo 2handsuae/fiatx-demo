@@ -509,7 +509,22 @@ export class SwapWorkflowService {
       // idempotent — see its class comment) — so it is let back in, on
       // purpose, to re-run ONLY disposition. markStatus/leg-building must
       // never re-run here; they are genuinely one-shot.
-      if (status === SwapTransactionStatus.REJECTED && input.verdict === 'rejected') {
+      //
+      // Finding 2 (Minor, 终审): the exact same redelivery shape can also land
+      // on a swap that has since reached SUCCESS — disposition is invoked a
+      // second time from the PROCESSING branch below (a hard line raised
+      // after the swap already entered settlement); if THAT call throws, the
+      // webhook retry (≥30s later, per the ingestion dispatcher's backoff) can
+      // easily arrive after the swap's legs have all cleared. The order's own
+      // state must not decide whether the PERSON gets restricted (same
+      // principle as Review Fix 3 above), so SUCCESS is admitted here too —
+      // handleRejectDisposition never touches swap status or legs, only
+      // customer-domain writes, so re-admitting it here cannot re-transition
+      // the swap, rebuild a leg, or unwind anything already settled.
+      if (
+        (status === SwapTransactionStatus.REJECTED || status === SwapTransactionStatus.SUCCESS) &&
+        input.verdict === 'rejected'
+      ) {
         await this.handleRejectDisposition(swap, input);
         return;
       }
@@ -743,6 +758,19 @@ export class SwapWorkflowService {
    * makes the hard-line fact sticky on the customer row: once tripped, it
    * silences every later disposition for that customer, not just this swap's.
    *
+   * Finding 3 (Minor, 终审): the sticky marker is stamped on `hasSanction`
+   * ONLY, not on `isHardLineThisVerdict`. The durable-silence requirement
+   * above was motivated by sanctions specifically — a SANCTION hit must never
+   * be un-silenced by a later, independently-arriving soft-line verdict. The
+   * no-actions hard line (Sumsub attached nothing to act on) has no such
+   * requirement: it's a per-verdict fact, not a permanent one — this
+   * particular rejection has nothing to expose, but it says nothing about
+   * whether the customer's NEXT rejection will. Stamping the sticky marker
+   * there too would permanently silence a customer whose first rejection
+   * simply happened to carry no applicantActions, with no path back (see
+   * CustomerPendingActionService — the marker has no clear/reset entry
+   * point on purpose).
+   *
    * Review Fix 1 (Important): this entire body is wrapped in try/catch. A
    * throw here (SQLite lock, transient DB error, a service throwing
    * NotFoundException) must not vanish — see the call sites for how the
@@ -802,12 +830,16 @@ export class SwapWorkflowService {
       // 用），这样硬线裁决也会把客户此前可能留下的软线 pendingAction 一并
       // 清空，不留旧入口。
       const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
+      // Finding 3 (Minor, 终审): sticky marker keyed on hasSanction only — see
+      // the class-comment note above. isHardLineThisVerdict still decides
+      // exposure for THIS verdict (no-actions correctly exposes nothing here
+      // too), it just must not be what makes the silence permanent.
       await this.customerPendingActionService.set(
         swap.ownerId,
         exposeToCustomer
           ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED' }
           : null,
-        isHardLineThisVerdict,
+        hasSanction,
       );
 
       await this.auditLogsService.recordSystem({

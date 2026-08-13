@@ -101,14 +101,21 @@ describe('CustomerPendingActionService', () => {
     expect(await svc.hasHardLineDisposition('c1')).toBe(true);
   });
 
-  it('set(customerId, action, true) 额外盖章 hardLineDispositionedAt', async () => {
+  it('set(customerId, action, true) 首次盖章 hardLineDispositionedAt —— 现状未设置时才写入', async () => {
     const prisma = {
-      customerMain: { update: jest.fn().mockResolvedValue({}) },
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ hardLineDispositionedAt: null }),
+        update: jest.fn().mockResolvedValue({}),
+      },
     } as any;
     const svc = new CustomerPendingActionService(prisma);
 
     await svc.set('c1', null, true);
 
+    expect(prisma.customerMain.findUnique).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      select: { hardLineDispositionedAt: true },
+    });
     expect(prisma.customerMain.update).toHaveBeenCalledWith({
       where: { id: 'c1' },
       data: {
@@ -119,14 +126,44 @@ describe('CustomerPendingActionService', () => {
     });
   });
 
-  it('set(customerId, action) 不传第三参数 —— 不触碰 hardLineDispositionedAt', async () => {
+  // ── Finding 4（Minor，终审）：write-once ──────────────────────────────────
+  it('set(customerId, action, true) 二次调用不推移时间戳 —— 已经盖过章就跳过，不覆盖', async () => {
+    const firstStamp = new Date('2026-01-01T00:00:00.000Z');
     const prisma = {
-      customerMain: { update: jest.fn().mockResolvedValue({}) },
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ hardLineDispositionedAt: firstStamp }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    // 同一客户第二次硬线（webhook 重投 / 另一笔 swap 的独立制裁命中）。
+    await svc.set('c1', null, true);
+
+    expect(prisma.customerMain.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: {
+        pendingActionExternalId: null,
+        pendingActionReason: null,
+        // 不带 hardLineDispositionedAt —— 保留库里第一次盖的旧时间，不重写。
+      },
+    });
+    const data = (prisma.customerMain.update as jest.Mock).mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('hardLineDispositionedAt');
+  });
+
+  it('set(customerId, action) 不传第三参数 —— 不触碰 hardLineDispositionedAt，也不查现状', async () => {
+    const prisma = {
+      customerMain: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
     } as any;
     const svc = new CustomerPendingActionService(prisma);
 
     await svc.set('c1', { externalActionId: 'EA1', reason: 'KYT_REJECTED' });
 
+    expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
     const data = (prisma.customerMain.update as jest.Mock).mock.calls[0][0].data;
     expect(data).not.toHaveProperty('hardLineDispositionedAt');
   });
