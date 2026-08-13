@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRightLeft, 
-  History, 
-  Info, 
-  AlertTriangle, 
-  RefreshCw, 
-  Check, 
-  X, 
+  ArrowRightLeft,
+  History,
+  Info,
+  AlertTriangle,
+  RefreshCw,
+  Check,
+  X,
   ArrowDownUp,
   ShieldCheck,
   Zap,
@@ -23,6 +23,14 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
+import { getSwapStatusView } from '../utils/swapStatusView';
+import { PendingActionBanner } from '../components/PendingActionBanner';
+
+// 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
+// 落地，客户端轮询直到终态或超时。2s 间隔足够快地反映状态、不过度打后端；90s 上限
+// 覆盖绝大多数裁决延迟（正常几秒内完成），超时不代表失败，只代表还没等到。
+const SWAP_POLL_INTERVAL_MS = 2000;
+const SWAP_POLL_TIMEOUT_MS = 90000;
 
 interface Asset {
   id: string;
@@ -142,6 +150,20 @@ const Swap = () => {
   const [quoteExpiresIn, setQuoteExpiresIn] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [swapping, setSwapping] = useState(false);
+
+  // Post-submit tracking: set once the create request returns COMPLIANCE_PENDING,
+  // cleared when the customer dismisses the status panel. `status` is updated by
+  // the polling effect below as verdicts land; only `id`/`swapNo`/`status` are
+  // needed here (the full SwapTransaction shape is only used by the history list).
+  const [trackedSwap, setTrackedSwap] = useState<{
+    id: string;
+    swapNo: string;
+    status: string;
+  } | null>(null);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  // Anchors the 90s bound to submission time, not to the last status change —
+  // a ref (not state) so re-renders from polling ticks don't restart the clock.
+  const pollDeadlineRef = useRef<number | null>(null);
 
   // Live Rate State
   const [liveRate, setLiveRate] = useState<number | null>(null);
@@ -474,13 +496,15 @@ const Swap = () => {
         })
       });
       if (response.ok) {
-        alert('Swap transaction created successfully!');
-        setShowConfirm(false);
+        const data = await response.json();
+        // Submitting no longer means "done" — the order sits in
+        // COMPLIANCE_PENDING until a Sumsub verdict lands. Switch the
+        // confirm modal into a waiting/result panel instead of closing it,
+        // and start polling for the terminal state.
         setFromAmount('');
-        setFirmQuote(null);
-        setQuoteExpiresIn(0);
-        setActiveTab('history');
-        fetchBalances(); // Refresh balances after swap
+        pollDeadlineRef.current = Date.now() + SWAP_POLL_TIMEOUT_MS;
+        setPollTimedOut(false);
+        setTrackedSwap({ id: data.id, swapNo: data.swapNo, status: data.status });
       } else {
         const message = await resolveSubmitErrorMessage(response, 'Swap failed');
         alert(message);
@@ -499,6 +523,19 @@ const Swap = () => {
     }
   };
 
+  // Closes the status panel once the customer has seen a terminal result (or
+  // given up waiting past the timeout) and returns them to History, where
+  // the real status is always visible on refresh.
+  const closeStatusPanel = () => {
+    setShowConfirm(false);
+    setFirmQuote(null);
+    setQuoteExpiresIn(0);
+    setTrackedSwap(null);
+    setPollTimedOut(false);
+    setActiveTab('history');
+    fetchBalances();
+  };
+
   useEffect(() => {
     if (!showConfirm || !firmQuote) return;
 
@@ -515,17 +552,73 @@ const Swap = () => {
     return () => clearInterval(timer);
   }, [showConfirm, firmQuote]);
 
-  const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING_COMPLIANCE: 'bg-fx-brass/10 text-fx-brass',
-      UNDER_REVIEW: 'bg-fx-brass/10 text-fx-brass',
-      SUCCESS: 'bg-fx-sage/15 text-fx-sage',
-      REJECTED: 'bg-fx-rust/15 text-fx-rust',
-      FAILED: 'bg-fx-rust/15 text-fx-rust',
+  // Polls GET /swap-transactions/:id every SWAP_POLL_INTERVAL_MS until the
+  // swap reaches a terminal status (SUCCESS/REJECTED) or SWAP_POLL_TIMEOUT_MS
+  // elapses since submission (pollDeadlineRef, fixed at submit time so a
+  // status change mid-poll can't silently extend the window). Re-runs only
+  // when a NEW swap starts tracking or its status actually changes value —
+  // not on every tick — since each iteration reschedules itself via
+  // setTimeout rather than relying on the effect to loop.
+  useEffect(() => {
+    if (!trackedSwap) return;
+    if (trackedSwap.status === 'SUCCESS' || trackedSwap.status === 'REJECTED') return;
+    const deadline = pollDeadlineRef.current;
+    if (deadline === null) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (Date.now() >= deadline) {
+        setPollTimedOut(true);
+        return;
+      }
+      try {
+        const res = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/swap-transactions/${trackedSwap.id}`,
+        );
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          setTrackedSwap({ id: data.id, swapNo: data.swapNo, status: data.status });
+          if (data.status === 'SUCCESS' || data.status === 'REJECTED') {
+            fetchBalances();
+            return;
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof CustomerSessionError)) {
+          console.error('Swap status poll failed', error);
+        }
+      }
+      if (!cancelled) {
+        timer = setTimeout(tick, SWAP_POLL_INTERVAL_MS);
+      }
     };
+
+    timer = setTimeout(tick, SWAP_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedSwap?.id, trackedSwap?.status]);
+
+  // Routed through getSwapStatusView so this list can never render a raw
+  // status code — COMPLIANCE_PENDING/PROCESSING both read "Processing" here
+  // too, same as the post-submit panel (this table is the customer's other
+  // window into a swap that's still under KYT review).
+  const STATUS_TONE_CLASSES: Record<string, string> = {
+    pending: 'bg-fx-brass/10 text-fx-brass',
+    success: 'bg-fx-sage/15 text-fx-sage',
+    failed: 'bg-fx-rust/15 text-fx-rust',
+  };
+
+  const renderStatusBadge = (status: string) => {
+    const view = getSwapStatusView(status);
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-fx-ink/40 text-fx-dune'}`}>
-        {status}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_TONE_CLASSES[view.tone] || 'bg-fx-ink/40 text-fx-dune'}`}>
+        {view.text}
       </span>
     );
   };
@@ -772,6 +865,7 @@ const Swap = () => {
 
               {/* Right Side: Educational Info */}
               <div className="lg:col-span-1">
+                <PendingActionBanner />
                 <div className="bg-fx-ink/60 rounded-2xl p-6 border border-fx-rule space-y-6 sticky top-6">
                   <div className="flex items-center gap-2 text-fx-brass">
                     <div className="p-2 bg-fx-brass/10 rounded-lg">
@@ -828,10 +922,16 @@ const Swap = () => {
                         onChange={(e) => setHistoryStatus(e.target.value)}
                         className="bg-transparent text-sm text-fx-sand focus:outline-none"
                       >
+                          {/* Real backend statuses are COMPLIANCE_PENDING/PROCESSING/
+                              SUCCESS/REJECTED (dead FAILED/REVERSED aside — see
+                              swapStatusView.ts). No filter option for "processing":
+                              the query only matches one exact status and two
+                              different backend values both read "Processing" to
+                              the customer, so a single option would silently miss
+                              half of them rather than filter correctly. */}
                           <option value="">All Status</option>
-                          <option value="SUCCESS">Success</option>
-                          <option value="FAILED">Failed</option>
-                          <option value="PENDING_COMPLIANCE">Pending Compliance</option>
+                          <option value="SUCCESS">Completed</option>
+                          <option value="REJECTED">Unsuccessful</option>
                       </select>
                   </div>
                   <button 
@@ -917,103 +1017,151 @@ const Swap = () => {
           <div className="bg-fx-ink rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-fx-rule">
             <div className="p-8 space-y-8">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold text-fx-sand">Confirm Swap</h3>
-                <button onClick={handleCloseConfirm} className="p-2 hover:bg-fx-charcoal rounded-full transition-colors">
-                  <X size={20} className="text-fx-dust" />
-                </button>
+                <h3 className="text-xl font-bold text-fx-sand">
+                  {trackedSwap ? 'Swap Status' : 'Confirm Swap'}
+                </h3>
+                {/* Hidden once submitted: the order is already placed, so this is no
+                    longer a "cancel" affordance — closing happens via the Close
+                    button below once a terminal state (or timeout) is reached. */}
+                {!trackedSwap && (
+                  <button onClick={handleCloseConfirm} className="p-2 hover:bg-fx-charcoal rounded-full transition-colors">
+                    <X size={20} className="text-fx-dust" />
+                  </button>
+                )}
               </div>
 
-              <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-fx-charcoal rounded-2xl border border-fx-rule">
-                  <div className="space-y-1">
-                    <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Sell</p>
-                    <p className="text-lg font-bold text-fx-sand">
-                      {formatAssetAmount(firmQuote.amountIn, getAssetDecimalsByCode(firmQuote.currencyIn))} {firmQuote.currencyIn}
-                    </p>
-                  </div>
-                  <div className="w-10 h-10 bg-fx-charcoal rounded-full flex items-center justify-center shadow-sm border border-fx-rule">
-                    <ArrowRight size={20} className="text-fx-brass" />
-                  </div>
-                  <div className="space-y-1 text-right">
-                    <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Net Receive</p>
-                    <p className="text-lg font-bold text-fx-brass">
-                      {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 px-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Gross Receive</span>
-                    <span className="font-mono text-fx-sand">
-                      {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Fee</span>
-                    <span className="font-mono text-fx-sand">
-                      {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Net Receive</span>
-                    <span className="font-mono text-fx-sage">
-                      {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Exchange Rate</span>
-                    <span className="font-mono text-fx-sand">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Market / Spread</span>
-                    <span className="font-mono text-fx-sand">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Quote ID</span>
-                    <span className="font-mono text-fx-sand">{firmQuote.quoteId}</span>
-                  </div>
-                  {firmQuote.matched && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fx-dune font-medium">Matched Pair / Tier</span>
-                      <span className="font-mono text-fx-sand">
-                        {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
-                      </span>
+              {trackedSwap ? (
+                (() => {
+                  const view = getSwapStatusView(trackedSwap.status);
+                  const isTerminal =
+                    trackedSwap.status === 'SUCCESS' || trackedSwap.status === 'REJECTED';
+                  const ToneIcon = view.tone === 'success' ? Check : view.tone === 'failed' ? X : RefreshCw;
+                  const toneTextCls =
+                    view.tone === 'success' ? 'text-fx-sage' : view.tone === 'failed' ? 'text-fx-rust' : 'text-fx-brass';
+                  const toneRingCls =
+                    view.tone === 'success' ? 'border-fx-sage/40' : view.tone === 'failed' ? 'border-fx-rust/40' : 'border-fx-brass/40';
+                  return (
+                    <div className="space-y-8">
+                      <div className="text-center py-4 space-y-4">
+                        <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center bg-fx-charcoal border ${toneRingCls}`}>
+                          <ToneIcon size={28} className={`${toneTextCls} ${view.tone === 'pending' ? 'animate-spin' : ''}`} />
+                        </div>
+                        <div>
+                          <p className={`text-2xl font-bold ${toneTextCls}`}>{view.text}</p>
+                          <p className="text-xs text-fx-dust mt-2 font-mono">{trackedSwap.swapNo}</p>
+                        </div>
+                        {pollTimedOut && !isTerminal && (
+                          <p className="text-xs text-fx-dust px-4">
+                            Still processing — please check History shortly for the final result.
+                          </p>
+                        )}
+                      </div>
+                      {(isTerminal || pollTimedOut) && (
+                        <button
+                          onClick={closeStatusPanel}
+                          className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20"
+                        >
+                          Close
+                        </button>
+                      )}
                     </div>
-                  )}
-                  {firmQuote.pricingSource && (
-                    <>
+                  );
+                })()
+              ) : (
+                <>
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between p-4 bg-fx-charcoal rounded-2xl border border-fx-rule">
+                      <div className="space-y-1">
+                        <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Sell</p>
+                        <p className="text-lg font-bold text-fx-sand">
+                          {formatAssetAmount(firmQuote.amountIn, getAssetDecimalsByCode(firmQuote.currencyIn))} {firmQuote.currencyIn}
+                        </p>
+                      </div>
+                      <div className="w-10 h-10 bg-fx-charcoal rounded-full flex items-center justify-center shadow-sm border border-fx-rule">
+                        <ArrowRight size={20} className="text-fx-brass" />
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Net Receive</p>
+                        <p className="text-lg font-bold text-fx-brass">
+                          {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 px-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-fx-dune font-medium">Source Symbol / Side</span>
+                        <span className="text-fx-dune font-medium">Gross Receive</span>
                         <span className="font-mono text-fx-sand">
-                          {firmQuote.pricingSource.symbol} / {firmQuote.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'}
+                          {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
                         </span>
                       </div>
-                      <div className="space-y-1">
-                        <span className="text-fx-dune font-medium text-sm">Pricing Formula</span>
-                        <div className="font-mono text-[11px] text-fx-sand break-all">
-                          {firmQuote.pricingSource.formula}
-                        </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Fee</span>
+                        <span className="font-mono text-fx-sand">
+                          {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'}
+                        </span>
                       </div>
-                    </>
-                  )}
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Expires In</span>
-                    <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-fx-brass' : 'text-fx-rust'}`}>
-                      {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
-                    </span>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Net Receive</span>
+                        <span className="font-mono text-fx-sage">
+                          {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Exchange Rate</span>
+                        <span className="font-mono text-fx-sand">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Market / Spread</span>
+                        <span className="font-mono text-fx-sand">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Quote ID</span>
+                        <span className="font-mono text-fx-sand">{firmQuote.quoteId}</span>
+                      </div>
+                      {firmQuote.matched && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-fx-dune font-medium">Matched Pair / Tier</span>
+                          <span className="font-mono text-fx-sand">
+                            {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
+                          </span>
+                        </div>
+                      )}
+                      {firmQuote.pricingSource && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-fx-dune font-medium">Source Symbol / Side</span>
+                            <span className="font-mono text-fx-sand">
+                              {firmQuote.pricingSource.symbol} / {firmQuote.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-fx-dune font-medium text-sm">Pricing Formula</span>
+                            <div className="font-mono text-[11px] text-fx-sand break-all">
+                              {firmQuote.pricingSource.formula}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Expires In</span>
+                        <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-fx-brass' : 'text-fx-rust'}`}>
+                          {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <button
-                onClick={handleExecuteSwap}
-                disabled={swapping || quoteExpiresIn <= 0}
-                className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20 flex items-center justify-center gap-2"
-              >
-                {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
-                {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
-              </button>
+                  <button
+                    onClick={handleExecuteSwap}
+                    disabled={swapping || quoteExpiresIn <= 0}
+                    className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20 flex items-center justify-center gap-2"
+                  >
+                    {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
+                    {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

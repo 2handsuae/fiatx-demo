@@ -465,8 +465,14 @@ export class SwapTransactionsService {
    * enforcement state whose literal string would itself tip off the
    * customer, so `status` is passed through as-is (no collapsing needed,
    * same as withdraw's simpler status set).
+   *
+   * Public (not private): Task 11 defence-in-depth — SwapWorkflowService
+   * .initiateSwap also routes its create-response through this allow-list
+   * before returning it to the customer controller, so a future edit that
+   * reassigns the `swap` local there (e.g. rebinding it to a richer row)
+   * can't silently reopen a leak on that route.
    */
-  private toCustomerSwapView(item: any) {
+  toCustomerSwapView(item: any) {
     return {
       id: item.id,
       swapNo: item.swapNo,

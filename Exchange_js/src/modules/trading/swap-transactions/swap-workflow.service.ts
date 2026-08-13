@@ -362,7 +362,13 @@ export class SwapWorkflowService {
     // submitSumsubTxnOut never throws (I2, see its own doc comment) — a
     // Sumsub outage here must not 500 the customer or strand the swap.
     await this.submitSumsubTxnOut(swap.id);
-    return swap;
+    // Task 11 hardening: route the create response through the same
+    // customer allow-list findOne/findAll already use, even though the raw
+    // `swap` row is harmless today (compliance columns are still null at
+    // insert time). Defence in depth — a future edit that reassigns `swap`
+    // to a richer, post-verdict row would otherwise silently reopen a
+    // tipping-off leak on this one route.
+    return this.swapTransactionsService.toCustomerSwapView(swap);
   }
 
   /**

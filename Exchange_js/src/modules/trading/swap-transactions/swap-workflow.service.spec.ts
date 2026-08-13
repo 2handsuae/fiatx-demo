@@ -99,6 +99,10 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     })),
     findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'COMPLIANCE_PENDING' })),
     recomputeProjections: jest.fn(() => Promise.resolve()),
+    // Task 11 hardening: initiateSwap now routes its return value through
+    // this allow-list. Pass-through mock — the allow-list's own field
+    // selection is covered by swap-transactions.service.spec.ts, not here.
+    toCustomerSwapView: jest.fn((item: any) => item),
   };
 
   const auditLogsService = {
