@@ -1,6 +1,12 @@
 # V5 提现流程 — 当前实现真相
 
+Last Verified: 2026-08-13（核对方式：④ A1-A6 收口实施后逐符号复核——§2 状态机 20→21 边（新增 `PENDING_APPROVAL --freeze--> FROZEN`）；A4 客户级合规闸补齐：新增 `ABNORMAL_COMPLIANCE` + `assertCustomerComplianceOrFreeze()`，三处接入 `handleWithdrawalCreated` / `onLargeValueApprovalDecided` / `initiatePayoutPhase`（第三处必须早于 `WITHDRAW_COMPLIANCE_PASSED` 审计）——此前 `getOwnerComplianceStatus()` 是零调用方的孤儿方法，提现只在下单那一刻查一次资格；实测订正：`onLargeValueApprovalDecided` 本就有 `status !== PENDING_APPROVAL` 早退，故原设想的"审批通过撞 FROZEN 抛错"连锁并不存在。A6 终态活单两处：`onBounce` 把费腿 `advance(FAIL)` 推迟到 `updateStatus(RETURN)` 之后（否则 `onFeeLegFailed` 的 `PAYOUT_PENDING` 守卫放行、走三级梯重建出一条活费腿）；`onPayoutLegFailed` 补 `advance(FAIL)` 终结费腿。验证：tsc 0 错、jest 1556 pass（新增 2 条 A6 用例含顺序不变量断言）、e2e 43/43、demo:all 8/8；前序核对方式见下）
+
+<details><summary>前序 Last Verified 记录</summary>
+
 Last Verified: 2026-08-13（核对方式：COA v2 科目表重构关联体检——第 3 节 TB 记账两处贷方科目描述订正：「公司侧 `FIRM_ASSET→FIRM_FEE`」改「`FIRM_ASSET→INCOME_WITHDRAW_FEE`」，`WITHDRAW_FEE_FIRM`(=16) 结算腿的 `DR FIRM_ASSET/CR FIRM_FEE` 改 `CR INCOME_WITHDRAW_FEE`（转账类型码常量名不变，只切贷方科目），均回代码 `withdraw-workflow.service.ts`/`accounting-coa.md` §1 核实属实。前序核对方式：③ withdraw-action-embed 分支 Task 1-6 落地（补料子表 `withdraw_applicant_actions` + 集合同步 `hasOutstanding` guard、`verification-session` 接口 + `actions` 白名单开口、详情/认证独立页、fixtures 补 ⑩ 多条 action 按钮、e2e 四条收官）——新增第 4.6 节（逐字段 mirror 充值 `v4-deposit.md` §4.6，含一处反向发现：提现 `applyKytAwaitUser()` 有 `FROZEN` no-op 守卫而充值没有，已登记进充值域 BACKLOG）、第 9 节补两条两域并列缺口（admin 子表视图未渲染/snsWebSdk script 未加载）、第 10 节补 Client 详情/认证独立页段落 + 按钮计数 9→10；核对方式：逐符号核对新增子表 service/controller 路由/前端页面与文档描述一致，`test/withdraw-sumsub-scenarios.e2e-spec.ts` 新增四条（补料完整弧/接口不可区分/多条 action 时序/逐条不可区分）实跑 13/13 全绿。② 合并后业主问「truth 是否最新」逐词扫描——查出两处合并尾段 commit 未回同步的漂移并已修正：㊀ 第 10 节 Frozen Disposition 按钮仍写 `Initiate Refund`，实已随业主验收改为 `Reject & Freeze Customer`（b4dc498d，五处文案）；㊁ `needsReview` SUCCESS 结算自动清旗（d1e5251d 终审修复）truth 零提及，已补进第 10 节横幅语义段；其余逐词扫描（已废枚举/preKyt*/mock 端点/admin reject 侧门）均确认为规范历史留痕或已正确记述，状态机 10/13/20 与 `transitions` 逐边核对一致。① 提现域全流转升级 12-task 施工序列（A 状态机重写/B 引擎+七列迁移/C 费腿硬化+RETURNED+L3/D FROZEN 双审批弧/E 前端双端/F e2e 收官）落地后逐符号复核——本文整篇重写，取代 2026-07-16 的旧 12 态版本（`CREATED`/`PENDING_COMPLIANCE`/`UNDER_REVIEW`/`APPROVED`/`HELD`/`CANCELLED` 等旧枚举已随 Task 1 状态机重写整体删除，本文不再提及；新状态机 10 状态/13 动作/20 边逐边核对代码 `withdraw-transactions.service.ts → transitions`；Sumsub 集成从"仅模拟端点"升级为真实单笔提交引擎，逐符号核对 `submitSumsubTxn()`/`applyKytVerdict()`；e2e 收官阶段跑通 `test/withdraw-money-arcs.e2e-spec.ts`(7/7) + `test/withdraw-sumsub-scenarios.e2e-spec.ts`(9/9) 时发现并修复一处真 bug——`onLegCleared()` 的"全部资金单已 CLEARED"判定原样对 `findByParent()` 的全部历史行取 `every()`，费腿重试后老的 FAILED attempt 行永久卡在结果集里，导致任何经历过一次费腿失败重试的提现即使后续成功结算也永远到不了 SUCCESS——已修复为按 legSeq 只取最新 attempt 判定，详见第 5 节）。
+
+</details>
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -20,13 +26,16 @@ Last Verified: 2026-08-13（核对方式：COA v2 科目表重构关联体检—
 
 ## 2. 提现订单（WithdrawTransaction）状态机
 
-**10 状态 / 13 动作 / 20 边**（定稿于 `.superpowers/sdd/task-1-brief.md`，2026-08-03 落地）。
+**10 状态 / 13 动作 / 21 边**（20 边定稿于 `.superpowers/sdd/task-1-brief.md` 2026-08-03；2026-08-13 补 `PENDING_APPROVAL --freeze--> FROZEN` 一条 → 21）。
 
 **10 个状态**：`PENDING_APPROVAL`/`COMPLIANCE_PENDING`/`ACTION_PENDING`/`MANUAL_CHECKING`/`FROZEN`/`PAYOUT_PENDING`/`SUCCESS`/`REJECTED`/`FAILED`/`RETURNED`。**4 个终态**（零出边）：`SUCCESS`/`REJECTED`/`FAILED`/`RETURNED`。
 
 **13 个动作**：`gate_approve`/`reject`/`approve`/`success`/`fail`/`return`/`action_pending`/`kyt_rejected`/`sla_breach`/`freeze`/`reject_refund`/`resume` 共 12 个在转移表里有出边；`require_approval` 是**死枚举**（历史遗留，转移表零引用，代码零调用点，见第 9 节 BACKLOG）。
 
-**20 条边**（`withdraw-transactions.service.ts → transitions`，逐条穷举；同表有一条守则性单测逐边断言防再次漂移）：
+**21 条边**（`withdraw-transactions.service.ts → transitions`，逐条穷举；同表有一条守则性单测逐边断言防再次漂移）：
+
+> **2026-08-13 新增**：`PENDING_APPROVAL --freeze--> FROZEN` —— 大额审批可挂数天，期间客户被冻（材料到期是定时任务自动触发，无人干预即可发生），此刻客户的钱已在 TB pending 锁里，冻得住也该冻。
+> `PAYOUT_PENDING` **刻意不给**：钱已广播上链/发了银行指令，冻不回来——那里保持既有的「只记 `WITHDRAW_POST_BROADCAST_VERDICT` 审计 + `markNeedsReview()`」。
 
 ```
 PENDING_APPROVAL                              ← 大额闸出生落点（非转移表内的"出生路由"写，见下）
@@ -68,7 +77,7 @@ PAYOUT_PENDING
 
 **`applyKytVerdict()` 的状态感知 no-op 护栏**：终态（`SUCCESS`/`REJECTED`/`FAILED`/`RETURNED`）收到任何裁决直接 no-op；`FROZEN` 收到迟到的 `approved` 裁决**跳过写回/存证**（保护制裁证据不被覆写，见第 4 节）、收到 `awaitUser`/未打 tag 的 `rejected` 均 no-op（不抛错）；`PAYOUT_PENDING`（payout 已广播）收到任何裁决只审计 `WITHDRAW_POST_BROADCAST_VERDICT` + （`rejected` 时）`markNeedsReview()`，不做状态机动作（没有对应边，广播后的钱已在飞行中）。
 
-- **锚点**：`dto/withdraw-transaction.dto.ts → WithdrawTransactionStatus/WithdrawTransactionAction`（10/13）｜ `withdraw-transactions.service.ts → transitions`（20 边；`assertStatusUpdateSourceAllowed()` 挡 ADMIN_API 直推 `PAYOUT_PENDING`/终态三个）｜ `withdraw-workflow.service.ts → createWithdrawal()`（出生态写 + TB 两笔 pending）/`handleWithdrawalCreated()`/`openApprovalGate()`/`landOnPendingApproval()`（出生路由）｜ `withdraw-transactions.service.spec.ts`（20 边逐条守则性单测）
+- **锚点**：`dto/withdraw-transaction.dto.ts → WithdrawTransactionStatus/WithdrawTransactionAction`（10/13）｜ `withdraw-transactions.service.ts → transitions`（21 边；`assertStatusUpdateSourceAllowed()` 挡 ADMIN_API 直推 `PAYOUT_PENDING`/终态三个）｜ `withdraw-workflow.service.ts → createWithdrawal()`（出生态写 + TB 两笔 pending）/`handleWithdrawalCreated()`/`openApprovalGate()`/`landOnPendingApproval()`（出生路由）｜ `withdraw-transactions.service.spec.ts`（21 边逐条守则性单测）
 
 ## 3. Happy Path（crypto/fiat 共用一条工作流，均 ✅ 验证）
 
