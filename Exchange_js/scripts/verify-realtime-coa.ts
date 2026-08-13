@@ -1,7 +1,7 @@
 // scripts/verify-realtime-coa.ts
 import { PrismaClient } from '@prisma/client';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
-import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 const ASSET = new Set<number>([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.FIRM_ASSET]);
 
@@ -38,17 +38,19 @@ async function main() {
       if (firmAsset !== firmEquity) { failures++; console.log(`✗ ledger ${ledger} FIRM: asset=${firmAsset} equity=${firmEquity}`); }
       else console.log(`✓ ledger ${ledger} FIRM 恒等 ${firmAsset}`);
     }
-    // 退役户(202/203/204)恒零断言:任何状态的 registry 行都查,余额非零即 FAIL
-    const retired = await (prisma as any).tbAccountRegistry.findMany({ where: { code: { in: [202, 203, 204] } } });
-    if (retired.length > 0) {
-      const rAccounts = await tb.lookupAccounts(retired.map((r: any) => BigInt('0x' + r.tbAccountId)));
-      for (const a of rAccounts) {
-        const bal = a.credits_posted - a.debits_posted;
-        if (bal !== 0n) { failures++; console.log(`✗ retired code ${a.code} balance=${bal} (must be 0)`); }
-      }
-      const active = retired.filter((r: any) => r.status === 'ACTIVE');
-      if (active.length > 0) { failures++; console.log(`✗ ${active.length} retired-code registry rows still ACTIVE (run migrate:coa-v2)`); }
+    // 负余额断言:任何科目(class-aware 口径)余额都不得为负。
+    // 两条恒等式只比"总数对不对",对"某个客户账户被记成负数"是瞎的——凭空造余额
+    // 与超额提现这两类错账恰好两边同增同减,恒等式照样全绿。这条是唯一能报警的。
+    const negatives = regs
+      .map((r: any) => ({ r, bal: balById.get(BigInt('0x' + r.tbAccountId).toString()) ?? 0n }))
+      .filter((x: any) => x.bal < 0n);
+    for (const { r, bal } of negatives) {
+      failures++;
+      const label = TB_CODE_TO_COA[r.code] ?? `code=${r.code}`;
+      const owner = r.ownerType === 'SYSTEM' ? 'SYSTEM' : `${r.ownerType}:${r.ownerNo ?? r.ownerUuid}`;
+      console.log(`✗ 负余额 ${label} ledger=${r.ledger} ${owner} balance=${bal}`);
     }
+    if (negatives.length === 0) console.log(`✓ 负余额检查 通过 (${regs.length} 个科目全部 ≥ 0)`);
 
     if (failures > 0) { console.error(`FAIL: ${failures} invariant breaks`); process.exit(1); }
     console.log('ALL INVARIANTS PASS');

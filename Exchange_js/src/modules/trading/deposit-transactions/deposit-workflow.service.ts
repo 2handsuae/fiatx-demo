@@ -1268,9 +1268,9 @@ export class DepositWorkflowService implements OnModuleInit {
     });
     await this.accountingService.executePendingTransfer({
       debitAccountId: firmAssetId, creditAccountId: incomeOtherId, amount: amountBigint, ledger,
-      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE, timeout: 0, legIndex: 1,
+      code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER, timeout: 0, legIndex: 1,
       evidence: {
-        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+        sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
         assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
@@ -1309,7 +1309,7 @@ export class DepositWorkflowService implements OnModuleInit {
    * CONFISCATED. Each pending id is reproduced deterministically from the SAME business key
    * C2 used — deterministicTransferId('DEPOSIT', depositNo, eventCode, 1) — so the eventCodes +
    * legIndex(=1) MUST match startConfiscation exactly (leg1 CONFISCATE_REVERSE_SUSPENSE, leg2
-   * CONFISCATE_FIRM_FEE). 3× retry on a transient TB failure; if every attempt fails the deposit
+   * CONFISCATE_INCOME_OTHER). 3× retry on a transient TB failure; if every attempt fails the deposit
    * stays CONFISCATING (no revert, no rethrow — silent stop in the async listener) with a
    * DEPOSIT_CONFISCATION_FAILED audit flagging it for manual intervention.
    */
@@ -1317,7 +1317,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const asset = deposit.asset;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
     const pend1 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_REVERSE_SUSPENSE', 1);
-    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_FIRM_FEE', 1);
+    const pend2 = deterministicTransferId('DEPOSIT', deposit.depositNo, 'CONFISCATE_INCOME_OTHER', 1);
     const MAX = 3;
     for (let attempt = 1; attempt <= MAX; attempt++) {
       try {
@@ -1334,7 +1334,7 @@ export class DepositWorkflowService implements OnModuleInit {
         await this.accountingService.postPendingTransfer({
           pendingTransferId: pend2, amount: amountBigint,
           evidence: {
-            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
+            sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_INCOME_OTHER',
             debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
             assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
           },

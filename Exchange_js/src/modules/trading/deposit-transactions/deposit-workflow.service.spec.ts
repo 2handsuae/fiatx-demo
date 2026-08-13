@@ -2328,11 +2328,11 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({
           debitAccountId: 'tb-firm-asset',
           creditAccountId: 'tb-firm-fee',
-          code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE,
+          code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER,
           timeout: 0,
           legIndex: 1,
           evidence: expect.objectContaining({
-            eventCode: 'CONFISCATE_FIRM_FEE',
+            eventCode: 'CONFISCATE_INCOME_OTHER',
             debitCode: 'A.FIRM_ASSET',
             creditCode: 'E.INCOME_OTHER',
             debitWalletRef: null,

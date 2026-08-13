@@ -7,7 +7,7 @@ export const TB_TRANSFER_CODES = {
   // 没收(below-min 充值当 T&C 手续费没收，两腿)：leg1 精确反冲 STEP_1 归零客户暂扣，
   // leg2 公司侧确认手续费收入。两腿各保客户/公司恒等式两边同增减。
   DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET: 3, // DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET（反冲 STEP_1）
-  DEPOSIT_CONFISCATE_FIRM_FEE: 4,          // DR FIRM_ASSET / CR FIRM_FEE（确认公司手续费收入）
+  DEPOSIT_CONFISCATE_INCOME_OTHER: 4,          // DR FIRM_ASSET / CR INCOME_OTHER（below-min 没收确认其他收入）
   // 退回(RETURNING→RETURNED)：pending/post/void 三段式，模仿提现净额腿
   DEPOSIT_RETURN_PENDING: 5, // 客户侧锁定(pending)
   DEPOSIT_RETURN_POST: 6,    // 外部确认:post
@@ -25,7 +25,7 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_FEE_PENDING: 13, // 客户侧费锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)
   WITHDRAW_FEE_POST: 14,    // post
   WITHDRAW_FEE_VOID: 15,    // void
-  WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR FIRM_FEE
+  WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE
   // 退汇(PAYOUT_PENDING→RETURNED，Task 7)：净额腿已 POST 后银行/链上退回,重入账反向单腿
   // (DR CLIENT_ASSET / CR CLIENT_PAYABLE)。手续费不退(留归公司)。
   WITHDRAW_BOUNCE_REENTRY: 17,
@@ -40,14 +40,12 @@ export const TB_TRANSFER_CODES = {
   SWAP_BUY_SET_TO_ASSET: 33,   // 公司放出(to):DR FIRM_SET / CR FIRM_ASSET (fiat) | DR FIRM_OPS / CR FIRM_ASSET (crypto)
   SWAP_BUY_CLIENT: 34,         // 客户收到(to,毛):DR CLIENT_ASSET / CR CLIENT_PAYABLE
   SWAP_FEE_CLIENT: 35,         // 客户付费(to):DR CLIENT_PAYABLE / CR CLIENT_ASSET
-  SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_ASSET / CR FIRM_FEE
+  SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_ASSET / CR INCOME_SWAP_FEE
   SWAP_SELL_SET_TO_OPS: 37,    // 法币卖出公司内:DR FIRM_SET / CR FIRM_OPS (fiat-sell only)
   SWAP_BUY_OPS_TO_ASSET: 38,  // 币买公司放出:DR FIRM_OPS / CR FIRM_ASSET (crypto-buy only)
 
   // ── Bootstrap(70)──
   CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_ASSET / CR FIRM_OPS
-  // ── COA v2 迁移(71,2026-08-13)──
-  COA_V2_INCOME_RECLASS: 71, // 202 存量按历史类型码精确重分类:DR FIRM_FEE / CR 210|211|212
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
