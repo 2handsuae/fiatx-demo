@@ -2,8 +2,13 @@
  * swap-workflow.service.spec.ts
  *
  * SwapWorkflowService owns the swap journey, now event-driven on funds_order:
- *   executeSwap        → creates the swap (PROCESSING) + leg1 funds_order (CREATED)
- *                        + books leg1 pending TB.
+ *   initiateSwap       → L1 gates + consumeQuote + creates the swap
+ *                        (COMPLIANCE_PENDING, no legs) + submits the sell leg
+ *                        to Sumsub KYT (Task 4). Leg-building is deferred to
+ *                        applyKytVerdict/onKytApproved (Task 6) once the
+ *                        webhook verdict lands.
+ *   submitSumsubTxnOut → idempotent: submits the sell leg, no-ops if the swap
+ *                        already has a sumsubTxnIdOut (watchdog-retry safe).
  *   advanceLeg         → thin sync wrapper: resolve active leg → funds_order.advance
  *                        (sell-first guard preserved).
  *   handleFundsOrderChanged → on CLEARED: post + chain next / finalize SUCCESS;
@@ -15,6 +20,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SwapTransactionAction } from './dto/swap-transaction.dto';
+import { buildSwapLegPlan } from '../../funds-layer/constants/swap-leg-plan.constant';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,14 +95,20 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       id: 'swap-1', swapNo: 'SWP0001', ownerType: 'CUSTOMER', ownerId: 'cust-1', ownerNo: 'C0001',
       fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode,
       toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode,
+      status: 'COMPLIANCE_PENDING',
     })),
-    findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'PROCESSING' })),
+    findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'COMPLIANCE_PENDING' })),
     recomputeProjections: jest.fn(() => Promise.resolve()),
   };
 
   const auditLogsService = {
     recordByActor: jest.fn(() => Promise.resolve()),
     recordSystem: jest.fn(() => Promise.resolve()),
+  };
+
+  // submitSumsubTxnOut (Task 4) — submits the swap's sell leg to Sumsub KYT.
+  const sumsubTxnClient = {
+    submitTxn: jest.fn(() => Promise.resolve({ txnId: 'txn-mock-out' })),
   };
 
   const eventEmitter = { emit: jest.fn() };
@@ -119,10 +131,22 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
     },
-    // L1 Transaction Limit gate: executeSwap peeks the quote (outside the tx)
+    // L1 Transaction Limit gate: initiateSwap peeks the quote (outside the tx)
     // for the from-asset + amount before evaluating the gate.
     swapQuote: {
       findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
+    },
+    // submitSumsubTxnOut reads/writes the swap row directly (outside the
+    // create transaction) — used by initiateSwap's post-commit submit call
+    // and by the dedicated submitSumsubTxnOut tests.
+    swapTransaction: {
+      findUnique: jest.fn(() => Promise.resolve({
+        id: 'swap-1', swapNo: 'SWP0001', sumsubTxnIdOut: null,
+        fromAmount: quote.amountIn,
+        fromAsset: { currency: quote.fromAssetCode, type: assetMap[quote.fromAssetId]?.type },
+        customer: { sumsubApplicantId: 'applicant-1' },
+      })),
+      update: jest.fn(() => Promise.resolve({})),
     },
     $transaction: jest.fn((cb: (tx: any) => Promise<any>) => {
       const tx: any = {
@@ -137,11 +161,13 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma, sumsubTxnClient };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
-  // C2c cut-over: executeSwap drives leg1-only via SwapLegAccounting + FundsOrderService.
+  // SwapLegAccounting + FundsOrderService stubs — used by the direct
+  // buildLegContext/createLeg tests below (leg-building itself now happens in
+  // applyKytVerdict/Task 6, not initiateSwap).
   const stubLegAccounting: any = {
     ctxFromSwap: jest.fn(),
     initiateLegPending: jest.fn(() => Promise.resolve()),
@@ -174,56 +200,93 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     stubFundsOrders,
     (mocks as any).walletQuery,
     mocks.limitGateService as any,
+    mocks.sumsubTxnClient as any,
   );
 }
 
-// ── executeSwap ──────────────────────────────────────────────────────────────
+// ── initiateSwap ─────────────────────────────────────────────────────────────
 
-describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', () => {
-  it('creates swap PROCESSING (no atomic TB legs, no SUCCESS) + leg1 funds_order CREATED', async () => {
+describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () => {
+  it('initiateSwap 消费 quote、建单为 COMPLIANCE_PENDING、不建任何腿', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
 
-    await service.executeSwap('cust-1', 'q-1');
+    const swap = await service.initiateSwap('cust-1', 'quote-1');
 
-    // Swap row created via service
-    expect(mocks.swapTransactionsService.create).toHaveBeenCalledTimes(1);
+    expect(swap.status).toBe('COMPLIANCE_PENDING');
+    expect(mocks.swapQuoteService.consumeQuote).toHaveBeenCalledTimes(1);
+    expect(createLegSpy).not.toHaveBeenCalled();
+    expect(mocks.accountingService.executePendingTransfer).not.toHaveBeenCalled();
 
-    // tb*TransferId columns are null at create time (legs post later)
+    // Stronger form of the same property (task guarantee #2): nothing is
+    // booked at all — no funds_order, no TB pending, no direct transfer.
+    expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+    expect((mocks as any).legAccounting.initiateLegPending).not.toHaveBeenCalled();
+    expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
+
+    // tb*TransferId columns are null at create time (legs post later, Task 6)
     const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
     expect(createArg.tbFromTransferId).toBeNull();
     expect(createArg.tbToTransferId).toBeNull();
     expect(createArg.tbFeeTransferId).toBeNull();
     expect(createArg.tbSpreadTransferId).toBeNull();
+    expect(createArg.status).toBe('COMPLIANCE_PENDING');
 
-    // No atomic direct transfers — delegation only
-    expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
-
-    // leg1-only progressive create via FundsOrderService (funds_order CREATED).
-    expect((mocks as any).fundsOrders.create).toHaveBeenCalledTimes(1);
-    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
-    expect(createLegArg.swapTransactionId).toBe('swap-1');
-    expect(createLegArg.legSeq).toBe(1);
-    expect(createLegArg.attempt).toBe(1);
-    expect(createLegArg.initialStatus).toBe(FundsOrderStatus.CREATED);
-    // leg1 pending booked; leg is NOT auto-advanced (driver submits it).
-    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    expect((mocks as any).fundsOrders.advance).not.toHaveBeenCalled();
-
-    // No SWAP_SUCCEEDED domain event at executeSwap return (swap is still PROCESSING)
+    // No SWAP_SUCCEEDED domain event at initiateSwap return (swap awaits KYT)
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+
+    // The sell leg was submitted to Sumsub as part of initiateSwap.
+    expect(mocks.sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
   });
 
-  it('passes correct SwapSettleCtx (leg1 pending) — CASE A (USDT→AED, fromIsFiat=false)', async () => {
+  it('submitSumsubTxnOut 提交卖出腿并回写 sumsubTxnIdOut', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.submitSumsubTxnOut('swap-1');
 
-    const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
-    const ctx = initiateArg[0];
+    const arg = (mocks.sumsubTxnClient.submitTxn as jest.Mock).mock.calls[0][0];
+    expect(arg).toMatchObject({
+      type: 'finance', direction: 'out', currencyCode: 'USDT',
+      orderId: 'SWP0001', props: { txType: 'exchange' }, infoType: 'exchange',
+    });
+    expect(mocks.prisma.swapTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sumsubTxnIdOut: expect.any(String) }) }),
+    );
+  });
+
+  it('submitSumsubTxnOut 幂等：已有 sumsubTxnIdOut 时不重复提交', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.prisma.swapTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 'swap-1', swapNo: 'SWP0001', sumsubTxnIdOut: 'already-submitted',
+      fromAmount: makeQuote().amountIn,
+      fromAsset: { currency: 'USDT', type: 'CRYPTO' },
+      customer: { sumsubApplicantId: 'applicant-1' },
+    });
+    const service = makeService(mocks);
+
+    await service.submitSumsubTxnOut('swap-1');
+
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+    expect(mocks.prisma.swapTransaction.update).not.toHaveBeenCalled();
+  });
+
+  it('buildLegContext rebuilds SwapSettleCtx from the persisted swap row — CASE A (USDT→AED, fromIsFiat=false)', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+    const swapRow = {
+      id: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1',
+      fromAssetId: 'asset-usdt', toAssetId: 'asset-aed',
+      fromAmount: new Prisma.Decimal('100'), toAmount: new Prisma.Decimal('0.05'),
+      feeAmount: new Prisma.Decimal('0.01'),
+    };
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
+
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
+
     expect(ctx.swapId).toBe('swap-1');
-    expect(ctx.swapNo).toMatch(/^SWP/);
+    expect(ctx.swapNo).toBe('SWP0001');
     expect(ctx.ownerId).toBe('cust-1');
     expect(ctx.fromIsFiat).toBe(false);   // USDT is CRYPTO
     expect(ctx.fromCurrency).toBe('USDT');
@@ -232,17 +295,21 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     expect(ctx.toDecimals).toBe(2);
     expect(ctx.grossToAmount.equals(new Prisma.Decimal('0.05'))).toBe(true);
     expect(ctx.feeAmount.equals(new Prisma.Decimal('0.01'))).toBe(true);
-    expect(ctx.attempt).toBe(1);
   });
 
-  it('passes correct SwapSettleCtx (leg1 pending) — CASE B (AED→USDT, fromIsFiat=true)', async () => {
+  it('buildLegContext rebuilds SwapSettleCtx from the persisted swap row — CASE B (AED→USDT, fromIsFiat=true)', async () => {
     const mocks = buildMocks(reverseQuote());
     const service = makeService(mocks);
+    const swapRow = {
+      id: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1',
+      fromAssetId: 'asset-aed', toAssetId: 'asset-usdt',
+      fromAmount: new Prisma.Decimal('100'), toAmount: new Prisma.Decimal('50'),
+      feeAmount: new Prisma.Decimal('1'),
+    };
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
 
-    await service.executeSwap('cust-1', 'q-1');
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
 
-    const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
-    const ctx = initiateArg[0];
     expect(ctx.fromIsFiat).toBe(true);    // AED is FIAT
     expect(ctx.fromCurrency).toBe('AED');
     expect(ctx.toCurrency).toBe('USDT');
@@ -256,7 +323,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     expect(mocks.onboardingService.assertTradingEligibility).toHaveBeenCalledWith('cust-1', 'SWAP');
     expect(mocks.swapQuoteService.consumeQuote).toHaveBeenCalledTimes(1);
@@ -272,7 +339,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const mocks = buildMocks(makeQuote()); // fromAssetId=asset-usdt, amountIn=100
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     expect(mocks.limitGateService.evaluate).toHaveBeenCalledTimes(1);
     const gateArg = (mocks.limitGateService.evaluate as jest.Mock).mock.calls[0][0];
@@ -289,7 +356,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       new BadRequestException({ code: 'TRANSACTION_LIMIT_ABOVE_MAX' }),
     );
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(BadRequestException);
 
     // Gate runs BEFORE the $transaction: nothing is created or consumed.
     expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
@@ -304,7 +371,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       grossAedValue: new Prisma.Decimal('1234'), aedRate: new Prisma.Decimal('3.67'), rateFetchedAt: new Date(), rateFetchFailed: false,
     });
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
     expect(createArg.grossAedValue.equals(new Prisma.Decimal('1234'))).toBe(true);
@@ -317,7 +384,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-aed'),
     );
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toMatchObject({
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toMatchObject({
       response: { code: 'RECEIVING_ACCOUNT_REQUIRED', assetCode: 'AED' },
     });
 
@@ -333,7 +400,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-usdt'),
     );
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toMatchObject({
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toMatchObject({
       response: { code: 'RECEIVING_ACCOUNT_REQUIRED', assetCode: 'USDT' },
     });
 
@@ -346,7 +413,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const service = makeService(mocks);
     // default stub already resolves true for both sides
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-usdt');
     expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-aed');
@@ -358,7 +425,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const mocks = buildMocks(makeQuote({ traceId: TRACE } as any));
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
     expect(createArg.traceId).toBe(TRACE);
@@ -367,10 +434,6 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       .map((c: any[]) => c[0])
       .find((a: any) => a.action === 'SWAP_CREATED');
     expect(auditArg?.traceId).toBe(TRACE);
-
-    // traceId propagates onto the leg1 funds_order too.
-    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
-    expect(createLegArg.traceId).toBe(TRACE);
   });
 
   it('emits SWAP_FAILED audit when create throws, re-throws error', async () => {
@@ -379,7 +442,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     (mocks.swapTransactionsService.create as jest.Mock).mockImplementation(() => Promise.reject(new Error('db error')));
 
     const service = makeService(mocks);
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toThrow('db error');
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toThrow('db error');
 
     const failAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c: any[]) => c[0])
@@ -398,7 +461,7 @@ import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import { mapLegAction } from './swap-workflow.service';
 
-// Build mocks for advanceLeg + handleFundsOrderChanged (extends executeSwap mocks).
+// Build mocks for advanceLeg + handleFundsOrderChanged (extends initiateSwap mocks).
 function buildAdvanceLegMocks(opts: {
   swapNo?: string;
   fromIsFiat?: boolean;
@@ -541,7 +604,8 @@ function buildAdvanceLegMocks(opts: {
 }
 
 function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
-  // advanceLeg never calls executeSwap, so the limit gate is never invoked here.
+  // advanceLeg never calls initiateSwap, so the limit gate + sumsubTxnClient
+  // are never invoked here.
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -553,6 +617,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.legAccounting as any,
     mocks.fundsOrders as any,
     mocks.walletQuery as any,
+    {} as any,
     {} as any,
   );
 }
@@ -976,12 +1041,25 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 });
 
-describe('SwapWorkflowService — R1: create receives resolved wallets', () => {
-  it('executeSwap leg1: passes resolved fromWalletId/toWalletId to funds_order.create', async () => {
+// Leg-building (createLeg/buildLegContext) is invoked by applyKytVerdict
+// (Task 6) now, not by initiateSwap — exercise it directly here to keep R1
+// coverage for the code that moved, unchanged, out of the old executeSwap.
+describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () => {
+  const swapRow = {
+    id: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1',
+    fromAssetId: 'asset-usdt', toAssetId: 'asset-aed',
+    fromAmount: new Prisma.Decimal('100'), toAmount: new Prisma.Decimal('0.05'),
+    feeAmount: new Prisma.Decimal('0.01'),
+  };
+
+  it('createLeg leg1: passes resolved fromWalletId/toWalletId to funds_order.create', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
+    const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
 
-    await service.executeSwap('cust-1', 'q-1');
+    await (service as any).createLeg(swapRow, legSpecs[0]!, ctx, 1, 1, undefined, tx);
 
     expect((mocks as any).legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
     const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
@@ -989,17 +1067,20 @@ describe('SwapWorkflowService — R1: create receives resolved wallets', () => {
     expect(createLegArg.toWalletId).toBe('w-to');
   });
 
-  it('executeSwap throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
+  it('createLeg throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
     ((mocks as any).legAccounting.resolveLegWallets as jest.Mock).mockResolvedValueOnce({
       fromWalletId: null,
       toWalletId: 'firm-ops-wallet',
     });
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
+    const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(
-      InvalidInternalFundError,
-    );
+    await expect(
+      (service as any).createLeg(swapRow, legSpecs[0]!, ctx, 1, 1, undefined, tx),
+    ).rejects.toBeInstanceOf(InvalidInternalFundError);
 
     // create must NOT be called when R1 assert fails.
     expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();

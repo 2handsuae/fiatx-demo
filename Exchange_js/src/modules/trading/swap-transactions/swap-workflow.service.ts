@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -11,13 +11,18 @@ import {
   AuditEntityTypes,
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { OnboardingService } from '../../identity/onboarding/onboarding.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SwapTransactionsService } from './swap-transactions.service';
-import { SwapTransactionAction } from './dto/swap-transaction.dto';
+import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { SwapLegAccounting, SwapSettleCtx } from './swap-leg-accounting';
+import {
+  SUMSUB_TXN_CLIENT,
+  SumsubTxnClient,
+} from '../../deposit-sumsub/sumsub-txn-client.interface';
 import {
   buildSwapLegPlan,
   SwapLegSpec,
@@ -176,6 +181,7 @@ export class SwapWorkflowService {
     private readonly fundsOrders: FundsOrderService,
     private readonly walletQuery: WalletQueryService,
     private readonly limitGateService: TransactionLimitGateService,
+    @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -186,7 +192,7 @@ export class SwapWorkflowService {
     return ledger;
   }
 
-  async executeSwap(ownerId: string, quoteId: string) {
+  async initiateSwap(ownerId: string, quoteId: string) {
     // ── L1 Eligibility gate (synchronous) ──
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
     ensureCustomerCanTransact(customer);
@@ -221,9 +227,9 @@ export class SwapWorkflowService {
     // itself throws), traceId stays null and the SWAP_FAILED audit will carry
     // null — still useful for swapNo-based correlation.
     let traceId: string | null = null;
-    let swapId: string;
+    let swap: any;
     try {
-      const result = await this.prisma.$transaction(async (tx) => {
+      swap = await this.prisma.$transaction(async (tx) => {
         const quote = await this.swapQuoteService.getActiveQuoteOrThrow(quoteId, 'CUSTOMER', ownerId, now, tx);
         // Inherit the quote's UUID so every audit event for one business unit
         // (quote.created + quote.used + swap.created + swap.succeeded) share a
@@ -256,16 +262,15 @@ export class SwapWorkflowService {
 
         await this.swapQuoteService.consumeQuote(quoteId, 'CUSTOMER', ownerId, fromAmount, tx);
 
-        const [fromAsset, toAsset] = await Promise.all([
-          tx.asset.findUnique({ where: { id: quote.fromAssetId }, select: { decimals: true, currency: true, type: true } }),
-          tx.asset.findUnique({ where: { id: quote.toAssetId }, select: { decimals: true, currency: true, type: true } }),
-        ]);
-        const fromCurrency = fromAsset?.currency || quote.fromAssetCode || '';
-        const toCurrency = toAsset?.currency || quote.toAssetCode || '';
-        const fromDecimals = fromAsset?.decimals ?? 8;
+        // Spread margin needs only the to-asset's decimal precision for rounding.
+        // The full leg-accounting context (ledgers/currencies/fromIsFiat) is no
+        // longer built here — legs are deferred until the sell leg clears Sumsub
+        // KYT, at which point buildLegContext rebuilds it from the persisted row.
+        const toAsset = await tx.asset.findUnique({
+          where: { id: quote.toAssetId },
+          select: { decimals: true },
+        });
         const toDecimals = toAsset?.decimals ?? 8;
-        const fromLedger = this.resolveLedger(fromCurrency);
-        const toLedger = this.resolveLedger(toCurrency);
 
         // Spread margin = market value of the in-leg minus the quoted gross out.
         // Kept as a reporting field on the swap row only.
@@ -275,8 +280,10 @@ export class SwapWorkflowService {
           .toDecimalPlaces(toDecimals, Prisma.Decimal.ROUND_HALF_UP);
         const spreadAmount = marketValueOut.sub(toAmount);
 
-        // Create the swap row in PROCESSING status; leg1 booked below, rest chained by the handler.
-        const swap = await this.swapTransactionsService.create({
+        // Create the swap row in COMPLIANCE_PENDING — no legs are booked here.
+        // Legs are built only after the sell leg clears Sumsub KYT (Task 6
+        // applyKytVerdict / onKytApproved).
+        const createdSwap = await this.swapTransactionsService.create({
           swapNo, quoteId: quote.id, quoteNo: quote.quoteNo,
           ownerType: 'CUSTOMER', ownerId, ownerNo: quote.ownerNo,
           fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode, fromAmount,
@@ -289,19 +296,20 @@ export class SwapWorkflowService {
           tbSpreadTransferId: null,
           traceId,
           grossAedValue: gateValuation?.grossAedValue ?? undefined,
+          status: SwapTransactionStatus.COMPLIANCE_PENDING,
         }, tx);
 
         await this.auditLogsService.recordByActor(
           {
             action: AuditActions.SWAP_CREATED,
             entityType: AuditEntityTypes.SWAP_TRANSACTION,
-            entityId: swap.id,
-            entityNo: swap.swapNo || undefined,
+            entityId: createdSwap.id,
+            entityNo: createdSwap.swapNo || undefined,
             traceId,
             workflowType: AuditWorkflowTypes.SWAP,
-            entityOwnerType: swap.ownerType,
-            entityOwnerId: swap.ownerId,
-            entityOwnerNo: swap.ownerNo || undefined,
+            entityOwnerType: createdSwap.ownerType,
+            entityOwnerId: createdSwap.ownerId,
+            entityOwnerNo: createdSwap.ownerNo || undefined,
             reason: `Swap executed from quote ${quote.quoteNo || quote.id}`,
             metadata: { quoteId: quote.id, quoteNo: quote.quoteNo },
             sourcePlatform: 'CUSTOMER_API',
@@ -310,34 +318,8 @@ export class SwapWorkflowService {
           tx,
         );
 
-        // Swap-9 cut-over: create ONLY leg1 (CREATED) + book its pending TB
-        // entries. Subsequent legs are chained by handleFundsOrderChanged as
-        // each prior leg reaches CLEARED (progressive build — Swap-5). One code
-        // path for all four leg-build sites — see createLeg helper.
-        const ctx: SwapSettleCtx = {
-          swapId: swap.id,
-          swapNo,
-          ownerId,
-          fromIsFiat: fromAsset?.type === 'FIAT',
-          fromAssetId: quote.fromAssetId,
-          toAssetId: quote.toAssetId,
-          fromLedger,
-          toLedger,
-          fromCurrency,
-          toCurrency,
-          fromAmount,
-          grossToAmount: toAmount,
-          feeAmount,
-          fromDecimals,
-          toDecimals,
-        };
-        const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
-        await this.createLeg(swap, legSpecs[0]!, ctx, 1, 1, traceId ?? undefined, tx);
-
-        return swap;
+        return createdSwap;
       });
-
-      swapId = result.id;
     } catch (error) {
       // Best-effort terminal audit — swap row may or may not exist depending
       // on the failure stage. We carry the quote.traceId (captured at the top
@@ -359,8 +341,58 @@ export class SwapWorkflowService {
       throw error;
     }
 
-    // Swap is now PROCESSING (not yet succeeded). Return the persisted row.
-    return this.swapTransactionsService.findOne(swapId);
+    // Submit the sell leg to Sumsub KYT. The order stays COMPLIANCE_PENDING —
+    // only the webhook verdict handler (Task 5/6) may advance status from here.
+    await this.submitSumsubTxnOut(swap.id);
+    return swap;
+  }
+
+  /**
+   * Submit the sell leg (fromAsset, direction=out) to Sumsub KYT right after
+   * the swap is created COMPLIANCE_PENDING. Public (not private): the SLA
+   * watchdog (Task 8) retries this directly, so it must be safe to call twice —
+   * if the swap already has an outbound Sumsub txn id, this is a no-op.
+   */
+  async submitSumsubTxnOut(swapId: string): Promise<void> {
+    const swap = await this.prisma.swapTransaction.findUnique({
+      where: { id: swapId },
+      include: { customer: true, fromAsset: true },
+    });
+    if (!swap) throw new NotFoundException(`Swap not found: ${swapId}`);
+    if (swap.sumsubTxnIdOut) return; // 幂等：看门狗重试安全
+
+    const res = await this.sumsubTxnClient.submitTxn({
+      applicantId: swap.customer?.sumsubApplicantId ?? '',
+      clientTxnId: `${swap.swapNo}-OUT`,
+      type: 'finance',
+      direction: 'out',
+      amount: Number(swap.fromAmount),
+      currencyCode: swap.fromAsset.currency,
+      currencyType: swap.fromAsset.type === 'CRYPTO' ? 'crypto' : 'fiat',
+      orderId: swap.swapNo ?? undefined,
+      props: { txType: 'exchange' },
+      infoType: 'exchange',
+    });
+
+    await this.prisma.swapTransaction.update({
+      where: { id: swapId },
+      data: {
+        sumsubTxnIdOut: res.txnId,
+        // 同步响应只作证据快照，绝不写 status —— 状态唯一写入口是 webhook handler
+        complianceAction: res.scoringResult?.action ?? null,
+        complianceRuleNames: res.scoringResult?.matchedRuleNames?.join(',') ?? null,
+      },
+    });
+
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.SWAP_KYT_SUBMITTED,
+      entityType: AuditEntityTypes.SWAP_TRANSACTION,
+      entityId: swap.id,
+      entityNo: swap.swapNo || undefined,
+      result: AuditResult.SUCCESS,
+      reason: 'Swap sell-leg submitted to Sumsub KYT',
+      metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action },
+    });
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {
@@ -395,8 +427,46 @@ export class SwapWorkflowService {
   }
 
   /**
+   * Rebuild the leg-accounting context (SwapSettleCtx) from a persisted swap
+   * row. Moved verbatim out of the old executeSwap transaction (Task 4) —
+   * legs are no longer built at initiateSwap time, so applyKytVerdict
+   * (Task 6) calls this once the sell leg clears Sumsub KYT to reconstruct
+   * the same ctx that used to be computed inline before the swap row existed.
+   */
+  private async buildLegContext(swap: any, tx: any): Promise<SwapSettleCtx> {
+    const [fromAsset, toAsset] = await Promise.all([
+      tx.asset.findUnique({ where: { id: swap.fromAssetId }, select: { decimals: true, currency: true, type: true } }),
+      tx.asset.findUnique({ where: { id: swap.toAssetId }, select: { decimals: true, currency: true, type: true } }),
+    ]);
+    const fromCurrency = fromAsset?.currency || swap.fromAssetCode || '';
+    const toCurrency = toAsset?.currency || swap.toAssetCode || '';
+    const fromDecimals = fromAsset?.decimals ?? 8;
+    const toDecimals = toAsset?.decimals ?? 8;
+    const fromLedger = this.resolveLedger(fromCurrency);
+    const toLedger = this.resolveLedger(toCurrency);
+
+    return {
+      swapId: swap.id,
+      swapNo: swap.swapNo,
+      ownerId: swap.ownerId,
+      fromIsFiat: fromAsset?.type === 'FIAT',
+      fromAssetId: swap.fromAssetId,
+      toAssetId: swap.toAssetId,
+      fromLedger,
+      toLedger,
+      fromCurrency,
+      toCurrency,
+      fromAmount: new Prisma.Decimal(swap.fromAmount),
+      grossToAmount: new Prisma.Decimal(swap.toAmount),
+      feeAmount: new Prisma.Decimal(swap.feeAmount ?? 0),
+      fromDecimals,
+      toDecimals,
+    };
+  }
+
+  /**
    * Unified create-leg helper. Single code path for the four leg-build sites:
-   *   - executeSwap leg1 build        (legSeq=1, attempt=1)
+   *   - onKytApproved leg1 build      (legSeq=1, attempt=1)
    *   - handler chain-next            (legSeq=N+1, attempt=1)
    *   - handler self-heal retry       (legSeq=N,  attempt=K+1)
    *   - resumeLeg manual recovery     (legSeq=N,  attempt=K+1)

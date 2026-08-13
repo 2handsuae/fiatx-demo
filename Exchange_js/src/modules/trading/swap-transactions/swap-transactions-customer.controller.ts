@@ -149,7 +149,7 @@ export class SwapTransactionsCustomerController {
     summary: 'Create a new swap transaction from firm quote',
   })
   async create(@Request() req: any, @Body() dto: CreateSwapFromQuoteDto) {
-    return this.swapWorkflowService.executeSwap(req.user.userId, dto.quoteId);
+    return this.swapWorkflowService.initiateSwap(req.user.userId, dto.quoteId);
   }
 
   @Get('my')

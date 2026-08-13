@@ -499,6 +499,7 @@ export class SwapTransactionsService {
       tbSpreadTransferId?: string | null;
       traceId: string;
       grossAedValue?: Prisma.Decimal | null;
+      status: SwapTransactionStatus;
     },
     tx: Prisma.TransactionClient,
   ) {
@@ -511,7 +512,7 @@ export class SwapTransactionsService {
         ownerType: input.ownerType,
         ownerId: input.ownerId,
         ownerNo: input.ownerNo,
-        status: 'PROCESSING',
+        status: input.status,
         fromAssetId: input.fromAssetId,
         fromAssetCode: input.fromAssetCode,
         fromAmount: input.fromAmount,
@@ -533,11 +534,11 @@ export class SwapTransactionsService {
         completedAt: null,
         statusHistory: JSON.stringify([
           {
-            status: 'PROCESSING',
+            status: input.status,
             timestamp: new Date().toISOString(),
             operator: input.ownerId,
             source: 'CUSTOMER',
-            note: 'Swap created; processing (legs pending)',
+            note: `Swap created; status=${input.status}`,
           },
         ]),
       },

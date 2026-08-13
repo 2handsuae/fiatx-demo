@@ -14,6 +14,7 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { WalletsModule } from '../../asset-treasury/wallets/wallets.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
+import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
 
 @Module({
   imports: [
@@ -27,6 +28,11 @@ import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits
     FundsOrdersModule,
     WalletsModule,
     TransactionLimitsModule,
+    // Task 4: SwapWorkflowService injects SUMSUB_TXN_CLIENT (submitSumsubTxnOut)
+    // — same provider deposit/withdraw already use. forwardRef mirrors
+    // WithdrawTransactionsModule's identical import (future SwapSumsubModule →
+    // SumsubIngestionModule → SwapTransactionsModule would otherwise cycle).
+    forwardRef(() => DepositSumsubModule),
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],
