@@ -5,9 +5,12 @@ export const TB_TRANSFER_CODES = {
   DEPOSIT_ASSET_TO_SUSPENSE: 1,   // DR CLIENT_ASSET / CR DEPOSIT_SUSPENSE
   DEPOSIT_SUSPENSE_TO_PAYABLE: 2, // DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE
   // 没收(below-min 充值当 T&C 手续费没收，两腿)：leg1 精确反冲 STEP_1 归零客户暂扣，
-  // leg2 公司侧确认手续费收入。两腿各保客户/公司恒等式两边同增减。
+  // leg2 公司侧确认收入(COA v2 起入 INCOME_OTHER，与服务费收入隔离)。两腿各保客户/公司恒等式两边同增减。
   DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET: 3, // DR DEPOSIT_SUSPENSE / CR CLIENT_ASSET（反冲 STEP_1）
-  DEPOSIT_CONFISCATE_FIRM_FEE: 4,          // DR FIRM_ASSET / CR FIRM_FEE（确认公司手续费收入）
+  // ⚠️ 常量名与下游 eventCode 字符串 'CONFISCATE_FIRM_FEE' 是 COA v1 遗留命名，贷方科目已于
+  // 2026-08-13 COA v2 切到 INCOME_OTHER(212)。eventCode 字符串喂 deterministicTransferId 复现
+  // pending id，**改名会让在途单的 pending 锁再也 post 不回来**，故只改注释不改名。
+  DEPOSIT_CONFISCATE_FIRM_FEE: 4,          // DR FIRM_ASSET / CR INCOME_OTHER(212)（确认公司其他收入）
   // 退回(RETURNING→RETURNED)：pending/post/void 三段式，模仿提现净额腿
   DEPOSIT_RETURN_PENDING: 5, // 客户侧锁定(pending)
   DEPOSIT_RETURN_POST: 6,    // 外部确认:post
@@ -25,7 +28,8 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_FEE_PENDING: 13, // 客户侧费锁定:DR CLIENT_PAYABLE / CR CLIENT_ASSET (pending)
   WITHDRAW_FEE_POST: 14,    // post
   WITHDRAW_FEE_VOID: 15,    // void
-  WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR FIRM_FEE
+  // ⚠️ 常量名/eventCode 'WITHDRAW_FEE_FIRM' 是 COA v1 遗留命名，贷方科目已切 INCOME_WITHDRAW_FEE(211)，同上不改名。
+  WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE(211)
   // 退汇(PAYOUT_PENDING→RETURNED，Task 7)：净额腿已 POST 后银行/链上退回,重入账反向单腿
   // (DR CLIENT_ASSET / CR CLIENT_PAYABLE)。手续费不退(留归公司)。
   WITHDRAW_BOUNCE_REENTRY: 17,
@@ -40,7 +44,7 @@ export const TB_TRANSFER_CODES = {
   SWAP_BUY_SET_TO_ASSET: 33,   // 公司放出(to):DR FIRM_SET / CR FIRM_ASSET (fiat) | DR FIRM_OPS / CR FIRM_ASSET (crypto)
   SWAP_BUY_CLIENT: 34,         // 客户收到(to,毛):DR CLIENT_ASSET / CR CLIENT_PAYABLE
   SWAP_FEE_CLIENT: 35,         // 客户付费(to):DR CLIENT_PAYABLE / CR CLIENT_ASSET
-  SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_ASSET / CR FIRM_FEE
+  SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_ASSET / CR INCOME_SWAP_FEE(210)（常量名同为 v1 遗留，不改名）
   SWAP_SELL_SET_TO_OPS: 37,    // 法币卖出公司内:DR FIRM_SET / CR FIRM_OPS (fiat-sell only)
   SWAP_BUY_OPS_TO_ASSET: 38,  // 币买公司放出:DR FIRM_OPS / CR FIRM_ASSET (crypto-buy only)
 

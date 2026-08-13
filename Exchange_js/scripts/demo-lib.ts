@@ -470,7 +470,7 @@ export async function runWithdraws(ctx: DemoCtx): Promise<void> {
     }
     console.log(`  ${c.customerNo} ${c.firstName}: withdrawals SUCCESS`);
   }
-  // Real-time 1:1 model: withdrawal fee is posted directly to FIRM_FEE in TB
+  // Real-time 1:1 model: withdrawal fee is posted directly to INCOME_WITHDRAW_FEE (211) in TB
   // — no WITHDRAW_FEE_SETTLEMENT legs or FeeAccrual rows to drive/settle.
 }
 

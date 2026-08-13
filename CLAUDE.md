@@ -95,6 +95,17 @@ npm run runtime:diagnose           # 诊断迁移漂移
 
 ---
 
+## Demo 数据约定（设计前提）
+
+本系统是 demo，数据可随时格式化重铺（`npm run main:reset:biz`）。所有设计与实现：
+
+- **不考虑存量数据**：schema/账本/状态机改动直接按目标终态做，**禁止**为旧数据写 backfill、迁移兼容层、双写过渡或向后兼容列。
+- 改完数据结构 = 重置重铺（reset + seed），不修旧数据。
+- 唯一例外：`prisma/migrations` 仍按正常流程新增（保证空库能从零建起），但迁移内容不必兼容已有行。
+- 派 subagent 做设计/实现时，任务 prompt **必须带上本条约定**。
+
+---
+
 ## Thread 完成规则
 
 每轮结束前必须写：
