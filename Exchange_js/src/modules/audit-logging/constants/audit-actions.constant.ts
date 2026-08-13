@@ -313,6 +313,10 @@ export const AuditActions = {
   SWAP_CREATED: 'SWAP_CREATED',
   SWAP_KYT_SUBMITTED: 'SWAP_KYT_SUBMITTED',
   SWAP_KYT_SUBMIT_FAILED: 'SWAP_KYT_SUBMIT_FAILED',
+  // Task 6: applyKytVerdict state-transition audits (markStatus itself writes
+  // no audit record — the convention in swap-workflow.service.ts is callers audit).
+  SWAP_KYT_APPROVED: 'SWAP_KYT_APPROVED',
+  SWAP_KYT_REJECTED: 'SWAP_KYT_REJECTED',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',

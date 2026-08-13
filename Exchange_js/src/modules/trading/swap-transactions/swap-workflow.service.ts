@@ -446,20 +446,29 @@ export class SwapWorkflowService {
     }
   }
 
+  // 已终态:进入 applyKytVerdict 时直接 no-op(幂等,防终态后迟到/重投的 webhook)。
+  private static readonly KYT_VERDICT_TERMINAL_STATUSES = new Set([
+    SwapTransactionStatus.SUCCESS,
+    SwapTransactionStatus.REJECTED,
+    SwapTransactionStatus.FAILED,
+    SwapTransactionStatus.REVERSED,
+  ]);
+
   /**
-   * STUB — Task 5 only defines the call contract so SwapKytVerdictHandler
-   * (src/modules/swap-sumsub/swap-kyt-verdict.handler.ts) compiles and its
-   * tests can mock this method; the real state-machine transition is Task 6's
-   * job. Swap has no waiting states (no awaitUser/onHold like withdraw) — the
-   * handler already collapses every non-approved verdict down to 'rejected'
-   * before calling here, so Task 6's transition table only needs two verdicts.
+   * Sumsub KYT 裁决落地入口(SwapKytVerdictHandler 调用,Task 5 打桩、Task 6 落地)。
+   * Swap 没有 withdraw/deposit 那种"等"态(无 awaitUser/onHold) —— handler 已把
+   * 每个非 approved 的 verdict 归一成 rejected,这里的转移表只有两支:
    *
-   * Task 6 should mirror WithdrawWorkflowService.applyKytVerdict's shape:
-   * look up the swap, no-op on terminal/already-decided status, and on
-   * 'approved' call buildLegContext(...) (private helper above, built for
-   * exactly this) to resume the leg pipeline; on 'rejected' fail the swap —
-   * both paths wrapped in prisma.$transaction and recorded via
-   * this.auditLogsService (never `new AuditLogsService`).
+   *   approved → markStatus(KYT_APPROVED) → PROCESSING,在同一事务内用
+   *              buildLegContext + createLeg 建 leg1,随后补提买入腿到 Sumsub
+   *              (纯数据腿,不承载裁决,失败不阻断已放行的兑换)。
+   *   rejected → markStatus(KYT_REJECTED, {rejectReason: 'KYT_REJECTED'}) →
+   *              REJECTED,零记账(不建任何 leg、不碰 TB)——移交处置(Task 7 打桩)。
+   *
+   * 事务边界:裁决证据字段(complianceVerdict/sumsubDetailJson)和 markStatus
+   * 落在同一个 $transaction 里,而不是先落库再开事务(Task 4 终审教训)——否则
+   * 事务内任何一步抛错都会回滚状态迁移,却把裁决证据留在库里,单子就卡在
+   * COMPLIANCE_PENDING 但 complianceVerdict 已经显示 approved/rejected,误导排查。
    */
   async applyKytVerdict(
     swapId: string,
@@ -470,7 +479,151 @@ export class SwapWorkflowService {
       typedTags?: string[];
     },
   ): Promise<void> {
-    throw new Error('SwapWorkflowService.applyKytVerdict not implemented — Task 6');
+    const swap = await this.swapTransactionsService.findByIdInternal(swapId);
+    if (!swap) {
+      this.logger.warn(`applyKytVerdict: swap ${swapId} not found`);
+      return;
+    }
+
+    const status = swap.status as SwapTransactionStatus;
+    if (SwapWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) {
+      this.logger.debug(`applyKytVerdict no-op: swap ${swapId} already terminal (${status})`);
+      return;
+    }
+
+    const verdictFields = {
+      complianceVerdict: input.verdict,
+      sumsubDetailJson: input.detailRaw !== undefined ? JSON.stringify(input.detailRaw) : undefined,
+    };
+
+    if (input.verdict === 'approved') {
+      await this.prisma.$transaction(async (tx: any) => {
+        await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
+        await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx, undefined);
+        await this.auditLogsService.recordSystem(
+          {
+            action: AuditActions.SWAP_KYT_APPROVED,
+            entityType: AuditEntityTypes.SWAP_TRANSACTION,
+            entityId: swap.id,
+            entityNo: swap.swapNo || undefined,
+            traceId: swap.traceId ?? undefined,
+            workflowType: AuditWorkflowTypes.SWAP,
+            entityOwnerType: swap.ownerType,
+            entityOwnerId: swap.ownerId,
+            reason: 'Swap KYT verdict approved — proceeding to settlement',
+            sourcePlatform: 'SYSTEM',
+          },
+          tx,
+        );
+        const ctx = await this.buildLegContext(swap, tx);
+        const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
+        await this.createLeg(swap, legSpecs[0]!, ctx, 1, 1, swap.traceId ?? undefined, tx);
+      });
+      await this.submitSumsubTxnIn(swapId); // fire-and-forget，买入腿失败不阻断已放行的兑换
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
+      await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
+        rejectReason: 'KYT_REJECTED',
+      });
+      await this.auditLogsService.recordSystem(
+        {
+          action: AuditActions.SWAP_KYT_REJECTED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo || undefined,
+          traceId: swap.traceId ?? undefined,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          reason: 'Swap KYT verdict rejected — no settlement legs booked',
+          sourcePlatform: 'SYSTEM',
+        },
+        tx,
+      );
+    });
+    await this.handleRejectDisposition(swap, input);
+  }
+
+  /**
+   * Submit the buy leg (toAsset, direction=in) to Sumsub KYT right after leg1
+   * is booked. This leg carries NO verdict — Sumsub already approved the swap
+   * via the sell-leg KYT check; this is purely data feeding the applicant's
+   * behavioural profile. Mirrors submitSumsubTxnOut's guards (idempotency +
+   * missing-applicantId), and the whole call is try/caught: a failure here
+   * must never roll back or block a swap that has already started executing.
+   */
+  private async submitSumsubTxnIn(swapId: string): Promise<void> {
+    let swap: any = null;
+    try {
+      swap = await this.prisma.swapTransaction.findUnique({
+        where: { id: swapId },
+        include: { customer: true, toAsset: true },
+      });
+      if (!swap) return;
+      if (swap.sumsubTxnIdIn) return; // 幂等：webhook 重投/看门狗重试安全
+
+      const applicantId = swap.customer?.sumsubApplicantId;
+      if (!applicantId) {
+        this.logger.warn(
+          `submitSumsubTxnIn skip: swap ${swapId} owner ${swap.ownerId} has no sumsubApplicantId`,
+        );
+        return;
+      }
+
+      const res = await this.sumsubTxnClient.submitTxn({
+        applicantId,
+        clientTxnId: `${swap.swapNo}-IN`,
+        type: 'finance',
+        direction: 'in',
+        amount: Number(swap.netToAmount ?? swap.toAmount),
+        currencyCode: swap.toAsset.currency,
+        currencyType: swap.toAsset.type === 'CRYPTO' ? 'crypto' : 'fiat',
+        orderId: swap.swapNo ?? undefined,
+        props: { txType: 'exchange' },
+        infoType: 'exchange',
+      });
+
+      await this.prisma.swapTransaction.update({
+        where: { id: swapId },
+        data: { sumsubTxnIdIn: res.txnId },
+      });
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.SWAP_KYT_SUBMITTED,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: swap.id,
+        entityNo: swap.swapNo || undefined,
+        result: AuditResult.SUCCESS,
+        reason: 'Swap buy-leg submitted to Sumsub KYT (data-only, carries no verdict)',
+        metadata: { sumsubTxnId: res.txnId, direction: 'in' },
+      });
+    } catch (err) {
+      // 买入腿是纯数据腿，不承载裁决 —— 失败只告警，绝不回滚已成交的兑换。
+      this.logger.error(`buy-leg KYT submit failed for swap ${swapId}: ${String(err)}`);
+    }
+  }
+
+  /**
+   * STUB — Task 7's job. On a rejected KYT verdict this decides disposition:
+   * writing customer restrictions, whether to expose a re-verification prompt
+   * to the customer, and the sanctions/tipping-off split (silent for SANCTION
+   * hits, customer-visible otherwise). By the time this runs the swap is
+   * already REJECTED with zero accounting trace — Task 7 only adds side
+   * effects on top and must never touch funds, legs, or accounting.
+   */
+  private async handleRejectDisposition(
+    swap: any,
+    input: {
+      verdict: 'approved' | 'rejected';
+      detailRaw?: unknown;
+      applicantActions?: { applicantActionId: string; externalActionId: string }[];
+      typedTags?: string[];
+    },
+  ): Promise<void> {
+    // Task 7: CustomerRestrictionsService write + sanctions/tipping-off split.
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {

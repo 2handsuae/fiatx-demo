@@ -19,7 +19,7 @@ import { SwapWorkflowService } from './swap-workflow.service';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
-import { SwapTransactionAction } from './dto/swap-transaction.dto';
+import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { buildSwapLegPlan } from '../../funds-layer/constants/swap-leg-plan.constant';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -1121,5 +1121,308 @@ describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () =
 
     // create must NOT be called when R1 assert fails.
     expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── applyKytVerdict (Task 6) — approved → PROCESSING+leg1+buy-leg submit; ──
+// ── rejected → REJECTED with zero accounting trace; both idempotent ────────
+
+describe('SwapWorkflowService.applyKytVerdict', () => {
+  function buildApplyKytVerdictMocks(overrides: { status?: string } = {}) {
+    const swapRow = {
+      id: 's1',
+      swapNo: 'SWP0001',
+      status: overrides.status ?? SwapTransactionStatus.COMPLIANCE_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      ownerNo: 'C0001',
+      traceId: 'TRACE-1',
+      fromAssetId: 'asset-usdt',
+      toAssetId: 'asset-aed',
+      fromAmount: new Prisma.Decimal('100'),
+      toAmount: new Prisma.Decimal('0.05'),
+      netToAmount: new Prisma.Decimal('0.04'),
+      feeAmount: new Prisma.Decimal('0.01'),
+      fromAsset: { decimals: 6, currency: 'USDT', type: 'CRYPTO' },
+      toAsset: { decimals: 2, currency: 'AED', type: 'FIAT' },
+    };
+
+    // The $transaction callback's tx client — distinct from the top-level
+    // `prisma.swapTransaction` spy below so tests can tell apart writes made
+    // INSIDE the markStatus transaction from writes made outside it
+    // (transaction-boundary property).
+    const txClient: any = {
+      asset: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)),
+      },
+      swapTransaction: {
+        update: jest.fn(() => Promise.resolve({})),
+      },
+    };
+
+    const swapTransactionsService = {
+      findByIdInternal: jest.fn(() => Promise.resolve(swapRow)),
+      markStatus: jest.fn(() => Promise.resolve()),
+      recomputeProjections: jest.fn(() => Promise.resolve()),
+    };
+
+    const legAccounting = {
+      resolveLegWallets: jest.fn(() => Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' })),
+      initiateLegPending: jest.fn(() => Promise.resolve()),
+    };
+
+    const fundsOrders = {
+      create: jest.fn(() => Promise.resolve({ id: 'fo-1', legSeq: 1, attempt: 1, status: 'CREATED' })),
+    };
+
+    const auditLogsService = {
+      recordSystem: jest.fn(() => Promise.resolve()),
+      recordByActor: jest.fn(() => Promise.resolve()),
+    };
+
+    const sumsubTxnClient = {
+      submitTxn: jest.fn(() => Promise.resolve({ txnId: 'txn-mock-in' })),
+    };
+
+    // Guarantee #2 (rejection is zero-trace) is asserted against these too.
+    const accountingService = {
+      executePendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 0n })),
+      voidPendingTransfer: jest.fn(() => Promise.resolve()),
+      postPendingTransfer: jest.fn(() => Promise.resolve()),
+      executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
+    };
+
+    const prisma: any = {
+      $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+      // submitSumsubTxnIn (buy leg) reads/writes the swap row directly,
+      // outside the markStatus transaction — mirrors submitSumsubTxnOut.
+      swapTransaction: {
+        findUnique: jest.fn(() =>
+          Promise.resolve({
+            id: 's1',
+            swapNo: 'SWP0001',
+            ownerId: 'cust-1',
+            sumsubTxnIdIn: null,
+            netToAmount: swapRow.netToAmount,
+            toAmount: swapRow.toAmount,
+            toAsset: { currency: 'AED', type: 'FIAT' },
+            customer: { sumsubApplicantId: 'applicant-1' },
+          }),
+        ),
+        update: jest.fn(() => Promise.resolve({})),
+      },
+    };
+
+    return {
+      swapRow,
+      txClient,
+      swapTransactionsService,
+      legAccounting,
+      fundsOrders,
+      auditLogsService,
+      sumsubTxnClient,
+      accountingService,
+      prisma,
+    };
+  }
+
+  function makeApplyKytVerdictService(mocks: ReturnType<typeof buildApplyKytVerdictMocks>) {
+    return new SwapWorkflowService(
+      mocks.prisma,
+      {} as any, // onboardingService — not on this path
+      {} as any, // swapQuoteService — not on this path
+      mocks.swapTransactionsService as any,
+      mocks.accountingService as any,
+      mocks.auditLogsService as any,
+      { emit: jest.fn() } as any, // eventEmitter — not on this path
+      mocks.legAccounting as any,
+      mocks.fundsOrders as any,
+      {} as any, // walletQuery — not on this path
+      {} as any, // limitGateService — not on this path
+      mocks.sumsubTxnClient as any,
+    );
+  }
+
+  it('approved → markStatus(KYT_APPROVED) + builds leg1 + submits the buy leg to Sumsub', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.KYT_APPROVED,
+      expect.anything(),
+      undefined,
+    );
+    expect(createLegSpy).toHaveBeenCalledTimes(1);
+    // leg1 is the SELL leg — its asset must be the FROM asset (proves the ctx
+    // passed to createLeg came from a real buildLegContext, not a stub).
+    const createArg = (mocks.fundsOrders.create as jest.Mock).mock.calls[0][0];
+    expect(createArg.assetId).toBe('asset-usdt');
+    expect(createArg.legSeq).toBe(1);
+    expect(createArg.attempt).toBe(1);
+
+    expect(mocks.sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ direction: 'in', orderId: 'SWP0001' }),
+    );
+
+    // KYT_APPROVED audit recorded with the richer shape used elsewhere in
+    // this file (workflowType/traceId/entityOwnerType/entityOwnerId) — the
+    // sparse SWAP_KYT_SUBMITTED call is the odd one out, not the model.
+    const approvedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_KYT_APPROVED);
+    expect(approvedAudit).toBeDefined();
+    expect(approvedAudit.workflowType).toBeDefined();
+    expect(approvedAudit.traceId).toBe('TRACE-1');
+    expect(approvedAudit.entityOwnerType).toBe('CUSTOMER');
+    expect(approvedAudit.entityOwnerId).toBe('cust-1');
+  });
+
+  it('rejected → markStatus(KYT_REJECTED, {rejectReason: KYT_REJECTED}) with zero accounting/leg trace', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
+
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.KYT_REJECTED,
+      expect.anything(),
+      { rejectReason: 'KYT_REJECTED' },
+    );
+    expect(mocks.accountingService.executePendingTransfer).not.toHaveBeenCalled();
+    expect(mocks.accountingService.voidPendingTransfer).not.toHaveBeenCalled();
+    expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(createLegSpy).not.toHaveBeenCalled();
+    // The buy-leg is never submitted for a rejected swap.
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+
+    const rejectedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED);
+    expect(rejectedAudit).toBeDefined();
+    expect(rejectedAudit.entityOwnerType).toBe('CUSTOMER');
+    expect(rejectedAudit.entityOwnerId).toBe('cust-1');
+  });
+
+  it('rejected hands off to handleRejectDisposition (Task 7 stub) with the swap + raw input', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest
+      .spyOn(service as any, 'handleRejectDisposition')
+      .mockResolvedValue(undefined);
+
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    await service.applyKytVerdict('s1', input);
+
+    expect(dispositionSpy).toHaveBeenCalledTimes(1);
+    expect(dispositionSpy.mock.calls[0][0]).toMatchObject({ id: 's1' });
+    expect(dispositionSpy.mock.calls[0][1]).toBe(input);
+  });
+
+  it.each([
+    SwapTransactionStatus.SUCCESS,
+    SwapTransactionStatus.REJECTED,
+    SwapTransactionStatus.FAILED,
+    SwapTransactionStatus.REVERSED,
+  ])('already-terminal (%s) → no-op, idempotent against webhook redelivery', async (status) => {
+    const mocks = buildApplyKytVerdictMocks({ status });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+  });
+
+  it('swap not found → no-op, does not throw', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.swapTransactionsService.findByIdInternal as jest.Mock).mockResolvedValueOnce(null);
+    const service = makeApplyKytVerdictService(mocks);
+
+    await expect(service.applyKytVerdict('missing', { verdict: 'approved' })).resolves.toBeUndefined();
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+  });
+
+  // ── transaction-boundary property (Task 4 review note) ──────────────────
+  it('writes the compliance-verdict fields INSIDE the same $transaction as markStatus, not outside it', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'approved', detailRaw: { foo: 'bar' } });
+
+    // The verdict write must land on the tx client (rolls back together with
+    // markStatus if anything later in the same transaction throws) — never
+    // on the top-level, non-transactional prisma client.
+    expect(mocks.txClient.swapTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1' },
+        data: expect.objectContaining({
+          complianceVerdict: 'approved',
+          sumsubDetailJson: JSON.stringify({ foo: 'bar' }),
+        }),
+      }),
+    );
+    // The only non-transactional swapTransaction.update call is the buy-leg's
+    // own sumsubTxnIdIn write (submitSumsubTxnIn), never the verdict fields.
+    const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
+    for (const [arg] of topLevelUpdateCalls) {
+      expect(arg.data).not.toHaveProperty('complianceVerdict');
+    }
+  });
+
+  // ── buy-leg submit (submitSumsubTxnIn) guards, mirroring submitSumsubTxnOut ──
+
+  it('submitSumsubTxnIn is idempotent — no-ops when sumsubTxnIdIn is already set', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.prisma.swapTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 's1', swapNo: 'SWP0001', sumsubTxnIdIn: 'already-submitted',
+      toAsset: { currency: 'AED', type: 'FIAT' },
+      customer: { sumsubApplicantId: 'applicant-1' },
+    });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await (service as any).submitSumsubTxnIn('s1');
+
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+    expect(mocks.prisma.swapTransaction.update).not.toHaveBeenCalled();
+  });
+
+  it('submitSumsubTxnIn skips (no submit) when the customer has no sumsubApplicantId', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.prisma.swapTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 's1', swapNo: 'SWP0001', sumsubTxnIdIn: null,
+      toAsset: { currency: 'AED', type: 'FIAT' },
+      customer: { sumsubApplicantId: null },
+    });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await (service as any).submitSumsubTxnIn('s1');
+
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+  });
+
+  it('a failing buy-leg submit is swallowed — approved swap already executed and must not be rolled back', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.sumsubTxnClient.submitTxn as jest.Mock).mockRejectedValueOnce(new Error('sumsub down'));
+    const service = makeApplyKytVerdictService(mocks);
+
+    // Must resolve normally — the buy-leg failure must not propagate.
+    await expect(service.applyKytVerdict('s1', { verdict: 'approved' })).resolves.toBeUndefined();
+    // The status transition + leg1 already committed before the buy-leg call.
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.KYT_APPROVED,
+      expect.anything(),
+      undefined,
+    );
+    expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
   });
 });
