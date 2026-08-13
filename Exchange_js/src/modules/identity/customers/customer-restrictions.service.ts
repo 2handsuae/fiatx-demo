@@ -4,7 +4,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 
-export type TradeAction = 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | 'ALL';
+export type RestrictableCapability = 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | 'ALL';
 export interface CustomerRestriction {
   capability: string;
   reason: string;
@@ -31,24 +31,29 @@ export class CustomerRestrictionsService {
 
   async add(
     customerId: string,
-    capabilities: TradeAction[],
+    capabilities: RestrictableCapability[],
     reason: string,
     actorId: string,
   ): Promise<void> {
-    const customer = await this.prisma.customerMain.findUnique({ where: { id: customerId } });
-    if (!customer) throw new NotFoundException(`Customer not found: ${customerId}`);
+    // 读改写在同一事务内完成，避免并发写同一客户时后写覆盖先写（lost update）
+    const customer = await this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customerMain.findUnique({ where: { id: customerId } });
+      if (!customer) throw new NotFoundException(`Customer not found: ${customerId}`);
 
-    const current = CustomerRestrictionsService.parse(customer.restrictions);
-    const next = [...current];
-    for (const capability of capabilities) {
-      if (!next.some((r) => r.capability === capability)) {
-        next.push({ capability, reason });
+      const current = CustomerRestrictionsService.parse(customer.restrictions);
+      const next = [...current];
+      for (const capability of capabilities) {
+        if (!next.some((r) => r.capability === capability)) {
+          next.push({ capability, reason });
+        }
       }
-    }
 
-    await this.prisma.customerMain.update({
-      where: { id: customerId },
-      data: { restrictions: JSON.stringify(next) },
+      await tx.customerMain.update({
+        where: { id: customerId },
+        data: { restrictions: JSON.stringify(next) },
+      });
+
+      return customer;
     });
 
     await this.auditLogsService.recordSystem({
@@ -65,17 +70,26 @@ export class CustomerRestrictionsService {
     });
   }
 
-  async clear(customerId: string, capabilities: TradeAction[], actorId: string): Promise<void> {
-    const customer = await this.prisma.customerMain.findUnique({ where: { id: customerId } });
-    if (!customer) throw new NotFoundException(`Customer not found: ${customerId}`);
+  async clear(
+    customerId: string,
+    capabilities: RestrictableCapability[],
+    actorId: string,
+  ): Promise<void> {
+    // 读改写在同一事务内完成，避免并发写同一客户时后写覆盖先写（lost update）
+    const customer = await this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customerMain.findUnique({ where: { id: customerId } });
+      if (!customer) throw new NotFoundException(`Customer not found: ${customerId}`);
 
-    const next = CustomerRestrictionsService.parse(customer.restrictions).filter(
-      (r) => !capabilities.includes(r.capability as TradeAction),
-    );
+      const next = CustomerRestrictionsService.parse(customer.restrictions).filter(
+        (r) => !capabilities.includes(r.capability as RestrictableCapability),
+      );
 
-    await this.prisma.customerMain.update({
-      where: { id: customerId },
-      data: { restrictions: JSON.stringify(next) },
+      await tx.customerMain.update({
+        where: { id: customerId },
+        data: { restrictions: JSON.stringify(next) },
+      });
+
+      return customer;
     });
 
     await this.auditLogsService.recordSystem({
