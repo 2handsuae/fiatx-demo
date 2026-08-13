@@ -1,6 +1,6 @@
 # V3 财务配置 — 当前实现真相
 
-Last Verified: 2026-07-17（核对方式：§5 DEPOSIT 接入 deposit-min 落地逐符号重核；余节 2026-07-16 基线）
+Last Verified: 2026-08-13（核对方式：COA v2 科目表重构关联体检——§3 两处订正：标题引用「8 码 COA」实已是 9 码（此前遗留漂移，随本轮一并订正）；系统级建户清单 FIRM_FEE/FIRM_LIQ 改为新收入三户 INCOME_SWAP_FEE/INCOME_WITHDRAW_FEE/INCOME_OTHER，回代码 `asset-provisioning.service.ts` 核实属实。前序核对方式：§5 DEPOSIT 接入 deposit-min 落地逐符号重核；余节 2026-07-16 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。历史沿革看 git/roadmap，计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -34,9 +34,9 @@ Last Verified: 2026-07-17（核对方式：§5 DEPOSIT 接入 deposit-min 落地
 
 ## 3. 账本账户开设（COA provisioning）
 
-> 📖 **8 码 COA 定义 / TB 记账机制 / 不变量** → [accounting-coa.md](accounting-coa.md)（跨版本共享域）。本节只写 **V3 关注的"账户何时开设"**。
+> 📖 **9 码 COA 定义 / TB 记账机制 / 不变量** → [accounting-coa.md](accounting-coa.md)（跨版本共享域）。本节只写 **V3 关注的"账户何时开设"**。
 
-- **系统级**（CLIENT_ASSET/FIRM_ASSET/FIRM_OPS/FIRM_FEE/FIRM_LIQ + 法币 FIRM_SET）：资产创建**同事务** provision
+- **系统级**（CLIENT_ASSET/FIRM_ASSET/FIRM_OPS/INCOME_SWAP_FEE/INCOME_WITHDRAW_FEE/INCOME_OTHER + 法币 FIRM_SET，2026-08-13 COA v2 起收入段由 FIRM_FEE/FIRM_LIQ 换成三个新收入户）：资产创建**同事务** provision
 - **客户级**（CLIENT_PAYABLE/DEPOSIT_SUSPENSE）：**首笔交易懒解析**，失败则该笔交易失败；兜底 `POST /admin/tb/accounts`
 - **锚点**：`asset-provisioning.service.ts → provision()` ｜ `deposit-workflow.service.ts → executeDepositAccounting()`（客户账户懒解析）
 - ⚠️ **已知薄弱点**：账户创建失败无 backlog 重试（仅转账凭证有 `TbEvidenceBacklog`）；`asset.provisioned` 事件 + `TbAccountBacklog` 已不存在（旧 roadmap 记载已过期）

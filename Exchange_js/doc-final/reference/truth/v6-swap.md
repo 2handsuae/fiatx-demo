@@ -1,6 +1,6 @@
 # V6 兑换流程 — 当前实现真相
 
-Last Verified: 2026-07-16（核对方式：金额限额落地核对——executeSwap L1 A/B gate + grossAedValue 落库逐符号走查；余节 2026-07-11 基线）
+Last Verified: 2026-08-13（核对方式：COA v2 科目表重构关联体检——第 3 节"4 腿账户"一处贷方科目描述订正：公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE` 改 `FIRM_ASSET↔FIRM_OPS/SET/INCOME_SWAP_FEE`（`SWAP_FEE_FIRM`=36 结算腿贷方由退役的 `FIRM_FEE` 改 `INCOME_SWAP_FEE`，转账类型码常量名不变），回代码 `swap-leg-plan.constant.ts`/`accounting-coa.md` §1 核实属实。前序核对方式：金额限额落地核对——executeSwap L1 A/B gate + grossAedValue 落库逐符号走查；余节 2026-07-11 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -39,7 +39,7 @@ PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMP
   - **前端逐币预检**（`Swap.tsx` + `GET /client/trading-readiness/receiving-accounts`）：选定 buy/sell 后即查两侧收款账户，缺失则禁提交并提示，CTA「Create receiving account」**跳 `/deposit`**（收款账户=充值地址，Deposit 页是自然落点；2026-07-11 起，原 `/wallet`）
 - **成交编排**：consume Quote → swap PROCESSING → `createLeg(leg1)` → per-leg two-phase → `onLegConfirmed()` 链式创建下一腿 → 第 4 腿 CLEAR → `markStatus('SUCCESS')`
 - **推进**：leg1 自动 initiate、**leg2-4 lazy**（admin `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` → `advanceLeg()`，带 **sell-first 顺序守卫**）；STUCK 后 `POST .../resume`（新 attempt 重试）
-- **4 腿账户**（`swap-leg-plan.constant.ts`，CRYPTO_TO_FIAT / FIAT_TO_CRYPTO 各一组）：客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE`；per-leg two-phase `initiateLegPending()→postLeg()`（成功）/ `voidLeg()`（失败 best-effort 补偿）。**无 clearing bridge / Outstanding / FEE_RECEIVABLE**（全仓 0 命中）
+- **4 腿账户**（`swap-leg-plan.constant.ts`，CRYPTO_TO_FIAT / FIAT_TO_CRYPTO 各一组）：客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/INCOME_SWAP_FEE`（2026-08-13 COA v2 起，费腿贷方取代退役的 `FIRM_FEE`）；per-leg two-phase `initiateLegPending()→postLeg()`（成功）/ `voidLeg()`（失败 best-effort 补偿）。**无 clearing bridge / Outstanding / FEE_RECEIVABLE**（全仓 0 命中）
 - **对账 evidence**：每腿 `externalRef = ${swapNo}:${legSeq}:${attempt}:pending` + debit/creditWalletRef + `isExternalCrossing=true`（swap 不上链，swap-internal ref 即跨钱包互证键）
 - **费率治理**：2 独立工作流 `SwapFeeLevel{Creation/Change}WorkflowService`；创建/变更走审批（**OPS_OFFICER 单步**），Change 走 request-record + `configHash` 冲突检测 + 单 PENDING 约束；受众改由 `requiredTagsJson`（客户标签谓词）+ `validFrom/validTo`（限时窗）表达（binding 表已 2026-07-13 退役，见 BACKLOG 历史）
 - 锚点：`swap-workflow.service.ts → executeSwap()/handleFundsOrderChanged()/onLegConfirmed()/onLegFailedSelfHeal()/advanceLeg()/mapLegAction()` ｜ `asset-treasury/transaction-limits/transaction-limit-gate.service.ts → evaluate()`（L1 金额限额引擎，A/B）｜ `swap-leg-accounting.ts → initiateLegPending()/postLeg()/voidLeg()` ｜ `swap-leg-plan.constant.ts → buildSwapLegPlan()` ｜ `swap-quote.service.ts → createQuote()/resolveBestLevel()` ｜ `binance-rate.provider.ts → fetchRate()` ｜ `swap-fee-level/*-workflow.service.ts`
