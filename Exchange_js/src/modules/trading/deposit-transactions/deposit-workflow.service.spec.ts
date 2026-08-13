@@ -2097,7 +2097,12 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      // A5(2026-08-13):忽略 ≠ 静默——状态机一步不动,但要留一条 IGNORED 标记。
+      // 断言口径保持原意「不写任何业务审计」:唯一一条必须是 IGNORED 标记本身。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_KYT_VERDICT_IGNORED' }),
+      );
     });
 
     it('no-op when already FROZEN and a duplicate rejected+SANCTION webhook arrives', async () => {
@@ -2146,7 +2151,81 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-12', { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      // A5:RETURNING 已进 IGNORED 集合,在 applyKytVerdict 入口就早退(此前是走到
+      // applyKytRejected 里的 `status === RETURNING` 防重闸)。净效果同样是状态机不动,
+      // 但现在多一条 IGNORED 标记,且**不再先覆写闸门字段/存证**——这正是 A5 要修的。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_KYT_VERDICT_IGNORED' }),
+      );
+    });
+
+    // ── A5 (2026-08-13): 在途处置态收到迟到裁决,证据必须一个字不动 ─────────────
+    // 修复前:CONFISCATING/RETURNING/SEIZING 不在忽略集合里 → 先 writeBackVerdict +
+    // saveTxnDetail 把原制裁裁决/风险分/原始报文整份覆盖,然后才因为状态机没边而抛错。
+    // 最隐蔽的是"迟到的 approved":它连错都不报,静默把上缴中订单的裁决改成通过。
+    it.each([
+      DepositTransactionStatus.SEIZING,
+      DepositTransactionStatus.RETURNING,
+      DepositTransactionStatus.CONFISCATING,
+    ])('A5: %s 收到迟到 approved → 不覆写裁决/存证 + IGNORED 审计 + 不抛', async (status) => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-a5',
+        depositNo: 'DEPA5',
+        status,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+        sumsubVerdict: 'rejected',
+        sumsubScore: 98,
+      });
+
+      await expect(
+        service.applyKytVerdict('dep-a5', { verdict: 'approved', riskScore: 5 }),
+      ).resolves.toBeUndefined();
+
+      // 关键:原裁决(rejected/98)不能被 approved/5 盖掉
+      expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_KYT_VERDICT_IGNORED' }),
+      );
+    });
+
+    // ── A2 (2026-08-13): 退回着陆垫 ────────────────────────────────────────────
+    // 合规官最标准的操作是「一边打 RETURN_TO_SENDER tag 一边驳回」,此刻单子还在
+    // COMPLIANCE_PENDING。修复前 initiateReturn 直接抛 BadRequestException(本方法只
+    // catch ConflictException)→ 一路上抛 → webhook 三次重试进死信:不开审批、不流转、
+    // 不记审计,界面上"点了没反应",钱一直压在 DEPOSIT_SUSPENSE 里。
+    it.each([
+      DepositTransactionStatus.COMPLIANCE_PENDING,
+      DepositTransactionStatus.ACTION_PENDING,
+    ])('A2: %s 收到 RETURN_TO_SENDER tag → 落 MANUAL_CHECKING(tag 进 reason) 不抛', async (status) => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-a2',
+        depositNo: 'DEPA2',
+        status,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await expect(
+        service.applyKytVerdict('dep-a2', { verdict: 'rejected', dispoTag: 'RETURN_TO_SENDER' }),
+      ).resolves.toBeUndefined();
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-a2',
+        expect.objectContaining({
+          action: DepositTransactionAction.KYT_REJECTED,
+          // tag 必须留在 reason 里,合规官才能从人工复核队列里重驱这笔退回
+          reason: expect.stringContaining('RETURN_TO_SENDER'),
+        }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_MANUAL_CHECKING' }),
+      );
     });
 
     it('no-op when already MANUAL_CHECKING and a duplicate rejected (no tag) webhook arrives', async () => {
@@ -2480,6 +2559,7 @@ describe('DepositWorkflowService', () => {
       executeTransfer: jest.Mock;
       executePendingTransfer: jest.Mock;
       postPendingTransfer: jest.Mock;
+      voidPendingTransfer: jest.Mock;
     };
 
     const baseDeposit = (overrides: Record<string, unknown> = {}) => ({
@@ -2511,6 +2591,7 @@ describe('DepositWorkflowService', () => {
         executeTransfer: jest.fn().mockResolvedValue(undefined),
         executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
         postPendingTransfer: jest.fn().mockResolvedValue(undefined),
+        voidPendingTransfer: jest.fn().mockResolvedValue(undefined),
       };
       depositService.updateStatus.mockResolvedValue({});
 
@@ -2579,6 +2660,67 @@ describe('DepositWorkflowService', () => {
       await service.handleFundsOrderChanged(legEvent({ newStatus: 'SUBMITTED' }) as any);
 
       expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
+    });
+
+    // ── A1 (2026-08-13): 没收腿 FAILED/TIMEOUT 此前掉地上 ──────────────────────
+    // 旧代码 `if (newStatus !== CONFIRMED) return` 把这两个信号一起吃掉,deposit 永停
+    // CONFISCATING、两笔 pending 锁永不释放,且四条恢复路径全堵(资金单已终态不再发事件 /
+    // CONFISCATING 只有 settle 一条出边 / ADMIN_API 被 ACCOUNTING_TERMINALS 挡 / 无重结算
+    // 入口)。而 admin 资金单详情页的 ⚡失败/⚡超时 红按钮对没收腿照常渲染 —— 一点即死。
+    it.each(['FAILED', 'TIMEOUT'])(
+      'A1: legSeq2 %s → voids BOTH pending legs → back to OPERATION_PENDING + audit',
+      async (legStatus) => {
+        depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+
+        await service.handleFundsOrderChanged(legEvent({ newStatus: legStatus }) as any);
+
+        // 两笔 pending 都要解锁——只解一笔等于钱还锁着一半
+        expect(accountingService.voidPendingTransfer).toHaveBeenCalledTimes(2);
+        expect(accountingService.postPendingTransfer).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_FAILED }),
+        );
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_LEG_FAILED' }),
+        );
+      },
+    );
+
+    it('A1: void 的 pending id 必须与 startConfiscation 逐字一致(两笔 eventCode 各一)', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+
+      await service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED' }) as any);
+
+      const eventCodes = accountingService.voidPendingTransfer.mock.calls.map(
+        (c: any[]) => c[0].evidence.eventCode,
+      );
+      expect(eventCodes).toEqual([
+        'CONFISCATE_REVERSE_SUSPENSE_VOID',
+        'CONFISCATE_INCOME_OTHER_VOID',
+      ]);
+      // pending id 由 startConfiscation 的 eventCode + legIndex(=1) 决定,两笔必须不同
+      const pendingIds = accountingService.voidPendingTransfer.mock.calls.map(
+        (c: any[]) => c[0].pendingTransferId,
+      );
+      expect(pendingIds[0]).not.toEqual(pendingIds[1]);
+    });
+
+    it('A1: void 抛错 → 不上抛(@OnEvent 里没人接) + 留 CONFISCATING + UNLOCK_FAILED 审计', async () => {
+      depositService.findOne.mockResolvedValue(baseDeposit({ status: 'CONFISCATING' }));
+      accountingService.voidPendingTransfer.mockRejectedValue(new Error('TB unreachable'));
+
+      await expect(
+        service.handleFundsOrderChanged(legEvent({ newStatus: 'FAILED' }) as any),
+      ).resolves.toBeUndefined();
+
+      expect(depositService.updateStatus).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_FAILED }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_CONFISCATION_UNLOCK_FAILED' }),
+      );
     });
   });
 
