@@ -314,12 +314,18 @@ export class SwapTransactionsService {
     });
   }
 
-  /** Load a swap by id with the asset relations ctxFromSwap needs. Nullable. */
+  /**
+   * Load a swap by id with the asset relations ctxFromSwap needs. Nullable.
+   * `customer` was added by Task 9 (demo-scenario.service.ts needs
+   * customer.sumsubApplicantId / customer.customerNo / customer.pendingActionExternalId
+   * to build simulated webhook payloads) — existing callers only read
+   * asset/status/etc. fields and are unaffected by the extra relation.
+   */
   async findByIdInternal(id: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;
     return client.swapTransaction.findUnique({
       where: { id },
-      include: { fromAsset: true, toAsset: true },
+      include: { fromAsset: true, toAsset: true, customer: true },
     });
   }
 

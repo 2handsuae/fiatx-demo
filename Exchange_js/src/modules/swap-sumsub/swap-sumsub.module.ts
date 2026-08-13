@@ -4,21 +4,28 @@ import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
 import { SwapSlaService } from './swap-sla.service';
 import { SwapTransactionsModule } from '../trading/swap-transactions/swap-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
+import { SumsubIngestionModule } from '../sumsub-ingestion/sumsub-ingestion.module';
+import { SwapDemoScenarioService } from './demo-scenario.service';
+import { AdminSwapDemoController } from './admin-swap-demo.controller';
+
+// Task 9: mirrors DepositSumsubModule/WithdrawSumsubModule's identically-named
+// switch (see those files' comment on process.env timing vs. ConfigModule.forRoot()).
+const SUMSUB_MOCK_MODE = process.env.SUMSUB_MOCK_MODE === 'true';
 
 /**
  * 兑换域的 Sumsub webhook 落地模块 —— mirror of DepositSumsubModule /
- * WithdrawSumsubModule(deliberate fork, Task 5)。SUMSUB_TXN_CLIENT(mock/http
+ * WithdrawSumsubModule(deliberate fork, Task 5/9)。SUMSUB_TXN_CLIENT(mock/http
  * 双模式开关)复用 DepositSumsubModule 已导出的同一个 provider,不在这里重复
  * 声明 —— 三域共用同一套 Sumsub API 凭据/开关。
  *
- * 本任务没有兑换域的 demo-scenario/admin 面板(不像 deposit/withdraw 各自的
- * DemoScenarioService),所以不需要像那两个模块一样再 forwardRef 回
- * SumsubIngestionModule。真正的环是:
+ * Task 9 补上兑换域自己的 demo-scenario/admin 面板(SwapDemoScenarioService),
+ * 因此像 deposit/withdraw 两个模块一样 forwardRef 回 SumsubIngestionModule(取
+ * SumsubIngestionService)。完整的环是:
  * SumsubIngestionModule → SwapSumsubModule(取 SwapWebhookRouter,Task 5)→
  * SwapTransactionsModule → DepositSumsubModule(取 SUMSUB_TXN_CLIENT,Task 4)→
- * SumsubIngestionModule(取 SumsubIngestionService)——四段边全部 forwardRef,
- * 与既有 WithdrawSumsubModule↔DepositSumsubModule↔SumsubIngestionModule 三角环
- * 同一套模式。
+ * SumsubIngestionModule(取 SumsubIngestionService,Task 9 新增边)——四段边全部
+ * forwardRef,与既有 WithdrawSumsubModule↔DepositSumsubModule↔
+ * SumsubIngestionModule 三角环同一套模式。
  *
  * SwapSlaService(Task 8,合规超时看门狗)登记在这里而不是
  * SwapTransactionsModule ——它是兑换域"接 Sumsub"这条线专属的组件（消费
@@ -32,8 +39,13 @@ import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
   imports: [
     forwardRef(() => SwapTransactionsModule),
     forwardRef(() => DepositSumsubModule),
+    forwardRef(() => SumsubIngestionModule),
   ],
-  providers: [SwapWebhookRouter, SwapKytVerdictHandler, SwapSlaService],
+  providers: [SwapWebhookRouter, SwapKytVerdictHandler, SwapSlaService, SwapDemoScenarioService],
+  // Security gate (a): mirrors DepositSumsubModule/WithdrawSumsubModule — this
+  // controller only exists in the Nest route table when SUMSUB_MOCK_MODE=true,
+  // in production it is never registered (not merely guard-blocked).
+  controllers: SUMSUB_MOCK_MODE ? [AdminSwapDemoController] : [],
   exports: [SwapWebhookRouter],
 })
 export class SwapSumsubModule {}
