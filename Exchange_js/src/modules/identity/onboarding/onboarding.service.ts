@@ -117,6 +117,7 @@ const tradingEligibilitySelect = {
   adminStatus: true,
   complianceStatus: true,
   complianceFreezeCaseId: true,
+  restrictions: true,
 } satisfies Prisma.CustomerMainSelect;
 
 const SUMSUB_EVENT_ACTION_MAP: Record<string, string> = {
@@ -1380,6 +1381,18 @@ export class OnboardingService {
         adminStatus: canonical.adminStatus,
         complianceStatus: customer.complianceStatus,
         complianceFreezeCaseId: customer.complianceFreezeCaseId,
+      });
+    }
+
+    const restrictions = this.parseJsonArraySafely<{ capability?: string }>(
+      customer.restrictions,
+    );
+    if (restrictions.some((r) => r.capability === action || r.capability === 'ALL')) {
+      throw new ForbiddenException({
+        code: 'CAPABILITY_RESTRICTED',
+        message: `${action} is currently restricted`,
+        customerId,
+        customerNo: customer.customerNo,
       });
     }
 

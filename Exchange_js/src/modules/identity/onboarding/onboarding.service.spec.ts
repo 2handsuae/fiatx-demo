@@ -739,6 +739,23 @@ describe('OnboardingService', () => {
     );
   });
 
+  it('restrictions 含 SWAP 时拦截 SWAP，放行 DEPOSIT', async () => {
+    prismaMock.customerMain.findUnique.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'C-001',
+      onboardingStatus: 'APPROVED',
+      adminStatus: 'ACTIVE',
+      complianceStatus: 'CLEAR',
+      complianceFreezeCaseId: null,
+      restrictions: JSON.stringify([{ capability: 'SWAP', reason: 'KYT_REJECTED' }]),
+    });
+
+    await expect(service.assertTradingEligibility('c1', 'SWAP')).rejects.toMatchObject({
+      response: { code: 'CAPABILITY_RESTRICTED' },
+    });
+    await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).resolves.toBeUndefined();
+  });
+
   it('should derive REVIEW_CDD next step from canonical onboarding status', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
