@@ -317,6 +317,10 @@ export const AuditActions = {
   // no audit record — the convention in swap-workflow.service.ts is callers audit).
   SWAP_KYT_APPROVED: 'SWAP_KYT_APPROVED',
   SWAP_KYT_REJECTED: 'SWAP_KYT_REJECTED',
+  // Review Fix 1 (Important): a KYT verdict arriving after the swap already
+  // entered PROCESSING (mirrors WITHDRAW_POST_BROADCAST_VERDICT) — evidence
+  // recorded, no state-machine action taken.
+  SWAP_POST_APPROVAL_VERDICT: 'SWAP_POST_APPROVAL_VERDICT',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',

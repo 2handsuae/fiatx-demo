@@ -1164,6 +1164,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       findByIdInternal: jest.fn(() => Promise.resolve(swapRow)),
       markStatus: jest.fn(() => Promise.resolve()),
       recomputeProjections: jest.fn(() => Promise.resolve()),
+      setNeedsReview: jest.fn(() => Promise.resolve()),
     };
 
     const legAccounting = {
@@ -1254,7 +1255,6 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       's1',
       SwapTransactionAction.KYT_APPROVED,
       expect.anything(),
-      undefined,
     );
     expect(createLegSpy).toHaveBeenCalledTimes(1);
     // leg1 is the SELL leg — its asset must be the FROM asset (proves the ctx
@@ -1342,6 +1342,35 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
   });
 
+  // ── Review Fix 1 (Important): PROCESSING is NOT terminal, but neither verdict
+  // ── has a legal state-machine edge from it — a late/re-scored verdict must
+  // ── audit + flag review instead of falling through into markStatus and
+  // ── throwing (which would dead-letter the webhook).
+  it('PROCESSING + rejected verdict → no throw, no transition, no legs, flags needsReview', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
+    const service = makeApplyKytVerdictService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+    await expect(
+      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(createLegSpy).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith(
+      's1',
+      true,
+      expect.anything(),
+    );
+
+    const postAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_POST_APPROVAL_VERDICT);
+    expect(postAudit).toBeDefined();
+    expect(postAudit.metadata).toEqual({ verdict: 'rejected' });
+  });
+
   it('swap not found → no-op, does not throw', async () => {
     const mocks = buildApplyKytVerdictMocks();
     (mocks.swapTransactionsService.findByIdInternal as jest.Mock).mockResolvedValueOnce(null);
@@ -1372,6 +1401,30 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     );
     // The only non-transactional swapTransaction.update call is the buy-leg's
     // own sumsubTxnIdIn write (submitSumsubTxnIn), never the verdict fields.
+    const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
+    for (const [arg] of topLevelUpdateCalls) {
+      expect(arg.data).not.toHaveProperty('complianceVerdict');
+    }
+  });
+
+  // Mirror of the above for the rejected branch — this is the branch where a
+  // stranded verdict (evidence written but the transaction rolls back before
+  // markStatus/audit land) does the most damage, so it needs the same proof.
+  it('rejected: also writes the compliance-verdict fields INSIDE the same $transaction as markStatus', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', detailRaw: { foo: 'bar' } });
+
+    expect(mocks.txClient.swapTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1' },
+        data: expect.objectContaining({
+          complianceVerdict: 'rejected',
+          sumsubDetailJson: JSON.stringify({ foo: 'bar' }),
+        }),
+      }),
+    );
     const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
     for (const [arg] of topLevelUpdateCalls) {
       expect(arg.data).not.toHaveProperty('complianceVerdict');
@@ -1421,7 +1474,6 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       's1',
       SwapTransactionAction.KYT_APPROVED,
       expect.anything(),
-      undefined,
     );
     expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
   });

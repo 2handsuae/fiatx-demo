@@ -423,7 +423,7 @@ export class SwapWorkflowService {
         entityNo: swap.swapNo || undefined,
         result: AuditResult.SUCCESS,
         reason: 'Swap sell-leg submitted to Sumsub KYT',
-        metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action },
+        metadata: { sumsubTxnId: res.txnId, scoringAction: res.scoringResult?.action, direction: 'out' },
       });
     } catch (err) {
       this.logger.error(
@@ -457,8 +457,10 @@ export class SwapWorkflowService {
   /**
    * Sumsub KYT 裁决落地入口(SwapKytVerdictHandler 调用,Task 5 打桩、Task 6 落地)。
    * Swap 没有 withdraw/deposit 那种"等"态(无 awaitUser/onHold) —— handler 已把
-   * 每个非 approved 的 verdict 归一成 rejected,这里的转移表只有两支:
+   * 每个非 approved 的 verdict 归一成 rejected,这里落库分三支:
    *
+   *   PROCESSING → 只落证据 + 审计 + (rejected 时)needsReview,不做状态分发
+   *              (Review Fix 1,见下方守卫的详细注释)。
    *   approved → markStatus(KYT_APPROVED) → PROCESSING,在同一事务内用
    *              buildLegContext + createLeg 建 leg1,随后补提买入腿到 Sumsub
    *              (纯数据腿,不承载裁决,失败不阻断已放行的兑换)。
@@ -496,10 +498,45 @@ export class SwapWorkflowService {
       sumsubDetailJson: input.detailRaw !== undefined ? JSON.stringify(input.detailRaw) : undefined,
     };
 
-    if (input.verdict === 'approved') {
-      await this.prisma.$transaction(async (tx: any) => {
+    // Review Fix 1 (Important): PROCESSING 期迟到裁决不能死信。PROCESSING 故意不在
+    // KYT_VERDICT_TERMINAL_STATUSES 里(兑换还在四腿链上结算,是个长窗口而非瞬时态),
+    // 但下面两支转移表都没有"PROCESSING + KYT_*"的合法边(transitions 表 PROCESSING
+    // 只定义了 SUCCESS 一条边)。任由它落进两支之一,一个重评的 rejected 裁决会在
+    // markStatus 里抛 BadRequestException——SwapKytVerdictHandler 不 catch,
+    // ingestion dispatcher 把这个 webhook 标 FAILED → 重试 → DEAD,一次执行后的
+    // 合规拒绝就此静默丢失。镜像 withdraw-workflow.service.ts 的 PAYOUT_PENDING 守卫:
+    // 落证据字段 + 写一条专属审计,rejected 时给单子打 needsReview,然后原样返回——
+    // 不做任何状态分发,让 webhook 正常拿到 200。
+    if (status === SwapTransactionStatus.PROCESSING) {
+      await this.prisma.$transaction(async (tx) => {
         await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
-        await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx, undefined);
+        if (input.verdict === 'rejected') {
+          await this.swapTransactionsService.setNeedsReview(swap.id, true, tx);
+        }
+        await this.auditLogsService.recordSystem(
+          {
+            action: AuditActions.SWAP_POST_APPROVAL_VERDICT,
+            entityType: AuditEntityTypes.SWAP_TRANSACTION,
+            entityId: swap.id,
+            entityNo: swap.swapNo || undefined,
+            traceId: swap.traceId ?? undefined,
+            workflowType: AuditWorkflowTypes.SWAP,
+            entityOwnerType: swap.ownerType,
+            entityOwnerId: swap.ownerId,
+            reason: `KYT verdict '${input.verdict}' received after swap entered PROCESSING — no state-machine action taken`,
+            metadata: { verdict: input.verdict },
+            sourcePlatform: 'SYSTEM',
+          },
+          tx,
+        );
+      });
+      return;
+    }
+
+    if (input.verdict === 'approved') {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
+        await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx);
         await this.auditLogsService.recordSystem(
           {
             action: AuditActions.SWAP_KYT_APPROVED,
@@ -523,7 +560,7 @@ export class SwapWorkflowService {
       return;
     }
 
-    await this.prisma.$transaction(async (tx: any) => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
       await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
         rejectReason: 'KYT_REJECTED',
@@ -539,6 +576,7 @@ export class SwapWorkflowService {
           entityOwnerType: swap.ownerType,
           entityOwnerId: swap.ownerId,
           reason: 'Swap KYT verdict rejected — no settlement legs booked',
+          metadata: { typedTags: input.typedTags },
           sourcePlatform: 'SYSTEM',
         },
         tx,
@@ -601,8 +639,26 @@ export class SwapWorkflowService {
         metadata: { sumsubTxnId: res.txnId, direction: 'in' },
       });
     } catch (err) {
-      // 买入腿是纯数据腿，不承载裁决 —— 失败只告警，绝不回滚已成交的兑换。
+      // 买入腿是纯数据腿，不承载裁决 —— 失败只告警，绝不回滚已成交的兑换。但对运营
+      // 来说失败才是真正要看见的一面（买入腿悄悄没喂给 Sumsub 会静默拉低客户行为
+      // 画像的完整度）—— 补一条 SWAP_KYT_SUBMIT_FAILED 审计，与 submitSumsubTxnOut
+      // 的失败路径对称。
       this.logger.error(`buy-leg KYT submit failed for swap ${swapId}: ${String(err)}`);
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.SWAP_KYT_SUBMIT_FAILED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap?.id,
+          entityNo: swap?.swapNo || undefined,
+          entityOwnerType: swap?.ownerType,
+          entityOwnerId: swap?.ownerId,
+          traceId: swap?.traceId ?? undefined,
+          workflowType: AuditWorkflowTypes.SWAP,
+          reason: err instanceof Error ? err.message : 'Sumsub KYT buy-leg submit failed',
+          metadata: { direction: 'in' },
+          sourcePlatform: 'SYSTEM',
+        })
+        .catch(() => undefined);
     }
   }
 
