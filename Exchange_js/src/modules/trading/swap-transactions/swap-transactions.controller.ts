@@ -95,6 +95,9 @@ export class SwapTransactionsController {
   @Get(':id')
   @ApiOperation({ summary: 'Get swap transaction by ID' })
   findOne(@Param('id') id: string) {
-    return this.swapTransactionsService.findOne(id);
+    // Admin detail — includes parsed Sumsub compliance fields (Task 10);
+    // customer-facing detail stays on the plain findOne (see that method's
+    // customer controller usage) so those fields never leak to the client.
+    return this.swapTransactionsService.findOneForAdmin(id);
   }
 }

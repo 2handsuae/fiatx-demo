@@ -429,6 +429,38 @@ export class SwapTransactionsService {
     return { ...item, internalFunds };
   }
 
+  /**
+   * Admin detail fetch = findOne + parsed Sumsub compliance detail (Task 10,
+   * mirror of WithdrawTransactionsService#findOneForAdmin). Kept separate from
+   * `findOne` — that method is also called by the customer-facing controller
+   * (swap-transactions-customer.controller.ts), and the raw compliance fields
+   * (rule names, reject reason, full Sumsub payload) must not leak there.
+   */
+  async findOneForAdmin(id: string) {
+    const item: any = await this.findOne(id);
+
+    let raw: unknown = null;
+    if (item.sumsubDetailJson) {
+      try {
+        raw = JSON.parse(item.sumsubDetailJson);
+      } catch {
+        raw = null;
+      }
+    }
+
+    const sumsubDetail = {
+      txnIdOut: item.sumsubTxnIdOut,
+      txnIdIn: item.sumsubTxnIdIn,
+      verdict: item.complianceVerdict,
+      scoringAction: item.complianceAction,
+      matchedRules: item.complianceRuleNames ? item.complianceRuleNames.split(',') : [],
+      rejectReason: item.rejectReason,
+      raw,
+    };
+
+    return { ...item, sumsubDetail };
+  }
+
   /** Active leg per legSeq = the row with the MAX attempt for that legSeq. */
   async activeLegsBySeq(swapId: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;

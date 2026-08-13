@@ -12,8 +12,35 @@ import { AdminBadge } from '../components/ui/AdminBadge';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import { useSimulationMode } from '../utils/simulationMode';
 
 /* ── Types ──────────────────────────────────────────────────── */
+
+/* 8 个单步裁决按钮,与充值/提现版镜像(deliberate fork)。key/label 必须与后端
+   src/modules/swap-sumsub/fixtures/verdict-buttons.ts 的 SWAP_VERDICT_BUTTONS
+   逐一对齐——这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步
+   改另一侧,否则 operator 会点不出新场景。 */
+const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
+  { key: 'V1_APPROVED', label: '① Approved' },
+  { key: 'V2_REJECTED_HARD', label: '② Rejected · 硬线（无 action）' },
+  { key: 'V3_REJECTED_ACTION', label: '③ Rejected · 软线（下发认证）' },
+  { key: 'V4_REJECTED_SANCTION', label: '④ Rejected · Sanctions' },
+  { key: 'V5_ONHOLD', label: '⑤ On hold（我方等同拒绝）' },
+  { key: 'V6_AWAIT_USER', label: '⑥ Awaiting user（我方等同拒绝）' },
+  { key: 'V7_ACTION_GREEN', label: '⑦ 认证通过（清限制）' },
+  { key: 'V8_ACTION_RED', label: '⑧ 认证不通过（升级）' },
+];
+
+/** Matched-rule entry inside the Sumsub compliance detail. */
+interface SwapSumsubDetail {
+  txnIdOut: string | null;
+  txnIdIn: string | null;
+  verdict: string | null;
+  scoringAction: string | null;
+  matchedRules: string[];
+  rejectReason: string | null;
+  raw: unknown;
+}
 
 interface SwapAsset {
   currency: string;
@@ -71,6 +98,7 @@ interface SwapTransactionDetailData {
   } | null;
   statusHistory: string | null;
   internalFunds?: InternalFundLeg[];
+  sumsubDetail?: SwapSumsubDetail | null;
 }
 
 interface SwapFx {
@@ -108,6 +136,9 @@ const SwapTransactionDetail = () => {
   const [data, setData] = useState<SwapTransactionDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [legBusy, setLegBusy] = useState<number | null>(null);
+  const { enabled: simEnabled } = useSimulationMode();
+  const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
+  const [simError, setSimError] = useState('');
 
   const fetchData = async () => {
     if (!id) return;
@@ -155,6 +186,38 @@ const SwapTransactionDetail = () => {
       alert('Failed to resume leg');
     } finally {
       setLegBusy(null);
+    }
+  };
+
+  /* ── Demo verdict handler (SUMSUB_MOCK_MODE-gated backend endpoint) ── */
+
+  const handleRunVerdict = async (verdict: string) => {
+    if (!id) return;
+    setSimSubmitting(verdict);
+    setSimError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-sumsub/demo/run-verdict`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ swapId: id, verdict }),
+        },
+      );
+      if (!response.ok) {
+        if (response.status === 404) {
+          setSimError('Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.');
+        } else {
+          setSimError(await getApiErrorMessage(response, 'Verdict run failed.'));
+        }
+        return;
+      }
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
+    } finally {
+      setSimSubmitting(null);
     }
   };
 
@@ -406,6 +469,46 @@ const SwapTransactionDetail = () => {
             <InfoField label="From Asset ID" value={data.fromAssetId} mono />
             <InfoField label="To Asset ID" value={data.toAssetId} mono />
           </DetailCard>
+
+          {/* 8. Sumsub Detail — read-only compliance verdict for this swap's
+              KYT transaction (Task 10). Field shape mirrors the parsed subset
+              stored directly on the swap row, not a full getTxn report replay
+              like deposit/withdraw (see SwapTransactionsService#findOneForAdmin). */}
+          <DetailCard title="Sumsub Detail" columns={1}>
+            <SumsubDetailSection detail={data.sumsubDetail} />
+          </DetailCard>
+
+          {/* 9. Simulation (demo only — gated by the local simulation-mode
+              toggle AND by status: a swap only accepts a verdict while sitting
+              in COMPLIANCE_PENDING — once it has moved to PROCESSING/SUCCESS/
+              REJECTED, SwapWorkflowService#applyKytVerdict no-ops on it, so
+              showing the panel there would mislead the operator. ) */}
+          {simEnabled && data.status === 'COMPLIANCE_PENDING' && (
+            <DetailCard title="⚡ Simulation" columns={1}>
+              <p className="font-mono text-[11px] text-adm-t3">
+                Feeds ONE Sumsub verdict webhook into the real ingestion
+                pipeline for this swap's sell-leg KYT transaction. Requires
+                SUMSUB_MOCK_MODE on the backend.
+              </p>
+              <p className="font-mono text-[11px] text-adm-amber">
+                ⑦/⑧ act on the customer (applicantActionReviewed), not on this
+                order — this swap's own status will not change.
+              </p>
+              {simError && <p className="text-[11px] text-adm-red">{simError}</p>}
+              <div className="flex flex-wrap gap-2">
+                {SWAP_VERDICT_BUTTONS.map((s) => (
+                  <button
+                    key={s.key}
+                    disabled={simSubmitting !== null}
+                    onClick={() => handleRunVerdict(s.key)}
+                    className={adminButtonClass('simulationAction')}
+                  >
+                    {simSubmitting === s.key ? 'Running...' : s.label}
+                  </button>
+                ))}
+              </div>
+            </DetailCard>
+          )}
         </div>
 
         {/* ── Sidebar (no Actions block — read-only) ── */}
@@ -518,6 +621,60 @@ const LegAttemptRow = ({
     </div>
   );
 };
+
+/* ── SumsubDetailSection ─────────────────────────────────────── */
+
+/**
+ * Renders the swap's parsed Sumsub compliance fields (Task 10) — verdict,
+ * scoring action, matched rule names, reject reason, plus the raw sell-leg
+ * getTxn payload collapsed behind a <details>. Mirrors
+ * WithdrawTransactionDetail's SumsubDetailSection (deliberate fork).
+ */
+const SumsubDetailSection = ({
+  detail,
+}: {
+  detail: SwapSumsubDetail | null | undefined;
+}) => (
+  <div>
+    {detail ? (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <InfoField label="Txn ID Out" value={detail.txnIdOut} mono />
+          <InfoField label="Txn ID In" value={detail.txnIdIn} mono />
+          <InfoField label="Verdict" value={detail.verdict} />
+          <InfoField label="Scoring Action" value={detail.scoringAction} />
+        </div>
+        <InfoField label="Reject Reason" value={detail.rejectReason} />
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+            Matched Rules
+          </div>
+          {detail.matchedRules.length > 0 ? (
+            <ul className="mt-1 space-y-1">
+              {detail.matchedRules.map((name, idx) => (
+                <li key={`${name}-${idx}`} className="font-mono text-[11px] text-adm-t1">
+                  {name}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
+          )}
+        </div>
+        <details>
+          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+            Raw payload
+          </summary>
+          <pre className="mt-2 max-h-96 overflow-auto rounded bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
+            {JSON.stringify(detail.raw, null, 2)}
+          </pre>
+        </details>
+      </div>
+    ) : (
+      <p className="font-mono text-[11px] text-adm-t3">No Sumsub compliance detail yet</p>
+    )}
+  </div>
+);
 
 /* ── StatusTimeline (adm-* tokens) ── */
 
