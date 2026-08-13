@@ -17,12 +17,16 @@
 // 绝不猜数：三组历史证据之和(减去本脚本此前已搬走的部分)必须精确等于 202 当前 TB 余额，
 // 对不上立刻抛错终止 —— 说明存在未知来源的分录，需要人工排查，脚本不代为判断。
 //
-// 幂等，容忍中途失败重跑：
-//   - 202 余额已为 0 → 整条 ledger 跳过重分类。
+// 幂等，容忍"两笔转账之间"的中途失败重跑：
+//   - 202 余额已为 0 → 整条 ledger 跳过重分类（210/211/212 账户的存在性检查仍会先跑一遍）。
 //   - 每个目标桶单独比较"历史应搬 Σ - 本脚本此前已搬 Σ"，已搬完的桶跳过、只搬未搬完的余量
 //     （TigerBeetle 侧的确定性 transferId 本身也会去重，这里额外做金额级别的余量核算，
 //     使得"进程在三笔转账中途崩溃后重跑"不会被前两笔已消耗掉的余额误判成"对不上账"）。
 //   - registry 行已 RETIRED → updateMany 的 where 已限定 status:'ACTIVE'，重跑不再触碰。
+//   注意：executeTransfer 是"TB 先记、evidence 后写"，若进程恰好崩在两者之间（TB 转账已落地
+//   但 evidence 行还没写完），重跑时 alreadyMoved 读不到这笔（evidence 缺失）而 202 的 TB 余额
+//   已经减过了 → 会触发下面的 mismatch 检查、拒绝继续。这种情况不是自愈的，需要人工核对 TB 侧
+//   与 evidence 表后手动补写 evidence 行，不能指望"重跑"本身把账对平。
 //
 // 保对账连续性：三笔重分类的两腿(debitWalletRef/creditWalletRef)都盖同一个 F_FEE 物理钱包的
 // ref —— 这笔钱物理上从未挪动过（还在同一个钱包里），只是会计分类变了；两腿同盖同一钱包，
@@ -66,43 +70,11 @@ async function main() {
       const ledger: number = row.ledger;
       const debitAccountId = hexToBigint(row.tbAccountId);
 
-      // 1) 202 当前 TB 余额(权益/负债类,贷方计正)
-      const [acct] = (await tb.lookupAccounts([debitAccountId])) as any[];
-      if (!acct) throw new Error(`ledger ${ledger}: 202 TB account ${row.tbAccountId} not found in TigerBeetle — registry/TB drift, investigate`);
-      const bal202: bigint = BigInt(acct.credits_posted) - BigInt(acct.debits_posted);
-      if (bal202 < 0n) throw new Error(`ledger ${ledger}: 202 balance negative (${bal202}) — investigate before migrating`);
-      if (bal202 === 0n) { console.log(`ledger ${ledger}: 202 already zero, skip reclass`); continue; }
-
-      // 2) 按事件类型码分组的历史贷方和(不可变的切换前证据行,单位与 TB 一致:最小单位整数)
-      const historical = new Map<number, bigint>();
-      for (const s of SPLIT) {
-        const agg = await prisma.tbTransferEvidence.aggregate({
-          where: { eventCode: s.eventCode, creditCode: 'E.FIRM_FEE', creditTbAccountId: row.tbAccountId },
-          _sum: { amount: true },
-        });
-        historical.set(s.txnCode, BigInt(agg._sum.amount?.toString() ?? '0'));
-      }
-      // 2b) 本脚本此前(可能中途失败的)运行已经搬走的部分 — 靠这组数字撑起"中途崩溃后重跑"的幂等
-      const alreadyMoved = new Map<number, bigint>();
-      for (const s of SPLIT) {
-        const agg = await prisma.tbTransferEvidence.aggregate({
-          where: { eventCode: 'COA_V2_RECLASS', debitCode: 'E.FIRM_FEE', creditCode: s.toCoa, sourceNo: `COA-V2-${ledger}-${s.txnCode}` },
-          _sum: { amount: true },
-        });
-        alreadyMoved.set(s.txnCode, BigInt(agg._sum.amount?.toString() ?? '0'));
-      }
-
-      const historicalTotal = [...historical.values()].reduce((a, b) => a + b, 0n);
-      const alreadyMovedTotal = [...alreadyMoved.values()].reduce((a, b) => a + b, 0n);
-      const expectedRemaining = historicalTotal - alreadyMovedTotal;
-      if (expectedRemaining !== bal202) {
-        throw new Error(
-          `ledger ${ledger}: evidence split mismatch — historical Σ=${historicalTotal}, already-moved Σ=${alreadyMovedTotal}, ` +
-          `expected remaining=${expectedRemaining} != actual 202 balance=${bal202} — refuse to guess, investigate`,
-        );
-      }
-
-      // 3) 确保 210/211/212 已存在(新栈由 provisioning 造;老栈这里补)
+      // 1) 确保 210/211/212 已存在(新栈由 provisioning 造;老栈这里补)。必须放在零余额
+      //    跳过判断之前、无条件对每条 202 registry 行执行 —— 某资产可能从未产生过费
+      //    (202 registry 行在但余额恒为 0),若把这步挂在"bal202 !== 0"分支下,该资产的
+      //    210/211/212 就永远不会被建,合并后该资产第一笔兑换费/提现费/没收会在
+      //    resolveTbAccountId 直接抛 NotFoundException。
       const targetIds = new Map<number, bigint>();
       for (const s of SPLIT) {
         let creditId: bigint;
@@ -124,7 +96,68 @@ async function main() {
         targetIds.set(s.toCode, creditId);
       }
 
-      // 4) F_FEE 物理钱包 ref — 两腿同盖同一 ref(钱物理上没动过,只是会计分类变了)
+      // 2) 前置检查:202 上是否还有未结清的在途 PENDING 证据行。TigerBeetle 的 pending
+      //    转账只记在 credits_pending,不进 credits_posted,所以下面第 3 步算出的 bal202
+      //    看不见它们;但它们迟早会被 post,一旦 post 就会把钱打进已经退役的 202 账户,
+      //    破坏 verify:coa 的"退役户恒零"断言。这是"合法的在途分录",跟"未知来源分录"
+      //    (mismatch,第 4 步)是两类问题,必须分开报错,不能让运维误诊成数据对不上账。
+      const stuckPending = await prisma.tbTransferEvidence.findFirst({
+        where: { creditCode: 'E.FIRM_FEE', creditTbAccountId: row.tbAccountId, transferType: 'PENDING' },
+      });
+      if (stuckPending) {
+        throw new Error(
+          `ledger ${ledger}: 202 has an in-flight PENDING evidence row (sourceNo=${stuckPending.sourceNo}, ` +
+          `eventCode=${stuckPending.eventCode}) that has not been posted or voided yet — resolve it first ` +
+          `(let the order post or void), then re-run the migration. This is NOT an unknown-source mismatch: ` +
+          `it is a legitimate pending leg that would land in the retired 202 account after migration.`,
+        );
+      }
+
+      // 3) 202 当前 TB 余额(权益/负债类,贷方计正)
+      const [acct] = (await tb.lookupAccounts([debitAccountId])) as any[];
+      if (!acct) throw new Error(`ledger ${ledger}: 202 TB account ${row.tbAccountId} not found in TigerBeetle — registry/TB drift, investigate`);
+      const bal202: bigint = BigInt(acct.credits_posted) - BigInt(acct.debits_posted);
+      if (bal202 < 0n) throw new Error(`ledger ${ledger}: 202 balance negative (${bal202}) — investigate before migrating`);
+      if (bal202 === 0n) { console.log(`ledger ${ledger}: 202 already zero, skip reclass`); continue; }
+
+      // 4) 按事件类型码分组的历史贷方和(不可变的切换前证据行,单位与 TB 一致:最小单位整数)。
+      //    只计 transferType='POSTED' 的行 —— 凭证模型是"一 TB 转账一行,post 把该行原地
+      //    翻成 POSTED、void 翻成 VOIDED"(见 accounting.service.ts 的 postPendingTransfer /
+      //    voidPendingTransfer)。swap 费腿 / 提现费腿 / 没收费腿都走 pending→post 两阶段,
+      //    腿失败重试会在同一行留下 VOIDED——这些钱从未真正 post 进 202,若不过滤会被计入
+      //    historicalΣ,导致 Σ > 实际余额,触发下面的"evidence split mismatch"且永远修不好
+      //    (这是合法历史,没有任何运营动作能消除它)。
+      const historical = new Map<number, bigint>();
+      for (const s of SPLIT) {
+        const agg = await prisma.tbTransferEvidence.aggregate({
+          where: { eventCode: s.eventCode, creditCode: 'E.FIRM_FEE', creditTbAccountId: row.tbAccountId, transferType: 'POSTED' },
+          _sum: { amount: true },
+        });
+        historical.set(s.txnCode, BigInt(agg._sum.amount?.toString() ?? '0'));
+      }
+      // 4b) 本脚本此前(可能中途失败的)运行已经搬走的部分 — 靠这组数字撑起"中途崩溃后重跑"的幂等。
+      //     executeTransfer 是一次性直接落 POSTED(不经过 pending 阶段),理论上不会产生非
+      //     POSTED 的 COA_V2_RECLASS 行;这里仍显式同口径过滤,防御性一致。
+      const alreadyMoved = new Map<number, bigint>();
+      for (const s of SPLIT) {
+        const agg = await prisma.tbTransferEvidence.aggregate({
+          where: { eventCode: 'COA_V2_RECLASS', debitCode: 'E.FIRM_FEE', creditCode: s.toCoa, sourceNo: `COA-V2-${ledger}-${s.txnCode}`, transferType: 'POSTED' },
+          _sum: { amount: true },
+        });
+        alreadyMoved.set(s.txnCode, BigInt(agg._sum.amount?.toString() ?? '0'));
+      }
+
+      const historicalTotal = [...historical.values()].reduce((a, b) => a + b, 0n);
+      const alreadyMovedTotal = [...alreadyMoved.values()].reduce((a, b) => a + b, 0n);
+      const expectedRemaining = historicalTotal - alreadyMovedTotal;
+      if (expectedRemaining !== bal202) {
+        throw new Error(
+          `ledger ${ledger}: evidence split mismatch — historical Σ=${historicalTotal}, already-moved Σ=${alreadyMovedTotal}, ` +
+          `expected remaining=${expectedRemaining} != actual 202 balance=${bal202} — refuse to guess, investigate`,
+        );
+      }
+
+      // 5) F_FEE 物理钱包 ref — 两腿同盖同一 ref(钱物理上没动过,只是会计分类变了)
       const asset = await prisma.asset.findUnique({ where: { code: row.assetCode } });
       let feeWalletRef: string | null = null;
       if (asset) {
@@ -138,7 +171,7 @@ async function main() {
         console.warn(`ledger ${ledger}: asset ${row.assetCode} not found — reclassified entries will lack walletRef (metadata only, amounts unaffected)`);
       }
 
-      // 5) 逐桶重分类:DR 202 / CR 新户,金额=历史应搬-已搬余量
+      // 6) 逐桶重分类:DR 202 / CR 新户,金额=历史应搬-已搬余量
       for (const s of SPLIT) {
         const remaining = historical.get(s.txnCode)! - alreadyMoved.get(s.txnCode)!;
         if (remaining < 0n) throw new Error(`ledger ${ledger}: ${s.toCoa} bucket over-moved (historical=${historical.get(s.txnCode)}, alreadyMoved=${alreadyMoved.get(s.txnCode)}) — investigate`);
@@ -161,14 +194,14 @@ async function main() {
         console.log(`ledger ${ledger}: reclassed ${remaining} → ${s.toCoa}`);
       }
 
-      // 6) 断言 202 清零
+      // 7) 断言 202 清零
       const [after] = (await tb.lookupAccounts([debitAccountId])) as any[];
       const balAfter: bigint = BigInt(after.credits_posted) - BigInt(after.debits_posted);
       if (balAfter !== 0n) throw new Error(`ledger ${ledger}: 202 not zero after reclass (${balAfter}) — investigate`);
       console.log(`ledger ${ledger}: 202 → 0 ✓`);
     }
 
-    // 7) 退役前安全网:203/204(FIRM_LIQ/FIRM_SEIZED)没有定义重分类目标,直接断言其余额已为零
+    // 8) 退役前安全网:203/204(FIRM_LIQ/FIRM_SEIZED)没有定义重分类目标,直接断言其余额已为零
     //    才允许退役(202 的清零已在上面的循环里断言过,这里再统一复核一遍,双保险)。
     const retiredRows = await prisma.tbAccountRegistry.findMany({ where: { code: { in: RETIRED_TB_CODES } } });
     for (const row of retiredRows) {
@@ -178,7 +211,7 @@ async function main() {
       if (bal !== 0n) throw new Error(`code ${row.code} ledger ${row.ledger}: non-zero balance (${bal}) — refuse to retire, investigate`);
     }
 
-    // 8) 退役 registry 行(幂等:where 限定 status:'ACTIVE',已 RETIRED 的行不会被重复计数)
+    // 9) 退役 registry 行(幂等:where 限定 status:'ACTIVE',已 RETIRED 的行不会被重复计数)
     const r = await prisma.tbAccountRegistry.updateMany({ where: { code: { in: RETIRED_TB_CODES }, status: 'ACTIVE' }, data: { status: 'RETIRED' } });
     console.log(`retired ${r.count} registry rows (${RETIRED_TB_CODES.join('/')})`);
     console.log('COA v2 migration DONE');

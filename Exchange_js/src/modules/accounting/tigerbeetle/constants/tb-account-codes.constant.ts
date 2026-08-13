@@ -27,6 +27,15 @@ export type TbAccountCode = (typeof TB_ACCOUNT_CODES)[keyof typeof TB_ACCOUNT_CO
  *  TB 物理不可删;registry 置 RETIRED;历史 evidence 的 'E.FIRM_FEE' 字符串是历史事实不改写。 */
 export const RETIRED_TB_CODES: readonly number[] = [202, 203, 204];
 
+/** 退役码只读标签映射 — 202/203/204 已从 TB_ACCOUNT_CODES 主表删除,不可再用
+ *  TB_CODE_TO_COA 反查;读侧(对账案卡科目列等)展示历史流水标签仍需要这份映射。
+ *  不要把退役码加回 TB_ACCOUNT_CODES 主表。 */
+export const RETIRED_TB_CODE_TO_COA: Record<number, string> = {
+  202: 'E.FIRM_FEE',
+  203: 'E.FIRM_LIQ',
+  204: 'E.FIRM_SEIZED',
+};
+
 /** Human-readable COA code → TB numeric code */
 export const COA_TO_TB_CODE: Record<string, number> = {
   'A.CLIENT_ASSET': TB_ACCOUNT_CODES.CLIENT_ASSET,

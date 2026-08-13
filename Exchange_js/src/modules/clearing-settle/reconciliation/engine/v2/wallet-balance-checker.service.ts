@@ -2,7 +2,9 @@
 //
 // Phase B / T6: per-wallet balance check (1:1 direct, no layered fallback).
 //   Customer wallet:  external == PAYABLE[c] + SUSPENSE[c]
-//   Firm wallet:      external == FIRM_OPS / FIRM_SET / FIRM_FEE
+//   Firm wallet:      external == FIRM_OPS / FIRM_SET / INCOME_SWAP_FEE /
+//                     INCOME_WITHDRAW_FEE / INCOME_OTHER (+ retired 202/203
+//                     for pre-COA-v2 history)
 //
 // The spec (design §7) explicitly removes the older "first try == PAYABLE,
 // then fall back to == PAYABLE+SUSPENSE" pattern: a single equality holds
@@ -20,8 +22,9 @@
 //   2. Resolve each row's tbAccountId via tbAccountRegistry; drop aggregate legs
 //      (CLIENT_ASSET code=1 / FIRM_ASSET code=50). Those share walletRef purely
 //      for traceability — they belong to the aggregate book, not this wallet.
-//   3. PAYABLE (100), SUSPENSE (101), and firm equity codes (200/201/202/203)
-//      are all CREDIT-normal: direction='IN' (credit side) → balance up,
+//   3. PAYABLE (100), SUSPENSE (101), and firm equity codes
+//      (200/201/210/211/212, plus retired 202/203 for history) are all
+//      CREDIT-normal: direction='IN' (credit side) → balance up,
 //      direction='OUT' (debit side) → balance down. No class-flip needed.
 //   4. Classify wallet kind from observed codes; build result.
 
@@ -31,6 +34,7 @@ import { PrismaService } from '../../../../../core/prisma/prisma.service';
 import {
   TB_ACCOUNT_CODES,
   TB_CODE_TO_COA,
+  RETIRED_TB_CODE_TO_COA,
 } from '../../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { effectiveCutoffFilter } from './effective-cutoff';
 
@@ -181,7 +185,12 @@ export class WalletBalanceCheckerService {
           if (firmCodeForLabel == null) firmCodeForLabel = reg.code;
         }
       }
-      if (firmCodeForLabel != null) coaCode = TB_CODE_TO_COA[firmCodeForLabel];
+      // TB_CODE_TO_COA only covers the active TB_ACCOUNT_CODES table; retired
+      // codes (202/203) were dropped from it, so fall back to the retired-code
+      // label map to keep old flows labeled instead of surfacing `undefined`.
+      if (firmCodeForLabel != null) {
+        coaCode = TB_CODE_TO_COA[firmCodeForLabel] ?? RETIRED_TB_CODE_TO_COA[firmCodeForLabel] ?? '';
+      }
       internal.firmEquity = firmEquity;
       internal.total = firmEquity;
     } else {

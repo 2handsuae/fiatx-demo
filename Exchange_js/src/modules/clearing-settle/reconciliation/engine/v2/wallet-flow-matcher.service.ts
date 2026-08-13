@@ -34,7 +34,8 @@
 //   (a) isExternalCrossing=true — internal reclasses (e.g.
 //       DEPOSIT_SUSPENSE_TO_PAYABLE) live entirely inside the ledger; the
 //       external statement is not expected to mention them.
-//   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 202, 203} — drop
+//   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 210, 211, 212, 202,
+//       203 (retired, kept for history)} — drop
 //       aggregate legs (CLIENT_ASSET=1 / FIRM_ASSET=50) and any row whose
 //       tbAccountId isn't in the registry. Aggregate legs share walletRef
 //       purely for traceability; they belong to the aggregate book, not

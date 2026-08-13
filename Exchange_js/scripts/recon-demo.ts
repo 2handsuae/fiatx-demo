@@ -312,7 +312,9 @@ async function planWallets(
   //   statement_lines    ← every POSTED account_flow row landing on this wallet
   //                        AND on one of the wallet's "owned" TB account codes
   //                        (CUSTOMER → CLIENT_PAYABLE/DEPOSIT_SUSPENSE;
-  //                         FIRM     → FIRM_OPS/SET/FEE/LIQ).
+  //                         FIRM     → FIRM_OPS/SET/INCOME_SWAP_FEE/
+  //                         INCOME_WITHDRAW_FEE/INCOME_OTHER, plus retired
+  //                         202/203 kept so pre-COA-v2 history still mirrors).
   //                        Aggregate codes (CLIENT_ASSET=1 / FIRM_ASSET=50)
   //                        are filtered out — matches WalletBalanceChecker.
   //
@@ -321,8 +323,9 @@ async function planWallets(
   //   account_flows.direction='IN'  ⇒ external statement IN  (balance UP)
   //   account_flows.direction='OUT' ⇒ external statement OUT (balance DOWN)
   // The TB accounts in scope (CLIENT_PAYABLE/SUSPENSE = LIABILITY,
-  // FIRM_OPS/SET/FEE/LIQ = EQUITY) are ALL credit-normal right-side-of-BS
-  // accounts → same single rule for both books, no role/event override.
+  // FIRM_OPS/SET/INCOME_*/retired-202/203 = EQUITY) are ALL credit-normal
+  // right-side-of-BS accounts → same single rule for both books, no
+  // role/event override.
   //
   // The isExternalCrossing filter is INTENTIONALLY NOT applied:
   //   Internal-only postings (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE) are part of
@@ -333,7 +336,8 @@ async function planWallets(
   //
   // Result: closing = opening(0) + Σ(IN − OUT) = TB net, by construction,
   // for every wallet.
-  const FIRM_CODES = new Set<number>([200, 201, 202, 203]);
+  // COA v2 (2026-08-13): 202 FIRM_FEE 拆成 210/211/212,202/203 退役但保留(历史流水仍需镜像)。
+  const FIRM_CODES = new Set<number>([200, 201, 202, 203, 210, 211, 212]);
   const CUSTOMER_CODES = new Set<number>([100, 101]);
   const allActiveWallets = (await (prisma as any).wallet.findMany({
     where: { status: 'ACTIVE' },
