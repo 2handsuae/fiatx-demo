@@ -12,23 +12,23 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
       DEPOSIT_SUSPENSE: 101,
       FIRM_OPS: 200,
       FIRM_SET: 201,
-      FIRM_FEE: 202,
-      FIRM_LIQ: 203,
-      FIRM_SEIZED: 204,
+      INCOME_SWAP_FEE: 210,
+      INCOME_WITHDRAW_FEE: 211,
+      INCOME_OTHER: 212,
     });
   });
 
   it('drops all legacy codes', () => {
     const names = Object.keys(TB_ACCOUNT_CODES);
-    for (const dead of ['CLIENT_BANK','CLIENT_CUSTODY','TRADE_CLEARING','FIRM_TREASURY','FX_POSITION','PAID_IN_CAPITAL','RETAINED_EARNINGS','FEE_INCOME','SPREAD_INCOME','FX_UNREALIZED_PNL','FX_REALIZED_PNL']) {
+    for (const dead of ['CLIENT_BANK','CLIENT_CUSTODY','TRADE_CLEARING','FIRM_TREASURY','FX_POSITION','PAID_IN_CAPITAL','RETAINED_EARNINGS','FEE_INCOME','SPREAD_INCOME','FX_UNREALIZED_PNL','FX_REALIZED_PNL','FIRM_FEE','FIRM_LIQ','FIRM_SEIZED']) {
       expect(names).not.toContain(dead);
     }
   });
 
   it('round-trips COA labels', () => {
     expect(COA_TO_TB_CODE['A.CLIENT_ASSET']).toBe(1);
-    expect(COA_TO_TB_CODE['E.FIRM_FEE']).toBe(202);
-    expect(TB_CODE_TO_COA[201]).toBe('E.FIRM_SET');
+    expect(COA_TO_TB_CODE['E.INCOME_SWAP_FEE']).toBe(210);
+    expect(TB_CODE_TO_COA[212]).toBe('E.INCOME_OTHER');
   });
 });
 
@@ -49,9 +49,9 @@ describe('system TB account codes are registered at every provisioning site (reg
     'CLIENT_ASSET',
     'FIRM_ASSET',
     'FIRM_OPS',
-    'FIRM_FEE',
-    'FIRM_LIQ',
-    'FIRM_SEIZED',
+    'INCOME_SWAP_FEE',
+    'INCOME_WITHDRAW_FEE',
+    'INCOME_OTHER',
   ] as const;
 
   const REGISTRATION_SOURCES = [
@@ -71,8 +71,12 @@ describe('system TB account codes are registered at every provisioning site (reg
     });
   }
 
-  it('sanity: the guard itself would have caught the A6 incident (FIRM_SEIZED specifically)', () => {
-    expect(ALWAYS_REGISTERED_SYSTEM_CODES).toContain('FIRM_SEIZED');
-    expect(TB_ACCOUNT_CODES.FIRM_SEIZED).toBe(204);
+  it('sanity: the guard itself would have caught the A6 incident (same pattern, now on a live income code)', () => {
+    // FIRM_SEIZED (204) — the code the A6 incident was originally about — retired
+    // 2026-08-13 COA v2; TB_ACCOUNT_CODES.FIRM_SEIZED no longer exists. INCOME_OTHER
+    // is its closest live descendant in this guard (also 2026-08-13, also a
+    // must-register-everywhere system code), so it carries the regression check forward.
+    expect(ALWAYS_REGISTERED_SYSTEM_CODES).toContain('INCOME_OTHER');
+    expect(TB_ACCOUNT_CODES.INCOME_OTHER).toBe(212);
   });
 });

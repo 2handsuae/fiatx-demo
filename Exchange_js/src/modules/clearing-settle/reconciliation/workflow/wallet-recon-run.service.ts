@@ -627,8 +627,8 @@ export class WalletReconRunService {
   private static readonly COA_BY_ROLE: Record<string, string> = {
     F_OPS:   'E.FIRM_OPS',
     F_SET:   'E.FIRM_SET',
-    F_LIQ:   'E.FIRM_LIQ',
-    F_FEE:   'E.FIRM_FEE',
+    F_LIQ:   'E.FIRM_LIQ', // 退役科目,钱包仍在,期望恒 0
+    F_FEE:   'E.INCOME_SWAP_FEE+E.INCOME_WITHDRAW_FEE+E.INCOME_OTHER',
     C_DEP:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
     C_VIBAN: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
     C_CMA:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',

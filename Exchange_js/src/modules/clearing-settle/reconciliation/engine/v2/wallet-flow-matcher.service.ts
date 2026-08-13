@@ -67,8 +67,11 @@ const OWNED_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,  // 101
   TB_ACCOUNT_CODES.FIRM_OPS,          // 200
   TB_ACCOUNT_CODES.FIRM_SET,          // 201
-  TB_ACCOUNT_CODES.FIRM_FEE,          // 202
-  TB_ACCOUNT_CODES.FIRM_LIQ,          // 203
+  TB_ACCOUNT_CODES.INCOME_SWAP_FEE,   // 210
+  TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, // 211
+  TB_ACCOUNT_CODES.INCOME_OTHER,      // 212
+  202, // FIRM_FEE(退役)——历史 account_flows 行仍须被认领,保 F_FEE 钱包对账连续性
+  203, // FIRM_LIQ(退役)——同上
 ]);
 
 export interface ExternalStatementLineInput {

@@ -38,6 +38,18 @@ async function main() {
       if (firmAsset !== firmEquity) { failures++; console.log(`✗ ledger ${ledger} FIRM: asset=${firmAsset} equity=${firmEquity}`); }
       else console.log(`✓ ledger ${ledger} FIRM 恒等 ${firmAsset}`);
     }
+    // 退役户(202/203/204)恒零断言:任何状态的 registry 行都查,余额非零即 FAIL
+    const retired = await (prisma as any).tbAccountRegistry.findMany({ where: { code: { in: [202, 203, 204] } } });
+    if (retired.length > 0) {
+      const rAccounts = await tb.lookupAccounts(retired.map((r: any) => BigInt('0x' + r.tbAccountId)));
+      for (const a of rAccounts) {
+        const bal = a.credits_posted - a.debits_posted;
+        if (bal !== 0n) { failures++; console.log(`✗ retired code ${a.code} balance=${bal} (must be 0)`); }
+      }
+      const active = retired.filter((r: any) => r.status === 'ACTIVE');
+      if (active.length > 0) { failures++; console.log(`✗ ${active.length} retired-code registry rows still ACTIVE (run migrate:coa-v2)`); }
+    }
+
     if (failures > 0) { console.error(`FAIL: ${failures} invariant breaks`); process.exit(1); }
     console.log('ALL INVARIANTS PASS');
   } finally {

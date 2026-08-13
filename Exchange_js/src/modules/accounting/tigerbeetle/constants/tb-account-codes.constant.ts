@@ -2,7 +2,7 @@
 /**
  * TB account type codes (u16). Immutable once assigned.
  * 实时 1:1 资金模型 COA(2026-06-25 重设计)。
- * 编码段:A 资产 1–99、L 负债 100–199、E 权益 200–299。
+ * 编码段:A 资产 1–99、L 负债 100–199、E 权益 200–299(200–209 运营/结算户,210–219 收入段)。
  * 币种用 ledger 区分(AED/USDT),code 只编类型。
  */
 export const TB_ACCOUNT_CODES = {
@@ -15,16 +15,17 @@ export const TB_ACCOUNT_CODES = {
   // ── 权益 E(每公司账户,单例)──
   FIRM_OPS: 200, // 运营/流动性(兑换对手盘)
   FIRM_SET: 201, // 法币结算户(仅法币 ledger,银行约束)
-  FIRM_FEE: 202, // 手续费
-  FIRM_LIQ: 203, // 流动性储备(本版挂着不用)
-  FIRM_SEIZED: 204, // 上缴/政府移交对手账
-  // ── COA v2 收入段(210–219,2026-08-13)：202 FIRM_FEE 按业务线三分,取代之 ──
+  // ── COA v2 收入段(210–219,2026-08-13)：取代退役的 202 FIRM_FEE,按业务线三分 ──
   INCOME_SWAP_FEE: 210, // 兑换手续费收入(接类型码 36)
   INCOME_WITHDRAW_FEE: 211, // 提现手续费收入(接类型码 16)
   INCOME_OTHER: 212, // 其他收入(below-min 没收,类型码 4;与服务费隔离)
 } as const;
 
 export type TbAccountCode = (typeof TB_ACCOUNT_CODES)[keyof typeof TB_ACCOUNT_CODES];
+
+/** 退役户(2026-08-13 COA v2):202 FIRM_FEE(由 210/211/212 接班)/203 FIRM_LIQ/204 FIRM_SEIZED。
+ *  TB 物理不可删;registry 置 RETIRED;历史 evidence 的 'E.FIRM_FEE' 字符串是历史事实不改写。 */
+export const RETIRED_TB_CODES: readonly number[] = [202, 203, 204];
 
 /** Human-readable COA code → TB numeric code */
 export const COA_TO_TB_CODE: Record<string, number> = {
@@ -34,9 +35,6 @@ export const COA_TO_TB_CODE: Record<string, number> = {
   'L.DEPOSIT_SUSPENSE': TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
   'E.FIRM_OPS': TB_ACCOUNT_CODES.FIRM_OPS,
   'E.FIRM_SET': TB_ACCOUNT_CODES.FIRM_SET,
-  'E.FIRM_FEE': TB_ACCOUNT_CODES.FIRM_FEE,
-  'E.FIRM_LIQ': TB_ACCOUNT_CODES.FIRM_LIQ,
-  'E.FIRM_SEIZED': TB_ACCOUNT_CODES.FIRM_SEIZED,
   'E.INCOME_SWAP_FEE': TB_ACCOUNT_CODES.INCOME_SWAP_FEE,
   'E.INCOME_WITHDRAW_FEE': TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE,
   'E.INCOME_OTHER': TB_ACCOUNT_CODES.INCOME_OTHER,

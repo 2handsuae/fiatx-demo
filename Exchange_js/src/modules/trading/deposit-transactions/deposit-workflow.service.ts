@@ -2371,9 +2371,9 @@ export class DepositWorkflowService implements OnModuleInit {
    * the money genuinely leaves client custody here (unlike confiscation's
    * in-house reclass).
    *
-   * FIRM_SEIZED (COA 204) remains a registered/seeded account for a possible
-   * future "pending handoff ledger" feature, but this arc no longer books
-   * anything into it.
+   * FIRM_SEIZED (COA 204) retired 2026-08-13 COA v2 — registry RETIRED,
+   * constant removed. This arc never booked anything into it after the
+   * 2026-07-28 correction above; retirement just makes that permanent.
    */
   private async pendSeizeSuspense(deposit: any, attempt: number, orderRef: string): Promise<void> {
     const asset = deposit.asset;

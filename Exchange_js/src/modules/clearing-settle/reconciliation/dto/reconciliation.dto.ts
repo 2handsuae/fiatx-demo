@@ -42,7 +42,7 @@ export interface AccountStatusRow {
   asset: string;                    // 'AED' | 'USDT-TRON'
   decimals: number;                 // asset.decimals — display layer scales 分→元 by 10^decimals
   book: string;                     // CUSTOMER | FIRM
-  coaCode: string | null;           // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_FEE' | ...
+  coaCode: string | null;           // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.INCOME_SWAP_FEE+E.INCOME_WITHDRAW_FEE+E.INCOME_OTHER' | ...
   internal: { balance: string };
   external: { balance: string };
   delta: string;                    // external − internal
