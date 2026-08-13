@@ -76,4 +76,58 @@ describe('CustomerPendingActionService', () => {
       data: { pendingActionExternalId: null, pendingActionReason: null },
     });
   });
+
+  // ── Review Fix 2: sticky 硬线标记 ────────────────────────────────────────
+
+  it('hasHardLineDisposition 返回 false —— 从未被硬线过', async () => {
+    const prisma = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ hardLineDispositionedAt: null }),
+      },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    expect(await svc.hasHardLineDisposition('c1')).toBe(false);
+  });
+
+  it('hasHardLineDisposition 返回 true —— 曾经被硬线处置过', async () => {
+    const prisma = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ hardLineDispositionedAt: new Date() }),
+      },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    expect(await svc.hasHardLineDisposition('c1')).toBe(true);
+  });
+
+  it('set(customerId, action, true) 额外盖章 hardLineDispositionedAt', async () => {
+    const prisma = {
+      customerMain: { update: jest.fn().mockResolvedValue({}) },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    await svc.set('c1', null, true);
+
+    expect(prisma.customerMain.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: {
+        pendingActionExternalId: null,
+        pendingActionReason: null,
+        hardLineDispositionedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('set(customerId, action) 不传第三参数 —— 不触碰 hardLineDispositionedAt', async () => {
+    const prisma = {
+      customerMain: { update: jest.fn().mockResolvedValue({}) },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    await svc.set('c1', { externalActionId: 'EA1', reason: 'KYT_REJECTED' });
+
+    const data = (prisma.customerMain.update as jest.Mock).mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('hardLineDispositionedAt');
+  });
 });

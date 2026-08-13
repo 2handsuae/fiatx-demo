@@ -230,6 +230,13 @@ model CustomerMain {
   pendingActionExternalId String? @map("pending_action_external_id")
   pendingActionReason     String? @map("pending_action_reason")
 
+  // Review Fix 2 (Important, swap-sumsub 终审): sticky 硬线标记。一旦客户被
+  // 任意一笔 swap 的 KYT 拒绝按硬线处置过（含制裁 SANCTION），这个事实要永久
+  // 记住——handleRejectDisposition 在决定要不要给客户暴露 pendingAction 之前
+  // 必须先查这个标记，防止同一客户名下另一笔 swap 的软线裁决把已经沉默掉的
+  // 入口重新打开（tipping-off 的沉默必须跨订单持久，不能是 last-writer-wins）。
+  hardLineDispositionedAt DateTime? @map("hard_line_dispositioned_at")
+
   // ═══ 产品属性 ═══
   investorTier          String    @default("STANDARD")
   investorTierSource    String    @default("ONBOARDING")

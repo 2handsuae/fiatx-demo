@@ -1241,6 +1241,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       customerNo: 'C0001',
       pendingActionExternalId: null,
       pendingActionReason: null,
+      hardLineDispositionedAt: null,
     };
     const pendingActionPrisma: any = {
       customerMain: {
@@ -1388,6 +1389,44 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
   });
 
+  // ── Review Fix 1 (Important): a REJECTED swap receiving another 'rejected'
+  // ── verdict is the shape of a disposition-failure retry (handleRejectDisposition
+  // ── threw after the REJECTED transaction committed, the ingestion dispatcher
+  // ── marked the webhook FAILED and redelivered it) — it must re-run disposition,
+  // ── not silently no-op like the other terminal statuses. markStatus/leg-building
+  // ── must NOT re-run — only disposition, which is independently idempotent.
+  it('REJECTED + rejected verdict → re-runs ONLY handleRejectDisposition (disposition-failure retry), not markStatus/$transaction', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest
+      .spyOn(service as any, 'handleRejectDisposition')
+      .mockResolvedValue(undefined);
+
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    await service.applyKytVerdict('s1', input);
+
+    expect(dispositionSpy).toHaveBeenCalledTimes(1);
+    expect(dispositionSpy.mock.calls[0][0]).toMatchObject({ id: 's1' });
+    expect(dispositionSpy.mock.calls[0][1]).toBe(input);
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+  });
+
+  // A genuinely duplicate 'rejected' redelivery for an already-REJECTED swap
+  // must stay harmless — handleRejectDisposition's own idempotency (proven
+  // below) is what makes re-admitting this case into disposition safe rather
+  // than a source of duplicate restrictions.
+  it('REJECTED + approved verdict (contradictory / stale) → still a plain no-op, disposition not re-run', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest.spyOn(service as any, 'handleRejectDisposition');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(dispositionSpy).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   // ── Review Fix 1 (Important): PROCESSING is NOT terminal, but neither verdict
   // ── has a legal state-machine edge from it — a late/re-scored verdict must
   // ── audit + flag review instead of falling through into markStatus and
@@ -1415,6 +1454,40 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .find((a: any) => a.action === AuditActions.SWAP_POST_APPROVAL_VERDICT);
     expect(postAudit).toBeDefined();
     expect(postAudit.metadata).toEqual({ verdict: 'rejected' });
+  });
+
+  // ── Review Fix 3 (Important): a sanction verdict landing after the swap ──
+  // ── already entered PROCESSING must still restrict the PERSON, even though
+  // ── the swap itself correctly keeps executing (already past the point of
+  // ── no return — must not be unwound).
+  it('PROCESSING + rejected (SANCTION) verdict → swap keeps executing, but the customer is still restricted (Review Fix 3)', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+
+    // Swap itself is untouched — no state transition, no unwinding.
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    // But the person is restricted exactly like a pre-PROCESSING rejection.
+    expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
+      'cust-1',
+      ['SWAP', 'WITHDRAW'],
+      'KYT_REJECTED',
+      'system',
+    );
+    // Sanction hit — tipping-off silence still applies mid-swap.
+    expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+  });
+
+  it('PROCESSING + approved verdict → disposition never runs (nothing to restrict)', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest.spyOn(service as any, 'handleRejectDisposition');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(dispositionSpy).not.toHaveBeenCalled();
+    expect(mocks.customerRestrictionsService.add).not.toHaveBeenCalled();
   });
 
   it('swap not found → no-op, does not throw', async () => {
@@ -1554,6 +1627,14 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         externalActionId: 'EA1',
         reason: 'KYT_REJECTED',
       });
+
+      // Review Fix 4 (Minor): business key + which action was shown, both in
+      // the audit trail — not just the UUID and a bare boolean.
+      const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(dispositionAudit.entityOwnerNo).toBe('C0001');
+      expect(dispositionAudit.metadata.externalActionId).toBe('EA1');
     });
 
     it('硬线（SANCTION tag）→ 写 restrictions 但 pendingAction 为 null（tipping-off，即使有 action 也不暴露）', async () => {
@@ -1651,6 +1732,71 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(dispositionAudit).toBeDefined();
       expect(dispositionAudit.metadata).toMatchObject({ hasSanction: true, exposeToCustomer: false });
       expect(dispositionAudit.reason).toMatch(/not notified|tipping/i);
+      // Review Fix 4 (Minor): business key present; no action id leaked into
+      // metadata when nothing was actually shown to the customer.
+      expect(dispositionAudit.entityOwnerNo).toBe('C0001');
+      expect(dispositionAudit.metadata.externalActionId).toBeUndefined();
+    });
+
+    // ── Review Fix 2 (Important): the exact A-then-B cross-swap sequence ──
+    // ── from the finding — swap A is hard-lined (SANCTION) first, correctly
+    // ── silent; seconds later swap B (a DIFFERENT swap, same customer) gets
+    // ── an independent soft-line rejection. Without the sticky marker, B's
+    // ── own tags/actions alone would re-expose a re-verification entry point
+    // ── for a customer who is under sanctions investigation.
+    it('sticky 硬线：swap A 硬线（SANCTION）沉默之后，swap B（同客户，纯软线）到达也必须继续沉默', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      const swapA = { ...mocks.swapRow, id: 'sA', swapNo: 'SWP-A' };
+      const swapB = { ...mocks.swapRow, id: 'sB', swapNo: 'SWP-B' };
+
+      // Swap A: hard line via SANCTION tag — correctly silent.
+      await (service as any).handleRejectDisposition(swapA, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION'],
+      });
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+
+      // Swap B arrives seconds later: on its OWN merits this is a soft line
+      // (an action is attached, no SANCTION tag on this particular verdict) —
+      // last-writer-wins would incorrectly re-open the entry point here.
+      await (service as any).handleRejectDisposition(swapB, {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
+      });
+
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      const swapBAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED && a.entityId === 'sB');
+      expect(swapBAudit.metadata).toMatchObject({ alreadyHardLined: true, exposeToCustomer: false });
+    });
+
+    // ── Review Fix 1 (Important): a throw inside disposition must be visible
+    // ── (audit + needsReview) AND still propagate so the caller's retry path
+    // ── (the terminal-status guard carve-out proven above) actually gets a
+    // ── chance to repair the customer's state on redelivery.
+    it('处置失败：写 SWAP_KYT_REJECTED_DISPOSITION_FAILED 审计 + 打 needsReview，并把异常继续往外抛', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      (mocks.customerRestrictionsService.add as jest.Mock).mockRejectedValueOnce(
+        new Error('SQLITE_BUSY: database is locked'),
+      );
+
+      await expect(
+        (service as any).handleRejectDisposition(mocks.swapRow, {
+          verdict: 'rejected' as const,
+          typedTags: ['SANCTION'],
+        }),
+      ).rejects.toThrow('SQLITE_BUSY: database is locked');
+
+      expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true);
+      const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED);
+      expect(failedAudit).toBeDefined();
+      expect(failedAudit.reason).toBe('SQLITE_BUSY: database is locked');
+      expect(failedAudit.entityOwnerNo).toBe('C0001');
     });
   });
 });

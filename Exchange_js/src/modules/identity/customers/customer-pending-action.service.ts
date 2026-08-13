@@ -36,21 +36,43 @@ export class CustomerPendingActionService {
   }
 
   /**
+   * Review Fix 2（终审）：sticky 硬线标记的读侧 —— 一旦客户被任意一笔 swap
+   * 硬线处置过（含制裁），这里恒为 true，且没有清除入口。写入侧
+   * （swap-workflow 的 handleRejectDisposition）在决定要不要暴露
+   * pendingAction 之前必须先查这个，防止同一客户名下另一笔 swap 的软线裁决
+   * 把已经沉默掉的入口重新打开。跟 get() 一样是哑读——不做判断，只报告事实。
+   */
+  async hasHardLineDisposition(customerId: string): Promise<boolean> {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: { hardLineDispositionedAt: true },
+    });
+    return !!customer?.hardLineDispositionedAt;
+  }
+
+  /**
    * 写入侧唯一入口。传 action 写入软线待办；传 null 清空（硬线 / 无动作可做，
    * 也用于覆盖客户此前可能留下的软线待办 —— 防止一次更严重的后续裁决被旧的
    * 软线入口盖不住）。本方法只管落库，不做任何是否暴露的判断；重复调用同一
    * customerId 只是覆盖写同一行的两个标量列，天然幂等，webhook 重投/人工重放
    * 安全。
+   *
+   * markHardLine（Review Fix 2）：调用方告知"这次裁决本身是硬线"时才为
+   * true，本方法据此额外盖章 hardLineDispositionedAt——同样只是记录调用方
+   * 已经做完的判断，不在这里重新推导。sticky：只会被置真，本方法不提供清除
+   * 入口。
    */
   async set(
     customerId: string,
     action: CustomerPendingAction | null,
+    markHardLine = false,
   ): Promise<void> {
     await this.prisma.customerMain.update({
       where: { id: customerId },
       data: {
         pendingActionExternalId: action?.externalActionId ?? null,
         pendingActionReason: action?.reason ?? null,
+        ...(markHardLine ? { hardLineDispositionedAt: new Date() } : {}),
       },
     });
   }

@@ -325,6 +325,11 @@ export const AuditActions = {
   // soft/hard (tipping-off) decision so an investigator can tell after the
   // fact whether the customer was informed and why.
   SWAP_KYT_REJECTED_DISPOSED: 'SWAP_KYT_REJECTED_DISPOSED',
+  // Review Fix 1 (Important): handleRejectDisposition itself threw (SQLite
+  // lock, transient DB error, etc.) — written before rethrowing so the
+  // failure is visible in the audit trail even though the ingestion pipeline
+  // also records it generically on the SumsubWebhookEvent row.
+  SWAP_KYT_REJECTED_DISPOSITION_FAILED: 'SWAP_KYT_REJECTED_DISPOSITION_FAILED',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',

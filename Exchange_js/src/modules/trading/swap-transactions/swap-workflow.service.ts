@@ -493,6 +493,26 @@ export class SwapWorkflowService {
 
     const status = swap.status as SwapTransactionStatus;
     if (SwapWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) {
+      // Review Fix 1 (Important): a swap already sitting in REJECTED does NOT
+      // mean disposition (customerRestrictionsService.add + pendingAction)
+      // actually landed — markStatus and handleRejectDisposition are two
+      // separate writes (state machine vs. customer domain), and the latter
+      // runs outside the $transaction that committed REJECTED. If it threw
+      // (SQLite lock, transient DB error, ...), the exception propagated all
+      // the way to SwapKytVerdictHandler.handle uncaught, the ingestion
+      // dispatcher marked the webhook event FAILED and retried it — and
+      // without this carve-out the retry would land right back here and
+      // silently no-op, leaving the customer unrestricted forever with no
+      // signal. A second 'rejected' verdict arriving for an already-REJECTED
+      // swap is exactly that redelivery shape (or a genuine duplicate, which
+      // is a harmless no-op since handleRejectDisposition is fully
+      // idempotent — see its class comment) — so it is let back in, on
+      // purpose, to re-run ONLY disposition. markStatus/leg-building must
+      // never re-run here; they are genuinely one-shot.
+      if (status === SwapTransactionStatus.REJECTED && input.verdict === 'rejected') {
+        await this.handleRejectDisposition(swap, input);
+        return;
+      }
       this.logger.debug(`applyKytVerdict no-op: swap ${swapId} already terminal (${status})`);
       return;
     }
@@ -534,6 +554,18 @@ export class SwapWorkflowService {
           tx,
         );
       });
+      // Review Fix 3 (Important): the swap itself correctly keeps executing
+      // here (it's mid-settlement, already past the point of no return, and
+      // must not be unwound) — but the PERSON must still be restricted. Before
+      // this fix, a sanction verdict landing after PROCESSING only flagged
+      // needsReview above and never reached disposition, so a customer
+      // sanctioned mid-swap kept full SWAP/WITHDRAW capability indefinitely.
+      // Reuses the exact same disposition logic as the REJECTED branch below
+      // (idempotent — safe against webhook redelivery or a second late
+      // verdict for the same swap).
+      if (input.verdict === 'rejected') {
+        await this.handleRejectDisposition(swap, input);
+      }
       return;
     }
 
@@ -700,9 +732,35 @@ export class SwapWorkflowService {
    * client-facing endpoint) is a dumb accessor with no conditional logic of
    * its own — see that service's class comment for why the decision must
    * never be re-derived on the read side.
+   *
+   * Review Fix 2 (Important): a single swap's own tags/actions are not
+   * enough to decide exposure — a customer can have two swaps in
+   * COMPLIANCE_PENDING at once, and the SWAP restriction only lands after the
+   * FIRST rejection, so a hard-line (sanction) disposition on swap A followed
+   * seconds later by an independent soft-line disposition on swap B would
+   * otherwise re-expose an entry point for a sanctioned customer — each write
+   * individually correct, the resulting state wrong. `hasHardLineDisposition`
+   * makes the hard-line fact sticky on the customer row: once tripped, it
+   * silences every later disposition for that customer, not just this swap's.
+   *
+   * Review Fix 1 (Important): this entire body is wrapped in try/catch. A
+   * throw here (SQLite lock, transient DB error, a service throwing
+   * NotFoundException) must not vanish — see the call sites for how the
+   * exception is used (propagated so the ingestion pipeline retries, and the
+   * terminal-status guard in applyKytVerdict now explicitly allows a REJECTED
+   * swap's retry to re-enter here instead of silently no-op'ing).
    */
   private async handleRejectDisposition(
-    swap: any,
+    // Review Fix 6 (Minor): narrow inline type — only the fields this method
+    // actually reads (plus ownerNo, needed for Review Fix 4's audit business key).
+    swap: {
+      id: string;
+      swapNo: string | null;
+      ownerId: string;
+      ownerType: string;
+      ownerNo: string | null;
+      traceId: string | null;
+    },
     input: {
       verdict: 'approved' | 'rejected';
       detailRaw?: unknown;
@@ -710,46 +768,104 @@ export class SwapWorkflowService {
       typedTags?: string[];
     },
   ): Promise<void> {
-    // 收紧方向、免事前审批：无论软硬线都先限制 SWAP/WITHDRAW。DEPOSIT 故意不
-    // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
-    await this.customerRestrictionsService.add(
-      swap.ownerId,
-      ['SWAP', 'WITHDRAW'],
-      'KYT_REJECTED',
-      'system',
-    );
+    try {
+      // 收紧方向、免事前审批：无论软硬线都先限制 SWAP/WITHDRAW。DEPOSIT 故意不
+      // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
+      //
+      // Review Fix 5 (Minor): 下面这两次写入（restrictions.add /
+      // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
+      // 一致状态。当前顺序（先 restrict 再写 pendingAction）是故意的
+      // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
+      // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
+      // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
+      // 个顺序调换——它是 load-bearing 的。
+      await this.customerRestrictionsService.add(
+        swap.ownerId,
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
 
-    const hasSanction = (input.typedTags ?? []).includes('SANCTION');
-    const actions = input.applicantActions ?? [];
+      const hasSanction = (input.typedTags ?? []).includes('SANCTION');
+      const actions = input.applicantActions ?? [];
+      // 本次裁决单看自己是不是硬线：无 action 可做，或命中 SANCTION。
+      const isHardLineThisVerdict = hasSanction || actions.length === 0;
 
-    // tipping-off 线：制裁调查绝不能提示客户；只有「确实有补料动作可做」的
-    // 软线才暴露入口。无条件调用 set（而非只在软线时才调用），这样硬线裁决
-    // 也会把客户此前可能留下的软线 pendingAction 一并清空，不留旧入口。
-    const exposeToCustomer = actions.length > 0 && !hasSanction;
-    await this.customerPendingActionService.set(
-      swap.ownerId,
-      exposeToCustomer
-        ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED' }
-        : null,
-    );
+      // Review Fix 2: 跨订单持久化 —— 查这个客户是否曾经被任意一笔 swap 硬线
+      // 过。一旦命中过，永久不再暴露，不管这次裁决本身是软线还是硬线。
+      const alreadyHardLined = await this.customerPendingActionService.hasHardLineDisposition(
+        swap.ownerId,
+      );
 
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.SWAP_KYT_REJECTED_DISPOSED,
-      entityType: AuditEntityTypes.SWAP_TRANSACTION,
-      entityId: swap.id,
-      entityNo: swap.swapNo || undefined,
-      traceId: swap.traceId ?? undefined,
-      workflowType: AuditWorkflowTypes.SWAP,
-      entityOwnerType: swap.ownerType,
-      entityOwnerId: swap.ownerId,
-      reason: hasSanction
-        ? 'Sanction hit — customer not notified (tipping-off)'
-        : exposeToCustomer
-        ? 'Restricted; re-verification action exposed to customer'
-        : 'Restricted; no action available — customer not notified',
-      metadata: { hasSanction, actionCount: actions.length, exposeToCustomer },
-      sourcePlatform: 'SYSTEM',
-    });
+      // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个
+      // 客户从未被硬线过」才暴露入口。无条件调用 set（而非只在暴露时才调
+      // 用），这样硬线裁决也会把客户此前可能留下的软线 pendingAction 一并
+      // 清空，不留旧入口。
+      const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
+      await this.customerPendingActionService.set(
+        swap.ownerId,
+        exposeToCustomer
+          ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED' }
+          : null,
+        isHardLineThisVerdict,
+      );
+
+      await this.auditLogsService.recordSystem({
+        action: AuditActions.SWAP_KYT_REJECTED_DISPOSED,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: swap.id,
+        entityNo: swap.swapNo || undefined,
+        traceId: swap.traceId ?? undefined,
+        workflowType: AuditWorkflowTypes.SWAP,
+        entityOwnerType: swap.ownerType,
+        entityOwnerId: swap.ownerId,
+        // Review Fix 4 (Minor): business key alongside the UUID — this is the
+        // record explaining a tipping-off decision to an investigator.
+        entityOwnerNo: swap.ownerNo || undefined,
+        reason: hasSanction
+          ? 'Sanction hit — customer not notified (tipping-off)'
+          : alreadyHardLined
+          ? 'Restricted; customer previously hard-lined on another swap — not notified (sticky silence)'
+          : exposeToCustomer
+          ? 'Restricted; re-verification action exposed to customer'
+          : 'Restricted; no action available — customer not notified',
+        metadata: {
+          hasSanction,
+          actionCount: actions.length,
+          exposeToCustomer,
+          alreadyHardLined,
+          // Review Fix 4 (Minor): which action was actually shown, when one was.
+          externalActionId: exposeToCustomer ? actions[0]!.externalActionId : undefined,
+        },
+        sourcePlatform: 'SYSTEM',
+      });
+    } catch (err) {
+      // Review Fix 1 (Important): make the failure visible (audit + swap
+      // needsReview) before letting it propagate. The rethrow is what makes
+      // this recoverable — SwapKytVerdictHandler.handle doesn't catch, so the
+      // ingestion dispatcher marks the webhook event FAILED and retries it;
+      // applyKytVerdict's terminal-status guard now explicitly re-admits a
+      // REJECTED swap's retry into this method instead of silently no-op'ing
+      // (see that guard's comment). Best-effort: a failure in these two
+      // side-writes must never mask the original error.
+      await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED,
+          entityType: AuditEntityTypes.SWAP_TRANSACTION,
+          entityId: swap.id,
+          entityNo: swap.swapNo || undefined,
+          traceId: swap.traceId ?? undefined,
+          workflowType: AuditWorkflowTypes.SWAP,
+          entityOwnerType: swap.ownerType,
+          entityOwnerId: swap.ownerId,
+          entityOwnerNo: swap.ownerNo || undefined,
+          reason: err instanceof Error ? err.message : 'Reject disposition failed',
+          sourcePlatform: 'SYSTEM',
+        })
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
   private parseTotals(value: string | null | undefined): Record<string, string> {
