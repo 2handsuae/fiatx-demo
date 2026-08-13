@@ -16,6 +16,7 @@ import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
 import { WithdrawWebhookRouter } from '../withdraw-sumsub/withdraw-webhook.router';
+import { SwapWebhookRouter } from '../swap-sumsub/swap-webhook.router';
 import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
@@ -39,6 +40,7 @@ export class SumsubIngestionService {
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly depositWebhookRouter: DepositWebhookRouter,
     private readonly withdrawWebhookRouter: WithdrawWebhookRouter,
+    private readonly swapWebhookRouter: SwapWebhookRouter,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -128,17 +130,36 @@ export class SumsubIngestionService {
       // 旧的 `startsWith('applicantKytTxn')` 会把它漏在门外;而放宽成 `applicantKyt`
       // 又会误吞 AML 等同前缀的其它族事件。见 kyt-webhook-types.ts。
       if (KYT_VERDICT_TYPES.has(depositWebhookType)) {
-        // Task 4: cascade — deposit tried first (owns the vast majority of KYT-txn
-        // webhooks); only when it reports no ownership (hit=false) does the same
-        // payload fall through to withdraw-sumsub. Both domains key off the same
-        // kytTxnId, so at most one of them ever owns a given event.
+        // Task 4/5: cascade — deposit tried first (owns the vast majority of
+        // KYT-txn webhooks); only when it reports no ownership (hit=false)
+        // does the same payload fall through to withdraw-sumsub, then to
+        // swap-sumsub (Task 5, last stage) if withdraw also misses. All three
+        // domains key off the same kytTxnId, so at most one of them ever owns
+        // a given event.
         const depositHit = await this.depositWebhookRouter.route(payload);
         let withdrawHit = false;
+        let swapHit = false;
         if (!depositHit) {
           withdrawHit = await this.withdrawWebhookRouter.route(payload);
+          if (!withdrawHit) {
+            swapHit = await this.swapWebhookRouter.route(payload);
+          }
         }
-        result = { routedTo: depositHit ? 'deposit-sumsub' : (withdrawHit ? 'withdraw-sumsub' : 'orphan'), type: depositWebhookType };
-        dispatchedContext = depositHit ? 'DEPOSIT_SUMSUB' : (withdrawHit ? 'WITHDRAW_SUMSUB' : 'SUMSUB_KYT_ORPHAN');
+        const routedTo = depositHit
+          ? 'deposit-sumsub'
+          : withdrawHit
+          ? 'withdraw-sumsub'
+          : swapHit
+          ? 'swap-sumsub'
+          : 'orphan';
+        result = { routedTo, type: depositWebhookType };
+        dispatchedContext = depositHit
+          ? 'DEPOSIT_SUMSUB'
+          : withdrawHit
+          ? 'WITHDRAW_SUMSUB'
+          : swapHit
+          ? 'SWAP_SUMSUB'
+          : 'SUMSUB_KYT_ORPHAN';
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
       // withdrawKytCheckSimulated/withdrawTravelRuleCheckSimulated retired with the old

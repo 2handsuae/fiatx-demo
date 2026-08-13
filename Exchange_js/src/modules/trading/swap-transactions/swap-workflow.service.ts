@@ -446,6 +446,33 @@ export class SwapWorkflowService {
     }
   }
 
+  /**
+   * STUB — Task 5 only defines the call contract so SwapKytVerdictHandler
+   * (src/modules/swap-sumsub/swap-kyt-verdict.handler.ts) compiles and its
+   * tests can mock this method; the real state-machine transition is Task 6's
+   * job. Swap has no waiting states (no awaitUser/onHold like withdraw) — the
+   * handler already collapses every non-approved verdict down to 'rejected'
+   * before calling here, so Task 6's transition table only needs two verdicts.
+   *
+   * Task 6 should mirror WithdrawWorkflowService.applyKytVerdict's shape:
+   * look up the swap, no-op on terminal/already-decided status, and on
+   * 'approved' call buildLegContext(...) (private helper above, built for
+   * exactly this) to resume the leg pipeline; on 'rejected' fail the swap —
+   * both paths wrapped in prisma.$transaction and recorded via
+   * this.auditLogsService (never `new AuditLogsService`).
+   */
+  async applyKytVerdict(
+    swapId: string,
+    input: {
+      verdict: 'approved' | 'rejected';
+      detailRaw?: unknown;
+      applicantActions?: { applicantActionId: string; externalActionId: string }[];
+      typedTags?: string[];
+    },
+  ): Promise<void> {
+    throw new Error('SwapWorkflowService.applyKytVerdict not implemented — Task 6');
+  }
+
   private parseTotals(value: string | null | undefined): Record<string, string> {
     if (!value) return {};
     try {
