@@ -1217,9 +1217,12 @@ describe('DepositTransactionsService', () => {
     });
 
     // 守则性测试(防转移表再次漂移):brief `doc-final/superpowers/sdd/statemachine-brief.md`
-    // §二定稿的 26 条边逐条列出——多一条、少一条、边指向变了,这里都会红。同时用穷举
-    // (14 状态 × 15 动作)反向断言:凡不在这 26 条边名单里的组合,一律必须抛
-    // Invalid action/Cannot apply action(即没有偷偷长出的第 27 条边)。
+    // §二定稿的 26 条边 + 2026-08-13 新增 2 条 = 28 条边逐条列出——多一条、少一条、
+    // 边指向变了,这里都会红。同时用穷举(14 状态 × 16 动作)反向断言:凡不在这 28 条边
+    // 名单里的组合,一律必须抛 Invalid action/Cannot apply action(即没有偷偷长出第 29 条边)。
+    // 2026-08-13 新增两条:
+    //   OPERATION_PENDING --freeze--> FROZEN            钱在暂扣里等处置,制裁命中必须冻得住
+    //   CONFISCATING --confiscate_failed--> OPERATION_PENDING  A1 没收腿失败解锁后退回待处置
     const EXPECTED_EDGES: Array<{
       from: DepositTransactionStatus;
       action: DepositTransactionAction;
@@ -1244,6 +1247,7 @@ describe('DepositTransactionsService', () => {
 
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
       { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.CONFISCATE_START, to: DepositTransactionStatus.CONFISCATING },
+      { from: DepositTransactionStatus.OPERATION_PENDING, action: DepositTransactionAction.FREEZE, to: DepositTransactionStatus.FROZEN },
 
       { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.APPROVE, to: DepositTransactionStatus.SUCCESS },
       { from: DepositTransactionStatus.MANUAL_CHECKING, action: DepositTransactionAction.OPERATION_PENDING, to: DepositTransactionStatus.OPERATION_PENDING },
@@ -1255,13 +1259,14 @@ describe('DepositTransactionsService', () => {
       { from: DepositTransactionStatus.FROZEN, action: DepositTransactionAction.SEIZE, to: DepositTransactionStatus.SEIZING },
 
       { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_SETTLE, to: DepositTransactionStatus.CONFISCATED },
+      { from: DepositTransactionStatus.CONFISCATING, action: DepositTransactionAction.CONFISCATE_FAILED, to: DepositTransactionStatus.OPERATION_PENDING },
       { from: DepositTransactionStatus.RETURNING, action: DepositTransactionAction.RETURNED_DONE, to: DepositTransactionStatus.RETURNED },
       { from: DepositTransactionStatus.SEIZING, action: DepositTransactionAction.SEIZED_DONE, to: DepositTransactionStatus.SEIZED },
     ];
 
-    describe('state machine integrity guard (26-edge brief)', () => {
-      it('brief lists exactly 26 edges', () => {
-        expect(EXPECTED_EDGES).toHaveLength(26);
+    describe('state machine integrity guard (28-edge brief)', () => {
+      it('brief lists exactly 28 edges', () => {
+        expect(EXPECTED_EDGES).toHaveLength(28);
       });
 
       it.each(
@@ -1276,7 +1281,7 @@ describe('DepositTransactionsService', () => {
         );
       });
 
-      it('every (status, action) pair NOT in the 26-edge list throws (no undocumented edge exists)', async () => {
+      it('every (status, action) pair NOT in the 28-edge list throws (no undocumented edge exists)', async () => {
         const edgeKeys = new Set(
           EXPECTED_EDGES.map((e) => `${e.from}::${e.action}`),
         );
