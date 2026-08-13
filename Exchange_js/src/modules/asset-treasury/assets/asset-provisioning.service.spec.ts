@@ -24,9 +24,9 @@ describe('AssetProvisioningService (real-time 1:1)', () => {
       TB_ACCOUNT_CODES.CLIENT_ASSET, // 1
       TB_ACCOUNT_CODES.FIRM_ASSET,   // 50
       TB_ACCOUNT_CODES.FIRM_OPS,     // 200
-      TB_ACCOUNT_CODES.FIRM_FEE,     // 202
-      TB_ACCOUNT_CODES.FIRM_LIQ,     // 203
-      TB_ACCOUNT_CODES.FIRM_SEIZED,  // 204
+      TB_ACCOUNT_CODES.INCOME_SWAP_FEE,     // 210
+      TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, // 211
+      TB_ACCOUNT_CODES.INCOME_OTHER,       // 212
     ]);
   });
 
