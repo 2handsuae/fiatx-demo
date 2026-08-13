@@ -19,6 +19,9 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
   let depositWebhookRouter: jest.Mocked<DepositWebhookRouter>;
   let withdrawWebhookRouter: jest.Mocked<WithdrawWebhookRouter>;
   let swapWebhookRouter: jest.Mocked<SwapWebhookRouter>;
+  // Finding 6（终审 Minor）：给 Clue 3（材料重检）配一个真 mock，而不是空
+  // `{} as any` —— 否则"swap miss 应该继续往下落到 Clue 3"这句断言无从谈起。
+  let materialRefreshService: any;
   let service: SumsubIngestionService;
 
   function buildEvent(type: string, kytTxnId = 'T1'): SumsubWebhookEvent {
@@ -49,16 +52,22 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       sumsubWebhookEvent: {
         update: jest.fn().mockResolvedValue(undefined),
       },
+      // Finding 6: only touched by the "swap miss → falls through to Clue 3"
+      // test below; harmless no-op for every other test in this file.
+      materialRefreshCycle: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
     };
     depositWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<DepositWebhookRouter>;
     withdrawWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<WithdrawWebhookRouter>;
     swapWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<SwapWebhookRouter>;
+    materialRefreshService = { handleSumsubActionResult: jest.fn().mockResolvedValue(undefined) };
 
     service = new SumsubIngestionService(
       prisma,
       {} as any, // onboardingService
       {} as any, // clientRiskAssessmentService
-      {} as any, // materialRefreshService
+      materialRefreshService,
       {} as any, // tierUpgradeCaseService
       {} as any, // depositWorkflowService
       {} as any, // withdrawService
@@ -146,7 +155,11 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
 
   // ── Task 13: applicantActionReviewed → swap router (person-level, not a KYT verdict) ──
 
-  function buildActionEvent(externalActionId = 'EA1'): SumsubWebhookEvent {
+  // Finding 6: optional `actionId` param — real applicantActionReviewed
+  // webhooks carry both the swap-domain externalActionId AND Sumsub's own
+  // actionId (the material-refresh domain's key, matched in Clue 3). Only the
+  // "swap miss" test below passes one, to prove Clue 3 still fires.
+  function buildActionEvent(externalActionId = 'EA1', actionId?: string): SumsubWebhookEvent {
     return {
       id: 'evt-2',
       eventNo: 'SWH-2',
@@ -157,6 +170,7 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       rawPayload: JSON.stringify({
         type: 'applicantActionReviewed',
         externalActionId,
+        ...(actionId ? { actionId } : {}),
         reviewResult: { reviewAnswer: 'GREEN' },
       }),
       receivedAt: new Date(),
@@ -191,20 +205,42 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
     );
   });
 
-  it('applicantActionReviewed, swap miss (belongs to another domain, e.g. material refresh) → falls through, no crash', async () => {
+  it('applicantActionReviewed, swap miss (belongs to another domain, e.g. material refresh) → falls through to Clue 3, material-refresh path actually fires', async () => {
+    // Finding 6（终审 Minor）：此前这个用例的 prisma mock 没配
+    // `materialRefreshCycle`，只能断言 `result === undefined`——如果 Clue 3
+    // 被 Finding 5 那条 else-if 分支误伤成不可达，这个断言照样会通过（因为
+    // materialRefreshCycle 模型压根不存在，代码在那之前就会抛出/落空）。
+    // 改法：给 materialRefreshCycle.findFirst 一个真的命中，断言
+    // materialRefreshService.handleSumsubActionResult 确实被调用、
+    // dispatchedTo 确实落 MATERIAL_REFRESH_ACTION —— 直接锁定"swap 认领不到
+    // 时，Clue 3 依然可达"这条属性。
     swapWebhookRouter.route.mockResolvedValue(false);
-    const event = buildActionEvent('some-other-domain-action-id');
+    const event = buildActionEvent('some-other-domain-action-id', 'SUMSUB-ACTION-1');
+    prisma.materialRefreshCycle.findFirst.mockResolvedValue({
+      id: 'cycle-1',
+      sumsubActionId: 'SUMSUB-ACTION-1',
+      status: 'PENDING_SUMSUB_REVIEW',
+    });
 
     const result = await service.dispatch(event);
 
     expect(swapWebhookRouter.route).toHaveBeenCalledTimes(1);
-    // Falls through past Clue 3 (no materialRefreshCycle model on this bare
-    // prisma mock) to the applicantId lookup (Clue 4/5) — no customerMain
-    // model on this mock either, so it lands on the "no customer" warn path.
-    // The behavior under test here is just: no throw, event still PROCESSED.
+    expect(prisma.materialRefreshCycle.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ sumsubActionId: 'SUMSUB-ACTION-1' }),
+      }),
+    );
+    expect(materialRefreshService.handleSumsubActionResult).toHaveBeenCalledWith({
+      actionId: 'SUMSUB-ACTION-1',
+      reviewResult: { reviewAnswer: 'GREEN' },
+    });
+    // handleSumsubActionResult itself returns void — this is not a regression,
+    // just what Clue 3's own return type is.
     expect(result).toBeUndefined();
     expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'PROCESSED' }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'PROCESSED', dispatchedTo: 'MATERIAL_REFRESH_ACTION' }),
+      }),
     );
   });
 });

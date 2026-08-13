@@ -42,11 +42,36 @@ export class SwapApplicantActionHandler {
   ) {}
 
   async handle(payload: Record<string, unknown>): Promise<boolean> {
-    const externalActionId = String(payload.externalActionId ?? '');
+    // Finding 1（终审 Critical）：真实 Sumsub `applicantActionReviewed` webhook
+    // 携带的字段是 `externalApplicantActionId`，不是 `externalActionId`——后者
+    // 只是 createActionSdkToken() 那个铸 token 的 API 的请求参数名
+    // （sumsub.client.ts），从未出现在 webhook 报文里。两个键都读、优先真实
+    // 字段：生产 webhook 命中 `externalApplicantActionId`；我方 demo 生产者
+    // （demo-scenario.service.ts）历史上一直写 `externalActionId`，保留它作
+    // 兜底不破坏既有 demo/单测路径。⚠️ 不要"精简"掉这个 fallback——这正是
+    // sumsub-ingestion.md 记录过的同一类事故（fixture 与 handler 就着错键
+    // 互相印证、演示与单测全绿却在真实环境必炸）。
+    const externalActionId = String(
+      payload.externalApplicantActionId ?? payload.externalActionId ?? '',
+    );
+    if (!externalActionId) {
+      // Finding 2（终审 Important）：空 id 绝不能拿去查库。该列在真实数据里
+      // 能合法为空串（两个 txn client 都用 `String(a.externalActionId ?? '')`
+      // 兜底、swap-workflow.service.ts 写 pendingActionExternalId 时也没有
+      // 判空），若放行查询，会认领到那个 pendingActionExternalId 恰好是 ''
+      // 的无关客户。
+      this.logger.debug('applicantActionReviewed webhook missing external action id, ignoring');
+      return false;
+    }
     const customer = await this.pendingActionService.findByExternalActionId(externalActionId);
     if (!customer) {
-      this.logger.warn(
-        `orphan applicantActionReviewed webhook, no customer for externalActionId=${externalActionId}`,
+      // Finding 4（终审 Minor）：swap 现在是这个 webhook 类型的第一棒（见
+      // sumsub-ingestion.service.ts 的前置分流），认领不到多数时候只是"这个
+      // action 属于材料重检等其它域"的正常情况，不是真孤儿——降级为 debug，
+      // 与 deposit 侧对同类"查无归属，级联到下一棒"场景的降级一致
+      // （deposit-kyt-verdict.handler.ts；sumsub-ingestion.md §3）。
+      this.logger.debug(
+        `no customer for applicantActionReviewed externalActionId=${externalActionId} — cascading to material-refresh (Clue 3)`,
       );
       return false;
     }
@@ -60,7 +85,16 @@ export class SwapApplicantActionHandler {
       if (customer.hardLineDispositionedAt) {
         // 制裁 sticky marker 命中：这次 action 复核本身走完了（指针可以清），
         // 但绝不能因为客户完成了某个补料动作就解除制裁限制。
-        await this.pendingActionService.set(customer.id, null, false);
+        //
+        // Finding 3（终审 Important）：审计先写、指针后清——`set(customer.id,
+        // null, false)` 就是"消费认领"的那一步（它把 pendingActionExternalId
+        // 置空，同一个 externalActionId 之后再也查不到这个客户）。
+        // `AuditLogsService` 没有内部 try/catch，写库失败会往外抛、被
+        // `dispatch()` 的 catch 接住并标 event FAILED 等重投；若先清指针再写
+        // 审计，重投时指针已经是 null、`findByExternalActionId` 直接落空、
+        // handler 原样返回 false——这条"GREEN 到过、被刻意不解锁"的审计记录
+        // 就永久消失了，恰是本 handler 存在的意义要留给调查员看的那份证据。
+        // 换成先审计：即便重投也只是多一行重复审计（远比记录彻底丢失安全）。
         await this.auditLogsService.recordSystem({
           action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD,
           entityType: AuditEntityTypes.CUSTOMER,
@@ -76,15 +110,21 @@ export class SwapApplicantActionHandler {
           metadata: { externalActionId },
           sourcePlatform: 'SYSTEM',
         });
+        await this.pendingActionService.set(customer.id, null, false);
         return true;
       }
 
-      // 非硬线：先清限制再清 pendingAction 指针 —— 与 handleRejectDisposition
-      // 的 fail-safe 顺序哲学对称（先落成保守态，中途崩溃时留下的窗口更安全：
-      // 万一崩在两次写入之间，客户已经解限只是暂时还看得到入口，不会出现
-      // "入口已消失但仍被限制"这种更危险的状态）。
+      // 非硬线：先清限制、再写审计、最后才清 pendingAction 指针。
+      // 顺序拆成两层考虑：
+      // 1）清限制先于清指针——与 handleRejectDisposition 的 fail-safe 顺序
+      //    哲学对称（先落成保守态，中途崩溃时留下的窗口更安全：万一崩在
+      //    这之后，客户已经解限只是暂时还看得到入口，不会出现"入口已消失
+      //    但仍被限制"这种更危险的状态）。
+      // 2）审计先于清指针（Finding 3，同上一个分支的理由）——`set(...,
+      //    null, ...)` 才是"消费认领"的那一步，审计必须抢在它前面落地，
+      //    否则重投时指针已空、handler 直接落空返回 false，
+      //    `SWAP_ACTION_CLEARED` 这条记录就永远不会存在。
       await this.restrictionsService.clear(customer.id, ['SWAP', 'WITHDRAW'], 'system');
-      await this.pendingActionService.set(customer.id, null, false);
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_ACTION_CLEARED,
         entityType: AuditEntityTypes.CUSTOMER,
@@ -99,6 +139,7 @@ export class SwapApplicantActionHandler {
         metadata: { externalActionId },
         sourcePlatform: 'SYSTEM',
       });
+      await this.pendingActionService.set(customer.id, null, false);
       return true;
     }
 

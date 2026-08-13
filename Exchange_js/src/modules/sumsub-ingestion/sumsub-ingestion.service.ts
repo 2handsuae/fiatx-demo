@@ -218,6 +218,22 @@ export class SumsubIngestionService {
       // another domain, e.g. material refresh), letting dispatch fall through to
       // Clue 3 with the same payload exactly as before this task.
       else if (depositWebhookType === 'applicantActionReviewed') {
+        // Finding 5（终审 Minor）：这条分支是 if/else-if 链的一环——一旦
+        // `payload.type === 'applicantActionReviewed'` 命中这里，不管
+        // `swapHit` 是 true 还是 false，本次 dispatch 都不会再落到下面的
+        // Clue 1（`reviewMode === 'ongoingDocExpired'`）或 Clue 2
+        // （`inspectionId` 匹配 PENDING_SUMSUB_RESULT 的 ClientRiskAssessment）
+        // ——这两条分支同属一条 else-if 链，互斥。真实 Sumsub 的
+        // applicantActionReviewed webhook 确实可能带 `inspectionId`（Clue 2
+        // 之前是可达的），故这是一次跨域收窄。判断这是有意为之：
+        // applicantActionReviewed 语义上是"人级补料动作复核"，Clue 1/2
+        // 服务的是不同的域（文档时效重检 / AML 案件结果），把它们混进来会让
+        // 这个人级事件被误判成别的域的信号。Clue 3（下面独立的
+        // `if (!result && actionId && reviewResult)`，材料重检的
+        // sumsubActionId 匹配）不受影响——它不在这条 else-if 链里，swap 认领
+        // 不到（`swapHit=false`）时仍会正常落到 Clue 3。这条收窄已由
+        // sumsub-ingestion.service.spec.ts 的 "swap miss" 用例锁定（断言
+        // Clue 3 真的还会触发，而不只是 result 落空）。
         const swapHit = await this.swapWebhookRouter.route(payload);
         if (swapHit) {
           result = { routedTo: 'swap-sumsub', type: depositWebhookType };

@@ -16,6 +16,9 @@ import { AuditActions } from '../audit-logging/constants/audit-actions.constant'
  * 都经由已存在的 identity/customers 服务方法完成（架构规则禁止 handler 直碰
  * CustomerMain 表），这两个方法都不接受外部 tx client，因此没有可传的事务
  * 句柄。故断言只匹配第一个参数。
+ *
+ * 终审补测（Finding 1/2/3）：真实字段名 externalApplicantActionId 认领 /
+ * 空 id 不查库不认领 / 审计先于"消费认领"落地（GREEN 两条分支各一个用例）。
  */
 describe('SwapApplicantActionHandler', () => {
   let pendingActionService: jest.Mocked<CustomerPendingActionService>;
@@ -123,5 +126,91 @@ describe('SwapApplicantActionHandler', () => {
     expect(restrictionsService.clear).not.toHaveBeenCalled();
     expect(pendingActionService.set).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
+  // ── Finding 1（终审 Critical）：真实 webhook 字段是 externalApplicantActionId ──
+  it('只带 externalApplicantActionId（真实 Sumsub webhook 字段，不带 externalActionId）→ 仍能认领客户', async () => {
+    pendingActionService.findByExternalActionId.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'C-001',
+      hardLineDispositionedAt: null,
+    } as any);
+
+    const hit = await handler.handle({
+      type: 'applicantActionReviewed',
+      externalApplicantActionId: 'EA1',
+      reviewResult: { reviewAnswer: 'GREEN' },
+    });
+
+    expect(hit).toBe(true);
+    expect(pendingActionService.findByExternalActionId).toHaveBeenCalledWith('EA1');
+    expect(restrictionsService.clear).toHaveBeenCalledWith(
+      'c1',
+      ['SWAP', 'WITHDRAW'],
+      'system',
+    );
+  });
+
+  // ── Finding 2（终审 Important）：空 id 不得拿去查库、不得认领任何客户 ──
+  it('externalApplicantActionId 与 externalActionId 都缺失（解析出空串）→ 返回 false，不查库', async () => {
+    const hit = await handler.handle({
+      type: 'applicantActionReviewed',
+      reviewResult: { reviewAnswer: 'GREEN' },
+    });
+
+    expect(hit).toBe(false);
+    expect(pendingActionService.findByExternalActionId).not.toHaveBeenCalled();
+    expect(restrictionsService.clear).not.toHaveBeenCalled();
+    expect(pendingActionService.set).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+  });
+
+  // ── Finding 3（终审 Important）：审计必须先于"消费认领"（清 pendingAction 指针）落地 ──
+  it('GREEN + 硬线：审计写在清 pendingAction 指针（消费认领）之前', async () => {
+    pendingActionService.findByExternalActionId.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'C-001',
+      hardLineDispositionedAt: new Date(),
+    } as any);
+    const callOrder: string[] = [];
+    auditLogsService.recordSystem.mockImplementation(async () => {
+      callOrder.push('audit');
+      return undefined as any;
+    });
+    pendingActionService.set.mockImplementation(async () => {
+      callOrder.push('set');
+    });
+
+    await handler.handle({
+      type: 'applicantActionReviewed',
+      externalActionId: 'EA1',
+      reviewResult: { reviewAnswer: 'GREEN' },
+    });
+
+    expect(callOrder).toEqual(['audit', 'set']);
+  });
+
+  it('GREEN + 非硬线：审计写在清 pendingAction 指针（消费认领）之前', async () => {
+    pendingActionService.findByExternalActionId.mockResolvedValue({
+      id: 'c1',
+      customerNo: 'C-001',
+      hardLineDispositionedAt: null,
+    } as any);
+    const callOrder: string[] = [];
+    auditLogsService.recordSystem.mockImplementation(async () => {
+      callOrder.push('audit');
+      return undefined as any;
+    });
+    pendingActionService.set.mockImplementation(async () => {
+      callOrder.push('set');
+    });
+
+    await handler.handle({
+      type: 'applicantActionReviewed',
+      externalActionId: 'EA1',
+      reviewResult: { reviewAnswer: 'GREEN' },
+    });
+
+    expect(callOrder.indexOf('audit')).toBeLessThan(callOrder.indexOf('set'));
   });
 });
