@@ -10,11 +10,23 @@ import { Type } from 'class-transformer';
 import { InternalFundAction } from '../../../funds-layer/dto/internal-fund.dto';
 
 export enum SwapTransactionStatus {
+  COMPLIANCE_PENDING = 'COMPLIANCE_PENDING',
   PROCESSING = 'PROCESSING',
   SUCCESS = 'SUCCESS',
+  REJECTED = 'REJECTED',
+  // 不可达死枚举，保留仅为历史行兼容 —— 见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」
   FAILED = 'FAILED',
   REVERSED = 'REVERSED',
 }
+
+export enum SwapTransactionAction {
+  KYT_APPROVED = 'kyt_approved',
+  KYT_REJECTED = 'kyt_rejected',
+  SLA_BREACH = 'sla_breach',
+  SUCCESS = 'success',
+}
+
+export type SwapRejectReason = 'KYT_REJECTED' | 'TIMEOUT';
 
 export class CreateSwapTransactionDto {
   @ApiPropertyOptional({ description: 'Business transaction number' })

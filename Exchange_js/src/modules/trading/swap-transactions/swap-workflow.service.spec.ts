@@ -14,6 +14,7 @@ import { SwapWorkflowService } from './swap-workflow.service';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
+import { SwapTransactionAction } from './dto/swap-transaction.dto';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -694,7 +695,7 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
 
     // markStatus(SUCCESS).
     expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
-    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe('SUCCESS');
+    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe(SwapTransactionAction.SUCCESS);
 
     // SWAP_LEG_POSTED + SWAP_SUCCEEDED audits.
     const recorded = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls.map((c) => c[0].action);

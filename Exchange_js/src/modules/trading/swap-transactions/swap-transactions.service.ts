@@ -4,7 +4,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SwapTransactionQueryDto } from './dto/swap-transaction.dto';
+import {
+  SwapTransactionQueryDto,
+  SwapTransactionStatus,
+  SwapTransactionAction,
+  SwapRejectReason,
+} from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
@@ -318,31 +323,70 @@ export class SwapTransactionsService {
     });
   }
 
-  async markStatus(swapId: string, status: string, tx: Prisma.TransactionClient) {
+  /**
+   * 4 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
+   * 或 COMPLIANCE_PENDING → REJECTED(终态)。FAILED/REVERSED 是不可达死枚举
+   * （历史行兼容，见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」），不出现在此表中。
+   */
+  private readonly transitions: Record<string, Partial<Record<SwapTransactionAction, SwapTransactionStatus>>> = {
+    [SwapTransactionStatus.COMPLIANCE_PENDING]: {
+      [SwapTransactionAction.KYT_APPROVED]: SwapTransactionStatus.PROCESSING,
+      [SwapTransactionAction.KYT_REJECTED]: SwapTransactionStatus.REJECTED,
+      [SwapTransactionAction.SLA_BREACH]: SwapTransactionStatus.REJECTED,
+    },
+    [SwapTransactionStatus.PROCESSING]: {
+      [SwapTransactionAction.SUCCESS]: SwapTransactionStatus.SUCCESS,
+    },
+    [SwapTransactionStatus.SUCCESS]: {},
+    [SwapTransactionStatus.REJECTED]: {},
+    [SwapTransactionStatus.FAILED]: {},
+    [SwapTransactionStatus.REVERSED]: {},
+  };
+
+  async markStatus(
+    swapId: string,
+    action: SwapTransactionAction,
+    tx: Prisma.TransactionClient,
+    opts?: { rejectReason?: SwapRejectReason },
+  ): Promise<string> {
+    const swap = await (tx as any).swapTransaction.findUnique({ where: { id: swapId } });
+    if (!swap) throw new NotFoundException(`Swap not found: ${swapId}`);
+    const next = this.transitions[swap.status]?.[action];
+    if (!next) {
+      throw new BadRequestException(`Invalid transition: ${swap.status} + ${action}`);
+    }
+
     let statusHistory: any[] = [];
     try {
-      const current = await (tx as any).swapTransaction.findUnique({ where: { id: swapId }, select: { statusHistory: true } });
-      if (current?.statusHistory) {
-        statusHistory = JSON.parse(current.statusHistory);
+      if (swap.statusHistory) {
+        statusHistory = JSON.parse(swap.statusHistory);
         if (!Array.isArray(statusHistory)) statusHistory = [];
       }
     } catch {
       statusHistory = [];
     }
     statusHistory.push({
-      status,
+      status: next,
       timestamp: new Date().toISOString(),
       operator: 'SYSTEM',
-      note: `Swap settlement status → ${status}`,
+      note: `Swap settlement status → ${next}`,
     });
-    return (tx as any).swapTransaction.update({
+
+    await (tx as any).swapTransaction.update({
       where: { id: swapId },
       data: {
-        status,
-        completedAt: status === 'SUCCESS' ? new Date() : undefined,
+        status: next,
+        ...(opts?.rejectReason ? { rejectReason: opts.rejectReason } : {}),
+        completedAt: next === SwapTransactionStatus.SUCCESS ? new Date() : undefined,
         statusHistory: JSON.stringify(statusHistory),
       },
     });
+    return next;
+  }
+
+  /** Sumsub KYT webhook 按出账交易 id 认领对应的兑换单（走 @@index([sumsubTxnIdOut])）。 */
+  async findBySumsubTxnId(txnId: string) {
+    return this.prisma.swapTransaction.findFirst({ where: { sumsubTxnIdOut: txnId } });
   }
 
   async findOne(id: string) {

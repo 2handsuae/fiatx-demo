@@ -1146,6 +1146,13 @@ model SwapTransaction {
   failureCode      String?
   failureReason    String?
   statusHistory    String?
+  sumsubTxnIdOut      String?  @map("sumsub_txn_id_out")
+  sumsubTxnIdIn       String?  @map("sumsub_txn_id_in")
+  complianceVerdict   String?  @map("compliance_verdict")
+  complianceAction    String?  @map("compliance_action")
+  complianceRuleNames String?  @map("compliance_rule_names")
+  sumsubDetailJson    String?  @map("sumsub_detail_json")
+  rejectReason        String?  @map("reject_reason")
   spreadAmount     Decimal?
   grossAedValue    Decimal?                  // 创建时 AED 估值快照(B 累计用量取数)
   tbFromTransferId String?
@@ -1169,6 +1176,7 @@ model SwapTransaction {
   @@index([toAssetCode])
   @@index([status])
   @@index([createdAt])
+  @@index([sumsubTxnIdOut])
   @@map("swap_transactions")
 }
 

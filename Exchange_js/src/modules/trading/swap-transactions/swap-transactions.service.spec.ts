@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { SwapTransactionsService } from './swap-transactions.service';
+import { SwapTransactionAction } from './dto/swap-transaction.dto';
 
 describe('SwapTransactionsService', () => {
   let service: SwapTransactionsService;
@@ -78,5 +79,51 @@ describe('SwapTransactionsService', () => {
     expect(Array.isArray(result.internalFunds)).toBe(true);
     expect(result.internalFunds).toHaveLength(2);
     expect(result.internalFunds[0].id).toBe('leg-0');
+  });
+});
+
+describe('markStatus transitions', () => {
+  let service: SwapTransactionsService;
+
+  beforeEach(() => {
+    service = new SwapTransactionsService({} as any, {} as any, {} as any);
+  });
+
+  it('COMPLIANCE_PENDING + kyt_approved → PROCESSING', async () => {
+    const swap = { id: 's1', status: 'COMPLIANCE_PENDING' };
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue(swap),
+        update: jest.fn().mockResolvedValue({ ...swap, status: 'PROCESSING' }),
+      },
+    } as any;
+    const next = await service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx);
+    expect(next).toBe('PROCESSING');
+  });
+
+  it('COMPLIANCE_PENDING + kyt_rejected → REJECTED', async () => {
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'COMPLIANCE_PENDING' }),
+        update: jest.fn().mockResolvedValue({ id: 's1', status: 'REJECTED' }),
+      },
+    } as any;
+    expect(await service.markStatus('s1', SwapTransactionAction.KYT_REJECTED, tx)).toBe('REJECTED');
+  });
+
+  it('终态不可推进：REJECTED + kyt_approved 抛错', async () => {
+    const tx = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'REJECTED' }) },
+    } as any;
+    await expect(service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx))
+      .rejects.toThrow(/Invalid transition/);
+  });
+
+  it('非法跳步：COMPLIANCE_PENDING + success 抛错', async () => {
+    const tx = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'COMPLIANCE_PENDING' }) },
+    } as any;
+    await expect(service.markStatus('s1', SwapTransactionAction.SUCCESS, tx))
+      .rejects.toThrow(/Invalid transition/);
   });
 });

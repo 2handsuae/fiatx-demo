@@ -16,6 +16,7 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SwapTransactionsService } from './swap-transactions.service';
+import { SwapTransactionAction } from './dto/swap-transaction.dto';
 import { SwapLegAccounting, SwapSettleCtx } from './swap-leg-accounting';
 import {
   buildSwapLegPlan,
@@ -595,7 +596,7 @@ export class SwapWorkflowService {
 
     const isLast = legSeq >= SwapWorkflowService.TOTAL_LEGS;
     if (isLast) {
-      await this.swapTransactionsService.markStatus(swap.id, 'SUCCESS', client);
+      await this.swapTransactionsService.markStatus(swap.id, SwapTransactionAction.SUCCESS, client);
       await this.auditLogsService.recordSystem(
         {
           action: AuditActions.SWAP_SUCCEEDED,
