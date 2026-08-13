@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
+import { resolvePendingAction, type PendingAction } from '../utils/resolvePendingAction';
 
 /* ────────────────────────────────────────────────────────────────
  *  PendingActionBanner — entry point for a customer's outstanding
@@ -25,11 +26,6 @@ import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
  *  reload).
  * ──────────────────────────────────────────────────────────────── */
 
-interface PendingAction {
-  externalActionId: string;
-  reason: string;
-}
-
 export function PendingActionBanner() {
   const [action, setAction] = useState<PendingAction | null>(null);
 
@@ -38,23 +34,17 @@ export function PendingActionBanner() {
       const res = await customerFetch(
         `${import.meta.env.VITE_API_URL}/client/me/pending-action`,
       );
-      if (!res.ok) return;
-      // NestJS sends a body-less 200 (Content-Length: 0) for a bare `return
-      // null`, not the text "null" — res.json() throws SyntaxError on that.
-      // Read as text first and treat an empty body as null explicitly; a
-      // caught parse error must not fall through to "leave the previous
-      // action displayed" (see the refetch bug this guards against below).
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : null;
-      setAction(data ?? null);
+      setAction(await resolvePendingAction(res));
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
-      // A real parse/network failure on refetch must not leave a stale
+      // A non-2xx response, a parse failure, and a network failure all land
+      // here (resolvePendingAction throws on !res.ok instead of resolving
+      // to "no change"). Any of them on a refetch must not leave a stale
       // action banner on screen after the backend has since cleared it
       // (e.g. a later hard-line disposition) — that would be exactly the
       // tipping-off failure mode this component exists to prevent, just
-      // reached through a bug instead of missing logic. Explicit null,
-      // not a silent no-op.
+      // reached through a bug instead of missing logic. One explicit null,
+      // not three separate call sites that can drift.
       setAction(null);
     }
   };
