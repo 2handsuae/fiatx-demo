@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { SwapWebhookRouter } from './swap-webhook.router';
 import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
+import { SwapSlaService } from './swap-sla.service';
 import { SwapTransactionsModule } from '../trading/swap-transactions/swap-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
 
@@ -18,13 +19,21 @@ import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
  * SumsubIngestionModule(取 SumsubIngestionService)——四段边全部 forwardRef,
  * 与既有 WithdrawSumsubModule↔DepositSumsubModule↔SumsubIngestionModule 三角环
  * 同一套模式。
+ *
+ * SwapSlaService(Task 8,合规超时看门狗)登记在这里而不是
+ * SwapTransactionsModule ——它是兑换域"接 Sumsub"这条线专属的组件（消费
+ * SwapTransactionsService.markStatus + SwapWorkflowService.submitSumsubTxnOut,
+ * 两者都已从 SwapTransactionsModule 导出），与 DepositSlaService/
+ * WithdrawSlaService 分别挂在 deposit-sumsub.module.ts/
+ * withdraw-sumsub.module.ts（而不是各自的 xxx-transactions.module.ts）同一个
+ * 归属原则：SLA watchdog 属于"接 Sumsub"域，不属于交易域本体。
  */
 @Module({
   imports: [
     forwardRef(() => SwapTransactionsModule),
     forwardRef(() => DepositSumsubModule),
   ],
-  providers: [SwapWebhookRouter, SwapKytVerdictHandler],
+  providers: [SwapWebhookRouter, SwapKytVerdictHandler, SwapSlaService],
   exports: [SwapWebhookRouter],
 })
 export class SwapSumsubModule {}

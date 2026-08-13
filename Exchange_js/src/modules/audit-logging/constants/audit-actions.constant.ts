@@ -330,6 +330,12 @@ export const AuditActions = {
   // failure is visible in the audit trail even though the ingestion pipeline
   // also records it generically on the SumsubWebhookEvent row.
   SWAP_KYT_REJECTED_DISPOSITION_FAILED: 'SWAP_KYT_REJECTED_DISPOSITION_FAILED',
+  // Task 8: SwapSlaService's own audit for a COMPLIANCE_PENDING swap that
+  // timed out waiting for a Sumsub verdict (markStatus writes no audit —
+  // same convention as the rest of this file). Deliberately NOT paired with
+  // a disposition audit — a timeout carries no verdict, so
+  // handleRejectDisposition never runs for this path (see swap-sla.service.ts).
+  SWAP_SLA_BREACHED: 'SWAP_SLA_BREACHED',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',
