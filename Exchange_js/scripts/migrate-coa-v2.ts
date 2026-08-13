@@ -34,6 +34,7 @@ import { webcrypto } from 'node:crypto';
 if (!(globalThis as any).crypto) (globalThis as any).crypto = webcrypto;
 
 import { NestFactory } from '@nestjs/core';
+import { NotFoundException } from '@nestjs/common';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
@@ -107,12 +108,18 @@ async function main() {
         let creditId: bigint;
         try {
           creditId = await accounting.resolveTbAccountId({ code: s.toCode, ledger, ownerType: 'SYSTEM' });
-        } catch {
-          await accounting.createAccounts([{
-            code: s.toCode, ledger, ownerType: 'SYSTEM', assetCurrency: row.assetCode,
-            description: `${s.toCoa} for ${row.assetCode} (COA v2 migration)`,
-          }]);
-          creditId = await accounting.resolveTbAccountId({ code: s.toCode, ledger, ownerType: 'SYSTEM' });
+        } catch (err: any) {
+          if (err instanceof NotFoundException) {
+            // Account does not exist, create it
+            await accounting.createAccounts([{
+              code: s.toCode, ledger, ownerType: 'SYSTEM', assetCurrency: row.assetCode,
+              description: `${s.toCoa} for ${row.assetCode} (COA v2 migration)`,
+            }]);
+            creditId = await accounting.resolveTbAccountId({ code: s.toCode, ledger, ownerType: 'SYSTEM' });
+          } else {
+            // Non-registry error: re-throw with context
+            throw new Error(`ledger ${ledger}: failed to resolve/create code ${s.toCode} (${s.toCoa}): ${err.message}`);
+          }
         }
         targetIds.set(s.toCode, creditId);
       }
@@ -127,6 +134,8 @@ async function main() {
         } catch (err: any) {
           console.warn(`ledger ${ledger}: F_FEE wallet not found for asset ${row.assetCode} — proceeding without walletRef (${err.message})`);
         }
+      } else {
+        console.warn(`ledger ${ledger}: asset ${row.assetCode} not found — reclassified entries will lack walletRef (metadata only, amounts unaffected)`);
       }
 
       // 5) 逐桶重分类:DR 202 / CR 新户,金额=历史应搬-已搬余量
