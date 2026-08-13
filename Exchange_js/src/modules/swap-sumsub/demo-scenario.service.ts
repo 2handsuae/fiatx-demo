@@ -52,18 +52,23 @@ const REPORT_META: Record<string, Pick<TxnReportVerdict, 'reviewStatus' | 'actio
  * 模式下才被注册(swap-sumsub.module.ts),所以这里注入到的 SUMSUB_TXN_CLIENT
  * 理应总是 MockSumsubTxnClient;仍做一次 instanceof 兜底,防止误配置下的静默错误。
  *
- * ⚠️ 已知缺口(V7_ACTION_GREEN / V8_ACTION_RED,webhookType='applicantActionReviewed'):
- * 这两个按钮投的是**人身层**事件(客户补料动作被 Sumsub 复核的结果),不是交易层
- * KYT 裁决 —— 触发时这笔兑换单早已终态(REJECTED)。查证 SumsubIngestionService.dispatch
- * (Clue 3)与 kyt-webhook-types.ts 的 KYT_VERDICT_TYPES 后确认:`applicantActionReviewed`
- * 根本不在 KYT_VERDICT_TYPES 集合里,swap/deposit/withdraw 三个 webhook router 都不会
- * 认领它;ingestion 里唯一认得这个 type 的分支(Clue 3)只匹配
- * MaterialRefreshCycle.sumsubActionId(周期性材料补审,另一个域),不认识 swap 拒绝
- * 处置写在 CustomerMain.pendingActionExternalId 上的 action id。也就是说
- * CustomerRestrictionsService.clear()/加严 目前**没有任何调用方**——这两个按钮会
- * 真实投递官方形状的 webhook、真实走一遍 ingest(),但清限制/升级这件事今天不会
- * 发生。本任务按任务书要求如实投递 + 如实回报(statusAfter 不变),不在这里补建
- * 人身层 handler —— 那是超出本任务范围的缺口,已登记进最终报告。
+ * V7_ACTION_GREEN / V8_ACTION_RED(webhookType='applicantActionReviewed')投的是
+ * **人身层**事件(客户补料动作被 Sumsub 复核的结果),不是交易层 KYT 裁决 ——
+ * 触发时这笔兑换单往往早已终态(REJECTED),所以 statusBefore/statusAfter 恒
+ * 不变属预期行为,不是缺口(applicantActionReviewed 作用于客户的限制状态,不
+ * 作用于任何具体的 swap 单)。
+ *
+ * Task 13 之前,这两个按钮虽然真实投递官方形状的 webhook、真实走一遍
+ * ingest(),但没有任何 router/handler 认领 applicantActionReviewed
+ * (kyt-webhook-types.ts 的 KYT_VERDICT_TYPES 不含它,ingestion 里唯一认得这个
+ * type 的分支只匹配 MaterialRefreshCycle.sumsubActionId,不认识 swap 拒绝处置
+ * 写在 CustomerMain.pendingActionExternalId 上的 externalActionId)——
+ * CustomerRestrictionsService.clear() 因此零调用方,清限制/升级这件事不会
+ * 发生。Task 13 已补上闭环:SumsubIngestionService.dispatch() 新增
+ * applicantActionReviewed 分支先试 SwapWebhookRouter → SwapApplicantActionHandler
+ * 按 externalActionId 反查客户,GREEN 清 SWAP/WITHDRAW 限制(硬线客户除外,见该
+ * handler 类注释),RED 保持限制并升级审计。这两个按钮现在真实闭环:GREEN 会让
+ * CustomerRestrictionsService.clear() 落地。
  */
 @Injectable()
 export class SwapDemoScenarioService {
@@ -165,9 +170,12 @@ export class SwapDemoScenarioService {
   }
 
   /**
-   * V7/V8 分支:投一次 applicantActionReviewed。actionId 优先用这个客户当前挂起
-   * 的补料动作(CustomerMain.pendingActionExternalId,由此前一次软线拒绝写入);
-   * 客户没有挂起动作时仍铸一个确定性占位符,保持报文形状真实但不假装有对应记录。
+   * V7/V8 分支:投一次 applicantActionReviewed。externalActionId 优先用这个客户
+   * 当前挂起的补料动作(CustomerMain.pendingActionExternalId,由此前一次软线
+   * 拒绝写入)—— SwapApplicantActionHandler(Task 13)正是按这个字段反查客户
+   * 认领;客户没有挂起动作时仍铸一个确定性占位符,保持报文形状真实,但这种情况
+   * 下 handler 会因为查不到客户而认领落空(如实模拟"这个 action 不是任何客户
+   * 的挂起项"的场景)。
    */
   private async runApplicantActionScenario(
     swap: any,
@@ -175,14 +183,15 @@ export class SwapDemoScenarioService {
     statusBefore: string,
     actor: DemoScenarioActor,
   ) {
-    const actionId = swap.customer?.pendingActionExternalId ?? this.mintTxnId(swap, button.key);
+    const externalActionId =
+      swap.customer?.pendingActionExternalId ?? this.mintTxnId(swap, button.key);
 
     await this.ingestionService.ingest(
       {
         type: button.webhookType,
         applicantId: swap.customer?.sumsubApplicantId ?? '',
         externalUserId: swap.customer?.customerNo ?? swap.ownerId,
-        actionId,
+        externalActionId,
         reviewResult: { reviewAnswer: button.verdict.reviewAnswer },
         correlationId: `req-${randomUUID()}`,
         createdAtMs: new Date().toISOString(),
@@ -194,8 +203,8 @@ export class SwapDemoScenarioService {
     const statusAfter = refreshed?.status ?? statusBefore;
 
     await this.writeDemoAudit(swap, button, statusBefore, statusAfter, actor, {
-      reason: `Demo verdict ${button.key} fed as applicantActionReviewed (person-level; not routed to any restrictions handler today — known gap, see class comment)`,
-      extraMetadata: { actionId },
+      reason: `Demo verdict ${button.key} fed as applicantActionReviewed — routed to SwapApplicantActionHandler (Task 13); swap status itself is untouched (this event acts on the customer, not the swap)`,
+      extraMetadata: { externalActionId },
     });
 
     return {

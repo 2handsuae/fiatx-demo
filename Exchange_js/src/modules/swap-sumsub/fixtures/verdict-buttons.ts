@@ -13,10 +13,10 @@ import { ApplicantAction, TypedTag } from '../../deposit-sumsub/fixtures/txn-rep
  *
  * V1-V6 是 Sumsub 官方 KYT 交易裁决 webhook(与充值/提现同族)。V7/V8 是
  * applicantActionReviewed —— 作用对象是**人**(客户补料动作的复核结果),不是
- * 这笔已经终态的兑换单本身。⚠️ 这两个按钮目前投得出真实形状的 webhook、也真的
- * 走了 ingest() 链路,但现有路由/handler 并不认得 swap 拒绝留下的
- * pendingActionExternalId ——见 demo-scenario.service.ts 类注释顶部的已知缺口
- * 说明,这里不重复。
+ * 这笔已经终态的兑换单本身。这两个按钮投出真实形状的 webhook、走真实的
+ * ingest() 链路,并且(Task 13 起)真实闭环:GREEN 清客户的 SWAP/WITHDRAW 限制
+ * (硬线/制裁客户除外),RED 保持限制并升级审计——见 demo-scenario.service.ts
+ * 类注释与 SwapApplicantActionHandler 的类注释,这里不重复。
  */
 export interface SwapVerdictVerdict {
   reviewAnswer: 'GREEN' | 'RED' | null;

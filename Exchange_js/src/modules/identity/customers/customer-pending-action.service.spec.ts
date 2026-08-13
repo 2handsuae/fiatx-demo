@@ -152,6 +152,30 @@ describe('CustomerPendingActionService', () => {
     expect(data).not.toHaveProperty('hardLineDispositionedAt');
   });
 
+  // ── Task 13: applicantActionReviewed 反查入口 ──────────────────────────────
+
+  it('findByExternalActionId 命中 —— 按 pendingActionExternalId 反查客户', async () => {
+    const customer = { id: 'c1', customerNo: 'C-001', pendingActionExternalId: 'EA1' };
+    const prisma = {
+      customerMain: { findFirst: jest.fn().mockResolvedValue(customer) },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    expect(await svc.findByExternalActionId('EA1')).toEqual(customer);
+    expect(prisma.customerMain.findFirst).toHaveBeenCalledWith({
+      where: { pendingActionExternalId: 'EA1' },
+    });
+  });
+
+  it('findByExternalActionId 查不到 —— 返回 null（调用方据此判断这个 action 属于别的域）', async () => {
+    const prisma = {
+      customerMain: { findFirst: jest.fn().mockResolvedValue(null) },
+    } as any;
+    const svc = new CustomerPendingActionService(prisma);
+
+    expect(await svc.findByExternalActionId('ZZZ')).toBeNull();
+  });
+
   it('set(customerId, action) 不传第三参数 —— 不触碰 hardLineDispositionedAt，也不查现状', async () => {
     const prisma = {
       customerMain: {

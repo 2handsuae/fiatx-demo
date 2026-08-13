@@ -296,6 +296,9 @@ model CustomerMain {
   @@index([adminStatus])
   @@index([complianceStatus])
   @@index([riskRating])
+  // Task 13: applicantActionReviewed webhook 反查客户的唯一入口列
+  // （CustomerPendingActionService.findByExternalActionId）。
+  @@index([pendingActionExternalId])
   @@map("customer_main")
 }
 

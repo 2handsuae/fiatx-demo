@@ -348,6 +348,18 @@ export const AuditActions = {
   // WITHDRAW_DEMO_SCENARIO_RUN. Feeds one simulated Sumsub verdict webhook
   // into a swap via the real ingestion pipeline (SUMSUB_MOCK_MODE only).
   SWAP_DEMO_SCENARIO_RUN: 'SWAP_DEMO_SCENARIO_RUN',
+  // Task 13: SwapApplicantActionHandler — the exemption loop promised by spec
+  // §6 that no earlier task actually built. Consumes applicantActionReviewed
+  // for a customer restricted by a prior swap KYT rejection.
+  SWAP_ACTION_CLEARED: 'SWAP_ACTION_CLEARED',
+  // GREEN arrived for a customer with a sticky hard-line (sanctions) marker —
+  // restrictions deliberately held, not lifted. See CustomerPendingActionService
+  // / handleRejectDisposition's hardLineDispositionedAt comments for why this
+  // must never be bypassed.
+  SWAP_ACTION_GREEN_HARDLINE_HELD: 'SWAP_ACTION_GREEN_HARDLINE_HELD',
+  // RED (or any non-GREEN answer) — restrictions stay on, escalated for
+  // manual review.
+  SWAP_ACTION_ESCALATED: 'SWAP_ACTION_ESCALATED',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
   WITHDRAW_CREATED_TO_PAYOUT_PENDING: 'WITHDRAW_CREATED_TO_PAYOUT_PENDING',
   WITHDRAW_PAYOUT_PENDING_TO_SUCCESS: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',

@@ -143,4 +143,68 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       }),
     );
   });
+
+  // ── Task 13: applicantActionReviewed → swap router (person-level, not a KYT verdict) ──
+
+  function buildActionEvent(externalActionId = 'EA1'): SumsubWebhookEvent {
+    return {
+      id: 'evt-2',
+      eventNo: 'SWH-2',
+      eventType: 'applicantActionReviewed',
+      applicantId: 'app-1',
+      externalUserId: '',
+      context: 'ONBOARDING',
+      rawPayload: JSON.stringify({
+        type: 'applicantActionReviewed',
+        externalActionId,
+        reviewResult: { reviewAnswer: 'GREEN' },
+      }),
+      receivedAt: new Date(),
+      status: 'PENDING',
+      retryCount: 0,
+      lastRetryAt: null,
+      lastErrorMessage: null,
+      processedAt: null,
+      dispatchedTo: null,
+      isSimulated: false,
+      simulatedByUserId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as unknown as SumsubWebhookEvent;
+  }
+
+  it('applicantActionReviewed, swap hit → routes to swapWebhookRouter only (deposit/withdraw not tried), dispatchedTo=SWAP_SUMSUB', async () => {
+    swapWebhookRouter.route.mockResolvedValue(true);
+    const event = buildActionEvent('EA1');
+
+    const result = await service.dispatch(event);
+
+    expect(depositWebhookRouter.route).not.toHaveBeenCalled();
+    expect(withdrawWebhookRouter.route).not.toHaveBeenCalled();
+    expect(swapWebhookRouter.route).toHaveBeenCalledTimes(1);
+    expect(swapWebhookRouter.route).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'applicantActionReviewed', externalActionId: 'EA1' }),
+    );
+    expect(result).toEqual({ routedTo: 'swap-sumsub', type: 'applicantActionReviewed' });
+    expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ dispatchedTo: 'SWAP_SUMSUB' }) }),
+    );
+  });
+
+  it('applicantActionReviewed, swap miss (belongs to another domain, e.g. material refresh) → falls through, no crash', async () => {
+    swapWebhookRouter.route.mockResolvedValue(false);
+    const event = buildActionEvent('some-other-domain-action-id');
+
+    const result = await service.dispatch(event);
+
+    expect(swapWebhookRouter.route).toHaveBeenCalledTimes(1);
+    // Falls through past Clue 3 (no materialRefreshCycle model on this bare
+    // prisma mock) to the applicantId lookup (Clue 4/5) — no customerMain
+    // model on this mock either, so it lands on the "no customer" warn path.
+    // The behavior under test here is just: no throw, event still PROCESSED.
+    expect(result).toBeUndefined();
+    expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PROCESSED' }) }),
+    );
+  });
 });

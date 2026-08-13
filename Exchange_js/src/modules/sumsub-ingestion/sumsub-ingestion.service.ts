@@ -207,6 +207,23 @@ export class SumsubIngestionService {
         result = { assessmentId, decision };
         dispatchedContext = 'CASE_DECISION';
       }
+      // ── Task 13: swap-domain applicantActionReviewed (person-level action review) ──
+      // Not a KYT-txn verdict — deliberately excluded from KYT_VERDICT_TYPES (see
+      // that file's comment) — so it never enters the cascade above. swap-sumsub
+      // owns action ids it itself exposed via CustomerMain.pendingActionExternalId
+      // (Task 7's handleRejectDisposition); try it before falling through to the
+      // pre-existing MaterialRefreshCycle actionId match below (Clue 3), which owns
+      // a different id space (Sumsub's own sumsubActionId). swapWebhookRouter.route()
+      // returns false when this externalActionId isn't one it recognises (belongs to
+      // another domain, e.g. material refresh), letting dispatch fall through to
+      // Clue 3 with the same payload exactly as before this task.
+      else if (depositWebhookType === 'applicantActionReviewed') {
+        const swapHit = await this.swapWebhookRouter.route(payload);
+        if (swapHit) {
+          result = { routedTo: 'swap-sumsub', type: depositWebhookType };
+          dispatchedContext = 'SWAP_SUMSUB';
+        }
+      }
       // Clue 1: explicit reviewMode → ongoing doc monitoring
       else if (reviewMode === 'ongoingDocExpired') {
         result = await this.materialRefreshService.handleSumsubDocMonitoringFire({ applicantId });

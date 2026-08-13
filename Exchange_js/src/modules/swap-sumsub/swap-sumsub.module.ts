@@ -1,10 +1,12 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { SwapWebhookRouter } from './swap-webhook.router';
 import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
+import { SwapApplicantActionHandler } from './applicant-action.handler';
 import { SwapSlaService } from './swap-sla.service';
 import { SwapTransactionsModule } from '../trading/swap-transactions/swap-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
 import { SumsubIngestionModule } from '../sumsub-ingestion/sumsub-ingestion.module';
+import { CustomersModule } from '../identity/customers/customers.module';
 import { SwapDemoScenarioService } from './demo-scenario.service';
 import { AdminSwapDemoController } from './admin-swap-demo.controller';
 
@@ -40,8 +42,20 @@ const SUMSUB_MOCK_MODE = process.env.SUMSUB_MOCK_MODE === 'true';
     forwardRef(() => SwapTransactionsModule),
     forwardRef(() => DepositSumsubModule),
     forwardRef(() => SumsubIngestionModule),
+    // Task 13: SwapApplicantActionHandler injects CustomerRestrictionsService +
+    // CustomerPendingActionService. Plain import (no forwardRef) — mirrors
+    // SwapTransactionsModule's identical import of CustomersModule (Task 7):
+    // CustomersModule only depends on PrismaModule (@Global) and
+    // NotificationsModule (a leaf module), so there's no path back here to cycle on.
+    CustomersModule,
   ],
-  providers: [SwapWebhookRouter, SwapKytVerdictHandler, SwapSlaService, SwapDemoScenarioService],
+  providers: [
+    SwapWebhookRouter,
+    SwapKytVerdictHandler,
+    SwapApplicantActionHandler,
+    SwapSlaService,
+    SwapDemoScenarioService,
+  ],
   // Security gate (a): mirrors DepositSumsubModule/WithdrawSumsubModule — this
   // controller only exists in the Nest route table when SUMSUB_MOCK_MODE=true,
   // in production it is never registered (not merely guard-blocked).

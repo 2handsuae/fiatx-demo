@@ -194,8 +194,8 @@ describe('SwapDemoScenarioService', () => {
     expect(firstId).toBe(secondId);
   });
 
-  describe('V7/V8: applicantActionReviewed (person-level — known gap, see class comment)', () => {
-    it('V7_ACTION_GREEN: feeds applicantActionReviewed for real via ingest(), does NOT prime any KYT txn, and honestly reports no status change', async () => {
+  describe('V7/V8: applicantActionReviewed (person-level — closes the loop as of Task 13)', () => {
+    it('V7_ACTION_GREEN: feeds applicantActionReviewed for real via ingest(), does NOT prime any KYT txn, and swap status is untouched (this event acts on the customer, not the swap)', async () => {
       const primeTxnSpy = jest.spyOn(mockClient, 'primeTxn');
       const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
       // swap 已终态(REJECTED)——applicantActionReviewed 作用于人,不作用于这笔单。
@@ -214,7 +214,10 @@ describe('SwapDemoScenarioService', () => {
         }),
         { isSimulated: true },
       );
-      // 如实回报:今天没有任何路由认领 applicantActionReviewed,状态不变。
+      // applicantActionReviewed 清的是客户的 restrictions,不是这笔 swap 单的
+      // 状态 —— statusBefore===statusAfter 是这条链路的正确行为,不是缺口。
+      // (真正的"清限制生效"由 applicant-action.handler.spec.ts 覆盖,这里的
+      // ingestionService 是 mock,不走真实的 SwapApplicantActionHandler。)
       expect(result.statusBefore).toBe('REJECTED');
       expect(result.statusAfter).toBe('REJECTED');
     });
@@ -231,7 +234,7 @@ describe('SwapDemoScenarioService', () => {
       );
     });
 
-    it('uses the customer\'s pending action id when one is on file (left by an earlier soft-line rejection)', async () => {
+    it('uses the customer\'s pending action id when one is on file (left by an earlier soft-line rejection) — sent as externalActionId, the field SwapApplicantActionHandler claims by', async () => {
       swapService.findByIdInternal.mockResolvedValue({
         ...swap,
         status: 'REJECTED',
@@ -242,7 +245,7 @@ describe('SwapDemoScenarioService', () => {
       await service.runVerdict('swap-1', 'V7_ACTION_GREEN', actor);
 
       expect(ingestionService.ingest).toHaveBeenCalledWith(
-        expect.objectContaining({ actionId: 'demo-ext-1' }),
+        expect.objectContaining({ externalActionId: 'demo-ext-1' }),
         { isSimulated: true },
       );
     });

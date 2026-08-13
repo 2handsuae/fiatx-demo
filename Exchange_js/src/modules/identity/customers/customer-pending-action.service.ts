@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { CustomerMain } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 
 export interface CustomerPendingAction {
@@ -48,6 +49,22 @@ export class CustomerPendingActionService {
       select: { hardLineDispositionedAt: true },
     });
     return !!customer?.hardLineDispositionedAt;
+  }
+
+  /**
+   * Task 13：applicantActionReviewed webhook 认领入口。webhook 携带
+   * externalActionId；按 pendingActionExternalId 反查客户，是 set() 写入侧的
+   * 反向查询。查不到返回 null——调用方（SwapApplicantActionHandler）据此判断
+   * 这个 action 不属于 swap 域，把级联交还给下一个域，而不是当错误处理。
+   *
+   * 不做唯一性假设：该列只建了 @@index，没有 @@unique（理论上两个客户的软线
+   * 待办不该撞同一个 externalActionId，但没有 DB 约束兜底）——findFirst 而非
+   * findUnique，与 SwapTransactionsService.findBySumsubTxnId 同款写法。
+   */
+  async findByExternalActionId(externalActionId: string): Promise<CustomerMain | null> {
+    return this.prisma.customerMain.findFirst({
+      where: { pendingActionExternalId: externalActionId },
+    });
   }
 
   /**
