@@ -10,7 +10,7 @@ import {
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { copyToClipboard } from '../utils/clipboard';
-import { accountDisplayName } from './ledger-account.constants';
+import { withAssetSuffix } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -22,6 +22,7 @@ interface LedgerAccountDetailData {
   ownerUuid: string | null;
   ownerNo: string | null;
   ownerName: string | null;
+  accountName: string | null;
   assetCode: string;
   status: string;
   description: string | null;
@@ -148,7 +149,7 @@ export default function LedgerAccountDetail() {
   };
 
   // 与列表页/流水页共用同一出口,三处必须一致(见 ledger-account.constants.ts 注释)
-  const accountName = detail ? accountDisplayName(detail.code, detail.assetCode) : '';
+  const accountName = detail ? withAssetSuffix(detail.accountName, detail.assetCode) : '';
 
   const netBalanceColor = (() => {
     if (!detail?.netBalance) return '';

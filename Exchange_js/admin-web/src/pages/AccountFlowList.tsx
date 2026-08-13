@@ -10,7 +10,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { accountDisplayName } from './ledger-account.constants';
+import { withAssetSuffix } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -22,6 +22,7 @@ interface AccountFlowRow {
   amount: string;
   balanceAfter: string | null;
   accountCode: number | null;
+  accountName: string | null;
   ownerType: string | null;
   ownerNo: string | null;
   ownerUuid: string | null;
@@ -206,9 +207,10 @@ const AccountFlowList = () => {
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
-  // 与列表页/详情页共用同一出口,三处必须一致(见 ledger-account.constants.ts 注释)
-  const accountName = (code: number | null, asset: string): string =>
-    accountDisplayName(code, asset);
+  // 科目名称来自后端 accountName(唯一真相源在 tb-account-codes.constant.ts),
+  // 前端只负责拼币种后缀。流水表与科目表同为"显示名称"的两张表。
+  const accountName = (name: string | null, asset: string): string =>
+    withAssetSuffix(name, asset);
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleString('en-US', {
@@ -407,8 +409,8 @@ const AccountFlowList = () => {
                     {row.tbAccountId.slice(0, 8)}…{row.tbAccountId.slice(-6)}
                   </button>
                 </td>
-                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[150px]" title={accountName(row.accountCode, row.assetCode)}>
-                  {accountName(row.accountCode, row.assetCode)}
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[150px]" title={accountName(row.accountName, row.assetCode)}>
+                  {accountName(row.accountName, row.assetCode)}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px]">
                   {row.ownerNo && row.ownerUuid ? (

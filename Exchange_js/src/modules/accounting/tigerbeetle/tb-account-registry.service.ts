@@ -4,7 +4,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { TigerBeetleService } from './tigerbeetle.service';
 import { hexToBigint } from './utils/tb-id.util';
-import { isAssetCode } from './constants/tb-account-codes.constant';
+import { isAssetCode, accountNameOf } from './constants/tb-account-codes.constant';
 
 /** class-aware posted 余额(分,字符串)。资产借正=debits−credits；负债/权益贷正=credits−debits。 */
 export function postedBalanceForCode(
@@ -128,7 +128,7 @@ export class TbAccountRegistryService {
     ]);
 
     const named = await this.attachOwnerNames(rows);
-    return { items: await this.attachBalances(named), total };
+    return { items: this.attachAccountNames(await this.attachBalances(named)), total };
   }
 
   /** CUSTOMER 行批量附 ownerName(单次 IN 查询,禁 N+1);SYSTEM 行恒 null。 */
@@ -169,5 +169,11 @@ export class TbAccountRegistryService {
       const acct = byId.get(hexToBigint(r.tbAccountId).toString());
       return { ...r, balance: acct ? postedBalanceForCode(acct, r.code) : null };
     });
+  }
+
+  /** 科目名称随行下发(2026-08-13)——名称的唯一真相源在 tb-account-codes.constant.ts,
+   *  前端不得再自建 code→名字 映射。科目表/流水表显示名称,其余地方显示助记码。 */
+  private attachAccountNames(rows: any[]): any[] {
+    return rows.map((r) => ({ ...r, accountName: accountNameOf(r.code) }));
   }
 }

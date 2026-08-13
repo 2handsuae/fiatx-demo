@@ -94,27 +94,6 @@ function buildSourceLink(sourceType: string, sourceNo: string): string | null {
   return base ? `${base}/${sourceNo}` : null;
 }
 
-/** TB account code → human-readable COA label */
-const CODE_TO_COA: Record<string, string> = {
-  '1': 'A.CLIENT_BANK',
-  '10': 'A.CLIENT_CUSTODY',
-  '50': 'A.FIRM_TREASURY',
-  '60': 'A.FX_POSITION',
-  '100': 'L.CLIENT_PAYABLE',
-  '101': 'L.DEPOSIT_SUSPENSE',
-  '110': 'L.TRADE_CLEARING',
-  '200': 'E.PAID_IN_CAPITAL',
-  '210': 'E.RETAINED_EARNINGS',
-  '300': 'R.FEE_INCOME',
-  '310': 'R.SPREAD_INCOME',
-  '320': 'R.FX_UNREALIZED_PNL',
-  '330': 'R.FX_REALIZED_PNL',
-};
-
-function coaLabel(code: string): string {
-  return CODE_TO_COA[code] ?? code;
-}
-
 /** Asset decimals for formatting raw TB integer amounts */
 const ASSET_DECIMALS: Record<string, number> = { USDT: 6, AED: 2 };
 
@@ -262,8 +241,8 @@ export default function TransferEvidenceDetail() {
           <section className="px-6 py-5">
             <Cap>Accounting Entry</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-              <InfoField label="Debit" value={coaLabel(detail.debitCode)} mono />
-              <InfoField label="Credit" value={coaLabel(detail.creditCode)} mono />
+              <InfoField label="Debit" value={detail.debitCode} mono />
+              <InfoField label="Credit" value={detail.creditCode} mono />
               <InfoField
                 label="Debit Account"
                 value={truncateHex(detail.debitTbAccountId)}
