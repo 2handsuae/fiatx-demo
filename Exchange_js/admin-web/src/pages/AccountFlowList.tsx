@@ -10,7 +10,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
-import { TB_CODE_LABELS } from './ledger-account.constants';
+import { accountDisplayName } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -206,8 +206,9 @@ const AccountFlowList = () => {
   const fi =
     'h-[30px] rounded border border-adm-border bg-adm-bg px-2.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber transition-colors';
 
+  // 与列表页/详情页共用同一出口,三处必须一致(见 ledger-account.constants.ts 注释)
   const accountName = (code: number | null, asset: string): string =>
-    code == null ? '—' : `${TB_CODE_LABELS[code] ?? `CODE_${code}`} · ${asset}`;
+    accountDisplayName(code, asset);
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleString('en-US', {

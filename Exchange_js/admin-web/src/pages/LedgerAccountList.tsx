@@ -14,8 +14,7 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import {
-  TB_CODE_LABELS,
-  TB_CODE_DISPLAY,
+  accountDisplayName,
   TB_CODE_OPTIONS,
   SYSTEM_CODE_OPTIONS,
   CUSTOMER_CODE_OPTIONS,
@@ -402,7 +401,7 @@ const LedgerAccountList = () => {
                       navigate(`/admin/ledger/accounts/${row.tbAccountId}`);
                     }}
                   >
-                    {(TB_CODE_DISPLAY[row.code] ?? TB_CODE_LABELS[row.code] ?? 'CODE_' + row.code)} – {row.assetCode}
+                    {accountDisplayName(row.code, row.assetCode)}
                   </button>
                 </td>
                 {/* ID */}
