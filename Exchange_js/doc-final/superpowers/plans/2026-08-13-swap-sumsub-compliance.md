@@ -1501,6 +1501,91 @@ git commit -m "test(swap): 钱弧零痕迹 + 八场景 e2e；同步 truth 与 BA
 
 ---
 
+## Task 13: 人级 applicantActionReviewed 闭环（**须在 Task 11/12 之前执行**）
+
+> **计划缺口补录（2026-08-13，Task 9 审查发现）**：spec §6 承诺「客户完成认证 → 清限制 → 恢复交易」的豁免闭环，
+> 但原 12 个任务里**没有任何一个建它**。实测确认：`applicantActionReviewed` 不在 `KYT_VERDICT_TYPES` 里，
+> ingestion 的通用分流只认 `MaterialRefreshCycle`（另一个域），`CustomerRestrictionsService.clear()` 至今零调用方。
+> 后果：被限制的客户**永久锁死**，Task 9 的 V7 按钮标着「清限制」但什么也不清。
+
+**Files:**
+- Create: `src/modules/swap-sumsub/applicant-action.handler.ts`
+- Create: `src/modules/swap-sumsub/applicant-action.handler.spec.ts`
+- Modify: `src/modules/swap-sumsub/swap-webhook.router.ts`（认领 `applicantActionReviewed`）
+- Modify: `src/modules/identity/customers/customer-pending-action.service.ts`（按 externalActionId 反查客户）
+
+**Interfaces:**
+- Produces: `SwapApplicantActionHandler.handle(payload): Promise<boolean>`；`CustomerPendingActionService.findByExternalActionId(externalActionId): Promise<CustomerMain | null>`
+- Consumes: Task 1 `CustomerRestrictionsService.clear()`（至今零调用方，本任务是它的第一个）｜ Task 7 `hardLineDispositionedAt` sticky marker
+
+**认领方式**：webhook 带 `externalActionId`；Task 7 已把它存在 `CustomerMain.pendingActionExternalId`。按该列反查客户即可认领；查不到返回 `false` 让级联继续（该 action 可能属于别的域）。
+
+**⚠️ 硬线客户不得因完成某个 action 而解锁。** `hardLineDispositionedAt` 非空即制裁线——GREEN 也**只清 pendingAction 不清 restrictions**，并写审计说明为何未解锁。这是 Task 7 sticky marker 的存在意义，此处不得绕过。
+
+- [ ] **Step 1: 写失败测试**
+
+```ts
+it('GREEN + 非硬线 → 清 SWAP/WITHDRAW 限制 + 清 pendingAction', async () => {
+  pendingActionService.findByExternalActionId.mockResolvedValue({ id: 'c1', customerNo: 'C-001', hardLineDispositionedAt: null });
+  expect(await handler.handle({ type: 'applicantActionReviewed', externalActionId: 'EA1',
+    reviewResult: { reviewAnswer: 'GREEN' } })).toBe(true);
+  expect(restrictions.clear).toHaveBeenCalledWith('c1', ['SWAP', 'WITHDRAW'], 'system');
+  expect(pendingActionService.set).toHaveBeenCalledWith('c1', null, expect.anything());
+});
+
+it('GREEN + 硬线客户 → 【不】清限制，只清 pendingAction，并审计说明', async () => {
+  pendingActionService.findByExternalActionId.mockResolvedValue({ id: 'c1', customerNo: 'C-001', hardLineDispositionedAt: new Date() });
+  await handler.handle({ type: 'applicantActionReviewed', externalActionId: 'EA1', reviewResult: { reviewAnswer: 'GREEN' } });
+  expect(restrictions.clear).not.toHaveBeenCalled();
+  expect(audit.recordSystem).toHaveBeenCalledWith(expect.objectContaining({
+    action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD }), expect.anything());
+});
+
+it('RED → 限制保持 + needsReview 升级审计', async () => {
+  pendingActionService.findByExternalActionId.mockResolvedValue({ id: 'c1', customerNo: 'C-001', hardLineDispositionedAt: null });
+  await handler.handle({ type: 'applicantActionReviewed', externalActionId: 'EA1', reviewResult: { reviewAnswer: 'RED' } });
+  expect(restrictions.clear).not.toHaveBeenCalled();
+  expect(audit.recordSystem).toHaveBeenCalledWith(expect.objectContaining({
+    action: AuditActions.SWAP_ACTION_ESCALATED }), expect.anything());
+});
+
+it('认领不到客户 → 返回 false 让级联继续', async () => {
+  pendingActionService.findByExternalActionId.mockResolvedValue(null);
+  expect(await handler.handle({ type: 'applicantActionReviewed', externalActionId: 'ZZZ',
+    reviewResult: { reviewAnswer: 'GREEN' } })).toBe(false);
+});
+```
+
+- [ ] **Step 2: 跑测试确认失败**
+
+Run: `npx jest src/modules/swap-sumsub/applicant-action.handler.spec.ts`
+Expected: FAIL — 模块不存在
+
+- [ ] **Step 3: 实现 handler + 反查 + 路由接线**
+
+`findByExternalActionId` 按 `pendingActionExternalId` 唯一反查（该列需加 `@@index`，随迁移 `swap_pending_action_index`）。
+handler 三分支按上面测试的语义实现；router 在 `KYT_VERDICT_TYPES` 判定之外增加 `applicantActionReviewed` 分支转本 handler。
+新增审计常量 `SWAP_ACTION_CLEARED` / `SWAP_ACTION_GREEN_HARDLINE_HELD` / `SWAP_ACTION_ESCALATED`，参数取本文件较全的那种形状。
+
+- [ ] **Step 4: 跑测试确认通过**
+
+Run: `npx jest src/modules/swap-sumsub/ src/modules/identity/customers/`
+Expected: PASS
+
+- [ ] **Step 5: 摘掉 Task 9 的失效标注**
+
+`fixtures/verdict-buttons.ts` 里 V7/V8 那两个「当前无人消费」的注释与 spec 说明改为生效描述；`demo-scenario.service.spec.ts` 里三条钉住缺口行为的测试改为钉住闭环行为。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/modules/swap-sumsub/ src/modules/identity/customers/ prisma/ \
+        src/modules/audit-logging/constants/audit-actions.constant.ts
+git commit -m "feat(swap): 人级 applicantActionReviewed 闭环 —— 认证通过清限制，硬线客户不解锁"
+```
+
+---
+
 ## Self-Review
 
 **Spec 覆盖核对**：spec §2 提交契约 → Task 4/6｜§3 状态机 → Task 2｜§4 节点条件 → Task 1/4/5/6/8｜§5 人级支线 → Task 7｜§6 豁免闭环 → Task 9（V7 键）+ BACKLOG（有效期待验）｜§7 规则纪律 → 不在代码范围，Task 12 记 BACKLOG 转规则目录文档｜§8 模拟层 → Task 9｜§9 代码改动点 → Task 4/6 + Task 11（前端契约变更）｜§10 差距 → 全覆盖｜§12 待决 → Task 12 记账。
