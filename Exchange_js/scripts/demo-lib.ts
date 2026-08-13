@@ -540,7 +540,7 @@ export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
   //    CLIENT: CLIENT_ASSET == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
-  //    FIRM:   FIRM_ASSET == Σ(FIRM_OPS + FIRM_SET + FIRM_FEE + FIRM_LIQ) per ledger
+  //    FIRM:   FIRM_ASSET == Σ(FIRM_OPS + FIRM_SET + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
   //    (asset accounts are debit-normal; liabilities/equity are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
   const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
@@ -550,8 +550,8 @@ export async function verifyEndState(ctx: DemoCtx): Promise<boolean> {
     const clientLiab = (m.get(TB_ACCOUNT_CODES.CLIENT_PAYABLE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) ?? 0n);
     ok(`COA CLIENT(${name}): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`, clientAsset === clientLiab, `${clientAsset} == ${clientLiab}`);
     const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_ASSET) ?? 0n;
-    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_LIQ) ?? 0n);
-    ok(`COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_FEE+FIRM_LIQ)`, firmAsset === firmEquity, `${firmAsset} == ${firmEquity}`);
+    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
+    ok(`COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`, firmAsset === firmEquity, `${firmAsset} == ${firmEquity}`);
   }
 
   // 3./4. (removed C5b) The Outstanding + FeeAccrual tables — which these checks
