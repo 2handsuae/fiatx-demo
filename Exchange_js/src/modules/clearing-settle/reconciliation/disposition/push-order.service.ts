@@ -11,13 +11,19 @@ import { FundsOrderService } from '../../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
 import { ReceiptLookupService, PushableOrderView } from './receipt-lookup.service';
 
+// A3(2026-08-13):推单只把资金单推到 CONFIRMED 就停手，**不再自己 CLEAR**。
+// 原因:CLEAR 是 workflow 记完账之后的产物,不是一个可以外部驱动的推进动作。推单一口气
+// 推到 CLEARED,会让 onFeeLegConfirmed 的防重入判据(「状态不是 CONFIRMED = 别人已经结算
+// 过了」)误判——推单制造的恰恰是第三种情况:状态变了但根本没人结算过 → 整段结算被跳过。
+// 后果:手续费永久锁在客户账上、提现永停 PAYOUT_PENDING,而单据显示"已结清"。
+// 单次点击确定性复现(demo:in-transit 跑完就是现成状态),不需要并发。
+// 佐证:正常演示脚本 demo-lib.ts 只发广播/确认、从不发 CLEAR,还特意 sleep 把结清让给 workflow。
 const HAPPY_ACTIONS = [
   FundsOrderAction.SUBMIT,
   FundsOrderAction.OBSERVE_CONFIRMING,
   FundsOrderAction.CONFIRM,
-  FundsOrderAction.CLEAR,
 ];
-const MAX_STEPS = 6; // 状态机最长合法链路兜底，防死循环
+const MAX_STEPS = 5; // 状态机最长合法链路兜底(CREATED→SUBMITTED→CONFIRMING→CONFIRMED)，防死循环
 const TERMINAL = new Set<string>([
   FundsOrderStatus.CLEARED,
   FundsOrderStatus.FAILED,
@@ -132,7 +138,11 @@ export class PushOrderService {
    */
   private async driveToCleared(order: any, operatorId: string, effectiveDate: string) {
     let current = order;
-    for (let i = 0; i < MAX_STEPS && current.status !== FundsOrderStatus.CLEARED; i++) {
+    // A3(2026-08-13):推单的目标态由 CLEARED 改为 CONFIRMED。CLEARED 仍算成功
+    // (并发的 workflow 结算可能已抢先把它推到 CLEARED,那正是我们想要的结果)。
+    const reachedGoal = (s: string) =>
+      s === FundsOrderStatus.CONFIRMED || s === FundsOrderStatus.CLEARED;
+    for (let i = 0; i < MAX_STEPS && !reachedGoal(current.status); i++) {
       // (1) 先看真实态：并发 handler 可能已把它推到 CLEARED（成功）或其它终态（意外）。
       const fresh = await this.fundsOrders.findById(current.id);
       if (fresh?.status === FundsOrderStatus.CLEARED) {
@@ -172,11 +182,14 @@ export class PushOrderService {
       }
       current = advanced;
     }
-    // (4) 收尾闸门不变。
-    if (current.status !== FundsOrderStatus.CLEARED) {
-      throw new BadRequestException(`推进未达终态（止于 ${current.status}）`);
+    // (4) 收尾闸门:A3 起接受 CONFIRMED(推单的终点)或 CLEARED(workflow 已抢先结清)。
+    if (!reachedGoal(current.status)) {
+      throw new BadRequestException(`推进未达目标态（止于 ${current.status}，期望 CONFIRMED）`);
     }
-    return current;
+    // A3:循环在 CONFIRMED 就停手,但并发的 workflow 结算可能已经把这一行推到 CLEARED。
+    // 收尾重读一次,让上报的 finalStatus 反映真实行状态,而不是循环里的中间值。
+    const settled = await this.fundsOrders.findById(current.id);
+    return settled ?? current;
   }
 
   private assertValidExternalDate(d: string, orderCreatedAt: Date) {

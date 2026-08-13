@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PushOrderService } from './push-order.service';
-import { FundsOrderStatus } from '../../../funds-orders/dto/funds-order.dto';
+import { FundsOrderStatus, FundsOrderAction } from '../../../funds-orders/dto/funds-order.dto';
 
 // Real funds-order row shape (columns per prisma schema): deposit/withdraw FK derives
 // direction, fromWalletId/toWalletId is the physical wallet, referenceNo is the external ref.
@@ -21,15 +21,33 @@ const makeOrder = (over: any = {}) => ({
 
 function build(opts: { order?: any; lookup?: any } = {}) {
   const order = opts.order ?? makeOrder();
-  // advance() walks CONFIRMING → CONFIRMED → CLEARED as the orchestrator retries HAPPY_ACTIONS.
-  const statuses = [FundsOrderStatus.CONFIRMED, FundsOrderStatus.CLEARED];
-  let i = 0;
+  // A3(2026-08-13):此前这个 mock 写死 [CONFIRMED, CLEARED] 的行进序列、**完全不看传进来的
+  // 是什么动作**——所以 HAPPY_ACTIONS 里有没有 CLEAR 它都绿,对"推单尝试了哪些动作"完全是瞎的
+  // (正是这个盲区让"推单抢跑结算"活到了今天)。改成按 action 决定下一状态,动作语义真正参与判定。
+  const NEXT_BY_ACTION: Record<string, string> = {
+    [FundsOrderAction.SUBMIT]: FundsOrderStatus.SUBMITTED,
+    [FundsOrderAction.OBSERVE_CONFIRMING]: FundsOrderStatus.CONFIRMING,
+    [FundsOrderAction.CONFIRM]: FundsOrderStatus.CONFIRMED,
+    [FundsOrderAction.CLEAR]: FundsOrderStatus.CLEARED,
+  };
   let currentStatus = order.status; // shared row status; advance() moves it, findById() reads it
   const fundsOrders = {
     findByNo: jest.fn(async () => order),
     findById: jest.fn(async () => ({ ...order, status: currentStatus })),
-    advance: jest.fn(async () => {
-      currentStatus = statuses[i++] ?? FundsOrderStatus.CLEARED;
+    advance: jest.fn(async (_id: string, action: string) => {
+      const next = NEXT_BY_ACTION[action];
+      // 只有"当前态的下一步"才合法,其余抛 invalid transition(与真实状态机同措辞,
+      // 服务据此跳到下一个候选动作)。这样 HAPPY_ACTIONS 的内容真正参与判定。
+      const LEGAL_NEXT: Record<string, string> = {
+        [FundsOrderStatus.CREATED]: FundsOrderStatus.SUBMITTED,
+        [FundsOrderStatus.SUBMITTED]: FundsOrderStatus.CONFIRMING,
+        [FundsOrderStatus.CONFIRMING]: FundsOrderStatus.CONFIRMED,
+        [FundsOrderStatus.CONFIRMED]: FundsOrderStatus.CLEARED,
+      };
+      if (!next || LEGAL_NEXT[currentStatus] !== next) {
+        throw new BadRequestException(`Invalid transition: ${currentStatus} --${action}-->`);
+      }
+      currentStatus = next;
       return { ...order, status: currentStatus };
     }),
   } as any;
@@ -43,15 +61,26 @@ function build(opts: { order?: any; lookup?: any } = {}) {
 }
 
 describe('PushOrderService', () => {
-  it('sync: unique receipt → advances to CLEARED with back-valued effectiveDate on every step', async () => {
+  it('sync: unique receipt → advances to CONFIRMED (A3: 停手不 CLEAR) with back-valued effectiveDate on every step', async () => {
     const { svc, fundsOrders } = build();
     const res = await svc.syncPush('FO-1', 'admin-1');
-    expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);
+    // A3:推单的终点是 CONFIRMED,结清交还 workflow(它记完账才 CLEAR)
+    expect(res.finalStatus).toBe(FundsOrderStatus.CONFIRMED);
     expect(fundsOrders.advance).toHaveBeenCalled();
     for (const call of fundsOrders.advance.mock.calls) {
       // advance(id, action, operatorId, tx, opts) — opts is arg index 4
       expect(call[4]).toEqual({ effectiveDate: '2026-06-30' });
     }
+  });
+
+  // A3 守则性断言:推单永远不得自己发 CLEAR。发了就会绕过 onFeeLegConfirmed 的结算
+  // (其防重入判据是「状态不是 CONFIRMED = 别人结算过了」),手续费永久锁死、提现永停
+  // PAYOUT_PENDING,而单据显示"已结清"。
+  it('A3: 推单绝不发 CLEAR —— 结清是 workflow 记完账后的产物,不是可外部驱动的动作', async () => {
+    const { svc, fundsOrders } = build();
+    await svc.syncPush('FO-1', 'admin-1');
+    const actions = fundsOrders.advance.mock.calls.map((c: any[]) => c[1]);
+    expect(actions).not.toContain(FundsOrderAction.CLEAR);
   });
 
   it('sync: maps deposit → IN direction + toWalletId when locating a receipt', async () => {
@@ -133,7 +162,8 @@ describe('PushOrderService', () => {
       externalDate: '2026-06-30',
       reason: '银行后台已见到账',
     });
-    expect(res.finalStatus).toBe(FundsOrderStatus.CLEARED);
+    // A3:推单止于 CONFIRMED,结清交还 workflow
+    expect(res.finalStatus).toBe(FundsOrderStatus.CONFIRMED);
     expect(fundsOrders.advance.mock.calls[0][4]).toEqual({ effectiveDate: '2026-06-30' });
     const [input] = audit.recordByActor.mock.calls[0];
     expect(input.action).toBe('RECON_PUSH_ORDER_MANUAL');

@@ -17,6 +17,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   let withdrawService: any;
   let auditLogsService: any;
   let accountingService: any;
+  let fundsOrders: any;
 
   const declinedWithdrawal = {
     id: 'wd-decline-1',
@@ -35,6 +36,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   beforeEach(() => {
     withdrawService = {
       findOneInternal: jest.fn().mockResolvedValue(declinedWithdrawal),
+      getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       updateStatus: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
@@ -44,6 +46,13 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     };
 
+    // A6: 终态收口时还要把费腿这张资金单也 FAIL 掉(否则终态订单下永久挂活腿)
+
+    fundsOrders = {
+      findByParent: jest.fn().mockResolvedValue([{ id: 'fee-leg-1' }]),
+      advance: jest.fn().mockResolvedValue(undefined),
+    };
+
     workflow = new WithdrawWorkflowService(
       {} as any, // prisma
       {} as any, // eventEmitter
@@ -51,7 +60,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // withdrawQuoteService
       auditLogsService as any,
       accountingService as any,
-      {} as any, // fundsOrders
+      fundsOrders as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
@@ -86,6 +95,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
   let withdrawService: any;
   let auditLogsService: any;
   let accountingService: any;
+  let fundsOrders: any;
 
   const payoutPendingWithdrawal = {
     id: 'wd-payout-fail-1',
@@ -104,6 +114,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
   beforeEach(() => {
     withdrawService = {
       findOneInternal: jest.fn().mockResolvedValue(payoutPendingWithdrawal),
+      getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       updateStatus: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
@@ -113,6 +124,13 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     };
 
+    // A6: 终态收口时还要把费腿这张资金单也 FAIL 掉(否则终态订单下永久挂活腿)
+
+    fundsOrders = {
+      findByParent: jest.fn().mockResolvedValue([{ id: 'fee-leg-1' }]),
+      advance: jest.fn().mockResolvedValue(undefined),
+    };
+
     workflow = new WithdrawWorkflowService(
       {} as any, // prisma
       {} as any, // eventEmitter
@@ -120,7 +138,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // withdrawQuoteService
       auditLogsService as any,
       accountingService as any,
-      {} as any, // fundsOrders
+      fundsOrders as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
       {} as any, // systemWalletResolver
@@ -161,6 +179,49 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
     );
+  });
+
+  // ── A6 (2026-08-13): 终态订单下不得再挂活资金单 ──────────────────────────────
+  // 修复前 releaseLock 只解 TB 的锁,费腿那张**资金单**没人终结 → 一笔终态 FAILED 的提现
+  // 底下永久挂一条非终态费腿:对账在途桶只增不减,且能被推单推成"已结清"
+  // (自称收了费,实际客户的钱已解锁退回)。
+  it('A6: 本金腿失败后,费腿这张资金单也必须被 FAIL(否则终态订单下永久挂活腿)', async () => {
+    await workflow.handleFundsOrderChanged({
+      fundsOrderId: 'fo-payout-1',
+      fundsOrderNo: 'FO-PAYOUT-1',
+      parent: { withdrawTransactionId: payoutPendingWithdrawal.id },
+      legSeq: 1,
+      attempt: 1,
+      oldStatus: FundsOrderStatus.SUBMITTED,
+      newStatus: FundsOrderStatus.FAILED,
+    } as any);
+
+    expect(fundsOrders.advance).toHaveBeenCalledWith('fee-leg-1', FundsOrderAction.FAIL, 'SYSTEM');
+
+    // 顺序不变量:提现先落 FAILED,再 FAIL 费腿——否则 onFeeLegFailed 的
+    // PAYOUT_PENDING 守卫会放行,走三级梯重建出一条新的活费腿。
+    const statusOrder = withdrawService.updateStatus.mock.invocationCallOrder[0];
+    const advanceOrder = fundsOrders.advance.mock.invocationCallOrder[0];
+    expect(statusOrder).toBeLessThan(advanceOrder);
+  });
+
+  it('A6: 费腿 FAIL 抛错(已终态/非法转移)只 warn,不上抛——钱的路径已完成不可回滚', async () => {
+    fundsOrders.advance.mockRejectedValue(new Error('already terminal'));
+
+    await expect(
+      workflow.handleFundsOrderChanged({
+        fundsOrderId: 'fo-payout-1',
+        fundsOrderNo: 'FO-PAYOUT-1',
+        parent: { withdrawTransactionId: payoutPendingWithdrawal.id },
+        legSeq: 1,
+        attempt: 1,
+        oldStatus: FundsOrderStatus.SUBMITTED,
+        newStatus: FundsOrderStatus.FAILED,
+      } as any),
+    ).resolves.toBeUndefined();
+
+    // 锁照解、审计照记 —— 资金单视图落后不影响钱
+    expect(accountingService.voidPendingTransferBestEffort).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -433,6 +494,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
     };
     const withdrawService = {
       findOneInternal: jest.fn().mockResolvedValue(row),
+      getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       saveValuationSnapshot: jest.fn().mockResolvedValue(undefined),
       linkApprovalCase: jest.fn().mockResolvedValue(undefined),
       landOnPendingApproval: jest.fn().mockResolvedValue(undefined),
@@ -572,6 +634,7 @@ function buildFullWorkflow(overrides: {
 } = {}) {
   const withdrawService = {
     findOneInternal: jest.fn(),
+    getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
     setSumsubTxn: jest.fn().mockResolvedValue(undefined),
     saveSumsubVerdict: jest.fn().mockResolvedValue(undefined),
     setSlaDeadline: jest.fn().mockResolvedValue(undefined),
@@ -1318,6 +1381,7 @@ function buildFeeWorkflow(overrides: {
 } = {}) {
   const withdrawService = {
     findOneInternal: jest.fn(),
+    getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
     updateStatus: jest.fn().mockResolvedValue(undefined),
     markNeedsReview: jest.fn().mockResolvedValue(undefined),
     incrementFeeSettleAttempts: jest.fn().mockResolvedValue(1),
@@ -1658,6 +1722,7 @@ function buildBounceWorkflow(overrides: {
 } = {}) {
   const withdrawService = {
     findOneInternal: jest.fn(),
+    getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
     updateStatus: jest.fn().mockResolvedValue(undefined),
     ...overrides.withdrawService,
   };
@@ -2037,6 +2102,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
   } = {}) {
     const withdrawService = {
       findOneInternal: jest.fn().mockResolvedValue(frozenWithdrawal),
+      getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       updateStatus: jest.fn(),
       ...overrides.withdrawService,
     };
@@ -2261,6 +2327,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
   } = {}) {
     const withdrawService = {
       findOneInternal: jest.fn().mockResolvedValue(frozenWithdrawal),
+      getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
       updateStatus: jest.fn().mockResolvedValue(undefined),
       ...overrides.withdrawService,
     };
@@ -2367,6 +2434,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       const { workflow, sumsubTxnClient } = buildWorkflow({
         withdrawService: {
           findOneInternal: jest.fn().mockResolvedValue({ ...frozenWithdrawal, sumsubTxnId: null }),
+          getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
           updateStatus: jest.fn().mockResolvedValue(undefined),
         },
       });
@@ -2492,6 +2560,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
 
       const withdrawService = {
         findOneInternal: jest.fn().mockResolvedValue(successWithdrawal),
+        getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
         updateStatus: jest.fn().mockResolvedValue(successWithdrawal),
         clearNeedsReview: jest.fn().mockResolvedValue({}),
       };
