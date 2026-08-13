@@ -18,6 +18,10 @@ export const TB_ACCOUNT_CODES = {
   FIRM_FEE: 202, // 手续费
   FIRM_LIQ: 203, // 流动性储备(本版挂着不用)
   FIRM_SEIZED: 204, // 上缴/政府移交对手账
+  // ── COA v2 收入段(210–219,2026-08-13)：202 FIRM_FEE 按业务线三分,取代之 ──
+  INCOME_SWAP_FEE: 210, // 兑换手续费收入(接类型码 36)
+  INCOME_WITHDRAW_FEE: 211, // 提现手续费收入(接类型码 16)
+  INCOME_OTHER: 212, // 其他收入(below-min 没收,类型码 4;与服务费隔离)
 } as const;
 
 export type TbAccountCode = (typeof TB_ACCOUNT_CODES)[keyof typeof TB_ACCOUNT_CODES];
@@ -33,6 +37,9 @@ export const COA_TO_TB_CODE: Record<string, number> = {
   'E.FIRM_FEE': TB_ACCOUNT_CODES.FIRM_FEE,
   'E.FIRM_LIQ': TB_ACCOUNT_CODES.FIRM_LIQ,
   'E.FIRM_SEIZED': TB_ACCOUNT_CODES.FIRM_SEIZED,
+  'E.INCOME_SWAP_FEE': TB_ACCOUNT_CODES.INCOME_SWAP_FEE,
+  'E.INCOME_WITHDRAW_FEE': TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE,
+  'E.INCOME_OTHER': TB_ACCOUNT_CODES.INCOME_OTHER,
 };
 
 /** TB numeric code → human-readable COA code */

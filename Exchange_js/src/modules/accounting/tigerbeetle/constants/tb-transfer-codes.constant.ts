@@ -46,6 +46,8 @@ export const TB_TRANSFER_CODES = {
 
   // ── Bootstrap(70)──
   CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_ASSET / CR FIRM_OPS
+  // ── COA v2 迁移(71,2026-08-13)──
+  COA_V2_INCOME_RECLASS: 71, // 202 存量按历史类型码精确重分类:DR FIRM_FEE / CR 210|211|212
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
