@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import {
@@ -306,6 +307,19 @@ export class SwapTransactionsService {
     return { items, total };
   }
 
+  /** Customer-facing list: same query, scoped to the caller's own swaps. */
+  async findAllForCustomer(customerId: string, query: SwapTransactionQueryDto) {
+    const result = await this.findAll({
+      ...query,
+      ownerId: customerId,
+      ownerType: 'CUSTOMER',
+    });
+    return {
+      ...result,
+      items: result.items.map((item: any) => this.toCustomerSwapView(item)),
+    };
+  }
+
   async findByNoInternal(swapNo: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;
     return client.swapTransaction.findUniqueOrThrow({
@@ -427,6 +441,76 @@ export class SwapTransactionsService {
     });
 
     return { ...item, internalFunds };
+  }
+
+  /**
+   * Customer-facing field whitelist (tipping-off guard). The raw `findOne`
+   * row carries investigation-only fields — complianceVerdict/
+   * complianceAction/complianceRuleNames (matched Sumsub rule names),
+   * sumsubDetailJson (the raw Sumsub getTxn payload), rejectReason,
+   * sumsubTxnIdOut/sumsubTxnIdIn, plus internal bookkeeping (traceId,
+   * ownerId/ownerNo, quoteSnapshotRef, tbFromTransferId/tbToTransferId/
+   * tbFeeTransferId/tbSpreadTransferId, grossAedValue, riskDecisionRef,
+   * failureCode/failureReason, statusHistory, needsReview, currentStage) —
+   * that must never reach a customer's browser: a DevTools inspection of the
+   * JSON response would be enough to tip off a person under sanctions
+   * investigation. Only whitelisted fields are returned; this list must stay
+   * in lockstep with the `SwapTransaction` interface in
+   * client-web/src/pages/Swap.tsx, which is the actual field contract the
+   * client reads. Mirrors WithdrawTransactionsService#toCustomerWithdrawView.
+   *
+   * Unlike deposit/withdraw, swap's reachable status enum
+   * (COMPLIANCE_PENDING/PROCESSING/SUCCESS/REJECTED — see
+   * SwapTransactionStatus) has no FROZEN/SEIZED/MANUAL_CHECKING-style
+   * enforcement state whose literal string would itself tip off the
+   * customer, so `status` is passed through as-is (no collapsing needed,
+   * same as withdraw's simpler status set).
+   */
+  private toCustomerSwapView(item: any) {
+    return {
+      id: item.id,
+      swapNo: item.swapNo,
+      status: item.status,
+      fromAmount: item.fromAmount,
+      toAmount: item.toAmount,
+      netToAmount: item.netToAmount,
+      feeAmount: item.feeAmount,
+      feeCurrency: item.feeCurrency,
+      exchangeRate: item.exchangeRate,
+      createdAt: item.createdAt,
+      completedAt: item.completedAt,
+      fromAsset: item.fromAsset
+        ? {
+            currency: item.fromAsset.currency,
+            code: item.fromAsset.code,
+            network: item.fromAsset.network,
+            decimals: item.fromAsset.decimals,
+          }
+        : null,
+      toAsset: item.toAsset
+        ? {
+            currency: item.toAsset.currency,
+            code: item.toAsset.code,
+            network: item.toAsset.network,
+            decimals: item.toAsset.decimals,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Customer-facing single-fetch (IDOR guard + tipping-off whitelist).
+   * Mirrors WithdrawTransactionsService#findOneForCustomer — moves the
+   * ownership check out of the controller (swap-transactions-customer.
+   * controller.ts previously threw a bare `Error`, which NestJS turns into a
+   * 500 instead of a proper 403) and applies the field whitelist above.
+   */
+  async findOneForCustomer(id: string, customerId: string) {
+    const item = await this.findOne(id);
+    if (item.ownerId !== customerId) {
+      throw new ForbiddenException('Not your swap transaction');
+    }
+    return this.toCustomerSwapView(item);
   }
 
   /**

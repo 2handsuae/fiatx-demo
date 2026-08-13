@@ -155,18 +155,12 @@ export class SwapTransactionsCustomerController {
   @Get('my')
   @ApiOperation({ summary: 'Get all swap transactions for current customer' })
   findMy(@Request() req: any, @Query() query: SwapTransactionQueryDto) {
-    query.ownerId = req.user.userId;
-    query.ownerType = 'CUSTOMER';
-    return this.swapTransactionsService.findAll(query);
+    return this.swapTransactionsService.findAllForCustomer(req.user.userId, query);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get swap transaction by ID' })
-  async findOne(@Request() req: any, @Param('id') id: string) {
-    const item = await this.swapTransactionsService.findOne(id);
-    if (item.ownerId !== req.user.userId) {
-      throw new Error('Unauthorized');
-    }
-    return item;
+  findOne(@Request() req: any, @Param('id') id: string) {
+    return this.swapTransactionsService.findOneForCustomer(id, req.user.userId);
   }
 }
