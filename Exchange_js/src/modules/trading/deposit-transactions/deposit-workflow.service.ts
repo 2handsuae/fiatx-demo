@@ -1215,8 +1215,8 @@ export class DepositWorkflowService implements OnModuleInit {
    * The two pending legs (same ledger = asset.tbLedgerId):
    *   leg1  DR DEPOSIT_SUSPENSE(CUSTOMER) / CR CLIENT_ASSET(SYSTEM) — exact reverse
    *         of the payin STEP_1; zeroes the customer's suspense.
-   *   leg2  DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize the handling-fee
-   *         income.
+   *   leg2  DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM) — confiscation income,
+   *         segregated from service fees.
    * Neither leg is an external crossing — confiscation reclassifies funds already in
    * the firm's custody; the legSeq 2 funds order (customer deposit wallet → firm F_FEE
    * wallet) is the by-wallet recon anchor for the physical move. Idempotent: reuse an
@@ -1254,7 +1254,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const suspenseId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
     const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
     const firmAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger, ownerType: 'SYSTEM' });
-    const firmFeeId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_FEE, ledger, ownerType: 'SYSTEM' });
+    const incomeOtherId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger, ownerType: 'SYSTEM' });
 
     await this.accountingService.executePendingTransfer({
       debitAccountId: suspenseId, creditAccountId: clientAssetId, amount: amountBigint, ledger,
@@ -1267,11 +1267,11 @@ export class DepositWorkflowService implements OnModuleInit {
       },
     });
     await this.accountingService.executePendingTransfer({
-      debitAccountId: firmAssetId, creditAccountId: firmFeeId, amount: amountBigint, ledger,
+      debitAccountId: firmAssetId, creditAccountId: incomeOtherId, amount: amountBigint, ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_FIRM_FEE, timeout: 0, legIndex: 1,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
         assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: 'Below-min confiscation fee income (pending)', debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
       },
@@ -1330,12 +1330,12 @@ export class DepositWorkflowService implements OnModuleInit {
             assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
           },
         });
-        // leg2: DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM) — recognize the handling-fee income.
+        // leg2: DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM) — confiscation income, segregated from service fees.
         await this.accountingService.postPendingTransfer({
           pendingTransferId: pend2, amount: amountBigint,
           evidence: {
             sourceType: 'DEPOSIT', sourceNo: deposit.depositNo, eventCode: 'CONFISCATE_FIRM_FEE',
-            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+            debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
             assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
           },
         });

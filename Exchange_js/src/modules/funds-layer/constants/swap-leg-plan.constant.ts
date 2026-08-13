@@ -22,7 +22,7 @@ const CRYPTO_TO_FIAT: SwapLegSpec[] = [
   ] },
   { legSeq: 4, fromRole: 'C_VIBAN', toRole: 'F_FEE', side: 'to', accounting: [
     { code: T.SWAP_FEE_CLIENT, debitCode: C.CLIENT_PAYABLE, creditCode: C.CLIENT_ASSET, side: 'to', amountRef: 'fee', eventCode: 'SWAP_FEE_CLIENT' },
-    { code: T.SWAP_FEE_FIRM,   debitCode: C.FIRM_ASSET,     creditCode: C.FIRM_FEE,     side: 'to', amountRef: 'fee', eventCode: 'SWAP_FEE_FIRM' },
+    { code: T.SWAP_FEE_FIRM,   debitCode: C.FIRM_ASSET,     creditCode: C.INCOME_SWAP_FEE, side: 'to', amountRef: 'fee', eventCode: 'SWAP_FEE_FIRM' },
   ] },
 ];
 
@@ -40,7 +40,7 @@ const FIAT_TO_CRYPTO: SwapLegSpec[] = [
   ] },
   { legSeq: 4, fromRole: 'C_DEP', toRole: 'F_FEE', side: 'to', accounting: [
     { code: T.SWAP_FEE_CLIENT, debitCode: C.CLIENT_PAYABLE, creditCode: C.CLIENT_ASSET, side: 'to', amountRef: 'fee', eventCode: 'SWAP_FEE_CLIENT' },
-    { code: T.SWAP_FEE_FIRM,   debitCode: C.FIRM_ASSET,     creditCode: C.FIRM_FEE,     side: 'to', amountRef: 'fee', eventCode: 'SWAP_FEE_FIRM' },
+    { code: T.SWAP_FEE_FIRM,   debitCode: C.FIRM_ASSET,     creditCode: C.INCOME_SWAP_FEE, side: 'to', amountRef: 'fee', eventCode: 'SWAP_FEE_FIRM' },
   ] },
 ];
 

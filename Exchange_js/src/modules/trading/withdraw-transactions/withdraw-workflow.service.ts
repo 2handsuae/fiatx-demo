@@ -418,7 +418,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
             // Pending #2: fee amount CLIENT_PAYABLE → CLIENT_ASSET (pending).
             // Posted on payout success (revenue recognised); voided on fail/cancel.
-            // Firm-side fee collect (DR FIRM_ASSET / CR FIRM_FEE) fires separately on finalize.
+            // Firm-side fee collect (DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE) fires separately on finalize.
             let pendingFeeId: bigint | undefined;
             if (feeBigint > 0n) {
               const result = await this.accountingService.executePendingTransfer({
@@ -861,7 +861,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         w.assetId,
         customerSourceRole,
       );
-      // To = firm's FIRM_FEE wallet for this asset.
+      // To = firm's F_FEE wallet for this asset.
       const feeWallet = await this.systemWalletResolver.resolve(w.assetId, 'F_FEE');
       await this.fundsOrders.create({
         withdrawTransactionId: w.id,
@@ -1014,7 +1014,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * Fee leg CONFIRMED (legSeq 2). POST the client-side fee pending transfer
    * (CLIENT_PAYABLE → CLIENT_ASSET) AND collect the firm-side fee (FIRM_ASSET →
-   * FIRM_FEE), then CLEAR the leg. Fail-closed: aborts BEFORE any post if the
+   * INCOME_WITHDRAW_FEE), then CLEAR the leg. Fail-closed: aborts BEFORE any post if the
    * firm-fee ledger cannot resolve — the leg stays CONFIRMED for operator repair,
    * so the customer is never charged a fee the firm can't book.
    *
@@ -1125,20 +1125,20 @@ export class WithdrawWorkflowService implements OnModuleInit {
         });
       }
 
-      // Firm-side fee collect: DR FIRM_ASSET / CR FIRM_FEE (direct transfer, same ledger as asset)
+      // Firm-side fee collect: DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE (direct transfer, same ledger as asset)
       const firmAssetId = await this.accountingService.resolveTbAccountId({
         code: TB_ACCOUNT_CODES.FIRM_ASSET,
         ledger,
         ownerType: 'SYSTEM',
       });
       const firmFeeId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_FEE,
+        code: TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE,
         ledger,
         ownerType: 'SYSTEM',
       });
 
       // Phase B: FIRM_ASSET is the aggregate pool (no physical wallet);
-      // FIRM_FEE is the platform's F_FEE wallet for this asset.
+      // INCOME_WITHDRAW_FEE is the platform's F_FEE wallet for this asset.
       const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
 
       await this.accountingService.executeTransfer({
@@ -1152,12 +1152,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
           sourceNo: w.withdrawNo,
           eventCode: 'WITHDRAW_FEE_FIRM',
           debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
-          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE],
+          creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE],
           assetCurrency: w.asset!.currency,
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
-          memo: 'Firm-side fee collect: FIRM_ASSET → FIRM_FEE',
+          memo: 'Firm-side fee collect: FIRM_ASSET → INCOME_WITHDRAW_FEE',
           // Phase B firm-side fee leg of the cross-wallet same-ref pair.
           // debitWalletRef is null — FIRM_ASSET is aggregate, has no physical wallet.
           // creditWalletRef points at the platform's F_FEE wallet so recon can

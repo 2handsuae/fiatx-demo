@@ -5,7 +5,7 @@
  * (a) WithdrawWorkflowService.createWithdrawal locks fee pending into CLIENT_ASSET (not FEE_INCOME / FEE_RECEIVABLE)
  * (b) the funds_order-driven per-leg handlers post the net leg (onPayoutLegConfirmed)
  *     and the fee leg (onFeeLegConfirmed) with creditCode = CLIENT_ASSET, then execute
- *     firm-side collect DR FIRM_ASSET / CR FIRM_FEE — mirroring the legacy
+ *     firm-side collect DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE — mirroring the legacy
  *     handlePayoutConfirmed / finalizeWithdrawal, now split across legSeq 1 + 2.
  */
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
@@ -53,7 +53,7 @@ function buildServiceMocks() {
     [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 10n,
     [TB_ACCOUNT_CODES.CLIENT_ASSET]: 20n,
     [TB_ACCOUNT_CODES.FIRM_ASSET]: 50n,
-    [TB_ACCOUNT_CODES.FIRM_FEE]: 202n,
+    [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 202n,
   };
 
   let counter = 1n;
@@ -236,7 +236,7 @@ describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_ASSET + FIRM_FEE collect
+// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_ASSET + INCOME_WITHDRAW_FEE collect
 // ═══════════════════════════════════════════════════════════════════
 
 function buildWorkflowMocks() {
@@ -247,7 +247,7 @@ function buildWorkflowMocks() {
     resolveTbAccountId: jest.fn((args: { code: number }) => {
       const map: Record<number, bigint> = {
         [TB_ACCOUNT_CODES.FIRM_ASSET]: 50n,
-        [TB_ACCOUNT_CODES.FIRM_FEE]: 202n,
+        [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 202n,
       };
       return Promise.resolve(map[args.code] ?? 99n);
     }),
@@ -352,7 +352,7 @@ function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
 }
 
 describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () => {
-  it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→FIRM_FEE', async () => {
+  it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→INCOME_WITHDRAW_FEE', async () => {
     const mocks = buildWorkflowMocks();
     const service = makeWorkflowForLegs(mocks);
 
@@ -376,12 +376,12 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
     // Must NOT contain FEE_INCOME or FEE_RECEIVABLE
     expect(creditCodes).not.toContain('120');
 
-    // Firm-side fee collect: executeTransfer called DR FIRM_ASSET / CR FIRM_FEE
+    // Firm-side fee collect: executeTransfer called DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
     expect(execCalls.length).toBeGreaterThanOrEqual(1);
     const firmCall = execCalls[0][0];
     expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
-    expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_FEE]);
+    expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]);
 
     // Each leg CLEARs its own funds order.
     expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(2);

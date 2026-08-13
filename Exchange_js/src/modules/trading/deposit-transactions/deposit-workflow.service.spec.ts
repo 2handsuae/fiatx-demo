@@ -2240,7 +2240,7 @@ describe('DepositWorkflowService', () => {
 
     beforeEach(async () => {
       accountingService = {
-        // leg1: DEPOSIT_SUSPENSE, CLIENT_ASSET ; leg2: FIRM_ASSET, FIRM_FEE
+        // leg1: DEPOSIT_SUSPENSE, CLIENT_ASSET ; leg2: FIRM_ASSET, INCOME_OTHER
         resolveTbAccountId: jest.fn()
           .mockResolvedValueOnce('tb-suspense')
           .mockResolvedValueOnce('tb-client-asset')
@@ -2317,12 +2317,12 @@ describe('DepositWorkflowService', () => {
         }),
       );
 
-      // Leg 2 (pending): DR FIRM_ASSET(SYSTEM) / CR FIRM_FEE(SYSTEM)
+      // Leg 2 (pending): DR FIRM_ASSET(SYSTEM) / CR INCOME_OTHER(SYSTEM)
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(3, {
         code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger: 2, ownerType: 'SYSTEM',
       });
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(4, {
-        code: TB_ACCOUNT_CODES.FIRM_FEE, ledger: 2, ownerType: 'SYSTEM',
+        code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: 2, ownerType: 'SYSTEM',
       });
       expect(accountingService.executePendingTransfer).toHaveBeenNthCalledWith(2,
         expect.objectContaining({
@@ -2334,7 +2334,7 @@ describe('DepositWorkflowService', () => {
           evidence: expect.objectContaining({
             eventCode: 'CONFISCATE_FIRM_FEE',
             debitCode: 'A.FIRM_ASSET',
-            creditCode: 'E.FIRM_FEE',
+            creditCode: 'E.INCOME_OTHER',
             debitWalletRef: null,
             creditWalletRef: 'fee-wallet-1',
             isExternalCrossing: false,

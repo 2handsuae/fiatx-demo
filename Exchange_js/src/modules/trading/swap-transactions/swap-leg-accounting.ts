@@ -162,7 +162,7 @@ export class SwapLegAccounting {
    *   CLIENT_ASSET (agg.)  → SAME customer wallet (carried for audit drill-down)
    *   FIRM_OPS             → platform's F_OPS wallet for this leg's asset
    *   FIRM_SET             → platform's F_SET wallet
-   *   FIRM_FEE             → platform's F_FEE wallet
+   *   INCOME_SWAP_FEE      → platform's F_FEE wallet
    *   FIRM_ASSET (agg.)    → matched to the OTHER side's firm role (the entry's
    *                          counterpart equity), so the aggregate row carries
    *                          the same firm wallet as its equity counterpart.
@@ -194,7 +194,7 @@ export class SwapLegAccounting {
     const equityRoleMap: Record<number, string> = {
       [TB_ACCOUNT_CODES.FIRM_OPS]: 'F_OPS',
       [TB_ACCOUNT_CODES.FIRM_SET]: 'F_SET',
-      [TB_ACCOUNT_CODES.FIRM_FEE]: 'F_FEE',
+      [TB_ACCOUNT_CODES.INCOME_SWAP_FEE]: 'F_FEE',
     };
     if (equityRoleMap[code]) {
       return this.resolveWallet(assetId, equityRoleMap[code], ctx.ownerId);
