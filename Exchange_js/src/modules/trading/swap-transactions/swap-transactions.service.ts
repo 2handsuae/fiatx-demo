@@ -538,6 +538,13 @@ export class SwapTransactionsService {
       }
     }
 
+    // 下发给客户的补料 action 藏在 raw 的 scoringResult.applicantActions 里——
+    // 抬成一等展示字段，operator 不用展开 Raw payload 才知道"下发了什么"。
+    const applicantActions: Array<{ applicantActionId?: string; externalActionId?: string }> =
+      Array.isArray((raw as any)?.scoringResult?.applicantActions)
+        ? (raw as any).scoringResult.applicantActions
+        : [];
+
     const sumsubDetail = {
       txnIdOut: item.sumsubTxnIdOut,
       txnIdIn: item.sumsubTxnIdIn,
@@ -545,6 +552,7 @@ export class SwapTransactionsService {
       scoringAction: item.complianceAction,
       matchedRules: item.complianceRuleNames ? item.complianceRuleNames.split(',') : [],
       rejectReason: item.rejectReason,
+      applicantActions,
       raw,
     };
 

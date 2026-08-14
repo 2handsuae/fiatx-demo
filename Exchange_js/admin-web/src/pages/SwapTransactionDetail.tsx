@@ -40,6 +40,8 @@ interface SwapSumsubDetail {
   scoringAction: string | null;
   matchedRules: string[];
   rejectReason: string | null;
+  /** 规则命中时下发给客户的补料 action（软线拒绝才有）。 */
+  applicantActions?: Array<{ applicantActionId?: string; externalActionId?: string }>;
   raw: unknown;
 }
 
@@ -791,6 +793,22 @@ const SumsubDetailSection = ({
             </ul>
           ) : (
             <div className="mt-1 font-mono text-[11px] text-adm-t3">—</div>
+          )}
+        </div>
+        <div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
+            Applicant Actions（下发的补料要求）
+          </div>
+          {detail.applicantActions && detail.applicantActions.length > 0 ? (
+            <ul className="mt-1 space-y-1">
+              {detail.applicantActions.map((a, idx) => (
+                <li key={`${a.applicantActionId}-${idx}`} className="font-mono text-[11px] text-adm-t1">
+                  {a.applicantActionId ?? '—'} · ext: {a.externalActionId ?? '—'}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-1 font-mono text-[11px] text-adm-t3">—（本裁决未下发 action）</div>
           )}
         </div>
         <details>

@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
 import { ProfileBannerStack } from '../components/ProfileBannerStack';
+import { PendingActionBanner } from '../components/PendingActionBanner';
 import {
   isCustomerApprovedForAccess,
   isCustomerFinalApprovalPending,
@@ -188,6 +189,10 @@ const CustomerProfile = () => {
     <div className="space-y-10">
       {/* ── Compliance banners ─────────────────────────────────── */}
       <ProfileBannerStack />
+      {/* 认证入口横幅：被限制的客户会被 AuthGuard 弹到本页——入口必须在他
+          实际能到达的页面上，否则后端派发了 action 客户也永远看不见。
+          （Swap 页顶部同样挂载；两处同一组件、同一后端判定，互不冲突。） */}
+      <PendingActionBanner />
 
       {/* ── Compact header ─────────────────────────────────────── */}
       <header>
@@ -322,7 +327,16 @@ const CustomerProfile = () => {
             label="Restrictions"
             value={
               Array.isArray(profile.restrictions) && profile.restrictions.length > 0
-                ? profile.restrictions.join(', ')
+                ? // 元素是 {capability, reason} 对象（后端 capability 级限制）——
+                  // 只展示能力名；直接 join 会渲染成 "[object Object]"。
+                  profile.restrictions
+                    .map((r: unknown) =>
+                      typeof r === 'string'
+                        ? r
+                        : ((r as { capability?: string })?.capability ?? ''),
+                    )
+                    .filter(Boolean)
+                    .join(' · ') || 'NONE'
                 : 'NONE'
             }
             mono
