@@ -30,6 +30,7 @@ describe('SwapApplicantActionHandler', () => {
     pendingActionService = {
       findByExternalActionId: jest.fn(),
       set: jest.fn().mockResolvedValue(undefined),
+      resetSubmission: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CustomerPendingActionService>;
 
     restrictionsService = {

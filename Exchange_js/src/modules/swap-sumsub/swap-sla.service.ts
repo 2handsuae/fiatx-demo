@@ -19,7 +19,7 @@ import {
  * 就已经锁定；之后 Sumsub 回 verdict 慢，是平台自己的问题，不能拿它去废掉客户
  * 已经接受的报价，所以这里另起一条计时线，不复用 quote 的过期逻辑。
  */
-export const SWAP_COMPLIANCE_TIMEOUT_MS = 60_000;
+export const SWAP_COMPLIANCE_TIMEOUT_MS = Number(process.env.SWAP_COMPLIANCE_TIMEOUT_MS ?? 60_000);
 
 /**
  * 兑换合规超时看门狗（Task 8）—— mirror of DepositSlaService / WithdrawSlaService

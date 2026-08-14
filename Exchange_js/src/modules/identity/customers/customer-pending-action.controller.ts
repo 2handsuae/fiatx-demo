@@ -2,6 +2,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  Post,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -42,5 +44,33 @@ export class CustomerPendingActionController {
   getPendingAction(@Request() req: any) {
     const customerId = this.extractCustomer(req);
     return this.pendingActionService.get(customerId);
+  }
+
+  /**
+   * 客户级补料会话（parity 2026-08-14）。mirror 充值/提现的
+   * verification-session 端点（锚点从订单+seq 换成客户单槽）。响应只有
+   * {submitted, sdkToken} 两键；无待办/无 applicantId/已提交 三种情况响应
+   * 逐字节一致 —— 不可区分规则见 service 注释。
+   */
+  @Get('pending-action/verification-session')
+  @ApiOperation({ summary: '补料认证会话：铸 WebSDK token（无待办/已提交时 submitted:true）' })
+  getVerificationSession(@Request() req: any) {
+    const customerId = this.extractCustomer(req);
+    return this.pendingActionService.getVerificationSession(customerId);
+  }
+
+  /**
+   * 客户提交回执。幂等恒 2xx（write-once 落章 + 首个提交才审计），
+   * 不因待办不存在/已提交而返回错误 —— 不给探测面。
+   */
+  @Post('pending-action/verification-session/submit')
+  @HttpCode(200)
+  @ApiOperation({ summary: '补料材料已提交回执（幂等恒 200）' })
+  async submitVerification(@Request() req: any) {
+    const customerId = this.extractCustomer(req);
+    await this.pendingActionService.submitVerification(customerId, {
+      actorId: customerId,
+    });
+    return { ok: true };
   }
 }

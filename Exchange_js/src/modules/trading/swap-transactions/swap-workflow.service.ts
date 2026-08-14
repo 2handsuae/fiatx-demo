@@ -852,7 +852,7 @@ export class SwapWorkflowService {
       await this.customerPendingActionService.set(
         swap.ownerId,
         exposeToCustomer
-          ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED' }
+          ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED', submittedAt: null }
           : null,
         hasSanction,
       );

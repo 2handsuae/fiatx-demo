@@ -1,10 +1,35 @@
 import { Injectable } from '@nestjs/common';
 import { CustomerMain } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
+import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
+import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 
 export interface CustomerPendingAction {
   externalActionId: string;
   reason: string;
+  /** 客户提交补料材料的时刻；null = 尚未提交（banner 三态用） */
+  submittedAt: Date | null;
+}
+
+/**
+ * 补料 action 走的验证等级。⚠️ 占位，与充值/提现同款常量注释——真接前必须改，
+ * 已登记 BACKLOG（deposit-verification-session.service.ts 同名常量）。
+ */
+const SUMSUB_ACTION_LEVEL = process.env.SUMSUB_ACTION_LEVEL || 'wave3-level-1';
+
+/**
+ * 客户面能看到的全部内容。**只有这两个键。** 与充值/提现的
+ * VerificationSessionView 逐字同形——不含 action id / reason，服务端凭 JWT
+ * 自己查表换真 id 铸 token，客户端从头到尾拿不到 Sumsub 侧标识。
+ */
+export interface VerificationSessionView {
+  submitted: boolean;
+  sdkToken: string | null;
 }
 
 /**
@@ -21,7 +46,11 @@ export interface CustomerPendingAction {
  */
 @Injectable()
 export class CustomerPendingActionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogs: AuditLogsService,
+    private readonly sumsubClient: SumsubClient,
+  ) {}
 
   async get(customerId: string): Promise<CustomerPendingAction | null> {
     const customer = await this.prisma.customerMain.findUnique({
@@ -33,7 +62,85 @@ export class CustomerPendingActionService {
     return {
       externalActionId: customer.pendingActionExternalId,
       reason: customer.pendingActionReason,
+      submittedAt: (customer as any).pendingActionSubmittedAt ?? null,
     };
+  }
+
+  /**
+   * 客户级补料会话（parity 2026-08-14）—— mirror of
+   * WithdrawVerificationSessionService.getSession，锚点从「订单+seq」换成
+   * 「客户单槽 pendingActionExternalId」。
+   *
+   * **接口层不可区分规则**（与充值/提现逐字同源）：无待办 / 无 applicantId /
+   * 已提交 三种情况响应逐字节一致 `{submitted:true, sdkToken:null}`——
+   * 客户端（乃至开 DevTools 的客户）无法据此区分自己处于哪种状态，
+   * 不给冻结/判定任何新的探测面。
+   */
+  async getVerificationSession(customerId: string): Promise<VerificationSessionView> {
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+    });
+    const externalActionId = customer?.pendingActionExternalId ?? null;
+    const applicantId = customer?.sumsubApplicantId ?? null;
+    const submittedAt = (customer as any)?.pendingActionSubmittedAt ?? null;
+    if (!externalActionId || !applicantId || submittedAt) {
+      return { submitted: true, sdkToken: null };
+    }
+    const { token } = await this.sumsubClient.createActionSdkToken({
+      applicantId,
+      levelName: SUMSUB_ACTION_LEVEL,
+      externalActionId,
+    });
+    return { submitted: false, sdkToken: token };
+  }
+
+  /**
+   * 客户提交回执（parity 2026-08-14）。幂等恒成功：write-once 条件更新
+   * （仅 submittedAt 仍为 null 时落章），重复提交/无待办时静默通过——
+   * 与充值/提现 submit 端点同款"恒 2xx、不吐状态机信息"姿态。
+   * 审计只随首个真实提交写一条（SWAP_ACTION_SUBMITTED）。
+   */
+  async submitVerification(
+    customerId: string,
+    actor: { actorId: string; actorNo?: string },
+  ): Promise<void> {
+    const res = await this.prisma.customerMain.updateMany({
+      where: { id: customerId, pendingActionSubmittedAt: null, pendingActionExternalId: { not: null } } as any,
+      data: { pendingActionSubmittedAt: new Date() } as any,
+    });
+    if (res.count > 0) {
+      const customer = await this.prisma.customerMain.findUnique({
+        where: { id: customerId },
+        select: { customerNo: true } as any,
+      });
+      await this.auditLogs.recordByActor(
+        {
+          action: AuditActions.SWAP_ACTION_SUBMITTED,
+          entityType: AuditEntityTypes.CUSTOMER,
+          entityId: customerId,
+          entityNo: (customer as any)?.customerNo || undefined,
+          result: AuditResult.SUCCESS,
+          reason: 'Customer submitted pending verification action',
+        },
+        {
+          actorType: 'CUSTOMER',
+          actorId: actor.actorId,
+          actorNo: actor.actorNo,
+          actorRole: 'CUSTOMER',
+        },
+      );
+    }
+  }
+
+  /**
+   * RED 复审失败后的重试口（Task 13 handler 消费）：清掉提交章、保留指针——
+   * Sumsub 的 RETRY 复审走同一个 action id，客户可再次进入认证页重交。
+   */
+  async resetSubmission(customerId: string): Promise<void> {
+    await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: { pendingActionSubmittedAt: null } as any,
+    });
   }
 
   /**
@@ -104,8 +211,10 @@ export class CustomerPendingActionService {
       data: {
         pendingActionExternalId: action?.externalActionId ?? null,
         pendingActionReason: action?.reason ?? null,
+        // 指针换代/清空时提交章一并归零：新待办=尚未提交；清空=无事可提交。
+        pendingActionSubmittedAt: null,
         ...hardLineDispositionPatch,
-      },
+      } as any,
     });
   }
 }

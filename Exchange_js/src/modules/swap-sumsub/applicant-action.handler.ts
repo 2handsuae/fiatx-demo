@@ -144,7 +144,10 @@ export class SwapApplicantActionHandler {
     }
 
     // RED（或任何非 GREEN 的复核结果）：限制原样保留，升级人工复核。
-    // pendingAction 指针不清 —— 客户可能需要针对同一个 action 重新提交。
+    // pendingAction 指针不清 —— 客户可能需要针对同一个 action 重新提交
+    // （Sumsub RETRY 复审走同一 action id）。提交章清零（parity 2026-08-14）：
+    // banner 从"审核中"退回"请认证"，客户能再次进认证页重交。
+    await this.pendingActionService.resetSubmission(customer.id);
     await this.auditLogsService.recordSystem({
       action: AuditActions.SWAP_ACTION_ESCALATED,
       entityType: AuditEntityTypes.CUSTOMER,

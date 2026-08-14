@@ -1262,7 +1262,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         }),
       },
     };
-    const pendingActionService = new CustomerPendingActionService(pendingActionPrisma);
+    const pendingActionService = new CustomerPendingActionService(pendingActionPrisma, { recordByActor: jest.fn(), recordSystem: jest.fn() } as any, { createActionSdkToken: jest.fn() } as any);
 
     return {
       swapRow,
@@ -1711,6 +1711,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(await mocks.pendingActionService.get('cust-1')).toEqual({
         externalActionId: 'EA1',
         reason: 'KYT_REJECTED',
+        submittedAt: null,
       });
 
       // Review Fix 4 (Minor): business key + which action was shown, both in
@@ -1798,6 +1799,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(await mocks.pendingActionService.get('cust-1')).toEqual({
         externalActionId: 'EA1',
         reason: 'KYT_REJECTED',
+        submittedAt: null,
       });
     });
 
@@ -1891,6 +1893,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(await mocks.pendingActionService.get('cust-1')).toEqual({
         externalActionId: 'EA2',
         reason: 'KYT_REJECTED',
+        submittedAt: null,
       });
     });
 

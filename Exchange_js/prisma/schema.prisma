@@ -229,6 +229,9 @@ model CustomerMain {
   // handleRejectDisposition 做一次。
   pendingActionExternalId String? @map("pending_action_external_id")
   pendingActionReason     String? @map("pending_action_reason")
+  // parity 2026-08-14：客户提交补料材料的时刻（banner 三态：无/请认证/已提交审核中）。
+  // set() 换写待办时清空；GREEN/RED 处置后随指针一并管理。
+  pendingActionSubmittedAt DateTime? @map("pending_action_submitted_at")
 
   // Review Fix 2 (Important, swap-sumsub 终审): sticky 硬线标记。一旦客户被
   // 任意一笔 swap 的 KYT 拒绝按硬线处置过（含制裁 SANCTION），这个事实要永久
