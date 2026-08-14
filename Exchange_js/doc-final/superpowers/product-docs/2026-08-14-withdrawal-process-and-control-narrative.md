@@ -43,6 +43,48 @@ Elapsed time when nothing is flagged: seconds to minutes, plus network or bankin
 
 Everything in the rest of this document is about the cases where step 4 does not go straight through — plus one large exception: **any withdrawal at or above 200,000 AED requires a Senior Management signature before it even reaches screening.**
 
+### The flow at a glance
+
+Everything to the left of the black bar is reversible at no cost. The heavy arrow is the only way through it.
+
+```mermaid
+flowchart LR
+    A(["Customer requests<br/>withdrawal<br/><i>hold placed on<br/>net + fee</i>"]) --> C{"At or above<br/>200,000<br/>AED?"}
+    C -- Yes --> D["Awaiting Senior<br/>Management<br/>signature"]
+    C -- No --> E["Compliance<br/>review<br/><i>via Sumsub</i>"]
+    D -- Signed --> E
+    E --> F{"Screening<br/>verdict"}
+    F -- "Needs info<br/>On hold<br/>Not clean" --> H["Exception states<br/><i>see §4.4–4.5</i>"]
+    H -. "resolved clean" .-> F
+
+    F ==>|"CLEAN VERDICT<br/><b>the only way through</b>"| G
+
+    G["━━━ THE IRREVERSIBLE LINE ━━━<br/>broadcast to network<br/>or instruction to bank"] --> I["Payout<br/>in flight"]
+    I -- Confirmed --> J(["Success<br/><i>money gone</i>"])
+
+    D -. Declined .-> K(["Declined"])
+    H -. Refused .-> K
+    I -. "never<br/>actually left" .-> L(["Failed"])
+    I -. "sent back by<br/>bank or network" .-> M(["Returned"])
+
+    classDef back fill:#e8f4ea,stroke:#4a7c59,stroke-width:2px,color:#1d3b28
+    classDef gone fill:#fdecea,stroke:#b3453c,stroke-width:2px,color:#5c1f1a
+    classDef line fill:#2f2f38,stroke:#000,stroke-width:2px,color:#fff
+    class K,L,M back
+    class J gone
+    class G line
+```
+
+**Reading it as an officer:**
+
+- The customer's money is unspendable from the very first box, but it stays **theirs, and stays with us**, right up to the black bar.
+- **Only a clean verdict crosses that bar.** No approval, no override and no operator button can push a withdrawal across it — that is a property of the system's design, not a convention someone could waive.
+- **Green endings return the money** to the customer's spendable balance. The red one is the only ending that takes it away.
+- Two branches loop backwards: an exception state that resolves cleanly re-enters screening, and can then proceed normally. Nothing loops back across the bar.
+- Note there is **no arrow from Success to Returned.** A payment that bounces after we have marked it Success has nowhere to go in this system — see 9.2.
+
+*(This shows the shape, not every route. All four endings are in Section 3; the gates and their branches are in Section 4. The exception states — waiting on the customer, manual review, frozen — are collapsed into one box here deliberately; they are where the work is, and they get their own sections.)*
+
 ---
 
 ## 3 Where a withdrawal can end up
