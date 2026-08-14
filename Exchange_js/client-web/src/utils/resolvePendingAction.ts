@@ -15,6 +15,8 @@
 export interface PendingAction {
   externalActionId: string;
   reason: string;
+  /** 客户提交材料的时刻；null = 尚未提交（banner 三态用，后端事实字段透传） */
+  submittedAt: string | null;
 }
 
 export const resolvePendingAction = async (res: Response): Promise<PendingAction | null> => {

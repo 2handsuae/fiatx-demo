@@ -25,6 +25,7 @@ import {
 import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
 import { PendingActionBanner } from '../components/PendingActionBanner';
+import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 
 // 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
 // 落地。提交成功后直接跳 History 列表（不再弹等待面板）；列表在存在非终态单时
@@ -139,6 +140,10 @@ interface AssetBalance {
 
 const Swap = () => {
   const { user } = useAuth();
+  // parity 2026-08-14：受限客户页面不封、按钮禁用 + 中性提示（业主拍板）。
+  // 文案不带原因——tipping-off：软硬线在客户眼里必须无差别，差别只体现在
+  // 有没有认证 banner（由后端 pending-action 单点决定）。后端 L1 门仍在。
+  const swapRestricted = isCapabilityRestricted(user, 'SWAP');
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'swap' | 'history'>('swap');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -565,6 +570,16 @@ const Swap = () => {
 
   return (
     <div className="space-y-6">
+      {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
+          显隐完全由后端 /client/me/pending-action 决定，前端零推导。 */}
+      <PendingActionBanner />
+      {swapRestricted && (
+        <div className="border-l-2 border-fx-rust/60 bg-fx-rust/5 px-4 py-3">
+          <p className="font-mono text-[11px] text-fx-dune">
+            Trading is currently restricted on your account.
+          </p>
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-fx-sand">Swap</h1>
@@ -783,6 +798,7 @@ const Swap = () => {
                   <button
                     onClick={handlePreview}
                     disabled={
+                      swapRestricted ||
                       loading ||
                       !fromAssetId ||
                       !toAssetId ||
@@ -805,7 +821,6 @@ const Swap = () => {
 
               {/* Right Side: Educational Info */}
               <div className="lg:col-span-1">
-                <PendingActionBanner />
                 <div className="bg-fx-ink/60 rounded-2xl p-6 border border-fx-rule space-y-6 sticky top-6">
                   <div className="flex items-center gap-2 text-fx-brass">
                     <div className="p-2 bg-fx-brass/10 rounded-lg">
@@ -1049,7 +1064,7 @@ const Swap = () => {
 
                   <button
                     onClick={handleExecuteSwap}
-                    disabled={swapping || quoteExpiresIn <= 0}
+                    disabled={swapRestricted || swapping || quoteExpiresIn <= 0}
                     className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20 flex items-center justify-center gap-2"
                   >
                     {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}

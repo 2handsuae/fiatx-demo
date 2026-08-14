@@ -9,6 +9,7 @@ import {
   isCustomerWithdrawn,
 } from '../utils/customerOnboarding';
 import { useTradingReadiness } from '../hooks/useTradingReadiness';
+import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 import TradingStartGuide from './TradingStartGuide';
 
 /* ────────────────────────────────────────────────────────────────
@@ -98,38 +99,15 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
       return <>{children}</>;
     }
 
-    // RESTRICTED: block ONLY the restricted capabilities' routes.
-    // 后端按 capability 写限制（兑换拒绝只限 SWAP+WITHDRAW，DEPOSIT 刻意放行——
-    // 链上来钱拦不住，拦了只会造出卡账）；前端必须按同一粒度拦，
-    // 不能见 restrictions 非空就一刀切（那会把充值也误封，推翻后端语义）。
-    if (Array.isArray(user?.restrictions) && user.restrictions.length > 0) {
-      // 运行时元素是 {capability, reason} 对象（类型声明滞后写的 string[]，
-      // Profile 页的 "[object Object]" 渲染事故同源）——两种形状都容。
-      const caps = new Set(
-        (user.restrictions as unknown[])
-          .map((r) =>
-            typeof r === 'string' ? r : ((r as { capability?: string })?.capability ?? ''),
-          )
-          .filter(Boolean),
-      );
-      const all = caps.has('ALL');
-      const pathBlockedBy: Array<[string, string[]]> = [
-        ['SWAP', ['/swap']],
-        // 段边界匹配：'/withdraw' 不得误吞 '/withdrawal-addresses'
-        ['WITHDRAW', ['/withdraw', '/wallet/send']],
-        ['DEPOSIT', ['/deposit']],
-      ];
-      const blocked = pathBlockedBy.some(
-        ([cap, paths]) =>
-          (all || caps.has(cap)) &&
-          paths.some(
-            (p) => location.pathname === p || location.pathname.startsWith(`${p}/`),
-          ),
-      );
-      if (blocked) {
+    // RESTRICTED（parity 2026-08-14）：受限能力的页面【不再重定向】——Swap/Withdraw
+    // 页面自禁按钮 + 顶部中性提示 + 认证 banner（业主拍板：页面基本不动，只禁用）。
+    // 唯一保留的重定向是 /wallet/send（该页没有禁用 UI，放进去会裸奔）。
+    // 后端 L1 门（CAPABILITY_RESTRICTED）原样在——这里只是体验层。
+    if (isCapabilityRestricted(user, 'WITHDRAW')) {
+      const p = '/wallet/send';
+      if (location.pathname === p || location.pathname.startsWith(`${p}/`)) {
         return <Navigate to="/profile" replace />;
       }
-      return <>{children}</>;
     }
 
     // Trading-readiness gate: approved but no active fiat withdrawal address → show the

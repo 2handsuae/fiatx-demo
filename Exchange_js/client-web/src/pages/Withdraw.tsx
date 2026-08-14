@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Wallet, Building2, History, RefreshCw, Info, AlertTriangle, ArrowRight, X, Plus, Filter, ShieldCheck, Clock, Coins } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { PendingActionBanner } from '../components/PendingActionBanner';
+import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 import { useNavigate } from 'react-router-dom';
 import { formatAssetAmount } from '../utils/number-format';
 import {
@@ -116,6 +118,8 @@ const HISTORY_STATUS_FILTERS: Array<{ label: string; statuses: string[] }> = [
 
 const Withdraw = () => {
   const { user } = useAuth();
+  // parity 2026-08-14：受限客户页面不封、按钮禁用 + 中性提示（业主拍板，与 Swap 页同构）。
+  const withdrawRestricted = isCapabilityRestricted(user, 'WITHDRAW');
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat' | 'history'>('crypto');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -432,6 +436,16 @@ const Withdraw = () => {
 
   return (
     <div className="space-y-6">
+      {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
+          显隐完全由后端 /client/me/pending-action 决定，前端零推导。 */}
+      <PendingActionBanner />
+      {withdrawRestricted && (
+        <div className="border-l-2 border-fx-rust/60 bg-fx-rust/5 px-4 py-3">
+          <p className="font-mono text-[11px] text-fx-dune">
+            Trading is currently restricted on your account.
+          </p>
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-bold text-fx-sand">Withdraw</h1>
         <p className="mt-1 text-sm text-fx-dust">Send funds to your wallet or bank account</p>
@@ -827,6 +841,7 @@ const Withdraw = () => {
                             <button
                                 type="submit"
                                 disabled={
+                                    withdrawRestricted ||
                                     submitting ||
                                     quoteLoading ||
                                     !selectedAssetId ||
@@ -1043,7 +1058,7 @@ const Withdraw = () => {
                       </button>
                       <button
                           onClick={handleConfirmWithdraw}
-                          disabled={submitting}
+                          disabled={withdrawRestricted || submitting}
                           className="inline-flex items-center gap-2 rounded-xl bg-fx-brass px-4 py-2 text-sm font-semibold text-fx-obsidian transition-colors hover:bg-fx-brass/90 disabled:opacity-50"
                       >
                           {submitting ? <RefreshCw size={16} className="animate-spin" /> : <ArrowRight size={16} />}
