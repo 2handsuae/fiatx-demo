@@ -10,7 +10,7 @@ import {
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { copyToClipboard } from '../utils/clipboard';
-import { TB_CODE_LABELS } from './ledger-account.constants';
+import { withAssetSuffix } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -22,6 +22,7 @@ interface LedgerAccountDetailData {
   ownerUuid: string | null;
   ownerNo: string | null;
   ownerName: string | null;
+  accountName: string | null;
   assetCode: string;
   status: string;
   description: string | null;
@@ -147,7 +148,8 @@ export default function LedgerAccountDetail() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const codeLabel = detail ? (TB_CODE_LABELS[detail.code] ?? `CODE_${detail.code}`) : '';
+  // 与列表页/流水页共用同一出口,三处必须一致(见 ledger-account.constants.ts 注释)
+  const accountName = detail ? withAssetSuffix(detail.accountName, detail.assetCode) : '';
 
   const netBalanceColor = (() => {
     if (!detail?.netBalance) return '';
@@ -205,7 +207,7 @@ export default function LedgerAccountDetail() {
           {/* ① Identity */}
           <section className="bg-adm-card px-6 py-5">
             <p className="font-mono text-[19px] font-bold leading-snug text-adm-amber">
-              {codeLabel} · {detail.assetCode}
+              {accountName}
             </p>
             <div className="mt-3 flex items-center gap-4 flex-wrap">
               <div>
@@ -307,7 +309,7 @@ export default function LedgerAccountDetail() {
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4 py-1">
 
           <SidebarGroup title="Identity Summary">
-            <SidebarKV label="Account" value={`${codeLabel} · ${detail.assetCode}`} />
+            <SidebarKV label="Account" value={accountName} />
             <SidebarKV label="Status" value={<AdminBadge value={detail.status} />} />
             <SidebarKV label="Owner Type" value={detail.ownerType} />
             {detail.ownerNo ? (

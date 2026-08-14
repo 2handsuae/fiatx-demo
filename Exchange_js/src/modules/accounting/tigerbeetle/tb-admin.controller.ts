@@ -8,7 +8,7 @@ import { TbEvidenceService } from './tb-evidence.service';
 import { TbManualAccountService } from './tb-manual-account.service';
 import { CreateTbAccountDto } from './dto/create-tb-account.dto';
 import { hexToBigint } from './utils/tb-id.util';
-import { isAssetCode } from './constants/tb-account-codes.constant';
+import { isAssetCode, accountNameOf } from './constants/tb-account-codes.constant';
 
 @ApiTags('TB Ledger Admin')
 @Controller('admin/tb')
@@ -95,6 +95,8 @@ export class TbAdminController {
 
     return {
       ...registry,
+      // 科目名称随行下发(2026-08-13):唯一真相源在 tb-account-codes.constant.ts。
+      accountName: accountNameOf(registry.code),
       debitsPosted,
       creditsPosted,
       debitsPending,

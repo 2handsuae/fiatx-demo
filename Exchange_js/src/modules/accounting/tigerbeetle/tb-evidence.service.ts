@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { COA_TO_TB_CODE, isAssetCode } from './constants/tb-account-codes.constant';
+import { COA_TO_TB_CODE, isAssetCode, accountNameOf } from './constants/tb-account-codes.constant';
 import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
 import { toBusinessDate } from './utils/business-date.util';
 import { TigerBeetleService } from './tigerbeetle.service';
@@ -365,19 +365,27 @@ export class TbEvidenceService {
   /** 给流水行批量挂账户身份(code/owner)：单次 IN 查询，禁 N+1。
    *  customerNo/ownerUuid 仅对 CUSTOMER 账户暴露，SYSTEM/LP 恒 null。 */
   private async attachAccountIdentity(rows: any[]): Promise<any[]> {
-    const ids = [...new Set(rows.map((r) => r.tbAccountId).filter(Boolean))];
+    // TB account id 是 16 字节 = 32 位 hex。account_flows 里存在少数 31 位的行
+    // (上游某处 bigint.toString(16) 未 padStart,前导零被吃掉),而 registry 侧恒为 32 位
+    // —— 裸 Map.get 会查不中,导致这些流水的科目名/客户号恒空(实测 96 条里有 10 条)。
+    // 对账引擎为同一件事早有 padTbId(wallet-flow-matcher.service.ts),读侧此前漏了。
+    const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
+
+    const ids = [...new Set(rows.map((r) => r.tbAccountId).filter(Boolean).map(padTbId))];
     if (ids.length === 0) return rows;
     const regs = await (this.prisma as any).tbAccountRegistry.findMany({
       where: { tbAccountId: { in: ids } },
       select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true, ownerUuid: true },
     });
-    const map = new Map<string, any>(regs.map((r: any) => [r.tbAccountId, r]));
+    const map = new Map<string, any>(regs.map((r: any) => [padTbId(r.tbAccountId), r]));
     return rows.map((r) => {
-      const reg = map.get(r.tbAccountId);
+      const reg = map.get(padTbId(r.tbAccountId));
       const isCustomer = reg?.ownerType === 'CUSTOMER';
       return {
         ...r,
         accountCode: reg?.code ?? null,
+        // 科目名称随行下发(2026-08-13):唯一真相源在 tb-account-codes.constant.ts
+        accountName: accountNameOf(reg?.code),
         ownerType: reg?.ownerType ?? null,
         ownerNo: isCustomer ? (reg?.ownerNo ?? null) : null,
         ownerUuid: isCustomer ? (reg?.ownerUuid ?? null) : null,

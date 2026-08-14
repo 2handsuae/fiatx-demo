@@ -14,8 +14,7 @@ import {
   getApiErrorMessage,
 } from '../utils/adminFetch';
 import {
-  TB_CODE_LABELS,
-  TB_CODE_DISPLAY,
+  withAssetSuffix,
   TB_CODE_OPTIONS,
   SYSTEM_CODE_OPTIONS,
   CUSTOMER_CODE_OPTIONS,
@@ -31,6 +30,7 @@ interface LedgerAccountRow {
   ownerUuid: string | null;
   ownerNo: string | null;
   ownerName: string | null;
+  accountName: string | null;
   assetCode: string;
   status: string;
   description: string | null;
@@ -402,7 +402,7 @@ const LedgerAccountList = () => {
                       navigate(`/admin/ledger/accounts/${row.tbAccountId}`);
                     }}
                   >
-                    {(TB_CODE_DISPLAY[row.code] ?? TB_CODE_LABELS[row.code] ?? 'CODE_' + row.code)} – {row.assetCode}
+                    {withAssetSuffix(row.accountName, row.assetCode)}
                   </button>
                 </td>
                 {/* ID */}
