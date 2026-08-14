@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRightLeft,
@@ -27,10 +27,11 @@ import { getSwapStatusView } from '../utils/swapStatusView';
 import { PendingActionBanner } from '../components/PendingActionBanner';
 
 // 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
-// 落地，客户端轮询直到终态或超时。2s 间隔足够快地反映状态、不过度打后端；90s 上限
-// 覆盖绝大多数裁决延迟（正常几秒内完成），超时不代表失败，只代表还没等到。
-const SWAP_POLL_INTERVAL_MS = 2000;
-const SWAP_POLL_TIMEOUT_MS = 90000;
+// 落地。提交成功后直接跳 History 列表（不再弹等待面板）；列表在存在非终态单时
+// 每 3s 轻量自刷，全部终态即停——客户在列表里看着 Processing 翻到终态。
+const HISTORY_REFRESH_INTERVAL_MS = 3000;
+// 终态集合与 swapStatusView 的口径一致（FAILED/REVERSED 是历史枚举，一并视为终态）。
+const SWAP_TERMINAL_STATUSES = new Set(['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED']);
 
 interface Asset {
   id: string;
@@ -150,20 +151,6 @@ const Swap = () => {
   const [quoteExpiresIn, setQuoteExpiresIn] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
   const [swapping, setSwapping] = useState(false);
-
-  // Post-submit tracking: set once the create request returns COMPLIANCE_PENDING,
-  // cleared when the customer dismisses the status panel. `status` is updated by
-  // the polling effect below as verdicts land; only `id`/`swapNo`/`status` are
-  // needed here (the full SwapTransaction shape is only used by the history list).
-  const [trackedSwap, setTrackedSwap] = useState<{
-    id: string;
-    swapNo: string;
-    status: string;
-  } | null>(null);
-  const [pollTimedOut, setPollTimedOut] = useState(false);
-  // Anchors the 90s bound to submission time, not to the last status change —
-  // a ref (not state) so re-renders from polling ticks don't restart the clock.
-  const pollDeadlineRef = useRef<number | null>(null);
 
   // Live Rate State
   const [liveRate, setLiveRate] = useState<number | null>(null);
@@ -496,15 +483,17 @@ const Swap = () => {
         })
       });
       if (response.ok) {
-        const data = await response.json();
+        await response.json();
         // Submitting no longer means "done" — the order sits in
-        // COMPLIANCE_PENDING until a Sumsub verdict lands. Switch the
-        // confirm modal into a waiting/result panel instead of closing it,
-        // and start polling for the terminal state.
+        // COMPLIANCE_PENDING until a Sumsub verdict lands. Close the modal
+        // and land the customer on History, where the new order is visible
+        // as Processing and the list auto-refreshes until it turns terminal.
         setFromAmount('');
-        pollDeadlineRef.current = Date.now() + SWAP_POLL_TIMEOUT_MS;
-        setPollTimedOut(false);
-        setTrackedSwap({ id: data.id, swapNo: data.swapNo, status: data.status });
+        setShowConfirm(false);
+        setFirmQuote(null);
+        setQuoteExpiresIn(0);
+        setActiveTab('history');
+        fetchBalances();
       } else {
         const message = await resolveSubmitErrorMessage(response, 'Swap failed');
         alert(message);
@@ -523,19 +512,6 @@ const Swap = () => {
     }
   };
 
-  // Closes the status panel once the customer has seen a terminal result (or
-  // given up waiting past the timeout) and returns them to History, where
-  // the real status is always visible on refresh.
-  const closeStatusPanel = () => {
-    setShowConfirm(false);
-    setFirmQuote(null);
-    setQuoteExpiresIn(0);
-    setTrackedSwap(null);
-    setPollTimedOut(false);
-    setActiveTab('history');
-    fetchBalances();
-  };
-
   useEffect(() => {
     if (!showConfirm || !firmQuote) return;
 
@@ -552,57 +528,21 @@ const Swap = () => {
     return () => clearInterval(timer);
   }, [showConfirm, firmQuote]);
 
-  // Polls GET /swap-transactions/:id every SWAP_POLL_INTERVAL_MS until the
-  // swap reaches a terminal status (SUCCESS/REJECTED) or SWAP_POLL_TIMEOUT_MS
-  // elapses since submission (pollDeadlineRef, fixed at submit time so a
-  // status change mid-poll can't silently extend the window). Re-runs only
-  // when a NEW swap starts tracking or its status actually changes value —
-  // not on every tick — since each iteration reschedules itself via
-  // setTimeout rather than relying on the effect to loop.
+  // History 自刷：列表里还有非终态单（Processing）时每 HISTORY_REFRESH_INTERVAL_MS
+  // 拉一次，让客户看着它翻到终态；全部终态即停。翻到终态那一刻顺带刷余额。
+  // 依赖 history 数组本身——每次 fetchHistory 返回都会重新评估是否还需要下一轮。
   useEffect(() => {
-    if (!trackedSwap) return;
-    if (trackedSwap.status === 'SUCCESS' || trackedSwap.status === 'REJECTED') return;
-    const deadline = pollDeadlineRef.current;
-    if (deadline === null) return;
+    if (activeTab !== 'history') return;
+    const hasNonTerminal = history.some((h) => !SWAP_TERMINAL_STATUSES.has(h.status));
+    if (!hasNonTerminal) return;
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    const tick = async () => {
-      if (cancelled) return;
-      if (Date.now() >= deadline) {
-        setPollTimedOut(true);
-        return;
-      }
-      try {
-        const res = await customerFetch(
-          `${import.meta.env.VITE_API_URL}/swap-transactions/${trackedSwap.id}`,
-        );
-        if (!cancelled && res.ok) {
-          const data = await res.json();
-          setTrackedSwap({ id: data.id, swapNo: data.swapNo, status: data.status });
-          if (data.status === 'SUCCESS' || data.status === 'REJECTED') {
-            fetchBalances();
-            return;
-          }
-        }
-      } catch (error) {
-        if (!(error instanceof CustomerSessionError)) {
-          console.error('Swap status poll failed', error);
-        }
-      }
-      if (!cancelled) {
-        timer = setTimeout(tick, SWAP_POLL_INTERVAL_MS);
-      }
-    };
-
-    timer = setTimeout(tick, SWAP_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    const timer = setTimeout(async () => {
+      await fetchHistory();
+      fetchBalances();
+    }, HISTORY_REFRESH_INTERVAL_MS);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackedSwap?.id, trackedSwap?.status]);
+  }, [activeTab, history]);
 
   // Routed through getSwapStatusView so this list can never render a raw
   // status code — COMPLIANCE_PENDING/PROCESSING both read "Processing" here
@@ -1017,58 +957,13 @@ const Swap = () => {
           <div className="bg-fx-ink rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-fx-rule">
             <div className="p-8 space-y-8">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold text-fx-sand">
-                  {trackedSwap ? 'Swap Status' : 'Confirm Swap'}
-                </h3>
-                {/* Hidden once submitted: the order is already placed, so this is no
-                    longer a "cancel" affordance — closing happens via the Close
-                    button below once a terminal state (or timeout) is reached. */}
-                {!trackedSwap && (
-                  <button onClick={handleCloseConfirm} className="p-2 hover:bg-fx-charcoal rounded-full transition-colors">
-                    <X size={20} className="text-fx-dust" />
-                  </button>
-                )}
+                <h3 className="text-xl font-bold text-fx-sand">Confirm Swap</h3>
+                <button onClick={handleCloseConfirm} className="p-2 hover:bg-fx-charcoal rounded-full transition-colors">
+                  <X size={20} className="text-fx-dust" />
+                </button>
               </div>
 
-              {trackedSwap ? (
-                (() => {
-                  const view = getSwapStatusView(trackedSwap.status);
-                  const isTerminal =
-                    trackedSwap.status === 'SUCCESS' || trackedSwap.status === 'REJECTED';
-                  const ToneIcon = view.tone === 'success' ? Check : view.tone === 'failed' ? X : RefreshCw;
-                  const toneTextCls =
-                    view.tone === 'success' ? 'text-fx-sage' : view.tone === 'failed' ? 'text-fx-rust' : 'text-fx-brass';
-                  const toneRingCls =
-                    view.tone === 'success' ? 'border-fx-sage/40' : view.tone === 'failed' ? 'border-fx-rust/40' : 'border-fx-brass/40';
-                  return (
-                    <div className="space-y-8">
-                      <div className="text-center py-4 space-y-4">
-                        <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center bg-fx-charcoal border ${toneRingCls}`}>
-                          <ToneIcon size={28} className={`${toneTextCls} ${view.tone === 'pending' ? 'animate-spin' : ''}`} />
-                        </div>
-                        <div>
-                          <p className={`text-2xl font-bold ${toneTextCls}`}>{view.text}</p>
-                          <p className="text-xs text-fx-dust mt-2 font-mono">{trackedSwap.swapNo}</p>
-                        </div>
-                        {pollTimedOut && !isTerminal && (
-                          <p className="text-xs text-fx-dust px-4">
-                            Still processing — please check History shortly for the final result.
-                          </p>
-                        )}
-                      </div>
-                      {(isTerminal || pollTimedOut) && (
-                        <button
-                          onClick={closeStatusPanel}
-                          className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20"
-                        >
-                          Close
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()
-              ) : (
-                <>
+              <>
                   <div className="space-y-6">
                     <div className="flex items-center justify-between p-4 bg-fx-charcoal rounded-2xl border border-fx-rule">
                       <div className="space-y-1">
@@ -1160,8 +1055,7 @@ const Swap = () => {
                     {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
                     {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
                   </button>
-                </>
-              )}
+              </>
             </div>
           </div>
         </div>

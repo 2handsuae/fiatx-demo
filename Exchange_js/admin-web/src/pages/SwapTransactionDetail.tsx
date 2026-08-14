@@ -13,6 +13,7 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
+import { getComplianceLayerStyle } from '../utils/depositActionMap';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -95,6 +96,13 @@ interface SwapTransactionDetailData {
     firstName: string | null;
     lastName: string | null;
     customerNo: string;
+    complianceStatus?: string | null;
+    sumsubApplicantId?: string | null;
+    // 拒绝处置在客户身上留下的三个状态位（Task 7/13）——本页侧栏只读展示，
+    // 处置动作本身全在 Sumsub 控制台（officer）与 webhook 链路完成，无按钮。
+    restrictions?: string | null;
+    pendingActionExternalId?: string | null;
+    hardLineDispositionedAt?: string | null;
   } | null;
   statusHistory: string | null;
   internalFunds?: InternalFundLeg[];
@@ -139,6 +147,8 @@ const SwapTransactionDetail = () => {
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
+  // 喂裁决成功后的顶部回显条（对齐充值/提现详情页的 notice 形态）。
+  const [notice, setNotice] = useState('');
 
   const fetchData = async () => {
     if (!id) return;
@@ -212,6 +222,7 @@ const SwapTransactionDetail = () => {
         }
         return;
       }
+      setNotice(`Verdict ${verdict} fed — swap refreshed`);
       await fetchData();
     } catch (error) {
       if (error instanceof AdminSessionError) return;
@@ -249,6 +260,27 @@ const SwapTransactionDetail = () => {
     </button>
   ) : null;
 
+  // ── Compliance 双层样式（对齐提现详情页）──
+  // L1 读客户三轴里的 complianceStatus（真实值，不再写死 PASSED）；
+  // L2 读本单 KYT 终裁 verdict（approved/rejected/null=还没等到）。
+  const eligibilityStyle = getComplianceLayerStyle(data.customer?.complianceStatus);
+  // 未裁决时传 'PENDING' 拿琥珀色（而非无值的灰色）——未决恰是 operator 最该注意的态。
+  const l2Style = getComplianceLayerStyle(data.sumsubDetail?.verdict || 'PENDING');
+
+  // ── 客户处置状态（侧栏只读；无任何按钮）──
+  // 拒绝处置写在人身上：restrictions / pendingAction / 硬线标记。
+  const restrictionCaps: string[] = (() => {
+    try {
+      const parsed = JSON.parse(data.customer?.restrictions || '[]');
+      return Array.isArray(parsed)
+        ? parsed.map((r: { capability?: string }) => r.capability || '').filter(Boolean)
+        : [];
+    } catch {
+      return [];
+    }
+  })();
+  const isTerminal = data.status === 'SUCCESS' || data.status === 'REJECTED';
+
   /* Group internalFunds by legSeq, then sort attempts ascending. */
   const legGroups: Array<{ legSeq: number; attempts: InternalFundLeg[] }> = (() => {
     const map = new Map<number, InternalFundLeg[]>();
@@ -276,6 +308,24 @@ const SwapTransactionDetail = () => {
         backLabel="Swaps"
       />
 
+      {/* ── Notice banner（喂裁决成功后的回显，对齐充值/提现）── */}
+      {notice && (
+        <div className="border-b border-adm-border bg-adm-green/10 px-6 py-2 font-mono text-[11px] text-adm-green">
+          {notice}
+        </div>
+      )}
+
+      {/* ── Needs-review banner（从 Hero 徽标提为顶部横幅，对齐提现）——
+          成交后迟到的 KYT 拒绝裁决只标记不动单（SWAP_POST_APPROVAL_VERDICT），
+          这里给 operator 一句人话说明。── */}
+      {data.needsReview && (
+        <div className="flex items-center gap-2 border-b border-adm-border bg-adm-red/10 px-6 py-2 font-mono text-[11px] text-adm-red">
+          <AlertTriangle size={12} />
+          Needs review — a KYT verdict arrived after approval/execution; no automatic action was
+          taken on this order.
+        </div>
+      )}
+
       {/* ── Body: Main + Sidebar ── */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* ── Main Body ── */}
@@ -284,12 +334,6 @@ const SwapTransactionDetail = () => {
           <div className="bg-adm-card px-6 py-5">
             <div className="flex flex-wrap items-center gap-3">
               <div className="font-mono text-[19px] font-bold text-adm-amber">{data.swapNo}</div>
-              {data.needsReview && (
-                <span className="inline-flex items-center gap-1 rounded border border-adm-red/35 bg-adm-red/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-adm-red">
-                  <AlertTriangle size={11} />
-                  Needs Review
-                </span>
-              )}
             </div>
             <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
               <div>
@@ -329,23 +373,7 @@ const SwapTransactionDetail = () => {
             </div>
           </div>
 
-          {/* 2. Compliance — L1 Eligibility */}
-          <div className="px-6 py-5">
-            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
-              Compliance
-            </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border bg-adm-bg p-3 border-l-[3px] border-adm-green">
-                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
-                  L1 · Eligibility
-                </div>
-                <div className="mt-1 text-sm font-bold text-adm-green">PASSED</div>
-                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-execution gate</div>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. Conversion */}
+          {/* 2. Conversion */}
           <DetailCard title="Conversion" columns={2}>
             <InfoField
               label="Sell Asset"
@@ -392,7 +420,71 @@ const SwapTransactionDetail = () => {
             <InfoField label="Net Out" value={netDisplay} highlight />
           </DetailCard>
 
-          {/* 5. Legs (per-legSeq attempt history) */}
+          {/* 4. Compliance — L1 真实资格 + L2 KYT 单闸（对齐充值/提现的双层卡）。
+              L1 不再写死 PASSED：读客户 complianceStatus；L2 读本单 KYT 终裁。
+              兑换无 TR/大额门——L2 只有 KYT 一道，这是设计而非缺失（无对手方）。 */}
+          <div className="px-6 py-5">
+            <h3 className="mb-3 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+              Compliance
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div
+                className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${eligibilityStyle.borderColor}`}
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  L1 · Eligibility
+                </div>
+                <div className={`mt-1 text-sm font-bold ${eligibilityStyle.textColor}`}>
+                  {eligibilityStyle.label}
+                </div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">Pre-execution gate</div>
+              </div>
+              <div
+                className={`rounded-lg border bg-adm-bg p-3 border-l-[3px] ${l2Style.borderColor}`}
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                  L2 · Transaction Screen
+                </div>
+                <div className={`mt-1 text-sm font-bold ${l2Style.textColor}`}>
+                  {data.sumsubDetail?.verdict ? `KYT: ${data.sumsubDetail.verdict}` : 'PENDING'}
+                </div>
+                <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
+                  {data.sumsubDetail?.scoringAction
+                    ? `Scoring action: ${data.sumsubDetail.scoringAction}`
+                    : 'Awaiting Sumsub verdict'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 5. Sumsub References — 身份/关联键（对齐充值/提现同名卡）。 */}
+          <DetailCard title="Sumsub References" columns={2}>
+            <InfoField
+              label="Applicant ID"
+              value={data.customer?.sumsubApplicantId}
+              mono
+            />
+            <InfoField label="Txn ID Out (sell leg)" value={data.sumsubDetail?.txnIdOut} mono />
+            <InfoField label="Txn ID In (buy leg)" value={data.sumsubDetail?.txnIdIn} mono />
+            <InfoField label="Pending Action ID" value={data.customer?.pendingActionExternalId} mono />
+          </DetailCard>
+
+          {/* 6. Sumsub Detail — 裁决分析（verdict/规则/原始报文）。 */}
+          <DetailCard title="Sumsub Detail" columns={1}>
+            <SumsubDetailSection detail={data.sumsubDetail} />
+          </DetailCard>
+
+          {/* 7. Internal Approvals — 兑换没有任何审批流（无大额门，2026-06 评估：
+              资金不出境）。显式渲染空态而非整块砍掉：告诉后来人"这里确实没有
+              审批"，防止被当成缺失（与三闸门 spec「兑换无 L2 要显式标注」同理）。 */}
+          <DetailCard title="Internal Approvals" columns={1}>
+            <div className="rounded border border-dashed border-adm-border bg-adm-bg px-4 py-3 font-mono text-[11px] text-adm-t3">
+              No internal approvals — swap has no approval workflow (no large-amount gate; funds
+              never leave the platform).
+            </div>
+          </DetailCard>
+
+          {/* 8. Legs (per-legSeq attempt history) */}
           <DetailCard title="Settlement Legs" columns={1}>
             {legGroups.length === 0 ? (
               <div className="rounded border border-dashed border-adm-border bg-adm-bg px-4 py-3 font-mono text-[11px] text-adm-t3">
@@ -470,15 +562,7 @@ const SwapTransactionDetail = () => {
             <InfoField label="To Asset ID" value={data.toAssetId} mono />
           </DetailCard>
 
-          {/* 8. Sumsub Detail — read-only compliance verdict for this swap's
-              KYT transaction (Task 10). Field shape mirrors the parsed subset
-              stored directly on the swap row, not a full getTxn report replay
-              like deposit/withdraw (see SwapTransactionsService#findOneForAdmin). */}
-          <DetailCard title="Sumsub Detail" columns={1}>
-            <SumsubDetailSection detail={data.sumsubDetail} />
-          </DetailCard>
-
-          {/* 9. Simulation (demo only — gated by the local simulation-mode
+          {/* 11. Simulation (demo only — gated by the local simulation-mode
               toggle AND by status: a swap only accepts a verdict while sitting
               in COMPLIANCE_PENDING — once it has moved to PROCESSING/SUCCESS/
               REJECTED, SwapWorkflowService#applyKytVerdict no-ops on it, so
@@ -532,6 +616,45 @@ const SwapTransactionDetail = () => {
             <SidebarKV label="Net Received" value={netDisplay} mono />
           </SidebarGroup>
 
+          {/* ── Customer Disposition（只读，无任何按钮）——
+              兑换的拒绝处置作用在【人】身上而非订单：订单终态不可逆，
+              officer 的所有处置动作都在 Sumsub 控制台完成（打 tag / 审 action），
+              经 webhook 链路落回这里展示。此块回答 operator 一个问题：
+              "这个客户现在被限制了什么、凭什么解锁"。 */}
+          <SidebarGroup title="Customer Disposition">
+            <SidebarKV
+              label="Restrictions"
+              value={
+                restrictionCaps.length > 0 ? (
+                  <span className="font-mono text-adm-red">{restrictionCaps.join(' · ')}</span>
+                ) : (
+                  'None'
+                )
+              }
+            />
+            <SidebarKV
+              label="Pending Action"
+              value={data.customer?.pendingActionExternalId ?? '—'}
+              mono
+            />
+            <SidebarKV
+              label="Hard Line"
+              value={
+                data.customer?.hardLineDispositionedAt ? (
+                  <AdminBadge value="SANCTION_HELD" />
+                ) : (
+                  'Not set'
+                )
+              }
+            />
+            {ownerNo && (
+              <SidebarKV
+                label="Customer"
+                value={ownerLink}
+              />
+            )}
+          </SidebarGroup>
+
           <SidebarGroup title="Lifecycle">
             <SidebarKV label="Created" value={new Date(data.createdAt).toLocaleString()} mono />
             <SidebarKV
@@ -539,7 +662,16 @@ const SwapTransactionDetail = () => {
               value={data.completedAt ? new Date(data.completedAt).toLocaleString() : null}
               mono
             />
+            <SidebarKV label="Trace ID" value={data.traceId} mono />
           </SidebarGroup>
+
+          {/* ── Terminal 提示（对齐提现侧栏）── */}
+          {isTerminal && (
+            <p className="px-1 py-3 font-mono text-[10px] text-adm-t3">
+              Terminal — no further action available on this order. Customer-level follow-up (if
+              any) happens via Sumsub applicant actions.
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -638,13 +770,13 @@ const SumsubDetailSection = ({
   <div>
     {detail ? (
       <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <InfoField label="Txn ID Out" value={detail.txnIdOut} mono />
-          <InfoField label="Txn ID In" value={detail.txnIdIn} mono />
+        {/* Txn ID Out/In 已上移到 Sumsub References 卡（身份键归 References、
+            裁决分析归本卡），此处不再重复。 */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <InfoField label="Verdict" value={detail.verdict} />
           <InfoField label="Scoring Action" value={detail.scoringAction} />
+          <InfoField label="Reject Reason" value={detail.rejectReason} />
         </div>
-        <InfoField label="Reject Reason" value={detail.rejectReason} />
         <div>
           <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
             Matched Rules
