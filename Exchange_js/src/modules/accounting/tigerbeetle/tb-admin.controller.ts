@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Request, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
 import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';

@@ -47,7 +47,7 @@ const SUMSUB_MOCK_MODE = process.env.SUMSUB_MOCK_MODE === 'true';
     // SwapTransactionsModule's identical import of CustomersModule (Task 7):
     // CustomersModule only depends on PrismaModule (@Global) and
     // NotificationsModule (a leaf module), so there's no path back here to cycle on.
-    CustomersModule,
+    forwardRef(() => CustomersModule),
   ],
   providers: [
     SwapWebhookRouter,

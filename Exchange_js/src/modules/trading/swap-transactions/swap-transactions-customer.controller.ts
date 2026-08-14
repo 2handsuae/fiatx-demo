@@ -10,7 +10,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowService } from './swap-workflow.service';

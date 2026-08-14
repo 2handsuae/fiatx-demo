@@ -32,7 +32,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { DepositVerificationSessionService } from './deposit-verification-session.service';

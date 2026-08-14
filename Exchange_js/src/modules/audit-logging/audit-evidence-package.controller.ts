@@ -11,7 +11,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../../modules/identity/access-control/admin-permission.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApprovalActorContext } from '../governance/approvals/constants/approval.constants';
 import { AuditEvidenceExportWorkflowService } from './audit-evidence-export-workflow.service';

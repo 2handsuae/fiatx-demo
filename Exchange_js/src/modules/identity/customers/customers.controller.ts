@@ -15,7 +15,7 @@ import {
 import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import {
   ApiTags,
   ApiBearerAuth,

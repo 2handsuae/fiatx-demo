@@ -47,10 +47,10 @@ import { CustomersModule } from '../../identity/customers/customers.module';
     forwardRef(() => DepositSumsubModule),
     // Task 7: SwapWorkflowService injects CustomerRestrictionsService +
     // CustomerPendingActionService (handleRejectDisposition). Plain import
-    // (no forwardRef) — CustomersModule only depends on PrismaModule
-    // (@Global) and NotificationsModule (a leaf module), so there is no path
-    // back from CustomersModule to SwapTransactionsModule to cycle on.
-    CustomersModule,
+    // forwardRef（parity 2026-08-14）：CustomersModule 现引 OnboardingModule
+    // （客户级补料会话取 SumsubClient），require 链可绕回本模块——三处
+    // (Wallets/Customers/此处) 同步 forwardRef 断环。
+    forwardRef(() => CustomersModule),
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [SwapTransactionsService, SwapWorkflowService, SwapLegAccounting],

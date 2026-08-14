@@ -10,9 +10,9 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
-import { RequirePermissions } from 'src/modules/identity/access-control/require-permissions.decorator';
-import { buildPermissionCode } from 'src/modules/identity/access-control/permission-code.util';
+import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
+import { RequirePermissions } from '../../../modules/identity/access-control/require-permissions.decorator';
+import { buildPermissionCode } from '../../../modules/identity/access-control/permission-code.util';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowService } from './swap-workflow.service';
