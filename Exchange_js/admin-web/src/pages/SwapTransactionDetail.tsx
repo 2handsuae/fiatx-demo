@@ -33,16 +33,25 @@ const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
 ];
 
 /** Matched-rule entry inside the Sumsub compliance detail. */
+/** parity 2026-08-14：与提现 SumsubTxnDetail 逐字段同形 + swap 双腿补充。 */
+interface SwapMatchedRule {
+  id?: string;
+  name?: string;
+  action?: string;
+  score?: number;
+}
 interface SwapSumsubDetail {
+  verdict: string | null;
+  reviewStatus: string | null;
+  reviewAnswer: string | null;
+  score: number | null;
+  matchedRules: SwapMatchedRule[];
+  applicantActionIds: string[];
+  tags: string[];
+  raw: unknown;
+  // swap 补充：双腿 txnId（提现单腿没有）
   txnIdOut: string | null;
   txnIdIn: string | null;
-  verdict: string | null;
-  scoringAction: string | null;
-  matchedRules: string[];
-  rejectReason: string | null;
-  /** 规则命中时下发给客户的补料 action（软线拒绝才有）。 */
-  applicantActions?: Array<{ applicantActionId?: string; externalActionId?: string }>;
-  raw: unknown;
 }
 
 interface SwapAsset {
@@ -109,6 +118,13 @@ interface SwapTransactionDetailData {
   statusHistory: string | null;
   internalFunds?: InternalFundLeg[];
   sumsubDetail?: SwapSumsubDetail | null;
+  // parity 2026-08-14：行级裸列（References 卡消费，镜像提现顶层列）
+  complianceVerdict?: string | null;
+  complianceAction?: string | null;
+  rejectReason?: string | null;
+  sumsubTxnType?: string | null;
+  sumsubScore?: number | null;
+  sumsubScoredAt?: string | null;
 }
 
 interface SwapFx {
@@ -451,9 +467,11 @@ const SwapTransactionDetail = () => {
                   {data.sumsubDetail?.verdict ? `KYT: ${data.sumsubDetail.verdict}` : 'PENDING'}
                 </div>
                 <div className="mt-0.5 font-mono text-[10px] text-adm-t3">
-                  {data.sumsubDetail?.scoringAction
-                    ? `Scoring action: ${data.sumsubDetail.scoringAction}`
-                    : 'Awaiting Sumsub verdict'}
+                  {data.sumsubDetail?.score != null
+                    ? `Score ${data.sumsubDetail.score}`
+                    : data.complianceAction
+                      ? `Scoring action: ${data.complianceAction}`
+                      : 'Awaiting Sumsub verdict'}
                 </div>
               </div>
             </div>
@@ -468,6 +486,13 @@ const SwapTransactionDetail = () => {
             />
             <InfoField label="Txn ID Out (sell leg)" value={data.sumsubDetail?.txnIdOut} mono />
             <InfoField label="Txn ID In (buy leg)" value={data.sumsubDetail?.txnIdIn} mono />
+            <InfoField label="Type" value={data.sumsubTxnType} />
+            <InfoField label="Verdict" value={data.complianceVerdict} />
+            <InfoField
+              label="Received At"
+              value={data.sumsubScoredAt ? new Date(data.sumsubScoredAt).toLocaleString() : null}
+              mono
+            />
             <InfoField label="Pending Action ID" value={data.customer?.pendingActionExternalId} mono />
           </DetailCard>
 
@@ -772,22 +797,21 @@ const SumsubDetailSection = ({
   <div>
     {detail ? (
       <div className="space-y-3">
-        {/* Txn ID Out/In 已上移到 Sumsub References 卡（身份键归 References、
-            裁决分析归本卡），此处不再重复。 */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/* parity 2026-08-14：逐行对齐提现 WithdrawTransactionDetail 的同名组件。
+            Txn ID Out/In 已上移 References 卡；rejectReason 行级裸列在 Hero/侧栏。 */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <InfoField label="Score" value={detail.score} mono />
           <InfoField label="Verdict" value={detail.verdict} />
-          <InfoField label="Scoring Action" value={detail.scoringAction} />
-          <InfoField label="Reject Reason" value={detail.rejectReason} />
+          <InfoField label="Review Status" value={detail.reviewStatus} />
+          <InfoField label="Review Answer" value={detail.reviewAnswer} />
         </div>
         <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-            Matched Rules
-          </div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Matched Rules</div>
           {detail.matchedRules.length > 0 ? (
             <ul className="mt-1 space-y-1">
-              {detail.matchedRules.map((name, idx) => (
-                <li key={`${name}-${idx}`} className="font-mono text-[11px] text-adm-t1">
-                  {name}
+              {detail.matchedRules.map((r, idx) => (
+                <li key={r.id ?? idx} className="font-mono text-[11px] text-adm-t1">
+                  {r.name ?? '—'} · {r.action ?? '—'} · {r.score ?? '—'}
                 </li>
               ))}
             </ul>
@@ -796,20 +820,10 @@ const SumsubDetailSection = ({
           )}
         </div>
         <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-            Applicant Actions（下发的补料要求）
+          <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Applicant Action IDs</div>
+          <div className="mt-1 font-mono text-[11px] text-adm-t1">
+            {detail.applicantActionIds.length > 0 ? detail.applicantActionIds.join(', ') : '—'}
           </div>
-          {detail.applicantActions && detail.applicantActions.length > 0 ? (
-            <ul className="mt-1 space-y-1">
-              {detail.applicantActions.map((a, idx) => (
-                <li key={`${a.applicantActionId}-${idx}`} className="font-mono text-[11px] text-adm-t1">
-                  {a.applicantActionId ?? '—'} · ext: {a.externalActionId ?? '—'}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-1 font-mono text-[11px] text-adm-t3">—（本裁决未下发 action）</div>
-          )}
         </div>
         <details>
           <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
@@ -821,7 +835,7 @@ const SumsubDetailSection = ({
         </details>
       </div>
     ) : (
-      <p className="font-mono text-[11px] text-adm-t3">No Sumsub compliance detail yet</p>
+      <p className="font-mono text-[11px] text-adm-t3">No Sumsub transaction detail yet</p>
     )}
   </div>
 );
