@@ -43,47 +43,60 @@ Elapsed time when nothing is flagged: seconds to minutes, plus network or bankin
 
 Everything in the rest of this document is about the cases where step 4 does not go straight through — plus one large exception: **any withdrawal at or above 200,000 AED requires a Senior Management signature before it even reaches screening.**
 
-### The flow at a glance
+### The state machine
 
-Everything to the left of the black bar is reversible at no cost. The heavy arrow is the only way through it.
+Ten states and every move permitted between them. Green endings mean the money is back with the customer; the red ending means it has left our control for good. **Payout in flight** is the point of no return — everything before it can still be stopped at no cost, and nothing after it can.
 
 ```mermaid
-flowchart LR
-    A(["Customer requests<br/>withdrawal<br/><i>hold placed on<br/>net + fee</i>"]) --> C{"At or above<br/>200,000<br/>AED?"}
-    C -- Yes --> D["Awaiting Senior<br/>Management<br/>signature"]
-    C -- No --> E["Compliance<br/>review<br/><i>via Sumsub</i>"]
-    D -- Signed --> E
-    E --> F{"Screening<br/>verdict"}
-    F -- "Needs info<br/>On hold<br/>Not clean" --> H["Exception states<br/><i>see §4.4–4.5</i>"]
-    H -. "resolved clean" .-> F
-
-    F ==>|"CLEAN VERDICT<br/><b>the only way through</b>"| G
-
-    G["━━━ THE IRREVERSIBLE LINE ━━━<br/>broadcast to network<br/>or instruction to bank"] --> I["Payout<br/>in flight"]
-    I -- Confirmed --> J(["Success<br/><i>money gone</i>"])
-
-    D -. Declined .-> K(["Declined"])
-    H -. Refused .-> K
-    I -. "never<br/>actually left" .-> L(["Failed"])
-    I -. "sent back by<br/>bank or network" .-> M(["Returned"])
-
+stateDiagram-v2
+    direction TB
+    state "Awaiting Senior Mgmt" as AA
+    state "Compliance review" as CR
+    state "Action required" as AR
+    state "Manual review" as MR
+    state "Frozen" as FZ
+    state "Payout in flight" as PF
+    state "SUCCESS" as SU
+    state "DECLINED" as DE
+    state "FAILED" as FA
+    state "RETURNED" as RE
+    [*] --> AA : 200k AED or more
+    [*] --> CR : below threshold
+    AA --> CR : signed
+    AA --> DE : declined
+    AA --> FZ : customer frozen
+    CR --> AR : docs needed
+    CR --> MR : not clean or SLA 7d
+    AR --> MR : not clean or SLA 7d
+    MR --> AR : officer asks docs
+    CR --> FZ : sanctions tag
+    AR --> FZ : sanctions tag
+    MR --> FZ : escalate
+    FZ --> CR : unfreeze - MLRO
+    FZ --> DE : refund - MLRO
+    MR --> DE : refund tag
+    CR --> PF : CLEAN
+    AR --> PF : CLEAN
+    MR --> PF : officer releases
+    PF --> SU : confirmed
+    PF --> FA : never left
+    PF --> RE : sent back
     classDef back fill:#e8f4ea,stroke:#4a7c59,stroke-width:2px,color:#1d3b28
     classDef gone fill:#fdecea,stroke:#b3453c,stroke-width:2px,color:#5c1f1a
-    classDef line fill:#2f2f38,stroke:#000,stroke-width:2px,color:#fff
-    class K,L,M back
-    class J gone
-    class G line
+    class DE,FA,RE back
+    class SU gone
 ```
 
 **Reading it as an officer:**
 
-- The customer's money is unspendable from the very first box, but it stays **theirs, and stays with us**, right up to the black bar.
-- **Only a clean verdict crosses that bar.** No approval, no override and no operator button can push a withdrawal across it — that is a property of the system's design, not a convention someone could waive.
+- **A withdrawal is born in one of two states**, never anywhere else: at or above 200,000 AED it lands in *Awaiting Senior Mgmt*; below that it lands directly in *Compliance review*. The hold on the customer's money is placed before either.
+- The customer's money is unspendable from the very first state, but it stays **theirs, and stays with us**, right up to *Payout in flight*.
+- **Only three arrows reach *Payout in flight*** — a clean verdict from *Compliance review* or *Action required*, or an officer's release out of *Manual review*. There is no fourth way in. No approval, no override and no operator button can push a withdrawal across from anywhere else; that is a property of the system's design, not a convention someone could waive.
 - **Green endings return the money** to the customer's spendable balance. The red one is the only ending that takes it away.
-- Two branches loop backwards: an exception state that resolves cleanly re-enters screening, and can then proceed normally. Nothing loops back across the bar.
-- Note there is **no arrow from Success to Returned.** A payment that bounces after we have marked it Success has nowhere to go in this system — see 9.2.
+- ***Frozen* is not an ending.** It has two exits, both MLRO-only: back to *Compliance review*, or out to *Declined* with a refund. It is a parking state, not a verdict.
+- **The four endings have no outgoing arrows at all.** In particular there is no arrow from *Success* to *Returned*: a payment that bounces after we have marked it Success has nowhere to go in this system — see 9.2.
 
-*(This shows the shape, not every route. All four endings are in Section 3; the gates and their branches are in Section 4. The exception states — waiting on the customer, manual review, frozen — are collapsed into one box here deliberately; they are where the work is, and they get their own sections.)*
+*(Two arrows carry a merged label. "not clean or SLA 7d" is two distinct triggers with the same destination, and each of the four endings is reachable by only the arrows drawn. The states are described in Section 3 (endings) and Section 4 (the gates and what moves an order between them).)*
 
 ---
 
