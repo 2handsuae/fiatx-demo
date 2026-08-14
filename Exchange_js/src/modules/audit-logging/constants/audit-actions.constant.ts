@@ -319,6 +319,31 @@ export const AuditActions = {
   DEPOSIT_COMPLIANCE_PENDING_TO_SUCCESS: 'DEPOSIT_COMPLIANCE_PENDING_TO_SUCCESS',
   SWAP_QUOTE_CREATED: 'SWAP_QUOTE_CREATED',
   SWAP_CREATED: 'SWAP_CREATED',
+  SWAP_KYT_SUBMITTED: 'SWAP_KYT_SUBMITTED',
+  SWAP_KYT_SUBMIT_FAILED: 'SWAP_KYT_SUBMIT_FAILED',
+  // Task 6: applyKytVerdict state-transition audits (markStatus itself writes
+  // no audit record — the convention in swap-workflow.service.ts is callers audit).
+  SWAP_KYT_APPROVED: 'SWAP_KYT_APPROVED',
+  SWAP_KYT_REJECTED: 'SWAP_KYT_REJECTED',
+  // Review Fix 1 (Important): a KYT verdict arriving after the swap already
+  // entered PROCESSING (mirrors WITHDRAW_POST_BROADCAST_VERDICT) — evidence
+  // recorded, no state-machine action taken.
+  SWAP_POST_APPROVAL_VERDICT: 'SWAP_POST_APPROVAL_VERDICT',
+  // Task 7: handleRejectDisposition's single audit record — carries the
+  // soft/hard (tipping-off) decision so an investigator can tell after the
+  // fact whether the customer was informed and why.
+  SWAP_KYT_REJECTED_DISPOSED: 'SWAP_KYT_REJECTED_DISPOSED',
+  // Review Fix 1 (Important): handleRejectDisposition itself threw (SQLite
+  // lock, transient DB error, etc.) — written before rethrowing so the
+  // failure is visible in the audit trail even though the ingestion pipeline
+  // also records it generically on the SumsubWebhookEvent row.
+  SWAP_KYT_REJECTED_DISPOSITION_FAILED: 'SWAP_KYT_REJECTED_DISPOSITION_FAILED',
+  // Task 8: SwapSlaService's own audit for a COMPLIANCE_PENDING swap that
+  // timed out waiting for a Sumsub verdict (markStatus writes no audit —
+  // same convention as the rest of this file). Deliberately NOT paired with
+  // a disposition audit — a timeout carries no verdict, so
+  // handleRejectDisposition never runs for this path (see swap-sla.service.ts).
+  SWAP_SLA_BREACHED: 'SWAP_SLA_BREACHED',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',
@@ -327,6 +352,24 @@ export const AuditActions = {
   SWAP_LEG_RESUMED: 'SWAP_LEG_RESUMED',
   SWAP_PRODUCT_RESTRICTED: 'SWAP_PRODUCT_RESTRICTED',
   SWAP_BEST_EXECUTION_EVIDENCE_EXPORTED: 'SWAP_BEST_EXECUTION_EVIDENCE_EXPORTED',
+  // Task 9: Demo scenario runner — mirrors DEPOSIT_DEMO_SCENARIO_RUN /
+  // WITHDRAW_DEMO_SCENARIO_RUN. Feeds one simulated Sumsub verdict webhook
+  // into a swap via the real ingestion pipeline (SUMSUB_MOCK_MODE only).
+  SWAP_DEMO_SCENARIO_RUN: 'SWAP_DEMO_SCENARIO_RUN',
+  // Task 13: SwapApplicantActionHandler — the exemption loop promised by spec
+  // §6 that no earlier task actually built. Consumes applicantActionReviewed
+  // for a customer restricted by a prior swap KYT rejection.
+  SWAP_ACTION_CLEARED: 'SWAP_ACTION_CLEARED',
+  // GREEN arrived for a customer with a sticky hard-line (sanctions) marker —
+  // restrictions deliberately held, not lifted. See CustomerPendingActionService
+  // / handleRejectDisposition's hardLineDispositionedAt comments for why this
+  // must never be bypassed.
+  SWAP_ACTION_GREEN_HARDLINE_HELD: 'SWAP_ACTION_GREEN_HARDLINE_HELD',
+  // RED (or any non-GREEN answer) — restrictions stay on, escalated for
+  // manual review.
+  SWAP_ACTION_ESCALATED: 'SWAP_ACTION_ESCALATED',
+  // parity 2026-08-14：客户提交补料材料（客户级会话，mirror DEPOSIT/WITHDRAW_ACTION_SUBMITTED）
+  SWAP_ACTION_SUBMITTED: 'SWAP_ACTION_SUBMITTED',
   WITHDRAW_CREATED: 'WITHDRAW_CREATED',
   WITHDRAW_CREATED_TO_PAYOUT_PENDING: 'WITHDRAW_CREATED_TO_PAYOUT_PENDING',
   WITHDRAW_PAYOUT_PENDING_TO_SUCCESS: 'WITHDRAW_PAYOUT_PENDING_TO_SUCCESS',
@@ -447,6 +490,9 @@ export const AuditActions = {
   CUSTOMER_FROZEN: 'CUSTOMER_FROZEN',
   CUSTOMER_UNFROZEN: 'CUSTOMER_UNFROZEN',
   CUSTOMER_DELETED: 'CUSTOMER_DELETED',
+  // Capability-scoped trading restrictions (2026-08-13) — written by CustomerRestrictionsService
+  CUSTOMER_RESTRICTION_ADDED: 'CUSTOMER_RESTRICTION_ADDED',
+  CUSTOMER_RESTRICTION_CLEARED: 'CUSTOMER_RESTRICTION_CLEARED',
   WALLET_STATUS_UPDATED: 'WALLET_STATUS_UPDATED',
   DEPOSIT_WALLET_CREATED: 'DEPOSIT_WALLET_CREATED',
   DEPOSIT_WALLET_CREATE_FAILED: 'DEPOSIT_WALLET_CREATE_FAILED',

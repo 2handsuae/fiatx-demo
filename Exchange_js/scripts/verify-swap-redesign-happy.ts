@@ -1,19 +1,31 @@
 // scripts/verify-swap-redesign-happy.ts
 //
-// End-to-end proof for the V6 single-workflow swap redesign happy path.
-// Forces a NEW swap through the new path (executeSwap leg1-only → advanceLeg
-// chains legs 2..4 → SUCCESS) and asserts the structural invariants:
-//   - exactly 4 InternalFund rows for legSeq 1..4 with attempt=1
-//   - every leg.status === 'CLEAR'
+// End-to-end proof for the V6 swap happy path — now COMPLIANCE_PENDING-first
+// (Task 4's split of executeSwap into initiateSwap + Task 6's webhook-driven
+// applyKytVerdict): initiateSwap books NOTHING; an approving KYT verdict is
+// what books leg1 and flips the swap to PROCESSING; each leg then chains the
+// next on CLEAR. Asserts the structural invariants:
+//   - swap created COMPLIANCE_PENDING with zero legs (the headline property —
+//     see test/swap-money-arc.e2e-spec.ts for the rejected-side proof)
+//   - approving verdict → PROCESSING + leg1 booked (attempt 1)
+//   - exactly 4 funds_order rows for legSeq 1..4, each attempt=1, status CLEARED
 //   - swap.status === 'SUCCESS', currentStage === null, needsReview === false
-//   - verify:coa identities hold for both AED and USDT ledgers
+//   - SWAP_SUCCEEDED audited
+//
+// Task 12 rework: the old script called executeSwap() (deleted by Task 4,
+// split into initiateSwap/applyKytVerdict) and asserted leg1 existed
+// immediately after creation — behaviour this feature deliberately removed
+// (see doc-final/reference/truth/v6-swap.md). It also drove the retired
+// InternalFund table/InternalFundAction vocabulary (SIGN/BROADCAST/
+// CONFIRMING/CLEAR) — long gone, replaced by the funds_order table +
+// FundsOrderAction/FundsOrderStatus (Round 2 rename).
 //
 // Run:
 //   DATABASE_URL="file:/tmp/exchange_js_main/dev.db" TB_ADDRESS=127.0.0.1:3003 \
 //   npx ts-node -r tsconfig-paths/register scripts/verify-swap-redesign-happy.ts
 import { Prisma } from '@prisma/client';
-import { bootstrap, ensureSetup, resolveDemoCustomers, sleep } from './demo-lib';
-import { InternalFundAction } from '../src/modules/funds-layer/dto/internal-fund.dto';
+import { bootstrap, ensureSetup, resolveDemoCustomers, sleep, waitFor } from './demo-lib';
+import { FundsOrderAction, FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 
 const SWAP_AMOUNT_AED = 50; // small enough that any customer has the balance
 
@@ -44,78 +56,81 @@ async function main() {
       customerId: c.id,
     } as any);
 
-    // 2) executeSwap should build leg1 only (new model) and leave swap PROCESSING.
-    const swap: any = await ctx.swapWf.executeSwap(c.id, quote.id);
+    // 2) initiateSwap must book NOTHING — the swap sits COMPLIANCE_PENDING
+    //    until a Sumsub KYT verdict lands (Task 6).
+    const swap: any = await ctx.swapWf.initiateSwap(c.id, quote.id);
     console.log(`[swap-happy] created ${swap.swapNo}, status=${swap.status}`);
-    check(swap.status === 'PROCESSING', `swap created in PROCESSING`);
+    check(swap.status === 'COMPLIANCE_PENDING', `swap created in COMPLIANCE_PENDING`);
 
-    // Exactly leg1 exists immediately after executeSwap (chained model).
-    const legsAfterCreate = await (ctx.prisma as any).internalFund.findMany({
+    const legsAtBirth = await ctx.prisma.fundsOrder.findMany({ where: { swapTransactionId: swap.id } });
+    check(legsAtBirth.length === 0, `zero legs booked at creation (got ${legsAtBirth.length}) — the headline design property`);
+
+    // 3) Feed an approving KYT verdict directly (no real Sumsub webhook in
+    //    demo/local) — this is what books leg1 and flips PROCESSING.
+    await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved' });
+    const afterVerdict: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });
+    check(afterVerdict.status === 'PROCESSING', `approving verdict → PROCESSING (got ${afterVerdict.status})`);
+
+    const legsAfterVerdict = await ctx.prisma.fundsOrder.findMany({
       where: { swapTransactionId: swap.id },
       orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
     });
-    check(legsAfterCreate.length === 1 && legsAfterCreate[0].legSeq === 1,
-      `only leg1 exists after executeSwap (got ${legsAfterCreate.length} legs)`);
-    check(legsAfterCreate[0]?.attempt === 1, `leg1 attempt = 1`);
+    check(legsAfterVerdict.length === 1 && legsAfterVerdict[0].legSeq === 1,
+      `only leg1 exists after the verdict (got ${legsAfterVerdict.length} legs)`);
+    check(legsAfterVerdict[0]?.attempt === 1, `leg1 attempt = 1`);
+    check(afterVerdict.needsReview === false, `needsReview=false after verdict`);
 
-    // Projections updated at create time (currentStage = SELL or null if leg1 already CLEAR).
-    const swapAfterCreate: any = await (ctx.prisma as any).swapTransaction.findUnique({ where: { id: swap.id } });
-    check(swapAfterCreate.needsReview === false, `needsReview=false at create time`);
-
-    // 3) Advance leg1 to CLEAR (FIAT side: SUBMIT → CONFIRM → CLEAR).
-    // For AED (from) → USDT (to): leg1 side='from' fiat → SUBMIT path.
-    // leg1 was started by executeSwap with SUBMIT (or SIGN). Read its current status to decide.
+    // 4) Drive legSeq 1..4 CREATED → … → CONFIRMED (funds_order state machine,
+    //    spec §5.3). CONFIRMED is the finalize trigger — the swap workflow's
+    //    async @OnEvent handler POSTs TB, auto-CLEARs the leg, and chains the
+    //    next leg's CREATED row.
     const driveLegToClear = async (legSeq: number) => {
-      // Find the active row for this legSeq (max attempt).
-      const active: any = await (ctx.prisma as any).internalFund.findFirst({
-        where: { swapTransactionId: swap.id, legSeq },
-        orderBy: { attempt: 'desc' },
-      });
-      if (!active) throw new Error(`leg ${legSeq} not found`);
-      // FIAT side: state-machine path is CREATED→CONFIRMING(via SUBMIT)→CONFIRMED(via CONFIRM)→CLEAR.
-      // CRYPTO side: CREATED→SIGNING(via SIGN)→BROADCASTED(via BROADCAST)→CONFIRMING(via SEEN_IN_MEMPOOL)→CONFIRMED(via CONFIRM)→CLEAR.
-      const fiat = ['CONFIRMING', 'CONFIRMED'].includes(active.status) || active.status === 'CREATED' && legSeq <= 2; // leg1+2 fiat for AED→USDT
-      const sequence = fiat
-        ? [InternalFundAction.SUBMIT, InternalFundAction.CONFIRM, InternalFundAction.CLEAR]
-        : [InternalFundAction.SIGN, InternalFundAction.BROADCAST, InternalFundAction.SEEN_IN_MEMPOOL, InternalFundAction.CONFIRM, InternalFundAction.CLEAR];
-      for (const action of sequence) {
-        // Skip actions inapplicable to current status by reading state.
-        const cur: any = await (ctx.prisma as any).internalFund.findUnique({ where: { id: active.id } });
-        if (cur.status === 'CLEAR') break;
-        try {
-          await ctx.swapWf.advanceLeg(swap.swapNo, legSeq, action, 'SWAP_VERIFY');
-          await sleep(40);
-        } catch (e: any) {
-          // Some transitions are not valid (e.g. SUBMIT on already-CONFIRMING) — read and continue.
-          if (!String(e?.message ?? e).includes('Invalid action')) throw e;
-        }
-      }
-    };
-
-    // 4) Drive legs 1..4. Each post will chain the next leg's CREATED row.
-    for (const legSeq of [1, 2, 3, 4]) {
-      // wait for the chained leg row to exist (chained by advanceLeg)
-      const start = Date.now();
-      while (Date.now() - start < 5000) {
-        const exists = await (ctx.prisma as any).internalFund.findFirst({
+      await waitFor(`${swap.swapNo} leg ${legSeq} created`, async () => {
+        const leg = await ctx.prisma.fundsOrder.findFirst({ where: { swapTransactionId: swap.id, legSeq } });
+        return leg ?? null;
+      }, 8000);
+      for (let step = 0; step < 8; step++) {
+        const leg: any = await ctx.prisma.fundsOrder.findFirst({
           where: { swapTransactionId: swap.id, legSeq },
+          include: { asset: true },
         });
-        if (exists) break;
+        if (!leg) throw new Error(`leg ${legSeq} not found`);
+        if (leg.status === FundsOrderStatus.CLEARED || leg.status === FundsOrderStatus.CONFIRMED) break;
+        const isFiat = (leg.asset?.type || '').toUpperCase() === 'FIAT';
+        let action: FundsOrderAction;
+        if (isFiat) {
+          if (leg.status === FundsOrderStatus.CREATED) action = FundsOrderAction.SUBMIT;
+          else if (leg.status === FundsOrderStatus.SUBMITTED) action = FundsOrderAction.CONFIRM;
+          else throw new Error(`leg ${legSeq} unexpected fiat status ${leg.status}`);
+        } else {
+          if (leg.status === FundsOrderStatus.CREATED) action = FundsOrderAction.SUBMIT;
+          else if (leg.status === FundsOrderStatus.SUBMITTED) action = FundsOrderAction.OBSERVE_CONFIRMING;
+          else if (leg.status === FundsOrderStatus.CONFIRMING) action = FundsOrderAction.CONFIRM;
+          else throw new Error(`leg ${legSeq} unexpected crypto status ${leg.status}`);
+        }
+        await ctx.fundsOrders.advance(leg.id, action, 'SWAP_VERIFY');
         await sleep(40);
       }
-      console.log(`[swap-happy] driving leg ${legSeq} → CLEAR`);
+      await waitFor(`${swap.swapNo} leg ${legSeq} CLEARED`, async () => {
+        const leg = await ctx.prisma.fundsOrder.findFirst({ where: { swapTransactionId: swap.id, legSeq } });
+        return leg?.status === FundsOrderStatus.CLEARED ? leg : null;
+      }, 8000);
+    };
+
+    for (const legSeq of [1, 2, 3, 4]) {
+      console.log(`[swap-happy] driving leg ${legSeq} → CLEARED`);
       await driveLegToClear(legSeq);
     }
 
     // 5) Final assertions.
     await sleep(100);
-    const finalSwap: any = await (ctx.prisma as any).swapTransaction.findUnique({ where: { id: swap.id } });
+    const finalSwap: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });
     console.log(`[swap-happy] final swap.status=${finalSwap.status} currentStage=${finalSwap.currentStage} needsReview=${finalSwap.needsReview}`);
     check(finalSwap.status === 'SUCCESS', `swap → SUCCESS`);
     check(finalSwap.currentStage === null, `currentStage cleared to null at SUCCESS`);
     check(finalSwap.needsReview === false, `needsReview=false at SUCCESS`);
 
-    const finalLegs: any[] = await (ctx.prisma as any).internalFund.findMany({
+    const finalLegs: any[] = await ctx.prisma.fundsOrder.findMany({
       where: { swapTransactionId: swap.id },
       orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
     });
@@ -124,11 +139,11 @@ async function main() {
     check(JSON.stringify(legSeqs) === '[1,2,3,4]', `legs are legSeq 1..4`);
     const allAttemptOne = finalLegs.every((l) => l.attempt === 1);
     check(allAttemptOne, `every leg attempt = 1 (no retries in happy path)`);
-    const allClear = finalLegs.every((l) => l.status === 'CLEAR');
-    check(allClear, `every leg status = CLEAR`);
+    const allClear = finalLegs.every((l) => l.status === FundsOrderStatus.CLEARED);
+    check(allClear, `every leg status = CLEARED`);
 
     // 6) SWAP_SUCCEEDED audit was recorded.
-    const successAudit = await (ctx.prisma as any).auditLogEvent.findFirst({
+    const successAudit = await ctx.prisma.auditLogEvent.findFirst({
       where: { entityNo: swap.swapNo, action: 'SWAP_SUCCEEDED' },
     });
     check(!!successAudit, `audit SWAP_SUCCEEDED recorded`);
@@ -138,7 +153,7 @@ async function main() {
       console.error(`SWAP HAPPY-PATH VERIFY FAILED: ${failures} check(s) failed`);
       process.exitCode = 1;
     } else {
-      console.log('SWAP HAPPY-PATH VERIFY: ALL CHECKS PASS ✅ — new single-workflow path works end-to-end');
+      console.log('SWAP HAPPY-PATH VERIFY: ALL CHECKS PASS ✅ — COMPLIANCE_PENDING → webhook verdict → 4-leg settlement works end-to-end');
     }
   } finally {
     await ctx.app.close();

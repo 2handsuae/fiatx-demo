@@ -94,4 +94,31 @@ describe('MockSumsubTxnClient', () => {
       await expect(client.reviewComplete('T1', 'GREEN')).resolves.toBeUndefined();
     });
   });
+
+  describe('primeSubmitResult', () => {
+    it('primeSubmitResult 让 submitTxn 带回 scoringResult', async () => {
+      const c = new MockSumsubTxnClient();
+      c.primeSubmitResult('SWP-001', {
+        txnId: 'abc123def456abc123def456',
+        scoringResult: { action: 'reject', score: 90, matchedRuleNames: ['r1'], applicantActions: [] },
+      });
+      const r = await c.submitTxn({
+        applicantId: 'a1', clientTxnId: 'SWP-001', type: 'finance', direction: 'out',
+        amount: 100, currencyCode: 'USDT', currencyType: 'crypto',
+        orderId: 'SWP-001', props: { txType: 'exchange' }, infoType: 'exchange',
+      });
+      expect(r.txnId).toBe('abc123def456abc123def456');
+      expect(r.scoringResult?.action).toBe('reject');
+    });
+
+    it('未 prime 时 scoringResult 为 undefined，txnId 走确定性哈希兜底', async () => {
+      const c = new MockSumsubTxnClient();
+      const r = await c.submitTxn({
+        applicantId: 'a1', clientTxnId: 'SWP-002', type: 'finance', direction: 'out',
+        amount: 1, currencyCode: 'AED', currencyType: 'fiat',
+      });
+      expect(r.txnId).toMatch(/^[0-9a-f]{24}$/);
+      expect(r.scoringResult).toBeUndefined();
+    });
+  });
 });

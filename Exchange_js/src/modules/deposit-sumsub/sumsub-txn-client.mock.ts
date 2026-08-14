@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
-import { SumsubTxnClient, SubmitTxnInput } from './sumsub-txn-client.interface';
+import { SumsubTxnClient, SubmitTxnInput, SumsubScoringResult } from './sumsub-txn-client.interface';
 import { SumsubTxnDetail } from './sumsub-txn.types';
 
 /**
@@ -12,6 +12,7 @@ export class MockSumsubTxnClient implements SumsubTxnClient {
   private readonly logger = new Logger(MockSumsubTxnClient.name);
   private readonly txns = new Map<string, SumsubTxnDetail>();
   private readonly submitResults = new Map<string, string>();
+  private readonly submitFullResults = new Map<string, { txnId: string; scoringResult?: SumsubScoringResult }>();
 
   primeTxn(txnId: string, detail: SumsubTxnDetail): void {
     this.txns.set(txnId, detail);
@@ -21,7 +22,16 @@ export class MockSumsubTxnClient implements SumsubTxnClient {
     this.submitResults.set(clientTxnId, txnId);
   }
 
-  async submitTxn(input: SubmitTxnInput): Promise<{ txnId: string }> {
+  // primeSubmit 的加强版:除 txnId 外还能预置 scoringResult(兑换域读的评分快照)。
+  primeSubmitResult(clientTxnId: string, result: { txnId: string; scoringResult?: SumsubScoringResult }): void {
+    this.submitFullResults.set(clientTxnId, result);
+  }
+
+  async submitTxn(input: SubmitTxnInput): Promise<{ txnId: string; scoringResult?: SumsubScoringResult }> {
+    const full = this.submitFullResults.get(input.clientTxnId);
+    if (full) {
+      return full;
+    }
     const txnId =
       this.submitResults.get(input.clientTxnId) ?? MockSumsubTxnClient.fallbackTxnId(input.clientTxnId);
     return { txnId };

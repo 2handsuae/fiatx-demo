@@ -321,6 +321,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('PATCH', '/admin/swap-transactions/:id/status', 'Update swap transaction status', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
+  // Demo verdict runner (Task 9, mirror of deposit/withdraw's demo twins) —
+  // controller only registered when SUMSUB_MOCK_MODE=true
+  route(
+    'POST',
+    '/admin/swap-sumsub/demo/run-verdict',
+    'Feed one Sumsub KYT verdict webhook into a swap (demo only)',
+    ['TRADING_SWAP_WRITE'],
+  ),
 
   // Payins / Payouts routes removed in Round 2 (C3) — the payin/payout
   // services were deleted and their admin surface folded into the unified

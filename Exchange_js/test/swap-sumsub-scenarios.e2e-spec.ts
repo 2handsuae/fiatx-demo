@@ -1,0 +1,435 @@
+import * as path from 'path';
+import * as dotenv from 'dotenv';
+
+// Same Node 18 polyfill as src/main.ts (@nestjs/schedule needs globalThis.crypto,
+// stable only in Node 19+) — main.ts isn't loaded in this e2e harness, so it has
+// to be repeated here before AppModule (and therefore ScheduleModule) is imported.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcrypto; }
+
+// Must be set before AppModule is imported — mirrors withdraw-sumsub-scenarios
+// .e2e-spec.ts's identical guard (WithdrawVerificationSessionService there /
+// nothing here needs it directly, but AdminSwapDemoController and
+// SwapDemoScenarioService are only registered into the module tree when this
+// is true — swap-sumsub.module.ts's conditional `controllers` array).
+process.env.SUMSUB_MOCK_MODE = 'true';
+
+// Loaded before any other import so PrismaService / TigerBeetleService see the
+// worktree's own DATABASE_URL / TB_ADDRESS regardless of ConfigModule's internal
+// load timing (belt-and-braces — mirrors swap-money-arc.e2e-spec.ts / withdraw
+// -sumsub-scenarios.e2e-spec.ts).
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
+
+import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/core/prisma/prisma.service';
+import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
+import { SwapTransactionsService } from '../src/modules/trading/swap-transactions/swap-transactions.service';
+import { SwapTransactionStatus } from '../src/modules/trading/swap-transactions/dto/swap-transaction.dto';
+import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quote.service';
+import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
+import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
+import { CustomerPendingActionService } from '../src/modules/identity/customers/customer-pending-action.service';
+import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
+import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
+import { SwapDemoScenarioService } from '../src/modules/swap-sumsub/demo-scenario.service';
+import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
+import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
+import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
+
+/**
+ * Task 12: swap Sumsub verdict-button e2e — mirrors withdraw-sumsub-scenarios
+ * .e2e-spec.ts's structure (real AppModule, only SUMSUB_TXN_CLIENT mocked),
+ * driving the swap domain's 8 single-step verdict buttons
+ * (`src/modules/swap-sumsub/fixtures/verdict-buttons.ts`) through the REAL
+ * production entry point `SwapDemoScenarioService.runVerdict()` — the exact
+ * method the admin Simulation panel's buttons call — which primes the mock
+ * Sumsub client and drives the real ingest → router → handler → workflow
+ * chain end to end, exactly like a genuine webhook delivery would.
+ *
+ * Harness notes:
+ * - Uses a FRESH synthetic customer created directly via Prisma (not one of
+ *   the 8 seeded DEMO_CUSTOMER_EMAILS — those are all either claimed by other
+ *   e2e suites [alice/bob deposit, frank/grace withdraw] or by
+ *   test/swap-money-arc.e2e-spec.ts [acme], and jest's e2e config has no
+ *   maxWorkers pin so spec files may run in parallel workers against the same
+ *   worktree DB/TigerBeetle cluster). CustomerMain's identity/auth columns
+ *   (email/phone/passwordHash/...) are all optional — only the fields the
+ *   trading gates actually read are set (mirrors seed.business.ts's own
+ *   DEMO_CUSTOMERS shape for an APPROVED/ACTIVE/CLEAR individual).
+ * - `sumsubApplicantId` IS set here (unlike swap-money-arc, which never sets
+ *   it) — required for the webhook path specifically: `initiateSwap`'s
+ *   `submitSumsubTxnOut` is awaited synchronously and only stamps
+ *   `sumsubTxnIdOut` when an applicantId is on file; `SwapKytVerdictHandler`
+ *   claims a webhook by matching `payload.kytTxnId` against that column
+ *   (`findBySumsubTxnId`), so without it every simulated verdict would be an
+ *   orphan webhook nothing claims.
+ * - All 7 scenario swaps are created UP FRONT in `beforeAll`, while the
+ *   customer is still unrestricted — `initiateSwap` requires SWAP not be
+ *   restricted, but delivering a verdict (`SwapKytVerdictHandler` →
+ *   `applyKytVerdict`) never re-checks eligibility, only the swap's own
+ *   status. Creating them lazily mid-suite would deadlock the moment the
+ *   first rejection lands (V7's "restored capability" check aside, which
+ *   intentionally creates its own swap live, after clearing restrictions).
+ *   Delivery ORDER (not creation order) is what makes the restriction/
+ *   sticky-hard-line state machine exercised below meaningful — see each
+ *   `it()`'s comment for why it must run where it does.
+ */
+describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
+  jest.setTimeout(60000);
+
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let workflow: SwapWorkflowService;
+  let swapService: SwapTransactionsService;
+  let swapQuote: SwapQuoteService;
+  let fundsOrders: FundsOrderService;
+  let accounting: AccountingService;
+  let restrictionsService: CustomerRestrictionsService;
+  let pendingActionService: CustomerPendingActionService;
+  let demoService: SwapDemoScenarioService;
+
+  let customerId: string;
+  let customerNo: string;
+
+  let aedAssetId: string;
+  let usdtAssetId: string;
+
+  const HARNESS_ACTOR = { actorId: 'E2E_HARNESS', actorRole: 'OPS_OFFICER' };
+
+  // Pre-created (beforeAll) COMPLIANCE_PENDING swaps, one per scenario.
+  let v1Swap: any;
+  let v2Swap: any;
+  let v3aSwap: any; // soft-line, cleared by V7
+  let v3bSwap: any; // soft-line again, but delivered AFTER sticky hard-line — proves persistence
+  let v4Swap: any;
+  let v5Swap: any;
+  let v6Swap: any;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(SUMSUB_TXN_CLIENT)
+      .useClass(MockSumsubTxnClient)
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    app.get(EventEmitter2).setMaxListeners(50);
+    await app.init();
+
+    prisma = app.get(PrismaService);
+    workflow = app.get(SwapWorkflowService);
+    swapService = app.get(SwapTransactionsService);
+    swapQuote = app.get(SwapQuoteService);
+    fundsOrders = app.get(FundsOrderService);
+    accounting = app.get(AccountingService);
+    restrictionsService = app.get(CustomerRestrictionsService);
+    pendingActionService = app.get(CustomerPendingActionService);
+    demoService = app.get(SwapDemoScenarioService);
+
+    customerNo = buildDeterministicNo('CU', 'e2e-swap-sumsub-scenarios');
+    const customer = await prisma.customerMain.upsert({
+      where: { customerNo },
+      update: {
+        onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+        restrictions: '[]', pendingActionExternalId: null, pendingActionReason: null,
+        hardLineDispositionedAt: null, sumsubApplicantId: 'e2e0swapsumsubscenarios01',
+      },
+      create: {
+        customerNo, customerType: 'INDIVIDUAL', riskRating: 'LOW', tradingTier: 'BASIC',
+        onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+        eddRequired: false, sumsubApplicantId: 'e2e0swapsumsubscenarios01',
+      },
+    });
+    customerId = customer.id;
+
+    const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });
+    const usdtAsset = await prisma.asset.findFirst({ where: { currency: 'USDT' } });
+    if (!aedAsset || !aedAsset.tbLedgerId || !usdtAsset || !usdtAsset.tbLedgerId) {
+      throw new Error('Fixture assets AED/USDT not seeded (or missing tbLedgerId) — run `npm run db:biz:init` first.');
+    }
+    aedAssetId = aedAsset.id;
+    usdtAssetId = usdtAsset.id;
+
+    // Fresh customer → no TB account registry rows exist yet (unlike the 8
+    // seeded DEMO_CUSTOMERS, which seed.business.ts provisions unconditionally
+    // for every active asset) — provision CLIENT_PAYABLE + DEPOSIT_SUSPENSE for
+    // both assets ourselves, mirroring that same seed step exactly.
+    for (const asset of [aedAsset, usdtAsset]) {
+      const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
+      for (const code of [TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]) {
+        await ensureTbAccountRegistry(prisma as any, {
+          code, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId, ownerNo: customerNo,
+          assetCode: asset.code, description: `e2e swap-sumsub-scenarios ${code}/${asset.code}`,
+        });
+      }
+    }
+    await provisionTbAccounts(prisma as any);
+
+    // Customer receiving wallets (R4: initiateSwap's receiving-account gate).
+    await ensureCustomerWallet({ assetId: aedAssetId, walletRole: 'C_VIBAN', type: 'FIAT_BANK', iban: `AE_SWAP_SCN_${customerNo}` });
+    await ensureCustomerWallet({ assetId: usdtAssetId, walletRole: 'C_DEP', type: 'CRYPTO_ADDRESS', address: `T_SWAP_SCN_${customerNo}` });
+
+    // Trading-start precondition gate (assertTradingReady): needs ≥1 ACTIVE
+    // BANK withdrawal address on file for SWAP/WITHDRAW eligibility to even
+    // reach the restrictions check this suite exercises.
+    await ensureWithdrawalAddress({
+      assetId: aedAssetId, addressType: 'BANK', network: 'FIAT',
+      address: 'AE070331234567890177777', iban: 'AE070331234567890177777',
+    });
+
+    await fundCustomer(aedAssetId, 'AED', '1000000');
+    await fundCustomer(usdtAssetId, 'USDT', '1000000');
+
+    // All 7 scenario swaps, created while the customer is still unrestricted —
+    // see class comment for why creation must happen up front.
+    v1Swap = await createSwap('40');
+    v2Swap = await createSwap('41');
+    v3aSwap = await createSwap('42');
+    v3bSwap = await createSwap('43');
+    v4Swap = await createSwap('44');
+    v5Swap = await createSwap('45');
+    v6Swap = await createSwap('46');
+  });
+
+  afterAll(async () => {
+    if (app) await app.close();
+  });
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  function decimalToBigint(decimalValue: string, decimals: number): bigint {
+    const [whole, frac = ''] = decimalValue.split('.');
+    const paddedFrac = frac.padEnd(decimals, '0').slice(0, decimals);
+    return BigInt(whole + paddedFrac);
+  }
+
+  /** Find-or-create — customerNo (and therefore customerId) is deterministic
+   *  across suite runs, so a repeated run against a persistent worktree DB
+   *  must not collide on wallet/address unique constraints (mirrors
+   *  swap-money-arc.e2e-spec.ts / withdraw-money-arcs.e2e-spec.ts's identical
+   *  idempotent helpers). */
+  async function ensureCustomerWallet(opts: {
+    assetId: string; walletRole: 'C_VIBAN' | 'C_DEP'; type: string; iban?: string; address?: string;
+  }): Promise<string> {
+    const existing = await (prisma as any).wallet.findFirst({
+      where: { ownerType: 'CUSTOMER', ownerId: customerId, assetId: opts.assetId, walletRole: opts.walletRole, status: 'ACTIVE' },
+    });
+    if (existing) return existing.id;
+    const created = await (prisma as any).wallet.create({
+      data: {
+        ownerType: 'CUSTOMER', ownerId: customerId, ownerNo: customerNo,
+        type: opts.type, walletRole: opts.walletRole, assetId: opts.assetId,
+        address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
+      },
+    });
+    return created.id;
+  }
+
+  async function ensureWithdrawalAddress(opts: {
+    assetId: string; addressType: string; network: string; address: string; iban?: string;
+  }): Promise<void> {
+    const existing = await (prisma as any).withdrawalAddress.findFirst({
+      where: { customerId, assetId: opts.assetId, address: opts.address, status: 'ACTIVE' },
+    });
+    if (existing) return;
+    await (prisma as any).withdrawalAddress.create({
+      data: {
+        addressNo: `WAD-E2E-SWAPSCN-${opts.addressType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        customerId, customerNo, assetId: opts.assetId, network: opts.network,
+        address: opts.address, addressType: opts.addressType, iban: opts.iban ?? null,
+        ownershipDeclaredAt: new Date(), ownershipProofType: 'E2E_FIXTURE',
+        status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
+        traceId: 'e2e-swap-sumsub-scenarios-address',
+      },
+    });
+  }
+
+  async function fundCustomer(assetId: string, currency: string, amount: string): Promise<void> {
+    const asset = await (prisma as any).asset.findUnique({ where: { id: assetId } });
+    const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
+    const amountBigint = decimalToBigint(amount, asset.decimals);
+    const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
+    const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
+    await accounting.executeTransfer({
+      debitAccountId: suspenseId,
+      creditAccountId: payableId,
+      amount: amountBigint,
+      ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
+      evidence: {
+        sourceType: 'DEPOSIT',
+        sourceNo: `E2E-SWAP-SCN-FUND-${currency}`,
+        eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
+        assetCurrency: currency,
+        traceId: `e2e-swap-scn-fund-${currency}`,
+        actorType: 'SYSTEM',
+        actorId: 'E2E_HARNESS',
+        memo: 'e2e fixture: pre-fund customer balance for swap sumsub-scenario tests',
+        isExternalCrossing: false,
+      },
+    });
+  }
+
+  /** Real production birth: SwapWorkflowService.initiateSwap() via a real
+   *  USDT→AED quote, then confirms the (awaited, not fire-and-forget)
+   *  submitSumsubTxnOut actually stamped sumsubTxnIdOut — required for the
+   *  webhook path this file exercises to claim any delivered verdict. */
+  async function createSwap(amount: string): Promise<any> {
+    const quote = await swapQuote.createQuote({
+      ownerType: 'CUSTOMER', ownerId: customerId, ownerNo: customerNo,
+      fromAssetId: usdtAssetId, fromAssetCode: 'USDT', toAssetId: aedAssetId, toAssetCode: 'AED',
+      amount: new Prisma.Decimal(amount), customerId,
+    });
+    const swap = await workflow.initiateSwap(customerId, quote.id);
+    const internal = await swapService.findByIdInternal(swap.id);
+    if (!internal.sumsubTxnIdOut) {
+      throw new Error(`swap ${swap.swapNo} has no sumsubTxnIdOut — submitSumsubTxnOut did not stamp it`);
+    }
+    return swap;
+  }
+
+  /** Delivers one verdict button through the REAL production entry point
+   *  (SwapDemoScenarioService.runVerdict) — same code the admin simulation
+   *  button calls. */
+  async function deliver(swapId: string, buttonKey: string) {
+    return demoService.runVerdict(swapId, buttonKey, HARNESS_ACTOR);
+  }
+
+  async function statusOf(id: string): Promise<string> {
+    const row = await swapService.findByIdInternal(id);
+    return row.status;
+  }
+
+  async function auditActionsFor(entityId: string, entityType: string): Promise<string[]> {
+    const rows = await (prisma as any).auditLogEvent.findMany({
+      where: { entityId, entityType },
+      select: { action: true },
+    });
+    return rows.map((r: any) => r.action);
+  }
+
+  // ── matrix (8 single-step verdict buttons + sticky-hard-line persistence) ──
+
+  it('① approved: COMPLIANCE_PENDING → PROCESSING, leg1 booked', async () => {
+    await deliver(v1Swap.id, 'V1_APPROVED');
+
+    expect(await statusOf(v1Swap.id)).toBe(SwapTransactionStatus.PROCESSING);
+    const legs = await fundsOrders.findByParent({ swapTransactionId: v1Swap.id }, {});
+    expect(legs).toHaveLength(1);
+    expect(legs[0].legSeq).toBe(1);
+    const actions = await auditActionsFor(v1Swap.id, AuditEntityTypes.SWAP_TRANSACTION);
+    expect(actions).toContain(AuditActions.SWAP_KYT_APPROVED);
+  });
+
+  it('③ rejected · 软线（下发认证）: REJECTED, zero legs, restrictions SWAP+WITHDRAW, pending-action exposed', async () => {
+    await deliver(v3aSwap.id, 'V3_REJECTED_ACTION');
+
+    expect(await statusOf(v3aSwap.id)).toBe(SwapTransactionStatus.REJECTED);
+    const legs = await fundsOrders.findByParent({ swapTransactionId: v3aSwap.id }, {});
+    expect(legs).toHaveLength(0);
+
+    const restrictions = await restrictionsService.list(customerId);
+    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+
+    const pending = await pendingActionService.get(customerId);
+    expect(pending).not.toBeNull();
+    expect(pending!.externalActionId).toBe('demo-ext-1');
+
+    const actions = await auditActionsFor(v3aSwap.id, AuditEntityTypes.SWAP_TRANSACTION);
+    expect(actions).toContain(AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+  });
+
+  it('⑦ 认证通过（清限制）: restrictions cleared, pending-action cleared, swap capability restored', async () => {
+    await deliver(v3aSwap.id, 'V7_ACTION_GREEN');
+
+    const restrictions = await restrictionsService.list(customerId);
+    expect(restrictions).toHaveLength(0);
+    expect(await pendingActionService.get(customerId)).toBeNull();
+
+    const customerAudit = await auditActionsFor(customerId, AuditEntityTypes.CUSTOMER);
+    expect(customerAudit).toContain(AuditActions.SWAP_ACTION_CLEARED);
+
+    // Capability genuinely restored — a brand new swap can be initiated now.
+    const restoredSwap = await createSwap('20');
+    expect(restoredSwap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
+  });
+
+  it('⑥ awaiting user（我方等同拒绝）: REJECTED, restrictions re-added, pending-action exposed (ext-3)', async () => {
+    await deliver(v6Swap.id, 'V6_AWAIT_USER');
+
+    expect(await statusOf(v6Swap.id)).toBe(SwapTransactionStatus.REJECTED);
+    const restrictions = await restrictionsService.list(customerId);
+    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    const pending = await pendingActionService.get(customerId);
+    expect(pending).not.toBeNull();
+    expect(pending!.externalActionId).toBe('demo-ext-3');
+  });
+
+  it('⑧ 认证不通过（升级）: restrictions remain, pending-action untouched, escalation audited', async () => {
+    await deliver(v6Swap.id, 'V8_ACTION_RED');
+
+    const restrictions = await restrictionsService.list(customerId);
+    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    const pending = await pendingActionService.get(customerId);
+    expect(pending).not.toBeNull();
+    expect(pending!.externalActionId).toBe('demo-ext-3'); // unchanged
+
+    const customerAudit = await auditActionsFor(customerId, AuditEntityTypes.CUSTOMER);
+    expect(customerAudit).toContain(AuditActions.SWAP_ACTION_ESCALATED);
+  });
+
+  it('② rejected · 硬线（无 action）: REJECTED, pending-action overwritten to null, no sticky hard-line', async () => {
+    await deliver(v2Swap.id, 'V2_REJECTED_HARD');
+
+    expect(await statusOf(v2Swap.id)).toBe(SwapTransactionStatus.REJECTED);
+    expect(await pendingActionService.get(customerId)).toBeNull();
+
+    const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
+    expect(customer!.hardLineDispositionedAt).toBeNull(); // no-actions hard line is per-verdict, not sticky
+  });
+
+  it('④ rejected · Sanctions: REJECTED, sticky hard-line set, pending-action endpoint returns null (tipping-off)', async () => {
+    await deliver(v4Swap.id, 'V4_REJECTED_SANCTION');
+
+    expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.REJECTED);
+    expect(await pendingActionService.get(customerId)).toBeNull();
+
+    const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
+    expect(customer!.hardLineDispositionedAt).toBeTruthy();
+
+    const restrictions = await restrictionsService.list(customerId);
+    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+  });
+
+  it('⑤ on hold（我方等同拒绝）: REJECTED, pending-action stays null', async () => {
+    await deliver(v5Swap.id, 'V5_ONHOLD');
+
+    expect(await statusOf(v5Swap.id)).toBe(SwapTransactionStatus.REJECTED);
+    expect(await pendingActionService.get(customerId)).toBeNull();
+  });
+
+  it('sticky hard-line silences a later, otherwise-soft-line verdict (V3 delivered after the V4 sanction)', async () => {
+    // v3bSwap was CREATED before the sanction (customer was unrestricted at
+    // the time) but the verdict is delivered here, after V4 already stamped
+    // hardLineDispositionedAt — Review Fix 2's cross-order persistence: this
+    // verdict alone has an attached action (would normally expose ext-1
+    // again) but must stay silenced because the customer was sanctioned by a
+    // DIFFERENT swap in between.
+    await deliver(v3bSwap.id, 'V3_REJECTED_ACTION');
+
+    expect(await statusOf(v3bSwap.id)).toBe(SwapTransactionStatus.REJECTED);
+    expect(await pendingActionService.get(customerId)).toBeNull();
+  });
+});

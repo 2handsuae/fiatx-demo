@@ -16,6 +16,7 @@ import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-
 import { WithdrawTransactionsService } from '../trading/withdraw-transactions/withdraw-transactions.service';
 import { DepositWebhookRouter } from '../deposit-sumsub/deposit-webhook.router';
 import { WithdrawWebhookRouter } from '../withdraw-sumsub/withdraw-webhook.router';
+import { SwapWebhookRouter } from '../swap-sumsub/swap-webhook.router';
 import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
 import { generateReferenceNo } from '../../common/utils/no-generator.util';
 import { SimulationScenario } from './dto/sumsub-ingestion.dto';
@@ -39,6 +40,7 @@ export class SumsubIngestionService {
     private readonly withdrawService: WithdrawTransactionsService,
     private readonly depositWebhookRouter: DepositWebhookRouter,
     private readonly withdrawWebhookRouter: WithdrawWebhookRouter,
+    private readonly swapWebhookRouter: SwapWebhookRouter,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -128,17 +130,36 @@ export class SumsubIngestionService {
       // 旧的 `startsWith('applicantKytTxn')` 会把它漏在门外;而放宽成 `applicantKyt`
       // 又会误吞 AML 等同前缀的其它族事件。见 kyt-webhook-types.ts。
       if (KYT_VERDICT_TYPES.has(depositWebhookType)) {
-        // Task 4: cascade — deposit tried first (owns the vast majority of KYT-txn
-        // webhooks); only when it reports no ownership (hit=false) does the same
-        // payload fall through to withdraw-sumsub. Both domains key off the same
-        // kytTxnId, so at most one of them ever owns a given event.
+        // Task 4/5: cascade — deposit tried first (owns the vast majority of
+        // KYT-txn webhooks); only when it reports no ownership (hit=false)
+        // does the same payload fall through to withdraw-sumsub, then to
+        // swap-sumsub (Task 5, last stage) if withdraw also misses. All three
+        // domains key off the same kytTxnId, so at most one of them ever owns
+        // a given event.
         const depositHit = await this.depositWebhookRouter.route(payload);
         let withdrawHit = false;
+        let swapHit = false;
         if (!depositHit) {
           withdrawHit = await this.withdrawWebhookRouter.route(payload);
+          if (!withdrawHit) {
+            swapHit = await this.swapWebhookRouter.route(payload);
+          }
         }
-        result = { routedTo: depositHit ? 'deposit-sumsub' : (withdrawHit ? 'withdraw-sumsub' : 'orphan'), type: depositWebhookType };
-        dispatchedContext = depositHit ? 'DEPOSIT_SUMSUB' : (withdrawHit ? 'WITHDRAW_SUMSUB' : 'SUMSUB_KYT_ORPHAN');
+        const routedTo = depositHit
+          ? 'deposit-sumsub'
+          : withdrawHit
+          ? 'withdraw-sumsub'
+          : swapHit
+          ? 'swap-sumsub'
+          : 'orphan';
+        result = { routedTo, type: depositWebhookType };
+        dispatchedContext = depositHit
+          ? 'DEPOSIT_SUMSUB'
+          : withdrawHit
+          ? 'WITHDRAW_SUMSUB'
+          : swapHit
+          ? 'SWAP_SUMSUB'
+          : 'SUMSUB_KYT_ORPHAN';
       }
       // ── Synthetic simulation event types (exact eventType match, highest priority) ──
       // withdrawKytCheckSimulated/withdrawTravelRuleCheckSimulated retired with the old
@@ -185,6 +206,39 @@ export class SumsubIngestionService {
         }
         result = { assessmentId, decision };
         dispatchedContext = 'CASE_DECISION';
+      }
+      // ── Task 13: swap-domain applicantActionReviewed (person-level action review) ──
+      // Not a KYT-txn verdict — deliberately excluded from KYT_VERDICT_TYPES (see
+      // that file's comment) — so it never enters the cascade above. swap-sumsub
+      // owns action ids it itself exposed via CustomerMain.pendingActionExternalId
+      // (Task 7's handleRejectDisposition); try it before falling through to the
+      // pre-existing MaterialRefreshCycle actionId match below (Clue 3), which owns
+      // a different id space (Sumsub's own sumsubActionId). swapWebhookRouter.route()
+      // returns false when this externalActionId isn't one it recognises (belongs to
+      // another domain, e.g. material refresh), letting dispatch fall through to
+      // Clue 3 with the same payload exactly as before this task.
+      else if (depositWebhookType === 'applicantActionReviewed') {
+        // Finding 5（终审 Minor）：这条分支是 if/else-if 链的一环——一旦
+        // `payload.type === 'applicantActionReviewed'` 命中这里，不管
+        // `swapHit` 是 true 还是 false，本次 dispatch 都不会再落到下面的
+        // Clue 1（`reviewMode === 'ongoingDocExpired'`）或 Clue 2
+        // （`inspectionId` 匹配 PENDING_SUMSUB_RESULT 的 ClientRiskAssessment）
+        // ——这两条分支同属一条 else-if 链，互斥。真实 Sumsub 的
+        // applicantActionReviewed webhook 确实可能带 `inspectionId`（Clue 2
+        // 之前是可达的），故这是一次跨域收窄。判断这是有意为之：
+        // applicantActionReviewed 语义上是"人级补料动作复核"，Clue 1/2
+        // 服务的是不同的域（文档时效重检 / AML 案件结果），把它们混进来会让
+        // 这个人级事件被误判成别的域的信号。Clue 3（下面独立的
+        // `if (!result && actionId && reviewResult)`，材料重检的
+        // sumsubActionId 匹配）不受影响——它不在这条 else-if 链里，swap 认领
+        // 不到（`swapHit=false`）时仍会正常落到 Clue 3。这条收窄已由
+        // sumsub-ingestion.service.spec.ts 的 "swap miss" 用例锁定（断言
+        // Clue 3 真的还会触发，而不只是 result 落空）。
+        const swapHit = await this.swapWebhookRouter.route(payload);
+        if (swapHit) {
+          result = { routedTo: 'swap-sumsub', type: depositWebhookType };
+          dispatchedContext = 'SWAP_SUMSUB';
+        }
       }
       // Clue 1: explicit reviewMode → ongoing doc monitoring
       else if (reviewMode === 'ongoingDocExpired') {

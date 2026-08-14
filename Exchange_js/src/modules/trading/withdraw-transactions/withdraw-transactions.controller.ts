@@ -25,7 +25,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
 @ApiTags('Withdraw Transactions')

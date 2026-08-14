@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRightLeft, 
-  History, 
-  Info, 
-  AlertTriangle, 
-  RefreshCw, 
-  Check, 
-  X, 
+  ArrowRightLeft,
+  History,
+  Info,
+  AlertTriangle,
+  RefreshCw,
+  Check,
+  X,
   ArrowDownUp,
   ShieldCheck,
   Zap,
@@ -23,6 +23,16 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
+import { getSwapStatusView } from '../utils/swapStatusView';
+import { PendingActionBanner } from '../components/PendingActionBanner';
+import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
+
+// 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
+// 落地。提交成功后直接跳 History 列表（不再弹等待面板）；列表在存在非终态单时
+// 每 3s 轻量自刷，全部终态即停——客户在列表里看着 Processing 翻到终态。
+const HISTORY_REFRESH_INTERVAL_MS = 3000;
+// 终态集合与 swapStatusView 的口径一致（FAILED/REVERSED 是历史枚举，一并视为终态）。
+const SWAP_TERMINAL_STATUSES = new Set(['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED']);
 
 interface Asset {
   id: string;
@@ -130,6 +140,10 @@ interface AssetBalance {
 
 const Swap = () => {
   const { user } = useAuth();
+  // parity 2026-08-14：受限客户页面不封、按钮禁用 + 中性提示（业主拍板）。
+  // 文案不带原因——tipping-off：软硬线在客户眼里必须无差别，差别只体现在
+  // 有没有认证 banner（由后端 pending-action 单点决定）。后端 L1 门仍在。
+  const swapRestricted = isCapabilityRestricted(user, 'SWAP');
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'swap' | 'history'>('swap');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -474,13 +488,17 @@ const Swap = () => {
         })
       });
       if (response.ok) {
-        alert('Swap transaction created successfully!');
-        setShowConfirm(false);
+        await response.json();
+        // Submitting no longer means "done" — the order sits in
+        // COMPLIANCE_PENDING until a Sumsub verdict lands. Close the modal
+        // and land the customer on History, where the new order is visible
+        // as Processing and the list auto-refreshes until it turns terminal.
         setFromAmount('');
+        setShowConfirm(false);
         setFirmQuote(null);
         setQuoteExpiresIn(0);
         setActiveTab('history');
-        fetchBalances(); // Refresh balances after swap
+        fetchBalances();
       } else {
         const message = await resolveSubmitErrorMessage(response, 'Swap failed');
         alert(message);
@@ -515,23 +533,53 @@ const Swap = () => {
     return () => clearInterval(timer);
   }, [showConfirm, firmQuote]);
 
+  // History 自刷：列表里还有非终态单（Processing）时每 HISTORY_REFRESH_INTERVAL_MS
+  // 拉一次，让客户看着它翻到终态；全部终态即停。翻到终态那一刻顺带刷余额。
+  // 依赖 history 数组本身——每次 fetchHistory 返回都会重新评估是否还需要下一轮。
+  useEffect(() => {
+    if (activeTab !== 'history') return;
+    const hasNonTerminal = history.some((h) => !SWAP_TERMINAL_STATUSES.has(h.status));
+    if (!hasNonTerminal) return;
+
+    const timer = setTimeout(async () => {
+      await fetchHistory();
+      fetchBalances();
+    }, HISTORY_REFRESH_INTERVAL_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, history]);
+
+  // Routed through getSwapStatusView so this list can never render a raw
+  // status code — COMPLIANCE_PENDING/PROCESSING both read "Processing" here
+  // too, same as the post-submit panel (this table is the customer's other
+  // window into a swap that's still under KYT review).
+  const STATUS_TONE_CLASSES: Record<string, string> = {
+    pending: 'bg-fx-brass/10 text-fx-brass',
+    success: 'bg-fx-sage/15 text-fx-sage',
+    failed: 'bg-fx-rust/15 text-fx-rust',
+  };
+
   const renderStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING_COMPLIANCE: 'bg-fx-brass/10 text-fx-brass',
-      UNDER_REVIEW: 'bg-fx-brass/10 text-fx-brass',
-      SUCCESS: 'bg-fx-sage/15 text-fx-sage',
-      REJECTED: 'bg-fx-rust/15 text-fx-rust',
-      FAILED: 'bg-fx-rust/15 text-fx-rust',
-    };
+    const view = getSwapStatusView(status);
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-fx-ink/40 text-fx-dune'}`}>
-        {status}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_TONE_CLASSES[view.tone] || 'bg-fx-ink/40 text-fx-dune'}`}>
+        {view.text}
       </span>
     );
   };
 
   return (
     <div className="space-y-6">
+      {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
+          显隐完全由后端 /client/me/pending-action 决定，前端零推导。 */}
+      <PendingActionBanner />
+      {swapRestricted && (
+        <div className="border-l-2 border-fx-rust/60 bg-fx-rust/5 px-4 py-3">
+          <p className="font-mono text-[11px] text-fx-dune">
+            Trading is currently restricted on your account.
+          </p>
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-fx-sand">Swap</h1>
@@ -750,6 +798,7 @@ const Swap = () => {
                   <button
                     onClick={handlePreview}
                     disabled={
+                      swapRestricted ||
                       loading ||
                       !fromAssetId ||
                       !toAssetId ||
@@ -828,10 +877,16 @@ const Swap = () => {
                         onChange={(e) => setHistoryStatus(e.target.value)}
                         className="bg-transparent text-sm text-fx-sand focus:outline-none"
                       >
+                          {/* Real backend statuses are COMPLIANCE_PENDING/PROCESSING/
+                              SUCCESS/REJECTED (dead FAILED/REVERSED aside — see
+                              swapStatusView.ts). No filter option for "processing":
+                              the query only matches one exact status and two
+                              different backend values both read "Processing" to
+                              the customer, so a single option would silently miss
+                              half of them rather than filter correctly. */}
                           <option value="">All Status</option>
-                          <option value="SUCCESS">Success</option>
-                          <option value="FAILED">Failed</option>
-                          <option value="PENDING_COMPLIANCE">Pending Compliance</option>
+                          <option value="SUCCESS">Completed</option>
+                          <option value="REJECTED">Unsuccessful</option>
                       </select>
                   </div>
                   <button 
@@ -923,97 +978,99 @@ const Swap = () => {
                 </button>
               </div>
 
-              <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-fx-charcoal rounded-2xl border border-fx-rule">
-                  <div className="space-y-1">
-                    <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Sell</p>
-                    <p className="text-lg font-bold text-fx-sand">
-                      {formatAssetAmount(firmQuote.amountIn, getAssetDecimalsByCode(firmQuote.currencyIn))} {firmQuote.currencyIn}
-                    </p>
-                  </div>
-                  <div className="w-10 h-10 bg-fx-charcoal rounded-full flex items-center justify-center shadow-sm border border-fx-rule">
-                    <ArrowRight size={20} className="text-fx-brass" />
-                  </div>
-                  <div className="space-y-1 text-right">
-                    <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Net Receive</p>
-                    <p className="text-lg font-bold text-fx-brass">
-                      {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 px-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Gross Receive</span>
-                    <span className="font-mono text-fx-sand">
-                      {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Fee</span>
-                    <span className="font-mono text-fx-sand">
-                      {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Net Receive</span>
-                    <span className="font-mono text-fx-sage">
-                      {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Exchange Rate</span>
-                    <span className="font-mono text-fx-sand">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Market / Spread</span>
-                    <span className="font-mono text-fx-sand">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Quote ID</span>
-                    <span className="font-mono text-fx-sand">{firmQuote.quoteId}</span>
-                  </div>
-                  {firmQuote.matched && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-fx-dune font-medium">Matched Pair / Tier</span>
-                      <span className="font-mono text-fx-sand">
-                        {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
-                      </span>
+              <>
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between p-4 bg-fx-charcoal rounded-2xl border border-fx-rule">
+                      <div className="space-y-1">
+                        <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Sell</p>
+                        <p className="text-lg font-bold text-fx-sand">
+                          {formatAssetAmount(firmQuote.amountIn, getAssetDecimalsByCode(firmQuote.currencyIn))} {firmQuote.currencyIn}
+                        </p>
+                      </div>
+                      <div className="w-10 h-10 bg-fx-charcoal rounded-full flex items-center justify-center shadow-sm border border-fx-rule">
+                        <ArrowRight size={20} className="text-fx-brass" />
+                      </div>
+                      <div className="space-y-1 text-right">
+                        <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Net Receive</p>
+                        <p className="text-lg font-bold text-fx-brass">
+                          {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                        </p>
+                      </div>
                     </div>
-                  )}
-                  {firmQuote.pricingSource && (
-                    <>
+
+                    <div className="space-y-3 px-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-fx-dune font-medium">Source Symbol / Side</span>
+                        <span className="text-fx-dune font-medium">Gross Receive</span>
                         <span className="font-mono text-fx-sand">
-                          {firmQuote.pricingSource.symbol} / {firmQuote.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'}
+                          {formatAssetAmount(firmQuote.amountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
                         </span>
                       </div>
-                      <div className="space-y-1">
-                        <span className="text-fx-dune font-medium text-sm">Pricing Formula</span>
-                        <div className="font-mono text-[11px] text-fx-sand break-all">
-                          {firmQuote.pricingSource.formula}
-                        </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Fee</span>
+                        <span className="font-mono text-fx-sand">
+                          {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'}
+                        </span>
                       </div>
-                    </>
-                  )}
-                  <div className="flex justify-between text-sm">
-                    <span className="text-fx-dune font-medium">Expires In</span>
-                    <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-fx-brass' : 'text-fx-rust'}`}>
-                      {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
-                    </span>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Net Receive</span>
+                        <span className="font-mono text-fx-sage">
+                          {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Exchange Rate</span>
+                        <span className="font-mono text-fx-sand">1 {firmQuote.currencyIn} = {formatRate8(firmQuote.rateAllIn)} {firmQuote.currencyOut}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Market / Spread</span>
+                        <span className="font-mono text-fx-sand">{formatRate8(firmQuote.marketRate)} / {firmQuote.spreadPercent}%</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Quote ID</span>
+                        <span className="font-mono text-fx-sand">{firmQuote.quoteId}</span>
+                      </div>
+                      {firmQuote.matched && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-fx-dune font-medium">Matched Pair / Tier</span>
+                          <span className="font-mono text-fx-sand">
+                            {firmQuote.matched.pairId} / {firmQuote.matched.tierId}
+                          </span>
+                        </div>
+                      )}
+                      {firmQuote.pricingSource && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-fx-dune font-medium">Source Symbol / Side</span>
+                            <span className="font-mono text-fx-sand">
+                              {firmQuote.pricingSource.symbol} / {firmQuote.pricingSource.sideUsed === 'BID' ? 'BID' : '1/ASK'}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-fx-dune font-medium text-sm">Pricing Formula</span>
+                            <div className="font-mono text-[11px] text-fx-sand break-all">
+                              {firmQuote.pricingSource.formula}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">Expires In</span>
+                        <span className={`font-bold ${quoteExpiresIn > 0 ? 'text-fx-brass' : 'text-fx-rust'}`}>
+                          {quoteExpiresIn > 0 ? `${quoteExpiresIn}s` : 'Expired'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              <button
-                onClick={handleExecuteSwap}
-                disabled={swapping || quoteExpiresIn <= 0}
-                className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20 flex items-center justify-center gap-2"
-              >
-                {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
-                {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
-              </button>
+                  <button
+                    onClick={handleExecuteSwap}
+                    disabled={swapRestricted || swapping || quoteExpiresIn <= 0}
+                    className="w-full py-4 bg-fx-brass hover:bg-fx-brass/90 text-fx-obsidian rounded-2xl font-bold transition-all shadow-lg shadow-fx-brass/20 flex items-center justify-center gap-2"
+                  >
+                    {swapping ? <RefreshCw className="animate-spin" size={20} /> : <Check size={20} />}
+                    {quoteExpiresIn > 0 ? 'Confirm and Swap' : 'Quote Expired'}
+                  </button>
+              </>
             </div>
           </div>
         </div>

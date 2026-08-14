@@ -8,6 +8,7 @@ import { DepositTransactionsModule } from '../trading/deposit-transactions/depos
 import { WithdrawTransactionsModule } from '../trading/withdraw-transactions/withdraw-transactions.module';
 import { DepositSumsubModule } from '../deposit-sumsub/deposit-sumsub.module';
 import { WithdrawSumsubModule } from '../withdraw-sumsub/withdraw-sumsub.module';
+import { SwapSumsubModule } from '../swap-sumsub/swap-sumsub.module';
 import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { SumsubIngestionController } from './sumsub-ingestion.controller';
 import { SumsubIngestionAdminController } from './sumsub-ingestion-admin.controller';
@@ -31,6 +32,11 @@ import { SumsubRetryService } from './sumsub-ingestion-retry.service';
     // cascade for KYT verdict webhooks (see dispatch() below). forwardRef because
     // WithdrawSumsubModule → DepositSumsubModule → SumsubIngestionModule closes a cycle.
     forwardRef(() => WithdrawSumsubModule),
+    // Task 5: swap-sumsub's SwapWebhookRouter — third and last cascade stage
+    // (deposit → withdraw → swap). forwardRef because SwapSumsubModule →
+    // SwapTransactionsModule → DepositSumsubModule → SumsubIngestionModule
+    // closes a cycle, same pattern as the WithdrawSumsubModule edge above.
+    forwardRef(() => SwapSumsubModule),
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],

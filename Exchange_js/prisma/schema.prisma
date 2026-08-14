@@ -223,6 +223,23 @@ model CustomerMain {
   // ═══ 细粒度限制 ═══
   restrictions String @default("[]")
 
+  // Task 7 (swap-sumsub): KYT 拒绝后暴露给客户的待办事项。软线（有补料动作且
+  // 非制裁）才非 null；硬线（含制裁 tipping-off）恒为 null —— 写入方
+  // CustomerPendingActionService，判断只在 swap-workflow 的
+  // handleRejectDisposition 做一次。
+  pendingActionExternalId String? @map("pending_action_external_id")
+  pendingActionReason     String? @map("pending_action_reason")
+  // parity 2026-08-14：客户提交补料材料的时刻（banner 三态：无/请认证/已提交审核中）。
+  // set() 换写待办时清空；GREEN/RED 处置后随指针一并管理。
+  pendingActionSubmittedAt DateTime? @map("pending_action_submitted_at")
+
+  // Review Fix 2 (Important, swap-sumsub 终审): sticky 硬线标记。一旦客户被
+  // 任意一笔 swap 的 KYT 拒绝按硬线处置过（含制裁 SANCTION），这个事实要永久
+  // 记住——handleRejectDisposition 在决定要不要给客户暴露 pendingAction 之前
+  // 必须先查这个标记，防止同一客户名下另一笔 swap 的软线裁决把已经沉默掉的
+  // 入口重新打开（tipping-off 的沉默必须跨订单持久，不能是 last-writer-wins）。
+  hardLineDispositionedAt DateTime? @map("hard_line_dispositioned_at")
+
   // ═══ 产品属性 ═══
   investorTier          String    @default("STANDARD")
   investorTierSource    String    @default("ONBOARDING")
@@ -282,6 +299,9 @@ model CustomerMain {
   @@index([adminStatus])
   @@index([complianceStatus])
   @@index([riskRating])
+  // Task 13: applicantActionReviewed webhook 反查客户的唯一入口列
+  // （CustomerPendingActionService.findByExternalActionId）。
+  @@index([pendingActionExternalId])
   @@map("customer_main")
 }
 
@@ -1146,6 +1166,18 @@ model SwapTransaction {
   failureCode      String?
   failureReason    String?
   statusHistory    String?
+  sumsubTxnIdOut      String?  @map("sumsub_txn_id_out")
+  sumsubTxnIdIn       String?  @map("sumsub_txn_id_in")
+  complianceVerdict   String?  @map("compliance_verdict")
+  complianceAction    String?  @map("compliance_action")
+  complianceRuleNames String?  @map("compliance_rule_names")
+  sumsubDetailJson    String?  @map("sumsub_detail_json")
+  rejectReason        String?  @map("reject_reason")
+  // 与提现契约对齐（2026-08-14 parity）：风险分/裁决时刻/交易类型。
+  // swap 只有 finance 一种（无对手方 → 无 travelRule），提交卖出腿时恒写 'finance'。
+  sumsubScore         Int?      @map("sumsub_score")
+  sumsubScoredAt      DateTime? @map("sumsub_scored_at")
+  sumsubTxnType       String?   @map("sumsub_txn_type")
   spreadAmount     Decimal?
   grossAedValue    Decimal?                  // 创建时 AED 估值快照(B 累计用量取数)
   tbFromTransferId String?
@@ -1169,6 +1201,7 @@ model SwapTransaction {
   @@index([toAssetCode])
   @@index([status])
   @@index([createdAt])
+  @@index([sumsubTxnIdOut])
   @@map("swap_transactions")
 }
 

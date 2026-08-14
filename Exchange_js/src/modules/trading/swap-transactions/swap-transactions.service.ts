@@ -2,9 +2,15 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { SwapTransactionQueryDto } from './dto/swap-transaction.dto';
+import {
+  SwapTransactionQueryDto,
+  SwapTransactionStatus,
+  SwapTransactionAction,
+  SwapRejectReason,
+} from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
@@ -301,6 +307,19 @@ export class SwapTransactionsService {
     return { items, total };
   }
 
+  /** Customer-facing list: same query, scoped to the caller's own swaps. */
+  async findAllForCustomer(customerId: string, query: SwapTransactionQueryDto) {
+    const result = await this.findAll({
+      ...query,
+      ownerId: customerId,
+      ownerType: 'CUSTOMER',
+    });
+    return {
+      ...result,
+      items: result.items.map((item: any) => this.toCustomerSwapView(item)),
+    };
+  }
+
   async findByNoInternal(swapNo: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;
     return client.swapTransaction.findUniqueOrThrow({
@@ -309,40 +328,85 @@ export class SwapTransactionsService {
     });
   }
 
-  /** Load a swap by id with the asset relations ctxFromSwap needs. Nullable. */
+  /**
+   * Load a swap by id with the asset relations ctxFromSwap needs. Nullable.
+   * `customer` was added by Task 9 (demo-scenario.service.ts needs
+   * customer.sumsubApplicantId / customer.customerNo / customer.pendingActionExternalId
+   * to build simulated webhook payloads) — existing callers only read
+   * asset/status/etc. fields and are unaffected by the extra relation.
+   */
   async findByIdInternal(id: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;
     return client.swapTransaction.findUnique({
       where: { id },
-      include: { fromAsset: true, toAsset: true },
+      include: { fromAsset: true, toAsset: true, customer: true },
     });
   }
 
-  async markStatus(swapId: string, status: string, tx: Prisma.TransactionClient) {
+  /**
+   * 4 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
+   * 或 COMPLIANCE_PENDING → REJECTED(终态)。FAILED/REVERSED 是不可达死枚举
+   * （历史行兼容，见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」），不出现在此表中。
+   */
+  private readonly transitions: Record<string, Partial<Record<SwapTransactionAction, SwapTransactionStatus>>> = {
+    [SwapTransactionStatus.COMPLIANCE_PENDING]: {
+      [SwapTransactionAction.KYT_APPROVED]: SwapTransactionStatus.PROCESSING,
+      [SwapTransactionAction.KYT_REJECTED]: SwapTransactionStatus.REJECTED,
+      [SwapTransactionAction.SLA_BREACH]: SwapTransactionStatus.REJECTED,
+    },
+    [SwapTransactionStatus.PROCESSING]: {
+      [SwapTransactionAction.SUCCESS]: SwapTransactionStatus.SUCCESS,
+    },
+    [SwapTransactionStatus.SUCCESS]: {},
+    [SwapTransactionStatus.REJECTED]: {},
+    [SwapTransactionStatus.FAILED]: {},
+    [SwapTransactionStatus.REVERSED]: {},
+  };
+
+  async markStatus(
+    swapId: string,
+    action: SwapTransactionAction,
+    tx: Prisma.TransactionClient,
+    opts?: { rejectReason?: SwapRejectReason },
+  ): Promise<string> {
+    const swap = await (tx as any).swapTransaction.findUnique({ where: { id: swapId } });
+    if (!swap) throw new NotFoundException(`Swap not found: ${swapId}`);
+    const next = this.transitions[swap.status]?.[action];
+    if (!next) {
+      throw new BadRequestException(`Invalid transition: ${swap.status} + ${action}`);
+    }
+
     let statusHistory: any[] = [];
     try {
-      const current = await (tx as any).swapTransaction.findUnique({ where: { id: swapId }, select: { statusHistory: true } });
-      if (current?.statusHistory) {
-        statusHistory = JSON.parse(current.statusHistory);
+      if (swap.statusHistory) {
+        statusHistory = JSON.parse(swap.statusHistory);
         if (!Array.isArray(statusHistory)) statusHistory = [];
       }
     } catch {
       statusHistory = [];
     }
     statusHistory.push({
-      status,
+      status: next,
       timestamp: new Date().toISOString(),
       operator: 'SYSTEM',
-      note: `Swap settlement status → ${status}`,
+      note: `Swap settlement status → ${next}`,
     });
-    return (tx as any).swapTransaction.update({
+
+    await (tx as any).swapTransaction.update({
       where: { id: swapId },
       data: {
-        status,
-        completedAt: status === 'SUCCESS' ? new Date() : undefined,
+        status: next,
+        ...(opts?.rejectReason ? { rejectReason: opts.rejectReason } : {}),
+        completedAt: next === SwapTransactionStatus.SUCCESS ? new Date() : undefined,
         statusHistory: JSON.stringify(statusHistory),
       },
     });
+    return next;
+  }
+
+  /** Sumsub KYT webhook 按出账交易 id 认领对应的兑换单（走 @@index([sumsubTxnIdOut])）。 */
+  async findBySumsubTxnId(txnId: string) {
+    return this.prisma.swapTransaction.findFirst({ where: { sumsubTxnIdOut: txnId } });
   }
 
   async findOne(id: string) {
@@ -377,6 +441,158 @@ export class SwapTransactionsService {
     });
 
     return { ...item, internalFunds };
+  }
+
+  /**
+   * Customer-facing field whitelist (tipping-off guard). The raw `findOne`
+   * row carries investigation-only fields — complianceVerdict/
+   * complianceAction/complianceRuleNames (matched Sumsub rule names),
+   * sumsubDetailJson (the raw Sumsub getTxn payload), rejectReason,
+   * sumsubTxnIdOut/sumsubTxnIdIn, plus internal bookkeeping (traceId,
+   * ownerId/ownerNo, quoteSnapshotRef, tbFromTransferId/tbToTransferId/
+   * tbFeeTransferId/tbSpreadTransferId, grossAedValue, riskDecisionRef,
+   * failureCode/failureReason, statusHistory, needsReview, currentStage) —
+   * that must never reach a customer's browser: a DevTools inspection of the
+   * JSON response would be enough to tip off a person under sanctions
+   * investigation. Only whitelisted fields are returned; this list must stay
+   * in lockstep with the `SwapTransaction` interface in
+   * client-web/src/pages/Swap.tsx, which is the actual field contract the
+   * client reads. Mirrors WithdrawTransactionsService#toCustomerWithdrawView.
+   *
+   * Unlike deposit/withdraw, swap's reachable status enum
+   * (COMPLIANCE_PENDING/PROCESSING/SUCCESS/REJECTED — see
+   * SwapTransactionStatus) has no FROZEN/SEIZED/MANUAL_CHECKING-style
+   * enforcement state whose literal string would itself tip off the
+   * customer, so `status` is passed through as-is (no collapsing needed,
+   * same as withdraw's simpler status set).
+   *
+   * Public (not private): Task 11 defence-in-depth — SwapWorkflowService
+   * .initiateSwap also routes its create-response through this allow-list
+   * before returning it to the customer controller, so a future edit that
+   * reassigns the `swap` local there (e.g. rebinding it to a richer row)
+   * can't silently reopen a leak on that route.
+   */
+  toCustomerSwapView(item: any) {
+    return {
+      id: item.id,
+      swapNo: item.swapNo,
+      status: item.status,
+      fromAmount: item.fromAmount,
+      toAmount: item.toAmount,
+      netToAmount: item.netToAmount,
+      feeAmount: item.feeAmount,
+      feeCurrency: item.feeCurrency,
+      exchangeRate: item.exchangeRate,
+      createdAt: item.createdAt,
+      completedAt: item.completedAt,
+      fromAsset: item.fromAsset
+        ? {
+            currency: item.fromAsset.currency,
+            code: item.fromAsset.code,
+            network: item.fromAsset.network,
+            decimals: item.fromAsset.decimals,
+          }
+        : null,
+      toAsset: item.toAsset
+        ? {
+            currency: item.toAsset.currency,
+            code: item.toAsset.code,
+            network: item.toAsset.network,
+            decimals: item.toAsset.decimals,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Customer-facing single-fetch (IDOR guard + tipping-off whitelist).
+   * Mirrors WithdrawTransactionsService#findOneForCustomer — moves the
+   * ownership check out of the controller (swap-transactions-customer.
+   * controller.ts previously threw a bare `Error`, which NestJS turns into a
+   * 500 instead of a proper 403) and applies the field whitelist above.
+   */
+  async findOneForCustomer(id: string, customerId: string) {
+    const item = await this.findOne(id);
+    if (item.ownerId !== customerId) {
+      throw new ForbiddenException('Not your swap transaction');
+    }
+    return this.toCustomerSwapView(item);
+  }
+
+  /**
+   * Admin detail fetch = findOne + parsed Sumsub compliance detail (Task 10,
+   * mirror of WithdrawTransactionsService#findOneForAdmin). Kept separate from
+   * `findOne` — that method is also called by the customer-facing controller
+   * (swap-transactions-customer.controller.ts), and the raw compliance fields
+   * (rule names, reject reason, full Sumsub payload) must not leak there.
+   */
+  async findOneForAdmin(id: string) {
+    const item: any = await this.findOne(id);
+
+    // Sumsub getTxn 报文展示子集 —— parity 2026-08-14：与提现
+    // findOneForAdmin 的 parseDetail 逐字同源（withdraw-transactions.service.ts），
+    // 废弃此前自造的 {scoringAction, matchedRules: string[]} 形状。
+    const parseDetail = (json?: string | null) => {
+      if (!json) return null;
+      let d: any;
+      try {
+        d = JSON.parse(json);
+      } catch {
+        return null;
+      }
+      // JSON.parse 对合法但非对象的 JSON("null"/"123")不抛,属性访问才炸——挡住。
+      if (d === null || typeof d !== 'object') return null;
+      const sr = d.scoringResult ?? {};
+      return {
+        verdict: d.verdict ?? sr.action ?? null,
+        reviewStatus: d?.review?.reviewStatus ?? null,
+        reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
+        score: sr.score ?? null,
+        matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          action: r.action,
+          score: r.score,
+        })),
+        applicantActionIds: (sr.applicantActions ?? [])
+          .filter(Boolean)
+          .map((a: any) => a.applicantActionId)
+          .filter(Boolean),
+        tags: (d.typedTags ?? []).filter(Boolean).map((t: any) => t.label),
+        raw: d,
+      };
+    };
+
+    const parsed = parseDetail(item.sumsubDetailJson);
+    // swap 补充字段：双腿 txnId（提现单腿没有）。行级 rejectReason/complianceVerdict
+    // 走 item 顶层裸列（References 卡消费），不塞进 detail。
+    const sumsubDetail = parsed
+      ? { ...parsed, txnIdOut: item.sumsubTxnIdOut, txnIdIn: item.sumsubTxnIdIn }
+      : null;
+
+    return { ...item, sumsubDetail };
+  }
+
+  /**
+   * Sumsub KYT 裁决证据一次原子写 —— mirror of withdraw saveSumsubVerdict
+   * (deliberate fork)。verdict 落 complianceVerdict（swap 既有列名，审计/列表
+   * 查询已依赖），score/scoredAt/detailJson 落 parity 三列。tx 必传：与
+   * markStatus 同事务，避免"状态回滚而证据留存"。
+   */
+  async saveSumsubVerdict(
+    swapId: string,
+    data: { verdict: string; score: number | null; scoredAt: Date; detailJson?: string },
+    tx: Prisma.TransactionClient,
+  ) {
+    return tx.swapTransaction.update({
+      where: { id: swapId },
+      data: {
+        complianceVerdict: data.verdict,
+        sumsubScore: data.score,
+        sumsubScoredAt: data.scoredAt,
+        ...(data.detailJson !== undefined && { sumsubDetailJson: data.detailJson }),
+      },
+    });
   }
 
   /** Active leg per legSeq = the row with the MAX attempt for that legSeq. */
@@ -455,6 +671,7 @@ export class SwapTransactionsService {
       tbSpreadTransferId?: string | null;
       traceId: string;
       grossAedValue?: Prisma.Decimal | null;
+      status: SwapTransactionStatus;
     },
     tx: Prisma.TransactionClient,
   ) {
@@ -467,7 +684,7 @@ export class SwapTransactionsService {
         ownerType: input.ownerType,
         ownerId: input.ownerId,
         ownerNo: input.ownerNo,
-        status: 'PROCESSING',
+        status: input.status,
         fromAssetId: input.fromAssetId,
         fromAssetCode: input.fromAssetCode,
         fromAmount: input.fromAmount,
@@ -489,11 +706,11 @@ export class SwapTransactionsService {
         completedAt: null,
         statusHistory: JSON.stringify([
           {
-            status: 'PROCESSING',
+            status: input.status,
             timestamp: new Date().toISOString(),
             operator: input.ownerId,
             source: 'CUSTOMER',
-            note: 'Swap created; processing (legs pending)',
+            note: `Swap created; status=${input.status}`,
           },
         ]),
       },

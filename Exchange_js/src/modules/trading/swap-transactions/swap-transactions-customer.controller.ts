@@ -10,7 +10,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { AdminPermissionGuard } from 'src/modules/identity/access-control/admin-permission.guard';
+import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { SwapTransactionsService } from './swap-transactions.service';
 import { SwapWorkflowService } from './swap-workflow.service';
@@ -149,24 +149,18 @@ export class SwapTransactionsCustomerController {
     summary: 'Create a new swap transaction from firm quote',
   })
   async create(@Request() req: any, @Body() dto: CreateSwapFromQuoteDto) {
-    return this.swapWorkflowService.executeSwap(req.user.userId, dto.quoteId);
+    return this.swapWorkflowService.initiateSwap(req.user.userId, dto.quoteId);
   }
 
   @Get('my')
   @ApiOperation({ summary: 'Get all swap transactions for current customer' })
   findMy(@Request() req: any, @Query() query: SwapTransactionQueryDto) {
-    query.ownerId = req.user.userId;
-    query.ownerType = 'CUSTOMER';
-    return this.swapTransactionsService.findAll(query);
+    return this.swapTransactionsService.findAllForCustomer(req.user.userId, query);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get swap transaction by ID' })
-  async findOne(@Request() req: any, @Param('id') id: string) {
-    const item = await this.swapTransactionsService.findOne(id);
-    if (item.ownerId !== req.user.userId) {
-      throw new Error('Unauthorized');
-    }
-    return item;
+  findOne(@Request() req: any, @Param('id') id: string) {
+    return this.swapTransactionsService.findOneForCustomer(id, req.user.userId);
   }
 }

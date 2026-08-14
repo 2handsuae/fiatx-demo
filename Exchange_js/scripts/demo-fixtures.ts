@@ -309,11 +309,15 @@ export async function createStuckSwap(
       amount: amt, customerId: c.id,
     } as any);
 
-  // ── 1. 造 swap → PROCESSING（照 demo-lib.runSwaps：createQuote → executeSwap）────────
+  // ── 1. 造 swap → PROCESSING（照 demo-lib.runSwaps：createQuote → initiateSwap →
+  //   喂 approved KYT 裁决）。initiateSwap 本身零记账（COMPLIANCE_PENDING），leg1
+  //   由裁决落地时建（applyKytVerdict）；demo/local 无真实 Sumsub webhook，直接调
+  //   workflow 落裁决，与 driveWithdraw 的 applyKytVerdict 调用同款。────────────
   //   opts.amount 直接作 fromAmount——外部镜像入库洗成分（× 10^decimals，见 step 4），grossTo
   //   是不是整数主单位不再要紧，故无需再搜整数 fromAmount，任意方向（含 to-USDT 6 位）皆可造。
   const quote: any = await mkQuote(new Prisma.Decimal(amount));
-  const swap: any = await ctx.swapWf.executeSwap(c.id, quote.id);
+  const swap: any = await ctx.swapWf.initiateSwap(c.id, quote.id);
+  await ctx.swapWf.applyKytVerdict(swap.id, { verdict: 'approved' });
   await waitFor(`${swap.swapNo} PROCESSING`, async () => {
     const s: any = await ctx.prisma.swapTransaction.findUnique({ where: { id: swap.id } });
     return s?.status === 'PROCESSING' ? s : null;

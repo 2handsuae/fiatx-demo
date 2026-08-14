@@ -2,8 +2,13 @@
  * swap-workflow.service.spec.ts
  *
  * SwapWorkflowService owns the swap journey, now event-driven on funds_order:
- *   executeSwap        → creates the swap (PROCESSING) + leg1 funds_order (CREATED)
- *                        + books leg1 pending TB.
+ *   initiateSwap       → L1 gates + consumeQuote + creates the swap
+ *                        (COMPLIANCE_PENDING, no legs) + submits the sell leg
+ *                        to Sumsub KYT (Task 4). Leg-building is deferred to
+ *                        applyKytVerdict/onKytApproved (Task 6) once the
+ *                        webhook verdict lands.
+ *   submitSumsubTxnOut → idempotent: submits the sell leg, no-ops if the swap
+ *                        already has a sumsubTxnIdOut (watchdog-retry safe).
  *   advanceLeg         → thin sync wrapper: resolve active leg → funds_order.advance
  *                        (sell-first guard preserved).
  *   handleFundsOrderChanged → on CLEARED: post + chain next / finalize SUCCESS;
@@ -14,6 +19,8 @@ import { SwapWorkflowService } from './swap-workflow.service';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
+import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
+import { buildSwapLegPlan } from '../../funds-layer/constants/swap-leg-plan.constant';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -88,14 +95,24 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       id: 'swap-1', swapNo: 'SWP0001', ownerType: 'CUSTOMER', ownerId: 'cust-1', ownerNo: 'C0001',
       fromAssetId: quote.fromAssetId, fromAssetCode: quote.fromAssetCode,
       toAssetId: quote.toAssetId, toAssetCode: quote.toAssetCode,
+      status: 'COMPLIANCE_PENDING',
     })),
-    findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'PROCESSING' })),
+    findOne: jest.fn(() => Promise.resolve({ id: 'swap-1', swapNo: 'SWP0001', status: 'COMPLIANCE_PENDING' })),
     recomputeProjections: jest.fn(() => Promise.resolve()),
+    // Task 11 hardening: initiateSwap now routes its return value through
+    // this allow-list. Pass-through mock — the allow-list's own field
+    // selection is covered by swap-transactions.service.spec.ts, not here.
+    toCustomerSwapView: jest.fn((item: any) => item),
   };
 
   const auditLogsService = {
     recordByActor: jest.fn(() => Promise.resolve()),
     recordSystem: jest.fn(() => Promise.resolve()),
+  };
+
+  // submitSumsubTxnOut (Task 4) — submits the swap's sell leg to Sumsub KYT.
+  const sumsubTxnClient = {
+    submitTxn: jest.fn(() => Promise.resolve({ txnId: 'txn-mock-out' })),
   };
 
   const eventEmitter = { emit: jest.fn() };
@@ -118,10 +135,22 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     customerMain: {
       findUnique: jest.fn(() => Promise.resolve({ id: 'cust-1', complianceStatus: 'ACTIVE', adminStatus: 'ACTIVE', onboardingStatus: 'APPROVED' })),
     },
-    // L1 Transaction Limit gate: executeSwap peeks the quote (outside the tx)
+    // L1 Transaction Limit gate: initiateSwap peeks the quote (outside the tx)
     // for the from-asset + amount before evaluating the gate.
     swapQuote: {
       findUnique: jest.fn(() => Promise.resolve({ fromAssetId: quote.fromAssetId, amountIn: quote.amountIn })),
+    },
+    // submitSumsubTxnOut reads/writes the swap row directly (outside the
+    // create transaction) — used by initiateSwap's post-commit submit call
+    // and by the dedicated submitSumsubTxnOut tests.
+    swapTransaction: {
+      findUnique: jest.fn(() => Promise.resolve({
+        id: 'swap-1', swapNo: 'SWP0001', sumsubTxnIdOut: null,
+        fromAmount: quote.amountIn,
+        fromAsset: { currency: quote.fromAssetCode, type: assetMap[quote.fromAssetId]?.type },
+        customer: { sumsubApplicantId: 'applicant-1' },
+      })),
+      update: jest.fn(() => Promise.resolve({})),
     },
     $transaction: jest.fn((cb: (tx: any) => Promise<any>) => {
       const tx: any = {
@@ -136,11 +165,13 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, prisma, sumsubTxnClient };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
-  // C2c cut-over: executeSwap drives leg1-only via SwapLegAccounting + FundsOrderService.
+  // SwapLegAccounting + FundsOrderService stubs — used by the direct
+  // buildLegContext/createLeg tests below (leg-building itself now happens in
+  // applyKytVerdict/Task 6, not initiateSwap).
   const stubLegAccounting: any = {
     ctxFromSwap: jest.fn(),
     initiateLegPending: jest.fn(() => Promise.resolve()),
@@ -173,56 +204,115 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     stubFundsOrders,
     (mocks as any).walletQuery,
     mocks.limitGateService as any,
+    mocks.sumsubTxnClient as any,
+    {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
+    {} as any, // pendingActionService — not on this path
   );
 }
 
-// ── executeSwap ──────────────────────────────────────────────────────────────
+// ── initiateSwap ─────────────────────────────────────────────────────────────
 
-describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', () => {
-  it('creates swap PROCESSING (no atomic TB legs, no SUCCESS) + leg1 funds_order CREATED', async () => {
+describe('SwapWorkflowService.initiateSwap — COMPLIANCE_PENDING, no legs', () => {
+  it('initiateSwap 消费 quote、建单为 COMPLIANCE_PENDING、不建任何腿', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
 
-    await service.executeSwap('cust-1', 'q-1');
+    const swap = await service.initiateSwap('cust-1', 'quote-1');
 
-    // Swap row created via service
-    expect(mocks.swapTransactionsService.create).toHaveBeenCalledTimes(1);
+    expect(swap.status).toBe('COMPLIANCE_PENDING');
+    expect(mocks.swapQuoteService.consumeQuote).toHaveBeenCalledTimes(1);
+    expect(createLegSpy).not.toHaveBeenCalled();
+    expect(mocks.accountingService.executePendingTransfer).not.toHaveBeenCalled();
 
-    // tb*TransferId columns are null at create time (legs post later)
+    // Stronger form of the same property (task guarantee #2): nothing is
+    // booked at all — no funds_order, no TB pending, no direct transfer.
+    expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+    expect((mocks as any).legAccounting.initiateLegPending).not.toHaveBeenCalled();
+    expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
+
+    // tb*TransferId columns are null at create time (legs post later, Task 6)
     const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
     expect(createArg.tbFromTransferId).toBeNull();
     expect(createArg.tbToTransferId).toBeNull();
     expect(createArg.tbFeeTransferId).toBeNull();
     expect(createArg.tbSpreadTransferId).toBeNull();
+    expect(createArg.status).toBe('COMPLIANCE_PENDING');
 
-    // No atomic direct transfers — delegation only
-    expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
-
-    // leg1-only progressive create via FundsOrderService (funds_order CREATED).
-    expect((mocks as any).fundsOrders.create).toHaveBeenCalledTimes(1);
-    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
-    expect(createLegArg.swapTransactionId).toBe('swap-1');
-    expect(createLegArg.legSeq).toBe(1);
-    expect(createLegArg.attempt).toBe(1);
-    expect(createLegArg.initialStatus).toBe(FundsOrderStatus.CREATED);
-    // leg1 pending booked; leg is NOT auto-advanced (driver submits it).
-    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
-    expect((mocks as any).fundsOrders.advance).not.toHaveBeenCalled();
-
-    // No SWAP_SUCCEEDED domain event at executeSwap return (swap is still PROCESSING)
+    // No SWAP_SUCCEEDED domain event at initiateSwap return (swap awaits KYT)
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+
+    // The sell leg was submitted to Sumsub as part of initiateSwap.
+    expect(mocks.sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
   });
 
-  it('passes correct SwapSettleCtx (leg1 pending) — CASE A (USDT→AED, fromIsFiat=false)', async () => {
+  it('submitSumsubTxnOut 提交卖出腿并回写 sumsubTxnIdOut', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.submitSumsubTxnOut('swap-1');
 
-    const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
-    const ctx = initiateArg[0];
+    const arg = (mocks.sumsubTxnClient.submitTxn as jest.Mock).mock.calls[0][0];
+    expect(arg).toMatchObject({
+      type: 'finance', direction: 'out', currencyCode: 'USDT',
+      orderId: 'SWP0001', props: { txType: 'exchange' }, infoType: 'exchange',
+    });
+    expect(mocks.prisma.swapTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sumsubTxnIdOut: expect.any(String) }) }),
+    );
+    // 同步响应只作证据快照，绝不写 status —— 状态唯一写入口是 webhook handler.
+    // This is the safety-critical invariant a later task's second writer relies on.
+    const updateData = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty('status');
+  });
+
+  it('submitSumsubTxnOut 携带 scoringResult 时把 complianceAction/complianceRuleNames 原样落回该行（且仍不写 status）', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.sumsubTxnClient.submitTxn as jest.Mock).mockResolvedValueOnce({
+      txnId: 'txn-mock-out',
+      scoringResult: { action: 'onHold', matchedRuleNames: ['RULE_A', 'RULE_B'] },
+    });
+    const service = makeService(mocks);
+
+    await service.submitSumsubTxnOut('swap-1');
+
+    const updateData = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls[0][0].data;
+    expect(updateData.complianceAction).toBe('onHold');
+    expect(updateData.complianceRuleNames).toBe('RULE_A,RULE_B');
+    expect(updateData).not.toHaveProperty('status');
+  });
+
+  it('submitSumsubTxnOut 幂等：已有 sumsubTxnIdOut 时不重复提交', async () => {
+    const mocks = buildMocks(makeQuote());
+    (mocks.prisma.swapTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 'swap-1', swapNo: 'SWP0001', sumsubTxnIdOut: 'already-submitted',
+      fromAmount: makeQuote().amountIn,
+      fromAsset: { currency: 'USDT', type: 'CRYPTO' },
+      customer: { sumsubApplicantId: 'applicant-1' },
+    });
+    const service = makeService(mocks);
+
+    await service.submitSumsubTxnOut('swap-1');
+
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+    expect(mocks.prisma.swapTransaction.update).not.toHaveBeenCalled();
+  });
+
+  it('buildLegContext rebuilds SwapSettleCtx from the persisted swap row — CASE A (USDT→AED, fromIsFiat=false)', async () => {
+    const mocks = buildMocks(makeQuote());
+    const service = makeService(mocks);
+    const swapRow = {
+      id: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1',
+      fromAssetId: 'asset-usdt', toAssetId: 'asset-aed',
+      fromAmount: new Prisma.Decimal('100'), toAmount: new Prisma.Decimal('0.05'),
+      feeAmount: new Prisma.Decimal('0.01'),
+    };
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
+
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
+
     expect(ctx.swapId).toBe('swap-1');
-    expect(ctx.swapNo).toMatch(/^SWP/);
+    expect(ctx.swapNo).toBe('SWP0001');
     expect(ctx.ownerId).toBe('cust-1');
     expect(ctx.fromIsFiat).toBe(false);   // USDT is CRYPTO
     expect(ctx.fromCurrency).toBe('USDT');
@@ -231,17 +321,21 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     expect(ctx.toDecimals).toBe(2);
     expect(ctx.grossToAmount.equals(new Prisma.Decimal('0.05'))).toBe(true);
     expect(ctx.feeAmount.equals(new Prisma.Decimal('0.01'))).toBe(true);
-    expect(ctx.attempt).toBe(1);
   });
 
-  it('passes correct SwapSettleCtx (leg1 pending) — CASE B (AED→USDT, fromIsFiat=true)', async () => {
+  it('buildLegContext rebuilds SwapSettleCtx from the persisted swap row — CASE B (AED→USDT, fromIsFiat=true)', async () => {
     const mocks = buildMocks(reverseQuote());
     const service = makeService(mocks);
+    const swapRow = {
+      id: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1',
+      fromAssetId: 'asset-aed', toAssetId: 'asset-usdt',
+      fromAmount: new Prisma.Decimal('100'), toAmount: new Prisma.Decimal('50'),
+      feeAmount: new Prisma.Decimal('1'),
+    };
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
 
-    await service.executeSwap('cust-1', 'q-1');
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
 
-    const initiateArg = ((mocks as any).legAccounting.initiateLegPending as jest.Mock).mock.calls[0];
-    const ctx = initiateArg[0];
     expect(ctx.fromIsFiat).toBe(true);    // AED is FIAT
     expect(ctx.fromCurrency).toBe('AED');
     expect(ctx.toCurrency).toBe('USDT');
@@ -255,7 +349,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     expect(mocks.onboardingService.assertTradingEligibility).toHaveBeenCalledWith('cust-1', 'SWAP');
     expect(mocks.swapQuoteService.consumeQuote).toHaveBeenCalledTimes(1);
@@ -271,7 +365,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const mocks = buildMocks(makeQuote()); // fromAssetId=asset-usdt, amountIn=100
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     expect(mocks.limitGateService.evaluate).toHaveBeenCalledTimes(1);
     const gateArg = (mocks.limitGateService.evaluate as jest.Mock).mock.calls[0][0];
@@ -288,7 +382,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       new BadRequestException({ code: 'TRANSACTION_LIMIT_ABOVE_MAX' }),
     );
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(BadRequestException);
 
     // Gate runs BEFORE the $transaction: nothing is created or consumed.
     expect(mocks.swapTransactionsService.create).not.toHaveBeenCalled();
@@ -303,7 +397,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       grossAedValue: new Prisma.Decimal('1234'), aedRate: new Prisma.Decimal('3.67'), rateFetchedAt: new Date(), rateFetchFailed: false,
     });
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
     expect(createArg.grossAedValue.equals(new Prisma.Decimal('1234'))).toBe(true);
@@ -316,7 +410,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-aed'),
     );
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toMatchObject({
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toMatchObject({
       response: { code: 'RECEIVING_ACCOUNT_REQUIRED', assetCode: 'AED' },
     });
 
@@ -332,7 +426,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       (_customerId: string, assetId: string) => Promise.resolve(assetId !== 'asset-usdt'),
     );
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toMatchObject({
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toMatchObject({
       response: { code: 'RECEIVING_ACCOUNT_REQUIRED', assetCode: 'USDT' },
     });
 
@@ -345,7 +439,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const service = makeService(mocks);
     // default stub already resolves true for both sides
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-usdt');
     expect((mocks as any).walletQuery.hasReceivingAccount).toHaveBeenCalledWith('cust-1', 'asset-aed');
@@ -357,7 +451,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     const mocks = buildMocks(makeQuote({ traceId: TRACE } as any));
     const service = makeService(mocks);
 
-    await service.executeSwap('cust-1', 'q-1');
+    await service.initiateSwap('cust-1', 'q-1');
 
     const createArg = (mocks.swapTransactionsService.create as jest.Mock).mock.calls[0][0];
     expect(createArg.traceId).toBe(TRACE);
@@ -366,10 +460,6 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
       .map((c: any[]) => c[0])
       .find((a: any) => a.action === 'SWAP_CREATED');
     expect(auditArg?.traceId).toBe(TRACE);
-
-    // traceId propagates onto the leg1 funds_order too.
-    const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
-    expect(createLegArg.traceId).toBe(TRACE);
   });
 
   it('emits SWAP_FAILED audit when create throws, re-throws error', async () => {
@@ -378,7 +468,7 @@ describe('SwapWorkflowService.executeSwap — PROCESSING + leg1 funds_order', ()
     (mocks.swapTransactionsService.create as jest.Mock).mockImplementation(() => Promise.reject(new Error('db error')));
 
     const service = makeService(mocks);
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toThrow('db error');
+    await expect(service.initiateSwap('cust-1', 'q-1')).rejects.toThrow('db error');
 
     const failAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
       .map((c: any[]) => c[0])
@@ -397,7 +487,7 @@ import { FundsOrderAction } from '../../funds-orders/dto/funds-order.dto';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
 import { mapLegAction } from './swap-workflow.service';
 
-// Build mocks for advanceLeg + handleFundsOrderChanged (extends executeSwap mocks).
+// Build mocks for advanceLeg + handleFundsOrderChanged (extends initiateSwap mocks).
 function buildAdvanceLegMocks(opts: {
   swapNo?: string;
   fromIsFiat?: boolean;
@@ -442,6 +532,8 @@ function buildAdvanceLegMocks(opts: {
     activeLegsBySeq: jest.fn(() => Promise.resolve(legState.slice())),
     markStatus: jest.fn(() => Promise.resolve()),
     setNeedsReview: jest.fn(() => Promise.resolve()),
+    // parity 2026-08-14：证据四件套原子写（与 markStatus 同事务）
+    saveSumsubVerdict: jest.fn(() => Promise.resolve()),
     recomputeProjections: jest.fn(() => Promise.resolve()),
     create: jest.fn(),
     findOne: jest.fn(),
@@ -540,7 +632,8 @@ function buildAdvanceLegMocks(opts: {
 }
 
 function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
-  // advanceLeg never calls executeSwap, so the limit gate is never invoked here.
+  // advanceLeg never calls initiateSwap, so the limit gate + sumsubTxnClient
+  // are never invoked here.
   return new SwapWorkflowService(
     mocks.prisma,
     mocks.onboardingService as any,
@@ -553,6 +646,9 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     mocks.fundsOrders as any,
     mocks.walletQuery as any,
     {} as any,
+    {} as any,
+    {} as any, // customerRestrictionsService — not on this path (advanceLeg never rejects)
+    {} as any, // pendingActionService — not on this path
   );
 }
 
@@ -694,7 +790,7 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
 
     // markStatus(SUCCESS).
     expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
-    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe('SUCCESS');
+    expect((mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0][1]).toBe(SwapTransactionAction.SUCCESS);
 
     // SWAP_LEG_POSTED + SWAP_SUCCEEDED audits.
     const recorded = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls.map((c) => c[0].action);
@@ -975,32 +1071,857 @@ describe('assertInternalFundLegRules (R1 invariant)', () => {
   });
 });
 
-describe('SwapWorkflowService — R1: create receives resolved wallets', () => {
-  it('executeSwap leg1: passes resolved fromWalletId/toWalletId to funds_order.create', async () => {
+// Leg-building (createLeg/buildLegContext) is invoked by applyKytVerdict
+// (Task 6) now, not by initiateSwap — exercise it directly here to keep R1
+// coverage for the code that moved, unchanged, out of the old executeSwap.
+describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () => {
+  const swapRow = {
+    id: 'swap-1', swapNo: 'SWP0001', ownerId: 'cust-1',
+    fromAssetId: 'asset-usdt', toAssetId: 'asset-aed',
+    fromAmount: new Prisma.Decimal('100'), toAmount: new Prisma.Decimal('0.05'),
+    feeAmount: new Prisma.Decimal('0.01'),
+  };
+
+  it('createLeg leg1: passes resolved fromWalletId/toWalletId to funds_order.create', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
+    const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
 
-    await service.executeSwap('cust-1', 'q-1');
+    await (service as any).createLeg(swapRow, legSpecs[0]!, ctx, 1, 1, 'TRACE-CREATELEG-1', tx);
 
     expect((mocks as any).legAccounting.resolveLegWallets).toHaveBeenCalledTimes(1);
     const createLegArg = ((mocks as any).fundsOrders.create as jest.Mock).mock.calls[0][0];
     expect(createLegArg.fromWalletId).toBe('w-from');
     expect(createLegArg.toWalletId).toBe('w-to');
+
+    // Coverage dropped in the earlier test rewrite (finding 5):
+    expect(createLegArg.swapTransactionId).toBe(swapRow.id);
+    expect(createLegArg.legSeq).toBe(1);
+    expect(createLegArg.attempt).toBe(1);
+    // An unguarded change to SUBMITTED here would currently pass green without this.
+    expect(createLegArg.initialStatus).toBe(FundsOrderStatus.CREATED);
+    // traceId propagates onto the created funds order.
+    expect(createLegArg.traceId).toBe('TRACE-CREATELEG-1');
+
+    // legAccounting.initiateLegPending called once (positive assertion).
+    expect((mocks as any).legAccounting.initiateLegPending).toHaveBeenCalledTimes(1);
+    // createLeg's per-attempt context enrichment sets `attempt` on the leg context.
+    expect((mocks as any).legAccounting.initiateLegPending.mock.calls[0][0].attempt).toBe(1);
+
+    // createLeg must not auto-advance the leg.
+    expect((mocks as any).fundsOrders.advance).not.toHaveBeenCalled();
   });
 
-  it('executeSwap throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
+  it('createLeg throws InvalidInternalFundError when customer-side wallet does not resolve', async () => {
     const mocks = buildMocks(makeQuote());
     const service = makeService(mocks);
     ((mocks as any).legAccounting.resolveLegWallets as jest.Mock).mockResolvedValueOnce({
       fromWalletId: null,
       toWalletId: 'firm-ops-wallet',
     });
+    const tx: any = { asset: { findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)) } };
+    const ctx = await (service as any).buildLegContext(swapRow, tx);
+    const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
 
-    await expect(service.executeSwap('cust-1', 'q-1')).rejects.toBeInstanceOf(
-      InvalidInternalFundError,
-    );
+    await expect(
+      (service as any).createLeg(swapRow, legSpecs[0]!, ctx, 1, 1, undefined, tx),
+    ).rejects.toBeInstanceOf(InvalidInternalFundError);
 
     // create must NOT be called when R1 assert fails.
     expect((mocks as any).fundsOrders.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── applyKytVerdict (Task 6) — approved → PROCESSING+leg1+buy-leg submit; ──
+// ── rejected → REJECTED with zero accounting trace; both idempotent ────────
+
+import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
+
+describe('SwapWorkflowService.applyKytVerdict', () => {
+  function buildApplyKytVerdictMocks(overrides: { status?: string } = {}) {
+    const swapRow = {
+      id: 's1',
+      swapNo: 'SWP0001',
+      status: overrides.status ?? SwapTransactionStatus.COMPLIANCE_PENDING,
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      ownerNo: 'C0001',
+      traceId: 'TRACE-1',
+      fromAssetId: 'asset-usdt',
+      toAssetId: 'asset-aed',
+      fromAmount: new Prisma.Decimal('100'),
+      toAmount: new Prisma.Decimal('0.05'),
+      netToAmount: new Prisma.Decimal('0.04'),
+      feeAmount: new Prisma.Decimal('0.01'),
+      fromAsset: { decimals: 6, currency: 'USDT', type: 'CRYPTO' },
+      toAsset: { decimals: 2, currency: 'AED', type: 'FIAT' },
+    };
+
+    // The $transaction callback's tx client — distinct from the top-level
+    // `prisma.swapTransaction` spy below so tests can tell apart writes made
+    // INSIDE the markStatus transaction from writes made outside it
+    // (transaction-boundary property).
+    const txClient: any = {
+      asset: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(assetMap[where.id] ?? null)),
+      },
+      swapTransaction: {
+        update: jest.fn(() => Promise.resolve({})),
+      },
+    };
+
+    const swapTransactionsService = {
+      findByIdInternal: jest.fn(() => Promise.resolve(swapRow)),
+      markStatus: jest.fn(() => Promise.resolve()),
+      // parity 2026-08-14：证据四件套原子写（与 markStatus 同事务）
+      saveSumsubVerdict: jest.fn(() => Promise.resolve()),
+      recomputeProjections: jest.fn(() => Promise.resolve()),
+      setNeedsReview: jest.fn(() => Promise.resolve()),
+    };
+
+    const legAccounting = {
+      resolveLegWallets: jest.fn(() => Promise.resolve({ fromWalletId: 'w-from', toWalletId: 'w-to' })),
+      initiateLegPending: jest.fn(() => Promise.resolve()),
+    };
+
+    const fundsOrders = {
+      create: jest.fn(() => Promise.resolve({ id: 'fo-1', legSeq: 1, attempt: 1, status: 'CREATED' })),
+    };
+
+    const auditLogsService = {
+      recordSystem: jest.fn(() => Promise.resolve()),
+      recordByActor: jest.fn(() => Promise.resolve()),
+    };
+
+    const sumsubTxnClient = {
+      submitTxn: jest.fn(() => Promise.resolve({ txnId: 'txn-mock-in' })),
+    };
+
+    // Guarantee #2 (rejection is zero-trace) is asserted against these too.
+    const accountingService = {
+      executePendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 0n })),
+      voidPendingTransfer: jest.fn(() => Promise.resolve()),
+      postPendingTransfer: jest.fn(() => Promise.resolve()),
+      executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
+    };
+
+    const prisma: any = {
+      $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+      // submitSumsubTxnIn (buy leg) reads/writes the swap row directly,
+      // outside the markStatus transaction — mirrors submitSumsubTxnOut.
+      swapTransaction: {
+        findUnique: jest.fn(() =>
+          Promise.resolve({
+            id: 's1',
+            swapNo: 'SWP0001',
+            ownerId: 'cust-1',
+            sumsubTxnIdIn: null,
+            netToAmount: swapRow.netToAmount,
+            toAmount: swapRow.toAmount,
+            toAsset: { currency: 'AED', type: 'FIAT' },
+            customer: { sumsubApplicantId: 'applicant-1' },
+          }),
+        ),
+        update: jest.fn(() => Promise.resolve({})),
+      },
+    };
+
+    // Task 7: CustomerRestrictionsService stays a jest mock here — its own
+    // idempotency (dedup per capability) is already proven in
+    // customer-restrictions.service.spec.ts (Task 1); these tests only need
+    // to assert swap-workflow *calls* it correctly.
+    const customerRestrictionsService = {
+      add: jest.fn(() => Promise.resolve()),
+    };
+
+    // Task 7: CustomerPendingActionService is the REAL implementation wired
+    // to a small stateful customerMain fake, not a jest mock. The whole point
+    // of the tipping-off split is that the read side (.get()) is a dumb
+    // accessor with no logic of its own — mocking .get() would just assert
+    // our own assumption back at us instead of proving the write landed
+    // right. Deliberately a separate prisma-like object from `prisma` above
+    // (real production code injects two separate services, both ultimately
+    // backed by the same PrismaService — test isolation mirrors that).
+    const customerMainRow: any = {
+      id: 'cust-1',
+      customerNo: 'C0001',
+      pendingActionExternalId: null,
+      pendingActionReason: null,
+      hardLineDispositionedAt: null,
+    };
+    const pendingActionPrisma: any = {
+      customerMain: {
+        findUnique: jest.fn(({ where }: any) =>
+          Promise.resolve(where.id === customerMainRow.id ? { ...customerMainRow } : null),
+        ),
+        update: jest.fn(({ data }: any) => {
+          Object.assign(customerMainRow, data);
+          return Promise.resolve({ ...customerMainRow });
+        }),
+      },
+    };
+    const pendingActionService = new CustomerPendingActionService(pendingActionPrisma, { recordByActor: jest.fn(), recordSystem: jest.fn() } as any, { createActionSdkToken: jest.fn() } as any);
+
+    return {
+      swapRow,
+      txClient,
+      swapTransactionsService,
+      legAccounting,
+      fundsOrders,
+      auditLogsService,
+      sumsubTxnClient,
+      accountingService,
+      prisma,
+      customerRestrictionsService,
+      pendingActionService,
+      customerMainRow,
+    };
+  }
+
+  function makeApplyKytVerdictService(mocks: ReturnType<typeof buildApplyKytVerdictMocks>) {
+    return new SwapWorkflowService(
+      mocks.prisma,
+      {} as any, // onboardingService — not on this path
+      {} as any, // swapQuoteService — not on this path
+      mocks.swapTransactionsService as any,
+      mocks.accountingService as any,
+      mocks.auditLogsService as any,
+      { emit: jest.fn() } as any, // eventEmitter — not on this path
+      mocks.legAccounting as any,
+      mocks.fundsOrders as any,
+      {} as any, // walletQuery — not on this path
+      {} as any, // limitGateService — not on this path
+      mocks.sumsubTxnClient as any,
+      mocks.customerRestrictionsService as any,
+      mocks.pendingActionService as any,
+    );
+  }
+
+  it('approved → markStatus(KYT_APPROVED) + builds leg1 + submits the buy leg to Sumsub', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.KYT_APPROVED,
+      expect.anything(),
+    );
+    expect(createLegSpy).toHaveBeenCalledTimes(1);
+    // leg1 is the SELL leg — its asset must be the FROM asset (proves the ctx
+    // passed to createLeg came from a real buildLegContext, not a stub).
+    const createArg = (mocks.fundsOrders.create as jest.Mock).mock.calls[0][0];
+    expect(createArg.assetId).toBe('asset-usdt');
+    expect(createArg.legSeq).toBe(1);
+    expect(createArg.attempt).toBe(1);
+
+    expect(mocks.sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ direction: 'in', orderId: 'SWP0001' }),
+    );
+
+    // KYT_APPROVED audit recorded with the richer shape used elsewhere in
+    // this file (workflowType/traceId/entityOwnerType/entityOwnerId) — the
+    // sparse SWAP_KYT_SUBMITTED call is the odd one out, not the model.
+    const approvedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_KYT_APPROVED);
+    expect(approvedAudit).toBeDefined();
+    expect(approvedAudit.workflowType).toBeDefined();
+    expect(approvedAudit.traceId).toBe('TRACE-1');
+    expect(approvedAudit.entityOwnerType).toBe('CUSTOMER');
+    expect(approvedAudit.entityOwnerId).toBe('cust-1');
+  });
+
+  it('rejected → markStatus(KYT_REJECTED, {rejectReason: KYT_REJECTED}) with zero accounting/leg trace', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
+
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.KYT_REJECTED,
+      expect.anything(),
+      { rejectReason: 'KYT_REJECTED' },
+    );
+    expect(mocks.accountingService.executePendingTransfer).not.toHaveBeenCalled();
+    expect(mocks.accountingService.voidPendingTransfer).not.toHaveBeenCalled();
+    expect(mocks.accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(createLegSpy).not.toHaveBeenCalled();
+    // The buy-leg is never submitted for a rejected swap.
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+
+    const rejectedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED);
+    expect(rejectedAudit).toBeDefined();
+    expect(rejectedAudit.entityOwnerType).toBe('CUSTOMER');
+    expect(rejectedAudit.entityOwnerId).toBe('cust-1');
+  });
+
+  it('rejected hands off to handleRejectDisposition (Task 7 stub) with the swap + raw input', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest
+      .spyOn(service as any, 'handleRejectDisposition')
+      .mockResolvedValue(undefined);
+
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    await service.applyKytVerdict('s1', input);
+
+    expect(dispositionSpy).toHaveBeenCalledTimes(1);
+    expect(dispositionSpy.mock.calls[0][0]).toMatchObject({ id: 's1' });
+    expect(dispositionSpy.mock.calls[0][1]).toBe(input);
+  });
+
+  it.each([
+    SwapTransactionStatus.SUCCESS,
+    SwapTransactionStatus.REJECTED,
+    SwapTransactionStatus.FAILED,
+    SwapTransactionStatus.REVERSED,
+  ])('already-terminal (%s) → no-op, idempotent against webhook redelivery', async (status) => {
+    const mocks = buildApplyKytVerdictMocks({ status });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+  });
+
+  // ── Review Fix 1 (Important): a REJECTED swap receiving another 'rejected'
+  // ── verdict is the shape of a disposition-failure retry (handleRejectDisposition
+  // ── threw after the REJECTED transaction committed, the ingestion dispatcher
+  // ── marked the webhook FAILED and redelivered it) — it must re-run disposition,
+  // ── not silently no-op like the other terminal statuses. markStatus/leg-building
+  // ── must NOT re-run — only disposition, which is independently idempotent.
+  it('REJECTED + rejected verdict → re-runs ONLY handleRejectDisposition (disposition-failure retry), not markStatus/$transaction', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest
+      .spyOn(service as any, 'handleRejectDisposition')
+      .mockResolvedValue(undefined);
+
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    await service.applyKytVerdict('s1', input);
+
+    expect(dispositionSpy).toHaveBeenCalledTimes(1);
+    expect(dispositionSpy.mock.calls[0][0]).toMatchObject({ id: 's1' });
+    expect(dispositionSpy.mock.calls[0][1]).toBe(input);
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+  });
+
+  // A genuinely duplicate 'rejected' redelivery for an already-REJECTED swap
+  // must stay harmless — handleRejectDisposition's own idempotency (proven
+  // below) is what makes re-admitting this case into disposition safe rather
+  // than a source of duplicate restrictions.
+  it('REJECTED + approved verdict (contradictory / stale) → still a plain no-op, disposition not re-run', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest.spyOn(service as any, 'handleRejectDisposition');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(dispositionSpy).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  // ── Finding 2 (Minor, 终审): the same disposition-failure-retry shape as ──
+  // ── the REJECTED carve-out above, but for a swap that reached SUCCESS —
+  // ── disposition is also invoked from the PROCESSING branch (a hard line
+  // ── raised after the swap already entered settlement); if THAT call
+  // ── throws, the webhook retry can land ≥30s later, by which time all legs
+  // ── may have cleared. The order's state must not decide whether the PERSON
+  // ── gets restricted, so SUCCESS is admitted here too — but only to re-run
+  // ── disposition, never markStatus/leg-building (proven below: it cannot
+  // ── cause a state transition, a second set of legs, or unwind a completed
+  // ── swap — that is exactly why the terminal guard exists).
+  it('SUCCESS + rejected verdict → re-runs ONLY handleRejectDisposition (post-approval disposition-failure retry), never re-transitions or rebuilds legs (Finding 2)', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest
+      .spyOn(service as any, 'handleRejectDisposition')
+      .mockResolvedValue(undefined);
+
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    await service.applyKytVerdict('s1', input);
+
+    expect(dispositionSpy).toHaveBeenCalledTimes(1);
+    expect(dispositionSpy.mock.calls[0][0]).toMatchObject({ id: 's1' });
+    expect(dispositionSpy.mock.calls[0][1]).toBe(input);
+    // A completed swap must never be touched again: no transaction, no state
+    // transition, no second set of legs — only the person-level retry.
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+  });
+
+  it('SUCCESS + rejected (SANCTION) verdict → completed swap stays fully untouched, but the customer is still restricted (Finding 2)', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
+      'cust-1',
+      ['SWAP', 'WITHDRAW'],
+      'KYT_REJECTED',
+      'system',
+    );
+    // Sanction hit — tipping-off silence still applies against a completed swap.
+    expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+  });
+
+  it('SUCCESS + approved verdict (stale/contradictory) → still a plain no-op, disposition not re-run', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest.spyOn(service as any, 'handleRejectDisposition');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(dispositionSpy).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  // ── Review Fix 1 (Important): PROCESSING is NOT terminal, but neither verdict
+  // ── has a legal state-machine edge from it — a late/re-scored verdict must
+  // ── audit + flag review instead of falling through into markStatus and
+  // ── throwing (which would dead-letter the webhook).
+  it('PROCESSING + rejected verdict → no throw, no transition, no legs, flags needsReview', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
+    const service = makeApplyKytVerdictService(mocks);
+    const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+    await expect(
+      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(createLegSpy).not.toHaveBeenCalled();
+    expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith(
+      's1',
+      true,
+      expect.anything(),
+    );
+
+    const postAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_POST_APPROVAL_VERDICT);
+    expect(postAudit).toBeDefined();
+    expect(postAudit.metadata).toEqual({ verdict: 'rejected' });
+  });
+
+  // ── Review Fix 3 (Important): a sanction verdict landing after the swap ──
+  // ── already entered PROCESSING must still restrict the PERSON, even though
+  // ── the swap itself correctly keeps executing (already past the point of
+  // ── no return — must not be unwound).
+  it('PROCESSING + rejected (SANCTION) verdict → swap keeps executing, but the customer is still restricted (Review Fix 3)', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+
+    // Swap itself is untouched — no state transition, no unwinding.
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    // But the person is restricted exactly like a pre-PROCESSING rejection.
+    expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
+      'cust-1',
+      ['SWAP', 'WITHDRAW'],
+      'KYT_REJECTED',
+      'system',
+    );
+    // Sanction hit — tipping-off silence still applies mid-swap.
+    expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+  });
+
+  it('PROCESSING + approved verdict → disposition never runs (nothing to restrict)', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
+    const service = makeApplyKytVerdictService(mocks);
+    const dispositionSpy = jest.spyOn(service as any, 'handleRejectDisposition');
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(dispositionSpy).not.toHaveBeenCalled();
+    expect(mocks.customerRestrictionsService.add).not.toHaveBeenCalled();
+  });
+
+  it('swap not found → no-op, does not throw', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.swapTransactionsService.findByIdInternal as jest.Mock).mockResolvedValueOnce(null);
+    const service = makeApplyKytVerdictService(mocks);
+
+    await expect(service.applyKytVerdict('missing', { verdict: 'approved' })).resolves.toBeUndefined();
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+  });
+
+  // ── transaction-boundary property (Task 4 review note) ──────────────────
+  it('writes the compliance-verdict fields INSIDE the same $transaction as markStatus, not outside it', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', {
+      verdict: 'approved',
+      riskScore: 10,
+      detailRaw: { foo: 'bar' },
+    });
+
+    // parity 2026-08-14：证据写经 saveSumsubVerdict(swapId, evidence, tx)。
+    // 原子性证明拆两层——本层断言"收到的是与 markStatus 同一个 tx client"；
+    // "它确实写在传入 tx 上"由 swap-transactions.service.spec 的
+    // saveSumsubVerdict 单测钉住。两层合起来等价于旧断言。
+    const saveCall = (mocks.swapTransactionsService.saveSumsubVerdict as jest.Mock).mock.calls[0];
+    expect(saveCall[0]).toBe('s1');
+    expect(saveCall[1]).toEqual(
+      expect.objectContaining({
+        verdict: 'approved',
+        score: 10,
+        detailJson: JSON.stringify({ foo: 'bar' }),
+      }),
+    );
+    expect(saveCall[1].scoredAt).toBeInstanceOf(Date);
+    expect(saveCall[2]).toBe(mocks.txClient); // 与 markStatus 同事务
+    const markCall = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0];
+    expect(markCall[2]).toBe(mocks.txClient);
+    // 顶层非事务 client 上绝不落 verdict 字段（buy 腿的 sumsubTxnIdIn 写除外）。
+    const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
+    for (const [arg] of topLevelUpdateCalls) {
+      expect(arg.data).not.toHaveProperty('complianceVerdict');
+    }
+  });
+
+  // Mirror of the above for the rejected branch — this is the branch where a
+  // stranded verdict (evidence written but the transaction rolls back before
+  // markStatus/audit land) does the most damage, so it needs the same proof.
+  it('rejected: also writes the compliance-verdict fields INSIDE the same $transaction as markStatus', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', {
+      verdict: 'rejected',
+      riskScore: 88,
+      detailRaw: { foo: 'bar' },
+    });
+
+    // 同 approved 支：saveSumsubVerdict 收到与 markStatus 同一个 tx（原子性
+    // 的另一半由 service 单测钉住）。rejected 是"证据落了状态却没落"伤害最大
+    // 的分支，故同样必须证明。
+    const saveCall = (mocks.swapTransactionsService.saveSumsubVerdict as jest.Mock).mock.calls[0];
+    expect(saveCall[0]).toBe('s1');
+    expect(saveCall[1]).toEqual(
+      expect.objectContaining({
+        verdict: 'rejected',
+        score: 88,
+        detailJson: JSON.stringify({ foo: 'bar' }),
+      }),
+    );
+    expect(saveCall[2]).toBe(mocks.txClient);
+    const markCall = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0];
+    expect(markCall[2]).toBe(mocks.txClient);
+    const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
+    for (const [arg] of topLevelUpdateCalls) {
+      expect(arg.data).not.toHaveProperty('complianceVerdict');
+    }
+  });
+
+  // ── buy-leg submit (submitSumsubTxnIn) guards, mirroring submitSumsubTxnOut ──
+
+  it('submitSumsubTxnIn is idempotent — no-ops when sumsubTxnIdIn is already set', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.prisma.swapTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 's1', swapNo: 'SWP0001', sumsubTxnIdIn: 'already-submitted',
+      toAsset: { currency: 'AED', type: 'FIAT' },
+      customer: { sumsubApplicantId: 'applicant-1' },
+    });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await (service as any).submitSumsubTxnIn('s1');
+
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+    expect(mocks.prisma.swapTransaction.update).not.toHaveBeenCalled();
+  });
+
+  it('submitSumsubTxnIn skips (no submit) when the customer has no sumsubApplicantId', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.prisma.swapTransaction.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 's1', swapNo: 'SWP0001', sumsubTxnIdIn: null,
+      toAsset: { currency: 'AED', type: 'FIAT' },
+      customer: { sumsubApplicantId: null },
+    });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await (service as any).submitSumsubTxnIn('s1');
+
+    expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
+  });
+
+  it('a failing buy-leg submit is swallowed — approved swap already executed and must not be rolled back', async () => {
+    const mocks = buildApplyKytVerdictMocks();
+    (mocks.sumsubTxnClient.submitTxn as jest.Mock).mockRejectedValueOnce(new Error('sumsub down'));
+    const service = makeApplyKytVerdictService(mocks);
+
+    // Must resolve normally — the buy-leg failure must not propagate.
+    await expect(service.applyKytVerdict('s1', { verdict: 'approved' })).resolves.toBeUndefined();
+    // The status transition + leg1 already committed before the buy-leg call.
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.KYT_APPROVED,
+      expect.anything(),
+    );
+    expect(mocks.fundsOrders.create).toHaveBeenCalledTimes(1);
+  });
+
+  // ── handleRejectDisposition (Task 7) — soft/hard line split + tipping-off ──
+  //
+  // The tipping-off decision is made exactly once, on the write side, inside
+  // handleRejectDisposition. CustomerPendingActionService.get() (see
+  // customer-pending-action.service.ts) is a dumb accessor with no logic of
+  // its own — these tests read the disposition back through the REAL service
+  // (not a mock) to prove the split actually happened on the write side, not
+  // just that we asserted our own assumption back at ourselves. Nested here
+  // (not a sibling top-level describe) so it can reuse
+  // buildApplyKytVerdictMocks/makeApplyKytVerdictService via closure.
+  describe('→ handleRejectDisposition (Task 7)', () => {
+    it('软线（有 applicantActions，无 SANCTION）→ 写 restrictions(SWAP,WITHDRAW) + pendingAction 可见', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
+        'cust-1',
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
+      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
+        externalActionId: 'EA1',
+        reason: 'KYT_REJECTED',
+        submittedAt: null,
+      });
+
+      // Review Fix 4 (Minor): business key + which action was shown, both in
+      // the audit trail — not just the UUID and a bare boolean.
+      const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(dispositionAudit.entityOwnerNo).toBe('C0001');
+      expect(dispositionAudit.metadata.externalActionId).toBe('EA1');
+    });
+
+    it('硬线（SANCTION tag）→ 写 restrictions 但 pendingAction 为 null（tipping-off，即使有 action 也不暴露）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+        typedTags: ['SANCTION'],
+      });
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalled();
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    });
+
+    it('硬线（无 applicantActions）→ 写 restrictions，pendingAction 为 null（没有可做的动作，不给入口）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalled();
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    });
+
+    it('降级覆盖：客户已有软线 pendingAction，之后一次硬线（SANCTION）裁决必须把它清空，不留旧入口', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      // Simulate a prior soft-line disposition that already stored a pendingAction.
+      mocks.customerMainRow.pendingActionExternalId = 'STALE';
+      mocks.customerMainRow.pendingActionReason = 'KYT_REJECTED';
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
+        typedTags: ['SANCTION'],
+      });
+
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    });
+
+    it('幂等：webhook 重投/人工重放 handleRejectDisposition 两次，restrictions 每次都调（Task 1 已证幂等）且 pendingAction 保持单一值，不讹误', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      const input = {
+        verdict: 'rejected' as const,
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+      };
+
+      // Calls the private disposition method directly twice — this is the
+      // scenario a manual replay tool would hit (applyKytVerdict's own
+      // terminal-status guard would normally block a second webhook redelivery
+      // once the swap is REJECTED; a direct replay of disposition itself must
+      // still be safe).
+      await (service as any).handleRejectDisposition(mocks.swapRow, input);
+      await (service as any).handleRejectDisposition(mocks.swapRow, input);
+
+      expect(mocks.customerRestrictionsService.add).toHaveBeenCalledTimes(2);
+      expect(mocks.customerRestrictionsService.add).toHaveBeenNthCalledWith(
+        1,
+        'cust-1',
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
+      expect(mocks.customerRestrictionsService.add).toHaveBeenNthCalledWith(
+        2,
+        'cust-1',
+        ['SWAP', 'WITHDRAW'],
+        'KYT_REJECTED',
+        'system',
+      );
+      // Re-running left exactly the same single pendingAction — not duplicated,
+      // not nulled out by the replay.
+      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
+        externalActionId: 'EA1',
+        reason: 'KYT_REJECTED',
+        submittedAt: null,
+      });
+    });
+
+    it('审计记录能区分软硬线 —— reviewer 事后能看出客户是否被告知及原因', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+        typedTags: ['SANCTION'],
+      });
+
+      const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(dispositionAudit).toBeDefined();
+      expect(dispositionAudit.metadata).toMatchObject({ hasSanction: true, exposeToCustomer: false });
+      expect(dispositionAudit.reason).toMatch(/not notified|tipping/i);
+      // Review Fix 4 (Minor): business key present; no action id leaked into
+      // metadata when nothing was actually shown to the customer.
+      expect(dispositionAudit.entityOwnerNo).toBe('C0001');
+      expect(dispositionAudit.metadata.externalActionId).toBeUndefined();
+    });
+
+    // ── Review Fix 2 (Important): the exact A-then-B cross-swap sequence ──
+    // ── from the finding — swap A is hard-lined (SANCTION) first, correctly
+    // ── silent; seconds later swap B (a DIFFERENT swap, same customer) gets
+    // ── an independent soft-line rejection. Without the sticky marker, B's
+    // ── own tags/actions alone would re-expose a re-verification entry point
+    // ── for a customer who is under sanctions investigation.
+    it('sticky 硬线：swap A 硬线（SANCTION）沉默之后，swap B（同客户，纯软线）到达也必须继续沉默', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      const swapA = { ...mocks.swapRow, id: 'sA', swapNo: 'SWP-A' };
+      const swapB = { ...mocks.swapRow, id: 'sB', swapNo: 'SWP-B' };
+
+      // Swap A: hard line via SANCTION tag — correctly silent.
+      await (service as any).handleRejectDisposition(swapA, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION'],
+      });
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+
+      // Swap B arrives seconds later: on its OWN merits this is a soft line
+      // (an action is attached, no SANCTION tag on this particular verdict) —
+      // last-writer-wins would incorrectly re-open the entry point here.
+      await (service as any).handleRejectDisposition(swapB, {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
+      });
+
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      const swapBAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED && a.entityId === 'sB');
+      expect(swapBAudit.metadata).toMatchObject({ alreadyHardLined: true, exposeToCustomer: false });
+      // The sticky marker itself is what makes the above hold — confirm it
+      // actually got stamped by the SANCTION verdict (swap A), not by chance.
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(true);
+    });
+
+    // ── Finding 3 (Minor, 终审): the sticky marker must be keyed on SANCTION
+    // ── only, not on "this verdict happened to carry no applicantActions".
+    // ── A no-actions hard line correctly exposes nothing for ITS OWN verdict,
+    // ── but must not permanently silence the customer — the next, genuinely
+    // ── independent soft-line rejection has to be exposed normally.
+    it('无 applicantActions 的硬线不 sticky：同客户之后一笔独立软线裁决必须重新暴露入口（Finding 3）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      const swapA = { ...mocks.swapRow, id: 'sA', swapNo: 'SWP-A' };
+      const swapB = { ...mocks.swapRow, id: 'sB', swapNo: 'SWP-B' };
+
+      // Swap A: hard line because Sumsub attached no applicantActions — NOT a
+      // sanction hit. Correctly exposes nothing for this verdict.
+      await (service as any).handleRejectDisposition(swapA, {
+        verdict: 'rejected',
+        applicantActions: [],
+      });
+      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      // The no-actions case must NOT trip the sticky marker.
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
+
+      // Swap B arrives later: a genuine, independent soft line — must be
+      // exposed normally, not silenced forever by A's no-actions verdict.
+      await (service as any).handleRejectDisposition(swapB, {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
+      });
+
+      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
+        externalActionId: 'EA2',
+        reason: 'KYT_REJECTED',
+        submittedAt: null,
+      });
+    });
+
+    // ── Review Fix 1 (Important): a throw inside disposition must be visible
+    // ── (audit + needsReview) AND still propagate so the caller's retry path
+    // ── (the terminal-status guard carve-out proven above) actually gets a
+    // ── chance to repair the customer's state on redelivery.
+    it('处置失败：写 SWAP_KYT_REJECTED_DISPOSITION_FAILED 审计 + 打 needsReview，并把异常继续往外抛', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+      (mocks.customerRestrictionsService.add as jest.Mock).mockRejectedValueOnce(
+        new Error('SQLITE_BUSY: database is locked'),
+      );
+
+      await expect(
+        (service as any).handleRejectDisposition(mocks.swapRow, {
+          verdict: 'rejected' as const,
+          typedTags: ['SANCTION'],
+        }),
+      ).rejects.toThrow('SQLITE_BUSY: database is locked');
+
+      expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true);
+      const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED);
+      expect(failedAudit).toBeDefined();
+      expect(failedAudit.reason).toBe('SQLITE_BUSY: database is locked');
+      expect(failedAudit.entityOwnerNo).toBe('C0001');
+    });
   });
 });

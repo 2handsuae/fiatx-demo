@@ -1,6 +1,6 @@
 # V6 兑换流程 — 当前实现真相
 
-Last Verified: 2026-08-13（核对方式：COA v2 科目表重构关联体检——第 3 节"4 腿账户"一处贷方科目描述订正：公司侧 `FIRM_ASSET↔FIRM_OPS/SET/FEE` 改 `FIRM_ASSET↔FIRM_OPS/SET/INCOME_SWAP_FEE`（`SWAP_FEE_FIRM`=36 结算腿贷方由退役的 `FIRM_FEE` 改 `INCOME_SWAP_FEE`，转账类型码常量名不变），回代码 `swap-leg-plan.constant.ts`/`accounting-coa.md` §1 核实属实。前序核对方式：金额限额落地核对——executeSwap L1 A/B gate + grossAedValue 落库逐符号走查；余节 2026-07-11 基线）
+Last Verified: 2026-08-13（核对方式：Task 12（swap × Sumsub 合规集成收官）——`test/swap-money-arc.e2e-spec.ts`（happy path 4 腿 SUCCESS + REJECTED 零记账双弧，真实 AppModule + 真实 TigerBeetle）与 `test/swap-sumsub-scenarios.e2e-spec.ts`（8 键裁决按钮 + 硬线 sticky 跨单持久性，经 `SwapDemoScenarioService.runVerdict()` 真走 ingest→router→handler→workflow 全链路）双双实跑通过；`scripts/verify-swap-redesign-happy.ts`/`verify-swap-self-heal.ts` 手工核对 initiateSwap→webhook 裁决→4 腿/自愈链路逐字段核实；`verify:coa` ALL INVARIANTS PASS；`demo:all` 8/8 PASS。本节改写反映 Task 1-13 落地的 webhook 驱动 KYT 合规闸——此前版本的"合规仅 L1"描述已过时。前序核对方式：COA v2 科目表重构关联体检 2026-08-13；金额限额落地核对 2026-07-11 基线）
 
 > 本文只描述"现在是什么样"。改代码必须同步本文。计划看 roadmap，欠账看 BACKLOG.md。
 
@@ -8,55 +8,84 @@ Last Verified: 2026-08-13（核对方式：COA v2 科目表重构关联体检—
 
 ## 0. 一句话定位
 
-平台内兑换（crypto↔fiat 余额交换）：报价 → L1 资格 → 消费 Quote → 4 腿实时记账 → SUCCESS。**"平台内"= 在我方掌控的账户体系内做真实转账**——每腿跨钱包移动、有真实 externalRef（crypto→txHash / fiat→referenceNo，由 funds_order 在 CONFIRMED 铸、postLeg→enrichForPost 盖进 evidence）；**非**"纯账面划拨/无外部穿越"（旧口径已纠）。合规**仅 L1 同步 eligibility**（无 L2 KYT/TR、无大额审批门——因**无第三方对手方**，与充值/提现的三层合规刻意不同）。**不**管：上链广播（模拟系统无真实外部 API）。
+平台内兑换（crypto↔fiat 余额交换）：报价 → L1 资格 + 限额门 → 消费 Quote → **建单 COMPLIANCE_PENDING（零记账）** → Sumsub KYT webhook 裁决落地 → approved 则 4 腿实时记账 → SUCCESS；rejected 则终态 REJECTED，**零记账痕迹**（这是整个重设计的卖点——不像充值钱已到暂扣户、提现资金已 pending-locked，兑换在裁决前压根没动过钱，拒绝不需要任何回滚）。**"平台内"= 在我方掌控的账户体系内做真实转账**——每腿跨钱包移动、有真实 externalRef（crypto→txHash / fiat→referenceNo，由 funds_order 在 CONFIRMED 铸、postLeg→enrichForPost 盖进 evidence）；**非**"纯账面划拨/无外部穿越"（旧口径已纠）。合规 = **L1 同步 eligibility/限额门 + L2 单笔 Sumsub KYT webhook 闸**（无 L2 Travel Rule/无大额审批门——因**无第三方对手方**，与充值/提现的三层合规刻意不同；出账腿走 KYT 送检，买入腿只喂纯数据不承载裁决）。**不**管：上链广播（模拟系统无真实外部 API）。
 
 ## 1. 状态机
 
-`SwapTransactionStatus` 枚举 4 态，**但仅 2 态运行时可达**：
+`SwapTransactionStatus` 枚举 6 态，**4 态运行时可达**：
 ```
-PROCESSING ──(4 腿全 CLEAR)──→ SUCCESS
-PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMPTS)──→ STUCK(needsReview + 手动 resume)，仍 PROCESSING
+COMPLIANCE_PENDING ──(建单，零记账)──┐
+COMPLIANCE_PENDING ──(KYT approved)──→ PROCESSING ──(4 腿全 CLEAR)──→ SUCCESS
+                                       PROCESSING ──(腿失败)──→ 自愈重试(attempt+1，≤MAX_LEG_ATTEMPTS)──→ STUCK(needsReview + 手动 resume)，仍 PROCESSING
+COMPLIANCE_PENDING ──(KYT rejected / SLA 超时)──→ REJECTED（终态，零记账）
 ```
-- ⚠️ **`FAILED` / `REVERSED` 是死枚举**：定义在 `SwapTransactionStatus`，但**全代码无一处 `markStatus` 设置它们**（`markStatus` 只被 `'SUCCESS'` 调用）。失败**永不**转 FAILED（注释原文 "never markStatus FAILED"），**无 reverse 端点**转 REVERSED。
-- 锚点：`swap-transaction.dto.ts → SwapTransactionStatus` ｜ `swap-workflow.service.ts → onLegFailedSelfHeal()`（自愈+STUCK）
+- **出生态 = `COMPLIANCE_PENDING`**（Task 4 起，取代旧版直接建 PROCESSING+leg1）：`initiateSwap()` 只建 swap 行 + 消费 Quote，**不建任何 funds_order、不碰 TB**。leg1 只在收到 approved 裁决时才建（`applyKytVerdict()` 内）。
+- **裁决落地窗口**：swap 处于 `PROCESSING` 期间迟到的裁决（腿还在结算，Sumsub 复核较慢）**不驱动状态机**（PROCESSING 无 KYT_* 合法边），只落证据字段 + `needsReview`（rejected 时）+ 专属审计，然后照常继续结算；若迟到裁决是 rejected，仍会跑一遍处置（限制客户能力），但不会试图撤销已经在走的兑换。
+- ⚠️ **`FAILED` / `REVERSED` 是死枚举**：定义在 `SwapTransactionStatus`，但**全代码无一处 `markStatus` 设置它们**（`markStatus` 只被 `'SUCCESS'`/`'kyt_approved'`/`'kyt_rejected'`/`'sla_breach'` 调用）。失败**永不**转 FAILED（注释原文 "never markStatus FAILED"），**无 reverse 端点**转 REVERSED。
+- 锚点：`swap-transaction.dto.ts → SwapTransactionStatus/SwapTransactionAction` ｜ `swap-transactions.service.ts → transitions`（合法边表）｜ `swap-workflow.service.ts → initiateSwap()/applyKytVerdict()/onLegFailedSelfHeal()`（自愈+STUCK）
 
 ## 2. 数据模型要点
 
 > 📖 资金单状态机 / 共享执行引擎 → [funds-orders.md](funds-orders.md)；记账口径 → [accounting-coa.md](accounting-coa.md)。
 
 - **swap 腿** = `swapTransactionId` 非空的 `funds_order`（+ `legSeq` 1-4，不走白名单）。⚠️ 代码仍用 `InternalFundAction` 旧名映射到 `FundsOrderAction`（命名债，见 BACKLOG）
-- **Quote**：`SwapQuoteStatus` = ACTIVE/USED/EXPIRED/CANCELLED；`SWAP_QUOTE_TTL_SECONDS = 30`；**懒过期**（查询时 markExpired，无 cron）
+- **Quote**：`SwapQuoteStatus` = ACTIVE/USED/EXPIRED/CANCELLED；`SWAP_QUOTE_TTL_SECONDS = 30`；**懒过期**（查询时 markExpired，无 cron）。`initiateSwap()` 事务内消费——出生即耗，即使随后被 KYT 拒绝也不可再用
 - **SwapFeeLevel**：tier = `rateMarkupBps`（点差）+ `feeItems`（可选，**支持 spread-only** tier）
 - **AED 估值快照**：`swap_transactions.grossAedValue`（L1 金额限额门在建 swap 行时落库，供 B 周期累计用量取数；无 `aedRate`/`rateFetchedAt` 等余列，swap 仅需累计求和）
-- 锚点：`swap-quote.service.ts → SWAP_QUOTE_TTL_SECONDS` ｜ `pricing.types.ts → SwapTier`
+- **Sumsub 字段**（`swap_transactions` 表，Task 5/6/9 起）：`sumsubTxnIdOut`/`sumsubTxnIdIn`（出账/买入腿 Sumsub 交易号，`initiateSwap` 同步 awaited 铸出账号；买入腿号在 approved 裁决落 leg1 后 fire-and-forget 补铸，纯数据不承载裁决）｜ `complianceVerdict`（'approved'/'rejected'，落在裁决事务内）｜ `complianceAction`/`complianceRuleNames`（出账腿同步提交响应的评分快照，仅证据展示不驱动状态）｜ `sumsubDetailJson`（getTxn 原始报文，仅 rejected 才拉）｜ `rejectReason`（固定 `'KYT_REJECTED'`）｜ `needsReview`（rejected 迟到裁决 / 腿自愈 STUCK 双重语义共用同一列）
+- **客户级合规字段**（`customer_main` 表，Task 1/7/13 起，KYT 拒绝处置落点，非 swap 表自身）：`restrictions`（JSON 数组，拒绝时写入 `SWAP`+`WITHDRAW` 两项，**从不写 DEPOSIT**——链上资金已到账，拒收解决不了问题）｜ `pendingActionExternalId`/`pendingActionReason`（软线补料入口，硬线/制裁恒 null，tipping-off 判断只在写入侧做一次）｜ `hardLineDispositionedAt`（硬线 sticky 标记，一旦因制裁命中被硬线过永久不再对该客户暴露补料入口，即使后续另一笔 swap 是软线裁决）
+- 锚点：`swap-quote.service.ts → SWAP_QUOTE_TTL_SECONDS` ｜ `pricing.types.ts → SwapTier` ｜ `swap-workflow.service.ts → submitSumsubTxnOut()/submitSumsubTxnIn()/applyKytVerdict()/handleRejectDisposition()` ｜ `customer-restrictions.service.ts`/`customer-pending-action.service.ts`
 
 ## 3. 关键流程
 
 - **报价**：`SwapQuoteService.createQuote()` → `resolveBestLevel()`（多 level 取最低费）+ `BinanceRateProvider.fetchRate()`（实时 + 3s 缓存 + AED 钉 3.6725）+ `PricingEngineService.buildSwapQuote()`（amountOut/spread/fee）→ 30s TTL
-- **L1 资格**：`SwapWorkflowService.executeSwap()` 内 `ensureCustomerCanTransact()` + `assertTradingEligibility(ownerId, 'SWAP')`（pre-creation 同步）
-- **L1 金额限额门**（资格之后、`$transaction` 之前）：`executeSwap()` 事务外 peek quote（`swapQuote.findUnique` 取 `fromAssetId`/`amountIn`）→ `TransactionLimitGateService.evaluate({operationType:'SWAP',customerId:ownerId,assetId,amount})`——A 单笔 min/max（原生币种）+ B 周期累计（AED，迪拜日历日/月窗口，用量 = 窗口内该客户 swap `grossAedValue` 之和[排除 FAILED/REVERSED] + 本笔）；有 B 规则但汇率失败 → fail-closed `UNPRICEABLE`。拒绝 = **swap 不建、quote 不耗**，审计 `TRANSACTION_LIMIT_REJECTED`（workflowType `TRANSACTION_LIMIT_ENFORCEMENT`）；通过则 `grossAedValue` 随 swap 行落库。peek 到空 quote 不在此抛（落到事务内 `getActiveQuoteOrThrow` 的既有 SWAP_FAILED 路径）。**无 D1 大额审批门**（业主决策：兑换资金不出境、无第三方对手方，不做大额审批）
-- **R4 双边收款账户门**：`executeSwap()` 读到 quote 后（事务内，consume 前）逐一检查 buy/sell 两侧资产的 `WalletQueryService.hasReceivingAccount(ownerId, assetId)`（ACTIVE 的 C_DEP/C_VIBAN），任一缺失即 `RECEIVING_ACCOUNT_REQUIRED`（带 assetCode），先于 consumeQuote/建 swap 行/建 leg1 拦截，避免腿中段才在 `resolveLegWallets()` 撞见钱包缺失
+- **L1 资格**：`SwapWorkflowService.initiateSwap()` 内 `ensureCustomerCanTransact()` + `assertTradingEligibility(ownerId, 'SWAP')`（pre-creation 同步；`restrictions` 含 `SWAP` 时在此拦，403）
+- **L1 金额限额门**（资格之后、`$transaction` 之前）：`initiateSwap()` 事务外 peek quote（`swapQuote.findUnique` 取 `fromAssetId`/`amountIn`）→ `TransactionLimitGateService.evaluate({operationType:'SWAP',customerId:ownerId,assetId,amount})`——A 单笔 min/max（原生币种）+ B 周期累计（AED，迪拜日历日/月窗口，用量 = 窗口内该客户 swap `grossAedValue` 之和[排除 FAILED/REVERSED] + 本笔）；有 B 规则但汇率失败 → fail-closed `UNPRICEABLE`。拒绝 = **swap 不建、quote 不耗**，审计 `TRANSACTION_LIMIT_REJECTED`（workflowType `TRANSACTION_LIMIT_ENFORCEMENT`）；通过则 `grossAedValue` 随 swap 行落库。peek 到空 quote 不在此抛（落到事务内 `getActiveQuoteOrThrow` 的既有 SWAP_FAILED 路径）。**无 D1 大额审批门**（业主决策：兑换资金不出境、无第三方对手方，不做大额审批）
+- **R4 双边收款账户门**：`initiateSwap()` 读到 quote 后（事务内，consume 前）逐一检查 buy/sell 两侧资产的 `WalletQueryService.hasReceivingAccount(ownerId, assetId)`（ACTIVE 的 C_DEP/C_VIBAN），任一缺失即 `RECEIVING_ACCOUNT_REQUIRED`（带 assetCode），先于 consumeQuote/建 swap 行拦截，避免裁决通过后才在 `buildLegContext()`/`resolveLegWallets()` 撞见钱包缺失
   - **前端逐币预检**（`Swap.tsx` + `GET /client/trading-readiness/receiving-accounts`）：选定 buy/sell 后即查两侧收款账户，缺失则禁提交并提示，CTA「Create receiving account」**跳 `/deposit`**（收款账户=充值地址，Deposit 页是自然落点；2026-07-11 起，原 `/wallet`）
-- **成交编排**：consume Quote → swap PROCESSING → `createLeg(leg1)` → per-leg two-phase → `onLegConfirmed()` 链式创建下一腿 → 第 4 腿 CLEAR → `markStatus('SUCCESS')`
-- **推进**：leg1 自动 initiate、**leg2-4 lazy**（admin `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` → `advanceLeg()`，带 **sell-first 顺序守卫**）；STUCK 后 `POST .../resume`（新 attempt 重试）
+- **建单 = 零记账**（Task 4 重设计）：`initiateSwap()` 通过上述三道门后，事务内只做 consume Quote + 建 swap 行（`COMPLIANCE_PENDING`），**不建 leg1、不碰 TB**；事务外 `submitSumsubTxnOut()` 同步 awaited 把出账腿（fromAsset，direction=out）送 Sumsub KYT——**整个 initiateSwap 调用期间零 TB 写入**，客户端拿到的响应已经是终态之一的前置态。`submitSumsubTxnOut` 全程 try/catch（I2 教训）：Sumsub 不可达时静默留 `COMPLIANCE_PENDING` 等重试（SLA 看门狗兜底），绝不 500 客户
+- **KYT 裁决落地 = `SwapWorkflowService.applyKytVerdict()`**（webhook 驱动，`SwapKytVerdictHandler` 调用；三分支）：
+  - `approved` → 同一事务内 `markStatus(KYT_APPROVED)`→`PROCESSING` + `buildLegContext()` 重建记账上下文 + `createLeg(leg1)`；事务外 fire-and-forget `submitSumsubTxnIn()` 补喂买入腿（纯数据，不承载裁决，失败不阻断已放行的兑换）
+  - `rejected` → 同一事务内 `markStatus(KYT_REJECTED, {rejectReason:'KYT_REJECTED'})`→`REJECTED`，**不建任何 leg、不碰 TB**；随后（事务外）`handleRejectDisposition()` 处置客户能力
+  - `PROCESSING` 期迟到裁决 → 不驱动状态机（见 §1），只落证据 + `needsReview`（rejected 时）+ 专属审计
+- **拒绝处置 = `handleRejectDisposition()`**（Task 1/7 起，跑在裁决事务外，全程独立幂等——webhook 可能重投）：无条件先 `CustomerRestrictionsService.add(ownerId, ['SWAP','WITHDRAW'], 'KYT_REJECTED')`（**从不限 DEPOSIT**——链上资金已到账，拒收不解决问题）；再按 `typedTags`/`applicantActions` 分型：
+  - **软线**（有 ≥1 个 `applicantActions` 且无 `SANCTION` tag）→ `CustomerPendingActionService.set()` 暴露补料入口（`pendingActionExternalId`/`pendingActionReason`），客户端 `GET /client/me/pending-action` 可见
+  - **硬线**（无 action 可做，或命中 `SANCTION`）→ `pendingAction` 写 null，**制裁命中额外沉默**（tipping-off——大多数 AML 法域下告知客户涉制裁调查是刑事犯罪）；命中 `SANCTION` 时额外盖 `hardLineDispositionedAt` 硬线 sticky 标记，**永久**沉默该客户此后任何一笔（哪怕本身是软线的）裁决的补料入口，跨订单持久
+- **人身层闭环 = `SwapApplicantActionHandler`**（Task 13，补计划缺口）：客户完成补料动作后 Sumsub 回投 `applicantActionReviewed`（按 `externalApplicantActionId`/兜底 `externalActionId` 反查 `pendingActionExternalId` 认领）——GREEN 且非硬线 → `CustomerRestrictionsService.clear(['SWAP','WITHDRAW'])` 解除限制；GREEN 但硬线（`hardLineDispositionedAt` 非空）→ 只清指针**不解限制**（sticky 唯一存在意义：制裁客户不能靠补一次普通认证自我解锁）；RED → 限制原样保留、指针不清、升级审计
+- **合规超时看门狗 = `SwapSlaService`**（Task 8）：周期性扫 `COMPLIANCE_PENDING` 超 `SWAP_COMPLIANCE_TIMEOUT_MS`（硬编码 60s，未经真实 Sumsub 延迟校准，见 BACKLOG）的单——① 若 `sumsubTxnIdOut` 仍为空（`submitSumsubTxnOut` 当初失败/未送检）先补提交一次；② 判定超时则 `markStatus(SLA_BREACH)`→`REJECTED`（`SwapTransactionAction.SLA_BREACH`，同样零记账），走同一套 `handleRejectDisposition()`
+- **成交编排**：approved 裁决建 leg1 → per-leg two-phase → `onLegConfirmed()` 链式创建下一腿 → 第 4 腿 CLEAR → `markStatus('SUCCESS')`
+- **推进**：leg1 由裁决落地时自动建、**leg2-4 lazy**（admin `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` → `advanceLeg()`，带 **sell-first 顺序守卫**）；STUCK 后 `POST .../resume`（新 attempt 重试）
 - **4 腿账户**（`swap-leg-plan.constant.ts`，CRYPTO_TO_FIAT / FIAT_TO_CRYPTO 各一组）：客户侧 `CLIENT_PAYABLE↔CLIENT_ASSET`、公司侧 `FIRM_ASSET↔FIRM_OPS/SET/INCOME_SWAP_FEE`（2026-08-13 COA v2 起，费腿贷方取代退役的 `FIRM_FEE`）；per-leg two-phase `initiateLegPending()→postLeg()`（成功）/ `voidLeg()`（失败 best-effort 补偿）。**无 clearing bridge / Outstanding / FEE_RECEIVABLE**（全仓 0 命中）
-- **对账 evidence**：每腿 `externalRef = ${swapNo}:${legSeq}:${attempt}:pending` + debit/creditWalletRef + `isExternalCrossing=true`（swap 不上链，swap-internal ref 即跨钱包互证键）
+- **对账 evidence**：每腿 `externalRef = ${swapNo}:${legSeq}:${attempt}:pending` + debit/creditWalletRef + `isExternalCrossing=true`（swap 不上链，swap-internal ref 即跨钱包互证键）——只在 approved 裁决建腿后才存在；rejected 的单**在 `tb_transfer_evidence`/`account_flows` 里零行**（零记账痕迹的可核验证据）
 - **费率治理**：2 独立工作流 `SwapFeeLevel{Creation/Change}WorkflowService`；创建/变更走审批（**OPS_OFFICER 单步**），Change 走 request-record + `configHash` 冲突检测 + 单 PENDING 约束；受众改由 `requiredTagsJson`（客户标签谓词）+ `validFrom/validTo`（限时窗）表达（binding 表已 2026-07-13 退役，见 BACKLOG 历史）
-- 锚点：`swap-workflow.service.ts → executeSwap()/handleFundsOrderChanged()/onLegConfirmed()/onLegFailedSelfHeal()/advanceLeg()/mapLegAction()` ｜ `asset-treasury/transaction-limits/transaction-limit-gate.service.ts → evaluate()`（L1 金额限额引擎，A/B）｜ `swap-leg-accounting.ts → initiateLegPending()/postLeg()/voidLeg()` ｜ `swap-leg-plan.constant.ts → buildSwapLegPlan()` ｜ `swap-quote.service.ts → createQuote()/resolveBestLevel()` ｜ `binance-rate.provider.ts → fetchRate()` ｜ `swap-fee-level/*-workflow.service.ts`
+- 锚点：`swap-workflow.service.ts → initiateSwap()/submitSumsubTxnOut()/submitSumsubTxnIn()/applyKytVerdict()/handleRejectDisposition()/handleFundsOrderChanged()/onLegConfirmed()/onLegFailedSelfHeal()/advanceLeg()/mapLegAction()` ｜ `swap-sumsub/swap-kyt-verdict.handler.ts → handle()`（webhook→verdict 归一+认领）｜ `swap-sumsub/applicant-action.handler.ts → handle()`（人身层闭环，Task 13）｜ `swap-sumsub/swap-sla.service.ts → SWAP_COMPLIANCE_TIMEOUT_MS`（合规超时看门狗）｜ `swap-sumsub/swap-webhook.router.ts`（webhook 分发）｜ `asset-treasury/transaction-limits/transaction-limit-gate.service.ts → evaluate()`（L1 金额限额引擎，A/B）｜ `swap-leg-accounting.ts → initiateLegPending()/postLeg()/voidLeg()` ｜ `swap-leg-plan.constant.ts → buildSwapLegPlan()` ｜ `swap-quote.service.ts → createQuote()/resolveBestLevel()` ｜ `binance-rate.provider.ts → fetchRate()` ｜ `swap-fee-level/*-workflow.service.ts` ｜ `identity/customers/customer-restrictions.service.ts` / `customer-pending-action.service.ts`
 
 ## 4. ⚠️ 已知缺口（详见 BACKLOG.md）
 
 - 🔴 **FAILED/REVERSED 死枚举 + 无 reverse 端点**：`SwapTransactionStatus` 定义了 FAILED/REVERSED，但无代码路径可达；控制器只有 advance/resume，**无 reverse**（roadmap 曾标 ✅2026-06-26 整笔冲正——**过度声明，实际未接**）
 - **无自动 FAILED 状态机**：腿失败走自愈→STUCK(needsReview)，swap 留 PROCESSING 等人工 resume；无终态失败（设计 deferred）
-- **合规仅 L1**（无 KYT/TR/大额审批门）——设计决策（资金不出境），非遗漏；若将来启用大额兑换合规需补
-- **Sumsub TM 真实集成未做** / **Quote TTL 无 cron sweep**（仅懒过期）/ **兑换成功通知未接** / **TB 记账失败无专用 repair surface**（仅 resume 重试）
+- **60 秒合规超时未经真实 Sumsub 延迟校准**：`SWAP_COMPLIANCE_TIMEOUT_MS` 硬编码常量，未标定真实 webhook 延迟 + 摄入重试退避窗口，也未做成可配置项（见 BACKLOG）
+- **兑换 KYT 规则自动裁决未测**：无 officer 介入时 Sumsub 规则引擎是否真的自动发 `applicantKytTxnApproved/Rejected` webhook 待真机验证（充值实测矩阵该格为空）——不发则每笔兑换在合规超时看门狗下必然走超时死（见 BACKLOG）
+- **`SWAP_LEG_RETRIED` 审计在同一 swap 内的第 2+ 次自愈重试被静默去重**（idempotencyKey 缺 requestId 区分，见 BACKLOG）——`funds_order` 侧行为不受影响，只丢中间步的审计追溯
+- **新铸 Sumsub action id 无写回路径 / 无操作员解锁端点**：`pendingActionExternalId` 唯一写入方是 `handleRejectDisposition`，若 Sumsub 侧铸出全新 action id 且不经我方拒绝流程，客户可能永久卡在 WITHDRAW-locked（见 BACKLOG Task 13 Finding 7）
+- **认证 CTA 是 stub**：`PendingActionBanner.tsx` 的 "Complete verification" 未真正拉起 Sumsub WebSDK，缺后端 token 铸造端点（见 BACKLOG Task 11）
+- **Sumsub TM 真实集成的 Travel Rule/大额审批仍不做**（设计决策：资金不出境、无第三方对手方）/ **Quote TTL 无 cron sweep**（仅懒过期）/ **兑换成功通知未接** / **TB 记账失败无专用 repair surface**（仅 resume 重试）
 - **InternalFund 命名债**：swap 腿操作 funds_order 表，但类/枚举/注释仍用 `InternalFund*` 旧名（Round 2 rename 未跟随）
-- **架构命名漂移**：roadmap 写"L2 SwapSettlementService"——**该类不存在**；实际 = `SwapWorkflowService`（入口+编排）+ `SwapLegAccounting`（记账）+ `SwapTransactionsService`（状态/CRUD）
+- **架构命名漂移**：roadmap 写"L2 SwapSettlementService"——**该类不存在**；实际 = `SwapWorkflowService`（入口+编排）+ `SwapLegAccounting`（记账）+ `SwapTransactionsService`（状态/CRUD）+ `swap-sumsub/`（webhook 落地域：`SwapKytVerdictHandler`/`SwapApplicantActionHandler`/`SwapSlaService`/`SwapWebhookRouter`）
 
 ## 5. 锚点
 
-`swap-transactions/`：`swap-workflow.service.ts`（入口+事件编排+advance，主文件）｜ `swap-leg-accounting.ts`（per-leg two-phase 记账）｜ `swap-transactions.service.ts`（状态机+投影）｜ `swap-transactions.controller.ts`（advance/resume 端点）｜ `dto/swap-transaction.dto.ts`（状态枚举）
+`swap-transactions/`：`swap-workflow.service.ts`（入口+事件编排+advance，主文件）｜ `swap-leg-accounting.ts`（per-leg two-phase 记账）｜ `swap-transactions.service.ts`（状态机+投影）｜ `swap-transactions.controller.ts`（advance/resume 端点）｜ `swap-transactions-customer.controller.ts`（客户端 initiateSwap 入口）｜ `dto/swap-transaction.dto.ts`（状态枚举）
+`swap-sumsub/`（Task 5-13，webhook 落地域，mirror of `deposit-sumsub`/`withdraw-sumsub`，deliberate fork）：`swap-webhook.router.ts`（webhook 分发入口）｜ `swap-kyt-verdict.handler.ts`（KYT 裁决→verdict 归一+认领→`applyKytVerdict`）｜ `applicant-action.handler.ts`（人身层 `applicantActionReviewed` 闭环，Task 13）｜ `swap-sla.service.ts`（合规超时看门狗）｜ `demo-scenario.service.ts` + `admin-swap-demo.controller.ts`（仅 `SUMSUB_MOCK_MODE=true` 注册，8 键裁决按钮仿真）｜ `fixtures/verdict-buttons.ts`（8 键定义）
 `swap-fee-level/`：`swap-quote.service.ts`（报价+resolveBestLevel）｜ `swap-fee-level.service.ts`（executeChange+configHash）｜ `*-creation/change-workflow.service.ts`
 `funds-layer/constants/swap-leg-plan.constant.ts`（4 腿声明）｜ `pricing-center/`（`pricing-engine.service.ts`、`providers/binance-rate.provider.ts`；**`PricingCenterService` 已删**）｜ `approval.constants.ts → SWAP_FEE_LEVEL_CREATION/CHANGE`
-共享：`asset-treasury/transaction-limits/transaction-limit-gate.service.ts`（L1 金额限额引擎，提现兑换共用）
-前端：`client-web/Swap.tsx`（限额 `code` 友好文案映射）、`admin-web/SwapTransaction{List,Detail}.tsx`、`SwapQuote{List,Detail}.tsx`、`SwapFeeLevel{List,Detail}.tsx`
+共享：`asset-treasury/transaction-limits/transaction-limit-gate.service.ts`（L1 金额限额引擎，提现兑换共用）｜ `identity/customers/customer-restrictions.service.ts`/`customer-pending-action.service.ts`（客户级限制/补料指针，充值提现兑换三域共用）
+前端：`client-web/Swap.tsx`（限额 `code` 友好文案映射 + 四态展示 + 认证 banner；**提交后不弹等待面板，直接落 History 列表**，列表存在非终态单时每 3s 自刷、全终态即停 2026-08-14）、`client-web/components/AuthGuard.tsx`（限制拦截按 **capability 粒度**：SWAP→/swap、WITHDRAW→/withdraw+/wallet/send，DEPOSIT 未限制则充值照常可达——不再见 restrictions 非空就一刀切 2026-08-14）、`client-web/pages/CustomerProfile.tsx`（顶部挂 PendingActionBanner——被限制客户被弹到本页，认证入口必须在他到得了的地方；Restrictions 行按 capability 展示不再吐 [object Object]）、`client-web/components/PendingActionBanner.tsx`（补料入口横幅，CTA 为 stub）、`admin-web/SwapTransaction{List,Detail}.tsx`（详情页 2026-08-14 对齐提现九区块布局：notice/needs-review 顶部横幅 + Compliance L1 真值+L2 KYT 双卡 + Sumsub References + Sumsub Detail（parity 2026-08-14：读面换提现 parseDetail 同源形状——Score/ReviewStatus/ReviewAnswer/结构化 matchedRules/applicantActionIds/tags；References 卡补 Type=sumsubTxnType、Received At=sumsubScoredAt）+ Internal Approvals 空态卡 + Settlement Legs + 侧栏只读 Customer Disposition〔restrictions/pendingAction/硬线标记，无按钮〕+ Terminal 提示 + ⚡ Simulation 面板）、`SwapQuote{List,Detail}.tsx`、`SwapFeeLevel{List,Detail}.tsx`
+测试：`test/swap-money-arc.e2e-spec.ts`（Task 12，happy path + REJECTED 零记账双弧）｜ `test/swap-sumsub-scenarios.e2e-spec.ts`（Task 12，8 键裁决按钮 + 硬线 sticky 持久性）｜ `scripts/verify-swap-redesign-happy.ts`/`verify-swap-self-heal.ts`（Task 12 重写，独立手工核对脚本，非 CI 门禁）
+
+## 6.5 与提现的契约对齐（parity 2026-08-14，spec `2026-08-14-swap-withdraw-parity-design.md`）
+
+- **数据列对齐**：`SwapTransaction` 增 `sumsubScore`/`sumsubScoredAt`/`sumsubTxnType`（恒 'finance'）；`applyKytVerdict` 两分支均经 `saveSumsubVerdict()` 一次原子写 verdict/score/scoredAt/detailJson（与 markStatus 同事务）；**approved 也拉 getTxn 落全证据**（此前 approved 什么都不落、score 丢失）。handler `swap-kyt-verdict.handler.ts` approved/rejected 两类都拉 detail（镜像提现 DETAIL_LOOKUP_VERDICTS）。
+- **客户端受限体验**：AuthGuard 不再重定向 `/swap`、`/withdraw`（仅保留 `/wallet/send`←WITHDRAW）；两页读 `restrictedCapabilities(user)`（共享 util，容对象/字符串两形状）自禁提交按钮 + 顶部中性提示"Trading is currently restricted on your account."（tipping-off：软硬线文案无差别）。
+- **认证闭环**：`PendingActionBanner` 置顶挂 Swap/Withdraw 两页（Profile 保留次要落点），三态（无/请认证/已提交审核中，`pendingActionSubmittedAt` 列支撑）；CTA 真跳 `/verification/pending`（`PendingVerification.tsx`，fork 提现认证页，客户级无 seq）；后端 `GET/POST /client/me/pending-action/verification-session[/submit]`（防探测：无待办/无 applicantId/已提交三情况响应逐字节一致、submit 幂等恒 2xx、审计 `SWAP_ACTION_SUBMITTED` 仅随首个提交）；action 从非空变 null 时 banner 调 `useAuth().refreshProfile()` 即时解禁按钮；RED 复核清提交章（`resetSubmission`）供同 action 重试。
+- **模块接线**：CustomersModule→OnboardingModule（取 SumsubClient）为新边，Wallets/SwapTransactions/SwapSumsub 三处对 CustomersModule 的引入随之 forwardRef 断环；全仓清除了 `src/` 绝对导入（`node dist` 必炸的隐雷，`bcd8f35d` 混入）。
