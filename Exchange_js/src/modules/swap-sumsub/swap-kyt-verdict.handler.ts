@@ -59,22 +59,26 @@ export class SwapKytVerdictHandler {
     const verdict = VERDICT_BY_TYPE[type];
     if (!verdict || verdict === 'ignore') return true; // 认领了但不推进
 
-    let detailRaw: unknown;
+    // 与提现契约对齐（2026-08-14 parity）：approved/rejected 两类【都】拉一次
+    // getTxn 落证据——提现的 DETAIL_LOOKUP_VERDICTS 四类全拉，swap 归一后只剩
+    // 这两类。此前仅 rejected 拉，approved 路径 score/raw 彻底丢失，运营在
+    // 详情页看不到放行单的风险分。
+    const detail = await this.sumsubTxnClient.getTxn(kytTxnId);
+    const detailRaw: unknown = detail.raw;
+    const riskScore: number | null = detail.riskScore ?? null;
     let applicantActions:
       | { applicantActionId: string; externalActionId: string }[]
       | undefined;
     let typedTags: string[] | undefined;
-    // approved 不需要额外证据(没有 tag 要读、也不驱动处置分支);只有 rejected
-    // 才拉一次 getTxn,换 typedTags + applicantActions 给 Task 6 的处置逻辑用。
+    // tag/action 仍只在 rejected 消费（approved 没有处置分支要驱动）。
     if (verdict === 'rejected') {
-      const detail = await this.sumsubTxnClient.getTxn(kytTxnId);
-      detailRaw = detail.raw;
       applicantActions = detail.applicantActions;
       typedTags = (detail.typedTags ?? []).map((t) => String(t.label ?? t));
     }
 
     await this.workflow.applyKytVerdict(swap.id, {
       verdict,
+      riskScore,
       ...(detailRaw !== undefined && { detailRaw }),
       ...(applicantActions?.length && { applicantActions }),
       ...(typedTags?.length && { typedTags }),

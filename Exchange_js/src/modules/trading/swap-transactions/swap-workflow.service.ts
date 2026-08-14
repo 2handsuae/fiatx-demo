@@ -420,6 +420,7 @@ export class SwapWorkflowService {
         where: { id: swapId },
         data: {
           sumsubTxnIdOut: res.txnId,
+        sumsubTxnType: 'finance', // swap 恒 finance（无对手方 → 无 travelRule）
           // 同步响应只作证据快照，绝不写 status —— 状态唯一写入口是 webhook handler
           complianceAction: res.scoringResult?.action ?? null,
           complianceRuleNames: res.scoringResult?.matchedRuleNames?.join(',') ?? null,
@@ -486,6 +487,8 @@ export class SwapWorkflowService {
     swapId: string,
     input: {
       verdict: 'approved' | 'rejected';
+      /** scoringResult.score —— 与提现契约对齐（parity 2026-08-14），approved 也带。 */
+      riskScore?: number | null;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
       typedTags?: string[];
@@ -538,9 +541,13 @@ export class SwapWorkflowService {
       return;
     }
 
-    const verdictFields = {
-      complianceVerdict: input.verdict,
-      sumsubDetailJson: input.detailRaw !== undefined ? JSON.stringify(input.detailRaw) : undefined,
+    // parity 2026-08-14：证据四件套(verdict/score/scoredAt/detailJson)经
+    // saveSumsubVerdict 一次原子写——镜像提现 saveSumsubVerdict,三个分支共用。
+    const verdictEvidence = {
+      verdict: input.verdict,
+      score: input.riskScore ?? null,
+      scoredAt: new Date(),
+      detailJson: input.detailRaw !== undefined ? JSON.stringify(input.detailRaw) : undefined,
     };
 
     // Review Fix 1 (Important): PROCESSING 期迟到裁决不能死信。PROCESSING 故意不在
@@ -554,7 +561,7 @@ export class SwapWorkflowService {
     // 不做任何状态分发,让 webhook 正常拿到 200。
     if (status === SwapTransactionStatus.PROCESSING) {
       await this.prisma.$transaction(async (tx) => {
-        await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
+        await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
         if (input.verdict === 'rejected') {
           await this.swapTransactionsService.setNeedsReview(swap.id, true, tx);
         }
@@ -592,7 +599,7 @@ export class SwapWorkflowService {
 
     if (input.verdict === 'approved') {
       await this.prisma.$transaction(async (tx) => {
-        await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
+        await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
         await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx);
         await this.auditLogsService.recordSystem(
           {
@@ -618,7 +625,7 @@ export class SwapWorkflowService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.swapTransaction.update({ where: { id: swapId }, data: verdictFields });
+      await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
       await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
         rejectReason: 'KYT_REJECTED',
       });
@@ -797,6 +804,8 @@ export class SwapWorkflowService {
     },
     input: {
       verdict: 'approved' | 'rejected';
+      /** scoringResult.score —— 与提现契约对齐（parity 2026-08-14），approved 也带。 */
+      riskScore?: number | null;
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
       typedTags?: string[];

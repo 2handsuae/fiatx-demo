@@ -316,33 +316,50 @@ describe('findOneForAdmin', () => {
     service = new SwapTransactionsService(prisma as any, {} as any, {} as any);
   });
 
-  it('well-formed payload: parses sumsubDetailJson and splits complianceRuleNames on the comma', async () => {
+  it('well-formed official-shape payload: parseDetail 输出提现同源形状（parity 2026-08-14）', async () => {
     prisma.swapTransaction.findUnique.mockResolvedValue({
       id: 'swap-a1',
       swapNo: 'SWP0200',
       sumsubTxnIdOut: 'txn-out-1',
       sumsubTxnIdIn: 'txn-in-1',
-      complianceVerdict: 'RED',
+      complianceVerdict: 'rejected',
       complianceAction: 'reject',
       complianceRuleNames: 'High risk country,Sanctions match',
       rejectReason: 'KYT_REJECTED',
-      sumsubDetailJson: JSON.stringify({ scoringResult: { action: 'reject', score: 90 } }),
+      sumsubDetailJson: JSON.stringify({
+        review: { reviewStatus: 'completed', reviewResult: { reviewAnswer: 'RED' } },
+        scoringResult: {
+          action: 'reject',
+          score: 90,
+          matchedRules: [{ id: 'r1', name: 'High risk country', action: 'reject', score: 90 }],
+          applicantActions: [{ applicantActionId: 'aa-1', externalActionId: 'ext-1' }],
+        },
+        typedTags: [{ label: 'SANCTION', type: 'userDefined' }],
+      }),
     });
 
     const result: any = await service.findOneForAdmin('swap-a1');
 
+    // toEqual 全量快照：任何字段的增删都会失败——契约漂移即红。
     expect(result.sumsubDetail).toEqual({
+      verdict: 'reject',
+      reviewStatus: 'completed',
+      reviewAnswer: 'RED',
+      score: 90,
+      matchedRules: [{ id: 'r1', name: 'High risk country', action: 'reject', score: 90 }],
+      applicantActionIds: ['aa-1'],
+      tags: ['SANCTION'],
+      raw: expect.objectContaining({ scoringResult: expect.anything() }),
+      // swap 补充：双腿 txnId（提现单腿没有）
       txnIdOut: 'txn-out-1',
       txnIdIn: 'txn-in-1',
-      verdict: 'RED',
-      scoringAction: 'reject',
-      matchedRules: ['High risk country', 'Sanctions match'],
-      rejectReason: 'KYT_REJECTED',
-      raw: { scoringResult: { action: 'reject', score: 90 } },
     });
+    // 行级裸列仍在顶层（References 卡消费）
+    expect(result.rejectReason).toBe('KYT_REJECTED');
+    expect(result.complianceVerdict).toBe('rejected');
   });
 
-  it('malformed sumsubDetailJson falls back to raw: null instead of throwing', async () => {
+  it('malformed sumsubDetailJson → sumsubDetail 为 null 而非抛错', async () => {
     prisma.swapTransaction.findUnique.mockResolvedValue({
       id: 'swap-a2',
       swapNo: 'SWP0201',
@@ -357,10 +374,10 @@ describe('findOneForAdmin', () => {
 
     const result: any = await service.findOneForAdmin('swap-a2');
 
-    expect(result.sumsubDetail.raw).toBeNull();
+    expect(result.sumsubDetail).toBeNull();
   });
 
-  it('empty/absent complianceRuleNames → matchedRules is []', async () => {
+  it('无 sumsubDetailJson（如 TIMEOUT 单）→ sumsubDetail 为 null', async () => {
     prisma.swapTransaction.findUnique.mockResolvedValue({
       id: 'swap-a3',
       swapNo: 'SWP0202',
@@ -369,13 +386,52 @@ describe('findOneForAdmin', () => {
       complianceVerdict: null,
       complianceAction: null,
       complianceRuleNames: null,
-      rejectReason: null,
+      rejectReason: 'TIMEOUT',
       sumsubDetailJson: null,
     });
 
     const result: any = await service.findOneForAdmin('swap-a3');
 
-    expect(result.sumsubDetail.matchedRules).toEqual([]);
-    expect(result.sumsubDetail.raw).toBeNull();
+    expect(result.sumsubDetail).toBeNull();
+    expect(result.rejectReason).toBe('TIMEOUT');
+  });
+
+  it('saveSumsubVerdict 写在传入的 tx client 上（原子性另一半，配 workflow 层的同 tx 断言）', async () => {
+    const tx: any = { swapTransaction: { update: jest.fn().mockResolvedValue({}) } };
+    const scoredAt = new Date('2026-08-14T08:00:00Z');
+
+    await service.saveSumsubVerdict(
+      'swap-a4',
+      { verdict: 'approved', score: 12, scoredAt, detailJson: '{"a":1}' },
+      tx,
+    );
+
+    expect(tx.swapTransaction.update).toHaveBeenCalledWith({
+      where: { id: 'swap-a4' },
+      data: {
+        complianceVerdict: 'approved',
+        sumsubScore: 12,
+        sumsubScoredAt: scoredAt,
+        sumsubDetailJson: '{"a":1}',
+      },
+    });
+    // 顶层 prisma 上绝不落
+    expect(prisma.swapTransaction.findUnique).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.anything() }),
+    );
+  });
+
+  it('saveSumsubVerdict 省略 detailJson 时不覆写既有报文（undefined = Prisma 跳过该字段）', async () => {
+    const tx: any = { swapTransaction: { update: jest.fn().mockResolvedValue({}) } };
+
+    await service.saveSumsubVerdict(
+      'swap-a5',
+      { verdict: 'rejected', score: null, scoredAt: new Date() },
+      tx,
+    );
+
+    const data = tx.swapTransaction.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('sumsubDetailJson');
+    expect(data.sumsubScore).toBeNull();
   });
 });

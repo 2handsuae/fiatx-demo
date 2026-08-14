@@ -1170,6 +1170,11 @@ model SwapTransaction {
   complianceRuleNames String?  @map("compliance_rule_names")
   sumsubDetailJson    String?  @map("sumsub_detail_json")
   rejectReason        String?  @map("reject_reason")
+  // 与提现契约对齐（2026-08-14 parity）：风险分/裁决时刻/交易类型。
+  // swap 只有 finance 一种（无对手方 → 无 travelRule），提交卖出腿时恒写 'finance'。
+  sumsubScore         Int?      @map("sumsub_score")
+  sumsubScoredAt      DateTime? @map("sumsub_scored_at")
+  sumsubTxnType       String?   @map("sumsub_txn_type")
   spreadAmount     Decimal?
   grossAedValue    Decimal?                  // 创建时 AED 估值快照(B 累计用量取数)
   tbFromTransferId String?

@@ -58,18 +58,37 @@ describe('SwapKytVerdictHandler', () => {
     };
   }
 
-  it('Approved → 调 applyKytVerdict(verdict=approved)，approved 不拉 getTxn', async () => {
+  it('Approved → 也拉 getTxn 落证据（parity 2026-08-14），applyKytVerdict 收到 riskScore+detailRaw', async () => {
+    // 与提现 DETAIL_LOOKUP_VERDICTS 对齐：approved 也拉一次 getTxn——否则放行单的
+    // score/raw 彻底丢失，运营在详情页看不到风险分（此前正是这个坑）。
+    sumsubTxnClient.getTxn.mockResolvedValue({
+      txnId: 'T1',
+      verdict: 'approved',
+      reviewAnswer: 'GREEN',
+      riskScore: 10,
+      typedTags: [],
+      raw: { txnId: 'T1', scoringResult: { score: 10, action: 'score' } },
+    } as SumsubTxnDetail);
+
     const hit = await handler.handle({
       type: 'applicantKytTxnApproved',
       kytTxnId: 'T1',
     });
 
     expect(hit).toBe(true);
-    expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
+    expect(sumsubTxnClient.getTxn).toHaveBeenCalledWith('T1');
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(
       SWAP_ID,
-      expect.objectContaining({ verdict: 'approved' }),
+      expect.objectContaining({
+        verdict: 'approved',
+        riskScore: 10,
+        detailRaw: expect.objectContaining({ txnId: 'T1' }),
+      }),
     );
+    // approved 不驱动处置分支：tag/action 不该被传递
+    const arg = workflow.applyKytVerdict.mock.calls[0][1];
+    expect(arg).not.toHaveProperty('typedTags');
+    expect(arg).not.toHaveProperty('applicantActions');
   });
 
   it('Rejected → 调 applyKytVerdict(verdict=rejected)，拉 getTxn 读 typedTags', async () => {

@@ -529,34 +529,70 @@ export class SwapTransactionsService {
   async findOneForAdmin(id: string) {
     const item: any = await this.findOne(id);
 
-    let raw: unknown = null;
-    if (item.sumsubDetailJson) {
+    // Sumsub getTxn 报文展示子集 —— parity 2026-08-14：与提现
+    // findOneForAdmin 的 parseDetail 逐字同源（withdraw-transactions.service.ts），
+    // 废弃此前自造的 {scoringAction, matchedRules: string[]} 形状。
+    const parseDetail = (json?: string | null) => {
+      if (!json) return null;
+      let d: any;
       try {
-        raw = JSON.parse(item.sumsubDetailJson);
+        d = JSON.parse(json);
       } catch {
-        raw = null;
+        return null;
       }
-    }
-
-    // 下发给客户的补料 action 藏在 raw 的 scoringResult.applicantActions 里——
-    // 抬成一等展示字段，operator 不用展开 Raw payload 才知道"下发了什么"。
-    const applicantActions: Array<{ applicantActionId?: string; externalActionId?: string }> =
-      Array.isArray((raw as any)?.scoringResult?.applicantActions)
-        ? (raw as any).scoringResult.applicantActions
-        : [];
-
-    const sumsubDetail = {
-      txnIdOut: item.sumsubTxnIdOut,
-      txnIdIn: item.sumsubTxnIdIn,
-      verdict: item.complianceVerdict,
-      scoringAction: item.complianceAction,
-      matchedRules: item.complianceRuleNames ? item.complianceRuleNames.split(',') : [],
-      rejectReason: item.rejectReason,
-      applicantActions,
-      raw,
+      // JSON.parse 对合法但非对象的 JSON("null"/"123")不抛,属性访问才炸——挡住。
+      if (d === null || typeof d !== 'object') return null;
+      const sr = d.scoringResult ?? {};
+      return {
+        verdict: d.verdict ?? sr.action ?? null,
+        reviewStatus: d?.review?.reviewStatus ?? null,
+        reviewAnswer: d.review?.reviewResult?.reviewAnswer ?? d.reviewAnswer ?? null,
+        score: sr.score ?? null,
+        matchedRules: (sr.matchedRules ?? []).filter(Boolean).map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          action: r.action,
+          score: r.score,
+        })),
+        applicantActionIds: (sr.applicantActions ?? [])
+          .filter(Boolean)
+          .map((a: any) => a.applicantActionId)
+          .filter(Boolean),
+        tags: (d.typedTags ?? []).filter(Boolean).map((t: any) => t.label),
+        raw: d,
+      };
     };
 
+    const parsed = parseDetail(item.sumsubDetailJson);
+    // swap 补充字段：双腿 txnId（提现单腿没有）。行级 rejectReason/complianceVerdict
+    // 走 item 顶层裸列（References 卡消费），不塞进 detail。
+    const sumsubDetail = parsed
+      ? { ...parsed, txnIdOut: item.sumsubTxnIdOut, txnIdIn: item.sumsubTxnIdIn }
+      : null;
+
     return { ...item, sumsubDetail };
+  }
+
+  /**
+   * Sumsub KYT 裁决证据一次原子写 —— mirror of withdraw saveSumsubVerdict
+   * (deliberate fork)。verdict 落 complianceVerdict（swap 既有列名，审计/列表
+   * 查询已依赖），score/scoredAt/detailJson 落 parity 三列。tx 必传：与
+   * markStatus 同事务，避免"状态回滚而证据留存"。
+   */
+  async saveSumsubVerdict(
+    swapId: string,
+    data: { verdict: string; score: number | null; scoredAt: Date; detailJson?: string },
+    tx: Prisma.TransactionClient,
+  ) {
+    return tx.swapTransaction.update({
+      where: { id: swapId },
+      data: {
+        complianceVerdict: data.verdict,
+        sumsubScore: data.score,
+        sumsubScoredAt: data.scoredAt,
+        ...(data.detailJson !== undefined && { sumsubDetailJson: data.detailJson }),
+      },
+    });
   }
 
   /** Active leg per legSeq = the row with the MAX attempt for that legSeq. */

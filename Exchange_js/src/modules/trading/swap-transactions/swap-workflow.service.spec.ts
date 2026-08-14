@@ -532,6 +532,8 @@ function buildAdvanceLegMocks(opts: {
     activeLegsBySeq: jest.fn(() => Promise.resolve(legState.slice())),
     markStatus: jest.fn(() => Promise.resolve()),
     setNeedsReview: jest.fn(() => Promise.resolve()),
+    // parity 2026-08-14：证据四件套原子写（与 markStatus 同事务）
+    saveSumsubVerdict: jest.fn(() => Promise.resolve()),
     recomputeProjections: jest.fn(() => Promise.resolve()),
     create: jest.fn(),
     findOne: jest.fn(),
@@ -1173,6 +1175,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const swapTransactionsService = {
       findByIdInternal: jest.fn(() => Promise.resolve(swapRow)),
       markStatus: jest.fn(() => Promise.resolve()),
+      // parity 2026-08-14：证据四件套原子写（与 markStatus 同事务）
+      saveSumsubVerdict: jest.fn(() => Promise.resolve()),
       recomputeProjections: jest.fn(() => Promise.resolve()),
       setNeedsReview: jest.fn(() => Promise.resolve()),
     };
@@ -1567,22 +1571,30 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks();
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'approved', detailRaw: { foo: 'bar' } });
+    await service.applyKytVerdict('s1', {
+      verdict: 'approved',
+      riskScore: 10,
+      detailRaw: { foo: 'bar' },
+    });
 
-    // The verdict write must land on the tx client (rolls back together with
-    // markStatus if anything later in the same transaction throws) — never
-    // on the top-level, non-transactional prisma client.
-    expect(mocks.txClient.swapTransaction.update).toHaveBeenCalledWith(
+    // parity 2026-08-14：证据写经 saveSumsubVerdict(swapId, evidence, tx)。
+    // 原子性证明拆两层——本层断言"收到的是与 markStatus 同一个 tx client"；
+    // "它确实写在传入 tx 上"由 swap-transactions.service.spec 的
+    // saveSumsubVerdict 单测钉住。两层合起来等价于旧断言。
+    const saveCall = (mocks.swapTransactionsService.saveSumsubVerdict as jest.Mock).mock.calls[0];
+    expect(saveCall[0]).toBe('s1');
+    expect(saveCall[1]).toEqual(
       expect.objectContaining({
-        where: { id: 's1' },
-        data: expect.objectContaining({
-          complianceVerdict: 'approved',
-          sumsubDetailJson: JSON.stringify({ foo: 'bar' }),
-        }),
+        verdict: 'approved',
+        score: 10,
+        detailJson: JSON.stringify({ foo: 'bar' }),
       }),
     );
-    // The only non-transactional swapTransaction.update call is the buy-leg's
-    // own sumsubTxnIdIn write (submitSumsubTxnIn), never the verdict fields.
+    expect(saveCall[1].scoredAt).toBeInstanceOf(Date);
+    expect(saveCall[2]).toBe(mocks.txClient); // 与 markStatus 同事务
+    const markCall = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0];
+    expect(markCall[2]).toBe(mocks.txClient);
+    // 顶层非事务 client 上绝不落 verdict 字段（buy 腿的 sumsubTxnIdIn 写除外）。
     const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
     for (const [arg] of topLevelUpdateCalls) {
       expect(arg.data).not.toHaveProperty('complianceVerdict');
@@ -1596,17 +1608,27 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks();
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', detailRaw: { foo: 'bar' } });
+    await service.applyKytVerdict('s1', {
+      verdict: 'rejected',
+      riskScore: 88,
+      detailRaw: { foo: 'bar' },
+    });
 
-    expect(mocks.txClient.swapTransaction.update).toHaveBeenCalledWith(
+    // 同 approved 支：saveSumsubVerdict 收到与 markStatus 同一个 tx（原子性
+    // 的另一半由 service 单测钉住）。rejected 是"证据落了状态却没落"伤害最大
+    // 的分支，故同样必须证明。
+    const saveCall = (mocks.swapTransactionsService.saveSumsubVerdict as jest.Mock).mock.calls[0];
+    expect(saveCall[0]).toBe('s1');
+    expect(saveCall[1]).toEqual(
       expect.objectContaining({
-        where: { id: 's1' },
-        data: expect.objectContaining({
-          complianceVerdict: 'rejected',
-          sumsubDetailJson: JSON.stringify({ foo: 'bar' }),
-        }),
+        verdict: 'rejected',
+        score: 88,
+        detailJson: JSON.stringify({ foo: 'bar' }),
       }),
     );
+    expect(saveCall[2]).toBe(mocks.txClient);
+    const markCall = (mocks.swapTransactionsService.markStatus as jest.Mock).mock.calls[0];
+    expect(markCall[2]).toBe(mocks.txClient);
     const topLevelUpdateCalls = (mocks.prisma.swapTransaction.update as jest.Mock).mock.calls;
     for (const [arg] of topLevelUpdateCalls) {
       expect(arg.data).not.toHaveProperty('complianceVerdict');
