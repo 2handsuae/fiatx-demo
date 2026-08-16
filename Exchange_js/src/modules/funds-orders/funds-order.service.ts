@@ -239,6 +239,24 @@ export class FundsOrderService {
     }));
   }
 
+  /**
+   * 销户前置校验专用：某客户名下全部非终态资金单计数。
+   * funds_orders 无 customerId，归属只能经三个 parent FK 的 ownerType/ownerId 反查。
+   */
+  async countNonTerminalByCustomer(customerId: string): Promise<number> {
+    const owner = { ownerType: 'CUSTOMER', ownerId: customerId };
+    return this.prisma.fundsOrder.count({
+      where: {
+        status: { notIn: Array.from(TERMINAL_STATUSES) },
+        OR: [
+          { deposit: { is: owner } },
+          { withdrawTransaction: { is: owner } },
+          { swapTransaction: { is: owner } },
+        ],
+      },
+    });
+  }
+
   /* ── Admin read surface (C6) ────────────────────────────────────
      Unified funds-orders admin list + detail. A funds_order's "parent"
      is whichever of the three FKs is non-null: deposit (IN payin),
