@@ -39,8 +39,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'APPROVED',
-              adminStatus: 'ACTIVE',
+              lifecycle: 'ACTIVE',
             }),
           ]),
         }),
@@ -56,7 +55,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'PENDING_VERIFICATION',
+              lifecycle: 'IN_VERIFICATION',
             }),
           ]),
         }),
@@ -78,7 +77,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'PENDING_VERIFICATION',
+              lifecycle: 'IN_VERIFICATION',
             }),
           ]),
         }),
@@ -94,7 +93,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'PENDING_VERIFICATION',
+              lifecycle: 'IN_VERIFICATION',
             }),
           ]),
         }),
@@ -110,7 +109,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'PENDING_VERIFICATION',
+              lifecycle: 'IN_VERIFICATION',
             }),
           ]),
         }),
@@ -132,7 +131,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'PENDING_VERIFICATION',
+              lifecycle: 'IN_VERIFICATION',
             }),
           ]),
         }),
@@ -154,7 +153,7 @@ describe('CustomersController', () => {
         where: expect.objectContaining({
           AND: expect.arrayContaining([
             expect.objectContaining({
-              onboardingStatus: 'FINAL_APPROVAL',
+              lifecycle: 'PENDING_APPROVAL',
             }),
           ]),
         }),
