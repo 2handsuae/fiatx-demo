@@ -810,23 +810,8 @@ export class SwapWorkflowService {
     },
   ): Promise<void> {
     try {
-      // 收紧方向、免事前审批：无论软硬线都先限制 SWAP/WITHDRAW。DEPOSIT 故意不
-      // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
-      //
-      // Review Fix 5 (Minor): 下面这两次写入（restrictions.add /
-      // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
-      // 一致状态。当前顺序（先 restrict 再写 pendingAction）是故意的
-      // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
-      // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
-      // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
-      // 个顺序调换——它是 load-bearing 的。
-      await this.customerRestrictionsService.add(
-        swap.ownerId,
-        ['SWAP', 'WITHDRAW'],
-        'KYT_REJECTED',
-        'system',
-      );
-
+      // ── 先做分型判定（全是只读，无副作用），再落写入 ──
+      // Task 8：便签的 cause 取决于软硬线，所以判定必须先于贴便签。
       const hasSanction = (input.typedTags ?? []).includes('SANCTION');
       const actions = input.applicantActions ?? [];
       // 本次裁决单看自己是不是硬线：无 action 可做，或命中 SANCTION。
@@ -837,12 +822,42 @@ export class SwapWorkflowService {
       const alreadyHardLined = await this.customerPendingActionService.hasHardLineDisposition(
         swap.ownerId,
       );
+      const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
+
+      // 收紧方向、免事前审批：无论软硬线都限制 SWAP/WITHDRAW。DEPOSIT 故意不
+      // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
+      //
+      // Task 8：从 restrictions.add(capability[]) 换成限制账 open({cause})。
+      // cause 三分：命中制裁 → SANCTION（SILENT / 卡全部能力 / 只能 MLRO 解）；
+      // 否则按本次是否暴露补料入口分 KYT_REJECTED_SOFT（DISCLOSED）与
+      // KYT_REJECTED_HARD（SILENT）。scope 不传 —— 三个 cause 的 scopeSelectable
+      // 均为 false，由注册表带出。caseRef=swapNo，便于按单撕。
+      //
+      // Review Fix 5 (Minor): 下面这两次写入（限制账 open /
+      // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
+      // 一致状态。当前顺序（先 restrict 再写 pendingAction）是故意的
+      // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
+      // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
+      // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
+      // 个顺序调换——它是 load-bearing 的。
+      const restrictionCause = hasSanction
+        ? ('SANCTION' as const)
+        : exposeToCustomer
+          ? ('KYT_REJECTED_SOFT' as const)
+          : ('KYT_REJECTED_HARD' as const);
+      const { restrictionNo, created: restrictionCreated } =
+        await this.customerRestrictionsService.open({
+          customerId: swap.ownerId,
+          cause: restrictionCause,
+          reason: `Swap ${swap.swapNo} KYT rejected`,
+          caseRef: swap.swapNo,
+          openedBy: 'system',
+        });
 
       // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个
-      // 客户从未被硬线过」才暴露入口。无条件调用 set（而非只在暴露时才调
-      // 用），这样硬线裁决也会把客户此前可能留下的软线 pendingAction 一并
-      // 清空，不留旧入口。
-      const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
+      // 客户从未被硬线过」才暴露入口（exposeToCustomer 已在上方算好）。
+      // 无条件调用 set（而非只在暴露时才调用），这样硬线裁决也会把客户此前
+      // 可能留下的软线 pendingAction 一并清空，不留旧入口。
       // Finding 3 (Minor, 终审): sticky marker keyed on hasSanction only — see
       // the class-comment note above. isHardLineThisVerdict still decides
       // exposure for THIS verdict (no-actions correctly exposes nothing here
@@ -881,6 +896,9 @@ export class SwapWorkflowService {
           alreadyHardLined,
           // Review Fix 4 (Minor): which action was actually shown, when one was.
           externalActionId: exposeToCustomer ? actions[0]!.externalActionId : undefined,
+          restrictionNo,
+          restrictionCause,
+          restrictionCreated,
         },
         sourcePlatform: 'SYSTEM',
       });

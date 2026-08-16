@@ -1233,7 +1233,9 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     // customer-restrictions.service.spec.ts (Task 1); these tests only need
     // to assert swap-workflow *calls* it correctly.
     const customerRestrictionsService = {
-      add: jest.fn(() => Promise.resolve()),
+      open: jest.fn(() =>
+        Promise.resolve({ restrictionNo: 'RST2608160001', created: true }),
+      ),
     };
 
     // Task 7: CustomerPendingActionService is the REAL implementation wired
@@ -1473,11 +1475,14 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
-    expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
-      'cust-1',
-      ['SWAP', 'WITHDRAW'],
-      'KYT_REJECTED',
-      'system',
+    // Task 8：制裁命中 → 贴 SANCTION 便签（SILENT / 卡全部能力 / 只能 MLRO 解）。
+    // scopes 不传：SANCTION 的 scopeSelectable=false，由注册表带出。
+    expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'cust-1',
+        cause: 'SANCTION',
+        openedBy: 'system',
+      }),
     );
     // Sanction hit — tipping-off silence still applies against a completed swap.
     expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
@@ -1536,11 +1541,14 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     // Swap itself is untouched — no state transition, no unwinding.
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     // But the person is restricted exactly like a pre-PROCESSING rejection.
-    expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
-      'cust-1',
-      ['SWAP', 'WITHDRAW'],
-      'KYT_REJECTED',
-      'system',
+    // Task 8：制裁命中 → 贴 SANCTION 便签（SILENT / 卡全部能力 / 只能 MLRO 解）。
+    // scopes 不传：SANCTION 的 scopeSelectable=false，由注册表带出。
+    expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'cust-1',
+        cause: 'SANCTION',
+        openedBy: 'system',
+      }),
     );
     // Sanction hit — tipping-off silence still applies mid-swap.
     expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
@@ -1554,7 +1562,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     await service.applyKytVerdict('s1', { verdict: 'approved' });
 
     expect(dispositionSpy).not.toHaveBeenCalled();
-    expect(mocks.customerRestrictionsService.add).not.toHaveBeenCalled();
+    expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalled();
   });
 
   it('swap not found → no-op, does not throw', async () => {
@@ -1702,11 +1710,15 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
       });
 
-      expect(mocks.customerRestrictionsService.add).toHaveBeenCalledWith(
-        'cust-1',
-        ['SWAP', 'WITHDRAW'],
-        'KYT_REJECTED',
-        'system',
+      // Task 8：软线 → KYT_REJECTED_SOFT（DISCLOSED，客户看得见 "Verification required"）。
+      // caseRef=swapNo，便于按单撕。scopes 不传，由注册表带出 SWAP+WITHDRAW。
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-1',
+          cause: 'KYT_REJECTED_SOFT',
+          caseRef: 'SWP0001',
+          openedBy: 'system',
+        }),
       );
       expect(await mocks.pendingActionService.get('cust-1')).toEqual({
         externalActionId: 'EA1',
@@ -1733,7 +1745,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         typedTags: ['SANCTION'],
       });
 
-      expect(mocks.customerRestrictionsService.add).toHaveBeenCalled();
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
       expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
     });
 
@@ -1743,7 +1755,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
 
       await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
 
-      expect(mocks.customerRestrictionsService.add).toHaveBeenCalled();
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
       expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
     });
 
@@ -1779,21 +1791,20 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await (service as any).handleRejectDisposition(mocks.swapRow, input);
       await (service as any).handleRejectDisposition(mocks.swapRow, input);
 
-      expect(mocks.customerRestrictionsService.add).toHaveBeenCalledTimes(2);
-      expect(mocks.customerRestrictionsService.add).toHaveBeenNthCalledWith(
-        1,
-        'cust-1',
-        ['SWAP', 'WITHDRAW'],
-        'KYT_REJECTED',
-        'system',
-      );
-      expect(mocks.customerRestrictionsService.add).toHaveBeenNthCalledWith(
-        2,
-        'cust-1',
-        ['SWAP', 'WITHDRAW'],
-        'KYT_REJECTED',
-        'system',
-      );
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledTimes(2);
+      // 两次都调 open —— 幂等由限制账自己保证（同 customerId+cause+caseRef
+      // 第二次返回 created:false，不会贴出第二张，已在 Task 3 的 spec 里证过）。
+      for (const nth of [1, 2]) {
+        expect(mocks.customerRestrictionsService.open).toHaveBeenNthCalledWith(
+          nth,
+          expect.objectContaining({
+            customerId: 'cust-1',
+            cause: 'KYT_REJECTED_SOFT',
+            caseRef: 'SWP0001',
+            openedBy: 'system',
+          }),
+        );
+      }
       // Re-running left exactly the same single pendingAction — not duplicated,
       // not nulled out by the replay.
       expect(await mocks.pendingActionService.get('cust-1')).toEqual({
@@ -1904,7 +1915,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     it('处置失败：写 SWAP_KYT_REJECTED_DISPOSITION_FAILED 审计 + 打 needsReview，并把异常继续往外抛', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
-      (mocks.customerRestrictionsService.add as jest.Mock).mockRejectedValueOnce(
+      (mocks.customerRestrictionsService.open as jest.Mock).mockRejectedValueOnce(
         new Error('SQLITE_BUSY: database is locked'),
       );
 

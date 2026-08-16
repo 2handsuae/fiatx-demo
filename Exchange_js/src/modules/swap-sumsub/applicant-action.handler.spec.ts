@@ -1,6 +1,6 @@
 import { SwapApplicantActionHandler } from './applicant-action.handler';
 import { CustomerPendingActionService } from '../identity/customers/customer-pending-action.service';
-import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
+import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions } from '../audit-logging/constants/audit-actions.constant';
 
@@ -22,7 +22,7 @@ import { AuditActions } from '../audit-logging/constants/audit-actions.constant'
  */
 describe('SwapApplicantActionHandler', () => {
   let pendingActionService: jest.Mocked<CustomerPendingActionService>;
-  let restrictionsService: jest.Mocked<CustomerRestrictionsService>;
+  let restrictionWorkflowService: jest.Mocked<CustomerRestrictionWorkflowService>;
   let auditLogsService: jest.Mocked<AuditLogsService>;
   let handler: SwapApplicantActionHandler;
 
@@ -33,9 +33,10 @@ describe('SwapApplicantActionHandler', () => {
       resetSubmission: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<CustomerPendingActionService>;
 
-    restrictionsService = {
-      clear: jest.fn().mockResolvedValue(undefined),
-    } as unknown as jest.Mocked<CustomerRestrictionsService>;
+    restrictionWorkflowService = {
+      autoRelease: jest.fn().mockResolvedValue(undefined),
+      openRestriction: jest.fn(),
+    } as unknown as jest.Mocked<CustomerRestrictionWorkflowService>;
 
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -43,7 +44,7 @@ describe('SwapApplicantActionHandler', () => {
 
     handler = new SwapApplicantActionHandler(
       pendingActionService,
-      restrictionsService,
+      restrictionWorkflowService,
       auditLogsService,
     );
   });
@@ -62,9 +63,11 @@ describe('SwapApplicantActionHandler', () => {
     });
 
     expect(hit).toBe(true);
-    expect(restrictionsService.clear).toHaveBeenCalledWith(
+    // Task 8：只撕软线那张，客户身上别的因（制裁/材料/升级）一概不动
+    expect(restrictionWorkflowService.autoRelease).toHaveBeenCalledWith(
       'c1',
-      ['SWAP', 'WITHDRAW'],
+      'KYT_REJECTED_SOFT',
+      null,
       'system',
     );
     expect(pendingActionService.set).toHaveBeenCalledWith('c1', null, expect.anything());
@@ -87,7 +90,7 @@ describe('SwapApplicantActionHandler', () => {
     });
 
     expect(hit).toBe(true);
-    expect(restrictionsService.clear).not.toHaveBeenCalled();
+    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
     expect(pendingActionService.set).toHaveBeenCalledWith('c1', null, expect.anything());
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD }),
@@ -108,7 +111,7 @@ describe('SwapApplicantActionHandler', () => {
     });
 
     expect(hit).toBe(true);
-    expect(restrictionsService.clear).not.toHaveBeenCalled();
+    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_ACTION_ESCALATED }),
     );
@@ -124,7 +127,7 @@ describe('SwapApplicantActionHandler', () => {
     });
 
     expect(hit).toBe(false);
-    expect(restrictionsService.clear).not.toHaveBeenCalled();
+    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
     expect(pendingActionService.set).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
   });
@@ -145,9 +148,11 @@ describe('SwapApplicantActionHandler', () => {
 
     expect(hit).toBe(true);
     expect(pendingActionService.findByExternalActionId).toHaveBeenCalledWith('EA1');
-    expect(restrictionsService.clear).toHaveBeenCalledWith(
+    // Task 8：只撕软线那张，客户身上别的因（制裁/材料/升级）一概不动
+    expect(restrictionWorkflowService.autoRelease).toHaveBeenCalledWith(
       'c1',
-      ['SWAP', 'WITHDRAW'],
+      'KYT_REJECTED_SOFT',
+      null,
       'system',
     );
   });
@@ -161,7 +166,7 @@ describe('SwapApplicantActionHandler', () => {
 
     expect(hit).toBe(false);
     expect(pendingActionService.findByExternalActionId).not.toHaveBeenCalled();
-    expect(restrictionsService.clear).not.toHaveBeenCalled();
+    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
     expect(pendingActionService.set).not.toHaveBeenCalled();
     expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
   });
