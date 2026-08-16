@@ -203,25 +203,13 @@ model CustomerMain {
   timezone          String?
   termsAcceptedAt   DateTime?
 
-  // ═══ 状态轴 1：准入旅程 ═══
-  onboardingStatus     String    @default("NONE")
+  // ═══ 唯一状态轴：客户关系生命周期 ═══
+  // 取值见 src/modules/identity/constants/customer-lifecycle.constant.ts（七态九边）。
+  // 「摁住客户」不在这根轴上——制裁/行政暂停/材料过期/等升级/交易审查未过一律进
+  // customer_restrictions 限制账（一行 = 一次摁住），可多因并存、各撕各的。
+  lifecycle            String    @default("PROSPECT")
   onboardingTraceId    String?
   onboardingApprovedAt DateTime?
-
-  // ═══ 状态轴 2：行政生命周期 ═══
-  adminStatus       String    @default("INACTIVE")
-  suspendedReason   String?
-  suspendedAt       DateTime?
-
-  // ═══ 状态轴 3：合规冻结 ═══
-  complianceStatus           String    @default("CLEAR")
-  complianceFreezeReason     String?
-  complianceFreezeCaseId     String?
-  complianceFreezeAt         DateTime?
-  complianceFreezeReleasedAt DateTime?
-
-  // ═══ 细粒度限制 ═══
-  restrictions String @default("[]")
 
   // Task 7 (swap-sumsub): KYT 拒绝后暴露给客户的待办事项。软线（有补料动作且
   // 非制裁）才非 null；硬线（含制裁 tipping-off）恒为 null —— 写入方
@@ -295,9 +283,8 @@ model CustomerMain {
   tierUpgradeCases          TierUpgradeCase[]        @relation("CustomerTierUpgradeCases")
   withdrawalAddresses       WithdrawalAddress[]
   explicitTags                CustomerExplicitTag[]
+  restrictionRows             CustomerRestriction[]
 
-  @@index([adminStatus])
-  @@index([complianceStatus])
   @@index([riskRating])
   // Task 13: applicantActionReviewed webhook 反查客户的唯一入口列
   // （CustomerPendingActionService.findByExternalActionId）。
@@ -315,6 +302,40 @@ model CustomerExplicitTag {
   @@unique([customerId, tagCode])
   @@index([tagCode])
   @@map("customer_explicit_tags")
+}
+
+model CustomerRestriction {
+  id                String    @id @default(uuid())
+  // 业务键 generateReferenceNo('RST')。一张便签一个号；卡多个能力 = 同号多行不同 scope，
+  // 同贴同撕同事务。API 与前端一律以 restrictionNo 为操作单位，scope 是它的明细。
+  restrictionNo     String
+  customerId        String
+  scope             String
+  cause             String
+  // visibility / releasePolicy 由 cause 查 RESTRICTION_CAUSE_POLICY 落库（非人工输入）。
+  // 落库而非每次现算：保证历史行不因常量表改动而变义。
+  visibility        String
+  releasePolicy     String
+  status            String    @default("OPEN")
+  reason            String
+  caseRef           String?
+  releaseOrderRef   String?
+  openedAt          DateTime  @default(now())
+  openedBy          String
+  releasedAt        DateTime?
+  releasedBy        String?
+  releaseApprovalNo String?
+  releaseMode       String?
+  traceId           String
+
+  customer CustomerMain @relation(fields: [customerId], references: [id])
+
+  // 幂等键 (customerId, cause, caseRef) 最多一条 OPEN 由服务层 findFirst 兜底
+  // （SQLite 无部分唯一索引，与 ReconciliationCase 同一处理）。
+  @@unique([restrictionNo, scope])
+  @@index([customerId, status])
+  @@index([cause, status])
+  @@map("customer_restrictions")
 }
 
 model CorporateProfile {
