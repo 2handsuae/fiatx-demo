@@ -1556,4 +1556,123 @@ describe('OnboardingService', () => {
     expect(result.onboardingStatus).toBe('NONE');
   });
 
+  describe('advanceLifecycle 九边闸门（Task 2）', () => {
+    it('applicantPending 在 PROSPECT 上走 START_VERIFICATION 落 IN_VERIFICATION', async () => {
+      seedVerificationEventFlow({ lifecycle: 'PROSPECT' });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantPending', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'customer-1' },
+          data: expect.objectContaining({ lifecycle: 'IN_VERIFICATION' }),
+        }),
+      );
+    });
+
+    it('已在 IN_VERIFICATION 时重放 applicantPending 不再写 lifecycle（幂等）', async () => {
+      seedVerificationEventFlow({ lifecycle: 'IN_VERIFICATION' });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantPending', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      const [[{ data }]] = prismaMock.customerMain.update.mock.calls;
+      expect(data.lifecycle).toBeUndefined();
+      expect(data.verificationSubstatus).toBe('SUBMITTED');
+    });
+
+    it('applicantWorkflowCompleted + 经历 level2 → PENDING_APPROVAL', async () => {
+      seedVerificationEventFlow({ lifecycle: 'IN_VERIFICATION', sumsubExperiencedLevel2: true });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantWorkflowCompleted', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ lifecycle: 'PENDING_APPROVAL' }),
+        }),
+      );
+    });
+
+    it('applicantWorkflowCompleted 未经 level2 按表走两跳落 ACTIVE', async () => {
+      const customer = buildVerificationCustomer({
+        lifecycle: 'IN_VERIFICATION',
+        sumsubExperiencedLevel2: false,
+      });
+      const rows = ['IN_VERIFICATION', 'PENDING_APPROVAL'];
+      prismaMock.customerMain.findUnique.mockImplementation(async () => ({
+        ...customer,
+        lifecycle: rows.shift() ?? 'PENDING_APPROVAL',
+      }));
+      prismaMock.customerMain.update.mockImplementation(async ({ data }: any) => ({
+        ...customer,
+        ...data,
+      }));
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantWorkflowCompleted', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      const written = prismaMock.customerMain.update.mock.calls.map(([arg]: any) => arg.data.lifecycle);
+      expect(written).toEqual(['PENDING_APPROVAL', 'ACTIVE']);
+    });
+
+    it('applicantWorkflowFailed → REJECTED', async () => {
+      seedVerificationEventFlow({ lifecycle: 'IN_VERIFICATION' });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantWorkflowFailed', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lifecycle: 'REJECTED' }) }),
+      );
+    });
+
+    it('终态客户（ACTIVE/REJECTED/WITHDRAWN/OFFBOARDED）直接忽略事件，不落库', async () => {
+      for (const lifecycle of ['ACTIVE', 'REJECTED', 'WITHDRAWN', 'OFFBOARDED']) {
+        jest.clearAllMocks();
+        prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
+        seedVerificationEventFlow({ lifecycle });
+
+        const result = await service.handleSumsubVerificationEvent(
+          { type: 'applicantPending', applicantId: 'app-1' },
+          { simulated: false, actorId: 'SUMSUB' },
+        );
+
+        expect(result.customer.lifecycle).toBe(lifecycle);
+        expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
+      }
+    });
+
+    it('startVerification 在 REJECTED 上走 REAPPLY 回 IN_VERIFICATION', async () => {
+      const customer = buildVerificationCustomer({
+        lifecycle: 'REJECTED',
+        verificationCanContinue: false,
+      });
+      prismaMock.customerMain.findUnique.mockResolvedValue(customer);
+      prismaMock.customerMain.update.mockImplementation(async ({ data }: any) => ({
+        ...customer,
+        ...data,
+      }));
+      sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue({ id: 'app-1' });
+      sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'tok-1' });
+
+      const result = await service.startVerification('c1');
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lifecycle: 'IN_VERIFICATION' }) }),
+      );
+      expect(result.customer).toEqual({ lifecycle: 'IN_VERIFICATION' });
+    });
+  });
 });

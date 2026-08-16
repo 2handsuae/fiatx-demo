@@ -14,11 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import type {
-  CustomerOnboardingStatus,
-  CustomerAdminStatus,
-  CustomerComplianceStatus,
-} from '../../customer-status.util';
+import type { CustomerLifecycle } from '../../constants/customer-lifecycle.constant';
 
 export const ONBOARDING_MOCK_DATA_TYPES = [
   'LOW_RISK',
@@ -208,9 +204,7 @@ export class StartVerificationResponseDto extends VerificationProjectionDto {
 }
 
 export interface StartVerificationCustomerSnapshotDto {
-  onboardingStatus: CustomerOnboardingStatus;
-  adminStatus: CustomerAdminStatus;
-  complianceStatus: CustomerComplianceStatus;
+  lifecycle: CustomerLifecycle;
 }
 
 export interface StartVerificationNextStepDto {
