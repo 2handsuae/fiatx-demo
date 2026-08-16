@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-08-13
+Last Updated: 2026-08-16
 
 ---
 
@@ -172,7 +172,7 @@ Last Updated: 2026-08-13
 - [ ] 架构命名漂移：roadmap 写"SwapSettlementService"该类不存在，实为 SwapWorkflowService+SwapLegAccounting+SwapTransactionsService（文档订正即可，非代码债）｜来源: 2026-07-04 V6 体检
 - [x] ~~swap 腿 `${swapNo}:${legSeq}:${attempt}:pending` 合成 externalRef（非真实穿越号，与 `isExternalCrossing:true` 自相矛盾，对账 Pass1 永配不上真实外部行）~~ ｜已修：externalRef 生成/回写收口归 funds_order，postLeg→enrichForPost 补真实铸号（2026-07-11，spec/plan `2026-07-11-funds-order-externalref-consolidation`）
 - [ ] demo 播种铸号种子不一致：`client-web Deposit.tsx` 与 `demo-lib.ts` 用 `walletId` 作 `fakeChainTxHash/fakeBankRef` 种子，funds_order 收口后 canonical 种子是 `fundsOrderNo`（两侧各自成对、不影响匹配，仅种子来源未统一）｜来源: 2026-07-11 externalRef 收口
-- [ ] **新铸 action id 无写入路径 → 无操作员解锁入口，客户可能永久卡在 WITHDRAW-locked(2026-08-13 Task 13 终审 Finding 7)**：`SwapApplicantActionHandler`（`swap-sumsub/applicant-action.handler.ts`）按 `CustomerMain.pendingActionExternalId` 反查客户，该列唯一写入方是 `handleRejectDisposition`（`swap-workflow.service.ts`，软线拒绝时写入当次 action 的 external id）。同一个 action 的 RED 后重试**能正常工作**（RED 分支故意不清指针，Sumsub `RETRY` 复交会复核同一个 action id，指针依旧命中）。缺口更窄但更难自愈：当 Sumsub 侧铸出一个**全新** action id 且不经我方 swap-KYT 拒绝流程时（人工在 Sumsub 后台要求补新材料、或一次 `FINAL` 拒绝），没有任何代码路径把这个新 id 写回 `pendingActionExternalId`，导致它永远查不到客户、永远认领不到——而 `CustomerRestrictionsService.clear()` 目前只有这一个调用方，且全仓没有任何面向运营的解限端点，唯一出口是直接改库。客户会保留 DEPOSIT 但永久失去 WITHDRAW（能存、不能取）。需要：① 补一条把"运营在 Sumsub 后台新建 action"同步写回 `pendingActionExternalId` 的路径（webhook 或轮询皆可），② 建一个 admin 侧 `CustomerRestrictionsService.clear()` 的操作员解锁端点兜底（无论①做不做，②都该有——运营总会遇到指针对不上的边缘情况）｜来源: 2026-08-13 Task 13 终审 Finding 7
+- [x] ~~**新铸 action id 无写入路径 → 无操作员解锁入口，客户可能永久卡在 WITHDRAW-locked(2026-08-13 Task 13 终审 Finding 7)**~~ —— **②已兑现（2026-08-16，客户生命周期轴 + 限制账）**：admin 侧解限出口已建（`POST /admin/customers/:customerNo/restrictions/:restrictionNo/release` → OPS/MLRO 审批门 → 撕便签），运营遇到指针对不上的边缘情况有兜底，不再只能改库。**①仍开口**：把「运营在 Sumsub 后台新建 action」同步写回 `pendingActionExternalId` 的路径（webhook 或轮询）未做——`KYT_REJECTED_SOFT` 便签的 `caseRef` 现在能关联到 pendingAction，但新铸 action id 依旧无人写回 ｜来源: 2026-08-13 Task 13 终审 Finding 7 → 2026-08-16 ② 收口
 - [x] ~~**认证 CTA 降级（Task 11）**~~ 已兑现（2026-08-14 parity）：客户级 verification-session 端点 + /verification/pending 认证页落地，banner CTA 真跳转：`client-web/src/components/PendingActionBanner.tsx` 的 "Complete verification" 按钮是 stub（`console.info` + `window.alert`），未真正拉起 Sumsub WebSDK——withdraw/deposit 的等效流程按 `withdrawNo`/`depositNo`+`seq` 走各自的专用 verification-session 端点铸 SDK token（`withdraw-verification-session.service.ts`'s `createActionSdkToken`），swap 的 `pendingAction`（Task 7，`CustomerMain.pendingActionExternalId`/`pendingActionReason`）是单客户级槽位，没有对应的子表和 token 铸造端点。修法需后端新增一个按 `pendingActionExternalId` 签发 Sumsub WebSDK 短时 token 的端点，前端才能接上 `WithdrawVerification.tsx` 那套 `snsWebSdk.init(token, refreshToken).launch(...)` 真实拉起逻辑 ｜来源: 2026-08-13 Task 11 实施时已知降级
 - [ ] **⑦⑧ 人级模拟键在被拒单上无 UI 入口**：⚡ Simulation 面板只在 `COMPLIANCE_PENDING` 渲染（`SwapTransactionDetail.tsx:597`），但 ⑦认证通过/⑧认证不通过恰恰是单子 REJECTED 之后才用的人级动作 → 面板消失、两键无处可点，operator 只能裸调 `POST /admin/swap-sumsub/demo/run-verdict`。修法：REJECTED 单上面板继续渲染但只显示 ⑦⑧（①-⑥ 仍限 PENDING），语义分档=①-⑥ 作用于单、⑦⑧ 作用于人 ｜来源: 2026-08-14 parity 走查（业主问"⑦放哪了"逮到）
 - [ ] **兑换 KYT 真接前必测**：规则自动裁决（无 officer 介入）是否自动发 applicantKytTxnApproved/Rejected webhook ——
@@ -210,10 +210,20 @@ Last Updated: 2026-08-13
 
 ## 技术债 — V2 客户合规
 
-- [ ] 🔴 **冻结/解冻无统一 workflow + 无 MLRO 解冻门**：冻结散在多处自动触发（material BLOCKING / tier upgrade / CRA 制裁），无独立 freeze workflow、无解冻审批门（`UNFREEZE` 常量定义未用）、无 freeze/unfreeze API（DTO 有 handler 无）；roadmap 要求的"手动先审批后冻结 + 解冻统一 MLRO 审批"未实现 ｜来源: 2026-07-04 V2 体检 ｜**关联（2026-08-04）**：提现 `WithdrawSanctionRefundApprovalService` 批准后的"客户账户层面升级"（`onRefundApproved()`）撞的正是同一个洞——审计 reason 里注明"manual, V2 freeze API not yet built"，此条落地后提现那一处可接真实调用
+- [x] ~~🔴 **冻结/解冻无统一 workflow + 无 MLRO 解冻门**~~ —— **已兑现（2026-08-16，客户生命周期轴 + 限制账）**：贴便签立即生效不开审批（制裁 24h 上报窗口等不起审批）、撕便签按 `releasePolicy` 强制走 `CUSTOMER_RESTRICTION_RELEASE_MLRO` / `_OPS` 审批门；三个 admin 端点 + `GET /client/me/restrictions` 已建。MLRO 类必填 `releaseOrderRef`，缺失 400。关联的提现 `WithdrawSanctionRefundApprovalService.onRefundApproved()` 里那句「manual, V2 freeze API not yet built」现已可接真实调用（**未接，见下节新登记**）｜来源: 2026-07-04 V2 体检 → 2026-08-16 落地
 - [ ] **Tier Upgrade ⛔ 缺客户端 UI**：后端全建（createFromCra→Level2→MLRO+SMO 审批），缺客户材料提交前端（真实卡点，roadmap 已标 BLOCKED）｜来源: 2026-07-04 V2 体检
 - [ ] **Corporate/机构客户 stub**：CorporateProfile/UboProfile 表+关系连但无业务逻辑，onboarding 两处显式 disabled；机构客户全 ADVANCED ｜来源: 2026-07-04 V2 体检
 - [ ] **Material Refresh 状态名不符**：代码 NUDGE_ONLY/CLEARED vs roadmap NUDGE/RESOLVED（文档订正即可）｜来源: 2026-07-04 V2 体检
+
+## 技术债 — 客户生命周期轴 + 限制账（2026-08-15 设计定稿，2026-08-16 落地）
+
+> 来源统一：`superpowers/specs/2026-08-15-customer-lifecycle-restrictions-design.md` §8 待决表。
+
+- [ ] **Q1 制裁客户的订单级折叠未做**：本轮贴 `scope=ALL` 便签只把在途单打成 `FROZEN`，客户面靠服务端脱敏白名单收敛成 `COMPLIANCE_PENDING`；设计稿讨论过的「收单后一律挂 `PROCESSING`、连状态变化都不产生」的订单级折叠没做。与「提现域 tipping-off 未对齐」同源，一并排期 ｜来源: 2026-08-15 设计稿 §8 Q1
+- [ ] **Q2 销户流程只落了轴上位置 + 三条断言**：`OFFBOARDED` 是 `lifecycle` 终态，`CustomerAccessService.assertOffboardable()` 只实现三条不变量（`OFFBOARD_BLOCKED_BY_SANCTION` / `_BY_BALANCE` / `_BY_INFLIGHT`）。真正的销户流程——余额清退、材料归档留存期、审批链、客户侧发起入口——全部未做；管理台 Offboard 按钮当前是 disabled 占位 ｜来源: 2026-08-15 设计稿 §8 Q2
+- [ ] **Q3 `expirePendingApprovals()` 全仓无 @Cron 调用方，`timeoutHours` 是展示字段**：两个新增审批策略照现有范式写了 `timeoutHours: 48`，但平台层压根没人扫超时，48h 到点不会发生任何事。平台级缺陷，不限于本模块（`WITHDRAW_UNFREEZE` 等既有策略同病）｜来源: 2026-08-15 设计稿 §8 Q3
+- [ ] **提现制裁退款批准后的「客户账户层面升级」仍是手工**：`WithdrawSanctionRefundApprovalService.onRefundApproved()` 的审计 reason 里那句 "manual, V2 freeze API not yet built" 现在已经不成立——贴便签 API 已存在，但该处未改为真实调用 `CustomerRestrictionWorkflowService.openRestriction({cause:'SANCTION'})` ｜来源: 2026-08-04 登记 → 2026-08-16 前置依赖已就位，接线未做
+- [ ] **兑换域被摁住时在单据上不可见（只有审计能看出来）**：spec §3.5 对兑换的落地是 `assertSwapCustomerAccessOrHalt()` —— 拦住推腿 + 写 `SWAP_LEG_HALTED_BY_RESTRICTION` 审计，**不改单据状态**（`SwapTransactionStatus` 没有 `FROZEN`，也没有这条状态机边，充值/提现两域都有）。后果：运营在兑换列表/详情上看不出这单已经被摁住，只能翻审计日志；两域一致性也破了。要么给兑换域补 `FROZEN` 态 + 转移边（与充值/提现对齐），要么在详情页显式渲染「已被客户级限制拦停」的读模型 ｜来源: 2026-08-16 Task 14 e2e 用例⑤ 装配时发现
 
 ## 技术债 — 平账处置（推单）
 

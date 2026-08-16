@@ -291,6 +291,46 @@ interface ApprovalActorContext {
 
 ---
 
+## 限制账 / Customer Restriction（客户限制账）
+
+**定义**：记录"客户被摁住"这一事实的账，一行 = 一次摁住的一个能力范围（`scope`）。取代旧模型里 `adminStatus.SUSPENDED` / `complianceStatus.FROZEN` 两个专有状态列与 `restrictions` JSON 列。同一次摁住若覆盖多个能力，产生同 `restrictionNo` 的多行（`@@unique([restrictionNo, scope])`），解除时一次全撕。
+
+**使用场景**：制裁命中、行政暂停、材料过期、等级升级待审、交易审查未过均贴便签；`CustomerAccessService.resolve()` 把全部 OPEN 行的 scope 求并集，得出该客户被禁的能力集。贴便签立即生效不走审批，撕便签必须走审批。
+
+**相关概念**：cause、visibility、releasePolicy、lifecycle、CAPABILITY_RESTRICTED、restrictionNo
+
+---
+
+## cause（限制原因）
+
+**定义**：限制账的**唯一自变量**，闭集 7 值：`SANCTION`、`ADMIN_SUSPENSION`、`MATERIAL_EXPIRED`、`TIER_UPGRADE_PENDING`、`KYT_REJECTED_SOFT`、`KYT_REJECTED_HARD`、`PENDING_DOCUMENT`。默认范围、可见性、解除路径三者全部由 `cause` 查 `RESTRICTION_CAUSE_POLICY` 推出，**不由人工填写**。
+
+**使用场景**：`POST /admin/customers/:customerNo/restrictions` 只接受 `{cause, scopes?, reason, caseRef?}`；`scopes` 仅当 `RESTRICTION_CAUSE_POLICY[cause].scopeSelectable` 为 true（今天只有 `PENDING_DOCUMENT`）才接受，`visibility` / `releasePolicy` 出现在请求体即 400。
+
+**相关概念**：限制账、RESTRICTION_CAUSE_POLICY、scopeSelectable、visibility、releasePolicy
+
+---
+
+## visibility（限制可见性）
+
+**定义**：二值 `SILENT` / `DISCLOSED`，决定这次摁住能不能让客户知道。`SILENT`（`SANCTION`、`KYT_REJECTED_HARD`）在任何客户面响应里**没有任何字段可以承载**——这是结构性保证，不是"记得脱敏"的约定：后端执法读 `blocked`（含 SILENT），客户面 DTO 只允许出现 `disclosedBlocked` 与 `disclosed`（仅 DISCLOSED 贡献）。
+
+**使用场景**：被制裁客户的提现按钮**不置灰**——置灰本身即是信号，等于告知调查（tipping-off）。前端照常渲染可点按钮，点击后由后端 `blocked` 拒绝，拒绝文案与明示受限客户逐字相同。e2e 用"两个客户三个客户面响应体归一化后逐字节相等"钉死这条。
+
+**相关概念**：tipping-off、cause、blocked / disclosedBlocked、customerLabel
+
+---
+
+## releasePolicy（解除路径）
+
+**定义**：二值 `MLRO_APPROVAL` / `OPS_APPROVAL`，决定撕这张便签要谁批。`SANCTION` 与 `KYT_REJECTED_HARD` 走 `MLRO_APPROVAL`（对应 `ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_MLRO`，且必填 `releaseOrderRef`，缺失 400）；其余五因走 `OPS_APPROVAL`（`..._RELEASE_OPS`）。两个 actionType 共用同一 `workflowType = CUSTOMER_RESTRICTION_RELEASE`，故二级事件同为 `workflow.customer-restriction-release.decided`。
+
+**使用场景**：`releaseMode` 记录这次撕是 `MANUAL`（经审批）还是 `AUTO`（如客户交齐材料后系统自动撕 `MATERIAL_EXPIRED`，只撕自己那张，多因并存不互相解）。审批案的 `entityRef` 一律传 `restrictionNo`，不是 uuid。
+
+**相关概念**：cause、Approval Action Policy、releaseOrderRef、releaseMode、entityRef
+
+---
+
 ## 命名规范
 
 ### 业务编号格式
@@ -306,6 +346,7 @@ interface ApprovalActorContext {
 | `DR` | Delete Request（删除申请） | `requestNo` |
 | `AUD` | Audit Log Event（审计日志事件） | `auditNo` |
 | `EVP` | Audit Evidence Package（审计证据包） | `packageNo` |
+| `RST` | Customer Restriction（客户限制账） | `restrictionNo` |
 
 > 注意：历史文档中曾使用 `AEP` 前缀描述证据包，代码中实际前缀为 `EVP`，以代码为准。
 
