@@ -18,7 +18,7 @@ import {
   AuditBusinessWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
-import { isCustomerApprovedAndActive } from '../../identity/customer-status.util';
+import { isCustomerApprovedAndActive } from '../../identity/customer-lifecycle.util';
 import { AccountFlags } from 'tigerbeetle-node';
 
 const SYSTEM_CODES = new Set<number>([
@@ -81,7 +81,7 @@ export class TbManualAccountService {
     }
 
     // 3. If CUSTOMER, load and validate customer
-    let customer: { id: string; customerNo: string; onboardingStatus: string; adminStatus: string } | null = null;
+    let customer: { id: string; customerNo: string; lifecycle: string } | null = null;
     if (input.accountCategory === 'CUSTOMER') {
       if (!input.customerNo) {
         throw new BadRequestException({
@@ -91,7 +91,7 @@ export class TbManualAccountService {
       }
       customer = await this.prisma.customerMain.findUnique({
         where: { customerNo: input.customerNo },
-        select: { id: true, customerNo: true, onboardingStatus: true, adminStatus: true },
+        select: { id: true, customerNo: true, lifecycle: true },
       });
       if (!customer) {
         throw new NotFoundException({
