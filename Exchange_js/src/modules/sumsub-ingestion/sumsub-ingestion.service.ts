@@ -8,6 +8,8 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
+import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
@@ -41,6 +43,8 @@ export class SumsubIngestionService {
     private readonly depositWebhookRouter: DepositWebhookRouter,
     private readonly withdrawWebhookRouter: WithdrawWebhookRouter,
     private readonly swapWebhookRouter: SwapWebhookRouter,
+    private readonly restrictionsService: CustomerRestrictionsService,
+    private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -174,10 +178,14 @@ export class SumsubIngestionService {
           throw new Error(`Assessment ${assessmentId} is not in ESCALATED_TO_SUMSUB status`);
         }
         if (decision === 'APPROVE') {
-          await this.prisma.customerMain.update({
-            where: { id: customerId },
-            data: { complianceStatus: 'CLEAR', complianceFreezeReason: null },
-          });
+          // 自动撕：cause + caseRef 双键，只撕 CRA 制裁路径用同一 assessmentId
+          // 贴的那张 SANCTION。客户身上材料/升级等别的便签一概不动。
+          await this.restrictionWorkflowService.autoRelease(
+            customerId,
+            'SANCTION',
+            assessmentId,
+            'system',
+          );
           await this.prisma.clientRiskAssessment.update({
             where: { id: assessmentId },
             data: {
@@ -189,9 +197,16 @@ export class SumsubIngestionService {
             },
           });
         } else {
-          await this.prisma.customerMain.update({
-            where: { id: customerId },
-            data: { onboardingStatus: 'REJECTED', adminStatus: 'INACTIVE', complianceStatus: 'FROZEN' },
+          // INV-1：Sumsub MLRO 判拒 ≠ lifecycle 回退成 REJECTED（原来还顺手把
+          // 行政轴写成 INACTIVE、合规轴写成 FROZEN，三件事糊成一件）。
+          // lifecycle 不动，摁住走便签。CRA 制裁路径已用同一 caseRef 贴过一张，
+          // open() 幂等 → 这里 created:false，不会贴出第二张。
+          await this.restrictionsService.open({
+            customerId,
+            cause: 'SANCTION',
+            reason: `Sumsub MLRO case decision REJECT on assessment ${assessmentId}`,
+            caseRef: assessmentId,
+            openedBy: 'SYSTEM',
           });
           await this.prisma.clientRiskAssessment.update({
             where: { id: assessmentId },
@@ -272,7 +287,7 @@ export class SumsubIngestionService {
         });
         if (customer) {
           // Clue 4: still in onboarding → delegate to onboarding service
-          if (customer.onboardingStatus === 'PENDING_VERIFICATION') {
+          if (customer.lifecycle === 'IN_VERIFICATION') {
             result = await this.onboardingService.handleSumsubVerificationEvent(payload, {
               simulated: event.isSimulated,
               actorId: event.isSimulated
@@ -286,7 +301,7 @@ export class SumsubIngestionService {
           // Clue 4.5: APPROVED + applicantWorkflowCompleted → Level 2 completed
           // handleLevel2WorkflowComplete is idempotent: it returns early if no PENDING_LEVEL2 case exists
           else if (
-            customer.onboardingStatus === 'APPROVED' &&
+            customer.lifecycle === 'ACTIVE' &&
             event.eventType === 'applicantWorkflowCompleted'
           ) {
             await this.tierUpgradeCaseService.handleLevel2WorkflowComplete(customer.id);
@@ -295,7 +310,7 @@ export class SumsubIngestionService {
           }
           // Clue 5: APPROVED + spontaneous AML RED → create assessment from known result (no extra API call)
           else if (
-            customer.onboardingStatus === 'APPROVED' &&
+            customer.lifecycle === 'ACTIVE' &&
             event.eventType === 'applicantReviewed' &&
             reviewResult?.reviewAnswer === 'RED'
           ) {
@@ -315,7 +330,7 @@ export class SumsubIngestionService {
             this.logger.warn('unrouted_sumsub_webhook', {
               applicantId,
               type: event.eventType,
-              customerStatus: customer.onboardingStatus,
+              customerStatus: customer.lifecycle,
             });
           }
         } else {

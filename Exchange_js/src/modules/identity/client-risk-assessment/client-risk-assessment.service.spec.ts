@@ -12,6 +12,7 @@ jest.mock('./policy/client-risk-assessment-policy', () => ({
   applyPolicy: jest.fn(),
 }));
 import { applyPolicy } from './policy/client-risk-assessment-policy';
+import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
 const mockApplyPolicy = applyPolicy as jest.MockedFunction<typeof applyPolicy>;
 
 // ─── Shared mock factories ────────────────────────────────────────────────────
@@ -63,6 +64,16 @@ const BASE_POLICY_OUTPUT = {
 };
 
 describe('ClientRiskAssessmentService', () => {
+  // Task 7：制裁路径改贴便签，不再直写 CustomerMain
+  const mockRestrictionsService = {
+    open: jest.fn().mockResolvedValue({ restrictionNo: 'RST-1', created: true }),
+    listOpen: jest.fn().mockResolvedValue([]),
+    release: jest.fn(),
+    findByNo: jest.fn(),
+    listAll: jest.fn(),
+    findOpenByCause: jest.fn(),
+  };
+
   let service: ClientRiskAssessmentService;
   let prisma: ReturnType<typeof buildPrisma>;
   const mockSumsubClient = {
@@ -81,6 +92,7 @@ describe('ClientRiskAssessmentService', () => {
 
     const module = await Test.createTestingModule({
       providers: [
+        { provide: CustomerRestrictionsService, useValue: mockRestrictionsService },
         ClientRiskAssessmentService,
         { provide: PrismaService, useValue: prisma },
         { provide: SumsubClient, useValue: mockSumsubClient },
@@ -293,7 +305,7 @@ describe('ClientRiskAssessmentService', () => {
   // ─── handleSanctionsPath tests ───────────────────────────────────────────
 
   describe('handleSanctionsPath — via handleSumsubAmlResult', () => {
-    it('SANCTIONS label → ESCALATED_TO_SUMSUB, customer frozen', async () => {
+    it('SANCTIONS label → ESCALATED_TO_SUMSUB + 贴一张 SANCTION 便签（不碰 customerMain）', async () => {
       const assessment = {
         id: 'cra-1', customerId: 'cust-1', traceId: 'T1', assessmentNo: 'CRA-001',
         previousRiskTier: 'LOW', status: 'PENDING_SUMSUB_RESULT',
@@ -316,11 +328,17 @@ describe('ClientRiskAssessmentService', () => {
         rejectLabels: ['SANCTIONS_LIST'],
       });
 
-      expect(prisma.customerMain.update).toHaveBeenCalledWith(
+      // Task 7：摁住改贴便签，不再落在 CustomerMain 上
+      expect(mockRestrictionsService.open).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ complianceStatus: 'FROZEN' }),
+          customerId: 'cust-1',
+          cause: 'SANCTION',
+          caseRef: 'cra-1',
+          openedBy: 'SYSTEM',
         }),
       );
+      // scopes 不许传：SANCTION 的 scopeSelectable=false，scope 由注册表定
+      expect(mockRestrictionsService.open.mock.calls[0][0]).not.toHaveProperty('scopes');
       expect(prisma.clientRiskAssessment.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: 'ESCALATED_TO_SUMSUB' }),

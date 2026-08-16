@@ -6,6 +6,8 @@ import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { getRequiredMaterialsForLevel } from './policy/get-required-materials';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
+import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
@@ -29,6 +31,8 @@ export class MaterialRefreshService {
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly sumsubClient: SumsubClient,
     private readonly policyLoader: MaterialRefreshPolicyLoader,
+    private readonly restrictionsService: CustomerRestrictionsService,
+    private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
   ) {}
 
   async enterNotifiedStage(holdingId: string): Promise<void> {
@@ -114,12 +118,15 @@ export class MaterialRefreshService {
 
     const materialConfig = this.policyLoader.getMaterialConfig(holding.materialType);
     if (materialConfig?.enforceRestriction) {
-      await this.prisma.customerMain.update({
-        where: { id: holding.customerId },
-        data: {
-          complianceStatus: 'FROZEN',
-          complianceFreezeReason: `material_expired:${holding.materialType}`,
-        },
+      // 摁住改贴便签：MATERIAL_EXPIRED 默认卡 WITHDRAW+SWAP（DISCLOSED，客户看得见
+      // "Document expired"）。caseRef=本次刷新周期 id —— 后面自动撕只能凭这个键
+      // 撕自己这张，撕不到客户身上别因的便签。
+      await this.restrictionsService.open({
+        customerId: holding.customerId,
+        cause: 'MATERIAL_EXPIRED',
+        reason: `Material expired: ${holding.materialType}`,
+        caseRef: holding.activeRefreshCycleId,
+        openedBy: 'SYSTEM',
       });
     }
 
@@ -144,12 +151,15 @@ export class MaterialRefreshService {
       },
     });
 
-    await this.prisma.customerMain.update({
-      where: { id: cycle.customerId },
-      data: {
-        onboardingStatus: 'WITHDRAWN',
-        adminStatus: 'INACTIVE',
-      },
+    // INV-1：ACTIVE 的唯一出口是 OFFBOARDED。客户并没有「撤回申请」，是平台单方
+    // 终止补料周期 —— 原来把入驻轴写成 WITHDRAWN 是语义错。改为不动 lifecycle，
+    // 贴 ADMIN_SUSPENSION 便签（DISCLOSED / OPS_APPROVAL 解除）。真要终止关系走销户。
+    await this.restrictionsService.open({
+      customerId: cycle.customerId,
+      cause: 'ADMIN_SUSPENSION',
+      reason: `Material refresh cycle ${cycle.cycleNo} terminated: ${reason}`,
+      caseRef: cycle.id,
+      openedBy: 'SYSTEM',
     });
 
     await this.prisma.customerMaterialHolding.updateMany({
@@ -222,16 +232,16 @@ export class MaterialRefreshService {
       },
     });
 
-    // Release compliance freeze if this cycle caused it
-    if (
-      customer.complianceStatus === 'FROZEN' &&
-      customer.complianceFreezeReason === `material_expired:${holding.materialType}`
-    ) {
-      await this.prisma.customerMain.update({
-        where: { id: customer.id },
-        data: { complianceStatus: 'CLEAR', complianceFreezeReason: null },
-      });
-    }
+    // 自动撕：cause + caseRef 双键定位，只撕本周期贴的那张 MATERIAL_EXPIRED。
+    // 客户身上别的因（SANCTION / ADMIN_SUSPENSION / TIER_UPGRADE_PENDING）一概不动
+    // ——「多因不互相解」，这正是旧的单列合规态模型做不到、
+    // 也正是整套限制账设计存在的理由。
+    await this.restrictionWorkflowService.autoRelease(
+      customer.id,
+      'MATERIAL_EXPIRED',
+      cycle.id,
+      'system',
+    );
 
     // Note: In the 3-state CRA design, material submission completion is handled by
     // TierUpgradeCaseService.handleLevel2WorkflowComplete (triggered by Sumsub Level 2 webhook)

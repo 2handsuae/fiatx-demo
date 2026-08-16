@@ -8,6 +8,7 @@ import { applyPolicy, PolicyInput, PolicyOutput } from './policy/client-risk-ass
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { TierUpgradeCaseService } from '../tier-upgrade-case/tier-upgrade-case.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
 
 export type AssessmentTriggerType =
   | 'INITIAL_ONBOARDING'
@@ -36,6 +37,7 @@ export class ClientRiskAssessmentService {
     private readonly policyLoader: ClientRiskAssessmentPolicyLoader,
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly restrictionsService: CustomerRestrictionsService,
   ) {}
 
   // ─── Public entry points ──────────────────────────────────────────────────
@@ -442,14 +444,19 @@ export class ClientRiskAssessmentService {
     customer: any,
     labels: string[],
   ): Promise<void> {
+    // 先贴便签、再改评估单：两张表分属不同 domain service，共不了一个
+    // prisma.$transaction（限制账的写入口只认 CustomerRestrictionsService，铁律 5）。
+    // 中途崩的代价必须偏向「多摁一下」而不是「漏摁」—— open() 对
+    // (customerId, cause, caseRef) 幂等，重放不会贴出第二张。
+    await this.restrictionsService.open({
+      customerId: customer.id,
+      cause: 'SANCTION',
+      reason: `Sanctions labels on ${assessment.assessmentNo}: ${labels.join(', ')}`,
+      caseRef: assessment.id,
+      openedBy: 'SYSTEM',
+    });
+
     await this.prisma.$transaction(async (tx) => {
-      await tx.customerMain.update({
-        where: { id: customer.id },
-        data: {
-          complianceStatus: 'FROZEN',
-          complianceFreezeReason: 'sanctions_hit_pending_investigation',
-        },
-      });
       await tx.clientRiskAssessment.update({
         where: { id: assessment.id },
         data: {
@@ -506,8 +513,10 @@ export class ClientRiskAssessmentService {
       data: updateData,
     });
 
-    // Sync Sumsub level (skip if frozen)
-    if (customer.complianceStatus !== 'FROZEN' && assessment.resultingRiskTier) {
+    // Sync Sumsub level（身上有 OPEN 的 SANCTION 便签就跳过：制裁客户不许换 level）
+    const openRestrictions = await this.restrictionsService.listOpen(customer.id);
+    const sanctioned = openRestrictions.some((r) => r.cause === 'SANCTION');
+    if (!sanctioned && assessment.resultingRiskTier) {
       const allowed = policy.tierLevelConstraint[assessment.resultingRiskTier] || [];
       if (
         customer.sumsubApplicantId &&
