@@ -37,6 +37,7 @@ import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tige
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
+import { CustomerAccessService } from '../src/modules/identity/customers/customer-access.service';
 import { CustomerPendingActionService } from '../src/modules/identity/customers/customer-pending-action.service';
 import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
@@ -140,17 +141,21 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     const customer = await prisma.customerMain.upsert({
       where: { customerNo },
       update: {
-        onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
-        restrictions: '[]', pendingActionExternalId: null, pendingActionReason: null,
+        lifecycle: 'ACTIVE', pendingActionExternalId: null, pendingActionReason: null,
         hardLineDispositionedAt: null, sumsubApplicantId: 'e2e0swapsumsubscenarios01',
       },
       create: {
         customerNo, customerType: 'INDIVIDUAL', riskRating: 'LOW', tradingTier: 'BASIC',
-        onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+        lifecycle: 'ACTIVE',
         eddRequired: false, sumsubApplicantId: 'e2e0swapsumsubscenarios01',
       },
     });
     customerId = customer.id;
+
+    // 三轴收敛：便签搬进了 customer_restrictions 独立表，旧写法靠给客户列写
+    // restrictions:'[]' 复位，那条列已删。这里显式清场 —— 不清的话上一支/上一轮
+    // 留下的 OPEN 便签会被新的 L1 能力门拦住建单，用例之间不再独立。
+    await prisma.customerRestriction.deleteMany({ where: { customerId } });
 
     const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });
     const usdtAsset = await prisma.asset.findFirst({ where: { currency: 'USDT' } });
@@ -307,6 +312,17 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     return demoService.runVerdict(swapId, buttonKey, HARNESS_ACTOR);
   }
 
+  /**
+   * 三轴收敛后 CustomerRestrictionsService.list() 已不存在，取而代之是
+   * listOpen() —— 返回聚合视图（一个 restrictionNo 一行，能力收在 scopes 数组里），
+   * 不再是「一个 capability 一行」。这个 helper 把 OPEN 便签摊平回能力列表，
+   * 让下面的断言保持原本的语义。
+   */
+  async function openScopes(id: string): Promise<string[]> {
+    const rows = await restrictionsService.listOpen(id);
+    return rows.flatMap((r) => r.scopes).sort();
+  }
+
   async function statusOf(id: string): Promise<string> {
     const row = await swapService.findByIdInternal(id);
     return row.status;
@@ -340,8 +356,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     const legs = await fundsOrders.findByParent({ swapTransactionId: v3aSwap.id }, {});
     expect(legs).toHaveLength(0);
 
-    const restrictions = await restrictionsService.list(customerId);
-    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
 
     const pending = await pendingActionService.get(customerId);
     expect(pending).not.toBeNull();
@@ -354,8 +369,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   it('⑦ 认证通过（清限制）: restrictions cleared, pending-action cleared, swap capability restored', async () => {
     await deliver(v3aSwap.id, 'V7_ACTION_GREEN');
 
-    const restrictions = await restrictionsService.list(customerId);
-    expect(restrictions).toHaveLength(0);
+    expect(await openScopes(customerId)).toEqual([]);
     expect(await pendingActionService.get(customerId)).toBeNull();
 
     const customerAudit = await auditActionsFor(customerId, AuditEntityTypes.CUSTOMER);
@@ -370,8 +384,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     await deliver(v6Swap.id, 'V6_AWAIT_USER');
 
     expect(await statusOf(v6Swap.id)).toBe(SwapTransactionStatus.REJECTED);
-    const restrictions = await restrictionsService.list(customerId);
-    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
     const pending = await pendingActionService.get(customerId);
     expect(pending).not.toBeNull();
     expect(pending!.externalActionId).toBe('demo-ext-3');
@@ -380,8 +393,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   it('⑧ 认证不通过（升级）: restrictions remain, pending-action untouched, escalation audited', async () => {
     await deliver(v6Swap.id, 'V8_ACTION_RED');
 
-    const restrictions = await restrictionsService.list(customerId);
-    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
     const pending = await pendingActionService.get(customerId);
     expect(pending).not.toBeNull();
     expect(pending!.externalActionId).toBe('demo-ext-3'); // unchanged
@@ -409,8 +421,17 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
     expect(customer!.hardLineDispositionedAt).toBeTruthy();
 
-    const restrictions = await restrictionsService.list(customerId);
-    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    // 三轴收敛前这里断言的是 ['SWAP','WITHDRAW'] —— 那是单列 restrictions 的语义：
+    // 制裁裁决到来会把前面软线留下的那份**覆盖**掉，客户身上永远只有一份限制。
+    // 限制账是一因一张、互不覆盖，所以这单制裁落下来之后，本 suite 前序用例
+    // （③/⑥/⑧）留下的软线便签仍然在，制裁自己另起一张 scope=ALL。
+    // 这正是这次改造要的行为，断言随之改成「制裁那张在 + 前序那些没被抹掉」。
+    const openRows = await restrictionsService.listOpen(customerId);
+    expect(openRows.some((r) => r.cause === 'SANCTION' && r.scopes.includes('ALL'))).toBe(true);
+    expect(openRows.some((r) => r.cause === 'KYT_REJECTED_SOFT')).toBe(true);
+    // 摁住的能力集是所有 OPEN 便签的并集，制裁的 ALL 让三样全禁。
+    const access = await app.get(CustomerAccessService).resolve(customerId);
+    expect([...access.blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
   });
 
   it('⑤ on hold（我方等同拒绝）: REJECTED, pending-action stays null', async () => {

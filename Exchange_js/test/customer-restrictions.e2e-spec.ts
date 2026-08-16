@@ -1,3 +1,4 @@
+import { resolveE2eDatabaseUrl } from './e2e-db';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
@@ -9,7 +10,7 @@ if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcryp
 // ── 破坏性护栏 ①（必须在任何读 DATABASE_URL 的 import 之前）──────────────
 // 本 suite 会 deleteMany fixture 客户及其便签/三域订单/钱包。指向常驻栈的验收库
 // 会毁真数据（2026-07-31 已两次实证，见 BACKLOG「演示/测试环境卫生」）。
-process.env.DATABASE_URL = 'file:/tmp/exchange_js_wt_customer_restrictions/e2e-customer-restrictions.db';
+process.env.DATABASE_URL = resolveE2eDatabaseUrl('e2e-customer-restrictions.db');
 
 // ── 破坏性护栏 ②：上面那行若被人删改回读 .env，这里兜住 ────────────────
 if (!process.env.DATABASE_URL?.includes('e2e-')) {
@@ -332,8 +333,13 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     );
 
     // 前提校验：后端确实已经冻了，否则"两边一样"是因为什么都没发生。
-    const frozen = await prisma.depositTransaction.findUnique({ where: { id: silentDep.id } });
-    expect(frozen!.status).toBe(DepositTransactionStatus.FROZEN);
+    // 冻结走的是 { async: true } 的 detached handler，必须轮询而不是直接断言。
+    await waitUntil(
+      '被制裁客户的在途充值单已冻结',
+      async () =>
+        (await prisma.depositTransaction.findUnique({ where: { id: silentDep.id } }))!.status ===
+        DepositTransactionStatus.FROZEN,
+    );
     const silentAccess = await access.resolve(silent.id);
     expect([...silentAccess.blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
 

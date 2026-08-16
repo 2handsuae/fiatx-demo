@@ -1,3 +1,4 @@
+import { resolveE2eDatabaseUrl } from './e2e-db';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { createHash } from 'crypto';
@@ -14,7 +15,11 @@ if (!globalThis.crypto) { (globalThis as any).crypto = require('crypto').webcryp
 // live acceptance), that wipe destroys real in-flight data (2026-07-31: exactly
 // this happened, twice — see doc-final/BACKLOG.md and .env's DATABASE_URL for
 // the accepted-data DB this suite must never touch).
-process.env.DATABASE_URL = 'file:/tmp/exchange_js_wt_deposit_arcs/e2e-deposit-verdicts.db';
+// 原先写死 /tmp/exchange_js_wt_deposit_arcs/ —— 那个 worktree 早删了，库停在删除
+// 当天的 schema，本轮加 lifecycle 列后整支 suite 报「column does not exist」，
+// 且报错指向一个不存在的目录。改成跟着当前 worktree 的栈目录走（见 e2e-db.ts）。
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+process.env.DATABASE_URL = resolveE2eDatabaseUrl('e2e-deposit-verdicts.db');
 
 // 第二道保险：上面那行硬编码若将来被人删掉/改回读 .env，这里兜住。
 // 只认库名含 "e2e-" 的专用库，其余一律拒跑并说清怎么办 —— 光靠"记得别跑"守不住，
