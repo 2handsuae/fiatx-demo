@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -16,21 +18,17 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import {
-  buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch,
-  canReinitiateCdd,
-  canReinitiateEdd,
-  canStartCdd,
-  canStartEdd,
   CustomerNextStepActionType,
-  CustomerOnboardingStatus,
-  CustomerAdminStatus,
-  CustomerReviewStage,
+  CustomerLifecycleSource,
   getCustomerBlockedReason,
   getCustomerNextStepActionTypes,
-  getExpectedReviewStageFromCustomerState,
-  isCustomerApprovedAndActive,
-  resolveCustomerCanonicalState,
-} from '../customer-status.util';
+  readLifecycle,
+  resolveLifecycleTransition,
+} from '../customer-lifecycle.util';
+import type {
+  CustomerLifecycle,
+  CustomerLifecycleAction,
+} from '../constants/customer-lifecycle.constant';
 import {
   buildComplianceWorkflowTraceContext,
   ONBOARDING_REVIEW_STAGES,
@@ -49,6 +47,7 @@ import {
   UpsertEntityDto,
 } from './dto/onboarding.dto';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
+import { CustomerAccessService } from '../customers/customer-access.service';
 import {
   projectResponseRecord,
 } from '../review-response-compat.util';
@@ -57,12 +56,6 @@ type TradeAction = 'SWAP' | 'WITHDRAW' | 'DEPOSIT';
 type CaseType = 'CDD' | 'EDD';
 type SubjectKind = 'INDIVIDUAL_CUSTOMER' | 'CORPORATE_ENTITY' | 'UBO_PERSON';
 type MockResult = 'PASS' | 'FAIL';
-type LegacyCompatibleOnboardingStatus =
-  | CustomerOnboardingStatus
-  | 'PENDING_CDD_INPUT'
-  | 'CDD_UNDER_REVIEW'
-  | 'PENDING_EDD_INPUT'
-  | 'EDD_UNDER_REVIEW';
 export type OnboardingActionType = CustomerNextStepActionType;
 
 export interface OnboardingAction {
@@ -102,24 +95,6 @@ export interface SessionResponse {
   status: string;
 }
 
-const customerAutoExpireSelect = {
-  id: true,
-  onboardingStatus: true,
-  adminStatus: true,
-  complianceStatus: true,
-  cddDocumentExpiresAt: true,
-} satisfies Prisma.CustomerMainSelect;
-
-const tradingEligibilitySelect = {
-  id: true,
-  customerNo: true,
-  onboardingStatus: true,
-  adminStatus: true,
-  complianceStatus: true,
-  complianceFreezeCaseId: true,
-  restrictions: true,
-} satisfies Prisma.CustomerMainSelect;
-
 const SUMSUB_EVENT_ACTION_MAP: Record<string, string> = {
   applicantPending: 'SUMSUB_APPLICANT_PENDING',
   applicantOnHold: 'SUMSUB_APPLICANT_ON_HOLD',
@@ -134,30 +109,15 @@ const SUMSUB_DEFAULT_ACTION = 'SUMSUB_APPLICANT_EVENT';
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
-  private readonly recognizedRawOnboardingStatuses = new Set([
-    'NONE',
-    'PENDING_VERIFICATION',
-    'FINAL_APPROVAL',
-    'APPROVED',
-    'REJECTED',
-    'WITHDRAWN',
-    'PENDING_CDD_INPUT',
-    'CDD_UNDER_REVIEW',
-    'PENDING_EDD_INPUT',
-    'EDD_UNDER_REVIEW',
-  ]);
-  private readonly legacyRawVerificationStatuses = new Set([
-    'PENDING_CDD_INPUT',
-    'CDD_UNDER_REVIEW',
-    'PENDING_EDD_INPUT',
-    'EDD_UNDER_REVIEW',
-  ]);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
     private readonly sumsubClient: SumsubClient,
     private readonly auditLogsService: AuditLogsService,
+    // forwardRef：CustomersModule 已 forwardRef 回 OnboardingModule（取 SumsubClient），
+    // 本段让 Onboarding 反向依赖 Customers，两侧模块与此处三点同时 forwardRef 才断得掉环。
+    @Inject(forwardRef(() => CustomerAccessService))
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   async handleSumsubVerificationEvent(
@@ -165,9 +125,7 @@ export class OnboardingService {
     context: Record<string, unknown> = {},
   ): Promise<{
     customer: {
-      onboardingStatus: string | null;
-      adminStatus: string | null;
-      complianceStatus: string | null;
+      lifecycle: string;
     };
     verification: VerificationProjection;
   }> {
@@ -183,7 +141,7 @@ export class OnboardingService {
 
     type TxAuditCapture = {
       updatedCustomer: any;
-      beforeOnboardingStatus: string | null;
+      beforeLifecycle: string;
       beforeSubstatus: string | null;
       resolvedLevelName: string | null;
       resolvedReviewAnswer: string | null;
@@ -202,22 +160,13 @@ export class OnboardingService {
         );
       }
 
-      const currentCanonical = this.getCanonicalState(customer);
-      if (
-        currentCanonical.onboardingStatus === 'APPROVED' ||
-        currentCanonical.onboardingStatus === 'FINAL_APPROVAL' ||
-        currentCanonical.onboardingStatus === 'REJECTED' ||
-        currentCanonical.onboardingStatus === 'WITHDRAWN'
-      ) {
+      const currentLifecycle = readLifecycle(customer);
+      if (currentLifecycle !== 'PROSPECT' && currentLifecycle !== 'IN_VERIFICATION') {
         this.logger.warn(
-          `Ignoring Sumsub verification event ${eventType} for terminal onboarding state ${currentCanonical.onboardingStatus}.`,
+          `Ignoring Sumsub verification event ${eventType} for terminal lifecycle ${currentLifecycle}.`,
         );
         return {
-          customer: {
-            onboardingStatus: customer.onboardingStatus ?? null,
-            adminStatus: customer.adminStatus ?? null,
-            complianceStatus: customer.complianceStatus ?? null,
-          },
+          customer: { lifecycle: currentLifecycle },
           verification: this.buildVerificationProjection(customer),
         };
       }
@@ -247,38 +196,35 @@ export class OnboardingService {
         updateData.sumsubLatestAttemptId = attemptId;
       }
 
+      let lifecycleAction: CustomerLifecycleAction;
+      // 九边表没有 IN_VERIFICATION → ACTIVE 的直达边。未经 level2 的
+      // applicantWorkflowCompleted 今天是「自动批准」，按表拆成两跳
+      // （VERIFICATION_PASSED → FINAL_APPROVED），落地结果与今天一致。
+      let autoApproveWithoutFinalReview = false;
+
       switch (eventType) {
         case 'applicantPending':
+          lifecycleAction = 'START_VERIFICATION';
           updateData = {
             ...updateData,
-            ...this.buildCustomerLifecyclePatch(customer, {
-              onboardingStatus: 'PENDING_VERIFICATION',
-              adminStatus: 'INACTIVE',
-            }),
             verificationSubstatus: 'SUBMITTED',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
           };
           break;
         case 'applicantOnHold':
+          lifecycleAction = 'START_VERIFICATION';
           updateData = {
             ...updateData,
-            ...this.buildCustomerLifecyclePatch(customer, {
-              onboardingStatus: 'PENDING_VERIFICATION',
-              adminStatus: 'INACTIVE',
-            }),
             verificationSubstatus: 'UNDER_REVIEW',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
           };
           break;
         case 'applicantLevelChanged':
+          lifecycleAction = 'START_VERIFICATION';
           updateData = {
             ...updateData,
-            ...this.buildCustomerLifecyclePatch(customer, {
-              onboardingStatus: 'PENDING_VERIFICATION',
-              adminStatus: 'INACTIVE',
-            }),
             verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
             verificationCustomerActionRequired: false,
             verificationCanContinue: true,
@@ -286,13 +232,10 @@ export class OnboardingService {
           };
           break;
         case 'applicantReviewed':
+          lifecycleAction = 'START_VERIFICATION';
           if (reviewResult.reviewAnswer === 'RED' && reviewResult.reviewRejectType === 'RETRY') {
             updateData = {
               ...updateData,
-              ...this.buildCustomerLifecyclePatch(customer, {
-                onboardingStatus: 'PENDING_VERIFICATION',
-                adminStatus: 'INACTIVE',
-              }),
               verificationSubstatus: 'RESUBMIT_REQUIRED',
               verificationCustomerActionRequired: true,
               verificationCanContinue: true,
@@ -301,10 +244,6 @@ export class OnboardingService {
           } else {
             updateData = {
               ...updateData,
-              ...this.buildCustomerLifecyclePatch(customer, {
-                onboardingStatus: 'PENDING_VERIFICATION',
-                adminStatus: 'INACTIVE',
-              }),
               verificationSubstatus: 'UNDER_REVIEW',
               verificationCustomerActionRequired: false,
               verificationCanContinue: false,
@@ -314,12 +253,12 @@ export class OnboardingService {
           break;
         case 'applicantWorkflowCompleted':
           if (experiencedLevel2) {
+            lifecycleAction = 'VERIFICATION_PASSED';
             const pendingApproval =
               await this.onboardingFinalApprovalService.ensurePendingApprovalInTransaction(tx, {
                 customer: {
                   ...customer,
-                  onboardingStatus: 'FINAL_APPROVAL',
-                  adminStatus: 'INACTIVE',
+                  lifecycle: 'PENDING_APPROVAL',
                 },
                 actorId,
                 actorRole,
@@ -327,10 +266,6 @@ export class OnboardingService {
               });
             updateData = {
               ...updateData,
-              ...this.buildCustomerLifecyclePatch(customer, {
-                onboardingStatus: 'FINAL_APPROVAL',
-                adminStatus: 'INACTIVE',
-              }),
               ...this.buildLatestRiskApprovalBindingPatch(pendingApproval.approval.id),
               latestRiskApprovalStatus: pendingApproval.approval.status || 'PENDING',
               verificationSubstatus: 'COMPLETED',
@@ -339,31 +274,26 @@ export class OnboardingService {
               sumsubExperiencedLevel2: true,
             };
           } else {
+            lifecycleAction = 'FINAL_APPROVED';
+            autoApproveWithoutFinalReview = true;
             updateData = {
               ...updateData,
-              ...this.buildCustomerLifecyclePatch(customer, {
-                onboardingStatus: 'APPROVED',
-                adminStatus: 'ACTIVE',
-              }),
               ...this.buildLatestRiskApprovalBindingPatch(null),
               latestRiskApprovalStatus: null,
               verificationSubstatus: 'COMPLETED',
               verificationCustomerActionRequired: false,
               verificationCanContinue: false,
               sumsubExperiencedLevel2: false,
-              // Write-once: lock the NEW_CUSTOMER window start on first APPROVED;
+              // Write-once: lock the NEW_CUSTOMER window start on first ACTIVE;
               // a later re-approval must not reset it.
               onboardingApprovedAt: customer.onboardingApprovedAt ?? now,
             };
           }
           break;
         case 'applicantWorkflowFailed':
+          lifecycleAction = 'VERIFICATION_REJECTED';
           updateData = {
             ...updateData,
-            ...this.buildCustomerLifecyclePatch(customer, {
-              onboardingStatus: 'REJECTED',
-              adminStatus: 'INACTIVE',
-            }),
             ...this.buildLatestRiskApprovalBindingPatch(null),
             latestRiskApprovalStatus: null,
             verificationSubstatus: 'FAILED',
@@ -373,12 +303,9 @@ export class OnboardingService {
           };
           break;
         default:
+          lifecycleAction = 'START_VERIFICATION';
           updateData = {
             ...updateData,
-            ...this.buildCustomerLifecyclePatch(customer, {
-              onboardingStatus: 'PENDING_VERIFICATION',
-              adminStatus: 'INACTIVE',
-            }),
             verificationSubstatus: 'PROCESSING',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
@@ -388,16 +315,22 @@ export class OnboardingService {
           break;
       }
 
-      const updatedCustomer = await tx.customerMain.update({
-        where: { id: customer.id },
-        data: updateData,
-      });
+      if (autoApproveWithoutFinalReview) {
+        await this.advanceLifecycle(customer.id, 'VERIFICATION_PASSED', tx);
+      }
+
+      const updatedCustomer = await this.advanceLifecycle(
+        customer.id,
+        lifecycleAction,
+        tx,
+        updateData,
+      );
 
       // Populate txAuditCapture BEFORE returning — captures post-update state for audit write.
       // Using an array container avoids TypeScript narrowing the closure-captured value to never.
       txAuditCapture.push({
         updatedCustomer,
-        beforeOnboardingStatus: this.normalizeOptionalString(customer.onboardingStatus),
+        beforeLifecycle: currentLifecycle,
         beforeSubstatus: this.normalizeOptionalString(customer.verificationSubstatus),
         resolvedLevelName: nextLevelName,
         resolvedReviewAnswer: reviewResult.reviewAnswer || null,
@@ -407,11 +340,7 @@ export class OnboardingService {
       });
 
       return {
-        customer: {
-          onboardingStatus: updatedCustomer.onboardingStatus ?? null,
-          adminStatus: updatedCustomer.adminStatus ?? null,
-          complianceStatus: updatedCustomer.complianceStatus ?? null,
-        },
+        customer: { lifecycle: readLifecycle(updatedCustomer) },
         verification: this.buildVerificationProjection(updatedCustomer),
       };
     });
@@ -432,10 +361,8 @@ export class OnboardingService {
             ? this.normalizeOptionalString(context.simulatedByUserId) ||
               this.normalizeOptionalString(context.actorId)
             : null,
-        onboardingStatusFrom: auditCapture.beforeOnboardingStatus,
-        onboardingStatusTo: this.normalizeOptionalString(
-          auditCapture.updatedCustomer.onboardingStatus,
-        ),
+        lifecycleFrom: auditCapture.beforeLifecycle,
+        lifecycleTo: this.normalizeOptionalString(auditCapture.updatedCustomer.lifecycle),
         substatusFrom: auditCapture.beforeSubstatus,
         substatusTo: this.normalizeOptionalString(
           auditCapture.updatedCustomer.verificationSubstatus,
@@ -592,91 +519,55 @@ export class OnboardingService {
     }
   }
 
-  private parseJsonArraySafely<T = unknown>(value?: string | null): T[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as T[]) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private getCanonicalState(customer: {
-    onboardingStatus?: string | null;
-    adminStatus?: string | null;
-    complianceStatus?: string | null;
-  }) {
-    return resolveCustomerCanonicalState(customer);
-  }
-
-  private normalizeRawOnboardingStatus(value?: string | null): string {
-    return String(value || '').trim().toUpperCase();
-  }
-
-  private resolveInvalidRawOnboardingStatus(customer: {
-    onboardingStatus?: string | null;
-  }): string | null {
-    const rawOnboardingStatus = this.normalizeRawOnboardingStatus(customer.onboardingStatus);
-    if (!rawOnboardingStatus) {
-      return null;
-    }
-
-    return this.recognizedRawOnboardingStatuses.has(rawOnboardingStatus)
-      ? null
-      : rawOnboardingStatus;
-  }
-
-  private getCustomerOnboardingStatus(customer: {
-    onboardingStatus?: string | null;
-    adminStatus?: string | null;
-    complianceStatus?: string | null;
-  }): LegacyCompatibleOnboardingStatus {
-    return this.getCanonicalState(customer).onboardingStatus;
-  }
-
   private resolveEddRequiredForState(
     customer: {
       eddRequired?: boolean | null;
     },
-    onboardingStatus: LegacyCompatibleOnboardingStatus,
+    lifecycle: CustomerLifecycle,
   ): boolean {
-    switch (onboardingStatus) {
-      case 'NONE':
-      case 'PENDING_CDD_INPUT':
-      case 'CDD_UNDER_REVIEW':
+    switch (lifecycle) {
+      case 'PROSPECT':
         return false;
-      case 'PENDING_EDD_INPUT':
-      case 'EDD_UNDER_REVIEW':
-      case 'FINAL_APPROVAL':
+      case 'PENDING_APPROVAL':
         return true;
-      case 'APPROVED':
+      case 'IN_VERIFICATION':
+      case 'ACTIVE':
       case 'REJECTED':
       case 'WITHDRAWN':
-      default:
+      case 'OFFBOARDED':
         return !!customer.eddRequired;
     }
   }
 
-  private buildCustomerLifecyclePatch(
-    customer: {
-      onboardingStatus?: string | null;
-      adminStatus?: string | null;
-      complianceStatus?: string | null;
-      eddRequired?: boolean | null;
-      cddDocumentExpiresAt?: Date | string | null;
-    },
-    next: {
-      onboardingStatus: LegacyCompatibleOnboardingStatus;
-      adminStatus?: CustomerAdminStatus;
-      complianceStatus?: string;
-      eddRequired?: boolean;
-    },
-  ): Prisma.CustomerMainUpdateInput {
-    return buildCustomerLifecycleStatePatch(
-      customer,
-      next as Parameters<typeof buildCustomerLifecycleStatePatch>[1],
-    );
+  /**
+   * lifecycle 唯一落库口。任何写 lifecycle 的地方都必须经过这里，九边迁移表
+   * 才真正生效（裸写字符串等于没有状态机）。
+   * - 动作目标态 == 当前态 → 幂等重放，只写 extra，不动 lifecycle
+   * - 非法边 → resolveLifecycleTransition 抛 BadRequestException，事务回滚
+   * 这里不写审计：调用方（writeAudit / writeSumsubAudit / 上层 workflow）已各自
+   * 记录 fromStage/toStage，在此再写一条会产生重复审计行。
+   */
+  private async advanceLifecycle(
+    customerId: string,
+    action: CustomerLifecycleAction,
+    tx?: Prisma.TransactionClient,
+    extra: Prisma.CustomerMainUpdateInput = {},
+  ) {
+    const client = tx ?? this.prisma;
+    const current = await client.customerMain.findUnique({
+      where: { id: customerId },
+      select: { lifecycle: true },
+    });
+    if (!current) {
+      throw new NotFoundException(`Customer not found: ${customerId}`);
+    }
+
+    const to = resolveLifecycleTransition(readLifecycle(current), action);
+
+    return client.customerMain.update({
+      where: { id: customerId },
+      data: to ? { ...extra, lifecycle: to } : extra,
+    });
   }
 
   private buildLatestRiskApprovalBindingPatch(
@@ -701,41 +592,16 @@ export class OnboardingService {
     return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
   }
 
-  private mapActionsByStatus(status: {
-    onboardingStatus?: string | null;
-    adminStatus?: string | null;
-    complianceStatus?: string | null;
-  }): OnboardingAction[] {
-    const actionTypes = getCustomerNextStepActionTypes(status);
-    return actionTypes.map((type) => ({ type }));
-  }
-
-  private buildBlockedReason(status: {
-    onboardingStatus?: string | null;
-    adminStatus?: string | null;
-    complianceStatus?: string | null;
-  }): string | null {
-    return getCustomerBlockedReason(status);
+  private mapActionsByStatus(customer: CustomerLifecycleSource): OnboardingAction[] {
+    return getCustomerNextStepActionTypes(customer).map((type) => ({ type }));
   }
 
   private async buildNextStep(customer: any): Promise<NextStepPayload> {
-    const invalidRawOnboardingStatus = this.resolveInvalidRawOnboardingStatus(customer);
-    if (invalidRawOnboardingStatus) {
-      return {
-        actions: [{ type: 'NONE' }],
-        blockedReason: `Onboarding status ${invalidRawOnboardingStatus} is invalid. Contact support.`,
-        activeCaseId: null,
-        requiresEdd: false,
-        verification: this.buildVerificationProjection(customer),
-      };
-    }
-
-    const canonical = this.getCanonicalState(customer);
     return {
       actions: this.mapActionsByStatus(customer),
-      blockedReason: this.buildBlockedReason(customer),
+      blockedReason: getCustomerBlockedReason(customer),
       activeCaseId: null,
-      requiresEdd: this.resolveEddRequiredForState(customer, canonical.onboardingStatus),
+      requiresEdd: this.resolveEddRequiredForState(customer, readLifecycle(customer)),
       verification: this.buildVerificationProjection(customer),
     };
   }
@@ -829,8 +695,8 @@ export class OnboardingService {
     eventType: string;
     simulated: boolean;
     simulatedByUserId: string | null;
-    onboardingStatusFrom: string | null;
-    onboardingStatusTo: string | null;
+    lifecycleFrom: string | null;
+    lifecycleTo: string | null;
     substatusFrom: string | null;
     substatusTo: string | null;
     levelName: string | null;
@@ -933,37 +799,6 @@ export class OnboardingService {
     return safe;
   }
 
-  private async autoExpireIfNeeded(customerId: string): Promise<void> {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: customerAutoExpireSelect,
-    });
-
-    if (!customer) {
-      throw new NotFoundException(`Customer not found: ${customerId}`);
-    }
-
-    const expired =
-      customer.cddDocumentExpiresAt &&
-      customer.cddDocumentExpiresAt.getTime() <= Date.now();
-
-    if (!isCustomerApprovedAndActive(customer) || !expired) {
-      return;
-    }
-
-    await this.prisma.customerMain.update({
-      where: { id: customerId },
-      data: {
-        ...this.buildCustomerLifecyclePatch(customer, {
-          onboardingStatus: 'PENDING_CDD_INPUT',
-          adminStatus: 'INACTIVE',
-        }),
-        ...this.buildLatestRiskApprovalBindingPatch(null),
-        latestRiskApprovalStatus: null,
-      },
-    });
-  }
-
   private ensureIndividualOnly(customer: any) {
     if (customer.customerType === 'CORPORATE') {
       throw new BadRequestException(
@@ -1043,16 +878,12 @@ export class OnboardingService {
   }
 
   async getMyOnboarding(customerId: string) {
-    await this.autoExpireIfNeeded(customerId);
     const customer = await this.getCustomerOrThrow(customerId, true);
     const nextStep = await this.buildNextStep(customer);
-    const canonical = this.getCanonicalState(customer);
 
     return {
       ...this.omitCustomerInternalOnlyFields(customer),
-      onboardingStatus: canonical.onboardingStatus,
-      adminStatus: canonical.adminStatus,
-      complianceStatus: canonical.complianceStatus,
+      ...(await this.buildCustomerSnapshot(customerId)),
       actions: nextStep.actions,
       blockedReason: nextStep.blockedReason,
       activeCaseId: nextStep.activeCaseId,
@@ -1061,16 +892,21 @@ export class OnboardingService {
     };
   }
 
-  private buildCustomerSnapshot(customer: {
-    onboardingStatus?: string | null;
-    adminStatus?: string | null;
-    complianceStatus?: string | null;
-  }): StartVerificationCustomerSnapshotDto {
-    const canonical = this.getCanonicalState(customer);
+  /**
+   * 客户面「我处于什么状态 / 我被卡了什么」的唯一投影，`/onboarding/me` 与
+   * verification start / mock-submit 三处共用一份，避免各写各的再漏一次。
+   * 只允许 lifecycle / disclosedBlocked / disclosed —— CustomerAccess.blocked
+   * 与 openCount 含 SILENT（制裁）限制的贡献，出现在客户面响应里即 tipping-off
+   * （设计稿 §3.4）。禁止在此处补字段。
+   */
+  private async buildCustomerSnapshot(
+    customerId: string,
+  ): Promise<StartVerificationCustomerSnapshotDto> {
+    const access = await this.customerAccessService.resolve(customerId);
     return {
-      onboardingStatus: canonical.onboardingStatus,
-      adminStatus: canonical.adminStatus,
-      complianceStatus: canonical.complianceStatus,
+      lifecycle: access.lifecycle,
+      disclosedBlocked: [...access.disclosedBlocked],
+      disclosed: access.disclosed,
     };
   }
 
@@ -1078,49 +914,39 @@ export class OnboardingService {
     const customer = await this.getCustomerOrThrow(customerId, true);
     this.ensureIndividualOnly(customer);
 
-    const rawOnboardingStatus = this.normalizeRawOnboardingStatus(customer.onboardingStatus);
-    const currentStatus = this.getCustomerOnboardingStatus(customer);
-    if (this.resolveInvalidRawOnboardingStatus(customer)) {
+    const currentLifecycle = readLifecycle(customer);
+
+    if (
+      currentLifecycle !== 'PROSPECT' &&
+      currentLifecycle !== 'IN_VERIFICATION' &&
+      currentLifecycle !== 'REJECTED' &&
+      currentLifecycle !== 'WITHDRAWN'
+    ) {
       throw new BadRequestException(
-        `Current status ${rawOnboardingStatus} does not allow starting verification.`,
+        `Current status ${currentLifecycle} does not allow starting verification.`,
       );
     }
 
-    if (this.legacyRawVerificationStatuses.has(rawOnboardingStatus)) {
+    if (currentLifecycle === 'IN_VERIFICATION' && customer.verificationCanContinue !== true) {
       throw new BadRequestException(
-        `Current status ${rawOnboardingStatus} does not allow starting verification.`,
-      );
-    }
-
-    if (currentStatus === 'APPROVED' || currentStatus === 'FINAL_APPROVAL') {
-      throw new BadRequestException(
-        `Current status ${currentStatus} does not allow starting verification.`,
-      );
-    }
-
-    if (currentStatus === 'PENDING_VERIFICATION' && customer.verificationCanContinue !== true) {
-      throw new BadRequestException(
-        'Current status PENDING_VERIFICATION does not allow starting verification.',
+        'Current status IN_VERIFICATION does not allow starting verification.',
       );
     }
 
     if (
-      currentStatus === 'PENDING_VERIFICATION' &&
+      currentLifecycle === 'IN_VERIFICATION' &&
       customer.verificationProvider &&
       customer.verificationProvider !== 'SUMSUB'
     ) {
       throw new BadRequestException(
-        'Current status PENDING_VERIFICATION does not allow starting verification.',
+        'Current status IN_VERIFICATION does not allow starting verification.',
       );
     }
 
-    if (!['NONE', 'PENDING_VERIFICATION', 'REJECTED', 'WITHDRAWN'].includes(currentStatus)) {
-      throw new BadRequestException(
-        `Current status ${currentStatus} does not allow starting verification.`,
-      );
-    }
-
-    const isReinitiating = currentStatus === 'REJECTED' || currentStatus === 'WITHDRAWN';
+    const isReinitiating = currentLifecycle === 'REJECTED' || currentLifecycle === 'WITHDRAWN';
+    const lifecycleAction: CustomerLifecycleAction = isReinitiating
+      ? 'REAPPLY'
+      : 'START_VERIFICATION';
     const levelName = String(customer.sumsubCurrentLevelName || '').trim() || 'wave3-level-1';
 
     let applicantId = customer.sumsubApplicantId ? String(customer.sumsubApplicantId) : null;
@@ -1143,23 +969,19 @@ export class OnboardingService {
     });
 
     const updateData: Prisma.CustomerMainUpdateInput = {
-      ...this.buildCustomerLifecyclePatch(customer, {
-        onboardingStatus: 'PENDING_VERIFICATION',
-        adminStatus: 'INACTIVE',
-      }),
       ...(customer.onboardingTraceId ? {} : { onboardingTraceId: randomUUID() }),
-      ...(currentStatus === 'PENDING_VERIFICATION' && !customer.verificationProvider
+      ...(currentLifecycle === 'IN_VERIFICATION' && !customer.verificationProvider
         ? { verificationProvider: 'SUMSUB' }
         : {}),
-      ...(currentStatus === 'PENDING_VERIFICATION' && !customer.sumsubCurrentLevelName
+      ...(currentLifecycle === 'IN_VERIFICATION' && !customer.sumsubCurrentLevelName
         ? { sumsubCurrentLevelName: levelName }
         : {}),
-      ...(currentStatus === 'PENDING_VERIFICATION' && !customer.sumsubApplicantId
+      ...(currentLifecycle === 'IN_VERIFICATION' && !customer.sumsubApplicantId
         ? { sumsubApplicantId: applicantId }
         : {}),
     };
 
-    if (currentStatus !== 'PENDING_VERIFICATION') {
+    if (currentLifecycle !== 'IN_VERIFICATION') {
       Object.assign(updateData, {
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
@@ -1181,10 +1003,12 @@ export class OnboardingService {
       updateData.sumsubLatestAttemptId = null;
     }
 
-    const updated = await this.prisma.customerMain.update({
-      where: { id: customerId },
-      data: updateData,
-    });
+    const updated = await this.advanceLifecycle(
+      customerId,
+      lifecycleAction,
+      undefined,
+      updateData,
+    );
 
     const nextStep = await this.buildNextStep(updated);
     const verification = {
@@ -1193,7 +1017,7 @@ export class OnboardingService {
     };
 
     return {
-      customer: this.buildCustomerSnapshot(updated),
+      customer: await this.buildCustomerSnapshot(customerId),
       nextStep,
       verification,
     };
@@ -1215,9 +1039,9 @@ export class OnboardingService {
     }
 
     const customer = await this.getCustomerOrThrow(customerId, true);
-    if (this.getCustomerOnboardingStatus(customer) !== 'PENDING_VERIFICATION') {
+    if (readLifecycle(customer) !== 'IN_VERIFICATION') {
       throw new BadRequestException(
-        'mock-submit requires customer to be in PENDING_VERIFICATION state.',
+        'mock-submit requires customer to be in IN_VERIFICATION state.',
       );
     }
 
@@ -1236,7 +1060,7 @@ export class OnboardingService {
     const refreshed = await this.getCustomerOrThrow(customerId, true);
     const nextStep = await this.buildNextStep(refreshed);
     return {
-      customer: this.buildCustomerSnapshot(refreshed),
+      customer: await this.buildCustomerSnapshot(customerId),
       nextStep,
       verification: {
         ...this.buildVerificationProjection(refreshed),
@@ -1246,7 +1070,6 @@ export class OnboardingService {
   }
 
   async getNextStep(customerId: string) {
-    await this.autoExpireIfNeeded(customerId);
     const customer = await this.getCustomerOrThrow(customerId);
     return this.buildNextStep(customer);
   }
@@ -1261,12 +1084,6 @@ export class OnboardingService {
     const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
       data: {
-        ...this.buildCustomerLifecyclePatch(customer, {
-          onboardingStatus: this.getCanonicalState(customer).onboardingStatus,
-          adminStatus: this.getCanonicalState(customer).adminStatus,
-          complianceStatus: this.getCanonicalState(customer).complianceStatus,
-          eddRequired: !!customer.eddRequired,
-        }),
         customerType: 'INDIVIDUAL',
         companyName: null,
       },
@@ -1289,8 +1106,8 @@ export class OnboardingService {
       action: 'ENTITY_UPSERT',
       actorId,
       actorRole: 'CUSTOMER',
-      fromStage: this.getCustomerOnboardingStatus(customer),
-      toStage: this.getCustomerOnboardingStatus(updated),
+      fromStage: readLifecycle(customer),
+      toStage: readLifecycle(updated),
       detail: 'Customer entity profile normalized to INDIVIDUAL only.',
     });
 
@@ -1303,7 +1120,7 @@ export class OnboardingService {
   async simulateCustomerExpired(customerId: string, actorId: string, actorRole: string) {
     const customer = await this.getCustomerOrThrow(customerId);
     const expiredAt = new Date(Date.now() - 60 * 60 * 1000);
-    const currentStatus = this.getCustomerOnboardingStatus(customer);
+    const currentLifecycle = readLifecycle(customer);
 
     await this.prisma.customerMain.update({
       where: { id: customerId },
@@ -1311,7 +1128,6 @@ export class OnboardingService {
         cddDocumentExpiresAt: expiredAt,
       },
     });
-    await this.autoExpireIfNeeded(customerId);
     const updated = await this.getCustomerOrThrow(customerId);
 
     await this.writeAudit({
@@ -1319,8 +1135,8 @@ export class OnboardingService {
       action: 'SIMULATE_EXPIRED',
       actorId,
       actorRole,
-      fromStage: currentStatus,
-      toStage: this.getCustomerOnboardingStatus(updated),
+      fromStage: currentLifecycle,
+      toStage: readLifecycle(updated),
       detail: 'CDD document expiry simulated.',
     });
 
@@ -1363,58 +1179,15 @@ export class OnboardingService {
     };
   }
 
+  /**
+   * 交易资格门。
+   *
+   * Task 5：唯一执法依据是 CustomerAccessService（lifecycle 轴 + 限制账）。
+   * 这里既不自己读状态列、也不自己解析限制行，更不许把 cause / visibility 拌进
+   * 错误体 —— SILENT 限制的存在本身就是 tipping-off 信号。
+   */
   async assertTradingEligibility(customerId: string, action: TradeAction) {
-    await this.autoExpireIfNeeded(customerId);
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: tradingEligibilitySelect,
-    });
-
-    if (!customer) {
-      throw new NotFoundException(`Customer not found: ${customerId}`);
-    }
-
-    const canonical = this.getCanonicalState(customer);
-
-    if (
-      canonical.onboardingStatus !== 'APPROVED' ||
-      canonical.adminStatus !== 'ACTIVE' ||
-      canonical.complianceStatus === 'FROZEN'
-    ) {
-      throw new ForbiddenException({
-        message: `${action} is blocked by onboarding gate`,
-        customerId,
-        customerNo: customer.customerNo,
-        onboardingStatus: canonical.onboardingStatus,
-        adminStatus: canonical.adminStatus,
-        complianceStatus: customer.complianceStatus,
-        complianceFreezeCaseId: customer.complianceFreezeCaseId,
-      });
-    }
-
-    if (String(customer.complianceStatus || 'CLEAR').toUpperCase() === 'FROZEN') {
-      throw new ForbiddenException({
-        message: `${action} is blocked by compliance hold`,
-        customerId,
-        customerNo: customer.customerNo,
-        onboardingStatus: canonical.onboardingStatus,
-        adminStatus: canonical.adminStatus,
-        complianceStatus: customer.complianceStatus,
-        complianceFreezeCaseId: customer.complianceFreezeCaseId,
-      });
-    }
-
-    const restrictions = this.parseJsonArraySafely<{ capability?: string }>(
-      customer.restrictions,
-    );
-    if (restrictions.some((r) => r.capability === action || r.capability === 'ALL')) {
-      throw new ForbiddenException({
-        code: 'CAPABILITY_RESTRICTED',
-        message: `${action} is currently restricted`,
-        customerId,
-        customerNo: customer.customerNo,
-      });
-    }
+    await this.customerAccessService.assertCapability(customerId, action);
 
     if (action !== 'DEPOSIT') {
       await this.assertTradingReady(customerId);
@@ -1437,18 +1210,11 @@ export class OnboardingService {
 
   async recomputeComplianceSnapshot(customerId: string, _journeyId?: string) {
     const customer = await this.getCustomerOrThrow(customerId);
-    const canonical = this.getCanonicalState(customer);
-    const eddRequired = this.resolveEddRequiredForState(customer, canonical.onboardingStatus);
-    const patch: Prisma.CustomerMainUpdateInput = this.buildCustomerLifecyclePatch(customer, {
-      onboardingStatus: canonical.onboardingStatus,
-      adminStatus: canonical.adminStatus,
-      complianceStatus: canonical.complianceStatus,
-      eddRequired,
-    });
+    const eddRequired = this.resolveEddRequiredForState(customer, readLifecycle(customer));
 
     const updated = await this.prisma.customerMain.update({
       where: { id: customerId },
-      data: patch,
+      data: { eddRequired },
     });
 
     return updated;

@@ -158,6 +158,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **ReconciliationRun** | `runNo`, `status` badge, `layer`, `triggerType` | `startedAt`, `completedAt`, `createdAt` |
 | **ReconciliationCase** | `caseNo`, `status` badge, `bucket` badge, `deltaAmount` | `slaDeadline`, `createdAt`, `updatedAt` |
 | **ReconciliationExternalStatement** | `statementNo`, `source`, `currency`, `closingBalance` | `businessDate`, `fetchedAt`, `createdAt` |
+| **CustomerRestriction** | `restrictionNo`, `status` badge, `cause`, `scopes`, `visibility`(🔇 for SILENT), `customerNo` | `openedAt`, `releasedAt` |
 
 ---
 

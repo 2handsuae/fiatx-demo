@@ -1,6 +1,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
+import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -15,6 +17,8 @@ export class TierUpgradeCaseService {
     private readonly approvalsService: ApprovalsService,
     private readonly sumsubClient: SumsubClient,
     private readonly auditLogsService: AuditLogsService,
+    private readonly restrictionsService: CustomerRestrictionsService,
+    private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
   ) {}
 
   /**
@@ -30,25 +34,25 @@ export class TierUpgradeCaseService {
     const caseNo = generateReferenceNo('TUC');
     const traceId = `TIER_UPGRADE:${randomUUID()}`;
 
-    let upgradeCase: any;
-    await this.prisma.$transaction(async (tx: any) => {
-      upgradeCase = await tx.tierUpgradeCase.create({
-        data: {
-          caseNo,
-          customerId: cra.customerId,
-          sourceCraId: cra.id,
-          status: 'PENDING_LEVEL2',
-          traceId,
-        },
-      });
+    const upgradeCase = await this.prisma.tierUpgradeCase.create({
+      data: {
+        caseNo,
+        customerId: cra.customerId,
+        sourceCraId: cra.id,
+        status: 'PENDING_LEVEL2',
+        traceId,
+      },
+    });
 
-      await tx.customerMain.update({
-        where: { id: cra.customerId },
-        data: {
-          complianceStatus: 'FROZEN',
-          complianceFreezeReason: 'tier_upgrade_pending_level2',
-        },
-      });
+    // 摁住改贴便签：TIER_UPGRADE_PENDING（DISCLOSED，默认卡 WITHDRAW+SWAP，
+    // 客户看到 "Additional review in progress"）。caseRef=本升级案 id ——
+    // Phase 2 结案时只能凭这个键撕自己这张。原事务壳里只剩这一条写，已无意义，拆掉。
+    await this.restrictionsService.open({
+      customerId: cra.customerId,
+      cause: 'TIER_UPGRADE_PENDING',
+      reason: `Tier upgrade ${caseNo} pending Sumsub Level 2 + Phase 2 approval`,
+      caseRef: upgradeCase.id,
+      openedBy: 'SYSTEM',
     });
 
     if (customer.sumsubApplicantId) {
@@ -67,8 +71,8 @@ export class TierUpgradeCaseService {
       action: 'TIER_UPGRADE_CASE_CREATED',
       workflowType: 'TIER_UPGRADE',
       entityType: 'TIER_UPGRADE_CASE',
-      entityId: upgradeCase?.id,
-      entityNo: upgradeCase?.caseNo,
+      entityId: upgradeCase.id,
+      entityNo: upgradeCase.caseNo,
       traceId,
       entityOwnerType: 'CUSTOMER',
       entityOwnerId: cra.customerId,
@@ -143,8 +147,6 @@ export class TierUpgradeCaseService {
           data: {
             riskRating: 'HIGH',
             riskRatingUpdatedAt: new Date(),
-            complianceStatus: 'CLEAR',
-            complianceFreezeReason: null,
             latestRiskAssessmentId: upgradeCase.sourceCraId,
             latestRiskApprovalId: upgradeCase.phase2ApprovalCaseId,
             latestRiskApprovalStatus: 'APPROVED',
@@ -155,6 +157,15 @@ export class TierUpgradeCaseService {
           data: { status: 'COMPLETED', completedAt: new Date() },
         });
       });
+
+      // 只撕自己那张（cause + caseRef 双键），不再无条件把客户清成 CLEAR ——
+      // 客户身上若还挂着制裁/材料便签，升级通过不该把它们一起解开。
+      await this.restrictionWorkflowService.autoRelease(
+        upgradeCase.customerId,
+        'TIER_UPGRADE_PENDING',
+        upgradeCase.id,
+        'SYSTEM',
+      );
 
       await this.auditLogsService.recordSystem({
         action: 'TIER_UPGRADE_CASE_COMPLETED',
@@ -167,21 +178,28 @@ export class TierUpgradeCaseService {
         metadata: { approvalCaseId: upgradeCase.phase2ApprovalCaseId },
       });
     } else {
-      await this.prisma.$transaction(async (tx: any) => {
-        await tx.customerMain.update({
-          where: { id: upgradeCase.customerId },
-          data: {
-            onboardingStatus: 'REJECTED',
-            adminStatus: 'INACTIVE',
-            complianceStatus: 'CLEAR',
-            complianceFreezeReason: null,
-          },
-        });
-        await tx.tierUpgradeCase.update({
-          where: { id: upgradeCase.id },
-          data: { status: 'REJECTED', rejectedAt: new Date() },
-        });
+      await this.prisma.tierUpgradeCase.update({
+        where: { id: upgradeCase.id },
+        data: { status: 'REJECTED', rejectedAt: new Date() },
       });
+
+      // INV-1：升级审批被拒 ≠ 客户被拒户，lifecycle 不动（原来把入驻轴写成
+      // REJECTED + 行政轴写成 INACTIVE，是把两件事混成了一件）。
+      // 先贴新的 ADMIN_SUSPENSION、再撕旧的 TIER_UPGRADE_PENDING —— 顺序反了
+      // 中间会出现一个客户完全不受限的窗口。
+      await this.restrictionsService.open({
+        customerId: upgradeCase.customerId,
+        cause: 'ADMIN_SUSPENSION',
+        reason: `Tier upgrade ${upgradeCase.caseNo} rejected at Phase 2 approval`,
+        caseRef: upgradeCase.id,
+        openedBy: 'SYSTEM',
+      });
+      await this.restrictionWorkflowService.autoRelease(
+        upgradeCase.customerId,
+        'TIER_UPGRADE_PENDING',
+        upgradeCase.id,
+        'SYSTEM',
+      );
 
       await this.auditLogsService.recordSystem({
         action: 'TIER_UPGRADE_CASE_REJECTED',

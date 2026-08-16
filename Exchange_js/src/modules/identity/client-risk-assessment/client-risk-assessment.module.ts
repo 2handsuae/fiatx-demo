@@ -12,9 +12,13 @@ import { MaterialRefreshModule } from '../material-refresh/material-refresh.modu
 import { MaterialRefreshService } from '../material-refresh/material-refresh.service';
 import { TierUpgradeCaseModule } from '../tier-upgrade-case/tier-upgrade-case.module';
 import { SumsubIngestionModule } from '../../sumsub-ingestion/sumsub-ingestion.module';
+import { CustomersModule } from '../customers/customers.module';
 
 @Module({
   imports: [
+    // Task 7：本模块的自动写入点改走限制账（CustomerRestrictionsService /
+    // CustomerRestrictionWorkflowService），两者由 CustomersModule exports。
+    forwardRef(() => CustomersModule),
     forwardRef(() => OnboardingModule),
     forwardRef(() => MaterialRefreshModule),
     ApprovalsModule,

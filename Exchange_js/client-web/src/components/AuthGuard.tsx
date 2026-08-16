@@ -7,6 +7,7 @@ import {
   isCustomerFinalApprovalPending,
   isCustomerRejected,
   isCustomerWithdrawn,
+  normalizeLifecycle,
 } from '../utils/customerOnboarding';
 import { useTradingReadiness } from '../hooks/useTradingReadiness';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
@@ -91,18 +92,12 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
 
   const isApproved = user ? isCustomerApprovedForAccess(user) : false;
   if (isApproved) {
-    // FROZEN: only /profile is accessible
-    if (user?.complianceStatus === 'FROZEN') {
-      if (location.pathname !== '/profile') {
-        return <Navigate to="/profile" replace />;
-      }
-      return <>{children}</>;
-    }
-
-    // RESTRICTED（parity 2026-08-14）：受限能力的页面【不再重定向】——Swap/Withdraw
-    // 页面自禁按钮 + 顶部中性提示 + 认证 banner（业主拍板：页面基本不动，只禁用）。
+    // RESTRICTED（parity 2026-08-14 定稿，本轮沿用）：受限能力的页面【不再重定向】——
+    // Swap/Withdraw 页自禁按钮 + RestrictionBanner 逐条提示（业主拍板：页面基本不动）。
     // 唯一保留的重定向是 /wallet/send（该页没有禁用 UI，放进去会裸奔）。
     // 后端 L1 门（CAPABILITY_RESTRICTED）原样在——这里只是体验层。
+    // 判据来自 disclosedBlocked：SILENT 便签前端拿不到，被制裁客户在这里与正常
+    // 客户完全同路，不会因为多一次跳转而暴露调查（tipping-off）。
     if (isCapabilityRestricted(user, 'WITHDRAW')) {
       const p = '/wallet/send';
       if (location.pathname === p || location.pathname.startsWith(`${p}/`)) {
@@ -128,7 +123,9 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
     return <>{children}</>;
   }
 
-  const onboardingStatus = String(user?.onboardingStatus || 'NONE').toUpperCase();
+  // lifecycle 未过的四步拦截页。OFFBOARDED 到不了这里——终态客户的会话在
+  // jwt.strategy 就被拒，根本进不到路由。
+  const lifecycle = normalizeLifecycle(user?.lifecycle) ?? 'PROSPECT';
   const isRejected = user ? isCustomerRejected(user) : false;
   const isWithdrawn = user ? isCustomerWithdrawn(user) : false;
   const isBlocked = isRejected || isWithdrawn;
@@ -139,9 +136,9 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
     ? 1
     : isFinalPending
       ? 2
-      : onboardingStatus === 'PENDING_VERIFICATION'
+      : lifecycle === 'IN_VERIFICATION'
         ? 1
-        : onboardingStatus === 'NONE'
+        : lifecycle === 'PROSPECT'
           ? 1
           : 2;
 
@@ -164,7 +161,7 @@ const AuthGuard = ({ children }: AuthGuardProps) => {
       cta: 'View status',
       tone: 'waiting',
     };
-  } else if (onboardingStatus === 'PENDING_VERIFICATION') {
+  } else if (lifecycle === 'IN_VERIFICATION') {
     copy = {
       byline: '§ Verification in progress',
       title: 'Verification in progress.',

@@ -1004,12 +1004,15 @@ export class WithdrawTransactionsService {
     });
   }
 
-  async getOwnerComplianceStatus(withdrawId: string): Promise<string> {
-    const item = await (this.prisma as any).withdrawTransaction.findUnique({
-      where: { id: withdrawId },
-      include: { customer: { select: { complianceStatus: true } } },
+  /**
+   * 某客户名下所有非终态单（供客户级限制冻结在途单用，Task 9）。
+   * 终态集合：提现终态（10 态中后 4 个零出边）。
+   */
+  async findNonTerminalByOwner(ownerId: string) {
+    return this.prisma.withdrawTransaction.findMany({
+      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED'] } },
+      select: { id: true, withdrawNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
-    if (!item) throw new NotFoundException('Withdraw transaction not found');
-    return item.customer?.complianceStatus || 'UNKNOWN';
   }
+
 }

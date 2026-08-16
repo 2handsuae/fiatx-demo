@@ -25,6 +25,7 @@ import {
 import { resolveSubmitErrorMessage } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
 import { PendingActionBanner } from '../components/PendingActionBanner';
+import { RestrictionBanner } from '../components/RestrictionBanner';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 
 // 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
@@ -140,9 +141,10 @@ interface AssetBalance {
 
 const Swap = () => {
   const { user } = useAuth();
-  // parity 2026-08-14：受限客户页面不封、按钮禁用 + 中性提示（业主拍板）。
-  // 文案不带原因——tipping-off：软硬线在客户眼里必须无差别，差别只体现在
-  // 有没有认证 banner（由后端 pending-action 单点决定）。后端 L1 门仍在。
+  // parity 2026-08-14：受限客户页面不封、只禁按钮（业主拍板）。判据是
+  // disclosedBlocked —— SILENT 便签前端拿不到，被制裁客户按钮照常可点，
+  // 点了由后端 L1 门以中性文案拒绝。具体原因由 RestrictionBanner 按后端
+  // 下发的 disclosed 逐条渲染，本页不推导任何文案。
   const swapRestricted = isCapabilityRestricted(user, 'SWAP');
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'swap' | 'history'>('swap');
@@ -573,13 +575,7 @@ const Swap = () => {
       {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
           显隐完全由后端 /client/me/pending-action 决定，前端零推导。 */}
       <PendingActionBanner />
-      {swapRestricted && (
-        <div className="border-l-2 border-fx-rust/60 bg-fx-rust/5 px-4 py-3">
-          <p className="font-mono text-[11px] text-fx-dune">
-            Trading is currently restricted on your account.
-          </p>
-        </div>
-      )}
+      <RestrictionBanner />
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-fx-sand">Swap</h1>

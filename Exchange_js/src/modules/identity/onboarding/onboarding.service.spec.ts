@@ -106,11 +106,32 @@ describe('OnboardingService', () => {
     changeLevel: jest.fn(),
   };
 
+  // Task 5：交易门唯一实现在 CustomerAccessService，OnboardingService 只做委托。
+  const customerAccessServiceMock: any = {
+    assertCapability: jest.fn().mockResolvedValue(undefined),
+    resolve: jest.fn(),
+    assertOffboardable: jest.fn(),
+  };
+
+  /** CustomerAccess 缺省投影：ACTIVE、零限制。用例按需覆盖字段。 */
+  const buildAccess = (overrides?: Record<string, unknown>) => ({
+    lifecycle: 'ACTIVE',
+    blocked: new Set<string>(),
+    disclosedBlocked: new Set<string>(),
+    disclosed: [] as Array<Record<string, unknown>>,
+    openCount: 0,
+    ...overrides,
+  });
+
   let service: OnboardingService;
   let recordByActorSpy: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    customerAccessServiceMock.assertCapability.mockResolvedValue(undefined);
+    // Task 6：getMyOnboarding / startVerification 都会走 buildCustomerSnapshot →
+    // resolve()，缺省返回 undefined 会在展开时炸。
+    customerAccessServiceMock.resolve.mockResolvedValue(buildAccess());
     recordByActorSpy = jest.fn().mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
@@ -133,6 +154,7 @@ describe('OnboardingService', () => {
       onboardingFinalApprovalServiceMock,
       sumsubClientMock,
       { recordByActor: recordByActorSpy, recordSystem: jest.fn().mockResolvedValue({}) } as any,
+      customerAccessServiceMock,
     );
   });
 
@@ -140,9 +162,7 @@ describe('OnboardingService', () => {
     id: 'customer-1',
     customerNo: 'CU0001',
     customerType: 'INDIVIDUAL',
-    onboardingStatus: 'PENDING_VERIFICATION',
-    adminStatus: 'INACTIVE',
-    complianceStatus: 'CLEAR',
+    lifecycle: 'IN_VERIFICATION',
     verificationProvider: 'SUMSUB',
     verificationSubstatus: 'CREATED',
     verificationCustomerActionRequired: true,
@@ -187,7 +207,6 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           where: { id: 'customer-1' },
           data: expect.objectContaining({
-            onboardingStatus: 'PENDING_VERIFICATION',
             verificationSubstatus: 'SUBMITTED',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
@@ -195,7 +214,7 @@ describe('OnboardingService', () => {
           }),
         }),
       );
-      expect(result.customer.onboardingStatus).toBe('PENDING_VERIFICATION');
+      expect(result.customer.lifecycle).toBe('IN_VERIFICATION');
       expect(result.verification.substatus).toBe('SUBMITTED');
     });
 
@@ -213,7 +232,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'PENDING_VERIFICATION',
             verificationSubstatus: 'UNDER_REVIEW',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
@@ -242,7 +260,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'PENDING_VERIFICATION',
             verificationSubstatus: 'RESUBMIT_REQUIRED',
             verificationCustomerActionRequired: true,
             verificationCanContinue: true,
@@ -269,7 +286,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'PENDING_VERIFICATION',
             verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
             verificationCanContinue: true,
             verificationCustomerActionRequired: false,
@@ -283,10 +299,18 @@ describe('OnboardingService', () => {
     });
 
     it('approves and activates customer when workflow completes without level2', async () => {
-      seedVerificationEventFlow({
+      const seeded = seedVerificationEventFlow({
         sumsubExperiencedLevel2: false,
         verificationSubstatus: 'UNDER_REVIEW',
       });
+      // 未经 level2 的 applicantWorkflowCompleted 是「自动批准」，九边表无
+      // IN_VERIFICATION→ACTIVE 直达边，实现按表拆两跳。advanceLifecycle 每跳
+      // 都重新读库，故 mock 必须随之推进：① 主处理器加载 ② 第一跳 ③ 第二跳。
+      const lifecycleReads = ['IN_VERIFICATION', 'IN_VERIFICATION', 'PENDING_APPROVAL'];
+      prismaMock.customerMain.findUnique.mockImplementation(async () => ({
+        ...seeded,
+        lifecycle: lifecycleReads.shift() ?? 'ACTIVE',
+      }));
 
       const result = await service.handleSumsubVerificationEvent(
         {
@@ -299,25 +323,29 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'APPROVED',
-            adminStatus: 'ACTIVE',
+            lifecycle: 'ACTIVE',
             verificationSubstatus: 'COMPLETED',
             latestRiskApprovalStatus: null,
           }),
         }),
       );
       expect(onboardingFinalApprovalServiceMock.ensurePendingApprovalInTransaction).not.toHaveBeenCalled();
-      expect(result.customer.onboardingStatus).toBe('APPROVED');
-      expect(result.customer.adminStatus).toBe('ACTIVE');
+      expect(result.customer.lifecycle).toBe('ACTIVE');
     });
 
     it('does not overwrite an existing onboardingApprovedAt on a later re-approval', async () => {
       const originalApprovedAt = new Date('2026-01-01T00:00:00.000Z');
-      seedVerificationEventFlow({
+      const seeded = seedVerificationEventFlow({
         sumsubExperiencedLevel2: false,
         verificationSubstatus: 'UNDER_REVIEW',
         onboardingApprovedAt: originalApprovedAt,
       });
+      // 同上：自动批准走两跳，mock 必须随读取推进，否则第二跳撞非法边。
+      const lifecycleReads = ['IN_VERIFICATION', 'IN_VERIFICATION', 'PENDING_APPROVAL'];
+      prismaMock.customerMain.findUnique.mockImplementation(async () => ({
+        ...seeded,
+        lifecycle: lifecycleReads.shift() ?? 'ACTIVE',
+      }));
 
       await service.handleSumsubVerificationEvent(
         {
@@ -355,7 +383,7 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           customer: expect.objectContaining({
             id: 'customer-1',
-            onboardingStatus: 'FINAL_APPROVAL',
+            lifecycle: 'PENDING_APPROVAL',
           }),
           actorId: 'SUMSUB',
           actorRole: 'SYSTEM',
@@ -364,14 +392,13 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'FINAL_APPROVAL',
+            lifecycle: 'PENDING_APPROVAL',
             verificationSubstatus: 'COMPLETED',
             latestRiskApprovalStatus: 'PENDING',
           }),
         }),
       );
-      expect(result.customer.onboardingStatus).toBe('FINAL_APPROVAL');
-      expect(result.customer.adminStatus).toBe('INACTIVE');
+      expect(result.customer.lifecycle).toBe('PENDING_APPROVAL');
     });
 
     it('rejects onboarding when workflow fails', async () => {
@@ -391,13 +418,12 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'REJECTED',
-            adminStatus: 'INACTIVE',
+            lifecycle: 'REJECTED',
             verificationSubstatus: 'FAILED',
           }),
         }),
       );
-      expect(result.customer.onboardingStatus).toBe('REJECTED');
+      expect(result.customer.lifecycle).toBe('REJECTED');
     });
 
     it('keeps onboarding pending with PROCESSING substatus for unknown events', async () => {
@@ -414,20 +440,18 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            onboardingStatus: 'PENDING_VERIFICATION',
             verificationSubstatus: 'PROCESSING',
             verificationLatestEventType: 'applicantMysteryEvent',
           }),
         }),
       );
-      expect(result.customer.onboardingStatus).toBe('PENDING_VERIFICATION');
+      expect(result.customer.lifecycle).toBe('IN_VERIFICATION');
       expect(result.verification.substatus).toBe('PROCESSING');
     });
 
     it('does not regress APPROVED customers when a late webhook arrives', async () => {
       const customer = buildVerificationCustomer({
-        onboardingStatus: 'APPROVED',
-        adminStatus: 'ACTIVE',
+        lifecycle: 'ACTIVE',
         verificationSubstatus: 'COMPLETED',
         verificationCustomerActionRequired: false,
         verificationCanContinue: false,
@@ -443,8 +467,7 @@ describe('OnboardingService', () => {
       );
 
       expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
-      expect(result.customer.onboardingStatus).toBe('APPROVED');
-      expect(result.customer.adminStatus).toBe('ACTIVE');
+      expect(result.customer.lifecycle).toBe('ACTIVE');
       expect(result.verification.substatus).toBe('COMPLETED');
     });
 
@@ -502,7 +525,6 @@ describe('OnboardingService', () => {
         id: 'customer-1',
         customerNo: 'CU0001',
         onboardingTraceId: existingTrace,
-        onboardingStatus: 'PENDING_VERIFICATION',
         verificationSubstatus: 'SUBMITTED',
         sumsubApplicantId: 'APPL-1',
       });
@@ -543,7 +565,6 @@ describe('OnboardingService', () => {
         id: 'customer-1',
         customerNo: 'CU0001',
         onboardingTraceId: simulatedTrace,
-        onboardingStatus: 'PENDING_VERIFICATION',
         verificationSubstatus: 'SUBMITTED',
       });
 
@@ -586,9 +607,7 @@ describe('OnboardingService', () => {
     const customer = {
       id: 'c1',
       customerNo: 'CU0001',
-      onboardingStatus: 'PENDING_CDD_INPUT',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
     };
     const cddResponse = {
       id: 'cdd-1',
@@ -607,9 +626,7 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue(customer);
     prismaMock.customerMain.update.mockResolvedValue({
       ...customer,
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
     });
     prismaMock.onboardingAuditLog.create.mockResolvedValue({ id: 'audit-1' });
     prismaMock.complianceAlert.findFirst.mockResolvedValue(null);
@@ -641,10 +658,7 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      complianceStatus: 'CLEAR',
-      complianceFreezeCaseId: null,
+      lifecycle: 'ACTIVE',
     });
     prismaMock.withdrawalAddress.count.mockResolvedValue(1);
 
@@ -655,10 +669,7 @@ describe('OnboardingService', () => {
     const approvedActiveClearCustomer = {
       id: 'c1',
       customerNo: 'CU1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      complianceStatus: 'CLEAR',
-      complianceFreezeCaseId: null,
+      lifecycle: 'ACTIVE',
     };
 
     it('should throw NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS when not ready and action=SWAP', async () => {
@@ -690,10 +701,7 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      complianceStatus: 'FROZEN',
-      complianceFreezeCaseId: null,
+      lifecycle: 'ACTIVE',
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -705,10 +713,7 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU1',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-      complianceFreezeCaseId: null,
+      lifecycle: 'IN_VERIFICATION',
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -720,10 +725,7 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      complianceStatus: 'FROZEN',
-      complianceFreezeCaseId: 'inc-1',
+      lifecycle: 'ACTIVE',
     });
 
     await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
@@ -731,72 +733,41 @@ describe('OnboardingService', () => {
     );
   });
 
-  it('should throw when customer does not exist for trading gate', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue(null);
+  // Task 5：「客户不存在」的判定随交易门一起搬进 CustomerAccessService（那里有
+  // 自己的用例覆盖）。本用例改守 OnboardingService 这一侧的职责：确实委托了、
+  // 且不吞掉下游异常 —— 交易门把错误吃掉比判错更危险。
+  it('delegates the trading gate to CustomerAccessService and propagates its rejection', async () => {
+    customerAccessServiceMock.assertCapability.mockRejectedValueOnce(
+      new NotFoundException('Customer not found: missing'),
+    );
 
     await expect(service.assertTradingEligibility('missing', 'SWAP')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+    expect(customerAccessServiceMock.assertCapability).toHaveBeenCalledWith('missing', 'SWAP');
   });
 
-  it('restrictions 含 SWAP 时拦截 SWAP，放行 DEPOSIT', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
-      complianceStatus: 'CLEAR',
-      complianceFreezeCaseId: null,
-      restrictions: JSON.stringify([{ capability: 'SWAP', reason: 'KYT_REJECTED' }]),
-    });
+  it('does not run the trading-ready check when the capability gate already rejected', async () => {
+    customerAccessServiceMock.assertCapability.mockRejectedValueOnce(
+      new ForbiddenException({ code: 'CAPABILITY_RESTRICTED' }),
+    );
 
-    await expect(service.assertTradingEligibility('c1', 'SWAP')).rejects.toMatchObject({
-      response: { code: 'CAPABILITY_RESTRICTED' },
-    });
-    await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).resolves.toBeUndefined();
+    await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prismaMock.withdrawalAddress.count).not.toHaveBeenCalled();
   });
 
-  it('should derive REVIEW_CDD next step from canonical onboarding status', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-      eddRequired: false,
-    });
-    prismaMock.cddResponse.findFirst.mockResolvedValue({ id: 'cdd-1' });
-
-    const result = await service.getNextStep('c1');
-
-    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
-    expect(result.activeCaseId).toBeNull();
-    expect(result.requiresEdd).toBe(false);
-  });
-
-  it('should return WAIT_REVIEW action when canonical onboarding is CDD_UNDER_REVIEW', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      onboardingStatus: 'CDD_UNDER_REVIEW',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-      eddRequired: false,
-    });
-    prismaMock.cddResponse.findFirst.mockResolvedValue({ id: 'cdd-1' });
-
-    const result = await service.getNextStep('c1');
-
-    expect(result.actions).toEqual([{ type: 'WAIT_REVIEW' }]);
-    expect(result.blockedReason).toContain('waiting compliance handling');
-    expect(result.activeCaseId).toBeNull();
-    expect(result.requiresEdd).toBe(false);
-  });
+  // 前向义务已了结：「被限制客户不得兑换、但仍可充值」这条安全属性，随交易门一起
+  // 搬进了 CustomerAccessService —— 见 customer-access.service.spec.ts 的
+  // 「blocked 命中 → CAPABILITY_RESTRICTED」与「未被卡的能力放行」（MATERIAL_EXPIRED
+  // 摁住 WITHDRAW/SWAP，DEPOSIT 照放）。本文件保留上面那条委托断言即可，
+  // 不在此重复实现细节。原 it.skip 断言的是已删除的 CustomerMain.restrictions JSON 列。
 
   it('should derive FINAL_APPROVAL next step from canonical onboarding status', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'FINAL_APPROVAL',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PENDING_APPROVAL',
       activeCaseId: null,
       eddRequired: true,
     });
@@ -808,15 +779,13 @@ describe('OnboardingService', () => {
     expect(result.requiresEdd).toBe(true);
   });
 
-  it.each(['APPROVED', 'FINAL_APPROVAL'] as const)(
-    'should reject verification start while onboarding is %s',
-    async (status) => {
+  it.each(['ACTIVE', 'PENDING_APPROVAL'] as const)(
+    'should reject verification start while lifecycle is %s',
+    async (lifecycle) => {
       prismaMock.customerMain.findUnique.mockResolvedValue({
         id: 'c1',
         customerType: 'INDIVIDUAL',
-        onboardingStatus: status,
-        adminStatus: status === 'APPROVED' ? 'ACTIVE' : 'INACTIVE',
-        complianceStatus: 'CLEAR',
+        lifecycle,
       });
 
       await expect(service.startVerification('c1')).rejects.toBeInstanceOf(
@@ -825,70 +794,9 @@ describe('OnboardingService', () => {
     },
   );
 
-  it.each(['PENDING_CDD_INPUT', 'CDD_UNDER_REVIEW', 'PENDING_EDD_INPUT', 'EDD_UNDER_REVIEW'] as const)(
-    'should reject verification start while onboarding is legacy raw state %s',
-    async (status) => {
-      prismaMock.customerMain.findUnique.mockResolvedValue({
-        id: 'c1',
-        customerType: 'INDIVIDUAL',
-        onboardingStatus: status,
-        adminStatus: 'INACTIVE',
-        complianceStatus: 'CLEAR',
-      });
 
-      await expect(service.startVerification('c1')).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-    },
-  );
 
-  it('should reject verification start when raw onboarding status is unknown', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'CU0001',
-      customerType: 'INDIVIDUAL',
-      onboardingStatus: 'SOMETHING_UNKNOWN',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-    });
 
-    await expect(service.startVerification('c1')).rejects.toBeInstanceOf(BadRequestException);
-    expect(sumsubClientMock.getApplicantByExternalUserId).not.toHaveBeenCalled();
-    expect(sumsubClientMock.createApplicant).not.toHaveBeenCalled();
-    expect(sumsubClientMock.createSdkToken).not.toHaveBeenCalled();
-  });
-
-  it('should fail closed on next-step projection when raw onboarding status is unknown', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'CU0001',
-      customerType: 'INDIVIDUAL',
-      onboardingStatus: 'SOMETHING_UNKNOWN',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-    });
-
-    const result = await service.getNextStep('c1');
-
-    expect(result.actions).toEqual([{ type: 'NONE' }]);
-    expect(result.blockedReason).toContain('SOMETHING_UNKNOWN');
-  });
-
-  it('should fail closed on onboarding projection when raw onboarding status is unknown', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'CU0001',
-      customerType: 'INDIVIDUAL',
-      onboardingStatus: 'SOMETHING_UNKNOWN',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-    });
-
-    const result = await service.getMyOnboarding('c1');
-
-    expect(result.actions).toEqual([{ type: 'NONE' }]);
-    expect(result.blockedReason).toContain('SOMETHING_UNKNOWN');
-  });
 
   // ── Finding 1（Important，终审 swap-sumsub 复核）：tipping-off 泄漏 ────────
   // getMyOnboarding 历史上直接 `...customer` spread 整行 CustomerMain 进响应
@@ -900,9 +808,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'REJECTED',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'REJECTED',
       passwordHash: 'bcrypt-hash-should-never-leave-the-server',
       hardLineDispositionedAt: new Date('2026-08-01T00:00:00.000Z'),
     });
@@ -918,9 +824,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_CDD_INPUT',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       eddRequired: false,
       passwordHash: 'bcrypt-hash-should-never-leave-the-server',
       hardLineDispositionedAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -941,9 +845,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'NONE',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PROSPECT',
       verificationProvider: null,
       verificationSubstatus: null,
       verificationCustomerActionRequired: false,
@@ -965,9 +867,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -998,7 +898,6 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         where: { id: 'c1' },
         data: expect.objectContaining({
-          onboardingStatus: 'PENDING_VERIFICATION',
           verificationProvider: 'SUMSUB',
           verificationSubstatus: 'CREATED',
           verificationCustomerActionRequired: true,
@@ -1011,11 +910,16 @@ describe('OnboardingService', () => {
     const firstUpdateData = prismaMock.customerMain.update.mock.calls[0][0].data;
     expect(firstUpdateData.latestRiskApproval).toBeUndefined();
     expect(firstUpdateData.latestRiskApprovalStatus).toBeUndefined();
+    // Task 6：客户面投影现在是三字段白名单，且 lifecycle 来自 CustomerAccessService
+    // （不再从客户行直读）—— 所以断言要连 mock 给的那份一起对。
     expect(result.customer).toEqual({
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'ACTIVE',
+      disclosedBlocked: [],
+      disclosed: [],
     });
+    // tipping-off 命门：blocked / openCount 含 SILENT 限制的贡献，永不出现在客户面
+    expect(result.customer).not.toHaveProperty('blocked');
+    expect(result.customer).not.toHaveProperty('openCount');
     expect(result.nextStep).toEqual(
       expect.objectContaining({
         actions: [{ type: 'CONTINUE_VERIFICATION' }],
@@ -1042,9 +946,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'UNDER_REVIEW',
       verificationCustomerActionRequired: false,
@@ -1069,9 +971,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
       verificationCustomerActionRequired: false,
@@ -1089,9 +989,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
       verificationCustomerActionRequired: false,
@@ -1114,7 +1012,9 @@ describe('OnboardingService', () => {
       levelName: 'wave3-level-2',
     });
     const updateData = prismaMock.customerMain.update.mock.calls[0][0].data;
-    expect(updateData.onboardingStatus).toBe('PENDING_VERIFICATION');
+    // 客户已在 IN_VERIFICATION，advanceLifecycle 按幂等语义不重复写 lifecycle。
+    // 本用例要守的是「不重置 provider 投影」，由下面几条断言承担。
+    expect(updateData.lifecycle).toBeUndefined();
     expect(updateData.sumsubApplicantId).toBeUndefined();
     expect(updateData.sumsubCurrentLevelName).toBeUndefined();
     expect(updateData.verificationSubstatus).toBeUndefined();
@@ -1138,9 +1038,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'OTHER',
       verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
       verificationCustomerActionRequired: false,
@@ -1165,9 +1063,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'REJECTED',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'REJECTED',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'FAILED',
       verificationCustomerActionRequired: false,
@@ -1188,9 +1084,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -1243,9 +1137,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'NONE',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PROSPECT',
       onboardingTraceId: null,
       verificationProvider: null,
       verificationSubstatus: null,
@@ -1268,9 +1160,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -1300,9 +1190,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'NONE',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PROSPECT',
       onboardingTraceId: existingTraceId,
       verificationProvider: null,
       verificationSubstatus: null,
@@ -1325,9 +1213,7 @@ describe('OnboardingService', () => {
       id: 'c1',
       customerNo: 'CU0001',
       customerType: 'INDIVIDUAL',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'CREATED',
       verificationCustomerActionRequired: true,
@@ -1352,9 +1238,7 @@ describe('OnboardingService', () => {
   it('should return REINITIATE_CDD action when canonical onboarding is REJECTED', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'REJECTED',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'REJECTED',
       activeCaseId: null,
       eddRequired: false,
     });
@@ -1369,9 +1253,10 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique
       .mockResolvedValueOnce({
         id: 'c1',
-        onboardingStatus: 'PENDING_VERIFICATION',
-        adminStatus: 'INACTIVE',
-        complianceStatus: 'CLEAR',
+        // readLifecycle 对空值 fail-closed 抛异常，夹具必须带 lifecycle。
+        // ⚠️ 两个 Once 都要带：jest.clearAllMocks() 不清 mockResolvedValueOnce
+        // 队列，这里少喂一个，残值就会漏进下一个用例（next step snapshot）。
+        lifecycle: 'IN_VERIFICATION',
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
         verificationCustomerActionRequired: true,
@@ -1386,10 +1271,8 @@ describe('OnboardingService', () => {
       })
       .mockResolvedValueOnce({
         id: 'c1',
+        lifecycle: 'IN_VERIFICATION',
         customerType: 'INDIVIDUAL',
-        onboardingStatus: 'PENDING_VERIFICATION',
-        adminStatus: 'INACTIVE',
-        complianceStatus: 'CLEAR',
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
         verificationCustomerActionRequired: true,
@@ -1422,11 +1305,13 @@ describe('OnboardingService', () => {
   });
 
   it('should project verification fields on next step snapshot', async () => {
+    // beforeEach 的 jest.clearAllMocks() 只清调用记录，【不清】mockResolvedValueOnce
+    // 队列。上一个用例排了两个 Once 但只消费掉一个，残值会漏到这里，让本用例
+    // 读到 level-1 的夹具而不是自己设的 level-2。显式重置切断这条泄漏。
+    prismaMock.customerMain.findUnique.mockReset();
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'PENDING_VERIFICATION',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'IN_VERIFICATION',
       verificationProvider: 'SUMSUB',
       verificationSubstatus: 'UNDER_REVIEW',
       verificationCustomerActionRequired: false,
@@ -1458,87 +1343,16 @@ describe('OnboardingService', () => {
     );
   });
 
-  it('should auto-expire ACTIVE customer to PENDING_CDD when cddDocumentExpiresAt passed', async () => {
-    prismaMock.customerMain.findUnique
-      .mockResolvedValueOnce({
-        id: 'c1',
-        onboardingStatus: 'APPROVED',
-        adminStatus: 'ACTIVE',
-        complianceStatus: 'CLEAR',
-        eddRequired: false,
-        cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
-      })
-      .mockResolvedValueOnce({
-        id: 'c1',
-        onboardingStatus: 'PENDING_CDD_INPUT',
-        adminStatus: 'INACTIVE',
-        complianceStatus: 'CLEAR',
-        eddRequired: false,
-      });
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      onboardingStatus: 'PENDING_CDD_INPUT',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-    });
 
-    const result = await service.getNextStep('c1');
-
-    expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'c1' },
-        data: expect.objectContaining({
-          onboardingStatus: 'PENDING_CDD_INPUT',
-          adminStatus: 'INACTIVE',
-          complianceStatus: 'CLEAR',
-        }),
-      }),
-    );
-    expect(result.actions).toEqual([{ type: 'COMPLETE_CDD' }]);
-  });
-
-  it('should auto-expire and block DEPOSIT trading when canonical CDD is expired', async () => {
-    prismaMock.customerMain.findUnique
-      .mockResolvedValueOnce({
-        id: 'c1',
-        onboardingStatus: 'APPROVED',
-        adminStatus: 'ACTIVE',
-        complianceStatus: 'CLEAR',
-        cddDocumentExpiresAt: new Date(Date.now() - 60 * 1000),
-      })
-      .mockResolvedValueOnce({
-        id: 'c1',
-        customerNo: 'CU1',
-        onboardingStatus: 'PENDING_CDD_INPUT',
-        adminStatus: 'INACTIVE',
-        complianceStatus: 'CLEAR',
-        complianceFreezeCaseId: null,
-      });
-    prismaMock.customerMain.update.mockResolvedValue({
-      id: 'c1',
-      onboardingStatus: 'PENDING_CDD_INPUT',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
-    });
-
-    await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
-    expect(prismaMock.customerMain.update).toHaveBeenCalledTimes(1);
-  });
 
   it('should recompute NONE status into baseline canonical snapshot', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'NONE',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PROSPECT',
     });
     prismaMock.customerMain.update.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'NONE',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PROSPECT',
       eddRequired: false,
     });
 
@@ -1546,14 +1360,140 @@ describe('OnboardingService', () => {
 
     expect(prismaMock.customerMain.update).toHaveBeenCalledWith({
       where: { id: 'c1' },
-      data: expect.objectContaining({
-        onboardingStatus: 'NONE',
-        adminStatus: 'INACTIVE',
-        complianceStatus: 'CLEAR',
-        eddRequired: false,
-      }),
+      // recomputeComplianceSnapshot 只重算 eddRequired；lifecycle 由
+      // advanceLifecycle 经九边表推进，不在此处旁路改写。
+      data: { eddRequired: false },
     });
-    expect(result.onboardingStatus).toBe('NONE');
+    expect(result.lifecycle).toBe('PROSPECT');
   });
 
+  describe('advanceLifecycle 九边闸门（Task 2）', () => {
+    it('applicantPending 在 PROSPECT 上走 START_VERIFICATION 落 IN_VERIFICATION', async () => {
+      seedVerificationEventFlow({ lifecycle: 'PROSPECT' });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantPending', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'customer-1' },
+          data: expect.objectContaining({ lifecycle: 'IN_VERIFICATION' }),
+        }),
+      );
+    });
+
+    it('已在 IN_VERIFICATION 时重放 applicantPending 不再写 lifecycle（幂等）', async () => {
+      seedVerificationEventFlow({ lifecycle: 'IN_VERIFICATION' });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantPending', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      const [[{ data }]] = prismaMock.customerMain.update.mock.calls;
+      expect(data.lifecycle).toBeUndefined();
+      expect(data.verificationSubstatus).toBe('SUBMITTED');
+    });
+
+    it('applicantWorkflowCompleted + 经历 level2 → PENDING_APPROVAL', async () => {
+      seedVerificationEventFlow({ lifecycle: 'IN_VERIFICATION', sumsubExperiencedLevel2: true });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantWorkflowCompleted', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ lifecycle: 'PENDING_APPROVAL' }),
+        }),
+      );
+    });
+
+    it('applicantWorkflowCompleted 未经 level2 按表走两跳落 ACTIVE', async () => {
+      const customer = buildVerificationCustomer({
+        sumsubExperiencedLevel2: false,
+      });
+      // 三次读：① 主处理器加载客户 ② advanceLifecycle 第一跳 ③ 第二跳。
+      // 少给一个，第一跳就会读到 PENDING_APPROVAL，VERIFICATION_PASSED 变成
+      // 「已在目标态」的幂等空操作，第一跳的 lifecycle 写入凭空消失。
+      const rows = ['IN_VERIFICATION', 'IN_VERIFICATION', 'PENDING_APPROVAL'];
+      prismaMock.customerMain.findUnique.mockImplementation(async () => ({
+        ...customer,
+        lifecycle: rows.shift() ?? 'PENDING_APPROVAL',
+      }));
+      prismaMock.customerMain.update.mockImplementation(async ({ data }: any) => ({
+        ...customer,
+        ...data,
+      }));
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantWorkflowCompleted', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      const written = prismaMock.customerMain.update.mock.calls.map(([arg]: any) => arg.data.lifecycle);
+      expect(written).toEqual(['PENDING_APPROVAL', 'ACTIVE']);
+    });
+
+    it('applicantWorkflowFailed → REJECTED', async () => {
+      seedVerificationEventFlow({ lifecycle: 'IN_VERIFICATION' });
+
+      await service.handleSumsubVerificationEvent(
+        { type: 'applicantWorkflowFailed', applicantId: 'app-1' },
+        { simulated: false, actorId: 'SUMSUB' },
+      );
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lifecycle: 'REJECTED' }) }),
+      );
+    });
+
+    it('终态客户（ACTIVE/REJECTED/WITHDRAWN/OFFBOARDED）直接忽略事件，不落库', async () => {
+      for (const lifecycle of ['ACTIVE', 'REJECTED', 'WITHDRAWN', 'OFFBOARDED']) {
+        jest.clearAllMocks();
+        prismaMock.$transaction.mockImplementation(async (cb: any) => cb(prismaMock));
+        seedVerificationEventFlow({ lifecycle });
+
+        const result = await service.handleSumsubVerificationEvent(
+          { type: 'applicantPending', applicantId: 'app-1' },
+          { simulated: false, actorId: 'SUMSUB' },
+        );
+
+        expect(result.customer.lifecycle).toBe(lifecycle);
+        expect(prismaMock.customerMain.update).not.toHaveBeenCalled();
+      }
+    });
+
+    it('startVerification 在 REJECTED 上走 REAPPLY 回 IN_VERIFICATION', async () => {
+      const customer = buildVerificationCustomer({
+        lifecycle: 'REJECTED',
+        verificationCanContinue: false,
+      });
+      prismaMock.customerMain.findUnique.mockResolvedValue(customer);
+      prismaMock.customerMain.update.mockImplementation(async ({ data }: any) => ({
+        ...customer,
+        ...data,
+      }));
+      sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue({ id: 'app-1' });
+      sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'tok-1' });
+
+      customerAccessServiceMock.resolve.mockResolvedValue(
+        buildAccess({ lifecycle: 'IN_VERIFICATION' }),
+      );
+
+      const result = await service.startVerification('c1');
+
+      expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lifecycle: 'IN_VERIFICATION' }) }),
+      );
+      expect(result.customer).toEqual({
+        lifecycle: 'IN_VERIFICATION',
+        disclosedBlocked: [],
+        disclosed: [],
+      });
+    });
+  });
 });

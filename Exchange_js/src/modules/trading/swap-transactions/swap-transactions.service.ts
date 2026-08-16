@@ -717,4 +717,15 @@ export class SwapTransactionsService {
       include: { fromAsset: true, toAsset: true },
     });
   }
+  /**
+   * 某客户名下所有非终态单（供客户级限制冻结在途单用，Task 9）。
+   * 终态集合：兑换终态（FAILED/REVERSED 是不可达死枚举）。
+   */
+  async findNonTerminalByOwner(ownerId: string) {
+    return this.prisma.swapTransaction.findMany({
+      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED'] } },
+      select: { id: true, swapNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
+    });
+  }
+
 }

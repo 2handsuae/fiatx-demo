@@ -18,8 +18,7 @@ describe('CustomerDepositWalletService', () => {
   const customer = {
     id: 'cust-1',
     customerNo: 'CU1',
-    onboardingStatus: 'APPROVED',
-    adminStatus: 'ACTIVE',
+    lifecycle: 'ACTIVE',
   };
 
   const fiatAsset = {

@@ -27,7 +27,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         where: { id: payload.sub },
         select: {
           id: true,
-          complianceStatus: true,
+          lifecycle: true,
         },
       });
 
@@ -35,10 +35,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException('Customer not found');
       }
 
-      if (String(customer.complianceStatus || 'CLEAR').toUpperCase() === 'FROZEN') {
+      // Task 5：会话层只认关系是否终止。合规摁住（含 SANCTION）在这里一律不现形——
+      // 每请求 403 本身就是告知调查。REJECTED / WITHDRAWN 同样放行：他们要能重新申请。
+      if (String(customer.lifecycle || '').toUpperCase() === 'OFFBOARDED') {
         throw new ForbiddenException({
-          code: 'CUSTOMER_ACCOUNT_FROZEN',
-          message: '账号已冻结，禁止访问。请联系 WhatsApp 客服处理。',
+          code: 'CUSTOMER_ACCOUNT_CLOSED',
+          message: '账号已关闭，无法访问。',
         });
       }
     }

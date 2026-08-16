@@ -10,6 +10,12 @@ import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { CustomerLifecycle } from '../src/modules/identity/constants/customer-lifecycle.constant';
+import {
+  RESTRICTION_CAUSE_POLICY,
+  RestrictionCause,
+  RestrictionScope,
+} from '../src/modules/identity/customers/constants/restriction-cause.constant';
 import { deterministicTransferId } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import {
   CRYPTO_SYSTEM_WALLET_ROLES,
@@ -498,8 +504,25 @@ export async function seedTransactionLimitRules(prisma: PrismaClient): Promise<v
 }
 
 // ─────────────────────────────────────────────────────────────
-// ③ Customers layer — 8 varied demo customers + customer TB accounts
+// ③ Customers layer — 9 varied demo customers + customer TB accounts
+//
+// 一根轴（lifecycle）+ 一张限制账（restrictions）。旧的 onboardingStatus /
+// adminStatus / complianceStatus 三轴与 complianceFreeze* 四列已随 Task 1 删除。
+// 两个演示位是有意安排的：
+//   Carol —— lifecycle=ACTIVE + SANCTION（SILENT）：演示"零痕迹"，客户面与
+//            正常客户逐字节相同，后端 blocked 全禁；
+//   Ivy   —— lifecycle=ACTIVE + MATERIAL_EXPIRED（DISCLOSED）：演示"明示受限"，
+//            客户端出提示条 + 提现/兑换按钮置灰，充值照常。
 // ─────────────────────────────────────────────────────────────
+
+type DemoRestriction = {
+  cause: RestrictionCause;
+  /** 省略即取 RESTRICTION_CAUSE_POLICY[cause].defaultScopes —— 可见性与解除权限
+   *  一律由 cause 查表推出，fixture 不许自己填（与运行期同一条铁律）。 */
+  scopes?: RestrictionScope[];
+  reason: string;
+  caseRef?: string;
+};
 
 type DemoCustomer = {
   email: string;
@@ -507,23 +530,21 @@ type DemoCustomer = {
   firstName: string;
   lastName: string;
   customerType: 'INDIVIDUAL' | 'CORPORATE';
-  onboardingStatus: string;
-  adminStatus: string;
-  complianceStatus: string;
+  lifecycle: CustomerLifecycle;
   riskRating: string;
   tradingTier: string;
   eddRequired: boolean;
   companyName?: string;
-  complianceFreezeReason?: string;
   sumsubApplicantId?: string;
+  restrictions?: DemoRestriction[];
 };
 
 const DEMO_CUSTOMERS: DemoCustomer[] = [
-  // 2× happy (APPROVED + CLEAR)
+  // 2× happy (ACTIVE, 无便签)
   {
     email: 'demo_alice@example.com', phone: '+15552000001',
     firstName: 'Alice', lastName: 'Happy', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
     // Sumsub sandbox applicant (externalUserId = this customer's customerNo CU2601019430),
     // tagged shawn-test. Survives reset because customerNo is derived from the email.
@@ -532,52 +553,74 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
   {
     email: 'demo_bob@example.com', phone: '+15552000002',
     firstName: 'Bob', lastName: 'Happy', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
-  // 1× compliance FROZEN
+  // 1× 制裁便签（SILENT）—— 演示零痕迹。lifecycle 仍是 ACTIVE：客户关系没变，
+  // 变的是"能不能干事"，这正是本次三轴收敛的核心断言。
   {
     email: 'demo_carol@example.com', phone: '+15552000003',
-    firstName: 'Carol', lastName: 'Frozen', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'FROZEN',
+    firstName: 'Carol', lastName: 'Silent', customerType: 'INDIVIDUAL',
+    lifecycle: 'ACTIVE',
     riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: true,
-    complianceFreezeReason: 'Adverse media alert triggered',
+    restrictions: [
+      {
+        cause: 'SANCTION',
+        reason: 'Sanctions screening hit pending investigation',
+        caseRef: 'SEED-SANCTION-CAROL',
+      },
+    ],
   },
-  // 1× PENDING_VERIFICATION
+  // 1× 认证中
   {
     email: 'demo_dave@example.com', phone: '+15552000004',
     firstName: 'Dave', lastName: 'Pending', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'PENDING_VERIFICATION', adminStatus: 'INACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'IN_VERIFICATION',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
-  // 1× onboarding NONE
+  // 1× 刚注册未开认证
   {
     email: 'demo_eve@example.com', phone: '+15552000005',
     firstName: 'Eve', lastName: 'New', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'NONE', adminStatus: 'INACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'PROSPECT',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
   },
-  // 1× HIGH risk (APPROVED + CLEAR)
+  // 1× HIGH risk
   {
     email: 'demo_frank@example.com', phone: '+15552000006',
     firstName: 'Frank', lastName: 'HighRisk', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'ACTIVE',
     riskRating: 'HIGH', tradingTier: 'BASIC', eddRequired: true,
   },
-  // 1× PREMIUM trading tier (APPROVED + CLEAR)
+  // 1× PREMIUM trading tier
   {
     email: 'demo_grace@example.com', phone: '+15552000007',
     firstName: 'Grace', lastName: 'Premium', customerType: 'INDIVIDUAL',
-    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
   },
-  // 1× CORPORATE (APPROVED + CLEAR)
+  // 1× CORPORATE
   {
     email: 'demo_acme@example.com', phone: '+15552000008',
     firstName: 'Henry', lastName: 'Acme', customerType: 'CORPORATE',
-    onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE', complianceStatus: 'CLEAR',
+    lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'PREMIUM', eddRequired: false,
     companyName: 'Acme Trading LLC',
+  },
+  // 1× 材料过期便签（DISCLOSED）—— 演示明示受限。新增客户而非改 Dave：
+  // Dave 的 IN_VERIFICATION 是另一个演示位，且非 ACTIVE 客户挂交易类便签无意义。
+  {
+    email: 'demo_ivy@example.com', phone: '+15552000009',
+    firstName: 'Ivy', lastName: 'Restricted', customerType: 'INDIVIDUAL',
+    lifecycle: 'ACTIVE',
+    riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: false,
+    restrictions: [
+      {
+        cause: 'MATERIAL_EXPIRED',
+        reason: 'Passport expired on 2026-06-30 — please upload a valid document',
+        caseRef: 'SEED-MATERIAL-IVY',
+      },
+    ],
   },
 ];
 
@@ -590,6 +633,8 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
     select: { code: true, currency: true },
   });
 
+  let restrictionRowCount = 0;
+
   for (const c of DEMO_CUSTOMERS) {
     const data = {
       customerNo: buildDeterministicNo('CU', c.email),
@@ -599,11 +644,7 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       passwordHash,
       passwordUpdatedAt: now,
       customerType: c.customerType,
-      onboardingStatus: c.onboardingStatus,
-      adminStatus: c.adminStatus,
-      complianceStatus: c.complianceStatus,
-      complianceFreezeReason: c.complianceFreezeReason ?? null,
-      complianceFreezeAt: c.complianceStatus === 'FROZEN' ? now : null,
+      lifecycle: c.lifecycle,
       riskRating: c.riskRating,
       tradingTier: c.tradingTier,
       eddRequired: c.eddRequired,
@@ -617,6 +658,36 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
       create: { email: c.email, ...data },
       select: { id: true, customerNo: true },
     });
+
+    // 限制账 fixture。种子是"直接铺终态数据"，不走 workflow —— 没有 operator、
+    // 没有审批案、不写审计，与 DEMO_CUSTOMERS 其余字段同一性质（运行期贴便签
+    // 必须走 CustomerRestrictionWorkflowService，那条路不受此处影响）。
+    // 重铺可重复执行：先清该客户名下全部便签行，再按 fixture 重建。
+    await prisma.customerRestriction.deleteMany({ where: { customerId: customer.id } });
+    for (const r of c.restrictions ?? []) {
+      const policy = RESTRICTION_CAUSE_POLICY[r.cause];
+      const restrictionNo = generateReferenceNo('RST');
+      const scopes = r.scopes ?? policy.defaultScopes;
+      for (const scope of scopes) {
+        await prisma.customerRestriction.create({
+          data: {
+            restrictionNo,
+            customerId: customer.id,
+            scope,
+            cause: r.cause,
+            visibility: policy.visibility,
+            releasePolicy: policy.releasePolicy,
+            status: 'OPEN',
+            reason: r.reason,
+            caseRef: r.caseRef ?? null,
+            openedAt: now,
+            openedBy: 'SEED',
+            traceId: `seed-${restrictionNo}`,
+          },
+        });
+        restrictionRowCount += 1;
+      }
+    }
 
     // Customer-level TB accounts: CLIENT_PAYABLE + DEPOSIT_SUSPENSE per asset.
     for (const asset of assets) {
@@ -635,7 +706,10 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
     }
   }
 
-  console.log(`Seeded ${DEMO_CUSTOMERS.length} demo customers + customer TB accounts.`);
+  console.log(
+    `Seeded ${DEMO_CUSTOMERS.length} demo customers ` +
+      `(+${restrictionRowCount} restriction rows) + customer TB accounts.`,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────

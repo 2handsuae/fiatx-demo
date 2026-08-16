@@ -221,9 +221,7 @@ export class DepositTransactionsService {
               firstName: true,
               lastName: true,
               email: true,
-              onboardingStatus: true,
-              adminStatus: true,
-              complianceStatus: true,
+              lifecycle: true,
             },
           },
           applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
@@ -409,9 +407,7 @@ export class DepositTransactionsService {
             firstName: true,
             lastName: true,
             email: true,
-            onboardingStatus: true,
-            adminStatus: true,
-            complianceStatus: true,
+            lifecycle: true,
             sumsubApplicantId: true,
           },
         },
@@ -896,20 +892,6 @@ export class DepositTransactionsService {
     });
   }
 
-  async getOwnerComplianceStatus(depositId: string): Promise<string> {
-    const deposit = await (this.prisma as any).depositTransaction.findUnique({
-      where: { id: depositId },
-      select: { ownerId: true },
-    });
-    if (!deposit) throw new NotFoundException('Deposit transaction not found');
-
-    const customer = await (this.prisma as any).customerMain.findUnique({
-      where: { id: deposit.ownerId },
-      select: { complianceStatus: true },
-    });
-    return customer?.complianceStatus || 'UNKNOWN';
-  }
-
   /**
    * Inbound detection entry (funds_order-driven, replaces the legacy payin.created
    * → orchestratePayinDetected path). Creates the deposit row (PAYIN_PENDING) and
@@ -1102,4 +1084,15 @@ export class DepositTransactionsService {
     }
     return results;
   }
+  /**
+   * 某客户名下所有非终态单（供客户级限制冻结在途单用，Task 9）。
+   * 终态集合：充值终态（v4-deposit truth §2）。
+   */
+  async findNonTerminalByOwner(ownerId: string) {
+    return this.prisma.depositTransaction.findMany({
+      where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED'] } },
+      select: { id: true, depositNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
+    });
+  }
+
 }

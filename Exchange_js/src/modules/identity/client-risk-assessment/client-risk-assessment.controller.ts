@@ -98,7 +98,7 @@ export class RiskAssessmentAdminController {
             email: true,
             riskRating: true,
             sumsubCurrentLevelName: true,
-            adminStatus: true,
+            lifecycle: true,
           },
         },
       },

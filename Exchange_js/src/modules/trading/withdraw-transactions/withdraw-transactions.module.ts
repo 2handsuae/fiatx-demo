@@ -3,6 +3,7 @@ import { WithdrawTransactionsService } from './withdraw-transactions.service';
 import { WithdrawTransactionsController } from './withdraw-transactions.controller';
 import { CustomerWithdrawController } from './customer-withdraw.controller';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
+import { CustomersModule } from '../../identity/customers/customers.module';
 import { OnboardingModule } from '../../identity/onboarding/onboarding.module';
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
@@ -23,6 +24,8 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
   imports: [
     PrismaModule,
     forwardRef(() => OnboardingModule),
+    // Task 5：WithdrawWorkflowService 注入 CustomerAccessService（客户级能力闸）
+    forwardRef(() => CustomersModule),
     TigerBeetleModule,
     WithdrawalFeeLevelModule,
     ApprovalsModule,

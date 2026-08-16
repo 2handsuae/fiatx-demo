@@ -14,8 +14,12 @@ import { SumsubIngestionController } from './sumsub-ingestion.controller';
 import { SumsubIngestionAdminController } from './sumsub-ingestion-admin.controller';
 import { AdminSumsubSimulationController } from './admin-sumsub-simulation.controller';
 import { SumsubRetryService } from './sumsub-ingestion-retry.service';
+import { CustomersModule } from '../identity/customers/customers.module';
 @Module({
   imports: [
+    // Task 7：本模块的自动写入点改走限制账（CustomerRestrictionsService /
+    // CustomerRestrictionWorkflowService），两者由 CustomersModule exports。
+    forwardRef(() => CustomersModule),
     PrismaModule,
     forwardRef(() => OnboardingModule),
     forwardRef(() => ClientRiskAssessmentModule),

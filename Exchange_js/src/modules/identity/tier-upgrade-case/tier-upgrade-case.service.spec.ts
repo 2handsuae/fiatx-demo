@@ -4,6 +4,8 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
+import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
 
 const mockPrisma = {
   tierUpgradeCase: {
@@ -30,11 +32,27 @@ const mockApprovals = { createAndSubmit: jest.fn() };
 const mockSumsub = { moveToLevel: jest.fn() };
 
 describe('TierUpgradeCaseService', () => {
+  // Task 7：升级案的摁住/解开改走限制账
+  const mockRestrictions = {
+    open: jest.fn().mockResolvedValue({ restrictionNo: 'RST-1', created: true }),
+    listOpen: jest.fn().mockResolvedValue([]),
+    release: jest.fn(),
+    findByNo: jest.fn(),
+    listAll: jest.fn(),
+    findOpenByCause: jest.fn(),
+  };
+  const mockRestrictionWorkflow = {
+    openRestriction: jest.fn(),
+    autoRelease: jest.fn().mockResolvedValue(undefined),
+  };
+
   let service: TierUpgradeCaseService;
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
       providers: [
+        { provide: CustomerRestrictionsService, useValue: mockRestrictions },
+        { provide: CustomerRestrictionWorkflowService, useValue: mockRestrictionWorkflow },
         TierUpgradeCaseService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ApprovalsService, useValue: mockApprovals },
@@ -66,12 +84,13 @@ describe('TierUpgradeCaseService', () => {
           }),
         }),
       );
-      expect(mockPrisma.customerMain.update).toHaveBeenCalledWith(
+      // Task 7：摁住改贴 TIER_UPGRADE_PENDING 便签，caseRef=本升级案 id
+      expect(mockRestrictions.open).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            complianceStatus: 'FROZEN',
-            complianceFreezeReason: 'tier_upgrade_pending_level2',
-          }),
+          customerId: 'cust-1',
+          cause: 'TIER_UPGRADE_PENDING',
+          caseRef: 'tuc-1',
+          openedBy: 'SYSTEM',
         }),
       );
     });
@@ -147,8 +166,6 @@ describe('TierUpgradeCaseService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             riskRating: 'HIGH',
-            complianceStatus: 'CLEAR',
-            complianceFreezeReason: null,
           }),
         }),
       );
@@ -157,19 +174,30 @@ describe('TierUpgradeCaseService', () => {
       );
     });
 
-    it('REJECTED → offboards customer and sets REJECTED status', async () => {
+    it('REJECTED → 不动 lifecycle，改贴 ADMIN_SUSPENSION 再撕 TIER_UPGRADE_PENDING', async () => {
       mockPrisma.tierUpgradeCase.findUnique.mockResolvedValueOnce(upgradeCase);
 
       await service.handleSignoffComplete('tuc-1', { status: 'REJECTED' });
 
-      expect(mockPrisma.customerMain.update).toHaveBeenCalledWith(
+      // INV-1：升级审批被拒 ≠ 客户被拒户，lifecycle 不动。
+      // 先贴新的 ADMIN_SUSPENSION，再撕旧的 TIER_UPGRADE_PENDING（顺序反了中间会
+      // 出现一个客户完全不受限的窗口）。
+      expect(mockRestrictions.open).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            onboardingStatus: 'REJECTED',
-            adminStatus: 'INACTIVE',
-          }),
+          customerId: 'cust-1',
+          cause: 'ADMIN_SUSPENSION',
+          caseRef: 'tuc-1',
         }),
       );
+      expect(mockRestrictionWorkflow.autoRelease).toHaveBeenCalledWith(
+        'cust-1',
+        'TIER_UPGRADE_PENDING',
+        'tuc-1',
+        'SYSTEM',
+      );
+      const openOrder = mockRestrictions.open.mock.invocationCallOrder[0];
+      const releaseOrder = mockRestrictionWorkflow.autoRelease.mock.invocationCallOrder[0];
+      expect(openOrder).toBeLessThan(releaseOrder);
       expect(mockPrisma.tierUpgradeCase.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) }),
       );

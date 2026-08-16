@@ -14,6 +14,9 @@ import {
 } from '../utils/adminFetch';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
+import type { AdminRestrictionRow } from '../utils/restrictionCauseMeta';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -25,9 +28,7 @@ interface CustomerItem {
   companyName: string | null;
   email: string | null;
   customerType: string;
-  onboardingStatus?: string | null;
-  adminStatus?: string | null;
-  complianceStatus?: string | null;
+  lifecycle: string;
   riskRating?: string | null;
   createdAt: string;
   updatedAt?: string | null;
@@ -41,8 +42,15 @@ interface CustomerListResponse {
 
 interface FilterState {
   keyword: string;
-  onboardingStatus: string;
+  lifecycle: string;
   customerType: string;
+  /** 客户端筛选：'' 全部 / HAS 有限制 / NONE 无限制 / SANCTION 仅制裁 */
+  restriction: '' | 'HAS' | 'NONE' | 'SANCTION';
+}
+
+interface RestrictionSummary {
+  open: number;
+  sanction: boolean;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -66,14 +74,48 @@ const PAGE_SIZE = 20;
 
 const DEFAULT_FILTERS: FilterState = {
   keyword: '',
-  onboardingStatus: '',
+  lifecycle: '',
   customerType: '',
+  restriction: '',
+};
+
+const LIFECYCLES = [
+  'PROSPECT',
+  'IN_VERIFICATION',
+  'PENDING_APPROVAL',
+  'ACTIVE',
+  'REJECTED',
+  'WITHDRAWN',
+  'OFFBOARDED',
+];
+
+/* ── RestrictionCell ─────────────────────────────────────────── */
+
+const RestrictionCell = ({ summary }: { summary?: RestrictionSummary }) => {
+  if (!summary || summary.open === 0) {
+    return <span className="font-mono text-[10px] text-adm-t3">—</span>;
+  }
+  return (
+    <span
+      className={[
+        'inline-flex items-center rounded border px-1.5 py-px font-mono text-[10px] font-semibold',
+        summary.sanction
+          ? 'border-adm-red/25 bg-adm-red/10 text-adm-red'
+          : 'border-adm-amber/25 bg-adm-amber/10 text-adm-amber',
+      ].join(' ')}
+    >
+      {summary.open} OPEN
+    </span>
+  );
 };
 
 /* ─────────────────────────────────────────────────────────────── */
 
 const CustomerManagement = () => {
   const navigate = useNavigate();
+  const { hasPermission } = useAdminSession();
+  const canReadRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_READ);
+  const [summaries, setSummaries] = useState<Record<string, RestrictionSummary>>({});
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [items, setItems] = useState<CustomerItem[]>([]);
@@ -89,9 +131,40 @@ const CustomerManagement = () => {
     params.set('skip', String((page - 1) * PAGE_SIZE));
     params.set('take', String(PAGE_SIZE));
     if (next.keyword.trim()) params.set('search', next.keyword.trim());
-    if (next.onboardingStatus.trim()) params.set('status', next.onboardingStatus.trim());
+    if (next.lifecycle.trim()) params.set('status', next.lifecycle.trim());
     if (next.customerType.trim()) params.set('customerType', next.customerType.trim());
     return params;
+  };
+
+  /* 无批量端点：当页 20 行各拉一次 GET /admin/customers/:customerNo/restrictions。
+     take=20 固定，量可控；失败按 0 计，不让摘要拖垮主列表。 */
+  const loadRestrictionSummaries = async (rows: CustomerItem[]) => {
+    if (!canReadRestrictions || rows.length === 0) {
+      setSummaries({});
+      return;
+    }
+    const entries = await Promise.all(
+      rows.map(async (row): Promise<[string, RestrictionSummary]> => {
+        try {
+          const res = await adminFetch(
+            `${import.meta.env.VITE_API_URL}/admin/customers/${row.customerNo}/restrictions`,
+          );
+          if (!res.ok) return [row.customerNo, { open: 0, sanction: false }];
+          const data = (await res.json()) as AdminRestrictionRow[];
+          const openRows = Array.isArray(data) ? data.filter((r) => r.status === 'OPEN') : [];
+          return [
+            row.customerNo,
+            {
+              open: openRows.length,
+              sanction: openRows.some((r) => r.cause === 'SANCTION'),
+            },
+          ];
+        } catch {
+          return [row.customerNo, { open: 0, sanction: false }];
+        }
+      }),
+    );
+    setSummaries(Object.fromEntries(entries));
   };
 
   const fetchCustomers = async (page: number, next: FilterState = filters) => {
@@ -112,6 +185,7 @@ const CustomerManagement = () => {
       setItems(rows);
       setTotal(typeof data.total === 'number' ? data.total : 0);
       setCurrentPage(page);
+      void loadRestrictionSummaries(rows);
     } catch (err) {
       if (err instanceof AdminSessionError) return;
       if (err instanceof AdminPermissionError) {
@@ -131,7 +205,20 @@ const CustomerManagement = () => {
   /* ── Filter helpers ── */
 
   const hasFilter =
-    !!filters.keyword || !!filters.onboardingStatus || !!filters.customerType;
+    !!filters.keyword ||
+    !!filters.lifecycle ||
+    !!filters.customerType ||
+    !!filters.restriction;
+
+  /* Restrictions 是客户端筛选（服务端列表没有聚合字段），只作用于当前页。 */
+  const visibleItems = items.filter((c) => {
+    if (!filters.restriction) return true;
+    const summary = summaries[c.customerNo];
+    const open = summary?.open ?? 0;
+    if (filters.restriction === 'HAS') return open > 0;
+    if (filters.restriction === 'NONE') return open === 0;
+    return !!summary?.sanction;
+  });
 
   const updateFilter = (key: keyof FilterState, value: string) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -176,17 +263,16 @@ const CustomerManagement = () => {
           className={`${fi} w-44`}
         />
         <select
-          value={filters.onboardingStatus}
-          onChange={(e) => updateFilter('onboardingStatus', e.target.value)}
-          className={`${fi} w-40`}
+          value={filters.lifecycle}
+          onChange={(e) => updateFilter('lifecycle', e.target.value)}
+          className={`${fi} w-44`}
         >
-          <option value="">All onboarding</option>
-          <option value="NONE">NONE</option>
-          <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
-          <option value="FINAL_APPROVAL">FINAL_APPROVAL</option>
-          <option value="APPROVED">APPROVED</option>
-          <option value="REJECTED">REJECTED</option>
-          <option value="WITHDRAWN">WITHDRAWN</option>
+          <option value="">All lifecycle</option>
+          {LIFECYCLES.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
         </select>
         <select
           value={filters.customerType}
@@ -197,6 +283,24 @@ const CustomerManagement = () => {
           <option value="INDIVIDUAL">INDIVIDUAL</option>
           <option value="CORPORATE">CORPORATE</option>
         </select>
+        {canReadRestrictions && (
+          <select
+            value={filters.restriction}
+            onChange={(e) =>
+              setFilters((prev) => ({
+                ...prev,
+                restriction: e.target.value as FilterState['restriction'],
+              }))
+            }
+            className={`${fi} w-40`}
+            title="Filters the rows loaded on this page"
+          >
+            <option value="">All restrictions</option>
+            <option value="HAS">Restricted</option>
+            <option value="NONE">Unrestricted</option>
+            <option value="SANCTION">Sanction only</option>
+          </select>
+        )}
         <button onClick={handleSearch} className={adminButtonClass('listPrimary')}>
           <Search size={13} />
           Search
@@ -228,9 +332,8 @@ const CustomerManagement = () => {
                   ['Name',         '200px'],
                   ['Email',        '240px'],
                   ['Type',         '110px'],
-                  ['Onboarding',   '160px'],
-                  ['Admin',        '120px'],
-                  ['Compliance',   '130px'],
+                  ['Lifecycle',    '160px'],
+                  ['Restrictions', '130px'],
                   ['Risk Rating',  '110px'],
                   ['Created',      'auto'],
                 ] as [string, string][]
@@ -248,19 +351,19 @@ const CustomerManagement = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
-            {!loading && items.length === 0 && (
+            {!loading && visibleItems.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={8} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No customers found.
                 </td>
               </tr>
             )}
-            {!loading && items.map((customer) => (
+            {!loading && visibleItems.map((customer) => (
               <tr
                 key={customer.id}
                 className="cursor-pointer border-b border-adm-border transition-colors hover:bg-adm-hover"
@@ -288,19 +391,14 @@ const CustomerManagement = () => {
                   {customer.customerType || <span className="text-adm-t3">—</span>}
                 </td>
 
-                {/* Onboarding */}
+                {/* Lifecycle */}
                 <td className="px-4 py-2.5">
-                  <AdminBadge value={customer.onboardingStatus || 'NONE'} />
+                  <AdminBadge value={customer.lifecycle} />
                 </td>
 
-                {/* Admin */}
+                {/* Restrictions */}
                 <td className="px-4 py-2.5">
-                  <AdminBadge value={customer.adminStatus || 'INACTIVE'} />
-                </td>
-
-                {/* Compliance */}
-                <td className="px-4 py-2.5">
-                  <AdminBadge value={customer.complianceStatus || 'CLEAR'} />
+                  <RestrictionCell summary={summaries[customer.customerNo]} />
                 </td>
 
                 {/* Risk Rating */}
@@ -323,7 +421,9 @@ const CustomerManagement = () => {
         <div className="flex items-center justify-between">
           <span className="font-mono text-[10px] text-adm-t3">
             {total > 0
-              ? `Showing ${items.length} / ${total} customer${total === 1 ? '' : 's'}`
+              ? `Showing ${visibleItems.length} / ${total} customer${total === 1 ? '' : 's'}${
+                  filters.restriction ? ' (restriction filter applies to this page)' : ''
+                }`
               : 'No customers'}
           </span>
           {total > PAGE_SIZE && (

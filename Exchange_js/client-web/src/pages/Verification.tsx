@@ -14,7 +14,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
 import {
-  normalizeCanonicalOnboardingStatus,
+  normalizeLifecycle,
 } from '../utils/customerOnboarding';
 import { useSimulationMode } from '../utils/simulationMode';
 import { customerFetch } from '../utils/customerFetch';
@@ -52,9 +52,7 @@ interface OnboardingSnapshot {
   id: string;
   customerType: 'INDIVIDUAL' | 'CORPORATE' | 'UNKNOWN';
   companyName?: string | null;
-  onboardingStatus?: string;
-  adminStatus?: string;
-  restrictions?: string[];
+  lifecycle?: string;
   actions?: OnboardingAction[];
   blockedReason?: string | null;
   riskRating: string;
@@ -212,15 +210,12 @@ const mapOnboardingToStep = (
   nextStep: NextStepPayload | null,
   onboarding: OnboardingSnapshot | null,
   profile: {
-    onboardingStatus?: string;
-    adminStatus?: string;
+    lifecycle?: string;
     actions?: OnboardingAction[];
     eddRequired?: boolean;
   } | null,
 ): VerificationStepState => {
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(
-    onboarding?.onboardingStatus ?? profile?.onboardingStatus,
-  );
+  const lifecycle = normalizeLifecycle(onboarding?.lifecycle ?? profile?.lifecycle);
   const verification = normalizeVerificationProjection(
     nextStep?.verification ?? onboarding?.verification ?? null,
   );
@@ -234,7 +229,7 @@ const mapOnboardingToStep = (
   const activeCaseId =
     nextStep?.activeCaseId || null;
 
-  if (onboardingStatus === 'APPROVED') {
+  if (lifecycle === 'ACTIVE') {
     return {
       step: 'COMPLETED',
       action: 'NONE',
@@ -247,8 +242,8 @@ const mapOnboardingToStep = (
   }
 
   if (
-    onboardingStatus === 'REJECTED' ||
-    onboardingStatus === 'WITHDRAWN' ||
+    lifecycle === 'REJECTED' ||
+    lifecycle === 'WITHDRAWN' ||
     hasAction('REINITIATE_VERIFICATION')
   ) {
     return {
@@ -262,7 +257,7 @@ const mapOnboardingToStep = (
     };
   }
 
-  if (onboardingStatus === 'FINAL_APPROVAL' || hasAction('WAIT_FINAL_APPROVAL')) {
+  if (lifecycle === 'PENDING_APPROVAL' || hasAction('WAIT_FINAL_APPROVAL')) {
     return {
       step: 'FINAL_APPROVAL',
       action: 'WAIT_FINAL_APPROVAL',
@@ -275,7 +270,7 @@ const mapOnboardingToStep = (
   }
 
   if (
-    onboardingStatus === 'PENDING_VERIFICATION' ||
+    lifecycle === 'IN_VERIFICATION' ||
     hasAction('CONTINUE_VERIFICATION') ||
     hasAction('WAIT_VERIFICATION')
   ) {
@@ -294,7 +289,7 @@ const mapOnboardingToStep = (
     };
   }
 
-  if (onboardingStatus === 'NONE' || hasAction('START_VERIFICATION')) {
+  if (lifecycle === 'PROSPECT' || hasAction('START_VERIFICATION')) {
     return {
       step: 'START_VERIFICATION',
       action: 'START_VERIFICATION',
@@ -1223,14 +1218,14 @@ const Verification = () => {
     );
   if (!profile) return null;
 
-  // Route: APPROVED customer with cycleId → material refresh mode
-  const onboardingStatus = String(profile.onboardingStatus || 'NONE').toUpperCase();
-  if (onboardingStatus === 'APPROVED' && cycleId) {
+  // Route: ACTIVE customer with cycleId → material refresh mode
+  const lifecycle = String(profile.lifecycle || 'PROSPECT').toUpperCase();
+  if (lifecycle === 'ACTIVE' && cycleId) {
     return <MaterialRefreshVerificationMode cycleId={cycleId} />;
   }
 
-  // Route: APPROVED customer with no cycleId → nothing to do here
-  if (onboardingStatus === 'APPROVED' && !cycleId) {
+  // Route: ACTIVE customer with no cycleId → nothing to do here
+  if (lifecycle === 'ACTIVE' && !cycleId) {
     return <Navigate to="/profile" replace />;
   }
 

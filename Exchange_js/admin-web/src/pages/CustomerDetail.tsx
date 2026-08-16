@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Link2, RefreshCw } from 'lucide-react';
-import CaseBoundCustomerControlModal, {
-  type CustomerControlAction,
-} from '../components/CaseBoundCustomerControlModal';
+import RestrictionOpenModal from '../components/RestrictionOpenModal';
+import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import {
@@ -15,6 +14,7 @@ import {
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
+import { scopeLabel, type AdminRestrictionRow } from '../utils/restrictionCauseMeta';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -68,13 +68,7 @@ interface CustomerDetailData {
   lastName?: string | null;
   companyName?: string | null;
   customerType: string;
-  onboardingStatus?: string | null;
-  adminStatus?: string | null;
-  complianceStatus?: string | null;
-  complianceFreezeCaseId?: string | null;
-  complianceFreezeReason?: string | null;
-  complianceFreezeAt?: string | null;
-  complianceFreezeReleasedAt?: string | null;
+  lifecycle: string;
   riskTier?: string | null;
   riskRating?: string | null;
   eddRequired?: boolean;
@@ -268,7 +262,16 @@ const CustomerDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
-  const [controlAction, setControlAction] = useState<CustomerControlAction | null>(null);
+  const [restrictionModalOpen, setRestrictionModalOpen] = useState(false);
+  const [releaseTarget, setReleaseTarget] = useState<AdminRestrictionRow | null>(null);
+  const [restrictions, setRestrictions] = useState<AdminRestrictionRow[]>([]);
+  const [restrictionsLoading, setRestrictionsLoading] = useState(false);
+  const [showReleased, setShowReleased] = useState(false);
+
+  /* ── Restrictions permissions ── */
+  const canReadRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_READ);
+  const canWriteRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_WRITE);
+  const canReleaseRestrictions = hasPermission(PERMISSIONS.CUSTOMER_RESTRICTIONS_RELEASE);
 
   /* ── Tags state ── */
   const canViewTags = hasPermission(PERMISSIONS.CUSTOMER_TAGS_READ);
@@ -379,6 +382,21 @@ const CustomerDetail = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canViewTags, detail?.customerNo]);
 
+  /* ── Restrictions fetching ── */
+  const fetchRestrictions = (customerNo: string) => {
+    setRestrictionsLoading(true);
+    adminFetch(`${import.meta.env.VITE_API_URL}/admin/customers/${customerNo}/restrictions`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: AdminRestrictionRow[]) => setRestrictions(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setRestrictionsLoading(false));
+  };
+
+  useEffect(() => {
+    if (canReadRestrictions && detail?.customerNo) fetchRestrictions(detail.customerNo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadRestrictions, detail?.customerNo]);
+
   const handleAddTag = async () => {
     if (!detail || !tagAddValue) return;
     setTagBusyCode(tagAddValue);
@@ -432,10 +450,6 @@ const CustomerDetail = () => {
   );
   const hasUbos = useMemo(
     () => Array.isArray(detail?.uboProfiles) && (detail?.uboProfiles?.length ?? 0) > 0,
-    [detail],
-  );
-  const hasComplianceFreeze = useMemo(
-    () => detail?.complianceStatus === 'FROZEN' || !!detail?.complianceFreezeReason,
     [detail],
   );
   const hasPeriodicReview = useMemo(
@@ -534,8 +548,8 @@ const CustomerDetail = () => {
   const isCorporate = detail.customerType === 'CORPORATE';
   const riskApprovalStatus =
     detail.latestRiskApprovalStatus || detail.latestRiskApproval?.status || null;
-  const canFreeze = detail.complianceStatus !== 'FROZEN';
-  const canUnfreeze = detail.complianceStatus === 'FROZEN';
+  const openRestrictions = restrictions.filter((r) => r.status === 'OPEN');
+  const releasedRestrictions = restrictions.filter((r) => r.status === 'RELEASED');
 
   /* ── Render ── */
 
@@ -580,8 +594,12 @@ const CustomerDetail = () => {
               {detail.customerNo}
             </p>
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <AdminBadge value={detail.onboardingStatus || 'NONE'} />
-              <AdminBadge value={detail.adminStatus || 'INACTIVE'} />
+              <AdminBadge value={detail.lifecycle} />
+              {openRestrictions.length > 0 && (
+                <span className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red">
+                  {openRestrictions.length} RESTRICTION{openRestrictions.length === 1 ? '' : 'S'}
+                </span>
+              )}
             </div>
             <div className="mt-4 border-t border-adm-border pt-4">
               <p className="font-mono text-[11px] text-adm-t2">{name}</p>
@@ -705,9 +723,7 @@ const CustomerDetail = () => {
             </p>
             <div className="mt-3">
               <FieldGrid>
-                <Field label="Onboarding Status" value={detail.onboardingStatus ?? 'NONE'} />
-                <Field label="Admin Status" value={detail.adminStatus ?? 'INACTIVE'} />
-                <Field label="Compliance Status" value={detail.complianceStatus ?? 'CLEAR'} />
+                <Field label="Lifecycle" value={detail.lifecycle} />
                 <Field label="Risk Rating" value={detail.riskTier || detail.riskRating || undefined} />
                 <Field label="EDD Required" value={detail.eddRequired ? 'YES' : 'NO'} />
                 <Field label="CDD Document Expires" value={fmt(detail.cddDocumentExpiresAt)} mono />
@@ -772,18 +788,153 @@ const CustomerDetail = () => {
             </section>
           )}
 
-          {/* ⑤ Compliance Freeze detail — only when applicable */}
-          {hasComplianceFreeze && (
+          {/* ⑤ Restrictions —— 一行一张便签；🔇 = SILENT，后台可见客户不可见 */}
+          {canReadRestrictions && (
             <section className="px-6 py-5">
-              <Cap>Compliance Freeze</Cap>
-              <div className="mt-3">
-                <FieldGrid>
-                  <Field label="Case ID" value={detail.complianceFreezeCaseId ?? undefined} mono />
-                  <Field label="Frozen At" value={fmt(detail.complianceFreezeAt)} mono />
-                  <Field label="Released At" value={fmt(detail.complianceFreezeReleasedAt)} mono />
-                  <Field label="Reason" value={detail.complianceFreezeReason ?? undefined} full />
-                </FieldGrid>
+              <div className="flex items-baseline justify-between gap-3">
+                <Cap>Restrictions</Cap>
+                <span className="font-mono text-[10px] text-adm-t3">
+                  {restrictionsLoading ? 'Loading…' : `${openRestrictions.length} open`}
+                </span>
               </div>
+              <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
+                One row = one restriction. 🔇 marks SILENT — visible here, never to the customer.
+              </p>
+
+              {openRestrictions.length === 0 ? (
+                <p className="font-mono text-[10px] text-adm-t3">No open restrictions.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        {(['Restriction No', 'Blocked', 'Cause', 'Opened', 'Opened By', ''] as string[]).map(
+                          (h, i) => (
+                            <th
+                              key={h || `open-col-${i}`}
+                              className="border-b border-adm-border bg-adm-panel px-3 py-1.5 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                            >
+                              {h}
+                            </th>
+                          ),
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {openRestrictions.map((r) => (
+                        <Fragment key={r.restrictionNo}>
+                          <tr>
+                            <td className="px-3 pt-2 font-mono text-[11px] font-semibold text-adm-amber whitespace-nowrap">
+                              {r.restrictionNo}
+                            </td>
+                            <td className="px-3 pt-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                              {scopeLabel(r.scopes)}
+                            </td>
+                            <td className="px-3 pt-2 whitespace-nowrap">
+                              <span
+                                className={[
+                                  'inline-flex items-center gap-1 rounded border px-1.5 py-px font-mono text-[10px] font-semibold',
+                                  r.visibility === 'SILENT'
+                                    ? 'border-adm-red/25 bg-adm-red/10 text-adm-red'
+                                    : 'border-adm-amber/25 bg-adm-amber/10 text-adm-amber',
+                                ].join(' ')}
+                              >
+                                {r.cause}
+                                {r.visibility === 'SILENT' && (
+                                  <span title="SILENT — never shown to the customer">🔇</span>
+                                )}
+                              </span>
+                            </td>
+                            <td className="px-3 pt-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                              {fmt(r.openedAt)}
+                            </td>
+                            <td className="px-3 pt-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                              {r.openedBy || '—'}
+                            </td>
+                            <td className="px-3 pt-2 text-right whitespace-nowrap">
+                              {canReleaseRestrictions ? (
+                                <button
+                                  className={adminButtonClass('rowLink')}
+                                  onClick={() => setReleaseTarget(r)}
+                                >
+                                  Release →
+                                </button>
+                              ) : (
+                                <span className="font-mono text-[10px] text-adm-t3">—</span>
+                              )}
+                            </td>
+                          </tr>
+                          <tr className="border-b border-adm-border">
+                            <td
+                              colSpan={6}
+                              className="px-3 pb-2 font-mono text-[9px] leading-relaxed text-adm-t3"
+                            >
+                              {r.reason}
+                              {r.caseRef ? ` · ${r.caseRef}` : ''}
+                            </td>
+                          </tr>
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {releasedRestrictions.length > 0 && (
+                <div className="mt-3">
+                  <button
+                    className={adminButtonClass('rowSecondaryUtility')}
+                    onClick={() => setShowReleased((v) => !v)}
+                  >
+                    Released ({releasedRestrictions.length}) {showReleased ? '▾' : '▸'}
+                  </button>
+                  {showReleased && (
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="w-full border-collapse text-sm">
+                        <thead>
+                          <tr>
+                            {(['Restriction No', 'Blocked', 'Cause', 'Released', 'Approval', 'Mode'] as string[]).map(
+                              (h) => (
+                                <th
+                                  key={h}
+                                  className="border-b border-adm-border bg-adm-panel px-3 py-1.5 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                                >
+                                  {h}
+                                </th>
+                              ),
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {releasedRestrictions.map((r) => (
+                            <tr key={r.restrictionNo} className="border-b border-adm-border">
+                              <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                                {r.restrictionNo}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                                {scopeLabel(r.scopes)}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                                {r.cause}
+                                {r.visibility === 'SILENT' ? ' 🔇' : ''}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                                {fmt(r.releasedAt)} · {r.releasedBy || '—'}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                                {r.releaseApprovalNo || '—'}
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <AdminBadge value={r.releaseMode || 'MANUAL'} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
           )}
 
@@ -1055,22 +1206,19 @@ const CustomerDetail = () => {
           <div className="border-b border-adm-border py-4">
             <Cap>Actions</Cap>
             <div className="mt-2.5 flex flex-col gap-2">
-              {canFreeze && (
+              {canWriteRestrictions && (
                 <button
-                  onClick={() => setControlAction('FREEZE')}
+                  onClick={() => setRestrictionModalOpen(true)}
                   className={adminButtonClass('workflowNegative')}
                 >
-                  Freeze
+                  Add Restriction
                 </button>
               )}
-              {canUnfreeze && (
-                <button
-                  onClick={() => setControlAction('UNFREEZE')}
-                  className={adminButtonClass('workflowSecondary')}
-                >
-                  Unfreeze
+              <span title="Not implemented" className="block">
+                <button disabled className={adminButtonClass('workflowSecondary', 'w-full')}>
+                  Offboard
                 </button>
-              )}
+              </span>
             </div>
           </div>
 
@@ -1086,17 +1234,21 @@ const CustomerDetail = () => {
           {/* Status */}
           <SidebarGroup title="Status">
             <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Onboarding</span>
-              <AdminBadge value={detail.onboardingStatus || 'NONE'} />
+              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Lifecycle</span>
+              <AdminBadge value={detail.lifecycle} />
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Admin</span>
-              <AdminBadge value={detail.adminStatus || 'INACTIVE'} />
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="shrink-0 font-mono text-[9px] text-adm-t3">Compliance</span>
-              <AdminBadge value={detail.complianceStatus || 'CLEAR'} />
-            </div>
+            <SidebarKV
+              label="Restrictions"
+              value={
+                openRestrictions.length > 0 ? (
+                  <span className="font-mono text-[10px] font-semibold text-adm-red">
+                    {openRestrictions.length} OPEN
+                  </span>
+                ) : (
+                  'NONE'
+                )
+              }
+            />
           </SidebarGroup>
 
           {/* Verification */}
@@ -1139,22 +1291,29 @@ const CustomerDetail = () => {
         </div>
       </div>
 
-      {/* ── Control modal ── */}
-      <CaseBoundCustomerControlModal
-        open={!!controlAction}
-        action={controlAction}
+      {/* ── Restriction modals ── */}
+      <RestrictionOpenModal
+        open={restrictionModalOpen}
         customerNo={detail.customerNo}
         customerLabel={name}
-        currentCaseId={
-          controlAction === 'UNFREEZE'
-            ? detail.complianceFreezeCaseId || null
-            : null
-        }
-        onClose={() => setControlAction(null)}
-        onSubmitted={async () => {
-          setControlAction(null);
-          setNotice('Control action submitted.');
-          await fetchDetail();
+        onClose={() => setRestrictionModalOpen(false)}
+        onSubmitted={async (restrictionNo, created) => {
+          setNotice(
+            created
+              ? `Restriction ${restrictionNo} added.`
+              : `Restriction ${restrictionNo} already open — no change.`,
+          );
+          fetchRestrictions(detail.customerNo);
+        }}
+      />
+      <RestrictionReleaseModal
+        open={!!releaseTarget}
+        customerNo={detail.customerNo}
+        restriction={releaseTarget}
+        onClose={() => setReleaseTarget(null)}
+        onSubmitted={async (approvalNo) => {
+          setNotice(`Release approval ${approvalNo} opened — restriction stays OPEN until approved.`);
+          fetchRestrictions(detail.customerNo);
         }}
       />
     </div>

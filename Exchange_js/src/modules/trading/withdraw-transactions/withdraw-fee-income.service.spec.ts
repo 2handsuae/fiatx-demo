@@ -177,6 +177,7 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
     {} as any, // limitRulesService
     {} as any, // sumsubTxnClient
     {} as any, // applicantActions
+    { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
   );
 }
 
@@ -348,6 +349,7 @@ function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
     {} as any, // limitRulesService
     {} as any, // sumsubTxnClient
     {} as any, // applicantActions
+    { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
   );
 }
 
@@ -424,6 +426,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
     );
   }
 

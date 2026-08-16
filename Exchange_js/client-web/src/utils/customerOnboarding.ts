@@ -1,78 +1,54 @@
-export type CanonicalOnboardingStatus =
-  | 'NONE'
-  | 'PENDING_VERIFICATION'
-  | 'FINAL_APPROVAL'
-  | 'APPROVED'
+/**
+ * 客户生命周期读取器 —— 唯一状态轴是 lifecycle
+ * （后端 src/modules/identity/constants/customer-lifecycle.constant.ts）。
+ * 旧的 onboardingStatus + adminStatus 双轴已删；"被合规摁住"不在这根轴上，
+ * 走限制便签（见 restrictedCapabilities.ts）。
+ */
+export type CustomerLifecycle =
+  | 'PROSPECT'
+  | 'IN_VERIFICATION'
+  | 'PENDING_APPROVAL'
+  | 'ACTIVE'
   | 'REJECTED'
-  | 'WITHDRAWN';
-
-export type CanonicalAdminStatus = 'INACTIVE' | 'ACTIVE';
+  | 'WITHDRAWN'
+  | 'OFFBOARDED';
 
 export interface CustomerLifecycleSnapshot {
-  onboardingStatus?: string | null;
-  adminStatus?: string | null;
+  lifecycle?: string | null;
 }
 
-const CANONICAL_ONBOARDING_STATUSES: CanonicalOnboardingStatus[] = [
-  'NONE',
-  'PENDING_VERIFICATION',
-  'FINAL_APPROVAL',
-  'APPROVED',
+const CUSTOMER_LIFECYCLES: CustomerLifecycle[] = [
+  'PROSPECT',
+  'IN_VERIFICATION',
+  'PENDING_APPROVAL',
+  'ACTIVE',
   'REJECTED',
   'WITHDRAWN',
+  'OFFBOARDED',
 ];
 
-const CANONICAL_ADMIN_STATUSES: CanonicalAdminStatus[] = ['INACTIVE', 'ACTIVE'];
-export const normalizeCanonicalOnboardingStatus = (
-  value?: string | null,
-): CanonicalOnboardingStatus | null => {
+export const normalizeLifecycle = (value?: string | null): CustomerLifecycle | null => {
   const current = String(value || '').trim().toUpperCase();
-  if (CANONICAL_ONBOARDING_STATUSES.includes(current as CanonicalOnboardingStatus)) {
-    return current as CanonicalOnboardingStatus;
+  if (CUSTOMER_LIFECYCLES.includes(current as CustomerLifecycle)) {
+    return current as CustomerLifecycle;
   }
   return null;
 };
 
-export const normalizeCanonicalAdminStatus = (
-  value?: string | null,
-): CanonicalAdminStatus | null => {
-  const current = String(value || '').trim().toUpperCase();
-  if (CANONICAL_ADMIN_STATUSES.includes(current as CanonicalAdminStatus)) {
-    return current as CanonicalAdminStatus;
-  }
-  return null;
-};
+export const isCustomerApprovedForAccess = (source: CustomerLifecycleSnapshot): boolean =>
+  normalizeLifecycle(source.lifecycle) === 'ACTIVE';
 
-export const isCustomerApprovedForAccess = (source: CustomerLifecycleSnapshot): boolean => {
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(source.onboardingStatus);
-  const adminStatus = normalizeCanonicalAdminStatus(source.adminStatus);
-  return onboardingStatus === 'APPROVED' && adminStatus === 'ACTIVE';
-};
+export const isCustomerRejected = (source: CustomerLifecycleSnapshot): boolean =>
+  normalizeLifecycle(source.lifecycle) === 'REJECTED';
 
-export const isCustomerRejected = (source: CustomerLifecycleSnapshot): boolean => {
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(source.onboardingStatus);
-  return onboardingStatus === 'REJECTED';
-};
+export const isCustomerWithdrawn = (source: CustomerLifecycleSnapshot): boolean =>
+  normalizeLifecycle(source.lifecycle) === 'WITHDRAWN';
 
-export const isCustomerWithdrawn = (source: CustomerLifecycleSnapshot): boolean => {
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(source.onboardingStatus);
-  return onboardingStatus === 'WITHDRAWN';
-};
-
-export const isCustomerFinalApprovalPending = (source: CustomerLifecycleSnapshot): boolean => {
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(source.onboardingStatus);
-  return onboardingStatus === 'FINAL_APPROVAL';
-};
+export const isCustomerFinalApprovalPending = (source: CustomerLifecycleSnapshot): boolean =>
+  normalizeLifecycle(source.lifecycle) === 'PENDING_APPROVAL';
 
 export const isCustomerInProgress = (source: CustomerLifecycleSnapshot): boolean => {
-  const onboardingStatus = normalizeCanonicalOnboardingStatus(source.onboardingStatus);
-  if (!onboardingStatus) {
-    return false;
-  }
-
-  return [
-    'NONE',
-    'PENDING_VERIFICATION',
-    'FINAL_APPROVAL',
-  ].includes(onboardingStatus);
+  const lifecycle = normalizeLifecycle(source.lifecycle);
+  if (!lifecycle) return false;
+  return ['PROSPECT', 'IN_VERIFICATION', 'PENDING_APPROVAL'].includes(lifecycle);
 };

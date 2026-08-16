@@ -49,7 +49,7 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
+      lifecycle: 'PENDING_APPROVAL',
       latestRiskApprovalId: null,
       latestRiskApprovalStatus: null,
     });
@@ -117,7 +117,7 @@ describe('OnboardingFinalApprovalService', () => {
   it('should reject final approval submission when customer is not in FINAL_APPROVAL', async () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'EDD_UNDER_REVIEW',
+      lifecycle: 'IN_VERIFICATION',
     });
 
     await expect(service.submitFinalApproval('c1', 'admin-1', 'COMPLIANCE_OFFICER')).rejects.toBeInstanceOf(
@@ -128,7 +128,7 @@ describe('OnboardingFinalApprovalService', () => {
   it('should proxy compatibility final review to linked pending approval', async () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'FINAL_APPROVAL',
+      lifecycle: 'PENDING_APPROVAL',
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.PENDING,
     });
@@ -163,9 +163,7 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PENDING_APPROVAL',
       eddRequired: true,
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.PENDING,
@@ -174,7 +172,7 @@ describe('OnboardingFinalApprovalService', () => {
       id: 'c1',
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.CANCELLED,
-      onboardingStatus: 'FINAL_APPROVAL',
+      lifecycle: 'PENDING_APPROVAL',
     });
 
     await service.onApprovalCancelled({
@@ -202,17 +200,14 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PENDING_APPROVAL',
       eddRequired: true,
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.PENDING,
     });
     prisma.customerMain.update.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
+      lifecycle: 'ACTIVE',
       latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
     });
 
@@ -232,10 +227,8 @@ describe('OnboardingFinalApprovalService', () => {
     expect(prisma.customerMain.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
+          lifecycle: 'ACTIVE',
           latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
-          complianceStatus: 'CLEAR',
         }),
       }),
     );
@@ -246,9 +239,7 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
-      adminStatus: 'INACTIVE',
-      complianceStatus: 'CLEAR',
+      lifecycle: 'PENDING_APPROVAL',
       eddRequired: true,
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.PENDING,
@@ -256,8 +247,7 @@ describe('OnboardingFinalApprovalService', () => {
     });
     prisma.customerMain.update.mockResolvedValue({
       id: 'c1',
-      onboardingStatus: 'APPROVED',
-      adminStatus: 'ACTIVE',
+      lifecycle: 'ACTIVE',
       latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
       onboardingApprovedAt: originalApprovedAt,
     });
@@ -288,7 +278,7 @@ describe('OnboardingFinalApprovalService', () => {
     prisma.customerMain.findUnique.mockResolvedValue({
       id: 'c1',
       customerNo: 'CU0001',
-      onboardingStatus: 'FINAL_APPROVAL',
+      lifecycle: 'PENDING_APPROVAL',
       latestRiskApprovalId: 'approval-1',
       latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
     });

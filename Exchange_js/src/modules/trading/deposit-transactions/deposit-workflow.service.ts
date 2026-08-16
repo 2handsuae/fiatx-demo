@@ -9,6 +9,7 @@ import {
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
   AuditActions,
   AuditEntityTypes,
@@ -61,10 +62,6 @@ interface FundsOrderStatusChangedEvent {
 
 @Injectable()
 export class DepositWorkflowService implements OnModuleInit {
-  private static readonly ABNORMAL_COMPLIANCE = new Set([
-    'FROZEN', 'SUSPENDED', 'BLOCKED', 'REJECTED',
-  ]);
-
   // A2: system-triggered maker actor for the KYT-verdict-driven RETURN approval.
   // ApprovalActorContext.actorType only accepts 'ADMIN' (mirrors ApprovalsService's own
   // private systemActor() helper) — this is the approvals engine's accepted shape for a
@@ -90,6 +87,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly systemWalletResolver: SystemWalletResolver,
     private readonly tbEvidenceService: TbEvidenceService,
     private readonly applicantActions: DepositApplicantActionsService,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -147,23 +145,26 @@ export class DepositWorkflowService implements OnModuleInit {
     );
 
     if (newStatus === DepositTransactionStatus.COMPLIANCE_PENDING) {
-      await this.runGate0(depositId);
+      await this.runGate0(depositId, event.ownerId);
     }
   }
 
-  private async runGate0(depositId: string) {
-    const complianceStatus =
-      await this.depositService.getOwnerComplianceStatus(depositId);
+  private async runGate0(depositId: string, ownerId: string) {
+    // Task 9：改读限制账。原先经 getOwnerComplianceStatus 读 CustomerMain.complianceStatus，
+    // 该列已删；那个方法用 (prisma as any) 抹掉了类型，编译器看不见 —— 这道合规闸
+    // 在删列后其实已经失效，构建却是绿的。
+    // ownerId 由事件带入，不再为拿它多查一次库。
+    const access = await this.customerAccessService.resolve(ownerId);
 
-    if (DepositWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) {
+    if (access.blocked.has('DEPOSIT')) {
       this.logger.warn(
-        `Gate 0 FAIL: deposit ${depositId} — customer compliance status: ${complianceStatus}`,
+        `Gate 0 FAIL: deposit ${depositId} — customer DEPOSIT capability is blocked`,
       );
       await this.depositService.updateStatus(
         depositId,
         { action: DepositTransactionAction.FREEZE },
         {
-          reason: `Customer compliance status: ${complianceStatus}`,
+          reason: 'Customer DEPOSIT capability is restricted',
           actor: { actorType: 'SYSTEM', actorId: 'COMPLIANCE_GATE_0' },
         },
       );
@@ -182,8 +183,8 @@ export class DepositWorkflowService implements OnModuleInit {
       entityOwnerId: deposit.ownerId,
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
-      reason: 'Gate 0 passed: customer compliance status is normal',
-      metadata: { complianceStatus: complianceStatus },
+      reason: 'Gate 0 passed: customer DEPOSIT capability is not restricted',
+      metadata: { lifecycle: access.lifecycle, openRestrictionCount: access.openCount },
       sourcePlatform: 'SYSTEM',
     });
 
@@ -849,11 +850,11 @@ export class DepositWorkflowService implements OnModuleInit {
     }
     // 原 travelRuleStatus 那道闸整条删除 —— 一笔单只有一个 type,不存在「另一腿未过」。
 
-    const complianceStatus =
-      await this.depositService.getOwnerComplianceStatus(depositId);
-    if (DepositWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) {
+    const autoApproveDeposit = await this.depositService.findOne(depositId);
+    const autoApproveAccess = await this.customerAccessService.resolve(autoApproveDeposit.ownerId);
+    if (autoApproveAccess.blocked.has('DEPOSIT')) {
       this.logger.warn(
-        `Auto-approval skip: deposit ${depositId} customer status=${complianceStatus}`,
+        `Auto-approval skip: deposit ${depositId} — customer DEPOSIT capability is blocked`,
       );
       return;
     }
@@ -2912,4 +2913,39 @@ export class DepositWorkflowService implements OnModuleInit {
 
     await this.triggerUnfreezeRescore(deposit);
   }
+  /**
+   * 客户被贴了「卡住全部能力」的便签（制裁 / 行政暂停）→ 把他名下所有非终态单冻住。
+   * 事件登记见 common/events/domain-events.constants.ts CUSTOMER_RESTRICTION_OPENED。
+   * scope < ALL 的便签不发这个事件（设计稿 §3.5：材料过期不该把已在路上的单拽回来）。
+   */
+  @OnEvent(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, { async: true })
+  async onCustomerRestrictionOpened(event: {
+    customerId: string;
+    restrictionNo: string;
+    cause: string;
+    blocksAllCapabilities: true;
+    traceId: string;
+  }): Promise<void> {
+    const inflight = await this.depositService.findNonTerminalByOwner(event.customerId);
+    for (const d of inflight) {
+      // 逐项容错：一笔冻不动（例如已在无 freeze 出边的中间态）不能连累其余几笔。
+      try {
+        await this.depositService.updateStatus(
+          d.id,
+          { action: DepositTransactionAction.FREEZE },
+          {
+            reason: `Customer restriction ${event.restrictionNo} (${event.cause}) opened`,
+            actor: { actorType: 'SYSTEM', actorId: 'CUSTOMER_RESTRICTION' },
+          },
+        );
+      } catch (e) {
+        this.logger.warn(
+          `Failed to freeze in-flight deposit ${d.depositNo} for restriction ${event.restrictionNo}: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+    }
+  }
+
 }

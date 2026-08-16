@@ -110,6 +110,8 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // but clear it before customers/assets for cleanliness.
   'tbAccountRegistry',
   'wallet',
+  // customer_restrictions FK → customer_main：子表必须先删，否则 reset 撞 FK。
+  'customerRestriction',
   'customerMain',
   'asset',
 ];

@@ -3,7 +3,6 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -40,6 +39,7 @@ import {
   GateValuation,
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
 
 /**
@@ -186,6 +186,7 @@ export class SwapWorkflowService {
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
     private readonly customerPendingActionService: CustomerPendingActionService,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -199,7 +200,6 @@ export class SwapWorkflowService {
   async initiateSwap(ownerId: string, quoteId: string) {
     // ── L1 Eligibility gate (synchronous) ──
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
-    ensureCustomerCanTransact(customer);
     await this.onboardingService.assertTradingEligibility(ownerId, 'SWAP');
 
     // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──
@@ -812,23 +812,8 @@ export class SwapWorkflowService {
     },
   ): Promise<void> {
     try {
-      // 收紧方向、免事前审批：无论软硬线都先限制 SWAP/WITHDRAW。DEPOSIT 故意不
-      // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
-      //
-      // Review Fix 5 (Minor): 下面这两次写入（restrictions.add /
-      // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
-      // 一致状态。当前顺序（先 restrict 再写 pendingAction）是故意的
-      // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
-      // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
-      // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
-      // 个顺序调换——它是 load-bearing 的。
-      await this.customerRestrictionsService.add(
-        swap.ownerId,
-        ['SWAP', 'WITHDRAW'],
-        'KYT_REJECTED',
-        'system',
-      );
-
+      // ── 先做分型判定（全是只读，无副作用），再落写入 ──
+      // Task 8：便签的 cause 取决于软硬线，所以判定必须先于贴便签。
       const hasSanction = (input.typedTags ?? []).includes('SANCTION');
       const actions = input.applicantActions ?? [];
       // 本次裁决单看自己是不是硬线：无 action 可做，或命中 SANCTION。
@@ -839,12 +824,42 @@ export class SwapWorkflowService {
       const alreadyHardLined = await this.customerPendingActionService.hasHardLineDisposition(
         swap.ownerId,
       );
+      const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
+
+      // 收紧方向、免事前审批：无论软硬线都限制 SWAP/WITHDRAW。DEPOSIT 故意不
+      // 限制 —— 链上资金已经到账，拒收解决不了任何问题，只会制造资金卡死。
+      //
+      // Task 8：从 restrictions.add(capability[]) 换成限制账 open({cause})。
+      // cause 三分：命中制裁 → SANCTION（SILENT / 卡全部能力 / 只能 MLRO 解）；
+      // 否则按本次是否暴露补料入口分 KYT_REJECTED_SOFT（DISCLOSED）与
+      // KYT_REJECTED_HARD（SILENT）。scope 不传 —— 三个 cause 的 scopeSelectable
+      // 均为 false，由注册表带出。caseRef=swapNo，便于按单撕。
+      //
+      // Review Fix 5 (Minor): 下面这两次写入（限制账 open /
+      // customerPendingActionService.set）不在同一事务里，中途崩溃会留下不
+      // 一致状态。当前顺序（先 restrict 再写 pendingAction）是故意的
+      // fail-safe 排列：如果崩在两次写入之间，客户已经被限制、只是暂时看不到
+      // 补料入口（偏保守，不出事）；反过来的顺序会在中途崩溃时出现"入口已经
+      // 暴露但限制还没落地"的窗口，更危险。不要因为"看起来能合并成一次"把这
+      // 个顺序调换——它是 load-bearing 的。
+      const restrictionCause = hasSanction
+        ? ('SANCTION' as const)
+        : exposeToCustomer
+          ? ('KYT_REJECTED_SOFT' as const)
+          : ('KYT_REJECTED_HARD' as const);
+      const { restrictionNo, created: restrictionCreated } =
+        await this.customerRestrictionsService.open({
+          customerId: swap.ownerId,
+          cause: restrictionCause,
+          reason: `Swap ${swap.swapNo} KYT rejected`,
+          caseRef: swap.swapNo,
+          openedBy: 'system',
+        });
 
       // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个
-      // 客户从未被硬线过」才暴露入口。无条件调用 set（而非只在暴露时才调
-      // 用），这样硬线裁决也会把客户此前可能留下的软线 pendingAction 一并
-      // 清空，不留旧入口。
-      const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
+      // 客户从未被硬线过」才暴露入口（exposeToCustomer 已在上方算好）。
+      // 无条件调用 set（而非只在暴露时才调用），这样硬线裁决也会把客户此前
+      // 可能留下的软线 pendingAction 一并清空，不留旧入口。
       // Finding 3 (Minor, 终审): sticky marker keyed on hasSanction only — see
       // the class-comment note above. isHardLineThisVerdict still decides
       // exposure for THIS verdict (no-actions correctly exposes nothing here
@@ -883,6 +898,9 @@ export class SwapWorkflowService {
           alreadyHardLined,
           // Review Fix 4 (Minor): which action was actually shown, when one was.
           externalActionId: exposeToCustomer ? actions[0]!.externalActionId : undefined,
+          restrictionNo,
+          restrictionCause,
+          restrictionCreated,
         },
         sourcePlatform: 'SYSTEM',
       });
@@ -1146,6 +1164,8 @@ export class SwapWorkflowService {
     ctx: SwapSettleCtx,
     client: any,
   ): Promise<void> {
+    // Task 9：推下一腿之前查客户级能力闸。三域里兑换是唯一漏掉这道的。
+    if (!(await this.assertSwapCustomerAccessOrHalt(swap, 'leg-confirmed'))) return;
     const legSeq = event.legSeq;
     // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt so
     // post hits the right transfer (matches initiateLegPending's id).
@@ -1343,4 +1363,61 @@ export class SwapWorkflowService {
       return { swapId: swap.id, legSeq, resumedAttempt };
     });
   }
+  /**
+   * 客户级能力闸（Task 9 补齐）。兑换此前只在 initiateSwap() 建单前查一次，
+   * PROCESSING 中 4 腿照常推完 —— 客户在推腿途中被摁住也拦不住，这是三域里
+   * 唯一漏掉的一处。复刻提现范式：命中则停推 + 审计 + 返回 false，调用方立即 return。
+   *
+   * 注意：兑换没有 FROZEN 态（SwapTransactionStatus 只有 4 个活态），所以这里
+   * 不改状态机，只 setNeedsReview + 停止推进，留在 PROCESSING 等人工处置。
+   */
+  private async assertSwapCustomerAccessOrHalt(swap: any, stage: string): Promise<boolean> {
+    const access = await this.customerAccessService.resolve(swap.ownerId);
+    if (!access.blocked.has('SWAP')) return true;
+
+    this.logger.warn(
+      `Swap capability gate FAIL at ${stage}: swap ${swap.swapNo} — SWAP blocked → halting leg progression`,
+    );
+    await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.SWAP_LEG_HALTED_BY_RESTRICTION,
+      entityType: AuditEntityTypes.SWAP_TRANSACTION,
+      entityId: swap.id,
+      entityNo: swap.swapNo || undefined,
+      entityOwnerType: swap.ownerType,
+      entityOwnerId: swap.ownerId,
+      traceId: swap.traceId || undefined,
+      workflowType: AuditWorkflowTypes.SWAP,
+      reason: `Customer SWAP capability restricted at ${stage} — in-flight swap leg progression halted`,
+      metadata: { swapNo: swap.swapNo, stage },
+      sourcePlatform: 'SYSTEM',
+    });
+    return false;
+  }
+
+  /**
+   * 客户被贴了「卡住全部能力」的便签 → 停掉他名下所有非终态兑换的推腿。
+   */
+  @OnEvent(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, { async: true })
+  async onCustomerRestrictionOpened(event: {
+    customerId: string;
+    restrictionNo: string;
+    cause: string;
+    blocksAllCapabilities: true;
+    traceId: string;
+  }): Promise<void> {
+    const inflight = await this.swapTransactionsService.findNonTerminalByOwner(event.customerId);
+    for (const sw of inflight) {
+      try {
+        await this.assertSwapCustomerAccessOrHalt(sw, `restriction:${event.restrictionNo}`);
+      } catch (e) {
+        this.logger.warn(
+          `Failed to halt in-flight swap ${sw.swapNo} for restriction ${event.restrictionNo}: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+    }
+  }
+
 }

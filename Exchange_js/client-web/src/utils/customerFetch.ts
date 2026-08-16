@@ -1,7 +1,9 @@
 const SESSION_EXPIRED_MESSAGE = 'Session expired. Please sign in again.';
-const ACCOUNT_FROZEN_CODE = 'CUSTOMER_ACCOUNT_FROZEN';
-const ACCOUNT_FROZEN_MESSAGE =
-  'Your account is frozen. Please contact WhatsApp support for assistance.';
+// Task 5：会话层只认关系是否终止。原先的 CUSTOMER_ACCOUNT_FROZEN 已废除 ——
+// 被制裁/受限客户的会话照常放行，前端不再有任何「你被冻结了」的分支可走
+// （那正是 tipping-off）。只剩「关系已终止」这一种硬拒。
+const ACCOUNT_CLOSED_CODE = 'CUSTOMER_ACCOUNT_CLOSED';
+const ACCOUNT_CLOSED_MESSAGE = 'This account has been closed.';
 
 export class CustomerSessionError extends Error {
   code?: string;
@@ -37,8 +39,8 @@ const persistLoginNotice = (code: string, message: string) => {
 const redirectToLogin = (message: string, code?: string) => {
   localStorage.removeItem('customer_token');
 
-  if (code === ACCOUNT_FROZEN_CODE) {
-    persistLoginNotice(code, message || ACCOUNT_FROZEN_MESSAGE);
+  if (code === ACCOUNT_CLOSED_CODE) {
+    persistLoginNotice(code, message || ACCOUNT_CLOSED_MESSAGE);
   }
 
   window.dispatchEvent(new Event('customer-auth-changed'));
@@ -84,7 +86,7 @@ export const customerFetch = async (
     const code = String(payload.code || '').trim().toUpperCase();
     const message =
       String(payload.message || '').trim() ||
-      (code === ACCOUNT_FROZEN_CODE ? ACCOUNT_FROZEN_MESSAGE : SESSION_EXPIRED_MESSAGE);
+      (code === ACCOUNT_CLOSED_CODE ? ACCOUNT_CLOSED_MESSAGE : SESSION_EXPIRED_MESSAGE);
 
     if (redirectOnAuthFailure) {
       redirectToLogin(message, code || undefined);

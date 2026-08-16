@@ -74,6 +74,9 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       depositWebhookRouter,
       withdrawWebhookRouter,
       swapWebhookRouter,
+      // Task 7：caseDecisionSimulated 的 APPROVE/REJECT 改走限制账
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'RST-1', created: true }) } as any,
+      { autoRelease: jest.fn().mockResolvedValue(undefined) } as any,
     );
   });
 

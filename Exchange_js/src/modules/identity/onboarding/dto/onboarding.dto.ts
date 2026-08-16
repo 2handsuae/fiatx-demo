@@ -14,11 +14,11 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { CustomerLifecycle } from '../../constants/customer-lifecycle.constant';
 import type {
-  CustomerOnboardingStatus,
-  CustomerAdminStatus,
-  CustomerComplianceStatus,
-} from '../../customer-status.util';
+  Capability,
+  DisclosedRestrictionView,
+} from '../../customers/customer-access.service';
 
 export const ONBOARDING_MOCK_DATA_TYPES = [
   'LOW_RISK',
@@ -207,10 +207,15 @@ export class StartVerificationResponseDto extends VerificationProjectionDto {
   sdkToken!: string;
 }
 
+/**
+ * 客户面唯一的状态投影。三个字段是白名单，不是起点 ——
+ * CustomerAccess.blocked / openCount 含 SILENT 限制的贡献，加进来即 tipping-off
+ * （设计稿 §3.4）。补字段前先回去读那一节。
+ */
 export interface StartVerificationCustomerSnapshotDto {
-  onboardingStatus: CustomerOnboardingStatus;
-  adminStatus: CustomerAdminStatus;
-  complianceStatus: CustomerComplianceStatus;
+  lifecycle: CustomerLifecycle;
+  disclosedBlocked: Capability[];
+  disclosed: DisclosedRestrictionView[];
 }
 
 export interface StartVerificationNextStepDto {

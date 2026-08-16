@@ -17,7 +17,7 @@ import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
-import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -120,34 +120,25 @@ export class WithdrawWorkflowService implements OnModuleInit {
   };
 
   /**
-   * A4(2026-08-13):客户级异常合规态。逐字抄充值域 DepositWorkflowService.ABNORMAL_COMPLIANCE。
-   * 提现此前**只在下单那一刻查一次**客户资格,之后全程不复查——而
-   * `withdraw-transactions.service.ts → getOwnerComplianceStatus()` 早就写好了,却是个
-   * 零调用方的孤儿方法。客户在大额审批期间(可挂数天)或等 KYT 裁决期间被冻(材料到期是
-   * 定时任务自动触发,无人干预即可发生),提现照样一路推到只差运营放款,还会写下一条
-   * WITHDRAW_COMPLIANCE_PASSED 审计。提现是不可逆出金,出去追不回。
-   */
-  private static readonly ABNORMAL_COMPLIANCE = new Set([
-    'FROZEN', 'SUSPENDED', 'BLOCKED', 'REJECTED',
-  ]);
-
-  /**
    * A4 客户级合规闸:异常则把这笔提现冻住并返回 false(调用方须立即 return),正常返回 true。
    * 放在每个"推进前"的节点上——尤其必须早于 initiatePayoutPhase 写
    * WITHDRAW_COMPLIANCE_PASSED 审计,否则审计会替一个已冻客户背书。
    */
   private async assertCustomerComplianceOrFreeze(w: any, stage: string): Promise<boolean> {
-    const complianceStatus = await this.withdrawService.getOwnerComplianceStatus(w.id);
-    if (!WithdrawWorkflowService.ABNORMAL_COMPLIANCE.has(complianceStatus)) return true;
+    // Task 9：改读限制账。原先经 getOwnerComplianceStatus 读 CustomerMain.complianceStatus，
+    // 该列已删；那个方法用 (prisma as any) 抹掉了类型，编译器看不见 —— 这道客户级闸
+    // 在删列后其实已经失效，构建却是绿的。
+    const access = await this.customerAccessService.resolve(w.ownerId);
+    if (!access.blocked.has('WITHDRAW')) return true;
 
     this.logger.warn(
-      `A4 compliance gate FAIL at ${stage}: withdrawal ${w.withdrawNo} — customer compliance status ${complianceStatus} → freezing`,
+      `A4 capability gate FAIL at ${stage}: withdrawal ${w.withdrawNo} — WITHDRAW blocked → freezing`,
     );
     await this.withdrawService.updateStatus(
       w.id,
       {
         action: WithdrawTransactionAction.FREEZE,
-        reason: `Customer compliance status ${complianceStatus} detected at ${stage}`,
+        reason: `Customer WITHDRAW capability restricted, detected at ${stage}`,
       },
       this.systemCtx,
     );
@@ -160,8 +151,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       entityOwnerId: w.ownerId,
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Customer-level compliance gate (A4) failed at ${stage}: customer is ${complianceStatus} — in-flight withdrawal frozen`,
-      metadata: { withdrawNo: w.withdrawNo, complianceStatus, stage },
+      reason: `Customer-level capability gate (A4) failed at ${stage} — in-flight withdrawal frozen`,
+      metadata: { withdrawNo: w.withdrawNo, lifecycle: access.lifecycle, stage },
       sourcePlatform: 'SYSTEM',
     });
     return false;
@@ -195,6 +186,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly limitRulesService: TransactionLimitRulesService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly applicantActions: WithdrawApplicantActionsService,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -245,12 +237,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: assetId } });
     if (!asset) throw new NotFoundException('Asset not found');
 
-    // Enforce compliance hold / restriction checks for customer transactions
+    // Task 5：客户级 lifecycle + 限制账闸门。全仓唯一实现在 CustomerAccessService；
+    // 本服务是 exports 出去的 workflow，customer controller 的 assertTradingEligibility
+    // 不是唯一入口，出金不可逆 —— 这道纵深防御保留。
     if (ownerType === 'CUSTOMER') {
-      const customer = await (this.prisma as any).customerMain.findUnique({
-        where: { id: userId },
-      });
-      ensureCustomerCanTransact(customer);
+      await this.customerAccessService.assertCapability(userId, 'WITHDRAW');
     }
 
     // ── Address-registration guard + VASP derivation (Task 3) ──
@@ -2717,4 +2708,31 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const paddedFrac = frac.padEnd(decimals, '0').slice(0, decimals);
     return BigInt(whole + paddedFrac);
   }
+  /**
+   * 客户被贴了「卡住全部能力」的便签 → 把他名下所有非终态提现冻住。
+   * 复用 assertCustomerComplianceOrFreeze：冻结 + 审计已封装在里面，不另写一遍。
+   * PAYOUT_PENDING 刻意无 freeze 出边（钱已广播），该方法会抛 —— 逐项 try/catch 兜住。
+   */
+  @OnEvent(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, { async: true })
+  async onCustomerRestrictionOpened(event: {
+    customerId: string;
+    restrictionNo: string;
+    cause: string;
+    blocksAllCapabilities: true;
+    traceId: string;
+  }): Promise<void> {
+    const inflight = await this.withdrawService.findNonTerminalByOwner(event.customerId);
+    for (const w of inflight) {
+      try {
+        await this.assertCustomerComplianceOrFreeze(w, `restriction:${event.restrictionNo}`);
+      } catch (e) {
+        this.logger.warn(
+          `Failed to freeze in-flight withdrawal ${w.withdrawNo} for restriction ${event.restrictionNo}: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+    }
+  }
+
 }

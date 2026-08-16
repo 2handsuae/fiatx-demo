@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CustomerPendingActionService } from '../identity/customers/customer-pending-action.service';
-import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
+import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -15,13 +15,13 @@ import { AuditResult } from '../audit-logging/dto/audit-log.dto';
  * Task 7 handleRejectDisposition 施加的 SWAP/WITHDRAW 限制。原 12 个任务都没
  * 建这个消费者：`applicantActionReviewed` 不在 KYT_VERDICT_TYPES 里，
  * ingestion 的通用分流只认 MaterialRefreshCycle 的 actionId（另一个域），
- * `CustomerRestrictionsService.clear()` 至今零调用方 —— 本 handler 是它的
+ * `CustomerRestrictionWorkflowService.autoRelease()` 至今零调用方 —— 本 handler 是它的
  * 第一个调用方。
  *
  * ⚠️ 硬线客户不得因完成某个 action 而解锁。Task 7 的
  * `hardLineDispositionedAt` sticky marker 一旦非空即制裁线 —— 哪怕这次
  * action 复核是 GREEN，也只清 pendingAction 指针（这次 action 本身走完了），
- * 绝不调用 restrictionsService.clear()，并写一条专属审计说明为何限制被保留，
+ * 绝不调用 restrictionWorkflowService.autoRelease()，并写一条专属审计说明为何限制被保留，
  * 供调查员核实"GREEN 到过，但被刻意没有解锁"。这是 sticky marker 存在的唯一
  * 意义，此处绝不能绕过（否则一个被制裁客户能靠完成一次普通认证动作自我解锁）。
  *
@@ -37,7 +37,7 @@ export class SwapApplicantActionHandler {
 
   constructor(
     private readonly pendingActionService: CustomerPendingActionService,
-    private readonly restrictionsService: CustomerRestrictionsService,
+    private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -124,7 +124,16 @@ export class SwapApplicantActionHandler {
       //    null, ...)` 才是"消费认领"的那一步，审计必须抢在它前面落地，
       //    否则重投时指针已空、handler 直接落空返回 false，
       //    `SWAP_ACTION_CLEARED` 这条记录就永远不会存在。
-      await this.restrictionsService.clear(customer.id, ['SWAP', 'WITHDRAW'], 'system');
+      // Task 8：从 clear(capability[]) 换成按 cause 精确自动撕。
+      // 只撕软线那张（KYT_REJECTED_SOFT）—— 客户身上若还挂着制裁/材料/升级
+      // 等别的因，一律不动。caseRef 传 null：复核回调只知道 action id，
+      // 不知道当初是哪一笔 swap 贴的，由 findOpenByCause 取该 cause 下最早一张。
+      await this.restrictionWorkflowService.autoRelease(
+        customer.id,
+        'KYT_REJECTED_SOFT',
+        null,
+        'SYSTEM',
+      );
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_ACTION_CLEARED,
         entityType: AuditEntityTypes.CUSTOMER,
@@ -135,7 +144,7 @@ export class SwapApplicantActionHandler {
         entityOwnerId: customer.id,
         entityOwnerNo: customer.customerNo || undefined,
         result: AuditResult.SUCCESS,
-        reason: 'GREEN applicant action review — SWAP/WITHDRAW restrictions cleared',
+        reason: 'GREEN applicant action review — KYT_REJECTED_SOFT restriction released',
         metadata: { externalActionId },
         sourcePlatform: 'SYSTEM',
       });

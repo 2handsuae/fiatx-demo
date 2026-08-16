@@ -81,11 +81,11 @@ function MiniMasthead({ collapsed }: { collapsed: boolean }) {
 /* ─── Compact status badge ──────────────────────────────────────── */
 function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === 'APPROVED' || status === 'ACTIVE'
+    status === 'ACTIVE'
       ? 'text-fx-sage border-fx-sage/30 bg-fx-sage/5'
-      : status === 'REJECTED' || status === 'FROZEN' || status === 'WITHDRAWN'
+      : status === 'REJECTED' || status === 'WITHDRAWN' || status === 'OFFBOARDED'
         ? 'text-fx-rust border-fx-rust/30 bg-fx-rust/5'
-        : status === 'FINAL_APPROVAL'
+        : status === 'PENDING_APPROVAL' || status === 'RESTRICTED'
           ? 'text-fx-brass border-fx-brass/30 bg-fx-brass/5'
           : 'text-fx-dune border-fx-rule bg-transparent';
   return (
@@ -132,16 +132,14 @@ const CustomerDashboardLayout = () => {
     ((user?.firstName?.[0] || '') + (user?.lastName?.[0] || 'M')).toUpperCase();
   const email = user?.email || '';
 
-  const hasRestrictions = Array.isArray(user?.restrictions) && user.restrictions.length > 0;
+  // 徽章 = lifecycle，唯一例外是有「可告知」限制时压成 RESTRICTED。
+  // SILENT 便签不进 disclosedBlocked，被制裁客户的徽章因此与正常客户逐字相同
+  // ——徽章变字本身就是信号（tipping-off）。这不是特判，是拿不到数据的自然结果。
+  const lifecycle = String(user?.lifecycle || 'PROSPECT').toUpperCase();
   const displayStatus =
-    String(user?.complianceStatus || '').toUpperCase() === 'FROZEN'
-      ? 'FROZEN'
-      : hasRestrictions
-        ? 'RESTRICTED'
-        : String(user?.onboardingStatus || 'NONE').toUpperCase() === 'APPROVED' &&
-            String(user?.adminStatus || 'INACTIVE').toUpperCase() === 'ACTIVE'
-          ? 'ACTIVE'
-          : String(user?.onboardingStatus || 'NONE').toUpperCase();
+    lifecycle === 'ACTIVE' && (user?.disclosedBlocked?.length ?? 0) > 0
+      ? 'RESTRICTED'
+      : lifecycle;
 
   const railWidth = collapsed ? 'w-[72px]' : 'w-[220px]';
 

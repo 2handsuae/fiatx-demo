@@ -130,6 +130,11 @@ describe('Swap money arcs (e2e, Task 12)', () => {
       );
     }
     customerId = customer.id;
+
+    // 三轴收敛：便签搬进了 customer_restrictions 独立表，旧写法靠给客户列写
+    // restrictions:'[]' 复位，那条列已删。这里显式清场 —— 不清的话上一支/上一轮
+    // 留下的 OPEN 便签会被新的 L1 能力门拦住建单，用例之间不再独立。
+    await prisma.customerRestriction.deleteMany({ where: { customerId } });
     customerNo = customer.customerNo;
 
     // Reset state left by a previous run of this suite against a persistent
@@ -137,7 +142,9 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     // reset (no other suite touches this customer).
     await prisma.customerMain.update({
       where: { id: customerId },
-      data: { restrictions: '[]', pendingActionExternalId: null, pendingActionReason: null, hardLineDispositionedAt: null },
+      // restrictions JSON 列已随三轴删除；便签现在是 customer_restrictions 独立表，
+      // 由下面 deleteMany 清场，不再靠给客户列写 '[]' 复位。
+      data: { pendingActionExternalId: null, pendingActionReason: null, hardLineDispositionedAt: null },
     });
 
     const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });
@@ -413,8 +420,9 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     expect(quoteRow!.status).toBe('USED');
 
     // Restrictions written: SWAP + WITHDRAW blocked, DEPOSIT untouched.
-    const restrictions = await restrictionsService.list(customerId);
-    expect(restrictions.map((r) => r.capability).sort()).toEqual(['SWAP', 'WITHDRAW']);
+    const rows = await restrictionsService.listOpen(customerId);
+    // 聚合视图：一个 restrictionNo 一行，能力在 scopes 里（旧 list() 是一能力一行）。
+    expect(rows.flatMap((r) => r.scopes).sort()).toEqual(['SWAP', 'WITHDRAW']);
 
     const retryQuote = await createQuote(aedAssetId, 'AED', usdtAssetId, 'USDT', '10');
     await expect(workflow.initiateSwap(customerId, retryQuote.id)).rejects.toMatchObject({ status: 403 });

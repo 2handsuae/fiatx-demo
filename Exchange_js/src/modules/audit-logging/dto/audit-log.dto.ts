@@ -17,6 +17,12 @@ export enum AuditResult {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
   REJECTED = 'REJECTED',
+  /**
+   * 幂等命中：请求合法、但因目标已处于期望状态而未产生新的持久变更。
+   * 与 SUCCESS 区分开，事后取证才分得清「这次真的贴了一张便签」和
+   * 「这次是重复请求、什么都没发生」。设计稿 2026-08-15 §3.2。
+   */
+  SKIPPED = 'SKIPPED',
 }
 
 export enum AuditEvidencePackageStatus {
