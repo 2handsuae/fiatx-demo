@@ -89,7 +89,7 @@
 
 ### Task 1: Prisma schema 改造 + lifecycle 常量与迁移表
 
-把 `CustomerMain` 的三根状态轴（`onboardingStatus` / `adminStatus` / `complianceStatus`）+ `restrictions` JSON 列一次性换成**一根 `lifecycle` 轴 + 一张 `customer_restrictions` 限制账表**，并落地七态八动作迁移表常量。本任务**只动模型层与常量层**，不改任何读侧/写入方代码 —— 任务结束时 `npx tsc --noEmit` 必然非零（40 个已知消费方仍在读被删的列），由 Task 5–6 收敛，这是预期结果，不是失败。
+把 `CustomerMain` 的三根状态轴（`onboardingStatus` / `adminStatus` / `complianceStatus`）+ `restrictions` JSON 列一次性换成**一根 `lifecycle` 轴 + 一张 `customer_restrictions` 限制账表**，并落地七态八动作迁移表常量。本任务**只动模型层与常量层**，不改任何读侧/写入方代码 —— 任务结束时 `npx tsc --noEmit` 必然非零（40 个已知消费方仍在读被删的列），由 Task 2 / 5 / 6 / 7 逐步收敛，这是预期结果，不是失败。
 
 **Files:**
 
@@ -655,7 +655,7 @@ echo "lifecycle=$(grep -c 'CustomerMainWhereInput' node_modules/.prisma/client/i
 
 ---
 
-- [ ] **Step 15: 记录 tsc 落地面基线（预期非零，供 Task 5–6 收敛用）**
+- [ ] **Step 15: 记录 tsc 落地面基线（预期非零，供 Task 2 / 5 / 6 / 7 收敛用）**
 
 ```bash
 cd /Users/songshengwei/Documents/codex/projects/重做版/Exchange_js
@@ -668,7 +668,7 @@ wc -l < "$SP/task1-tsc-fallout-files.txt"
 ```
 
 两条硬判据：
-- `errors` **必须 > 0**（`tsconfig.json` 的 `include` 只有 `src/**/*`，40 个 src 内消费方仍在读 `onboardingStatus` / `adminStatus` / `complianceStatus` / `complianceFreeze*` / `restrictions`）——这是模型替换的必然中间态，Task 5–6 收敛到 0。
+- `errors` **必须 > 0**（`tsconfig.json` 的 `include` 只有 `src/**/*`，40 个 src 内消费方仍在读 `onboardingStatus` / `adminStatus` / `complianceStatus` / `complianceFreeze*` / `restrictions`）——这是模型替换的必然中间态，Task 2 / 5 / 6 / 7 收敛到 0。
 - `hits_in_new_files` **必须 = 0** —— 本任务新写的两个文件自身不许有类型错。
 
 `task1-tsc-fallout-files.txt` 里的路径应全部落在这几簇里（后续任务的工单清单）：`identity/auth`（`customer-auth.service.ts`、`jwt.strategy.ts`）、`identity/onboarding`、`identity/customers`、`identity/customer-status.util.ts`、`identity/material-refresh`、`identity/tier-upgrade-case`、`identity/client-risk-assessment`、`identity/profile-banners`、`sumsub-ingestion`、`trading/{deposit,withdraw,swap,shared}`、`asset-treasury/{wallets,withdrawal-addresses}`。出现簇外文件要停下核对。另有 `tsc` 覆盖不到但同样待改的三处：`prisma/seed.business.ts`、`scripts/demo-lib.ts`、`test/swap-*.e2e-spec.ts`（由 seed 重铺与 e2e 任务收）。
@@ -5849,7 +5849,7 @@ git commit -m "feat(identity): profile banners 改由 CustomerAccess.disclosed �
 
 **Interfaces:**
 
-**Consumes**（Task 1-4 已产出，本 Task 只调用，禁止改签名）:
+**Consumes**（Task 1 / 3 / 4 已产出，本 Task 只调用，禁止改签名）:
 ```ts
 // customer-restrictions.service.ts（Task 3）
 open(input: OpenRestrictionInput): Promise<{ restrictionNo: string; created: boolean }>
@@ -9340,7 +9340,7 @@ git commit -m "feat(customer-restrictions): 解除审批两类型+两 handler+re
 
 ### Task 11: admin / client 两个控制器与四个端点
 
-把 Task 7-9 造好的 `RESTRICTION_CAUSE_POLICY` / `CustomerRestrictionsService` / `CustomerAccessService` / `CustomerRestrictionWorkflowService` 接到 HTTP 面：3 个 admin 端点 + 1 个客户端端点。本任务只做传输层（Rule 7：Controller 只做传输），审计与事务全在 workflow / domain service 里，控制器一行 `prisma.$transaction` 都不写。
+把 Task 3 / 4 / 10 造好的 `RESTRICTION_CAUSE_POLICY` / `CustomerRestrictionsService` / `CustomerAccessService` / `CustomerRestrictionWorkflowService` 接到 HTTP 面：3 个 admin 端点 + 1 个客户端端点。本任务只做传输层（Rule 7：Controller 只做传输），审计与事务全在 workflow / domain service 里，控制器一行 `prisma.$transaction` 都不写。
 
 **Files:**
 
@@ -9355,7 +9355,7 @@ git commit -m "feat(customer-restrictions): 解除审批两类型+两 handler+re
 
 **Interfaces:**
 
-Consumes（均由 Task 7-9 产出，签名逐字对齐锁定契约）：
+Consumes（由 Task 3 / 4 / 10 产出，签名逐字对齐锁定契约）：
 ```ts
 // ./constants/restriction-cause.constant
 RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCausePolicy>
@@ -12215,7 +12215,7 @@ git commit -m "feat(client): 客户端切 lifecycle 单轴 —— AuthGuard 删 
 
 **目标**：把前 12 个 task 的模型改动落到可重复演示的数据面（seed / reset / demo 脚本），用一支专用库上的 e2e 把设计稿 §7.2 六条行为逐条钉死，跑完五条硬闸门，最后把 truth / BACKLOG / glossary / rules 四处文档同步到新模型。
 
-> **前置依赖**：Task 1-12 已合入当前分支（`lifecycle` 列、`customer_restrictions` 表与迁移、`CustomerRestrictionsService` / `CustomerAccessService` / `CustomerRestrictionWorkflowService`、两个审批 handler、三个 admin 端点 + `/client/me/restrictions`、§3.5 三域在途单冻结扫描均已就位）。
+> **前置依赖**：Task 1-13 已合入当前分支（`lifecycle` 列、`customer_restrictions` 表与迁移、`CustomerRestrictionsService` / `CustomerAccessService` / `CustomerRestrictionWorkflowService`、两个审批 handler、三个 admin 端点 + `/client/me/restrictions`、§3.5 三域在途单冻结扫描均已就位）。
 > **demo 数据约定**：不考虑存量数据——本 task 的"重铺"就是 reset + seed，禁止任何 backfill / 兼容层。
 
 **Files:**
@@ -12234,7 +12234,7 @@ git commit -m "feat(client): 客户端切 lifecycle 单轴 —— AuthGuard 删 
 
 **Interfaces:**
 
-*Consumes（均由 Task 1-12 产出，本 task 只调用，不改签名）：*
+*Consumes（均由 Task 1-13 产出，本 task 只调用，不改签名）：*
 ```ts
 type CustomerLifecycle = 'PROSPECT'|'IN_VERIFICATION'|'PENDING_APPROVAL'|'ACTIVE'|'REJECTED'|'WITHDRAWN'|'OFFBOARDED';
 type RestrictionCause = 'SANCTION'|'ADMIN_SUSPENSION'|'MATERIAL_EXPIRED'|'TIER_UPGRADE_PENDING'|'KYT_REJECTED_SOFT'|'KYT_REJECTED_HARD'|'PENDING_DOCUMENT';
