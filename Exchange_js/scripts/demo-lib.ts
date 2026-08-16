@@ -147,13 +147,26 @@ export async function bootstrap(): Promise<DemoCtx> {
 export async function resolveDemoCustomers(prisma: any): Promise<any[]> {
   const rows = await prisma.customerMain.findMany({
     where: { email: { in: [...DEMO_CUSTOMER_EMAILS] } },
-    select: { id: true, customerNo: true, email: true, firstName: true, lastName: true, onboardingStatus: true, complianceStatus: true },
+    select: {
+      id: true, customerNo: true, email: true, firstName: true, lastName: true,
+      lifecycle: true,
+      // 三轴收敛后"能不能交易"= lifecycle ACTIVE 且名下无 OPEN 便签。
+      // 便签一行一 scope，任何一行 OPEN 都足以让 demo 半路卡住，这里一律拒跑。
+      restrictionRows: { where: { status: 'OPEN' }, select: { cause: true, scope: true } },
+    },
   });
   const missing = DEMO_CUSTOMER_EMAILS.filter((e) => !rows.find((r: any) => r.email === e));
   if (missing.length) throw new Error(`demo customers missing (run business seed): ${missing.join(', ')}`);
-  const blocked = rows.filter((r: any) => r.onboardingStatus !== 'APPROVED' || r.complianceStatus !== 'CLEAR');
+  const blocked = rows.filter((r: any) => r.lifecycle !== 'ACTIVE' || r.restrictionRows.length > 0);
   if (blocked.length) {
-    throw new Error(`demo customers not tradeable: ${blocked.map((r: any) => `${r.email}(${r.onboardingStatus}/${r.complianceStatus})`).join(', ')}`);
+    throw new Error(
+      `demo customers not tradeable: ${blocked
+        .map((r: any) => {
+          const marks = r.restrictionRows.map((x: any) => `${x.cause}:${x.scope}`).join('+');
+          return `${r.email}(${r.lifecycle}${marks ? '/' + marks : ''})`;
+        })
+        .join(', ')}`,
+    );
   }
   // preserve DEMO_CUSTOMER_EMAILS order
   return DEMO_CUSTOMER_EMAILS.map((e) => rows.find((r: any) => r.email === e));
