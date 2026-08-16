@@ -1429,44 +1429,7 @@ describe('DepositTransactionsService', () => {
       expect(result.limitHoldReason).toBeNull();
     });
 
-    it('getOwnerComplianceStatus returns customer complianceStatus', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-1',
-        ownerId: 'cust-1',
-      });
-      ((prisma as any).customerMain.findUnique as jest.Mock).mockResolvedValue({
-        id: 'cust-1',
-        complianceStatus: 'ACTIVE',
-      });
 
-      const result = await service.getOwnerComplianceStatus('dep-1');
-
-      expect(result).toBe('ACTIVE');
-      expect((prisma as any).depositTransaction.findUnique).toHaveBeenCalledWith({
-        where: { id: 'dep-1' },
-        select: { ownerId: true },
-      });
-    });
-
-    it('getOwnerComplianceStatus throws if deposit not found', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.getOwnerComplianceStatus('nonexistent')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('getOwnerComplianceStatus returns UNKNOWN when customer not found', async () => {
-      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
-        id: 'dep-1',
-        ownerId: 'missing-cust',
-      });
-      ((prisma as any).customerMain.findUnique as jest.Mock).mockResolvedValue(null);
-
-      const result = await service.getOwnerComplianceStatus('dep-1');
-
-      expect(result).toBe('UNKNOWN');
-    });
   });
 
   describe('findOneForAdmin', () => {

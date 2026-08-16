@@ -4,6 +4,9 @@ import {
 } from './constants/restriction-cause.constant';
 import { NotFoundException } from '@nestjs/common';
 import { CustomerRestrictionsService } from './customer-restrictions.service';
+/** Task 9：open() 在 scope=ALL 时广播 customer.restriction.opened，本 spec 只需哑桩。 */
+const eventEmitterStub = { emit: jest.fn() };
+
 
 describe('RESTRICTION_CAUSE_POLICY', () => {
   it('七条 cause 的 defaultScopes / visibility / releasePolicy / scopeSelectable / customerLabel 逐字固定（防漂移）', () => {
@@ -115,7 +118,7 @@ describe('CustomerRestrictionsService.open', () => {
   it('七个 cause 落库的 scope / visibility / releasePolicy 与注册表逐字一致', async () => {
     for (const cause of Object.keys(RESTRICTION_CAUSE_POLICY) as RestrictionCause[]) {
       const { prisma, tx } = createPrismaMock();
-      const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+      const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
       await svc.open({ customerId: 'c1', cause, reason: 'r', openedBy: 'ops@fiatx.com' });
 
@@ -136,7 +139,7 @@ describe('CustomerRestrictionsService.open', () => {
 
   it('入参里的 visibility / releasePolicy 一律不生效（类型上不允许，运行时也被忽略）', async () => {
     const { prisma, tx } = createPrismaMock();
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     await svc.open({
       customerId: 'c1',
@@ -153,7 +156,7 @@ describe('CustomerRestrictionsService.open', () => {
 
   it('scope 只有 PENDING_DOCUMENT 接受运营指定，其余 cause 传了也用注册表默认值', async () => {
     const { prisma, tx } = createPrismaMock();
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     await svc.open({
       customerId: 'c1',
@@ -186,7 +189,7 @@ describe('CustomerRestrictionsService.open', () => {
       { restrictionNo: 'RST2608150001', scope: 'WITHDRAW' },
       { restrictionNo: 'RST2608150001', scope: 'SWAP' },
     ]);
-    const svc = new CustomerRestrictionsService(prisma, audit);
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
 
     const result = await svc.open({
       customerId: 'c1',
@@ -220,7 +223,7 @@ describe('CustomerRestrictionsService.open', () => {
 
   it('caseRef 为 null 时不去重：两次 open 产生两个不同 restrictionNo', async () => {
     const { prisma, tx } = createPrismaMock();
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
     // generateReferenceNo 的随机段固定成两个不同值，避免 1/10000 撞号导致偶发红
     const randomSpy = jest.spyOn(Math, 'random').mockReturnValueOnce(0.1111).mockReturnValueOnce(0.2222);
 
@@ -247,7 +250,7 @@ describe('CustomerRestrictionsService.open', () => {
 
   it('一号多行：MATERIAL_EXPIRED 落 WITHDRAW / SWAP 两行，同号同 traceId 同一事务', async () => {
     const { prisma, tx } = createPrismaMock();
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     const result = await svc.open({
       customerId: 'c1',
@@ -271,7 +274,7 @@ describe('CustomerRestrictionsService.open', () => {
   it('SANCTION 额外写一条 CUSTOMER_FROZEN；非 SANCTION 只写 ADDED', async () => {
     const { prisma } = createPrismaMock();
     const audit = createAuditMock();
-    const svc = new CustomerRestrictionsService(prisma, audit);
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
 
     await svc.open({ customerId: 'c1', cause: 'SANCTION', reason: 'CRA hit', openedBy: 'mlro@fiatx.com' });
     expect(audit.recordSystem.mock.calls.map((c: any[]) => c[0].action)).toEqual([
@@ -289,7 +292,7 @@ describe('CustomerRestrictionsService.open', () => {
   it('客户不存在直接抛 NotFoundException', async () => {
     const { prisma, tx } = createPrismaMock();
     tx.customerMain.findUnique.mockResolvedValue(null);
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     await expect(
       svc.open({ customerId: 'ghost', cause: 'SANCTION', reason: 'x', openedBy: 'ops' }),
@@ -323,7 +326,7 @@ describe('CustomerRestrictionsService.release', () => {
     const { prisma, tx } = createPrismaMock();
     const audit = createAuditMock();
     tx.customerRestriction.findMany.mockResolvedValue(openRows('MATERIAL_EXPIRED', 'DISCLOSED'));
-    const svc = new CustomerRestrictionsService(prisma, audit);
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
 
     await svc.release('RST2608150001', {
       releasedBy: 'ops@fiatx.com',
@@ -364,7 +367,7 @@ describe('CustomerRestrictionsService.release', () => {
     tx.customerRestriction.findMany.mockResolvedValue([
       { ...openRows('SANCTION', 'SILENT')[0], scope: 'ALL' },
     ]);
-    const svc = new CustomerRestrictionsService(prisma, audit);
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
 
     await svc.release('RST2608150001', {
       releasedBy: 'mlro@fiatx.com',
@@ -386,7 +389,7 @@ describe('CustomerRestrictionsService.release', () => {
     tx.customerRestriction.findMany.mockResolvedValue([
       { ...openRows('MATERIAL_EXPIRED', 'DISCLOSED')[0], status: 'RELEASED' },
     ]);
-    const svc = new CustomerRestrictionsService(prisma, audit);
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
 
     await expect(
       svc.release('RST2608150001', { releasedBy: 'ops@fiatx.com', releaseMode: 'AUTO' }),
@@ -446,7 +449,7 @@ describe('CustomerRestrictionsService 读侧', () => {
   it('listOpen / findByNo 把同号多行折成一行、scope 收进 scopes', async () => {
     const { prisma } = createPrismaMock();
     prisma.customerRestriction.findMany.mockResolvedValue(dbRows);
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     const [row] = await svc.listOpen('c1');
     expect(row.restrictionNo).toBe('RST2608150001');
@@ -466,7 +469,7 @@ describe('CustomerRestrictionsService 读侧', () => {
   it('listAll 不过滤 status；findByNo 查不到返回 null', async () => {
     const { prisma } = createPrismaMock();
     prisma.customerRestriction.findMany.mockResolvedValue([]);
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     expect(await svc.listAll('c1')).toEqual([]);
     expect(prisma.customerRestriction.findMany).toHaveBeenCalledWith({
@@ -480,7 +483,7 @@ describe('CustomerRestrictionsService 读侧', () => {
     const { prisma } = createPrismaMock();
     prisma.customerRestriction.findFirst.mockResolvedValue(dbRows[0]);
     prisma.customerRestriction.findMany.mockResolvedValue(dbRows);
-    const svc = new CustomerRestrictionsService(prisma, createAuditMock());
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
 
     const hit = await svc.findOpenByCause('c1', 'MATERIAL_EXPIRED', 'MRC26073100xx');
     expect(hit?.scopes).toEqual(['WITHDRAW', 'SWAP']);

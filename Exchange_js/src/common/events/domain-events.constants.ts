@@ -36,6 +36,18 @@ export const DOMAIN_EVENTS = {
     payload:
       '{ fundsOrderId, fundsOrderNo, parent: {depositTransactionId?, withdrawTransactionId?, swapTransactionId?}, legSeq, attempt, oldStatus, newStatus, traceId? }',
   },
+
+  // ── Customer Restriction (2026-08-16) ──
+  // 只在「卡住全部能力」的便签落库时发（scope=ALL：制裁 / 行政暂停）。
+  // scope < ALL 的便签（材料过期等）刻意不发 —— 设计稿 §3.5：材料过期不该把
+  // 已经在路上的提现拽回来。
+  CUSTOMER_RESTRICTION_OPENED: {
+    name: 'customer.restriction.opened',
+    emitter: 'CustomerRestrictionsService',
+    subscribers: ['DepositWorkflowService', 'WithdrawWorkflowService', 'SwapWorkflowService'],
+    payload:
+      '{ customerId: string, restrictionNo: string, cause: string, blocksAllCapabilities: true, traceId: string }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -47,4 +59,6 @@ export const DomainEventNames = {
   WITHDRAWAL_STATUS_CHANGED: DOMAIN_EVENTS.WITHDRAWAL_STATUS_CHANGED.name,
   // Funds Order (unified — Round 2)
   FUNDS_ORDER_STATUS_CHANGED: DOMAIN_EVENTS.FUNDS_ORDER_STATUS_CHANGED.name,
+  // Customer Restriction
+  CUSTOMER_RESTRICTION_OPENED: DOMAIN_EVENTS.CUSTOMER_RESTRICTION_OPENED.name,
 } as const;

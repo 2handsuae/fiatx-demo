@@ -207,6 +207,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.sumsubTxnClient as any,
     {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
     {} as any, // pendingActionService — not on this path
+    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
   );
 }
 
@@ -649,6 +650,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any,
     {} as any, // customerRestrictionsService — not on this path (advanceLeg never rejects)
     {} as any, // pendingActionService — not on this path
+    { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
   );
 }
 
@@ -1298,6 +1300,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       mocks.sumsubTxnClient as any,
       mocks.customerRestrictionsService as any,
       mocks.pendingActionService as any,
+      { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
     );
   }
 

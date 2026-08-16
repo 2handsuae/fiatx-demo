@@ -17,9 +17,12 @@ import { DepositSeizeApprovalService } from './deposit-seize-approval.service';
 import { DepositUnfreezeApprovalService } from './deposit-unfreeze-approval.service';
 import { DepositVerificationSessionService } from './deposit-verification-session.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
+import { CustomersModule } from '../../identity/customers/customers.module';
 
 @Module({
   imports: [
+    // Task 9：本域 workflow 注入 CustomerAccessService（客户级能力闸 + 在途单冻结订阅）
+    forwardRef(() => CustomersModule),
     forwardRef(() => OnboardingModule),
     TigerBeetleModule,
     FundsLayerModule,

@@ -27,6 +27,28 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+
+/** Task 9：Gate 0 与 checkAutoApproval 改读限制账，不再读已删的 complianceStatus 列。 */
+const customerAccessService = {
+  resolve: jest.fn(),
+  assertCapability: jest.fn(),
+  assertOffboardable: jest.fn(),
+};
+const accessAllowing = () => ({
+  lifecycle: 'ACTIVE',
+  blocked: new Set<string>(),
+  disclosedBlocked: new Set<string>(),
+  disclosed: [],
+  openCount: 0,
+});
+const accessBlocking = (...caps: string[]) => ({
+  lifecycle: 'ACTIVE',
+  blocked: new Set(caps),
+  disclosedBlocked: new Set<string>(),
+  disclosed: [],
+  openCount: 1,
+});
 
 describe('DepositWorkflowService', () => {
   let service: DepositWorkflowService;
@@ -41,8 +63,11 @@ describe('DepositWorkflowService', () => {
   let actionsService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
+    // Task 9：access mock 是模块级的，本 spec 无 clearAllMocks —— 逐例复位，
+    // 否则调用次数会跨用例累积（「不该被调用」类断言会假红）。
+    customerAccessService.resolve.mockReset();
+    customerAccessService.resolve.mockResolvedValue(accessAllowing());
     depositService = {
-      getOwnerComplianceStatus: jest.fn(),
       updateStatus: jest.fn(),
       findOne: jest.fn(),
       updateSumsubVerdict: jest.fn(),
@@ -97,6 +122,7 @@ describe('DepositWorkflowService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
         DepositWorkflowService,
         { provide: DepositTransactionsService, useValue: depositService },
         { provide: FundsOrderService, useValue: fundsOrders },
@@ -116,7 +142,7 @@ describe('DepositWorkflowService', () => {
 
   describe('handleDepositStatusChanged — Gate 0', () => {
     it('runs Gate 0 when entering COMPLIANCE_PENDING with normal customer', async () => {
-      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
       depositService.findOne.mockResolvedValue({ id: 'dep-1', depositNo: 'DEP001', ownerType: 'CUSTOMER', ownerId: 'cust-1', traceId: null });
 
       const event = new DepositStatusChangedEvent(
@@ -128,11 +154,11 @@ describe('DepositWorkflowService', () => {
 
       await service.handleDepositStatusChanged(event);
 
-      expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-1');
+      expect(customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
     });
 
-    it('freezes deposit when customer complianceStatus is FROZEN', async () => {
-      depositService.getOwnerComplianceStatus.mockResolvedValue('FROZEN');
+    it('freezes deposit when customer DEPOSIT capability is blocked', async () => {
+      customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'));
 
       const event = new DepositStatusChangedEvent(
         'dep-1',
@@ -147,13 +173,13 @@ describe('DepositWorkflowService', () => {
         'dep-1',
         { action: DepositTransactionAction.FREEZE },
         expect.objectContaining({
-          reason: expect.stringContaining('FROZEN'),
+          reason: expect.stringContaining('DEPOSIT capability is restricted'),
         }),
       );
     });
 
-    it('freezes deposit when customer complianceStatus is SUSPENDED', async () => {
-      depositService.getOwnerComplianceStatus.mockResolvedValue('SUSPENDED');
+    it('freezes deposit when customer all capabilities are blocked', async () => {
+      customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'));
 
       const event = new DepositStatusChangedEvent(
         'dep-1',
@@ -168,7 +194,7 @@ describe('DepositWorkflowService', () => {
         'dep-1',
         { action: DepositTransactionAction.FREEZE },
         expect.objectContaining({
-          reason: expect.stringContaining('SUSPENDED'),
+          reason: expect.stringContaining('DEPOSIT capability is restricted'),
         }),
       );
     });
@@ -183,7 +209,7 @@ describe('DepositWorkflowService', () => {
 
       await service.handleDepositStatusChanged(event);
 
-      expect(depositService.getOwnerComplianceStatus).not.toHaveBeenCalled();
+      expect(customerAccessService.resolve).not.toHaveBeenCalled();
     });
   });
 
@@ -239,7 +265,7 @@ describe('DepositWorkflowService', () => {
     const ORIGINAL_MOCK_ENV = process.env.SUMSUB_MOCK_MODE;
 
     beforeEach(() => {
-      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
       // 两个开关都会让判定生效,任一残留都会污染"OFF"组。逐个 describe 自己设。
       delete process.env.SUMSUB_MOCK_MODE;
     });
@@ -491,14 +517,14 @@ describe('DepositWorkflowService', () => {
         traceId: 'trace-1',
         asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
       });
-      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
       depositService.updateStatus.mockResolvedValue({});
       withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
 
       await service.checkAutoApproval('dep-1');
 
       expect(depositService.findOne).toHaveBeenCalledWith('dep-1');
-      expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-1');
+      expect(customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
       expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).toHaveBeenCalledWith('cust-1');
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-1', {
         action: DepositTransactionAction.APPROVE,
@@ -519,7 +545,7 @@ describe('DepositWorkflowService', () => {
         traceId: 'trace-1',
         asset: { currency: 'USDT', tbLedgerId: 2, decimals: 6 },
       });
-      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
       withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(false);
 
       await service.checkAutoApproval('dep-1');
@@ -595,7 +621,7 @@ describe('DepositWorkflowService', () => {
 
       await service.checkAutoApproval('dep-1');
 
-      expect(depositService.getOwnerComplianceStatus).not.toHaveBeenCalled();
+      expect(customerAccessService.resolve).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
@@ -608,7 +634,7 @@ describe('DepositWorkflowService', () => {
 
       await service.checkAutoApproval('dep-1');
 
-      expect(depositService.getOwnerComplianceStatus).not.toHaveBeenCalled();
+      expect(customerAccessService.resolve).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
     });
 
@@ -619,7 +645,7 @@ describe('DepositWorkflowService', () => {
         sumsubVerdict: 'approved',
         ownerId: 'cust-1',
       });
-      depositService.getOwnerComplianceStatus.mockResolvedValue('FROZEN');
+      customerAccessService.resolve.mockResolvedValue(accessBlocking('DEPOSIT', 'WITHDRAW', 'SWAP'));
 
       await service.checkAutoApproval('dep-1');
 
@@ -640,14 +666,14 @@ describe('DepositWorkflowService', () => {
         traceId: 'trace-fiat-1',
         asset: { currency: 'USD', tbLedgerId: 3, decimals: 2 },
       });
-      depositService.getOwnerComplianceStatus.mockResolvedValue('ACTIVE');
+      customerAccessService.resolve.mockResolvedValue(accessAllowing());
       depositService.updateStatus.mockResolvedValue({});
       withdrawalAddresses.hasActiveFiatWithdrawalAddress.mockResolvedValue(true);
 
       await service.checkAutoApproval('dep-fiat-1');
 
       expect(depositService.findOne).toHaveBeenCalledWith('dep-fiat-1');
-      expect(depositService.getOwnerComplianceStatus).toHaveBeenCalledWith('dep-fiat-1');
+      
       expect(depositService.updateStatus).toHaveBeenCalledWith('dep-fiat-1', {
         action: DepositTransactionAction.APPROVE,
       });
@@ -1364,6 +1390,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -2335,6 +2362,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -2597,6 +2625,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -2771,6 +2800,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -2937,6 +2967,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -3131,6 +3162,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -3332,6 +3364,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           { provide: DepositTransactionsService, useValue: depositService },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -3664,6 +3697,7 @@ describe('DepositWorkflowService', () => {
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
+        { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           DepositTransactionsService,
           { provide: PrismaService, useValue: { depositTransaction: prismaDeposit } },

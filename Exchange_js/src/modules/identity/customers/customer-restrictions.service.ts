@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import type { CustomerRestriction as CustomerRestrictionRecord } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -57,6 +59,7 @@ export class CustomerRestrictionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async open(input: OpenRestrictionInput): Promise<{ restrictionNo: string; created: boolean }> {
@@ -153,6 +156,19 @@ export class CustomerRestrictionsService {
         ...auditShell,
         action: AuditActions.CUSTOMER_FROZEN,
         result: AuditResult.SUCCESS,
+      });
+    }
+
+    // 只有「卡住全部能力」的便签才广播——三个交易域订阅它去冻在途单。
+    // scope < ALL 的便签刻意不发（设计稿 §3.5：材料过期不该把已在路上的提现拽回来）。
+    // 幂等 no-op（created=false）也不发：没有新的摁住发生。
+    if (outcome.created && policy.defaultScopes.includes('ALL')) {
+      this.eventEmitter.emit(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, {
+        customerId: input.customerId,
+        restrictionNo: outcome.restrictionNo,
+        cause: input.cause,
+        blocksAllCapabilities: true as const,
+        traceId: outcome.traceId,
       });
     }
 

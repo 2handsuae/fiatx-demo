@@ -39,6 +39,7 @@ import {
   GateValuation,
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
 
 /**
@@ -185,6 +186,7 @@ export class SwapWorkflowService {
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
     private readonly customerPendingActionService: CustomerPendingActionService,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -1162,6 +1164,8 @@ export class SwapWorkflowService {
     ctx: SwapSettleCtx,
     client: any,
   ): Promise<void> {
+    // Task 9：推下一腿之前查客户级能力闸。三域里兑换是唯一漏掉这道的。
+    if (!(await this.assertSwapCustomerAccessOrHalt(swap, 'leg-confirmed'))) return;
     const legSeq = event.legSeq;
     // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt so
     // post hits the right transfer (matches initiateLegPending's id).
@@ -1359,4 +1363,61 @@ export class SwapWorkflowService {
       return { swapId: swap.id, legSeq, resumedAttempt };
     });
   }
+  /**
+   * 客户级能力闸（Task 9 补齐）。兑换此前只在 initiateSwap() 建单前查一次，
+   * PROCESSING 中 4 腿照常推完 —— 客户在推腿途中被摁住也拦不住，这是三域里
+   * 唯一漏掉的一处。复刻提现范式：命中则停推 + 审计 + 返回 false，调用方立即 return。
+   *
+   * 注意：兑换没有 FROZEN 态（SwapTransactionStatus 只有 4 个活态），所以这里
+   * 不改状态机，只 setNeedsReview + 停止推进，留在 PROCESSING 等人工处置。
+   */
+  private async assertSwapCustomerAccessOrHalt(swap: any, stage: string): Promise<boolean> {
+    const access = await this.customerAccessService.resolve(swap.ownerId);
+    if (!access.blocked.has('SWAP')) return true;
+
+    this.logger.warn(
+      `Swap capability gate FAIL at ${stage}: swap ${swap.swapNo} — SWAP blocked → halting leg progression`,
+    );
+    await this.swapTransactionsService.setNeedsReview(swap.id, true).catch(() => undefined);
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.SWAP_LEG_HALTED_BY_RESTRICTION,
+      entityType: AuditEntityTypes.SWAP_TRANSACTION,
+      entityId: swap.id,
+      entityNo: swap.swapNo || undefined,
+      entityOwnerType: swap.ownerType,
+      entityOwnerId: swap.ownerId,
+      traceId: swap.traceId || undefined,
+      workflowType: AuditWorkflowTypes.SWAP,
+      reason: `Customer SWAP capability restricted at ${stage} — in-flight swap leg progression halted`,
+      metadata: { swapNo: swap.swapNo, stage },
+      sourcePlatform: 'SYSTEM',
+    });
+    return false;
+  }
+
+  /**
+   * 客户被贴了「卡住全部能力」的便签 → 停掉他名下所有非终态兑换的推腿。
+   */
+  @OnEvent(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, { async: true })
+  async onCustomerRestrictionOpened(event: {
+    customerId: string;
+    restrictionNo: string;
+    cause: string;
+    blocksAllCapabilities: true;
+    traceId: string;
+  }): Promise<void> {
+    const inflight = await this.swapTransactionsService.findNonTerminalByOwner(event.customerId);
+    for (const sw of inflight) {
+      try {
+        await this.assertSwapCustomerAccessOrHalt(sw, `restriction:${event.restrictionNo}`);
+      } catch (e) {
+        this.logger.warn(
+          `Failed to halt in-flight swap ${sw.swapNo} for restriction ${event.restrictionNo}: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      }
+    }
+  }
+
 }

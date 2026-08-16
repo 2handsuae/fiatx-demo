@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { Test } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
@@ -132,6 +133,8 @@ describe('多因不互相解 — 材料自动撕不许碰制裁便签（Task 7�
         CustomerRestrictionWorkflowService,
         MaterialRefreshService,
         { provide: PrismaService, useValue: prisma },
+        // Task 9：open() 在 scope=ALL 时广播 customer.restriction.opened
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: AuditLogsService, useValue: { recordSystem: jest.fn().mockResolvedValue({}), recordByActor: jest.fn().mockResolvedValue({}) } },
         { provide: ApprovalsService, useValue: { createAndSubmit: jest.fn().mockResolvedValue({ id: 'ap-1', approvalNo: 'APR-1' }) } },
         { provide: SumsubClient, useValue: { createApplicantAction: jest.fn().mockResolvedValue({ id: 'act-1' }), getApplicant: jest.fn().mockResolvedValue({ info: { idDocs: [] } }) } },
