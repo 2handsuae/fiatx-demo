@@ -185,7 +185,6 @@ describe('OnboardingService', () => {
         expect.objectContaining({
           where: { id: 'customer-1' },
           data: expect.objectContaining({
-            lifecycle: 'IN_VERIFICATION',
             verificationSubstatus: 'SUBMITTED',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
@@ -211,7 +210,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            lifecycle: 'IN_VERIFICATION',
             verificationSubstatus: 'UNDER_REVIEW',
             verificationCustomerActionRequired: false,
             verificationCanContinue: false,
@@ -240,7 +238,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            lifecycle: 'IN_VERIFICATION',
             verificationSubstatus: 'RESUBMIT_REQUIRED',
             verificationCustomerActionRequired: true,
             verificationCanContinue: true,
@@ -267,7 +264,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            lifecycle: 'IN_VERIFICATION',
             verificationSubstatus: 'NEXT_LEVEL_REQUIRED',
             verificationCanContinue: true,
             verificationCustomerActionRequired: false,
@@ -408,7 +404,6 @@ describe('OnboardingService', () => {
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            lifecycle: 'IN_VERIFICATION',
             verificationSubstatus: 'PROCESSING',
             verificationLatestEventType: 'applicantMysteryEvent',
           }),
@@ -494,7 +489,6 @@ describe('OnboardingService', () => {
         id: 'customer-1',
         customerNo: 'CU0001',
         onboardingTraceId: existingTrace,
-        lifecycle: 'IN_VERIFICATION',
         verificationSubstatus: 'SUBMITTED',
         sumsubApplicantId: 'APPL-1',
       });
@@ -535,7 +529,6 @@ describe('OnboardingService', () => {
         id: 'customer-1',
         customerNo: 'CU0001',
         onboardingTraceId: simulatedTrace,
-        lifecycle: 'IN_VERIFICATION',
         verificationSubstatus: 'SUBMITTED',
       });
 
@@ -862,7 +855,6 @@ describe('OnboardingService', () => {
       expect.objectContaining({
         where: { id: 'c1' },
         data: expect.objectContaining({
-          lifecycle: 'IN_VERIFICATION',
           verificationProvider: 'SUMSUB',
           verificationSubstatus: 'CREATED',
           verificationCustomerActionRequired: true,
@@ -1209,7 +1201,6 @@ describe('OnboardingService', () => {
     prismaMock.customerMain.findUnique
       .mockResolvedValueOnce({
         id: 'c1',
-        lifecycle: 'IN_VERIFICATION',
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
         verificationCustomerActionRequired: true,
@@ -1225,7 +1216,6 @@ describe('OnboardingService', () => {
       .mockResolvedValueOnce({
         id: 'c1',
         customerType: 'INDIVIDUAL',
-        lifecycle: 'IN_VERIFICATION',
         verificationProvider: 'SUMSUB',
         verificationSubstatus: 'CREATED',
         verificationCustomerActionRequired: true,
@@ -1364,10 +1354,12 @@ describe('OnboardingService', () => {
 
     it('applicantWorkflowCompleted 未经 level2 按表走两跳落 ACTIVE', async () => {
       const customer = buildVerificationCustomer({
-        lifecycle: 'IN_VERIFICATION',
         sumsubExperiencedLevel2: false,
       });
-      const rows = ['IN_VERIFICATION', 'PENDING_APPROVAL'];
+      // 三次读：① 主处理器加载客户 ② advanceLifecycle 第一跳 ③ 第二跳。
+      // 少给一个，第一跳就会读到 PENDING_APPROVAL，VERIFICATION_PASSED 变成
+      // 「已在目标态」的幂等空操作，第一跳的 lifecycle 写入凭空消失。
+      const rows = ['IN_VERIFICATION', 'IN_VERIFICATION', 'PENDING_APPROVAL'];
       prismaMock.customerMain.findUnique.mockImplementation(async () => ({
         ...customer,
         lifecycle: rows.shift() ?? 'PENDING_APPROVAL',
