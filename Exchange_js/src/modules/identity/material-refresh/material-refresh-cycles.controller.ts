@@ -96,9 +96,12 @@ export class MaterialRefreshCyclesController {
     if (!customer?.sumsubApplicantId) {
       throw new ForbiddenException('No Sumsub applicant');
     }
-    if (customer.complianceStatus === 'FROZEN') {
-      throw new ForbiddenException('Account is frozen');
-    }
+    // 原先这里挡 complianceStatus==='FROZEN'。三轴收敛后该判断两头都不成立：
+    // ① 本端点铸的是【补料】令牌，而补交材料正是 MATERIAL_EXPIRED 类限制的解除路径
+    //    —— 挡住它等于让客户永远解不开；
+    // ② 对 SILENT（制裁）类客户回一句「Account is frozen」本身就是 tipping-off，
+    //    正是本轮要消除的泄漏面。
+    // 摁住与否的判定统一收口在 CustomerAccessService，不在此处旁路各判一遍。
 
     const result = await this.sumsubClient.createActionSdkToken({
       applicantId: customer.sumsubApplicantId,

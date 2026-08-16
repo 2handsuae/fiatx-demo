@@ -38,16 +38,18 @@ export class CustomerDepositWalletService {
     // ── Validate customer & asset (reads only, outside tx) ──
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
-      select: { id: true, customerNo: true, onboardingStatus: true, adminStatus: true },
+      select: { id: true, customerNo: true, lifecycle: true },
     });
     if (!customer) {
       throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
     }
-    if (customer.onboardingStatus !== 'APPROVED') {
-      throw new ForbiddenException({ code: 'ONBOARDING_NOT_APPROVED', message: 'Onboarding not approved' });
-    }
-    if (customer.adminStatus !== 'ACTIVE') {
-      throw new ForbiddenException({ code: 'ACCOUNT_SUSPENDED', message: 'Account is suspended' });
+    // 三轴收敛：原先的「onboardingStatus===APPROVED 且 adminStatus===ACTIVE」
+    // 现在就是 lifecycle==='ACTIVE' 一条（旧 adminStatus 本就是 onboarding 结果的投影）。
+    if (customer.lifecycle !== 'ACTIVE') {
+      throw new ForbiddenException({
+        code: 'CUSTOMER_NOT_ACTIVE',
+        message: 'Customer is not active',
+      });
     }
 
     const asset = await this.prisma.asset.findUnique({ where: { id: assetId } });

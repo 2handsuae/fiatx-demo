@@ -23,8 +23,10 @@ export class ClientRiskAssessmentCustomerController {
       select: {
         customerNo: true,
         riskRating: true,
-        adminStatus: true,
-        complianceStatus: true,
+        // 三轴收敛为 lifecycle 单轴。⚠️ 本端点是【客户面】（req.user.sub），
+        // 绝不下发限制账相关字段：被摁住这件事的可见性由 CustomerAccessService
+        // 的 disclosed / disclosedBlocked 统一决定，SILENT 类在客户面无字段可承载。
+        lifecycle: true,
         sumsubCurrentLevelName: true,
         sumsubApplicantId: true,
       },
@@ -48,8 +50,7 @@ export class ClientRiskAssessmentCustomerController {
 
     return {
       riskRating: customer.riskRating,
-      adminStatus: customer.adminStatus,
-      complianceStatus: customer.complianceStatus,
+      lifecycle: customer.lifecycle,
       sumsubLevel: customer.sumsubCurrentLevelName,
       activeCra: activeCra ?? null,
       tierUpgradeCase: tierUpgradeCase ?? null,
