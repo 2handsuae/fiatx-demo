@@ -126,6 +126,7 @@ describe('WithdrawTransactionsService', () => {
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
 
     jest.clearAllMocks();

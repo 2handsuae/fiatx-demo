@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
@@ -45,6 +47,7 @@ import {
   UpsertEntityDto,
 } from './dto/onboarding.dto';
 import { OnboardingFinalApprovalService } from './onboarding-final-approval.service';
+import { CustomerAccessService } from '../customers/customer-access.service';
 import {
   projectResponseRecord,
 } from '../review-response-compat.util';
@@ -92,12 +95,6 @@ export interface SessionResponse {
   status: string;
 }
 
-const tradingEligibilitySelect = {
-  id: true,
-  customerNo: true,
-  lifecycle: true,
-} satisfies Prisma.CustomerMainSelect;
-
 const SUMSUB_EVENT_ACTION_MAP: Record<string, string> = {
   applicantPending: 'SUMSUB_APPLICANT_PENDING',
   applicantOnHold: 'SUMSUB_APPLICANT_ON_HOLD',
@@ -117,6 +114,10 @@ export class OnboardingService {
     private readonly onboardingFinalApprovalService: OnboardingFinalApprovalService,
     private readonly sumsubClient: SumsubClient,
     private readonly auditLogsService: AuditLogsService,
+    // forwardRef：CustomersModule 已 forwardRef 回 OnboardingModule（取 SumsubClient），
+    // 本段让 Onboarding 反向依赖 Customers，两侧模块与此处三点同时 forwardRef 才断得掉环。
+    @Inject(forwardRef(() => CustomerAccessService))
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   async handleSumsubVerificationEvent(
@@ -515,16 +516,6 @@ export class OnboardingService {
       return {};
     } catch {
       return {};
-    }
-  }
-
-  private parseJsonArraySafely<T = unknown>(value?: string | null): T[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as T[]) : [];
-    } catch {
-      return [];
     }
   }
 
@@ -1178,37 +1169,12 @@ export class OnboardingService {
   /**
    * 交易资格门。
    *
-   * 本轮（lifecycle 收敛）只做到「生命周期必须是 ACTIVE」这一层：
-   * 三轴合并成一根 lifecycle 后，原先重复判两遍的 FROZEN 分支随列一起消失。
-   *
-   * ⚠️ 能力级限制（CAPABILITY_RESTRICTED）暂时【不在此处执行】。原先读的
-   * `CustomerMain.restrictions` JSON 列已随三轴一并删除，替代物是
-   * `customer_restrictions` 限制账表，读侧收口在 `CustomerAccessService`——
-   * 那是「交易门统一」任务的交付物。该任务会把本方法整体改写成
-   * `await this.customerAccessService.assertCapability(customerId, action)`，
-   * 届时能力门恢复且比原先更强（含 SILENT 限制）。
-   * 在两者之间的窗口里能力限制不生效，但该窗口内整个后端本就无法构建
-   * （删列的必然后果，业主已裁决接受），不存在可运行的暴露面。
+   * Task 5：唯一执法依据是 CustomerAccessService（lifecycle 轴 + 限制账）。
+   * 这里既不自己读状态列、也不自己解析限制行，更不许把 cause / visibility 拌进
+   * 错误体 —— SILENT 限制的存在本身就是 tipping-off 信号。
    */
   async assertTradingEligibility(customerId: string, action: TradeAction) {
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: tradingEligibilitySelect,
-    });
-
-    if (!customer) {
-      throw new NotFoundException(`Customer not found: ${customerId}`);
-    }
-
-    const lifecycle = readLifecycle(customer);
-    if (lifecycle !== 'ACTIVE') {
-      throw new ForbiddenException({
-        message: `${action} is blocked by onboarding gate`,
-        customerId,
-        customerNo: customer.customerNo,
-        lifecycle,
-      });
-    }
+    await this.customerAccessService.assertCapability(customerId, action);
 
     if (action !== 'DEPOSIT') {
       await this.assertTradingReady(customerId);

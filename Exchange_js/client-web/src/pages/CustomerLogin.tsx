@@ -47,10 +47,10 @@ const CustomerLogin = () => {
     sessionStorage.removeItem('customer_login_notice');
     try {
       const parsed = JSON.parse(raw) as { code?: string; message?: string };
-      if (String(parsed?.code || '').toUpperCase() === 'CUSTOMER_ACCOUNT_FROZEN') {
-        setToastMessage(
-          parsed?.message || 'Account frozen. Please contact compliance support.',
-        );
+      // Task 5：只剩「账号已关闭」一种。被制裁/受限的客户在登录页与常人无异 ——
+      // 任何「冻结/受限」提示都是把调查告知当事人，前端不留这条分支。
+      if (String(parsed?.code || '').toUpperCase() === 'CUSTOMER_ACCOUNT_CLOSED') {
+        setToastMessage(parsed?.message || 'This account has been closed.');
       }
     } catch {
       /* ignore */
@@ -84,9 +84,9 @@ const CustomerLogin = () => {
       } else {
         const err = await response.json().catch(() => ({}));
         const code = String(err?.code || '').trim().toUpperCase();
-        if (code === 'CUSTOMER_ACCOUNT_FROZEN') {
+        if (code === 'CUSTOMER_ACCOUNT_CLOSED') {
           setError('');
-          setToastMessage('Account frozen. Please contact compliance support.');
+          setToastMessage('This account has been closed.');
         } else {
           setError(
             typeof err?.message === 'string' && err.message ? err.message : 'Login failed',

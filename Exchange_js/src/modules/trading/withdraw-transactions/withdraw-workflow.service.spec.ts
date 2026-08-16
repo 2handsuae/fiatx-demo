@@ -69,6 +69,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
   });
 
@@ -147,6 +148,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
   });
 
@@ -250,6 +252,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
   });
 
@@ -322,6 +325,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
   });
 
@@ -528,6 +532,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       limitRulesService as any,
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -680,6 +685,7 @@ function buildFullWorkflow(overrides: {
     {} as any, // limitRulesService
     sumsubTxnClient as any,
     applicantActions as any,
+    { assertCapability: jest.fn() } as any, // customerAccessService
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions };
@@ -1423,6 +1429,7 @@ function buildFeeWorkflow(overrides: {
     {} as any, // limitRulesService
     {} as any, // sumsubTxnClient
     {} as any, // applicantActions
+    { assertCapability: jest.fn() } as any, // customerAccessService
   );
 
   return {
@@ -1768,6 +1775,7 @@ function buildBounceWorkflow(overrides: {
     {} as any, // limitRulesService
     sumsubTxnClient as any,
     {} as any, // applicantActions
+    { assertCapability: jest.fn() } as any, // customerAccessService
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -2129,6 +2137,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       {} as any, // limitRulesService
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2364,6 +2373,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       {} as any, // limitRulesService
       sumsubTxnClient as any,
       {} as any, // applicantActions
+      { assertCapability: jest.fn() } as any, // customerAccessService
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -2606,6 +2616,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         {} as any, // limitRulesService
         {} as any, // sumsubTxnClient
         {} as any, // applicantActions
+        { assertCapability: jest.fn() } as any, // customerAccessService
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)

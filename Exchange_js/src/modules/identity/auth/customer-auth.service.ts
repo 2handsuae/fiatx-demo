@@ -179,7 +179,9 @@ export class CustomerAuthService {
       return null;
     }
 
-    if (String(customer.complianceStatus || 'CLEAR').toUpperCase() === 'FROZEN') {
+    // Task 5：登录门只认关系是否终止。冻结/受限客户一律允许登录——他们要能看到
+    // DISCLOSED 提示、能补材料；SANCTION 客户则必须与常人无异（tipping-off 铁律）。
+    if (String(customer.lifecycle || '').toUpperCase() === 'OFFBOARDED') {
       await this.auditLogsService.recordByActor(
         {
           action: AuditActions.CUSTOMER_LOGIN_FAILED,
@@ -187,10 +189,9 @@ export class CustomerAuthService {
           entityId: customer.id,
           entityNo: customer.customerNo,
           result: AuditResult.REJECTED,
-          reason: 'Customer login blocked: compliance hold frozen',
+          reason: 'Customer login blocked: relationship offboarded',
           metadata: {
-            complianceStatus: customer.complianceStatus || null,
-            complianceFreezeReason: customer.complianceFreezeReason || null,
+            lifecycle: customer.lifecycle || null,
             identifierHash: this.maskIdentifier(normalized),
           },
           requestId: ctx.requestId,
@@ -205,8 +206,8 @@ export class CustomerAuthService {
         },
       );
       throw new ForbiddenException({
-        code: 'CUSTOMER_ACCOUNT_FROZEN',
-        message: '账号已冻结，禁止登录。请联系 WhatsApp 客服处理。',
+        code: 'CUSTOMER_ACCOUNT_CLOSED',
+        message: '账号已关闭，无法登录。',
       });
     }
 

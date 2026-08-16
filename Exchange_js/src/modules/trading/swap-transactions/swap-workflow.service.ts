@@ -3,7 +3,6 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -199,7 +198,6 @@ export class SwapWorkflowService {
   async initiateSwap(ownerId: string, quoteId: string) {
     // ── L1 Eligibility gate (synchronous) ──
     const customer = await this.prisma.customerMain.findUnique({ where: { id: ownerId } });
-    ensureCustomerCanTransact(customer);
     await this.onboardingService.assertTradingEligibility(ownerId, 'SWAP');
 
     // ── L1 Transaction Limit gate (A + B) — evaluate BEFORE quote consumption ──

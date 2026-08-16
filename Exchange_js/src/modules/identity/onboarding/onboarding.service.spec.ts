@@ -106,11 +106,19 @@ describe('OnboardingService', () => {
     changeLevel: jest.fn(),
   };
 
+  // Task 5：交易门唯一实现在 CustomerAccessService，OnboardingService 只做委托。
+  const customerAccessServiceMock: any = {
+    assertCapability: jest.fn().mockResolvedValue(undefined),
+    resolve: jest.fn(),
+    assertOffboardable: jest.fn(),
+  };
+
   let service: OnboardingService;
   let recordByActorSpy: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    customerAccessServiceMock.assertCapability.mockResolvedValue(undefined);
     recordByActorSpy = jest.fn().mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
@@ -133,6 +141,7 @@ describe('OnboardingService', () => {
       onboardingFinalApprovalServiceMock,
       sumsubClientMock,
       { recordByActor: recordByActorSpy, recordSystem: jest.fn().mockResolvedValue({}) } as any,
+      customerAccessServiceMock,
     );
   });
 
@@ -711,12 +720,29 @@ describe('OnboardingService', () => {
     );
   });
 
-  it('should throw when customer does not exist for trading gate', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue(null);
+  // Task 5：「客户不存在」的判定随交易门一起搬进 CustomerAccessService（那里有
+  // 自己的用例覆盖）。本用例改守 OnboardingService 这一侧的职责：确实委托了、
+  // 且不吞掉下游异常 —— 交易门把错误吃掉比判错更危险。
+  it('delegates the trading gate to CustomerAccessService and propagates its rejection', async () => {
+    customerAccessServiceMock.assertCapability.mockRejectedValueOnce(
+      new NotFoundException('Customer not found: missing'),
+    );
 
     await expect(service.assertTradingEligibility('missing', 'SWAP')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+    expect(customerAccessServiceMock.assertCapability).toHaveBeenCalledWith('missing', 'SWAP');
+  });
+
+  it('does not run the trading-ready check when the capability gate already rejected', async () => {
+    customerAccessServiceMock.assertCapability.mockRejectedValueOnce(
+      new ForbiddenException({ code: 'CAPABILITY_RESTRICTED' }),
+    );
+
+    await expect(service.assertTradingEligibility('c1', 'WITHDRAW')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prismaMock.withdrawalAddress.count).not.toHaveBeenCalled();
   });
 
   // ⚠️ 前向义务（Task 5「交易门统一」必须恢复并解除本 skip）：

@@ -76,11 +76,11 @@ describe('CustomerAuthController', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('should reject login when customer account is frozen', async () => {
+  it('should reject login when customer account is closed', async () => {
     serviceMock.validateCustomer.mockRejectedValue(
       new ForbiddenException({
-        code: 'CUSTOMER_ACCOUNT_FROZEN',
-        message: '账号已冻结，禁止登录。请联系 WhatsApp 客服处理。',
+        code: 'CUSTOMER_ACCOUNT_CLOSED',
+        message: '账号已关闭，无法登录。',
       }),
     );
 

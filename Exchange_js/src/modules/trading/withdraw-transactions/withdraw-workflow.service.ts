@@ -17,7 +17,7 @@ import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
-import { ensureCustomerCanTransact } from '../shared/customer-transaction-guard';
+import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -195,6 +195,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly limitRulesService: TransactionLimitRulesService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly applicantActions: WithdrawApplicantActionsService,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -245,12 +246,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: assetId } });
     if (!asset) throw new NotFoundException('Asset not found');
 
-    // Enforce compliance hold / restriction checks for customer transactions
+    // Task 5：客户级 lifecycle + 限制账闸门。全仓唯一实现在 CustomerAccessService；
+    // 本服务是 exports 出去的 workflow，customer controller 的 assertTradingEligibility
+    // 不是唯一入口，出金不可逆 —— 这道纵深防御保留。
     if (ownerType === 'CUSTOMER') {
-      const customer = await (this.prisma as any).customerMain.findUnique({
-        where: { id: userId },
-      });
-      ensureCustomerCanTransact(customer);
+      await this.customerAccessService.assertCapability(userId, 'WITHDRAW');
     }
 
     // ── Address-registration guard + VASP derivation (Task 3) ──

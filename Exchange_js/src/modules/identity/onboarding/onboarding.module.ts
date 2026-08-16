@@ -8,12 +8,17 @@ import { OnboardingFinalApprovalService } from './onboarding-final-approval.serv
 import { SumsubClient } from './providers/sumsub/sumsub.client';
 import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
 import { MaterialRefreshService } from '../material-refresh/material-refresh.service';
+import { CustomersModule } from '../customers/customers.module';
 
 @Module({
   imports: [
     PrismaModule,
     ApprovalsModule,
     forwardRef(() => MaterialRefreshModule),
+    // Task 5：OnboardingService 注入 CustomerAccessService（交易门收敛）。
+    // CustomersModule 本来就 forwardRef 回本模块（客户级补料会话取 SumsubClient），
+    // 双向都必须 forwardRef，否则 require 环里有一侧在 @Module() 装饰时读到 undefined。
+    forwardRef(() => CustomersModule),
   ],
   providers: [
     OnboardingService,
