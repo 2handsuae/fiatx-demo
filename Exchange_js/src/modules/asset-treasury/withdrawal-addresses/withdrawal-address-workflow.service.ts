@@ -28,11 +28,11 @@ export class WithdrawalAddressWorkflowService {
   async registerAddress(dto: CreateWithdrawalAddressDto, customerId: string, customerNo: string) {
     const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
-    if (customer.onboardingStatus !== 'APPROVED') {
-      throw new ForbiddenException({ code: 'ONBOARDING_NOT_APPROVED', message: 'Customer onboarding not approved' });
-    }
-    if (customer.adminStatus !== 'ACTIVE') {
-      throw new ForbiddenException({ code: 'ACCOUNT_SUSPENDED', message: 'Customer account is not active' });
+    // 三轴收敛：原先「onboardingStatus===APPROVED 且 adminStatus===ACTIVE」两判
+    // 现在就是 lifecycle==='ACTIVE' 一条。⚠️ 这里 prisma 走 `as any`，编译期看不见
+    // 字段删除 —— 不改的话读到的是 undefined，两个判断恒真、任何客户都建不了提现地址。
+    if (customer.lifecycle !== 'ACTIVE') {
+      throw new ForbiddenException({ code: 'CUSTOMER_NOT_ACTIVE', message: 'Customer is not active' });
     }
 
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: dto.assetId } });
@@ -94,11 +94,11 @@ export class WithdrawalAddressWorkflowService {
   async registerBankAccount(dto: CreateBankAccountDto, customerId: string, customerNo: string) {
     const customer = await (this.prisma as any).customerMain.findUnique({ where: { id: customerId } });
     if (!customer) throw new NotFoundException({ code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' });
-    if (customer.onboardingStatus !== 'APPROVED') {
-      throw new ForbiddenException({ code: 'ONBOARDING_NOT_APPROVED', message: 'Customer onboarding not approved' });
-    }
-    if (customer.adminStatus !== 'ACTIVE') {
-      throw new ForbiddenException({ code: 'ACCOUNT_SUSPENDED', message: 'Customer account is not active' });
+    // 三轴收敛：原先「onboardingStatus===APPROVED 且 adminStatus===ACTIVE」两判
+    // 现在就是 lifecycle==='ACTIVE' 一条。⚠️ 这里 prisma 走 `as any`，编译期看不见
+    // 字段删除 —— 不改的话读到的是 undefined，两个判断恒真、任何客户都建不了提现地址。
+    if (customer.lifecycle !== 'ACTIVE') {
+      throw new ForbiddenException({ code: 'CUSTOMER_NOT_ACTIVE', message: 'Customer is not active' });
     }
 
     const asset = await (this.prisma as any).asset.findUnique({ where: { id: dto.assetId } });

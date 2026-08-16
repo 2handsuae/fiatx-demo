@@ -75,8 +75,7 @@ describe('WithdrawalAddressWorkflowService — registerAddress (crypto) fiat-add
 
   const customer = {
     id: 'cust-1',
-    onboardingStatus: 'APPROVED',
-    adminStatus: 'ACTIVE',
+    lifecycle: 'ACTIVE',
   };
 
   const cryptoAsset = {
@@ -150,8 +149,7 @@ describe('WithdrawalAddressWorkflowService — registerBankAccount (fiat) not ga
 
   const customer = {
     id: 'cust-1',
-    onboardingStatus: 'APPROVED',
-    adminStatus: 'ACTIVE',
+    lifecycle: 'ACTIVE',
   };
 
   const fiatAsset = {
