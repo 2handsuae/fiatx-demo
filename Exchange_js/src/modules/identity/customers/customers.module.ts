@@ -14,6 +14,8 @@ import { CustomerRestrictionWorkflowService } from './customer-restriction-workf
 import { CustomerRestrictionReleaseMlroApprovalService } from './customer-restriction-release-mlro-approval.service';
 import { CustomerRestrictionReleaseOpsApprovalService } from './customer-restriction-release-ops-approval.service';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { CustomerRestrictionsAdminController } from './customer-restrictions.admin.controller';
+import { CustomerRestrictionsClientController } from './customer-restrictions.client.controller';
 
 @Module({
   // OnboardingModule：仅为 SumsubClient（客户级补料会话铸 token）。
@@ -39,7 +41,12 @@ import { ApprovalsModule } from '../../governance/approvals/approvals.module';
     CustomerAccessService,
     CustomerPendingActionService,
   ],
-  controllers: [CustomersController, CustomerPendingActionController],
+  controllers: [
+    CustomersController,
+    CustomerPendingActionController,
+    CustomerRestrictionsAdminController,
+    CustomerRestrictionsClientController,
+  ],
   exports: [
     CustomerRestrictionWorkflowService,CustomerRestrictionsService, CustomerAccessService, CustomerPendingActionService],
 })

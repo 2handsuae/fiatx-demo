@@ -758,28 +758,11 @@ describe('OnboardingService', () => {
     expect(prismaMock.withdrawalAddress.count).not.toHaveBeenCalled();
   });
 
-  // ⚠️ 前向义务（Task 5「交易门统一」必须恢复并解除本 skip）：
-  // 能力级限制（CAPABILITY_RESTRICTED）本轮暂不在 assertTradingEligibility 执行。
-  // 原读的 CustomerMain.restrictions JSON 列已随三轴一并删除，替代物是
-  // customer_restrictions 限制账表，读侧收口在 CustomerAccessService —— 那是
-  // Task 5 的交付物。Task 5 把本方法改写为 customerAccessService.assertCapability()
-  // 后，必须把本用例改回 it() 并按新契约断言（含 SILENT 限制）。
-  // 保留为 skip 而非删除：这条守的是「被限制客户不得兑换」的安全属性，删掉即失忆。
-  it.skip('restrictions 含 SWAP 时拦截 SWAP，放行 DEPOSIT', async () => {
-    prismaMock.customerMain.findUnique.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      lifecycle: 'ACTIVE',
-      restrictions: JSON.stringify([{ capability: 'SWAP', reason: 'KYT_REJECTED' }]),
-    });
-
-    await expect(service.assertTradingEligibility('c1', 'SWAP')).rejects.toMatchObject({
-      response: { code: 'CAPABILITY_RESTRICTED' },
-    });
-    await expect(service.assertTradingEligibility('c1', 'DEPOSIT')).resolves.toBeUndefined();
-  });
-
-
+  // 前向义务已了结：「被限制客户不得兑换、但仍可充值」这条安全属性，随交易门一起
+  // 搬进了 CustomerAccessService —— 见 customer-access.service.spec.ts 的
+  // 「blocked 命中 → CAPABILITY_RESTRICTED」与「未被卡的能力放行」（MATERIAL_EXPIRED
+  // 摁住 WITHDRAW/SWAP，DEPOSIT 照放）。本文件保留上面那条委托断言即可，
+  // 不在此重复实现细节。原 it.skip 断言的是已删除的 CustomerMain.restrictions JSON 列。
 
   it('should derive FINAL_APPROVAL next step from canonical onboarding status', async () => {
     prismaMock.customerMain.findUnique.mockResolvedValue({

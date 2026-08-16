@@ -193,7 +193,7 @@ describe('TierUpgradeCaseService', () => {
         'cust-1',
         'TIER_UPGRADE_PENDING',
         'tuc-1',
-        'system',
+        'SYSTEM',
       );
       const openOrder = mockRestrictions.open.mock.invocationCallOrder[0];
       const releaseOrder = mockRestrictionWorkflow.autoRelease.mock.invocationCallOrder[0];

@@ -184,7 +184,7 @@ export class SumsubIngestionService {
             customerId,
             'SANCTION',
             assessmentId,
-            'system',
+            'SYSTEM',
           );
           await this.prisma.clientRiskAssessment.update({
             where: { id: assessmentId },

@@ -240,7 +240,7 @@ export class MaterialRefreshService {
       customer.id,
       'MATERIAL_EXPIRED',
       cycle.id,
-      'system',
+      'SYSTEM',
     );
 
     // Note: In the 3-state CRA design, material submission completion is handled by

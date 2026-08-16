@@ -132,7 +132,7 @@ export class SwapApplicantActionHandler {
         customer.id,
         'KYT_REJECTED_SOFT',
         null,
-        'system',
+        'SYSTEM',
       );
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_ACTION_CLEARED,

@@ -206,7 +206,8 @@ export class CustomerRestrictionWorkflowService {
       );
     }
 
-    const releasedBy = event.decisionByUserId || 'SYSTEM';
+    // 同上：releasedBy 是展示列，存 userNo；审计 actorId 才是 UUID。
+    const releasedBy = event.decisionByUserNo || event.decisionByUserId || 'SYSTEM';
     await this.restrictions.release(event.entityRef, {
       releasedBy,
       releaseMode: 'MANUAL',
@@ -218,7 +219,7 @@ export class CustomerRestrictionWorkflowService {
       row,
       {
         actorType: 'ADMIN',
-        actorId: releasedBy,
+        actorId: event.decisionByUserId || 'SYSTEM',
         actorNo: event.decisionByUserNo || undefined,
         actorRole: event.decisionByRole || 'MLRO',
       },

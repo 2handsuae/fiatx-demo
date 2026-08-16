@@ -68,7 +68,7 @@ describe('SwapApplicantActionHandler', () => {
       'c1',
       'KYT_REJECTED_SOFT',
       null,
-      'system',
+      'SYSTEM',
     );
     expect(pendingActionService.set).toHaveBeenCalledWith('c1', null, expect.anything());
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
@@ -153,7 +153,7 @@ describe('SwapApplicantActionHandler', () => {
       'c1',
       'KYT_REJECTED_SOFT',
       null,
-      'system',
+      'SYSTEM',
     );
   });
 

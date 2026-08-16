@@ -164,7 +164,7 @@ export class TierUpgradeCaseService {
         upgradeCase.customerId,
         'TIER_UPGRADE_PENDING',
         upgradeCase.id,
-        'system',
+        'SYSTEM',
       );
 
       await this.auditLogsService.recordSystem({
@@ -198,7 +198,7 @@ export class TierUpgradeCaseService {
         upgradeCase.customerId,
         'TIER_UPGRADE_PENDING',
         upgradeCase.id,
-        'system',
+        'SYSTEM',
       );
 
       await this.auditLogsService.recordSystem({
