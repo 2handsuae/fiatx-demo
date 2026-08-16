@@ -1,9 +1,11 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { CustomerAccessService } from '../customers/customer-access.service';
+import type { RestrictionCause } from '../customers/constants/restriction-cause.constant';
 
 export interface ProfileBanner {
   id: string;
-  type: 'MATERIAL_REFRESH' | 'COMPLIANCE_HOLD' | 'PEP_REVIEW_PENDING';
+  type: 'MATERIAL_REFRESH' | 'RESTRICTION';
   severity: 'INFO' | 'WARNING' | 'BLOCKING';
   title: string;
   description: string;
@@ -27,11 +29,22 @@ function formatMaterialName(m: string): string {
   return map[m] || m;
 }
 
+/**
+ * 材料类 cause 的提示条挂 /verification 的 CTA，其余 cause 无 CTA（设计稿 §5.1）。
+ * SILENT 的 cause（SANCTION / KYT_REJECTED_HARD）永远走不到这张表 ——
+ * 本服务只遍历 CustomerAccess.disclosed，SILENT 行结构上进不了那个数组。
+ */
+const DOCUMENT_CTA_CAUSES = new Set<RestrictionCause>([
+  'MATERIAL_EXPIRED',
+  'PENDING_DOCUMENT',
+]);
+
 @Injectable()
 export class ProfileBannerService {
   constructor(
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
+    private readonly customerAccessService: CustomerAccessService,
   ) {}
 
   async getBannersFor(customerId: string): Promise<ProfileBanner[]> {
@@ -42,29 +55,17 @@ export class ProfileBannerService {
 
     const banners: ProfileBanner[] = [];
 
-    if (customer.complianceStatus === 'FROZEN') {
+    const access = await this.customerAccessService.resolve(customerId);
+    for (const restriction of access.disclosed) {
+      const hasCta = DOCUMENT_CTA_CAUSES.has(restriction.cause);
       banners.push({
-        id: `banner-hold-${customer.id}`,
-        type: 'COMPLIANCE_HOLD',
-        severity: 'BLOCKING',
-        title: 'Your account is frozen',
-        description: 'Please contact our compliance team.',
-        ctaLabel: 'Contact compliance',
-        ctaPath: '/support/compliance',
-        dismissible: false,
-      });
-    }
-
-    if (customer.complianceFreezeReason === 'pep_review_pending') {
-      banners.push({
-        id: `banner-pep-${customer.id}`,
-        type: 'PEP_REVIEW_PENDING',
-        severity: 'WARNING',
-        title: 'Compliance review in progress',
-        description:
-          'Your account is temporarily limited while we verify additional information.',
-        ctaLabel: null,
-        ctaPath: null,
+        id: `banner-restriction-${restriction.restrictionNo}`,
+        type: 'RESTRICTION',
+        severity: restriction.scopes.includes('ALL') ? 'BLOCKING' : 'WARNING',
+        title: restriction.label,
+        description: restriction.reason,
+        ctaLabel: hasCta ? 'Go to verification' : null,
+        ctaPath: hasCta ? '/verification' : null,
         dismissible: false,
       });
     }

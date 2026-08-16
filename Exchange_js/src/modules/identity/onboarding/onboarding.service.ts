@@ -883,6 +883,7 @@ export class OnboardingService {
 
     return {
       ...this.omitCustomerInternalOnlyFields(customer),
+      ...(await this.buildCustomerSnapshot(customerId)),
       actions: nextStep.actions,
       blockedReason: nextStep.blockedReason,
       activeCaseId: nextStep.activeCaseId,
@@ -891,10 +892,22 @@ export class OnboardingService {
     };
   }
 
-  private buildCustomerSnapshot(customer: {
-    lifecycle?: string | null;
-  }): StartVerificationCustomerSnapshotDto {
-    return { lifecycle: readLifecycle(customer) };
+  /**
+   * 客户面「我处于什么状态 / 我被卡了什么」的唯一投影，`/onboarding/me` 与
+   * verification start / mock-submit 三处共用一份，避免各写各的再漏一次。
+   * 只允许 lifecycle / disclosedBlocked / disclosed —— CustomerAccess.blocked
+   * 与 openCount 含 SILENT（制裁）限制的贡献，出现在客户面响应里即 tipping-off
+   * （设计稿 §3.4）。禁止在此处补字段。
+   */
+  private async buildCustomerSnapshot(
+    customerId: string,
+  ): Promise<StartVerificationCustomerSnapshotDto> {
+    const access = await this.customerAccessService.resolve(customerId);
+    return {
+      lifecycle: access.lifecycle,
+      disclosedBlocked: [...access.disclosedBlocked],
+      disclosed: access.disclosed,
+    };
   }
 
   async startVerification(customerId: string): Promise<StartVerificationSnapshotDto> {
@@ -1004,7 +1017,7 @@ export class OnboardingService {
     };
 
     return {
-      customer: this.buildCustomerSnapshot(updated),
+      customer: await this.buildCustomerSnapshot(customerId),
       nextStep,
       verification,
     };
@@ -1047,7 +1060,7 @@ export class OnboardingService {
     const refreshed = await this.getCustomerOrThrow(customerId, true);
     const nextStep = await this.buildNextStep(refreshed);
     return {
-      customer: this.buildCustomerSnapshot(refreshed),
+      customer: await this.buildCustomerSnapshot(customerId),
       nextStep,
       verification: {
         ...this.buildVerificationProjection(refreshed),

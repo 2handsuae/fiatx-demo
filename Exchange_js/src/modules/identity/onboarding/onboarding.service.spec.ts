@@ -113,12 +113,25 @@ describe('OnboardingService', () => {
     assertOffboardable: jest.fn(),
   };
 
+  /** CustomerAccess 缺省投影：ACTIVE、零限制。用例按需覆盖字段。 */
+  const buildAccess = (overrides?: Record<string, unknown>) => ({
+    lifecycle: 'ACTIVE',
+    blocked: new Set<string>(),
+    disclosedBlocked: new Set<string>(),
+    disclosed: [] as Array<Record<string, unknown>>,
+    openCount: 0,
+    ...overrides,
+  });
+
   let service: OnboardingService;
   let recordByActorSpy: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
     customerAccessServiceMock.assertCapability.mockResolvedValue(undefined);
+    // Task 6：getMyOnboarding / startVerification 都会走 buildCustomerSnapshot →
+    // resolve()，缺省返回 undefined 会在展开时炸。
+    customerAccessServiceMock.resolve.mockResolvedValue(buildAccess());
     recordByActorSpy = jest.fn().mockResolvedValue({});
     prismaMock.$transaction.mockImplementation(async (callback: any) => callback(prismaMock));
     prismaMock.complianceAlertDispositionRecord.create.mockResolvedValue({
@@ -914,9 +927,16 @@ describe('OnboardingService', () => {
     const firstUpdateData = prismaMock.customerMain.update.mock.calls[0][0].data;
     expect(firstUpdateData.latestRiskApproval).toBeUndefined();
     expect(firstUpdateData.latestRiskApprovalStatus).toBeUndefined();
+    // Task 6：客户面投影现在是三字段白名单，且 lifecycle 来自 CustomerAccessService
+    // （不再从客户行直读）—— 所以断言要连 mock 给的那份一起对。
     expect(result.customer).toEqual({
-      lifecycle: 'IN_VERIFICATION',
+      lifecycle: 'ACTIVE',
+      disclosedBlocked: [],
+      disclosed: [],
     });
+    // tipping-off 命门：blocked / openCount 含 SILENT 限制的贡献，永不出现在客户面
+    expect(result.customer).not.toHaveProperty('blocked');
+    expect(result.customer).not.toHaveProperty('openCount');
     expect(result.nextStep).toEqual(
       expect.objectContaining({
         actions: [{ type: 'CONTINUE_VERIFICATION' }],
@@ -1477,12 +1497,20 @@ describe('OnboardingService', () => {
       sumsubClientMock.getApplicantByExternalUserId.mockResolvedValue({ id: 'app-1' });
       sumsubClientMock.createSdkToken.mockResolvedValue({ token: 'tok-1' });
 
+      customerAccessServiceMock.resolve.mockResolvedValue(
+        buildAccess({ lifecycle: 'IN_VERIFICATION' }),
+      );
+
       const result = await service.startVerification('c1');
 
       expect(prismaMock.customerMain.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ lifecycle: 'IN_VERIFICATION' }) }),
       );
-      expect(result.customer).toEqual({ lifecycle: 'IN_VERIFICATION' });
+      expect(result.customer).toEqual({
+        lifecycle: 'IN_VERIFICATION',
+        disclosedBlocked: [],
+        disclosed: [],
+      });
     });
   });
 });
