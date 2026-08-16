@@ -80,6 +80,10 @@ export const ApprovalActionTypes = {
   // Withdraw FROZEN Unfreeze/Sanction-Refund (Task 8, 2026-08-03) — 复刻 DEPOSIT_UNFREEZE 的 maker-checker 范式
   WITHDRAW_UNFREEZE: 'WITHDRAW_UNFREEZE',
   WITHDRAW_SANCTION_REFUND: 'WITHDRAW_SANCTION_REFUND',
+  // Customer Restriction Release (2026-08-15) — 贴不审批撕才审批：解除限制按 cause 的
+  // releasePolicy 分流到 MLRO / OPS 两条单步 maker-checker，复刻 WITHDRAW_UNFREEZE 形状。
+  CUSTOMER_RESTRICTION_RELEASE_MLRO: 'CUSTOMER_RESTRICTION_RELEASE_MLRO',
+  CUSTOMER_RESTRICTION_RELEASE_OPS: 'CUSTOMER_RESTRICTION_RELEASE_OPS',
 } as const;
 
 export const ApprovalStatuses = {
@@ -402,6 +406,17 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   },
   [ApprovalActionTypes.WITHDRAW_SANCTION_REFUND]: {
     steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  // ─── Customer Restriction Release (2026-08-15) ────
+  [ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_MLRO]: {
+    steps: [{ stepNo: 1, roles: ['MLRO'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.CUSTOMER_RESTRICTION_RELEASE_OPS]: {
+    steps: [{ stepNo: 1, roles: ['OPS_OFFICER'] }],
     timeoutHours: 48,
     allowCancel: true,
   },

@@ -6,8 +6,22 @@ describe('CustomerRestrictionWorkflowService.autoRelease', () => {
       open: jest.fn(),
       release: jest.fn(),
       findOpenByCause: jest.fn(),
+      findByNo: jest.fn(),
+      listOpen: jest.fn(),
+      listAll: jest.fn(),
     } as any;
-    return { wf: new CustomerRestrictionWorkflowService(restrictionsService), restrictionsService };
+    // Task 10：编排层追加审批侧后，构造函数从 1 参变 3 参。
+    const approvalsService = { createAndSubmit: jest.fn(), list: jest.fn() } as any;
+    const auditLogsService = {
+      recordSystem: jest.fn().mockResolvedValue(undefined),
+      recordByActor: jest.fn().mockResolvedValue(undefined),
+    } as any;
+    return {
+      wf: new CustomerRestrictionWorkflowService(restrictionsService, approvalsService, auditLogsService),
+      restrictionsService,
+      approvalsService,
+      auditLogsService,
+    };
   };
 
   it('releases exactly the matching restriction, with mode AUTO', async () => {

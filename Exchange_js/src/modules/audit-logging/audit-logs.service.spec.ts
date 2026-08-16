@@ -112,6 +112,9 @@ describe('AuditLogsService', () => {
       WITHDRAW_SANCTION_REFUND: 'WITHDRAW_SANCTION_REFUND',
       INTERNAL_TRANSFER: 'INTERNAL_TRANSFER',
       CUSTOMER_TAG: 'CUSTOMER_TAG',
+      // Task 10：限制账「贴/撕便签」两侧审计共用这一条 workflowType。
+      // 本清单是守则性冻结表 —— 新增 workflow 必须在此登记，防不经审视地扩表。
+      CUSTOMER_RESTRICTION_RELEASE: 'CUSTOMER_RESTRICTION_RELEASE',
       V8_RECONCILIATION: 'clearing-settle/reconciliation',
     });
 

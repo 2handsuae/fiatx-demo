@@ -20,6 +20,9 @@ export type PermissionGroup =
   | 'CUSTOMER_WRITE'
   | 'CUSTOMER_TAG_VIEW'
   | 'CUSTOMER_TAG_MANAGE'
+  | 'CUSTOMER_RESTRICTION_READ'
+  | 'CUSTOMER_RESTRICTION_WRITE'
+  | 'CUSTOMER_RESTRICTION_RELEASE'
   | 'CUSTOMER_RATE_READ'
   | 'CUSTOMER_RATE_WRITE'
   | 'ONBOARDING_READ'
@@ -231,6 +234,16 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/customers/:customerNo/effective-tags', 'Get customer effective tags', ['CUSTOMER_TAG_VIEW']),
   route('POST', '/admin/customers/:customerNo/tags', 'Assign customer tag', ['CUSTOMER_TAG_MANAGE']),
   route('DELETE', '/admin/customers/:customerNo/tags/:tagCode', 'Revoke customer tag', ['CUSTOMER_TAG_MANAGE']),
+
+  // Customer restrictions
+  route('GET', '/admin/customers/:customerNo/restrictions', 'List customer restrictions', ['CUSTOMER_RESTRICTION_READ']),
+  route('POST', '/admin/customers/:customerNo/restrictions', 'Open customer restriction', ['CUSTOMER_RESTRICTION_WRITE']),
+  route(
+    'POST',
+    '/admin/customers/:customerNo/restrictions/:restrictionNo/release',
+    'Request restriction release',
+    ['CUSTOMER_RESTRICTION_RELEASE'],
+  ),
 
   // Pricing center
   route('GET', '/admin/pricing/policies', 'List pricing policies', ['CUSTOMER_RATE_READ']),

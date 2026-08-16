@@ -10,6 +10,10 @@ import { NotificationsModule } from '../../../core/notifications/notifications.m
 import { OnboardingModule } from '../onboarding/onboarding.module';
 import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
+import { CustomerRestrictionWorkflowService } from './customer-restriction-workflow.service';
+import { CustomerRestrictionReleaseMlroApprovalService } from './customer-restriction-release-mlro-approval.service';
+import { CustomerRestrictionReleaseOpsApprovalService } from './customer-restriction-release-ops-approval.service';
+import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 
 @Module({
   // OnboardingModule：仅为 SumsubClient（客户级补料会话铸 token）。
@@ -18,6 +22,8 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
   // 的余额与在途单前置。两者的 imports 只有 PrismaModule / AuditLogsModule，
   // 都不反向依赖 Customers，无环（2026-08-15 核）。
   imports: [
+    // Task 10：initiateRelease 经 ApprovalsService 开审批案
+    ApprovalsModule,
     PrismaModule,
     NotificationsModule,
     forwardRef(() => OnboardingModule),
@@ -25,12 +31,16 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
     FundsOrdersModule,
   ],
   providers: [
+    CustomerRestrictionWorkflowService,
+    CustomerRestrictionReleaseMlroApprovalService,
+    CustomerRestrictionReleaseOpsApprovalService,
     CustomersService,
     CustomerRestrictionsService,
     CustomerAccessService,
     CustomerPendingActionService,
   ],
   controllers: [CustomersController, CustomerPendingActionController],
-  exports: [CustomerRestrictionsService, CustomerAccessService, CustomerPendingActionService],
+  exports: [
+    CustomerRestrictionWorkflowService,CustomerRestrictionsService, CustomerAccessService, CustomerPendingActionService],
 })
 export class CustomersModule {}

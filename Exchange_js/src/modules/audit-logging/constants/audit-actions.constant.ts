@@ -169,6 +169,8 @@ export const AuditBusinessWorkflowTypes = {
   V8_RECONCILIATION: 'clearing-settle/reconciliation',
   // Customer Tags (2026-07-13)
   CUSTOMER_TAG: 'CUSTOMER_TAG',
+  // Customer Restriction Release (2026-08-15) — 贴/撕便签的审计都归这条 workflow
+  CUSTOMER_RESTRICTION_RELEASE: 'CUSTOMER_RESTRICTION_RELEASE',
 } as const;
 
 export const AuditUserActions = {
