@@ -9,6 +9,7 @@ import {
   isCustomerInProgress,
   isCustomerRejected,
   isCustomerWithdrawn,
+  normalizeLifecycle,
 } from '../utils/customerOnboarding';
 
 /* ────────────────────────────────────────────────────────────────
@@ -21,22 +22,18 @@ import {
 type ProfileLike = ReturnType<typeof useCustomerProfile>['profile'];
 
 function getPrimaryStatus(profile: NonNullable<ProfileLike>) {
-  const compliance = String(profile.complianceStatus || 'CLEAR').toUpperCase();
-  const hasRestrictions = Array.isArray(profile.restrictions) && profile.restrictions.length > 0;
-  const onboarding = String(profile.onboardingStatus || 'NONE').toUpperCase();
-  const admin = String(profile.adminStatus || 'INACTIVE').toUpperCase();
-  if (compliance === 'FROZEN') return 'FROZEN';
-  if (hasRestrictions) return 'RESTRICTED';
-  if (onboarding === 'APPROVED' && admin === 'ACTIVE') return 'ACTIVE';
-  return onboarding;
+  // 徽章 = lifecycle，唯一例外是有「可告知」限制时压成 RESTRICTED。
+  // SILENT 便签不在 disclosed 里，被制裁客户这里恒等于 ACTIVE（tipping-off）。
+  const lifecycle = normalizeLifecycle(profile.lifecycle) ?? 'PROSPECT';
+  if (lifecycle === 'ACTIVE' && profile.disclosed.length > 0) return 'RESTRICTED';
+  return lifecycle;
 }
 
 function statusTone(status: string) {
-  if (status === 'APPROVED' || status === 'ACTIVE')
-    return 'text-fx-sage border-fx-sage/30 bg-fx-sage/5';
-  if (status === 'REJECTED' || status === 'FROZEN' || status === 'WITHDRAWN')
+  if (status === 'ACTIVE') return 'text-fx-sage border-fx-sage/30 bg-fx-sage/5';
+  if (status === 'REJECTED' || status === 'WITHDRAWN' || status === 'OFFBOARDED')
     return 'text-fx-rust border-fx-rust/30 bg-fx-rust/5';
-  if (status === 'FINAL_APPROVAL')
+  if (status === 'PENDING_APPROVAL' || status === 'RESTRICTED')
     return 'text-fx-brass border-fx-brass/30 bg-fx-brass/5';
   return 'text-fx-dune border-fx-rule bg-transparent';
 }
@@ -147,6 +144,7 @@ const CustomerProfile = () => {
   }
 
   const primaryStatus = getPrimaryStatus(profile);
+  const lifecycle = normalizeLifecycle(profile.lifecycle) ?? 'PROSPECT';
   const approved = isCustomerApprovedForAccess(profile);
   const rejected = isCustomerRejected(profile);
   const withdrawn = isCustomerWithdrawn(profile);
@@ -298,68 +296,21 @@ const CustomerProfile = () => {
         <SectionTitle>Compliance lifecycle</SectionTitle>
         <div className="grid grid-cols-12 gap-x-6 gap-y-5 pt-5">
           <Row
-            label="Onboarding"
+            label="Lifecycle"
             value={
               <span
                 className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
-                  String(profile.onboardingStatus || 'NONE').toUpperCase(),
+                  lifecycle,
                 )}`}
               >
                 <span className="w-[3px] h-[3px] rounded-full bg-current" />
-                {String(profile.onboardingStatus || 'NONE').replace(/_/g, ' ')}
-              </span>
-            }
-          />
-          <Row
-            label="Admin status"
-            value={
-              <span
-                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
-                  String(profile.adminStatus || 'INACTIVE').toUpperCase(),
-                )}`}
-              >
-                <span className="w-[3px] h-[3px] rounded-full bg-current" />
-                {String(profile.adminStatus || 'INACTIVE').replace(/_/g, ' ')}
-              </span>
-            }
-          />
-          <Row
-            label="Restrictions"
-            value={
-              Array.isArray(profile.restrictions) && profile.restrictions.length > 0
-                ? // 元素是 {capability, reason} 对象（后端 capability 级限制）——
-                  // 只展示能力名；直接 join 会渲染成 "[object Object]"。
-                  profile.restrictions
-                    .map((r: unknown) =>
-                      typeof r === 'string'
-                        ? r
-                        : ((r as { capability?: string })?.capability ?? ''),
-                    )
-                    .filter(Boolean)
-                    .join(' · ') || 'NONE'
-                : 'NONE'
-            }
-            mono
-          />
-          <Row
-            label="Compliance status"
-            value={
-              <span
-                className={`inline-flex items-center gap-1.5 border px-2 py-[2px] font-mono text-[10px] uppercase tracking-[0.14em] ${statusTone(
-                  String(profile.complianceStatus || 'CLEAR').toUpperCase(),
-                )}`}
-              >
-                <span className="w-[3px] h-[3px] rounded-full bg-current" />
-                {String(profile.complianceStatus || 'CLEAR').replace(/_/g, ' ')}
+                {lifecycle.replace(/_/g, ' ')}
               </span>
             }
           />
           <Row label="Risk rating" value={profile.riskRating} mono />
           <Row label="EDD required" value={profile.eddRequired ? 'YES' : 'NO'} mono />
-          <Row
-            label="Investor tier"
-            value={profile.investorTier || 'STANDARD'}
-          />
+          <Row label="Investor tier" value={profile.investorTier || 'STANDARD'} />
           <Row
             label="CDD document expires"
             value={fmt(profile.cddDocumentExpiresAt)}
@@ -367,6 +318,43 @@ const CustomerProfile = () => {
           />
         </div>
       </section>
+
+      {/* ── Current restrictions ───────────────────────────────── */}
+      {/* 只列 disclosed —— SILENT 便签后端根本不下发。空则整节隐藏：一行
+          "Restrictions  NONE" 对被制裁客户就是一个可对比的信号面，不留。 */}
+      {profile.disclosed.length > 0 && (
+        <section>
+          <SectionTitle>
+            Current restrictions
+            <span className="ml-2 text-fx-dust/60 normal-case tracking-normal font-sans text-[11px]">
+              ({profile.disclosed.length})
+            </span>
+          </SectionTitle>
+          <div className="pt-5 space-y-3">
+            {profile.disclosed.map((row) => (
+              <div
+                key={row.restrictionNo}
+                className="border-l-2 border-fx-rust/60 bg-fx-rust/[0.03] px-4 py-3"
+              >
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fx-rust">
+                    {row.label}
+                  </span>
+                  <span className="font-mono text-[10px] text-fx-dust tabular-nums">
+                    {row.scopes.join(' · ')}
+                  </span>
+                  <span className="font-mono text-[10px] text-fx-dust tabular-nums">
+                    Since {fmtDate(row.openedAt)}
+                  </span>
+                </div>
+                <p className="mt-1.5 font-sans text-[12px] text-fx-dune leading-snug break-words">
+                  {row.reason}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Verification snapshot ──────────────────────────────── */}
       <section>
@@ -391,11 +379,6 @@ const CustomerProfile = () => {
                       ? 'COMPLETED'
                       : 'NOT STARTED'
             }
-            mono
-          />
-          <Row
-            label="Onboarding status"
-            value={String(profile.onboardingStatus || 'NONE').toUpperCase()}
             mono
           />
         </div>

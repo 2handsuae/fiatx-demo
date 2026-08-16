@@ -5,6 +5,16 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 
+/** /onboarding/me 下发的「可以告知客户」的限制行；SILENT 便签不在其中。 */
+export interface DisclosedRestrictionView {
+  restrictionNo: string;
+  cause: string;
+  scopes: string[];
+  label: string;
+  reason: string;
+  openedAt: string;
+}
+
 export interface CustomerProfileData {
   id: string;
   email: string | null;
@@ -13,10 +23,11 @@ export interface CustomerProfileData {
   lastName: string | null;
   companyName?: string | null;
   customerType: string;
-  onboardingStatus?: string;
-  adminStatus?: string;
-  complianceStatus?: string;
-  restrictions?: string[];
+  /** 唯一状态轴。PROSPECT / IN_VERIFICATION / PENDING_APPROVAL / ACTIVE / REJECTED / WITHDRAWN / OFFBOARDED */
+  lifecycle: string;
+  /** 仅 DISCLOSED 限制贡献的能力集。响应体里【没有】blocked —— 见 restrictedCapabilities.ts。 */
+  disclosedBlocked: string[];
+  disclosed: DisclosedRestrictionView[];
   actions?: Array<{ type: string; payload?: Record<string, unknown> }>;
   riskRating: string;
   eddRequired: boolean;
@@ -63,16 +74,11 @@ export const useCustomerProfile = () => {
         setProfile({
           ...data,
           customerType: data.customerType || 'UNKNOWN',
-          onboardingStatus: data.onboardingStatus || 'NONE',
-          adminStatus: data.adminStatus || 'INACTIVE',
-          complianceStatus: data.complianceStatus || 'CLEAR',
-          restrictions: (() => {
-            if (Array.isArray(data.restrictions)) return data.restrictions;
-            if (typeof data.restrictions === 'string') {
-              try { return JSON.parse(data.restrictions); } catch { return []; }
-            }
-            return [];
-          })(),
+          lifecycle: String(data.lifecycle || 'PROSPECT').toUpperCase(),
+          // 后端已把 SILENT 过滤干净并展开好 scope，前端零加工——
+          // 任何"更聪明"的归一化都可能把 SILENT 泄回客户面。
+          disclosedBlocked: Array.isArray(data.disclosedBlocked) ? data.disclosedBlocked : [],
+          disclosed: Array.isArray(data.disclosed) ? data.disclosed : [],
           actions: Array.isArray(data.actions) ? data.actions : [],
           riskRating: data.riskRating || 'LOW',
           eddRequired: !!data.eddRequired,
