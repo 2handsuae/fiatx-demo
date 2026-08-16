@@ -18,7 +18,11 @@ import {
   ONBOARDING_WORKFLOW,
   buildComplianceWorkflowTraceContext,
 } from '../../risk-engine/constants/onboarding-compliance-workflow.constant';
-import { buildCustomerLifecyclePatch as buildCustomerLifecycleStatePatch } from '../customer-status.util';
+import {
+  buildLifecycleTransitionPatch,
+  canFinalReview,
+  readLifecycle,
+} from '../customer-lifecycle.util';
 import { FinalReviewCustomerDto, SubmitFinalApprovalDto } from './dto/onboarding.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import {
@@ -34,9 +38,7 @@ type ApprovalWriteClient = Prisma.TransactionClient | PrismaService;
 interface FinalApprovalCustomerRow {
   id: string;
   customerNo?: string | null;
-  onboardingStatus?: string | null;
-  adminStatus?: string | null;
-  complianceStatus?: string | null;
+  lifecycle?: string | null;
   eddRequired?: boolean | null;
   latestRiskApprovalId?: string | null;
   latestRiskApprovalStatus?: string | null;
@@ -58,9 +60,7 @@ interface PendingApprovalResolution {
 const FINAL_APPROVAL_CUSTOMER_SELECT = {
   id: true,
   customerNo: true,
-  onboardingStatus: true,
-  adminStatus: true,
-  complianceStatus: true,
+  lifecycle: true,
   eddRequired: true,
   latestRiskApprovalId: true,
   latestRiskApprovalStatus: true,
@@ -128,9 +128,9 @@ export class OnboardingFinalApprovalService {
   }
 
   private assertCustomerInFinalApproval(customer: FinalApprovalCustomerRow) {
-    if (String(customer.onboardingStatus || '').trim().toUpperCase() !== 'FINAL_APPROVAL') {
+    if (!canFinalReview(customer)) {
       throw new BadRequestException(
-        'Final approval is only available while customer is in FINAL_APPROVAL.',
+        'Final approval is only available while customer is in PENDING_APPROVAL.',
       );
     }
   }
@@ -462,11 +462,8 @@ export class OnboardingFinalApprovalService {
     const status = String(event.status || '').trim().toUpperCase();
     if (status === ApprovalStatuses.APPROVED) {
       return {
-        ...buildCustomerLifecycleStatePatch(customer, {
-          onboardingStatus: 'APPROVED',
-          adminStatus: 'ACTIVE',
-          eddRequired: true,
-        }),
+        ...buildLifecycleTransitionPatch(readLifecycle(customer), 'FINAL_APPROVED'),
+        eddRequired: true,
         ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
         latestRiskApprovalStatus: ApprovalStatuses.APPROVED,
         // Write-once: lock the NEW_CUSTOMER window start on first APPROVED;
@@ -477,11 +474,8 @@ export class OnboardingFinalApprovalService {
 
     if (status === ApprovalStatuses.REJECTED) {
       return {
-        ...buildCustomerLifecycleStatePatch(customer, {
-          onboardingStatus: 'REJECTED',
-          adminStatus: 'INACTIVE',
-          eddRequired: true,
-        }),
+        ...buildLifecycleTransitionPatch(readLifecycle(customer), 'FINAL_REJECTED'),
+        eddRequired: true,
         ...this.buildLatestRiskApprovalBindingPatch(event.approvalId),
         latestRiskApprovalStatus: ApprovalStatuses.REJECTED,
       };

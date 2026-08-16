@@ -22,7 +22,7 @@ export class ClientRiskAssessmentCronService {
 
     const dueCustomers = await this.prisma.customerMain.findMany({
       where: {
-        onboardingStatus: 'APPROVED',
+        lifecycle: 'ACTIVE',
         OR: [
           { latestRiskAssessmentId: null },
           {

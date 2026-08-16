@@ -29,31 +29,7 @@ const buildCustomerStatusWhere = (status?: string): Prisma.CustomerMainWhereInpu
     return null;
   }
 
-  switch (normalized) {
-    case 'ACTIVE':
-      return {
-        onboardingStatus: 'APPROVED',
-        adminStatus: 'ACTIVE',
-      };
-    case 'PENDING_CDD':
-    case 'REVIEW_CDD':
-    case 'PENDING_EDD':
-    case 'REVIEW_EDD':
-    case 'PENDING_VERIFICATION':
-    case 'PENDING_CDD_INPUT':
-    case 'CDD_UNDER_REVIEW':
-    case 'PENDING_EDD_INPUT':
-    case 'EDD_UNDER_REVIEW':
-      return { onboardingStatus: 'PENDING_VERIFICATION' };
-    case 'FINAL_APPROVAL':
-    case 'APPROVED':
-    case 'REJECTED':
-    case 'WITHDRAWN':
-    case 'NONE':
-      return { onboardingStatus: normalized };
-    default:
-      return { onboardingStatus: normalized };
-  }
+  return { lifecycle: normalized };
 };
 
 @ApiTags('customers')
@@ -91,7 +67,7 @@ export class CustomersController {
     required: false,
     type: String,
     description:
-      'Compatibility filter. Accepts legacy values (e.g. ACTIVE, REVIEW_CDD) and canonical onboardingStatus values; internally mapped to canonical conditions.',
+      'Filter by customer lifecycle. Accepts a single CustomerLifecycle value: PROSPECT | IN_VERIFICATION | PENDING_APPROVAL | ACTIVE | REJECTED | WITHDRAWN | OFFBOARDED.',
   })
   @ApiQuery({
     name: 'customerType',
