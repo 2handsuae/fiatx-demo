@@ -47,105 +47,13 @@ describe('CustomersController', () => {
     );
   });
 
-  it('maps legacy PENDING_CDD filter to canonical PENDING_VERIFICATION', () => {
-    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'PENDING_CDD');
-
-    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              lifecycle: 'IN_VERIFICATION',
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
-  it('maps legacy REVIEW_CDD filter to canonical PENDING_VERIFICATION', () => {
+  it('passes a canonical lifecycle value straight through', () => {
     controller.findAll(
       { user: { type: 'ADMIN' } },
       undefined,
       undefined,
       undefined,
-      'REVIEW_CDD',
-    );
-
-    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              lifecycle: 'IN_VERIFICATION',
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
-  it('maps legacy REVIEW_EDD filter to canonical PENDING_VERIFICATION', () => {
-    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'REVIEW_EDD');
-
-    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              lifecycle: 'IN_VERIFICATION',
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
-  it('maps legacy PENDING_EDD filter to canonical PENDING_VERIFICATION', () => {
-    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, 'PENDING_EDD');
-
-    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              lifecycle: 'IN_VERIFICATION',
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
-  it('maps stored PENDING_EDD_INPUT status to canonical PENDING_VERIFICATION', () => {
-    controller.findAll(
-      { user: { type: 'ADMIN' } },
-      undefined,
-      undefined,
-      undefined,
-      'PENDING_EDD_INPUT',
-    );
-
-    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          AND: expect.arrayContaining([
-            expect.objectContaining({
-              lifecycle: 'IN_VERIFICATION',
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
-  it('should accept canonical onboarding status directly', () => {
-    controller.findAll(
-      { user: { type: 'ADMIN' } },
-      undefined,
-      undefined,
-      undefined,
-      'FINAL_APPROVAL',
+      'PENDING_APPROVAL',
     );
 
     expect(customersServiceMock.findAll).toHaveBeenCalledWith(
@@ -159,5 +67,37 @@ describe('CustomersController', () => {
         }),
       }),
     );
+  });
+
+  it('normalises case and whitespace before matching lifecycle', () => {
+    controller.findAll(
+      { user: { type: 'ADMIN' } },
+      undefined,
+      undefined,
+      undefined,
+      '  in_verification  ',
+    );
+
+    expect(customersServiceMock.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              lifecycle: 'IN_VERIFICATION',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('applies no lifecycle condition when the filter is absent', () => {
+    controller.findAll({ user: { type: 'ADMIN' } }, undefined, undefined, undefined, undefined);
+
+    const [arg] = customersServiceMock.findAll.mock.calls[0];
+    const conditions = arg.where?.AND ?? [];
+    expect(
+      conditions.some((c: Record<string, unknown>) => 'lifecycle' in c),
+    ).toBe(false);
   });
 });
