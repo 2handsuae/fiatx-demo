@@ -115,6 +115,8 @@ describe('AuditLogsService', () => {
       // Task 10：限制账「贴/撕便签」两侧审计共用这一条 workflowType。
       // 本清单是守则性冻结表 —— 新增 workflow 必须在此登记，防不经审视地扩表。
       CUSTOMER_RESTRICTION_RELEASE: 'CUSTOMER_RESTRICTION_RELEASE',
+      // Task 2（material-request-ledger, 2026-08-17）：向客户要材料
+      MATERIAL_REQUEST: 'MATERIAL_REQUEST',
       V8_RECONCILIATION: 'clearing-settle/reconciliation',
     });
 
