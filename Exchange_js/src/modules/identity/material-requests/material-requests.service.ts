@@ -161,7 +161,7 @@ export class MaterialRequestsService {
         applicantActionId: input.applicantActionId,
       },
       sourcePlatform: 'SYSTEM',
-    });
+    }, client);
 
     return this.project(created);
   }
@@ -329,7 +329,7 @@ export class MaterialRequestsService {
       reason: `Sumsub action review ${answer}${rejectType ? ` (${rejectType})` : ''}`,
       metadata: { reviewAnswer: answer, reviewRejectType: rejectType, decidedBy: actor.actorNo ?? actor.actorId },
       sourcePlatform: 'SYSTEM',
-    });
+    }, client);
 
     return this.project(updated);
   }

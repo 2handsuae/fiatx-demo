@@ -115,7 +115,7 @@ export class CustomerRestrictionsService {
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
       result: outcome.created ? AuditResult.SUCCESS : AuditResult.SKIPPED,
-    });
+    }, tx);
 
     // CUSTOMER_FROZEN 此前零写入方，本轮由制裁便签激活
     if (outcome.created && input.cause === 'SANCTION') {
@@ -123,7 +123,7 @@ export class CustomerRestrictionsService {
         ...auditShell,
         action: AuditActions.CUSTOMER_FROZEN,
         result: AuditResult.SUCCESS,
-      });
+      }, tx);
     }
 
     // 只有「卡住全部能力」的便签才广播——三个交易域订阅它去冻在途单。
@@ -256,13 +256,13 @@ export class CustomerRestrictionsService {
     await this.auditLogsService.recordSystem({
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_CLEARED,
-    });
+    }, tx);
 
     if (first.cause === 'SANCTION') {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_UNFROZEN,
-      });
+      }, tx);
     }
   }
 

@@ -218,6 +218,7 @@ describe('CustomerRestrictionsService.open', () => {
           scopes: ['WITHDRAW', 'SWAP'],
         }),
       }),
+      undefined,
     );
   });
 
@@ -385,6 +386,7 @@ describe('CustomerRestrictionsService.release', () => {
           approvalNo: 'APR2608150001',
         }),
       }),
+      undefined,
     );
   });
 
@@ -454,8 +456,12 @@ describe('CustomerRestrictionsService.release', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(externalTx.customerRestriction.updateMany).toHaveBeenCalledTimes(1);
     expect(prisma.customerRestriction.findMany).not.toHaveBeenCalled();
+    // 审计写入必须也走 externalTx，而不是事务外的 base client——否则外层事务
+    // 持锁未提交时，这条写入会在 SQLite 单写者模型下等锁甚至把外层事务拖超时
+    // （task-4 修的正是这个洞：release() 内部曾经漏传 tx 给 recordSystem）。
     expect(audit.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'CUSTOMER_RESTRICTION_CLEARED' }),
+      externalTx,
     );
   });
 });

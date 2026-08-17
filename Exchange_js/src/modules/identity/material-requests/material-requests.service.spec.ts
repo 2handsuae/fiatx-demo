@@ -97,12 +97,13 @@ describe('MaterialRequestsService.create', () => {
     expect(prisma.materialRequest.create).toHaveBeenCalledTimes(1);
   });
 
-  it('写一条 MATERIAL_REQUEST_ISSUED 审计', async () => {
+  it('写一条 MATERIAL_REQUEST_ISSUED 审计，走当前 client（未传 tx 时即 base prisma）', async () => {
     const { prisma } = createPrismaMock();
     const a = audit();
     await new MaterialRequestsService(prisma, a).create(INPUT);
     expect(a.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'MATERIAL_REQUEST_ISSUED', entityType: 'MATERIAL_REQUEST' }),
+      prisma,
     );
   });
 });
