@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -272,8 +277,11 @@ export class MaterialRequestsService {
     // 非法边（含对终态行裁决）在这里抛 BadRequestException
     const nextStatus = nextMaterialRequestStatus(row.status as MaterialRequestStatus, action);
 
-    const updated = await this.prisma.materialRequest.update({
-      where: { requestNo },
+    // 先查后写会撞并发：同一 requestNo 被重复/并发裁决时两次调用都可能读到
+    // row.status 各自写入。改成带 status 条件的原子卡位（同 markSubmitted 范式）——
+    // 只有 status 仍等于读出时的值才落章，否则说明这一行已被别人改过。
+    const res = await this.prisma.materialRequest.updateMany({
+      where: { requestNo, status: row.status },
       data: {
         status: nextStatus,
         reviewAnswer: answer,
@@ -284,6 +292,14 @@ export class MaterialRequestsService {
         ...(action === 'REVIEW_RED_RETRY' ? { submittedAt: null } : {}),
       },
     });
+    if (res.count === 0) {
+      // 那次裁决没有生效 —— 不写审计，别留成功痕迹。
+      throw new ConflictException({
+        code: 'MATERIAL_REQUEST_CONCURRENT_REVIEW',
+        message: `Material request ${requestNo} was modified concurrently; review not applied`,
+      });
+    }
+    const updated = await this.prisma.materialRequest.findUnique({ where: { requestNo } });
 
     const auditAction =
       action === 'REVIEW_GREEN'

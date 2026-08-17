@@ -1,5 +1,5 @@
 import { MaterialRequestsService } from './material-requests.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 
 const ACTOR = { actorType: 'ADMIN' as const, actorId: 'u1', actorNo: 'ADM001', actorRole: 'MLRO' };
 
@@ -85,6 +85,18 @@ describe('MaterialRequestsService.create', () => {
       .rejects.toThrow(BadRequestException);
   });
 
+  it('externalActionId 撞号（P2002）不重试，原样抛出（重试会造出第二行指向同一个 Sumsub action）', async () => {
+    const { prisma } = createPrismaMock();
+    const p2002 = Object.assign(new Error('unique'), {
+      code: 'P2002',
+      meta: { target: ['externalActionId'] },
+    });
+    prisma.materialRequest.create.mockRejectedValueOnce(p2002);
+    const svc = new MaterialRequestsService(prisma, audit());
+    await expect(svc.create(INPUT)).rejects.toBe(p2002);
+    expect(prisma.materialRequest.create).toHaveBeenCalledTimes(1);
+  });
+
   it('写一条 MATERIAL_REQUEST_ISSUED 审计', async () => {
     const { prisma } = createPrismaMock();
     const a = audit();
@@ -124,30 +136,50 @@ describe('MaterialRequestsService.markSubmitted', () => {
 describe('MaterialRequestsService.markReviewed', () => {
   it('GREEN → APPROVED', async () => {
     const { prisma } = createPrismaMock();
-    prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'SUBMITTED' }));
+    prisma.materialRequest.findUnique
+      .mockResolvedValueOnce(baseRow({ status: 'SUBMITTED' }))
+      .mockResolvedValue(baseRow({ status: 'APPROVED', reviewAnswer: 'GREEN' }));
     const row = await new MaterialRequestsService(prisma, audit())
       .markReviewed('MRQ2608170001', 'GREEN', null, ACTOR);
     expect(row.status).toBe('APPROVED');
+    expect(prisma.materialRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { requestNo: 'MRQ2608170001', status: 'SUBMITTED' } }),
+    );
   });
 
   it('RED+RETRY → 回 PENDING_SUBMISSION 且清 submittedAt，externalActionId 不变', async () => {
     const { prisma } = createPrismaMock();
-    prisma.materialRequest.findUnique.mockResolvedValue(
-      baseRow({ status: 'SUBMITTED', submittedAt: new Date() }),
-    );
+    prisma.materialRequest.findUnique
+      .mockResolvedValueOnce(baseRow({ status: 'SUBMITTED', submittedAt: new Date() }))
+      .mockResolvedValue(
+        baseRow({ status: 'PENDING_SUBMISSION', submittedAt: null, reviewAnswer: 'RED', reviewRejectType: 'RETRY' }),
+      );
     const row = await new MaterialRequestsService(prisma, audit())
       .markReviewed('MRQ2608170001', 'RED', 'RETRY', ACTOR);
     expect(row.status).toBe('PENDING_SUBMISSION');
-    expect(prisma.materialRequest.update.mock.calls[0][0].data.submittedAt).toBeNull();
+    expect(prisma.materialRequest.updateMany.mock.calls[0][0].data.submittedAt).toBeNull();
     expect(row.externalActionId).toBe('ext-1');
   });
 
   it('RED+FINAL → REJECTED 终态', async () => {
     const { prisma } = createPrismaMock();
-    prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'SUBMITTED' }));
+    prisma.materialRequest.findUnique
+      .mockResolvedValueOnce(baseRow({ status: 'SUBMITTED' }))
+      .mockResolvedValue(baseRow({ status: 'REJECTED', reviewAnswer: 'RED', reviewRejectType: 'FINAL' }));
     const row = await new MaterialRequestsService(prisma, audit())
       .markReviewed('MRQ2608170001', 'RED', 'FINAL', ACTOR);
     expect(row.status).toBe('REJECTED');
+  });
+
+  it('并发裁决：updateMany count=0（行已被别人改过）→ ConflictException，不写审计', async () => {
+    const { prisma } = createPrismaMock();
+    prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'SUBMITTED' }));
+    prisma.materialRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+    const a = audit();
+    await expect(
+      new MaterialRequestsService(prisma, a).markReviewed('MRQ2608170001', 'GREEN', null, ACTOR),
+    ).rejects.toThrow(ConflictException);
+    expect(a.recordSystem).not.toHaveBeenCalled();
   });
 
   it('RED 不带 rejectType → BadRequest（不许默默当成 FINAL 关单）', async () => {
