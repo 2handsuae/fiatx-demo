@@ -52,41 +52,41 @@ Ten states and every move permitted between them. Green endings mean the money i
 ```mermaid
 stateDiagram-v2
     direction TB
-    state "Awaiting Senior Mgmt" as AA
-    state "Compliance review" as CR
-    state "Action required" as AR
-    state "Manual review" as MR
-    state "Frozen" as FZ
-    state "Payout in flight" as PF
-    state "SUCCESS" as SU
-    state "DECLINED" as DE
-    state "FAILED" as FA
-    state "RETURNED" as RE
-    [*] --> AA : 200k AED or more
-    [*] --> CR : below threshold
-    AA --> CR : signed
-    AA --> DE : declined
-    CR --> AR : documents needed
-    MR --> AR : documents needed
-    CR --> MR : not clean, or 7-day clock
-    AR --> MR : not clean, or 7-day clock
-    AA --> FZ : restriction
-    CR --> FZ : sanctions or restriction
-    AR --> FZ : sanctions or restriction
-    MR --> FZ : sanctions or restriction
-    FZ --> CR : unfreeze - MLRO
-    FZ --> DE : refund - MLRO
-    MR --> DE : refund tag
-    CR --> PF : clean verdict
-    AR --> PF : clean verdict
-    MR --> PF : clean verdict
-    PF --> SU : confirmed
-    PF --> FA : never left
-    PF --> RE : sent back
+    state "Awaiting Signature" as SIG
+    state "Awaiting Screening" as SCR
+    state "Awaiting Customer" as CUS
+    state "Awaiting Compliance" as CMP
+    state "Frozen" as FRZ
+    state "Payout In Flight" as PIF
+    state "SUCCESS" as SUC
+    state "REJECTED" as REJ
+    state "FAILED" as FAI
+    state "RETURNED" as RET
+    [*] --> SIG : 200k AED or more
+    [*] --> SCR : below threshold
+    SIG --> SCR : signed
+    SIG --> REJ : refused
+    SCR --> CUS : documents needed
+    CMP --> CUS : documents needed
+    SCR --> CMP : not clean, or 7-day clock
+    CUS --> CMP : not clean, or 7-day clock
+    SIG --> FRZ : restriction
+    SCR --> FRZ : sanctions or restriction
+    CUS --> FRZ : sanctions or restriction
+    CMP --> FRZ : sanctions or restriction
+    FRZ --> SCR : unfreeze - MLRO
+    FRZ --> REJ : refund - MLRO
+    CMP --> REJ : refund tag
+    SCR --> PIF : clean verdict
+    CUS --> PIF : clean verdict
+    CMP --> PIF : clean verdict
+    PIF --> SUC : confirmed
+    PIF --> FAI : never left
+    PIF --> RET : sent back
     classDef back fill:#e8f4ea,stroke:#4a7c59,stroke-width:2px,color:#1d3b28
     classDef gone fill:#fdecea,stroke:#b3453c,stroke-width:2px,color:#5c1f1a
-    class DE,FA,RE back
-    class SU gone
+    class REJ,FAI,RET back
+    class SUC gone
 ```
 
 **Reading it as an officer:**
@@ -121,8 +121,6 @@ Three things to read off this table:
 - **The four *Awaiting* states name whoever has to act** — a signature, Sumsub, the customer, our Compliance Officer. That is the whole point of the naming: if a withdrawal is not moving, its state already tells you whose desk it is on. Section 3.3 is the same four states, with how to find them.
 - ***Frozen* deliberately breaks that pattern.** It is not a queue waiting on someone; it is an enforcement stop with a different legal character. It is meant to stand out in a list.
 - **Only two names differ on the customer's screen**, and both are deliberate: states 1, 2, 4, 5 and 6 all collapse into a single "Processing" (Section 6.2 explains why), and *Rejected* reads as "Declined" — neutral wording that answers where the money went without asserting why.
-
-> **A note for anyone comparing screens.** The diagram above still carries the older display labels. The name in this table is the one to trust.
 
 ---
 
