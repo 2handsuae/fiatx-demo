@@ -284,6 +284,7 @@ model CustomerMain {
   withdrawalAddresses       WithdrawalAddress[]
   explicitTags                CustomerExplicitTag[]
   restrictionRows             CustomerRestriction[]
+  materialRequests            MaterialRequest[]       @relation("CustomerMaterialRequests")
 
   @@index([riskRating])
   // Task 13: applicantActionReviewed webhook 反查客户的唯一入口列
@@ -336,6 +337,55 @@ model CustomerRestriction {
   @@index([customerId, status])
   @@index([cause, status])
   @@map("customer_restrictions")
+}
+
+model MaterialRequest {
+  id                String    @id @default(uuid())
+  // 业务键。客户端与后台一律以 requestNo 为操作单位（CLAUDE.md 铁律 3）。
+  // 生成器只有 4 位随机（BACKLOG:160 实测撞过号），写入方必须捕 P2002 重试。
+  requestNo         String    @unique
+
+  // 材料永远是对「人」要的 —— 这一列恒非空，绑不绑单是另一回事
+  customerId        String
+  sumsubApplicantId String
+
+  // 要什么材料。materialType 是 config/material-refresh-policy.json 的 materials key，
+  // levelName 由它经注册表推导后落库（落库而非每次现算：保证历史行不因配置改动而变义）
+  materialType      String
+  levelName         String
+
+  // Sumsub 侧 id。**只在服务端与审计出现，绝不下发客户端**（spec I2）
+  applicantActionId String
+  // 我方生成，铸 SDK token 的钥匙。路径 2 建 action 时即带上（修 spec §1.3②）
+  externalActionId  String    @unique
+
+  // 绑单。两列同时为空或同时非空（spec I3）
+  orderDomain       String?
+  orderRef          String?
+
+  // 挂限制。**可后补** —— 到期升档时在同一行上补挂，不新开行（spec §5.3）
+  restrictionNo     String?
+
+  origin            String
+  status            String    @default("PENDING_SUBMISSION")
+
+  reason            String
+  issuedBy          String
+  issuedAt          DateTime  @default(now())
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewAnswer      String?
+  reviewRejectType  String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  traceId           String
+
+  customer CustomerMain @relation("CustomerMaterialRequests", fields: [customerId], references: [id])
+
+  @@index([customerId, status])
+  @@index([orderDomain, orderRef])
+  @@index([restrictionNo])
+  @@map("material_requests")
 }
 
 model CorporateProfile {
