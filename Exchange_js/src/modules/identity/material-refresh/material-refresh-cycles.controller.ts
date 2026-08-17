@@ -106,6 +106,7 @@ export class MaterialRefreshCyclesController {
     const result = await this.sumsubClient.createActionSdkToken({
       applicantId: customer.sumsubApplicantId,
       levelName: cycle.sumsubActionLevelName,
+      externalActionId: cycle.sumsubActionId ?? '',
       ttlInSecs: 600,
     });
 

@@ -101,9 +101,18 @@ export class SumsubClient {
     return this.get(`/resources/applicants/${applicantId}/one`);
   }
 
+  /**
+   * 建一条 applicant action。
+   *
+   * `externalActionId` 是**我方**生成并持有的 id，必须在建的时候就传给 Sumsub：
+   * 后面铸 SDK token（createActionSdkToken）要拿它当钥匙，webhook 回来也靠它
+   * 认领归属。此前这里 POST 的是空 `{}`，导致材料重检那条路建出来的 action
+   * 我方手里没有钥匙 —— 修于 2026-08-17 材料请求账。
+   */
   async createApplicantAction(input: {
     applicantId: string;
     levelName: string;
+    externalActionId: string;
   }): Promise<{ id: string }> {
     if (process.env.SUMSUB_MOCK_MODE === 'true') {
       const { randomUUID } = await import('crypto');
@@ -111,21 +120,15 @@ export class SumsubClient {
     }
     return this.post(
       `/resources/applicantActions/-/forApplicant/${input.applicantId}?levelName=${encodeURIComponent(input.levelName)}`,
-      {},
+      { externalActionId: input.externalActionId },
     );
   }
 
   async createActionSdkToken(input: {
     applicantId: string;
     levelName: string;
-    /**
-     * applicant action 场景官方必填。可选是因为**材料重检那条流程的 action 是
-     * 用 createApplicantAction 建的,而它 POST 的是 `{}`,从来没提交过
-     * external id** —— 我方手里根本没有这个值,传 sumsubActionId 是传错类型
-     * (那是 Sumsub 侧 id),会绑到不匹配的 action。该流程真接前需要先改成
-     * 建 action 时就带上我方 external id,已登记 BACKLOG。
-     */
-    externalActionId?: string;
+    /** applicant action 场景官方必填。建 action 时已带上，此处必然有值。 */
+    externalActionId: string;
     ttlInSecs?: number;
   }): Promise<{ token: string }> {
     if (process.env.SUMSUB_MOCK_MODE === 'true') {

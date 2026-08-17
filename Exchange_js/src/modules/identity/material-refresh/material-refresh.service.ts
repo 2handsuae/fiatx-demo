@@ -66,9 +66,11 @@ export class MaterialRefreshService {
     });
 
     try {
+      const externalActionId = `MRQ-LEGACY:${randomUUID()}`;
       const action = await this.sumsubClient.createApplicantAction({
         applicantId: customer.sumsubApplicantId,
         levelName: materialConfig.sumsubActionLevelName,
+        externalActionId,
       });
       await this.prisma.materialRefreshCycle.update({
         where: { id: cycle.id },
@@ -370,9 +372,11 @@ export class MaterialRefreshService {
       });
 
       try {
+        const externalActionId = `MRQ-LEGACY:${randomUUID()}`;
         const action = await this.sumsubClient.createApplicantAction({
           applicantId: customer.sumsubApplicantId,
           levelName: materialConfig.sumsubActionLevelName,
+          externalActionId,
         });
         await this.prisma.materialRefreshCycle.update({
           where: { id: cycle.id },

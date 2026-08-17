@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -80,6 +81,7 @@ const REQUEST_NO_MAX_ATTEMPTS = 5;
 @Injectable()
 export class MaterialRequestsService {
   constructor(
+    @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly auditLogsService: AuditLogsService,
   ) {}

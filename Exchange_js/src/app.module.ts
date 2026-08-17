@@ -30,6 +30,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
 import { ClientRiskAssessmentModule } from './modules/identity/client-risk-assessment/client-risk-assessment.module';
 import { MaterialRefreshModule } from './modules/identity/material-refresh/material-refresh.module';
+import { MaterialRequestsModule } from './modules/identity/material-requests/material-requests.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
 import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
@@ -86,6 +87,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     SumsubIngestionModule,
     ClientRiskAssessmentModule,
     MaterialRefreshModule,
+    MaterialRequestsModule,
     ProfileBannersModule,
     FundsLayerModule,
     FundsOrdersModule,

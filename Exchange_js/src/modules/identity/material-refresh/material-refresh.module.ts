@@ -24,7 +24,9 @@ import { CustomersModule } from '../customers/customers.module';
     MaterialRefreshPolicyLoader,
   ],
   controllers: [MaterialRefreshCyclesController, AdminMaterialManagementController],
-  exports: [MaterialRefreshService],
+  // MaterialRefreshPolicyLoader：MaterialRequestsModule 建行时按 materialType
+  // 查 sumsubActionLevelName，需要从这里拿注册表（2026-08-17 材料请求账）。
+  exports: [MaterialRefreshService, MaterialRefreshPolicyLoader],
 })
 export class MaterialRefreshModule implements OnModuleInit {
   constructor(
