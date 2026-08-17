@@ -207,6 +207,10 @@ export class CustomerRestrictionsService {
   /**
    * 撕便签：以 restrictionNo 为单位，同号全部 OPEN 行一个事务里一起置 RELEASED。
    * 已经 RELEASED 视为幂等成功（重投的审批事件、自动撕与人工撕撞车都会走到这里）。
+   *
+   * @param tx 传了外部事务（如 material-request-review 的落章事务）就在其内跑，不再
+   * 另开一层 —— 道理与 open() 的同名参数一致：撕便签必须与调用方的其它写入同生共死。
+   * 不传则照旧自己开一个事务，行为与此前逐字一致。
    */
   async release(
     restrictionNo: string,
@@ -216,37 +220,13 @@ export class CustomerRestrictionsService {
       releaseApprovalNo?: string;
       releaseOrderRef?: string;
     },
+    tx?: Record<string, any>,
   ): Promise<void> {
-    const outcome = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.customerRestriction.findMany({
-        where: { restrictionNo },
-        orderBy: { scope: 'asc' },
-      });
-      if (rows.length === 0) throw new NotFoundException(`Restriction not found: ${restrictionNo}`);
-
-      const openRows = rows.filter((row) => row.status === 'OPEN');
-      if (openRows.length === 0) {
-        return { released: false, rows: openRows, customerNo: null as string | null };
-      }
-
-      const customer = await tx.customerMain.findUnique({
-        where: { id: rows[0].customerId },
-        select: { customerNo: true },
-      });
-      await tx.customerRestriction.updateMany({
-        where: { restrictionNo, status: 'OPEN' },
-        data: {
-          status: 'RELEASED',
-          releasedAt: new Date(),
-          releasedBy: opts.releasedBy,
-          releaseMode: opts.releaseMode,
-          releaseApprovalNo: opts.releaseApprovalNo ?? null,
-          releaseOrderRef: opts.releaseOrderRef ?? null,
-        },
-      });
-
-      return { released: true, rows: openRows, customerNo: customer?.customerNo ?? null };
-    });
+    const outcome = tx
+      ? await this.releaseWithin(tx, restrictionNo, opts)
+      : await this.prisma.$transaction((innerTx: Record<string, any>) =>
+          this.releaseWithin(innerTx, restrictionNo, opts),
+        );
 
     if (!outcome.released) return;
 
@@ -286,6 +266,47 @@ export class CustomerRestrictionsService {
     }
   }
 
+  /** release() 的事务体：查行 + 幂等短路 + 置 RELEASED。抽出来是为了不管事务是外部传入的还是自己开的，跑同一份逻辑。 */
+  private async releaseWithin(
+    tx: Record<string, any>,
+    restrictionNo: string,
+    opts: {
+      releasedBy: string;
+      releaseMode: 'AUTO' | 'MANUAL';
+      releaseApprovalNo?: string;
+      releaseOrderRef?: string;
+    },
+  ): Promise<{ released: boolean; rows: CustomerRestrictionRecord[]; customerNo: string | null }> {
+    const rows = await tx.customerRestriction.findMany({
+      where: { restrictionNo },
+      orderBy: { scope: 'asc' },
+    });
+    if (rows.length === 0) throw new NotFoundException(`Restriction not found: ${restrictionNo}`);
+
+    const openRows = rows.filter((row: CustomerRestrictionRecord) => row.status === 'OPEN');
+    if (openRows.length === 0) {
+      return { released: false, rows: openRows, customerNo: null };
+    }
+
+    const customer = await tx.customerMain.findUnique({
+      where: { id: rows[0].customerId },
+      select: { customerNo: true },
+    });
+    await tx.customerRestriction.updateMany({
+      where: { restrictionNo, status: 'OPEN' },
+      data: {
+        status: 'RELEASED',
+        releasedAt: new Date(),
+        releasedBy: opts.releasedBy,
+        releaseMode: opts.releaseMode,
+        releaseApprovalNo: opts.releaseApprovalNo ?? null,
+        releaseOrderRef: opts.releaseOrderRef ?? null,
+      },
+    });
+
+    return { released: true, rows: openRows, customerNo: customer?.customerNo ?? null };
+  }
+
   /** @param tx 传了就用它读（例如 openRestriction 在 open() 的同一事务里读回刚贴的便签），不传照旧读事务外的 base client。 */
   async findByNo(restrictionNo: string, tx?: Record<string, any>): Promise<RestrictionRow | null> {
     const client = (tx ?? this.prisma) as Record<string, any>;
@@ -317,13 +338,17 @@ export class CustomerRestrictionsService {
    * 幂等键的读侧。caseRef 传具体值 = 精确匹配那张便签；传 null = 不限 caseRef、
    * 取该 cause 下最早一张 OPEN —— 自动撕的触发方（如 Sumsub GREEN 回调）往往只知道
    * cause，不知道当初贴的时候挂的是哪个业务号。
+   *
+   * @param tx 传了就用它读（autoRelease 在外部事务里读回便签时用），不传照旧读事务外的 base client。
    */
   async findOpenByCause(
     customerId: string,
     cause: RestrictionCause,
     caseRef: string | null,
+    tx?: Record<string, any>,
   ): Promise<RestrictionRow | null> {
-    const hit = await this.prisma.customerRestriction.findFirst({
+    const client = (tx ?? this.prisma) as Record<string, any>;
+    const hit = await client.customerRestriction.findFirst({
       where: {
         customerId,
         cause,
@@ -333,7 +358,7 @@ export class CustomerRestrictionsService {
       orderBy: { openedAt: 'asc' },
     });
     if (!hit) return null;
-    return this.findByNo(hit.restrictionNo);
+    return this.findByNo(hit.restrictionNo, tx);
   }
 
   /** 同 restrictionNo 的多行折成一行，scope 收进 scopes（对外一律以便签为单位） */

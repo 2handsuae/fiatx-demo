@@ -429,6 +429,35 @@ describe('CustomerRestrictionsService.release', () => {
       svc.release('RST-nope', { releasedBy: 'ops@fiatx.com', releaseMode: 'AUTO' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('传了外部 tx：不再自己开 $transaction，写入直接走传进来的那个 client（不是别开的第二事务）', async () => {
+    const { prisma } = createPrismaMock();
+    const audit = createAuditMock();
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
+
+    const externalTx = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ customerNo: 'CUS-001' }),
+      },
+      customerRestriction: {
+        findMany: jest.fn().mockResolvedValue(openRows('MATERIAL_EXPIRED', 'DISCLOSED')),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+    } as any;
+
+    await svc.release(
+      'RST2608150001',
+      { releasedBy: 'ops@fiatx.com', releaseMode: 'AUTO' },
+      externalTx,
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(externalTx.customerRestriction.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.customerRestriction.findMany).not.toHaveBeenCalled();
+    expect(audit.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'CUSTOMER_RESTRICTION_CLEARED' }),
+    );
+  });
 });
 
 describe('CustomerRestrictionsService 读侧', () => {

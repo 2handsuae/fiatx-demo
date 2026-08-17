@@ -242,14 +242,20 @@ export class CustomerRestrictionWorkflowService {
    * 自动撕：由 cause 自身机制触发（材料到齐、Sumsub 转 GREEN、升级审批通过等），
    * 不走审批、releaseMode=AUTO。没有对应 OPEN 便签时静默 no-op —— 机制可能被
    * 重复触发，不该因此报错。
+   *
+   * @param tx 传了外部事务（如 material-request-review 的落章事务）就全程用它 ——
+   * 读回、撕便签、写审计都在同一个 client 上跑，道理与 openRestriction() 的同名参数
+   * 一致：贴/撕便签必须与调用方的其它写入同生共死。不传则照旧各自走 base client，
+   * 行为与此前逐字一致。
    */
   async autoRelease(
     customerId: string,
     cause: RestrictionCause,
     caseRef: string | null,
     actorId: string,
+    tx?: Record<string, any>,
   ): Promise<void> {
-    const row = await this.restrictions.findOpenByCause(customerId, cause, caseRef);
+    const row = await this.restrictions.findOpenByCause(customerId, cause, caseRef, tx);
     if (!row) {
       this.logger.log(
         `Auto-release skip: customer ${customerId} has no OPEN ${cause} restriction for caseRef ${caseRef ?? '—'}`,
@@ -257,10 +263,14 @@ export class CustomerRestrictionWorkflowService {
       return;
     }
 
-    await this.restrictions.release(row.restrictionNo, {
-      releasedBy: actorId,
-      releaseMode: 'AUTO',
-    });
+    await this.restrictions.release(
+      row.restrictionNo,
+      {
+        releasedBy: actorId,
+        releaseMode: 'AUTO',
+      },
+      tx,
+    );
 
     await this.auditRelease(
       row,
@@ -268,6 +278,7 @@ export class CustomerRestrictionWorkflowService {
       'AUTO',
       null,
       null,
+      tx,
     );
   }
 
@@ -297,12 +308,14 @@ export class CustomerRestrictionWorkflowService {
     return snapshot.releaseOrderRef?.trim() || null;
   }
 
+  /** @param tx 传了就把审计写在同一个 client 上（autoRelease 收到外部事务时用）。 */
   private async auditRelease(
     row: RestrictionRow,
     actor: AuditActorContext,
     releaseMode: 'AUTO' | 'MANUAL',
     approvalNo: string | null,
     releaseOrderRef: string | null,
+    tx?: Record<string, any>,
   ): Promise<void> {
     await this.audit(
       AuditActions.CUSTOMER_RESTRICTION_CLEARED,
@@ -310,6 +323,7 @@ export class CustomerRestrictionWorkflowService {
       actor,
       `${row.cause} restriction ${row.restrictionNo} released (${releaseMode})`,
       { releaseMode, approvalNo, releaseOrderRef },
+      tx,
     );
 
     if (row.cause === 'SANCTION') {
@@ -319,6 +333,7 @@ export class CustomerRestrictionWorkflowService {
         actor,
         `Customer unfrozen — sanction restriction ${row.restrictionNo} released (${releaseMode})`,
         { releaseMode, approvalNo, releaseOrderRef },
+        tx,
       );
     }
   }

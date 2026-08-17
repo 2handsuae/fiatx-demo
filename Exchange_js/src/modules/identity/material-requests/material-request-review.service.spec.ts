@@ -16,6 +16,7 @@ function row(over: Record<string, any> = {}) {
 }
 
 function deps(found: any = row()) {
+  const prisma = { $transaction: jest.fn((cb: any) => cb({ __tx: true })) } as any;
   const requests = {
     findByExternalActionId: jest.fn().mockResolvedValue(found),
     markReviewed: jest.fn(async (_no: string, ans: string, rt: string | null) =>
@@ -31,19 +32,21 @@ function deps(found: any = row()) {
   } as any;
   const restrictionWorkflow = { autoRelease: jest.fn().mockResolvedValue(undefined) } as any;
   const eventEmitter = { emit: jest.fn() } as any;
-  return { requests, restrictions, restrictionWorkflow, eventEmitter };
+  return { prisma, requests, restrictions, restrictionWorkflow, eventEmitter };
 }
 
 const build = (d: ReturnType<typeof deps>) =>
-  new MaterialRequestReviewService(d.requests, d.restrictions, d.restrictionWorkflow, d.eventEmitter);
+  new MaterialRequestReviewService(d.prisma, d.requests, d.restrictions, d.restrictionWorkflow, d.eventEmitter);
 
 describe('MaterialRequestReviewService.applyReview', () => {
   it('GREEN → APPROVED 且自动撕便签（caseRef 用 requestNo，releaseMode 由 autoRelease 定为 AUTO）', async () => {
     const d = deps();
     const out = await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
     expect(out).toEqual({ requestNo: 'MRQ2608170001', outcome: 'APPROVED' });
+    // Task 4：applyReview 现在把落章与自动撕便签包进同一个事务，autoRelease 因此
+    // 多收到一个末位 tx（事务体内的 client），不再是 undefined。
     expect(d.restrictionWorkflow.autoRelease).toHaveBeenCalledWith(
-      'c1', 'PENDING_DOCUMENT', 'MRQ2608170001', 'SYSTEM',
+      'c1', 'PENDING_DOCUMENT', 'MRQ2608170001', 'SYSTEM', { __tx: true },
     );
   });
 
@@ -54,7 +57,7 @@ describe('MaterialRequestReviewService.applyReview', () => {
     });
     await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
     expect(d.restrictionWorkflow.autoRelease).toHaveBeenCalledWith(
-      'c1', 'KYT_REJECTED_SOFT', 'SW2608170001', 'SYSTEM',
+      'c1', 'KYT_REJECTED_SOFT', 'SW2608170001', 'SYSTEM', { __tx: true },
     );
   });
 
@@ -105,5 +108,26 @@ describe('MaterialRequestReviewService.applyReview', () => {
     const out = await build(d).applyReview({ externalActionId: 'someone-else', reviewAnswer: 'GREEN', actor: ACTOR });
     expect(out).toBeNull();
     expect(d.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('落章与自动撕便签同处一个事务（半成品——单落了 APPROVED、便签还卡在 OPEN——是运营发现不了的脏数据）', async () => {
+    const d = deps();
+    await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
+    expect(d.prisma.$transaction).toHaveBeenCalledTimes(1);
+    // 光断言 $transaction 被调用一次测不出「撕便签是不是真在这个事务里跑」——
+    // autoRelease 收到的 tx 必须与 markReviewed 收到的是同一个引用，否则撕便签
+    // 实际是在一个独立的第二事务里提交的（本条曾是假阳性，同款坑见 issuer spec）。
+    const txPassedToMarkReviewed = d.requests.markReviewed.mock.calls[0][4];
+    const txPassedToAutoRelease = d.restrictionWorkflow.autoRelease.mock.calls[0][4];
+    expect(txPassedToMarkReviewed).toBeDefined();
+    expect(txPassedToAutoRelease).toBe(txPassedToMarkReviewed);
+  });
+
+  it('事件广播在事务提交之后才发生（回滚了的话，事件早发出去就是在广播一个从未发生过的事实）', async () => {
+    const d = deps();
+    await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
+    const txCallOrder = d.prisma.$transaction.mock.invocationCallOrder[0];
+    const emitCallOrder = d.eventEmitter.emit.mock.invocationCallOrder[0];
+    expect(emitCallOrder).toBeGreaterThan(txCallOrder);
   });
 });

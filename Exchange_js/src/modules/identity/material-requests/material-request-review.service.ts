@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { MaterialRequestsService, type MaterialActor } from './material-requests.service';
 import { CustomerRestrictionsService } from '../customers/customer-restrictions.service';
@@ -19,6 +20,8 @@ export class MaterialRequestReviewService {
   private readonly logger = new Logger(MaterialRequestReviewService.name);
 
   constructor(
+    @Inject(PrismaService)
+    private readonly prisma: PrismaService & Record<string, any>,
     private readonly requests: MaterialRequestsService,
     private readonly restrictions: CustomerRestrictionsService,
     private readonly restrictionWorkflow: CustomerRestrictionWorkflowService,
@@ -37,37 +40,47 @@ export class MaterialRequestReviewService {
     if (!row) return null;
 
     const rejectType = input.reviewAnswer === 'RED' ? (input.reviewRejectType ?? null) : null;
-    const updated = await this.requests.markReviewed(
-      row.requestNo,
-      input.reviewAnswer,
-      rejectType,
-      input.actor,
-    );
-
     const outcome: ReviewOutcome =
       input.reviewAnswer === 'GREEN' ? 'APPROVED' : rejectType === 'RETRY' ? 'RETRY' : 'REJECTED';
 
-    if (outcome === 'APPROVED' && row.restrictionNo) {
-      // autoRelease 按 (customerId, cause, caseRef) 找便签，不认 restrictionNo。
-      // ⚠️ 不要假定 caseRef === requestNo：那只在 issuer 自己开的便签上成立
-      // （Task 3）。兑换域的软线拒是**先**开便签（caseRef=swapNo）**再**登记
-      // 材料请求的——那个 fail-safe 顺序是 load-bearing 的，不能为了凑
-      // caseRef 而调换。所以这里读便签自己的 caseRef，两条路径都对。
-      const restriction = await this.restrictions.findByNo(row.restrictionNo);
-      if (restriction) {
-        await this.restrictionWorkflow.autoRelease(
-          row.customerId,
-          restriction.cause,
-          restriction.caseRef,
-          'SYSTEM',
-        );
-      } else {
-        this.logger.warn(
-          `Material request ${row.requestNo} points at restriction ${row.restrictionNo} which no longer exists — nothing to auto-release`,
-        );
-      }
-    }
+    // 落章与自动撕便签同一个事务：只成功了一半（单落了 APPROVED、便签还卡在 OPEN）
+    // 是运营发现不了的脏数据，CLAUDE.md 规则 2 明令多表状态变更必须用 DB transaction。
+    const updated = await this.prisma.$transaction(async (tx: Record<string, any>) => {
+      const reviewed = await this.requests.markReviewed(
+        row.requestNo,
+        input.reviewAnswer,
+        rejectType,
+        input.actor,
+        tx,
+      );
 
+      if (outcome === 'APPROVED' && row.restrictionNo) {
+        // autoRelease 按 (customerId, cause, caseRef) 找便签，不认 restrictionNo。
+        // ⚠️ 不要假定 caseRef === requestNo：那只在 issuer 自己开的便签上成立
+        // （Task 3）。兑换域的软线拒是**先**开便签（caseRef=swapNo）**再**登记
+        // 材料请求的——那个 fail-safe 顺序是 load-bearing 的，不能为了凑
+        // caseRef 而调换。所以这里读便签自己的 caseRef，两条路径都对。
+        const restriction = await this.restrictions.findByNo(row.restrictionNo, tx);
+        if (restriction) {
+          await this.restrictionWorkflow.autoRelease(
+            row.customerId,
+            restriction.cause,
+            restriction.caseRef,
+            'SYSTEM',
+            tx,
+          );
+        } else {
+          this.logger.warn(
+            `Material request ${row.requestNo} points at restriction ${row.restrictionNo} which no longer exists — nothing to auto-release`,
+          );
+        }
+      }
+
+      return reviewed;
+    });
+
+    // 事件必须在事务提交之后才广播：事务体内部发的话，一旦回滚，下游会按一个
+    // 从未真正发生过的事实动作行事。
     // 只广播事实，不替订单域做状态决定 —— 各域的合规闸门规矩不一样，
     // 材料账不该知道充值退回和提现拒付分别该怎么走。
     this.eventEmitter.emit(DomainEventNames.MATERIAL_REQUEST_REVIEWED, {

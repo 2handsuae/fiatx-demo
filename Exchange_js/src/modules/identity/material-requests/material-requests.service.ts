@@ -253,14 +253,20 @@ export class MaterialRequestsService {
   /**
    * 落裁决。RED 必须带 rejectType —— 不许默默当成 FINAL 把单关掉，
    * 也不许默默当成 RETRY 让运营永远关不了单（树上两条旧路各犯了其中一个）。
+   *
+   * @param tx 传了外部事务（如 material-request-review 的落章事务）就在其内跑，
+   * 不再另开一层 —— 落章与自动撕便签必须同生共死。不传则照旧走事务外 base client，
+   * 行为与此前逐字一致。
    */
   async markReviewed(
     requestNo: string,
     answer: 'GREEN' | 'RED',
     rejectType: 'RETRY' | 'FINAL' | null,
     actor: MaterialActor,
+    tx?: Record<string, any>,
   ): Promise<MaterialRequestRow> {
-    const row = await this.prisma.materialRequest.findUnique({ where: { requestNo } });
+    const client = (tx ?? this.prisma) as Record<string, any>;
+    const row = await client.materialRequest.findUnique({ where: { requestNo } });
     if (!row) throw new NotFoundException(`Material request not found: ${requestNo}`);
 
     if (answer === 'RED' && rejectType !== 'RETRY' && rejectType !== 'FINAL') {
@@ -282,7 +288,7 @@ export class MaterialRequestsService {
     // 先查后写会撞并发：同一 requestNo 被重复/并发裁决时两次调用都可能读到
     // row.status 各自写入。改成带 status 条件的原子卡位（同 markSubmitted 范式）——
     // 只有 status 仍等于读出时的值才落章，否则说明这一行已被别人改过。
-    const res = await this.prisma.materialRequest.updateMany({
+    const res = await client.materialRequest.updateMany({
       where: { requestNo, status: row.status },
       data: {
         status: nextStatus,
@@ -301,7 +307,7 @@ export class MaterialRequestsService {
         message: `Material request ${requestNo} was modified concurrently; review not applied`,
       });
     }
-    const updated = await this.prisma.materialRequest.findUnique({ where: { requestNo } });
+    const updated = await client.materialRequest.findUnique({ where: { requestNo } });
 
     const auditAction =
       action === 'REVIEW_GREEN'

@@ -30,13 +30,16 @@ describe('CustomerRestrictionWorkflowService.autoRelease', () => {
 
     await wf.autoRelease('cust-1', 'MATERIAL_EXPIRED', 'MRC26073100xx', 'system');
 
+    // Task 4：autoRelease 追加可选末位 tx，不传时原样转发 undefined —— 与调用方
+    // 无 tx 时的既有行为逐字一致（走各自的 base client）。
     expect(restrictionsService.findOpenByCause).toHaveBeenCalledWith(
-      'cust-1', 'MATERIAL_EXPIRED', 'MRC26073100xx',
+      'cust-1', 'MATERIAL_EXPIRED', 'MRC26073100xx', undefined,
     );
-    expect(restrictionsService.release).toHaveBeenCalledWith('RST2608160002', {
-      releasedBy: 'system',
-      releaseMode: 'AUTO',
-    });
+    expect(restrictionsService.release).toHaveBeenCalledWith(
+      'RST2608160002',
+      { releasedBy: 'system', releaseMode: 'AUTO' },
+      undefined,
+    );
     expect(restrictionsService.release).toHaveBeenCalledTimes(1);
   });
 
