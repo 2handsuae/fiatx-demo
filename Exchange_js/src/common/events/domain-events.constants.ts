@@ -56,6 +56,14 @@ export const DOMAIN_EVENTS = {
       '一次材料下发拿到了 Sumsub 复核结果。订单域据此推进自己的合规闸门 —— ' +
       '材料账只广播事实，不替订单域做状态决定。',
   },
+
+  // ── Swap (2026-08-17) ──
+  SWAP_STATUS_CHANGED: {
+    name: 'swap.status.changed',
+    description:
+      '兑换单状态变更。补于 2026-08-17 —— 此前三域只有充值/提现有单据级状态事件，' +
+      '兑换只有资金单粒度的 FUNDS_ORDER_STATUS_CHANGED，材料账的作废监听器接不上。',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -71,4 +79,6 @@ export const DomainEventNames = {
   CUSTOMER_RESTRICTION_OPENED: DOMAIN_EVENTS.CUSTOMER_RESTRICTION_OPENED.name,
   // Material Request
   MATERIAL_REQUEST_REVIEWED: DOMAIN_EVENTS.MATERIAL_REQUEST_REVIEWED.name,
+  // Swap
+  SWAP_STATUS_CHANGED: DOMAIN_EVENTS.SWAP_STATUS_CHANGED.name,
 } as const;

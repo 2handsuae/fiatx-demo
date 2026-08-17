@@ -7,6 +7,7 @@ import { MaterialRefreshModule } from '../material-refresh/material-refresh.modu
 import { MaterialRequestsService } from './material-requests.service';
 import { MaterialRequestIssuerService } from './material-request-issuer.service';
 import { MaterialRequestReviewService } from './material-request-review.service';
+import { MaterialRequestOrderCancelListener } from './material-request-order-cancel.listener';
 
 @Module({
   imports: [
@@ -16,7 +17,12 @@ import { MaterialRequestReviewService } from './material-request-review.service'
     forwardRef(() => OnboardingModule),
     forwardRef(() => MaterialRefreshModule),
   ],
-  providers: [MaterialRequestsService, MaterialRequestIssuerService, MaterialRequestReviewService],
+  providers: [
+    MaterialRequestsService,
+    MaterialRequestIssuerService,
+    MaterialRequestReviewService,
+    MaterialRequestOrderCancelListener,
+  ],
   exports: [MaterialRequestsService, MaterialRequestIssuerService, MaterialRequestReviewService],
 })
 export class MaterialRequestsModule {}

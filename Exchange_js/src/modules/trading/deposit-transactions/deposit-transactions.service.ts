@@ -106,6 +106,15 @@ const CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
 // completedAt 原样漏给客户。
 const CUSTOMER_COMPLETED_STATUSES = new Set<string>(['SUCCESS', 'FAILED', 'RETURNED']);
 
+/** 充值终态。零出边 —— 材料账的作废监听器也读这一份，不另立第二份定义。 */
+export const DEPOSIT_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
+  DepositTransactionStatus.SUCCESS,
+  DepositTransactionStatus.FAILED,
+  DepositTransactionStatus.CONFISCATED,
+  DepositTransactionStatus.RETURNED,
+  DepositTransactionStatus.SEIZED,
+]);
+
 export interface DepositStatusUpdateActorContext {
   actorType: string;
   actorId: string;
@@ -651,14 +660,7 @@ export class DepositTransactionsService {
       ...(options?.extraData || {}),
     };
 
-    const TERMINAL = new Set([
-      DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.CONFISCATED,
-      DepositTransactionStatus.RETURNED,
-      DepositTransactionStatus.SEIZED,
-    ]);
-    if (TERMINAL.has(nextStatus) || nextStatus === DepositTransactionStatus.FROZEN) {
+    if (DEPOSIT_TERMINAL_STATUSES.has(nextStatus) || nextStatus === DepositTransactionStatus.FROZEN) {
       updateData.completedAt = new Date();
     }
 
@@ -687,15 +689,7 @@ export class DepositTransactionsService {
     current: DepositTransactionStatus,
     action: DepositTransactionAction,
   ): DepositTransactionStatus {
-    const TERMINAL = new Set([
-      DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.CONFISCATED,
-      DepositTransactionStatus.RETURNED,
-      DepositTransactionStatus.SEIZED,
-    ]);
-
-    if (TERMINAL.has(current)) {
+    if (DEPOSIT_TERMINAL_STATUSES.has(current)) {
       throw new BadRequestException(
         `Cannot apply action '${action}' to terminal status '${current}'`,
       );

@@ -25,6 +25,14 @@ import {
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
 
+/** 提现终态。零出边（状态机收窄后不再有 SUCCESS→RETURNED 或终态自环）。 */
+export const WITHDRAW_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
+  WithdrawTransactionStatus.SUCCESS,
+  WithdrawTransactionStatus.REJECTED,
+  WithdrawTransactionStatus.FAILED,
+  WithdrawTransactionStatus.RETURNED,
+]);
+
 export interface WithdrawStatusUpdateContext {
   source: WithdrawStatusUpdateSource;
   actorType?: string;
