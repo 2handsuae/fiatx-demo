@@ -298,6 +298,33 @@ describe('CustomerRestrictionsService.open', () => {
       svc.open({ customerId: 'ghost', cause: 'SANCTION', reason: 'x', openedBy: 'ops' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('传了外部 tx：不再自己开 $transaction，写入直接走传进来的那个 client（不是别开的第二事务）', async () => {
+    const { prisma } = createPrismaMock();
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
+
+    const externalTx = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'c1', customerNo: 'CUS-001' }),
+      },
+      customerRestriction: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    } as any;
+
+    const result = await svc.open(
+      { customerId: 'c1', cause: 'PENDING_DOCUMENT', reason: 'ID copy', openedBy: 'ops@fiatx.com' },
+      externalTx,
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(externalTx.customerMain.findUnique).toHaveBeenCalledTimes(1);
+    expect(externalTx.customerRestriction.createMany).toHaveBeenCalledTimes(1);
+    expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
+    expect(result.created).toBe(true);
+  });
 });
 
 describe('CustomerRestrictionsService.release', () => {

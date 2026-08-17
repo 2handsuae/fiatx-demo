@@ -71,13 +71,20 @@ export class CustomerRestrictionWorkflowService {
     } as AuditActorContext;
   }
 
+  /**
+   * @param tx 传了外部事务（如 material-request-issuer 的落行事务）就全程用它 ——
+   * 贴便签、读回、写审计都在同一个 client 上跑，不再另起连接。SQLite 单写者模型下
+   * 外层事务持锁未提交时，任何走事务外 client 的读/写都会等锁甚至报错；不传则照旧
+   * 各自走 base client，行为与此前逐字一致。
+   */
   async openRestriction(
     input: OpenRestrictionInput,
     actor: ApprovalActorContext,
+    tx?: Record<string, any>,
   ): Promise<{ restrictionNo: string; created: boolean }> {
-    const { restrictionNo, created } = await this.restrictions.open(input);
+    const { restrictionNo, created } = await this.restrictions.open(input, tx);
 
-    const row = await this.restrictions.findByNo(restrictionNo);
+    const row = await this.restrictions.findByNo(restrictionNo, tx);
     if (!row) {
       throw new NotFoundException(`Restriction not found right after open: ${restrictionNo}`);
     }
@@ -91,6 +98,7 @@ export class CustomerRestrictionWorkflowService {
         ? `${row.cause} restriction opened: ${row.reason}`
         : `${row.cause} restriction already open — duplicate request ignored: ${row.reason}`,
       { releaseMode: null, approvalNo: null, releaseOrderRef: null },
+      tx,
     );
 
     // 制裁便签额外写 CUSTOMER_FROZEN：客户级冻结在审计上单独可检索。
@@ -101,6 +109,7 @@ export class CustomerRestrictionWorkflowService {
         auditActor,
         `Customer frozen by sanction restriction ${row.restrictionNo}`,
         { releaseMode: null, approvalNo: null, releaseOrderRef: null },
+        tx,
       );
     }
 
@@ -314,6 +323,7 @@ export class CustomerRestrictionWorkflowService {
     }
   }
 
+  /** @param tx 传了就把审计写在同一个 client 上（openRestriction 收到外部事务时用）。 */
   private async audit(
     action: string,
     row: RestrictionRow,
@@ -324,6 +334,7 @@ export class CustomerRestrictionWorkflowService {
       approvalNo: string | null;
       releaseOrderRef: string | null;
     },
+    tx?: Record<string, any>,
   ): Promise<void> {
     // entityNo / entityOwnerNo（customerNo）由 AuditLogsService 自行解析，
     // 见 resolveEntityNo 的 CUSTOMER 映射 —— 本服务因此无需注入 Prisma。
@@ -350,6 +361,7 @@ export class CustomerRestrictionWorkflowService {
         sourcePlatform: actor.actorType === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
       actor,
+      tx,
     );
   }
 }

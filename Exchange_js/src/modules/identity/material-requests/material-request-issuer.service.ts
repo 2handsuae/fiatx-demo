@@ -128,6 +128,7 @@ export class MaterialRequestIssuerService {
           openedBy: row.issuedBy,
         },
         actor,
+        tx,
       );
       await this.requests.attachRestriction(created.requestNo, restrictionNo, tx);
       return { requestNo: created.requestNo, restrictionNo };
