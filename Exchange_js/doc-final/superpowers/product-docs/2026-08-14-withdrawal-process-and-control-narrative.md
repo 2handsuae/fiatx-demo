@@ -62,8 +62,8 @@ stateDiagram-v2
     state "DECLINED" as DE
     state "FAILED" as FA
     state "RETURNED" as RE
-    [*] --> CR : created
-    CR --> AA : 200k AED or more
+    [*] --> AA : 200k AED or more
+    [*] --> CR : below threshold
     AA --> CR : signed
     AA --> DE : declined
     CR --> AR : documents needed
@@ -91,7 +91,8 @@ stateDiagram-v2
 
 **Reading it as an officer:**
 
-- **Every withdrawal is created in *Compliance review*.** The reservation on the customer's money is already in place at that moment. Within the same second, one at or above 200,000 AED is routed up to *Awaiting Senior Mgmt*. Anyone reading the audit trail will see **two** status lines at the start of a large-value withdrawal — that is the routing hop, not a duplicate.
+- **A withdrawal is born in one of two states, never anywhere else.** At or above 200,000 AED it lands in *Awaiting Senior Mgmt*; below the threshold it goes straight to *Compliance review*. The reservation on the customer's money is placed before either.
+- **The senior signature comes first, screening second.** A large-value withdrawal is **not submitted to Sumsub at all** until it is signed. Nothing is screened, no clock runs, and no verdict can arrive while it waits — which is why an unsigned large-value withdrawal is completely inert. *(For Internal Audit: the record is written and then routed within the same instant, so a large-value withdrawal shows two status lines at the very start. No screening takes place against the first one.)*
 - The customer's money is unspendable from the very first state, but it stays **theirs, and stays with us**, until the payout is confirmed — and that happens *inside* *Payout in flight*, not on entry to it.
 - **All three arrows into *Payout in flight* are the same mechanism: a clean Sumsub verdict.** Our own console has no release button anywhere. That is why there cannot be a fourth way in — and it is why an MLRO unfreeze does not release money either: it only returns the withdrawal to screening, where it must still earn a clean verdict.
 - **Green endings return the money** to the customer's spendable balance. The red one is the only ending that takes it away. One nuance: *Declined* and *Failed* return the fee as well; *Returned* returns the principal, and returns the fee only if we had not yet collected it (see 3.1).
