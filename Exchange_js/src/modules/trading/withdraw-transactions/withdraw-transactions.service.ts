@@ -23,7 +23,23 @@ import {
   buildStateTransitionAction,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 export type WithdrawStatusUpdateSource = 'ADMIN_API' | 'WORKFLOW' | 'SYSTEM';
+
+/**
+ * updateStatus 落库成功后广播的提现单状态变更事件。此前 WITHDRAWAL_STATUS_CHANGED
+ * 全仓零 emit 点（死事件）——材料账的作废监听器订了它但从来收不到。补发时字段形状
+ * 对齐 SWAP_STATUS_CHANGED（同批新加，三域对称），不沿用 domain-events.constants.ts
+ * 里那份从未被满足过的旧 payload 文档（oldStatus/assetId 等）。
+ */
+export interface WithdrawStatusChangedEvent {
+  withdrawId: string;
+  withdrawNo: string;
+  ownerId: string;
+  previousStatus: string;
+  status: string;
+  traceId: string | null;
+}
 
 /** 提现终态。零出边（状态机收窄后不再有 SUCCESS→RETURNED 或终态自环）。 */
 export const WITHDRAW_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
@@ -710,6 +726,19 @@ export class WithdrawTransactionsService {
       );
 
       const postCommitEvents: Array<{ eventName: string; payload: any }> = [];
+
+      const statusChangedPayload: WithdrawStatusChangedEvent = {
+        withdrawId: updated.id,
+        withdrawNo: updated.withdrawNo,
+        ownerId: updated.ownerId,
+        previousStatus: currentStatus,
+        status: nextStatus,
+        traceId: updated.traceId ?? null,
+      };
+      postCommitEvents.push({
+        eventName: DomainEventNames.WITHDRAWAL_STATUS_CHANGED,
+        payload: statusChangedPayload,
+      });
 
       return {
         updated: {

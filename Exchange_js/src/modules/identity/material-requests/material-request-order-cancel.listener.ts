@@ -2,8 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { MaterialRequestsService, type MaterialActor } from './material-requests.service';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DEPOSIT_TERMINAL_STATUSES } from '../../trading/deposit-transactions/deposit-transactions.service';
-import { WITHDRAW_TERMINAL_STATUSES } from '../../trading/withdraw-transactions/withdraw-transactions.service';
+import type { DepositStatusChangedEvent } from '../../trading/deposit-transactions/events/deposit-transaction.events';
+import {
+  WITHDRAW_TERMINAL_STATUSES,
+  type WithdrawStatusChangedEvent,
+} from '../../trading/withdraw-transactions/withdraw-transactions.service';
 import { SWAP_TERMINAL_STATUSES } from '../../trading/swap-transactions/swap-transactions.service';
 import type { MaterialRequestOrderDomain } from './constants/material-request.constant';
 
@@ -27,16 +32,27 @@ const SYSTEM_ACTOR: MaterialActor = {
 export class MaterialRequestOrderCancelListener {
   private readonly logger = new Logger(MaterialRequestOrderCancelListener.name);
 
-  constructor(private readonly requests: MaterialRequestsService) {}
+  constructor(
+    private readonly requests: MaterialRequestsService,
+    private readonly prisma: PrismaService,
+  ) {}
 
+  // DepositStatusChangedEvent 的真实字段是 depositId/newStatus（无 depositNo）——
+  // 材料账的 orderRef 存的却是业务键 depositNo，这里补一次反查（2026-08-17 修：
+  // 此前误当成 { depositNo, status } 形状读，恒 undefined，作废悄悄失效）。
   @OnEvent(DomainEventNames.DEPOSIT_STATUS_CHANGED, { async: true })
-  async onDepositStatusChanged(event: { depositNo?: string; status?: string }): Promise<void> {
-    if (!event?.depositNo || !DEPOSIT_TERMINAL_STATUSES.has(String(event.status))) return;
-    await this.settle('DEPOSIT', event.depositNo, String(event.status));
+  async onDepositStatusChanged(event: DepositStatusChangedEvent): Promise<void> {
+    if (!event?.depositId || !DEPOSIT_TERMINAL_STATUSES.has(String(event.newStatus))) return;
+    const deposit = await (this.prisma as any).depositTransaction.findUnique({
+      where: { id: event.depositId },
+      select: { depositNo: true },
+    });
+    if (!deposit) return;
+    await this.settle('DEPOSIT', deposit.depositNo, String(event.newStatus));
   }
 
   @OnEvent(DomainEventNames.WITHDRAWAL_STATUS_CHANGED, { async: true })
-  async onWithdrawStatusChanged(event: { withdrawNo?: string; status?: string }): Promise<void> {
+  async onWithdrawStatusChanged(event: WithdrawStatusChangedEvent): Promise<void> {
     if (!event?.withdrawNo || !WITHDRAW_TERMINAL_STATUSES.has(String(event.status))) return;
     await this.settle('WITHDRAW', event.withdrawNo, String(event.status));
   }

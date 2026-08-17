@@ -22,11 +22,14 @@ export const DOMAIN_EVENTS = {
     subscribers: ['WithdrawWorkflowService'],
     payload: '{ withdrawId: string, withdrawNo: string, status: string, ownerType: string, ownerId: string, assetId: string, amount: string, traceId: string }',
   },
+  // 2026-08-17 修：此前这条注册表条目是空文档——事件全仓零 emit 点，下面这份
+  // payload 描述从未被满足过。现由 WithdrawTransactionsService#updateStatus 补发，
+  // 字段形状对齐 SWAP_STATUS_CHANGED（三域对称），故与旧文档不同。
   WITHDRAWAL_STATUS_CHANGED: {
     name: 'withdrawal.status.changed',
     emitter: 'WithdrawTransactionsService',
-    subscribers: ['WithdrawWorkflowService'],
-    payload: '{ withdrawId: string, oldStatus: string, newStatus: string, ownerType: string, ownerId: string, assetId: string }',
+    subscribers: ['MaterialRequestOrderCancelListener'],
+    payload: '{ withdrawId: string, withdrawNo: string, ownerId: string, previousStatus: string, status: string, traceId: string | null }',
   },
   // ── Funds Order (unified — Round 2) ──
   FUNDS_ORDER_STATUS_CHANGED: {
