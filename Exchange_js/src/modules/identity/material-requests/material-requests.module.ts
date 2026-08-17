@@ -6,6 +6,7 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
 import { MaterialRefreshModule } from '../material-refresh/material-refresh.module';
 import { MaterialRequestsService } from './material-requests.service';
 import { MaterialRequestIssuerService } from './material-request-issuer.service';
+import { MaterialRequestReviewService } from './material-request-review.service';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { MaterialRequestIssuerService } from './material-request-issuer.service'
     forwardRef(() => OnboardingModule),
     forwardRef(() => MaterialRefreshModule),
   ],
-  providers: [MaterialRequestsService, MaterialRequestIssuerService],
-  exports: [MaterialRequestsService, MaterialRequestIssuerService],
+  providers: [MaterialRequestsService, MaterialRequestIssuerService, MaterialRequestReviewService],
+  exports: [MaterialRequestsService, MaterialRequestIssuerService, MaterialRequestReviewService],
 })
 export class MaterialRequestsModule {}

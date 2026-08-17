@@ -22,6 +22,9 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
   // Finding 6（终审 Minor）：给 Clue 3（材料重检）配一个真 mock，而不是空
   // `{} as any` —— 否则"swap miss 应该继续往下落到 Clue 3"这句断言无从谈起。
   let materialRefreshService: any;
+  // Task 4（材料请求账）：applicantActionReviewed 现在直接查材料请求账，
+  // 不再问 swap router — mock 掉 MaterialRequestReviewService.applyReview。
+  let materialRequestReviewService: any;
   let service: SumsubIngestionService;
 
   function buildEvent(type: string, kytTxnId = 'T1'): SumsubWebhookEvent {
@@ -62,6 +65,7 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
     withdrawWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<WithdrawWebhookRouter>;
     swapWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<SwapWebhookRouter>;
     materialRefreshService = { handleSumsubActionResult: jest.fn().mockResolvedValue(undefined) };
+    materialRequestReviewService = { applyReview: jest.fn().mockResolvedValue(null) };
 
     service = new SumsubIngestionService(
       prisma,
@@ -77,6 +81,7 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       // Task 7：caseDecisionSimulated 的 APPROVE/REJECT 改走限制账
       { open: jest.fn().mockResolvedValue({ restrictionNo: 'RST-1', created: true }) } as any,
       { autoRelease: jest.fn().mockResolvedValue(undefined) } as any,
+      materialRequestReviewService,
     );
   });
 
@@ -156,12 +161,15 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
     );
   });
 
-  // ── Task 13: applicantActionReviewed → swap router (person-level, not a KYT verdict) ──
+  // ── Task 4（材料请求账）: applicantActionReviewed → 按 externalActionId 一次查表 ──
+  // 2026-08-17 之前这里是"先问 swap router 认不认、不认再落 Clue 3（材料重检）"
+  // 的顺序尝试链；本任务把它换成一次 MaterialRequestReviewService.applyReview()
+  // 查表，swapWebhookRouter 完全不再被这个事件类型触碰（它仍被上面的
+  // KYT_VERDICT_TYPES 级联使用，那部分不受影响）。
 
-  // Finding 6: optional `actionId` param — real applicantActionReviewed
-  // webhooks carry both the swap-domain externalActionId AND Sumsub's own
-  // actionId (the material-refresh domain's key, matched in Clue 3). Only the
-  // "swap miss" test below passes one, to prove Clue 3 still fires.
+  // 真实 applicantActionReviewed webhook 同时带 externalActionId（本账
+  // @unique 键）和 Sumsub 自己的 actionId（material-refresh 域的键，走 Clue 3）。
+  // 只有"不属于本账"的用例会传 actionId，用来证明 Clue 3 依然可达。
   function buildActionEvent(externalActionId = 'EA1', actionId?: string): SumsubWebhookEvent {
     return {
       id: 'evt-2',
@@ -190,34 +198,32 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
     } as unknown as SumsubWebhookEvent;
   }
 
-  it('applicantActionReviewed, swap hit → routes to swapWebhookRouter only (deposit/withdraw not tried), dispatchedTo=SWAP_SUMSUB', async () => {
-    swapWebhookRouter.route.mockResolvedValue(true);
+  it('applicantActionReviewed, externalActionId 属于本账 → 只查 materialRequestReviewService（deposit/withdraw/swap router 都不碰），dispatchedTo=MATERIAL_REQUEST', async () => {
+    materialRequestReviewService.applyReview.mockResolvedValue({ requestNo: 'MRQ1', outcome: 'APPROVED' });
     const event = buildActionEvent('EA1');
 
     const result = await service.dispatch(event);
 
     expect(depositWebhookRouter.route).not.toHaveBeenCalled();
     expect(withdrawWebhookRouter.route).not.toHaveBeenCalled();
-    expect(swapWebhookRouter.route).toHaveBeenCalledTimes(1);
-    expect(swapWebhookRouter.route).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'applicantActionReviewed', externalActionId: 'EA1' }),
-    );
-    expect(result).toEqual({ routedTo: 'swap-sumsub', type: 'applicantActionReviewed' });
+    expect(swapWebhookRouter.route).not.toHaveBeenCalled();
+    expect(materialRequestReviewService.applyReview).toHaveBeenCalledWith({
+      externalActionId: 'EA1',
+      reviewAnswer: 'GREEN',
+      reviewRejectType: 'FINAL',
+      actor: { actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
+    });
+    expect(result).toEqual({ routedTo: 'material-requests', requestNo: 'MRQ1', outcome: 'APPROVED' });
     expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ dispatchedTo: 'SWAP_SUMSUB' }) }),
+      expect.objectContaining({ data: expect.objectContaining({ dispatchedTo: 'MATERIAL_REQUEST' }) }),
     );
   });
 
-  it('applicantActionReviewed, swap miss (belongs to another domain, e.g. material refresh) → falls through to Clue 3, material-refresh path actually fires', async () => {
-    // Finding 6（终审 Minor）：此前这个用例的 prisma mock 没配
-    // `materialRefreshCycle`，只能断言 `result === undefined`——如果 Clue 3
-    // 被 Finding 5 那条 else-if 分支误伤成不可达，这个断言照样会通过（因为
-    // materialRefreshCycle 模型压根不存在，代码在那之前就会抛出/落空）。
-    // 改法：给 materialRefreshCycle.findFirst 一个真的命中，断言
-    // materialRefreshService.handleSumsubActionResult 确实被调用、
-    // dispatchedTo 确实落 MATERIAL_REFRESH_ACTION —— 直接锁定"swap 认领不到
-    // 时，Clue 3 依然可达"这条属性。
-    swapWebhookRouter.route.mockResolvedValue(false);
+  it('applicantActionReviewed, externalActionId 不属于本账（applyReview 返回 null）→ 不被认领，后续分支（Clue 3 材料重检）照常可达', async () => {
+    // 这条锁的是本任务改动前"swap miss 时 Clue 3 仍会触发"用例锁的同一条属性，
+    // 只是认领方从 swapWebhookRouter 换成了 materialRequestReviewService：
+    // 一个不属于本账的 externalActionId 必须静默放行，不能把 Clue 3 挡住。
+    materialRequestReviewService.applyReview.mockResolvedValue(null);
     const event = buildActionEvent('some-other-domain-action-id', 'SUMSUB-ACTION-1');
     prisma.materialRefreshCycle.findFirst.mockResolvedValue({
       id: 'cycle-1',
@@ -227,7 +233,12 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
 
     const result = await service.dispatch(event);
 
-    expect(swapWebhookRouter.route).toHaveBeenCalledTimes(1);
+    expect(materialRequestReviewService.applyReview).toHaveBeenCalledWith({
+      externalActionId: 'some-other-domain-action-id',
+      reviewAnswer: 'GREEN',
+      reviewRejectType: 'FINAL',
+      actor: { actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
+    });
     expect(prisma.materialRefreshCycle.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ sumsubActionId: 'SUMSUB-ACTION-1' }),

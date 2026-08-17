@@ -48,6 +48,14 @@ export const DOMAIN_EVENTS = {
     payload:
       '{ customerId: string, restrictionNo: string, cause: string, blocksAllCapabilities: true, traceId: string }',
   },
+
+  // ── Material Request (2026-08-17) ──
+  MATERIAL_REQUEST_REVIEWED: {
+    name: 'material-request.reviewed',
+    description:
+      '一次材料下发拿到了 Sumsub 复核结果。订单域据此推进自己的合规闸门 —— ' +
+      '材料账只广播事实，不替订单域做状态决定。',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -61,4 +69,6 @@ export const DomainEventNames = {
   FUNDS_ORDER_STATUS_CHANGED: DOMAIN_EVENTS.FUNDS_ORDER_STATUS_CHANGED.name,
   // Customer Restriction
   CUSTOMER_RESTRICTION_OPENED: DOMAIN_EVENTS.CUSTOMER_RESTRICTION_OPENED.name,
+  // Material Request
+  MATERIAL_REQUEST_REVIEWED: DOMAIN_EVENTS.MATERIAL_REQUEST_REVIEWED.name,
 } as const;

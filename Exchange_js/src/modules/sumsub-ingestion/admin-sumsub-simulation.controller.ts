@@ -6,6 +6,7 @@ import { SumsubIngestionService } from './sumsub-ingestion.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { TierUpgradeCaseService } from '../identity/tier-upgrade-case/tier-upgrade-case.service';
 import { PrismaService } from '../../core/prisma/prisma.service';
+import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
 
 @ApiTags('Admin - Sumsub Simulation')
 @Controller('admin/sumsub/simulate')
@@ -18,6 +19,7 @@ export class AdminSumsubSimulationController {
     private readonly tierUpgradeCaseService: TierUpgradeCaseService,
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
+    private readonly materialRequests: MaterialRequestsService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -79,41 +81,37 @@ export class AdminSumsubSimulationController {
   }
 
   @Post('applicant-action-result')
-  @ApiOperation({ summary: 'Simulate applicantActionReviewed webhook for a pending cycle' })
+  @ApiOperation({ summary: '模拟 applicantActionReviewed —— 后台三个裁决按钮打这里' })
   async simulateApplicantActionResult(
     @Req() req: any,
     @Body() body: {
-      cycleId?: string;
-      cycleNo?: string;
+      requestNo: string;
       reviewAnswer: 'GREEN' | 'RED';
-      reviewRejectType?: string;
+      reviewRejectType?: 'RETRY' | 'FINAL';
     },
   ) {
     this.ensureAdmin(req);
-
-    let cycle: any;
-    if (body.cycleNo) {
-      cycle = await this.prisma.materialRefreshCycle.findFirst({
-        where: { cycleNo: body.cycleNo },
-      });
-      if (!cycle) throw new ForbiddenException(`Cycle with No ${body.cycleNo} not found`);
-    } else if (body.cycleId) {
-      cycle = await this.prisma.materialRefreshCycle.findUnique({
-        where: { id: body.cycleId },
-      });
-      if (!cycle) throw new ForbiddenException('Cycle not found');
-    } else {
-      throw new ForbiddenException('Either cycleId or cycleNo is required');
+    if (!body.requestNo) throw new BadRequestException('requestNo is required');
+    if (body.reviewAnswer === 'RED' && !body.reviewRejectType) {
+      // 不许默默当成 FINAL 把单关掉，也不许默默当成 RETRY 让运营永远关不了单 ——
+      // 树上两条旧路各犯了其中一个，本轮统一（设计稿 §2.2）。
+      throw new BadRequestException("RED must carry reviewRejectType 'RETRY' or 'FINAL'");
     }
+
+    const request = await this.materialRequests.findByNo(body.requestNo);
+    if (!request) throw new NotFoundException(`Material request not found: ${body.requestNo}`);
+
     const customer = await this.prisma.customerMain.findUnique({
-      where: { id: cycle.customerId },
+      where: { id: request.customerId },
+      select: { sumsubApplicantId: true },
     });
 
     return this.ingestionService.ingest(
       {
         type: 'applicantActionReviewed',
         applicantId: customer?.sumsubApplicantId,
-        actionId: cycle.sumsubActionId,
+        actionId: request.applicantActionId,
+        externalActionId: request.externalActionId,
         reviewResult: {
           reviewAnswer: body.reviewAnswer,
           reviewRejectType: body.reviewRejectType,
