@@ -101,16 +101,32 @@ model MaterialRequest {
 ### 2.2 状态机
 
 ```
-PENDING_SUBMISSION ──客户提交──> SUBMITTED ──裁决 GREEN──> APPROVED
-        │                            │
-        │                            └──裁决 RED────────> REJECTED
+                    ┌──────── RED + RETRY（清提交章，同一 action 重交）────────┐
+                    ↓                                                          │
+PENDING_SUBMISSION ──客户提交──> SUBMITTED ──GREEN──────> APPROVED             │
+        │                            │                                         │
+        │                            ├──RED + FINAL────> REJECTED              │
+        │                            └─────────────────────────────────────────┘
         │
         └──绑的单进终态且没挂限制──> CANCELLED
 ```
 
 终态三个：`APPROVED` / `REJECTED` / `CANCELLED`，零出边。「活着的行」= `PENDING_SUBMISSION` 或 `SUBMITTED`。
 
-再次下发是**新开一行**（新 action id、新链接），老行留着当历史。不复用、不回退。
+**RED 分两种，这是 Sumsub 的真实语义，不能合并成一个「不通过」：**
+
+| `reviewRejectType` | 含义 | 落地 |
+|---|---|---|
+| `RETRY` | 交的东西不合格，让他用**同一个 action** 重交 | 退回 `PENDING_SUBMISSION`，清 `submittedAt`，**`applicantActionId` / `externalActionId` / 认证链接全部不变**。便签保留 |
+| `FINAL` | 拒了 | 置 `REJECTED` 终态。便签保留 |
+
+树上三条路今天对此**互不一致**，本轮统一到上表：
+
+- `swap-sumsub/applicant-action.handler.ts:159` —— 任何 RED 都 `resetSubmission()`，没有终态拒绝，运营无法关单
+- `material-refresh.service.ts:181` —— 任何 RED 都退回 `PENDING_CUSTOMER_EVIDENCE`，同上
+- `onboarding.service.ts:236` —— 唯一分了 `RED + RETRY` 与其余，本轮以它为准
+
+`REJECTED` 之后要再要材料，是**新开一行**（新 action id、新链接），老行留着当历史。`RETRY` 不是新开行 —— 它就是同一行退回重交。
 
 ### 2.3 三种 origin
 
@@ -195,7 +211,9 @@ PENDING_SUBMISSION ──客户提交──> SUBMITTED ──裁决 GREEN──>
 
 ### 4.3 裁决 —— 后台，客户详情页与订单详情页共用
 
-`SUBMITTED` 的行给两个按钮：**✅ Approve** / **❌ Reject**。整节用 `useSimulationMode()` 门控，与充值详情页现有的「10. Simulation」区一致，真接 Sumsub 时不出现。
+`SUBMITTED` 的行给**三个**按钮：**✅ Approve** / **🔄 Reject · Retry** / **❌ Reject · Final**。三个而不是两个，是因为 Sumsub 的 RED 本身就带 `reviewRejectType`（见 §2.2）——只给「通过/不通过」两个按钮，就模拟不出"让他重交"这个在真实流程里最常见的分支。
+
+整节用 `useSimulationMode()` 门控，与充值详情页现有的「10. Simulation」区一致，真接 Sumsub 时不出现。
 
 按钮打 `POST /admin/sumsub/simulate/applicant-action-result`。**该端点已存在但写死只认 `cycleId`/`cycleNo`**（`admin-sumsub-simulation.controller.ts:81`），改成认 `requestNo`。它照旧造 `applicantActionReviewed` 报文丢进 `SumsubIngestionService.ingest()`。
 
@@ -225,11 +243,19 @@ Ingestion 拿 `externalActionId` **一次查表**定位到那一行，行上写�
 2. 挂了便签 → `CustomerRestrictionWorkflowService.autoRelease()` 自动撕，`releaseMode = AUTO`，**不走审批**（这条路径材料重检已在用）
 3. 绑了单 → 发事件通知该域，**域自己决定怎么推进**。材料账不替订单域做状态决定
 
-**Reject（RED）**
-1. 行置 `REJECTED`
+**Reject · Retry（RED + `reviewRejectType='RETRY'`）**
+1. 行退回 `PENDING_SUBMISSION`，清 `submittedAt`
+2. `applicantActionId` / `externalActionId` / 认证链接**全部不变**，客户回到同一个页面重交
+3. **便签原地不动**
+4. 客户端表现：横幅/订单页从「审核中」退回「请认证」
+
+**Reject · Final（RED + `reviewRejectType='FINAL'`）**
+1. 行置 `REJECTED` 终态
 2. **便签原地不动**。审不过就是没解开 —— 这是本设计最不能含糊的一条
-3. 绑了单 → 同样通知该域
-4. 运营要么再下发一次（新行、新 action id），要么走审批手工撕便签
+3. 绑了单 → 通知该域
+4. 运营要么再下发一次（**新行、新 action id**），要么走审批手工撕便签
+
+两种 RED 都**不撕便签**。区别只在这一行还能不能继续用。
 
 ### 5.3 到期升档：同一行补挂限制
 
@@ -315,6 +341,7 @@ Ingestion 拿 `externalActionId` **一次查表**定位到那一行，行上写�
 2. 挂限制的充值单走到 RETURNED：订单页不再显示该行，客户级横幅仍红着，行未作废且已解绑订单
 3. 不挂限制的充值单走到 RETURNED：该行 `CANCELLED`，两端均不显示
 4. 护照行从 T-30 到 T-0：`requestNo` 与 `externalActionId` 全程不变，横幅由黄转红
-5. Approve 后便签自动撕（`releaseMode=AUTO`，无审批案）；Reject 后便签仍 OPEN
+5. Approve 后便签自动撕（`releaseMode=AUTO`，无审批案）；两种 Reject 后便签均仍 OPEN
+8. Reject·Retry 后：行退回 `PENDING_SUBMISSION`、`externalActionId` 与裁决前逐字相同、客户可再次提交；Reject·Final 后：行 `REJECTED` 且客户端两处均不再显示该行
 6. 后台「要不要摁住」的下拉里不存在 `SANCTION` / `KYT_REJECTED_HARD`（I1）
 7. 任一客户面响应体中搜不到 `applicantActionId` 字面值（I2）
