@@ -271,7 +271,7 @@ Ingestion 拿 `externalActionId` **一次查表**定位到那一行，行上写�
 
 | # | 约束 | 为什么 |
 |---|---|---|
-| **I1** | 材料请求**只能**挂 `DISCLOSED` 类便签（`PENDING_DOCUMENT` / `MATERIAL_EXPIRED`）。SILENT 类（`SANCTION` / `KYT_REJECTED_HARD`）的 cause 根本不出现在后台「要不要摁住」的选项里 | 客户点进认证页就等于被告知「你因为某个不能说的原因被卡住了」= tipping-off |
+| **I1** | 材料请求**只能**挂 `DISCLOSED` 类便签。白名单 = `PENDING_DOCUMENT` / `MATERIAL_EXPIRED` / `KYT_REJECTED_SOFT`（兑换域软线拒用的就是最后这个，它也是 DISCLOSED）。SILENT 类（`SANCTION` / `KYT_REJECTED_HARD`）根本不出现在后台「要不要摁住」的选项里，且守则测试逐个回查注册表确认白名单里每一项的 `visibility` 都是 `DISCLOSED` | 客户点进认证页就等于被告知「你因为某个不能说的原因被卡住了」= tipping-off |
 | **I2** | `applicantActionId` 绝不出现在任何客户面响应里 | 沿用 `deposit_applicant_actions` 既定口径；客户面只认 `requestNo` |
 | **I3** | `orderDomain` 与 `orderRef` 同空同非空 | 半绑状态无法判定展示位置 |
 | **I4** | 每一行至少有一个客户端入口（§3.3 四行全覆盖） | 孤儿 = 运营发了、客户看不见、双方都不知道 |
@@ -287,7 +287,21 @@ Ingestion 拿 `externalActionId` **一次查表**定位到那一行，行上写�
 ### 7.1 新建
 
 - `material_requests` 表 + `MaterialRequestService`（实体守卫：建行/提交/裁决/作废 + 审计）
-- 可下发 level 注册表（常量表，仿 `RESTRICTION_CAUSE_POLICY`）：level 名 + 人类可读标签 + 该 level 要哪些文档。今日树上散落的 level 名：`wave3-level-1` / `wave3-level-2` / `wave3-poa` / `level-1` / `level-2`，需收成一处
+- ~~可下发 level 注册表~~ **不新建 —— 已经有了**。`config/material-refresh-policy.json` 的 `materials` 段就是这张表，形状正好够用：
+
+  | 材料类型 | `sumsubActionLevelName` | `enforceRestriction` | `managementMode` |
+  |---|---|---|---|
+  | `EMIRATES_ID` | `wave3-action-id-refresh` | true | SUMSUB_MANAGED |
+  | `LIVENESS` | `wave3-action-liveness-refresh` | true | SELF_MANAGED |
+  | `PROOF_OF_ADDRESS` | `wave3-action-poa-refresh` | true | SELF_MANAGED |
+  | `SOURCE_OF_FUNDS` | `wave3-action-sof-refresh` | true | SELF_MANAGED |
+  | `SOURCE_OF_WEALTH` | `wave3-action-sow-refresh` | true | SELF_MANAGED |
+
+  经 `MaterialRefreshPolicyLoader.getMaterialConfig(materialType)` 读取。
+
+  后台下发弹窗的「要什么材料」下拉 = **这张表的 key**（材料类型），不是让运营手打 Sumsub level 名；`levelName` 由注册表推导后落库。运营看得懂「Proof of Address」，看不懂 `wave3-action-poa-refresh`。
+
+  本轮对它的唯一改动：`enforceRestriction` 目前只被到期升档路径消费，现在也作为下发弹窗「要不要摁住」的**默认勾选值**（运营可改）。
 - admin：客户详情 Verification Requests 节 + 下发弹窗 + 裁决按钮组件（订单详情页复用同一组件）
 - client：`/verification/:requestNo` 单页
 
@@ -330,7 +344,7 @@ Ingestion 拿 `externalActionId` **一次查表**定位到那一行，行上写�
 | # | 问题 | 建议 |
 |---|---|---|
 | **Q1** | swap 域缺 `SWAP_STATUS_CHANGED` 事件，作废规则的接线方式 | 实施时二选一：补一个域事件（与另两域对称），或在 swap workflow 终态处直接调材料账。倾向补事件 |
-| **Q2** | level 注册表里每个 level 到底要哪些文档，需与 Sumsub 侧实际配置对齐 | demo 阶段先按现有 level 名硬编码标签，真接前核对 |
+| **Q2** | `config/material-refresh-policy.json` 里 5 个 level 名与 Sumsub 租户实际配置是否对得上，真接前须核对 | demo 阶段照用；另注意 `PASSPORT` 出现在 `ProfileBannerService.formatMaterialName()` 的映射里却**不在注册表中**，下发下拉以注册表为准 |
 | **Q3** | 已被 `REJECTED` 的行，其便签长期挂着无人清理 | 现设计靠运营再下发或手工撕。是否需要 SLA 提醒，本轮不做，登记 BACKLOG |
 
 ---
