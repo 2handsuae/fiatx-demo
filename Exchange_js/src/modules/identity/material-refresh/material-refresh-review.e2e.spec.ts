@@ -90,11 +90,14 @@ function buildHarness(cycleStatus: string) {
   ]);
   const customerMainTable = makeTable([{ id: CUSTOMER_ID, riskRating: 'LOW' }]);
 
-  const materialRefreshPrisma = {
+  const materialRefreshPrisma: Record<string, any> = {
     materialRefreshCycle: materialRefreshCycleTable,
     customerMaterialHolding: customerMaterialHoldingTable,
     customerMain: customerMainTable,
   };
+  // REJECTED 分支的两次写包在 $transaction 里（Task 11 修复）——tx 转发回同一批
+  // 手搓表，语义与真实 SQLite 事务对手搓桩来说等价（同一进程内顺序执行）。
+  materialRefreshPrisma.$transaction = jest.fn((cb: any) => cb(materialRefreshPrisma));
 
   const restrictionWorkflow = { autoRelease: jest.fn().mockResolvedValue(undefined) };
 
@@ -204,6 +207,9 @@ describe('端到端：MATERIAL_REQUEST_REVIEWED 事件真被材料重检域接�
 
     const holding = h.customerMaterialHoldingTable.rows[0];
     expect(holding.activeRefreshCycleId).toBeNull();
+
+    // 只有 GREEN 才撕便签 —— REJECTED 是终态但没解开，便签必须原地不动
+    expect(h.restrictionWorkflow.autoRelease).not.toHaveBeenCalled();
   });
 
   it('RED+RETRY → cycle 退回 PENDING_CUSTOMER_EVIDENCE，不转终态', async () => {
@@ -224,5 +230,8 @@ describe('端到端：MATERIAL_REQUEST_REVIEWED 事件真被材料重检域接�
     // RETRY 不该动 holding 的 activeRefreshCycleId——这一轮还没完
     const holding = h.customerMaterialHoldingTable.rows[0];
     expect(holding.activeRefreshCycleId).toBe(CYCLE_ID);
+
+    // 只有 GREEN 才撕便签 —— RETRY 还没进终态，更不该撕
+    expect(h.restrictionWorkflow.autoRelease).not.toHaveBeenCalled();
   });
 });

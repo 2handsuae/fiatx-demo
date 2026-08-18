@@ -272,13 +272,18 @@ export class MaterialRefreshService {
     }
 
     if (outcome === 'REJECTED') {
-      await this.prisma.materialRefreshCycle.update({
-        where: { id: cycle.id },
-        data: { status: 'REJECTED', rejectedAt: new Date(), resolutionReason: 'sumsub_final_reject' },
-      });
-      await this.prisma.customerMaterialHolding.updateMany({
-        where: { activeRefreshCycleId: cycle.id },
-        data: { activeRefreshCycleId: null },
+      // 两次写必须同一事务：进程若崩在两次写之间，cycle 落 REJECTED 终态但
+      // holding.activeRefreshCycleId 仍指向它，enterNotifiedStage() 的守卫会把
+      // 这个 holding 永久挡在下一轮重检门外（本任务一直在防的卡死故障类型）。
+      await this.prisma.$transaction(async (tx: Record<string, any>) => {
+        await tx.materialRefreshCycle.update({
+          where: { id: cycle.id },
+          data: { status: 'REJECTED', rejectedAt: new Date(), resolutionReason: 'sumsub_final_reject' },
+        });
+        await tx.customerMaterialHolding.updateMany({
+          where: { activeRefreshCycleId: cycle.id },
+          data: { activeRefreshCycleId: null },
+        });
       });
       return;
     }
