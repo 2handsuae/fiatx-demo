@@ -27,7 +27,6 @@ function build() {
   const requests = {
     listLiveByOrder: jest.fn().mockResolvedValue([]),
     cancel: jest.fn().mockResolvedValue(undefined),
-    markSubmitted: jest.fn().mockResolvedValue(true),
   } as any;
   const issuer = { register: jest.fn().mockResolvedValue({ requestNo: 'MRQ-new', restrictionNo: 'RST-1' }) } as any;
   const svc = new DepositApplicantActionsService(prisma, requests, issuer);
@@ -94,6 +93,13 @@ describe('DepositApplicantActionsService', () => {
     const r = await svc.syncApplicantActions('dep-1', [
       { applicantActionId: 'a1', externalActionId: '' },
     ]);
+    expect(issuer.register).not.toHaveBeenCalled();
+    expect(r).toEqual({ added: 0, retired: 0 });
+  });
+
+  it('incoming 含空 applicantActionId 的条目 → 被跳过，不调 issuer.register', async () => {
+    const { svc, issuer } = build();
+    const r = await svc.syncApplicantActions('dep-1', [{ applicantActionId: '', externalActionId: 'e1' }]);
     expect(issuer.register).not.toHaveBeenCalled();
     expect(r).toEqual({ added: 0, retired: 0 });
   });
