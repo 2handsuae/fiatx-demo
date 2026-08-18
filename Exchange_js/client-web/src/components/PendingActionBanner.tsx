@@ -42,6 +42,8 @@ interface ClientMaterialRequestRow {
   materialLabel: string;
   status: 'PENDING_SUBMISSION' | 'SUBMITTED';
   blocking: boolean;
+  /** 上一次被打回（RED+RETRY）→ 这一轮是重交，文案必须与首次要材料区分开 */
+  resubmission: boolean;
   orderDomain: 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | null;
   reason: string;
 }
@@ -124,7 +126,11 @@ export function PendingActionBanner() {
               <p className="font-sans text-[12px] text-fx-dune leading-snug">
                 {submitted
                   ? `${r.materialLabel} — submitted, under review.`
-                  : `${r.materialLabel}: ${r.reason}`}
+                  : r.resubmission
+                    ? // 打回重交：不说清这一点，客户会以为上次根本没提交成功，
+                      // 于是干等。只说「要重交」，不下发审核内部的拒绝细节。
+                      `${r.materialLabel} — the documents you sent could not be accepted. Please upload them again.`
+                    : `${r.materialLabel}: ${r.reason}`}
               </p>
             </div>
             {!submitted && (
@@ -134,7 +140,7 @@ export function PendingActionBanner() {
                 }
                 className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-brass hover:text-fx-ember transition-colors"
               >
-                Verify now
+                {r.resubmission ? 'Re-upload' : 'Verify now'}
               </button>
             )}
           </div>

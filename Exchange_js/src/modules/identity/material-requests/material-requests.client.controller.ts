@@ -78,6 +78,9 @@ export class MaterialRequestsClientController {
       materialLabel: materialLabel(r.materialType),
       status: r.status as (typeof MATERIAL_REQUEST_LIVE_STATUSES)[number],
       blocking: r.restrictionNo !== null,
+      // 上一次裁决是 RED+RETRY 打回来的 —— 这一轮是重交，不是第一次要。
+      // 不下发 reviewRejectType 本身，只下发这个布尔：客户不需要知道审核内部术语。
+      resubmission: r.reviewAnswer === 'RED' && r.reviewRejectType === 'RETRY',
       orderDomain: r.orderDomain,
       orderRef: r.orderRef,
       reason: r.reason,

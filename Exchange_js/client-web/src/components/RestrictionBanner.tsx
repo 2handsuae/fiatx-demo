@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AlertCircle } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
 import type { DisclosedRestrictionView } from '../hooks/useCustomerProfile';
@@ -21,13 +20,20 @@ import type { DisclosedRestrictionView } from '../hooks/useCustomerProfile';
  *  refetch-on-visibilitychange。
  * ──────────────────────────────────────────────────────────────── */
 
-// 材料类限制客户自己能解 → CTA 跳认证流程。其余（管理员停用、升级审批中等）
-// 客户没有自助动作，不给 CTA —— 给一个点了没用的按钮比不给更糟。
-const SELF_SERVE_CAUSES = new Set(['MATERIAL_EXPIRED', 'PENDING_DOCUMENT']);
+/*
+ *  本组件【一律不带 CTA】。理由：限制如果能自助解，就一定挂着一条活的材料请求，
+ *  「去认证」的入口由那条材料横幅出（它有 requestNo，能跳到具体那份材料）；
+ *  挂了材料请求的行在下面被 claimedByMaterialRequestNo 过滤掉，本组件根本不会
+ *  渲染它。所以走到这里的行，按定义就是**没有自助动作**的 —— 管理员停用、
+ *  升级审批中、材料终拒之后限制仍在，客户只能联系客服。
+ *
+ *  这一刀顺带修掉一个真 bug：原先自助类 cause 的 CTA 跳的是 `/verification`
+ *  （首次 KYC 主页的老路由），而材料流程早已改成 `/verification/:requestNo`
+ *  —— 客户点「Resolve」会掉到 KYC 主页，不是他要交的那份材料。
+ */
 
 export function RestrictionBanner() {
   const [rows, setRows] = useState<DisclosedRestrictionView[]>([]);
-  const navigate = useNavigate();
 
   const load = async () => {
     try {
@@ -62,11 +68,16 @@ export function RestrictionBanner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!rows.length) return null;
+  // 已被材料请求认领的便签不在这儿出 —— 同一件事出两条（「你被摁住了」+
+  // 「去交材料」）是重复，留带入口的那条。判定由后端给（claimedByMaterialRequestNo），
+  // 本组件不自己推导，见文件头约束。
+  const unclaimed = rows.filter((r) => r.claimedByMaterialRequestNo === null);
+
+  if (!unclaimed.length) return null;
 
   return (
     <div className="space-y-2 mb-4">
-      {rows.map((row) => (
+      {unclaimed.map((row) => (
         <div
           key={row.restrictionNo}
           className="border-l-4 border-l-fx-rust bg-fx-rust/[0.04] px-4 py-3 flex items-start justify-between gap-4"
@@ -85,14 +96,9 @@ export function RestrictionBanner() {
               </div>
             </div>
           </div>
-          {SELF_SERVE_CAUSES.has(row.cause) && (
-            <button
-              onClick={() => navigate('/verification')}
-              className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-brass hover:text-fx-ember transition-colors"
-            >
-              Resolve
-            </button>
-          )}
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.16em] text-fx-dust">
+            Contact support
+          </span>
         </div>
       ))}
     </div>

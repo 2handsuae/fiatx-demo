@@ -91,6 +91,12 @@ export interface ClientMaterialRequestRow {
   status: 'PENDING_SUBMISSION' | 'SUBMITTED';
   /** 挂了限制 = 真摁住你了（红档）；没挂 = 只是提醒（黄档） */
   blocking: boolean;
+  /**
+   * 这一轮是「打回重交」而不是第一次要材料（上一次裁决是 RED + RETRY）。
+   * 不区分的话，重交和首次的文案一模一样，客户会以为上次根本没提交成功。
+   * 注意：**不下发拒绝理由**，只说明要重交 —— 具体哪儿不合格属于审核细节。
+   */
+  resubmission: boolean;
   orderDomain: 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | null;
   orderRef: string | null;
   reason: string;

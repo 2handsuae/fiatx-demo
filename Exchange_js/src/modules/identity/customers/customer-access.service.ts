@@ -17,6 +17,15 @@ export const ALL_CAPABILITIES: readonly Capability[] = ['DEPOSIT', 'WITHDRAW', '
 
 export interface DisclosedRestrictionView {
   restrictionNo: string;
+  /**
+   * 这张便签的故事是否已经由某条活着的材料请求在讲（那条横幅带「去认证」入口，
+   * 比一条干巴巴的「Verification required」有用）。客户面据此**只显示其中一条**。
+   *
+   * 判定放在服务端而不是前端：客户面横幅组件的既定约束是「只把后端给的行换成
+   * 文案，禁止自己推导条件」—— 把两条横幅显不显示的判断分散到前端，等于把
+   * tipping-off 相关的显示决策放到两个地方。
+   */
+  claimedByMaterialRequestNo: string | null;
   cause: RestrictionCause;
   scopes: RestrictionScope[];
   label: string;
@@ -91,6 +100,9 @@ export class CustomerAccessService {
       }
       disclosed.push({
         restrictionNo: row.restrictionNo,
+        // 由 CustomerRestrictionsClientController 在客户面出口回填 —— resolve()
+        // 同时服务执法侧，不该为了一个展示决策去依赖材料账（会引入模块环）。
+        claimedByMaterialRequestNo: null,
         cause: row.cause,
         scopes: row.scopes,
         label: RESTRICTION_CAUSE_POLICY[row.cause].customerLabel,

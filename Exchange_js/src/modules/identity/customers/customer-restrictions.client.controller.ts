@@ -2,6 +2,7 @@ import { Controller, ForbiddenException, Get, Req, UseGuards } from '@nestjs/com
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CustomerAccessService, DisclosedRestrictionView } from './customer-access.service';
+import { MaterialRequestsService } from '../material-requests/material-requests.service';
 
 /**
  * 客户端读面。与 customer-pending-action.controller.ts 同前缀同守卫：
@@ -16,7 +17,10 @@ import { CustomerAccessService, DisclosedRestrictionView } from './customer-acce
 @Controller('client/me')
 @UseGuards(AuthGuard('jwt'))
 export class CustomerRestrictionsClientController {
-  constructor(private readonly access: CustomerAccessService) {}
+  constructor(
+    private readonly access: CustomerAccessService,
+    private readonly materialRequests: MaterialRequestsService,
+  ) {}
 
   private extractCustomer(req: any): string {
     if (req.user?.type !== 'CUSTOMER') {
@@ -30,6 +34,19 @@ export class CustomerRestrictionsClientController {
   async list(@Req() req: any): Promise<DisclosedRestrictionView[]> {
     const customerId = this.extractCustomer(req);
     const access = await this.access.resolve(customerId);
-    return access.disclosed;
+
+    // 回填「这张便签是否已被某条活着的材料请求认领」。同一件事出两条横幅
+    // （一条「你被摁住了」+ 一条「去交材料」）是重复，客户面只留带入口的那条。
+    // 判定在这儿做而不是在前端：横幅组件的既定约束是只渲染后端给的字段、
+    // 不自己推导显示条件。也不在 resolve() 里做 —— 它同时服务执法侧，
+    // 为一个展示决策依赖材料账会引入模块环。
+    const live = await this.materialRequests.listLiveByCustomer(customerId);
+    const claimedBy = new Map(
+      live.filter((r) => r.restrictionNo).map((r) => [r.restrictionNo as string, r.requestNo]),
+    );
+    return access.disclosed.map((row) => ({
+      ...row,
+      claimedByMaterialRequestNo: claimedBy.get(row.restrictionNo) ?? null,
+    }));
   }
 }

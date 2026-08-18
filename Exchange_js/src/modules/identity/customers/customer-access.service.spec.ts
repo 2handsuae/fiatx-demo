@@ -112,6 +112,9 @@ describe('CustomerAccessService.resolve', () => {
     expect(access.disclosed).toHaveLength(1);
     expect(access.disclosed[0]).toEqual({
       restrictionNo: 'RST-2',
+      // resolve() 恒给 null —— 认领标记由客户面出口（client controller）回填，
+      // 执法侧不依赖材料账（避免模块环）。
+      claimedByMaterialRequestNo: null,
       cause: 'MATERIAL_EXPIRED',
       scopes: ['WITHDRAW', 'SWAP'],
       label: 'Document expired',
