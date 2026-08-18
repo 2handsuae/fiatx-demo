@@ -28,6 +28,7 @@ import {
 } from '../utils/withdrawStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
+import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -535,6 +536,13 @@ const WithdrawTransactionDetail = () => {
           {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
+          </DetailCard>
+
+          {/* Verification Requests — same component + endpoint as the customer
+              detail page's Verification Requests section, `mode="order"` scopes
+              it to this withdraw's still-live rows (G6). */}
+          <DetailCard title="Verification Requests" columns={1}>
+            <MaterialRequestPanel mode="order" orderDomain="WITHDRAW" orderRef={data.withdrawNo} />
           </DetailCard>
 
           {/* 9. Simulation (demo only — gated by the local simulation-mode

@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Link2, RefreshCw } from 'lucide-react';
 import RestrictionOpenModal from '../components/RestrictionOpenModal';
 import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
+import MaterialRequestPanel from '../components/MaterialRequestPanel';
+import MaterialRequestIssueModal from '../components/MaterialRequestIssueModal';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import {
@@ -263,6 +265,8 @@ const CustomerDetail = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [restrictionModalOpen, setRestrictionModalOpen] = useState(false);
+  const [materialRequestModalOpen, setMaterialRequestModalOpen] = useState(false);
+  const [materialRequestsRefreshKey, setMaterialRequestsRefreshKey] = useState(0);
   const [releaseTarget, setReleaseTarget] = useState<AdminRestrictionRow | null>(null);
   const [restrictions, setRestrictions] = useState<AdminRestrictionRow[]>([]);
   const [restrictionsLoading, setRestrictionsLoading] = useState(false);
@@ -938,6 +942,30 @@ const CustomerDetail = () => {
             </section>
           )}
 
+          {/* ⑥ Verification Requests —— 这个客户当前所有的材料下发（含终态） */}
+          <section className="px-6 py-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <Cap>Verification Requests</Cap>
+              {hasPermission(PERMISSIONS.MATERIAL_REQUESTS_WRITE) && (
+                <button
+                  onClick={() => setMaterialRequestModalOpen(true)}
+                  className={adminButtonClass('rowSecondaryUtility')}
+                >
+                  Request Documents
+                </button>
+              )}
+            </div>
+            <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
+              One row = one issuance. Rows without a restriction are reminders only.
+            </p>
+            <MaterialRequestPanel
+              mode="customer"
+              customerNo={detail.customerNo}
+              refreshKey={materialRequestsRefreshKey}
+              onChanged={() => fetchRestrictions(detail.customerNo)}
+            />
+          </section>
+
           {/* ⑦ Risk Approval (as linked card) */}
           {hasRiskApproval && (
             <section className="px-6 py-5">
@@ -1314,6 +1342,21 @@ const CustomerDetail = () => {
         onSubmitted={async (approvalNo) => {
           setNotice(`Release approval ${approvalNo} opened — restriction stays OPEN until approved.`);
           fetchRestrictions(detail.customerNo);
+        }}
+      />
+      <MaterialRequestIssueModal
+        open={materialRequestModalOpen}
+        customerNo={detail.customerNo}
+        customerLabel={name}
+        onClose={() => setMaterialRequestModalOpen(false)}
+        onSubmitted={async (requestNo, restrictionNo) => {
+          setNotice(
+            restrictionNo
+              ? `Material request ${requestNo} issued — restriction ${restrictionNo} opened.`
+              : `Material request ${requestNo} issued — reminder only.`,
+          );
+          fetchRestrictions(detail.customerNo);
+          setMaterialRequestsRefreshKey((k) => k + 1);
         }}
       />
     </div>

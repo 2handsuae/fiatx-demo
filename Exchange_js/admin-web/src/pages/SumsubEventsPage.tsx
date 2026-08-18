@@ -45,7 +45,7 @@ interface FilterState {
 
 /* ── Simulation tabs & scenarios ────────────────────────────────── */
 
-type SimTab = 'onboarding' | 'material' | 'craSimulation' | 'ongoingMonitoring' | 'level2Simulation';
+type SimTab = 'onboarding' | 'craSimulation' | 'ongoingMonitoring' | 'level2Simulation';
 
 type OnboardingScenario =
   | 'LOW_RISK_PASS'
@@ -54,8 +54,6 @@ type OnboardingScenario =
   | 'EDD_ESCALATE'
   | 'EDD_PASS'
   | 'WORKFLOW_FAIL';
-
-type MaterialScenario = 'GREEN' | 'RED';
 
 const ONBOARDING_SCENARIOS: { value: OnboardingScenario; label: string; hint: string }[] = [
   {
@@ -90,19 +88,6 @@ const ONBOARDING_SCENARIOS: { value: OnboardingScenario; label: string; hint: st
   },
 ];
 
-const MATERIAL_SCENARIOS: { value: MaterialScenario; label: string; hint: string }[] = [
-  {
-    value: 'GREEN',
-    label: 'Customer submitted — accepted',
-    hint: 'applicantActionReviewed GREEN → cycle CLEARED, holding renewed',
-  },
-  {
-    value: 'RED',
-    label: 'Customer submitted — rejected',
-    hint: 'applicantActionReviewed RED → cycle stays PENDING for retry',
-  },
-];
-
 
 const PAGE_SIZE = 20;
 
@@ -134,9 +119,7 @@ export default function SumsubEventsPage() {
   const [showSimulate, setShowSimulate] = useState(false);
   const [simTab, setSimTab] = useState<SimTab>('onboarding');
   const [simCustomerNo, setSimCustomerNo] = useState('');
-  const [simCycleNo, setSimCycleNo] = useState('');
   const [simOnboardingScenario, setSimOnboardingScenario] = useState<OnboardingScenario>('LOW_RISK_PASS');
-  const [simMaterialScenario, setSimMaterialScenario] = useState<MaterialScenario>('GREEN');
   const [simLoading, setSimLoading] = useState(false);
   const [simError, setSimError] = useState<string | null>(null);
 
@@ -226,20 +209,6 @@ export default function SumsubEventsPage() {
         setShowSimulate(false);
         setSimCustomerNo('');
         setMessage(`Simulated: ${res.event?.eventNo ?? 'OK'} (${res.event?.status ?? simOnboardingScenario})`);
-      } else if (simTab === 'material') {
-        if (!simCycleNo.trim()) { setSimError('Cycle No is required'); setSimLoading(false); return; }
-        const response = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/sumsub/simulate/applicant-action-result`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cycleNo: simCycleNo, reviewAnswer: simMaterialScenario }),
-          },
-        );
-        if (!response.ok) throw new Error(await getApiErrorMessage(response, 'Simulation failed.'));
-        setShowSimulate(false);
-        setSimCycleNo('');
-        setMessage(`Material simulation: ${simMaterialScenario} for cycle ${simCycleNo}`);
       }
       void fetchEvents(1, filters);
     } catch (e) {
@@ -449,7 +418,6 @@ export default function SumsubEventsPage() {
             <div className="flex border-b border-adm-border bg-adm-card">
               {([
                 { key: 'onboarding' as SimTab, label: 'Onboarding' },
-                { key: 'material' as SimTab, label: 'Material Refresh' },
                 { key: 'craSimulation' as SimTab, label: 'CRA Result' },
                 { key: 'ongoingMonitoring' as SimTab, label: 'Ongoing Monitoring' },
                 { key: 'level2Simulation' as SimTab, label: 'Level 2 Complete' },
@@ -484,75 +452,37 @@ export default function SumsubEventsPage() {
                   />
                 </div>
               )}
-              {simTab === 'material' && (
-                <div>
-                  <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                    Cycle No
-                  </label>
-                  <input
-                    value={simCycleNo}
-                    onChange={(e) => setSimCycleNo(e.target.value)}
-                    placeholder="e.g. MRC-2026-00001"
-                    className="w-full rounded border border-adm-border bg-adm-bg px-3 py-1.5 font-mono text-[11px] text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber"
-                  />
-                </div>
-              )}
 
-              {/* Scenario selector — onboarding / material */}
-              {(simTab === 'onboarding' || simTab === 'material') && (
+              {/* Scenario selector — onboarding */}
+              {simTab === 'onboarding' && (
                 <div>
                   <label className="mb-1.5 block font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
                     Scenario
                   </label>
                   <div className="space-y-1.5">
-                    {simTab === 'onboarding' &&
-                      ONBOARDING_SCENARIOS.map((s) => (
-                        <label
-                          key={s.value}
-                          className={`flex cursor-pointer items-start gap-2.5 rounded border px-3 py-2 transition-colors ${
-                            simOnboardingScenario === s.value
-                              ? 'border-adm-amber bg-adm-amber/6'
-                              : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="scenario"
-                            value={s.value}
-                            checked={simOnboardingScenario === s.value}
-                            onChange={() => setSimOnboardingScenario(s.value)}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <div>
-                            <div className="font-mono text-[11px] text-adm-t1">{s.label}</div>
-                            <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{s.hint}</div>
-                          </div>
-                        </label>
-                      ))}
-                    {simTab === 'material' &&
-                      MATERIAL_SCENARIOS.map((s) => (
-                        <label
-                          key={s.value}
-                          className={`flex cursor-pointer items-start gap-2.5 rounded border px-3 py-2 transition-colors ${
-                            simMaterialScenario === s.value
-                              ? 'border-adm-amber bg-adm-amber/6'
-                              : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="scenario"
-                            value={s.value}
-                            checked={simMaterialScenario === s.value}
-                            onChange={() => setSimMaterialScenario(s.value)}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <div>
-                            <div className="font-mono text-[11px] text-adm-t1">{s.label}</div>
-                            <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{s.hint}</div>
-                          </div>
-                        </label>
-                      ))}
+                    {ONBOARDING_SCENARIOS.map((s) => (
+                      <label
+                        key={s.value}
+                        className={`flex cursor-pointer items-start gap-2.5 rounded border px-3 py-2 transition-colors ${
+                          simOnboardingScenario === s.value
+                            ? 'border-adm-amber bg-adm-amber/6'
+                            : 'border-adm-border bg-adm-bg hover:border-adm-bhi'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="scenario"
+                          value={s.value}
+                          checked={simOnboardingScenario === s.value}
+                          onChange={() => setSimOnboardingScenario(s.value)}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <div>
+                          <div className="font-mono text-[11px] text-adm-t1">{s.label}</div>
+                          <div className="mt-0.5 font-mono text-[9px] text-adm-t3">{s.hint}</div>
+                        </div>
+                      </label>
+                    ))}
                   </div>
                 </div>
               )}
@@ -734,7 +664,7 @@ export default function SumsubEventsPage() {
             </div>
 
             {/* Modal footer */}
-            {(simTab === 'onboarding' || simTab === 'material') && (
+            {simTab === 'onboarding' && (
               <div className="flex justify-end gap-2 border-t border-adm-border px-5 py-3">
                 <button
                   onClick={() => { setShowSimulate(false); setSimError(null); setSimResult(''); }}
