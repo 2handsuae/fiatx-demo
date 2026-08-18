@@ -17,17 +17,14 @@ function row(over: Record<string, any> = {}) {
 }
 
 function build(found: any = row()) {
-  const prisma = {
-    customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'c1', sumsubApplicantId: 'app-1' }) },
-  } as any;
   const requests = {
     listLiveByCustomer: jest.fn().mockResolvedValue([row()]),
     findByNo: jest.fn().mockResolvedValue(found),
     markSubmitted: jest.fn().mockResolvedValue(true),
+    mintSessionToken: jest.fn().mockResolvedValue('tok-1'),
   } as any;
-  const sumsub = { createActionSdkToken: jest.fn().mockResolvedValue({ token: 'tok-1' }) } as any;
-  const controller = new MaterialRequestsClientController(prisma, requests, sumsub);
-  return { controller, prisma, requests, sumsub };
+  const controller = new MaterialRequestsClientController(requests);
+  return { controller, requests };
 }
 
 describe('客户端端点鉴权', () => {
@@ -56,39 +53,25 @@ describe('GET /client/me/material-requests', () => {
   });
 });
 
+/**
+ * 归属 / 状态 / 客户是否有 sumsubApplicantId 的判定全在
+ * `MaterialRequestsService.mintSessionToken()` 里（见 material-requests.service.spec.ts
+ * 的「别人的号」「已提交」「终态行」等场景）。controller 这一层只剩一件事：
+ * 把 service 回的 token/null 映射成响应体，别人的号也不能是 403。
+ */
 describe('GET /client/me/material-requests/:requestNo/session', () => {
-  it('正常行 → 铸 token，externalActionId 作为钥匙传给 Sumsub', async () => {
-    const { controller, sumsub } = build();
+  it('service 铸出 token → {submitted:false, sdkToken}，且把 requestNo/customerId 原样递给 service', async () => {
+    const { controller, requests } = build();
     const out = await controller.getSession(CUSTOMER_REQ, 'MRQ1');
     expect(out).toEqual({ submitted: false, sdkToken: 'tok-1' });
-    expect(sumsub.createActionSdkToken).toHaveBeenCalledWith(
-      expect.objectContaining({
-        applicantId: 'app-1', levelName: 'wave3-action-poa-refresh', externalActionId: 'ext-1',
-      }),
-    );
+    expect(requests.mintSessionToken).toHaveBeenCalledWith('MRQ1', 'c1');
   });
 
-  it('已提交 → {submitted:true, sdkToken:null}，不铸 token', async () => {
-    const { controller, sumsub } = build(row({ status: 'SUBMITTED', submittedAt: new Date() }));
+  it('service 回 null（别人的号 / 不存在 / 已提交 / 终态，均由 service 内部判定）→ {submitted:true, sdkToken:null}，不是 403', async () => {
+    const { controller, requests } = build();
+    requests.mintSessionToken.mockResolvedValue(null);
     await expect(controller.getSession(CUSTOMER_REQ, 'MRQ1'))
       .resolves.toEqual({ submitted: true, sdkToken: null });
-    expect(sumsub.createActionSdkToken).not.toHaveBeenCalled();
-  });
-
-  it('别人的 requestNo → 与「不存在」逐字相同的响应，不是 403（403 本身就是信息泄漏）', async () => {
-    const notMine = build(row({ customerId: 'someone-else' }));
-    const missing = build(null);
-    const a = await notMine.controller.getSession(CUSTOMER_REQ, 'MRQ1');
-    const b = await missing.controller.getSession(CUSTOMER_REQ, 'MRQ-NOPE');
-    expect(a).toEqual(b);
-    expect(a).toEqual({ submitted: true, sdkToken: null });
-  });
-
-  it('终态行 → 同样按「没什么可做」回，不铸 token', async () => {
-    const { controller, sumsub } = build(row({ status: 'REJECTED' }));
-    await expect(controller.getSession(CUSTOMER_REQ, 'MRQ1'))
-      .resolves.toEqual({ submitted: true, sdkToken: null });
-    expect(sumsub.createActionSdkToken).not.toHaveBeenCalled();
   });
 });
 

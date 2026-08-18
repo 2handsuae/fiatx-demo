@@ -1,9 +1,7 @@
-import { Controller, ForbiddenException, Get, Inject, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PrismaService } from '../../../core/prisma/prisma.service';
 import { MaterialRequestsService, type MaterialRequestRow } from './material-requests.service';
-import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import {
   materialLabel,
   type ClientMaterialRequestRow,
@@ -19,11 +17,7 @@ const NOTHING_TO_DO: ClientVerificationSessionView = { submitted: true, sdkToken
 @UseGuards(AuthGuard('jwt'))
 @ApiBearerAuth()
 export class MaterialRequestsClientController {
-  constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService & Record<string, any>,
-    private readonly requests: MaterialRequestsService,
-    private readonly sumsubClient: SumsubClient,
-  ) {}
+  constructor(private readonly requests: MaterialRequestsService) {}
 
   @Get('material-requests')
   @ApiOperation({ summary: '我当前还欠着的材料（横幅与订单页都读这一个）' })
@@ -40,24 +34,10 @@ export class MaterialRequestsClientController {
     @Param('requestNo') requestNo: string,
   ): Promise<ClientVerificationSessionView> {
     const customerId = this.ensureCustomer(req);
-    const row = await this.loadOwn(customerId, requestNo);
-    // 不属于自己 / 不存在 / 已提交 / 已终态 —— 四种情形回同一句话。
-    // 尤其不能对「别人的号」回 403：那等于确认了这个号真实存在。
-    if (!row || row.status !== 'PENDING_SUBMISSION') return NOTHING_TO_DO;
-
-    const customer = await this.prisma.customerMain.findUnique({
-      where: { id: customerId },
-      select: { sumsubApplicantId: true },
-    });
-    if (!customer?.sumsubApplicantId) return NOTHING_TO_DO;
-
-    const { token } = await this.sumsubClient.createActionSdkToken({
-      applicantId: customer.sumsubApplicantId,
-      levelName: row.levelName,
-      externalActionId: row.externalActionId,
-      ttlInSecs: 600,
-    });
-    return { submitted: false, sdkToken: token };
+    // 不属于自己 / 不存在 / 已提交 / 已终态 —— 四种情形由 service 统一判成 null，
+    // 这里回同一句话。尤其不能对「别人的号」回 403：那等于确认了这个号真实存在。
+    const token = await this.requests.mintSessionToken(requestNo, customerId);
+    return token ? { submitted: false, sdkToken: token } : NOTHING_TO_DO;
   }
 
   @Post('material-requests/:requestNo/submit')

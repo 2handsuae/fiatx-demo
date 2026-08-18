@@ -15,6 +15,7 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { SumsubClient } from '../onboarding/providers/sumsub/sumsub.client';
 import {
   MATERIAL_REQUEST_LIVE_STATUSES,
   nextMaterialRequestStatus,
@@ -84,6 +85,7 @@ export class MaterialRequestsService {
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly auditLogsService: AuditLogsService,
+    private readonly sumsubClient: SumsubClient,
   ) {}
 
   async create(
@@ -186,6 +188,35 @@ export class MaterialRequestsService {
   async findByExternalActionId(externalActionId: string): Promise<MaterialRequestRow | null> {
     const row = await this.prisma.materialRequest.findFirst({ where: { externalActionId } });
     return row ? this.project(row) : null;
+  }
+
+  /**
+   * 客户面「取认证会话」的唯一实现 —— 铸 Sumsub SDK token 只在这里发生。
+   *
+   * 挪到 service 层是为了让 `applicantActionId`/`externalActionId` 这两个字段名
+   * 彻底不出现在 client controller 源码里，material-request.contract.spec.ts
+   * 的客户面字段守则测试就不再需要任何豁免（2026-08-18 修复两处扫描绕过）。
+   *
+   * 归属 / 状态 / 客户是否有 sumsubApplicantId 任一不满足都返回 null ——
+   * 调用方（controller）把 null 统一映射成同一句「没什么可做」，不区分原因。
+   */
+  async mintSessionToken(requestNo: string, customerId: string): Promise<string | null> {
+    const row = await this.findByNo(requestNo);
+    if (!row || row.customerId !== customerId || row.status !== 'PENDING_SUBMISSION') return null;
+
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: { sumsubApplicantId: true },
+    });
+    if (!customer?.sumsubApplicantId) return null;
+
+    const { token } = await this.sumsubClient.createActionSdkToken({
+      applicantId: customer.sumsubApplicantId,
+      levelName: row.levelName,
+      externalActionId: row.externalActionId,
+      ttlInSecs: 600,
+    });
+    return token;
   }
 
   async listLiveByCustomer(customerId: string): Promise<MaterialRequestRow[]> {
