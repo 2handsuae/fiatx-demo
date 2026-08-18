@@ -5,16 +5,32 @@ import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
 import { getWithdrawStatusView } from '../utils/withdrawStatusView';
 import { formatAssetAmount } from '../utils/number-format';
 
-interface ActionRow { seq: number; submittedAt: string | null }
 interface WithdrawDetailData {
   withdrawNo: string; status: string; amount: string;
   feeAmount: string; netAmount: string;
   createdAt: string; completedAt: string | null;
   txHash: string | null; referenceNo: string | null;
   toAddress: string | null; toIban: string | null;
-  actions: ActionRow[];
   asset: { code: string; currency: string; network: string | null; decimals: number } | null;
 }
+
+/**
+ * 2026-08-18 材料请求账：本页曾经开的 `actions`（提现单专属子表逐条 action）
+ * 口子已被 Task 12 随子表一起物理删除。改成独立打
+ * `/client/me/material-requests`，按 `orderDomain==='WITHDRAW' &&
+ * orderRef===withdrawNo` 过滤（G6：绑了单的行只在它绑定的订单页露）。
+ * "本单非终态"闸门理由见 DepositDetail.tsx 同址注释——订单终态解绑监听器
+ * 目前只有 SWAP 域端到端走得通。
+ */
+interface MaterialRequestEntry {
+  requestNo: string;
+  materialLabel: string;
+  status: 'PENDING_SUBMISSION' | 'SUBMITTED';
+  orderDomain: 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | null;
+  orderRef: string | null;
+}
+
+const WITHDRAW_TERMINAL_STATUSES = new Set(['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED']);
 
 const WithdrawDetail = () => {
   const { withdrawNo } = useParams();
@@ -29,6 +45,7 @@ const WithdrawDetail = () => {
     location.key === 'default' ? navigate('/withdraw') : navigate(-1);
   const [tx, setTx] = useState<WithdrawDetailData | null>(null);
   const [err, setErr] = useState('');
+  const [materials, setMaterials] = useState<MaterialRequestEntry[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -45,6 +62,24 @@ const WithdrawDetail = () => {
         // 别在跳转前的一瞬间闪出一条误导性的错误文案（与页面内其它拉取一致）。
         if (error instanceof CustomerSessionError) return;
         if (alive) setErr('This withdrawal is not available.');
+      }
+    })();
+    return () => { alive = false; };
+  }, [withdrawNo]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await customerFetch(`${import.meta.env.VITE_API_URL}/client/me/material-requests`);
+        if (!r.ok) return;
+        const rows = (await r.json()) as MaterialRequestEntry[];
+        if (alive && Array.isArray(rows)) {
+          setMaterials(rows.filter((m) => m.orderDomain === 'WITHDRAW' && m.orderRef === withdrawNo));
+        }
+      } catch (error) {
+        if (error instanceof CustomerSessionError) return;
+        // 拉不到就当没有——这块区域本来就是"有就显示"，静默降级比崩页面安全。
       }
     })();
     return () => { alive = false; };
@@ -76,25 +111,24 @@ const WithdrawDetail = () => {
         </span>
       </div>
 
-      {/* 镜像 DepositDetail 2026-08-06 定稿：区块显示条件只看"ACTION_PENDING 且有
-          action 行"，交没交齐不影响区块存在与否；每张卡自己按 submittedAt 决定
-          按钮是否可点（见下）。 */}
-      {tx.status.toUpperCase() === 'ACTION_PENDING' && tx.actions.length > 0 && (
+      {/* 镜像 DepositDetail 2026-08-18 更新：区块显示条件改成"这单有绑定的活
+          材料请求 且本单非终态"（数据源换成材料账，理由见文件头注释）；交没
+          交齐不影响区块存在与否，每张卡自己按 status 决定按钮是否可点。 */}
+      {materials.length > 0 && !WITHDRAW_TERMINAL_STATUSES.has(tx.status.toUpperCase()) && (
         <section className="mt-8">
           <h2 className="text-sm font-semibold text-fx-sand mb-3">Outstanding verification</h2>
           <div className="space-y-2">
-            {tx.actions.map((a) => (
-              <div key={a.seq} className="flex items-center gap-3 rounded-xl border border-fx-rule bg-fx-charcoal/40 px-4 py-3">
+            {materials.map((m) => (
+              <div key={m.requestNo} className="flex items-center gap-3 rounded-xl border border-fx-rule bg-fx-charcoal/40 px-4 py-3">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-fx-sand">Document request {a.seq}</div>
+                  <div className="text-sm text-fx-sand">{m.materialLabel}</div>
                   <div className="text-xs text-fx-dust">
-                    {a.submittedAt ? 'Received · under review' : 'Awaiting your documents'}
+                    {m.status === 'SUBMITTED' ? 'Received · under review' : 'Awaiting your documents'}
                   </div>
                 </div>
-                {/* 按钮恒渲染，只按这一条自己的 submittedAt 禁用，不整条从 DOM 里消失。 */}
                 <button
-                  onClick={() => navigate(`/withdraw/${tx.withdrawNo}/verification/${a.seq}`)}
-                  disabled={!!a.submittedAt}
+                  onClick={() => navigate(`/verification/${m.requestNo}?from=${encodeURIComponent(location.pathname)}`)}
+                  disabled={m.status === 'SUBMITTED'}
                   className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-2 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fx-brass/10"
                 >
                   Provide documents
