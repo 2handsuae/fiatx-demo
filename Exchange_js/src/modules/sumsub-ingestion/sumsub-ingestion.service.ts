@@ -116,7 +116,6 @@ export class SumsubIngestionService {
 
       const reviewMode = String(payload.reviewMode ?? '');
       const inspectionId = String(payload.inspectionId ?? '');
-      const actionId = String(payload.actionId ?? '');
       const applicantId = String(payload.applicantId ?? '');
       const externalActionId: string | undefined =
         (payload.externalActionId as string | undefined) ??
@@ -132,9 +131,11 @@ export class SumsubIngestionService {
       // Reuses this durable event table's dedup/retry/dead-letter; only the
       // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
       // NOTE: does NOT include applicantAction* — those are consumed by the
-      // pre-existing Clue 3 branch below (material-refresh cycles). deposit 侧对
-      // action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动重评并发出
-      // applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,DepositActionHandler 桩已退役)。
+      // externalActionId 分支下方（材料请求账一次查表，命中后材料重检域自己靠
+      // MATERIAL_REQUEST_REVIEWED 事件收尾，见 material-refresh-review.listener.ts）。
+      // deposit 侧对 action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动
+      // 重评并发出 applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,
+      // DepositActionHandler 桩已退役)。
       const depositWebhookType = String(payload.type ?? '');
       // 显式集合匹配,不用 startsWith:官方 on-hold 事件是 `applicantKytOnHold`(无 Txn),
       // 旧的 `startsWith('applicantKytTxn')` 会把它漏在门外;而放宽成 `applicantKyt`
@@ -262,16 +263,14 @@ export class SumsubIngestionService {
           dispatchedContext = 'AML_ASSESSMENT';
         }
       }
-      // Clue 3: actionId matches pending MaterialRefreshCycle
-      if (!result && actionId && reviewResult) {
-        const pendingCycle = await this.prisma.materialRefreshCycle.findFirst({
-          where: { sumsubActionId: actionId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
-        });
-        if (pendingCycle) {
-          result = await this.materialRefreshService.handleSumsubActionResult({ actionId, reviewResult });
-          dispatchedContext = 'MATERIAL_REFRESH_ACTION';
-        }
-      }
+      // Clue 3（已退役，2026-08-18）：原来按 actionId 查 pending MaterialRefreshCycle。
+      // 2026-08-17 材料请求账 Task 11 之后建 cycle 全部改走
+      // MaterialRequestIssuerService.issue()，material_refresh_cycles.sumsubActionId
+      // 这一列永远不再被写入，这条分支对所有新周期恒查不到，是死码；而且真实
+      // webhook 也轮不到它——上面 `applicantActionReviewed && externalActionId`
+      // 那条分支会先按 externalActionId 认领。已改为材料重检域自己监听
+      // MaterialRequestReviewService 广播的 MATERIAL_REQUEST_REVIEWED 事件
+      // （见 material-refresh-review.listener.ts），不再需要这里的兜底查询。
       // Clues 4 & 5: look up customer by applicantId
       if (!result && applicantId) {
         const customer = await this.prisma.customerMain.findFirst({

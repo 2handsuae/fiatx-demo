@@ -55,16 +55,17 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       sumsubWebhookEvent: {
         update: jest.fn().mockResolvedValue(undefined),
       },
-      // Finding 6: only touched by the "swap miss → falls through to Clue 3"
-      // test below; harmless no-op for every other test in this file.
-      materialRefreshCycle: {
+      // 2026-08-18：Clue 3（按 actionId 查 pending MaterialRefreshCycle）已随
+      // 死码一起删除，dispatch() 不再触碰 prisma.materialRefreshCycle，此处不
+      // 再需要那张桩表。
+      customerMain: {
         findFirst: jest.fn().mockResolvedValue(null),
       },
     };
     depositWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<DepositWebhookRouter>;
     withdrawWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<WithdrawWebhookRouter>;
     swapWebhookRouter = { route: jest.fn() } as unknown as jest.Mocked<SwapWebhookRouter>;
-    materialRefreshService = { handleSumsubActionResult: jest.fn().mockResolvedValue(undefined) };
+    materialRefreshService = { handleSumsubDocMonitoringFire: jest.fn().mockResolvedValue(undefined) };
     materialRequestReviewService = { applyReview: jest.fn().mockResolvedValue(null) };
 
     service = new SumsubIngestionService(
@@ -166,11 +167,14 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
   // 的顺序尝试链；本任务把它换成一次 MaterialRequestReviewService.applyReview()
   // 查表，swapWebhookRouter 完全不再被这个事件类型触碰（它仍被上面的
   // KYT_VERDICT_TYPES 级联使用，那部分不受影响）。
+  //
+  // 2026-08-18：Clue 3（按 Sumsub 侧 actionId 查 pending MaterialRefreshCycle）
+  // 已删除——它对 Task 11 之后新建的 cycle 恒查不到，是死码；材料重检域自己的
+  // 完成收尾改为监听 MaterialRequestReviewService.applyReview() 广播的
+  // MATERIAL_REQUEST_REVIEWED 事件（见 material-refresh-review.listener.spec.ts），
+  // 不再经过 sumsub-ingestion 这条路由。
 
-  // 真实 applicantActionReviewed webhook 同时带 externalActionId（本账
-  // @unique 键）和 Sumsub 自己的 actionId（material-refresh 域的键，走 Clue 3）。
-  // 只有"不属于本账"的用例会传 actionId，用来证明 Clue 3 依然可达。
-  function buildActionEvent(externalActionId = 'EA1', actionId?: string): SumsubWebhookEvent {
+  function buildActionEvent(externalActionId = 'EA1'): SumsubWebhookEvent {
     return {
       id: 'evt-2',
       eventNo: 'SWH-2',
@@ -181,7 +185,6 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       rawPayload: JSON.stringify({
         type: 'applicantActionReviewed',
         externalActionId,
-        ...(actionId ? { actionId } : {}),
         reviewResult: { reviewAnswer: 'GREEN' },
       }),
       receivedAt: new Date(),
@@ -219,17 +222,12 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
     );
   });
 
-  it('applicantActionReviewed, externalActionId 不属于本账（applyReview 返回 null）→ 不被认领，后续分支（Clue 3 材料重检）照常可达', async () => {
-    // 这条锁的是本任务改动前"swap miss 时 Clue 3 仍会触发"用例锁的同一条属性，
-    // 只是认领方从 swapWebhookRouter 换成了 materialRequestReviewService：
-    // 一个不属于本账的 externalActionId 必须静默放行，不能把 Clue 3 挡住。
+  it('applicantActionReviewed, externalActionId 不属于本账（applyReview 返回 null）→ 静默放行，不炸、不再落到已删除的 Clue 3', async () => {
+    // Clue 3 删除之后，一个不属于材料请求账的 externalActionId 应该安静地
+    // 掉到 Clues 4&5（按 applicantId 查 customer）；找不到 customer 时只留一条
+    // warn 日志，不抛异常、不把事件打成 FAILED。
     materialRequestReviewService.applyReview.mockResolvedValue(null);
-    const event = buildActionEvent('some-other-domain-action-id', 'SUMSUB-ACTION-1');
-    prisma.materialRefreshCycle.findFirst.mockResolvedValue({
-      id: 'cycle-1',
-      sumsubActionId: 'SUMSUB-ACTION-1',
-      status: 'PENDING_SUMSUB_REVIEW',
-    });
+    const event = buildActionEvent('some-other-domain-action-id');
 
     const result = await service.dispatch(event);
 
@@ -239,22 +237,11 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       reviewRejectType: 'FINAL',
       actor: { actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
     });
-    expect(prisma.materialRefreshCycle.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ sumsubActionId: 'SUMSUB-ACTION-1' }),
-      }),
-    );
-    expect(materialRefreshService.handleSumsubActionResult).toHaveBeenCalledWith({
-      actionId: 'SUMSUB-ACTION-1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
-    // handleSumsubActionResult itself returns void — this is not a regression,
-    // just what Clue 3's own return type is.
+    // Clue 3 已删除：不再有任何路径调用 material-refresh 的完成逻辑。
+    expect(materialRefreshService.handleSumsubDocMonitoringFire).not.toHaveBeenCalled();
     expect(result).toBeUndefined();
     expect(prisma.sumsubWebhookEvent.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'PROCESSED', dispatchedTo: 'MATERIAL_REFRESH_ACTION' }),
-      }),
+      expect.objectContaining({ data: expect.objectContaining({ status: 'PROCESSED' }) }),
     );
   });
 });

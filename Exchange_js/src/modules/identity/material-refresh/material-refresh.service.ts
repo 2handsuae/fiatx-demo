@@ -10,6 +10,10 @@ import { CustomerRestrictionsService } from '../customers/customer-restrictions.
 import { CustomerRestrictionWorkflowService } from '../customers/customer-restriction-workflow.service';
 import { MaterialRequestIssuerService } from '../material-requests/material-request-issuer.service';
 import { MaterialRequestsService } from '../material-requests/material-requests.service';
+import type { ReviewOutcome } from '../material-requests/material-request-review.service';
+
+/** 材料请求账裁决的三种结局，与 `MaterialRequestReviewService.ReviewOutcome` 同源。 */
+type CycleReviewOutcome = ReviewOutcome;
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
@@ -197,6 +201,15 @@ export class MaterialRefreshService {
     });
   }
 
+  /**
+   * 遗留入口 —— 按 Sumsub 侧 `actionId` 查 cycle。2026-08-17 材料请求账 Task 11
+   * 之后建 cycle 全部改走 issuer，`sumsubActionId` 这一列永远不再被写入，所以
+   * 这条查询对新周期恒查不到（旧周期本就没有，DB 是 demo 数据可随时重铺）。
+   * 保留只是因为它是 `completeCycleReview()` 众多入口之一的语义骨架，且有单测
+   * 直接构造 `sumsubActionId` 夹具在验证 GREEN 收尾本体逻辑 —— 真实触发路径
+   * 已改为 `MaterialRefreshReviewListener` 监听 `MATERIAL_REQUEST_REVIEWED`
+   * 事件、调下面的 `completeCycleFromMaterialRequest()`。
+   */
   async handleSumsubActionResult(event: {
     actionId: string;
     reviewResult: { reviewAnswer: 'GREEN' | 'RED'; reviewRejectType?: string };
@@ -206,8 +219,51 @@ export class MaterialRefreshService {
     });
     if (!cycle) return;
 
-    // RED: reset status back to PENDING_CUSTOMER_EVIDENCE for retry
-    if (event.reviewResult.reviewAnswer === 'RED') {
+    const outcome: CycleReviewOutcome =
+      event.reviewResult.reviewAnswer !== 'GREEN'
+        ? event.reviewResult.reviewRejectType === 'FINAL'
+          ? 'REJECTED'
+          : 'RETRY'
+        : 'APPROVED';
+    await this.completeCycleReview(cycle, outcome);
+  }
+
+  /**
+   * 材料请求账自己的入口（2026-08-18 修）—— `MaterialRefreshReviewListener`
+   * 按 `materialRequestNo` 查到属于本域的 cycle 后调这里,传的是已经拿在手上
+   * 的 cycle 行,不用再猜 Sumsub 侧 actionId。
+   */
+  async completeCycleFromMaterialRequest(
+    cycleId: string,
+    outcome: CycleReviewOutcome,
+  ): Promise<void> {
+    const cycle = await this.prisma.materialRefreshCycle.findFirst({
+      where: { id: cycleId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
+    });
+    if (!cycle) return;
+    await this.completeCycleReview(cycle, outcome);
+  }
+
+  /**
+   * 两个入口（actionId 查 / cycle 直传）共用的收尾本体。
+   *
+   * - APPROVED（GREEN）：关周期、刷新 holding 到期日、自动撕便签、CRA 级联。
+   * - RETRY（RED + 同一 action 重交）：cycle **不**转终态，退回
+   *   PENDING_CUSTOMER_EVIDENCE 等下一次；便签原地不动。
+   * - REJECTED（RED + FINAL）：这一行审不过就是没解开，cycle 收 REJECTED
+   *   终态；便签同样原地不动（撕不撕是材料账自己的规矩，不归本域管）。
+   *   同时清掉 holding 上的 `activeRefreshCycleId`——不清的话
+   *   `enterNotifiedStage()` 的守卫（`if (holding.activeRefreshCycleId) return`）
+   *   会一直以为还有一个"活跃"周期，实际它已经终态死掉，holding 永远开不出
+   *   下一个周期，客户被晾在原地（terminateCycle() 已有的同款收尾，这里对齐
+   *   同一套规矩）。
+   */
+  private async completeCycleReview(
+    cycle: Record<string, any>,
+    outcome: CycleReviewOutcome,
+  ): Promise<void> {
+    // RETRY: reset status back to PENDING_CUSTOMER_EVIDENCE for retry
+    if (outcome === 'RETRY') {
       await this.prisma.materialRefreshCycle.update({
         where: { id: cycle.id },
         data: { status: 'PENDING_CUSTOMER_EVIDENCE', customerSubmittedAt: null },
@@ -215,7 +271,19 @@ export class MaterialRefreshService {
       return;
     }
 
-    // GREEN: close cycle and refresh holding
+    if (outcome === 'REJECTED') {
+      await this.prisma.materialRefreshCycle.update({
+        where: { id: cycle.id },
+        data: { status: 'REJECTED', rejectedAt: new Date(), resolutionReason: 'sumsub_final_reject' },
+      });
+      await this.prisma.customerMaterialHolding.updateMany({
+        where: { activeRefreshCycleId: cycle.id },
+        data: { activeRefreshCycleId: null },
+      });
+      return;
+    }
+
+    // APPROVED (GREEN): close cycle and refresh holding
     const holding = await this.prisma.customerMaterialHolding.findUnique({
       where: { id: cycle.holdingId },
     });

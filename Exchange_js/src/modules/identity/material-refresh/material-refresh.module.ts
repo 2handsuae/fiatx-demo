@@ -2,6 +2,7 @@
 import { Module, forwardRef, OnModuleInit } from '@nestjs/common';
 import { MaterialRefreshService } from './material-refresh.service';
 import { MaterialFreshnessCronService } from './material-freshness-cron.service';
+import { MaterialRefreshReviewListener } from './material-refresh-review.listener';
 import { MaterialRefreshCyclesController } from './material-refresh-cycles.controller';
 import { AdminMaterialManagementController } from './admin-material-management.controller';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
@@ -27,6 +28,9 @@ import { MaterialRequestsModule } from '../material-requests/material-requests.m
     MaterialRefreshService,
     MaterialFreshnessCronService,
     MaterialRefreshPolicyLoader,
+    // 2026-08-18 修回归：材料重检域自己监听 MATERIAL_REQUEST_REVIEWED 完成收尾
+    // （见 material-refresh-review.listener.ts 顶部注释）。
+    MaterialRefreshReviewListener,
   ],
   controllers: [MaterialRefreshCyclesController, AdminMaterialManagementController],
   // MaterialRefreshPolicyLoader：MaterialRequestsModule 建行时按 materialType
