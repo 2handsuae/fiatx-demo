@@ -14,11 +14,11 @@ import { WithdrawLargeValueApprovalService } from './withdraw-large-value-approv
 import { WithdrawUnfreezeApprovalService } from './withdraw-unfreeze-approval.service';
 import { WithdrawSanctionRefundApprovalService } from './withdraw-sanction-refund-approval.service';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
-import { WithdrawVerificationSessionService } from './withdraw-verification-session.service';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { TransactionLimitsModule } from '../../asset-treasury/transaction-limits/transaction-limits.module';
 import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module';
+import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 
 @Module({
   imports: [
@@ -38,6 +38,8 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     // DepositSumsubModule → SumsubIngestionModule → WithdrawTransactionsModule closes
     // a cycle (mirrors DepositTransactionsModule's identical import).
     forwardRef(() => DepositSumsubModule),
+    // Task 9：WithdrawApplicantActionsService 改走材料账，需要 issuer/requests service
+    forwardRef(() => MaterialRequestsModule),
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [
@@ -47,7 +49,6 @@ import { DepositSumsubModule } from '../../deposit-sumsub/deposit-sumsub.module'
     WithdrawUnfreezeApprovalService,
     WithdrawSanctionRefundApprovalService,
     WithdrawApplicantActionsService,
-    WithdrawVerificationSessionService,
   ],
   exports: [
     WithdrawTransactionsService,
