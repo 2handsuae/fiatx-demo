@@ -72,8 +72,12 @@ export class MaterialRequestsAdminController {
   ) {
     this.assertAdmin(req);
 
-    // spec I3：两列同空同非空
-    if ((dto.orderDomain === undefined) !== (dto.orderRef === undefined)) {
+    // spec I3：两列同空同非空。
+    // 用 `== null` 同时覆盖 undefined 与显式 null —— @IsOptional() 对 body 里显式传的
+    // null 直接放行不剥，只判 undefined 的话 {orderDomain: null, orderRef: 'DP1'} 会从
+    // 这一层漏过去，一路打到 issuer 白白调一次 Sumsub 建 action，才被 create() 兜底
+    // 拦下回滚。落不了脏数据，但多一次外部副作用。
+    if ((dto.orderDomain == null) !== (dto.orderRef == null)) {
       throw new BadRequestException({
         code: 'MATERIAL_REQUEST_HALF_BOUND',
         message: 'orderDomain and orderRef must be supplied together',
