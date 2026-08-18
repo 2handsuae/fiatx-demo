@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
-import { SwapApplicantActionHandler } from './applicant-action.handler';
 import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
 
 /**
@@ -15,11 +14,11 @@ import { KYT_VERDICT_TYPES } from '../deposit-sumsub/kyt-webhook-types';
  * 重复放在 deposit/withdraw 侧,避免每一笔正常的 deposit/withdraw KYT 事件都
  * 在 swap 侧先报一次噪音 warn。
  *
- * Task 13: applicantActionReviewed 是人级事件(客户补料动作的复核结果),不是
- * KYT 交易裁决 —— 故意不在 KYT_VERDICT_TYPES 里,单独一支转给
- * SwapApplicantActionHandler。SumsubIngestionService.dispatch() 对这个类型
- * 单独开了一条分流先试 swap router(见该文件 Task 13 注释),这里只是接住并
- * 转发,和上面 KYT 分支同一套"认领不到就 false 让级联继续"契约。
+ * 2026-08-17 材料请求账（Task 10）：applicantActionReviewed 不再由本 router 认领
+ * ——Task 4 已经把它改成 SumsubIngestionService 直接按 externalActionId 一次查
+ * material_requests 表定位归属（MaterialRequestReviewService.applyReview），
+ * 不再经过任何一个域的 webhook router 转发。本 router 现在只服务 KYT 交易裁决
+ * 这一种报文类型。
  */
 @Injectable()
 export class SwapWebhookRouter {
@@ -27,7 +26,6 @@ export class SwapWebhookRouter {
 
   constructor(
     private readonly kytVerdictHandler: SwapKytVerdictHandler,
-    private readonly applicantActionHandler: SwapApplicantActionHandler,
   ) {}
 
   async route(payload: Record<string, unknown>): Promise<boolean> {
@@ -35,10 +33,6 @@ export class SwapWebhookRouter {
 
     if (KYT_VERDICT_TYPES.has(type)) {
       return await this.kytVerdictHandler.handle(payload);
-    }
-
-    if (type === 'applicantActionReviewed') {
-      return await this.applicantActionHandler.handle(payload);
     }
 
     this.logger.warn(`orphan swap sumsub webhook type: ${type}`);

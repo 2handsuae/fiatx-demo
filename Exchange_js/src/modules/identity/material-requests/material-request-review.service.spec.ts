@@ -32,11 +32,16 @@ function deps(found: any = row()) {
   } as any;
   const restrictionWorkflow = { autoRelease: jest.fn().mockResolvedValue(undefined) } as any;
   const eventEmitter = { emit: jest.fn() } as any;
-  return { prisma, requests, restrictions, restrictionWorkflow, eventEmitter };
+  // Task 10: GREEN 落地后回调兑换域的「被硬线客户 GREEN 到过、限制仍被刻意
+  // 保留」审计——非 SWAP 域 / 未硬线的行内部 no-op，这里只需要一个可断言调用的桩。
+  const swapApplicantActionHandler = { noteHardLineHeld: jest.fn().mockResolvedValue(undefined) } as any;
+  return { prisma, requests, restrictions, restrictionWorkflow, eventEmitter, swapApplicantActionHandler };
 }
 
 const build = (d: ReturnType<typeof deps>) =>
-  new MaterialRequestReviewService(d.prisma, d.requests, d.restrictions, d.restrictionWorkflow, d.eventEmitter);
+  new MaterialRequestReviewService(
+    d.prisma, d.requests, d.restrictions, d.restrictionWorkflow, d.eventEmitter, d.swapApplicantActionHandler,
+  );
 
 describe('MaterialRequestReviewService.applyReview', () => {
   it('GREEN → APPROVED 且自动撕便签（caseRef 用 requestNo，releaseMode 由 autoRelease 定为 AUTO）', async () => {
@@ -129,5 +134,36 @@ describe('MaterialRequestReviewService.applyReview', () => {
     const txCallOrder = d.prisma.$transaction.mock.invocationCallOrder[0];
     const emitCallOrder = d.eventEmitter.emit.mock.invocationCallOrder[0];
     expect(emitCallOrder).toBeGreaterThan(txCallOrder);
+  });
+
+  // ── Task 10：GREEN 落地后回调兑换域，让它记「被硬线客户 GREEN 到过、限制仍
+  // ── 被刻意保留」那条审计——非兑换域 / 未硬线的行由 handler 自己 no-op，这里
+  // ── 只需要证明「GREEN 才回调，RETRY/REJECTED 不回调」这条边界。
+  it('GREEN → 回调 swapApplicantActionHandler.noteHardLineHeld(requestNo)', async () => {
+    const d = deps();
+    await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
+    expect(d.swapApplicantActionHandler.noteHardLineHeld).toHaveBeenCalledWith('MRQ2608170001');
+  });
+
+  it('RED（RETRY 或 FINAL）→ 不回调 noteHardLineHeld（没 GREEN 过，没什么可记的）', async () => {
+    const d = deps();
+    await build(d).applyReview({
+      externalActionId: 'ext-1', reviewAnswer: 'RED', reviewRejectType: 'RETRY', actor: ACTOR,
+    });
+    expect(d.swapApplicantActionHandler.noteHardLineHeld).not.toHaveBeenCalled();
+
+    const d2 = deps();
+    await build(d2).applyReview({
+      externalActionId: 'ext-1', reviewAnswer: 'RED', reviewRejectType: 'FINAL', actor: ACTOR,
+    });
+    expect(d2.swapApplicantActionHandler.noteHardLineHeld).not.toHaveBeenCalled();
+  });
+
+  it('回调发生在事务提交之后（noteHardLineHeld 自己另起一次非事务读写，不能塞进上面的 $transaction）', async () => {
+    const d = deps();
+    await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
+    const txCallOrder = d.prisma.$transaction.mock.invocationCallOrder[0];
+    const noteOrder = d.swapApplicantActionHandler.noteHardLineHeld.mock.invocationCallOrder[0];
+    expect(noteOrder).toBeGreaterThan(txCallOrder);
   });
 });

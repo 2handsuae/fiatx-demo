@@ -8,6 +8,7 @@ describe('SwapDemoScenarioService', () => {
   let swapService: { findByIdInternal: jest.Mock };
   let ingestionService: { ingest: jest.Mock };
   let auditLogsService: { recordByActor: jest.Mock };
+  let materialRequests: { listLiveByOrder: jest.Mock };
   let mockClient: MockSumsubTxnClient;
 
   const swap = {
@@ -22,7 +23,6 @@ describe('SwapDemoScenarioService', () => {
     customer: {
       sumsubApplicantId: '68a1f3c47b2e9d0154cc81ab',
       customerNo: 'CU2601019430',
-      pendingActionExternalId: null,
     },
     fromAsset: { type: 'FIAT', currency: 'AED' },
     sumsubTxnIdOut: null,
@@ -39,6 +39,9 @@ describe('SwapDemoScenarioService', () => {
     };
     ingestionService = { ingest: jest.fn().mockResolvedValue({ event: {} }) };
     auditLogsService = { recordByActor: jest.fn().mockResolvedValue(undefined) };
+    // Task 10: 材料请求账取代 CustomerMain.pendingActionExternalId 单指针——默认
+    // 没有活着的材料请求,V7/V8 分支落到 mintTxnId 的确定性占位符。
+    materialRequests = { listLiveByOrder: jest.fn().mockResolvedValue([]) };
     mockClient = new MockSumsubTxnClient();
   });
 
@@ -48,6 +51,7 @@ describe('SwapDemoScenarioService', () => {
       ingestionService as any,
       auditLogsService as any,
       client as any,
+      materialRequests as any,
     );
   }
 
@@ -234,16 +238,16 @@ describe('SwapDemoScenarioService', () => {
       );
     });
 
-    it('uses the customer\'s pending action id when one is on file (left by an earlier soft-line rejection) — sent as externalActionId, the field SwapApplicantActionHandler claims by', async () => {
-      swapService.findByIdInternal.mockResolvedValue({
-        ...swap,
-        status: 'REJECTED',
-        customer: { ...swap.customer, pendingActionExternalId: 'demo-ext-1' },
-      });
+    it('uses the swap\'s live material request externalActionId when one is on file (left by an earlier soft-line rejection) — the field MaterialRequestReviewService claims by', async () => {
+      swapService.findByIdInternal.mockResolvedValue({ ...swap, status: 'REJECTED' });
+      materialRequests.listLiveByOrder.mockResolvedValue([
+        { requestNo: 'MRQ1', externalActionId: 'demo-ext-1' },
+      ]);
       const service = buildService();
 
       await service.runVerdict('swap-1', 'V7_ACTION_GREEN', actor);
 
+      expect(materialRequests.listLiveByOrder).toHaveBeenCalledWith('SWAP', 'SWP001');
       expect(ingestionService.ingest).toHaveBeenCalledWith(
         expect.objectContaining({ externalActionId: 'demo-ext-1' }),
         { isSimulated: true },

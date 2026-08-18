@@ -208,6 +208,8 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     {} as any, // customerRestrictionsService — not on this path (initiateSwap never rejects)
     {} as any, // pendingActionService — not on this path
     { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
+    {} as any, // materialRequests — not on this path
+    {} as any, // materialRequestIssuer — not on this path
   );
 }
 
@@ -651,6 +653,8 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any, // customerRestrictionsService — not on this path (advanceLeg never rejects)
     {} as any, // pendingActionService — not on this path
     { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
+    {} as any, // materialRequests — not on this path
+    {} as any, // materialRequestIssuer — not on this path
   );
 }
 
@@ -1228,6 +1232,17 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         ),
         update: jest.fn(() => Promise.resolve({})),
       },
+      // Task 10: handleRejectDisposition looks the customer up directly off
+      // this (the workflow's own injected) prisma to grab sumsubApplicantId
+      // before registering material requests — same applicant id as the
+      // swapTransaction.findUnique fixture above, for consistency.
+      customerMain: {
+        findUnique: jest.fn(({ where }: any) =>
+          Promise.resolve(
+            where.id === 'cust-1' ? { id: 'cust-1', sumsubApplicantId: 'applicant-1' } : null,
+          ),
+        ),
+      },
     };
 
     // Task 7: CustomerRestrictionsService stays a jest mock here — its own
@@ -1268,6 +1283,35 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     };
     const pendingActionService = new CustomerPendingActionService(pendingActionPrisma, { recordByActor: jest.fn(), recordSystem: jest.fn() } as any, { createActionSdkToken: jest.fn() } as any);
 
+    // Task 10: materialRequests/materialRequestIssuer are wired together
+    // through a shared in-memory array so listLiveByOrder() actually reflects
+    // what register() has "persisted" — needed to prove the retry-dedup guard
+    // (handleRejectDisposition skips externalActionIds already registered)
+    // rather than just asserting our own mock calls back at ourselves.
+    const registeredMaterialRequests: Array<{ orderDomain: string; orderRef: string; externalActionId: string }> = [];
+    const materialRequests = {
+      listLiveByOrder: jest.fn((orderDomain: string, orderRef: string) =>
+        Promise.resolve(
+          registeredMaterialRequests.filter(
+            (r) => r.orderDomain === orderDomain && r.orderRef === orderRef,
+          ),
+        ),
+      ),
+    };
+    const materialRequestIssuer = {
+      register: jest.fn((input: any) => {
+        registeredMaterialRequests.push({
+          orderDomain: input.orderDomain,
+          orderRef: input.orderRef,
+          externalActionId: input.externalActionId,
+        });
+        return Promise.resolve({
+          requestNo: `MRQ${registeredMaterialRequests.length}`,
+          restrictionNo: null,
+        });
+      }),
+    };
+
     return {
       swapRow,
       txClient,
@@ -1281,6 +1325,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       customerRestrictionsService,
       pendingActionService,
       customerMainRow,
+      materialRequests,
+      materialRequestIssuer,
     };
   }
 
@@ -1301,6 +1347,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       mocks.customerRestrictionsService as any,
       mocks.pendingActionService as any,
       { resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }), assertCapability: jest.fn(), assertOffboardable: jest.fn() } as any, // customerAccessService
+      mocks.materialRequests as any,
+      mocks.materialRequestIssuer as any,
     );
   }
 
@@ -1487,8 +1535,9 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         openedBy: 'system',
       }),
     );
-    // Sanction hit — tipping-off silence still applies against a completed swap.
-    expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    // Sanction hit — tipping-off silence still applies against a completed swap:
+    // 一条材料请求都不登记（Task 10：不再写 customer_main 单指针）。
+    expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
   });
 
   it('SUCCESS + approved verdict (stale/contradictory) → still a plain no-op, disposition not re-run', async () => {
@@ -1553,8 +1602,9 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         openedBy: 'system',
       }),
     );
-    // Sanction hit — tipping-off silence still applies mid-swap.
-    expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+    // Sanction hit — tipping-off silence still applies mid-swap: 一条材料请求
+    // 都不登记（Task 10：不再写 customer_main 单指针）。
+    expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
   });
 
   it('PROCESSING + approved verdict → disposition never runs (nothing to restrict)', async () => {
@@ -1703,8 +1753,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   // just that we asserted our own assumption back at ourselves. Nested here
   // (not a sibling top-level describe) so it can reuse
   // buildApplyKytVerdictMocks/makeApplyKytVerdictService via closure.
-  describe('→ handleRejectDisposition (Task 7)', () => {
-    it('软线（有 applicantActions，无 SANCTION）→ 写 restrictions(SWAP,WITHDRAW) + pendingAction 可见', async () => {
+  describe('→ handleRejectDisposition (Task 7 disposition split, Task 10 material requests)', () => {
+    it('软线（有 applicantActions，无 SANCTION）→ 写 restrictions(SWAP,WITHDRAW) + 登记材料请求', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -1723,11 +1773,22 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           openedBy: 'system',
         }),
       );
-      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
-        externalActionId: 'EA1',
-        reason: 'KYT_REJECTED',
-        submittedAt: null,
-      });
+      // Task 10：不再写 customer_main 单指针，改登记材料账一行——restrict:false
+      // 因为限制便签已经在上面 open() 过了，这里不重复开。
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-1',
+          sumsubApplicantId: 'applicant-1',
+          materialType: 'SOURCE_OF_FUNDS',
+          applicantActionId: 'A1',
+          externalActionId: 'EA1',
+          orderDomain: 'SWAP',
+          orderRef: 'SWP0001',
+          origin: 'SUMSUB_PUSHED',
+          restrict: false,
+        }),
+      );
 
       // Review Fix 4 (Minor): business key + which action was shown, both in
       // the audit trail — not just the UUID and a bare boolean.
@@ -1738,47 +1799,84 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(dispositionAudit.metadata.externalActionId).toBe('EA1');
     });
 
-    it('硬线（SANCTION tag）→ 写 restrictions 但 pendingAction 为 null（tipping-off，即使有 action 也不暴露）', async () => {
+    // 单指针病的直接反证：旧写法 `actions[0]!.externalActionId` 只取第一条，
+    // 后面两条直接丢。现在一条 action 一行，逐条登记，一条都不能少。
+    it('软线拒：报文带三条 action → 逐条登记，不再只取第一条（单指针病的直接反证）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
       await service.applyKytVerdict('s1', {
         verdict: 'rejected',
-        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+        applicantActions: [
+          { applicantActionId: 'A1', externalActionId: 'EA1' },
+          { applicantActionId: 'A2', externalActionId: 'EA2' },
+          { applicantActionId: 'A3', externalActionId: 'EA3' },
+        ],
+      });
+
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(3);
+      const registeredExternalIds = (mocks.materialRequestIssuer.register as jest.Mock).mock.calls.map(
+        (c) => c[0].externalActionId,
+      );
+      expect(registeredExternalIds).toEqual(['EA1', 'EA2', 'EA3']);
+    });
+
+    it('硬线（SANCTION tag）→ 写 restrictions，一条材料请求都不登记，且盖 sticky 硬线章（tipping-off，即使有 action 也不暴露）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [
+          { applicantActionId: 'A1', externalActionId: 'EA1' },
+          { applicantActionId: 'A2', externalActionId: 'EA2' },
+        ],
         typedTags: ['SANCTION'],
       });
 
       expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
-      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      // 硬线拒：一条都不登记 —— 客户端结构上没有入口。
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(true);
     });
 
-    it('硬线（无 applicantActions）→ 写 restrictions，pendingAction 为 null（没有可做的动作，不给入口）', async () => {
+    it('硬线（无 applicantActions）→ 写 restrictions，不登记材料请求，也不盖 sticky 章（没有可做的动作，不给入口）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
       await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
 
       expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
-      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
+      // 无 action 的硬线不是制裁，不该永久沉默这个客户（Finding 3）。
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
     });
 
-    it('降级覆盖：客户已有软线 pendingAction，之后一次硬线（SANCTION）裁决必须把它清空，不留旧入口', async () => {
+    it('客户已有一笔来自前一笔软线 swap 的材料请求，之后一次硬线（SANCTION）裁决不登记新材料请求、也不影响那一行', async () => {
       const mocks = buildApplyKytVerdictMocks();
-      // Simulate a prior soft-line disposition that already stored a pendingAction.
-      mocks.customerMainRow.pendingActionExternalId = 'STALE';
-      mocks.customerMainRow.pendingActionReason = 'KYT_REJECTED';
       const service = makeApplyKytVerdictService(mocks);
 
-      await service.applyKytVerdict('s1', {
-        verdict: 'rejected',
+      // 先来一笔软线拒，登记一行材料请求。
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected' as const,
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
+      });
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
+
+      // 同客户第二笔单命中制裁——旧写法这里会 set(null) 把上一笔的软线指针整个
+      // 盖掉；材料账下软线登记的是"属于那笔单"的行，不会被这笔硬线单波及，所以
+      // 唯一可断言的是"这次硬线不新增登记"。
+      const swapB = { ...mocks.swapRow, id: 'sB', swapNo: 'SWP-B' };
+      await (service as any).handleRejectDisposition(swapB, {
+        verdict: 'rejected' as const,
         applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
         typedTags: ['SANCTION'],
       });
 
-      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
     });
 
-    it('幂等：webhook 重投/人工重放 handleRejectDisposition 两次，restrictions 每次都调（Task 1 已证幂等）且 pendingAction 保持单一值，不讹误', async () => {
+    it('幂等：webhook 重投/人工重放 handleRejectDisposition 两次，restrictions 每次都调（Task 1 已证幂等），材料请求只登记一次（不撞 externalActionId 唯一键）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
       const input = {
@@ -1787,10 +1885,10 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       };
 
       // Calls the private disposition method directly twice — this is the
-      // scenario a manual replay tool would hit (applyKytVerdict's own
-      // terminal-status guard would normally block a second webhook redelivery
-      // once the swap is REJECTED; a direct replay of disposition itself must
-      // still be safe).
+      // scenario a manual replay tool (or an ingestion retry after a partial
+      // failure) would hit (applyKytVerdict's own terminal-status guard would
+      // normally block a second webhook redelivery once the swap is
+      // REJECTED; a direct replay of disposition itself must still be safe).
       await (service as any).handleRejectDisposition(mocks.swapRow, input);
       await (service as any).handleRejectDisposition(mocks.swapRow, input);
 
@@ -1808,13 +1906,9 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           }),
         );
       }
-      // Re-running left exactly the same single pendingAction — not duplicated,
-      // not nulled out by the replay.
-      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
-        externalActionId: 'EA1',
-        reason: 'KYT_REJECTED',
-        submittedAt: null,
-      });
+      // register() 不像旧 set() 天然幂等——externalActionId 撞了会抛 P2002。
+      // 第二次重放必须被 listLiveByOrder 的 dedup 挡掉，不能再调 register。
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
     });
 
     it('审计记录能区分软硬线 —— reviewer 事后能看出客户是否被告知及原因', async () => {
@@ -1856,7 +1950,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         verdict: 'rejected',
         typedTags: ['SANCTION'],
       });
-      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
 
       // Swap B arrives seconds later: on its OWN merits this is a soft line
       // (an action is attached, no SANCTION tag on this particular verdict) —
@@ -1866,7 +1960,8 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
       });
 
-      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      // 全程一条材料请求都没登记过——sticky 标记压住了 swap B 本可暴露的软线。
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
       const swapBAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
         .map((c) => c[0])
         .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED && a.entityId === 'sB');
@@ -1893,7 +1988,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         verdict: 'rejected',
         applicantActions: [],
       });
-      expect(await mocks.pendingActionService.get('cust-1')).toBeNull();
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
       // The no-actions case must NOT trip the sticky marker.
       expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
 
@@ -1904,11 +1999,27 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
       });
 
-      expect(await mocks.pendingActionService.get('cust-1')).toEqual({
-        externalActionId: 'EA2',
-        reason: 'KYT_REJECTED',
-        submittedAt: null,
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
+      expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
+        expect.objectContaining({ externalActionId: 'EA2', orderDomain: 'SWAP', orderRef: 'SWP-B' }),
+      );
+    });
+
+    // ── fail-safe 顺序（load-bearing，不许调换）：登记材料请求 = 暴露入口，
+    // ── 必须排在限制便签 open() 之后。崩在中间时客户「已被限制、只是暂时看不到
+    // ── 入口」是保守的；反过来会出现「入口已暴露但限制没落地」的危险窗口。
+    it('fail-safe 顺序：open 便签的调用发生在 register 之前', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', {
+        verdict: 'rejected',
+        applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
       });
+
+      const openOrder = (mocks.customerRestrictionsService.open as jest.Mock).mock.invocationCallOrder[0];
+      const registerOrder = (mocks.materialRequestIssuer.register as jest.Mock).mock.invocationCallOrder[0];
+      expect(openOrder).toBeLessThan(registerOrder);
     });
 
     // ── Review Fix 1 (Important): a throw inside disposition must be visible

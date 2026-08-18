@@ -159,6 +159,26 @@ export class CustomerPendingActionService {
   }
 
   /**
+   * 2026-08-17 材料请求账（Task 10）：从 set(customerId, action, markHardLine)
+   * 抽出的独立方法——兑换域不再写 pendingAction* 三列，但 sticky 硬线章仍然要
+   * 盖，且逻辑原样保留（write-once：已经盖过章的客户不再重新盖）。
+   *
+   * 盖 sticky 硬线章。一旦盖上，这个客户后续任何软线裁决都不再暴露补料入口。
+   * 只在命中制裁时盖 —— 「无 action 的硬线」不该造成永久沉默（终审 Finding 3）。
+   */
+  async markHardLineDisposition(customerId: string): Promise<void> {
+    const existing = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: { hardLineDispositionedAt: true },
+    });
+    if (existing?.hardLineDispositionedAt) return;
+    await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: { hardLineDispositionedAt: new Date() },
+    });
+  }
+
+  /**
    * Task 13：applicantActionReviewed webhook 认领入口。webhook 携带
    * externalActionId；按 pendingActionExternalId 反查客户，是 set() 写入侧的
    * 反向查询。查不到返回 null——调用方（SwapApplicantActionHandler）据此判断

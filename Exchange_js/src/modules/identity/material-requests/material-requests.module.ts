@@ -10,6 +10,7 @@ import { MaterialRequestReviewService } from './material-request-review.service'
 import { MaterialRequestOrderCancelListener } from './material-request-order-cancel.listener';
 import { MaterialRequestsAdminController } from './material-requests.admin.controller';
 import { MaterialRequestsClientController } from './material-requests.client.controller';
+import { SwapSumsubModule } from '../../swap-sumsub/swap-sumsub.module';
 
 @Module({
   imports: [
@@ -18,6 +19,12 @@ import { MaterialRequestsClientController } from './material-requests.client.con
     forwardRef(() => CustomersModule),
     forwardRef(() => OnboardingModule),
     forwardRef(() => MaterialRefreshModule),
+    // Task 10: MaterialRequestReviewService's GREEN path calls back into
+    // SwapApplicantActionHandler.noteHardLineHeld (the one piece of
+    // disposition logic that stays domain-specific — the sticky hard-line
+    // check). forwardRef: SwapSumsubModule imports this module right back for
+    // the handler's own MaterialRequestsService dependency.
+    forwardRef(() => SwapSumsubModule),
   ],
   providers: [
     MaterialRequestsService,

@@ -1,25 +1,22 @@
 import { SwapWebhookRouter } from './swap-webhook.router';
 import { SwapKytVerdictHandler } from './swap-kyt-verdict.handler';
-import { SwapApplicantActionHandler } from './applicant-action.handler';
 
 /**
  * Task 5: mirrors deposit-webhook.router.spec.ts / withdraw-webhook.router.spec.ts
  * (deliberate fork — hand-rolled mock, bypasses Nest DI).
- * Task 13: added applicantActionHandler mock + the applicantActionReviewed branch tests.
+ * 2026-08-17 材料请求账（Task 10）：applicantActionReviewed 不再由本 router 认领
+ * ——Task 13 加的 applicantActionHandler 分支 + 两条用例整段删除，该报文类型
+ * 现在直接落进"unknown type"分支（见下方"落回 orphan"用例）。
  */
 describe('SwapWebhookRouter', () => {
   let kytVerdictHandler: jest.Mocked<SwapKytVerdictHandler>;
-  let applicantActionHandler: jest.Mocked<SwapApplicantActionHandler>;
   let router: SwapWebhookRouter;
 
   beforeEach(() => {
     kytVerdictHandler = {
       handle: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<SwapKytVerdictHandler>;
-    applicantActionHandler = {
-      handle: jest.fn().mockResolvedValue(true),
-    } as unknown as jest.Mocked<SwapApplicantActionHandler>;
-    router = new SwapWebhookRouter(kytVerdictHandler, applicantActionHandler);
+    router = new SwapWebhookRouter(kytVerdictHandler);
   });
 
   it('routes applicantKytTxnApproved to kytVerdictHandler and returns its boolean', async () => {
@@ -76,32 +73,16 @@ describe('SwapWebhookRouter', () => {
     expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
   });
 
-  // ── Task 13: applicantActionReviewed ───────────────────────────────────
+  // ── 2026-08-17 材料请求账：applicantActionReviewed 落回 orphan ──────────
 
-  it('routes applicantActionReviewed to applicantActionHandler and returns its boolean', async () => {
-    const payload = {
+  it('applicantActionReviewed 不再被本 router 认领——落回 unknown type 分支，返回 false', async () => {
+    const result = await router.route({
       type: 'applicantActionReviewed',
       externalActionId: 'EA1',
       reviewResult: { reviewAnswer: 'GREEN' },
-    };
-
-    const result = await router.route(payload);
-
-    expect(applicantActionHandler.handle).toHaveBeenCalledTimes(1);
-    expect(applicantActionHandler.handle).toHaveBeenCalledWith(payload);
-    expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
-    expect(result).toBe(true);
-  });
-
-  it('propagates false from applicantActionHandler (no swap customer owns this externalActionId)', async () => {
-    applicantActionHandler.handle.mockResolvedValue(false);
-
-    const result = await router.route({
-      type: 'applicantActionReviewed',
-      externalActionId: 'ZZZ',
-      reviewResult: { reviewAnswer: 'GREEN' },
     });
 
+    expect(kytVerdictHandler.handle).not.toHaveBeenCalled();
     expect(result).toBe(false);
   });
 });
