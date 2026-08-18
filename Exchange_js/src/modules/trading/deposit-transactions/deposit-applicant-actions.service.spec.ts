@@ -61,6 +61,43 @@ describe('DepositApplicantActionsService', () => {
     expect(requests.cancel).toHaveBeenCalledWith('MRQ-old', 'RETIRED_BY_SUMSUB', expect.anything());
   });
 
+  // 真回归（2026-08-18 修）：旧退役循环对 live 里 PENDING_SUBMISSION 和 SUBMITTED
+  // 一视同仁，任何一个不带该 action 的 webhook 都会把客户已提交、正等审核的行
+  // 撤成 CANCELLED——客户白交，运营也看不到。退役只能针对 PENDING_SUBMISSION，
+  // 与子表时代 `submittedAt === null` 等价（71483d0d 版 toRetire 过滤）。
+  it('报文里已消失但状态是 SUBMITTED 的行 → 不得 cancel（客户已交、正等审核）', async () => {
+    const { svc, requests } = build();
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-submitted', externalActionId: 'gone', status: 'SUBMITTED' },
+    ]);
+    const r = await svc.syncApplicantActions('dep-1', [
+      { applicantActionId: 'a1', externalActionId: 'e1' },
+    ]);
+    expect(requests.cancel).not.toHaveBeenCalled();
+    expect(r.retired).toBe(0);
+  });
+
+  it('报文里已消失且状态是 PENDING_SUBMISSION 的行 → 照旧被 cancel', async () => {
+    const { svc, requests } = build();
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-pending', externalActionId: 'gone', status: 'PENDING_SUBMISSION' },
+    ]);
+    const r = await svc.syncApplicantActions('dep-1', [
+      { applicantActionId: 'a1', externalActionId: 'e1' },
+    ]);
+    expect(requests.cancel).toHaveBeenCalledWith('MRQ-pending', 'RETIRED_BY_SUMSUB', expect.anything());
+    expect(r.retired).toBe(1);
+  });
+
+  it('incoming 含空 externalActionId 的条目 → 被跳过，不调 issuer.register', async () => {
+    const { svc, issuer } = build();
+    const r = await svc.syncApplicantActions('dep-1', [
+      { applicantActionId: 'a1', externalActionId: '' },
+    ]);
+    expect(issuer.register).not.toHaveBeenCalled();
+    expect(r).toEqual({ added: 0, retired: 0 });
+  });
+
   it('报文里已存在的行不重复 register（幂等，重复 webhook 不造第二行）', async () => {
     const { svc, issuer, requests } = build();
     requests.listLiveByOrder.mockResolvedValue([

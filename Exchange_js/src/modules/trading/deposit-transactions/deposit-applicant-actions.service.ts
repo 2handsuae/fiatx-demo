@@ -72,12 +72,24 @@ export class DepositApplicantActionsService {
       return { added: 0, retired: 0 };
     }
 
+    // 空 applicantActionId/externalActionId 的条目在入口直接丢弃：与子表时代的
+    // `valid` 过滤同一职责（见 71483d0d 版 syncOnce）——externalActionId 是材料账
+    // 的 @unique 幂等键，空串一旦落进 issuer.register 会在下一条空串同步时撞唯一
+    // 约束（P2002），不如在源头就不让这种脏数据入库。
+    const valid = incoming.filter((a) => {
+      if (a.applicantActionId && a.externalActionId) return true;
+      this.logger.warn(
+        `Deposit ${deposit.depositNo}: dropping applicant action with missing id — applicantActionId=${a.applicantActionId} externalActionId=${a.externalActionId}`,
+      );
+      return false;
+    });
+
     const live = await this.requests.listLiveByOrder('DEPOSIT', deposit.depositNo);
     const liveByExternal = new Map(live.map((r) => [r.externalActionId, r]));
-    const incomingIds = new Set(incoming.map((a) => a.externalActionId));
+    const incomingIds = new Set(valid.map((a) => a.externalActionId));
 
     let added = 0;
-    for (const action of incoming) {
+    for (const action of valid) {
       if (liveByExternal.has(action.externalActionId)) continue; // 幂等：重复 webhook 不造第二行
       await this.issuer.register({
         customerId: customer.id,
@@ -103,6 +115,11 @@ export class DepositApplicantActionsService {
 
     let retired = 0;
     for (const row of live) {
+      // 只退役客户还没交的行——与子表时代 `r.submittedAt === null` 等价（见
+      // 71483d0d 版 syncOnce 的 toRetire 过滤）。SUBMITTED 是客户已经交了、正等
+      // 审核的行：报文没带出这条 id 不代表 Sumsub 撤回了它，把它当撤回 cancel 掉
+      // 会让客户白交材料、运营也看不到已提交的证据。
+      if (row.status !== 'PENDING_SUBMISSION') continue;
       if (incomingIds.has(row.externalActionId)) continue;
       await this.requests.cancel(row.requestNo, 'RETIRED_BY_SUMSUB', SYSTEM_ACTOR);
       retired += 1;
