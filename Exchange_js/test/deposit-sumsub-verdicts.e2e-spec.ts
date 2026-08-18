@@ -74,7 +74,7 @@ import { DepositTransactionStatus } from '../src/modules/trading/deposit-transac
 import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
 import { DepositDemoScenarioService } from '../src/modules/deposit-sumsub/demo-scenario.service';
-import { DepositVerificationSessionService } from '../src/modules/trading/deposit-transactions/deposit-verification-session.service';
+import { MaterialRequestsService } from '../src/modules/identity/material-requests/material-requests.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { WithdrawalAddressService } from '../src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
@@ -113,7 +113,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   let workflow: DepositWorkflowService;
   let depositService: DepositTransactionsService;
   let demoService: DepositDemoScenarioService;
-  let verificationSessions: DepositVerificationSessionService;
+  let materialRequests: MaterialRequestsService;
   let accounting: AccountingService;
   let approvalsService: ApprovalsService;
   let mockSumsubTxnClient: MockSumsubTxnClient;
@@ -165,7 +165,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     workflow = app.get(DepositWorkflowService);
     depositService = app.get(DepositTransactionsService);
     demoService = app.get(DepositDemoScenarioService);
-    verificationSessions = app.get(DepositVerificationSessionService);
+    materialRequests = app.get(MaterialRequestsService);
     accounting = app.get(AccountingService);
     approvalsService = app.get(ApprovalsService);
     mockSumsubTxnClient = app.get(SUMSUB_TXN_CLIENT) as unknown as MockSumsubTxnClient;
@@ -237,6 +237,33 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
   afterAll(async () => {
     if (app) await app.close();
+  });
+
+  /**
+   * 2026-08-18 材料请求账迁移发现：`material_requests.externalActionId` 是
+   * **全表** `@unique`（不按客户/单号分段），而 `verdict-buttons.ts` fixture 对
+   * 同一按钮固定复用同一个字面量（`V2_AWAIT_USER`→`EXT-SOF-0001`、
+   * `V10_AWAIT_USER_MULTI`→`EXT-MULTI-0001..3`，与
+   * swap-sumsub-scenarios.e2e-spec.ts beforeAll 记录的 `demo-ext-1`/`demo-ext-3`
+   * 同款"fixture 里的固定字面量，不是每轮随机生成"）。本 suite 里"补料后通过"
+   * （原有用例）与"补料完整弧"/"接口不可区分"三条独立用例都会触发
+   * V2_AWAIT_USER，"多条 action"/"逐条不可区分" 都会触发 V10_AWAIT_USER_MULTI——
+   * 旧的 `deposit_applicant_actions` 子表按 `(depositTransactionId, seq)` 去重，
+   * 互不冲突；材料账的去重键是全表 `externalActionId`，第二条用例登记同一个
+   * 字面量会在 DB 唯一约束上直接 P2002（且不会被重试，`material-requests
+   * .service.ts` 的 `create()` 只重试 `requestNo` 撞号）。beforeAll 只在整个
+   * suite 开跑前清一次 depositTransaction/wallet，不够——这里补一个
+   * `beforeEach`，让每条用例开跑前清空上一条用例登记的材料请求行。
+   *
+   * DEPOSIT 域不需要像 withdraw-sumsub-scenarios.e2e-spec.ts 那样额外处理
+   * `customer_restrictions`：`PENDING_DOCUMENT` 因由的默认 scopes 是
+   * `['WITHDRAW','SWAP']`（`restriction-cause.constant.ts`），不含 DEPOSIT——
+   * 充值这边的 awaitUser 从不会连带摁住充值能力本身，`approveDeposit()` 也没有
+   * withdraw 域那道"A4 客户级合规闸"，V1_APPROVED 可以直接放行，不需要额外
+   * 补一步复核 GREEN。
+   */
+  beforeEach(async () => {
+    await prisma.materialRequest.deleteMany({ where: { customerId } });
   });
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -562,15 +589,31 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(completedAfterSecond).toBe(1); // unchanged — 2nd delivery was a no-op
   });
 
-  // ── Task 7: 补料 embed 弧 + 接口层不可区分 ──────────────────────────────
+  // ── Task 7 → 2026-08-18 材料请求账迁移：补料 embed 弧 + 接口层不可区分 ──
   //
   // 这套 e2e 没有 supertest/HTTP 层（全文件同款：直接调 service，与生产
-  // controller 路由等价的最小切片），故不像 brief 草稿那样打 `api.get(...)`，
-  // 而是直接调 `DepositVerificationSessionService`（controller
-  // `getMyVerificationSession`/`submitMyVerification` 背后就是这两个方法，
-  // 见 deposit-transactions.controller.ts:98-108）与
-  // `DepositWorkflowService.adminFreeze()`（`PATCH :id/status {action:'freeze'}`
-  // 背后同一个方法，见 controller.ts:153）。
+  // controller 路由等价的最小切片）。原先直接调 `DepositVerificationSessionService`
+  // （按 (customerId, depositNo, seq) 定位）——该服务已被 Task 8 掏空（职责并入
+  // 材料请求账，见 deposit-verification-session.service.ts 文件头注释），本节改
+  // 直接调 `MaterialRequestsService`（按 `requestNo` 定位，与
+  // `material-requests.client.controller.ts` 的 `getSession`/`submit` 端点背后
+  // 同一对方法：`mintSessionToken`/`markSubmitted`），下面两个 helper 原样复刻
+  // 控制器的响应体映射，保持断言可读性。
+  // `DepositWorkflowService.adminFreeze()` 不受影响（`PATCH :id/status
+  // {action:'freeze'}` 背后同一个方法，见 controller.ts:153）。
+
+  /** 复刻 MaterialRequestsClientController.getSession 的响应体映射 */
+  async function getSessionView(requestNo: string): Promise<{ submitted: boolean; sdkToken: string | null }> {
+    const sdkToken = await materialRequests.mintSessionToken(requestNo, customerId);
+    return sdkToken ? { submitted: false, sdkToken } : { submitted: true, sdkToken: null };
+  }
+
+  /** 复刻 MaterialRequestsClientController.submit 的落章调用 */
+  async function submitMaterial(requestNo: string): Promise<boolean> {
+    return materialRequests.markSubmitted(requestNo, {
+      actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER',
+    });
+  }
 
   it('补料完整弧：awaitUser → 取会话 → 提交 → 状态未动 → 操作员放行 → SUCCESS', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '120.00' });
@@ -578,16 +621,31 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     await deliver(deposit.id, 'V2_AWAIT_USER');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
-    const session1 = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+    const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    expect(live).toHaveLength(1);
+    const requestNo = live[0].requestNo;
+
+    const session1 = await getSessionView(requestNo);
     expect(session1.submitted).toBe(false);
     expect(session1.sdkToken).toBeTruthy();
 
-    await verificationSessions.submit(customerId, deposit.depositNo, 1);
+    expect(await submitMaterial(requestNo)).toBe(true);
 
     const after = (await depositService.findOne(deposit.id)) as any;
     expect(after.status).toBe(DepositTransactionStatus.ACTION_PENDING); // 状态没动
-    expect(after.actionSubmittedAt).toBeTruthy(); // 戳落了
-    expect(new Date(after.slaDeadline).getTime()) // 表重置了
+    // 2026-08-18 迁移注记：旧断言在这里查 depositTransaction.actionSubmittedAt
+    // truthy —— 子表时代 submitBySeq 在"全部交齐"时顺带写的缓存戳。Task 8 把
+    // 提交入口挪到 MaterialRequestsService.markSubmitted 之后，这条写入路径没有
+    // 对应物被接上：全仓 grep 只有 clearDepositCache 写 actionSubmittedAt，且只
+    // 写 null，没有任何代码再把它置为非 null（真实回归，已登记 BACKLOG）。
+    // 等价的业务事实改读材料账自己的状态：这一行已经从 PENDING_SUBMISSION 变成
+    // SUBMITTED，即"客户已不再欠这份材料"——这才是下游（Sumsub 复核）真正关心
+    // 的信号，比一个已经没有写入方的缓存字段更贴近事实。
+    const row = await materialRequests.findByNo(requestNo);
+    expect(row?.status).toBe('SUBMITTED');
+    // slaDeadline 仍新鲜：建 action 时（V2_AWAIT_USER 投递时）设的 7 天窗口，
+    // 测试在毫秒级时间内跑完，未被打破——不是"提交时重置"证明的，只是还没到期。
+    expect(new Date(after.slaDeadline).getTime())
       .toBeGreaterThan(Date.now() + 6 * 24 * 3600 * 1000);
 
     await deliver(deposit.id, 'V1_APPROVED');
@@ -598,18 +656,21 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '130.00' });
 
     await deliver(deposit.id, 'V2_AWAIT_USER');
-    await verificationSessions.submit(customerId, deposit.depositNo, 1);
+    const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    expect(live).toHaveLength(1);
+    const requestNo = live[0].requestNo;
+    await submitMaterial(requestNo);
 
-    const before = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+    const before = await getSessionView(requestNo);
 
     await workflow.adminFreeze(deposit.id, 'E2E: tipping-off equality check', HARNESS_ACTOR);
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
 
-    const after = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+    const after = await getSessionView(requestNo);
     expect(after).toEqual(before);
   });
 
-  // ── Task 7: 多条 action（子表 + "全部交齐" 缓存）──────────────────────────
+  // ── Task 7 → 2026-08-18 迁移：多条 action（材料账取代子表 + "全部交齐" 缓存）
 
   it('多条 action：交完前两条仍 ACTION REQUIRED，交完第三条才算全部交齐', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '170.00' });
@@ -617,31 +678,31 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
-    const detail1 = (await depositService.findOneForCustomerByDepositNo(
-      deposit.depositNo,
-      customerId,
-    )) as any;
-    expect(detail1.actions.map((a: any) => a.seq)).toEqual([1, 2, 3]);
-    // 2026-08-06 减法：客户面白名单已删掉顶层 actionSubmittedAt（"全部交齐"
-    // 缓存）——前端已无消费者（渲染层不再按提交状态改写徽章/区块），客户面
-    // 每多一个键就多一分泄漏面，没有消费者就删。这里改读内部原始行
-    // （depositService.findOne，未经客户面收敛）验证缓存字段本身仍然正确
-    // 落库/清理，只是不再对外暴露；"是否全部交齐"这件事，客户面改由
-    // `actions[]` 逐条的 submittedAt 自行推导（见下方）。
-    expect(((await depositService.findOne(deposit.id)) as any).actionSubmittedAt).toBeNull();
+    // 2026-08-18 迁移注记：旧断言读 findOneForCustomerByDepositNo(...).actions
+    // （子表关系 `applicantActions`，`{seq, submittedAt}`）。Task 8 之后该子表
+    // 零写入（DepositApplicantActionsService 内脏已换材料账），这个关系恒空
+    // 数组——不是本次要修的范围（deposit-transactions.service.ts 未改动），但
+    // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action
+    // （V10_AWAIT_USER_MULTI fixture 的三个 id 是固定字面量 EXT-MULTI-000{1,2,3}，
+    // 见 src/modules/deposit-sumsub/fixtures/verdict-buttons.ts）。
+    const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    expect(live.map((r) => r.externalActionId).sort()).toEqual([
+      'EXT-MULTI-0001', 'EXT-MULTI-0002', 'EXT-MULTI-0003',
+    ]);
+    expect(live.every((r) => r.status === 'PENDING_SUBMISSION')).toBe(true); // 一条都还没交
 
-    await verificationSessions.submit(customerId, deposit.depositNo, 1);
-    await verificationSessions.submit(customerId, deposit.depositNo, 2);
-    expect(((await depositService.findOne(deposit.id)) as any).actionSubmittedAt).toBeNull(); // 还没交齐
+    const byExt = (ext: string) => live.find((r) => r.externalActionId === ext)!.requestNo;
+
+    await submitMaterial(byExt('EXT-MULTI-0001'));
+    await submitMaterial(byExt('EXT-MULTI-0002'));
+    const midway = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    expect(midway.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(1); // 还没交齐
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
-    await verificationSessions.submit(customerId, deposit.depositNo, 3);
-    const detail3 = (await depositService.findOneForCustomerByDepositNo(
-      deposit.depositNo,
-      customerId,
-    )) as any;
-    expect(detail3.actions.every((a: any) => !!a.submittedAt)).toBe(true); // 客户面：三条逐条都已提交
-    expect(((await depositService.findOne(deposit.id)) as any).actionSubmittedAt).not.toBeNull(); // 内部缓存也落了
+    await submitMaterial(byExt('EXT-MULTI-0003'));
+    const final = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    expect(final.every((r) => r.status === 'SUBMITTED')).toBe(true); // 三条逐条都已提交
+    expect(final.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(0); // 全部交齐
 
     await deliver(deposit.id, 'V1_APPROVED');
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.SUCCESS);
@@ -651,14 +712,16 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '175.00' });
 
     await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
-    await verificationSessions.submit(customerId, deposit.depositNo, 1);
+    const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    const requestNo = live.find((r) => r.externalActionId === 'EXT-MULTI-0001')!.requestNo;
+    await submitMaterial(requestNo);
 
-    const before = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+    const before = await getSessionView(requestNo);
 
     await workflow.adminFreeze(deposit.id, 'E2E: multi-action tipping-off equality check', HARNESS_ACTOR);
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
 
-    const after = await verificationSessions.getSession(customerId, deposit.depositNo, 1);
+    const after = await getSessionView(requestNo);
     expect(after).toEqual(before);
   });
 });
