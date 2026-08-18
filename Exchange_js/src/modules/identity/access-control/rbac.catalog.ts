@@ -245,6 +245,11 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     ['CUSTOMER_RESTRICTION_RELEASE'],
   ),
 
+  // Material requests
+  route('GET', '/admin/customers/:customerNo/material-requests', 'List customer material requests', ['CUSTOMER_RESTRICTION_READ']),
+  route('POST', '/admin/customers/:customerNo/material-requests', 'Issue material request', ['CUSTOMER_RESTRICTION_WRITE']),
+  route('GET', '/admin/material-requests/by-order/:orderDomain/:orderRef', 'List order material requests', ['CUSTOMER_RESTRICTION_READ']),
+
   // Pricing center
   route('GET', '/admin/pricing/policies', 'List pricing policies', ['CUSTOMER_RATE_READ']),
   route('GET', '/admin/pricing/policies/swap', 'Get swap pricing policy', ['CUSTOMER_RATE_READ']),
