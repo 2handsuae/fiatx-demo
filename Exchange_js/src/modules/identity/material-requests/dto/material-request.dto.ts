@@ -78,3 +78,26 @@ export interface AdminMaterialRequestRow {
   reviewRejectType: 'RETRY' | 'FINAL' | null;
   cancelReason: string | null;
 }
+
+/**
+ * 客户面视图。**结构上装不下 applicantActionId 与 externalActionId** ——
+ * 前者是 Sumsub 侧 id（spec I2），后者是铸 token 的钥匙，两个都只该留在服务端。
+ * 由 material-request.contract.spec.ts 扫源码守着。
+ */
+export interface ClientMaterialRequestRow {
+  requestNo: string;
+  materialType: string;
+  materialLabel: string;
+  status: 'PENDING_SUBMISSION' | 'SUBMITTED';
+  /** 挂了限制 = 真摁住你了（红档）；没挂 = 只是提醒（黄档） */
+  blocking: boolean;
+  orderDomain: 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | null;
+  orderRef: string | null;
+  reason: string;
+  issuedAt: string;
+}
+
+export interface ClientVerificationSessionView {
+  submitted: boolean;
+  sdkToken: string | null;
+}

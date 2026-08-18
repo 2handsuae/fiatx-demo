@@ -9,6 +9,7 @@ import { MaterialRequestIssuerService } from './material-request-issuer.service'
 import { MaterialRequestReviewService } from './material-request-review.service';
 import { MaterialRequestOrderCancelListener } from './material-request-order-cancel.listener';
 import { MaterialRequestsAdminController } from './material-requests.admin.controller';
+import { MaterialRequestsClientController } from './material-requests.client.controller';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { MaterialRequestsAdminController } from './material-requests.admin.contr
     MaterialRequestReviewService,
     MaterialRequestOrderCancelListener,
   ],
-  controllers: [MaterialRequestsAdminController],
+  controllers: [MaterialRequestsAdminController, MaterialRequestsClientController],
   exports: [MaterialRequestsService, MaterialRequestIssuerService, MaterialRequestReviewService],
 })
 export class MaterialRequestsModule {}
