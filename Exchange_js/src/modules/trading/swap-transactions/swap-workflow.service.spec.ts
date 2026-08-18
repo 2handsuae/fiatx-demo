@@ -1775,6 +1775,10 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       );
       // Task 10：不再写 customer_main 单指针，改登记材料账一行——restrict:false
       // 因为限制便签已经在上面 open() 过了，这里不重复开。
+      // 2026-08-18 修复：restrict:false 不代表"不接便签"——existingRestrictionNo
+      // 必须等于 open() 刚刚返回的那个 restrictionNo，否则 GREEN 复核时
+      // autoRelease 永远读不到便签、客户交齐材料后限制原地不动、永久卡死
+      // （本次要修的 Critical）。
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1787,16 +1791,19 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           orderRef: 'SWP0001',
           origin: 'SUMSUB_PUSHED',
           restrict: false,
+          existingRestrictionNo: 'RST2608160001',
         }),
       );
 
-      // Review Fix 4 (Minor): business key + which action was shown, both in
-      // the audit trail — not just the UUID and a bare boolean.
+      // Review Fix 4 (Minor): business key + which actions were shown, both in
+      // the audit trail — not just the UUID and a bare boolean. Amended
+      // 2026-08-18: metadata now records every action, not just actions[0]
+      // (that "only actions[0]" pattern is the exact bug class this task fixes).
       const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
         .map((c) => c[0])
         .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
       expect(dispositionAudit.entityOwnerNo).toBe('C0001');
-      expect(dispositionAudit.metadata.externalActionId).toBe('EA1');
+      expect(dispositionAudit.metadata.actionIds).toEqual(['EA1']);
     });
 
     // 单指针病的直接反证：旧写法 `actions[0]!.externalActionId` 只取第一条，
@@ -1815,10 +1822,17 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       });
 
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(3);
-      const registeredExternalIds = (mocks.materialRequestIssuer.register as jest.Mock).mock.calls.map(
-        (c) => c[0].externalActionId,
-      );
-      expect(registeredExternalIds).toEqual(['EA1', 'EA2', 'EA3']);
+      const registeredCalls = (mocks.materialRequestIssuer.register as jest.Mock).mock.calls.map((c) => c[0]);
+      expect(registeredCalls.map((c: any) => c.externalActionId)).toEqual(['EA1', 'EA2', 'EA3']);
+      // 三条都必须接同一张便签（open() 只开了一次）——不是三张便签各配一条。
+      for (const call of registeredCalls) {
+        expect(call.existingRestrictionNo).toBe('RST2608160001');
+      }
+
+      const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(dispositionAudit.metadata.actionIds).toEqual(['EA1', 'EA2', 'EA3']);
     });
 
     it('硬线（SANCTION tag）→ 写 restrictions，一条材料请求都不登记，且盖 sticky 硬线章（tipping-off，即使有 action 也不暴露）', async () => {
@@ -1927,10 +1941,10 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(dispositionAudit).toBeDefined();
       expect(dispositionAudit.metadata).toMatchObject({ hasSanction: true, exposeToCustomer: false });
       expect(dispositionAudit.reason).toMatch(/not notified|tipping/i);
-      // Review Fix 4 (Minor): business key present; no action id leaked into
+      // Review Fix 4 (Minor): business key present; no action ids leaked into
       // metadata when nothing was actually shown to the customer.
       expect(dispositionAudit.entityOwnerNo).toBe('C0001');
-      expect(dispositionAudit.metadata.externalActionId).toBeUndefined();
+      expect(dispositionAudit.metadata.actionIds).toBeUndefined();
     });
 
     // ── Review Fix 2 (Important): the exact A-then-B cross-swap sequence ──

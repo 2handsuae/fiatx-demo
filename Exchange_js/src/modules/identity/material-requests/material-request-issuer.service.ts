@@ -32,6 +32,12 @@ export type RegisterInput = IssueMaterialRequestInput & {
   restrict: boolean;
   restrictScopes?: RestrictionScope[];
   restrictCause?: IssuableRestrictionCause;
+  /**
+   * 便签在调用方已经开好了（如兑换域软线拒的 fail-safe 顺序：先 open() 拿到
+   * restrictionNo，再逐条 register()）——这里只把它写进新建行，不再新开一张。
+   * 与 restrict:true 互斥：一次下发只该对应一张便签。
+   */
+  existingRestrictionNo?: string;
   actor: ApprovalActorContext;
 };
 
@@ -97,9 +103,17 @@ export class MaterialRequestIssuerService {
   }
 
   async register(input: RegisterInput): Promise<{ requestNo: string; restrictionNo: string | null }> {
+    if (input.restrict && input.existingRestrictionNo) {
+      throw new BadRequestException({
+        code: 'MATERIAL_REQUEST_RESTRICTION_CONFLICT',
+        message:
+          'restrict and existingRestrictionNo cannot both be set — a single issuance should ' +
+          'back at most one restriction (either open a new one, or attach an already-open one, not both)',
+      });
+    }
     const cause = this.resolveCause(input.restrict, input.restrictCause);
-    const { restrict, restrictScopes, restrictCause, actor, ...row } = input;
-    return this.persist(row, cause, restrictScopes, input.reason, actor);
+    const { restrict, restrictScopes, restrictCause, actor, existingRestrictionNo, ...row } = input;
+    return this.persist(row, cause, restrictScopes, input.reason, actor, existingRestrictionNo);
   }
 
   /** 落行 + 可选开便签，同一个事务。半成品（有行没便签 / 有便签没行）是运营看不懂的脏数据。 */
@@ -109,9 +123,18 @@ export class MaterialRequestIssuerService {
     scopes: RestrictionScope[] | undefined,
     reason: string,
     actor: ApprovalActorContext,
+    existingRestrictionNo?: string,
   ): Promise<{ requestNo: string; restrictionNo: string | null }> {
     return this.prisma.$transaction(async (tx: Record<string, any>) => {
       const created = await this.requests.create(row, tx);
+
+      if (existingRestrictionNo) {
+        // 便签已经在调用方开好了（RegisterInput.existingRestrictionNo）——只登记
+        // 到这一行，不再走 openRestriction 新开一张。
+        await this.requests.attachRestriction(created.requestNo, existingRestrictionNo, tx);
+        return { requestNo: created.requestNo, restrictionNo: existingRestrictionNo };
+      }
+
       if (!cause) return { requestNo: created.requestNo, restrictionNo: null };
 
       // caseRef 用 requestNo：CustomerRestrictionWorkflowService.autoRelease() 是按

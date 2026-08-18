@@ -903,7 +903,11 @@ export class SwapWorkflowService {
               issuedBy: 'SYSTEM',
               // 便签上面已经开好了（restrictionNo 在手），这里不重复开 ——
               // register 的 restrict=false 表示「不要再开一张」，不表示「不摁人」。
+              // existingRestrictionNo 把已经开好的那张便签接进这一行，否则
+              // restrictionNo 恒为 null，GREEN 复核时 autoRelease 永远不会被调用
+              // （2026-08-18 修复：客户交齐材料后限制原地不动、永久卡死）。
               restrict: false,
+              existingRestrictionNo: restrictionNo,
               actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
             });
           }
@@ -942,8 +946,12 @@ export class SwapWorkflowService {
           actionCount: actions.length,
           exposeToCustomer,
           alreadyHardLined,
-          // Review Fix 4 (Minor): which action was actually shown, when one was.
-          externalActionId: exposeToCustomer ? actions[0]!.externalActionId : undefined,
+          // Review Fix 4 (Minor), amended 2026-08-18: record every action shown,
+          // not just actions[0] — the single-pointer bug this task fixes was an
+          // instance of exactly that pattern, so this audit metadata must not
+          // repeat it (an investigator reconstructing this decision needs the
+          // full list, not just the first row).
+          actionIds: exposeToCustomer ? actions.map((a) => a.externalActionId) : undefined,
           restrictionNo,
           restrictionCause,
           restrictionCreated,
