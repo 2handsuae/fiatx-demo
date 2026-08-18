@@ -55,8 +55,8 @@ export class CustomerWithdrawController {
     return this.service.findAllForCustomer(userId, query);
   }
 
-  // 2026-08-18 材料请求账：本域补料会话端点（原 verification-session/:seq，
-  // 按 seq 定位）已删除。客户面改走 material-requests.client.controller.ts
+  // 2026-08-18 材料请求账：本域补料会话端点（原按 seq 定位的旧端点）已删除。
+  // 客户面改走 material-requests.client.controller.ts
   // 的 requestNo 定位端点（Task 14 接入）。
 
   @Get('my/:withdrawNo')

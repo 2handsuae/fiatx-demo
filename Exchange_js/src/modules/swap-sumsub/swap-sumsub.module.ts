@@ -44,7 +44,8 @@ const SUMSUB_MOCK_MODE = process.env.SUMSUB_MOCK_MODE === 'true';
     forwardRef(() => DepositSumsubModule),
     forwardRef(() => SumsubIngestionModule),
     // Task 13: SwapApplicantActionHandler injects CustomerRestrictionsService +
-    // CustomerPendingActionService. Plain import (no forwardRef) — mirrors
+    // CustomersService (Task 12: hard-line marker moved here). Plain import
+    // (no forwardRef) — mirrors
     // SwapTransactionsModule's identical import of CustomersModule (Task 7):
     // CustomersModule only depends on PrismaModule (@Global) and
     // NotificationsModule (a leaf module), so there's no path back here to cycle on.

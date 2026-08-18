@@ -39,7 +39,7 @@ describe('SwapDemoScenarioService', () => {
     };
     ingestionService = { ingest: jest.fn().mockResolvedValue({ event: {} }) };
     auditLogsService = { recordByActor: jest.fn().mockResolvedValue(undefined) };
-    // Task 10: 材料请求账取代 CustomerMain.pendingActionExternalId 单指针——默认
+    // Task 10: 材料请求账取代客户级单指针（该列已随 Task 12 物理删除）——默认
     // 没有活着的材料请求,V7/V8 分支落到 mintTxnId 的确定性占位符。
     materialRequests = { listLiveByOrder: jest.fn().mockResolvedValue([]) };
     mockClient = new MockSumsubTxnClient();

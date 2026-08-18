@@ -5,7 +5,7 @@ import {
 } from '../audit-logging/constants/audit-actions.constant';
 import { AuditResult } from '../audit-logging/dto/audit-log.dto';
 import { PrismaService } from '../../core/prisma/prisma.service';
-import { CustomerPendingActionService } from '../identity/customers/customer-pending-action.service';
+import { CustomersService } from '../identity/customers/customers.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
 
 /**
@@ -31,7 +31,7 @@ export class SwapApplicantActionHandler {
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly auditLogsService: AuditLogsService,
-    private readonly pendingActionService: CustomerPendingActionService,
+    private readonly customersService: CustomersService,
     private readonly materialRequests: MaterialRequestsService,
   ) {}
 
@@ -40,7 +40,7 @@ export class SwapApplicantActionHandler {
     const row = await this.materialRequests.findByNo(requestNo);
     if (!row || row.orderDomain !== 'SWAP') return;
 
-    const hardLined = await this.pendingActionService.hasHardLineDisposition(row.customerId);
+    const hardLined = await this.customersService.hasHardLineDisposition(row.customerId);
     if (!hardLined) return;
 
     const customer = await this.prisma.customerMain.findUnique({

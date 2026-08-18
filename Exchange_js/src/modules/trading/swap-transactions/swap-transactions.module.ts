@@ -47,10 +47,12 @@ import { MaterialRequestsModule } from '../../identity/material-requests/materia
     // SumsubIngestionModule → SwapTransactionsModule would otherwise cycle).
     forwardRef(() => DepositSumsubModule),
     // Task 7: SwapWorkflowService injects CustomerRestrictionsService +
-    // CustomerPendingActionService (handleRejectDisposition). Plain import
-    // forwardRef（parity 2026-08-14）：CustomersModule 现引 OnboardingModule
-    // （客户级补料会话取 SumsubClient），require 链可绕回本模块——三处
-    // (Wallets/Customers/此处) 同步 forwardRef 断环。
+    // CustomersService (handleRejectDisposition; Task 12 moved the hard-line
+    // marker here from the now-deleted customer-pending-action service).
+    // forwardRef kept defensively — CustomersModule pulls in ApprovalsModule
+    // and FundsOrdersModule, either of which could plausibly cycle back to
+    // this module through the app's deep import graph; same defensive
+    // stance as the (Wallets/此处) pair below.
     forwardRef(() => CustomersModule),
     // Task 10: SwapWorkflowService injects MaterialRequestsService +
     // MaterialRequestIssuerService (handleRejectDisposition 改走材料账).

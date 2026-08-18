@@ -1,5 +1,5 @@
 import { SwapApplicantActionHandler } from './applicant-action.handler';
-import { CustomerPendingActionService } from '../identity/customers/customer-pending-action.service';
+import { CustomersService } from '../identity/customers/customers.service';
 import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions } from '../audit-logging/constants/audit-actions.constant';
@@ -23,7 +23,7 @@ function build() {
   } as unknown as jest.Mocked<AuditLogsService>;
   const pending = {
     hasHardLineDisposition: jest.fn(),
-  } as unknown as jest.Mocked<CustomerPendingActionService>;
+  } as unknown as jest.Mocked<CustomersService>;
   const requests = {
     findByNo: jest.fn(),
   } as unknown as jest.Mocked<MaterialRequestsService>;

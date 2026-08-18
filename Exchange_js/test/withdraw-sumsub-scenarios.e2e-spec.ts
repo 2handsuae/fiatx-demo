@@ -168,7 +168,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
    * `restriction-cause.constant.ts`）——即客户一旦被下发过补料请求，WITHDRAW
    * 能力会被客户级便签摁住，直到 Sumsub 复核 GREEN（`MaterialRequestReviewService
    * .applyReview` → `autoRelease`）或运营人工放行才解开。旧的
-   * `withdraw_applicant_actions` 子表设计从不碰 `customer_restrictions`，这是
+   * 旧的专属子表设计从不碰 `customer_restrictions`，这是
    * 全新的客户级联动，牵出两个连带问题：
    *
    * 1) `WithdrawWorkflowService.assertCustomerComplianceOrFreeze`（"A4 客户级

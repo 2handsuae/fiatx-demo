@@ -367,8 +367,8 @@ export const AuditActions = {
   // for a customer restricted by a prior swap KYT rejection.
   SWAP_ACTION_CLEARED: 'SWAP_ACTION_CLEARED',
   // GREEN arrived for a customer with a sticky hard-line (sanctions) marker —
-  // restrictions deliberately held, not lifted. See CustomerPendingActionService
-  // / handleRejectDisposition's hardLineDispositionedAt comments for why this
+  // restrictions deliberately held, not lifted. See CustomersService /
+  // handleRejectDisposition's hardLineDispositionedAt comments for why this
   // must never be bypassed.
   SWAP_ACTION_GREEN_HARDLINE_HELD: 'SWAP_ACTION_GREEN_HARDLINE_HELD',
   // RED (or any non-GREEN answer) — restrictions stay on, escalated for

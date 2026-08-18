@@ -19,8 +19,8 @@ interface MaterialRequestReviewedEvent {
  * 材料重检域自己的收尾入口（2026-08-18 修复回归）。
  *
  * 背景：2026-08-17 材料请求账 Task 11 把 T-30/T-0 建 action 改走
- * `MaterialRequestIssuerService.issue()` 之后，`material_refresh_cycles.sumsubActionId`
- * 这一列永远不再被写入。`sumsub-ingestion.service.ts` 原来靠这一列定位 cycle 的
+ * `MaterialRequestIssuerService.issue()` 之后，cycle 定位其旧的 Sumsub action
+ * id 那一列永远不再被写入（该列已随 Task 12 物理删除）。`sumsub-ingestion.service.ts` 原来靠这一列定位 cycle 的
  * Clue 3 分支从此对所有新周期恒查不到，而 Task 4 的路由又会先按
  * `externalActionId` 认领同一条 webhook 交给 `MaterialRequestReviewService`，
  * 根本轮不到 Clue 3。净效果：客户的限制便签被正确撕掉了，但材料重检域自己的

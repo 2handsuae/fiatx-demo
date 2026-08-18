@@ -121,10 +121,10 @@ describe('多因不互相解 — 材料自动撕不许碰制裁便签（Task 7�
         {
           id: CYCLE_ID, cycleNo: 'MRC-001', customerId: CUSTOMER_ID, holdingId: HOLDING_ID,
           materialType: 'PROOF_OF_ADDRESS', status: 'PENDING_SUMSUB_REVIEW', stage: 'URGENT',
-          triggerType: 'SCHEDULED_EXPIRY', sumsubActionId: 'act-1',
-          // Task 11：T-0 补挂便签的 caseRef 键，也是 handleSumsubActionResult 自动撕
-          // 时用的同一个键 —— 这条测试锁的是「多因不互相解」，不是材料账本身，
-          // 用一个轻量 jest mock（见下方 MaterialRequestsService provider）即可。
+          triggerType: 'SCHEDULED_EXPIRY',
+          // Task 11：T-0 补挂便签的 caseRef 键，也是 completeCycleFromMaterialRequest
+          // 自动撕时用的同一个键 —— 这条测试锁的是「多因不互相解」，不是材料账
+          // 本身，用一个轻量 jest mock（见下方 MaterialRequestsService provider）即可。
           materialRequestNo: 'MRQ-001',
         },
       ]),
@@ -179,10 +179,7 @@ describe('多因不互相解 — 材料自动撕不许碰制裁便签（Task 7�
     expect(before.openCount).toBeGreaterThanOrEqual(2);
 
     // 3. 客户补齐材料 → Sumsub GREEN → 材料侧自动撕
-    await materialRefreshService.handleSumsubActionResult({
-      actionId: 'act-1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
+    await materialRefreshService.completeCycleFromMaterialRequest(CYCLE_ID, 'APPROVED');
 
     const rows = await restrictionsService.listAll(CUSTOMER_ID);
     const sanctionRows = rows.filter((r) => r.cause === 'SANCTION');
@@ -216,10 +213,7 @@ describe('多因不互相解 — 材料自动撕不许碰制裁便签（Task 7�
     expect(access.disclosed).toHaveLength(1);
     expect(access.disclosed[0].label).toBe('Document expired');
 
-    await materialRefreshService.handleSumsubActionResult({
-      actionId: 'act-1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
+    await materialRefreshService.completeCycleFromMaterialRequest(CYCLE_ID, 'APPROVED');
 
     access = await accessService.resolve(CUSTOMER_ID);
     expect(access.blocked.size).toBe(0);

@@ -202,33 +202,6 @@ export class MaterialRefreshService {
   }
 
   /**
-   * 遗留入口 —— 按 Sumsub 侧 `actionId` 查 cycle。2026-08-17 材料请求账 Task 11
-   * 之后建 cycle 全部改走 issuer，`sumsubActionId` 这一列永远不再被写入，所以
-   * 这条查询对新周期恒查不到（旧周期本就没有，DB 是 demo 数据可随时重铺）。
-   * 保留只是因为它是 `completeCycleReview()` 众多入口之一的语义骨架，且有单测
-   * 直接构造 `sumsubActionId` 夹具在验证 GREEN 收尾本体逻辑 —— 真实触发路径
-   * 已改为 `MaterialRefreshReviewListener` 监听 `MATERIAL_REQUEST_REVIEWED`
-   * 事件、调下面的 `completeCycleFromMaterialRequest()`。
-   */
-  async handleSumsubActionResult(event: {
-    actionId: string;
-    reviewResult: { reviewAnswer: 'GREEN' | 'RED'; reviewRejectType?: string };
-  }): Promise<void> {
-    const cycle = await this.prisma.materialRefreshCycle.findFirst({
-      where: { sumsubActionId: event.actionId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
-    });
-    if (!cycle) return;
-
-    const outcome: CycleReviewOutcome =
-      event.reviewResult.reviewAnswer !== 'GREEN'
-        ? event.reviewResult.reviewRejectType === 'FINAL'
-          ? 'REJECTED'
-          : 'RETRY'
-        : 'APPROVED';
-    await this.completeCycleReview(cycle, outcome);
-  }
-
-  /**
    * 材料请求账自己的入口（2026-08-18 修）—— `MaterialRefreshReviewListener`
    * 按 `materialRequestNo` 查到属于本域的 cycle 后调这里,传的是已经拿在手上
    * 的 cycle 行,不用再猜 Sumsub 侧 actionId。

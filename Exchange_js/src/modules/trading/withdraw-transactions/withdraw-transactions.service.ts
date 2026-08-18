@@ -343,7 +343,6 @@ export class WithdrawTransactionsService {
         include: {
           asset: true,
           customer: true,
-          applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
         },
       }),
       (this.prisma as any).withdrawTransaction.count({ where }),
@@ -385,11 +384,11 @@ export class WithdrawTransactionsService {
    * field contract the client reads. Mirrors
    * DepositTransactionsService#toCustomerDepositView (Task 11).
    *
-   * `actions`（Task 3, action-embed）是本白名单开的口子，与充值
-   * `toCustomerDepositView` 的 `actions` 同一套理由：只记录客户自己的
-   * 动作（seq/submittedAt），不构成新信息，对执法态/正常态一视同仁地
-   * 存在。**只有这两个键**——无 id、无类型、无理由，没有顶层聚合字段
-   * `actionSubmittedAt`（那是查子表 select 出来的关系数组，非同名列）。
+   * 2026-08-18 材料请求账 Task 12：本视图曾开过一个 `actions`（Task 3,
+   * action-embed）口子，随专属子表一起物理删除——客户端从未消费过这个字段
+   * （`client-web/src/pages/Withdraw.tsx` 的 `WithdrawTransaction` 接口里
+   * 没有它），"补料交齐没交齐"这件事现在只活在材料请求账自己的读面
+   * （`client/me/material-requests`），不再走这个端点。
    */
   private toCustomerWithdrawView(item: any) {
     return {
@@ -413,10 +412,6 @@ export class WithdrawTransactionsService {
             decimals: item.asset.decimals,
           }
         : null,
-      actions: (item.applicantActions ?? []).map((a: any) => ({
-        seq: a.seq,
-        submittedAt: a.submittedAt,
-      })),
     };
   }
 
@@ -426,7 +421,6 @@ export class WithdrawTransactionsService {
       include: {
         asset: true,
         customer: true,
-        applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
       },
     });
     if (!item) throw new NotFoundException('Withdraw transaction not found');
@@ -450,8 +444,8 @@ export class WithdrawTransactionsService {
   /**
    * 详情独立页用：客户面按业务键 `withdrawNo` 取单条（规则 3，禁止以 id
    * 作对外主查询合同）。提现无 `limitHoldReason`（无 below-min 隐藏单），
-   * where 条件只有 `withdrawNo` + `ownerId`——与
-   * `withdraw-verification-session.service.ts` 的 `mustFindOwn` 同一套
+   * where 条件只有 `withdrawNo` + `ownerId`——与已删除的补料会话 service 旧版
+   * `mustFindOwn` 同一套
    * 判据。先解出内部 id 再复用 `findOneForCustomer`（IDOR 校验 + 白名单）。
    */
   async findOneForCustomerByWithdrawNo(withdrawNo: string, customerId: string) {

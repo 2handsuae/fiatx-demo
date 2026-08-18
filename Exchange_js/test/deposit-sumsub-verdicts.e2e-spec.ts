@@ -248,7 +248,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
    * 同款"fixture 里的固定字面量，不是每轮随机生成"）。本 suite 里"补料后通过"
    * （原有用例）与"补料完整弧"/"接口不可区分"三条独立用例都会触发
    * V2_AWAIT_USER，"多条 action"/"逐条不可区分" 都会触发 V10_AWAIT_USER_MULTI——
-   * 旧的 `deposit_applicant_actions` 子表按 `(depositTransactionId, seq)` 去重，
+   * 旧的专属子表按 `(depositTransactionId, seq)` 去重，
    * 互不冲突；材料账的去重键是全表 `externalActionId`，第二条用例登记同一个
    * 字面量会在 DB 唯一约束上直接 P2002（且不会被重试，`material-requests
    * .service.ts` 的 `create()` 只重试 `requestNo` 撞号）。beforeAll 只在整个

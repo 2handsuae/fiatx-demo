@@ -1143,7 +1143,7 @@ describe('SwapWorkflowService — R1: createLeg receives resolved wallets', () =
 // ── applyKytVerdict (Task 6) — approved → PROCESSING+leg1+buy-leg submit; ──
 // ── rejected → REJECTED with zero accounting trace; both idempotent ────────
 
-import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
+import { CustomersService } from '../../identity/customers/customers.service';
 
 describe('SwapWorkflowService.applyKytVerdict', () => {
   function buildApplyKytVerdictMocks(overrides: { status?: string } = {}) {
@@ -1255,19 +1255,18 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       ),
     };
 
-    // Task 7: CustomerPendingActionService is the REAL implementation wired
-    // to a small stateful customerMain fake, not a jest mock. The whole point
-    // of the tipping-off split is that the read side (.get()) is a dumb
-    // accessor with no logic of its own — mocking .get() would just assert
-    // our own assumption back at us instead of proving the write landed
-    // right. Deliberately a separate prisma-like object from `prisma` above
-    // (real production code injects two separate services, both ultimately
-    // backed by the same PrismaService — test isolation mirrors that).
+    // Task 7 (Task 12: moved to CustomersService): hasHardLineDisposition/
+    // markHardLineDisposition is the REAL implementation wired to a small
+    // stateful customerMain fake, not a jest mock. The whole point of the
+    // tipping-off split is that the sticky marker is a dumb read/write pair
+    // with no other logic of its own — mocking it would just assert our own
+    // assumption back at us instead of proving the write landed right.
+    // Deliberately a separate prisma-like object from `prisma` above (real
+    // production code injects two separate services, both ultimately backed
+    // by the same PrismaService — test isolation mirrors that).
     const customerMainRow: any = {
       id: 'cust-1',
       customerNo: 'C0001',
-      pendingActionExternalId: null,
-      pendingActionReason: null,
       hardLineDispositionedAt: null,
     };
     const pendingActionPrisma: any = {
@@ -1281,7 +1280,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         }),
       },
     };
-    const pendingActionService = new CustomerPendingActionService(pendingActionPrisma, { recordByActor: jest.fn(), recordSystem: jest.fn() } as any, { createActionSdkToken: jest.fn() } as any);
+    const pendingActionService = new CustomersService(pendingActionPrisma, { recordByActor: jest.fn(), recordSystem: jest.fn() } as any);
 
     // Task 10: materialRequests/materialRequestIssuer are wired together
     // through a shared in-memory array so listLiveByOrder() actually reflects
@@ -1746,13 +1745,13 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   // ── handleRejectDisposition (Task 7) — soft/hard line split + tipping-off ──
   //
   // The tipping-off decision is made exactly once, on the write side, inside
-  // handleRejectDisposition. CustomerPendingActionService.get() (see
-  // customer-pending-action.service.ts) is a dumb accessor with no logic of
-  // its own — these tests read the disposition back through the REAL service
-  // (not a mock) to prove the split actually happened on the write side, not
-  // just that we asserted our own assumption back at ourselves. Nested here
-  // (not a sibling top-level describe) so it can reuse
-  // buildApplyKytVerdictMocks/makeApplyKytVerdictService via closure.
+  // handleRejectDisposition. CustomersService.hasHardLineDisposition is a
+  // dumb accessor with no logic of its own — these tests read the
+  // disposition back through the REAL service (not a mock) to prove the
+  // split actually happened on the write side, not just that we asserted our
+  // own assumption back at ourselves. Nested here (not a sibling top-level
+  // describe) so it can reuse buildApplyKytVerdictMocks/makeApplyKytVerdictService
+  // via closure.
   describe('→ handleRejectDisposition (Task 7 disposition split, Task 10 material requests)', () => {
     it('软线（有 applicantActions，无 SANCTION）→ 写 restrictions(SWAP,WITHDRAW) + 登记材料请求', async () => {
       const mocks = buildApplyKytVerdictMocks();

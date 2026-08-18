@@ -15,8 +15,8 @@ const SYSTEM_ACTOR: MaterialActor = {
 /**
  * 一笔提现单上挂的多条 Sumsub applicant action。
  *
- * **2026-08-18 材料请求账**：本类不再拥有 `withdraw_applicant_actions` 子表，
- * 内脏换成了统一的材料账（`material_requests`，orderDomain='WITHDRAW'）。
+ * **2026-08-18 材料请求账**：本类不再拥有专属子表，内脏换成了统一的材料账
+ * （`material_requests`，orderDomain='WITHDRAW'）。
  * 对外签名逐字不变 —— `withdraw-workflow.service.ts` 里那段带死角修复注释的
  * 状态机逻辑（判据是 hasOutstanding）因此一行都不用动。
  *
@@ -148,7 +148,7 @@ export class WithdrawApplicantActionsService {
    * 客户补材料，客户端却一直显示"已收到，审核中"，客户永远不知道要再交一次。
    *
    * **2026-08-18 材料请求账迁移后原样保留**：本方法只读写 `withdrawTransaction`
-   * 自己的标量字段，从未碰过 `withdraw_applicant_actions` 子表，与「内脏换成
+   * 自己的标量字段，从未碰过本类旧时代的专属子表，与「内脏换成
    * 材料账」无关——它不是 seq 时代产物，唯一调用方是 withdraw-workflow.service.ts
    * 里那段明确禁止改动的状态机逻辑（I2 修复），删掉它会让那段代码编译不过。
    */

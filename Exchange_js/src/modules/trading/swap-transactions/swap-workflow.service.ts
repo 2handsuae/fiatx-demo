@@ -40,7 +40,7 @@ import {
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
-import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
+import { CustomersService } from '../../identity/customers/customers.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
 
@@ -187,7 +187,7 @@ export class SwapWorkflowService {
     private readonly limitGateService: TransactionLimitGateService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
-    private readonly customerPendingActionService: CustomerPendingActionService,
+    private readonly customersService: CustomersService,
     private readonly customerAccessService: CustomerAccessService,
     private readonly materialRequests: MaterialRequestsService,
     private readonly materialRequestIssuer: MaterialRequestIssuerService,
@@ -764,10 +764,10 @@ export class SwapWorkflowService {
    *     criminal offence in most AML regimes). pendingAction is stored null.
    *
    * The tipping-off decision is made exactly ONCE, here, on the write side.
-   * CustomerPendingActionService.get() (the read side, consumed by the
-   * client-facing endpoint) is a dumb accessor with no conditional logic of
-   * its own — see that service's class comment for why the decision must
-   * never be re-derived on the read side.
+   * The client-facing read side (`MaterialRequestsClientController.listMine()`,
+   * backed by `materialRequests.listLiveByCustomer()`) is a dumb accessor with
+   * no conditional logic of its own — it only ever returns what got
+   * registered here; the decision must never be re-derived on the read side.
    *
    * Review Fix 2 (Important): a single swap's own tags/actions are not
    * enough to decide exposure — a customer can have two swaps in
@@ -789,8 +789,8 @@ export class SwapWorkflowService {
    * whether the customer's NEXT rejection will. Stamping the sticky marker
    * there too would permanently silence a customer whose first rejection
    * simply happened to carry no applicantActions, with no path back (see
-   * CustomerPendingActionService — the marker has no clear/reset entry
-   * point on purpose).
+   * `CustomersService.markHardLineDisposition` — the marker has no
+   * clear/reset entry point on purpose).
    *
    * Review Fix 1 (Important): this entire body is wrapped in try/catch. A
    * throw here (SQLite lock, transient DB error, a service throwing
@@ -829,7 +829,7 @@ export class SwapWorkflowService {
 
       // Review Fix 2: 跨订单持久化 —— 查这个客户是否曾经被任意一笔 swap 硬线
       // 过。一旦命中过，永久不再暴露，不管这次裁决本身是软线还是硬线。
-      const alreadyHardLined = await this.customerPendingActionService.hasHardLineDisposition(
+      const alreadyHardLined = await this.customersService.hasHardLineDisposition(
         swap.ownerId,
       );
       const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
@@ -919,7 +919,7 @@ export class SwapWorkflowService {
       // 真要收口历史入口，靠的是 hardLineDispositionedAt 这个 sticky 标记
       // （下面仍然照常盖章），而不是清指针。
       if (hasSanction) {
-        await this.customerPendingActionService.markHardLineDisposition(swap.ownerId);
+        await this.customersService.markHardLineDisposition(swap.ownerId);
       }
 
       await this.auditLogsService.recordSystem({

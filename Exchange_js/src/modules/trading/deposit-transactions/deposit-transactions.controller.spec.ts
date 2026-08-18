@@ -4,7 +4,6 @@ import { DepositTransactionsController } from './deposit-transactions.controller
 import { DepositTransactionsService } from './deposit-transactions.service';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { DepositWorkflowService } from './deposit-workflow.service';
-import { DepositVerificationSessionService } from './deposit-verification-session.service';
 import { DepositTransactionAction } from './dto/deposit-transaction.dto';
 
 describe('DepositTransactionsController', () => {
@@ -57,13 +56,6 @@ describe('DepositTransactionsController', () => {
         {
           provide: DepositWorkflowService,
           useValue: depositWorkflow,
-        },
-        {
-          // AE-T4 新增的构造函数依赖——本文件不在 task-4-brief 的 Files 列表里，
-          // 但控制器多了这个构造参数,不补 provider 会让本文件所有用例在
-          // TestingModule.compile() 阶段就炸(DI 找不到 DepositVerificationSessionService)。
-          provide: DepositVerificationSessionService,
-          useValue: { getSession: jest.fn(), submit: jest.fn() },
         },
       ],
     }).compile();

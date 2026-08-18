@@ -3,9 +3,9 @@ import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.se
 const A1 = { applicantActionId: 'aa-1', externalActionId: 'e1' };
 const A2 = { applicantActionId: 'aa-2', externalActionId: 'e2' };
 
-// 2026-08-18 材料请求账：本类不再拥有 withdraw_applicant_actions 子表，桩从
-// prisma.withdrawApplicantAction.* 换成材料账依赖（issuer.register / requests.
-// listLiveByOrder / requests.cancel）。旧版围绕 seq 分配/续号/P2002 竞态重试的
+// 2026-08-18 材料请求账：本类不再拥有专属子表，桩从直接操作 Prisma 子表模型
+// 换成材料账依赖（issuer.register / requests.listLiveByOrder / requests.
+// cancel）。旧版围绕 seq 分配/续号/P2002 竞态重试的
 // 用例（子表 read-modify-write 特有的坑）在新模型里不再有对应物——seq 概念
 // 本身已随子表一起消失，requestNo 生成与撞号重试已下沉进
 // MaterialRequestsService.create()，有它自己的 spec 覆盖，这里不重复造。
@@ -34,8 +34,8 @@ function build() {
 }
 
 describe('WithdrawApplicantActionsService', () => {
-  it('新 action 走 issuer.register 落材料账，不再写 withdraw_applicant_actions 子表', async () => {
-    const { svc, issuer, prisma } = build();
+  it('新 action 走 issuer.register 落材料账，不再写旧的专属子表', async () => {
+    const { svc, issuer } = build();
     await svc.syncApplicantActions('wd-1', [{ applicantActionId: 'a1', externalActionId: 'e1' }]);
     expect(issuer.register).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -44,7 +44,6 @@ describe('WithdrawApplicantActionsService', () => {
         applicantActionId: 'a1', externalActionId: 'e1',
       }),
     );
-    expect(prisma.withdrawApplicantAction).toBeUndefined();
   });
 
   it('报文里已消失的行 → cancel(RETIRED_BY_SUMSUB)，不是删行（账不能删）', async () => {

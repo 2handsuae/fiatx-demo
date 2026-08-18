@@ -265,8 +265,9 @@ export class SumsubIngestionService {
       }
       // Clue 3（已退役，2026-08-18）：原来按 actionId 查 pending MaterialRefreshCycle。
       // 2026-08-17 材料请求账 Task 11 之后建 cycle 全部改走
-      // MaterialRequestIssuerService.issue()，material_refresh_cycles.sumsubActionId
-      // 这一列永远不再被写入，这条分支对所有新周期恒查不到，是死码；而且真实
+      // MaterialRequestIssuerService.issue()，cycle 定位其旧的 Sumsub action id
+      // 那一列永远不再被写入（该列已随 Task 12 物理删除），这条分支对所有新周期
+      // 恒查不到，是死码；而且真实
       // webhook 也轮不到它——上面 `applicantActionReviewed && externalActionId`
       // 那条分支会先按 externalActionId 认领。已改为材料重检域自己监听
       // MaterialRequestReviewService 广播的 MATERIAL_REQUEST_REVIEWED 事件

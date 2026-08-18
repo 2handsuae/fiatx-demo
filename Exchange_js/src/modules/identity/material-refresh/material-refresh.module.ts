@@ -3,7 +3,6 @@ import { Module, forwardRef, OnModuleInit } from '@nestjs/common';
 import { MaterialRefreshService } from './material-refresh.service';
 import { MaterialFreshnessCronService } from './material-freshness-cron.service';
 import { MaterialRefreshReviewListener } from './material-refresh-review.listener';
-import { MaterialRefreshCyclesController } from './material-refresh-cycles.controller';
 import { AdminMaterialManagementController } from './admin-material-management.controller';
 import { MaterialRefreshPolicyLoader } from './policy/material-refresh-policy';
 import { OnboardingModule } from '../onboarding/onboarding.module';
@@ -32,9 +31,9 @@ import { MaterialRequestsModule } from '../material-requests/material-requests.m
     // （见 material-refresh-review.listener.ts 顶部注释）。
     MaterialRefreshReviewListener,
   ],
-  controllers: [MaterialRefreshCyclesController, AdminMaterialManagementController],
+  controllers: [AdminMaterialManagementController],
   // MaterialRefreshPolicyLoader：MaterialRequestsModule 建行时按 materialType
-  // 查 sumsubActionLevelName，需要从这里拿注册表（2026-08-17 材料请求账）。
+  // 查 Sumsub 认证等级名，需要从这里拿注册表（2026-08-17 材料请求账）。
   exports: [MaterialRefreshService, MaterialRefreshPolicyLoader],
 })
 export class MaterialRefreshModule implements OnModuleInit {

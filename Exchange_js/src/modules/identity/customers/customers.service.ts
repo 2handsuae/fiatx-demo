@@ -152,4 +152,30 @@ export class CustomersService {
 
     return deleted;
   }
+
+  /**
+   * 2026-08-17 材料请求账（Task 12）：从已删除的客户级补料 service 搬来。
+   * 这个客户是否曾被任意一笔兑换硬线处置过。一旦为真，后续软线裁决不再
+   * 暴露补料入口。
+   */
+  async hasHardLineDisposition(customerId: string): Promise<boolean> {
+    const c = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: { hardLineDispositionedAt: true },
+    });
+    return !!c?.hardLineDispositionedAt;
+  }
+
+  /** 盖 sticky 硬线章。只在命中制裁时盖 —— 「无 action 的硬线」不该造成永久沉默。 */
+  async markHardLineDisposition(customerId: string): Promise<void> {
+    const c = await this.prisma.customerMain.findUnique({
+      where: { id: customerId },
+      select: { hardLineDispositionedAt: true },
+    });
+    if (c?.hardLineDispositionedAt) return;
+    await this.prisma.customerMain.update({
+      where: { id: customerId },
+      data: { hardLineDispositionedAt: new Date() },
+    });
+  }
 }
