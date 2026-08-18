@@ -1,249 +1,191 @@
-import { Test } from '@nestjs/testing';
-import { PrismaService } from '../../../core/prisma/prisma.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 
-const A1 = { applicantActionId: 'aa-1', externalActionId: 'EXT-1' };
-const A2 = { applicantActionId: 'aa-2', externalActionId: 'EXT-2' };
+const A1 = { applicantActionId: 'aa-1', externalActionId: 'e1' };
+const A2 = { applicantActionId: 'aa-2', externalActionId: 'e2' };
+
+// 2026-08-17 材料请求账：本类不再拥有 deposit_applicant_actions 子表，桩从
+// prisma.depositApplicantAction.* 换成材料账依赖（issuer.register / requests.
+// listLiveByOrder / requests.cancel）。旧版围绕 seq 分配/续号/P2002 竞态重试的
+// 用例（子表 read-modify-write 特有的坑）在新模型里不再有对应物——seq 概念
+// 本身已随子表一起消失，requestNo 生成与撞号重试已下沉进
+// MaterialRequestsService.create()，有它自己的 spec 覆盖，这里不重复造。
+// 保留/新增的用例覆盖：全新落账、部分重叠去重、幂等 no-op、退役、
+// hasOutstanding 判据，以及本次改写新引入的两条守卫分支（单不存在 / 客户无
+// Sumsub applicant）。
+function build() {
+  const prisma = {
+    depositTransaction: {
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'dep-1', depositNo: 'DP2608170001', ownerId: 'c1',
+      }),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    customerMain: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'c1', sumsubApplicantId: 'app-1' }),
+    },
+  } as any;
+  const requests = {
+    listLiveByOrder: jest.fn().mockResolvedValue([]),
+    cancel: jest.fn().mockResolvedValue(undefined),
+    markSubmitted: jest.fn().mockResolvedValue(true),
+  } as any;
+  const issuer = { register: jest.fn().mockResolvedValue({ requestNo: 'MRQ-new', restrictionNo: 'RST-1' }) } as any;
+  const svc = new DepositApplicantActionsService(prisma, requests, issuer);
+  return { svc, prisma, requests, issuer };
+}
 
 describe('DepositApplicantActionsService', () => {
-  let svc: DepositApplicantActionsService;
-  let prisma: any;
-
-  beforeEach(async () => {
-    prisma = {
-      depositApplicantAction: {
-        findMany: jest.fn().mockResolvedValue([]),
-        createMany: jest.fn().mockResolvedValue({ count: 0 }),
-        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-        findFirst: jest.fn().mockResolvedValue(null),
-        count: jest.fn().mockResolvedValue(0),
-      },
-      depositTransaction: { update: jest.fn(), updateMany: jest.fn() },
-      $transaction: jest.fn(async (fn: any) => fn(prisma)),
-    };
-    const mod = await Test.createTestingModule({
-      providers: [
-        DepositApplicantActionsService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
-    svc = mod.get(DepositApplicantActionsService);
+  it('新 action 走 issuer.register 落材料账，不再写 deposit_applicant_actions 子表', async () => {
+    const { svc, issuer, prisma } = build();
+    await svc.syncApplicantActions('dep-1', [
+      { applicantActionId: 'a1', externalActionId: 'e1' },
+    ]);
+    expect(issuer.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderDomain: 'DEPOSIT', orderRef: 'DP2608170001',
+        origin: 'SUMSUB_PUSHED', restrict: true,
+        applicantActionId: 'a1', externalActionId: 'e1',
+      }),
+    );
+    expect(prisma.depositApplicantAction).toBeUndefined();
   });
 
-  it('全新单：两条都插入，seq 从 1 开始递增', async () => {
-    const r = await svc.syncApplicantActions('d-1', [A1, A2]);
-
-    expect(r).toEqual({ added: [1, 2], retired: [] });
-    expect(prisma.depositApplicantAction.createMany).toHaveBeenCalledWith({
-      data: [
-        { depositTransactionId: 'd-1', applicantActionId: 'aa-1', externalActionId: 'EXT-1', seq: 1 },
-        { depositTransactionId: 'd-1', applicantActionId: 'aa-2', externalActionId: 'EXT-2', seq: 2 },
-      ],
-    });
+  it('报文里已消失的行 → cancel(RETIRED_BY_SUMSUB)，不是删行（账不能删）', async () => {
+    const { svc, requests } = build();
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-old', externalActionId: 'gone', status: 'PENDING_SUBMISSION' },
+    ]);
+    await svc.syncApplicantActions('dep-1', [
+      { applicantActionId: 'a1', externalActionId: 'e1' },
+    ]);
+    expect(requests.cancel).toHaveBeenCalledWith('MRQ-old', 'RETIRED_BY_SUMSUB', expect.anything());
   });
 
-  it('已有 aa-1(seq=1)，报文含 aa-1+aa-2 → 只插 aa-2，seq 接续为 2', async () => {
-    prisma.depositApplicantAction.findMany.mockResolvedValue([
-      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
+  it('报文里已存在的行不重复 register（幂等，重复 webhook 不造第二行）', async () => {
+    const { svc, issuer, requests } = build();
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-1', externalActionId: 'e1', status: 'PENDING_SUBMISSION' },
+    ]);
+    await svc.syncApplicantActions('dep-1', [
+      { applicantActionId: 'a1', externalActionId: 'e1' },
+    ]);
+    expect(issuer.register).not.toHaveBeenCalled();
+    expect(requests.cancel).not.toHaveBeenCalled();
+  });
+
+  it('hasOutstanding 判据 = 该单还有 PENDING_SUBMISSION 的行（SUBMITTED 不算未提交）', async () => {
+    const { svc, requests } = build();
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-1', externalActionId: 'e1', status: 'SUBMITTED' },
+    ]);
+    await expect(svc.hasOutstanding('dep-1')).resolves.toBe(false);
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-2', externalActionId: 'e2', status: 'PENDING_SUBMISSION' },
+    ]);
+    await expect(svc.hasOutstanding('dep-1')).resolves.toBe(true);
+  });
+
+  it('两条全新 action → issuer.register 各调一次，分别带自己的 id，返回 added:2/retired:0', async () => {
+    const { svc, issuer } = build();
+    const r = await svc.syncApplicantActions('dep-1', [A1, A2]);
+
+    expect(r).toEqual({ added: 2, retired: 0 });
+    expect(issuer.register).toHaveBeenCalledTimes(2);
+    expect(issuer.register).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ applicantActionId: 'aa-1', externalActionId: 'e1' }),
+    );
+    expect(issuer.register).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ applicantActionId: 'aa-2', externalActionId: 'e2' }),
+    );
+  });
+
+  it('部分重叠：材料账已有 e1，报文来 e1+e2 → 只对 e2 调 register 一次，不撤回 e1', async () => {
+    const { svc, issuer, requests } = build();
+    requests.listLiveByOrder.mockResolvedValue([
+      { requestNo: 'MRQ-1', externalActionId: 'e1', status: 'PENDING_SUBMISSION' },
     ]);
 
-    const r = await svc.syncApplicantActions('d-1', [A1, A2]);
+    const r = await svc.syncApplicantActions('dep-1', [A1, A2]);
 
-    expect(r).toEqual({ added: [2], retired: [] });
-    expect(prisma.depositApplicantAction.createMany).toHaveBeenCalledWith({
-      data: [
-        { depositTransactionId: 'd-1', applicantActionId: 'aa-2', externalActionId: 'EXT-2', seq: 2 },
-      ],
+    expect(r).toEqual({ added: 1, retired: 0 });
+    expect(issuer.register).toHaveBeenCalledTimes(1);
+    expect(issuer.register).toHaveBeenCalledWith(
+      expect.objectContaining({ applicantActionId: 'aa-2', externalActionId: 'e2' }),
+    );
+    expect(requests.cancel).not.toHaveBeenCalled();
+  });
+
+  it('register 落地的字段：customerId/sumsubApplicantId/materialType/levelName/issuedBy 全对', async () => {
+    const { svc, issuer } = build();
+    await svc.syncApplicantActions('dep-1', [A1]);
+
+    expect(issuer.register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'c1',
+        sumsubApplicantId: 'app-1',
+        materialType: 'SOURCE_OF_FUNDS',
+        levelName: 'wave3-action-sof-refresh',
+        orderDomain: 'DEPOSIT',
+        orderRef: 'DP2608170001',
+        origin: 'SUMSUB_PUSHED',
+        restrict: true,
+        issuedBy: 'SYSTEM',
+      }),
+    );
+  });
+
+  it('充值单不存在 → 直接返回零，不查客户、不同步材料账', async () => {
+    const { svc, issuer, requests, prisma } = build();
+    prisma.depositTransaction.findUnique.mockResolvedValue(null);
+
+    const r = await svc.syncApplicantActions('dep-x', [A1]);
+
+    expect(r).toEqual({ added: 0, retired: 0 });
+    expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
+    expect(requests.listLiveByOrder).not.toHaveBeenCalled();
+    expect(issuer.register).not.toHaveBeenCalled();
+  });
+
+  it('owner 无 Sumsub applicant → 跳过同步，不调 issuer/requests', async () => {
+    const { svc, issuer, requests, prisma } = build();
+    prisma.customerMain.findUnique.mockResolvedValue({ id: 'c1', sumsubApplicantId: null });
+
+    const r = await svc.syncApplicantActions('dep-1', [A1]);
+
+    expect(r).toEqual({ added: 0, retired: 0 });
+    expect(requests.listLiveByOrder).not.toHaveBeenCalled();
+    expect(issuer.register).not.toHaveBeenCalled();
+  });
+
+  describe('hasOutstanding 的两个守卫分支', () => {
+    it('充值单不存在 → false，不查材料账', async () => {
+      const { svc, prisma, requests } = build();
+      prisma.depositTransaction.findUnique.mockResolvedValue(null);
+
+      await expect(svc.hasOutstanding('dep-x')).resolves.toBe(false);
+      expect(requests.listLiveByOrder).not.toHaveBeenCalled();
+    });
+
+    it('材料账里该单没有任何活行 → false', async () => {
+      const { svc } = build();
+      await expect(svc.hasOutstanding('dep-1')).resolves.toBe(false);
     });
   });
 
-  it('集合完全一致 → 真 no-op，不插不删', async () => {
-    prisma.depositApplicantAction.findMany.mockResolvedValue([
-      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
-    ]);
+  // clearDepositCache 只操作 depositTransaction 自己的标量字段，从未碰过子表，
+  // 与「内脏换材料账」无关——保留是因为 deposit-workflow.service.ts 那段被
+  // 明令禁止改动的状态机逻辑（I2 修复）仍在调用它，删掉会让那段代码编译不过。
+  it('clearDepositCache 把 actionSubmittedAt 清空并重置 SLA 两字段', async () => {
+    const { svc, prisma } = build();
+    const deadline = new Date('2026-08-13T00:00:00Z');
 
-    const r = await svc.syncApplicantActions('d-1', [A1]);
+    await svc.clearDepositCache('dep-1', deadline);
 
-    expect(r).toEqual({ added: [], retired: [] });
-    expect(prisma.depositApplicantAction.createMany).not.toHaveBeenCalled();
-    expect(prisma.depositApplicantAction.deleteMany).not.toHaveBeenCalled();
-  });
-
-  // Sumsub 报文带的是**当前全量列表**。它撤回一条而我方保留，该行永远算作
-  // 未提交 →「全部交齐」永不成立 → 客户永久卡死（与 applyKytAwaitUser 早退
-  // 那个 bug 同款形状、不同入口）。已提交的行不删——那是历史。
-  it('报文撤回了未提交的 aa-2 → 删掉它；已提交的 aa-1 不动', async () => {
-    prisma.depositApplicantAction.findMany.mockResolvedValue([
-      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: new Date('2026-08-06') },
-      { id: 'r2', applicantActionId: 'aa-2', seq: 2, submittedAt: null },
-    ]);
-
-    const r = await svc.syncApplicantActions('d-1', [A1]);
-
-    expect(r).toEqual({ added: [], retired: [2] });
-    expect(prisma.depositApplicantAction.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['r2'] } },
+    expect(prisma.depositTransaction.update).toHaveBeenCalledWith({
+      where: { id: 'dep-1' },
+      data: { actionSubmittedAt: null, slaDeadline: deadline, slaBreached: false },
     });
   });
-
-  it('报文里已提交的那条被撤回 → 不删（历史保留）', async () => {
-    prisma.depositApplicantAction.findMany.mockResolvedValue([
-      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: new Date('2026-08-06') },
-    ]);
-
-    const r = await svc.syncApplicantActions('d-1', []);
-
-    expect(r).toEqual({ added: [], retired: [] });
-    expect(prisma.depositApplicantAction.deleteMany).not.toHaveBeenCalled();
-  });
-
-  // nextSeq 是对撤回前的全量 existing 取 max，所以同一次调用里新增的行才不会
-  // 复用被删行腾出来的 seq——这条路径 add-only/retire-only 两组测试都盖不到。
-  it('同一次调用既新增又撤回：aa-1(未提交)被撤回，新增的 aa-3 不复用 aa-1 腾出的 seq=1', async () => {
-    const A3 = { applicantActionId: 'aa-3', externalActionId: 'EXT-3' };
-    prisma.depositApplicantAction.findMany.mockResolvedValue([
-      { id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null },
-      { id: 'r2', applicantActionId: 'aa-2', seq: 2, submittedAt: new Date('2026-08-06') },
-    ]);
-
-    const r = await svc.syncApplicantActions('d-1', [A2, A3]);
-
-    expect(r).toEqual({ added: [3], retired: [1] });
-    expect(prisma.depositApplicantAction.createMany).toHaveBeenCalledWith({
-      data: [
-        { depositTransactionId: 'd-1', applicantActionId: 'aa-3', externalActionId: 'EXT-3', seq: 3 },
-      ],
-    });
-    expect(prisma.depositApplicantAction.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['r1'] } },
-    });
-  });
-
-  // Task 3 前置修复:该 service 一旦接进 webhook handler,并发/重复投递撞
-  // P2002 就不再是"无所谓"——webhook 语义要求幂等,冲突必须被吞掉重读一次,
-  // 不能原样抛成 500。
-  it('撞唯一约束(P2002) → 重读一次,不把异常抛给调用方', async () => {
-    const conflict = Object.assign(new Error('unique'), { code: 'P2002' });
-    prisma.depositApplicantAction.createMany
-      .mockRejectedValueOnce(conflict)
-      .mockResolvedValueOnce({ count: 0 });
-    // 第二遍读到对方已插好的行 → toAdd 为空
-    prisma.depositApplicantAction.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: 'r1', applicantActionId: 'aa-1', seq: 1, submittedAt: null }]);
-
-    await expect(svc.syncApplicantActions('d-1', [A1])).resolves.toEqual({ added: [], retired: [] });
-  });
-
-  it('非 P2002 的错误原样抛出,不吞', async () => {
-    const boom = Object.assign(new Error('disk full'), { code: 'P9999' });
-    prisma.depositApplicantAction.createMany.mockRejectedValue(boom);
-    await expect(svc.syncApplicantActions('d-1', [A1])).rejects.toBe(boom);
-  });
-
-  // 评审 Important 1(b)：externalActionId 为空的 incoming 项不能静默入库——
-  // 它会一路流到 SumsubClient.createActionSdkToken，真接时铸出一个不绑任何
-  // action 的 token，且没人发现。入库处直接拦，并 warn 留痕。
-  it('incoming 混一条 externalActionId 为空的 → 该条不入库、不影响其它条正常入库，并 warn 一条', async () => {
-    const BAD = { applicantActionId: 'aa-bad', externalActionId: '' };
-    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
-
-    const r = await svc.syncApplicantActions('d-1', [A1, BAD]);
-
-    expect(r).toEqual({ added: [1], retired: [] });
-    expect(prisma.depositApplicantAction.createMany).toHaveBeenCalledWith({
-      data: [
-        { depositTransactionId: 'd-1', applicantActionId: 'aa-1', externalActionId: 'EXT-1', seq: 1 },
-      ],
-    });
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0][0]).toContain('aa-bad');
-  });
-
-  describe('逐条提交与充值单缓存', () => {
-    const DEADLINE = new Date('2026-08-13T00:00:00Z');
-
-    it('交完最后一条 → 盖上充值单的 actionSubmittedAt', async () => {
-      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
-      prisma.depositApplicantAction.count.mockResolvedValue(0);   // 已无未提交
-
-      const r = await svc.submitBySeq('d-1', 2, DEADLINE, true);
-
-      expect(r).toEqual({ changed: true, allSubmitted: true });
-      expect(prisma.depositApplicantAction.updateMany).toHaveBeenCalledWith({
-        where: { depositTransactionId: 'd-1', seq: 2, submittedAt: null },
-        data: { submittedAt: expect.any(Date) },
-      });
-      const [[arg]] = prisma.depositTransaction.updateMany.mock.calls;
-      expect(arg.data.actionSubmittedAt).toEqual(expect.any(Date));
-      expect(arg.data.slaDeadline).toEqual(DEADLINE);
-      expect(arg.data.slaBreached).toBe(false);
-    });
-
-    it('还剩未提交的 → 充值单缓存**不**盖，客户仍要继续交', async () => {
-      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
-      prisma.depositApplicantAction.count.mockResolvedValue(1);   // 还有 1 条没交
-
-      const r = await svc.submitBySeq('d-1', 1, DEADLINE, true);
-
-      expect(r).toEqual({ changed: true, allSubmitted: false });
-      expect(prisma.depositTransaction.updateMany).not.toHaveBeenCalled();
-    });
-
-    it('重复提交同一条 → changed:false，不重算不写库', async () => {
-      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 0 });
-
-      const r = await svc.submitBySeq('d-1', 1, DEADLINE, true);
-
-      expect(r).toEqual({ changed: false, allSubmitted: false });
-      expect(prisma.depositApplicantAction.count).not.toHaveBeenCalled();
-      expect(prisma.depositTransaction.updateMany).not.toHaveBeenCalled();
-    });
-
-    it('resetSla=false 时只盖 actionSubmittedAt，不碰 operator 的 SLA 两字段', async () => {
-      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
-      prisma.depositApplicantAction.count.mockResolvedValue(0);
-
-      await svc.submitBySeq('d-1', 1, DEADLINE, false);
-
-      const [[arg]] = prisma.depositTransaction.updateMany.mock.calls;
-      expect(arg.data).toEqual({ actionSubmittedAt: expect.any(Date) });
-    });
-
-    it('clearDepositCache 把 actionSubmittedAt 清空并重置 SLA 表', async () => {
-      await svc.clearDepositCache('d-1', DEADLINE);
-      expect(prisma.depositTransaction.update).toHaveBeenCalledWith({
-        where: { id: 'd-1' },
-        data: { actionSubmittedAt: null, slaDeadline: DEADLINE, slaBreached: false },
-      });
-    });
-  });
-
-  // 缓存式设计（spec §2.2）的代价是可能漂移：子表说还有未交的，充值单标量
-  // 却显示已交齐。这条直接把两种表示绑死——对随机构造的提交组合，断言
-  // 「标量该不该有值」与「子表还有没有未提交行」结论一致。漂了就红。
-  describe('绑死两种表示（防缓存漂移）', () => {
-    const DEADLINE = new Date('2026-08-13T00:00:00Z');
-
-    it.each([
-      [3, 0],  // 3 条全未交
-      [3, 1],
-      [3, 2],
-      [3, 3],  // 3 条全交齐
-      [1, 0],
-      [1, 1],
-    ])('%i 条 action 交了 %i 条：缓存与子表结论一致', async (total, submittedCount) => {
-      const outstanding = total - submittedCount;
-      prisma.depositApplicantAction.updateMany = jest.fn().mockResolvedValue({ count: 1 });
-      prisma.depositApplicantAction.count.mockResolvedValue(outstanding);
-      prisma.depositTransaction.updateMany.mockClear();
-
-      const r = await svc.submitBySeq('d-1', 1, DEADLINE, true);
-
-      const cacheWritten = prisma.depositTransaction.updateMany.mock.calls.length > 0;
-      expect(r.allSubmitted).toBe(outstanding === 0);
-      expect(cacheWritten).toBe(outstanding === 0);
-    });
-  });
-
 });

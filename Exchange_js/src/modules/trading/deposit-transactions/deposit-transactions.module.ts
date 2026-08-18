@@ -15,9 +15,9 @@ import { DepositConfiscationApprovalService } from './deposit-confiscation-appro
 import { DepositReturnApprovalService } from './deposit-return-approval.service';
 import { DepositSeizeApprovalService } from './deposit-seize-approval.service';
 import { DepositUnfreezeApprovalService } from './deposit-unfreeze-approval.service';
-import { DepositVerificationSessionService } from './deposit-verification-session.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 import { CustomersModule } from '../../identity/customers/customers.module';
+import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 
 @Module({
   imports: [
@@ -31,6 +31,8 @@ import { CustomersModule } from '../../identity/customers/customers.module';
     forwardRef(() => DepositSumsubModule),
     TransactionLimitsModule,
     ApprovalsModule,
+    // Task 8：DepositApplicantActionsService 改走材料账，需要 issuer/requests service
+    forwardRef(() => MaterialRequestsModule),
   ],
   controllers: [DepositTransactionsController],
   providers: [
@@ -41,7 +43,6 @@ import { CustomersModule } from '../../identity/customers/customers.module';
     DepositReturnApprovalService,
     DepositSeizeApprovalService,
     DepositUnfreezeApprovalService,
-    DepositVerificationSessionService,
     DepositApplicantActionsService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService, DepositApplicantActionsService],
