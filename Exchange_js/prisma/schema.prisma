@@ -1438,6 +1438,9 @@ model MaterialRefreshCycle {
   sumsubActionLevelName    String?
   sumsubActionCreatedAt    DateTime?
 
+  // 本轮到期提醒对应的材料请求。cycle 管「哪天到期」，材料账管「下发本身」。
+  materialRequestNo        String?
+
   triggeredByAssessmentId  String?
   triggeredByAssessment    ClientRiskAssessment? @relation("AssessmentTriggeredCycles", fields: [triggeredByAssessmentId], references: [id])
 

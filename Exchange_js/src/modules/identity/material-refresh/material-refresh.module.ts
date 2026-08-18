@@ -9,6 +9,7 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
 import { ClientRiskAssessmentModule } from '../client-risk-assessment/client-risk-assessment.module';
 import { ClientRiskAssessmentService } from '../client-risk-assessment/client-risk-assessment.service';
 import { CustomersModule } from '../customers/customers.module';
+import { MaterialRequestsModule } from '../material-requests/material-requests.module';
 
 @Module({
   imports: [
@@ -17,6 +18,10 @@ import { CustomersModule } from '../customers/customers.module';
     forwardRef(() => CustomersModule),
     forwardRef(() => OnboardingModule),
     forwardRef(() => ClientRiskAssessmentModule),
+    // Task 11：T-30 建行改走 MaterialRequestIssuerService.issue()，T-0 升档补挂
+    // 限制改走 MaterialRequestsService.attachRestriction()。forwardRef：
+    // MaterialRequestsModule 反过来也引本模块拿 MaterialRefreshPolicyLoader。
+    forwardRef(() => MaterialRequestsModule),
   ],
   providers: [
     MaterialRefreshService,

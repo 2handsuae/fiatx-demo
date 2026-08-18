@@ -3,10 +3,10 @@ import { ProfileBannerService } from './profile-banners.service';
 describe('ProfileBannerService', () => {
   const prismaMock: any = {
     customerMain: { findUnique: jest.fn() },
-    materialRefreshCycle: { findMany: jest.fn() },
   };
 
   const customerAccessServiceMock: any = { resolve: jest.fn() };
+  const materialRequestsMock: any = { listLiveByCustomer: jest.fn() };
 
   const buildAccess = (overrides?: Record<string, unknown>) => ({
     lifecycle: 'ACTIVE',
@@ -17,14 +17,23 @@ describe('ProfileBannerService', () => {
     ...overrides,
   });
 
+  // 材料请求账一行的最小投影 —— 字段对齐 MaterialRequestsService.listLiveByCustomer()
+  // 的返回形状（MaterialRequestRow）。
+  const buildRequest = (overrides?: Record<string, unknown>) => ({
+    requestNo: 'MRQ1', customerId: 'c1', materialType: 'PASSPORT',
+    orderDomain: null, orderRef: null, restrictionNo: null,
+    status: 'PENDING_SUBMISSION', reason: 'PASSPORT expires on 2026-09-01',
+    ...overrides,
+  });
+
   let service: ProfileBannerService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     prismaMock.customerMain.findUnique.mockResolvedValue({ id: 'c1', customerNo: 'CU0001' });
-    prismaMock.materialRefreshCycle.findMany.mockResolvedValue([]);
     customerAccessServiceMock.resolve.mockResolvedValue(buildAccess());
-    service = new ProfileBannerService(prismaMock, customerAccessServiceMock);
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([]);
+    service = new ProfileBannerService(prismaMock, customerAccessServiceMock, materialRequestsMock);
   });
 
   // 零痕迹：SILENT 限制在 CustomerAccess.disclosed 里结构性不存在，
@@ -100,5 +109,91 @@ describe('ProfileBannerService', () => {
     expect(banners[0].severity).toBe('BLOCKING');
     expect(banners[0].type).toBe('RESTRICTION');
     expect(banners[0].ctaPath).toBeNull();
+  });
+
+  // ── 2026-08-17 材料请求账：横幅数据源改读 material_requests（Task 11）──
+
+  it('不绑单不挂限制（护照 T-30）→ INFO 黄档，带 CTA', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([buildRequest()]);
+
+    const banners = await service.getBannersFor('c1');
+
+    expect(banners).toEqual([
+      {
+        id: 'material-request:MRQ1',
+        type: 'MATERIAL_REFRESH',
+        severity: 'INFO',
+        title: 'Passport needs refreshing',
+        description: 'PASSPORT expires on 2026-09-01',
+        materialType: 'PASSPORT',
+        ctaLabel: 'Verify now',
+        ctaPath: '/verification/MRQ1',
+        dismissible: true,
+      },
+    ]);
+  });
+
+  it('挂了限制 → BLOCKING 红档', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([
+      buildRequest({ restrictionNo: 'RST2608170001' }),
+    ]);
+
+    const banners = await service.getBannersFor('c1');
+
+    expect(banners).toHaveLength(1);
+    expect(banners[0]).toMatchObject({
+      severity: 'BLOCKING',
+      title: 'Passport required',
+      dismissible: false,
+    });
+  });
+
+  it('绑了单又没挂限制 → 横幅上不露（订单页管它，G6）', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([
+      buildRequest({ materialType: 'SOURCE_OF_FUNDS', orderDomain: 'DEPOSIT', orderRef: 'DP2608170001' }),
+    ]);
+
+    const banners = await service.getBannersFor('c1');
+
+    expect(banners).toEqual([]);
+  });
+
+  it('已提交的行不给 CTA（客户没什么可点的）', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([
+      buildRequest({ status: 'SUBMITTED' }),
+    ]);
+
+    const banners = await service.getBannersFor('c1');
+
+    expect(banners).toHaveLength(1);
+    expect(banners[0].ctaLabel).toBeNull();
+    expect(banners[0].ctaPath).toBeNull();
+  });
+
+  it('同一张便签不同时出两条横幅（材料横幅优先，它带 CTA）', async () => {
+    materialRequestsMock.listLiveByCustomer.mockResolvedValue([
+      buildRequest({ restrictionNo: 'RST2608170001' }),
+    ]);
+    customerAccessServiceMock.resolve.mockResolvedValue(
+      buildAccess({
+        disclosedBlocked: new Set(['WITHDRAW', 'SWAP']),
+        disclosed: [
+          {
+            restrictionNo: 'RST2608170001',
+            cause: 'MATERIAL_EXPIRED',
+            scopes: ['WITHDRAW', 'SWAP'],
+            label: 'Document expired',
+            reason: 'Passport expired',
+            openedAt: '2026-08-17T02:00:00.000Z',
+          },
+        ],
+        openCount: 1,
+      }),
+    );
+
+    const banners = await service.getBannersFor('c1');
+
+    expect(banners).toHaveLength(1);
+    expect(banners[0].type).toBe('MATERIAL_REFRESH');
   });
 });

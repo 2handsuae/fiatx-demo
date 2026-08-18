@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomerAccessService } from '../customers/customer-access.service';
+import { MaterialRequestsService } from '../material-requests/material-requests.service';
 import type { RestrictionCause } from '../customers/constants/restriction-cause.constant';
 
 export interface ProfileBanner {
@@ -45,6 +46,7 @@ export class ProfileBannerService {
     @Inject(PrismaService)
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly materialRequests: MaterialRequestsService,
   ) {}
 
   async getBannersFor(customerId: string): Promise<ProfileBanner[]> {
@@ -55,8 +57,19 @@ export class ProfileBannerService {
 
     const banners: ProfileBanner[] = [];
 
+    // 材料请求账的活行先取出来 —— RESTRICTION 那一路要用它做去重（见下）。
+    const requests = await this.materialRequests.listLiveByCustomer(customerId);
+    const claimedRestrictionNos = new Set(
+      requests.filter((r) => r.restrictionNo).map((r) => r.restrictionNo as string),
+    );
+
     const access = await this.customerAccessService.resolve(customerId);
     for (const restriction of access.disclosed) {
+      // 去重：这张便签的故事已经由下面的材料横幅讲了（它带 CTA、更有用），
+      // 不再重复出一条 RESTRICTION。服务的是 ADMIN_SUSPENSION 这类不带
+      // 材料请求的限制。
+      if (claimedRestrictionNos.has(restriction.restrictionNo)) continue;
+
       const hasCta = DOCUMENT_CTA_CAUSES.has(restriction.cause);
       banners.push({
         id: `banner-restriction-${restriction.restrictionNo}`,
@@ -70,51 +83,26 @@ export class ProfileBannerService {
       });
     }
 
-    const cycles = await this.prisma.materialRefreshCycle.findMany({
-      where: { customerId, status: 'PENDING_CUSTOMER_EVIDENCE' },
-      include: { holding: true },
-      orderBy: { graceExpiresAt: 'asc' },
-    });
-
-    for (const cycle of cycles) {
-      const holding = cycle.holding;
-      const daysFromExpiry = holding?.expiresAt
-        ? Math.floor(
-            (holding.expiresAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
-          )
-        : null;
-
-      const severity =
-        cycle.stage === 'BLOCKING'
-          ? 'BLOCKING'
-          : cycle.stage === 'URGENT'
-            ? 'WARNING'
-            : 'INFO';
-
-      const materialDisplay = formatMaterialName(cycle.materialType);
-      const title =
-        severity === 'BLOCKING'
-          ? `Your ${materialDisplay} has expired`
-          : `Your ${materialDisplay} expires in ${daysFromExpiry} days`;
+    // ── 材料请求横幅（2026-08-17 起数据源是材料账，不再是 cycle）──
+    // G6：客户级横幅 = 活行里「挂了限制的」∪「没绑单的」。
+    // 绑了单又没挂限制的只在订单页露 —— 那种行在这里被过滤掉。
+    for (const r of requests) {
+      const blocking = r.restrictionNo !== null;
+      if (!blocking && r.orderDomain !== null) continue; // 订单页管它
 
       banners.push({
-        id: `banner-mrc-${cycle.id}`,
+        id: `material-request:${r.requestNo}`,
         type: 'MATERIAL_REFRESH',
-        severity,
-        title,
-        description:
-          severity === 'BLOCKING'
-            ? 'Refresh it now to restore your account.'
-            : severity === 'WARNING'
-              ? 'Refresh soon to avoid service interruption.'
-              : 'You can refresh it at any time.',
-        cycleId: cycle.id,
-        materialType: cycle.materialType,
-        expiresAt: holding?.expiresAt?.toISOString(),
-        daysFromExpiry: daysFromExpiry ?? undefined,
-        ctaLabel: `Refresh ${materialDisplay}`,
-        ctaPath: `/verification?cycleId=${cycle.id}`,
-        dismissible: severity === 'INFO',
+        // 挂了摁人的限制 → 红；只是提醒 → 黄
+        severity: blocking ? 'BLOCKING' : 'INFO',
+        title: blocking
+          ? `${formatMaterialName(r.materialType)} required`
+          : `${formatMaterialName(r.materialType)} needs refreshing`,
+        description: r.reason,
+        materialType: r.materialType,
+        ctaLabel: r.status === 'SUBMITTED' ? null : 'Verify now',
+        ctaPath: r.status === 'SUBMITTED' ? null : `/verification/${r.requestNo}`,
+        dismissible: !blocking,
       });
     }
 
