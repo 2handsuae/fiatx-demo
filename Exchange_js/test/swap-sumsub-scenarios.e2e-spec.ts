@@ -156,11 +156,15 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // restrictions:'[]' 复位，那条列已删。这里显式清场 —— 不清的话上一支/上一轮
     // 留下的 OPEN 便签会被新的 L1 能力门拦住建单，用例之间不再独立。
     await prisma.customerRestriction.deleteMany({ where: { customerId } });
-    // 2026-08-17 材料请求账：同款清场，另一张表。③/⑥ 用的 externalActionId
-    // （demo-ext-1/demo-ext-3）是 fixture 里的固定字面量，不是每轮随机生成——
-    // customerNo 又是确定性的（buildDeterministicNo），不清的话对一个持久化
-    // worktree DB 重跑本 suite 第二次，上一轮留下的行会在 P2002（externalActionId
-    // 唯一键）上把这一轮的 register() 直接打挂。
+    // 2026-08-17 材料请求账：同款清场，另一张表。customerNo 是确定性的
+    // （buildDeterministicNo），不清的话对一个持久化 worktree DB 重跑本 suite
+    // 第二次，上一轮留下的行会堆积在 listLiveByOrder 里干扰断言。
+    //
+    // 终审 Important #4（2026-08-18 二次修订）：③/⑥ 用的 externalActionId
+    // 此前是 fixture 里的固定字面量（demo-ext-1/demo-ext-3），不清场会在重跑
+    // 时撞 P2002；已改成按调用现铸（见
+    // src/modules/swap-sumsub/fixtures/verdict-buttons.ts），这里的清场不再
+    // 是绕过 P2002 的必要条件，但仍保留作测试卫生。
     await prisma.materialRequest.deleteMany({ where: { customerId } });
 
     const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });
@@ -377,7 +381,9 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // externalActionId 是哪些。
     const live = await materialRequests.listLiveByOrder('SWAP', v3aSwap.swapNo);
     expect(live).toHaveLength(1);
-    expect(live[0].externalActionId).toBe('demo-ext-1');
+    // 终审 Important #4：externalActionId 现铸（randomUUID），不再是固定字面量
+    // 'demo-ext-1' —— 只断言"有值"，具体值不该也不能预测。
+    expect(live[0].externalActionId).toBeTruthy();
     expect(live[0].status).toBe('PENDING_SUBMISSION');
 
     // 2026-08-18 修复验收（本次要修的 Critical）：register() 之前没有任何字段
@@ -442,7 +448,9 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // 同③：软线暴露的事实只活在材料账里，旧单指针列已随 Task 12 物理删除。
     const live = await materialRequests.listLiveByOrder('SWAP', v6Swap.swapNo);
     expect(live).toHaveLength(1);
-    expect(live[0].externalActionId).toBe('demo-ext-3');
+    // 终审 Important #4：externalActionId 现铸（randomUUID），不再是固定字面量
+    // 'demo-ext-3' —— 只断言"有值"，具体值不该也不能预测。
+    expect(live[0].externalActionId).toBeTruthy();
     expect(live[0].status).toBe('PENDING_SUBMISSION');
     expect(live[0].restrictionNo).not.toBeNull();
   });

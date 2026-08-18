@@ -15,6 +15,14 @@ import {
 } from './dto/material-request.dto';
 import type { MaterialRequestOrderDomain } from './constants/material-request.constant';
 import type { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+// 修 2 复用三域已导出的终态集合（同一份 material-request-order-cancel.listener.ts
+// 已在用的写法）判定"非终态"，不新开一份重复定义、也不给 MaterialRequestsModule
+// 添 DepositTransactionsModule/WithdrawTransactionsModule/SwapTransactionsModule
+// 三条新的循环依赖边——这三个模块的 Service 类不注入这里，只借用它们各自导出的
+// 只读常量 + 本控制器已有的 PrismaService。
+import { DEPOSIT_TERMINAL_STATUSES } from '../../trading/deposit-transactions/deposit-transactions.service';
+import { WITHDRAW_TERMINAL_STATUSES } from '../../trading/withdraw-transactions/withdraw-transactions.service';
+import { SWAP_TERMINAL_STATUSES } from '../../trading/swap-transactions/swap-transactions.service';
 
 const ORDER_DOMAINS: MaterialRequestOrderDomain[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
 
@@ -85,6 +93,16 @@ export class MaterialRequestsAdminController {
     }
 
     const customerId = await this.resolveCustomerId(customerNo);
+
+    // 终审 Important #2：orderRef 是运营手打的自由文本，没有服务端校验。
+    // 绑到已终态单（终态事件早过去了，作废监听器永不再触发）、绑到别人的单、
+    // 或者号打错不存在——三种都会造出客户端零入口的孤儿行。这里按
+    // (customerId, orderDomain, orderRef) 反查该客户名下的非终态订单，查不到
+    // 就 400。
+    if (dto.orderDomain && dto.orderRef) {
+      await this.assertOrderBindable(customerId, dto.orderDomain, dto.orderRef);
+    }
+
     const actor = this.buildAdminActor(req);
 
     return this.issuer.issue({
@@ -116,6 +134,65 @@ export class MaterialRequestsAdminController {
       role: user.role,
       roleCodes: user.roleCodes || (user.role ? [user.role] : []),
     };
+  }
+
+  /**
+   * 修 2：orderRef 是运营手打的自由文本，查不到该客户名下这个 domain 的
+   * 非终态订单就拒——绑到终态单 / 别人的单 / 打错号，都会在这里被截住，
+   * 而不是落一行客户端看不到、运营以为发了的孤儿。
+   */
+  private async assertOrderBindable(
+    customerId: string,
+    orderDomain: MaterialRequestOrderDomain,
+    orderRef: string,
+  ): Promise<void> {
+    const found = await this.findNonTerminalOrder(customerId, orderDomain, orderRef);
+    if (!found) {
+      throw new BadRequestException({
+        code: 'MATERIAL_REQUEST_ORDER_NOT_BINDABLE',
+        message:
+          `No non-terminal ${orderDomain} order "${orderRef}" found for customer — ` +
+          'it may not exist, may not belong to this customer, or may already be terminal',
+      });
+    }
+  }
+
+  private async findNonTerminalOrder(
+    customerId: string,
+    orderDomain: MaterialRequestOrderDomain,
+    orderRef: string,
+  ): Promise<{ id: string } | null> {
+    switch (orderDomain) {
+      case 'DEPOSIT':
+        return this.prisma.depositTransaction.findFirst({
+          where: {
+            depositNo: orderRef,
+            ownerId: customerId,
+            status: { notIn: [...DEPOSIT_TERMINAL_STATUSES] },
+          },
+          select: { id: true },
+        });
+      case 'WITHDRAW':
+        return this.prisma.withdrawTransaction.findFirst({
+          where: {
+            withdrawNo: orderRef,
+            ownerId: customerId,
+            status: { notIn: [...WITHDRAW_TERMINAL_STATUSES] },
+          },
+          select: { id: true },
+        });
+      case 'SWAP':
+        return this.prisma.swapTransaction.findFirst({
+          where: {
+            swapNo: orderRef,
+            ownerId: customerId,
+            status: { notIn: [...SWAP_TERMINAL_STATUSES] },
+          },
+          select: { id: true },
+        });
+      default:
+        return null;
+    }
   }
 
   /** 对外合同是 customerNo（CLAUDE.md 铁律 3），内部再换 id 喂 domain service */

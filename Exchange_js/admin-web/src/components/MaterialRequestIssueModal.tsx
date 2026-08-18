@@ -43,7 +43,14 @@ const ENFORCE_RESTRICTION_DEFAULT: Record<string, boolean> = {
 /** 下发弹窗的 cause 永远是 PENDING_DOCUMENT —— 唯一 scopeSelectable 的可摁 cause。 */
 const POLICY = RESTRICTION_CAUSE_POLICY.PENDING_DOCUMENT;
 
-const ORDER_DOMAINS: ('DEPOSIT' | 'WITHDRAW' | 'SWAP')[] = ['DEPOSIT', 'WITHDRAW', 'SWAP'];
+// 终审 Important #1：client-web 还没有兑换单详情页（BACKLOG.md 383 行）。
+// 挂了限制的 SWAP 材料请求会正常出现在客户级横幅上，不受影响；但运营选
+// SWAP + 不勾 Restrict 时落一行 orderDomain='SWAP'/restrictionNo=null——
+// 客户级横幅两处过滤（profile-banners.service.ts / PendingActionBanner.tsx）
+// 都会把「绑了单又没挂限制」的行剔除、指望订单详情页兜底，而 SWAP 没有那个
+// 详情页，客户端因此零入口，运营却以为发出去了。等 client-web 补上兑换单
+// 详情页（BACKLOG 那条）再放开 SWAP。
+const ORDER_DOMAINS: ('DEPOSIT' | 'WITHDRAW')[] = ['DEPOSIT', 'WITHDRAW'];
 
 const EchoRow = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className="flex items-start justify-between gap-3 border-b border-adm-border py-2 last:border-b-0">
@@ -62,7 +69,7 @@ const MaterialRequestIssueModal = ({
   onSubmitted,
 }: MaterialRequestIssueModalProps) => {
   const [materialType, setMaterialType] = useState(MATERIAL_TYPES[0].value);
-  const [orderDomain, setOrderDomain] = useState<'' | 'DEPOSIT' | 'WITHDRAW' | 'SWAP'>('');
+  const [orderDomain, setOrderDomain] = useState<'' | 'DEPOSIT' | 'WITHDRAW'>('');
   const [orderRef, setOrderRef] = useState('');
   const [restrict, setRestrict] = useState(ENFORCE_RESTRICTION_DEFAULT[MATERIAL_TYPES[0].value]);
   const [scopes, setScopes] = useState<RestrictionScope[]>(POLICY.defaultScopes);

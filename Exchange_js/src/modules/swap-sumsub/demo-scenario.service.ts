@@ -184,7 +184,23 @@ export class SwapDemoScenarioService {
     actor: DemoScenarioActor,
   ) {
     const live = await this.materialRequests.listLiveByOrder('SWAP', swap.swapNo ?? '');
-    const externalActionId = live[0]?.externalActionId ?? this.mintTxnId(swap, button.key);
+    const target = live[0];
+    const externalActionId = target?.externalActionId ?? this.mintTxnId(swap, button.key);
+
+    // 终审 Important #3：运营点 ⑦/⑧ 时,客户端多半没走"提交"这一步——材料请求
+    // 行还停在 PENDING_SUBMISSION。MaterialRequestReviewService.applyReview 里
+    // 的裁决只认 SUBMITTED,直接投会撞 nextMaterialRequestStatus 的非法边（抛
+    // BadRequestException），经 ingestion 重试三次 DEAD、接口 500——旧 handler
+    // 任何状态都接,这是材料请求账（本分支）引入的回归。demo 场景补一次
+    // markSubmitted 模拟客户提交,再走裁决,顺序与真实客户端 SDK 提交后才被
+    // Sumsub 复核一致。
+    if (target && target.status === 'PENDING_SUBMISSION') {
+      await this.materialRequests.markSubmitted(target.requestNo, {
+        actorType: 'CUSTOMER',
+        actorId: swap.ownerId,
+        actorRole: 'CUSTOMER',
+      });
+    }
 
     await this.ingestionService.ingest(
       {

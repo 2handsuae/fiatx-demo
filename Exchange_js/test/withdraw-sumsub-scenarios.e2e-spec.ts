@@ -193,12 +193,16 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
    * .assertCapability` 闸，直接 403）——这不是被测代码的 bug，是测试之间需要的
    * 隔离，与 swap-sumsub-scenarios.e2e-spec.ts 在 beforeAll 里 `deleteMany` 是
    * 同一类清场，只是这里的用例是交叉的（create 与 verdict 穿插），改成每条用例
-   * 开跑前都清一次。同一份 fixture 的 externalActionId 是固定字面量
-   * （`EXT-SOF-0001`/`EXT-MULTI-0001..3`，与 swap 套件 `demo-ext-1`/`demo-ext-3`
-   * 同款设计），材料请求账的 externalActionId 又是全表 `@unique`（不按客户/单号
-   * 分段）——同一个字面量被两条独立用例各登记一次会在 DB 唯一约束上直接
-   * P2002（且不会被重试，`material-requests.service.ts` 的 `create()` 只重试
-   * `requestNo` 撞号），所以材料请求行也要清。
+   * 开跑前都清一次。
+   *
+   * 终审 Important #4（2026-08-18 二次修订）：此前同一份 fixture 的
+   * externalActionId 是固定字面量（`EXT-SOF-0001`/`EXT-MULTI-0001..3`），材料
+   * 请求账的 externalActionId 又是全表 `@unique`（不按客户/单号分段）——同一个
+   * 字面量被两条独立用例各登记一次会在 DB 唯一约束上直接 P2002（且不会被
+   * 重试，`material-requests.service.ts` 的 `create()` 只重试 `requestNo`
+   * 撞号）。根因已在 `verdict-buttons.ts` 层修掉（applicantActions 改成按调用
+   * 现铸），这里的 `beforeEach` 保留纯粹是测试卫生，不再是绕过 P2002 的必要
+   * 条件。
    */
   beforeEach(async () => {
     await prisma.customerRestriction.deleteMany({ where: { customerId } });
@@ -559,25 +563,27 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     // （子表关系 `applicantActions`，`{seq, submittedAt}`）。Task 9 之后该子表
     // 零写入（WithdrawApplicantActionsService 内脏已换材料账），这个关系恒空
     // 数组——不是本次要修的范围（withdraw-transactions.service.ts 未改动），但
-    // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action
-    // （V10_AWAIT_USER_MULTI fixture 的三个 id 是固定字面量 EXT-MULTI-000{1,2,3}，
-    // 与充值域共用同一份 fixture 形状，见
-    // src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts）。
+    // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action。
+    //
+    // 终审 Important #4（2026-08-18 二次修订）：V10_AWAIT_USER_MULTI fixture 的
+    // 三个 externalActionId 此前是固定字面量 EXT-MULTI-000{1,2,3}，已改成按
+    // 调用现铸（见 src/modules/withdraw-sumsub/fixtures/verdict-buttons.ts），
+    // 断言相应从"是这三个字面量"改成"有三条互不相同的活行"，用真实返回值
+    // 定位而不是硬编码字面量。
     const live = await materialRequests.listLiveByOrder('WITHDRAW', w.withdrawNo);
-    expect(live.map((r) => r.externalActionId).sort()).toEqual([
-      'EXT-MULTI-0001', 'EXT-MULTI-0002', 'EXT-MULTI-0003',
-    ]);
+    expect(live).toHaveLength(3);
+    expect(new Set(live.map((r) => r.externalActionId)).size).toBe(3);
     expect(live.every((r) => r.status === 'PENDING_SUBMISSION')).toBe(true); // 一条都还没交
 
-    const byExt = (ext: string) => live.find((r) => r.externalActionId === ext)!.requestNo;
+    const [firstNo, secondNo, thirdNo] = live.map((r) => r.requestNo);
 
-    await submitMaterial(byExt('EXT-MULTI-0001'));
-    await submitMaterial(byExt('EXT-MULTI-0002'));
+    await submitMaterial(firstNo);
+    await submitMaterial(secondNo);
     const midway = await materialRequests.listLiveByOrder('WITHDRAW', w.withdrawNo);
     expect(midway.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(1); // 还没交齐
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.ACTION_PENDING);
 
-    await submitMaterial(byExt('EXT-MULTI-0003'));
+    await submitMaterial(thirdNo);
     const final = await materialRequests.listLiveByOrder('WITHDRAW', w.withdrawNo);
     expect(final.every((r) => r.status === 'SUBMITTED')).toBe(true); // 三条逐条都已提交
     expect(final.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(0); // 全部交齐
@@ -586,7 +592,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     // 见 material-request-issuer.service.ts persist()）——三张都要复核 GREEN 撕掉，
     // 少一张 access.blocked 仍含 WITHDRAW，A4 合规闸会在 V1_APPROVED 处理到
     // payout-phase 时把单子自己冻结（同"补料完整弧"用例的注记）。
-    for (const ext of ['EXT-MULTI-0001', 'EXT-MULTI-0002', 'EXT-MULTI-0003']) {
+    for (const ext of live.map((r) => r.externalActionId)) {
       const reviewed = await reviewGreen(ext);
       expect(reviewed?.outcome).toBe('APPROVED');
     }
@@ -600,7 +606,9 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
 
     await deliver(w.id, 'V10_AWAIT_USER_MULTI');
     const live = await materialRequests.listLiveByOrder('WITHDRAW', w.withdrawNo);
-    const requestNo = live.find((r) => r.externalActionId === 'EXT-MULTI-0001')!.requestNo;
+    // 终审 Important #4：externalActionId 现铸不再是固定字面量，任取一条即可——
+    // 这条用例只关心"同一条 action 前后两次会话响应体相等"，不关心是哪一条。
+    const requestNo = live[0].requestNo;
     await submitMaterial(requestNo);
 
     const before = await getSessionView(requestNo);

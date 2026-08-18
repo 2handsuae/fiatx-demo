@@ -166,4 +166,23 @@ describe('MaterialRequestReviewService.applyReview', () => {
     const noteOrder = d.swapApplicantActionHandler.noteHardLineHeld.mock.invocationCallOrder[0];
     expect(noteOrder).toBeGreaterThan(txCallOrder);
   });
+
+  // 终审 Important #5：noteHardLineHeld 是一条纯审计的旁路（3 次读 + 1 次审计
+  // 写），此前裸 await、无 try/catch。它一炸，applyReview 就跟着抛，行已
+  // APPROVED、便签已 RELEASED（事务早提交了），但 MATERIAL_REQUEST_REVIEWED
+  // 永不广播——材料重检域 cycle 卡 PENDING、证件到期日不刷新、CRA 不级联，
+  // 下游全部静默失联。这条用例钉住：noteHardLineHeld reject 时 applyReview
+  // 不抛，且事件照常 emit。
+  it('noteHardLineHeld 抛错也不该阻断 applyReview 或事件广播（一条旁路审计不该有能力拖垮主流程）', async () => {
+    const d = deps();
+    d.swapApplicantActionHandler.noteHardLineHeld.mockRejectedValue(new Error('boom: swap lookup failed'));
+
+    const out = await build(d).applyReview({ externalActionId: 'ext-1', reviewAnswer: 'GREEN', actor: ACTOR });
+
+    expect(out).toEqual({ requestNo: 'MRQ2608170001', outcome: 'APPROVED' });
+    expect(d.eventEmitter.emit).toHaveBeenCalledWith(
+      'material-request.reviewed',
+      expect.objectContaining({ requestNo: 'MRQ2608170001', outcome: 'APPROVED' }),
+    );
+  });
 });

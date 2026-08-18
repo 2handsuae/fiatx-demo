@@ -241,19 +241,25 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
   /**
    * 2026-08-18 材料请求账迁移发现：`material_requests.externalActionId` 是
-   * **全表** `@unique`（不按客户/单号分段），而 `verdict-buttons.ts` fixture 对
+   * **全表** `@unique`（不按客户/单号分段），而 `verdict-buttons.ts` fixture 曾对
    * 同一按钮固定复用同一个字面量（`V2_AWAIT_USER`→`EXT-SOF-0001`、
-   * `V10_AWAIT_USER_MULTI`→`EXT-MULTI-0001..3`，与
-   * swap-sumsub-scenarios.e2e-spec.ts beforeAll 记录的 `demo-ext-1`/`demo-ext-3`
-   * 同款"fixture 里的固定字面量，不是每轮随机生成"）。本 suite 里"补料后通过"
+   * `V10_AWAIT_USER_MULTI`→`EXT-MULTI-0001..3`）。本 suite 里"补料后通过"
    * （原有用例）与"补料完整弧"/"接口不可区分"三条独立用例都会触发
    * V2_AWAIT_USER，"多条 action"/"逐条不可区分" 都会触发 V10_AWAIT_USER_MULTI——
    * 旧的专属子表按 `(depositTransactionId, seq)` 去重，
    * 互不冲突；材料账的去重键是全表 `externalActionId`，第二条用例登记同一个
    * 字面量会在 DB 唯一约束上直接 P2002（且不会被重试，`material-requests
-   * .service.ts` 的 `create()` 只重试 `requestNo` 撞号）。beforeAll 只在整个
-   * suite 开跑前清一次 depositTransaction/wallet，不够——这里补一个
-   * `beforeEach`，让每条用例开跑前清空上一条用例登记的材料请求行。
+   * .service.ts` 的 `create()` 只重试 `requestNo` 撞号）。
+   *
+   * 终审 Important #4（2026-08-18 二次修订）：根因已在 fixture 层修掉——
+   * `verdict-buttons.ts` 的 applicantActions 改成按调用现铸（getter +
+   * randomUUID），不再有任何两次调用共享同一个 externalActionId，跨订单/跨
+   * 用例也不会撞。这个 `beforeEach` 保留下来纯粹是测试卫生（每条用例开跑前
+   * 清空上一条用例登记的材料请求行，避免 `listLiveByCustomer` 之类断言意外
+   * 数到别的用例留下的行），不再是绕过 P2002 的必要条件。
+   *
+   * beforeAll 只在整个 suite 开跑前清一次 depositTransaction/wallet，不够——
+   * 这里补一个 `beforeEach`。
    *
    * DEPOSIT 域不需要像 withdraw-sumsub-scenarios.e2e-spec.ts 那样额外处理
    * `customer_restrictions`：`PENDING_DOCUMENT` 因由的默认 scopes 是
@@ -682,24 +688,28 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     // （子表关系 `applicantActions`，`{seq, submittedAt}`）。Task 8 之后该子表
     // 零写入（DepositApplicantActionsService 内脏已换材料账），这个关系恒空
     // 数组——不是本次要修的范围（deposit-transactions.service.ts 未改动），但
-    // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action
-    // （V10_AWAIT_USER_MULTI fixture 的三个 id 是固定字面量 EXT-MULTI-000{1,2,3}，
-    // 见 src/modules/deposit-sumsub/fixtures/verdict-buttons.ts）。
+    // 断言必须换成真实数据源：材料账按 externalActionId 定位同一批 action。
+    //
+    // 终审 Important #4（2026-08-18 二次修订）：V10_AWAIT_USER_MULTI fixture
+    // 的三个 externalActionId 此前是固定字面量 EXT-MULTI-000{1,2,3}，会在两笔
+    // 不同订单先后点这个按钮时撞材料请求账的全表 @unique 约束（P2002）。已改成
+    // 按调用现铸（见 src/modules/deposit-sumsub/fixtures/verdict-buttons.ts），
+    // 断言相应从"是这三个字面量"改成"有三条互不相同的活行"，用真实返回值
+    // 定位而不是硬编码字面量。
     const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
-    expect(live.map((r) => r.externalActionId).sort()).toEqual([
-      'EXT-MULTI-0001', 'EXT-MULTI-0002', 'EXT-MULTI-0003',
-    ]);
+    expect(live).toHaveLength(3);
+    expect(new Set(live.map((r) => r.externalActionId)).size).toBe(3);
     expect(live.every((r) => r.status === 'PENDING_SUBMISSION')).toBe(true); // 一条都还没交
 
-    const byExt = (ext: string) => live.find((r) => r.externalActionId === ext)!.requestNo;
+    const [first, second, third] = live.map((r) => r.requestNo);
 
-    await submitMaterial(byExt('EXT-MULTI-0001'));
-    await submitMaterial(byExt('EXT-MULTI-0002'));
+    await submitMaterial(first);
+    await submitMaterial(second);
     const midway = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
     expect(midway.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(1); // 还没交齐
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.ACTION_PENDING);
 
-    await submitMaterial(byExt('EXT-MULTI-0003'));
+    await submitMaterial(third);
     const final = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
     expect(final.every((r) => r.status === 'SUBMITTED')).toBe(true); // 三条逐条都已提交
     expect(final.filter((r) => r.status === 'PENDING_SUBMISSION')).toHaveLength(0); // 全部交齐
@@ -713,7 +723,9 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
 
     await deliver(deposit.id, 'V10_AWAIT_USER_MULTI');
     const live = await materialRequests.listLiveByOrder('DEPOSIT', deposit.depositNo);
-    const requestNo = live.find((r) => r.externalActionId === 'EXT-MULTI-0001')!.requestNo;
+    // 终审 Important #4：externalActionId 现铸不再是固定字面量，任取一条即可——
+    // 这条用例只关心"同一条 action 前后两次会话响应体相等"，不关心是哪一条。
+    const requestNo = live[0].requestNo;
     await submitMaterial(requestNo);
 
     const before = await getSessionView(requestNo);

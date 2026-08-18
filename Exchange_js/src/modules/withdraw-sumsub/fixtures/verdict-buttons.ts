@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { KYT_ONHOLD_TYPE } from '../../deposit-sumsub/kyt-webhook-types';
 import { TxnReportVerdict } from '../../deposit-sumsub/fixtures/txn-report.builder';
 
@@ -51,9 +52,17 @@ export const WITHDRAW_VERDICT_BUTTONS: Record<string, WithdrawVerdictButton> = {
       matchedRules: [
         RULE('KYC7', 'Source of funds unclear', 40, 'awaitUser', 'Additional information required from the applicant.'),
       ],
-      applicantActions: [
-        { applicantActionId: 'aa-sof-0001', externalActionId: 'EXT-SOF-0001' },
-      ],
+      // 材料请求账的 externalActionId 是全表 @unique（不像旧子表按
+      // (订单id, seq) 分段去重）—— 固定字面量会在两笔不同订单先后点这个按钮时
+      // P2002（终审 Important #4）。getter 按调用现铸,贴近真实 Sumsub 每次建
+      // action 都发新 id 的行为；同一次 buildTxnReport() 调用只读一次
+      // （见 deposit-sumsub/fixtures/txn-report.builder.ts:99）,单次投递内不会
+      // 前后矛盾。
+      get applicantActions() {
+        return [
+          { applicantActionId: `aa-sof-${randomUUID()}`, externalActionId: `EXT-SOF-${randomUUID()}` },
+        ];
+      },
     },
   },
 
@@ -69,9 +78,12 @@ export const WITHDRAW_VERDICT_BUTTONS: Record<string, WithdrawVerdictButton> = {
       matchedRules: [
         RULE('AML4', 'PEP match', 62, 'awaitUser', 'Politically exposed person — enhanced due diligence documents required.'),
       ],
-      applicantActions: [
-        { applicantActionId: 'aa-edd-0002', externalActionId: 'EXT-EDD-0002' },
-      ],
+      // 同 V2_AWAIT_USER 的 getter 注记：现铸而非固定字面量。
+      get applicantActions() {
+        return [
+          { applicantActionId: `aa-edd-${randomUUID()}`, externalActionId: `EXT-EDD-${randomUUID()}` },
+        ];
+      },
       typedTags: [TAG('PEP')],
     },
   },
@@ -190,12 +202,16 @@ export const WITHDRAW_VERDICT_BUTTONS: Record<string, WithdrawVerdictButton> = {
         RULE('KYC9', 'Multiple documents required', 45, 'awaitUser', 'Several items required from the applicant.'),
       ],
       // 三条一次性下发,用于验证"点哪条看哪条"以及"交完前两条徽章仍是
-      // ACTION REQUIRED、交完第三条才切已收到"(逐字同源充值版)。
-      applicantActions: [
-        { applicantActionId: 'aa-multi-0001', externalActionId: 'EXT-MULTI-0001' },
-        { applicantActionId: 'aa-multi-0002', externalActionId: 'EXT-MULTI-0002' },
-        { applicantActionId: 'aa-multi-0003', externalActionId: 'EXT-MULTI-0003' },
-      ],
+      // ACTION REQUIRED、交完第三条才切已收到"(逐字同源充值版)。同
+      // V2_AWAIT_USER 的 getter 注记：现铸而非固定字面量,前缀留着方便日志里
+      // 认出"这是第几条"。
+      get applicantActions() {
+        return [
+          { applicantActionId: `aa-multi-0001-${randomUUID()}`, externalActionId: `EXT-MULTI-0001-${randomUUID()}` },
+          { applicantActionId: `aa-multi-0002-${randomUUID()}`, externalActionId: `EXT-MULTI-0002-${randomUUID()}` },
+          { applicantActionId: `aa-multi-0003-${randomUUID()}`, externalActionId: `EXT-MULTI-0003-${randomUUID()}` },
+        ];
+      },
     },
   },
 };
