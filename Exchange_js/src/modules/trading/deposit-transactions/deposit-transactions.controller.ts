@@ -3,7 +3,6 @@ import {
   Get,
   Body,
   Param,
-  ParseIntPipe,
   Query,
   Patch,
   Post,
@@ -35,7 +34,6 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../../../modules/identity/access-control/admin-permission.guard';
 import { InboundTransferSignalsService } from './inbound-transfer-signals.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
-import { DepositVerificationSessionService } from './deposit-verification-session.service';
 
 @ApiTags('Deposit Transactions')
 @ApiBearerAuth()
@@ -46,7 +44,6 @@ export class DepositTransactionsController {
     private readonly service: DepositTransactionsService,
     private readonly inboundTransferSignalsService: InboundTransferSignalsService,
     private readonly workflow: DepositWorkflowService,
-    private readonly verificationSessions: DepositVerificationSessionService,
   ) {}
 
   private assertAdmin(req: any) {
@@ -96,28 +93,10 @@ export class DepositTransactionsController {
     return this.inboundTransferSignalsService.scanForCustomer(userId, dto);
   }
 
-  @Get('my/:depositNo/verification-session/:seq')
-  @ApiOperation({ summary: 'Get my deposit verification session' })
-  getMyVerificationSession(
-    @Req() req: any,
-    @Param('depositNo') depositNo: string,
-    @Param('seq', ParseIntPipe) seq: number,
-  ) {
-    return this.verificationSessions.getSession(req.user.userId, depositNo, seq);
-  }
+  // 2026-08-17 材料请求账：本域补料会话端点（原按 seq 定位的旧端点）已删除。
+  // 客户面改走 material-requests.client.controller.ts
+  // 的 requestNo 定位端点（Task 14 接入）。
 
-  @Post('my/:depositNo/verification-session/:seq/submit')
-  @ApiOperation({ summary: 'Mark my deposit verification materials as submitted' })
-  submitMyVerification(
-    @Req() req: any,
-    @Param('depositNo') depositNo: string,
-    @Param('seq', ParseIntPipe) seq: number,
-  ) {
-    return this.verificationSessions.submit(req.user.userId, depositNo, seq);
-  }
-
-  // ⚠️ 必须声明在 'my/:depositNo/verification-session/:seq' 之后——Nest 按声明
-  // 顺序匹配路由，这条 'my/:depositNo' 段数更短，写前面会抢占上面那条。
   @Get('my/:depositNo')
   @ApiOperation({ summary: 'Get my deposit transaction detail' })
   getMyDeposit(@Req() req: any, @Param('depositNo') depositNo: string) {

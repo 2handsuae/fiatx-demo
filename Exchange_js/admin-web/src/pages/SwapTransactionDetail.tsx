@@ -14,6 +14,7 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
+import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -578,6 +579,13 @@ const SwapTransactionDetail = () => {
           {/* 6. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
+          </DetailCard>
+
+          {/* Verification Requests — same component + endpoint as the customer
+              detail page's Verification Requests section, `mode="order"` scopes
+              it to this swap's still-live rows (G6). */}
+          <DetailCard title="Verification Requests" columns={1}>
+            <MaterialRequestPanel mode="order" orderDomain="SWAP" orderRef={data.swapNo} />
           </DetailCard>
 
           {/* 7. Technical */}

@@ -18,6 +18,25 @@ describe('DEPOSIT_VERDICT_BUTTONS', () => {
     expect(DEPOSIT_VERDICT_BUTTONS.V3_AWAIT_USER_PEP.verdict.applicantActions?.length).toBeGreaterThan(0);
   });
 
+  // 终审 Important #4：externalActionId 是材料请求账全表 @unique（不像旧子表
+  // 按 (订单id, seq) 分段去重）——固定字面量会在两笔不同订单先后点同一个按钮时
+  // 撞唯一约束（P2002），第二次 500。fixture 改成按调用现铸，这里钉住"连续取
+  // 两次不同"，防止有人图省事把 getter 改回静态数组。
+  it('② ③ ⑩ 的 applicantActions 每次读都现铸，连续两次访问 externalActionId 不同', () => {
+    const first = DEPOSIT_VERDICT_BUTTONS.V2_AWAIT_USER.verdict.applicantActions;
+    const second = DEPOSIT_VERDICT_BUTTONS.V2_AWAIT_USER.verdict.applicantActions;
+    expect(first?.[0].externalActionId).toBeTruthy();
+    expect(first?.[0].externalActionId).not.toBe(second?.[0].externalActionId);
+    expect(first?.[0].applicantActionId).not.toBe(second?.[0].applicantActionId);
+
+    const multiFirst = DEPOSIT_VERDICT_BUTTONS.V10_AWAIT_USER_MULTI.verdict.applicantActions;
+    const multiSecond = DEPOSIT_VERDICT_BUTTONS.V10_AWAIT_USER_MULTI.verdict.applicantActions;
+    expect(multiFirst).toHaveLength(3);
+    // 三条互不相同,且与下一次读取的三条也互不相同
+    const allIds = [...(multiFirst ?? []), ...(multiSecond ?? [])].map((a) => a.externalActionId);
+    expect(new Set(allIds).size).toBe(allIds.length);
+  });
+
   it('处置 tag 逐个对上 handler 的词表', () => {
     const tagOf = (k: string) =>
       (DEPOSIT_VERDICT_BUTTONS[k].verdict.typedTags ?? []).map((t) => t.label);

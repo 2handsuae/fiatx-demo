@@ -22,11 +22,14 @@ export const DOMAIN_EVENTS = {
     subscribers: ['WithdrawWorkflowService'],
     payload: '{ withdrawId: string, withdrawNo: string, status: string, ownerType: string, ownerId: string, assetId: string, amount: string, traceId: string }',
   },
+  // 2026-08-17 修：此前这条注册表条目是空文档——事件全仓零 emit 点，下面这份
+  // payload 描述从未被满足过。现由 WithdrawTransactionsService#updateStatus 补发，
+  // 字段形状对齐 SWAP_STATUS_CHANGED（三域对称），故与旧文档不同。
   WITHDRAWAL_STATUS_CHANGED: {
     name: 'withdrawal.status.changed',
     emitter: 'WithdrawTransactionsService',
-    subscribers: ['WithdrawWorkflowService'],
-    payload: '{ withdrawId: string, oldStatus: string, newStatus: string, ownerType: string, ownerId: string, assetId: string }',
+    subscribers: ['MaterialRequestOrderCancelListener'],
+    payload: '{ withdrawId: string, withdrawNo: string, ownerId: string, previousStatus: string, status: string, traceId: string | null }',
   },
   // ── Funds Order (unified — Round 2) ──
   FUNDS_ORDER_STATUS_CHANGED: {
@@ -48,6 +51,22 @@ export const DOMAIN_EVENTS = {
     payload:
       '{ customerId: string, restrictionNo: string, cause: string, blocksAllCapabilities: true, traceId: string }',
   },
+
+  // ── Material Request (2026-08-17) ──
+  MATERIAL_REQUEST_REVIEWED: {
+    name: 'material-request.reviewed',
+    description:
+      '一次材料下发拿到了 Sumsub 复核结果。订单域据此推进自己的合规闸门 —— ' +
+      '材料账只广播事实，不替订单域做状态决定。',
+  },
+
+  // ── Swap (2026-08-17) ──
+  SWAP_STATUS_CHANGED: {
+    name: 'swap.status.changed',
+    description:
+      '兑换单状态变更。补于 2026-08-17 —— 此前三域只有充值/提现有单据级状态事件，' +
+      '兑换只有资金单粒度的 FUNDS_ORDER_STATUS_CHANGED，材料账的作废监听器接不上。',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -61,4 +80,8 @@ export const DomainEventNames = {
   FUNDS_ORDER_STATUS_CHANGED: DOMAIN_EVENTS.FUNDS_ORDER_STATUS_CHANGED.name,
   // Customer Restriction
   CUSTOMER_RESTRICTION_OPENED: DOMAIN_EVENTS.CUSTOMER_RESTRICTION_OPENED.name,
+  // Material Request
+  MATERIAL_REQUEST_REVIEWED: DOMAIN_EVENTS.MATERIAL_REQUEST_REVIEWED.name,
+  // Swap
+  SWAP_STATUS_CHANGED: DOMAIN_EVENTS.SWAP_STATUS_CHANGED.name,
 } as const;

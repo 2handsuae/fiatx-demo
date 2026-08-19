@@ -20,6 +20,7 @@ describe('SwapTransactionsService', () => {
       prisma as any,
       {} as any,
       {} as any,
+      { emit: jest.fn() } as any,
     );
   });
 
@@ -86,7 +87,7 @@ describe('markStatus transitions', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any);
   });
 
   it('COMPLIANCE_PENDING + kyt_approved → PROCESSING', async () => {
@@ -198,7 +199,7 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllFor
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any);
   });
 
   describe('findOneForCustomer', () => {
@@ -313,7 +314,7 @@ describe('findOneForAdmin', () => {
       swapTransaction: { findUnique: jest.fn() },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any);
   });
 
   it('well-formed official-shape payload: parseDetail 输出提现同源形状（parity 2026-08-14）', async () => {

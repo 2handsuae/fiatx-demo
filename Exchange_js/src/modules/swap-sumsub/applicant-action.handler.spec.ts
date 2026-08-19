@@ -1,222 +1,80 @@
 import { SwapApplicantActionHandler } from './applicant-action.handler';
-import { CustomerPendingActionService } from '../identity/customers/customer-pending-action.service';
-import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
+import { CustomersService } from '../identity/customers/customers.service';
+import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import { AuditActions } from '../audit-logging/constants/audit-actions.constant';
 
 /**
- * Task 13: 人级 applicantActionReviewed 闭环 —— mirror of
- * swap-kyt-verdict.handler.spec.ts 的手搓 mock 风格（绕过 Nest DI）。四条用例
- * 取自 task-13-brief.md Step 1：GREEN 清限制 / GREEN 但硬线不解锁 / RED 升级 /
- * 认领不到返回 false。
- *
- * 与 brief 里的 pseudocode 的一处出入：`auditLogsService.recordSystem` 在本
- * handler 里只传一个参数（不带事务 client）——这里没有本地开的
- * `prisma.$transaction`：CustomerMain 的两次写入（clear限制 / set pendingAction）
- * 都经由已存在的 identity/customers 服务方法完成（架构规则禁止 handler 直碰
- * CustomerMain 表），这两个方法都不接受外部 tx client，因此没有可传的事务
- * 句柄。故断言只匹配第一个参数。
- *
- * 终审补测（Finding 1/2/3）：真实字段名 externalApplicantActionId 认领 /
- * 空 id 不查库不认领 / 审计先于"消费认领"落地（GREEN 两条分支各一个用例）。
+ * 2026-08-17 材料请求账（Task 10）：GREEN/RED 的处置（清指针、resetSubmission、
+ * autoRelease）搬去 MaterialRequestReviewService（Task 4）统一管，三个域一套
+ * 逻辑。本 handler 只剩一件兑换域独有的事——「GREEN 到过但被刻意不解锁」那条
+ * 审计，由 MaterialRequestReviewService.applyReview 在 GREEN 落地后回调
+ * noteHardLineHeld(requestNo)。旧版四条 handle() 用例（GREEN 清限制 / RED 升级 /
+ * 认领不到 / 真实字段名兜底）随处置逻辑一起搬走，不在本文件重复断言。
  */
-describe('SwapApplicantActionHandler', () => {
-  let pendingActionService: jest.Mocked<CustomerPendingActionService>;
-  let restrictionWorkflowService: jest.Mocked<CustomerRestrictionWorkflowService>;
-  let auditLogsService: jest.Mocked<AuditLogsService>;
-  let handler: SwapApplicantActionHandler;
+function build() {
+  const prisma: any = {
+    customerMain: {
+      findUnique: jest.fn().mockResolvedValue({ customerNo: 'C-001' }),
+    },
+  };
+  const audit = {
+    recordSystem: jest.fn().mockResolvedValue(undefined),
+  } as unknown as jest.Mocked<AuditLogsService>;
+  const pending = {
+    hasHardLineDisposition: jest.fn(),
+  } as unknown as jest.Mocked<CustomersService>;
+  const requests = {
+    findByNo: jest.fn(),
+  } as unknown as jest.Mocked<MaterialRequestsService>;
 
-  beforeEach(() => {
-    pendingActionService = {
-      findByExternalActionId: jest.fn(),
-      set: jest.fn().mockResolvedValue(undefined),
-      resetSubmission: jest.fn().mockResolvedValue(undefined),
-    } as unknown as jest.Mocked<CustomerPendingActionService>;
+  const handler = new SwapApplicantActionHandler(prisma, audit, pending, requests);
+  return { handler, prisma, audit, pending, requests };
+}
 
-    restrictionWorkflowService = {
-      autoRelease: jest.fn().mockResolvedValue(undefined),
-      openRestriction: jest.fn(),
-    } as unknown as jest.Mocked<CustomerRestrictionWorkflowService>;
+describe('SwapApplicantActionHandler.noteHardLineHeld', () => {
+  it('非 SWAP 域的行直接返回，不写审计', async () => {
+    const { handler, audit, requests } = build();
+    requests.findByNo.mockResolvedValue({ requestNo: 'M1', customerId: 'c1', orderDomain: 'DEPOSIT' } as any);
 
-    auditLogsService = {
-      recordSystem: jest.fn().mockResolvedValue(undefined),
-    } as unknown as jest.Mocked<AuditLogsService>;
+    await handler.noteHardLineHeld('M1');
 
-    handler = new SwapApplicantActionHandler(
-      pendingActionService,
-      restrictionWorkflowService,
-      auditLogsService,
-    );
+    expect(audit.recordSystem).not.toHaveBeenCalled();
   });
 
-  it('GREEN + 非硬线 → 清 SWAP/WITHDRAW 限制 + 清 pendingAction', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      hardLineDispositionedAt: null,
-    } as any);
+  it('SWAP 域但没被硬线过 → 不写审计（正常放行，没什么可记的）', async () => {
+    const { handler, audit, requests, pending } = build();
+    requests.findByNo.mockResolvedValue({ requestNo: 'M1', customerId: 'c1', orderDomain: 'SWAP' } as any);
+    pending.hasHardLineDisposition.mockResolvedValue(false);
 
-    const hit = await handler.handle({
-      type: 'applicantActionReviewed',
-      externalActionId: 'EA1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
+    await handler.noteHardLineHeld('M1');
 
-    expect(hit).toBe(true);
-    // Task 8：只撕软线那张，客户身上别的因（制裁/材料/升级）一概不动
-    expect(restrictionWorkflowService.autoRelease).toHaveBeenCalledWith(
-      'c1',
-      'KYT_REJECTED_SOFT',
-      null,
-      'SYSTEM',
-    );
-    expect(pendingActionService.set).toHaveBeenCalledWith('c1', null, expect.anything());
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: AuditActions.SWAP_ACTION_CLEARED }),
-    );
+    expect(audit.recordSystem).not.toHaveBeenCalled();
   });
 
-  it('GREEN + 硬线客户 → 【不】清限制，只清 pendingAction，并审计说明', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      hardLineDispositionedAt: new Date(),
+  it('SWAP 域且被硬线过 → 写一条 GREEN_HARDLINE_HELD，供调查员核实', async () => {
+    const { handler, audit, requests, pending } = build();
+    requests.findByNo.mockResolvedValue({
+      requestNo: 'M1',
+      customerId: 'c1',
+      orderDomain: 'SWAP',
+      orderRef: 'SWP0001',
     } as any);
+    pending.hasHardLineDisposition.mockResolvedValue(true);
 
-    const hit = await handler.handle({
-      type: 'applicantActionReviewed',
-      externalActionId: 'EA1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
+    await handler.noteHardLineHeld('M1');
 
-    expect(hit).toBe(true);
-    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
-    expect(pendingActionService.set).toHaveBeenCalledWith('c1', null, expect.anything());
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+    expect(audit.recordSystem).toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_ACTION_GREEN_HARDLINE_HELD }),
     );
   });
 
-  it('RED → 限制保持 + needsReview 升级审计', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      hardLineDispositionedAt: null,
-    } as any);
+  it('查不到这条材料请求（requestNo 不存在）→ 直接返回，不写审计', async () => {
+    const { handler, audit, requests } = build();
+    requests.findByNo.mockResolvedValue(null);
 
-    const hit = await handler.handle({
-      type: 'applicantActionReviewed',
-      externalActionId: 'EA1',
-      reviewResult: { reviewAnswer: 'RED' },
-    });
+    await handler.noteHardLineHeld('NOPE');
 
-    expect(hit).toBe(true);
-    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
-    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: AuditActions.SWAP_ACTION_ESCALATED }),
-    );
-  });
-
-  it('认领不到客户 → 返回 false 让级联继续', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue(null);
-
-    const hit = await handler.handle({
-      type: 'applicantActionReviewed',
-      externalActionId: 'ZZZ',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
-
-    expect(hit).toBe(false);
-    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
-    expect(pendingActionService.set).not.toHaveBeenCalled();
-    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
-  });
-
-  // ── Finding 1（终审 Critical）：真实 webhook 字段是 externalApplicantActionId ──
-  it('只带 externalApplicantActionId（真实 Sumsub webhook 字段，不带 externalActionId）→ 仍能认领客户', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      hardLineDispositionedAt: null,
-    } as any);
-
-    const hit = await handler.handle({
-      type: 'applicantActionReviewed',
-      externalApplicantActionId: 'EA1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
-
-    expect(hit).toBe(true);
-    expect(pendingActionService.findByExternalActionId).toHaveBeenCalledWith('EA1');
-    // Task 8：只撕软线那张，客户身上别的因（制裁/材料/升级）一概不动
-    expect(restrictionWorkflowService.autoRelease).toHaveBeenCalledWith(
-      'c1',
-      'KYT_REJECTED_SOFT',
-      null,
-      'SYSTEM',
-    );
-  });
-
-  // ── Finding 2（终审 Important）：空 id 不得拿去查库、不得认领任何客户 ──
-  it('externalApplicantActionId 与 externalActionId 都缺失（解析出空串）→ 返回 false，不查库', async () => {
-    const hit = await handler.handle({
-      type: 'applicantActionReviewed',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
-
-    expect(hit).toBe(false);
-    expect(pendingActionService.findByExternalActionId).not.toHaveBeenCalled();
-    expect(restrictionWorkflowService.autoRelease).not.toHaveBeenCalled();
-    expect(pendingActionService.set).not.toHaveBeenCalled();
-    expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
-  });
-
-  // ── Finding 3（终审 Important）：审计必须先于"消费认领"（清 pendingAction 指针）落地 ──
-  it('GREEN + 硬线：审计写在清 pendingAction 指针（消费认领）之前', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      hardLineDispositionedAt: new Date(),
-    } as any);
-    const callOrder: string[] = [];
-    auditLogsService.recordSystem.mockImplementation(async () => {
-      callOrder.push('audit');
-      return undefined as any;
-    });
-    pendingActionService.set.mockImplementation(async () => {
-      callOrder.push('set');
-    });
-
-    await handler.handle({
-      type: 'applicantActionReviewed',
-      externalActionId: 'EA1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
-
-    expect(callOrder).toEqual(['audit', 'set']);
-  });
-
-  it('GREEN + 非硬线：审计写在清 pendingAction 指针（消费认领）之前', async () => {
-    pendingActionService.findByExternalActionId.mockResolvedValue({
-      id: 'c1',
-      customerNo: 'C-001',
-      hardLineDispositionedAt: null,
-    } as any);
-    const callOrder: string[] = [];
-    auditLogsService.recordSystem.mockImplementation(async () => {
-      callOrder.push('audit');
-      return undefined as any;
-    });
-    pendingActionService.set.mockImplementation(async () => {
-      callOrder.push('set');
-    });
-
-    await handler.handle({
-      type: 'applicantActionReviewed',
-      externalActionId: 'EA1',
-      reviewResult: { reviewAnswer: 'GREEN' },
-    });
-
-    expect(callOrder.indexOf('audit')).toBeLessThan(callOrder.indexOf('set'));
+    expect(audit.recordSystem).not.toHaveBeenCalled();
   });
 });

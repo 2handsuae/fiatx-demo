@@ -45,7 +45,7 @@ export const SWAP_COMPLIANCE_TIMEOUT_MS = Number(process.env.SWAP_COMPLIANCE_TIM
  * 只说明 Sumsub 没能在窗口内回话，跟这个人是否可疑毫无关系；套用 KYT 拒绝那
  * 套限制，等于把平台自己响应慢的锅，错记到客户账上（客户被限 SWAP/WITHDRAW，
  * 但自己什么都没做错）。这也是本 service 不注入
- * CustomerRestrictionsService/CustomerPendingActionService 的原因——架构上
+ * CustomerRestrictionsService/CustomersService（硬线标记）的原因——架构上
  * 就不给它触发 disposition 的能力。
  */
 @Injectable()

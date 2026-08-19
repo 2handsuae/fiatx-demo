@@ -8,6 +8,8 @@ import {
 /** /onboarding/me 下发的「可以告知客户」的限制行；SILENT 便签不在其中。 */
 export interface DisclosedRestrictionView {
   restrictionNo: string;
+  /** 非 null = 这张便签已由某条活着的材料请求在讲（那条带「去认证」入口），本条不再重复显示 */
+  claimedByMaterialRequestNo: string | null;
   cause: string;
   scopes: string[];
   label: string;

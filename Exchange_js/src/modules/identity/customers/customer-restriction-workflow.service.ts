@@ -71,13 +71,20 @@ export class CustomerRestrictionWorkflowService {
     } as AuditActorContext;
   }
 
+  /**
+   * @param tx 传了外部事务（如 material-request-issuer 的落行事务）就全程用它 ——
+   * 贴便签、读回、写审计都在同一个 client 上跑，不再另起连接。SQLite 单写者模型下
+   * 外层事务持锁未提交时，任何走事务外 client 的读/写都会等锁甚至报错；不传则照旧
+   * 各自走 base client，行为与此前逐字一致。
+   */
   async openRestriction(
     input: OpenRestrictionInput,
     actor: ApprovalActorContext,
+    tx?: Record<string, any>,
   ): Promise<{ restrictionNo: string; created: boolean }> {
-    const { restrictionNo, created } = await this.restrictions.open(input);
+    const { restrictionNo, created } = await this.restrictions.open(input, tx);
 
-    const row = await this.restrictions.findByNo(restrictionNo);
+    const row = await this.restrictions.findByNo(restrictionNo, tx);
     if (!row) {
       throw new NotFoundException(`Restriction not found right after open: ${restrictionNo}`);
     }
@@ -91,6 +98,7 @@ export class CustomerRestrictionWorkflowService {
         ? `${row.cause} restriction opened: ${row.reason}`
         : `${row.cause} restriction already open — duplicate request ignored: ${row.reason}`,
       { releaseMode: null, approvalNo: null, releaseOrderRef: null },
+      tx,
     );
 
     // 制裁便签额外写 CUSTOMER_FROZEN：客户级冻结在审计上单独可检索。
@@ -101,6 +109,7 @@ export class CustomerRestrictionWorkflowService {
         auditActor,
         `Customer frozen by sanction restriction ${row.restrictionNo}`,
         { releaseMode: null, approvalNo: null, releaseOrderRef: null },
+        tx,
       );
     }
 
@@ -233,14 +242,20 @@ export class CustomerRestrictionWorkflowService {
    * 自动撕：由 cause 自身机制触发（材料到齐、Sumsub 转 GREEN、升级审批通过等），
    * 不走审批、releaseMode=AUTO。没有对应 OPEN 便签时静默 no-op —— 机制可能被
    * 重复触发，不该因此报错。
+   *
+   * @param tx 传了外部事务（如 material-request-review 的落章事务）就全程用它 ——
+   * 读回、撕便签、写审计都在同一个 client 上跑，道理与 openRestriction() 的同名参数
+   * 一致：贴/撕便签必须与调用方的其它写入同生共死。不传则照旧各自走 base client，
+   * 行为与此前逐字一致。
    */
   async autoRelease(
     customerId: string,
     cause: RestrictionCause,
     caseRef: string | null,
     actorId: string,
+    tx?: Record<string, any>,
   ): Promise<void> {
-    const row = await this.restrictions.findOpenByCause(customerId, cause, caseRef);
+    const row = await this.restrictions.findOpenByCause(customerId, cause, caseRef, tx);
     if (!row) {
       this.logger.log(
         `Auto-release skip: customer ${customerId} has no OPEN ${cause} restriction for caseRef ${caseRef ?? '—'}`,
@@ -248,10 +263,14 @@ export class CustomerRestrictionWorkflowService {
       return;
     }
 
-    await this.restrictions.release(row.restrictionNo, {
-      releasedBy: actorId,
-      releaseMode: 'AUTO',
-    });
+    await this.restrictions.release(
+      row.restrictionNo,
+      {
+        releasedBy: actorId,
+        releaseMode: 'AUTO',
+      },
+      tx,
+    );
 
     await this.auditRelease(
       row,
@@ -259,6 +278,7 @@ export class CustomerRestrictionWorkflowService {
       'AUTO',
       null,
       null,
+      tx,
     );
   }
 
@@ -288,12 +308,14 @@ export class CustomerRestrictionWorkflowService {
     return snapshot.releaseOrderRef?.trim() || null;
   }
 
+  /** @param tx 传了就把审计写在同一个 client 上（autoRelease 收到外部事务时用）。 */
   private async auditRelease(
     row: RestrictionRow,
     actor: AuditActorContext,
     releaseMode: 'AUTO' | 'MANUAL',
     approvalNo: string | null,
     releaseOrderRef: string | null,
+    tx?: Record<string, any>,
   ): Promise<void> {
     await this.audit(
       AuditActions.CUSTOMER_RESTRICTION_CLEARED,
@@ -301,6 +323,7 @@ export class CustomerRestrictionWorkflowService {
       actor,
       `${row.cause} restriction ${row.restrictionNo} released (${releaseMode})`,
       { releaseMode, approvalNo, releaseOrderRef },
+      tx,
     );
 
     if (row.cause === 'SANCTION') {
@@ -310,10 +333,12 @@ export class CustomerRestrictionWorkflowService {
         actor,
         `Customer unfrozen — sanction restriction ${row.restrictionNo} released (${releaseMode})`,
         { releaseMode, approvalNo, releaseOrderRef },
+        tx,
       );
     }
   }
 
+  /** @param tx 传了就把审计写在同一个 client 上（openRestriction 收到外部事务时用）。 */
   private async audit(
     action: string,
     row: RestrictionRow,
@@ -324,6 +349,7 @@ export class CustomerRestrictionWorkflowService {
       approvalNo: string | null;
       releaseOrderRef: string | null;
     },
+    tx?: Record<string, any>,
   ): Promise<void> {
     // entityNo / entityOwnerNo（customerNo）由 AuditLogsService 自行解析，
     // 见 resolveEntityNo 的 CUSTOMER 映射 —— 本服务因此无需注入 Prisma。
@@ -350,6 +376,7 @@ export class CustomerRestrictionWorkflowService {
         sourcePlatform: actor.actorType === 'SYSTEM' ? 'SYSTEM' : 'ADMIN_API',
       },
       actor,
+      tx,
     );
   }
 }

@@ -266,39 +266,11 @@ describe('DepositTransactionsService', () => {
         fromAddress: 'T_FROM',
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
-        // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除（前端已无
-        // 消费者），这里的 toEqual 精确等值断言随之变红是预期的——不是漏了
-        // 加回来，是显式确认它已经不在客户面响应体里。
-        actions: [],
       });
-    });
-
-    // 评审 Important 3：上面那条断言的 fixture 不带 applicantActions，
-    // 期望值恒为 actions: []——今天谁把 applicantActionId 加回 .map() 里，
-    // 那条断言照样绿，测了个寂寞（上一轮 Critical 正是这么漏过的）。这条
-    // 用真实高危值（aa-edd-0002 / EXT-EDD-0002）造一行 action，钉住键集
-    // 白名单 + 序列化结果不含高危片段。
-    it('评审 Important 3：actions 元素的键集不携带高危 action id（真实值域造数据）', async () => {
-      ((prisma as any).depositTransaction.findMany as jest.Mock).mockResolvedValue([
-        {
-          ...SENSITIVE_FULL_ROW,
-          applicantActions: [
-            {
-              seq: 1,
-              submittedAt: null,
-              applicantActionId: 'aa-edd-0002',
-              externalActionId: 'EXT-EDD-0002',
-            },
-          ],
-        },
-      ]);
-      ((prisma as any).depositTransaction.count as jest.Mock).mockResolvedValue(1);
-
-      const result = await service.findAllForCustomer('cust-1', {} as any);
-      const item = result.items[0] as any;
-
-      expect(Object.keys(item.actions[0]).sort()).toEqual(['seq', 'submittedAt']);
-      expect(JSON.stringify(item)).not.toMatch(/aa-edd|EXT-EDD|edd/i);
+      // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除（前端已无消费者）。
+      // 2026-08-18 材料请求账 Task 12：`actions`（子表逐条 action 的
+      // {seq,submittedAt}）随专属子表一起物理删除——上面的 toEqual 不再列出
+      // 这个键就是在断言它已经不在客户面响应体里，不需要额外的 not.toHaveProperty。
     });
   });
 
@@ -791,10 +763,10 @@ describe('DepositTransactionsService', () => {
         fromAddress: 'T_FROM',
         fromIban: null,
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
-        // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除，见
-        // findAllForCustomer 那份同名断言上的注释。
-        actions: [],
       });
+      // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除；2026-08-18
+      // 材料请求账 Task 12：`actions` 同样已删除，见 findAllForCustomer 那份
+      // 同名断言上的注释。
     });
   });
 

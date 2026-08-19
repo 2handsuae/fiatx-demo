@@ -787,7 +787,6 @@ describe('WithdrawTransactionsService', () => {
       approvalCaseId: 'case-1',
       approvalNo: 'APR-1',
       traceId: 'WITHDRAW:w-sensitive-1',
-      applicantActions: [],
     };
 
     const SENSITIVE_KEYS = [
@@ -825,10 +824,9 @@ describe('WithdrawTransactionsService', () => {
       toAddress: 'T_TO',
       toIban: null,
       asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
-      // Task 3 (action-embed): actions 是白名单唯一开的口子——只有 seq/
-      // submittedAt 两键，见 toCustomerWithdrawView 的文档注释。fixture 不带
-      // applicantActions 行，故恒为空数组。
-      actions: [],
+      // Task 3 (action-embed) 开的 `actions` 口子已在 2026-08-18 材料请求账
+      // Task 12 随专属子表一起物理删除，见 toCustomerWithdrawView 的文档注释——
+      // 不再列出这个键就是在断言它已经不在客户面响应体里。
     };
 
     describe('findAllForCustomer', () => {
@@ -856,34 +854,6 @@ describe('WithdrawTransactionsService', () => {
         expect(item).toEqual(EXPECTED_VIEW);
       });
 
-      // 上一轮充值侧的 Important 3：上面那条断言的 fixture 不带
-      // applicantActions，期望值恒为 actions: []——今天谁把 applicantActionId
-      // 加回 .map() 里，那条断言照样绿，测了个寂寞。这条用真实高危值造一行
-      // action，钉住键集白名单 + 序列化结果不含高危片段 + 无顶层
-      // actionSubmittedAt。
-      it('actions 元素的键集只有 seq/submittedAt，不携带高危 action id（真实值域造数据），且无顶层 actionSubmittedAt', async () => {
-        prisma.withdrawTransaction.findMany = jest.fn().mockResolvedValue([
-          {
-            ...SENSITIVE_FULL_ROW,
-            applicantActions: [
-              {
-                seq: 1,
-                submittedAt: null,
-                applicantActionId: 'aa-edd-0002',
-                externalActionId: 'EXT-EDD-0002',
-              },
-            ],
-          },
-        ]);
-        prisma.withdrawTransaction.count = jest.fn().mockResolvedValue(1);
-
-        const result = await service.findAllForCustomer('cust-1', {} as any);
-        const item = result.items[0] as any;
-
-        expect(Object.keys(item.actions[0]).sort()).toEqual(['seq', 'submittedAt']);
-        expect(item).not.toHaveProperty('actionSubmittedAt');
-        expect(JSON.stringify(item)).not.toMatch(/aa-edd|EXT-EDD|edd/i);
-      });
     });
 
     describe('findOneForCustomer', () => {

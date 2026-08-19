@@ -1,207 +1,164 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { MaterialRequestsService, type MaterialActor } from '../../identity/material-requests/material-requests.service';
+import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
 
 export interface IncomingApplicantAction {
   applicantActionId: string;
   externalActionId: string;
 }
 
+const SYSTEM_ACTOR: MaterialActor = {
+  actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM',
+};
+
 /**
  * 一笔充值单上挂的多条 Sumsub applicant action。
  *
- * **客户端从头到尾拿不到 action id。** 上一轮的 Critical：`actionId` 曾出现在
- * 客户面响应体里，而 demo fixture 的 id 是 `aa-edd-0002`——`edd` 三个字母把
- * "为什么要你交材料"写在脸上。故对外一律用 `seq` 定位，服务端自己查表换真 id
- * 去铸 token。不是靠"记得别下发"，是客户端根本没有这个字段可漏。
+ * **2026-08-17 材料请求账**：本类不再拥有专属子表，内脏换成了统一的材料账
+ * （`material_requests`，orderDomain='DEPOSIT'）。
+ * 对外签名逐字不变 —— `deposit-workflow.service.ts` 里那段带死角修复注释的
+ * 状态机逻辑（判据是 hasOutstanding）因此一行都不用动。
+ *
+ * 子表本身在 Task 12 统一物理删除（G3：加法在前、删除在后）。本类已经
+ * **零写入**旧表，看到还有代码读它就是漏网。
+ *
+ * **客户端从头到尾拿不到 action id** —— 这条口径没变，只是防线换了地方：
+ * 以前靠「对外用 seq 定位」，现在靠材料账客户面投影结构上装不下
+ * applicantActionId（由 material-request.contract.spec.ts 扫源码守着）。
  */
 @Injectable()
 export class DepositApplicantActionsService {
   private readonly logger = new Logger(DepositApplicantActionsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    // 与 MaterialRequestsService / MaterialRequestIssuerService 同款坑：
+    // 交叉类型 `PrismaService & Record<string, any>` 在 emitDecoratorMetadata
+    // 下会被擦成裸 `Object`，Nest 靠隐式反射解析不出注入令牌，运行时
+    // UnknownDependenciesException（单测走 `new Service(...)` 直接构造，
+    // 绕过 DI 容器，测不出这个坑——2026-08-18 起真跑一次 stack up 才炸出来）。
+    // 显式 @Inject(PrismaService) 兜底，同两个姊妹 service 的写法。
+    @Inject(PrismaService)
+    private readonly prisma: PrismaService & Record<string, any>,
+    private readonly requests: MaterialRequestsService,
+    private readonly issuer: MaterialRequestIssuerService,
+  ) {}
 
   /**
-   * 用 Sumsub 报文里的 applicantActions **全量列表**同步本地子表。
+   * 集合同步：报文带的是该单当前 action 的**全量列表**，本方法让材料账与它对齐。
+   * 报文里新出现的 → register 落一行；报文里消失的 → cancel。
    *
-   * 三种情况：
-   *  · 有新 id      → 插行，seq 取现有最大值 +1 往后追加
-   *  · 完全一致      → 真 no-op（重复 webhook）
-   *  · 库内有、报文无 → **删掉其中未提交的**
-   *
-   * 第三条是关键：报文带的是当前全量列表，Sumsub 撤回一条而我方保留，该行
-   * 永远算作未提交 →「全部交齐」永不成立 → 客户永久卡死。已提交的行不删，
-   * 那是历史。
-   *
-   * seq 一旦分配不再变——它进 URL（/verification/2），客户收藏了链接、或页面
-   * 开着时来了新 action，都不能让第 2 条变成第 3 条。
+   * 账不能删行（审计），所以退役动作是 CANCELLED 而不是 deleteMany —— 这是与
+   * 子表时代唯一的语义差别，其余行为一致。
    */
   async syncApplicantActions(
     depositId: string,
     incoming: IncomingApplicantAction[],
-  ): Promise<{ added: number[]; retired: number[] }> {
-    try {
-      return await this.syncOnce(depositId, incoming);
-    } catch (e: any) {
-      // P2002 = 唯一约束冲突。并发/重复 webhook 下两个调用算出同一个 nextSeq，
-      // 一个成功一个撞约束——这是**预期内**的竞态结果，不是错误：重读一次即可，
-      // 此时对方已经把行插好了，第二遍算出来的 toAdd 通常为空，天然幂等。
-      // 不重试的话，一次合法投递会被打成 500 抛回 Sumsub，而 webhook 要求幂等。
-      if (e?.code !== 'P2002') throw e;
-      return this.syncOnce(depositId, incoming);
-    }
-  }
+  ): Promise<{ added: number; retired: number }> {
+    const deposit = await this.prisma.depositTransaction.findUnique({
+      where: { id: depositId },
+      select: { id: true, depositNo: true, ownerId: true },
+    });
+    if (!deposit) return { added: 0, retired: 0 };
 
-  private async syncOnce(
-    depositId: string,
-    incoming: IncomingApplicantAction[],
-  ): Promise<{ added: number[]; retired: number[] }> {
-    // 「读 existing → 算 nextSeq → 插入/删除」是 read-modify-write：同一充值单
-    // 上两次并发（或重复投递）的 webhook 若各自裸跑这三步，会各自读到同一份
-    // existing、算出相同的 nextSeq，插出两行 applicantActionId 不同但 seq 相同的
-    // 记录——而 seq 是客户面唯一定位符（进 URL），撞了会让 findBySeq 变成不确定
-    // 查询。包一层事务把这三步锁成一个原子操作；@@unique([depositTransactionId,
-    // seq]) 是 DB 层最后兜底，事务是尽量避免真撞上这道底线。
-    // 空 externalActionId 在入库处直接拦：与其让空串一路流到 SumsubClient.
-    // createActionSdkToken（那里 `!== undefined` 判断会把空串照样发给
-    // Sumsub 求一个明确报错），不如在源头就不让这种脏数据入库——一条脏
-    // action 没有 externalActionId 意味着我方从此拿它铸不出任何合法 token，
-    // 留在库里只会在客户点开这条 action 时才炸，不如同步时就丢弃并留痕。
-    const valid = incoming.filter((a) => {
-      if (a.externalActionId) return true;
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: deposit.ownerId },
+      select: { id: true, sumsubApplicantId: true },
+    });
+    if (!customer?.sumsubApplicantId) {
       this.logger.warn(
-        `丢弃 externalActionId 为空的 applicant action：depositId=${depositId} applicantActionId=${a.applicantActionId}`,
+        `Deposit ${deposit.depositNo}: owner has no Sumsub applicant; skipping action sync`,
+      );
+      return { added: 0, retired: 0 };
+    }
+
+    // 空 applicantActionId/externalActionId 的条目在入口直接丢弃：与子表时代的
+    // `valid` 过滤同一职责（见 71483d0d 版 syncOnce）——externalActionId 是材料账
+    // 的 @unique 幂等键，空串一旦落进 issuer.register 会在下一条空串同步时撞唯一
+    // 约束（P2002），不如在源头就不让这种脏数据入库。
+    const valid = incoming.filter((a) => {
+      if (a.applicantActionId && a.externalActionId) return true;
+      this.logger.warn(
+        `Deposit ${deposit.depositNo}: dropping applicant action with missing id — applicantActionId=${a.applicantActionId} externalActionId=${a.externalActionId}`,
       );
       return false;
     });
 
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.depositApplicantAction.findMany({
-        where: { depositTransactionId: depositId },
-        select: { id: true, applicantActionId: true, seq: true, submittedAt: true },
-        orderBy: { seq: 'asc' },
+    const live = await this.requests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    const liveByExternal = new Map(live.map((r) => [r.externalActionId, r]));
+    const incomingIds = new Set(valid.map((a) => a.externalActionId));
+
+    let added = 0;
+    for (const action of valid) {
+      if (liveByExternal.has(action.externalActionId)) continue; // 幂等：重复 webhook 不造第二行
+      await this.issuer.register({
+        customerId: customer.id,
+        sumsubApplicantId: customer.sumsubApplicantId,
+        // Sumsub 的 applicantActionReviewed 报文不带材料类型，只有 level 概念。
+        // 充值补料统一按「资金来源」登记 —— 这是 KYT 拒绝时实际要的东西，
+        // 也是运营在列表里最需要一眼看懂的那个词。真接 Sumsub 后若报文能带出
+        // 具体 docType，改这里一处即可。
+        materialType: 'SOURCE_OF_FUNDS',
+        levelName: 'wave3-action-sof-refresh',
+        applicantActionId: action.applicantActionId,
+        externalActionId: action.externalActionId,
+        orderDomain: 'DEPOSIT',
+        orderRef: deposit.depositNo,
+        origin: 'SUMSUB_PUSHED',
+        reason: `KYT review on deposit ${deposit.depositNo} requires additional materials`,
+        issuedBy: 'SYSTEM',
+        restrict: true,
+        actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
       });
+      added += 1;
+    }
 
-      const existingIds = new Set(existing.map((r) => r.applicantActionId));
-      const incomingIds = new Set(valid.map((a) => a.applicantActionId));
+    let retired = 0;
+    for (const row of live) {
+      // 只退役客户还没交的行——与子表时代 `r.submittedAt === null` 等价（见
+      // 71483d0d 版 syncOnce 的 toRetire 过滤）。SUBMITTED 是客户已经交了、正等
+      // 审核的行：报文没带出这条 id 不代表 Sumsub 撤回了它，把它当撤回 cancel 掉
+      // 会让客户白交材料、运营也看不到已提交的证据。
+      if (row.status !== 'PENDING_SUBMISSION') continue;
+      if (incomingIds.has(row.externalActionId)) continue;
+      await this.requests.cancel(row.requestNo, 'RETIRED_BY_SUMSUB', SYSTEM_ACTOR);
+      retired += 1;
+    }
 
-      const toAdd = valid.filter((a) => !existingIds.has(a.applicantActionId));
-      const toRetire = existing.filter(
-        (r) => !incomingIds.has(r.applicantActionId) && r.submittedAt === null,
-      );
-
-      let nextSeq = existing.reduce((m, r) => Math.max(m, r.seq), 0) + 1;
-      const added: number[] = [];
-      const rows = toAdd.map((a) => {
-        const seq = nextSeq++;
-        added.push(seq);
-        return {
-          depositTransactionId: depositId,
-          applicantActionId: a.applicantActionId,
-          externalActionId: a.externalActionId,
-          seq,
-        };
-      });
-
-      if (rows.length) {
-        await tx.depositApplicantAction.createMany({ data: rows });
-      }
-      if (toRetire.length) {
-        await tx.depositApplicantAction.deleteMany({
-          where: { id: { in: toRetire.map((r) => r.id) } },
-        });
-      }
-
-      return { added, retired: toRetire.map((r) => r.seq) };
-    });
+    return { added, retired };
   }
 
   /**
-   * 该单同步后是否还有未提交行。applyKytAwaitUser 用它做 guard（I1 修复）：
-   * 报文可能整个不带 applicantActions（两个 Sumsub client 在
-   * scoringResult.applicantActions 缺席时都返回 undefined），或者报文撤回的
-   * 恰好是全部未提交行——这两种情形同步之后都是"零条可提交项"，绝不能让单子
-   * 因此进入/停留在 ACTION_PENDING（否则详情页因 `actions.some(a =>
-   * !a.submittedAt)` 为 false 不渲染任何入口，客户永久卡死，SLA 定时器还会
-   * 把锅扣在客户头上）。判据必须读同步后的持久状态，不能用本次 diff（added/
-   * retired）代替——原因见 deposit-workflow.service.ts 里 applyKytAwaitUser 的
-   * 同名 I2 注释。
+   * 该单是否还有「客户还没交」的行。
+   *
+   * 判据必须是「还有 PENDING_SUBMISSION」而不是「incoming 非空」——
+   * 报文也可能带的全是已经提交过的旧 id，那样是零未提交。这条判据撑着
+   * deposit-workflow 里两处死角修复，别改语义。
    */
   async hasOutstanding(depositId: string): Promise<boolean> {
-    const count = await this.prisma.depositApplicantAction.count({
-      where: { depositTransactionId: depositId, submittedAt: null },
+    const deposit = await this.prisma.depositTransaction.findUnique({
+      where: { id: depositId },
+      select: { depositNo: true },
     });
-    return count > 0;
-  }
-
-  /** 服务端按 seq 换回真 id（用于铸 token）。返回 null 交由调用方转成 404。 */
-  async findBySeq(depositId: string, seq: number) {
-    return this.prisma.depositApplicantAction.findFirst({
-      where: { depositTransactionId: depositId, seq },
-      select: {
-        id: true,
-        seq: true,
-        applicantActionId: true,
-        externalActionId: true,
-        submittedAt: true,
-      },
-    });
-  }
-
-  /**
-   * 提交某一条 action，并按需重算充值单上的「全部交齐」缓存。
-   *
-   * 两表都要写，故必须包 `$transaction`（CLAUDE.md 铁律 2）。
-   *
-   * 幂等靠 `updateMany` 的 where 条件交给 DB 保证互斥——不能退回"先读后写"，
-   * 那样并发下两个请求都会读到 submittedAt=null、都返回 changed:true，
-   * 调用方据此写审计就会记重。
-   *
-   * `allSubmitted` 只在真正交完最后一条时为 true（spec §D4：交一条就算完
-   * 会让客户以为交完了、剩下的永远不动，那是 bug 不是选项）。
-   */
-  async submitBySeq(
-    depositId: string,
-    seq: number,
-    slaDeadline: Date,
-    resetSla: boolean,
-  ): Promise<{ changed: boolean; allSubmitted: boolean }> {
-    return this.prisma.$transaction(async (tx: any) => {
-      const res = await tx.depositApplicantAction.updateMany({
-        where: { depositTransactionId: depositId, seq, submittedAt: null },
-        data: { submittedAt: new Date() },
-      });
-      if (res.count === 0) return { changed: false, allSubmitted: false };
-
-      const outstanding = await tx.depositApplicantAction.count({
-        where: { depositTransactionId: depositId, submittedAt: null },
-      });
-      if (outstanding > 0) return { changed: true, allSubmitted: false };
-
-      // 全部交齐 → 盖充值单缓存。SLA 两字段只在 resetSla 时写：单子已被 SLA
-      // 定时器打成 MANUAL_CHECKING(slaBreached=true)后，客户一次提交不该把
-      // operator 眼里的违约旗单方面抹掉（该状态不在 findSlaBreachCandidates
-      // 的扫描范围内，抹掉后永远发现不了）。
-      await tx.depositTransaction.updateMany({
-        where: { id: depositId },
-        data: {
-          actionSubmittedAt: new Date(),
-          ...(resetSla && { slaDeadline, slaBreached: false }),
-        },
-      });
-      return { changed: true, allSubmitted: true };
-    });
+    if (!deposit) return false;
+    const live = await this.requests.listLiveByOrder('DEPOSIT', deposit.depositNo);
+    return live.some((r) => r.status === 'PENDING_SUBMISSION');
   }
 
   /**
    * 新 action 进来时清掉充值单的「全部交齐」缓存并重置 SLA 表。
    * 不清的话：客户此前交过的材料让 actionSubmittedAt 留着旧值 → 单子明明又要
    * 客户补材料，客户端却一直显示"已收到，审核中"，客户永远不知道要再交一次。
+   *
+   * **2026-08-17 材料请求账迁移后原样保留**：本方法只读写 `depositTransaction`
+   * 自己的标量字段，从未碰过本类旧时代的专属子表，与「内脏换成
+   * 材料账」无关——它不是 seq 时代产物，唯一调用方是 deposit-workflow.service.ts
+   * 里那段明确禁止改动的状态机逻辑（I2 修复），删掉它会让那段代码编译不过。
    */
   async clearDepositCache(depositId: string, slaDeadline: Date): Promise<void> {
-    await (this.prisma as any).depositTransaction.update({
+    await this.prisma.depositTransaction.update({
       where: { id: depositId },
       data: { actionSubmittedAt: null, slaDeadline, slaBreached: false },
     });
   }
-
 }

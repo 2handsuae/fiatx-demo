@@ -211,19 +211,9 @@ model CustomerMain {
   onboardingTraceId    String?
   onboardingApprovedAt DateTime?
 
-  // Task 7 (swap-sumsub): KYT 拒绝后暴露给客户的待办事项。软线（有补料动作且
-  // 非制裁）才非 null；硬线（含制裁 tipping-off）恒为 null —— 写入方
-  // CustomerPendingActionService，判断只在 swap-workflow 的
-  // handleRejectDisposition 做一次。
-  pendingActionExternalId String? @map("pending_action_external_id")
-  pendingActionReason     String? @map("pending_action_reason")
-  // parity 2026-08-14：客户提交补料材料的时刻（banner 三态：无/请认证/已提交审核中）。
-  // set() 换写待办时清空；GREEN/RED 处置后随指针一并管理。
-  pendingActionSubmittedAt DateTime? @map("pending_action_submitted_at")
-
   // Review Fix 2 (Important, swap-sumsub 终审): sticky 硬线标记。一旦客户被
   // 任意一笔 swap 的 KYT 拒绝按硬线处置过（含制裁 SANCTION），这个事实要永久
-  // 记住——handleRejectDisposition 在决定要不要给客户暴露 pendingAction 之前
+  // 记住——handleRejectDisposition 在决定要不要给客户登记补料材料请求之前
   // 必须先查这个标记，防止同一客户名下另一笔 swap 的软线裁决把已经沉默掉的
   // 入口重新打开（tipping-off 的沉默必须跨订单持久，不能是 last-writer-wins）。
   hardLineDispositionedAt DateTime? @map("hard_line_dispositioned_at")
@@ -284,11 +274,9 @@ model CustomerMain {
   withdrawalAddresses       WithdrawalAddress[]
   explicitTags                CustomerExplicitTag[]
   restrictionRows             CustomerRestriction[]
+  materialRequests            MaterialRequest[]       @relation("CustomerMaterialRequests")
 
   @@index([riskRating])
-  // Task 13: applicantActionReviewed webhook 反查客户的唯一入口列
-  // （CustomerPendingActionService.findByExternalActionId）。
-  @@index([pendingActionExternalId])
   @@map("customer_main")
 }
 
@@ -336,6 +324,55 @@ model CustomerRestriction {
   @@index([customerId, status])
   @@index([cause, status])
   @@map("customer_restrictions")
+}
+
+model MaterialRequest {
+  id                String    @id @default(uuid())
+  // 业务键。客户端与后台一律以 requestNo 为操作单位（CLAUDE.md 铁律 3）。
+  // 生成器只有 4 位随机（BACKLOG:160 实测撞过号），写入方必须捕 P2002 重试。
+  requestNo         String    @unique
+
+  // 材料永远是对「人」要的 —— 这一列恒非空，绑不绑单是另一回事
+  customerId        String
+  sumsubApplicantId String
+
+  // 要什么材料。materialType 是 config/material-refresh-policy.json 的 materials key，
+  // levelName 由它经注册表推导后落库（落库而非每次现算：保证历史行不因配置改动而变义）
+  materialType      String
+  levelName         String
+
+  // Sumsub 侧 id。**只在服务端与审计出现，绝不下发客户端**（spec I2）
+  applicantActionId String
+  // 我方生成，铸 SDK token 的钥匙。路径 2 建 action 时即带上（修 spec §1.3②）
+  externalActionId  String    @unique
+
+  // 绑单。两列同时为空或同时非空（spec I3）
+  orderDomain       String?
+  orderRef          String?
+
+  // 挂限制。**可后补** —— 到期升档时在同一行上补挂，不新开行（spec §5.3）
+  restrictionNo     String?
+
+  origin            String
+  status            String    @default("PENDING_SUBMISSION")
+
+  reason            String
+  issuedBy          String
+  issuedAt          DateTime  @default(now())
+  submittedAt       DateTime?
+  reviewedAt        DateTime?
+  reviewAnswer      String?
+  reviewRejectType  String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+  traceId           String
+
+  customer CustomerMain @relation("CustomerMaterialRequests", fields: [customerId], references: [id])
+
+  @@index([customerId, status])
+  @@index([orderDomain, orderRef])
+  @@index([restrictionNo])
+  @@map("material_requests")
 }
 
 model CorporateProfile {
@@ -1036,7 +1073,6 @@ model DepositTransaction {
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
   customer             CustomerMain      @relation(fields: [ownerId], references: [id])
   fundsOrders          FundsOrder[]      @relation("DepositFundsOrders")
-  applicantActions      DepositApplicantAction[] @relation("DepositApplicantActions")
 
   @@index([depositNo])
   @@index([ownerType, ownerId])
@@ -1283,7 +1319,6 @@ model WithdrawTransaction {
   asset                Asset                 @relation(fields: [assetId], references: [id])
   pricingQuote         WithdrawPricingQuote? @relation(fields: [pricingQuoteId], references: [id])
   customer             CustomerMain          @relation(fields: [ownerId], references: [id])
-  applicantActions     WithdrawApplicantAction[] @relation("WithdrawApplicantActions")
 
   @@index([withdrawNo])
   @@index([ownerId])
@@ -1384,9 +1419,8 @@ model MaterialRefreshCycle {
   graceExpiresAt           DateTime?
   resolutionReason         String?
 
-  sumsubActionId           String?
-  sumsubActionLevelName    String?
-  sumsubActionCreatedAt    DateTime?
+  // 本轮到期提醒对应的材料请求。cycle 管「哪天到期」，材料账管「下发本身」。
+  materialRequestNo        String?
 
   triggeredByAssessmentId  String?
   triggeredByAssessment    ClientRiskAssessment? @relation("AssessmentTriggeredCycles", fields: [triggeredByAssessmentId], references: [id])
@@ -1397,7 +1431,6 @@ model MaterialRefreshCycle {
 
   @@index([customerId, status])
   @@index([status, graceExpiresAt])
-  @@index([sumsubActionId])
   @@map("material_refresh_cycles")
 }
 
@@ -1941,42 +1974,4 @@ model ExternalStatementLine {
   @@index([channelRef])
   @@index([subAccount])
   @@map("external_statement_lines")
-}
-
-model DepositApplicantAction {
-  id                    String   @id @default(uuid())
-  depositTransactionId  String
-  applicantActionId     String   // Sumsub 侧 id。**只在服务端与审计出现，绝不下发客户端**
-  externalActionId      String   // 铸 SDK token 的钥匙，一条 action 一个
-  seq                   Int      // 客户面唯一可见的定位符；一旦分配不再变（进 URL）
-  createdAt             DateTime @default(now())
-  submittedAt           DateTime?
-
-  deposit DepositTransaction @relation("DepositApplicantActions", fields: [depositTransactionId], references: [id], onDelete: Cascade)
-
-  @@unique([depositTransactionId, applicantActionId])
-  // seq 是客户端唯一可见的定位符、且进 URL——同一充值单下必须唯一，
-  // 不能只靠应用层算 nextSeq 保证（并发/重复 webhook 会算出相同值），DB 层兜底。
-  @@unique([depositTransactionId, seq])
-  @@index([depositTransactionId, seq])
-  @@map("deposit_applicant_actions")
-}
-
-model WithdrawApplicantAction {
-  id                     String   @id @default(uuid())
-  withdrawTransactionId  String
-  applicantActionId      String   // Sumsub 侧 id。**只在服务端与审计出现，绝不下发客户端**
-  externalActionId       String   // 铸 SDK token 的钥匙，一条 action 一个
-  seq                    Int      // 客户面唯一可见的定位符；一旦分配不再变（进 URL）
-  createdAt              DateTime @default(now())
-  submittedAt            DateTime?
-
-  withdraw WithdrawTransaction @relation("WithdrawApplicantActions", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
-
-  @@unique([withdrawTransactionId, applicantActionId])
-  // seq 是客户端唯一可见的定位符、且进 URL——同一提现单下必须唯一，
-  // 不能只靠应用层算 nextSeq 保证（并发/重复 webhook 会算出相同值），DB 层兜底。
-  @@unique([withdrawTransactionId, seq])
-  @@index([withdrawTransactionId, seq])
-  @@map("withdraw_applicant_actions")
 }

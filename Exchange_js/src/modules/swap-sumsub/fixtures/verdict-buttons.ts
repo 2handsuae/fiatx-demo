@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { KYT_ONHOLD_TYPE } from '../../deposit-sumsub/kyt-webhook-types';
 import { ApplicantAction, TypedTag } from '../../deposit-sumsub/fixtures/txn-report.builder';
 
@@ -54,7 +55,13 @@ export const SWAP_VERDICT_BUTTONS: Record<string, SwapVerdictButton> = {
     verdict: {
       reviewAnswer: 'RED',
       score: 60,
-      applicantActions: [{ applicantActionId: 'demo-action-1', externalActionId: 'demo-ext-1' }],
+      // 材料请求账的 externalActionId 是全表 @unique（不像旧子表按
+      // (订单id, seq) 分段去重）—— 固定字面量会在两笔不同订单先后点这个按钮时
+      // P2002（终审 Important #4）。getter 按调用现铸,贴近真实 Sumsub 每次建
+      // action 都发新 id 的行为。
+      get applicantActions() {
+        return [{ applicantActionId: `demo-action-${randomUUID()}`, externalActionId: `demo-ext-${randomUUID()}` }];
+      },
     },
   },
   V4_REJECTED_SANCTION: {
@@ -65,7 +72,10 @@ export const SWAP_VERDICT_BUTTONS: Record<string, SwapVerdictButton> = {
       reviewAnswer: 'RED',
       score: 100,
       typedTags: [TAG('SANCTION')],
-      applicantActions: [{ applicantActionId: 'demo-action-2', externalActionId: 'demo-ext-2' }],
+      // 同 V3_REJECTED_ACTION 的 getter 注记：现铸而非固定字面量。
+      get applicantActions() {
+        return [{ applicantActionId: `demo-action-${randomUUID()}`, externalActionId: `demo-ext-${randomUUID()}` }];
+      },
     },
   },
   // 官方 on-hold 类型没有 `Txn`(applicantKytOnHold),复用 kyt-webhook-types.ts
@@ -84,7 +94,10 @@ export const SWAP_VERDICT_BUTTONS: Record<string, SwapVerdictButton> = {
     verdict: {
       reviewAnswer: null,
       score: 40,
-      applicantActions: [{ applicantActionId: 'demo-action-3', externalActionId: 'demo-ext-3' }],
+      // 同 V3_REJECTED_ACTION 的 getter 注记：现铸而非固定字面量。
+      get applicantActions() {
+        return [{ applicantActionId: `demo-action-${randomUUID()}`, externalActionId: `demo-ext-${randomUUID()}` }];
+      },
     },
   },
   V7_ACTION_GREEN: {

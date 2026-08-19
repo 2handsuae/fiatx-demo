@@ -38,7 +38,7 @@ import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constan
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
 import { CustomerAccessService } from '../src/modules/identity/customers/customer-access.service';
-import { CustomerPendingActionService } from '../src/modules/identity/customers/customer-pending-action.service';
+import { MaterialRequestsService } from '../src/modules/identity/material-requests/material-requests.service';
 import { SUMSUB_TXN_CLIENT } from '../src/modules/deposit-sumsub/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/deposit-sumsub/sumsub-txn-client.mock';
 import { SwapDemoScenarioService } from '../src/modules/swap-sumsub/demo-scenario.service';
@@ -95,7 +95,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   let fundsOrders: FundsOrderService;
   let accounting: AccountingService;
   let restrictionsService: CustomerRestrictionsService;
-  let pendingActionService: CustomerPendingActionService;
+  let materialRequests: MaterialRequestsService;
   let demoService: SwapDemoScenarioService;
 
   let customerId: string;
@@ -134,14 +134,14 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     fundsOrders = app.get(FundsOrderService);
     accounting = app.get(AccountingService);
     restrictionsService = app.get(CustomerRestrictionsService);
-    pendingActionService = app.get(CustomerPendingActionService);
+    materialRequests = app.get(MaterialRequestsService);
     demoService = app.get(SwapDemoScenarioService);
 
     customerNo = buildDeterministicNo('CU', 'e2e-swap-sumsub-scenarios');
     const customer = await prisma.customerMain.upsert({
       where: { customerNo },
       update: {
-        lifecycle: 'ACTIVE', pendingActionExternalId: null, pendingActionReason: null,
+        lifecycle: 'ACTIVE',
         hardLineDispositionedAt: null, sumsubApplicantId: 'e2e0swapsumsubscenarios01',
       },
       create: {
@@ -156,6 +156,16 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // restrictions:'[]' 复位，那条列已删。这里显式清场 —— 不清的话上一支/上一轮
     // 留下的 OPEN 便签会被新的 L1 能力门拦住建单，用例之间不再独立。
     await prisma.customerRestriction.deleteMany({ where: { customerId } });
+    // 2026-08-17 材料请求账：同款清场，另一张表。customerNo 是确定性的
+    // （buildDeterministicNo），不清的话对一个持久化 worktree DB 重跑本 suite
+    // 第二次，上一轮留下的行会堆积在 listLiveByOrder 里干扰断言。
+    //
+    // 终审 Important #4（2026-08-18 二次修订）：③/⑥ 用的 externalActionId
+    // 此前是 fixture 里的固定字面量（demo-ext-1/demo-ext-3），不清场会在重跑
+    // 时撞 P2002；已改成按调用现铸（见
+    // src/modules/swap-sumsub/fixtures/verdict-buttons.ts），这里的清场不再
+    // 是绕过 P2002 的必要条件，但仍保留作测试卫生。
+    await prisma.materialRequest.deleteMany({ where: { customerId } });
 
     const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });
     const usdtAsset = await prisma.asset.findFirst({ where: { currency: 'USDT' } });
@@ -336,6 +346,14 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     return rows.map((r: any) => r.action);
   }
 
+  /** Material request rows are audited by their internal `id`, not `requestNo`
+   *  (MaterialRequestRow doesn't expose `id`) — look it up via prisma first. */
+  async function materialRequestAuditActionsFor(requestNo: string): Promise<string[]> {
+    const row = await (prisma as any).materialRequest.findUnique({ where: { requestNo } });
+    if (!row) return [];
+    return auditActionsFor(row.id, AuditEntityTypes.MATERIAL_REQUEST);
+  }
+
   // ── matrix (8 single-step verdict buttons + sticky-hard-line persistence) ──
 
   it('① approved: COMPLIANCE_PENDING → PROCESSING, leg1 booked', async () => {
@@ -349,7 +367,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(actions).toContain(AuditActions.SWAP_KYT_APPROVED);
   });
 
-  it('③ rejected · 软线（下发认证）: REJECTED, zero legs, restrictions SWAP+WITHDRAW, pending-action exposed', async () => {
+  it('③ rejected · 软线（下发认证）: REJECTED, zero legs, restrictions SWAP+WITHDRAW, material request issued with restrictionNo attached', async () => {
     await deliver(v3aSwap.id, 'V3_REJECTED_ACTION');
 
     expect(await statusOf(v3aSwap.id)).toBe(SwapTransactionStatus.REJECTED);
@@ -358,65 +376,129 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
 
     expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
 
-    const pending = await pendingActionService.get(customerId);
-    expect(pending).not.toBeNull();
-    expect(pending!.externalActionId).toBe('demo-ext-1');
+    // 2026-08-17 材料请求账：旧客户级单指针列已在 Task 12 随其专属 service 整体
+    // 物理删除——软线暴露的事实现在只活在材料账里：该单上有几条活的材料请求、
+    // externalActionId 是哪些。
+    const live = await materialRequests.listLiveByOrder('SWAP', v3aSwap.swapNo);
+    expect(live).toHaveLength(1);
+    // 终审 Important #4：externalActionId 现铸（randomUUID），不再是固定字面量
+    // 'demo-ext-1' —— 只断言"有值"，具体值不该也不能预测。
+    expect(live[0].externalActionId).toBeTruthy();
+    expect(live[0].status).toBe('PENDING_SUBMISSION');
+
+    // 2026-08-18 修复验收（本次要修的 Critical）：register() 之前没有任何字段
+    // 能把 open() 刚开好的便签接进这一行，restrictionNo 恒为 null，GREEN 复核
+    // 时 autoRelease 永远读不到便签——客户交齐材料后限制原地不动、永久卡死。
+    // 这里直接断言非 null，并且与刚才 open() 出来的那张便签是同一张（不是另开
+    // 的第二张）。
+    expect(live[0].restrictionNo).not.toBeNull();
+    const openRows = await restrictionsService.listOpen(customerId);
+    const softRestriction = openRows.find((r) => r.cause === 'KYT_REJECTED_SOFT' && r.caseRef === v3aSwap.swapNo);
+    expect(softRestriction).toBeDefined();
+    expect(live[0].restrictionNo).toBe(softRestriction!.restrictionNo);
 
     const actions = await auditActionsFor(v3aSwap.id, AuditEntityTypes.SWAP_TRANSACTION);
     expect(actions).toContain(AuditActions.SWAP_KYT_REJECTED_DISPOSED);
   });
 
-  it('⑦ 认证通过（清限制）: restrictions cleared, pending-action cleared, swap capability restored', async () => {
+  it('⑦ 认证通过（清限制）: restrictions cleared, material request approved, swap capability restored', async () => {
+    // 真实客户流程：交材料（客户端 POST .../submit → markSubmitted）发生在
+    // Sumsub 复核之前——V7 按钮只模拟"Sumsub 把复核结果推回来"这一步，不模拟
+    // 客户在 WebSDK 里交材料的动作。这里替客户走一次提交，真实地把这行材料
+    // 请求推到 SUBMITTED，否则 applyReview 会因为这一行还停在
+    // PENDING_SUBMISSION 而抛 BadRequestException（真实客户不可能在没交材料
+    // 的情况下先收到复核结果，这一步不能省）。
+    const live = await materialRequests.listLiveByOrder('SWAP', v3aSwap.swapNo);
+    expect(live).toHaveLength(1);
+    await materialRequests.markSubmitted(live[0].requestNo, {
+      actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER',
+    });
+
     await deliver(v3aSwap.id, 'V7_ACTION_GREEN');
 
+    // 2026-08-18 修复验收：GREEN 落地后 autoRelease 真的读到了 existingRestrictionNo
+    // 接进来的那个 restrictionNo，便签被真正撕掉——此前 register() 没有任何字段
+    // 能把 open() 已经开好的便签接进材料请求行，restrictionNo 恒为 null，这条
+    // 断言此前恒红（客户交齐材料、GREEN 到，限制原地不动、永久卡死，即本次要修
+    // 的 Critical）。
     expect(await openScopes(customerId)).toEqual([]);
-    expect(await pendingActionService.get(customerId)).toBeNull();
 
+    const row = await materialRequests.findByNo(live[0].requestNo);
+    expect(row?.status).toBe('APPROVED');
+    expect(row?.reviewAnswer).toBe('GREEN');
+
+    // SWAP_ACTION_CLEARED 是 Task 10 之前的旧写法留下的死常量——撕便签的落点
+    // 已经统一搬到 CustomerRestrictionWorkflowService
+    // .autoRelease()，它写的是 CUSTOMER_RESTRICTION_CLEARED，不是
+    // SWAP_ACTION_CLEARED（全仓已无任何写入方）。
     const customerAudit = await auditActionsFor(customerId, AuditEntityTypes.CUSTOMER);
-    expect(customerAudit).toContain(AuditActions.SWAP_ACTION_CLEARED);
+    expect(customerAudit).toContain(AuditActions.CUSTOMER_RESTRICTION_CLEARED);
 
     // Capability genuinely restored — a brand new swap can be initiated now.
     const restoredSwap = await createSwap('20');
     expect(restoredSwap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
   });
 
-  it('⑥ awaiting user（我方等同拒绝）: REJECTED, restrictions re-added, pending-action exposed (ext-3)', async () => {
+  it('⑥ awaiting user（我方等同拒绝）: REJECTED, restrictions re-added, material request issued (ext-3) with restrictionNo attached', async () => {
     await deliver(v6Swap.id, 'V6_AWAIT_USER');
 
     expect(await statusOf(v6Swap.id)).toBe(SwapTransactionStatus.REJECTED);
     expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
-    const pending = await pendingActionService.get(customerId);
-    expect(pending).not.toBeNull();
-    expect(pending!.externalActionId).toBe('demo-ext-3');
+
+    // 同③：软线暴露的事实只活在材料账里，旧单指针列已随 Task 12 物理删除。
+    const live = await materialRequests.listLiveByOrder('SWAP', v6Swap.swapNo);
+    expect(live).toHaveLength(1);
+    // 终审 Important #4：externalActionId 现铸（randomUUID），不再是固定字面量
+    // 'demo-ext-3' —— 只断言"有值"，具体值不该也不能预测。
+    expect(live[0].externalActionId).toBeTruthy();
+    expect(live[0].status).toBe('PENDING_SUBMISSION');
+    expect(live[0].restrictionNo).not.toBeNull();
   });
 
-  it('⑧ 认证不通过（升级）: restrictions remain, pending-action untouched, escalation audited', async () => {
+  it('⑧ 认证不通过（升级）: restrictions remain, material request rejected, no auto-release', async () => {
+    // 同⑦：先替客户走一次提交，让 RED 复核真的落得到地。
+    const live = await materialRequests.listLiveByOrder('SWAP', v6Swap.swapNo);
+    expect(live).toHaveLength(1);
+    await materialRequests.markSubmitted(live[0].requestNo, {
+      actorType: 'CUSTOMER', actorId: customerId, actorRole: 'CUSTOMER',
+    });
+
     await deliver(v6Swap.id, 'V8_ACTION_RED');
 
+    // RED（FINAL）不撕便签——MaterialRequestReviewService.applyReview 只在
+    // outcome==='APPROVED' 才调 autoRelease，REJECTED 原地不动。
     expect(await openScopes(customerId)).toEqual(['SWAP', 'WITHDRAW']);
-    const pending = await pendingActionService.get(customerId);
-    expect(pending).not.toBeNull();
-    expect(pending!.externalActionId).toBe('demo-ext-3'); // unchanged
 
-    const customerAudit = await auditActionsFor(customerId, AuditEntityTypes.CUSTOMER);
-    expect(customerAudit).toContain(AuditActions.SWAP_ACTION_ESCALATED);
+    const row = await materialRequests.findByNo(live[0].requestNo);
+    expect(row?.status).toBe('REJECTED');
+    expect(row?.reviewAnswer).toBe('RED');
+    expect(row?.reviewRejectType).toBe('FINAL');
+
+    // SWAP_ACTION_ESCALATED 同⑦：Task 10 之前的旧写法留下的死常量，全仓已无
+    // 任何写入方——真实的裁决痕迹落在材料请求自己的审计上
+    // （MATERIAL_REQUEST_REJECTED）。
+    const requestAudit = await materialRequestAuditActionsFor(live[0].requestNo);
+    expect(requestAudit).toContain(AuditActions.MATERIAL_REQUEST_REJECTED);
   });
 
-  it('② rejected · 硬线（无 action）: REJECTED, pending-action overwritten to null, no sticky hard-line', async () => {
+  it('② rejected · 硬线（无 action）: REJECTED, no material request issued, no sticky hard-line', async () => {
     await deliver(v2Swap.id, 'V2_REJECTED_HARD');
 
     expect(await statusOf(v2Swap.id)).toBe(SwapTransactionStatus.REJECTED);
-    expect(await pendingActionService.get(customerId)).toBeNull();
+    // 硬线（无 action）：一条材料请求都不登记，客户端结构上没有入口（见
+    // handleRejectDisposition 的硬线分支）。
+    expect(await materialRequests.listLiveByOrder('SWAP', v2Swap.swapNo)).toHaveLength(0);
 
     const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
     expect(customer!.hardLineDispositionedAt).toBeNull(); // no-actions hard line is per-verdict, not sticky
   });
 
-  it('④ rejected · Sanctions: REJECTED, sticky hard-line set, pending-action endpoint returns null (tipping-off)', async () => {
+  it('④ rejected · Sanctions: REJECTED, sticky hard-line set, no material request issued (tipping-off)', async () => {
     await deliver(v4Swap.id, 'V4_REJECTED_SANCTION');
 
     expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.REJECTED);
-    expect(await pendingActionService.get(customerId)).toBeNull();
+    // 制裁命中：同②，一条材料请求都不登记 —— 不给客户任何可探测的痕迹。
+    expect(await materialRequests.listLiveByOrder('SWAP', v4Swap.swapNo)).toHaveLength(0);
 
     const customer = await prisma.customerMain.findUnique({ where: { id: customerId }, select: { hardLineDispositionedAt: true } });
     expect(customer!.hardLineDispositionedAt).toBeTruthy();
@@ -434,11 +516,11 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect([...access.blocked].sort()).toEqual(['DEPOSIT', 'SWAP', 'WITHDRAW']);
   });
 
-  it('⑤ on hold（我方等同拒绝）: REJECTED, pending-action stays null', async () => {
+  it('⑤ on hold（我方等同拒绝）: REJECTED, no material request issued', async () => {
     await deliver(v5Swap.id, 'V5_ONHOLD');
 
     expect(await statusOf(v5Swap.id)).toBe(SwapTransactionStatus.REJECTED);
-    expect(await pendingActionService.get(customerId)).toBeNull();
+    expect(await materialRequests.listLiveByOrder('SWAP', v5Swap.swapNo)).toHaveLength(0);
   });
 
   it('sticky hard-line silences a later, otherwise-soft-line verdict (V3 delivered after the V4 sanction)', async () => {
@@ -451,6 +533,8 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     await deliver(v3bSwap.id, 'V3_REJECTED_ACTION');
 
     expect(await statusOf(v3bSwap.id)).toBe(SwapTransactionStatus.REJECTED);
-    expect(await pendingActionService.get(customerId)).toBeNull();
+    // exposeToCustomer=false（alreadyHardLined）→ 材料请求登记循环整段跳过，
+    // 即便这次裁决本身带着 action 也不登记 —— 这正是本用例要证明的持久沉默。
+    expect(await materialRequests.listLiveByOrder('SWAP', v3bSwap.swapNo)).toHaveLength(0);
   });
 });

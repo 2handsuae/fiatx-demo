@@ -115,7 +115,9 @@ PAYOUT_PENDING
 - **L3 归档（`archivePostKyt()`，crypto-only，fire-and-forget）**：`SUCCESS` 落地后把链上 `txHash` PATCH 回 Sumsub KYT 交易（`sumsubTxnClient.archiveTxHash()`），供未来交易追溯；无 `sumsubTxnId`/`txHash` 则跳过 + warn。
 - **锚点**：`withdraw-workflow.service.ts → submitSumsubTxn()`/`applyKytVerdict()`/`applyKytApproved()`/`applyKytAwaitUser()`/`applyKytOnHold()`/`applyKytRejected()`/`archivePostKyt()` ｜ `withdraw-kyt-verdict.handler.ts`（`VERDICT_BY_TYPE`/`SCENE_TAGS`/`DISPO_TAGS`）｜ `withdraw-sla.service.ts` ｜ `withdraw-webhook.router.ts`（前置分流，命中即返回 `true`，两域路由不重叠）｜ `deposit-sumsub/kyt-txn-type.resolver.ts → resolveKytTxnType()`（跨域共享，非 fork）
 
-### 4.6 补料 Embed（多条 applicant action，独立页提交材料，2026-08-07 落地，spec `2026-08-07-withdraw-action-embed-design.md` + 实施计划 `.superpowers/sdd/task-{1..6}-brief.md`，逐字段 mirror of §4.6 充值版 `truth/v4-deposit.md`——差异只在下面点名的几处）
+### 4.6 补料 Embed（多条 applicant action，独立页提交材料，2026-08-07 落地，spec `2026-08-07-withdraw-action-embed-design.md` + 实施计划 `.superpowers/sdd/task-{1..6}-brief.md`，逐字段 mirror of §4.6 充值版 `truth/v4-deposit.md`——差异只在下面点名的几处；⚠️ **本节描述的存储层已废，见下方订正段**）
+
+> **2026-08-18 订正**：与充值域同一次迁移（`20260817020000_drop_legacy_action_stores`）——子表 `withdraw_applicant_actions` 与提现单顶层 `actionSubmittedAt` 缓存已物理删除，applicant action 统一收进 `material_requests`（`orderDomain='WITHDRAW'`/`orderRef=withdrawNo`），行为与充值域订正段完全一致（挂限制的行终态时只解绑、未挂的直接 `CANCELLED`；`REVIEW_RED` 拆 `RETRY`/`FINAL`）。详见 `truth/v4-deposit.md` §4.6 订正段与设计稿 `doc-final/superpowers/specs/2026-08-17-material-request-ledger-design.md`。
 
 **一笔提现单可以同时挂多条** Sumsub applicant action——子表 `withdraw_applicant_actions`（Prisma model `WithdrawApplicantAction`，与充值 `deposit_applicant_actions` 逐列同构）每条一行，各自带独立的 `submittedAt`；提现单上的 `actionSubmittedAt` 字段语义与充值同款——**「全部交齐的时刻」缓存**，不是"这条交了没"。**状态机不因客户提交而改变**——`ACTION_PENDING` 仍是 `ACTION_PENDING`，直到裁决（自动重评或人工翻案）才流转；提交动作只影响子表行 + 顶层缓存 + SLA 表。**客户端从头到尾拿不到 action id**（`applicantActionId`/`externalActionId` 均不下发）——对外一律用 `seq` 定位一条 action，服务端自己按 `withdrawId+seq` 查表换真 id 去铸 token，与充值同一条防线（充值上一轮的 Critical：demo fixture 的 id `aa-edd-0002` 里 `edd` 三个字母直接暴露 PEP 判定）。
 

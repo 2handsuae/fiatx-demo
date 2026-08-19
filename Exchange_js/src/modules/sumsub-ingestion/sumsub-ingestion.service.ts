@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../../core/prisma/prisma.service';
 import { CustomerRestrictionsService } from '../identity/customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../identity/customers/customer-restriction-workflow.service';
+import { MaterialRequestReviewService } from '../identity/material-requests/material-request-review.service';
 import { OnboardingService } from '../identity/onboarding/onboarding.service';
 import { ClientRiskAssessmentService } from '../identity/client-risk-assessment/client-risk-assessment.service';
 import { MaterialRefreshService } from '../identity/material-refresh/material-refresh.service';
@@ -45,6 +46,7 @@ export class SumsubIngestionService {
     private readonly swapWebhookRouter: SwapWebhookRouter,
     private readonly restrictionsService: CustomerRestrictionsService,
     private readonly restrictionWorkflowService: CustomerRestrictionWorkflowService,
+    private readonly materialRequestReviewService: MaterialRequestReviewService,
   ) {}
 
   // ─── Main entry point (real webhook + simulation both call this) ──────────
@@ -114,8 +116,11 @@ export class SumsubIngestionService {
 
       const reviewMode = String(payload.reviewMode ?? '');
       const inspectionId = String(payload.inspectionId ?? '');
-      const actionId = String(payload.actionId ?? '');
       const applicantId = String(payload.applicantId ?? '');
+      const externalActionId: string | undefined =
+        (payload.externalActionId as string | undefined) ??
+        (payload.applicantActionExternalId as string | undefined) ??
+        undefined;
       const reviewResult = (payload.reviewResult ?? null) as {
         reviewAnswer: 'GREEN' | 'RED';
         rejectLabels?: string[];
@@ -126,9 +131,11 @@ export class SumsubIngestionService {
       // Reuses this durable event table's dedup/retry/dead-letter; only the
       // routing target changes here. Old withdraw/swap/kyt/tr branches below are untouched.
       // NOTE: does NOT include applicantAction* — those are consumed by the
-      // pre-existing Clue 3 branch below (material-refresh cycles). deposit 侧对
-      // action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动重评并发出
-      // applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,DepositActionHandler 桩已退役)。
+      // externalActionId 分支下方（材料请求账一次查表，命中后材料重检域自己靠
+      // MATERIAL_REQUEST_REVIEWED 事件收尾，见 material-refresh-review.listener.ts）。
+      // deposit 侧对 action 事件的重检不需要专门 handler:客户补料后 Sumsub 会自动
+      // 重评并发出 applicantKytTxn*,仍走上面这条 KYT 分支(Task 9 结论,
+      // DepositActionHandler 桩已退役)。
       const depositWebhookType = String(payload.type ?? '');
       // 显式集合匹配,不用 startsWith:官方 on-hold 事件是 `applicantKytOnHold`(无 Txn),
       // 旧的 `startsWith('applicantKytTxn')` 会把它漏在门外;而放宽成 `applicantKyt`
@@ -222,37 +229,23 @@ export class SumsubIngestionService {
         result = { assessmentId, decision };
         dispatchedContext = 'CASE_DECISION';
       }
-      // ── Task 13: swap-domain applicantActionReviewed (person-level action review) ──
-      // Not a KYT-txn verdict — deliberately excluded from KYT_VERDICT_TYPES (see
-      // that file's comment) — so it never enters the cascade above. swap-sumsub
-      // owns action ids it itself exposed via CustomerMain.pendingActionExternalId
-      // (Task 7's handleRejectDisposition); try it before falling through to the
-      // pre-existing MaterialRefreshCycle actionId match below (Clue 3), which owns
-      // a different id space (Sumsub's own sumsubActionId). swapWebhookRouter.route()
-      // returns false when this externalActionId isn't one it recognises (belongs to
-      // another domain, e.g. material refresh), letting dispatch fall through to
-      // Clue 3 with the same payload exactly as before this task.
-      else if (depositWebhookType === 'applicantActionReviewed') {
-        // Finding 5（终审 Minor）：这条分支是 if/else-if 链的一环——一旦
-        // `payload.type === 'applicantActionReviewed'` 命中这里，不管
-        // `swapHit` 是 true 还是 false，本次 dispatch 都不会再落到下面的
-        // Clue 1（`reviewMode === 'ongoingDocExpired'`）或 Clue 2
-        // （`inspectionId` 匹配 PENDING_SUMSUB_RESULT 的 ClientRiskAssessment）
-        // ——这两条分支同属一条 else-if 链，互斥。真实 Sumsub 的
-        // applicantActionReviewed webhook 确实可能带 `inspectionId`（Clue 2
-        // 之前是可达的），故这是一次跨域收窄。判断这是有意为之：
-        // applicantActionReviewed 语义上是"人级补料动作复核"，Clue 1/2
-        // 服务的是不同的域（文档时效重检 / AML 案件结果），把它们混进来会让
-        // 这个人级事件被误判成别的域的信号。Clue 3（下面独立的
-        // `if (!result && actionId && reviewResult)`，材料重检的
-        // sumsubActionId 匹配）不受影响——它不在这条 else-if 链里，swap 认领
-        // 不到（`swapHit=false`）时仍会正常落到 Clue 3。这条收窄已由
-        // sumsub-ingestion.service.spec.ts 的 "swap miss" 用例锁定（断言
-        // Clue 3 真的还会触发，而不只是 result 落空）。
-        const swapHit = await this.swapWebhookRouter.route(payload);
-        if (swapHit) {
-          result = { routedTo: 'swap-sumsub', type: depositWebhookType };
-          dispatchedContext = 'SWAP_SUMSUB';
+      // ── applicantActionReviewed：按 externalActionId 一次查表定位归属 ──
+      // 2026-08-17 材料请求账之前，这里是一条「先问 swap 认不认、不认再落材料重检」
+      // 的顺序尝试链，且因为同属一条 else-if 链，一旦命中就把下面的
+      // ongoingDocExpired / inspectionId 两条分支彻底遮蔽 —— 原注释自陈这是
+      // 跨域收窄隐患。根因是没有统一 id 空间。现在 externalActionId 是
+      // material_requests 的 @unique 列，一次查表就能定位，不用猜。
+      else if (depositWebhookType === 'applicantActionReviewed' && externalActionId) {
+        const reviewed = await this.materialRequestReviewService.applyReview({
+          externalActionId,
+          reviewAnswer: reviewResult?.reviewAnswer === 'GREEN' ? 'GREEN' : 'RED',
+          reviewRejectType:
+            reviewResult?.reviewRejectType === 'RETRY' ? 'RETRY' : 'FINAL',
+          actor: { actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
+        });
+        if (reviewed) {
+          result = { routedTo: 'material-requests', ...reviewed };
+          dispatchedContext = 'MATERIAL_REQUEST';
         }
       }
       // Clue 1: explicit reviewMode → ongoing doc monitoring
@@ -270,16 +263,15 @@ export class SumsubIngestionService {
           dispatchedContext = 'AML_ASSESSMENT';
         }
       }
-      // Clue 3: actionId matches pending MaterialRefreshCycle
-      if (!result && actionId && reviewResult) {
-        const pendingCycle = await this.prisma.materialRefreshCycle.findFirst({
-          where: { sumsubActionId: actionId, status: { in: ['PENDING_CUSTOMER_EVIDENCE', 'PENDING_SUMSUB_REVIEW'] } },
-        });
-        if (pendingCycle) {
-          result = await this.materialRefreshService.handleSumsubActionResult({ actionId, reviewResult });
-          dispatchedContext = 'MATERIAL_REFRESH_ACTION';
-        }
-      }
+      // Clue 3（已退役，2026-08-18）：原来按 actionId 查 pending MaterialRefreshCycle。
+      // 2026-08-17 材料请求账 Task 11 之后建 cycle 全部改走
+      // MaterialRequestIssuerService.issue()，cycle 定位其旧的 Sumsub action id
+      // 那一列永远不再被写入（该列已随 Task 12 物理删除），这条分支对所有新周期
+      // 恒查不到，是死码；而且真实
+      // webhook 也轮不到它——上面 `applicantActionReviewed && externalActionId`
+      // 那条分支会先按 externalActionId 认领。已改为材料重检域自己监听
+      // MaterialRequestReviewService 广播的 MATERIAL_REQUEST_REVIEWED 事件
+      // （见 material-refresh-review.listener.ts），不再需要这里的兜底查询。
       // Clues 4 & 5: look up customer by applicantId
       if (!result && applicantId) {
         const customer = await this.prisma.customerMain.findFirst({

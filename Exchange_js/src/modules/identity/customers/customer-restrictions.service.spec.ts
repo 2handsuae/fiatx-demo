@@ -218,6 +218,7 @@ describe('CustomerRestrictionsService.open', () => {
           scopes: ['WITHDRAW', 'SWAP'],
         }),
       }),
+      undefined,
     );
   });
 
@@ -298,6 +299,33 @@ describe('CustomerRestrictionsService.open', () => {
       svc.open({ customerId: 'ghost', cause: 'SANCTION', reason: 'x', openedBy: 'ops' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it('传了外部 tx：不再自己开 $transaction，写入直接走传进来的那个 client（不是别开的第二事务）', async () => {
+    const { prisma } = createPrismaMock();
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
+
+    const externalTx = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'c1', customerNo: 'CUS-001' }),
+      },
+      customerRestriction: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    } as any;
+
+    const result = await svc.open(
+      { customerId: 'c1', cause: 'PENDING_DOCUMENT', reason: 'ID copy', openedBy: 'ops@fiatx.com' },
+      externalTx,
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(externalTx.customerMain.findUnique).toHaveBeenCalledTimes(1);
+    expect(externalTx.customerRestriction.createMany).toHaveBeenCalledTimes(1);
+    expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
+    expect(result.created).toBe(true);
+  });
 });
 
 describe('CustomerRestrictionsService.release', () => {
@@ -358,6 +386,7 @@ describe('CustomerRestrictionsService.release', () => {
           approvalNo: 'APR2608150001',
         }),
       }),
+      undefined,
     );
   });
 
@@ -401,6 +430,39 @@ describe('CustomerRestrictionsService.release', () => {
     await expect(
       svc.release('RST-nope', { releasedBy: 'ops@fiatx.com', releaseMode: 'AUTO' }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('传了外部 tx：不再自己开 $transaction，写入直接走传进来的那个 client（不是别开的第二事务）', async () => {
+    const { prisma } = createPrismaMock();
+    const audit = createAuditMock();
+    const svc = new CustomerRestrictionsService(prisma, audit, eventEmitterStub as any);
+
+    const externalTx = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue({ customerNo: 'CUS-001' }),
+      },
+      customerRestriction: {
+        findMany: jest.fn().mockResolvedValue(openRows('MATERIAL_EXPIRED', 'DISCLOSED')),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+    } as any;
+
+    await svc.release(
+      'RST2608150001',
+      { releasedBy: 'ops@fiatx.com', releaseMode: 'AUTO' },
+      externalTx,
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(externalTx.customerRestriction.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.customerRestriction.findMany).not.toHaveBeenCalled();
+    // 审计写入必须也走 externalTx，而不是事务外的 base client——否则外层事务
+    // 持锁未提交时，这条写入会在 SQLite 单写者模型下等锁甚至把外层事务拖超时
+    // （task-4 修的正是这个洞：release() 内部曾经漏传 tx 给 recordSystem）。
+    expect(audit.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'CUSTOMER_RESTRICTION_CLEARED' }),
+      externalTx,
+    );
   });
 });
 

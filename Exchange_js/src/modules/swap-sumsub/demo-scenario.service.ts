@@ -8,6 +8,7 @@ import { buildTxnReport, TxnReportVerdict } from '../deposit-sumsub/fixtures/txn
 import { KYT_ONHOLD_TYPE } from '../deposit-sumsub/kyt-webhook-types';
 import { KytVerdict } from '../deposit-sumsub/sumsub-txn.types';
 import { SumsubIngestionService } from '../sumsub-ingestion/sumsub-ingestion.service';
+import { MaterialRequestsService } from '../identity/material-requests/material-requests.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -59,16 +60,13 @@ const REPORT_META: Record<string, Pick<TxnReportVerdict, 'reviewStatus' | 'actio
  * 作用于任何具体的 swap 单)。
  *
  * Task 13 之前,这两个按钮虽然真实投递官方形状的 webhook、真实走一遍
- * ingest(),但没有任何 router/handler 认领 applicantActionReviewed
- * (kyt-webhook-types.ts 的 KYT_VERDICT_TYPES 不含它,ingestion 里唯一认得这个
- * type 的分支只匹配 MaterialRefreshCycle.sumsubActionId,不认识 swap 拒绝处置
- * 写在 CustomerMain.pendingActionExternalId 上的 externalActionId)——
- * CustomerRestrictionsService.clear() 因此零调用方,清限制/升级这件事不会
- * 发生。Task 13 已补上闭环:SumsubIngestionService.dispatch() 新增
- * applicantActionReviewed 分支先试 SwapWebhookRouter → SwapApplicantActionHandler
- * 按 externalActionId 反查客户,GREEN 清 SWAP/WITHDRAW 限制(硬线客户除外,见该
- * handler 类注释),RED 保持限制并升级审计。这两个按钮现在真实闭环:GREEN 会让
- * CustomerRestrictionsService.clear() 落地。
+ * ingest(),但没有任何 router/handler 认领 applicantActionReviewed。
+ * Task 13 补上了闭环(GREEN 清 SWAP/WITHDRAW 限制，硬线客户除外；RED 保持限制
+ * 并升级审计)。2026-08-17 材料请求账（Task 10）把该闭环的落点从
+ * SwapApplicantActionHandler 手写的处置逻辑搬到了三域共用的
+ * MaterialRequestReviewService.applyReview（按 externalActionId 一次查
+ * material_requests 表定位归属）——这两个按钮现在依然真实闭环，只是认领机制
+ * 换了,见该 service 与 applicant-action.handler.ts 各自的类注释。
  */
 @Injectable()
 export class SwapDemoScenarioService {
@@ -77,6 +75,7 @@ export class SwapDemoScenarioService {
     private readonly ingestionService: SumsubIngestionService,
     private readonly auditLogsService: AuditLogsService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
+    private readonly materialRequests: MaterialRequestsService,
   ) {}
 
   /**
@@ -170,12 +169,13 @@ export class SwapDemoScenarioService {
   }
 
   /**
-   * V7/V8 分支:投一次 applicantActionReviewed。externalActionId 优先用这个客户
-   * 当前挂起的补料动作(CustomerMain.pendingActionExternalId,由此前一次软线
-   * 拒绝写入)—— SwapApplicantActionHandler(Task 13)正是按这个字段反查客户
-   * 认领;客户没有挂起动作时仍铸一个确定性占位符,保持报文形状真实,但这种情况
-   * 下 handler 会因为查不到客户而认领落空(如实模拟"这个 action 不是任何客户
-   * 的挂起项"的场景)。
+   * V7/V8 分支:投一次 applicantActionReviewed。externalActionId 优先用这笔单
+   * 材料请求账上最新一条活行(2026-08-17 材料请求账，Task 10 之前读的是
+   * CustomerMain 上那个单指针字段，swap 域已经不写那一列了)——
+   * MaterialRequestReviewService.applyReview 正是按这个字段一次查表定位；这笔
+   * 单没有活着的材料请求时仍铸一个确定性占位符,保持报文形状真实,但这种情况
+   * 下会因为查不到材料请求而认领落空(如实模拟"这个 action 不属于任何材料
+   * 请求"的场景)。
    */
   private async runApplicantActionScenario(
     swap: any,
@@ -183,8 +183,24 @@ export class SwapDemoScenarioService {
     statusBefore: string,
     actor: DemoScenarioActor,
   ) {
-    const externalActionId =
-      swap.customer?.pendingActionExternalId ?? this.mintTxnId(swap, button.key);
+    const live = await this.materialRequests.listLiveByOrder('SWAP', swap.swapNo ?? '');
+    const target = live[0];
+    const externalActionId = target?.externalActionId ?? this.mintTxnId(swap, button.key);
+
+    // 终审 Important #3：运营点 ⑦/⑧ 时,客户端多半没走"提交"这一步——材料请求
+    // 行还停在 PENDING_SUBMISSION。MaterialRequestReviewService.applyReview 里
+    // 的裁决只认 SUBMITTED,直接投会撞 nextMaterialRequestStatus 的非法边（抛
+    // BadRequestException），经 ingestion 重试三次 DEAD、接口 500——旧 handler
+    // 任何状态都接,这是材料请求账（本分支）引入的回归。demo 场景补一次
+    // markSubmitted 模拟客户提交,再走裁决,顺序与真实客户端 SDK 提交后才被
+    // Sumsub 复核一致。
+    if (target && target.status === 'PENDING_SUBMISSION') {
+      await this.materialRequests.markSubmitted(target.requestNo, {
+        actorType: 'CUSTOMER',
+        actorId: swap.ownerId,
+        actorRole: 'CUSTOMER',
+      });
+    }
 
     await this.ingestionService.ingest(
       {

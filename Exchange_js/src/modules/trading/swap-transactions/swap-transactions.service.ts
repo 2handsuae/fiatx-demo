@@ -12,8 +12,10 @@ import {
   SwapRejectReason,
 } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -79,12 +81,21 @@ export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
   expiresAt: string;
 }
 
+/** 兑换终态。零出边。 */
+export const SWAP_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
+  SwapTransactionStatus.SUCCESS,
+  SwapTransactionStatus.REJECTED,
+  SwapTransactionStatus.FAILED,
+  SwapTransactionStatus.REVERSED,
+]);
+
 @Injectable()
 export class SwapTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly swapQuoteService: SwapQuoteService,
     private readonly binanceRateProvider: BinanceRateProvider,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -331,9 +342,9 @@ export class SwapTransactionsService {
   /**
    * Load a swap by id with the asset relations ctxFromSwap needs. Nullable.
    * `customer` was added by Task 9 (demo-scenario.service.ts needs
-   * customer.sumsubApplicantId / customer.customerNo / customer.pendingActionExternalId
-   * to build simulated webhook payloads) — existing callers only read
-   * asset/status/etc. fields and are unaffected by the extra relation.
+   * customer.sumsubApplicantId / customer.customerNo to build simulated
+   * webhook payloads) — existing callers only read asset/status/etc. fields
+   * and are unaffected by the extra relation.
    */
   async findByIdInternal(id: string, tx?: Prisma.TransactionClient) {
     const client: any = tx ?? this.prisma;
@@ -392,7 +403,7 @@ export class SwapTransactionsService {
       note: `Swap settlement status → ${next}`,
     });
 
-    await (tx as any).swapTransaction.update({
+    const updated = await (tx as any).swapTransaction.update({
       where: { id: swapId },
       data: {
         status: next,
@@ -401,6 +412,16 @@ export class SwapTransactionsService {
         statusHistory: JSON.stringify(statusHistory),
       },
     });
+
+    this.eventEmitter.emit(DomainEventNames.SWAP_STATUS_CHANGED, {
+      swapId: updated.id,
+      swapNo: updated.swapNo,
+      ownerId: updated.ownerId,
+      previousStatus: swap.status,
+      status: next,
+      traceId: updated.traceId,
+    });
+
     return next;
   }
 

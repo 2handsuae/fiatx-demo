@@ -106,6 +106,15 @@ const CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
 // completedAt 原样漏给客户。
 const CUSTOMER_COMPLETED_STATUSES = new Set<string>(['SUCCESS', 'FAILED', 'RETURNED']);
 
+/** 充值终态。零出边 —— 材料账的作废监听器也读这一份，不另立第二份定义。 */
+export const DEPOSIT_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
+  DepositTransactionStatus.SUCCESS,
+  DepositTransactionStatus.FAILED,
+  DepositTransactionStatus.CONFISCATED,
+  DepositTransactionStatus.RETURNED,
+  DepositTransactionStatus.SEIZED,
+]);
+
 export interface DepositStatusUpdateActorContext {
   actorType: string;
   actorId: string;
@@ -224,7 +233,6 @@ export class DepositTransactionsService {
               lifecycle: true,
             },
           },
-          applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
         },
       }),
       (this.prisma as any).depositTransaction.count({ where }),
@@ -267,19 +275,19 @@ export class DepositTransactionsService {
    * interface in client-web/src/pages/Deposit.tsx, which is the actual field
    * contract the client reads.
    *
-   * 例外 —— `actions`（子表逐条 action 的 `{seq, submittedAt}`）是本白名单
-   * 唯一有意开的口子：它记录的是**客户自己的动作**（客户本就知道自己交没交
-   * 哪一条，不构成新信息），且对执法态与正常态一视同仁地存在（提交过的行
-   * 无论单子后来是 FROZEN 还是 COMPLIANCE_PENDING 都在），因此不产生新的
-   * 可辨识信号。`manualReason` 不可比照办理——它取值 EDD_PEP 时等同于告知
-   * 客户其 PEP 判定。
+   * `manualReason` 不可比照放行——它取值 EDD_PEP 时等同于告知客户其 PEP 判定。
    *
    * ⚠️ 2026-08-06 已删掉顶层 `actionSubmittedAt`（"全部交齐"缓存）这个口子：
    * 它此前唯一的消费者是客户端拿去改写徽章/收起区块（`getDepositStatusView`
    * 的 submitted 短路 + 详情页的显隐判据），业主定稿拆掉那套机制后，前端
    * 已经不读这个字段——客户面每多一个键就多一分泄漏面，没有消费者就删，
-   * 不留着"以防将来用得上"。要看"是否全部交齐"，从 `actions[].submittedAt`
-   * 逐条推导即可，不需要服务端额外算好一个聚合布尔值再开一个口子。
+   * 不留着"以防将来用得上"。
+   *
+   * 2026-08-18 材料请求账 Task 12：本视图曾开过一个 `actions`（子表逐条 action
+   * 的 `{seq, submittedAt}`）口子，随专属子表一起物理删除——客户端从未消费过
+   * 这个字段（`client-web/src/pages/Deposit.tsx` 的 `Transaction` 接口里没有
+   * 它），"补料交齐没交齐"这件事现在只活在材料请求账自己的读面
+   * （`client/me/material-requests`），不再走这个端点。
    *
    * `status`（评审 Important 1，安全洞）—— 这是白名单里唯一一个原样值本身
    * 就可能泄密的字段：`id`/`depositNo`/`amount`/`createdAt` 这些字段的取值
@@ -362,13 +370,6 @@ export class DepositTransactionsService {
             decimals: item.asset.decimals,
           }
         : null,
-      // 客户面白名单开的口子（见上方文档注释）。**只有 seq 与 submittedAt
-      // 两个键**——无 id、无类型、无理由。够画补料卡片和各自的提交状态，
-      // 多一个字段都是风险面（上一轮的 Critical 正是这么来的）。
-      actions: (item.applicantActions ?? []).map((a: any) => ({
-        seq: a.seq,
-        submittedAt: a.submittedAt,
-      })),
     };
   }
 
@@ -411,7 +412,6 @@ export class DepositTransactionsService {
             sumsubApplicantId: true,
           },
         },
-        applicantActions: { select: { seq: true, submittedAt: true }, orderBy: { seq: 'asc' } },
       },
     });
     if (!item) throw new NotFoundException('Deposit transaction not found');
@@ -574,8 +574,8 @@ export class DepositTransactionsService {
   /**
    * 详情独立页用：客户面按业务键 `depositNo` 取单条（规则 3，禁止以 id 作
    * 对外主查询合同）。先按 `depositNo` + `ownerId` + `limitHoldReason: null`
-   * 解出内部 id 再复用 `findOneForCustomer`，与 `deposit-verification-session
-   * .service.ts` 的 `mustFindOwn` 同一套判据——BELOW_MIN 隐藏单同样当不存在
+   * 解出内部 id 再复用 `findOneForCustomer`，与已删除的补料会话 service 旧版
+   * `mustFindOwn` 同一套判据——BELOW_MIN 隐藏单同样当不存在
    * 处理，否则本端点会成为「我有一笔列表里看不到的单」的探测面。
    */
   async findOneForCustomerByDepositNo(depositNo: string, customerId: string) {
@@ -651,14 +651,7 @@ export class DepositTransactionsService {
       ...(options?.extraData || {}),
     };
 
-    const TERMINAL = new Set([
-      DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.CONFISCATED,
-      DepositTransactionStatus.RETURNED,
-      DepositTransactionStatus.SEIZED,
-    ]);
-    if (TERMINAL.has(nextStatus) || nextStatus === DepositTransactionStatus.FROZEN) {
+    if (DEPOSIT_TERMINAL_STATUSES.has(nextStatus) || nextStatus === DepositTransactionStatus.FROZEN) {
       updateData.completedAt = new Date();
     }
 
@@ -687,15 +680,7 @@ export class DepositTransactionsService {
     current: DepositTransactionStatus,
     action: DepositTransactionAction,
   ): DepositTransactionStatus {
-    const TERMINAL = new Set([
-      DepositTransactionStatus.SUCCESS,
-      DepositTransactionStatus.FAILED,
-      DepositTransactionStatus.CONFISCATED,
-      DepositTransactionStatus.RETURNED,
-      DepositTransactionStatus.SEIZED,
-    ]);
-
-    if (TERMINAL.has(current)) {
+    if (DEPOSIT_TERMINAL_STATUSES.has(current)) {
       throw new BadRequestException(
         `Cannot apply action '${action}' to terminal status '${current}'`,
       );

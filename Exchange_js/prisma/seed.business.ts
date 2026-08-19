@@ -45,6 +45,8 @@ export async function seedBusiness(
   await seedTransactionLimitRules(prisma);
   // ③ Customers layer
   await seedCustomers(prisma);
+  // ③b Material requests layer (needs seedCustomers' restriction rows for Ivy)
+  await seedMaterialRequest(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
@@ -555,6 +557,9 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     firstName: 'Bob', lastName: 'Happy', customerType: 'INDIVIDUAL',
     lifecycle: 'ACTIVE',
     riskRating: 'LOW', tradingTier: 'BASIC', eddRequired: false,
+    // 材料请求账演示位（黄档提醒，见 seedMaterialRequest）需要 sumsubApplicantId
+    // 才能落一行——不是真沙盒 applicant，纯确定性 mock id（不打真 Sumsub）。
+    sumsubApplicantId: mockSumsubApplicantId('demo_bob@example.com'),
   },
   // 1× 制裁便签（SILENT）—— 演示零痕迹。lifecycle 仍是 ACTIVE：客户关系没变，
   // 变的是"能不能干事"，这正是本次三轴收敛的核心断言。
@@ -614,6 +619,9 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     firstName: 'Ivy', lastName: 'Restricted', customerType: 'INDIVIDUAL',
     lifecycle: 'ACTIVE',
     riskRating: 'MEDIUM', tradingTier: 'BASIC', eddRequired: false,
+    // 材料请求账演示位（红档，见 seedMaterialRequest）需要 sumsubApplicantId
+    // 才能落一行——不是真沙盒 applicant，纯确定性 mock id（不打真 Sumsub）。
+    sumsubApplicantId: mockSumsubApplicantId('demo_ivy@example.com'),
     restrictions: [
       {
         cause: 'MATERIAL_EXPIRED',
@@ -623,6 +631,11 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
     ],
   },
 ];
+
+/** 演示客户的 mock Sumsub applicant id——纯 email 确定性哈希，不是真沙盒 applicant。 */
+function mockSumsubApplicantId(email: string): string {
+  return createHash('sha256').update(`mock-applicant:${email}`).digest('hex').slice(0, 24);
+}
 
 async function seedCustomers(prisma: PrismaClient): Promise<void> {
   const passwordHash = await bcrypt.hash('123456', 10);
@@ -710,6 +723,111 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
     `Seeded ${DEMO_CUSTOMERS.length} demo customers ` +
       `(+${restrictionRowCount} restriction rows) + customer TB accounts.`,
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③b Material requests layer — 材料请求账两条演示行(设计稿 §10 用例①的两半)
+//
+// Ivy 已有 MATERIAL_EXPIRED 便签(见上方 seedCustomers)——这里给她补一条挂在该
+// 便签上的 PROOF_OF_ADDRESS 行，演红档：客户被摁住、横幅红着、有材料要交。
+// Bob 是无便签的 happy 客户——给他播一条不绑单不挂限制的 EMIRATES_ID 提醒行，
+// 演黄档：纯提醒，不影响任何交易能力。两条分属不同客户，直接对应
+// material-requests.e2e-spec.ts 用例①反证的「单指针病」——那条用例在同一个
+// 客户身上做，这里的种子只负责把两种档位摆上台面给人肉验收看。
+//
+// 直接铺终态数据，不走 MaterialRequestIssuerService（那条路要真打/真模拟
+// Sumsub）——与上面 seedCustomers() 里的便签 fixture 同一性质，没有 operator、
+// 没有审批案、不写审计。requestNo / externalActionId 用 buildDeterministicNo
+// 派生，reset 重铺后号不变；applicantActionId 写 mock-action-<派生值>。
+// ─────────────────────────────────────────────────────────────
+
+type DemoMaterialRequest = {
+  email: string;
+  materialType: string;
+  levelName: string;
+  /** 若给了，查该客户名下这个 cause 的 OPEN 便签，挂到这一行上（restrictionNo 后补） */
+  restrictionCause?: RestrictionCause;
+  reason: string;
+};
+
+const DEMO_MATERIAL_REQUESTS: DemoMaterialRequest[] = [
+  {
+    email: 'demo_ivy@example.com',
+    materialType: 'PROOF_OF_ADDRESS',
+    levelName: 'wave3-action-poa-refresh',
+    restrictionCause: 'MATERIAL_EXPIRED',
+    reason: 'Passport expired on 2026-06-30 — please upload a valid proof of address',
+  },
+  {
+    email: 'demo_bob@example.com',
+    materialType: 'EMIRATES_ID',
+    levelName: 'wave3-action-id-refresh',
+    reason: 'Emirates ID renewal due within 30 days — please resubmit ahead of expiry',
+  },
+];
+
+/** requestNo / externalActionId / applicantActionId 三个 id 同法派生 —— 都过 buildDeterministicNo，只是前缀不同，reset 重铺后逐字不变。 */
+function deriveMaterialRequestIds(email: string, materialType: string) {
+  const seed = `${email}:${materialType}`;
+  return {
+    requestNo: buildDeterministicNo('MRQ', seed),
+    externalActionId: `MRQ:${buildDeterministicNo('EXT', seed)}`,
+    applicantActionId: `mock-action-${buildDeterministicNo('ACT', seed)}`,
+  };
+}
+
+async function seedMaterialRequest(prisma: PrismaClient): Promise<void> {
+  let count = 0;
+  for (const r of DEMO_MATERIAL_REQUESTS) {
+    const customer = await prisma.customerMain.findUnique({
+      where: { email: r.email },
+      select: { id: true, sumsubApplicantId: true },
+    });
+    if (!customer?.sumsubApplicantId) {
+      console.log(
+        `  ⚠ Skipping material request seed for ${r.email} — customer or sumsubApplicantId missing`,
+      );
+      continue;
+    }
+
+    let restrictionNo: string | null = null;
+    if (r.restrictionCause) {
+      const restriction = await prisma.customerRestriction.findFirst({
+        where: { customerId: customer.id, cause: r.restrictionCause, status: 'OPEN' },
+        select: { restrictionNo: true },
+      });
+      restrictionNo = restriction?.restrictionNo ?? null;
+    }
+
+    const { requestNo, externalActionId, applicantActionId } = deriveMaterialRequestIds(
+      r.email,
+      r.materialType,
+    );
+
+    // 幂等重铺：requestNo 是确定性派生的，同一条 fixture 键必只对应一行。
+    await prisma.materialRequest.deleteMany({ where: { requestNo } });
+    await prisma.materialRequest.create({
+      data: {
+        requestNo,
+        customerId: customer.id,
+        sumsubApplicantId: customer.sumsubApplicantId,
+        materialType: r.materialType,
+        levelName: r.levelName,
+        applicantActionId,
+        externalActionId,
+        orderDomain: null,
+        orderRef: null,
+        restrictionNo,
+        origin: 'SYSTEM_SCHEDULED',
+        status: 'PENDING_SUBMISSION',
+        reason: r.reason,
+        issuedBy: 'SEED',
+        traceId: `seed-${requestNo}`,
+      },
+    });
+    count += 1;
+  }
+  console.log(`Seeded ${count} material request rows.`);
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import {
   AlertTriangle,
-  CheckCircle2,
   ChevronRight,
   Clock3,
   QrCode,
@@ -528,276 +527,20 @@ const OnboardingVerificationDetails = ({
 };
 
 /* ────────────────────────────────────────────────────────────────
- *  MaterialRefreshVerificationMode
- *  Shown when the customer is APPROVED and arrives at /verification
- *  with ?cycleId=<id>. Fetches the refresh-cycle and a SDK token,
- *  then presents a QR for the mobile Sumsub flow.
- * ──────────────────────────────────────────────────────────────── */
-
-interface RefreshCycle {
-  id: string;
-  cycleNo: string;
-  materialType?: string;
-  status: string;
-  dueAt?: string | null;
-  mockActionId?: string | null;
-}
-
-interface RefreshSdkToken {
-  sdkToken?: string | null;
-  mockActionId?: string | null;
-}
-
-const MaterialRefreshVerificationMode = ({ cycleId }: { cycleId: string }) => {
-  const navigate = useNavigate();
-  const [cycle, setCycle] = useState<RefreshCycle | null>(null);
-  const [sdkInfo, setSdkInfo] = useState<RefreshSdkToken | null>(null);
-  const [loadingData, setLoadingData] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      setLoadingData(true);
-      setFetchError(null);
-      try {
-        const base = `${import.meta.env.VITE_API_URL}/onboarding/refresh-cycles/${cycleId}`;
-
-        const cycleRes = await customerFetch(base);
-        if (!cycleRes.ok) throw new Error('Failed to load refresh cycle.');
-        const cycleData = (await cycleRes.json()) as RefreshCycle;
-        setCycle(cycleData);
-
-        // sdk-token may 403 when cycle is already CLEARED/REJECTED — don't kick to login
-        try {
-          const tokenRes = await customerFetch(
-            `${base}/sdk-token`,
-            { method: 'POST', body: JSON.stringify({}) },
-            { redirectOnAuthFailure: false },
-          );
-          if (tokenRes.ok) {
-            const tokenData = (await tokenRes.json()) as RefreshSdkToken;
-            setSdkInfo(tokenData);
-          }
-        } catch {
-          // non-fatal: cycle might be CLEARED/PENDING_SUMSUB_REVIEW
-        }
-      } catch (e: unknown) {
-        setFetchError(getErrorMessage(e, 'Failed to load material refresh data.'));
-      } finally {
-        setLoadingData(false);
-      }
-    };
-    void load();
-  }, [cycleId]);
-
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    setSubmitError(null);
-    try {
-      const res = await customerFetch(
-        `${import.meta.env.VITE_API_URL}/onboarding/refresh-cycles/${cycleId}/submit`,
-        { method: 'POST', body: JSON.stringify({}) },
-      );
-      if (!res.ok) throw new Error('Submission failed.');
-      setCycle((prev) => prev ? { ...prev, status: 'PENDING_SUMSUB_REVIEW' } : prev);
-    } catch (e: unknown) {
-      setSubmitError(getErrorMessage(e, 'Failed to submit material.'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (loadingData) {
-    return (
-      <div className="flex h-screen items-center justify-center gap-3 bg-fx-obsidian">
-        <RefreshCw size={14} className="animate-spin text-fx-brass" />
-        <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-dust">
-          Loading review cycle
-        </span>
-      </div>
-    );
-  }
-
-  if (fetchError) {
-    return (
-      <div className="flex h-screen items-center justify-center px-6 bg-fx-obsidian">
-        <div className="max-w-md border border-fx-rust/30 bg-fx-rust/5 px-6 py-5">
-          <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-fx-rust mb-2">
-            § Error
-          </div>
-          <div className="font-mono text-[11px] text-fx-dune">{fetchError}</div>
-          <button
-            onClick={() => navigate('/profile')}
-            className="mt-6 fx-btn-ghost"
-          >
-            Back to profile
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const qrValue = sdkInfo?.sdkToken || sdkInfo?.mockActionId || cycleId;
-  const status = cycle?.status || '';
-
-  /* ── PENDING_SUMSUB_REVIEW: full-page "Under Review" card (matches onboarding WAIT_REVIEW) ── */
-  if (status === 'PENDING_SUMSUB_REVIEW') {
-    return (
-      <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian">
-        <div className="relative mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
-          <section className={cardClass}>
-            <FrameByline chapter="§ Material Refresh" label="Compliance review" />
-            <div className="flex items-start gap-6">
-              <ToneMark tone="brass">
-                <Clock3 size={20} />
-              </ToneMark>
-              <div className="flex-1">
-                <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
-                  Under Review
-                  <br />
-                  <span className="fx-serif italic text-fx-brass">in progress.</span>
-                </h2>
-                <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
-                  Your material submission has been sent to the verification provider and is now
-                  waiting for review. We will update the status once the result arrives.
-                </p>
-                <div className="mt-8 grid grid-cols-2 gap-4">
-                  {cycle?.cycleNo && (
-                    <div>
-                      <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Cycle</div>
-                      <div className="font-mono text-[11px] text-fx-sand tabular-nums">{cycle.cycleNo}</div>
-                    </div>
-                  )}
-                  <div>
-                    <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Material</div>
-                    <div className="font-mono text-[11px] text-fx-sand">{cycle?.materialType?.replace(/_/g, ' ') || '—'}</div>
-                  </div>
-                </div>
-                <SimulationModeNotice message="Waiting for admin to simulate webhook result (GREEN / RED) via Sumsub Events." />
-                <button onClick={() => navigate('/profile')} className="mt-8 fx-btn-ghost">
-                  ← Back to profile
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── CLEARED: success page ── */
-  if (status === 'CLEARED') {
-    return (
-      <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian">
-        <div className="relative mx-auto flex min-h-[calc(100vh-56px)] max-w-5xl flex-col items-center justify-center px-6 py-12">
-          <section className={cardClass}>
-            <FrameByline chapter="§ Material Refresh" label="Complete" />
-            <div className="flex items-start gap-6">
-              <ToneMark tone="sage">
-                <CheckCircle2 size={20} />
-              </ToneMark>
-              <div className="flex-1">
-                <h2 className="fx-display font-light text-[36px] leading-[1.05] text-fx-sand">
-                  Verified
-                  <br />
-                  <span className="fx-serif italic text-fx-sage">successfully.</span>
-                </h2>
-                <p className="mt-5 fx-serif text-[14px] leading-[1.7] text-fx-dune max-w-[460px]">
-                  Your material has been verified. Your compliance record has been renewed.
-                </p>
-                <button onClick={() => navigate('/profile')} className="mt-8 fx-btn-ghost">
-                  ← Back to profile
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── PENDING_CUSTOMER_EVIDENCE: QR scan page with mock submit link ── */
-  return (
-    <div className="relative min-h-[calc(100vh-56px)] w-full bg-fx-obsidian flex items-center justify-center px-6 py-12">
-      <div className="w-full max-w-[560px]">
-        <FrameByline chapter="§ Material Refresh" label={`Cycle ${cycle?.cycleNo || cycleId}`} />
-
-        <h1 className="fx-display font-light text-[38px] leading-[1.05] text-fx-sand mb-3">
-          Identity refresh required.
-        </h1>
-        <p className="fx-serif italic text-fx-brass text-[15px] leading-[1.6] mb-10">
-          Complete the scan below to renew your compliance record.
-        </p>
-
-        {/* QR panel */}
-        <div className="border border-fx-rule bg-fx-ink/40 px-10 py-10 flex flex-col items-center gap-6">
-          <div className="bg-white p-3">
-            <QRCodeSVG value={qrValue} size={180} />
-          </div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust text-center">
-            Scan with your mobile device to begin
-          </p>
-
-          {/* Metadata strip */}
-          <div className="w-full border-t border-fx-rule pt-5 grid grid-cols-2 gap-4">
-            {cycle?.cycleNo && (
-              <div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Cycle</div>
-                <div className="font-mono text-[11px] text-fx-sand tabular-nums">{cycle.cycleNo}</div>
-              </div>
-            )}
-            {cycle?.status && (
-              <div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Status</div>
-                <div className="font-mono text-[11px] text-fx-sand uppercase">{cycle.status.replace(/_/g, ' ')}</div>
-              </div>
-            )}
-            {(sdkInfo?.mockActionId || cycle?.mockActionId) && (
-              <div className="col-span-2">
-                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Mock action id</div>
-                <div className="font-mono text-[11px] text-fx-dune break-all">{sdkInfo?.mockActionId || cycle?.mockActionId}</div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Dev mock submit — small text link, matching onboarding pattern */}
-        <button
-          onClick={() => void handleSubmit()}
-          disabled={submitting}
-          className="mt-8 font-mono text-[10px] uppercase tracking-[0.18em] text-fx-dust underline-offset-4 hover:text-fx-brass hover:underline disabled:opacity-50"
-        >
-          {submitting ? 'Submitting…' : '[ Dev ] Mock submit completed on mobile'}
-        </button>
-        {submitError && (
-          <div className="mt-3 border border-fx-rust/30 bg-fx-rust/5 px-4 py-3 font-mono text-[11px] text-fx-rust">
-            {submitError}
-          </div>
-        )}
-
-        <div className="mt-4">
-          <button onClick={() => navigate('/profile')} className="fx-btn-ghost">
-            ← Back to profile
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/* ────────────────────────────────────────────────────────────────
  *  Verification — root component.
- *  Routes between MaterialRefreshVerificationMode (APPROVED + cycleId)
- *  and the existing onboarding / periodic-review flow.
+ *  Onboarding / CDD / EDD / periodic-review flow for customers who
+ *  have not reached ACTIVE lifecycle yet.
+ *
+ *  2026-08-18 材料请求账：本文件曾经还挂一个 MaterialRefreshVerificationMode
+ *  子组件（?cycleId= 触发），对接 /onboarding/refresh-cycles/:cycleId。
+ *  该端点已被 Task 12 物理删除，且自 Task 11 起没有任何地方再生成
+ *  ?cycleId= 链接（Profile 横幅已改指 /verification/:requestNo）——
+ *  子组件因此已删，材料重检认证统一走 MaterialVerification.tsx。
  * ──────────────────────────────────────────────────────────────── */
 
 const Verification = () => {
   const { profile, loading, error, refreshProfile } = useCustomerProfile();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const cycleId = searchParams.get('cycleId');
   const { enabled: simulationModeEnabled } = useSimulationMode();
 
   const [onboarding, setOnboarding] = useState<OnboardingSnapshot | null>(null);
@@ -1218,14 +961,10 @@ const Verification = () => {
     );
   if (!profile) return null;
 
-  // Route: ACTIVE customer with cycleId → material refresh mode
+  // ACTIVE customer landing on bare /verification → nothing to do here.
+  // (材料重检认证已迁到 /verification/:requestNo，见本文件头注释。)
   const lifecycle = String(profile.lifecycle || 'PROSPECT').toUpperCase();
-  if (lifecycle === 'ACTIVE' && cycleId) {
-    return <MaterialRefreshVerificationMode cycleId={cycleId} />;
-  }
-
-  // Route: ACTIVE customer with no cycleId → nothing to do here
-  if (lifecycle === 'ACTIVE' && !cycleId) {
+  if (lifecycle === 'ACTIVE') {
     return <Navigate to="/profile" replace />;
   }
 

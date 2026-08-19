@@ -262,17 +262,19 @@ export class AdminMaterialManagementController {
       }
 
       case 'GREEN': {
-        // Simulate customer completing refresh successfully
+        // Simulate customer completing refresh successfully.
+        // 2026-08-18 修回归：cycle 定位其旧字段自 Task 11 起永远不再被写入
+        // （T-30/T-0 建行改走 issuer），旧写法靠该字段兜底一个占位符查询，
+        // 恒查不到任何周期，本按钮曾静默 no-op（该字段已随 Task 12 物理删除）。
+        // 现在这里已经拿着 cycle 本尊，直接按 id 驱动完成逻辑，不用再猜
+        // Sumsub 侧 actionId。
         const cycle = await this.prisma.materialRefreshCycle.findFirst({
           where: { holdingId, status: 'PENDING_CUSTOMER_EVIDENCE' },
         });
         if (!cycle) {
           return { ok: false, message: 'No active cycle to complete' };
         }
-        await this.materialRefreshService.handleSumsubActionResult({
-          actionId: cycle.sumsubActionId || 'mock-action-simulate',
-          reviewResult: { reviewAnswer: 'GREEN' },
-        });
+        await this.materialRefreshService.completeCycleFromMaterialRequest(cycle.id, 'APPROVED');
         return { ok: true, stage: 'CLEARED', message: 'Customer refreshed material successfully' };
       }
 

@@ -439,7 +439,7 @@ const Withdraw = () => {
   return (
     <div className="space-y-6">
       {/* 认证入口横幅：置顶跨全宽（业主拍板：入口放 swap/withdraw 页面顶部）。
-          显隐完全由后端 /client/me/pending-action 决定，前端零推导。 */}
+          显隐由 /client/me/material-requests 决定，按 G6 过滤+分档（PendingActionBanner.tsx）。 */}
       <PendingActionBanner />
       <RestrictionBanner />
       <div>

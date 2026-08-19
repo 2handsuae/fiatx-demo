@@ -11,6 +11,7 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import {
   RESTRICTION_CAUSE_POLICY,
   RestrictionCause,
+  RestrictionCausePolicy,
   RestrictionReleasePolicy,
   RestrictionScope,
   RestrictionVisibility,
@@ -62,7 +63,16 @@ export class CustomerRestrictionsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async open(input: OpenRestrictionInput): Promise<{ restrictionNo: string; created: boolean }> {
+  /**
+   * @param tx 传了外部事务（如 material-request-issuer 的落行事务）就在其内跑，不再
+   * 另开一层 —— SQLite 单写者模型下嵌套 $transaction 会等锁甚至报错，而且贴便签必须
+   * 与调用方的其它写入同生共死（不许出现「行落了、便签没贴上」的半成品）。不传则照旧
+   * 自己开一个事务，行为与此前逐字一致。
+   */
+  async open(
+    input: OpenRestrictionInput,
+    tx?: Record<string, any>,
+  ): Promise<{ restrictionNo: string; created: boolean }> {
     const policy = RESTRICTION_CAUSE_POLICY[input.cause];
     if (!policy) throw new BadRequestException(`Unknown restriction cause: ${input.cause}`);
 
@@ -75,54 +85,11 @@ export class CustomerRestrictionsService {
 
     // 幂等查 + 插入必须同处一个事务：分开做的话两个并发写入方（到期 cron 与 admin 手工）
     // 会各自查到空、各贴一张，(customerId, cause, caseRef) 就不再是「最多一条 OPEN」。
-    const outcome = await this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customerMain.findUnique({
-        where: { id: input.customerId },
-        select: { id: true, customerNo: true },
-      });
-      if (!customer) throw new NotFoundException(`Customer not found: ${input.customerId}`);
-
-      // caseRef 为 null 的手工便签不去重 —— 运营可对同一客户开多张 PENDING_DOCUMENT，各要一份材料
-      if (caseRef !== null) {
-        const existing = await tx.customerRestriction.findFirst({
-          where: { customerId: input.customerId, cause: input.cause, caseRef, status: 'OPEN' },
-        });
-        if (existing) {
-          const siblings = await tx.customerRestriction.findMany({
-            where: { restrictionNo: existing.restrictionNo },
-            orderBy: { scope: 'asc' },
-          });
-          return {
-            customerNo: customer.customerNo,
-            restrictionNo: existing.restrictionNo,
-            traceId: existing.traceId,
-            scopes: siblings.map((row) => row.scope as RestrictionScope),
-            created: false,
-          };
-        }
-      }
-
-      const restrictionNo = generateReferenceNo('RST');
-      const traceId = `CUSTOMER_RESTRICTION:${randomUUID()}`;
-      await tx.customerRestriction.createMany({
-        data: scopes.map((scope) => ({
-          restrictionNo,
-          customerId: input.customerId,
-          scope,
-          cause: input.cause,
-          // R1：visibility / releasePolicy 查表落库，入参永远碰不到这两列
-          visibility: policy.visibility,
-          releasePolicy: policy.releasePolicy,
-          status: 'OPEN',
-          reason: input.reason,
-          caseRef,
-          openedBy: input.openedBy,
-          traceId,
-        })),
-      });
-
-      return { customerNo: customer.customerNo, restrictionNo, traceId, scopes, created: true };
-    });
+    const outcome = tx
+      ? await this.openWithin(tx, input, policy, scopes, caseRef)
+      : await this.prisma.$transaction((innerTx: Record<string, any>) =>
+          this.openWithin(innerTx, input, policy, scopes, caseRef),
+        );
 
     const auditShell = {
       entityType: AuditEntityTypes.CUSTOMER,
@@ -148,7 +115,7 @@ export class CustomerRestrictionsService {
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
       result: outcome.created ? AuditResult.SUCCESS : AuditResult.SKIPPED,
-    });
+    }, tx);
 
     // CUSTOMER_FROZEN 此前零写入方，本轮由制裁便签激活
     if (outcome.created && input.cause === 'SANCTION') {
@@ -156,7 +123,7 @@ export class CustomerRestrictionsService {
         ...auditShell,
         action: AuditActions.CUSTOMER_FROZEN,
         result: AuditResult.SUCCESS,
-      });
+      }, tx);
     }
 
     // 只有「卡住全部能力」的便签才广播——三个交易域订阅它去冻在途单。
@@ -175,9 +142,75 @@ export class CustomerRestrictionsService {
     return { restrictionNo: outcome.restrictionNo, created: outcome.created };
   }
 
+  /** open() 的事务体：幂等查 + 插入。抽出来是为了不管事务是外部传入的还是自己开的，跑同一份逻辑。 */
+  private async openWithin(
+    tx: Record<string, any>,
+    input: OpenRestrictionInput,
+    policy: RestrictionCausePolicy,
+    scopes: RestrictionScope[],
+    caseRef: string | null,
+  ): Promise<{
+    customerNo: string;
+    restrictionNo: string;
+    traceId: string;
+    scopes: RestrictionScope[];
+    created: boolean;
+  }> {
+    const customer = await tx.customerMain.findUnique({
+      where: { id: input.customerId },
+      select: { id: true, customerNo: true },
+    });
+    if (!customer) throw new NotFoundException(`Customer not found: ${input.customerId}`);
+
+    // caseRef 为 null 的手工便签不去重 —— 运营可对同一客户开多张 PENDING_DOCUMENT，各要一份材料
+    if (caseRef !== null) {
+      const existing = await tx.customerRestriction.findFirst({
+        where: { customerId: input.customerId, cause: input.cause, caseRef, status: 'OPEN' },
+      });
+      if (existing) {
+        const siblings = await tx.customerRestriction.findMany({
+          where: { restrictionNo: existing.restrictionNo },
+          orderBy: { scope: 'asc' },
+        });
+        return {
+          customerNo: customer.customerNo,
+          restrictionNo: existing.restrictionNo,
+          traceId: existing.traceId,
+          scopes: siblings.map((row: CustomerRestrictionRecord) => row.scope as RestrictionScope),
+          created: false,
+        };
+      }
+    }
+
+    const restrictionNo = generateReferenceNo('RST');
+    const traceId = `CUSTOMER_RESTRICTION:${randomUUID()}`;
+    await tx.customerRestriction.createMany({
+      data: scopes.map((scope) => ({
+        restrictionNo,
+        customerId: input.customerId,
+        scope,
+        cause: input.cause,
+        // R1：visibility / releasePolicy 查表落库，入参永远碰不到这两列
+        visibility: policy.visibility,
+        releasePolicy: policy.releasePolicy,
+        status: 'OPEN',
+        reason: input.reason,
+        caseRef,
+        openedBy: input.openedBy,
+        traceId,
+      })),
+    });
+
+    return { customerNo: customer.customerNo, restrictionNo, traceId, scopes, created: true };
+  }
+
   /**
    * 撕便签：以 restrictionNo 为单位，同号全部 OPEN 行一个事务里一起置 RELEASED。
    * 已经 RELEASED 视为幂等成功（重投的审批事件、自动撕与人工撕撞车都会走到这里）。
+   *
+   * @param tx 传了外部事务（如 material-request-review 的落章事务）就在其内跑，不再
+   * 另开一层 —— 道理与 open() 的同名参数一致：撕便签必须与调用方的其它写入同生共死。
+   * 不传则照旧自己开一个事务，行为与此前逐字一致。
    */
   async release(
     restrictionNo: string,
@@ -187,37 +220,13 @@ export class CustomerRestrictionsService {
       releaseApprovalNo?: string;
       releaseOrderRef?: string;
     },
+    tx?: Record<string, any>,
   ): Promise<void> {
-    const outcome = await this.prisma.$transaction(async (tx) => {
-      const rows = await tx.customerRestriction.findMany({
-        where: { restrictionNo },
-        orderBy: { scope: 'asc' },
-      });
-      if (rows.length === 0) throw new NotFoundException(`Restriction not found: ${restrictionNo}`);
-
-      const openRows = rows.filter((row) => row.status === 'OPEN');
-      if (openRows.length === 0) {
-        return { released: false, rows: openRows, customerNo: null as string | null };
-      }
-
-      const customer = await tx.customerMain.findUnique({
-        where: { id: rows[0].customerId },
-        select: { customerNo: true },
-      });
-      await tx.customerRestriction.updateMany({
-        where: { restrictionNo, status: 'OPEN' },
-        data: {
-          status: 'RELEASED',
-          releasedAt: new Date(),
-          releasedBy: opts.releasedBy,
-          releaseMode: opts.releaseMode,
-          releaseApprovalNo: opts.releaseApprovalNo ?? null,
-          releaseOrderRef: opts.releaseOrderRef ?? null,
-        },
-      });
-
-      return { released: true, rows: openRows, customerNo: customer?.customerNo ?? null };
-    });
+    const outcome = tx
+      ? await this.releaseWithin(tx, restrictionNo, opts)
+      : await this.prisma.$transaction((innerTx: Record<string, any>) =>
+          this.releaseWithin(innerTx, restrictionNo, opts),
+        );
 
     if (!outcome.released) return;
 
@@ -247,18 +256,61 @@ export class CustomerRestrictionsService {
     await this.auditLogsService.recordSystem({
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_CLEARED,
-    });
+    }, tx);
 
     if (first.cause === 'SANCTION') {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_UNFROZEN,
-      });
+      }, tx);
     }
   }
 
-  async findByNo(restrictionNo: string): Promise<RestrictionRow | null> {
-    const rows = await this.prisma.customerRestriction.findMany({
+  /** release() 的事务体：查行 + 幂等短路 + 置 RELEASED。抽出来是为了不管事务是外部传入的还是自己开的，跑同一份逻辑。 */
+  private async releaseWithin(
+    tx: Record<string, any>,
+    restrictionNo: string,
+    opts: {
+      releasedBy: string;
+      releaseMode: 'AUTO' | 'MANUAL';
+      releaseApprovalNo?: string;
+      releaseOrderRef?: string;
+    },
+  ): Promise<{ released: boolean; rows: CustomerRestrictionRecord[]; customerNo: string | null }> {
+    const rows = await tx.customerRestriction.findMany({
+      where: { restrictionNo },
+      orderBy: { scope: 'asc' },
+    });
+    if (rows.length === 0) throw new NotFoundException(`Restriction not found: ${restrictionNo}`);
+
+    const openRows = rows.filter((row: CustomerRestrictionRecord) => row.status === 'OPEN');
+    if (openRows.length === 0) {
+      return { released: false, rows: openRows, customerNo: null };
+    }
+
+    const customer = await tx.customerMain.findUnique({
+      where: { id: rows[0].customerId },
+      select: { customerNo: true },
+    });
+    await tx.customerRestriction.updateMany({
+      where: { restrictionNo, status: 'OPEN' },
+      data: {
+        status: 'RELEASED',
+        releasedAt: new Date(),
+        releasedBy: opts.releasedBy,
+        releaseMode: opts.releaseMode,
+        releaseApprovalNo: opts.releaseApprovalNo ?? null,
+        releaseOrderRef: opts.releaseOrderRef ?? null,
+      },
+    });
+
+    return { released: true, rows: openRows, customerNo: customer?.customerNo ?? null };
+  }
+
+  /** @param tx 传了就用它读（例如 openRestriction 在 open() 的同一事务里读回刚贴的便签），不传照旧读事务外的 base client。 */
+  async findByNo(restrictionNo: string, tx?: Record<string, any>): Promise<RestrictionRow | null> {
+    const client = (tx ?? this.prisma) as Record<string, any>;
+    const rows = await client.customerRestriction.findMany({
       where: { restrictionNo },
       orderBy: { scope: 'asc' },
     });
@@ -286,13 +338,17 @@ export class CustomerRestrictionsService {
    * 幂等键的读侧。caseRef 传具体值 = 精确匹配那张便签；传 null = 不限 caseRef、
    * 取该 cause 下最早一张 OPEN —— 自动撕的触发方（如 Sumsub GREEN 回调）往往只知道
    * cause，不知道当初贴的时候挂的是哪个业务号。
+   *
+   * @param tx 传了就用它读（autoRelease 在外部事务里读回便签时用），不传照旧读事务外的 base client。
    */
   async findOpenByCause(
     customerId: string,
     cause: RestrictionCause,
     caseRef: string | null,
+    tx?: Record<string, any>,
   ): Promise<RestrictionRow | null> {
-    const hit = await this.prisma.customerRestriction.findFirst({
+    const client = (tx ?? this.prisma) as Record<string, any>;
+    const hit = await client.customerRestriction.findFirst({
       where: {
         customerId,
         cause,
@@ -302,7 +358,7 @@ export class CustomerRestrictionsService {
       orderBy: { openedAt: 'asc' },
     });
     if (!hit) return null;
-    return this.findByNo(hit.restrictionNo);
+    return this.findByNo(hit.restrictionNo, tx);
   }
 
   /** 同 restrictionNo 的多行折成一行，scope 收进 scopes（对外一律以便签为单位） */

@@ -30,6 +30,10 @@ export const PERMISSIONS = {
   CUSTOMER_RESTRICTIONS_RELEASE:
     'api.post.admin_customers_customerno_restrictions_restrictionno_release',
 
+  MATERIAL_REQUESTS_READ: 'api.get.admin_customers_customerno_material_requests',
+  MATERIAL_REQUESTS_WRITE: 'api.post.admin_customers_customerno_material_requests',
+  MATERIAL_REQUESTS_BY_ORDER_READ: 'api.get.admin_material_requests_by_order_orderdomain_orderref',
+
   SWAP_QUOTES_READ: 'api.get.admin_swap_transactions_quotes',
   SWAP_QUOTES_DETAIL_READ: 'api.get.admin_swap_transactions_quotes_id',
   SWAP_TRANSACTIONS_READ: 'api.get.admin_swap_transactions',

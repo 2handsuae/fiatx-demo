@@ -301,6 +301,18 @@ interface ApprovalActorContext {
 
 ---
 
+## 材料请求账 / Material Request（材料请求账）
+
+**定义**：记录"要客户交材料"这一事实的账，一行 = 一次下发（`material_requests` 表）。取代此前散落在四个域各自表 / 列里的五套做法（充值 / 提现 applicant action 子表各按 seq 存一份、兑换软线拒挤在 `customer_main.pendingAction*` 三列、材料重检自己的 `material_refresh_cycles.sumsubAction*` 列）。与限制账是一对：限制账记录"这个人被摁住了什么"，材料账记录"他交什么才能松开"——同一次下发可选挂上一张便签（写 `restrictionNo`），也可以不挂（纯提醒，黄档）。
+
+**使用场景**：客户被要求补材料时（KYT 补料 / 证件到期 / 运营手工下发）建一行；绑不绑具体订单看 `orderDomain`+`orderRef`（同空同非空）。订单进终态时，挂了限制的行只解绑（`orderDomain`/`orderRef` 置空，客户级横幅仍留着），没挂限制的行直接作废（`CANCELLED`，两端都不再显示）。裁决走 `SUBMITTED → APPROVED`（GREEN，唯一会自动撕便签的分支）、`SUBMITTED → PENDING_SUBMISSION`（RED·RETRY，同一个 `applicantActionId`/`externalActionId` 原样重交，便签不撕）、`SUBMITTED → REJECTED`（RED·FINAL，终态，便签同样不撕）。RED 必须显式区分 RETRY / FINAL——这是 Sumsub 的真实语义，不允许含糊成一种。到期升档等场景可以在**同一行**上后补 `restrictionNo`（不新开行、不重新下发）。
+
+**使用场景（客户面）**：`applicantActionId`（Sumsub 侧 id）与 `externalActionId`（铸 SDK token 的钥匙）只存在于服务端与审计，任何客户面响应体都不允许出现这两个字段名或其字面值——铸 token 挪在 `MaterialRequestsService.mintSessionToken()` 里完成，客户面 controller 源码层面用静态扫描守住零豁免。
+
+**相关概念**：限制账、requestNo、externalActionId、applicantActionId、reviewRejectType、restrictionNo
+
+---
+
 ## cause（限制原因）
 
 **定义**：限制账的**唯一自变量**，闭集 7 值：`SANCTION`、`ADMIN_SUSPENSION`、`MATERIAL_EXPIRED`、`TIER_UPGRADE_PENDING`、`KYT_REJECTED_SOFT`、`KYT_REJECTED_HARD`、`PENDING_DOCUMENT`。默认范围、可见性、解除路径三者全部由 `cause` 查 `RESTRICTION_CAUSE_POLICY` 推出，**不由人工填写**。
@@ -347,6 +359,7 @@ interface ApprovalActorContext {
 | `AUD` | Audit Log Event（审计日志事件） | `auditNo` |
 | `EVP` | Audit Evidence Package（审计证据包） | `packageNo` |
 | `RST` | Customer Restriction（客户限制账） | `restrictionNo` |
+| `MRQ` | Material Request（材料请求账） | `requestNo` |
 
 > 注意：历史文档中曾使用 `AEP` 前缀描述证据包，代码中实际前缀为 `EVP`，以代码为准。
 

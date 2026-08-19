@@ -18,6 +18,21 @@ describe('WITHDRAW_VERDICT_BUTTONS', () => {
     expect(WITHDRAW_VERDICT_BUTTONS.V3_AWAIT_USER_PEP.verdict.applicantActions?.length).toBeGreaterThan(0);
   });
 
+  // 终审 Important #4：同 deposit-sumsub 的姊妹用例 —— externalActionId 全表
+  // @unique，固定字面量会在两笔不同订单先后点同一个按钮时 P2002。
+  it('② ⑩ 的 applicantActions 每次读都现铸，连续两次访问 externalActionId 不同', () => {
+    const first = WITHDRAW_VERDICT_BUTTONS.V2_AWAIT_USER.verdict.applicantActions;
+    const second = WITHDRAW_VERDICT_BUTTONS.V2_AWAIT_USER.verdict.applicantActions;
+    expect(first?.[0].externalActionId).toBeTruthy();
+    expect(first?.[0].externalActionId).not.toBe(second?.[0].externalActionId);
+
+    const multiFirst = WITHDRAW_VERDICT_BUTTONS.V10_AWAIT_USER_MULTI.verdict.applicantActions;
+    const multiSecond = WITHDRAW_VERDICT_BUTTONS.V10_AWAIT_USER_MULTI.verdict.applicantActions;
+    expect(multiFirst).toHaveLength(3);
+    const allIds = [...(multiFirst ?? []), ...(multiSecond ?? [])].map((a) => a.externalActionId);
+    expect(new Set(allIds).size).toBe(allIds.length);
+  });
+
   // 提现的处置 tag 词表与充值不同:WithdrawKytVerdictHandler 的 DISPO_TAGS =
   // {FROZEN_BY_MLRO, REJECT_REFUND}(没有充值那边的 RETURN_TO_SENDER)。
   it('处置 tag 逐个对上 WithdrawKytVerdictHandler 的词表', () => {

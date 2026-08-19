@@ -40,7 +40,9 @@ import {
 } from '../../asset-treasury/transaction-limits/transaction-limit-gate.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
-import { CustomerPendingActionService } from '../../identity/customers/customer-pending-action.service';
+import { CustomersService } from '../../identity/customers/customers.service';
+import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
+import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
 
 /**
  * Payload of `funds_order.status.changed` — emitted by FundsOrderService on
@@ -185,8 +187,10 @@ export class SwapWorkflowService {
     private readonly limitGateService: TransactionLimitGateService,
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly customerRestrictionsService: CustomerRestrictionsService,
-    private readonly customerPendingActionService: CustomerPendingActionService,
+    private readonly customersService: CustomersService,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly materialRequests: MaterialRequestsService,
+    private readonly materialRequestIssuer: MaterialRequestIssuerService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -741,10 +745,14 @@ export class SwapWorkflowService {
    * or corrupt state):
    *   - customerRestrictionsService.add is dedup'd per capability (Task 1) —
    *     re-adding SWAP/WITHDRAW is a no-op on repeat calls.
-   *   - customerPendingActionService.set is an unconditional overwrite of two
-   *     scalar columns — calling it twice with the same input is a no-op,
-   *     and calling it with a different input (e.g. a later, more severe
-   *     verdict) correctly replaces rather than accumulates.
+   *   - 2026-08-17 材料请求账：materialRequestIssuer.register() is NOT
+   *     naturally idempotent — externalActionId is @unique, so re-registering
+   *     an action already on the books throws P2002 instead of no-op'ing like
+   *     the old customerPendingActionService.set() did. The register loop
+   *     below dedupes against listLiveByOrder() first (same guard
+   *     deposit/withdraw's applicant-actions services use) so a webhook
+   *     redelivery / ingestion retry after a partial failure can't wedge the
+   *     swap permanently.
    *
    * Two situations, and telling them apart correctly is the whole point:
    *   - soft line: Sumsub attached ≥1 applicantActions and no SANCTION tag —
@@ -756,10 +764,10 @@ export class SwapWorkflowService {
    *     criminal offence in most AML regimes). pendingAction is stored null.
    *
    * The tipping-off decision is made exactly ONCE, here, on the write side.
-   * CustomerPendingActionService.get() (the read side, consumed by the
-   * client-facing endpoint) is a dumb accessor with no conditional logic of
-   * its own — see that service's class comment for why the decision must
-   * never be re-derived on the read side.
+   * The client-facing read side (`MaterialRequestsClientController.listMine()`,
+   * backed by `materialRequests.listLiveByCustomer()`) is a dumb accessor with
+   * no conditional logic of its own — it only ever returns what got
+   * registered here; the decision must never be re-derived on the read side.
    *
    * Review Fix 2 (Important): a single swap's own tags/actions are not
    * enough to decide exposure — a customer can have two swaps in
@@ -781,8 +789,8 @@ export class SwapWorkflowService {
    * whether the customer's NEXT rejection will. Stamping the sticky marker
    * there too would permanently silence a customer whose first rejection
    * simply happened to carry no applicantActions, with no path back (see
-   * CustomerPendingActionService — the marker has no clear/reset entry
-   * point on purpose).
+   * `CustomersService.markHardLineDisposition` — the marker has no
+   * clear/reset entry point on purpose).
    *
    * Review Fix 1 (Important): this entire body is wrapped in try/catch. A
    * throw here (SQLite lock, transient DB error, a service throwing
@@ -821,7 +829,7 @@ export class SwapWorkflowService {
 
       // Review Fix 2: 跨订单持久化 —— 查这个客户是否曾经被任意一笔 swap 硬线
       // 过。一旦命中过，永久不再暴露，不管这次裁决本身是软线还是硬线。
-      const alreadyHardLined = await this.customerPendingActionService.hasHardLineDisposition(
+      const alreadyHardLined = await this.customersService.hasHardLineDisposition(
         swap.ownerId,
       );
       const exposeToCustomer = !alreadyHardLined && !isHardLineThisVerdict;
@@ -856,21 +864,63 @@ export class SwapWorkflowService {
           openedBy: 'system',
         });
 
-      // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个
-      // 客户从未被硬线过」才暴露入口（exposeToCustomer 已在上方算好）。
-      // 无条件调用 set（而非只在暴露时才调用），这样硬线裁决也会把客户此前
-      // 可能留下的软线 pendingAction 一并清空，不留旧入口。
-      // Finding 3 (Minor, 终审): sticky marker keyed on hasSanction only — see
-      // the class-comment note above. isHardLineThisVerdict still decides
-      // exposure for THIS verdict (no-actions correctly exposes nothing here
-      // too), it just must not be what makes the silence permanent.
-      await this.customerPendingActionService.set(
-        swap.ownerId,
-        exposeToCustomer
-          ? { externalActionId: actions[0]!.externalActionId, reason: 'KYT_REJECTED', submittedAt: null }
-          : null,
-        hasSanction,
-      );
+      // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个客户
+      // 从未被硬线过」才登记补料入口（exposeToCustomer 已在上方算好）。
+      //
+      // 2026-08-17 材料请求账：从 customerPendingActionService.set() 换成逐条
+      // 登记材料账。旧写法是 customer_main 上一个**单值指针**，只取
+      // actions[0]，同一客户第二笔单软线拒还会把第一笔整个盖掉 —— 那正是本轮
+      // 要治的病。现在一条 action 一行，各交各的、各撕各的。
+      //
+      // ⚠️ 本段必须留在上面 open() 之后：登记材料请求 = 暴露入口，
+      // fail-safe 顺序是 load-bearing 的（见上方注释），不要合并或调换。
+      if (exposeToCustomer) {
+        const customer = await this.prisma.customerMain.findUnique({
+          where: { id: swap.ownerId },
+          select: { id: true, sumsubApplicantId: true },
+        });
+        if (customer?.sumsubApplicantId) {
+          // register() 不像旧 set() 天然幂等 —— externalActionId 是材料账的
+          // @unique 键，重复登记同一条会撞 P2002 而不是静默覆盖。先查一次这笔
+          // swap 名下已登记的活行，跳过已在账上的 action，防止 webhook 重投 /
+          // ingestion 重试在部分失败后把这个 swap 卡死在永久 P2002 循环里
+          // （deposit/withdraw 的 applicant-actions service 是同一个防护）。
+          const live = await this.materialRequests.listLiveByOrder('SWAP', swap.swapNo ?? '');
+          const liveExternalIds = new Set(live.map((r) => r.externalActionId));
+          for (const action of actions) {
+            if (liveExternalIds.has(action.externalActionId)) continue;
+            await this.materialRequestIssuer.register({
+              customerId: customer.id,
+              sumsubApplicantId: customer.sumsubApplicantId,
+              materialType: 'SOURCE_OF_FUNDS',
+              levelName: 'wave3-action-sof-refresh',
+              applicantActionId: action.applicantActionId,
+              externalActionId: action.externalActionId,
+              orderDomain: 'SWAP',
+              orderRef: swap.swapNo,
+              origin: 'SUMSUB_PUSHED',
+              reason: `Swap ${swap.swapNo} KYT rejected — additional materials required`,
+              issuedBy: 'SYSTEM',
+              // 便签上面已经开好了（restrictionNo 在手），这里不重复开 ——
+              // register 的 restrict=false 表示「不要再开一张」，不表示「不摁人」。
+              // existingRestrictionNo 把已经开好的那张便签接进这一行，否则
+              // restrictionNo 恒为 null，GREEN 复核时 autoRelease 永远不会被调用
+              // （2026-08-18 修复：客户交齐材料后限制原地不动、永久卡死）。
+              restrict: false,
+              existingRestrictionNo: restrictionNo,
+              actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
+            });
+          }
+        }
+      }
+      // 硬线（含制裁）：一条材料请求都不登记 —— 客户端因此结构上没有任何入口。
+      // 旧写法这里是 set(null) 把可能残留的软线指针清空；单指针没了之后不需要
+      // 这一步，因为软线登记的是**属于那笔单**的行，不会被这笔硬线单波及。
+      // 真要收口历史入口，靠的是 hardLineDispositionedAt 这个 sticky 标记
+      // （下面仍然照常盖章），而不是清指针。
+      if (hasSanction) {
+        await this.customersService.markHardLineDisposition(swap.ownerId);
+      }
 
       await this.auditLogsService.recordSystem({
         action: AuditActions.SWAP_KYT_REJECTED_DISPOSED,
@@ -896,8 +946,12 @@ export class SwapWorkflowService {
           actionCount: actions.length,
           exposeToCustomer,
           alreadyHardLined,
-          // Review Fix 4 (Minor): which action was actually shown, when one was.
-          externalActionId: exposeToCustomer ? actions[0]!.externalActionId : undefined,
+          // Review Fix 4 (Minor), amended 2026-08-18: record every action shown,
+          // not just actions[0] — the single-pointer bug this task fixes was an
+          // instance of exactly that pattern, so this audit metadata must not
+          // repeat it (an investigator reconstructing this decision needs the
+          // full list, not just the first row).
+          actionIds: exposeToCustomer ? actions.map((a) => a.externalActionId) : undefined,
           restrictionNo,
           restrictionCause,
           restrictionCreated,

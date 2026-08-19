@@ -28,6 +28,7 @@ import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import { getDepositStatusMeta } from '../utils/depositStatusMap';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { useSimulationMode } from '../utils/simulationMode';
+import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
@@ -607,6 +608,13 @@ const DepositTransactionDetail = () => {
           {/* 8. Status History */}
           <DetailCard title="Status History" columns={1}>
             <StatusTimeline historyJson={data.statusHistory} />
+          </DetailCard>
+
+          {/* 9. Verification Requests — same component + endpoint as the
+              customer detail page's Verification Requests section, `mode="order"`
+              scopes it to this deposit's still-live rows (G6). */}
+          <DetailCard title="Verification Requests" columns={1}>
+            <MaterialRequestPanel mode="order" orderDomain="DEPOSIT" orderRef={data.depositNo} />
           </DetailCard>
 
           {/* 10. Simulation (demo only — gated by the local simulation-mode

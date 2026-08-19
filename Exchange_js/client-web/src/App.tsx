@@ -10,14 +10,12 @@ const CustomerLogin = lazy(() => import('./pages/CustomerLogin'));
 const CustomerRegister = lazy(() => import('./pages/CustomerRegister'));
 const CustomerProfile = lazy(() => import('./pages/CustomerProfile'));
 const Verification = lazy(() => import('./pages/Verification'));
+const MaterialVerification = lazy(() => import('./pages/MaterialVerification'));
 const WalletManagement = lazy(() => import('./pages/WalletManagement'));
 const Deposit = lazy(() => import('./pages/Deposit'));
 const DepositDetail = lazy(() => import('./pages/DepositDetail'));
-const DepositVerification = lazy(() => import('./pages/DepositVerification'));
 const Withdraw = lazy(() => import('./pages/Withdraw'));
 const WithdrawDetail = lazy(() => import('./pages/WithdrawDetail'));
-const PendingVerification = lazy(() => import('./pages/PendingVerification'));
-const WithdrawVerification = lazy(() => import('./pages/WithdrawVerification'));
 const Swap = lazy(() => import('./pages/Swap'));
 const DashboardOverview = lazy(() => import('./pages/DashboardOverview'));
 const TransactionHistory = lazy(() => import('./pages/TransactionHistory'));
@@ -50,12 +48,10 @@ function App() {
                  <Route path="/wallet" element={<AuthGuard><WalletManagement /></AuthGuard>} />
                  <Route path="/deposit" element={<AuthGuard><Deposit /></AuthGuard>} />
                  <Route path="/deposit/:depositNo" element={<AuthGuard><DepositDetail /></AuthGuard>} />
-                 <Route path="/deposit/:depositNo/verification/:seq" element={<AuthGuard><DepositVerification /></AuthGuard>} />
                  <Route path="/swap" element={<AuthGuard><Swap /></AuthGuard>} />
                  <Route path="/withdraw" element={<AuthGuard><Withdraw /></AuthGuard>} />
                  <Route path="/withdraw/:withdrawNo" element={<AuthGuard><WithdrawDetail /></AuthGuard>} />
-                 <Route path="/withdraw/:withdrawNo/verification/:seq" element={<AuthGuard><WithdrawVerification /></AuthGuard>} />
-                 <Route path="/verification/pending" element={<AuthGuard><PendingVerification /></AuthGuard>} />
+                 <Route path="/verification/:requestNo" element={<AuthGuard><MaterialVerification /></AuthGuard>} />
                  <Route path="/transactions" element={<AuthGuard><TransactionHistory /></AuthGuard>} />
                  <Route path="/withdrawal-addresses" element={<AuthGuard><WithdrawalAddresses /></AuthGuard>} />
 

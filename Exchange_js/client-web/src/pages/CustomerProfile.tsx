@@ -2,7 +2,6 @@ import { useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
 import { ProfileBannerStack } from '../components/ProfileBannerStack';
-import { PendingActionBanner } from '../components/PendingActionBanner';
 import {
   isCustomerApprovedForAccess,
   isCustomerFinalApprovalPending,
@@ -187,10 +186,12 @@ const CustomerProfile = () => {
     <div className="space-y-10">
       {/* ── Compliance banners ─────────────────────────────────── */}
       <ProfileBannerStack />
-      {/* 认证入口横幅：被限制的客户会被 AuthGuard 弹到本页——入口必须在他
-          实际能到达的页面上，否则后端派发了 action 客户也永远看不见。
-          （Swap 页顶部同样挂载；两处同一组件、同一后端判定，互不冲突。） */}
-      <PendingActionBanner />
+      {/* 2026-08-18 材料请求账：这里曾经还挂一个 <PendingActionBanner />。
+          它现在和 ProfileBannerStack 读的是同一个底层数据源
+          （材料请求账，按 G6 过滤），继续两个都挂会在本页把每一行材料请求
+          重复渲染两遍。PendingActionBanner 保留给 Swap/Withdraw 页——那两页
+          没有 ProfileBannerStack，需要它做入口；Profile 页已经被
+          ProfileBannerStack 覆盖，不再需要它。 */}
 
       {/* ── Compact header ─────────────────────────────────────── */}
       <header>

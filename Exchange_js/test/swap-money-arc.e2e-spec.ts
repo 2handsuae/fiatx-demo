@@ -138,13 +138,15 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     customerNo = customer.customerNo;
 
     // Reset state left by a previous run of this suite against a persistent
-    // worktree DB — restrictions/pendingAction/hardLine are idempotent to
-    // reset (no other suite touches this customer).
+    // worktree DB — restrictions/hardLine are idempotent to reset (no other
+    // suite touches this customer).
     await prisma.customerMain.update({
       where: { id: customerId },
       // restrictions JSON 列已随三轴删除；便签现在是 customer_restrictions 独立表，
-      // 由下面 deleteMany 清场，不再靠给客户列写 '[]' 复位。
-      data: { pendingActionExternalId: null, pendingActionReason: null, hardLineDispositionedAt: null },
+      // 由下面 deleteMany 清场，不再靠给客户列写 '[]' 复位。pendingAction* 三列
+      // 已随 Task 12 物理删除，客户的软线痕迹现在只活在材料账里，本单测客户不
+      // 经过那条链路，不需要清场。
+      data: { hardLineDispositionedAt: null },
     });
 
     const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED' } });

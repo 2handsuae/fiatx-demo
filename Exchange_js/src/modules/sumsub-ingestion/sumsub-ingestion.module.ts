@@ -15,6 +15,7 @@ import { SumsubIngestionAdminController } from './sumsub-ingestion-admin.control
 import { AdminSumsubSimulationController } from './admin-sumsub-simulation.controller';
 import { SumsubRetryService } from './sumsub-ingestion-retry.service';
 import { CustomersModule } from '../identity/customers/customers.module';
+import { MaterialRequestsModule } from '../identity/material-requests/material-requests.module';
 @Module({
   imports: [
     // Task 7：本模块的自动写入点改走限制账（CustomerRestrictionsService /
@@ -41,6 +42,11 @@ import { CustomersModule } from '../identity/customers/customers.module';
     // SwapTransactionsModule → DepositSumsubModule → SumsubIngestionModule
     // closes a cycle, same pattern as the WithdrawSumsubModule edge above.
     forwardRef(() => SwapSumsubModule),
+    // Task 4（材料请求账）：applicantActionReviewed 改按 externalActionId 一次查表，
+    // 落在 MaterialRequestReviewService。forwardRef 因为 MaterialRequestsModule ->
+    // CustomersModule/OnboardingModule/MaterialRefreshModule 与本模块共享同一批
+    // forwardRef 依赖，防止循环依赖解析顺序问题。
+    forwardRef(() => MaterialRequestsModule),
   ],
   providers: [SumsubIngestionService, SumsubRetryService],
   controllers: [SumsubIngestionController, SumsubIngestionAdminController, AdminSumsubSimulationController],
