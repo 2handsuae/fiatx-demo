@@ -109,6 +109,14 @@ export class IllegalSourceWalletError extends BadRequestException {
   }
 }
 
+/**
+ * 裁决落地档位（第一批 · 2026-08-19），与充值域镜像（deliberate fork，不共享代码）。
+ *   IGNORE        —— 不写证据、不推状态、必写审计
+ *   EVIDENCE_ONLY —— 写证据、不推状态、写审计（PAYOUT_PENDING：钱已广播，无合法边）
+ *   DISPATCH      —— 写证据、推状态
+ */
+type VerdictLanding = 'IGNORE' | 'EVIDENCE_ONLY' | 'DISPATCH';
+
 @Injectable()
 export class WithdrawWorkflowService implements OnModuleInit {
   private readonly logger = new Logger(WithdrawWorkflowService.name);
@@ -2295,9 +2303,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Sumsub KYT verdict application (drives the 20-edge state machine) ──
 
   /**
-   * Sumsub KYT 裁决落地入口(WithdrawKytVerdictHandler 调用)。State-aware: 已终态
-   * no-op;FROZEN 迟到 approved 整体 no-op(含存证跳过,保护制裁证据)。分支落 spec
-   * §3/§5 的转移表(mirrors DepositWorkflowService.applyKytVerdict)。
+   * Sumsub KYT 裁决落地入口(WithdrawKytVerdictHandler 调用)。State-aware: 已终态/
+   * FROZEN(任意 verdict,第一批 · 2026-08-19)整体 no-op(含存证跳过,保护制裁证据)。
+   * 分支落 spec §3/§5 的转移表(mirrors DepositWorkflowService.applyKytVerdict)。
    */
   async applyKytVerdict(
     withdrawId: string,
@@ -2312,29 +2320,19 @@ export class WithdrawWorkflowService implements OnModuleInit {
   ): Promise<void> {
     const w = await this.withdrawService.findOneInternal(withdrawId);
 
+    // ── ② 判定：必须先于任何写库动作（spec §2.1）──────────────────────────
     const status = w.status as WithdrawTransactionStatus;
-    if (WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) {
+    const landing = this.decideVerdictLanding(status, input.verdict);
+
+    if (landing === 'IGNORE') {
       this.logger.debug(
-        `applyKytVerdict no-op: withdrawal ${withdrawId} already terminal (${status})`,
+        `applyKytVerdict no-op: withdrawal ${withdrawId} in ignored status (${status})`,
       );
+      await this.recordVerdictIgnored(w, input, status);
       return;
     }
 
-    // FROZEN 是制裁/MLRO 冻结态,不在 KYT_VERDICT_TERMINAL_STATUSES 里(出口走 §4 的
-    // 双审批弧,不是 approve)。一笔迟到/重评的 approved verdict 会跑到这里——如果闸门
-    // 回写/存证照常执行,就会用 approved 报文覆写既有的制裁报文,尽管状态机压根没推进。
-    // 跳过写回/存证,别让一个必然 no-op 的 approved 静默损坏冻结单的制裁证据。
-    // MANUAL_CHECKING 不受影响(它是 approved 的合法翻案路径,必须正常写回)。
-    const approvedWillNoOpFrozen =
-      input.verdict === 'approved' && status === WithdrawTransactionStatus.FROZEN;
-
-    if (approvedWillNoOpFrozen) {
-      this.logger.debug(
-        `applyKytVerdict no-op: withdrawal ${withdrawId} is FROZEN, ignoring approved KYT verdict (requires unfreeze approval to resume)`,
-      );
-      return;
-    }
-
+    // ── ③ 落地：判定已过，此刻才允许写证据 ────────────────────────────────
     await this.withdrawService.saveSumsubVerdict(w.id, {
       verdict: input.verdict,
       score: input.riskScore ?? null,
@@ -2342,16 +2340,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       ...(input.detailRaw !== undefined && { detailJson: JSON.stringify(input.detailRaw) }),
     });
 
-    // Review Fix 2 (Important): PAYOUT_PENDING post-broadcast verdicts must not
-    // dead-letter. PAYOUT_PENDING is deliberately NOT in KYT_VERDICT_TERMINAL_STATUSES
-    // (the withdrawal is still active, not terminal) — but none of the four verdict
-    // branches below have a legal transition from PAYOUT_PENDING (the payout already
-    // broadcast; funds are in flight). Left to the switch, 'approved' would retry
-    // initiatePayoutPhase's APPROVE action (no such edge from PAYOUT_PENDING) and
-    // throw; 'awaitUser'/rejected's untagged branch would do the same. Evidence is
-    // already saved above; just audit the post-broadcast verdict and, for a rejected
-    // one, flag the withdrawal for operator review — no branch dispatch.
-    if (status === WithdrawTransactionStatus.PAYOUT_PENDING) {
+    if (landing === 'EVIDENCE_ONLY') {
+      // PAYOUT_PENDING：钱已广播，四个分支都没有合法边。证据已存，只审计 + 标记待复核。
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
         entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
@@ -2385,6 +2375,64 @@ export class WithdrawWorkflowService implements OnModuleInit {
         await this.applyKytRejected(w, input.sceneTag, input.dispoTag);
         return;
     }
+  }
+
+  /**
+   * 判定这条裁决该怎么落地。**必须在任何写库动作之前调用。**
+   *
+   * FROZEN 一律判 IGNORE：该状态下没有任何 verdict 能合法推动状态机（出口走 §4
+   * 双审批弧，不是 approve）。修复前只有 approvedWillNoOpFrozen 挡 approved 一种，
+   * 迟到的 onHold/awaitUser/rejected 会先把制裁证据整份覆盖再静默 no-op。
+   *
+   * PAYOUT_PENDING 判 EVIDENCE_ONLY：钱已广播、四个 verdict 分支都没有合法边，
+   * 但证据仍要留（既有 Review Fix 2 的行为，本次只是把它显式化成一个档位）。
+   */
+  private decideVerdictLanding(
+    status: WithdrawTransactionStatus,
+    _verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold',
+  ): VerdictLanding {
+    if (WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) return 'IGNORE';
+    if (status === WithdrawTransactionStatus.FROZEN) return 'IGNORE';
+    if (status === WithdrawTransactionStatus.PAYOUT_PENDING) return 'EVIDENCE_ONLY';
+    return 'DISPATCH';
+  }
+
+  /**
+   * 忽略 ≠ 静默（业主 2026-08-19 拍板：3 次写 3 行）。requestId 拼 randomUUID 是
+   * 有意为之——audit-logs.service 的 requestId 去重能力在此被刻意关闭。
+   * .catch 是 load-bearing（审计失败不得让 webhook 进死信），但记 error 不哑吞。
+   * 与充值域 recordVerdictIgnored 逐字镜像。
+   */
+  private async recordVerdictIgnored(
+    w: any,
+    input: { verdict: string; riskScore?: number | null },
+    status: WithdrawTransactionStatus,
+  ): Promise<void> {
+    await this.auditLogsService
+      .recordSystem({
+        action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Late KYT verdict '${input.verdict}' ignored — withdrawal is ${status} (terminal or frozen); existing verdict/evidence left untouched`,
+        metadata: {
+          withdrawNo: w.withdrawNo,
+          verdict: input.verdict,
+          status,
+          riskScore: input.riskScore ?? null,
+        },
+        requestId: `WITHDRAW_KYT_VERDICT_IGNORED_${w.withdrawNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      })
+      .catch((err) => {
+        this.logger.error(
+          `WITHDRAW_KYT_VERDICT_IGNORED audit failed for ${w.withdrawNo}: ${err?.message}`,
+        );
+      });
   }
 
   /**

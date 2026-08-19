@@ -856,6 +856,77 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     expect(initiateSpy).not.toHaveBeenCalled();
   });
 
+  // ── 第一批 (2026-08-19): 三段结构 —— 判定先于写库 ──────────────────────
+  it.each(['onHold', 'awaitUser', 'rejected'] as const)(
+    'B2: FROZEN 收到迟到 %s → 不覆写证据 + IGNORED 审计 + 不抛',
+    async (verdict) => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-b2',
+          withdrawNo: 'WDB2',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await expect(
+        workflow.applyKytVerdict('wd-b2', {
+          verdict,
+          riskScore: 50,
+          detailRaw: { late: true },
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
+          entityNo: 'WDB2',
+        }),
+      );
+    },
+  );
+
+  it('B2: FROZEN 收到迟到 approved → 同样留痕（此前只有 logger.debug）', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(
+      baseWithdrawRow({
+        id: 'wd-b2b',
+        withdrawNo: 'WDB2B',
+        status: WithdrawTransactionStatus.FROZEN,
+      }),
+    );
+
+    await workflow.applyKytVerdict('wd-b2b', { verdict: 'approved' });
+
+    expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED }),
+    );
+  });
+
+  it('B2: SUCCESS 终态收到迟到 rejected → 留痕（此前零审计）', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue(
+      baseWithdrawRow({
+        id: 'wd-b2c',
+        withdrawNo: 'WDB2C',
+        status: WithdrawTransactionStatus.SUCCESS,
+      }),
+    );
+
+    await workflow.applyKytVerdict('wd-b2c', { verdict: 'rejected', riskScore: 98 });
+
+    expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
+        metadata: expect.objectContaining({ verdict: 'rejected', riskScore: 98 }),
+      }),
+    );
+  });
+
   describe('approved branch — three legal entry states', () => {
     it('from COMPLIANCE_PENDING → delegates to initiatePayoutPhase, no manual-approved audit', async () => {
       const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
@@ -1061,7 +1132,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
 
     // Review Fix 1 (Critical): REJECT_REFUND must not bypass the FROZEN maker-checker.
-    it('dispoTag=REJECT_REFUND from FROZEN → full no-op (no status change, no releaseLock) + WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED audit', async () => {
+    it('dispoTag=REJECT_REFUND from FROZEN → full no-op (no status change, no releaseLock) + WITHDRAW_KYT_VERDICT_IGNORED audit', async () => {
       const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({
@@ -1081,8 +1152,12 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.WITHDRAW_LOCK_RELEASED }),
       );
+      // 第一批 (2026-08-19)：FROZEN + 任意 verdict 一律判 IGNORE（含 REJECT_REFUND
+      // 标签），判定层在到达 applyKytRejected 内部那段专属 FROZEN 守卫之前就已
+      // 拦截并 return，不再穿透到 WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED，统一走
+      // 通用 WITHDRAW_KYT_VERDICT_IGNORED 审计（spec §2.2）。
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: AuditActions.WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED }),
+        expect.objectContaining({ action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED }),
       );
     });
 
@@ -1146,8 +1221,9 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       ).resolves.toBeUndefined();
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
-      // Evidence is still written (saveSumsubVerdict happens before the branch dispatch).
-      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+      // 第一批 (2026-08-19)：判定先于写库（spec §2.1）—— FROZEN 一律判 IGNORE，
+      // evidence 不再先写后判被覆盖，saveSumsubVerdict 压根不会被调用。
+      expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED }),
       );
@@ -1155,7 +1231,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
   });
 
   describe('awaitUser on FROZEN — no ACTION_PENDING edge, must not throw', () => {
-    it('awaitUser verdict while FROZEN → no-op (evidence written, status unchanged, no throw)', async () => {
+    it('awaitUser verdict while FROZEN → no-op (evidence NOT written, status unchanged, no throw)', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
@@ -1166,7 +1242,10 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       ).resolves.toBeUndefined();
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
-      expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+      // 第一批 (2026-08-19)：判定先于写库（spec §2.1）—— FROZEN 一律判 IGNORE，
+      // applyKytVerdict 在到达 applyKytAwaitUser 内部的 FROZEN 守卫之前就已 return，
+      // saveSumsubVerdict 压根不会被调用（此前会先覆写证据再静默 no-op）。
+      expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
     });
   });
 

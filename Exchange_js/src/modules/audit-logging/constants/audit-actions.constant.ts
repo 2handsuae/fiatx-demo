@@ -415,6 +415,10 @@ export const AuditActions = {
   // Review Fix 1 (Critical): REJECT_REFUND arriving while FROZEN must not bypass
   // the FROZEN maker-checker — the tag is ignored, this audits the ignored attempt.
   WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED: 'WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED',
+  // 第一批(2026-08-19):迟到的 KYT 裁决撞上终态/FROZEN → 忽略。忽略 ≠ 静默,记一条
+  // 便于演示与事后取证("系统收到了、判定不适用、记下来了"),原裁决/存证一个字不动。
+  // mirrors DEPOSIT_KYT_VERDICT_IGNORED。
+  WITHDRAW_KYT_VERDICT_IGNORED: 'WITHDRAW_KYT_VERDICT_IGNORED',
   // Review Fix 2 (Important): a KYT verdict arriving after the payout already
   // broadcast (PAYOUT_PENDING) — evidence recorded, no state-machine action.
   WITHDRAW_POST_BROADCAST_VERDICT: 'WITHDRAW_POST_BROADCAST_VERDICT',
