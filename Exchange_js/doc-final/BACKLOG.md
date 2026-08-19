@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-08-18
+Last Updated: 2026-08-19
 
 ---
 
@@ -29,6 +29,7 @@ Last Updated: 2026-08-18
 - [ ] `reconciliation.constants.ts` 的 `L.TRADE_CLEARING` 常量（credit-net 旧引擎残留）｜来源: 2026-07-03 死码体检 ｜Phase C
 - [ ] **`/admin/pricing/policies*` 幽灵路由 + `CUSTOMER_RATE_READ/WRITE` 死权限组**：`rbac.catalog.ts` 注册 4 条 `/admin/pricing/policies*` + `/admin/pricing/simulator/swap`（挂 `CUSTOMER_RATE_READ`），但 pricing-center 模块只剩 engine（`PricingEngineService`/providers/types，**无 controller**）——PricingCenter admin surface 删除后路由残留、无人服务；`CUSTOMER_RATE_READ/WRITE` 除 catalog 外全仓 0 引用；活的定价 admin 面是 fee-levels（swap/withdrawal-fee-levels）。应删 5 条 route def + 2 个死权限组 ｜来源: 2026-07-11 权限包细化（用户疑老菜单，代码证实幽灵）
 - [x] ~~subledger-inputs.service + repo 两死方法 / governance-demo-seed / 10 个死权限常量 / REIMBURSEMENT_OBLIGATION 常量 / internalTransaction+outstanding 证据包死链~~ ｜已在 worktree 删除（−651 行，tsc/jest 全绿）待合 main
+- [ ] **`deposit-workflow.service.ts` applyKytApproved 的 FROZEN 守卫成死码**：`applyKytApproved`（L525-548）内对 FROZEN 状态的检查与 `DEPOSIT_APPROVE_BLOCKED_FROZEN` 审计已于 2026-08-19 Task 1 中变为不可达——`decideVerdictLanding` 私有方法拦截所有抵达 FROZEN deposit 的 verdict 并返回 IGNORE，故该方法不再被 webhook 路径调用。⚠️ 同一常量 `DEPOSIT_APPROVE_BLOCKED_FROZEN` 仍在生产代码另处活跃（`approveDeposit` L940-975，admin 直接批准冻结单的路径），行为已由通用 `DEPOSIT_KYT_VERDICT_IGNORED`（`metadata` 含 `verdict`/`status`）替代、取证信息得以保留；仅 webhook 路径的守卫是死码 ｜来源: 2026-08-19 Task 1 审查 ｜Phase C
 
 ## 技术债 — V4 充值
 
