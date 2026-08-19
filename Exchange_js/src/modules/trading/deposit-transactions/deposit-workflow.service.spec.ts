@@ -1824,7 +1824,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('fix(deposit): FROZEN → approved verdict (e.g. a re-scored/late applicantKytTxnApproved after a sanctions veto) is blocked — no-op, DEPOSIT_APPROVE_BLOCKED_FROZEN audit, deposit stays FROZEN, never reaches approveDeposit/TB', async () => {
+    it('fix(deposit): FROZEN → approved verdict (e.g. a re-scored/late applicantKytTxnApproved after a sanctions veto) is blocked — no-op, DEPOSIT_KYT_VERDICT_IGNORED audit, deposit stays FROZEN, never reaches approveDeposit/TB', async () => {
       const deposit = {
         id: 'dep-frozen-1',
         depositNo: 'DEP-FROZEN-1',
@@ -1841,9 +1841,12 @@ describe('DepositWorkflowService', () => {
       expect(withdrawalAddresses.hasActiveFiatWithdrawalAddress).not.toHaveBeenCalled();
       expect(approveSpy).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
+      // 第一批 (2026-08-19)：FROZEN + 任意 verdict 一律判 IGNORE（含 approved，见
+      // decideVerdictLanding），不再单独穿到 applyKytApproved 内部的专属守卫，
+      // 统一走通用 DEPOSIT_KYT_VERDICT_IGNORED 审计（spec §2.2）。
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({
-          action: 'DEPOSIT_APPROVE_BLOCKED_FROZEN',
+          action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
           entityId: 'dep-frozen-1',
           entityNo: 'DEP-FROZEN-1',
         }),
@@ -2145,7 +2148,10 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+      // 第一批 (2026-08-19)：FROZEN 现在判 IGNORE，忽略 ≠ 静默 —— 状态不动但要留痕。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED }),
+      );
     });
 
     it('no-op when already ACTION_PENDING and a duplicate awaitUser webhook arrives', async () => {
@@ -2217,6 +2223,58 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_KYT_VERDICT_IGNORED' }),
       );
+    });
+
+    // ── 第一批 (2026-08-19): FROZEN 下没有任何 verdict 能合法推动状态机 ─────────
+    // 修复前 approvedWillNoOpFrozen 只挡 approved，一条迟到的 onHold 会先把
+    // 制裁裁决/风险分/原始报文整份覆盖，然后才因状态守卫静默 no-op —— 零报错、
+    // 零审计。这是"先写后判"正在流血的口子。
+    it.each(['onHold', 'awaitUser', 'rejected'] as const)(
+      'B1: FROZEN 收到迟到 %s → 不覆写裁决/存证 + IGNORED 审计 + 不抛',
+      async (verdict) => {
+        depositService.findOne.mockResolvedValue({
+          id: 'dep-b1',
+          depositNo: 'DEPB1',
+          status: DepositTransactionStatus.FROZEN,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: null,
+        });
+
+        await expect(
+          service.applyKytVerdict('dep-b1', {
+            verdict,
+            riskScore: 50,
+            detailRaw: { late: true },
+          }),
+        ).resolves.toBeUndefined();
+
+        expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
+        expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
+            entityNo: 'DEPB1',
+          }),
+        );
+      },
+    );
+
+    it('B1: 审计写失败不得把 no-op 裁决变成异常（.catch 是 load-bearing）', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-b1b',
+        depositNo: 'DEPB1B',
+        status: DepositTransactionStatus.SUCCESS,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+      auditLogsService.recordSystem.mockRejectedValueOnce(new Error('audit down'));
+
+      await expect(
+        service.applyKytVerdict('dep-b1b', { verdict: 'rejected' }),
+      ).resolves.toBeUndefined();
     });
 
     // ── A2 (2026-08-13): 退回着陆垫 ────────────────────────────────────────────
