@@ -9,7 +9,7 @@ const eventEmitterStub = { emit: jest.fn() };
 
 
 describe('RESTRICTION_CAUSE_POLICY', () => {
-  it('七条 cause 的 defaultScopes / visibility / releasePolicy / scopeSelectable / customerLabel 逐字固定（防漂移）', () => {
+  it('七条 cause 的 defaultScopes / visibility / releasePolicy / scopeSelectable / customerLabel / customerLevel 逐字固定（防漂移）', () => {
     expect(RESTRICTION_CAUSE_POLICY).toEqual({
       SANCTION: {
         defaultScopes: ['ALL'],

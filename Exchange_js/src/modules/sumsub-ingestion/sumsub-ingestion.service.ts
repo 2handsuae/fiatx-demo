@@ -213,8 +213,10 @@ export class SumsubIngestionService {
         } else {
           // INV-1：Sumsub MLRO 判拒 ≠ lifecycle 回退成 REJECTED（原来还顺手把
           // 行政轴写成 INACTIVE、合规轴写成 FROZEN，三件事糊成一件）。
-          // lifecycle 不动，摁住走便签。CRA 制裁路径已用同一 caseRef 贴过一张，
-          // open() 幂等 → 这里 created:false，不会贴出第二张。
+          // lifecycle 不动，摁住走便签。SANCTION 是客户级因由（restriction-
+          // cause.constant.ts R4），openWithin 会把 caseRef 归一成 customerNo
+          // —— 幂等跟这里传什么无关，同一客户第二次命中一律 created:false、
+          // 不贴第二张、不广播，但仍写一条 result=SKIPPED 的审计。
           await this.restrictionsService.open({
             customerId,
             cause: 'SANCTION',
