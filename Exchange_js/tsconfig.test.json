@@ -1,4 +1,11 @@
 {
+  // 本项目的 tsconfig.json 只 include src/**/*，jest.config.js 的 roots 也不含 test/ ——
+  // 于是 `tsc -p tsconfig.json` 与 `npx jest` 结构上都照不到 test/ 目录。
+  // 2026-08-20 制裁分主体那一批因此漏检了两处 e2e 编译错误（旧标签字面量）。
+  // 这份配置专供"改了跨 src/test 边界的类型后"做一次全覆盖检查：
+  //   npx tsc --noEmit -p tsconfig.test.json
+  // 刻意不含 scripts/：那里有 funds_orders 重构遗留的死码（backfill-internal-fund-keys.ts
+  // 引用已 DROP 的 internalFund 表），会让本闸门不是二元的。该死码已登记 BACKLOG。
   "extends": "./tsconfig.json",
-  "include": ["src/**/*", "test/**/*", "scripts/**/*"]
+  "include": ["src/**/*", "test/**/*"]
 }
