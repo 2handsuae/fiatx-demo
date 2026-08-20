@@ -119,7 +119,14 @@ describe('第一批 · 合规裁决落地 (e2e)', () => {
     expect(audits.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('验收3+4: SUCCESS 提现连收 3 条迟到 rejected → 审计恰好 3 行', async () => {
+  // 终审 Fix 4（2026-08-20）：这条用例直调 workflow.applyKytVerdict() 三次，绕过了
+  // SumsubIngestionService 的 webhook 去重整层。它证明的是「审计层本身不去重」——
+  // requestId 拼 randomUUID（业主拍板）关闭了 audit-logs 的去重能力，workflow 层连收
+  // 3 次裁决就该老实写 3 行 IGNORED，不多不少。它**不**证明「真实 webhook 链路重复
+  // 投递 3 次会送达 3 条」——那条路径先过 ingestion 层的去重（按 eventType+applicantId
+  // 找最近一条 PROCESSED 事件比对），真重投在那一层就可能被拦截，是另一层的行为，
+  // 不在本用例覆盖范围内。
+  it('workflow 层连收 3 次相同的迟到 rejected（绕开 ingestion 去重层）→ 审计恰好写 3 行', async () => {
     const wd = await prisma.withdrawTransaction.create({
       data: {
         withdrawNo: `E2E-WD-${Date.now()}`,

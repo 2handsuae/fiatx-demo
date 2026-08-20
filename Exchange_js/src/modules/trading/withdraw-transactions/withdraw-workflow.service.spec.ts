@@ -1056,6 +1056,13 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.WITHDRAW_ONHOLD }),
       );
+      // Fix 1（终审 Important）：与充值域同族的漏格 —— 此前 decideVerdictLanding 不看
+      // verdict，onHold 在此状态会先写证据（saveSumsubVerdict）再被 applyKytOnHold 自己
+      // 的守卫静默 return，零审计、零报错。现在必须在写库前就判 IGNORE。
+      expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED }),
+      );
     });
   });
 

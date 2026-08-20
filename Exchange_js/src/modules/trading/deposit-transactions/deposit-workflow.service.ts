@@ -391,10 +391,17 @@ export class DepositWorkflowService implements OnModuleInit {
    */
   private decideVerdictLanding(
     status: DepositTransactionStatus,
-    _verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold',
+    verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold',
   ): VerdictLanding {
     if (DepositWorkflowService.KYT_VERDICT_IGNORED_STATUSES.has(status)) return 'IGNORE';
     if (status === DepositTransactionStatus.FROZEN) return 'IGNORE';
+    // onHold 只在 COMPLIANCE_PENDING 上有意义（applyKytOnHold 自己的守卫即如此）。
+    // 其余状态下它必然静默 no-op —— 判 IGNORE，证据不写、留一条审计。
+    // ⚠️ 这一格与 FROZEN 是同族：本批的不变量是「判定必须先于写库」，
+    // 只挡 FROZEN 而放过这里，等于同一个洞换个状态继续流血。
+    if (verdict === 'onHold' && status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
+      return 'IGNORE';
+    }
     return 'DISPATCH';
   }
 

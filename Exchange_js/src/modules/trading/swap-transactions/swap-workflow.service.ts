@@ -670,12 +670,15 @@ export class SwapWorkflowService {
     input: { verdict: string; riskScore?: number | null },
     status: SwapTransactionStatus,
   ): Promise<void> {
+    // swapNo 是 String?（schema），同文件所有兄弟审计一律 `|| undefined` 兜底；
+    // requestId 拼同一个值，避免 swapNo 为 null 时拼出字面量 "..._null_<uuid>"。
+    const entityNo = swap.swapNo || undefined;
     await this.auditLogsService
       .recordSystem({
         action: AuditActions.SWAP_KYT_VERDICT_IGNORED,
         entityType: AuditEntityTypes.SWAP_TRANSACTION,
         entityId: swap.id,
-        entityNo: swap.swapNo,
+        entityNo,
         entityOwnerType: swap.ownerType,
         entityOwnerId: swap.ownerId,
         traceId: swap.traceId || undefined,
@@ -687,7 +690,7 @@ export class SwapWorkflowService {
           status,
           riskScore: input.riskScore ?? null,
         },
-        requestId: `SWAP_KYT_VERDICT_IGNORED_${swap.swapNo}_${randomUUID()}`,
+        requestId: `SWAP_KYT_VERDICT_IGNORED_${entityNo}_${randomUUID()}`,
         sourcePlatform: 'SYSTEM',
       })
       .catch((err) => {

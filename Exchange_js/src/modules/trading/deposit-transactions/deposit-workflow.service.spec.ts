@@ -1968,6 +1968,14 @@ describe('DepositWorkflowService', () => {
       expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'DEPOSIT_ONHOLD' }),
       );
+      // Fix 1（终审 Important）：这个格子此前判定漏了 verdict，会先写证据（writeBackVerdict/
+      // saveTxnDetail）再被 applyKytOnHold 自己的守卫静默 return —— 证据被换成迟到的
+      // onHold/riskScore，但零审计、零报错。现在必须在写库前就判 IGNORE。
+      expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
+      expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED, entityId: 'dep-4b' }),
+      );
     });
 
     it('rejected + SANCTION (from COMPLIANCE_PENDING) → FROZEN, zero accounting', async () => {

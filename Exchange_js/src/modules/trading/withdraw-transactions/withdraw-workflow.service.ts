@@ -2342,19 +2342,27 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     if (landing === 'EVIDENCE_ONLY') {
       // PAYOUT_PENDING：钱已广播，四个分支都没有合法边。证据已存，只审计 + 标记待复核。
-      await this.auditLogsService.recordSystem({
-        action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
-        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-        entityId: w.id,
-        entityNo: w.withdrawNo,
-        entityOwnerType: w.ownerType,
-        entityOwnerId: w.ownerId,
-        traceId: w.traceId || undefined,
-        workflowType: AuditWorkflowTypes.WITHDRAW,
-        reason: `KYT verdict '${input.verdict}' received after payout broadcast — no state-machine action taken`,
-        metadata: { verdict: input.verdict },
-        sourcePlatform: 'SYSTEM',
-      });
+      // .catch 是 load-bearing，与 recordVerdictIgnored 同款：审计写失败不得让这次
+      // webhook 变成异常（会进 FAILED → 重试 → 死信），但记 error 不哑吞。
+      await this.auditLogsService
+        .recordSystem({
+          action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT,
+          entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+          entityId: w.id,
+          entityNo: w.withdrawNo,
+          entityOwnerType: w.ownerType,
+          entityOwnerId: w.ownerId,
+          traceId: w.traceId || undefined,
+          workflowType: AuditWorkflowTypes.WITHDRAW,
+          reason: `KYT verdict '${input.verdict}' received after payout broadcast — no state-machine action taken`,
+          metadata: { verdict: input.verdict },
+          sourcePlatform: 'SYSTEM',
+        })
+        .catch((err) => {
+          this.logger.error(
+            `WITHDRAW_POST_BROADCAST_VERDICT audit failed for ${w.withdrawNo}: ${err?.message}`,
+          );
+        });
       if (input.verdict === 'rejected') {
         await this.withdrawService.markNeedsReview(w.id);
       }
@@ -2389,11 +2397,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
    */
   private decideVerdictLanding(
     status: WithdrawTransactionStatus,
-    _verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold',
+    verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold',
   ): VerdictLanding {
     if (WithdrawWorkflowService.KYT_VERDICT_TERMINAL_STATUSES.has(status)) return 'IGNORE';
     if (status === WithdrawTransactionStatus.FROZEN) return 'IGNORE';
     if (status === WithdrawTransactionStatus.PAYOUT_PENDING) return 'EVIDENCE_ONLY';
+    // onHold 只在 COMPLIANCE_PENDING 上有意义（applyKytOnHold 自己的守卫即如此）。
+    // 其余状态下它必然静默 no-op —— 判 IGNORE，证据不写、留一条审计。
+    // ⚠️ 这一格与 FROZEN 是同族：本批的不变量是「判定必须先于写库」，
+    // 只挡 FROZEN 而放过这里，等于同一个洞换个状态继续流血。
+    if (verdict === 'onHold' && status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
+      return 'IGNORE';
+    }
     return 'DISPATCH';
   }
 
