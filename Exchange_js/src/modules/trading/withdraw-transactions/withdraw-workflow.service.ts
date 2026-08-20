@@ -19,6 +19,7 @@ import {
 } from './dto/withdraw-transaction.dto';
 import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -196,6 +197,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly applicantActions: WithdrawApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly customerRestrictionsService: CustomerRestrictionsService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -2138,9 +2140,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * locked balance back to available. Order mirrors onLargeValueApprovalDecided's
    * rejected branch exactly: updateStatus first, then releaseLock (the P6
    * primitive — voids both net + fee pendings best-effort), then audit.
-   * Customer-implication escalation (freezing the customer account itself) has
-   * no V2 API yet (BACKLOG) — this is audit-only; the reason notes the
-   * escalation is manual.
+   * 2026-08-20：客户级冻结已在本域接通（applyKytRejected 的 SANCTION_APPLICANT
+   * 分支调 customerRestrictionsService.open）——本单能走到这一步（FROZEN）意味着
+   * 客户要么已在那条分支被冻，要么已因其它限制被 A4 闸（assertCustomerComplianceOrFreeze）
+   * 冻住，此处不再需要人工升级。
    */
   private async onRefundApproved(withdrawId: string, approvalNo?: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
@@ -2172,7 +2175,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'Sanction refund approved — withdrawal rejected and lock released; ' +
-        'customer-account escalation is manual (V2 freeze API not yet built, see BACKLOG)',
+        'customer-level restriction already applied at freeze time (applyKytRejected → CustomerRestrictionsService.open)',
       metadata: approvalNo ? { approvalNo } : undefined,
       sourcePlatform: 'SYSTEM',
     });
@@ -2655,8 +2658,35 @@ export class WithdrawWorkflowService implements OnModuleInit {
     sceneTag?: SceneTag,
     dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND',
   ): Promise<void> {
-    if (sceneTag === 'SANCTION_APPLICANT' || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
+    const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
+    if (isApplicantSanction || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
       if (w.status === WithdrawTransactionStatus.FROZEN) return; // already frozen — repeat webhook
+
+      // 先冻人、再冻单 —— 顺序 load-bearing。两者分属两次独立提交（open() 自开
+      // $transaction，updateStatus 是独立 update），中途崩溃必留半成品。与
+      // deposit-workflow.service.ts 同名分支同构（deliberate fork，两域各写
+      // 一遍，不抽公共方法），此处按提现域自己的变量名（w 非 deposit）重述一遍：
+      //   - updateStatus 抛异常但进程还活着 → open() 已广播的
+      //     CUSTOMER_RESTRICTION_OPENED 会被本域自己的 onCustomerRestrictionOpened
+      //     接住，把该客户名下其它在途提现（含本单）冻掉，内存事件当场自愈。
+      //   - 进程真崩溃 → 内存事件和挂起的 listener promise 一起死，指望不上它；
+      //     真正兜底的是 Sumsub webhook 重试：重跑 applyKytVerdict，open() 幂等
+      //     返回 created=false（本单不发广播），照常往下冻单（见下方 updateStatus）。
+      // 不能依赖广播冻本单：同一客户第 2..N 次命中 created=false 不发事件，本单
+      // 必须由本方法自己 updateStatus(FREEZE)。反过来「单冻了、人没冻」，客户下
+      // 一单畅通无阻，方向危险 —— 不要因为"看起来能合并"调换顺序。
+      if (isApplicantSanction) {
+        await this.customerRestrictionsService.open({
+          customerId: w.ownerId,
+          cause: 'SANCTION',
+          reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned`,
+          // caseRef 传单号只为可读；SANCTION 是客户级因由，openWithin 会归一成
+          // customerNo（restriction-cause.constant.ts R4）。哪笔单牵出来的由上面
+          // 的 reason 和下方审计承载。
+          caseRef: w.withdrawNo,
+          openedBy: 'system',
+        });
+      }
 
       await this.withdrawService.updateStatus(
         w.id,
@@ -2672,13 +2702,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
         entityOwnerId: w.ownerId,
         traceId: w.traceId || undefined,
         workflowType: AuditWorkflowTypes.WITHDRAW,
-        reason: `KYT verdict rejected: ${
-          sceneTag === 'SANCTION_APPLICANT'
-            ? 'SANCTION_APPLICANT hit'
-            : sceneTag === 'SANCTION_COUNTERPARTY'
-              ? 'SANCTION_COUNTERPARTY hit'
-              : 'FROZEN_BY_MLRO disposition'
-        }`,
+        reason: isApplicantSanction
+          ? 'KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)'
+          : sceneTag === 'SANCTION_COUNTERPARTY'
+            ? 'KYT verdict rejected: SANCTION_COUNTERPARTY hit (order frozen only)'
+            : 'KYT verdict rejected: FROZEN_BY_MLRO disposition',
         sourcePlatform: 'SYSTEM',
       });
       return;

@@ -70,6 +70,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -149,6 +150,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -253,6 +255,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -326,6 +329,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -533,6 +537,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -636,6 +641,7 @@ function buildFullWorkflow(overrides: {
   withdrawService?: Partial<Record<string, jest.Mock>>;
   sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
   applicantActions?: Partial<Record<string, jest.Mock>>;
+  customerRestrictionsService?: Partial<Record<string, jest.Mock>>;
 } = {}) {
   const withdrawService = {
     findOneInternal: jest.fn(),
@@ -668,6 +674,10 @@ function buildFullWorkflow(overrides: {
     submitBySeq: jest.fn(),
     ...overrides.applicantActions,
   };
+  const customerRestrictionsService = {
+    open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }),
+    ...overrides.customerRestrictionsService,
+  };
 
   const workflow = new WithdrawWorkflowService(
     {} as any, // prisma
@@ -686,9 +696,10 @@ function buildFullWorkflow(overrides: {
     sumsubTxnClient as any,
     applicantActions as any,
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+    customerRestrictionsService as any,
   );
 
-  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions };
+  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions, customerRestrictionsService };
 }
 
 function baseWithdrawRow(overrides: Record<string, any> = {}) {
@@ -1068,7 +1079,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
   describe('rejected branch — tag three-way (SANCTION_COUNTERPARTY/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
     it('sceneTag=SANCTION_COUNTERPARTY from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
-      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
       );
@@ -1077,6 +1088,47 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
 
       expect(withdrawService.updateStatus).toHaveBeenCalledWith(
         'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_FROZEN }),
+      );
+      // Task 6：对手方被制裁 ≠ 客户本人被制裁 —— 只冻这一单，绝不冻人。
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+    });
+
+    it('sceneTag=SANCTION_APPLICANT from COMPLIANCE_PENDING → 先冻人(open cause=SANCTION)再冻单 FREEZE', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-sumsub-applicant',
+          withdrawNo: 'WD-SANCTION-APPLICANT',
+          ownerId: 'cust-applicant-1',
+          status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-applicant', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+
+      // 冻人：customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用，
+      // 且必须发生在 updateStatus(FREEZE) 之前（先冻人、再冻单，顺序 load-bearing）。
+      // caseRef 会被 openWithin 顶成 customerNo（SANCTION 是客户级因由），真正承载
+      // 「哪笔单牵出来的」取证线索的是 reason —— 必须钉住提现单号。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-applicant-1',
+          cause: 'SANCTION',
+          caseRef: 'WD-SANCTION-APPLICANT',
+          reason: expect.stringContaining('WD-SANCTION-APPLICANT'),
+        }),
+      );
+      const openOrder = customerRestrictionsService.open.mock.invocationCallOrder[0];
+      const updateStatusOrder = withdrawService.updateStatus.mock.invocationCallOrder[0];
+      expect(openOrder).toBeLessThan(updateStatusOrder);
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-applicant',
         expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
         expect.anything(),
       );
@@ -1516,6 +1568,7 @@ function buildFeeWorkflow(overrides: {
     {} as any, // sumsubTxnClient
     {} as any, // applicantActions
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+    { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
   );
 
   return {
@@ -1862,6 +1915,7 @@ function buildBounceWorkflow(overrides: {
     sumsubTxnClient as any,
     {} as any, // applicantActions
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+    { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -2224,6 +2278,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2460,6 +2515,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       sumsubTxnClient as any,
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -2703,6 +2759,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         {} as any, // sumsubTxnClient
         {} as any, // applicantActions
         { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+        { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)
