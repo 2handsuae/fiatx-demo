@@ -338,6 +338,9 @@ export const AuditActions = {
   // soft/hard (tipping-off) decision so an investigator can tell after the
   // fact whether the customer was informed and why.
   SWAP_KYT_REJECTED_DISPOSED: 'SWAP_KYT_REJECTED_DISPOSED',
+  // 第一批 (2026-08-19)：终态忽略分支（applyKytVerdict 的 no-op 兜底，carve-out
+  // 之后）补的审计——忽略 ≠ 静默，与充值/提现域镜像。
+  SWAP_KYT_VERDICT_IGNORED: 'SWAP_KYT_VERDICT_IGNORED',
   // Review Fix 1 (Important): handleRejectDisposition itself threw (SQLite
   // lock, transient DB error, etc.) — written before rethrowing so the
   // failure is visible in the audit trail even though the ingestion pipeline

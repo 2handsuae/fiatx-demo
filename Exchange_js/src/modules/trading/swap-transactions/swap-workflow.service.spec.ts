@@ -1449,6 +1449,34 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     expect(mocks.sumsubTxnClient.submitTxn).not.toHaveBeenCalled();
   });
 
+  // ── 第一批 (2026-08-19): 忽略 ≠ 静默 ─────────────────────────────────
+  it('B3: SUCCESS 收到迟到 approved → 写 IGNORED 审计、不动订单', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.swapTransactionsService.saveSumsubVerdict).not.toHaveBeenCalled();
+    expect(mocks.auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: AuditActions.SWAP_KYT_VERDICT_IGNORED,
+        entityNo: 'SWP0001',
+      }),
+    );
+  });
+
+  it('B3: REJECTED 收到迟到 rejected → 仍跑处置，且【不】写 IGNORED（carve-out 保留）', async () => {
+    const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
+    const service = makeApplyKytVerdictService(mocks);
+
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.SWAP_KYT_VERDICT_IGNORED }),
+    );
+  });
+
   // ── Review Fix 1 (Important): a REJECTED swap receiving another 'rejected'
   // ── verdict is the shape of a disposition-failure retry (handleRejectDisposition
   // ── threw after the REJECTED transaction committed, the ingestion dispatcher
