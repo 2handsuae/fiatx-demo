@@ -650,10 +650,9 @@ export class SwapWorkflowService {
     // --FREEZE--> FROZEN，不是先落 COMPLIANCE_PENDING --KYT_REJECTED--> REJECTED
     // 再"补冻"——迁移表里 REJECTED 是零出边终态，事后再对它 markStatus(FREEZE)
     // 会撞 `Invalid transition: REJECTED + freeze`。判据必须在这次 markStatus 之
-    // 前做出，所以这里独立算一次——与 handleRejectDisposition 内 Task 3 命门测试
-    // 组钉住的那一行是同一份 `includes('SANCTION_APPLICANT')` 判据，两处独立判定
-    // 是有意的（deliberate fork：一处决定状态机怎么走，一处决定客户域怎么处置，
-    // 不合并成跨函数传参，改一处要记得看另一处）。
+    // 前做出，所以这里独立算一次，调用类内 hasApplicantSanctionHit（与
+    // handleRejectDisposition 内 Task 3 命门测试组钉住的那一次判定共用同一个
+    // 私有谓词，同一个 input.typedTags，同一条调用链）。
     //
     // hasSanction 时这个 $transaction 只落证据，不碰状态机——FREEZE 的
     // markStatus + SWAP_FROZEN 审计交给下面的 handleRejectDisposition，那里已经
@@ -662,7 +661,7 @@ export class SwapWorkflowService {
     // （COMPLIANCE_PENDING，因为这里跳过了自己的 markStatus）等下一次 webhook
     // 重投干净重跑；不会出现「单已经冻但人没限制」或「同一次裁决两次尝试
     // markStatus」的窗口。
-    const hasSanction = (input.typedTags ?? []).includes('SANCTION_APPLICANT');
+    const hasSanction = this.hasApplicantSanctionHit(input.typedTags);
 
     await this.prisma.$transaction(async (tx) => {
       await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
@@ -880,6 +879,15 @@ export class SwapWorkflowService {
    * terminal-status guard in applyKytVerdict now explicitly allows a REJECTED
    * swap's retry to re-enter here instead of silently no-op'ing).
    */
+  /**
+   * 客户本人命中制裁（对手方命中 SANCTION_COUNTERPARTY 不算 —— 走普通软/硬线）。
+   * 类内私有谓词：applyKytVerdict 和 handleRejectDisposition 两处判定读的是同一个
+   * `input.typedTags`、同一条调用链，抽出来只是去重，不是要跨这两处传参绑定。
+   */
+  private hasApplicantSanctionHit(typedTags?: string[]): boolean {
+    return (typedTags ?? []).includes('SANCTION_APPLICANT');
+  }
+
   private async handleRejectDisposition(
     // Review Fix 6 (Minor): narrow inline type — only the fields this method
     // actually reads (plus ownerNo, needed for Review Fix 4's audit business key).
@@ -909,13 +917,13 @@ export class SwapWorkflowService {
       // 2026-08-20 制裁分主体：只有「客户本人命中」才算硬线制裁。对手方命中
       // （SANCTION_COUNTERPARTY）按普通拒绝走软/硬线判定。
       //
-      // ⚠️ 这一行是 string[] 上的 includes，TypeScript 抓不到写错的标签名。
-      // 写错 → hasSanction 恒 false → restrictionCause 掉进 KYT_REJECTED_SOFT
-      // → markHardLineDisposition 不盖章 → 走软线开出面向客户的补料请求
-      // → 客户被告知"请补充材料" = tipping-off，而构建和测试全绿、零日志。
-      // swap-workflow.service.spec.ts 的「命门」用例组就是为钉死这一行存在的，
-      // 改这里必须同步看那组测试。
-      const hasSanction = (input.typedTags ?? []).includes('SANCTION_APPLICANT');
+      // ⚠️ hasApplicantSanctionHit 内是 string[] 上的 includes，TypeScript 抓不到
+      // 写错的标签名。写错 → hasSanction 恒 false → restrictionCause 掉进
+      // KYT_REJECTED_SOFT → markHardLineDisposition 不盖章 → 走软线开出面向客户
+      // 的补料请求 → 客户被告知"请补充材料" = tipping-off，而构建和测试全绿、零
+      // 日志。swap-workflow.service.spec.ts 的「命门」用例组就是为钉死这个判据
+      // 存在的，改这里必须同步看那组测试。
+      const hasSanction = this.hasApplicantSanctionHit(input.typedTags);
       const actions = input.applicantActions ?? [];
       // 本次裁决单看自己是不是硬线：无 action 可做，或命中 SANCTION。
       const isHardLineThisVerdict = hasSanction || actions.length === 0;
@@ -974,19 +982,33 @@ export class SwapWorkflowService {
             { rejectReason: 'SANCTION_APPLICANT' },
           );
         });
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.SWAP_FROZEN,
-          entityType: AuditEntityTypes.SWAP_TRANSACTION,
-          entityId: swap.id,
-          entityNo: swap.swapNo || undefined,
-          entityOwnerType: swap.ownerType,
-          entityOwnerId: swap.ownerId,
-          entityOwnerNo: swap.ownerNo || undefined,
-          traceId: swap.traceId || undefined,
-          workflowType: AuditWorkflowTypes.SWAP,
-          reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)`,
-          sourcePlatform: 'SYSTEM',
-        });
+        // 审计调用独立 catch（与本文件 onCustomerRestrictionOpened 侧的孪生
+        // SWAP_FROZEN 审计同款）：不能和上面的 markStatus 共享外层大 try —— 若
+        // 共享，这里抛出会被外层 catch 当成整段处置失败重跑，把已经成功的
+        // FREEZE 之后本该继续的 markHardLineDisposition / SWAP_KYT_REJECTED_DISPOSED
+        // 一起吞掉，也会撞上 FROZEN 幂等闸导致重投的 webhook 永远不再重跑处置。
+        // 失败只以 logger.error 现身，绝不让一次已经成功的冻结被判成失败。
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.SWAP_FROZEN,
+            entityType: AuditEntityTypes.SWAP_TRANSACTION,
+            entityId: swap.id,
+            entityNo: swap.swapNo || undefined,
+            entityOwnerType: swap.ownerType,
+            entityOwnerId: swap.ownerId,
+            entityOwnerNo: swap.ownerNo || undefined,
+            traceId: swap.traceId || undefined,
+            workflowType: AuditWorkflowTypes.SWAP,
+            reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)`,
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `Failed to write SWAP_FROZEN audit for ${swap.swapNo} (KYT rejected disposition): ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
       }
 
       // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个客户
@@ -1581,8 +1603,21 @@ export class SwapWorkflowService {
    * 客户被贴了「卡住全部能力」的便签 → 处理他名下所有在途兑换。
    *
    * 2026-08-20 起分两路（Task 9）：
-   *   COMPLIANCE_PENDING → 打到 FROZEN（与充值/提现对齐，运营在列表页一眼可见）
-   *   PROCESSING         → 维持停腿 + needsReview（腿已逐条过账，冻结会留半截账）
+   *   COMPLIANCE_PENDING + cause=SANCTION → 打到 FROZEN（零出边终态，与充值/
+   *     提现对齐，运营在列表页一眼可见）
+   *   其余一切（PROCESSING；或 COMPLIANCE_PENDING 但 cause 不是 SANCTION，
+   *     今天唯一在场的是 ADMIN_SUSPENSION）→ 维持停腿 + needsReview
+   *     （assertSwapCustomerAccessOrHalt）
+   *
+   * cause 过滤是 Review Important Fix（2026-08-20）：blocksAllCapabilities
+   * 广播不只由制裁触发 —— ADMIN_SUSPENSION 的 scope 也是 ['ALL']（运营终止
+   * 补料周期 / 客户等级升级审批被拒都会开出这张便签），但它是 DISCLOSED /
+   * OPS_APPROVAL 就能解的行政便签，与制裁无关。若不按 cause 过滤，一次与
+   * 制裁毫不相干的行政暂停会把 COMPLIANCE_PENDING 的单打进 FROZEN、还盖上一个
+   * 假的 rejectReason=SANCTION_APPLICANT —— FROZEN 零出边，运营后来把
+   * ADMIN_SUSPENSION 解了，单子也永远回不来（Task 9 之前，同一个事件只是
+   * 停腿 + needsReview，是可恢复的，这里不能倒退）。
+   *
    * 已经 FROZEN 的单不会出现在这里 —— findNonTerminalByOwner 用
    * SWAP_FREEZE_SCAN_EXCLUDED 排除掉了。
    */
@@ -1597,7 +1632,7 @@ export class SwapWorkflowService {
     const inflight = await this.swapTransactionsService.findNonTerminalByOwner(event.customerId);
     for (const sw of inflight) {
       try {
-        if (sw.status === SwapTransactionStatus.COMPLIANCE_PENDING) {
+        if (sw.status === SwapTransactionStatus.COMPLIANCE_PENDING && event.cause === 'SANCTION') {
           await this.prisma.$transaction(async (tx: any) => {
             await this.swapTransactionsService.markStatus(
               sw.id,
@@ -1621,6 +1656,7 @@ export class SwapWorkflowService {
               entityNo: sw.swapNo || undefined,
               entityOwnerType: sw.ownerType,
               entityOwnerId: sw.ownerId,
+              entityOwnerNo: sw.ownerNo || undefined,
               traceId: sw.traceId || event.traceId || undefined,
               workflowType: AuditWorkflowTypes.SWAP,
               reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
@@ -1634,8 +1670,10 @@ export class SwapWorkflowService {
               );
             });
         } else {
-          // PROCESSING：腿已开跑，只停推腿（assertSwapCustomerAccessOrHalt 内部
-          // 已写 SWAP_LEG_HALTED_BY_RESTRICTION 审计），不动单据状态。
+          // PROCESSING；或 COMPLIANCE_PENDING 但 cause≠SANCTION（例如
+          // ADMIN_SUSPENSION）：都只停腿/停单，不把单据推进零出边终态
+          // （assertSwapCustomerAccessOrHalt 内部已写
+          // SWAP_LEG_HALTED_BY_RESTRICTION 审计），不动单据状态机。
           await this.assertSwapCustomerAccessOrHalt(sw, `restriction:${event.restrictionNo}`);
         }
       } catch (e) {

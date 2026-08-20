@@ -834,7 +834,10 @@ export class SwapTransactionsService {
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.swapTransaction.findMany({
       where: { ownerId, status: { notIn: [...SWAP_FREEZE_SCAN_EXCLUDED] } },
-      select: { id: true, swapNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
+      // ownerNo：Review Fix 4（Minor，2026-08-20）—— 监听器驱动的 SWAP_FROZEN
+      // 审计要带业务键（entityOwnerNo），与本单裁决驱动那条对齐，同时满足铁律③
+      // （有业务键就别只用 id）。
+      select: { id: true, swapNo: true, ownerType: true, ownerId: true, ownerNo: true, status: true, traceId: true },
     });
   }
 

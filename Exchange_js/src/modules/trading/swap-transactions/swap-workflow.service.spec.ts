@@ -2238,6 +2238,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
         swapNo: 'SWP0001',
         ownerType: 'CUSTOMER',
         ownerId: 'cust-1',
+        ownerNo: 'C0001',
         status: SwapTransactionStatus.COMPLIANCE_PENDING,
         traceId: 'TRACE-1',
       },
@@ -2318,6 +2319,9 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
     expect(frozenAudit).toBeDefined();
     expect(frozenAudit.entityId).toBe('s1');
     expect(frozenAudit.entityNo).toBe('SWP0001');
+    // Review Fix 4 (Minor): business key alongside the UUID, matching the
+    // disposition-driven SWAP_FROZEN audit in handleRejectDisposition.
+    expect(frozenAudit.entityOwnerNo).toBe('C0001');
     expect(frozenAudit.reason).toMatch(/RST2608200001/);
   });
 
@@ -2349,6 +2353,30 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
     // Routed through the existing capability gate (assertSwapCustomerAccessOrHalt) instead.
     expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
     expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s2', true);
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
+    );
+  });
+
+  // Review Important Fix (2026-08-20): blocksAllCapabilities=true is not
+  // SANCTION-exclusive — ADMIN_SUSPENSION (operator-terminated material
+  // refresh, or a tier-upgrade case rejected in approval) carries the same
+  // scope=['ALL'] and reaches this listener through the identical event. It
+  // must NOT drive a COMPLIANCE_PENDING swap into FROZEN (zero-out-edge,
+  // unrecoverable, and would falsely stamp rejectReason=SANCTION_APPLICANT
+  // on a customer who was never sanctioned) — it has to fall through to the
+  // same halt-only path as PROCESSING, exactly like this restriction being
+  // DISCLOSED/OPS_APPROVAL-releasable implies.
+  it('COMPLIANCE_PENDING 单 + 跨域广播但 cause=ADMIN_SUSPENSION（非制裁）→ 不进 FROZEN，只停腿', async () => {
+    const mocks = buildListenerMocks();
+    const service = makeListenerService(mocks);
+
+    await service.onCustomerRestrictionOpened({ ...baseEvent, cause: 'ADMIN_SUSPENSION' });
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true);
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
     );
