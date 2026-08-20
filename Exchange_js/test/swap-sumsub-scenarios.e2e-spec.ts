@@ -494,7 +494,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   });
 
   it('④ rejected · Sanctions: REJECTED, sticky hard-line set, no material request issued (tipping-off)', async () => {
-    await deliver(v4Swap.id, 'V4_REJECTED_SANCTION');
+    await deliver(v4Swap.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
 
     expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.REJECTED);
     // 制裁命中：同②，一条材料请求都不登记 —— 不给客户任何可探测的痕迹。

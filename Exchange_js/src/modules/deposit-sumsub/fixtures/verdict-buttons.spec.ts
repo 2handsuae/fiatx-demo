@@ -4,8 +4,8 @@ import { KYT_VERDICT_TYPES } from '../kyt-webhook-types';
 describe('DEPOSIT_VERDICT_BUTTONS', () => {
   const buttons = Object.values(DEPOSIT_VERDICT_BUTTONS);
 
-  it('共 10 个按钮,key 与 map 键一致', () => {
-    expect(buttons).toHaveLength(10);
+  it('共 11 个按钮,key 与 map 键一致', () => {
+    expect(buttons).toHaveLength(11);
     for (const [k, b] of Object.entries(DEPOSIT_VERDICT_BUTTONS)) expect(b.key).toBe(k);
   });
 
@@ -40,7 +40,8 @@ describe('DEPOSIT_VERDICT_BUTTONS', () => {
   it('处置 tag 逐个对上 handler 的词表', () => {
     const tagOf = (k: string) =>
       (DEPOSIT_VERDICT_BUTTONS[k].verdict.typedTags ?? []).map((t) => t.label);
-    expect(tagOf('V4_REJECTED_SANCTION')).toEqual(['SANCTION']);
+    expect(tagOf('V4_REJECTED_SANCTION_APPLICANT')).toEqual(['SANCTION_APPLICANT']);
+    expect(tagOf('V4B_REJECTED_SANCTION_COUNTERPARTY')).toEqual(['SANCTION_COUNTERPARTY']);
     expect(tagOf('V5_REJECTED_FROZEN_MLRO')).toEqual(['FROZEN_BY_MLRO']);
     expect(tagOf('V6_REJECTED_RETURN')).toEqual(['RETURN_TO_SENDER']);
     expect(tagOf('V7_REJECTED_NO_TAG')).toEqual([]);

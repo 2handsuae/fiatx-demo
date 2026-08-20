@@ -11,14 +11,15 @@ import { SWAP_VERDICT_BUTTONS } from './verdict-buttons';
  * 本文件是兑换域缺的那一份（此前不存在）。
  */
 describe('SWAP_VERDICT_BUTTONS', () => {
-  it('③④⑥ 带 applicantActions —— 否则详情页 Applicant Action IDs 永远空', () => {
+  it('③④④B⑥ 带 applicantActions —— 否则详情页 Applicant Action IDs 永远空', () => {
     expect(SWAP_VERDICT_BUTTONS.V3_REJECTED_ACTION.verdict.applicantActions?.length).toBeGreaterThan(0);
-    expect(SWAP_VERDICT_BUTTONS.V4_REJECTED_SANCTION.verdict.applicantActions?.length).toBeGreaterThan(0);
+    expect(SWAP_VERDICT_BUTTONS.V4_REJECTED_SANCTION_APPLICANT.verdict.applicantActions?.length).toBeGreaterThan(0);
+    expect(SWAP_VERDICT_BUTTONS.V4B_REJECTED_SANCTION_COUNTERPARTY.verdict.applicantActions?.length).toBeGreaterThan(0);
     expect(SWAP_VERDICT_BUTTONS.V6_AWAIT_USER.verdict.applicantActions?.length).toBeGreaterThan(0);
   });
 
-  it('③④⑥ 的 applicantActions 每次读都现铸，连续两次访问 externalActionId 不同', () => {
-    for (const key of ['V3_REJECTED_ACTION', 'V4_REJECTED_SANCTION', 'V6_AWAIT_USER'] as const) {
+  it('③④④B⑥ 的 applicantActions 每次读都现铸，连续两次访问 externalActionId 不同', () => {
+    for (const key of ['V3_REJECTED_ACTION', 'V4_REJECTED_SANCTION_APPLICANT', 'V4B_REJECTED_SANCTION_COUNTERPARTY', 'V6_AWAIT_USER'] as const) {
       const first = SWAP_VERDICT_BUTTONS[key].verdict.applicantActions;
       const second = SWAP_VERDICT_BUTTONS[key].verdict.applicantActions;
       expect(first?.[0].externalActionId).toBeTruthy();

@@ -143,7 +143,7 @@ describe('SwapDemoScenarioService', () => {
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('swap-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     expect(primeSubmitSpy).toHaveBeenCalledWith('SWP001-OUT', expect.stringMatching(OBJECT_ID));
     const mintedTxnId = primeSubmitSpy.mock.calls[0][1];
@@ -179,10 +179,10 @@ describe('SwapDemoScenarioService', () => {
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('swap-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     swapService.findByIdInternal.mockResolvedValue({ ...swap, id: 'swap-2', swapNo: 'SWP002' });
-    await service.runVerdict('swap-2', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('swap-2', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toMatch(OBJECT_ID);
@@ -194,8 +194,8 @@ describe('SwapDemoScenarioService', () => {
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
     const service = buildService();
 
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION', actor);
-    await service.runVerdict('swap-1', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('swap-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('swap-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toBe(secondId);

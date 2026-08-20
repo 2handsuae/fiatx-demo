@@ -389,7 +389,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
   it('④ rejected · sanctions: FROZEN, 零记账', async () => {
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount: '250', toIban: registeredIban });
 
-    await deliver(w.id, 'V4_REJECTED_SANCTION');
+    await deliver(w.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
 
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
     const actions = await auditActionsFor(w.id);
@@ -544,7 +544,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
 
     const before = await getSessionView(requestNo);
 
-    await deliver(w.id, 'V4_REJECTED_SANCTION');
+    await deliver(w.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
 
     const after = await getSessionView(requestNo);
@@ -613,7 +613,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
 
     const before = await getSessionView(requestNo);
 
-    await deliver(w.id, 'V4_REJECTED_SANCTION');
+    await deliver(w.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
 
     const after = await getSessionView(requestNo);
