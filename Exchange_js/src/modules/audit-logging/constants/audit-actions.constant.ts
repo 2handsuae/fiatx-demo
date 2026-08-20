@@ -338,6 +338,11 @@ export const AuditActions = {
   // soft/hard (tipping-off) decision so an investigator can tell after the
   // fact whether the customer was informed and why.
   SWAP_KYT_REJECTED_DISPOSED: 'SWAP_KYT_REJECTED_DISPOSED',
+  // 2026-08-20 制裁分主体：兑换单被冻（客户本人命中制裁 / 跨域冻人广播）。
+  // 对齐 DEPOSIT_FROZEN(:240) / WITHDRAW_FROZEN(:416)。
+  // ⚠️ 只加这一个 —— 充值/提现的 *_UNFROZEN / *_APPROVE_BLOCKED_FROZEN 那几个
+  // 是给「FROZEN 有出边」的域用的，兑换 FROZEN 零出边，抄过来就是死常量。
+  SWAP_FROZEN: 'SWAP_FROZEN',
   // 第一批 (2026-08-19)：终态忽略分支（applyKytVerdict 的 no-op 兜底，carve-out
   // 之后）补的审计——忽略 ≠ 静默，与充值/提现域镜像。
   SWAP_KYT_VERDICT_IGNORED: 'SWAP_KYT_VERDICT_IGNORED',

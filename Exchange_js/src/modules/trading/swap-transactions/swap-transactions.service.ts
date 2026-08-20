@@ -81,12 +81,28 @@ export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
   expiresAt: string;
 }
 
-/** 兑换终态。零出边。 */
+/**
+ * 「单据生命周期已结束」—— 材料请求作废监听器（material-request-order-cancel.
+ * listener.ts）与 admin 材料请求列表读这一份。
+ * ⚠️ FROZEN 刻意**不在**内：被制裁调查的客户，他在途的材料请求要留着不撕。
+ * 撕掉 = 客户端"请上传XX"的卡片突然消失 = 一个可感知的变化 = tipping-off。
+ */
 export const SWAP_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   SwapTransactionStatus.SUCCESS,
   SwapTransactionStatus.REJECTED,
   SwapTransactionStatus.FAILED,
   SwapTransactionStatus.REVERSED,
+]);
+
+/**
+ * 「不需要再被冻结广播捞起」—— findNonTerminalByOwner 专用。
+ * ⚠️ FROZEN **在**内：已经冻了的单不需要再冻一次。
+ * 与上面那份的 FROZEN 归属**故意相反**，两个判据回答的是不同问题，
+ * 不要因为"看起来能合并成一个"就合并。
+ */
+export const SWAP_FREEZE_SCAN_EXCLUDED: ReadonlySet<string> = new Set<string>([
+  ...SWAP_TERMINAL_STATUSES,
+  SwapTransactionStatus.FROZEN,
 ]);
 
 @Injectable()
@@ -355,21 +371,27 @@ export class SwapTransactionsService {
   }
 
   /**
-   * 4 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
-   * 或 COMPLIANCE_PENDING → REJECTED(终态)。FAILED/REVERSED 是不可达死枚举
-   * （历史行兼容，见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」），不出现在此表中。
+   * 5 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
+   * 或 COMPLIANCE_PENDING → REJECTED(终态)，或 COMPLIANCE_PENDING → FROZEN(终态)。
+   * FROZEN 零出边：制裁冻结只能由 MLRO 撕便签后人工处理，系统不提供解冻边。
+   * PROCESSING 刻意没有 FREEZE 出边（腿已开跑，冻结会留半截账）。
+   * FAILED/REVERSED 是不可达死枚举（历史行兼容，见 BACKLOG「V6 兑换
+   * FAILED/REVERSED 死枚举」），不出现在此表中。
    */
   private readonly transitions: Record<string, Partial<Record<SwapTransactionAction, SwapTransactionStatus>>> = {
     [SwapTransactionStatus.COMPLIANCE_PENDING]: {
       [SwapTransactionAction.KYT_APPROVED]: SwapTransactionStatus.PROCESSING,
       [SwapTransactionAction.KYT_REJECTED]: SwapTransactionStatus.REJECTED,
       [SwapTransactionAction.SLA_BREACH]: SwapTransactionStatus.REJECTED,
+      [SwapTransactionAction.FREEZE]: SwapTransactionStatus.FROZEN,
     },
     [SwapTransactionStatus.PROCESSING]: {
       [SwapTransactionAction.SUCCESS]: SwapTransactionStatus.SUCCESS,
     },
     [SwapTransactionStatus.SUCCESS]: {},
     [SwapTransactionStatus.REJECTED]: {},
+    // 零出边是**故意的**，不是忘了写。
+    [SwapTransactionStatus.FROZEN]: {},
     [SwapTransactionStatus.FAILED]: {},
     [SwapTransactionStatus.REVERSED]: {},
   };
@@ -744,8 +766,7 @@ export class SwapTransactionsService {
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.swapTransaction.findMany({
-      // 字面量先写死，Task 8 建好 SWAP_FREEZE_SCAN_EXCLUDED 常量后再换成引用它。
-      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED', 'FROZEN'] } },
+      where: { ownerId, status: { notIn: [...SWAP_FREEZE_SCAN_EXCLUDED] } },
       select: { id: true, swapNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
   }

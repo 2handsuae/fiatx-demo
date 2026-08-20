@@ -1,6 +1,10 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { SwapTransactionsService } from './swap-transactions.service';
-import { SwapTransactionAction } from './dto/swap-transaction.dto';
+import {
+  SwapTransactionsService,
+  SWAP_TERMINAL_STATUSES,
+  SWAP_FREEZE_SCAN_EXCLUDED,
+} from './swap-transactions.service';
+import { SwapTransactionStatus, SwapTransactionAction } from './dto/swap-transaction.dto';
 
 describe('SwapTransactionsService', () => {
   let service: SwapTransactionsService;
@@ -434,5 +438,64 @@ describe('findOneForAdmin', () => {
     const data = tx.swapTransaction.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('sumsubDetailJson');
     expect(data.sumsubScore).toBeNull();
+  });
+});
+
+// Task 8: FROZEN 终态基础设施 —— 两个状态集合对 FROZEN 的归属故意相反
+// （见 swap-transactions.service.ts 里两份 Set 上方的注释），本组测试锁死这一点。
+describe('兑换状态机 · FROZEN', () => {
+  it('FROZEN 与 FREEZE 已定义', () => {
+    expect(SwapTransactionStatus.FROZEN).toBe('FROZEN');
+    expect(SwapTransactionAction.FREEZE).toBe('freeze');
+  });
+
+  it('FROZEN 不进 SWAP_TERMINAL_STATUSES —— 进了会自动作废客户在途的材料请求（tipping-off）', () => {
+    expect(SWAP_TERMINAL_STATUSES.has('FROZEN')).toBe(false);
+  });
+
+  it('FROZEN 进 SWAP_FREEZE_SCAN_EXCLUDED —— 已经冻了的单不再被冻结广播扫出来', () => {
+    expect(SWAP_FREEZE_SCAN_EXCLUDED.has('FROZEN')).toBe(true);
+    expect(SWAP_FREEZE_SCAN_EXCLUDED.has('SUCCESS')).toBe(true);
+    expect(SWAP_FREEZE_SCAN_EXCLUDED.has('COMPLIANCE_PENDING')).toBe(false);
+  });
+});
+
+describe('markStatus · FROZEN 迁移边', () => {
+  let service: SwapTransactionsService;
+
+  beforeEach(() => {
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any);
+  });
+
+  it('COMPLIANCE_PENDING + freeze → FROZEN（唯一合法入边）', async () => {
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'COMPLIANCE_PENDING' }),
+        update: jest.fn().mockResolvedValue({ id: 's1', status: 'FROZEN' }),
+      },
+    } as any;
+    expect(await service.markStatus('s1', SwapTransactionAction.FREEZE, tx)).toBe('FROZEN');
+  });
+
+  it('FROZEN 零出边：对已冻结的单施加任何动作都抛 Invalid transition', async () => {
+    const tx = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'FROZEN' }) },
+    } as any;
+    await expect(service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx))
+      .rejects.toThrow(/Invalid transition/);
+    await expect(service.markStatus('s1', SwapTransactionAction.KYT_REJECTED, tx))
+      .rejects.toThrow(/Invalid transition/);
+    await expect(service.markStatus('s1', SwapTransactionAction.SUCCESS, tx))
+      .rejects.toThrow(/Invalid transition/);
+    await expect(service.markStatus('s1', SwapTransactionAction.FREEZE, tx))
+      .rejects.toThrow(/Invalid transition/);
+  });
+
+  it('PROCESSING 阶段没有 freeze 出边（腿已开跑，冻结会留半截账）', async () => {
+    const tx = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'PROCESSING' }) },
+    } as any;
+    await expect(service.markStatus('s1', SwapTransactionAction.FREEZE, tx))
+      .rejects.toThrow(/Invalid transition/);
   });
 });
