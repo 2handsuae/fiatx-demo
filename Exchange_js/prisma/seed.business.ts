@@ -572,7 +572,6 @@ const DEMO_CUSTOMERS: DemoCustomer[] = [
       {
         cause: 'SANCTION',
         reason: 'Sanctions screening hit pending investigation',
-        caseRef: 'SEED-SANCTION-CAROL',
       },
     ],
   },
@@ -692,7 +691,11 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
             releasePolicy: policy.releasePolicy,
             status: 'OPEN',
             reason: r.reason,
-            caseRef: r.caseRef ?? null,
+            // 客户级因由（SANCTION）的 caseRef 必须与 openWithin 的归一结果一致，
+            // 否则 seed 铺出来的那张便签与运行时贴的那张会各算一张，
+            // 破坏「一个客户只有最早的一张」这条不变量。
+            // seed 不走 open()，归一管不到这里，只能手工对齐。
+            caseRef: policy.customerLevel ? customer.customerNo : (r.caseRef ?? null),
             openedAt: now,
             openedBy: 'SEED',
             traceId: `seed-${restrictionNo}`,
