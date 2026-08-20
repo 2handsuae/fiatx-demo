@@ -17,6 +17,7 @@ import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
+import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -2312,7 +2313,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     input: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
-      sceneTag?: 'SANCTION' | 'PEP';
+      sceneTag?: SceneTag;
       dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
@@ -2486,7 +2487,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    */
   private async applyKytAwaitUser(
     w: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ): Promise<void> {
     const incoming = applicantActions ?? [];
@@ -2651,10 +2652,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
    */
   private async applyKytRejected(
     w: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND',
   ): Promise<void> {
-    if (sceneTag === 'SANCTION' || dispoTag === 'FROZEN_BY_MLRO') {
+    if (sceneTag === 'SANCTION_APPLICANT' || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
       if (w.status === WithdrawTransactionStatus.FROZEN) return; // already frozen — repeat webhook
 
       await this.withdrawService.updateStatus(
@@ -2671,7 +2672,13 @@ export class WithdrawWorkflowService implements OnModuleInit {
         entityOwnerId: w.ownerId,
         traceId: w.traceId || undefined,
         workflowType: AuditWorkflowTypes.WITHDRAW,
-        reason: `KYT verdict rejected: ${sceneTag === 'SANCTION' ? 'SANCTION hit' : 'FROZEN_BY_MLRO disposition'}`,
+        reason: `KYT verdict rejected: ${
+          sceneTag === 'SANCTION_APPLICANT'
+            ? 'SANCTION_APPLICANT hit'
+            : sceneTag === 'SANCTION_COUNTERPARTY'
+              ? 'SANCTION_COUNTERPARTY hit'
+              : 'FROZEN_BY_MLRO disposition'
+        }`,
         sourcePlatform: 'SYSTEM',
       });
       return;

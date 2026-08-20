@@ -1073,7 +1073,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
       expect(withdrawService.updateStatus).toHaveBeenCalledWith(
         'wd-sumsub-1',
@@ -1106,7 +1106,7 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
         baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });

@@ -8,6 +8,7 @@ import {
   DepositOwnerType,
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
+import type { SceneTag } from '../../deposit-sumsub/deposit-kyt-verdict.handler';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
@@ -327,7 +328,7 @@ export class DepositWorkflowService implements OnModuleInit {
     v: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
-      sceneTag?: 'SANCTION' | 'PEP';
+      sceneTag?: SceneTag;
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
@@ -582,7 +583,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
   private async applyKytAwaitUser(
     deposit: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ) {
     const incoming = applicantActions ?? [];
@@ -758,10 +759,10 @@ export class DepositWorkflowService implements OnModuleInit {
 
   private async applyKytRejected(
     deposit: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER',
   ) {
-    if (sceneTag === 'SANCTION' || dispoTag === 'FROZEN_BY_MLRO') {
+    if (sceneTag === 'SANCTION_APPLICANT' || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
       if (deposit.status === DepositTransactionStatus.FROZEN) return; // 已在目标态,防重复 webhook
 
       await this.depositService.updateStatus(
@@ -782,7 +783,13 @@ export class DepositWorkflowService implements OnModuleInit {
         entityOwnerId: deposit.ownerId,
         traceId: deposit.traceId || undefined,
         workflowType: 'DEPOSIT',
-        reason: `KYT verdict rejected: ${sceneTag === 'SANCTION' ? 'SANCTION hit' : 'FROZEN_BY_MLRO disposition'}`,
+        reason: `KYT verdict rejected: ${
+          sceneTag === 'SANCTION_APPLICANT'
+            ? 'SANCTION_APPLICANT hit'
+            : sceneTag === 'SANCTION_COUNTERPARTY'
+              ? 'SANCTION_COUNTERPARTY hit'
+              : 'FROZEN_BY_MLRO disposition'
+        }`,
         sourcePlatform: 'SYSTEM',
       });
       return;

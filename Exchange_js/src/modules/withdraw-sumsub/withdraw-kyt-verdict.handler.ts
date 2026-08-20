@@ -94,10 +94,7 @@ export class WithdrawKytVerdictHandler {
     await this.workflow.applyKytVerdict(withdraw.id, {
       verdict,
       riskScore,
-      // workflow.applyKytVerdict 的 sceneTag 形参类型还是旧的 'SANCTION' | 'PEP'
-      // ——按 Task 1 brief，本任务只改信号层、不动 workflow 层，该形参类型由
-      // Task 2/5/6 更新为 SceneTag。此处用宽化 cast 过渡，避免在此文件之外动刀。
-      ...(sceneTag && { sceneTag: sceneTag as unknown as 'SANCTION' | 'PEP' }),
+      ...(sceneTag && { sceneTag }),
       ...(dispoTag && { dispoTag }),
       ...(detailRaw !== undefined && { detailRaw }),
       ...(applicantActions?.length && { applicantActions }),

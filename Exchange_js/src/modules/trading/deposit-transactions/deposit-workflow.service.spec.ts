@@ -1586,7 +1586,7 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-gate-1', {
         verdict: 'rejected',
         riskScore: 98,
-        sceneTag: 'SANCTION',
+        sceneTag: 'SANCTION_APPLICANT',
       });
 
       expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith('dep-gate-1', 'rejected', 98);
@@ -1993,7 +1993,7 @@ describe('DepositWorkflowService', () => {
         status: DepositTransactionStatus.FROZEN,
       });
 
-      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-5',
@@ -2132,7 +2132,7 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       // A5(2026-08-13):忽略 ≠ 静默——状态机一步不动,但要留一条 IGNORED 标记。
@@ -2153,7 +2153,7 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       // 第一批 (2026-08-19)：FROZEN 现在判 IGNORE，忽略 ≠ 静默 —— 状态不动但要留痕。
