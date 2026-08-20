@@ -185,12 +185,19 @@ export class SumsubIngestionService {
           throw new Error(`Assessment ${assessmentId} is not in ESCALATED_TO_SUMSUB status`);
         }
         if (decision === 'APPROVE') {
-          // 自动撕：cause + caseRef 双键，只撕 CRA 制裁路径用同一 assessmentId
-          // 贴的那张 SANCTION。客户身上材料/升级等别的便签一概不动。
+          // 自动撕：只撕这个客户的 SANCTION 便签，材料/升级等别的因由一概不动。
+          //
+          // ⚠️ caseRef 传 null 是刻意的，不是漏传：2026-08-20 起 SANCTION 是
+          // 客户级因由（restriction-cause.constant.ts R4），openWithin 把它的
+          // caseRef 归一成 customerNo，这里再按 assessmentId 精确匹配会永远
+          // 找不到 —— findOpenByCause 找不到时只 logger.log 一行就 return，
+          // 于是 MLRO 明明批准了、客户却还被冻着，且不报错。
+          // findOpenByCause(caseRef=null) 的语义正是"不限 caseRef、取该 cause
+          // 下最早一张 OPEN"（见该方法的文档注释），就是为自动撕设计的。
           await this.restrictionWorkflowService.autoRelease(
             customerId,
             'SANCTION',
-            assessmentId,
+            null,
             'SYSTEM',
           );
           await this.prisma.clientRiskAssessment.update({

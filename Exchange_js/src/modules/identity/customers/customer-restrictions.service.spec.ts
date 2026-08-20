@@ -16,6 +16,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'SILENT',
         releasePolicy: 'MLRO_APPROVAL',
         scopeSelectable: false,
+        customerLevel: true,
         customerLabel: '',
       },
       ADMIN_SUSPENSION: {
@@ -23,6 +24,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'DISCLOSED',
         releasePolicy: 'OPS_APPROVAL',
         scopeSelectable: false,
+        customerLevel: false,
         customerLabel: 'Account suspended',
       },
       MATERIAL_EXPIRED: {
@@ -30,6 +32,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'DISCLOSED',
         releasePolicy: 'OPS_APPROVAL',
         scopeSelectable: false,
+        customerLevel: false,
         customerLabel: 'Document expired',
       },
       TIER_UPGRADE_PENDING: {
@@ -37,6 +40,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'DISCLOSED',
         releasePolicy: 'OPS_APPROVAL',
         scopeSelectable: false,
+        customerLevel: false,
         customerLabel: 'Additional review in progress',
       },
       KYT_REJECTED_SOFT: {
@@ -44,6 +48,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'DISCLOSED',
         releasePolicy: 'OPS_APPROVAL',
         scopeSelectable: false,
+        customerLevel: false,
         customerLabel: 'Verification required',
       },
       KYT_REJECTED_HARD: {
@@ -51,6 +56,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'SILENT',
         releasePolicy: 'MLRO_APPROVAL',
         scopeSelectable: false,
+        customerLevel: false,
         customerLabel: '',
       },
       PENDING_DOCUMENT: {
@@ -58,6 +64,7 @@ describe('RESTRICTION_CAUSE_POLICY', () => {
         visibility: 'DISCLOSED',
         releasePolicy: 'OPS_APPROVAL',
         scopeSelectable: true,
+        customerLevel: false,
         customerLabel: 'Document required',
       },
     });
@@ -112,6 +119,35 @@ function createAuditMock() {
 /** 取第 call 次 createMany 落库的那一批行 */
 function createdRows(tx: ReturnType<typeof createPrismaMock>['tx'], call = 0): any[] {
   return tx.customerRestriction.createMany.mock.calls[call][0].data;
+}
+
+/**
+ * 有状态版 mock：customerRestriction 的 findFirst/findMany/createMany 真的读写同一份
+ * 内存行，用来断言「第二次 open 复用第一次贴的便签」这类跨调用状态——纯 jest.fn()
+ * 静态 mockResolvedValue 做不到（Task 4：验证 SANCTION 客户级归一 caseRef）。
+ */
+function createStatefulPrismaMock() {
+  const { prisma, tx } = createPrismaMock();
+  const rows: any[] = [];
+  tx.customerRestriction.findFirst.mockImplementation(({ where }: any) =>
+    Promise.resolve(
+      rows.find(
+        (r) =>
+          r.customerId === where.customerId &&
+          r.cause === where.cause &&
+          r.caseRef === where.caseRef &&
+          r.status === where.status,
+      ) ?? null,
+    ),
+  );
+  tx.customerRestriction.findMany.mockImplementation(({ where }: any) =>
+    Promise.resolve(rows.filter((r) => r.restrictionNo === where.restrictionNo)),
+  );
+  tx.customerRestriction.createMany.mockImplementation(({ data }: any) => {
+    rows.push(...data);
+    return Promise.resolve({ count: data.length });
+  });
+  return { prisma, tx, rows };
 }
 
 describe('CustomerRestrictionsService.open', () => {
@@ -325,6 +361,40 @@ describe('CustomerRestrictionsService.open', () => {
     expect(externalTx.customerRestriction.createMany).toHaveBeenCalledTimes(1);
     expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
     expect(result.created).toBe(true);
+  });
+
+  it('SANCTION 是客户级因由：不同 caseRef 的第二次 open 不再贴新条子', async () => {
+    const { prisma, rows } = createStatefulPrismaMock();
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
+
+    const first = await svc.open({
+      customerId: 'cust-1', cause: 'SANCTION', reason: 'CRA 命中', caseRef: 'ASSESSMENT-1', openedBy: 'SYSTEM',
+    });
+    expect(first.created).toBe(true);
+
+    const second = await svc.open({
+      customerId: 'cust-1', cause: 'SANCTION', reason: '充值单 DEP-1 命中', caseRef: 'DEP-1', openedBy: 'SYSTEM',
+    });
+    expect(second.created).toBe(false);
+    expect(second.restrictionNo).toBe(first.restrictionNo);
+
+    // 落库的 caseRef 是 customerNo，不是任何一次调用传入的字面量 —— 证明归一确实发生。
+    expect(rows[0].caseRef).toBe('CUS-001');
+  });
+
+  it('非客户级因由（KYT_REJECTED_SOFT）仍按单号各贴一张', async () => {
+    const { prisma } = createStatefulPrismaMock();
+    const svc = new CustomerRestrictionsService(prisma, createAuditMock(), eventEmitterStub as any);
+
+    const a = await svc.open({
+      customerId: 'cust-1', cause: 'KYT_REJECTED_SOFT', reason: 'SW-1', caseRef: 'SW-1', openedBy: 'system',
+    });
+    const b = await svc.open({
+      customerId: 'cust-1', cause: 'KYT_REJECTED_SOFT', reason: 'SW-2', caseRef: 'SW-2', openedBy: 'system',
+    });
+    expect(a.created).toBe(true);
+    expect(b.created).toBe(true);
+    expect(b.restrictionNo).not.toBe(a.restrictionNo);
   });
 });
 

@@ -162,10 +162,19 @@ export class CustomerRestrictionsService {
     });
     if (!customer) throw new NotFoundException(`Customer not found: ${input.customerId}`);
 
+    // R4：客户级因由（今天只有 SANCTION）把 caseRef 归一成 customerNo。
+    // 归一放在服务层而不是让每个调用方记得传 —— 调用方有 5 处（CRA / Sumsub
+    // MLRO / 兑换 / 充值 / 提现），靠约定必然滞后（同 deposit-transactions.
+    // service.ts:82 那段关于白名单滞后的教训）。归一后同一客户同一 cause 永远
+    // 只有最早的那一张 OPEN，第 2..N 次命中 created=false、不广播、但仍写一条
+    // result=SKIPPED 的审计，可取证。
+    // ⚠️ 不能用 null 表达「客户级」—— null 在下面的分支里是「完全不去重」。
+    const effectiveCaseRef = policy.customerLevel ? customer.customerNo : caseRef;
+
     // caseRef 为 null 的手工便签不去重 —— 运营可对同一客户开多张 PENDING_DOCUMENT，各要一份材料
-    if (caseRef !== null) {
+    if (effectiveCaseRef !== null) {
       const existing = await tx.customerRestriction.findFirst({
-        where: { customerId: input.customerId, cause: input.cause, caseRef, status: 'OPEN' },
+        where: { customerId: input.customerId, cause: input.cause, caseRef: effectiveCaseRef, status: 'OPEN' },
       });
       if (existing) {
         const siblings = await tx.customerRestriction.findMany({
@@ -195,7 +204,7 @@ export class CustomerRestrictionsService {
         releasePolicy: policy.releasePolicy,
         status: 'OPEN',
         reason: input.reason,
-        caseRef,
+        caseRef: effectiveCaseRef,
         openedBy: input.openedBy,
         traceId,
       })),
