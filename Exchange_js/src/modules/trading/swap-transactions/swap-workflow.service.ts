@@ -869,7 +869,16 @@ export class SwapWorkflowService {
     try {
       // ── 先做分型判定（全是只读，无副作用），再落写入 ──
       // Task 8：便签的 cause 取决于软硬线，所以判定必须先于贴便签。
-      const hasSanction = (input.typedTags ?? []).includes('SANCTION');
+      // 2026-08-20 制裁分主体：只有「客户本人命中」才算硬线制裁。对手方命中
+      // （SANCTION_COUNTERPARTY）按普通拒绝走软/硬线判定。
+      //
+      // ⚠️ 这一行是 string[] 上的 includes，TypeScript 抓不到写错的标签名。
+      // 写错 → hasSanction 恒 false → restrictionCause 掉进 KYT_REJECTED_SOFT
+      // → markHardLineDisposition 不盖章 → 走软线开出面向客户的补料请求
+      // → 客户被告知"请补充材料" = tipping-off，而构建和测试全绿、零日志。
+      // swap-workflow.service.spec.ts 的「命门」用例组就是为钉死这一行存在的，
+      // 改这里必须同步看那组测试。
+      const hasSanction = (input.typedTags ?? []).includes('SANCTION_APPLICANT');
       const actions = input.applicantActions ?? [];
       // 本次裁决单看自己是不是硬线：无 action 可做，或命中 SANCTION。
       const isHardLineThisVerdict = hasSanction || actions.length === 0;

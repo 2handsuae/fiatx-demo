@@ -494,7 +494,15 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
   });
 
   it('④ rejected · Sanctions: REJECTED, sticky hard-line set, no material request issued (tipping-off)', async () => {
-    await deliver(v4Swap.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
+    // 2026-08-20 (Task 3)：本用例断言的是「客户本人命中制裁 → 硬线/sticky/静默」——
+    // 这只在 SANCTION_APPLICANT 下成立。V4B_REJECTED_SANCTION_COUNTERPARTY
+    // （对手方地址命中 OFAC）是 Task 2 批量拆按钮时按 deposit/withdraw 的语义
+    // 判给这条用例的，但 deposit/withdraw 的 FROZEN 分支对 APPLICANT/COUNTERPARTY
+    // 一视同仁（见 deposit-workflow.service.ts:765），swap 的 hasSanction 判定
+    // 不是——只有本人命中才不给入口（对手方命中走普通软/硬线判定，见
+    // swap-workflow.service.ts:872 与其配套单测「命门」组）。这条用例从设计
+    // 起就是在证「本人命中」这条最危险的路径，改回 APPLICANT 才对得上断言。
+    await deliver(v4Swap.id, 'V4_REJECTED_SANCTION_APPLICANT');
 
     expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.REJECTED);
     // 制裁命中：同②，一条材料请求都不登记 —— 不给客户任何可探测的痕迹。

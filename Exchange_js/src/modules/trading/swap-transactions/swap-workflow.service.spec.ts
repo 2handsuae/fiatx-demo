@@ -1424,7 +1424,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1470,7 +1470,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
 
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_KYT_VERDICT_IGNORED }),
@@ -1490,7 +1490,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1532,7 +1532,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1545,11 +1545,11 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
   });
 
-  it('SUCCESS + rejected (SANCTION) verdict → completed swap stays fully untouched, but the customer is still restricted (Finding 2)', async () => {
+  it('SUCCESS + rejected (SANCTION_APPLICANT) verdict → completed swap stays fully untouched, but the customer is still restricted (Finding 2)', async () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
@@ -1588,7 +1588,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const createLegSpy = jest.spyOn(service as any, 'createLeg');
 
     await expect(
-      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] }),
+      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
     ).resolves.toBeUndefined();
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -1611,11 +1611,11 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   // ── already entered PROCESSING must still restrict the PERSON, even though
   // ── the swap itself correctly keeps executing (already past the point of
   // ── no return — must not be unwound).
-  it('PROCESSING + rejected (SANCTION) verdict → swap keeps executing, but the customer is still restricted (Review Fix 3)', async () => {
+  it('PROCESSING + rejected (SANCTION_APPLICANT) verdict → swap keeps executing, but the customer is still restricted (Review Fix 3)', async () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
 
     // Swap itself is untouched — no state transition, no unwinding.
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -1862,7 +1862,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(dispositionAudit.metadata.actionIds).toEqual(['EA1', 'EA2', 'EA3']);
     });
 
-    it('硬线（SANCTION tag）→ 写 restrictions，一条材料请求都不登记，且盖 sticky 硬线章（tipping-off，即使有 action 也不暴露）', async () => {
+    it('硬线（SANCTION_APPLICANT tag）→ 写 restrictions，一条材料请求都不登记，且盖 sticky 硬线章（tipping-off，即使有 action 也不暴露）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -1872,7 +1872,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           { applicantActionId: 'A1', externalActionId: 'EA1' },
           { applicantActionId: 'A2', externalActionId: 'EA2' },
         ],
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
 
       expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
@@ -1893,7 +1893,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
     });
 
-    it('客户已有一笔来自前一笔软线 swap 的材料请求，之后一次硬线（SANCTION）裁决不登记新材料请求、也不影响那一行', async () => {
+    it('客户已有一笔来自前一笔软线 swap 的材料请求，之后一次硬线（SANCTION_APPLICANT）裁决不登记新材料请求、也不影响那一行', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -1911,7 +1911,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await (service as any).handleRejectDisposition(swapB, {
         verdict: 'rejected' as const,
         applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
 
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
@@ -1959,7 +1959,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await service.applyKytVerdict('s1', {
         verdict: 'rejected',
         applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
 
       const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
@@ -1975,26 +1975,26 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     });
 
     // ── Review Fix 2 (Important): the exact A-then-B cross-swap sequence ──
-    // ── from the finding — swap A is hard-lined (SANCTION) first, correctly
+    // ── from the finding — swap A is hard-lined (SANCTION_APPLICANT) first, correctly
     // ── silent; seconds later swap B (a DIFFERENT swap, same customer) gets
     // ── an independent soft-line rejection. Without the sticky marker, B's
     // ── own tags/actions alone would re-expose a re-verification entry point
     // ── for a customer who is under sanctions investigation.
-    it('sticky 硬线：swap A 硬线（SANCTION）沉默之后，swap B（同客户，纯软线）到达也必须继续沉默', async () => {
+    it('sticky 硬线：swap A 硬线（SANCTION_APPLICANT）沉默之后，swap B（同客户，纯软线）到达也必须继续沉默', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
       const swapA = { ...mocks.swapRow, id: 'sA', swapNo: 'SWP-A' };
       const swapB = { ...mocks.swapRow, id: 'sB', swapNo: 'SWP-B' };
 
-      // Swap A: hard line via SANCTION tag — correctly silent.
+      // Swap A: hard line via SANCTION_APPLICANT tag — correctly silent.
       await (service as any).handleRejectDisposition(swapA, {
         verdict: 'rejected',
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
 
       // Swap B arrives seconds later: on its OWN merits this is a soft line
-      // (an action is attached, no SANCTION tag on this particular verdict) —
+      // (an action is attached, no SANCTION_APPLICANT tag on this particular verdict) —
       // last-writer-wins would incorrectly re-open the entry point here.
       await (service as any).handleRejectDisposition(swapB, {
         verdict: 'rejected',
@@ -2077,7 +2077,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await expect(
         (service as any).handleRejectDisposition(mocks.swapRow, {
           verdict: 'rejected' as const,
-          typedTags: ['SANCTION'],
+          typedTags: ['SANCTION_APPLICANT'],
         }),
       ).rejects.toThrow('SQLITE_BUSY: database is locked');
 
@@ -2088,6 +2088,62 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(failedAudit).toBeDefined();
       expect(failedAudit.reason).toBe('SQLITE_BUSY: database is locked');
       expect(failedAudit.entityOwnerNo).toBe('C0001');
+    });
+  });
+
+  // ── 2026-08-20 制裁分主体（命门）───────────────────────────────────────
+  // handleRejectDisposition 里的 `(input.typedTags ?? []).includes('SANCTION_APPLICANT')`
+  // 吃的是已经 map 成 string[] 的 typedTags，includes 对任意字符串都合法，
+  // TypeScript 抓不到写错的标签名。写错 → hasSanction 恒 false →
+  // restrictionCause 掉进 KYT_REJECTED_SOFT → markHardLineDisposition 不盖章
+  // → 走软线开出面向客户的补料请求 → tipping-off，而构建和测试全绿、零日志。
+  // 这组测试就是为钉死这一行存在的 —— 改那一行必须回看这里。
+  describe('handleRejectDisposition · 制裁主体判定（命门）', () => {
+    it('SANCTION_APPLICANT → cause=SANCTION，且不暴露补料入口', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION_APPLICANT'],
+        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'SANCTION' }),
+      );
+      // tipping-off：命中制裁绝不能登记面向客户的材料请求。
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
+    });
+
+    it('SANCTION_COUNTERPARTY → 不是硬线制裁，走软线（有 action 时暴露补料入口）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION_COUNTERPARTY'],
+        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'KYT_REJECTED_SOFT' }),
+      );
+    });
+
+    it('旧标签 SANCTION 已退役 —— 不得再被识别成制裁', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION'],
+        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'SANCTION' }),
+      );
     });
   });
 });
