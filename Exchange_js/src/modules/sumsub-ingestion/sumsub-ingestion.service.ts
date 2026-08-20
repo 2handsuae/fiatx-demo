@@ -574,8 +574,13 @@ export class SumsubIngestionService {
     const reviewResult = payload.reviewResult as Record<string, unknown> | undefined;
     const reviewId = String(reviewResult?.reviewId ?? payload.reviewId ?? '');
     const attemptId = String(reviewResult?.attemptId ?? payload.attemptId ?? '');
+    // 第一批 (2026-08-19)：KYT 交易裁决报文不带 reviewId/attemptId，于是同一客户的
+    // 第二条同类型裁决键与第一条逐字相同 → 命中旧 PROCESSED 行直接 return，新裁决
+    // 不落行、不派发。模拟入口跳过去重所以演示不复现，接真 Sumsub 必中。
+    // kytTxnId 只有 KYT 事件带，其它事件为空串 —— 对既有行为无影响。
+    const kytTxnId = String(payload.kytTxnId ?? '');
     if (!type || !applicantId) return null;
-    return `${type}:${applicantId}:${externalUserId}:${reviewId}:${attemptId}`;
+    return `${type}:${applicantId}:${externalUserId}:${reviewId}:${attemptId}:${kytTxnId}`;
   }
 
   private extractDedupeKey(payload: Record<string, unknown>): string | null {

@@ -244,4 +244,49 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
       expect.objectContaining({ data: expect.objectContaining({ status: 'PROCESSED' }) }),
     );
   });
+
+  describe('buildDedupeKey (第一批 2026-08-19)', () => {
+    it('B4: 同一客户两条 KYT 裁决，交易号不同 → 去重键必须不同', () => {
+      const build = (service as any).buildDedupeKey.bind(service);
+      const first = build({
+        type: 'applicantKytTxnApproved',
+        applicantId: 'app-1',
+        externalUserId: 'cust-1',
+        kytTxnId: 'txn-A',
+      });
+      const second = build({
+        type: 'applicantKytTxnRejected',
+        applicantId: 'app-1',
+        externalUserId: 'cust-1',
+        kytTxnId: 'txn-B',
+      });
+      const sameTypeDiffTxn = build({
+        type: 'applicantKytTxnApproved',
+        applicantId: 'app-1',
+        externalUserId: 'cust-1',
+        kytTxnId: 'txn-B',
+      });
+
+      expect(first).not.toBe(second);
+      // 关键：同 type + 同客户，仅交易号不同，也必须区分开
+      expect(first).not.toBe(sameTypeDiffTxn);
+    });
+
+    it('B4: 非 KYT 事件无 kytTxnId → 行为与改动前一致（不因空串塌成同一把键）', () => {
+      const build = (service as any).buildDedupeKey.bind(service);
+      const a = build({
+        type: 'applicantReviewed',
+        applicantId: 'app-1',
+        externalUserId: 'cust-1',
+        reviewResult: { reviewId: 'r-1', attemptId: 'a-1' },
+      });
+      const b = build({
+        type: 'applicantReviewed',
+        applicantId: 'app-1',
+        externalUserId: 'cust-1',
+        reviewResult: { reviewId: 'r-2', attemptId: 'a-2' },
+      });
+      expect(a).not.toBe(b);
+    });
+  });
 });
