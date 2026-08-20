@@ -44,6 +44,7 @@ import {
 } from '../../governance/approvals/constants/approval.constants';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -97,6 +98,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly tbEvidenceService: TbEvidenceService,
     private readonly applicantActions: DepositApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly customerRestrictionsService: CustomerRestrictionsService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -762,8 +764,34 @@ export class DepositWorkflowService implements OnModuleInit {
     sceneTag?: SceneTag,
     dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER',
   ) {
-    if (sceneTag === 'SANCTION_APPLICANT' || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
+    const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
+    if (
+      isApplicantSanction ||
+      sceneTag === 'SANCTION_COUNTERPARTY' ||
+      dispoTag === 'FROZEN_BY_MLRO'
+    ) {
       if (deposit.status === DepositTransactionStatus.FROZEN) return; // 已在目标态,防重复 webhook
+
+      // 客户本人命中 → 先冻人、再冻单。
+      //
+      // 顺序是 load-bearing 的：两者分属两次独立提交（open() 自开
+      // $transaction，updateStatus 是独立 update），中途崩溃必然留半成品。
+      // 先冻人的残局是「人冻了、单没冻」—— open() 广播 CUSTOMER_RESTRICTION_OPENED
+      // 会被本域自己的 onCustomerRestrictionOpened 接住,把在途单（含这一笔）
+      // 冻掉，能自愈。反过来「单冻了、人没冻」客户还能开新单，方向危险。
+      // 不要因为"看起来能合并"或"先改状态更直觉"调换。
+      if (isApplicantSanction) {
+        await this.customerRestrictionsService.open({
+          customerId: deposit.ownerId,
+          cause: 'SANCTION',
+          reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned`,
+          // caseRef 传单号只为可读；SANCTION 是客户级因由，openWithin 会归一成
+          // customerNo（restriction-cause.constant.ts R4）。哪笔单牵出来的由上面
+          // 的 reason 和审计承载。
+          caseRef: deposit.depositNo,
+          openedBy: 'system',
+        });
+      }
 
       await this.depositService.updateStatus(
         deposit.id,
@@ -783,13 +811,11 @@ export class DepositWorkflowService implements OnModuleInit {
         entityOwnerId: deposit.ownerId,
         traceId: deposit.traceId || undefined,
         workflowType: 'DEPOSIT',
-        reason: `KYT verdict rejected: ${
-          sceneTag === 'SANCTION_APPLICANT'
-            ? 'SANCTION_APPLICANT hit'
-            : sceneTag === 'SANCTION_COUNTERPARTY'
-              ? 'SANCTION_COUNTERPARTY hit'
-              : 'FROZEN_BY_MLRO disposition'
-        }`,
+        reason: isApplicantSanction
+          ? 'KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)'
+          : sceneTag === 'SANCTION_COUNTERPARTY'
+            ? 'KYT verdict rejected: SANCTION_COUNTERPARTY hit (order frozen only)'
+            : 'KYT verdict rejected: FROZEN_BY_MLRO disposition',
         sourcePlatform: 'SYSTEM',
       });
       return;

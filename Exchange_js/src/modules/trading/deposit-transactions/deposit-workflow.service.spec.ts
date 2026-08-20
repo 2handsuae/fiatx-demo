@@ -28,6 +28,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 
 /** Task 9：Gate 0 与 checkAutoApproval 改读限制账，不再读已删的 complianceStatus 列。 */
 const customerAccessService = {
@@ -61,6 +62,7 @@ describe('DepositWorkflowService', () => {
   let systemWalletResolver: Record<string, jest.Mock>;
   let tbEvidenceService: Record<string, jest.Mock>;
   let actionsService: Record<string, jest.Mock>;
+  let customerRestrictionsService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     // Task 9：access mock 是模块级的，本 spec 无 clearAllMocks —— 逐例复位，
@@ -119,6 +121,9 @@ describe('DepositWorkflowService', () => {
     tbEvidenceService = {
       enrichForPost: jest.fn().mockResolvedValue(undefined),
     };
+    customerRestrictionsService = {
+      open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST-1', created: true }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -134,6 +139,7 @@ describe('DepositWorkflowService', () => {
         { provide: SystemWalletResolver, useValue: systemWalletResolver },
         { provide: TbEvidenceService, useValue: tbEvidenceService },
         { provide: DepositApplicantActionsService, useValue: actionsService },
+        { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
       ],
     }).compile();
 
@@ -1402,6 +1408,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -2005,6 +2012,48 @@ describe('DepositWorkflowService', () => {
       );
       // Zero accounting: no TB/executeTransfer calls implied — accountingService not asserted here
       // since freeze never touches it (only updateStatus + audit).
+      // Task 5：对手方被制裁 ≠ 客户本人被制裁 —— 只冻这一单，绝不冻人。
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+    });
+
+    it('rejected + SANCTION_APPLICANT (from COMPLIANCE_PENDING) → 先冻人(open cause=SANCTION)再冻单 FROZEN', async () => {
+      const deposit = {
+        id: 'dep-5b',
+        depositNo: 'DEP005B',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-applicant-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.FROZEN,
+      });
+
+      await service.applyKytVerdict('dep-5b', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+
+      // 冻人：customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用，
+      // 且必须发生在 updateStatus(FREEZE) 之前（先冻人、再冻单，顺序 load-bearing）。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-applicant-1',
+          cause: 'SANCTION',
+          caseRef: 'DEP005B',
+        }),
+      );
+      const openOrder = customerRestrictionsService.open.mock.invocationCallOrder[0];
+      const updateStatusOrder = depositService.updateStatus.mock.invocationCallOrder[0];
+      expect(openOrder).toBeLessThan(updateStatusOrder);
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-5b',
+        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_FROZEN' }),
+      );
     });
 
     it('rejected, no tag (from COMPLIANCE_PENDING) → MANUAL_CHECKING', async () => {
@@ -2440,6 +2489,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -2703,6 +2753,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -2878,6 +2929,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3045,6 +3097,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3240,6 +3293,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3442,6 +3496,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3777,6 +3832,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
           {
             provide: TransactionLimitRulesService,
             useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },
