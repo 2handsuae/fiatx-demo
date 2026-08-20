@@ -2349,7 +2349,57 @@ export class WithdrawWorkflowService implements OnModuleInit {
       this.logger.debug(
         `applyKytVerdict no-op: withdrawal ${withdrawId} in ignored status (${status})`,
       );
+
+      // 终审必修(2026-08-20):忽略分支先落"IGNORED"取证行 —— recordVerdictIgnored
+      // 内部自带 .catch,永不抛,保证无论下面冻人是否成功,这条裁决"曾经到过、带
+      // 什么 sceneTag"至少留一条痕(metadata 现补了 sceneTag/dispoTag)。顺序是
+      // 刻意的:若反过来先冻人、冻人的 open() 抛出(它没有 .catch,是真实的 DB
+      // 写入,允许失败去触发 webhook 重试),这条 IGNORED 记录就整趟都不会落下,
+      // 而 open() 本身的失败不该连累这条本就该发生的取证记录——两件事谁失败都
+      // 不该拖累另一件已经能做的事先做完。与充值域同一顺序(deliberate fork,
+      // 逐字重述一遍,不抽公共方法)。
       await this.recordVerdictIgnored(w, input, status);
+
+      // 单据状态不该决定「人」要不要被限制 —— 与 swap-workflow.service.ts 里
+      // REJECTED/SUCCESS carve-out 同一条原则。真实路径:客户因**别的**因由
+      // (ADMIN_SUSPENSION,scope=['ALL'] 会广播)被摁住 → 本域监听器把这笔在途
+      // 提现冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 → 撞上这道
+      // 闸(decideVerdictLanding 对 FROZEN 一律判 IGNORE)。若在这里直接 return,
+      // 制裁命中被整条丢弃:人不会被冻,运营解除那张 ADMIN_SUSPENSION 便签后客户
+      // 完全自由,而审计里也看不出曾有过制裁命中。
+      //
+      // open() 不碰单据状态、且幂等,所以这里调它**不破坏**第一批立的「判定先于
+      // 写库」不变量 —— 状态机仍然一步不动,只是客户维度多了一张限制便签。
+      if (input.sceneTag === 'SANCTION_APPLICANT') {
+        await this.customerRestrictionsService.open({
+          customerId: w.ownerId,
+          cause: 'SANCTION',
+          reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status})`,
+          caseRef: w.withdrawNo,
+          openedBy: 'system',
+        });
+
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT,
+            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            entityId: w.id,
+            entityNo: w.withdrawNo,
+            entityOwnerType: w.ownerType,
+            entityOwnerId: w.ownerId,
+            traceId: w.traceId || undefined,
+            workflowType: AuditWorkflowTypes.WITHDRAW,
+            reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
+            metadata: { withdrawNo: w.withdrawNo, sceneTag: input.sceneTag, status },
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT audit failed for ${w.withdrawNo}: ${err?.message}`,
+            );
+          });
+      }
+
       return;
     }
 
@@ -2438,10 +2488,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * 有意为之——audit-logs.service 的 requestId 去重能力在此被刻意关闭。
    * .catch 是 load-bearing（审计失败不得让 webhook 进死信），但记 error 不哑吞。
    * 与充值域 recordVerdictIgnored 逐字镜像。
+   *
+   * 终审必修(2026-08-20):metadata 补 sceneTag/dispoTag —— 此前迟到的
+   * SANCTION_APPLICANT/SANCTION_COUNTERPARTY 裁决撞上 IGNORE 分支时，这两个
+   * 标签整个不落地，取证链在这里断了一截。
    */
   private async recordVerdictIgnored(
     w: any,
-    input: { verdict: string; riskScore?: number | null },
+    input: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND' },
     status: WithdrawTransactionStatus,
   ): Promise<void> {
     await this.auditLogsService
@@ -2460,6 +2514,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
           verdict: input.verdict,
           status,
           riskScore: input.riskScore ?? null,
+          sceneTag: input.sceneTag ?? null,
+          dispoTag: input.dispoTag ?? null,
         },
         requestId: `WITHDRAW_KYT_VERDICT_IGNORED_${w.withdrawNo}_${randomUUID()}`,
         sourcePlatform: 'SYSTEM',

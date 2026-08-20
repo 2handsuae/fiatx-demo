@@ -1163,6 +1163,116 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });
 
+    // ── 终审必修 (2026-08-20)：FROZEN 单撞上迟到的 SANCTION_APPLICANT 裁决 ─────
+    // 失败场景:客户因 ADMIN_SUSPENSION(等级升级被拒/补料周期终止/admin 手工停用,
+    // scope=['ALL'] 广播)被摁住 → 本域 onCustomerRestrictionOpened 把这笔在途提现
+    // 冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 → decideVerdictLanding
+    // 对 FROZEN 一律判 IGNORE → 修复前直接 return,制裁命中被整条丢弃:人不被冻,
+    // 运营解除 ADMIN_SUSPENSION 便签后客户完全自由。
+    it('FROZEN 单 + 迟到 SANCTION_APPLICANT 裁决 → 仍冻人(open cause=SANCTION)+ 写审计,单据状态不变(不推动状态机)', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-sanction-frozen',
+          withdrawNo: 'WD-SANCTION-FROZEN',
+          ownerId: 'cust-frozen-applicant',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-sanction-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_APPLICANT',
+      });
+
+      // 冻人:customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用,
+      // 即便单据本身早已是 FROZEN、状态机这一步完全不动。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-frozen-applicant',
+          cause: 'SANCTION',
+          caseRef: 'WD-SANCTION-FROZEN',
+          reason: expect.stringContaining('WD-SANCTION-FROZEN'),
+        }),
+      );
+
+      // 写审计:MLRO 要能查到"虽然单子没动,但人被冻了"。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT,
+          entityNo: 'WD-SANCTION-FROZEN',
+        }),
+      );
+
+      // 「判定先于写库」不变量必须保住:单子本来就该留在 FROZEN,不推动状态机。
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('FROZEN 单 + 迟到 SANCTION_COUNTERPARTY 裁决 → 不冻人(对手方命中,只冻单,单早已 FROZEN)', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-counterparty-frozen',
+          withdrawNo: 'WD-COUNTERPARTY-FROZEN',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-counterparty-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_COUNTERPARTY',
+      });
+
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT }),
+      );
+    });
+
+    it('FROZEN 单 + 迟到普通 rejected(无 sceneTag)→ 不冻人', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-plain-frozen',
+          withdrawNo: 'WD-PLAIN-FROZEN',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-plain-frozen', { verdict: 'rejected' });
+
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT }),
+      );
+    });
+
+    it('recordVerdictIgnored 的 metadata 里能查到 sceneTag(取证链不再断)', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-metadata-frozen',
+          withdrawNo: 'WD-METADATA-FROZEN',
+          ownerId: 'cust-metadata',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-metadata-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_APPLICANT',
+      });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
+          metadata: expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
+        }),
+      );
+    });
+
     it('dispoTag=REJECT_REFUND from MANUAL_CHECKING → REJECT_REFUND action + releaseLock (void both pending) + WITHDRAW_REFUNDED_BY_TAG audit', async () => {
       const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(

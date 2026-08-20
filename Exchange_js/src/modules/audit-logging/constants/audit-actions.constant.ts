@@ -242,6 +242,12 @@ export const AuditActions = {
   // A5(2026-08-13):迟到的 KYT 裁决撞上终态/在途处置态 → 忽略。忽略 ≠ 静默,记一条便于
   // 演示与事后取证("系统收到了、判定不适用、记下来了"),原裁决/存证一个字不动。
   DEPOSIT_KYT_VERDICT_IGNORED: 'DEPOSIT_KYT_VERDICT_IGNORED',
+  // 终审必修(2026-08-20):IGNORE 分支撞上迟到的 SANCTION_APPLICANT 裁决 ——
+  // 单据状态不该决定"人"要不要被限制(与 swap-workflow.service.ts 的 carve-out
+  // 同一条原则)。此时单子本身一步不动(见 DEPOSIT_KYT_VERDICT_IGNORED),但客户
+  // 仍被 customerRestrictionsService.open({cause:'SANCTION'}) 摁住 —— 这条审计
+  // 承载"虽然单子没动,但人被冻了"这条取证线索。
+  DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT: 'DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT',
   DEPOSIT_MANUAL_APPROVED: 'DEPOSIT_MANUAL_APPROVED',
   DEPOSIT_ONHOLD: 'DEPOSIT_ONHOLD',
   // 已在 ACTION_PENDING 时 Sumsub 又发一个新 applicantActionId(客户交的材料不够,
@@ -427,6 +433,9 @@ export const AuditActions = {
   // 便于演示与事后取证("系统收到了、判定不适用、记下来了"),原裁决/存证一个字不动。
   // mirrors DEPOSIT_KYT_VERDICT_IGNORED。
   WITHDRAW_KYT_VERDICT_IGNORED: 'WITHDRAW_KYT_VERDICT_IGNORED',
+  // 终审必修(2026-08-20):IGNORE 分支撞上迟到的 SANCTION_APPLICANT 裁决 ——
+  // 单据状态不该决定"人"要不要被限制。mirrors DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT。
+  WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT: 'WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT',
   // Review Fix 2 (Important): a KYT verdict arriving after the payout already
   // broadcast (PAYOUT_PENDING) — evidence recorded, no state-machine action.
   WITHDRAW_POST_BROADCAST_VERDICT: 'WITHDRAW_POST_BROADCAST_VERDICT',

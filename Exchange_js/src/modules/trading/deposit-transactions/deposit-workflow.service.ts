@@ -350,7 +350,63 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.debug(
         `applyKytVerdict no-op: deposit ${depositId} in ignored status (${status})`,
       );
+
+      // 终审必修(2026-08-20):忽略分支先落"IGNORED"取证行 —— recordVerdictIgnored
+      // 内部自带 .catch,永不抛,保证无论下面冻人是否成功,这条裁决"曾经到过、带
+      // 什么 sceneTag"至少留一条痕(metadata 现补了 sceneTag/dispoTag,见其 JSDoc)。
+      // 顺序是刻意的:若反过来先冻人、冻人的 open() 抛出(它没有 .catch,是真实的
+      // DB 写入,允许失败去触发 webhook 重试),这条 IGNORED 记录就整趟都不会落下,
+      // 而 open() 本身的失败不该连累这条本就该发生的取证记录——两件事谁失败都不该
+      // 拖累另一件已经能做的事先做完。
       await this.recordVerdictIgnored(deposit, v, status);
+
+      // 单据状态不该决定「人」要不要被限制 —— 与 swap-workflow.service.ts 里
+      // REJECTED/SUCCESS carve-out 同一条原则(那里的注释原文:
+      // "The order's own state must not decide whether the PERSON gets restricted.")。
+      //
+      // 真实路径:客户因**别的**因由(ADMIN_SUSPENSION,等级升级被拒 / 补料周期
+      // 终止 / admin 手工停用,都是 scope=['ALL'] 会广播)被摁住 → 本域监听器把
+      // 这笔在途单冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 →
+      // 撞上这道闸(decideVerdictLanding 对 FROZEN 一律判 IGNORE)。若在这里直接
+      // return,制裁命中被整条丢弃:人不会被冻,运营解除那张 ADMIN_SUSPENSION 便签
+      // 后客户完全自由,而审计里也看不出曾有过制裁命中(证据写回在本闸之后,
+      // recordVerdictIgnored 的 metadata 此前又不带 sceneTag)。
+      //
+      // open() 不碰单据状态、且幂等(同客户同 cause 第 2..N 次命中 created=false,
+      // 见 customer-restrictions.service.ts openWithin 的 R4 归一),所以这里调它
+      // **不破坏**第一批立的「判定先于写库」不变量 —— 状态机仍然一步不动,只是
+      // 客户维度多了一张限制便签。
+      if (v.sceneTag === 'SANCTION_APPLICANT') {
+        await this.customerRestrictionsService.open({
+          customerId: deposit.ownerId,
+          cause: 'SANCTION',
+          reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status})`,
+          caseRef: deposit.depositNo,
+          openedBy: 'system',
+        });
+
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: deposit.id,
+            entityNo: deposit.depositNo,
+            entityOwnerType: deposit.ownerType,
+            entityOwnerId: deposit.ownerId,
+            traceId: deposit.traceId || undefined,
+            workflowType: 'DEPOSIT',
+            result: AuditResult.SUCCESS,
+            reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
+            metadata: { depositNo: deposit.depositNo, sceneTag: v.sceneTag, status },
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT audit failed for ${deposit.depositNo}: ${err?.message}`,
+            );
+          });
+      }
+
       return;
     }
 
@@ -418,10 +474,15 @@ export class DepositWorkflowService implements OnModuleInit {
    * .catch 是 load-bearing：三个 handler 全无 try/catch，异常会上抛到
    * SumsubIngestionService 的 dispatch catch → retryCount+1 → >=3 进 DEAD。
    * 审计写失败不该把一个本该静默忽略的 webhook 变成死信。但不再哑吞 —— 记 error。
+   *
+   * 终审必修(2026-08-20):metadata 补 sceneTag/dispoTag —— 此前迟到的
+   * SANCTION_APPLICANT/SANCTION_COUNTERPARTY 裁决撞上 IGNORE 分支时，这两个
+   * 标签整个不落地，取证链在这里断了一截（MLRO 查这条审计只看得到
+   * verdict='rejected'，看不出是不是制裁命中）。
    */
   private async recordVerdictIgnored(
     deposit: any,
-    v: { verdict: string; riskScore?: number | null },
+    v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' },
     status: DepositTransactionStatus,
   ): Promise<void> {
     await this.auditLogsService
@@ -441,6 +502,8 @@ export class DepositWorkflowService implements OnModuleInit {
           verdict: v.verdict,
           status,
           riskScore: v.riskScore ?? null,
+          sceneTag: v.sceneTag ?? null,
+          dispoTag: v.dispoTag ?? null,
         },
         requestId: `DEPOSIT_KYT_VERDICT_IGNORED_${deposit.depositNo}_${randomUUID()}`,
         sourcePlatform: 'SYSTEM',
