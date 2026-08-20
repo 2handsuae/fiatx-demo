@@ -244,6 +244,9 @@ Last Updated: 2026-08-20
 - [ ] **对手方恰好是我的客户（交叉场景）——本批不考虑**：一笔交易的对手方地址如果恰好也是本平台的客户，`SANCTION_COUNTERPARTY` 命中理论上应该同时触发对该"对手方客户"的复核，当前实现只处置发起方，不追溯对手方身份 ｜来源: 2026-08-20 制裁分主体批次
 - [ ] **兑换 `PROCESSING` 在途单碰冻人广播仍走 `needsReview` 旗，运营分不出"技术卡单"与"人被冻结"**：`onCustomerRestrictionOpened()` 对处于 `PROCESSING`（腿已开跑）的兑换单只调用 `assertSwapCustomerAccessOrHalt()` 停腿 + 打 `needsReview`，与腿失败自愈耗尽的 STUCK 单共用同一面旗子、混在同一个卡单堆里，旁边挂的还是同一个 Resume 按钮——运营在列表页无法区分"这单是技术卡住待人工重试"还是"这个人被制裁冻结了，Resume 是错误动作" ｜来源: 2026-08-20 制裁分主体批次
 - [ ] **双裁决毫秒级并发可开出两张同因由便签**：两笔不同订单（如同一客户的一笔充值 + 一笔提现）的 KYT rejected webhook 若在毫秒级窗口内并发到达，各自独立调用 `CustomerRestrictionsService.open({cause:'SANCTION'})`，`openWithin()` 的"查重复→插入"不是跨请求原子的，理论上可能各自查到"无重复"后都插入，开出两张同因由的 OPEN 便签。窗口极窄、后果轻（MLRO 需要多签一次撕两张而非一张）；要根治需要加客户级锁，成本收益不划算，暂不做 ｜来源: 2026-08-20 制裁分主体批次
+- 🟡 **`scripts/reset-business-data.ts` 的删除清单缺 `materialRequest`** —— 该表对 `CustomerMain` 有必填 FK，库里若有历史材料请求行，`npm run db:biz:reset` 会撞 FK 违例中止。本批在 worktree 栈重铺时实际撞上，手工清阻塞数据后才跑通（未改该脚本，非本批范围）｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
+- 🟡 **`scripts/verify-demo-data.ts` 的 `scanR1()` 引用已 DROP 的 `internalFund` 表**（`:47` `prisma.internalFund.findMany()`）—— `schema.prisma` 里只剩 `InternalFundAuditLog`，`InternalFund` 模型已在 funds_orders 重构中删除。后果：`npm run db:seed:business` 末尾内建的 `verify:demo-data` 校验步骤**必炸**（业务数据本身在此之前已成功落库，不影响 seed 结果，但开发者会看到一次失败）。与本节 `backfill-internal-fund-keys.ts` 那条同根因、不同文件｜来源: 2026-08-20 制裁分主体批次 Task 12 重铺实测
+
 
 ## 技术债 — 平账处置（推单）
 
