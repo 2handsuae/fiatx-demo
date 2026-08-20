@@ -1,6 +1,6 @@
 # V6 兑换流程 — 当前实现真相
 
-Last Verified: 2026-08-20（核对方式：第二批「制裁命中分主体」落地后逐条回代码核——新增 `FROZEN` 终态（零出边，唯一入边 `COMPLIANCE_PENDING --FREEZE--> FROZEN`，`PROCESSING` 刻意无 FREEZE 入边）；`hasApplicantSanctionHit(typedTags)` 判据只认 `SANCTION_APPLICANT`（`SANCTION_COUNTERPARTY` 不触发 FROZEN，走既有软/硬线判定）；两个驱动方逐行核对——本单裁决（`applyKytVerdict()` 尾部判定 + `handleRejectDisposition()` 内"先冻人再冻单"落地）与跨域冻人广播（`onCustomerRestrictionOpened()`，只认 `event.cause==='SANCTION'`，`ADMIN_SUSPENSION` 等同为 `scope=['ALL']` 的便签会广播但只停腿不冻单）；`applyKytVerdict()` 顶部的 `FROZEN` 幂等闸（防死信）与主路径 FREEZE 因广播抢先而抛错时的良性竞态 fall-through（sticky 标记与处置审计照常执行）均逐行核对；四个既有状态判据集合（`SWAP_TERMINAL_STATUSES`/`SWAP_FREEZE_SCAN_EXCLUDED`/`KYT_VERDICT_TERMINAL_STATUSES`/`SWAP_CUSTOMER_STATUS_PASSTHROUGH`）的 FROZEN 归属逐个核对与代码一致（新增 §3.6 表）；客户面收敛 `toCustomerSwapStatus()`（FROZEN→REJECTED）与筛选展开（`findAll({customerScope:true})` 的展开集合从收敛函数派生，不手工维护平行表）逐行核对（新增 §3.7）；`completedAt` 只在 SUCCESS 写实地核对代码（`swap-transactions.service.ts:482`）。本次实跑硬闸：`npx tsc --noEmit -p tsconfig.json` 0 错；`npx tsc --noEmit -p tsconfig.test.json` 0 错；`npx jest` 3 suites failed/4 tests failed/1878 passed/1884 total（与第一批基线 3 suites/4 tests/1878 passed 逐字持平——本批为文档+seed 收口，零生产代码/测试代码改动，故用例总数未变）；`test/sanction-subject-split.e2e-spec.ts` 用例④⑤（兑换 FROZEN 客户面三层防线 + 幂等闸防死信）与 `swap-workflow.service.spec.ts`「命门」用例组已实跑纳入上述全量结果。前序核对方式见下）
+Last Verified: 2026-08-20（核对方式：第二批「制裁命中分主体」落地后逐条回代码核——新增 `FROZEN` 终态（零出边，唯一入边 `COMPLIANCE_PENDING --FREEZE--> FROZEN`，`PROCESSING` 刻意无 FREEZE 入边）；`hasApplicantSanctionHit(typedTags)` 判据只认 `SANCTION_APPLICANT`（`SANCTION_COUNTERPARTY` 不触发 FROZEN，走既有软/硬线判定）；两个驱动方逐行核对——本单裁决（`applyKytVerdict()` 尾部判定 + `handleRejectDisposition()` 内"先冻人再冻单"落地）与跨域冻人广播（`onCustomerRestrictionOpened()`，只认 `event.cause==='SANCTION'`，`ADMIN_SUSPENSION` 等同为 `scope=['ALL']` 的便签会广播但只停腿不冻单）；`applyKytVerdict()` 顶部的 `FROZEN` 幂等闸（防死信）与主路径 FREEZE 因广播抢先而抛错时的良性竞态 fall-through（sticky 标记与处置审计照常执行）均逐行核对；四个既有状态判据集合（`SWAP_TERMINAL_STATUSES`/`SWAP_FREEZE_SCAN_EXCLUDED`/`KYT_VERDICT_TERMINAL_STATUSES`/`SWAP_CUSTOMER_STATUS_PASSTHROUGH`）的 FROZEN 归属逐个核对与代码一致（新增 §3.6 表）；客户面收敛 `toCustomerSwapStatus()`（FROZEN→REJECTED）与筛选展开（`findAll({customerScope:true})` 的展开集合从收敛函数派生，不手工维护平行表）逐行核对（新增 §3.7）；`completedAt` 只在 SUCCESS 写实地核对代码（`swap-transactions.service.ts:482`）。本次实跑硬闸：`npx tsc --noEmit -p tsconfig.json` 0 错；`npx tsc --noEmit -p tsconfig.test.json` 0 错；`npx jest` 3 suites failed/4 tests failed/1878 passed/1884 total（与第一批基线 3 suites/4 tests/1878 passed 逐字持平——本批为文档+seed 收口，零生产代码/测试代码改动，故用例总数未变）；`swap-workflow.service.spec.ts`「命门」用例组（`src/` 内单测）已实跑纳入上述全量结果；`test/sanction-subject-split.e2e-spec.ts` 用例④⑤（兑换 FROZEN 客户面三层防线 + 幂等闸防死信）**不在**上述全量结果内——e2e 走独立 `test/jest-e2e.json` 配置（`jest.config.js` 的 `roots` 只含 `src`/`admin-web/src`/`client-web/src`，不含 `test/`），单独实跑：Task 11 验收记录 `sanction-subject-split` 连跑 3 次均 6/6、`customer-restrictions` 6/6、`swap-sumsub-scenarios` 9/9、`deposit-sumsub-verdicts` 18/18、`withdraw-sumsub-scenarios` 13/13。前序核对方式见下）
 
 <details><summary>前序 Last Verified 记录</summary>
 
@@ -18,7 +18,7 @@ Last Verified: 2026-08-20（核对方式：第一批「合规裁决落地」落�
 
 ## 1. 状态机
 
-`SwapTransactionStatus` 枚举 6 态，**5 态运行时可达**（2026-08-20 制裁分主体新增 `FROZEN`）：
+`SwapTransactionStatus` 枚举 7 态，**5 态运行时可达**（2026-08-20 制裁分主体新增 `FROZEN`；`FAILED`/`REVERSED` 是历史兼容的不可达死枚举，见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」）：
 ```
 COMPLIANCE_PENDING ──(建单，零记账)──┐
 COMPLIANCE_PENDING ──(KYT approved)──→ PROCESSING ──(4 腿全 CLEAR)──→ SUCCESS
@@ -79,7 +79,7 @@ COMPLIANCE_PENDING ──(KYT rejected 且客户本人命中制裁 SANCTION_APPL
 |---|---|---|---|
 | 「单据生命周期已结束」 | `SWAP_TERMINAL_STATUSES`（`swap-transactions.service.ts`） | **否** | 进去会被材料请求作废监听器当成终态撕掉客户在途的材料请求卡片——被制裁调查的客户，撕掉=客户端一个可感知的变化=tipping-off |
 | 「不需要再被冻结广播捞起」 | `SWAP_FREEZE_SCAN_EXCLUDED`（=`SWAP_TERMINAL_STATUSES` ∪ `{FROZEN}`） | **是** | 已经冻了的单不必再冻一次；与上一行故意相反，两个判据回答的是不同问题 |
-| KYT 裁决终态忽略判定 | `KYT_VERDICT_TERMINAL_STATUSES`（`swap-workflow.service.ts` 类内私有） | **否** | 不放进集合，改在 `applyKytVerdict()` 顶部另写一行 `if (status === FROZEN) return 'IGNORE'`（§1）——语义不同："终态所以忽略" vs "冻了所以忽略"，混在一起以后没人分得清 |
+| KYT 裁决终态忽略判定 | `KYT_VERDICT_TERMINAL_STATUSES`（`swap-workflow.service.ts` 类内私有） | **否** | 兑换域**没有** `decideVerdictLanding()`（不要照抄充值/提现的三段式写法）——不放进集合，改在 `applyKytVerdict()` 顶部另写一段守卫：`if (status === SwapTransactionStatus.FROZEN) { await this.recordVerdictIgnored(swap, input, status); return; }`（`swap-workflow.service.ts:517-521`，§1）——语义不同："终态所以忽略" vs "冻了所以忽略"，混在一起以后没人分得清 |
 | 客户面状态收敛白名单 | `SWAP_CUSTOMER_STATUS_PASSTHROUGH`（`swap-transactions.service.ts`） | **否** | `FROZEN` 不在白名单里，经 `toCustomerSwapStatus()` 显式收敛成 `REJECTED`（下方「客户面三层防线」条） |
 
 ## 3.7 兑换客户面三层防线（2026-08-20）
