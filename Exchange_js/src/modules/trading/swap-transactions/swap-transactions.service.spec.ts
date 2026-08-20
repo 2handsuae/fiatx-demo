@@ -305,6 +305,89 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findAllFor
   });
 });
 
+// Task 10: 兑换客户面三层防线。Task 8 给 SwapTransactionStatus 加了 FROZEN
+// （零出边终态，客户本人命中制裁）之后，客户面此前"没有一层防线"的三个洞
+// 同时打开：响应体原样透传 status、筛选面 ?status=FROZEN 无门可挡、未来新增
+// 状态无收敛机制。三层都要堵，逐条覆盖。
+describe('Task 10: 客户面三层防线', () => {
+  let service: SwapTransactionsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      swapTransaction: {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any);
+  });
+
+  describe('响应体：FROZEN 收敛成 REJECTED（不原样透传）', () => {
+    it('toCustomerSwapStatus(FROZEN) === REJECTED', () => {
+      expect(service.toCustomerSwapStatus('FROZEN')).toBe('REJECTED');
+    });
+
+    it('findOneForCustomer 对一笔 FROZEN 单返回 status: REJECTED，客户视图里看不到 FROZEN 字面量', async () => {
+      prisma.swapTransaction.findUnique.mockResolvedValue({
+        id: 'swap-frozen-1',
+        swapNo: 'SWP0999',
+        status: 'FROZEN',
+        ownerId: 'cust-1',
+      });
+
+      const result: any = await service.findOneForCustomer('swap-frozen-1', 'cust-1');
+
+      expect(result.status).toBe('REJECTED');
+      expect(result.status).not.toBe('FROZEN');
+    });
+
+    it('白名单内的四个正常态原样透传，不被误收敛', () => {
+      expect(service.toCustomerSwapStatus('COMPLIANCE_PENDING')).toBe('COMPLIANCE_PENDING');
+      expect(service.toCustomerSwapStatus('PROCESSING')).toBe('PROCESSING');
+      expect(service.toCustomerSwapStatus('SUCCESS')).toBe('SUCCESS');
+      expect(service.toCustomerSwapStatus('REJECTED')).toBe('REJECTED');
+    });
+  });
+
+  describe('白名单兜底：未列入白名单的状态（含未来新增）一律收敛成 COMPLIANCE_PENDING', () => {
+    it('一个假造的未来执法态字符串被收敛成 COMPLIANCE_PENDING，而不是原样透传', () => {
+      expect(service.toCustomerSwapStatus('SOME_FUTURE_ENFORCEMENT_STATE')).toBe(
+        'COMPLIANCE_PENDING',
+      );
+    });
+  });
+
+  describe('筛选面：customerScope 下 status 查询参数被完全忽略、不报错', () => {
+    it('客户传 status=FROZEN 时 where 里不含 status，与不传时的查询条件完全一致', async () => {
+      const resultWithStatus = await service.findAllForCustomer('cust-1', {
+        status: 'FROZEN',
+      } as any);
+      expect(resultWithStatus).toBeDefined();
+      const whereWithStatus = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+      expect(whereWithStatus.status).toBeUndefined();
+
+      prisma.swapTransaction.findMany.mockClear();
+      await service.findAllForCustomer('cust-1', {} as any);
+      const whereWithoutStatus = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+
+      expect(whereWithStatus).toEqual(whereWithoutStatus);
+    });
+  });
+
+  describe('admin 不受影响：非 customerScope 下 status 参数照常生效', () => {
+    it('admin 侧 findAll 传 status 时 where.status 照常写入过滤条件', async () => {
+      await service.findAll({ status: 'FROZEN' } as any);
+
+      expect(prisma.swapTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ status: 'FROZEN' }) }),
+      );
+    });
+  });
+});
+
 // Finding 2 (Important, task-10 review): findOneForAdmin shipped with no
 // spec coverage. Mirrors withdraw-transactions.service.spec.ts's
 // describe('findOneForAdmin', ...) block (well-formed payload,

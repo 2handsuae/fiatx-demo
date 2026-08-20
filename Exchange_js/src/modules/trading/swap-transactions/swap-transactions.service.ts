@@ -105,6 +105,21 @@ export const SWAP_FREEZE_SCAN_EXCLUDED: ReadonlySet<string> = new Set<string>([
   SwapTransactionStatus.FROZEN,
 ]);
 
+/**
+ * 客户面 passthrough 白名单 —— 只有这几个「客户本就该看到真实结果」的态原样
+ * 输出，其余任何状态（现在的、遗留的、未来新增的）一律收敛。
+ *
+ * 方向抄自 deposit-transactions.service.ts:82-91 的成文教训：黑名单必然滞后，
+ * 新增的执法态只要没人记得手工加进去就会原样下发给客户。白名单反过来，
+ * 新增状态天生落在收敛侧。宁可错杀，不可放过。
+ */
+const SWAP_CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
+  SwapTransactionStatus.COMPLIANCE_PENDING,
+  SwapTransactionStatus.PROCESSING,
+  SwapTransactionStatus.SUCCESS,
+  SwapTransactionStatus.REJECTED,
+]);
+
 @Injectable()
 export class SwapTransactionsService {
   constructor(
@@ -292,7 +307,7 @@ export class SwapTransactionsService {
     };
   }
 
-  async findAll(query: SwapTransactionQueryDto) {
+  async findAll(query: SwapTransactionQueryDto, options?: { customerScope?: boolean }) {
     const {
       skip,
       take,
@@ -308,7 +323,13 @@ export class SwapTransactionsService {
     if (swapNo) where.swapNo = { contains: swapNo };
     if (ownerId) where.ownerId = ownerId;
     if (ownerType) where.ownerType = ownerType;
-    if (status) where.status = status;
+    // 安全洞（对齐充值 deposit-transactions.service.ts:191 的「评审 Important 1(a)」）：
+    // customerScope 下完全忽略 status 查询参数。SwapTransactionQueryDto 被 admin
+    // 列表和客户端 GET /swap-transactions/my 复用，枚举一加 FROZEN，
+    // ?status=FROZEN 就把状态过滤器交给了客户 —— 返回非空即等于确认自己被冻，
+    // 是比响应体里原样输出 status 更直接的一个探测面。
+    // 静默忽略、不报错 —— 报错本身又是一个可探测面。admin 侧行为不受影响。
+    if (status && !options?.customerScope) where.status = status;
 
     if (startDate || endDate) {
       where.createdAt = {};
@@ -336,11 +357,14 @@ export class SwapTransactionsService {
 
   /** Customer-facing list: same query, scoped to the caller's own swaps. */
   async findAllForCustomer(customerId: string, query: SwapTransactionQueryDto) {
-    const result = await this.findAll({
-      ...query,
-      ownerId: customerId,
-      ownerType: 'CUSTOMER',
-    });
+    const result = await this.findAll(
+      {
+        ...query,
+        ownerId: customerId,
+        ownerType: 'CUSTOMER',
+      },
+      { customerScope: true },
+    );
     return {
       ...result,
       items: result.items.map((item: any) => this.toCustomerSwapView(item)),
@@ -502,12 +526,10 @@ export class SwapTransactionsService {
    * client-web/src/pages/Swap.tsx, which is the actual field contract the
    * client reads. Mirrors WithdrawTransactionsService#toCustomerWithdrawView.
    *
-   * Unlike deposit/withdraw, swap's reachable status enum
-   * (COMPLIANCE_PENDING/PROCESSING/SUCCESS/REJECTED — see
-   * SwapTransactionStatus) has no FROZEN/SEIZED/MANUAL_CHECKING-style
-   * enforcement state whose literal string would itself tip off the
-   * customer, so `status` is passed through as-is (no collapsing needed,
-   * same as withdraw's simpler status set).
+   * ⚠️ 2026-08-20 订正：上面这段曾说 swap 的可达状态集里没有 FROZEN 之类会
+   * tipping-off 的字面量，所以 status 原样透传——Task 8 加了 FROZEN（零出边
+   * 终态，客户本人命中制裁）之后这句话已经过期。status 现在必须经
+   * `toCustomerSwapStatus` 收敛，见该方法上的注释。
    *
    * Public (not private): Task 11 defence-in-depth — SwapWorkflowService
    * .initiateSwap also routes its create-response through this allow-list
@@ -515,11 +537,31 @@ export class SwapTransactionsService {
    * reassigns the `swap` local there (e.g. rebinding it to a richer row)
    * can't silently reopen a leak on that route.
    */
+  /**
+   * 客户面状态收敛。
+   *
+   * FROZEN 显式收敛成 REJECTED —— 与充值收敛成 COMPLIANCE_PENDING 的选择
+   * **故意不同**：充值的 FROZEN 是可逆的（RESUME → COMPLIANCE_PENDING），
+   * 收敛成"处理中"是诚实的；兑换的 FROZEN 是零出边终态，收敛成"处理中"就是
+   * 一个永远不会兑现的谎，还会让客户端的自刷定时器（client-web/src/pages/
+   * Swap.tsx:543 的 hasNonTerminal）永不停止。收敛成 REJECTED 后客户看到
+   * 'Unsuccessful'，与普通 KYT 拒绝**逐字相同**，分不出 —— 这正是 tipping-off
+   * 要求的。
+   *
+   * 其余未列入白名单的状态（含未来新增）一律收敛成 COMPLIANCE_PENDING，
+   * 与充值同一条「宁可错杀」的兜底。
+   */
+  toCustomerSwapStatus(status: string): string {
+    if (SWAP_CUSTOMER_STATUS_PASSTHROUGH.has(status)) return status;
+    if (status === SwapTransactionStatus.FROZEN) return SwapTransactionStatus.REJECTED;
+    return SwapTransactionStatus.COMPLIANCE_PENDING;
+  }
+
   toCustomerSwapView(item: any) {
     return {
       id: item.id,
       swapNo: item.swapNo,
-      status: item.status,
+      status: this.toCustomerSwapStatus(item.status),
       fromAmount: item.fromAmount,
       toAmount: item.toAmount,
       netToAmount: item.netToAmount,
