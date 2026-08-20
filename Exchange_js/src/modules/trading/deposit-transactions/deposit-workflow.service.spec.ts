@@ -2035,11 +2035,14 @@ describe('DepositWorkflowService', () => {
 
       // 冻人：customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用，
       // 且必须发生在 updateStatus(FREEZE) 之前（先冻人、再冻单，顺序 load-bearing）。
+      // caseRef 会被 openWithin 顶成 customerNo（SANCTION 是客户级因由），真正承载
+      // 「哪笔单牵出来的」取证线索的是 reason —— 必须钉住。
       expect(customerRestrictionsService.open).toHaveBeenCalledWith(
         expect.objectContaining({
           customerId: 'cust-applicant-1',
           cause: 'SANCTION',
           caseRef: 'DEP005B',
+          reason: expect.stringContaining('DEP005B'),
         }),
       );
       const openOrder = customerRestrictionsService.open.mock.invocationCallOrder[0];

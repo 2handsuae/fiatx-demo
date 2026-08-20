@@ -776,10 +776,17 @@ export class DepositWorkflowService implements OnModuleInit {
       //
       // 顺序是 load-bearing 的：两者分属两次独立提交（open() 自开
       // $transaction，updateStatus 是独立 update），中途崩溃必然留半成品。
-      // 先冻人的残局是「人冻了、单没冻」—— open() 广播 CUSTOMER_RESTRICTION_OPENED
-      // 会被本域自己的 onCustomerRestrictionOpened 接住,把在途单（含这一笔）
-      // 冻掉，能自愈。反过来「单冻了、人没冻」客户还能开新单，方向危险。
-      // 不要因为"看起来能合并"或"先改状态更直觉"调换。
+      // 先冻人的残局是「人冻了、单没冻」：
+      //   - updateStatus 抛异常但进程还活着 → open() 广播的 CUSTOMER_RESTRICTION_OPENED
+      //     会被本域自己的 onCustomerRestrictionOpened 接住，把在途单（含这一笔）冻掉，
+      //     内存事件当场自愈。
+      //   - 进程直接崩溃 → 内存事件和挂起的 listener promise 一起死，指望不上它；真正
+      //     兜底的是 Sumsub webhook 重试：重跑 applyKytVerdict，open() 幂等返回
+      //     created=false，照常往下冻单。
+      // 无论走哪条兜底路径，即便真留下「人冻了、单没冻」的窗口，新单进
+      // COMPLIANCE_PENDING 时 Gate 0（本文件 runGate0）会读限制账直接冻掉，提现/兑换
+      // 也被能力闸硬挡 —— 损害收敛。反过来「单冻了、人没冻」，客户下一单畅通无阻，方向
+      // 危险。不要因为"看起来能合并"或"先改状态更直觉"调换。
       if (isApplicantSanction) {
         await this.customerRestrictionsService.open({
           customerId: deposit.ownerId,
