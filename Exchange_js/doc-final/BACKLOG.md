@@ -6,7 +6,7 @@
 >
 > 一行四要素：**是什么 ｜ 哪来的 ｜ 落点/状态**。
 
-Last Updated: 2026-08-19
+Last Updated: 2026-08-20
 
 ---
 
@@ -161,6 +161,8 @@ Last Updated: 2026-08-19
 - [ ] **`generateReferenceNo()` 无碰撞重试，随交易量增长会真的撞号（deposit/withdraw/swap 三域共用，非提现独有）**：`src/common/utils/no-generator.util.ts → generateReferenceNo(prefix)` 只拼 `prefix + YYMMDD + 4位随机数`，10000 个槽位/天，`create()` 调用方（`FundsOrderService.create()` 等）拿到号直接插库，**不查重、不重试**，撞了就是 Prisma `P2002` 唯一约束异常直接抛出。本轮（2026-08-07 withdraw-action-embed Task 6）跑 `test/withdraw-sumsub-scenarios.e2e-spec.ts` 时**实测复现过一次**：`funds_orders` 表当天（同一 worktree 栈库，反复起停跑了一整天测试）已积攒 101 行 `FO2608%` 前缀记录，某次 `initiatePayoutPhase()` 内 `FundsOrderService.create()` 直接因 `fundsOrderNo` 唯一约束撞号而抛错，导致那一条 e2e 用例失败（重跑即通过——随机数换了）；生日悖论下 n=101/10000 槽位的碰撞概率已逼近四成，绝非罕见边界。修法：`create()` 撞 `P2002` 时重新生成号重试几次（同类模式已见于 `WithdrawApplicantActionsService.syncApplicantActions()` 的 `P2002` 捕获重读），或干脆把 4 位随机扩成更大值域/换成严格递增序列 ｜来源: 2026-08-07 withdraw-action-embed Task 6 e2e 实测复现
 - [x] ~~**needsReview 复位待做**~~ **已完成（2026-08-04 Fix Round 1）**：SUCCESS 结算时清 needsReview 旗；FAILED/REJECTED 终态路径的 needsReview 残留是否需同样清旗待定 ｜来源: 2026-08-04 Task 12 review
 - [ ] **规则 A（tipping-off 防线）只在充值域落实，提现域有一模一样的洞未堵**：`withdraw-transactions.service.ts → toCustomerWithdrawView()`（约 L357-380）原样返回 `status: item.status`/`completedAt: item.completedAt`——一笔被 `adminFreeze` 打成 `FROZEN` 的提现，客户端 DevTools → Network 面板可直接读到裸 `'FROZEN'` 字符串（对照充值域 `deposit-transactions.service.ts → toCustomerDepositView()` 已有的 `CUSTOMER_STATUS_PASSTHROUGH` 白名单收敛 + `CUSTOMER_COMPLETED_STATUSES` completedAt 独立白名单，见 truth/v4-deposit.md §4.6）；`findAllForCustomer()`（约 L333-339）把客户传入的 `query.status` 直接转发进 `findAll()` 的 where 条件，无 customerScope 收窄——`GET /client/withdraw-transactions?status=FROZEN` 本身就是一个可用的冻结预言机（对照充值域 `findAll()` 在 `customerScope` 下已静默忽略原始 `status` 参数）；前端 `client-web/src/pages/Withdraw.tsx → HISTORY_STATUS_FILTERS`（约 L105-115）仍是裸 status 列表式筛选（`statuses: ['PENDING_APPROVAL','COMPLIANCE_PENDING','MANUAL_CHECKING','FROZEN','PAYOUT_PENDING']`），未跟进充值域已切换的 `bucket` 补集式设计（§4.6）。本条不是回归——提现域这套字段白名单本就早于充值域上线（Task 11 只做了字段裁剪，未含 status/completedAt 收敛），deposit-action-embed 分支只是把充值域这道防线补完，两域因此出现不对称：truth/v4-deposit.md 与代码注释里写的"规则 A"读起来像平台级不变量，实际只在充值域落实。仅登记，本分支未改提现代码 ｜来源: 2026-08-05 deposit-action-embed 分支终审 Important 3
+- [ ] **`withdraw-workflow.service.ts` 四处 FROZEN 死码（decideVerdictLanding 短路）**：`applyKytRejected`（L2642-2643）里 SANCTION/FROZEN_BY_MLRO 的 early-return + L2700-2710 里 REJECT_REFUND 的 FROZEN 守卫（写的 `WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 审计动作随之不可达）+ L2739-2741 里无 tag 分支的 FROZEN 守卫 + `applyKytAwaitUser`（L2536-2552）的 FROZEN 分支（见下条）。四处均因 `decideVerdictLanding` 私有方法拦截所有抵达 FROZEN withdraw 的 verdict 并返回 IGNORE，在 webhook 路径上不再可达——代码**未被删除**（有意保留，登记是为了留账）。顺带的一处文档漂移：`withdraw-workflow.service.ts:1899-1900` 的 `initiateRefund` 文档注释仍把 `WITHDRAW_REFUND_TAG_ON_FROZEN_IGNORED` 守卫当作活的执行路径来引用，清理死码时应一并更新 ｜来源: 2026-08-19 第一批 Task 2 审查 ｜Phase C
+- [ ] **FROZEN 冻结期间补料清单丢失（业主已拍板接受）**：改动前，`applyKytAwaitUser` 在 FROZEN 分支里先同步补料清单到子表、再 no-op 状态（原注释："Sub-table is still synced above — only the status transition itself is skipped"）；改动后 `decideVerdictLanding` 短路，同步不再发生。后果：已被制裁冻结的提现若事后收到带补料要求的 awaitUser 裁决，系统无法留下「Sumsub 当时要求了哪些材料」的记录（子表无、metadata 仅含 `{withdrawNo,verdict,status,riskScore}`）。**业主 2026-08-20 拍板接受此丢失**：客户已冻结，出路是走解冻审批而非补料；反之保留同步会给被调查客户开出可见补料入口，构成 tipping-off 风险。**已决策项，这是有意为之，勿于后续重构中"修复"回去**。其他两域无同款损失：充值域 `applyKytAwaitUser` 无 FROZEN 守卫，兑换域无 awaitUser 语义 ｜来源: 2026-08-19 第一批 Task 2 审查 + 业主 2026-08-20 拍板
 
 ## 技术债 — V6 兑换
 
