@@ -95,6 +95,12 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     restrictionsService = app.get(CustomerRestrictionsService);
 
     // 清掉上一轮的 fixture（子表先删）。只删本 suite 前缀的客户，9 个 demo 客户不动。
+    // ⚠️ 这里从不清理 auditLogEvent（它按 entityId 关联，不是 customerId 外键，
+    // 没有一个天然的「本 suite 前缀」过滤条件）。今天安全，是因为 CustomerMain.id
+    // 是随机 uuid——上一轮遗留的审计行 entityId 不可能撞上本轮新建客户的 id。
+    // 用例⑥用的是精确行数断言 toHaveLength(2)，这条断言的正确性寄生在
+    // 「客户 id 随机不重放」这个隐含前提上；如果这里的清理逻辑将来改成按可预测
+    // id 建客户（或复用 id），用例⑥会开始计入跨轮残留的审计行。
     const stale = await prisma.customerMain.findMany({
       where: { email: { startsWith: EMAIL_PREFIX } },
       select: { id: true },
@@ -326,31 +332,25 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     const distinctNos = new Set(rows.map((r) => r.restrictionNo));
     expect(distinctNos.size).toBe(1); // 只有最早的那一张，第二次命中没有另起一张
 
-    // ⚠️ 2026-08-20 终审发现：下面这条断言目前是红的，且不是本批引入的新问题——
-    // 它对应 customer-restrictions.service.ts:open() 自己代码注释里明写的承诺
-    // 「第 2..N 次命中 created=false、不广播、但仍写一条 result=SKIPPED 的审计，
-    // 可取证」。经直接读 DB 验证，这条承诺目前不成立：
+    // 2026-08-20 终审曾发现：下面这条断言当时是红的——customer-restrictions
+    // .service.ts:open() 写 CUSTOMER_RESTRICTION_ADDED 审计时没有传 requestId
+    // （auditShell 里根本没有这个字段），AuditLogsService 给没传 requestId 的
+    // 事件算出的 idempotencyKey 退化成 entityType|entityId|action|
+    // 'NO_REQUEST_ID'——这三段对同一客户的任意两次 open() 调用永远相同（不看
+    // cause/reason/result/restrictionNo），同一客户身上第二条同 action 的
+    // CUSTOMER_RESTRICTION_ADDED 事件（不管是这里要测的「同因重复命中变
+    // SKIPPED」，还是完全不同因由的另一张便签）都被 createEventWithUniqueNo
+    // 的幂等短路静默去重，第二条真正落库的 create() 根本没跑，打穿了
+    // open() 自己代码注释里明写的「第 2..N 次命中仍留一条 SKIPPED 审计，可
+    // 取证」的承诺。
     //
-    // open() 写 CUSTOMER_RESTRICTION_ADDED 审计时没有传 requestId
-    // （auditShell 里根本没有这个字段）。AuditLogsService.recordByActor 会给
-    // 没传 requestId 的事件算一个 idempotencyKey = sha256(entityType|entityId|
-    // action|'NO_REQUEST_ID')——这三段对同一客户的任意两次 open() 调用永远相同
-    // （不看 cause/reason/result/restrictionNo），createEventWithUniqueNo 认出
-    // 撞了同一个 idempotencyKey 就直接把第一条老记录原样返回，第二条真正落库
-    // 的 create() 根本没跑。第一次调用（本用例里是 dep 那次，result=SUCCESS）
-    // 之后，同一客户身上**任何后续**的 CUSTOMER_RESTRICTION_ADDED 事件——不管
-    // 是这里要测的「同因重复命中变 SKIPPED」，还是完全不同因由的另一张便签
-    // （例如客户先被 SANCTION 又被 MATERIAL_EXPIRED，两次都是 created:true）
-    // ——全部被静默吞掉，一条都进不了审计表。已经用 test/customer-restrictions
-    // .e2e-spec.ts 用例①（先 SANCTION 后 MATERIAL_EXPIRED，均 created:true）留下
-    // 的 e2e 库实测确认：那个客户名下也只有一条 CUSTOMER_RESTRICTION_ADDED，
-    // 不是两条——证实这不是 SKIPPED 专属的边角问题，是 open() 这条审计写入路径
-    // 从一开始就没有防重放（webhook 幂等）与防合并（同名不同次业务事件）分开处理。
-    //
-    // 按用户交代的规矩：测不通就报告，不许为了变绿改断言、也不许我自己动生产代码
-    // 去修——所以这里保留设计意图应有的断言，让它如实标红，把根因写清楚，交由
-    // 人来判断怎么修（大概率是照 swap-workflow.service.ts:recordVerdictIgnored
-    // 的方式，给这条审计也拼一个 requestId: `CUSTOMER_RESTRICTION_ADDED_${customerNo}_${randomUUID()}`）。
+    // 已于 commit 3a9fa81c 修复：给 open() 写的 CUSTOMER_RESTRICTION_ADDED /
+    // CUSTOMER_FROZEN 审计都拼上 requestId，键用的是 restrictionNo（不是
+    // customerNo——同一客户名下先后开出的便签 restrictionNo 各不相同，用它才能
+    // 保证每次真实事件都有独立幂等键）：
+    // `CUSTOMER_RESTRICTION_ADDED_${outcome.restrictionNo}_${randomUUID()}`。
+    // 下面这条断言现在的角色是那次修复的回归闸——同因第二次命中必须仍留一条
+    // SKIPPED 审计；不同因由两条都落库的对照见下方用例⑥。
     expect(
       await prisma.auditLogEvent.count({
         where: {

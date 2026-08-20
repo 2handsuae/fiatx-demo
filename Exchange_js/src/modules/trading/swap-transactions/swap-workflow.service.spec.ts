@@ -2192,6 +2192,61 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(frozenAudit.workflowType).toBeDefined();
     });
 
+    // 2026-08-20 Review Important Fix：applyKytVerdict 顶部（:501）读出的 swap
+    // 是陈旧快照 —— onCustomerRestrictionOpened 广播 handler（同一次 open()
+    // 触发）可能在本单自己的 markStatus(FREEZE) 之前抢先把它冻上。此时
+    // markStatus 会撞 `Invalid transition: FROZEN + freeze`。修复前，这个异常
+    // 会被 handleRejectDisposition 外层 try/catch 当成整段处置失败：sticky
+    // 硬线章（markHardLineDisposition）与 SWAP_KYT_REJECTED_DISPOSED 审计全部
+    // 被跳过，还会写 DISPOSITION_FAILED + needsReview + rethrow，导致 webhook
+    // 重投一进门撞上 FROZEN 幂等闸被 IGNORE —— sticky 章永远补不上，
+    // tipping-off 防线失效。这条用例钉死修复后的行为：判成良性竞态、
+    // 不上抛、后面该做的都照常做。
+    it('markStatus(FREEZE) 抛 Invalid transition 且重读发现该行已是 FROZEN（被广播抢先冻上）→ 判良性竞态：不上抛，sticky 硬线章与 SWAP_KYT_REJECTED_DISPOSED 审计仍照常执行', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      // 唯一一次 markStatus 调用就是这里的 FREEZE 尝试（hasSanction 时
+      // applyKytVerdict 顶部的 $transaction 会跳过自己的 KYT_REJECTED
+      // markStatus，见生产代码 :668 `if (hasSanction) return;`）。模拟它撞上
+      // 广播抢先冻单：先把行的状态改成 FROZEN（模拟广播那条链已经真冻上了），
+      // 再抛 Invalid transition。
+      mocks.swapTransactionsService.markStatus.mockImplementationOnce(() => {
+        mocks.swapRow.status = SwapTransactionStatus.FROZEN;
+        return Promise.reject(new BadRequestException('Invalid transition: FROZEN + freeze'));
+      });
+
+      await expect(
+        service.applyKytVerdict('s1', {
+          verdict: 'rejected',
+          typedTags: ['SANCTION_APPLICANT'],
+          applicantActions: [],
+        }),
+      ).resolves.toBeUndefined();
+
+      // 重读判良性竞态：调用了 findByIdInternal 复核当前状态，而不是信
+      // :501 读来的陈旧快照。
+      expect(mocks.swapTransactionsService.findByIdInternal).toHaveBeenCalledWith('s1');
+
+      // sticky 硬线章必须照常盖上 —— 这正是本次修复要保住的东西。
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(true);
+
+      // 处置审计必须照常写，不能被良性竞态吞掉。
+      const disposedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(disposedAudit).toBeDefined();
+      expect(disposedAudit.metadata.hasSanction).toBe(true);
+
+      // 不能被误判成整段处置失败：needsReview 不该被置位，
+      // DISPOSITION_FAILED 审计不该被写。
+      expect(mocks.swapTransactionsService.setNeedsReview).not.toHaveBeenCalled();
+      const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED);
+      expect(failedAudit).toBeUndefined();
+    });
+
     it('FROZEN 单再收裁决 → 不抛异常、markStatus 不再被调用、写 IGNORED 审计（幂等闸，防死信）', async () => {
       const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.FROZEN });
       const service = makeApplyKytVerdictService(mocks);

@@ -974,41 +974,83 @@ export class SwapWorkflowService {
       // 排列）：如果崩在两次写入之间，客户已经被限制、只是单子还没显示冻结，
       // 比反过来更安全。
       if (hasSanction && swap.status === SwapTransactionStatus.COMPLIANCE_PENDING) {
-        await this.prisma.$transaction(async (tx: any) => {
-          await this.swapTransactionsService.markStatus(
-            swap.id,
-            SwapTransactionAction.FREEZE,
-            tx,
-            { rejectReason: 'SANCTION_APPLICANT' },
+        // 2026-08-20（Review Important Fix）：swap 是 applyKytVerdict 顶部（:501）
+        // 一次性读出、随后一路传下来的陈旧快照 —— 从那一刻到这里之间，
+        // onCustomerRestrictionOpened 广播 handler（由上面 open() 同步 emit 出的
+        // 同一次事件触发，:1624 附近）可能已经抢先把这一行冻上了。若这里对
+        // markStatus 的失败毫无防备，Invalid transition 会被下面外层大 try 的
+        // catch（:1108）当成整段处置失败：不仅误判这次 FREEZE，还连带跳过下面
+        // 本该照常执行的 markHardLineDisposition sticky 标记与
+        // SWAP_KYT_REJECTED_DISPOSED 审计（外层 catch 只 setNeedsReview + 记
+        // SWAP_KYT_REJECTED_DISPOSITION_FAILED + rethrow，函数直接退出）——而
+        // sticky 标记正是永久防 tipping-off 的唯一凭据，一旦跳过，下次软线裁决
+        // 会重新对该客户暴露补料入口。外层 catch 的 rethrow 还会让 webhook 标
+        // FAILED 重投，重投一进门就撞上 :517 的 FROZEN 幂等闸被 IGNORE，
+        // sticky 标记与处置审计从此再也没有机会补跑。
+        //
+        // 判据镜像本文件 onCustomerRestrictionOpened 侧已有的范式（:1679 附
+        // 近）：捕获失败后重读当前状态，已经是 FROZEN 就是被广播抢先的良性
+        // 竞态 —— 降级 debug、绝不 return/rethrow，让下面的 sticky 标记与处置
+        // 审计照常往下执行；不是 FROZEN 才是真失败，照旧上抛交给外层 catch
+        // （needsReview + SWAP_KYT_REJECTED_DISPOSITION_FAILED + rethrow）。不靠
+        // 匹配异常消息字符串判定 —— 措辞一改就失效。
+        let frozeHere = true;
+        try {
+          await this.prisma.$transaction(async (tx: any) => {
+            await this.swapTransactionsService.markStatus(
+              swap.id,
+              SwapTransactionAction.FREEZE,
+              tx,
+              { rejectReason: 'SANCTION_APPLICANT' },
+            );
+          });
+        } catch (freezeErr) {
+          let alreadyFrozen = false;
+          try {
+            const current = await this.swapTransactionsService.findByIdInternal(swap.id);
+            alreadyFrozen = current?.status === SwapTransactionStatus.FROZEN;
+          } catch {
+            // 状态复核本身失败 —— 不能判定良性，走下面真失败分支上抛。
+          }
+          if (!alreadyFrozen) {
+            throw freezeErr;
+          }
+          frozeHere = false;
+          this.logger.debug(
+            `Swap ${swap.swapNo} already FROZEN when this disposition tried to freeze it — beaten by onCustomerRestrictionOpened broadcast (same open() call), not a real failure. Continuing to sticky mark + disposition audit.`,
           );
-        });
+        }
         // 审计调用独立 catch（与本文件 onCustomerRestrictionOpened 侧的孪生
         // SWAP_FROZEN 审计同款）：不能和上面的 markStatus 共享外层大 try —— 若
         // 共享，这里抛出会被外层 catch 当成整段处置失败重跑，把已经成功的
         // FREEZE 之后本该继续的 markHardLineDisposition / SWAP_KYT_REJECTED_DISPOSED
         // 一起吞掉，也会撞上 FROZEN 幂等闸导致重投的 webhook 永远不再重跑处置。
         // 失败只以 logger.error 现身，绝不让一次已经成功的冻结被判成失败。
-        await this.auditLogsService
-          .recordSystem({
-            action: AuditActions.SWAP_FROZEN,
-            entityType: AuditEntityTypes.SWAP_TRANSACTION,
-            entityId: swap.id,
-            entityNo: swap.swapNo || undefined,
-            entityOwnerType: swap.ownerType,
-            entityOwnerId: swap.ownerId,
-            entityOwnerNo: swap.ownerNo || undefined,
-            traceId: swap.traceId || undefined,
-            workflowType: AuditWorkflowTypes.SWAP,
-            reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)`,
-            sourcePlatform: 'SYSTEM',
-          })
-          .catch((err) => {
-            this.logger.error(
-              `Failed to write SWAP_FROZEN audit for ${swap.swapNo} (KYT rejected disposition): ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
-          });
+        // frozeHere=false（良性竞态）时跳过 —— 那次 FREEZE 是 handler 侧做的,
+        // SWAP_FROZEN 审计已经由 handler 自己写过一遍(:1651),这里不重复。
+        if (frozeHere) {
+          await this.auditLogsService
+            .recordSystem({
+              action: AuditActions.SWAP_FROZEN,
+              entityType: AuditEntityTypes.SWAP_TRANSACTION,
+              entityId: swap.id,
+              entityNo: swap.swapNo || undefined,
+              entityOwnerType: swap.ownerType,
+              entityOwnerId: swap.ownerId,
+              entityOwnerNo: swap.ownerNo || undefined,
+              traceId: swap.traceId || undefined,
+              workflowType: AuditWorkflowTypes.SWAP,
+              reason: `KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)`,
+              sourcePlatform: 'SYSTEM',
+            })
+            .catch((err) => {
+              this.logger.error(
+                `Failed to write SWAP_FROZEN audit for ${swap.swapNo} (KYT rejected disposition): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            });
+        }
       }
 
       // tipping-off 线：制裁调查绝不能提示客户；只有「这次是软线」且「这个客户
