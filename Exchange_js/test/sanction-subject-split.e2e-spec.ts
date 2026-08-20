@@ -34,6 +34,7 @@ import { DepositWorkflowService } from '../src/modules/trading/deposit-transacti
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
 import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/swap-workflow.service';
 import { SwapTransactionsService } from '../src/modules/trading/swap-transactions/swap-transactions.service';
+import { CustomerRestrictionsService } from '../src/modules/identity/customers/customer-restrictions.service';
 import { DepositTransactionStatus } from '../src/modules/trading/deposit-transactions/dto/deposit-transaction.dto';
 import { WithdrawTransactionStatus } from '../src/modules/trading/withdraw-transactions/dto/withdraw-transaction.dto';
 import { SwapTransactionStatus } from '../src/modules/trading/swap-transactions/dto/swap-transaction.dto';
@@ -66,6 +67,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
   let withdrawWorkflow: WithdrawWorkflowService;
   let swapWorkflow: SwapWorkflowService;
   let swapService: SwapTransactionsService;
+  let restrictionsService: CustomerRestrictionsService;
 
   let fiatAssetId: string;
   let cryptoAssetId: string;
@@ -90,6 +92,7 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
     withdrawWorkflow = app.get(WithdrawWorkflowService);
     swapWorkflow = app.get(SwapWorkflowService);
     swapService = app.get(SwapTransactionsService);
+    restrictionsService = app.get(CustomerRestrictionsService);
 
     // 清掉上一轮的 fixture（子表先删）。只删本 suite 前缀的客户，9 个 demo 客户不动。
     const stale = await prisma.customerMain.findMany({
@@ -454,5 +457,43 @@ describe('第二批 · 制裁命中分主体 (e2e)', () => {
         where: { entityId: sw.id, action: AuditActions.SWAP_KYT_VERDICT_IGNORED },
       }),
     ).toBeGreaterThan(0);
+  });
+
+  // ── ⑥ 同客户先 SANCTION 后不同因由 → 两条 CUSTOMER_RESTRICTION_ADDED 都落库 ──
+  // 比用例③更宽的回归：③测的是「同因重复命中」被去重成 SKIPPED 是否留痕；这里测的
+  // 是两个**完全不同**的真实业务事件（先制裁、后材料过期）是否都各自落一条
+  // result=SUCCESS 的 CUSTOMER_RESTRICTION_ADDED。修复前，customer-restrictions
+  // .service.ts:open() 写这条审计时不传 requestId，audit-logs.service 的
+  // buildIdempotencyKey 退化成 entityType|entityId|action|NO_REQUEST_ID——这三段
+  // 对同一客户任意两次 CUSTOMER_RESTRICTION_ADDED 恒定，与 cause/result/
+  // restrictionNo 无关，第二条会被 createEventWithUniqueNo 的幂等短路直接吞掉、
+  // 一条都进不了表（已用 customer-restrictions.e2e-spec.ts 用例①的库实测确认）。
+  it('⑥ 同客户先 SANCTION 后 MATERIAL_EXPIRED（不同因由）→ 两条 CUSTOMER_RESTRICTION_ADDED 都落库，不被去重成一条', async () => {
+    const c = await makeCustomer('diff-cause');
+
+    const sanction = await restrictionsService.open({
+      customerId: c.id,
+      cause: 'SANCTION',
+      reason: 'Sanctions hit',
+      caseRef: 'E2E-SPLIT-SANCTION-1',
+      openedBy: 'SYSTEM',
+    });
+    expect(sanction.created).toBe(true);
+
+    const material = await restrictionsService.open({
+      customerId: c.id,
+      cause: 'MATERIAL_EXPIRED',
+      reason: 'Passport expired',
+      caseRef: 'E2E-SPLIT-MATERIAL-1',
+      openedBy: 'SYSTEM',
+    });
+    expect(material.created).toBe(true);
+    expect(material.restrictionNo).not.toBe(sanction.restrictionNo);
+
+    const addedRows = await prisma.auditLogEvent.findMany({
+      where: { entityId: c.id, action: AuditActions.CUSTOMER_RESTRICTION_ADDED },
+    });
+    expect(addedRows).toHaveLength(2);
+    expect(addedRows.every((r) => r.result === 'SUCCESS')).toBe(true);
   });
 });

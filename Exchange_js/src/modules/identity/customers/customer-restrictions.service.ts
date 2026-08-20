@@ -111,18 +111,32 @@ export class CustomerRestrictionsService {
       },
     };
 
+    // requestId 拼 randomUUID 是**有意为之**（同款范式见 deposit-workflow.service.ts
+    // :recordVerdictIgnored 的同名注释，2026-08-19 业主拍板）：不拼的话
+    // audit-logs.service.buildIdempotencyKey 退化成
+    // entityType|entityId|action|NO_REQUEST_ID —— 这三段对同一客户的任意两次
+    // CUSTOMER_RESTRICTION_ADDED 事件永远相同（不看 cause/reason/result/
+    // restrictionNo），第一条落库后，同一客户身上**任何后续**这个 action 的事件
+    // （无论是同因重复命中该 SKIPPED、还是完全不同因由的另一张便签）都会被
+    // createEventWithUniqueNo 的幂等短路静默吞掉，一条都进不了审计表——打穿
+    // 设计稿 §4.5「第 2..N 次命中仍留一条 SKIPPED 审计」的承诺。restrictionNo
+    // 逐次不同，拼进 requestId 保证每次真实事件都有独立的幂等键。
     await this.auditLogsService.recordSystem({
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_ADDED,
       result: outcome.created ? AuditResult.SUCCESS : AuditResult.SKIPPED,
+      requestId: `CUSTOMER_RESTRICTION_ADDED_${outcome.restrictionNo}_${randomUUID()}`,
     }, tx);
 
-    // CUSTOMER_FROZEN 此前零写入方，本轮由制裁便签激活
+    // CUSTOMER_FROZEN 此前零写入方，本轮由制裁便签激活。同一坑：SANCTION 可经
+    // MLRO_APPROVAL 撕便签后再次被命中（新 restrictionNo、created 再次为
+    // true），不拼 requestId 会被第一次的 CUSTOMER_FROZEN 幂等键挡住。
     if (outcome.created && input.cause === 'SANCTION') {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_FROZEN,
         result: AuditResult.SUCCESS,
+        requestId: `CUSTOMER_FROZEN_${outcome.restrictionNo}_${randomUUID()}`,
       }, tx);
     }
 
@@ -262,15 +276,22 @@ export class CustomerRestrictionsService {
       },
     };
 
+    // 同 open() 的坑：entityId=customerId、action 常量，不拼 requestId 时
+    // 幂等键对同一客户任意两次 CUSTOMER_RESTRICTION_CLEARED/CUSTOMER_UNFROZEN
+    // 恒定——而一个客户名下可以有多张不同便签先后释放（不同 cause，或 SANCTION
+    // 经 MLRO_APPROVAL 撕了又因新一轮命中重新贴、再撕），第二次真实释放事件会被
+    // 静默去重。restrictionNo 逐次不同，拼进 requestId 保证独立幂等键。
     await this.auditLogsService.recordSystem({
       ...auditShell,
       action: AuditActions.CUSTOMER_RESTRICTION_CLEARED,
+      requestId: `CUSTOMER_RESTRICTION_CLEARED_${restrictionNo}_${randomUUID()}`,
     }, tx);
 
     if (first.cause === 'SANCTION') {
       await this.auditLogsService.recordSystem({
         ...auditShell,
         action: AuditActions.CUSTOMER_UNFROZEN,
+        requestId: `CUSTOMER_UNFROZEN_${restrictionNo}_${randomUUID()}`,
       }, tx);
     }
   }
