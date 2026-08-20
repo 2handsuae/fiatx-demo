@@ -345,7 +345,7 @@ export const AuditActions = {
   // fact whether the customer was informed and why.
   SWAP_KYT_REJECTED_DISPOSED: 'SWAP_KYT_REJECTED_DISPOSED',
   // 2026-08-20 制裁分主体：兑换单被冻（客户本人命中制裁 / 跨域冻人广播）。
-  // 对齐 DEPOSIT_FROZEN(:240) / WITHDRAW_FROZEN(:416)。
+  // 对齐 DEPOSIT_FROZEN(:240) / WITHDRAW_FROZEN(:427)。
   // ⚠️ 只加这一个 —— 充值/提现的 *_UNFROZEN / *_APPROVE_BLOCKED_FROZEN 那几个
   // 是给「FROZEN 有出边」的域用的，兑换 FROZEN 零出边，抄过来就是死常量。
   SWAP_FROZEN: 'SWAP_FROZEN',

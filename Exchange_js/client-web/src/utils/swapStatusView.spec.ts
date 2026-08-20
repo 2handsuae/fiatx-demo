@@ -12,6 +12,11 @@ import { getSwapStatusView } from './swapStatusView';
 // All 4 reachable backend statuses (src/modules/trading/swap-transactions/
 // dto/swap-transaction.dto.ts's SwapTransactionStatus — FAILED/REVERSED are
 // documented dead enum values, not reachable, so not exercised here).
+// The backend is actually 5-state reachable as of 2026-08-20 (FROZEN added
+// alongside COMPLIANCE_PENDING/PROCESSING/SUCCESS/REJECTED); the client only
+// ever sees these 4 because the service layer's `toCustomerSwapStatus()`
+// (swap-transactions.service.ts:552) collapses FROZEN into REJECTED before
+// it ever reaches this view — that convergence, not a gap here, is why.
 const ALL_STATUSES = ['COMPLIANCE_PENDING', 'PROCESSING', 'SUCCESS', 'REJECTED'];
 
 // [status, expected text]

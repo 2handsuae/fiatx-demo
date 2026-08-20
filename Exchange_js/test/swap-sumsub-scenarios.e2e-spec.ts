@@ -503,6 +503,12 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // swap-workflow.service.ts:872 与其配套单测「命门」组）。这条用例从设计
     // 起就是在证「本人命中」这条最危险的路径，改回 APPLICANT 才对得上断言。
     //
+    // 2026-08-20（终审收口）：`V4B_REJECTED_SANCTION_COUNTERPARTY` 已不只是
+    // "这条用例不用它"——业主裁定兑换没有第三方对手方，Sumsub 不会对 swap
+    // 回传该标签，整个按钮已从 SWAP_VERDICT_BUTTONS 物理删除（充值/提现两个
+    // fixture 保留，场景成立）。上面这段历史说明原样保留，只是它现在解释的
+    // 是"从未存在过的键为何不会出现在这里"，而不是"存在但没被选中"。
+    //
     // 2026-08-20（Task 9）：终态从 REJECTED 改成 FROZEN —— 迁移表里
     // COMPLIANCE_PENDING --FREEZE--> FROZEN 是本人命中制裁的唯一合法落点
     // （swap-workflow.service.ts 的 applyKytVerdict 尾部现在会在 hasSanction 时

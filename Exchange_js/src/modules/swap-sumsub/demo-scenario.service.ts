@@ -45,7 +45,7 @@ const REPORT_META: Record<string, Pick<TxnReportVerdict, 'reviewStatus' | 'actio
 
 /**
  * 兑换域场景仿真器 —— mirror of DepositDemoScenarioService / WithdrawDemoScenarioService
- * (deliberate fork, Task 9)。把 8 个**单步**裁决按钮驱动**真实**
+ * (deliberate fork, Task 9)。把 7 个**单步**裁决按钮驱动**真实**
  * ingestionService.ingest() 走完整的前置分流→router→handler→workflow 链路,不碰
  * fixture/workflow/handler 本身逻辑。
  *
