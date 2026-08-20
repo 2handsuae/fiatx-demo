@@ -286,7 +286,14 @@ describe('SumsubIngestionService — deposit/withdraw/swap KYT cascade (Task 4/5
         externalUserId: 'cust-1',
         reviewResult: { reviewId: 'r-2', attemptId: 'a-2' },
       });
+
+      // 既有验证：不同的 reviewId/attemptId 产生不同的键
       expect(a).not.toBe(b);
+
+      // 新增验证：非 KYT 事件的去重键必须包含第六段（kytTxnId，无内容时为空串）
+      // 若此段被删除，该断言会失败，钉住本修复不被意外回退
+      expect(a.split(':')).toHaveLength(6);
+      expect(b.split(':')).toHaveLength(6);
     });
   });
 });
