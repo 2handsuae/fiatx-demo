@@ -1075,7 +1075,11 @@ export class DepositTransactionsService {
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.depositTransaction.findMany({
-      where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED'] } },
+      // FROZEN 在排除之列（2026-08-20）：本方法唯一的调用方是
+      // onCustomerRestrictionOpened，已经冻了的单不需要再冻一次。不排除的话
+      // 制裁路径「先冻人→广播→自己的监听器扫到自己刚冻的这笔」会走到无 FREEZE
+      // 自环边的 FROZEN 行上抛 BadRequest，被吞成一条与事实不符的 warn。
+      where: { ownerId, status: { notIn: ['SUCCESS', 'FAILED', 'CONFISCATED', 'RETURNED', 'SEIZED', 'FROZEN'] } },
       select: { id: true, depositNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
   }

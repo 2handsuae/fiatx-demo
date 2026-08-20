@@ -744,7 +744,8 @@ export class SwapTransactionsService {
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.swapTransaction.findMany({
-      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED'] } },
+      // 字面量先写死，Task 8 建好 SWAP_FREEZE_SCAN_EXCLUDED 常量后再换成引用它。
+      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'REVERSED', 'FROZEN'] } },
       select: { id: true, swapNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
   }

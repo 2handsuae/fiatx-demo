@@ -2809,6 +2809,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * 客户被贴了「卡住全部能力」的便签 → 把他名下所有非终态提现冻住。
    * 复用 assertCustomerComplianceOrFreeze：冻结 + 审计已封装在里面，不另写一遍。
+   * 审计由 assertCustomerComplianceOrFreeze 内部写（WITHDRAW_FROZEN），
+   * 不在这里重复 —— 与充值域不同：充值的 updateStatus 自身不写审计，
+   * 它的监听器必须自己补一条。
    * PAYOUT_PENDING 刻意无 freeze 出边（钱已广播），该方法会抛 —— 逐项 try/catch 兜住。
    */
   @OnEvent(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, { async: true })
@@ -2824,11 +2827,33 @@ export class WithdrawWorkflowService implements OnModuleInit {
       try {
         await this.assertCustomerComplianceOrFreeze(w, `restriction:${event.restrictionNo}`);
       } catch (e) {
-        this.logger.warn(
-          `Failed to freeze in-flight withdrawal ${w.withdrawNo} for restriction ${event.restrictionNo}: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
+        // 自咬（2026-08-20 修订，与 deposit-workflow.service.ts 同名分支同构，
+        // deliberate fork 不抽公共 helper）：open() 广播是 fire-and-forget，扫描
+        // 发生在触发路径 updateStatus(FREEZE) 提交之前 —— findNonTerminalByOwner
+        // 扫到本单时它的快照仍是非终态（notIn 拦不住触发单自己），但轮到本轮循环
+        // 对它执行 FREEZE 时，触发路径（如 applyKytRejected 的 SANCTION_APPLICANT
+        // 分支）往往已经把它冻上了（FROZEN 无 FREEZE 自环边）→ 必抛。这不是真
+        // 失败——单已经冻好，只是被触发路径抢先。判据：重新读一次当前状态，已是
+        // FROZEN 就是良性抢跑，降级 debug；否则才是真失败，照旧 warn（不靠匹配
+        // 异常消息字符串，措辞一改就失效）。
+        let alreadyFrozen = false;
+        try {
+          const current = await this.withdrawService.findOneInternal(w.id);
+          alreadyFrozen = current.status === WithdrawTransactionStatus.FROZEN;
+        } catch {
+          // 状态复核本身失败（例如单已被删）—— 不能判定良性，走下面 warn 分支。
+        }
+        if (alreadyFrozen) {
+          this.logger.debug(
+            `In-flight withdrawal ${w.withdrawNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+          );
+        } else {
+          this.logger.warn(
+            `Failed to freeze in-flight withdrawal ${w.withdrawNo} for restriction ${event.restrictionNo}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
       }
     }
   }

@@ -2778,3 +2778,122 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
     });
   });
 });
+
+// Task 7：批量冻单 —— 提现域审计已由 assertCustomerComplianceOrFreeze 内建（WITHDRAW_FROZEN），
+// 这里只验证自咬（本域自己刚冻的单被自己的监听器再冻一次）降级判定。
+describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单自咬降级', () => {
+  const baseEvent = {
+    customerId: 'cust-1',
+    restrictionNo: 'CR-1',
+    cause: 'SANCTION',
+    blocksAllCapabilities: true as const,
+    traceId: 'trace-1',
+  };
+  const inflightWithdrawal = {
+    id: 'w-inflight-1',
+    withdrawNo: 'WD-INFLIGHT-1',
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-1',
+    status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+    traceId: 'trace-w-1',
+  };
+
+  function buildWorkflow() {
+    const withdrawService = {
+      findNonTerminalByOwner: jest.fn().mockResolvedValue([inflightWithdrawal]),
+      findOneInternal: jest.fn(),
+      updateStatus: jest.fn(),
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const customerAccessService = {
+      assertCapability: jest.fn(),
+      assertOffboardable: jest.fn(),
+      resolve: jest.fn().mockResolvedValue({
+        lifecycle: 'ACTIVE',
+        blocked: new Set(['WITHDRAW']),
+        disclosedBlocked: new Set<string>(),
+        disclosed: [],
+        openCount: 1,
+      }),
+    };
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      customerAccessService as any,
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+    );
+    return { workflow, withdrawService, auditLogsService };
+  }
+
+  it('冻结成功时经 assertCustomerComplianceOrFreeze 写 WITHDRAW_FROZEN 审计', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    withdrawService.updateStatus.mockResolvedValue(undefined);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      inflightWithdrawal.id,
+      expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
+      expect.anything(),
+    );
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.WITHDRAW_FROZEN }),
+    );
+  });
+
+  it('自咬：updateStatus 抛异常但复核发现单已是 FROZEN → 降级 debug，不打 warn', async () => {
+    const { workflow, withdrawService } = buildWorkflow();
+    withdrawService.updateStatus.mockRejectedValue(
+      new Error("Invalid action 'freeze' for status 'FROZEN'"),
+    );
+    withdrawService.findOneInternal.mockResolvedValue({
+      ...inflightWithdrawal,
+      status: WithdrawTransactionStatus.FROZEN,
+    });
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined as any);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining(inflightWithdrawal.withdrawNo));
+    // assertCustomerComplianceOrFreeze 自身在"blocked"分支入口无条件打一条 A4 warn
+    // （与本次自咬判定无关的既有行为，不在本任务改动范围内）——只断言本任务新增的
+    // "Failed to freeze" 误导性 warn 没有再出现。
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Failed to freeze'));
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  it('真失败：updateStatus 抛异常且复核显示单不是 FROZEN → 照旧打 warn', async () => {
+    const { workflow, withdrawService } = buildWorkflow();
+    withdrawService.updateStatus.mockRejectedValue(new Error('DB connection lost'));
+    withdrawService.findOneInternal.mockResolvedValue({
+      ...inflightWithdrawal,
+      status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+    });
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined as any);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to freeze'));
+    expect(debugSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+});

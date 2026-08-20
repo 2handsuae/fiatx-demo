@@ -77,6 +77,7 @@ describe('DepositWorkflowService', () => {
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
+      findNonTerminalByOwner: jest.fn().mockResolvedValue([]),
     };
     actionsService = {
       syncApplicantActions: jest.fn().mockResolvedValue({ added: [], retired: [] }),
@@ -4040,6 +4041,78 @@ describe('DepositWorkflowService', () => {
         ([a]: any[]) => a.action === AuditActions.DEPOSIT_ACTION_REISSUED,
       );
       expect(call[0].metadata.incomingActionIds).toEqual(['aa-1', 'aa-2']);
+    });
+  });
+
+  // Task 7：批量冻单补审计 + 自咬（本域自己刚冻的单被自己的监听器再冻一次）降级判定。
+  describe('onCustomerRestrictionOpened — 批量冻单', () => {
+    const baseEvent = {
+      customerId: 'cust-1',
+      restrictionNo: 'CR-1',
+      cause: 'SANCTION',
+      blocksAllCapabilities: true as const,
+      traceId: 'trace-1',
+    };
+    const inflightDeposit = {
+      id: 'd-inflight-1',
+      depositNo: 'DEP-INFLIGHT-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      traceId: 'trace-dep-1',
+    };
+
+    it('冻结成功时写 DEPOSIT_FROZEN 审计（铁律①：批量冻单此前零审计）', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockResolvedValue(undefined);
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        inflightDeposit.id,
+        { action: DepositTransactionAction.FREEZE },
+        expect.objectContaining({
+          reason: expect.stringContaining('CR-1'),
+        }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_FROZEN,
+          entityId: inflightDeposit.id,
+          entityNo: inflightDeposit.depositNo,
+          entityOwnerId: inflightDeposit.ownerId,
+        }),
+      );
+    });
+
+    it('自咬：updateStatus 抛异常但复核发现单已是 FROZEN → 降级 debug，不打 warn', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockRejectedValue(
+        new Error("Invalid action 'freeze' for status 'FROZEN'"),
+      );
+      depositService.findOne.mockResolvedValue({ ...inflightDeposit, status: DepositTransactionStatus.FROZEN });
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const debugSpy = jest.spyOn((service as any).logger, 'debug');
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining(inflightDeposit.depositNo));
+      expect(warnSpy).not.toHaveBeenCalled();
+      // 自咬时没有真正冻结成功（updateStatus 抛了）——不该补一条虚假审计。
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it('真失败：updateStatus 抛异常且复核显示单不是 FROZEN → 照旧打 warn', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockRejectedValue(new Error('DB connection lost'));
+      depositService.findOne.mockResolvedValue({ ...inflightDeposit, status: DepositTransactionStatus.COMPLIANCE_PENDING });
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const debugSpy = jest.spyOn((service as any).logger, 'debug');
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(inflightDeposit.depositNo));
+      expect(debugSpy).not.toHaveBeenCalled();
     });
   });
 });

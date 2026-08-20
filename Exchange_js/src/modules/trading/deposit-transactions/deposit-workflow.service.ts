@@ -3032,12 +3032,48 @@ export class DepositWorkflowService implements OnModuleInit {
             actor: { actorType: 'SYSTEM', actorId: 'CUSTOMER_RESTRICTION' },
           },
         );
+        // 铁律①：有持久状态、operator 可见 → 必须写审计。
+        // ⚠️ 充值域的 updateStatus 自身不写审计（提现的写），所以这里必须自己补，
+        // 否则批量冻结在审计里完全不可见。action 复用 DEPOSIT_FROZEN，让"按
+        // action 查所有冻结"能一次查全；来源差异由 reason 承载。
+        await this.auditLogsService.recordSystem({
+          action: AuditActions.DEPOSIT_FROZEN,
+          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+          entityId: d.id,
+          entityNo: d.depositNo,
+          entityOwnerType: d.ownerType,
+          entityOwnerId: d.ownerId,
+          traceId: d.traceId || event.traceId || undefined,
+          workflowType: 'DEPOSIT',
+          reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
+          sourcePlatform: 'SYSTEM',
+        });
       } catch (e) {
-        this.logger.warn(
-          `Failed to freeze in-flight deposit ${d.depositNo} for restriction ${event.restrictionNo}: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
+        // 自咬（2026-08-20 修订）：open() 广播是 fire-and-forget，扫描发生在主路径
+        // updateStatus(FREEZE) 提交之前 —— findNonTerminalByOwner 扫到本单时它的
+        // 快照仍是 COMPLIANCE_PENDING（notIn 拦不住触发单自己），但轮到本轮循环
+        // 对它执行 FREEZE 时，触发路径往往已经把它冻上了（FROZEN 无 FREEZE 自环
+        // 边）→ updateStatus 必抛。这不是真失败——单已经冻好，只是被触发路径抢先。
+        // 判据：重新读一次当前状态，已是 FROZEN 就是良性抢跑，降级 debug；否则才
+        // 是真失败，照旧 warn（不靠匹配异常消息字符串，措辞一改就失效）。
+        let alreadyFrozen = false;
+        try {
+          const current = await this.depositService.findOne(d.id);
+          alreadyFrozen = current.status === DepositTransactionStatus.FROZEN;
+        } catch {
+          // 状态复核本身失败（例如单已被删）—— 不能判定良性，走下面 warn 分支。
+        }
+        if (alreadyFrozen) {
+          this.logger.debug(
+            `In-flight deposit ${d.depositNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+          );
+        } else {
+          this.logger.warn(
+            `Failed to freeze in-flight deposit ${d.depositNo} for restriction ${event.restrictionNo}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
       }
     }
   }
