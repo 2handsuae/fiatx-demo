@@ -888,7 +888,29 @@ git commit -m "feat(compliance): 提现域接冻人,与充值对称;清掉 V2 fr
 >
 > ② **自咬**：Task 5/6 加了 `open()` 后，本域自己刚冻的那笔单会被自己的监听器再冻一次 → `FROZEN` 行无 `FREEZE` 自环边 → 抛 `Invalid action 'freeze' for status 'FROZEN'` → 被 try/catch 吞成一条**与事实不符**的 `logger.warn`。
 >
-> **修法选扫描侧不选循环侧**：三域的 `findNonTerminalByOwner` 各自**只有一个调用方**（就是自己的限制监听器），把 `FROZEN` 加进 `notIn` 即可，比在循环里逐个 `if (x.status === FROZEN) continue` 更根治。**不要**给 `FROZEN` 加 `FREEZE` 自环边 —— 那会让"冻结"变成可重入操作，语义更糟。
+> **⚠️ 2026-08-20 修订（Task 5 审查实证推翻了本任务的原方案）**
+
+原方案是「把 `FROZEN` 加进 `findNonTerminalByOwner` 的 `notIn`」。**那治不了它自己点名的自咬**，理由是时序：
+
+```
+open() 内部 emit（fire-and-forget）        ← 此刻本单还是 COMPLIANCE_PENDING
+   ↓ setImmediate
+监听器 findMany 扫描 → 扫到本单（快照仍是 COMPLIANCE_PENDING，notIn 拦不住）
+   ↑ 与此同时
+主路径 updateStatus(FREEZE) 提交 → 本单变 FROZEN
+   ↓
+监听器对本单 updateStatus(FREEZE) → findUnique 读到 FROZEN → 零自环边 → 抛
+```
+
+**扫描的过滤发生在主路径写入之前，所以 `notIn` 只能治「该客户名下早就 FROZEN 的**别的**单」，治不了触发单自己。**
+
+**修订后的两段修法（两段都要做）**：
+
+- **第一段（仍做）**：`notIn` 加 `FROZEN` —— 治「早就冻着的别的单」，减少无谓循环。
+- **第二段（新增，真正治自咬）**：监听器的 `catch` 要能区分「这笔单已经处于目标态」和「真失败」。前者降级成 `logger.debug` 且文案说清是被触发路径抢先冻上的，不再打与事实不符的 `Failed to freeze` warn。
+
+**不要**给 `FROZEN` 加 `FREEZE` 自环边 —— 那会让"冻结"变成可重入操作，语义更糟。
+**也不要**试图靠调换 `open()` 与 `updateStatus` 的顺序来回避 —— 那个顺序是 Task 5/6 的 load-bearing 取舍（见 §2.3）。
 
 - [ ] **Step 1: 三域扫描排除 FROZEN**
 
