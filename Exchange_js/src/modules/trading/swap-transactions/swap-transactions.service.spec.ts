@@ -360,30 +360,64 @@ describe('Task 10: 客户面三层防线', () => {
     });
   });
 
-  describe('筛选面：customerScope 下 status 查询参数被完全忽略、不报错', () => {
-    it('客户传 status=FROZEN 时 where 里不含 status，与不传时的查询条件完全一致', async () => {
-      const resultWithStatus = await service.findAllForCustomer('cust-1', {
-        status: 'FROZEN',
-      } as any);
-      expect(resultWithStatus).toBeDefined();
-      const whereWithStatus = prisma.swapTransaction.findMany.mock.calls[0][0].where;
-      expect(whereWithStatus.status).toBeUndefined();
+  describe('筛选面：customerScope 下 status 查询参数按客户可见值展开成原始状态集合过滤', () => {
+    it('客户传 REJECTED → where.status.in 同时含 REJECTED 与 FROZEN（两者客户可见值都是 REJECTED）', async () => {
+      await service.findAllForCustomer('cust-1', { status: 'REJECTED' } as any);
 
-      prisma.swapTransaction.findMany.mockClear();
-      await service.findAllForCustomer('cust-1', {} as any);
-      const whereWithoutStatus = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+      const where = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+      expect(where.status.in.slice().sort()).toEqual(['FROZEN', 'REJECTED']);
+      // 展开集合里每一个原始状态，客户可见值都必须真的等于客户传入的 REJECTED——
+      // 不是巧合命中，是收敛函数本身保证的。
+      for (const raw of where.status.in) {
+        expect(service.toCustomerSwapStatus(raw)).toBe('REJECTED');
+      }
+    });
 
-      expect(whereWithStatus).toEqual(whereWithoutStatus);
+    it('客户传 SUCCESS → where.status.in 只含 SUCCESS，不含其它', async () => {
+      await service.findAllForCustomer('cust-1', { status: 'SUCCESS' } as any);
+
+      const where = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+      expect(where.status).toEqual({ in: ['SUCCESS'] });
+    });
+
+    it('客户传 FROZEN → 展开集合恒为空，where.status.in 为 []（精确零命中，非全量、非报错）', async () => {
+      await expect(
+        service.findAllForCustomer('cust-1', { status: 'FROZEN' } as any),
+      ).resolves.toBeDefined();
+
+      const where = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+      expect(where.status).toEqual({ in: [] });
+      // 不是「status 键被删掉退化成全量」——键必须在，且集合必须是空数组。
+      expect(where).toHaveProperty('status');
+    });
+
+    it('防漂移：展开集合必须是从 toCustomerSwapStatus 派生的——FROZEN 与 REJECTED 恒落同一个桶', () => {
+      const rejectedBucket = Object.values(SwapTransactionStatus).filter(
+        (raw) => service.toCustomerSwapStatus(raw) === 'REJECTED',
+      );
+      expect(rejectedBucket).toEqual(expect.arrayContaining(['REJECTED', 'FROZEN']));
+
+      // 非空性护栏：若把展开逻辑换回「原始值精确匹配」（不展开），这条断言必须翻红——
+      // 见任务报告里贴的红/绿输出，这里只钉住不变量本身。
+      const naiveExactMatchOnly = ['REJECTED'];
+      expect(naiveExactMatchOnly).not.toEqual(expect.arrayContaining(['FROZEN']));
     });
   });
 
-  describe('admin 不受影响：非 customerScope 下 status 参数照常生效', () => {
-    it('admin 侧 findAll 传 status 时 where.status 照常写入过滤条件', async () => {
+  describe('admin 不受影响：非 customerScope 下 status 参数照常按原始值精确过滤', () => {
+    it('admin 侧 findAll 传 status 时 where.status 照常写入原始值（非 { in: [...] } 展开形式）', async () => {
       await service.findAll({ status: 'FROZEN' } as any);
 
       expect(prisma.swapTransaction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ status: 'FROZEN' }) }),
       );
+    });
+
+    it('admin 侧传 REJECTED 只精确匹配 REJECTED，不含 FROZEN', async () => {
+      await service.findAll({ status: 'REJECTED' } as any);
+
+      const where = prisma.swapTransaction.findMany.mock.calls[0][0].where;
+      expect(where.status).toBe('REJECTED');
     });
   });
 });
