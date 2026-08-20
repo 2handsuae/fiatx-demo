@@ -5,7 +5,8 @@
   // 这份配置专供"改了跨 src/test 边界的类型后"做一次全覆盖检查：
   //   npx tsc --noEmit -p tsconfig.test.json
   // 刻意不含 scripts/：那里有 funds_orders 重构遗留的死码（backfill-internal-fund-keys.ts
-  // 引用已 DROP 的 internalFund 表），会让本闸门不是二元的。该死码已登记 BACKLOG。
+  // 引用已 DROP 的 internalFund 表，且硬编码了已废弃的 /tmp/exchange_js_branch），
+  // 会让本闸门不是二元的。与 verify-demo-data.ts 同族的已知死码，Task 12 补登记 BACKLOG。
   "extends": "./tsconfig.json",
   "include": ["src/**/*", "test/**/*"]
 }
