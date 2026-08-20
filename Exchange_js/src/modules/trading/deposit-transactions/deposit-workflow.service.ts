@@ -3036,18 +3036,32 @@ export class DepositWorkflowService implements OnModuleInit {
         // ⚠️ 充值域的 updateStatus 自身不写审计（提现的写），所以这里必须自己补，
         // 否则批量冻结在审计里完全不可见。action 复用 DEPOSIT_FROZEN，让"按
         // action 查所有冻结"能一次查全；来源差异由 reason 承载。
-        await this.auditLogsService.recordSystem({
-          action: AuditActions.DEPOSIT_FROZEN,
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: d.id,
-          entityNo: d.depositNo,
-          entityOwnerType: d.ownerType,
-          entityOwnerId: d.ownerId,
-          traceId: d.traceId || event.traceId || undefined,
-          workflowType: 'DEPOSIT',
-          reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
-          sourcePlatform: 'SYSTEM',
-        });
+        //
+        // 审计调用独立 catch（2026-08-20 修订）：不能和上面的 updateStatus 共享
+        // 这个 try 块——若共享，审计写入失败会被下面的 catch 回读判据误判成
+        // 「良性自咬」（因为单这时确实已经 FROZEN），只打 debug，审计缺失却无人
+        // 知晓。审计失败与状态跃迁失败必须分开：这里失败只以 logger.error 现身，
+        // 绝不让一笔已经冻结成功的单被判成失败。
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.DEPOSIT_FROZEN,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: d.id,
+            entityNo: d.depositNo,
+            entityOwnerType: d.ownerType,
+            entityOwnerId: d.ownerId,
+            traceId: d.traceId || event.traceId || undefined,
+            workflowType: 'DEPOSIT',
+            reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `Failed to write DEPOSIT_FROZEN audit for ${d.depositNo} (restriction ${event.restrictionNo}): ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
       } catch (e) {
         // 自咬（2026-08-20 修订）：open() 广播是 fire-and-forget，扫描发生在主路径
         // updateStatus(FREEZE) 提交之前 —— findNonTerminalByOwner 扫到本单时它的

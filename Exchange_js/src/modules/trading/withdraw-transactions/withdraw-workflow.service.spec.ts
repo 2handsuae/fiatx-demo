@@ -2896,4 +2896,31 @@ describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单�
     warnSpy.mockRestore();
     debugSpy.mockRestore();
   });
+
+  // 审计写入独立 catch 的非空性：updateStatus 成功（单确实冻上了，在
+  // assertCustomerComplianceOrFreeze 内部完成），但审计写入抛异常——必须以
+  // logger.error 现身，不能被 onCustomerRestrictionOpened 外层 catch 的回读判据
+  // 吃成「良性自咬」（外层 catch 根本不该被触发，因为审计调用自带 .catch 不再
+  // 向上抛给 assertCustomerComplianceOrFreeze 的调用方）。
+  it('审计写入独立 catch：updateStatus 成功但 recordSystem 抛异常 → logger.error 现身，不判成良性自咬', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    withdrawService.updateStatus.mockResolvedValue(undefined);
+    auditLogsService.recordSystem.mockRejectedValue(new Error('audit db unavailable'));
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined as any);
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined as any);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Failed to write WITHDRAW_FROZEN audit for ${inflightWithdrawal.withdrawNo}`),
+    );
+    // 不得只打 debug（良性自咬的降级路径不该被触发——updateStatus 本身没抛）。
+    expect(debugSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Failed to freeze'));
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
 });

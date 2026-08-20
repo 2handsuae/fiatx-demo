@@ -152,19 +152,36 @@ export class WithdrawWorkflowService implements OnModuleInit {
       },
       this.systemCtx,
     );
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WITHDRAW_FROZEN,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
-      traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Customer-level capability gate (A4) failed at ${stage} — in-flight withdrawal frozen`,
-      metadata: { withdrawNo: w.withdrawNo, lifecycle: access.lifecycle, stage },
-      sourcePlatform: 'SYSTEM',
-    });
+    // 审计调用独立 catch（2026-08-20 修订，与 deposit-workflow.service.ts 同名
+    // 分支同构，deliberate fork 不抽公共 helper）：不能和上面的 updateStatus
+    // 共享同一个 try 块——onCustomerRestrictionOpened 调用本方法时外层有一个
+    // catch，若审计写入在这里失败并向上抛出，会被那个 catch 的回读判据误判成
+    // 「良性自咬」（单这时确实已经 FROZEN），只打 debug，审计缺失却无人知晓。
+    // 审计失败与状态跃迁失败必须分开：这里失败只以 logger.error 现身，绝不
+    // 让一笔已经冻结成功的单被判成失败——本方法同时被 handleWithdrawalCreated /
+    // 大额审批放行 / payout-phase 三处复用，分开后它们也不再因审计写入失败
+    // 被迫整段回滚。
+    await this.auditLogsService
+      .recordSystem({
+        action: AuditActions.WITHDRAW_FROZEN,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Customer-level capability gate (A4) failed at ${stage} — in-flight withdrawal frozen`,
+        metadata: { withdrawNo: w.withdrawNo, lifecycle: access.lifecycle, stage },
+        sourcePlatform: 'SYSTEM',
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to write WITHDRAW_FROZEN audit for ${w.withdrawNo} (stage ${stage}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     return false;
   }
 

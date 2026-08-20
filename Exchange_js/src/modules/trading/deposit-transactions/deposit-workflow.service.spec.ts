@@ -4114,5 +4114,26 @@ describe('DepositWorkflowService', () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(inflightDeposit.depositNo));
       expect(debugSpy).not.toHaveBeenCalled();
     });
+
+    // 审计写入独立 catch 的非空性：updateStatus 成功（单确实冻上了），但审计写入
+    // 抛异常——必须以 logger.error 现身，不能被外层 catch 的回读判据吃成「良性
+    // 自咬」（外层 catch 根本不该被触发，因为审计调用自带 .catch 不再向上抛）。
+    it('审计写入独立 catch：updateStatus 成功但 recordSystem 抛异常 → logger.error 现身，不判成良性自咬', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockResolvedValue(undefined);
+      auditLogsService.recordSystem.mockRejectedValue(new Error('audit db unavailable'));
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const debugSpy = jest.spyOn((service as any).logger, 'debug');
+      const errorSpy = jest.spyOn((service as any).logger, 'error');
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to write DEPOSIT_FROZEN audit for ${inflightDeposit.depositNo}`),
+      );
+      // 不得只打 debug（良性自咬的降级路径不该被触发——updateStatus 本身没抛）。
+      expect(debugSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
   });
 });
