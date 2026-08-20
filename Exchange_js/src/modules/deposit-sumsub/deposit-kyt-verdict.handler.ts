@@ -22,7 +22,11 @@ const DETAIL_LOOKUP_VERDICTS = new Set<KytVerdict>(['approved', 'rejected', 'awa
 // 标签不在 webhook 里,只在 rejected/awaitUser 时才读 typedTags。
 const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 
-const SCENE_TAGS = new Set(['SANCTION', 'PEP']);
+// 2026-08-20 制裁分主体：SANCTION 拆成 APPLICANT（客户本人 → 冻单+冻人）与
+// COUNTERPARTY（对手方 → 只冻单）。旧的 'SANCTION' 直接退役，不留兼容映射
+// （demo 约定：不做向后兼容）。
+export type SceneTag = 'SANCTION_APPLICANT' | 'SANCTION_COUNTERPARTY' | 'PEP';
+const SCENE_TAGS = new Set<SceneTag>(['SANCTION_APPLICANT', 'SANCTION_COUNTERPARTY', 'PEP']);
 const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'RETURN_TO_SENDER']);
 
 /**
@@ -61,7 +65,7 @@ export class DepositKytVerdictHandler {
       return false;
     }
 
-    let sceneTag: 'SANCTION' | 'PEP' | undefined;
+    let sceneTag: SceneTag | undefined;
     let dispoTag: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' | undefined;
     // 风险分只有在已经拉了 txn 详情时才拿得到;approved 路径不额外多打一次 API
     // 换一个展示数字(留 null,前端显示 —)。
@@ -77,7 +81,14 @@ export class DepositKytVerdictHandler {
       if (TAG_LOOKUP_VERDICTS.has(verdict)) {
         for (const tag of detail.typedTags) {
           if (tag.type !== 'userDefined') continue;
-          if (SCENE_TAGS.has(tag.label)) sceneTag = tag.label as 'SANCTION' | 'PEP';
+          // APPLICANT 恒优先：一笔交易同时命中"本人被制裁"和"对手方被制裁"
+          // 是真实场景（本人在名单上、又转给了受制裁地址）。sceneTag 是标量、
+          // 循环里后写覆盖先写，若不判优先级则哪个生效取决于 Sumsub 报文里
+          // typedTags 的先后顺序 —— "本人命中"有一半概率被静默降级成"只冻单
+          // 不冻人"，且无任何日志。漏冻人的代价远大于多冻一次。
+          if (SCENE_TAGS.has(tag.label as SceneTag)) {
+            if (sceneTag !== 'SANCTION_APPLICANT') sceneTag = tag.label as SceneTag;
+          }
           if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
         }
       }
@@ -86,7 +97,10 @@ export class DepositKytVerdictHandler {
     await this.workflow.applyKytVerdict(deposit.id, {
       verdict,
       riskScore,
-      ...(sceneTag && { sceneTag }),
+      // workflow.applyKytVerdict 的 sceneTag 形参类型还是旧的 'SANCTION' | 'PEP'
+      // ——按 Task 1 brief，本任务只改信号层、不动 workflow 层，该形参类型由
+      // Task 2/5/6 更新为 SceneTag。此处用宽化 cast 过渡，避免在此文件之外动刀。
+      ...(sceneTag && { sceneTag: sceneTag as unknown as 'SANCTION' | 'PEP' }),
       ...(dispoTag && { dispoTag }),
       ...(detailRaw !== undefined && { detailRaw }),
       ...(applicantActions?.length && { applicantActions }),

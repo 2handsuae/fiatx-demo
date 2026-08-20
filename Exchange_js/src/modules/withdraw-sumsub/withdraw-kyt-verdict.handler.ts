@@ -21,7 +21,10 @@ const DETAIL_LOOKUP_VERDICTS = new Set<KytVerdict>(['approved', 'rejected', 'awa
 // 标签不在 webhook 里,只在 rejected/awaitUser 时才读 typedTags。
 const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 
-const SCENE_TAGS = new Set(['SANCTION', 'PEP']);
+// 2026-08-20 制裁分主体：与 deposit-kyt-verdict.handler.ts 同构（deliberate
+// fork，不抽公共常量）。SANCTION 拆成 APPLICANT / COUNTERPARTY，旧标签退役。
+export type SceneTag = 'SANCTION_APPLICANT' | 'SANCTION_COUNTERPARTY' | 'PEP';
+const SCENE_TAGS = new Set<SceneTag>(['SANCTION_APPLICANT', 'SANCTION_COUNTERPARTY', 'PEP']);
 // 提现处置 tag 集合与充值不同:REJECT_REFUND(不是 RETURN_TO_SENDER——提现没有
 // "退回发件人"语义,拒绝后走退款处置)。见 task-4-brief.md。
 const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'REJECT_REFUND']);
@@ -63,7 +66,7 @@ export class WithdrawKytVerdictHandler {
       return false;
     }
 
-    let sceneTag: 'SANCTION' | 'PEP' | undefined;
+    let sceneTag: SceneTag | undefined;
     let dispoTag: 'FROZEN_BY_MLRO' | 'REJECT_REFUND' | undefined;
     // 风险分只有在已经拉了 txn 详情时才拿得到;approved 路径不额外多打一次 API
     // 换一个展示数字(留 null,前端显示 —)。
@@ -79,7 +82,10 @@ export class WithdrawKytVerdictHandler {
       if (TAG_LOOKUP_VERDICTS.has(verdict)) {
         for (const tag of detail.typedTags) {
           if (tag.type !== 'userDefined') continue;
-          if (SCENE_TAGS.has(tag.label)) sceneTag = tag.label as 'SANCTION' | 'PEP';
+          // APPLICANT 恒优先 —— 理由见 deposit-kyt-verdict.handler.ts 同名分支。
+          if (SCENE_TAGS.has(tag.label as SceneTag)) {
+            if (sceneTag !== 'SANCTION_APPLICANT') sceneTag = tag.label as SceneTag;
+          }
           if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
         }
       }
@@ -88,7 +94,10 @@ export class WithdrawKytVerdictHandler {
     await this.workflow.applyKytVerdict(withdraw.id, {
       verdict,
       riskScore,
-      ...(sceneTag && { sceneTag }),
+      // workflow.applyKytVerdict 的 sceneTag 形参类型还是旧的 'SANCTION' | 'PEP'
+      // ——按 Task 1 brief，本任务只改信号层、不动 workflow 层，该形参类型由
+      // Task 2/5/6 更新为 SceneTag。此处用宽化 cast 过渡，避免在此文件之外动刀。
+      ...(sceneTag && { sceneTag: sceneTag as unknown as 'SANCTION' | 'PEP' }),
       ...(dispoTag && { dispoTag }),
       ...(detailRaw !== undefined && { detailRaw }),
       ...(applicantActions?.length && { applicantActions }),
