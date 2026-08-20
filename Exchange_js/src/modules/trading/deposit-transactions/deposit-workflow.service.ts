@@ -60,6 +60,14 @@ interface FundsOrderStatusChangedEvent {
   effectiveDate?: string; // 平账推单回填的业务归属日；普通实时流转恒为 undefined
 }
 
+/**
+ * 裁决落地档位（第一批 · 2026-08-19）。
+ *   IGNORE   —— 这条裁决不会推动状态机，也不该留在订单上：不写证据、不推状态、必写审计
+ *   DISPATCH —— 正常分发到四个 verdict 分支：写证据、推状态
+ * 铁律：判定必须先于任何写库动作。见 spec §2.1。
+ */
+type VerdictLanding = 'IGNORE' | 'DISPATCH';
+
 @Injectable()
 export class DepositWorkflowService implements OnModuleInit {
   // A2: system-triggered maker actor for the KYT-verdict-driven RETURN approval.
@@ -331,52 +339,25 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
+    // ── ② 判定：必须先于任何写库动作（spec §2.1）──────────────────────────
     const status = deposit.status as DepositTransactionStatus;
-    if (DepositWorkflowService.KYT_VERDICT_IGNORED_STATUSES.has(status)) {
+    const landing = this.decideVerdictLanding(status, v.verdict);
+
+    if (landing === 'IGNORE') {
       this.logger.debug(
         `applyKytVerdict no-op: deposit ${depositId} in ignored status (${status})`,
       );
-      // A5:忽略 ≠ 静默。落一条审计,演示/取证时能指着说"系统收到了、判定不适用、记下来了",
-      // 而不是只有服务端日志。best-effort:审计写失败不该把一个本就 no-op 的裁决变成异常。
-      await this.auditLogsService
-        .recordSystem({
-          action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
-          entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
-          entityId: deposit.id,
-          entityNo: deposit.depositNo,
-          entityOwnerType: deposit.ownerType,
-          entityOwnerId: deposit.ownerId,
-          traceId: deposit.traceId || undefined,
-          workflowType: 'DEPOSIT',
-          result: AuditResult.SUCCESS,
-          reason: `Late KYT verdict '${v.verdict}' ignored — deposit is ${status} (terminal or disposition in flight); existing verdict/evidence left untouched`,
-          metadata: { depositNo: deposit.depositNo, verdict: v.verdict, status, riskScore: v.riskScore ?? null },
-          requestId: `DEPOSIT_KYT_VERDICT_IGNORED_${deposit.depositNo}_${randomUUID()}`,
-          sourcePlatform: 'SYSTEM',
-        })
-        .catch(() => undefined);
+      await this.recordVerdictIgnored(deposit, v, status);
       return;
     }
 
-    // FROZEN 是制裁/MLRO 冻结态,不在 KYT_VERDICT_TERMINAL_STATUSES 里(不是终态,还有
-    // 解冻/没收/退回等处置出口),所以一笔 approved verdict 会跑到这里。但
-    // applyKytApproved 自己的 FROZEN 守卫随后会把它 no-op(不放行、不解冻)——如果闸门
-    // 回写/存证照常执行,就会用 approved 报文覆写既有的制裁报文(sumsubScore
-    // 98→5、sumsubVerdict rejected→approved),尽管状态机压根没推进。跳过写回/存证,别让
-    // 一个必然 no-op 的 approved 静默损坏冻结单的制裁证据。MANUAL_CHECKING 不受影响
-    // (它是 approved 的合法翻案路径,必须正常写回)。
-    const approvedWillNoOpFrozen =
-      v.verdict === 'approved' && status === DepositTransactionStatus.FROZEN;
+    // ── ③ 落地：判定已过 DISPATCH，此刻才允许写证据 ────────────────────────
+    // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
+    await this.writeBackVerdict(deposit, v.verdict, v.riskScore);
 
-    if (!approvedWillNoOpFrozen) {
-      // 闸门字段回写:状态机负责"这笔单去哪",闸门字段负责"operator 看得出为什么"。
-      // 终态 no-op 之后、状态流转之前落库——终态单的既有裁决不被迟到 webhook 覆写。
-      await this.writeBackVerdict(deposit, v.verdict, v.riskScore);
-
-      // Sumsub getTxn 原始报文存证:同样落在终态 no-op 之内,迟到 webhook 不覆写终态单的既有报文。
-      if (v.detailRaw !== undefined) {
-        await this.depositService.saveTxnDetail(deposit.id, JSON.stringify(v.detailRaw));
-      }
+    // Sumsub getTxn 原始报文存证。
+    if (v.detailRaw !== undefined) {
+      await this.depositService.saveTxnDetail(deposit.id, JSON.stringify(v.detailRaw));
     }
 
     switch (v.verdict) {
@@ -393,6 +374,79 @@ export class DepositWorkflowService implements OnModuleInit {
         await this.applyKytRejected(deposit, v.sceneTag, v.dispoTag);
         return;
     }
+  }
+
+  /**
+   * 判定这条裁决该怎么落地。**必须在任何写库动作之前调用。**
+   *
+   * FROZEN 一律判 IGNORE 的依据：该状态下没有任何 verdict 能合法推动状态机 ——
+   *   approved  → applyKytApproved 自己的 FROZEN 守卫 no-op
+   *   onHold    → applyKytOnHold 的 status !== COMPLIANCE_PENDING 守卫 no-op
+   *   awaitUser → applyKytAwaitUser 全段无 FROZEN 守卫，updateStatus 从 FROZEN
+   *               推 ACTION_PENDING 必抛（FROZEN 只有 RESUME/SEIZE 两条出边）
+   *   rejected  → SANCTION/FROZEN_BY_MLRO 支要 FREEZE，无自环边，必抛
+   * 修复前只有 approvedWillNoOpFrozen 挡 approved 一种，其余三种会先把制裁证据
+   * 整份覆盖再静默 no-op。**注意：FROZEN 不加进 KYT_VERDICT_IGNORED_STATUSES**
+   * —— 那个集合另有语义（在途处置态），且加进去会影响别处的读取。
+   */
+  private decideVerdictLanding(
+    status: DepositTransactionStatus,
+    verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold',
+  ): VerdictLanding {
+    if (DepositWorkflowService.KYT_VERDICT_IGNORED_STATUSES.has(status)) return 'IGNORE';
+    if (status === DepositTransactionStatus.FROZEN) return 'IGNORE';
+    // onHold 只在 COMPLIANCE_PENDING 上有意义（applyKytOnHold 自己的守卫即如此）。
+    // 其余状态下它必然静默 no-op —— 判 IGNORE，证据不写、留一条审计。
+    // ⚠️ 这一格与 FROZEN 是同族：本批的不变量是「判定必须先于写库」，
+    // 只挡 FROZEN 而放过这里，等于同一个洞换个状态继续流血。
+    if (verdict === 'onHold' && status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
+      return 'IGNORE';
+    }
+    return 'DISPATCH';
+  }
+
+  /**
+   * 忽略 ≠ 静默：落一条审计，取证时能指着说"系统收到了、判定不适用、记下来了"。
+   *
+   * requestId 拼 randomUUID 是**有意为之**（业主 2026-08-19 拍板）：同一笔单收到
+   * 3 次迟到裁决要写 3 行，"来了几次"本身是证据。audit-logs.service 的 requestId
+   * 去重能力在此被刻意关闭，勿改成稳定键。
+   *
+   * .catch 是 load-bearing：三个 handler 全无 try/catch，异常会上抛到
+   * SumsubIngestionService 的 dispatch catch → retryCount+1 → >=3 进 DEAD。
+   * 审计写失败不该把一个本该静默忽略的 webhook 变成死信。但不再哑吞 —— 记 error。
+   */
+  private async recordVerdictIgnored(
+    deposit: any,
+    v: { verdict: string; riskScore?: number | null },
+    status: DepositTransactionStatus,
+  ): Promise<void> {
+    await this.auditLogsService
+      .recordSystem({
+        action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: deposit.id,
+        entityNo: deposit.depositNo,
+        entityOwnerType: deposit.ownerType,
+        entityOwnerId: deposit.ownerId,
+        traceId: deposit.traceId || undefined,
+        workflowType: 'DEPOSIT',
+        result: AuditResult.SUCCESS,
+        reason: `Late KYT verdict '${v.verdict}' ignored — deposit is ${status} (terminal, disposition in flight, or frozen); existing verdict/evidence left untouched`,
+        metadata: {
+          depositNo: deposit.depositNo,
+          verdict: v.verdict,
+          status,
+          riskScore: v.riskScore ?? null,
+        },
+        requestId: `DEPOSIT_KYT_VERDICT_IGNORED_${deposit.depositNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      })
+      .catch((err) => {
+        this.logger.error(
+          `DEPOSIT_KYT_VERDICT_IGNORED audit failed for ${deposit.depositNo}: ${err?.message}`,
+        );
+      });
   }
 
   /** webhook 裁决 → 展示投影(sumsubVerdict/sumsubScore)。仅供 L2 显示,不作决策依据。 */

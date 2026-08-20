@@ -542,6 +542,9 @@ export class SwapWorkflowService {
         return;
       }
       this.logger.debug(`applyKytVerdict no-op: swap ${swapId} already terminal (${status})`);
+      // 第一批 (2026-08-19)：忽略 ≠ 静默。位置刻意在 carve-out 之后 —— 走到这里
+      // 说明这条裁决既不推状态机、也不触发处置，是真正的 no-op，才该记 IGNORED。
+      await this.recordVerdictIgnored(swap, input, status);
       return;
     }
 
@@ -651,6 +654,50 @@ export class SwapWorkflowService {
       );
     });
     await this.handleRejectDisposition(swap, input);
+  }
+
+  /**
+   * 忽略 ≠ 静默（第一批 · 2026-08-19，与充值/提现域镜像）。
+   *
+   * ⚠️ 调用点必须在 REJECTED/SUCCESS + rejected 的 carve-out **之后** ——
+   * 那条 carve-out 会去跑 handleRejectDisposition（写 SWAP_KYT_REJECTED_DISPOSED），
+   * 若在它之前写 IGNORED，同一事件会既"已忽略"又"已处置"，自相矛盾。
+   *
+   * requestId 拼 randomUUID 是有意为之（3 次写 3 行）。.catch 记 error 不哑吞。
+   */
+  private async recordVerdictIgnored(
+    swap: any,
+    input: { verdict: string; riskScore?: number | null },
+    status: SwapTransactionStatus,
+  ): Promise<void> {
+    // swapNo 是 String?（schema），同文件所有兄弟审计一律 `|| undefined` 兜底；
+    // requestId 拼同一个值，避免 swapNo 为 null 时拼出字面量 "..._null_<uuid>"。
+    const entityNo = swap.swapNo || undefined;
+    await this.auditLogsService
+      .recordSystem({
+        action: AuditActions.SWAP_KYT_VERDICT_IGNORED,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: swap.id,
+        entityNo,
+        entityOwnerType: swap.ownerType,
+        entityOwnerId: swap.ownerId,
+        traceId: swap.traceId || undefined,
+        workflowType: AuditWorkflowTypes.SWAP,
+        reason: `Late KYT verdict '${input.verdict}' ignored — swap is ${status} (terminal); existing verdict/evidence left untouched`,
+        metadata: {
+          swapNo: swap.swapNo,
+          verdict: input.verdict,
+          status,
+          riskScore: input.riskScore ?? null,
+        },
+        requestId: `SWAP_KYT_VERDICT_IGNORED_${entityNo}_${randomUUID()}`,
+        sourcePlatform: 'SYSTEM',
+      })
+      .catch((err) => {
+        this.logger.error(
+          `SWAP_KYT_VERDICT_IGNORED audit failed for ${swap.swapNo}: ${err?.message}`,
+        );
+      });
   }
 
   /**
