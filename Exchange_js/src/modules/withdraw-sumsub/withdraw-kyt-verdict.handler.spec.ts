@@ -287,4 +287,18 @@ describe('WithdrawKytVerdictHandler', () => {
       expect.objectContaining({ sceneTag: 'SANCTION_COUNTERPARTY' }),
     );
   });
+
+  it('COUNTERPARTY 与 PEP 同时命中时 COUNTERPARTY 优先（不受报文顺序影响）', async () => {
+    for (const order of [
+      ['SANCTION_COUNTERPARTY', 'PEP'],
+      ['PEP', 'SANCTION_COUNTERPARTY'],
+    ]) {
+      sumsubTxnClient.getTxn.mockResolvedValue(txnDetail(order.map((label) => ({ label }))));
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+      expect(workflow.applyKytVerdict).toHaveBeenLastCalledWith(
+        WITHDRAW_ID,
+        expect.objectContaining({ sceneTag: 'SANCTION_COUNTERPARTY' }),
+      );
+    }
+  });
 });

@@ -1586,7 +1586,7 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-gate-1', {
         verdict: 'rejected',
         riskScore: 98,
-        sceneTag: 'SANCTION_APPLICANT',
+        sceneTag: 'SANCTION_COUNTERPARTY',
       });
 
       expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith('dep-gate-1', 'rejected', 98);
@@ -1978,7 +1978,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('rejected + SANCTION (from COMPLIANCE_PENDING) → FROZEN, zero accounting', async () => {
+    it('rejected + SANCTION_COUNTERPARTY (from COMPLIANCE_PENDING) → FROZEN, zero accounting', async () => {
       const deposit = {
         id: 'dep-5',
         depositNo: 'DEP005',
@@ -1993,7 +1993,7 @@ describe('DepositWorkflowService', () => {
         status: DepositTransactionStatus.FROZEN,
       });
 
-      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-5',
@@ -2132,7 +2132,7 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       // A5(2026-08-13):忽略 ≠ 静默——状态机一步不动,但要留一条 IGNORED 标记。
@@ -2143,7 +2143,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('no-op when already FROZEN and a duplicate rejected+SANCTION webhook arrives', async () => {
+    it('no-op when already FROZEN and a duplicate rejected+SANCTION_COUNTERPARTY webhook arrives', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-10',
         depositNo: 'DEP010',
@@ -2153,7 +2153,7 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       // 第一批 (2026-08-19)：FROZEN 现在判 IGNORE，忽略 ≠ 静默 —— 状态不动但要留痕。

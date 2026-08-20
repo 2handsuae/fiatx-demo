@@ -25,6 +25,16 @@ const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 // fork，不抽公共常量）。SANCTION 拆成 APPLICANT / COUNTERPARTY，旧标签退役。
 export type SceneTag = 'SANCTION_APPLICANT' | 'SANCTION_COUNTERPARTY' | 'PEP';
 const SCENE_TAGS = new Set<SceneTag>(['SANCTION_APPLICANT', 'SANCTION_COUNTERPARTY', 'PEP']);
+// 显式优先序：APPLICANT > COUNTERPARTY > PEP。
+// sceneTag 是标量、循环里后写覆盖先写，不定优先级的话哪个生效取决于
+// Sumsub 报文里 typedTags 的先后顺序 —— 同一笔"对手方受制裁 + 客户是 PEP"
+// 的交易会时而冻单时而落人工复核，且无任何日志。收紧方向优先：
+// 漏冻的代价远大于多冻一次。
+const SCENE_TAG_PRIORITY: Record<SceneTag, number> = {
+  SANCTION_APPLICANT: 3,
+  SANCTION_COUNTERPARTY: 2,
+  PEP: 1,
+};
 // 提现处置 tag 集合与充值不同:REJECT_REFUND(不是 RETURN_TO_SENDER——提现没有
 // "退回发件人"语义,拒绝后走退款处置)。见 task-4-brief.md。
 const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'REJECT_REFUND']);
@@ -82,9 +92,11 @@ export class WithdrawKytVerdictHandler {
       if (TAG_LOOKUP_VERDICTS.has(verdict)) {
         for (const tag of detail.typedTags) {
           if (tag.type !== 'userDefined') continue;
-          // APPLICANT 恒优先 —— 理由见 deposit-kyt-verdict.handler.ts 同名分支。
           if (SCENE_TAGS.has(tag.label as SceneTag)) {
-            if (sceneTag !== 'SANCTION_APPLICANT') sceneTag = tag.label as SceneTag;
+            const candidate = tag.label as SceneTag;
+            if (!sceneTag || SCENE_TAG_PRIORITY[candidate] > SCENE_TAG_PRIORITY[sceneTag]) {
+              sceneTag = candidate;
+            }
           }
           if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
         }

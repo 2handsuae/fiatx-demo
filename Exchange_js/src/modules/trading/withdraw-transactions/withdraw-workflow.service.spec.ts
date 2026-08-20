@@ -1066,14 +1066,14 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
   });
 
-  describe('rejected branch — tag three-way (SANCTION/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
-    it('sceneTag=SANCTION from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
+  describe('rejected branch — tag three-way (SANCTION_COUNTERPARTY/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
+    it('sceneTag=SANCTION_COUNTERPARTY from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
       const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(withdrawService.updateStatus).toHaveBeenCalledWith(
         'wd-sumsub-1',
@@ -1100,13 +1100,13 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
     });
 
-    it('idempotent: already FROZEN + sceneTag=SANCTION → no-op (repeat webhook, no double freeze)', async () => {
+    it('idempotent: already FROZEN + sceneTag=SANCTION_COUNTERPARTY → no-op (repeat webhook, no double freeze)', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
     });

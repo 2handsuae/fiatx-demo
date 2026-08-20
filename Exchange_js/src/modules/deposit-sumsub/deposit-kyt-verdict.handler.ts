@@ -27,6 +27,16 @@ const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 // （demo 约定：不做向后兼容）。
 export type SceneTag = 'SANCTION_APPLICANT' | 'SANCTION_COUNTERPARTY' | 'PEP';
 const SCENE_TAGS = new Set<SceneTag>(['SANCTION_APPLICANT', 'SANCTION_COUNTERPARTY', 'PEP']);
+// 显式优先序：APPLICANT > COUNTERPARTY > PEP。
+// sceneTag 是标量、循环里后写覆盖先写，不定优先级的话哪个生效取决于
+// Sumsub 报文里 typedTags 的先后顺序 —— 同一笔"对手方受制裁 + 客户是 PEP"
+// 的交易会时而冻单时而落人工复核，且无任何日志。收紧方向优先：
+// 漏冻的代价远大于多冻一次。
+const SCENE_TAG_PRIORITY: Record<SceneTag, number> = {
+  SANCTION_APPLICANT: 3,
+  SANCTION_COUNTERPARTY: 2,
+  PEP: 1,
+};
 const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'RETURN_TO_SENDER']);
 
 /**
@@ -81,13 +91,11 @@ export class DepositKytVerdictHandler {
       if (TAG_LOOKUP_VERDICTS.has(verdict)) {
         for (const tag of detail.typedTags) {
           if (tag.type !== 'userDefined') continue;
-          // APPLICANT 恒优先：一笔交易同时命中"本人被制裁"和"对手方被制裁"
-          // 是真实场景（本人在名单上、又转给了受制裁地址）。sceneTag 是标量、
-          // 循环里后写覆盖先写，若不判优先级则哪个生效取决于 Sumsub 报文里
-          // typedTags 的先后顺序 —— "本人命中"有一半概率被静默降级成"只冻单
-          // 不冻人"，且无任何日志。漏冻人的代价远大于多冻一次。
           if (SCENE_TAGS.has(tag.label as SceneTag)) {
-            if (sceneTag !== 'SANCTION_APPLICANT') sceneTag = tag.label as SceneTag;
+            const candidate = tag.label as SceneTag;
+            if (!sceneTag || SCENE_TAG_PRIORITY[candidate] > SCENE_TAG_PRIORITY[sceneTag]) {
+              sceneTag = candidate;
+            }
           }
           if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
         }
