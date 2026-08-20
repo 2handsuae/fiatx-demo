@@ -2146,4 +2146,211 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       );
     });
   });
+
+  // ── Task 9: FROZEN 落地 —— 本单裁决驱动 + 幂等闸 ─────────────────────────
+  describe('FROZEN 落地（Task 9）', () => {
+    // Guards against the exact production bug this task's implementation
+    // uncovered: applyKytVerdict's plain-reject tail used to unconditionally
+    // markStatus(KYT_REJECTED) BEFORE calling handleRejectDisposition, so a
+    // hasSanction FREEZE attempted from inside handleRejectDisposition would
+    // land on an already-REJECTED (zero-out-edge) row and throw
+    // `Invalid transition: REJECTED + freeze`. The fix makes the tail skip
+    // its own KYT_REJECTED transition when hasSanction, so FREEZE is the
+    // ONLY transition attempted, straight off COMPLIANCE_PENDING.
+    it('COMPLIANCE_PENDING 单 + 本单 SANCTION_APPLICANT 裁决 → markStatus(FREEZE)，且写了 SWAP_FROZEN 审计', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.FREEZE,
+        expect.anything(),
+        { rejectReason: 'SANCTION_APPLICANT' },
+      );
+      // Exactly the FREEZE transition, never KYT_REJECTED for a sanction hit —
+      // proves the tail's own KYT_REJECTED branch was skipped, not just that
+      // FREEZE also happened to fire alongside it.
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.KYT_REJECTED,
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+
+      const frozenAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
+      expect(frozenAudit).toBeDefined();
+      expect(frozenAudit.entityId).toBe('s1');
+      expect(frozenAudit.entityNo).toBe('SWP0001');
+      expect(frozenAudit.entityOwnerType).toBe('CUSTOMER');
+      expect(frozenAudit.entityOwnerId).toBe('cust-1');
+      expect(frozenAudit.entityOwnerNo).toBe('C0001');
+      expect(frozenAudit.workflowType).toBeDefined();
+    });
+
+    it('FROZEN 单再收裁决 → 不抛异常、markStatus 不再被调用、写 IGNORED 审计（幂等闸，防死信）', async () => {
+      const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.FROZEN });
+      const service = makeApplyKytVerdictService(mocks);
+
+      await expect(
+        service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
+      ).resolves.toBeUndefined();
+
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+      const ignoredAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_VERDICT_IGNORED);
+      expect(ignoredAudit).toBeDefined();
+      expect(ignoredAudit.metadata.status).toBe(SwapTransactionStatus.FROZEN);
+    });
+
+    // A redelivered *approved* verdict on a FROZEN swap must be equally inert
+    // — the guard checks status only, not verdict, so this proves it isn't
+    // accidentally scoped to 'rejected' redeliveries alone.
+    it('FROZEN 单收到迟到 approved 裁决 → 同样不抛异常、不建腿、写 IGNORED 审计', async () => {
+      const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.FROZEN });
+      const service = makeApplyKytVerdictService(mocks);
+      const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+      await expect(service.applyKytVerdict('s1', { verdict: 'approved' })).resolves.toBeUndefined();
+
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(createLegSpy).not.toHaveBeenCalled();
+      const ignoredAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_VERDICT_IGNORED);
+      expect(ignoredAudit).toBeDefined();
+    });
+  });
+});
+
+// ── Task 9: 跨域冻人广播驱动（onCustomerRestrictionOpened）───────────────────
+describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落地)', () => {
+  function buildListenerMocks(overrides: { inflight?: any[] } = {}) {
+    const inflight = overrides.inflight ?? [
+      {
+        id: 's1',
+        swapNo: 'SWP0001',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        status: SwapTransactionStatus.COMPLIANCE_PENDING,
+        traceId: 'TRACE-1',
+      },
+    ];
+
+    const txClient: any = { swapTransaction: { update: jest.fn(() => Promise.resolve({})) } };
+
+    const swapTransactionsService = {
+      findNonTerminalByOwner: jest.fn(() => Promise.resolve(inflight)),
+      markStatus: jest.fn(() => Promise.resolve('FROZEN')),
+      findByIdInternal: jest.fn((id: string) =>
+        Promise.resolve(inflight.find((s: any) => s.id === id) ?? null),
+      ),
+      setNeedsReview: jest.fn(() => Promise.resolve()),
+    };
+
+    const auditLogsService = {
+      recordSystem: jest.fn(() => Promise.resolve()),
+    };
+
+    const prisma: any = {
+      $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+    };
+
+    // Simulates the restriction having just landed — SWAP capability blocked.
+    const customerAccessService = {
+      resolve: jest.fn(() => Promise.resolve({ blocked: new Set(['SWAP', 'WITHDRAW']) })),
+    };
+
+    return { inflight, txClient, swapTransactionsService, auditLogsService, prisma, customerAccessService };
+  }
+
+  function makeListenerService(mocks: ReturnType<typeof buildListenerMocks>) {
+    return new SwapWorkflowService(
+      mocks.prisma,
+      {} as any, // onboardingService — not on this path
+      {} as any, // swapQuoteService — not on this path
+      mocks.swapTransactionsService as any,
+      {} as any, // accountingService — not on this path
+      mocks.auditLogsService as any,
+      { emit: jest.fn() } as any, // eventEmitter — not on this path
+      {} as any, // swapLegAccounting — not on this path
+      {} as any, // fundsOrders — not on this path
+      {} as any, // walletQuery — not on this path
+      {} as any, // limitGateService — not on this path
+      {} as any, // sumsubTxnClient — not on this path
+      {} as any, // customerRestrictionsService — not on this path (the restriction is already open by the time this event fires)
+      {} as any, // customersService — not on this path
+      mocks.customerAccessService as any,
+      {} as any, // materialRequests — not on this path
+      {} as any, // materialRequestIssuer — not on this path
+    );
+  }
+
+  const baseEvent = {
+    customerId: 'cust-1',
+    restrictionNo: 'RST2608200001',
+    cause: 'SANCTION',
+    blocksAllCapabilities: true as const,
+    traceId: 'TRACE-EVT',
+  };
+
+  it('COMPLIANCE_PENDING 单 + 跨域冻人广播 → markStatus(FREEZE)，写 SWAP_FROZEN 审计', async () => {
+    const mocks = buildListenerMocks();
+    const service = makeListenerService(mocks);
+
+    await service.onCustomerRestrictionOpened(baseEvent);
+
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.FREEZE,
+      mocks.txClient,
+      { rejectReason: 'SANCTION_APPLICANT' },
+    );
+    const frozenAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
+    expect(frozenAudit).toBeDefined();
+    expect(frozenAudit.entityId).toBe('s1');
+    expect(frozenAudit.entityNo).toBe('SWP0001');
+    expect(frozenAudit.reason).toMatch(/RST2608200001/);
+  });
+
+  // The load-bearing negative case: PROCESSING has no FREEZE edge in the
+  // transitions table on purpose (legs are already posting one at a time —
+  // freezing mid-flight would strand a half-settled ledger). The listener
+  // must route PROCESSING through the existing leg-halt gate instead of
+  // attempting a transition.
+  it('PROCESSING 单 + 跨域冻人广播 → 状态不变（维持停腿），不进 FROZEN', async () => {
+    const mocks = buildListenerMocks({
+      inflight: [
+        {
+          id: 's2',
+          swapNo: 'SWP0002',
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          status: SwapTransactionStatus.PROCESSING,
+          traceId: 'TRACE-2',
+        },
+      ],
+    });
+    const service = makeListenerService(mocks);
+
+    await service.onCustomerRestrictionOpened(baseEvent);
+
+    // No transition attempted at all for the in-flight swap.
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    // Routed through the existing capability gate (assertSwapCustomerAccessOrHalt) instead.
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s2', true);
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
+    );
+  });
 });

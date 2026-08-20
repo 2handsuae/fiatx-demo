@@ -493,7 +493,7 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     expect(customer!.hardLineDispositionedAt).toBeNull(); // no-actions hard line is per-verdict, not sticky
   });
 
-  it('④ rejected · Sanctions: REJECTED, sticky hard-line set, no material request issued (tipping-off)', async () => {
+  it('④ rejected · Sanctions: FROZEN, sticky hard-line set, no material request issued (tipping-off)', async () => {
     // 2026-08-20 (Task 3)：本用例断言的是「客户本人命中制裁 → 硬线/sticky/静默」——
     // 这只在 SANCTION_APPLICANT 下成立。V4B_REJECTED_SANCTION_COUNTERPARTY
     // （对手方地址命中 OFAC）是 Task 2 批量拆按钮时按 deposit/withdraw 的语义
@@ -502,9 +502,16 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     // 不是——只有本人命中才不给入口（对手方命中走普通软/硬线判定，见
     // swap-workflow.service.ts:872 与其配套单测「命门」组）。这条用例从设计
     // 起就是在证「本人命中」这条最危险的路径，改回 APPLICANT 才对得上断言。
+    //
+    // 2026-08-20（Task 9）：终态从 REJECTED 改成 FROZEN —— 迁移表里
+    // COMPLIANCE_PENDING --FREEZE--> FROZEN 是本人命中制裁的唯一合法落点
+    // （swap-workflow.service.ts 的 applyKytVerdict 尾部现在会在 hasSanction 时
+    // 跳过 KYT_REJECTED，直接让 handleRejectDisposition 里的 FREEZE 分支落地）。
+    // 下面其余断言（材料请求为空/sticky 硬线章/限制便签/能力封禁集合）与
+    // FROZEN 无关，原样保留。
     await deliver(v4Swap.id, 'V4_REJECTED_SANCTION_APPLICANT');
 
-    expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.REJECTED);
+    expect(await statusOf(v4Swap.id)).toBe(SwapTransactionStatus.FROZEN);
     // 制裁命中：同②，一条材料请求都不登记 —— 不给客户任何可探测的痕迹。
     expect(await materialRequests.listLiveByOrder('SWAP', v4Swap.swapNo)).toHaveLength(0);
 

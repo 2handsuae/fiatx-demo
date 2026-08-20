@@ -615,4 +615,27 @@ describe('markStatus · FROZEN 迁移边', () => {
     await expect(service.markStatus('s1', SwapTransactionAction.FREEZE, tx))
       .rejects.toThrow(/Invalid transition/);
   });
+
+  // Task 9 审查者点名：completedAt 只在 next===SUCCESS 时写。REJECTED 单和
+  // FROZEN 单的 completedAt 都必须是 null/undefined、逐字相同——这是客户视图
+  // 收敛(Task 10)之后两者不可分辨的隐含前提。显式断言，防止将来有人顺手在
+  // markStatus 的 completedAt 三元表达式里给 FROZEN 加一支，开出 tipping-off
+  // 推断信道（客户能从"有没有完成时间"反推自己是否被制裁冻结）。
+  it('completedAt 保持 null —— FROZEN 不是 SUCCESS，不写完成时间（tipping-off 防线）', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 's1', status: 'FROZEN' });
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', status: 'COMPLIANCE_PENDING' }),
+        update,
+      },
+    } as any;
+
+    await service.markStatus('s1', SwapTransactionAction.FREEZE, tx, { rejectReason: 'SANCTION_APPLICANT' });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    const updateArg = update.mock.calls[0][0];
+    expect(updateArg.data.completedAt).toBeUndefined();
+    expect(updateArg.data.status).toBe('FROZEN');
+    expect(updateArg.data.rejectReason).toBe('SANCTION_APPLICANT');
+  });
 });
