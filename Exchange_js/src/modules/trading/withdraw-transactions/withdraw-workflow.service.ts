@@ -2140,10 +2140,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * locked balance back to available. Order mirrors onLargeValueApprovalDecided's
    * rejected branch exactly: updateStatus first, then releaseLock (the P6
    * primitive — voids both net + fee pendings best-effort), then audit.
-   * 2026-08-20：客户级冻结已在本域接通（applyKytRejected 的 SANCTION_APPLICANT
-   * 分支调 customerRestrictionsService.open）——本单能走到这一步（FROZEN）意味着
-   * 客户要么已在那条分支被冻，要么已因其它限制被 A4 闸（assertCustomerComplianceOrFreeze）
-   * 冻住，此处不再需要人工升级。
+   * 2026-08-20：客户级冻结已在本域接通，但**只在** applyKytRejected 的
+   * SANCTION_APPLICANT 分支发生。SANCTION_COUNTERPARTY / FROZEN_BY_MLRO 冻的单
+   * 走到这里时，客户很可能完全没有任何限制；A4 闸冻的那条虽有 OPEN 限制，但因由
+   * 可能是材料/行政等任意一种，与制裁无关。
+   * 是否升级到客户级由合规官另行判断 —— 本方法不做，也不断言。
    */
   private async onRefundApproved(withdrawId: string, approvalNo?: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
@@ -2174,8 +2175,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       entityOwnerId: w.ownerId,
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: 'Sanction refund approved — withdrawal rejected and lock released; ' +
-        'customer-level restriction already applied at freeze time (applyKytRejected → CustomerRestrictionsService.open)',
+      reason: 'Sanction refund approved — withdrawal rejected and lock released',
       metadata: approvalNo ? { approvalNo } : undefined,
       sourcePlatform: 'SYSTEM',
     });
@@ -2648,7 +2648,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   /**
    * rejected: tag 三分支(spec §3)。
-   *   SANCTION(场景) / FROZEN_BY_MLRO(处置) → FREEZE(免审批,收紧方向)
+   *   SANCTION_APPLICANT(场景·客户本人) → 冻人 + FREEZE；SANCTION_COUNTERPARTY(场景·对手方) / FROZEN_BY_MLRO(处置) → 仅 FREEZE（免审批,收紧方向）
    *   REJECT_REFUND(处置)                  → REJECT_REFUND → REJECTED + releaseLock
    *   无 tag                                → KYT_REJECTED → MANUAL_CHECKING
    * All three idempotent when already in the target state (repeat webhook).
