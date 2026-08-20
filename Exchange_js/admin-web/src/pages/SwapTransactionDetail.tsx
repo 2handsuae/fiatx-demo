@@ -18,15 +18,17 @@ import MaterialRequestPanel from '../components/MaterialRequestPanel';
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-/* 8 个单步裁决按钮,与充值/提现版镜像(deliberate fork)。key/label 必须与后端
+/* 7 个单步裁决按钮,与充值/提现版镜像(deliberate fork)。key/label 必须与后端
    src/modules/swap-sumsub/fixtures/verdict-buttons.ts 的 SWAP_VERDICT_BUTTONS
    逐一对齐——这里没有自动化断言(admin-web 暂无测试基建),改动任一侧务必同步
-   改另一侧,否则 operator 会点不出新场景。 */
+   改另一侧,否则 operator 会点不出新场景。
+   ⚠️ 没有 V4B（对手方制裁）：业主 2026-08-20 终审裁定——兑换没有第三方对手方，
+   这个场景不存在，见后端 fixture 同名注释；充值/提现两个姊妹页保留该按钮。 */
 const SWAP_VERDICT_BUTTONS: Array<{ key: string; label: string }> = [
   { key: 'V1_APPROVED', label: '① Approved' },
   { key: 'V2_REJECTED_HARD', label: '② Rejected · 硬线（无 action）' },
   { key: 'V3_REJECTED_ACTION', label: '③ Rejected · 软线（下发认证）' },
-  { key: 'V4_REJECTED_SANCTION', label: '④ Rejected · Sanctions' },
+  { key: 'V4_REJECTED_SANCTION_APPLICANT', label: '④ Rejected · Sanctions（客户本人）' },
   { key: 'V5_ONHOLD', label: '⑤ On hold（我方等同拒绝）' },
   { key: 'V6_AWAIT_USER', label: '⑥ Awaiting user（我方等同拒绝）' },
   { key: 'V7_ACTION_GREEN', label: '⑦ 认证通过（清限制）' },

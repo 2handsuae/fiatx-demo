@@ -4,8 +4,8 @@ import { KYT_VERDICT_TYPES } from '../../deposit-sumsub/kyt-webhook-types';
 describe('WITHDRAW_VERDICT_BUTTONS', () => {
   const buttons = Object.values(WITHDRAW_VERDICT_BUTTONS);
 
-  it('共 10 个按钮,key 与 map 键一致', () => {
-    expect(buttons).toHaveLength(10);
+  it('共 11 个按钮,key 与 map 键一致', () => {
+    expect(buttons).toHaveLength(11);
     for (const [k, b] of Object.entries(WITHDRAW_VERDICT_BUTTONS)) expect(b.key).toBe(k);
   });
 
@@ -38,7 +38,8 @@ describe('WITHDRAW_VERDICT_BUTTONS', () => {
   it('处置 tag 逐个对上 WithdrawKytVerdictHandler 的词表', () => {
     const tagOf = (k: string) =>
       (WITHDRAW_VERDICT_BUTTONS[k].verdict.typedTags ?? []).map((t) => t.label);
-    expect(tagOf('V4_REJECTED_SANCTION')).toEqual(['SANCTION']);
+    expect(tagOf('V4_REJECTED_SANCTION_APPLICANT')).toEqual(['SANCTION_APPLICANT']);
+    expect(tagOf('V4B_REJECTED_SANCTION_COUNTERPARTY')).toEqual(['SANCTION_COUNTERPARTY']);
     expect(tagOf('V5_REJECTED_FROZEN_MLRO')).toEqual(['FROZEN_BY_MLRO']);
     expect(tagOf('V6_REJECTED_REFUND_TAG')).toEqual(['REJECT_REFUND']);
     expect(tagOf('V7_REJECTED_NO_TAG')).toEqual([]);

@@ -8,6 +8,7 @@ import {
   DepositOwnerType,
 } from './dto/deposit-transaction.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
+import type { SceneTag } from '../../deposit-sumsub/deposit-kyt-verdict.handler';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import {
@@ -43,6 +44,7 @@ import {
 } from '../../governance/approvals/constants/approval.constants';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string;
@@ -96,6 +98,7 @@ export class DepositWorkflowService implements OnModuleInit {
     private readonly tbEvidenceService: TbEvidenceService,
     private readonly applicantActions: DepositApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly customerRestrictionsService: CustomerRestrictionsService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -327,7 +330,7 @@ export class DepositWorkflowService implements OnModuleInit {
     v: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
-      sceneTag?: 'SANCTION' | 'PEP';
+      sceneTag?: SceneTag;
       dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
@@ -347,7 +350,63 @@ export class DepositWorkflowService implements OnModuleInit {
       this.logger.debug(
         `applyKytVerdict no-op: deposit ${depositId} in ignored status (${status})`,
       );
+
+      // 终审必修(2026-08-20):忽略分支先落"IGNORED"取证行 —— recordVerdictIgnored
+      // 内部自带 .catch,永不抛,保证无论下面冻人是否成功,这条裁决"曾经到过、带
+      // 什么 sceneTag"至少留一条痕(metadata 现补了 sceneTag/dispoTag,见其 JSDoc)。
+      // 顺序是刻意的:若反过来先冻人、冻人的 open() 抛出(它没有 .catch,是真实的
+      // DB 写入,允许失败去触发 webhook 重试),这条 IGNORED 记录就整趟都不会落下,
+      // 而 open() 本身的失败不该连累这条本就该发生的取证记录——两件事谁失败都不该
+      // 拖累另一件已经能做的事先做完。
       await this.recordVerdictIgnored(deposit, v, status);
+
+      // 单据状态不该决定「人」要不要被限制 —— 与 swap-workflow.service.ts 里
+      // REJECTED/SUCCESS carve-out 同一条原则(那里的注释原文:
+      // "The order's own state must not decide whether the PERSON gets restricted.")。
+      //
+      // 真实路径:客户因**别的**因由(ADMIN_SUSPENSION,等级升级被拒 / 补料周期
+      // 终止 / admin 手工停用,都是 scope=['ALL'] 会广播)被摁住 → 本域监听器把
+      // 这笔在途单冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 →
+      // 撞上这道闸(decideVerdictLanding 对 FROZEN 一律判 IGNORE)。若在这里直接
+      // return,制裁命中被整条丢弃:人不会被冻,运营解除那张 ADMIN_SUSPENSION 便签
+      // 后客户完全自由,而审计里也看不出曾有过制裁命中(证据写回在本闸之后,
+      // recordVerdictIgnored 的 metadata 此前又不带 sceneTag)。
+      //
+      // open() 不碰单据状态、且幂等(同客户同 cause 第 2..N 次命中 created=false,
+      // 见 customer-restrictions.service.ts openWithin 的 R4 归一),所以这里调它
+      // **不破坏**第一批立的「判定先于写库」不变量 —— 状态机仍然一步不动,只是
+      // 客户维度多了一张限制便签。
+      if (v.sceneTag === 'SANCTION_APPLICANT') {
+        await this.customerRestrictionsService.open({
+          customerId: deposit.ownerId,
+          cause: 'SANCTION',
+          reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status})`,
+          caseRef: deposit.depositNo,
+          openedBy: 'system',
+        });
+
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: deposit.id,
+            entityNo: deposit.depositNo,
+            entityOwnerType: deposit.ownerType,
+            entityOwnerId: deposit.ownerId,
+            traceId: deposit.traceId || undefined,
+            workflowType: 'DEPOSIT',
+            result: AuditResult.SUCCESS,
+            reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
+            metadata: { depositNo: deposit.depositNo, sceneTag: v.sceneTag, status },
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT audit failed for ${deposit.depositNo}: ${err?.message}`,
+            );
+          });
+      }
+
       return;
     }
 
@@ -415,10 +474,15 @@ export class DepositWorkflowService implements OnModuleInit {
    * .catch 是 load-bearing：三个 handler 全无 try/catch，异常会上抛到
    * SumsubIngestionService 的 dispatch catch → retryCount+1 → >=3 进 DEAD。
    * 审计写失败不该把一个本该静默忽略的 webhook 变成死信。但不再哑吞 —— 记 error。
+   *
+   * 终审必修(2026-08-20):metadata 补 sceneTag/dispoTag —— 此前迟到的
+   * SANCTION_APPLICANT/SANCTION_COUNTERPARTY 裁决撞上 IGNORE 分支时，这两个
+   * 标签整个不落地，取证链在这里断了一截（MLRO 查这条审计只看得到
+   * verdict='rejected'，看不出是不是制裁命中）。
    */
   private async recordVerdictIgnored(
     deposit: any,
-    v: { verdict: string; riskScore?: number | null },
+    v: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' },
     status: DepositTransactionStatus,
   ): Promise<void> {
     await this.auditLogsService
@@ -438,6 +502,8 @@ export class DepositWorkflowService implements OnModuleInit {
           verdict: v.verdict,
           status,
           riskScore: v.riskScore ?? null,
+          sceneTag: v.sceneTag ?? null,
+          dispoTag: v.dispoTag ?? null,
         },
         requestId: `DEPOSIT_KYT_VERDICT_IGNORED_${deposit.depositNo}_${randomUUID()}`,
         sourcePlatform: 'SYSTEM',
@@ -582,7 +648,7 @@ export class DepositWorkflowService implements OnModuleInit {
 
   private async applyKytAwaitUser(
     deposit: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ) {
     const incoming = applicantActions ?? [];
@@ -758,11 +824,44 @@ export class DepositWorkflowService implements OnModuleInit {
 
   private async applyKytRejected(
     deposit: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     dispoTag?: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER',
   ) {
-    if (sceneTag === 'SANCTION' || dispoTag === 'FROZEN_BY_MLRO') {
+    const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
+    if (
+      isApplicantSanction ||
+      sceneTag === 'SANCTION_COUNTERPARTY' ||
+      dispoTag === 'FROZEN_BY_MLRO'
+    ) {
       if (deposit.status === DepositTransactionStatus.FROZEN) return; // 已在目标态,防重复 webhook
+
+      // 客户本人命中 → 先冻人、再冻单。
+      //
+      // 顺序是 load-bearing 的：两者分属两次独立提交（open() 自开
+      // $transaction，updateStatus 是独立 update），中途崩溃必然留半成品。
+      // 先冻人的残局是「人冻了、单没冻」：
+      //   - updateStatus 抛异常但进程还活着 → open() 广播的 CUSTOMER_RESTRICTION_OPENED
+      //     会被本域自己的 onCustomerRestrictionOpened 接住，把在途单（含这一笔）冻掉，
+      //     内存事件当场自愈。
+      //   - 进程直接崩溃 → 内存事件和挂起的 listener promise 一起死，指望不上它；真正
+      //     兜底的是 Sumsub webhook 重试：重跑 applyKytVerdict，open() 幂等返回
+      //     created=false，照常往下冻单。
+      // 无论走哪条兜底路径，即便真留下「人冻了、单没冻」的窗口，新单进
+      // COMPLIANCE_PENDING 时 Gate 0（本文件 runGate0）会读限制账直接冻掉，提现/兑换
+      // 也被能力闸硬挡 —— 损害收敛。反过来「单冻了、人没冻」，客户下一单畅通无阻，方向
+      // 危险。不要因为"看起来能合并"或"先改状态更直觉"调换。
+      if (isApplicantSanction) {
+        await this.customerRestrictionsService.open({
+          customerId: deposit.ownerId,
+          cause: 'SANCTION',
+          reason: `Deposit ${deposit.depositNo} KYT rejected: applicant sanctioned`,
+          // caseRef 传单号只为可读；SANCTION 是客户级因由，openWithin 会归一成
+          // customerNo（restriction-cause.constant.ts R4）。哪笔单牵出来的由上面
+          // 的 reason 和审计承载。
+          caseRef: deposit.depositNo,
+          openedBy: 'system',
+        });
+      }
 
       await this.depositService.updateStatus(
         deposit.id,
@@ -782,7 +881,11 @@ export class DepositWorkflowService implements OnModuleInit {
         entityOwnerId: deposit.ownerId,
         traceId: deposit.traceId || undefined,
         workflowType: 'DEPOSIT',
-        reason: `KYT verdict rejected: ${sceneTag === 'SANCTION' ? 'SANCTION hit' : 'FROZEN_BY_MLRO disposition'}`,
+        reason: isApplicantSanction
+          ? 'KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)'
+          : sceneTag === 'SANCTION_COUNTERPARTY'
+            ? 'KYT verdict rejected: SANCTION_COUNTERPARTY hit (order frozen only)'
+            : 'KYT verdict rejected: FROZEN_BY_MLRO disposition',
         sourcePlatform: 'SYSTEM',
       });
       return;
@@ -2992,12 +3095,62 @@ export class DepositWorkflowService implements OnModuleInit {
             actor: { actorType: 'SYSTEM', actorId: 'CUSTOMER_RESTRICTION' },
           },
         );
+        // 铁律①：有持久状态、operator 可见 → 必须写审计。
+        // ⚠️ 充值域的 updateStatus 自身不写审计（提现的写），所以这里必须自己补，
+        // 否则批量冻结在审计里完全不可见。action 复用 DEPOSIT_FROZEN，让"按
+        // action 查所有冻结"能一次查全；来源差异由 reason 承载。
+        //
+        // 审计调用独立 catch（2026-08-20 修订）：不能和上面的 updateStatus 共享
+        // 这个 try 块——若共享，审计写入失败会被下面的 catch 回读判据误判成
+        // 「良性自咬」（因为单这时确实已经 FROZEN），只打 debug，审计缺失却无人
+        // 知晓。审计失败与状态跃迁失败必须分开：这里失败只以 logger.error 现身，
+        // 绝不让一笔已经冻结成功的单被判成失败。
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.DEPOSIT_FROZEN,
+            entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+            entityId: d.id,
+            entityNo: d.depositNo,
+            entityOwnerType: d.ownerType,
+            entityOwnerId: d.ownerId,
+            traceId: d.traceId || event.traceId || undefined,
+            workflowType: 'DEPOSIT',
+            reason: `Frozen by customer restriction ${event.restrictionNo} (${event.cause})`,
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `Failed to write DEPOSIT_FROZEN audit for ${d.depositNo} (restriction ${event.restrictionNo}): ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
       } catch (e) {
-        this.logger.warn(
-          `Failed to freeze in-flight deposit ${d.depositNo} for restriction ${event.restrictionNo}: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
+        // 自咬（2026-08-20 修订）：open() 广播是 fire-and-forget，扫描发生在主路径
+        // updateStatus(FREEZE) 提交之前 —— findNonTerminalByOwner 扫到本单时它的
+        // 快照仍是 COMPLIANCE_PENDING（notIn 拦不住触发单自己），但轮到本轮循环
+        // 对它执行 FREEZE 时，触发路径往往已经把它冻上了（FROZEN 无 FREEZE 自环
+        // 边）→ updateStatus 必抛。这不是真失败——单已经冻好，只是被触发路径抢先。
+        // 判据：重新读一次当前状态，已是 FROZEN 就是良性抢跑，降级 debug；否则才
+        // 是真失败，照旧 warn（不靠匹配异常消息字符串，措辞一改就失效）。
+        let alreadyFrozen = false;
+        try {
+          const current = await this.depositService.findOne(d.id);
+          alreadyFrozen = current.status === DepositTransactionStatus.FROZEN;
+        } catch {
+          // 状态复核本身失败（例如单已被删）—— 不能判定良性，走下面 warn 分支。
+        }
+        if (alreadyFrozen) {
+          this.logger.debug(
+            `In-flight deposit ${d.depositNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+          );
+        } else {
+          this.logger.warn(
+            `Failed to freeze in-flight deposit ${d.depositNo} for restriction ${event.restrictionNo}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
       }
     }
   }

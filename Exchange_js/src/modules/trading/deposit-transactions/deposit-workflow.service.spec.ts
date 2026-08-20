@@ -28,6 +28,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 
 /** Task 9：Gate 0 与 checkAutoApproval 改读限制账，不再读已删的 complianceStatus 列。 */
 const customerAccessService = {
@@ -61,6 +62,7 @@ describe('DepositWorkflowService', () => {
   let systemWalletResolver: Record<string, jest.Mock>;
   let tbEvidenceService: Record<string, jest.Mock>;
   let actionsService: Record<string, jest.Mock>;
+  let customerRestrictionsService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     // Task 9：access mock 是模块级的，本 spec 无 clearAllMocks —— 逐例复位，
@@ -75,6 +77,7 @@ describe('DepositWorkflowService', () => {
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
+      findNonTerminalByOwner: jest.fn().mockResolvedValue([]),
     };
     actionsService = {
       syncApplicantActions: jest.fn().mockResolvedValue({ added: [], retired: [] }),
@@ -119,6 +122,9 @@ describe('DepositWorkflowService', () => {
     tbEvidenceService = {
       enrichForPost: jest.fn().mockResolvedValue(undefined),
     };
+    customerRestrictionsService = {
+      open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST-1', created: true }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -134,6 +140,7 @@ describe('DepositWorkflowService', () => {
         { provide: SystemWalletResolver, useValue: systemWalletResolver },
         { provide: TbEvidenceService, useValue: tbEvidenceService },
         { provide: DepositApplicantActionsService, useValue: actionsService },
+        { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
       ],
     }).compile();
 
@@ -1402,6 +1409,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -1586,7 +1594,7 @@ describe('DepositWorkflowService', () => {
       await service.applyKytVerdict('dep-gate-1', {
         verdict: 'rejected',
         riskScore: 98,
-        sceneTag: 'SANCTION',
+        sceneTag: 'SANCTION_COUNTERPARTY',
       });
 
       expect(depositService.updateSumsubVerdict).toHaveBeenCalledWith('dep-gate-1', 'rejected', 98);
@@ -1978,7 +1986,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('rejected + SANCTION (from COMPLIANCE_PENDING) → FROZEN, zero accounting', async () => {
+    it('rejected + SANCTION_COUNTERPARTY (from COMPLIANCE_PENDING) → FROZEN, zero accounting', async () => {
       const deposit = {
         id: 'dep-5',
         depositNo: 'DEP005',
@@ -1993,7 +2001,7 @@ describe('DepositWorkflowService', () => {
         status: DepositTransactionStatus.FROZEN,
       });
 
-      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await service.applyKytVerdict('dep-5', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-5',
@@ -2005,6 +2013,51 @@ describe('DepositWorkflowService', () => {
       );
       // Zero accounting: no TB/executeTransfer calls implied — accountingService not asserted here
       // since freeze never touches it (only updateStatus + audit).
+      // Task 5：对手方被制裁 ≠ 客户本人被制裁 —— 只冻这一单，绝不冻人。
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+    });
+
+    it('rejected + SANCTION_APPLICANT (from COMPLIANCE_PENDING) → 先冻人(open cause=SANCTION)再冻单 FROZEN', async () => {
+      const deposit = {
+        id: 'dep-5b',
+        depositNo: 'DEP005B',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-applicant-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+      depositService.updateStatus.mockResolvedValue({
+        ...deposit,
+        status: DepositTransactionStatus.FROZEN,
+      });
+
+      await service.applyKytVerdict('dep-5b', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+
+      // 冻人：customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用，
+      // 且必须发生在 updateStatus(FREEZE) 之前（先冻人、再冻单，顺序 load-bearing）。
+      // caseRef 会被 openWithin 顶成 customerNo（SANCTION 是客户级因由），真正承载
+      // 「哪笔单牵出来的」取证线索的是 reason —— 必须钉住。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-applicant-1',
+          cause: 'SANCTION',
+          caseRef: 'DEP005B',
+          reason: expect.stringContaining('DEP005B'),
+        }),
+      );
+      const openOrder = customerRestrictionsService.open.mock.invocationCallOrder[0];
+      const updateStatusOrder = depositService.updateStatus.mock.invocationCallOrder[0];
+      expect(openOrder).toBeLessThan(updateStatusOrder);
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        'dep-5b',
+        expect.objectContaining({ action: DepositTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'DEPOSIT_FROZEN' }),
+      );
     });
 
     it('rejected, no tag (from COMPLIANCE_PENDING) → MANUAL_CHECKING', async () => {
@@ -2132,7 +2185,7 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await service.applyKytVerdict('dep-9', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       // A5(2026-08-13):忽略 ≠ 静默——状态机一步不动,但要留一条 IGNORED 标记。
@@ -2143,7 +2196,7 @@ describe('DepositWorkflowService', () => {
       );
     });
 
-    it('no-op when already FROZEN and a duplicate rejected+SANCTION webhook arrives', async () => {
+    it('no-op when already FROZEN and a duplicate rejected+SANCTION_COUNTERPARTY webhook arrives', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-10',
         depositNo: 'DEP010',
@@ -2153,12 +2206,122 @@ describe('DepositWorkflowService', () => {
         traceId: null,
       });
 
-      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await service.applyKytVerdict('dep-10', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       // 第一批 (2026-08-19)：FROZEN 现在判 IGNORE，忽略 ≠ 静默 —— 状态不动但要留痕。
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
         expect.objectContaining({ action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED }),
+      );
+    });
+
+    // ── 终审必修 (2026-08-20)：FROZEN 单撞上迟到的 SANCTION_APPLICANT 裁决 ─────
+    // 失败场景:客户因 ADMIN_SUSPENSION(等级升级被拒/补料周期终止/admin 手工停用,
+    // scope=['ALL'] 广播)被摁住 → 本域 onCustomerRestrictionOpened 把这笔在途单
+    // 冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 → decideVerdictLanding
+    // 对 FROZEN 一律判 IGNORE → 修复前直接 return,制裁命中被整条丢弃:人不被冻,
+    // 运营解除 ADMIN_SUSPENSION 便签后客户完全自由。
+    it('FROZEN 单 + 迟到 SANCTION_APPLICANT 裁决 → 仍冻人(open cause=SANCTION)+ 写审计,单据状态不变(不推动状态机)', async () => {
+      const deposit = {
+        id: 'dep-sanction-frozen',
+        depositNo: 'DEP-SANCTION-FROZEN',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-frozen-applicant',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-sanction-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_APPLICANT',
+      });
+
+      // 冻人:customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用,
+      // 即便单据本身早已是 FROZEN、状态机这一步完全不动。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-frozen-applicant',
+          cause: 'SANCTION',
+          caseRef: 'DEP-SANCTION-FROZEN',
+          reason: expect.stringContaining('DEP-SANCTION-FROZEN'),
+        }),
+      );
+
+      // 写审计:MLRO 要能查到"虽然单子没动,但人被冻了"。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT,
+          entityNo: 'DEP-SANCTION-FROZEN',
+        }),
+      );
+
+      // 「判定先于写库」不变量必须保住:单子本来就该留在 FROZEN,不推动状态机。
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(deposit.status).toBe(DepositTransactionStatus.FROZEN);
+    });
+
+    it('FROZEN 单 + 迟到 SANCTION_COUNTERPARTY 裁决 → 不冻人(对手方命中,只冻单,单早已 FROZEN)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-counterparty-frozen',
+        depositNo: 'DEP-COUNTERPARTY-FROZEN',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-counterparty-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_COUNTERPARTY',
+      });
+
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT }),
+      );
+    });
+
+    it('FROZEN 单 + 迟到普通 rejected(无 sceneTag)→ 不冻人', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-plain-frozen',
+        depositNo: 'DEP-PLAIN-FROZEN',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-plain-frozen', { verdict: 'rejected' });
+
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(depositService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.DEPOSIT_SANCTION_HIT_ON_IGNORED_VERDICT }),
+      );
+    });
+
+    it('recordVerdictIgnored 的 metadata 里能查到 sceneTag(取证链不再断)', async () => {
+      depositService.findOne.mockResolvedValue({
+        id: 'dep-metadata-frozen',
+        depositNo: 'DEP-METADATA-FROZEN',
+        status: DepositTransactionStatus.FROZEN,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-metadata',
+        traceId: null,
+      });
+
+      await service.applyKytVerdict('dep-metadata-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_APPLICANT',
+      });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
+          metadata: expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
+        }),
       );
     });
 
@@ -2440,6 +2603,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -2703,6 +2867,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -2878,6 +3043,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3045,6 +3211,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3240,6 +3407,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3442,6 +3610,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
         ],
       }).compile();
 
@@ -3777,6 +3946,7 @@ describe('DepositWorkflowService', () => {
           { provide: SystemWalletResolver, useValue: systemWalletResolver },
           { provide: TbEvidenceService, useValue: tbEvidenceService },
           { provide: DepositApplicantActionsService, useValue: actionsService },
+          { provide: CustomerRestrictionsService, useValue: customerRestrictionsService },
           {
             provide: TransactionLimitRulesService,
             useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },
@@ -3981,6 +4151,99 @@ describe('DepositWorkflowService', () => {
         ([a]: any[]) => a.action === AuditActions.DEPOSIT_ACTION_REISSUED,
       );
       expect(call[0].metadata.incomingActionIds).toEqual(['aa-1', 'aa-2']);
+    });
+  });
+
+  // Task 7：批量冻单补审计 + 自咬（本域自己刚冻的单被自己的监听器再冻一次）降级判定。
+  describe('onCustomerRestrictionOpened — 批量冻单', () => {
+    const baseEvent = {
+      customerId: 'cust-1',
+      restrictionNo: 'CR-1',
+      cause: 'SANCTION',
+      blocksAllCapabilities: true as const,
+      traceId: 'trace-1',
+    };
+    const inflightDeposit = {
+      id: 'd-inflight-1',
+      depositNo: 'DEP-INFLIGHT-1',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      traceId: 'trace-dep-1',
+    };
+
+    it('冻结成功时写 DEPOSIT_FROZEN 审计（铁律①：批量冻单此前零审计）', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockResolvedValue(undefined);
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(depositService.updateStatus).toHaveBeenCalledWith(
+        inflightDeposit.id,
+        { action: DepositTransactionAction.FREEZE },
+        expect.objectContaining({
+          reason: expect.stringContaining('CR-1'),
+        }),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.DEPOSIT_FROZEN,
+          entityId: inflightDeposit.id,
+          entityNo: inflightDeposit.depositNo,
+          entityOwnerId: inflightDeposit.ownerId,
+        }),
+      );
+    });
+
+    it('自咬：updateStatus 抛异常但复核发现单已是 FROZEN → 降级 debug，不打 warn', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockRejectedValue(
+        new Error("Invalid action 'freeze' for status 'FROZEN'"),
+      );
+      depositService.findOne.mockResolvedValue({ ...inflightDeposit, status: DepositTransactionStatus.FROZEN });
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const debugSpy = jest.spyOn((service as any).logger, 'debug');
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining(inflightDeposit.depositNo));
+      expect(warnSpy).not.toHaveBeenCalled();
+      // 自咬时没有真正冻结成功（updateStatus 抛了）——不该补一条虚假审计。
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it('真失败：updateStatus 抛异常且复核显示单不是 FROZEN → 照旧打 warn', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockRejectedValue(new Error('DB connection lost'));
+      depositService.findOne.mockResolvedValue({ ...inflightDeposit, status: DepositTransactionStatus.COMPLIANCE_PENDING });
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const debugSpy = jest.spyOn((service as any).logger, 'debug');
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(inflightDeposit.depositNo));
+      expect(debugSpy).not.toHaveBeenCalled();
+    });
+
+    // 审计写入独立 catch 的非空性：updateStatus 成功（单确实冻上了），但审计写入
+    // 抛异常——必须以 logger.error 现身，不能被外层 catch 的回读判据吃成「良性
+    // 自咬」（外层 catch 根本不该被触发，因为审计调用自带 .catch 不再向上抛）。
+    it('审计写入独立 catch：updateStatus 成功但 recordSystem 抛异常 → logger.error 现身，不判成良性自咬', async () => {
+      depositService.findNonTerminalByOwner.mockResolvedValue([inflightDeposit]);
+      depositService.updateStatus.mockResolvedValue(undefined);
+      auditLogsService.recordSystem.mockRejectedValue(new Error('audit db unavailable'));
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const debugSpy = jest.spyOn((service as any).logger, 'debug');
+      const errorSpy = jest.spyOn((service as any).logger, 'error');
+
+      await service.onCustomerRestrictionOpened(baseEvent);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to write DEPOSIT_FROZEN audit for ${inflightDeposit.depositNo}`),
+      );
+      // 不得只打 debug（良性自咬的降级路径不该被触发——updateStatus 本身没抛）。
+      expect(debugSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
     });
   });
 });

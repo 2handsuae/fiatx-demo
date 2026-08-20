@@ -32,6 +32,13 @@ export interface RestrictionCausePolicy {
   scopeSelectable: boolean;
   /** DISCLOSED 给客户看的标题；SILENT 一律 '' */
   customerLabel: string;
+  /**
+   * R4（2026-08-20 制裁分主体）：该因由描述的是「这个人的状态」而非「这笔单的处置」。
+   * 为 true 时 openWithin 会把 caseRef 归一成 customerNo —— 于是同一客户无论被
+   * 几条路径、几笔单牵出来，永远只有最早的那一张 OPEN 便签，MLRO 只需解一次。
+   * 哪笔单牵出来的由 reason 字段与审计日志承载，不靠 caseRef 记。
+   */
+  customerLevel: boolean;
 }
 
 export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCausePolicy> = {
@@ -40,6 +47,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'SILENT',
     releasePolicy: 'MLRO_APPROVAL',
     scopeSelectable: false,
+    customerLevel: true,
     customerLabel: '',
   },
   ADMIN_SUSPENSION: {
@@ -47,6 +55,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Account suspended',
   },
   MATERIAL_EXPIRED: {
@@ -54,6 +63,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Document expired',
   },
   TIER_UPGRADE_PENDING: {
@@ -61,6 +71,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Additional review in progress',
   },
   KYT_REJECTED_SOFT: {
@@ -68,6 +79,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Verification required',
   },
   KYT_REJECTED_HARD: {
@@ -75,6 +87,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'SILENT',
     releasePolicy: 'MLRO_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: '',
   },
   PENDING_DOCUMENT: {
@@ -82,6 +95,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: true,
+    customerLevel: false,
     customerLabel: 'Document required',
   },
 };

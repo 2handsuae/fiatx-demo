@@ -127,6 +127,7 @@ describe('WithdrawTransactionsService', () => {
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
 
     jest.clearAllMocks();

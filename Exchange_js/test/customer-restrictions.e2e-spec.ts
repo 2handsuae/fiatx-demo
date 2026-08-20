@@ -485,7 +485,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
   });
 
   // ── ⑤ 贴 ALL 摁住在途单（三域 —— spec §3.5）─────────────────────────
-  it('⑤ 三域各一笔在途单 → 贴 SANCTION（scope=ALL）→ 充值/提现冻结，兑换停腿留审计', async () => {
+  it('⑤ 三域各一笔在途单 → 贴 SANCTION（scope=ALL）→ 充值/提现/兑换均被冻结', async () => {
     const c = await makeCustomer('freeze-inflight', 6);
     const dep = await makeDeposit(c, '7000');
     const wd = await makeWithdraw(c, '600');
@@ -509,26 +509,21 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
         WithdrawTransactionStatus.FROZEN,
     );
 
-    // 兑换：spec §3.5 对兑换的操作性指令是「复刻提现范式，在 onLegConfirmed() 前加
-    // 客户级闸」——落地成 assertSwapCustomerAccessOrHalt()：拦住推腿 + 写一条
-    // SWAP_LEG_HALTED_BY_RESTRICTION 审计，**不新增 SwapTransactionStatus.FROZEN**
-    // （该状态从未设计过，兑换域也没有这条状态机边）。所以这里断言实际契约：
-    // 单子状态不动，但闸留下了痕迹。
-    // ⚠️ 由此带来的可观测性缺口（运营在兑换列表上看不出这单已被摁住，只能翻审计）
-    // 已登记 BACKLOG。
+    // 兑换：2026-08-20 制裁分主体（BACKLOG:232 收口）——
+    // COMPLIANCE_PENDING 的在途兑换单现在会被打到 FROZEN（与充值/提现对齐），
+    // 不再只是停腿 + needsReview 旗。PROCESSING 的单才维持停腿行为
+    // （腿已逐条过账，冻结会留半截账）。
     await waitUntil(
-      '兑换推腿被客户级闸拦下并留审计',
+      '兑换单被冻结',
       async () =>
-        (await prisma.auditLogEvent.count({
-          where: {
-            entityId: sw.id,
-            action: AuditActions.SWAP_LEG_HALTED_BY_RESTRICTION,
-          },
-        })) > 0,
+        (await prisma.swapTransaction.findUnique({ where: { id: sw.id } }))!.status ===
+        SwapTransactionStatus.FROZEN,
     );
-    expect((await prisma.swapTransaction.findUnique({ where: { id: sw.id } }))!.status).not.toBe(
-      'FROZEN',
-    );
+    expect(
+      await prisma.auditLogEvent.count({
+        where: { entityId: sw.id, action: AuditActions.SWAP_FROZEN },
+      }),
+    ).toBeGreaterThan(0);
   });
 
   // ── ⑥ scope < ALL 不动在途单 ────────────────────────────────────────

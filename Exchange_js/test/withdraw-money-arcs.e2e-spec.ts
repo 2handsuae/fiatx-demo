@@ -549,7 +549,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
 
     const rescoreSpy = jest.spyOn(mockSumsubTxnClient, 'rescore');
 
-    await workflow.applyKytVerdict(w.id, { verdict: 'rejected', sceneTag: 'SANCTION' });
+    await workflow.applyKytVerdict(w.id, { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
     let actions = await auditActionsFor(w.id);
     expect(actions).toContain(AuditActions.WITHDRAW_FROZEN);
@@ -585,7 +585,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     const before = await availableBalance('AED');
 
     const w = await createWithdrawal({ assetId: fiatAssetId, assetCode: fiatCode, amount, toIban: registeredIban });
-    await workflow.applyKytVerdict(w.id, { verdict: 'rejected', sceneTag: 'SANCTION' });
+    await workflow.applyKytVerdict(w.id, { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.FROZEN);
 
     await workflow.initiateRefund(w.id, { reason: 'e2e sanction refund' }, makeActor('E2E_REFUND_MAKER_WD1', 'OPS_OFFICER'));

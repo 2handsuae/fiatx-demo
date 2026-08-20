@@ -22,7 +22,21 @@ const DETAIL_LOOKUP_VERDICTS = new Set<KytVerdict>(['approved', 'rejected', 'awa
 // 标签不在 webhook 里,只在 rejected/awaitUser 时才读 typedTags。
 const TAG_LOOKUP_VERDICTS = new Set<KytVerdict>(['rejected', 'awaitUser']);
 
-const SCENE_TAGS = new Set(['SANCTION', 'PEP']);
+// 2026-08-20 制裁分主体：SANCTION 拆成 APPLICANT（客户本人 → 冻单+冻人）与
+// COUNTERPARTY（对手方 → 只冻单）。旧的 'SANCTION' 直接退役，不留兼容映射
+// （demo 约定：不做向后兼容）。
+export type SceneTag = 'SANCTION_APPLICANT' | 'SANCTION_COUNTERPARTY' | 'PEP';
+const SCENE_TAGS = new Set<SceneTag>(['SANCTION_APPLICANT', 'SANCTION_COUNTERPARTY', 'PEP']);
+// 显式优先序：APPLICANT > COUNTERPARTY > PEP。
+// sceneTag 是标量、循环里后写覆盖先写，不定优先级的话哪个生效取决于
+// Sumsub 报文里 typedTags 的先后顺序 —— 同一笔"对手方受制裁 + 客户是 PEP"
+// 的交易会时而冻单时而落人工复核，且无任何日志。收紧方向优先：
+// 漏冻的代价远大于多冻一次。
+const SCENE_TAG_PRIORITY: Record<SceneTag, number> = {
+  SANCTION_APPLICANT: 3,
+  SANCTION_COUNTERPARTY: 2,
+  PEP: 1,
+};
 const DISPO_TAGS = new Set(['FROZEN_BY_MLRO', 'RETURN_TO_SENDER']);
 
 /**
@@ -61,7 +75,7 @@ export class DepositKytVerdictHandler {
       return false;
     }
 
-    let sceneTag: 'SANCTION' | 'PEP' | undefined;
+    let sceneTag: SceneTag | undefined;
     let dispoTag: 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' | undefined;
     // 风险分只有在已经拉了 txn 详情时才拿得到;approved 路径不额外多打一次 API
     // 换一个展示数字(留 null,前端显示 —)。
@@ -77,7 +91,12 @@ export class DepositKytVerdictHandler {
       if (TAG_LOOKUP_VERDICTS.has(verdict)) {
         for (const tag of detail.typedTags) {
           if (tag.type !== 'userDefined') continue;
-          if (SCENE_TAGS.has(tag.label)) sceneTag = tag.label as 'SANCTION' | 'PEP';
+          if (SCENE_TAGS.has(tag.label as SceneTag)) {
+            const candidate = tag.label as SceneTag;
+            if (!sceneTag || SCENE_TAG_PRIORITY[candidate] > SCENE_TAG_PRIORITY[sceneTag]) {
+              sceneTag = candidate;
+            }
+          }
           if (DISPO_TAGS.has(tag.label)) dispoTag = tag.label as 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER';
         }
       }

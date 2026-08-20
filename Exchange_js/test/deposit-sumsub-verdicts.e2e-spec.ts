@@ -488,7 +488,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   it('制裁: ④ → FROZEN + 零记账', async () => {
     const deposit = await createDeposit({ isCrypto: false, amount: '200.00' });
 
-    await deliver(deposit.id, 'V4_REJECTED_SANCTION');
+    await deliver(deposit.id, 'V4B_REJECTED_SANCTION_COUNTERPARTY');
 
     expect(await statusOf(deposit.id)).toBe(DepositTransactionStatus.FROZEN);
     const actions = await auditActionsFor(deposit.id);

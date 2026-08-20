@@ -17,7 +17,9 @@ import {
   WithdrawTransactionAction,
   WithdrawTransactionStatus,
 } from './dto/withdraw-transaction.dto';
+import type { SceneTag } from '../../withdraw-sumsub/withdraw-kyt-verdict.handler';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
@@ -150,19 +152,36 @@ export class WithdrawWorkflowService implements OnModuleInit {
       },
       this.systemCtx,
     );
-    await this.auditLogsService.recordSystem({
-      action: AuditActions.WITHDRAW_FROZEN,
-      entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
-      entityId: w.id,
-      entityNo: w.withdrawNo,
-      entityOwnerType: w.ownerType,
-      entityOwnerId: w.ownerId,
-      traceId: w.traceId || undefined,
-      workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: `Customer-level capability gate (A4) failed at ${stage} — in-flight withdrawal frozen`,
-      metadata: { withdrawNo: w.withdrawNo, lifecycle: access.lifecycle, stage },
-      sourcePlatform: 'SYSTEM',
-    });
+    // 审计调用独立 catch（2026-08-20 修订，与 deposit-workflow.service.ts 同名
+    // 分支同构，deliberate fork 不抽公共 helper）：不能和上面的 updateStatus
+    // 共享同一个 try 块——onCustomerRestrictionOpened 调用本方法时外层有一个
+    // catch，若审计写入在这里失败并向上抛出，会被那个 catch 的回读判据误判成
+    // 「良性自咬」（单这时确实已经 FROZEN），只打 debug，审计缺失却无人知晓。
+    // 审计失败与状态跃迁失败必须分开：这里失败只以 logger.error 现身，绝不
+    // 让一笔已经冻结成功的单被判成失败——本方法同时被 handleWithdrawalCreated /
+    // 大额审批放行 / payout-phase 三处复用，分开后它们也不再因审计写入失败
+    // 被迫整段回滚。
+    await this.auditLogsService
+      .recordSystem({
+        action: AuditActions.WITHDRAW_FROZEN,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: w.id,
+        entityNo: w.withdrawNo,
+        entityOwnerType: w.ownerType,
+        entityOwnerId: w.ownerId,
+        traceId: w.traceId || undefined,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: `Customer-level capability gate (A4) failed at ${stage} — in-flight withdrawal frozen`,
+        metadata: { withdrawNo: w.withdrawNo, lifecycle: access.lifecycle, stage },
+        sourcePlatform: 'SYSTEM',
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to write WITHDRAW_FROZEN audit for ${w.withdrawNo} (stage ${stage}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     return false;
   }
 
@@ -195,6 +214,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     @Inject(SUMSUB_TXN_CLIENT) private readonly sumsubTxnClient: SumsubTxnClient,
     private readonly applicantActions: WithdrawApplicantActionsService,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly customerRestrictionsService: CustomerRestrictionsService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -2137,9 +2157,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * locked balance back to available. Order mirrors onLargeValueApprovalDecided's
    * rejected branch exactly: updateStatus first, then releaseLock (the P6
    * primitive — voids both net + fee pendings best-effort), then audit.
-   * Customer-implication escalation (freezing the customer account itself) has
-   * no V2 API yet (BACKLOG) — this is audit-only; the reason notes the
-   * escalation is manual.
+   * 2026-08-20：客户级冻结已在本域接通，但**只在** applyKytRejected 的
+   * SANCTION_APPLICANT 分支发生。SANCTION_COUNTERPARTY / FROZEN_BY_MLRO 冻的单
+   * 走到这里时，客户很可能完全没有任何限制；A4 闸冻的那条虽有 OPEN 限制，但因由
+   * 可能是材料/行政等任意一种，与制裁无关。
+   * 是否升级到客户级由合规官另行判断 —— 本方法不做，也不断言。
    */
   private async onRefundApproved(withdrawId: string, approvalNo?: string) {
     const w = await this.withdrawService.findOneInternal(withdrawId);
@@ -2170,8 +2192,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       entityOwnerId: w.ownerId,
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
-      reason: 'Sanction refund approved — withdrawal rejected and lock released; ' +
-        'customer-account escalation is manual (V2 freeze API not yet built, see BACKLOG)',
+      reason: 'Sanction refund approved — withdrawal rejected and lock released',
       metadata: approvalNo ? { approvalNo } : undefined,
       sourcePlatform: 'SYSTEM',
     });
@@ -2312,7 +2333,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
     input: {
       verdict: 'approved' | 'rejected' | 'awaitUser' | 'onHold';
       riskScore?: number | null;
-      sceneTag?: 'SANCTION' | 'PEP';
+      sceneTag?: SceneTag;
       dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND';
       detailRaw?: unknown;
       applicantActions?: { applicantActionId: string; externalActionId: string }[];
@@ -2328,7 +2349,57 @@ export class WithdrawWorkflowService implements OnModuleInit {
       this.logger.debug(
         `applyKytVerdict no-op: withdrawal ${withdrawId} in ignored status (${status})`,
       );
+
+      // 终审必修(2026-08-20):忽略分支先落"IGNORED"取证行 —— recordVerdictIgnored
+      // 内部自带 .catch,永不抛,保证无论下面冻人是否成功,这条裁决"曾经到过、带
+      // 什么 sceneTag"至少留一条痕(metadata 现补了 sceneTag/dispoTag)。顺序是
+      // 刻意的:若反过来先冻人、冻人的 open() 抛出(它没有 .catch,是真实的 DB
+      // 写入,允许失败去触发 webhook 重试),这条 IGNORED 记录就整趟都不会落下,
+      // 而 open() 本身的失败不该连累这条本就该发生的取证记录——两件事谁失败都
+      // 不该拖累另一件已经能做的事先做完。与充值域同一顺序(deliberate fork,
+      // 逐字重述一遍,不抽公共方法)。
       await this.recordVerdictIgnored(w, input, status);
+
+      // 单据状态不该决定「人」要不要被限制 —— 与 swap-workflow.service.ts 里
+      // REJECTED/SUCCESS carve-out 同一条原则。真实路径:客户因**别的**因由
+      // (ADMIN_SUSPENSION,scope=['ALL'] 会广播)被摁住 → 本域监听器把这笔在途
+      // 提现冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 → 撞上这道
+      // 闸(decideVerdictLanding 对 FROZEN 一律判 IGNORE)。若在这里直接 return,
+      // 制裁命中被整条丢弃:人不会被冻,运营解除那张 ADMIN_SUSPENSION 便签后客户
+      // 完全自由,而审计里也看不出曾有过制裁命中。
+      //
+      // open() 不碰单据状态、且幂等,所以这里调它**不破坏**第一批立的「判定先于
+      // 写库」不变量 —— 状态机仍然一步不动,只是客户维度多了一张限制便签。
+      if (input.sceneTag === 'SANCTION_APPLICANT') {
+        await this.customerRestrictionsService.open({
+          customerId: w.ownerId,
+          cause: 'SANCTION',
+          reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status})`,
+          caseRef: w.withdrawNo,
+          openedBy: 'system',
+        });
+
+        await this.auditLogsService
+          .recordSystem({
+            action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT,
+            entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+            entityId: w.id,
+            entityNo: w.withdrawNo,
+            entityOwnerType: w.ownerType,
+            entityOwnerId: w.ownerId,
+            traceId: w.traceId || undefined,
+            workflowType: AuditWorkflowTypes.WITHDRAW,
+            reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned (verdict arrived while order already ${status}) — order left untouched, customer restricted`,
+            metadata: { withdrawNo: w.withdrawNo, sceneTag: input.sceneTag, status },
+            sourcePlatform: 'SYSTEM',
+          })
+          .catch((err) => {
+            this.logger.error(
+              `WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT audit failed for ${w.withdrawNo}: ${err?.message}`,
+            );
+          });
+      }
+
       return;
     }
 
@@ -2417,10 +2488,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * 有意为之——audit-logs.service 的 requestId 去重能力在此被刻意关闭。
    * .catch 是 load-bearing（审计失败不得让 webhook 进死信），但记 error 不哑吞。
    * 与充值域 recordVerdictIgnored 逐字镜像。
+   *
+   * 终审必修(2026-08-20):metadata 补 sceneTag/dispoTag —— 此前迟到的
+   * SANCTION_APPLICANT/SANCTION_COUNTERPARTY 裁决撞上 IGNORE 分支时，这两个
+   * 标签整个不落地，取证链在这里断了一截。
    */
   private async recordVerdictIgnored(
     w: any,
-    input: { verdict: string; riskScore?: number | null },
+    input: { verdict: string; riskScore?: number | null; sceneTag?: SceneTag; dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND' },
     status: WithdrawTransactionStatus,
   ): Promise<void> {
     await this.auditLogsService
@@ -2439,6 +2514,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
           verdict: input.verdict,
           status,
           riskScore: input.riskScore ?? null,
+          sceneTag: input.sceneTag ?? null,
+          dispoTag: input.dispoTag ?? null,
         },
         requestId: `WITHDRAW_KYT_VERDICT_IGNORED_${w.withdrawNo}_${randomUUID()}`,
         sourcePlatform: 'SYSTEM',
@@ -2486,7 +2563,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    */
   private async applyKytAwaitUser(
     w: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ): Promise<void> {
     const incoming = applicantActions ?? [];
@@ -2644,18 +2721,45 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   /**
    * rejected: tag 三分支(spec §3)。
-   *   SANCTION(场景) / FROZEN_BY_MLRO(处置) → FREEZE(免审批,收紧方向)
+   *   SANCTION_APPLICANT(场景·客户本人) → 冻人 + FREEZE；SANCTION_COUNTERPARTY(场景·对手方) / FROZEN_BY_MLRO(处置) → 仅 FREEZE（免审批,收紧方向）
    *   REJECT_REFUND(处置)                  → REJECT_REFUND → REJECTED + releaseLock
    *   无 tag                                → KYT_REJECTED → MANUAL_CHECKING
    * All three idempotent when already in the target state (repeat webhook).
    */
   private async applyKytRejected(
     w: any,
-    sceneTag?: 'SANCTION' | 'PEP',
+    sceneTag?: SceneTag,
     dispoTag?: 'FROZEN_BY_MLRO' | 'REJECT_REFUND',
   ): Promise<void> {
-    if (sceneTag === 'SANCTION' || dispoTag === 'FROZEN_BY_MLRO') {
+    const isApplicantSanction = sceneTag === 'SANCTION_APPLICANT';
+    if (isApplicantSanction || sceneTag === 'SANCTION_COUNTERPARTY' || dispoTag === 'FROZEN_BY_MLRO') {
       if (w.status === WithdrawTransactionStatus.FROZEN) return; // already frozen — repeat webhook
+
+      // 先冻人、再冻单 —— 顺序 load-bearing。两者分属两次独立提交（open() 自开
+      // $transaction，updateStatus 是独立 update），中途崩溃必留半成品。与
+      // deposit-workflow.service.ts 同名分支同构（deliberate fork，两域各写
+      // 一遍，不抽公共方法），此处按提现域自己的变量名（w 非 deposit）重述一遍：
+      //   - updateStatus 抛异常但进程还活着 → open() 已广播的
+      //     CUSTOMER_RESTRICTION_OPENED 会被本域自己的 onCustomerRestrictionOpened
+      //     接住，把该客户名下其它在途提现（含本单）冻掉，内存事件当场自愈。
+      //   - 进程真崩溃 → 内存事件和挂起的 listener promise 一起死，指望不上它；
+      //     真正兜底的是 Sumsub webhook 重试：重跑 applyKytVerdict，open() 幂等
+      //     返回 created=false（本单不发广播），照常往下冻单（见下方 updateStatus）。
+      // 不能依赖广播冻本单：同一客户第 2..N 次命中 created=false 不发事件，本单
+      // 必须由本方法自己 updateStatus(FREEZE)。反过来「单冻了、人没冻」，客户下
+      // 一单畅通无阻，方向危险 —— 不要因为"看起来能合并"调换顺序。
+      if (isApplicantSanction) {
+        await this.customerRestrictionsService.open({
+          customerId: w.ownerId,
+          cause: 'SANCTION',
+          reason: `Withdrawal ${w.withdrawNo} KYT rejected: applicant sanctioned`,
+          // caseRef 传单号只为可读；SANCTION 是客户级因由，openWithin 会归一成
+          // customerNo（restriction-cause.constant.ts R4）。哪笔单牵出来的由上面
+          // 的 reason 和下方审计承载。
+          caseRef: w.withdrawNo,
+          openedBy: 'system',
+        });
+      }
 
       await this.withdrawService.updateStatus(
         w.id,
@@ -2671,7 +2775,11 @@ export class WithdrawWorkflowService implements OnModuleInit {
         entityOwnerId: w.ownerId,
         traceId: w.traceId || undefined,
         workflowType: AuditWorkflowTypes.WITHDRAW,
-        reason: `KYT verdict rejected: ${sceneTag === 'SANCTION' ? 'SANCTION hit' : 'FROZEN_BY_MLRO disposition'}`,
+        reason: isApplicantSanction
+          ? 'KYT verdict rejected: SANCTION_APPLICANT hit (order frozen + customer restricted)'
+          : sceneTag === 'SANCTION_COUNTERPARTY'
+            ? 'KYT verdict rejected: SANCTION_COUNTERPARTY hit (order frozen only)'
+            : 'KYT verdict rejected: FROZEN_BY_MLRO disposition',
         sourcePlatform: 'SYSTEM',
       });
       return;
@@ -2774,6 +2882,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
   /**
    * 客户被贴了「卡住全部能力」的便签 → 把他名下所有非终态提现冻住。
    * 复用 assertCustomerComplianceOrFreeze：冻结 + 审计已封装在里面，不另写一遍。
+   * 审计由 assertCustomerComplianceOrFreeze 内部写（WITHDRAW_FROZEN），
+   * 不在这里重复 —— 与充值域不同：充值的 updateStatus 自身不写审计，
+   * 它的监听器必须自己补一条。
    * PAYOUT_PENDING 刻意无 freeze 出边（钱已广播），该方法会抛 —— 逐项 try/catch 兜住。
    */
   @OnEvent(DomainEventNames.CUSTOMER_RESTRICTION_OPENED, { async: true })
@@ -2789,11 +2900,33 @@ export class WithdrawWorkflowService implements OnModuleInit {
       try {
         await this.assertCustomerComplianceOrFreeze(w, `restriction:${event.restrictionNo}`);
       } catch (e) {
-        this.logger.warn(
-          `Failed to freeze in-flight withdrawal ${w.withdrawNo} for restriction ${event.restrictionNo}: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        );
+        // 自咬（2026-08-20 修订，与 deposit-workflow.service.ts 同名分支同构，
+        // deliberate fork 不抽公共 helper）：open() 广播是 fire-and-forget，扫描
+        // 发生在触发路径 updateStatus(FREEZE) 提交之前 —— findNonTerminalByOwner
+        // 扫到本单时它的快照仍是非终态（notIn 拦不住触发单自己），但轮到本轮循环
+        // 对它执行 FREEZE 时，触发路径（如 applyKytRejected 的 SANCTION_APPLICANT
+        // 分支）往往已经把它冻上了（FROZEN 无 FREEZE 自环边）→ 必抛。这不是真
+        // 失败——单已经冻好，只是被触发路径抢先。判据：重新读一次当前状态，已是
+        // FROZEN 就是良性抢跑，降级 debug；否则才是真失败，照旧 warn（不靠匹配
+        // 异常消息字符串，措辞一改就失效）。
+        let alreadyFrozen = false;
+        try {
+          const current = await this.withdrawService.findOneInternal(w.id);
+          alreadyFrozen = current.status === WithdrawTransactionStatus.FROZEN;
+        } catch {
+          // 状态复核本身失败（例如单已被删）—— 不能判定良性，走下面 warn 分支。
+        }
+        if (alreadyFrozen) {
+          this.logger.debug(
+            `In-flight withdrawal ${w.withdrawNo} already FROZEN when restriction ${event.restrictionNo} scan reached it — beaten by the triggering path (open() 广播早于本单主路径提交), not a real failure.`,
+          );
+        } else {
+          this.logger.warn(
+            `Failed to freeze in-flight withdrawal ${w.withdrawNo} for restriction ${event.restrictionNo}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
       }
     }
   }

@@ -125,7 +125,7 @@ describe('DepositDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('deposit-1', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     expect(primeSubmitSpy).not.toHaveBeenCalled();
     expect(ingestionService.ingest).toHaveBeenNthCalledWith(
@@ -150,14 +150,14 @@ describe('DepositDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('deposit-1', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     depositService.findOne.mockResolvedValue({
       ...deposit,
       id: 'deposit-2',
       depositNo: 'DEPT2',
     });
-    await service.runVerdict('deposit-2', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('deposit-2', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toMatch(OBJECT_ID);
@@ -169,8 +169,8 @@ describe('DepositDemoScenarioService', () => {
     const service = buildService();
     const primeSubmitSpy = jest.spyOn(mockClient, 'primeSubmit');
 
-    await service.runVerdict('deposit-1', 'V4_REJECTED_SANCTION', actor);
-    await service.runVerdict('deposit-1', 'V4_REJECTED_SANCTION', actor);
+    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
+    await service.runVerdict('deposit-1', 'V4B_REJECTED_SANCTION_COUNTERPARTY', actor);
 
     const [firstId, secondId] = primeSubmitSpy.mock.calls.map((c) => c[1]);
     expect(firstId).toBe(secondId);

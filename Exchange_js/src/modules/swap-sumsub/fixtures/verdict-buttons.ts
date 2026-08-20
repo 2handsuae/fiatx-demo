@@ -3,8 +3,14 @@ import { KYT_ONHOLD_TYPE } from '../../deposit-sumsub/kyt-webhook-types';
 import { ApplicantAction, TypedTag } from '../../deposit-sumsub/fixtures/txn-report.builder';
 
 /**
- * 8 个**单步**裁决按钮 —— mirror of 充值/提现的 fixtures/verdict-buttons.ts
+ * 7 个**单步**裁决按钮 —— mirror of 充值/提现的 fixtures/verdict-buttons.ts
  * (deliberate fork,不抽公共常量)。
+ *
+ * ⚠️ 没有 `V4B_REJECTED_SANCTION_COUNTERPARTY`（业主 2026-08-20 终审裁定）：
+ * 兑换是平台内 crypto↔fiat 余额交换，钱在我方账户体系内部动，没有第三方
+ * 对手方，Sumsub 不可能对一笔 swap 回传"对手方被制裁"——充值/提现两个姊妹
+ * fixtures 保留这个键是因为那两域有真实外部对手方（链上打款方/收款地址），
+ * 场景成立；这里不成立，删掉，不是漏拆。
  *
  * 与充值/提现的按钮形状不同:这里的 verdict 只有 reviewAnswer/score/
  * applicantActions/typedTags 四个字段,没有 reviewStatus/action/matchedRules ——
@@ -64,14 +70,14 @@ export const SWAP_VERDICT_BUTTONS: Record<string, SwapVerdictButton> = {
       },
     },
   },
-  V4_REJECTED_SANCTION: {
-    key: 'V4_REJECTED_SANCTION',
-    label: '④ Rejected · Sanctions',
+  V4_REJECTED_SANCTION_APPLICANT: {
+    key: 'V4_REJECTED_SANCTION_APPLICANT',
+    label: '④ Rejected · Sanctions（客户本人）',
     webhookType: 'applicantKytTxnRejected',
     verdict: {
       reviewAnswer: 'RED',
       score: 100,
-      typedTags: [TAG('SANCTION')],
+      typedTags: [TAG('SANCTION_APPLICANT')],
       // 同 V3_REJECTED_ACTION 的 getter 注记：现铸而非固定字面量。
       get applicantActions() {
         return [{ applicantActionId: `demo-action-${randomUUID()}`, externalActionId: `demo-ext-${randomUUID()}` }];

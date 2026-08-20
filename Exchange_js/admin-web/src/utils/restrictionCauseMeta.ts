@@ -26,6 +26,8 @@ export interface RestrictionCausePolicy {
   releasePolicy: RestrictionReleasePolicy;
   scopeSelectable: boolean;
   customerLabel: string;
+  /** 前端不展示、不参与任何逻辑 —— 只为让防漂移测试的逐字段比对成立。 */
+  customerLevel: boolean;
 }
 
 export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCausePolicy> = {
@@ -34,6 +36,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'SILENT',
     releasePolicy: 'MLRO_APPROVAL',
     scopeSelectable: false,
+    customerLevel: true,
     customerLabel: '',
   },
   ADMIN_SUSPENSION: {
@@ -41,6 +44,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Account suspended',
   },
   MATERIAL_EXPIRED: {
@@ -48,6 +52,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Document expired',
   },
   TIER_UPGRADE_PENDING: {
@@ -55,6 +60,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Additional review in progress',
   },
   KYT_REJECTED_SOFT: {
@@ -62,6 +68,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: 'Verification required',
   },
   KYT_REJECTED_HARD: {
@@ -69,6 +76,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'SILENT',
     releasePolicy: 'MLRO_APPROVAL',
     scopeSelectable: false,
+    customerLevel: false,
     customerLabel: '',
   },
   PENDING_DOCUMENT: {
@@ -76,6 +84,7 @@ export const RESTRICTION_CAUSE_POLICY: Record<RestrictionCause, RestrictionCause
     visibility: 'DISCLOSED',
     releasePolicy: 'OPS_APPROVAL',
     scopeSelectable: true,
+    customerLevel: false,
     customerLabel: 'Document required',
   },
 };

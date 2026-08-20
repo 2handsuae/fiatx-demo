@@ -140,8 +140,8 @@ describe('WithdrawKytVerdictHandler', () => {
 
   // ── rejected/awaitUser 才读 tag ──
 
-  it('Rejected + getTxn returns [SANCTION] → sceneTag=SANCTION', async () => {
-    const detail = txnDetail([{ label: 'SANCTION' }]);
+  it('Rejected + getTxn returns [SANCTION_COUNTERPARTY] → sceneTag=SANCTION_COUNTERPARTY', async () => {
+    const detail = txnDetail([{ label: 'SANCTION_COUNTERPARTY' }]);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);
 
     await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
@@ -149,7 +149,7 @@ describe('WithdrawKytVerdictHandler', () => {
     expect(workflow.applyKytVerdict).toHaveBeenCalledWith(WITHDRAW_ID, {
       verdict: 'rejected',
       riskScore: 87,
-      sceneTag: 'SANCTION',
+      sceneTag: 'SANCTION_COUNTERPARTY',
       detailRaw: detail.raw,
     });
   });
@@ -255,5 +255,50 @@ describe('WithdrawKytVerdictHandler', () => {
     expect(sumsubTxnClient.getTxn).not.toHaveBeenCalled();
     expect(workflow.applyKytVerdict).not.toHaveBeenCalled();
     expect(result).toBe(false);
+  });
+
+  it('同时命中 APPLICANT 与 COUNTERPARTY 时，APPLICANT 优先（不受报文顺序影响）', async () => {
+    // COUNTERPARTY 排在前面 —— 旧的标量覆盖写法会让 APPLICANT 赢；
+    // 反序（见下一个 expect）则会让 COUNTERPARTY 赢。两次都必须是 APPLICANT。
+    sumsubTxnClient.getTxn.mockResolvedValue(
+      txnDetail([{ label: 'SANCTION_COUNTERPARTY' }, { label: 'SANCTION_APPLICANT' }]),
+    );
+    await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+    expect(workflow.applyKytVerdict).toHaveBeenLastCalledWith(
+      WITHDRAW_ID,
+      expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
+    );
+
+    sumsubTxnClient.getTxn.mockResolvedValue(
+      txnDetail([{ label: 'SANCTION_APPLICANT' }, { label: 'SANCTION_COUNTERPARTY' }]),
+    );
+    await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+    expect(workflow.applyKytVerdict).toHaveBeenLastCalledWith(
+      WITHDRAW_ID,
+      expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
+    );
+  });
+
+  it('只命中 COUNTERPARTY 时原样传下去', async () => {
+    sumsubTxnClient.getTxn.mockResolvedValue(txnDetail([{ label: 'SANCTION_COUNTERPARTY' }]));
+    await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+    expect(workflow.applyKytVerdict).toHaveBeenLastCalledWith(
+      WITHDRAW_ID,
+      expect.objectContaining({ sceneTag: 'SANCTION_COUNTERPARTY' }),
+    );
+  });
+
+  it('COUNTERPARTY 与 PEP 同时命中时 COUNTERPARTY 优先（不受报文顺序影响）', async () => {
+    for (const order of [
+      ['SANCTION_COUNTERPARTY', 'PEP'],
+      ['PEP', 'SANCTION_COUNTERPARTY'],
+    ]) {
+      sumsubTxnClient.getTxn.mockResolvedValue(txnDetail(order.map((label) => ({ label }))));
+      await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+      expect(workflow.applyKytVerdict).toHaveBeenLastCalledWith(
+        WITHDRAW_ID,
+        expect.objectContaining({ sceneTag: 'SANCTION_COUNTERPARTY' }),
+      );
+    }
   });
 });

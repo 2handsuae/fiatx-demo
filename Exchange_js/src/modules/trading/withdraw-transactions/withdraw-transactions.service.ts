@@ -1041,7 +1041,8 @@ export class WithdrawTransactionsService {
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.withdrawTransaction.findMany({
-      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED'] } },
+      // FROZEN 在排除之列 —— 理由见 deposit-transactions.service.ts 同名方法。
+      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED', 'FAILED', 'RETURNED', 'FROZEN'] } },
       select: { id: true, withdrawNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
     });
   }

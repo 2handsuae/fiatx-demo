@@ -1424,7 +1424,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1470,7 +1470,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.REJECTED });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
 
     expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: AuditActions.SWAP_KYT_VERDICT_IGNORED }),
@@ -1490,7 +1490,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1532,7 +1532,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .spyOn(service as any, 'handleRejectDisposition')
       .mockResolvedValue(undefined);
 
-    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION'] };
+    const input = { verdict: 'rejected' as const, typedTags: ['SANCTION_APPLICANT'] };
     await service.applyKytVerdict('s1', input);
 
     expect(dispositionSpy).toHaveBeenCalledTimes(1);
@@ -1545,11 +1545,11 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
   });
 
-  it('SUCCESS + rejected (SANCTION) verdict → completed swap stays fully untouched, but the customer is still restricted (Finding 2)', async () => {
+  it('SUCCESS + rejected (SANCTION_APPLICANT) verdict → completed swap stays fully untouched, but the customer is still restricted (Finding 2)', async () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.SUCCESS });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
     expect(mocks.fundsOrders.create).not.toHaveBeenCalled();
@@ -1588,7 +1588,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     const createLegSpy = jest.spyOn(service as any, 'createLeg');
 
     await expect(
-      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] }),
+      service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
     ).resolves.toBeUndefined();
 
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -1611,11 +1611,11 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
   // ── already entered PROCESSING must still restrict the PERSON, even though
   // ── the swap itself correctly keeps executing (already past the point of
   // ── no return — must not be unwound).
-  it('PROCESSING + rejected (SANCTION) verdict → swap keeps executing, but the customer is still restricted (Review Fix 3)', async () => {
+  it('PROCESSING + rejected (SANCTION_APPLICANT) verdict → swap keeps executing, but the customer is still restricted (Review Fix 3)', async () => {
     const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.PROCESSING });
     const service = makeApplyKytVerdictService(mocks);
 
-    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION'] });
+    await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
 
     // Swap itself is untouched — no state transition, no unwinding.
     expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
@@ -1862,7 +1862,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(dispositionAudit.metadata.actionIds).toEqual(['EA1', 'EA2', 'EA3']);
     });
 
-    it('硬线（SANCTION tag）→ 写 restrictions，一条材料请求都不登记，且盖 sticky 硬线章（tipping-off，即使有 action 也不暴露）', async () => {
+    it('硬线（SANCTION_APPLICANT tag）→ 写 restrictions，一条材料请求都不登记，且盖 sticky 硬线章（tipping-off，即使有 action 也不暴露）', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -1872,7 +1872,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
           { applicantActionId: 'A1', externalActionId: 'EA1' },
           { applicantActionId: 'A2', externalActionId: 'EA2' },
         ],
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
 
       expect(mocks.customerRestrictionsService.open).toHaveBeenCalled();
@@ -1893,7 +1893,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(false);
     });
 
-    it('客户已有一笔来自前一笔软线 swap 的材料请求，之后一次硬线（SANCTION）裁决不登记新材料请求、也不影响那一行', async () => {
+    it('客户已有一笔来自前一笔软线 swap 的材料请求，之后一次硬线（SANCTION_APPLICANT）裁决不登记新材料请求、也不影响那一行', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
 
@@ -1911,7 +1911,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await (service as any).handleRejectDisposition(swapB, {
         verdict: 'rejected' as const,
         applicantActions: [{ applicantActionId: 'A2', externalActionId: 'EA2' }],
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
 
       expect(mocks.materialRequestIssuer.register).toHaveBeenCalledTimes(1);
@@ -1959,7 +1959,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await service.applyKytVerdict('s1', {
         verdict: 'rejected',
         applicantActions: [{ applicantActionId: 'A1', externalActionId: 'EA1' }],
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
 
       const dispositionAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
@@ -1975,26 +1975,26 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
     });
 
     // ── Review Fix 2 (Important): the exact A-then-B cross-swap sequence ──
-    // ── from the finding — swap A is hard-lined (SANCTION) first, correctly
+    // ── from the finding — swap A is hard-lined (SANCTION_APPLICANT) first, correctly
     // ── silent; seconds later swap B (a DIFFERENT swap, same customer) gets
     // ── an independent soft-line rejection. Without the sticky marker, B's
     // ── own tags/actions alone would re-expose a re-verification entry point
     // ── for a customer who is under sanctions investigation.
-    it('sticky 硬线：swap A 硬线（SANCTION）沉默之后，swap B（同客户，纯软线）到达也必须继续沉默', async () => {
+    it('sticky 硬线：swap A 硬线（SANCTION_APPLICANT）沉默之后，swap B（同客户，纯软线）到达也必须继续沉默', async () => {
       const mocks = buildApplyKytVerdictMocks();
       const service = makeApplyKytVerdictService(mocks);
       const swapA = { ...mocks.swapRow, id: 'sA', swapNo: 'SWP-A' };
       const swapB = { ...mocks.swapRow, id: 'sB', swapNo: 'SWP-B' };
 
-      // Swap A: hard line via SANCTION tag — correctly silent.
+      // Swap A: hard line via SANCTION_APPLICANT tag — correctly silent.
       await (service as any).handleRejectDisposition(swapA, {
         verdict: 'rejected',
-        typedTags: ['SANCTION'],
+        typedTags: ['SANCTION_APPLICANT'],
       });
       expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
 
       // Swap B arrives seconds later: on its OWN merits this is a soft line
-      // (an action is attached, no SANCTION tag on this particular verdict) —
+      // (an action is attached, no SANCTION_APPLICANT tag on this particular verdict) —
       // last-writer-wins would incorrectly re-open the entry point here.
       await (service as any).handleRejectDisposition(swapB, {
         verdict: 'rejected',
@@ -2077,7 +2077,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       await expect(
         (service as any).handleRejectDisposition(mocks.swapRow, {
           verdict: 'rejected' as const,
-          typedTags: ['SANCTION'],
+          typedTags: ['SANCTION_APPLICANT'],
         }),
       ).rejects.toThrow('SQLITE_BUSY: database is locked');
 
@@ -2089,5 +2089,351 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       expect(failedAudit.reason).toBe('SQLITE_BUSY: database is locked');
       expect(failedAudit.entityOwnerNo).toBe('C0001');
     });
+  });
+
+  // ── 2026-08-20 制裁分主体（命门）───────────────────────────────────────
+  // handleRejectDisposition 里的 `(input.typedTags ?? []).includes('SANCTION_APPLICANT')`
+  // 吃的是已经 map 成 string[] 的 typedTags，includes 对任意字符串都合法，
+  // TypeScript 抓不到写错的标签名。写错 → hasSanction 恒 false →
+  // restrictionCause 掉进 KYT_REJECTED_SOFT → markHardLineDisposition 不盖章
+  // → 走软线开出面向客户的补料请求 → tipping-off，而构建和测试全绿、零日志。
+  // 这组测试就是为钉死这一行存在的 —— 改那一行必须回看这里。
+  describe('handleRejectDisposition · 制裁主体判定（命门）', () => {
+    it('SANCTION_APPLICANT → cause=SANCTION，且不暴露补料入口', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION_APPLICANT'],
+        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'SANCTION' }),
+      );
+      // tipping-off：命中制裁绝不能登记面向客户的材料请求。
+      expect(mocks.materialRequestIssuer.register).not.toHaveBeenCalled();
+    });
+
+    it('SANCTION_COUNTERPARTY → 不是硬线制裁，走软线（有 action 时暴露补料入口）', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION_COUNTERPARTY'],
+        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'KYT_REJECTED_SOFT' }),
+      );
+    });
+
+    it('旧标签 SANCTION 已退役 —— 不得再被识别成制裁', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await (service as any).handleRejectDisposition(mocks.swapRow, {
+        verdict: 'rejected',
+        typedTags: ['SANCTION'],
+        applicantActions: [{ applicantActionId: 'a1', externalActionId: 'e1' }],
+      });
+
+      expect(mocks.customerRestrictionsService.open).not.toHaveBeenCalledWith(
+        expect.objectContaining({ cause: 'SANCTION' }),
+      );
+    });
+  });
+
+  // ── Task 9: FROZEN 落地 —— 本单裁决驱动 + 幂等闸 ─────────────────────────
+  describe('FROZEN 落地（Task 9）', () => {
+    // Guards against the exact production bug this task's implementation
+    // uncovered: applyKytVerdict's plain-reject tail used to unconditionally
+    // markStatus(KYT_REJECTED) BEFORE calling handleRejectDisposition, so a
+    // hasSanction FREEZE attempted from inside handleRejectDisposition would
+    // land on an already-REJECTED (zero-out-edge) row and throw
+    // `Invalid transition: REJECTED + freeze`. The fix makes the tail skip
+    // its own KYT_REJECTED transition when hasSanction, so FREEZE is the
+    // ONLY transition attempted, straight off COMPLIANCE_PENDING.
+    it('COMPLIANCE_PENDING 单 + 本单 SANCTION_APPLICANT 裁决 → markStatus(FREEZE)，且写了 SWAP_FROZEN 审计', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] });
+
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.FREEZE,
+        expect.anything(),
+        { rejectReason: 'SANCTION_APPLICANT' },
+      );
+      // Exactly the FREEZE transition, never KYT_REJECTED for a sanction hit —
+      // proves the tail's own KYT_REJECTED branch was skipped, not just that
+      // FREEZE also happened to fire alongside it.
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalledWith(
+        's1',
+        SwapTransactionAction.KYT_REJECTED,
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledTimes(1);
+
+      const frozenAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
+      expect(frozenAudit).toBeDefined();
+      expect(frozenAudit.entityId).toBe('s1');
+      expect(frozenAudit.entityNo).toBe('SWP0001');
+      expect(frozenAudit.entityOwnerType).toBe('CUSTOMER');
+      expect(frozenAudit.entityOwnerId).toBe('cust-1');
+      expect(frozenAudit.entityOwnerNo).toBe('C0001');
+      expect(frozenAudit.workflowType).toBeDefined();
+    });
+
+    // 2026-08-20 Review Important Fix：applyKytVerdict 顶部（:501）读出的 swap
+    // 是陈旧快照 —— onCustomerRestrictionOpened 广播 handler（同一次 open()
+    // 触发）可能在本单自己的 markStatus(FREEZE) 之前抢先把它冻上。此时
+    // markStatus 会撞 `Invalid transition: FROZEN + freeze`。修复前，这个异常
+    // 会被 handleRejectDisposition 外层 try/catch 当成整段处置失败：sticky
+    // 硬线章（markHardLineDisposition）与 SWAP_KYT_REJECTED_DISPOSED 审计全部
+    // 被跳过，还会写 DISPOSITION_FAILED + needsReview + rethrow，导致 webhook
+    // 重投一进门撞上 FROZEN 幂等闸被 IGNORE —— sticky 章永远补不上，
+    // tipping-off 防线失效。这条用例钉死修复后的行为：判成良性竞态、
+    // 不上抛、后面该做的都照常做。
+    it('markStatus(FREEZE) 抛 Invalid transition 且重读发现该行已是 FROZEN（被广播抢先冻上）→ 判良性竞态：不上抛，sticky 硬线章与 SWAP_KYT_REJECTED_DISPOSED 审计仍照常执行', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      const service = makeApplyKytVerdictService(mocks);
+
+      // 唯一一次 markStatus 调用就是这里的 FREEZE 尝试（hasSanction 时
+      // applyKytVerdict 顶部的 $transaction 会跳过自己的 KYT_REJECTED
+      // markStatus，见生产代码 :668 `if (hasSanction) return;`）。模拟它撞上
+      // 广播抢先冻单：先把行的状态改成 FROZEN（模拟广播那条链已经真冻上了），
+      // 再抛 Invalid transition。
+      mocks.swapTransactionsService.markStatus.mockImplementationOnce(() => {
+        mocks.swapRow.status = SwapTransactionStatus.FROZEN;
+        return Promise.reject(new BadRequestException('Invalid transition: FROZEN + freeze'));
+      });
+
+      await expect(
+        service.applyKytVerdict('s1', {
+          verdict: 'rejected',
+          typedTags: ['SANCTION_APPLICANT'],
+          applicantActions: [],
+        }),
+      ).resolves.toBeUndefined();
+
+      // 重读判良性竞态：调用了 findByIdInternal 复核当前状态，而不是信
+      // :501 读来的陈旧快照。
+      expect(mocks.swapTransactionsService.findByIdInternal).toHaveBeenCalledWith('s1');
+
+      // sticky 硬线章必须照常盖上 —— 这正是本次修复要保住的东西。
+      expect(await mocks.pendingActionService.hasHardLineDisposition('cust-1')).toBe(true);
+
+      // 处置审计必须照常写，不能被良性竞态吞掉。
+      const disposedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSED);
+      expect(disposedAudit).toBeDefined();
+      expect(disposedAudit.metadata.hasSanction).toBe(true);
+
+      // 不能被误判成整段处置失败：needsReview 不该被置位，
+      // DISPOSITION_FAILED 审计不该被写。
+      expect(mocks.swapTransactionsService.setNeedsReview).not.toHaveBeenCalled();
+      const failedAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED_DISPOSITION_FAILED);
+      expect(failedAudit).toBeUndefined();
+    });
+
+    it('FROZEN 单再收裁决 → 不抛异常、markStatus 不再被调用、写 IGNORED 审计（幂等闸，防死信）', async () => {
+      const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.FROZEN });
+      const service = makeApplyKytVerdictService(mocks);
+
+      await expect(
+        service.applyKytVerdict('s1', { verdict: 'rejected', typedTags: ['SANCTION_APPLICANT'] }),
+      ).resolves.toBeUndefined();
+
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+      const ignoredAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_VERDICT_IGNORED);
+      expect(ignoredAudit).toBeDefined();
+      expect(ignoredAudit.metadata.status).toBe(SwapTransactionStatus.FROZEN);
+    });
+
+    // A redelivered *approved* verdict on a FROZEN swap must be equally inert
+    // — the guard checks status only, not verdict, so this proves it isn't
+    // accidentally scoped to 'rejected' redeliveries alone.
+    it('FROZEN 单收到迟到 approved 裁决 → 同样不抛异常、不建腿、写 IGNORED 审计', async () => {
+      const mocks = buildApplyKytVerdictMocks({ status: SwapTransactionStatus.FROZEN });
+      const service = makeApplyKytVerdictService(mocks);
+      const createLegSpy = jest.spyOn(service as any, 'createLeg');
+
+      await expect(service.applyKytVerdict('s1', { verdict: 'approved' })).resolves.toBeUndefined();
+
+      expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+      expect(createLegSpy).not.toHaveBeenCalled();
+      const ignoredAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+        .map((c) => c[0])
+        .find((a: any) => a.action === AuditActions.SWAP_KYT_VERDICT_IGNORED);
+      expect(ignoredAudit).toBeDefined();
+    });
+  });
+});
+
+// ── Task 9: 跨域冻人广播驱动（onCustomerRestrictionOpened）───────────────────
+describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落地)', () => {
+  function buildListenerMocks(overrides: { inflight?: any[] } = {}) {
+    const inflight = overrides.inflight ?? [
+      {
+        id: 's1',
+        swapNo: 'SWP0001',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        ownerNo: 'C0001',
+        status: SwapTransactionStatus.COMPLIANCE_PENDING,
+        traceId: 'TRACE-1',
+      },
+    ];
+
+    const txClient: any = { swapTransaction: { update: jest.fn(() => Promise.resolve({})) } };
+
+    const swapTransactionsService = {
+      findNonTerminalByOwner: jest.fn(() => Promise.resolve(inflight)),
+      markStatus: jest.fn(() => Promise.resolve('FROZEN')),
+      findByIdInternal: jest.fn((id: string) =>
+        Promise.resolve(inflight.find((s: any) => s.id === id) ?? null),
+      ),
+      setNeedsReview: jest.fn(() => Promise.resolve()),
+    };
+
+    const auditLogsService = {
+      recordSystem: jest.fn(() => Promise.resolve()),
+    };
+
+    const prisma: any = {
+      $transaction: jest.fn((cb: (tx: any) => Promise<any>) => cb(txClient)),
+    };
+
+    // Simulates the restriction having just landed — SWAP capability blocked.
+    const customerAccessService = {
+      resolve: jest.fn(() => Promise.resolve({ blocked: new Set(['SWAP', 'WITHDRAW']) })),
+    };
+
+    return { inflight, txClient, swapTransactionsService, auditLogsService, prisma, customerAccessService };
+  }
+
+  function makeListenerService(mocks: ReturnType<typeof buildListenerMocks>) {
+    return new SwapWorkflowService(
+      mocks.prisma,
+      {} as any, // onboardingService — not on this path
+      {} as any, // swapQuoteService — not on this path
+      mocks.swapTransactionsService as any,
+      {} as any, // accountingService — not on this path
+      mocks.auditLogsService as any,
+      { emit: jest.fn() } as any, // eventEmitter — not on this path
+      {} as any, // swapLegAccounting — not on this path
+      {} as any, // fundsOrders — not on this path
+      {} as any, // walletQuery — not on this path
+      {} as any, // limitGateService — not on this path
+      {} as any, // sumsubTxnClient — not on this path
+      {} as any, // customerRestrictionsService — not on this path (the restriction is already open by the time this event fires)
+      {} as any, // customersService — not on this path
+      mocks.customerAccessService as any,
+      {} as any, // materialRequests — not on this path
+      {} as any, // materialRequestIssuer — not on this path
+    );
+  }
+
+  const baseEvent = {
+    customerId: 'cust-1',
+    restrictionNo: 'RST2608200001',
+    cause: 'SANCTION',
+    blocksAllCapabilities: true as const,
+    traceId: 'TRACE-EVT',
+  };
+
+  it('COMPLIANCE_PENDING 单 + 跨域冻人广播 → markStatus(FREEZE)，写 SWAP_FROZEN 审计', async () => {
+    const mocks = buildListenerMocks();
+    const service = makeListenerService(mocks);
+
+    await service.onCustomerRestrictionOpened(baseEvent);
+
+    expect(mocks.swapTransactionsService.markStatus).toHaveBeenCalledWith(
+      's1',
+      SwapTransactionAction.FREEZE,
+      mocks.txClient,
+      { rejectReason: 'SANCTION_APPLICANT' },
+    );
+    const frozenAudit = (mocks.auditLogsService.recordSystem as jest.Mock).mock.calls
+      .map((c) => c[0])
+      .find((a: any) => a.action === AuditActions.SWAP_FROZEN);
+    expect(frozenAudit).toBeDefined();
+    expect(frozenAudit.entityId).toBe('s1');
+    expect(frozenAudit.entityNo).toBe('SWP0001');
+    // Review Fix 4 (Minor): business key alongside the UUID, matching the
+    // disposition-driven SWAP_FROZEN audit in handleRejectDisposition.
+    expect(frozenAudit.entityOwnerNo).toBe('C0001');
+    expect(frozenAudit.reason).toMatch(/RST2608200001/);
+  });
+
+  // The load-bearing negative case: PROCESSING has no FREEZE edge in the
+  // transitions table on purpose (legs are already posting one at a time —
+  // freezing mid-flight would strand a half-settled ledger). The listener
+  // must route PROCESSING through the existing leg-halt gate instead of
+  // attempting a transition.
+  it('PROCESSING 单 + 跨域冻人广播 → 状态不变（维持停腿），不进 FROZEN', async () => {
+    const mocks = buildListenerMocks({
+      inflight: [
+        {
+          id: 's2',
+          swapNo: 'SWP0002',
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          status: SwapTransactionStatus.PROCESSING,
+          traceId: 'TRACE-2',
+        },
+      ],
+    });
+    const service = makeListenerService(mocks);
+
+    await service.onCustomerRestrictionOpened(baseEvent);
+
+    // No transition attempted at all for the in-flight swap.
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    // Routed through the existing capability gate (assertSwapCustomerAccessOrHalt) instead.
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s2', true);
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
+    );
+  });
+
+  // Review Important Fix (2026-08-20): blocksAllCapabilities=true is not
+  // SANCTION-exclusive — ADMIN_SUSPENSION (operator-terminated material
+  // refresh, or a tier-upgrade case rejected in approval) carries the same
+  // scope=['ALL'] and reaches this listener through the identical event. It
+  // must NOT drive a COMPLIANCE_PENDING swap into FROZEN (zero-out-edge,
+  // unrecoverable, and would falsely stamp rejectReason=SANCTION_APPLICANT
+  // on a customer who was never sanctioned) — it has to fall through to the
+  // same halt-only path as PROCESSING, exactly like this restriction being
+  // DISCLOSED/OPS_APPROVAL-releasable implies.
+  it('COMPLIANCE_PENDING 单 + 跨域广播但 cause=ADMIN_SUSPENSION（非制裁）→ 不进 FROZEN，只停腿', async () => {
+    const mocks = buildListenerMocks();
+    const service = makeListenerService(mocks);
+
+    await service.onCustomerRestrictionOpened({ ...baseEvent, cause: 'ADMIN_SUSPENSION' });
+
+    expect(mocks.swapTransactionsService.markStatus).not.toHaveBeenCalled();
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.customerAccessService.resolve).toHaveBeenCalledWith('cust-1');
+    expect(mocks.swapTransactionsService.setNeedsReview).toHaveBeenCalledWith('s1', true);
+    expect(mocks.auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.SWAP_FROZEN }),
+    );
   });
 });

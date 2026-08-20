@@ -70,6 +70,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -149,6 +150,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -253,6 +255,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -326,6 +329,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
   });
 
@@ -533,6 +537,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -636,6 +641,7 @@ function buildFullWorkflow(overrides: {
   withdrawService?: Partial<Record<string, jest.Mock>>;
   sumsubTxnClient?: Partial<Record<string, jest.Mock>>;
   applicantActions?: Partial<Record<string, jest.Mock>>;
+  customerRestrictionsService?: Partial<Record<string, jest.Mock>>;
 } = {}) {
   const withdrawService = {
     findOneInternal: jest.fn(),
@@ -668,6 +674,10 @@ function buildFullWorkflow(overrides: {
     submitBySeq: jest.fn(),
     ...overrides.applicantActions,
   };
+  const customerRestrictionsService = {
+    open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }),
+    ...overrides.customerRestrictionsService,
+  };
 
   const workflow = new WithdrawWorkflowService(
     {} as any, // prisma
@@ -686,9 +696,10 @@ function buildFullWorkflow(overrides: {
     sumsubTxnClient as any,
     applicantActions as any,
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+    customerRestrictionsService as any,
   );
 
-  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions };
+  return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions, customerRestrictionsService };
 }
 
 function baseWithdrawRow(overrides: Record<string, any> = {}) {
@@ -1066,17 +1077,58 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
     });
   });
 
-  describe('rejected branch — tag three-way (SANCTION/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
-    it('sceneTag=SANCTION from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
-      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+  describe('rejected branch — tag three-way (SANCTION_COUNTERPARTY/FROZEN_BY_MLRO → FREEZE; REJECT_REFUND → REJECTED+releaseLock; no tag → MANUAL_CHECKING)', () => {
+    it('sceneTag=SANCTION_COUNTERPARTY from COMPLIANCE_PENDING → FREEZE + audits WITHDRAW_FROZEN', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.COMPLIANCE_PENDING }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(withdrawService.updateStatus).toHaveBeenCalledWith(
         'wd-sumsub-1',
+        expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
+        expect.anything(),
+      );
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_FROZEN }),
+      );
+      // Task 6：对手方被制裁 ≠ 客户本人被制裁 —— 只冻这一单，绝不冻人。
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+    });
+
+    it('sceneTag=SANCTION_APPLICANT from COMPLIANCE_PENDING → 先冻人(open cause=SANCTION)再冻单 FREEZE', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-sumsub-applicant',
+          withdrawNo: 'WD-SANCTION-APPLICANT',
+          ownerId: 'cust-applicant-1',
+          status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-sumsub-applicant', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+
+      // 冻人：customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用，
+      // 且必须发生在 updateStatus(FREEZE) 之前（先冻人、再冻单，顺序 load-bearing）。
+      // caseRef 会被 openWithin 顶成 customerNo（SANCTION 是客户级因由），真正承载
+      // 「哪笔单牵出来的」取证线索的是 reason —— 必须钉住提现单号。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-applicant-1',
+          cause: 'SANCTION',
+          caseRef: 'WD-SANCTION-APPLICANT',
+          reason: expect.stringContaining('WD-SANCTION-APPLICANT'),
+        }),
+      );
+      const openOrder = customerRestrictionsService.open.mock.invocationCallOrder[0];
+      const updateStatusOrder = withdrawService.updateStatus.mock.invocationCallOrder[0];
+      expect(openOrder).toBeLessThan(updateStatusOrder);
+
+      expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+        'wd-sumsub-applicant',
         expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
         expect.anything(),
       );
@@ -1100,15 +1152,125 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       );
     });
 
-    it('idempotent: already FROZEN + sceneTag=SANCTION → no-op (repeat webhook, no double freeze)', async () => {
+    it('idempotent: already FROZEN + sceneTag=SANCTION_COUNTERPARTY → no-op (repeat webhook, no double freeze)', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(
         baseWithdrawRow({ status: WithdrawTransactionStatus.FROZEN }),
       );
 
-      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION' });
+      await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', sceneTag: 'SANCTION_COUNTERPARTY' });
 
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    // ── 终审必修 (2026-08-20)：FROZEN 单撞上迟到的 SANCTION_APPLICANT 裁决 ─────
+    // 失败场景:客户因 ADMIN_SUSPENSION(等级升级被拒/补料周期终止/admin 手工停用,
+    // scope=['ALL'] 广播)被摁住 → 本域 onCustomerRestrictionOpened 把这笔在途提现
+    // 冻成 FROZEN → 该单自己的 SANCTION_APPLICANT 裁决随后到达 → decideVerdictLanding
+    // 对 FROZEN 一律判 IGNORE → 修复前直接 return,制裁命中被整条丢弃:人不被冻,
+    // 运营解除 ADMIN_SUSPENSION 便签后客户完全自由。
+    it('FROZEN 单 + 迟到 SANCTION_APPLICANT 裁决 → 仍冻人(open cause=SANCTION)+ 写审计,单据状态不变(不推动状态机)', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-sanction-frozen',
+          withdrawNo: 'WD-SANCTION-FROZEN',
+          ownerId: 'cust-frozen-applicant',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-sanction-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_APPLICANT',
+      });
+
+      // 冻人:customerRestrictionsService.open() 必须以 cause: 'SANCTION' 被调用,
+      // 即便单据本身早已是 FROZEN、状态机这一步完全不动。
+      expect(customerRestrictionsService.open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cust-frozen-applicant',
+          cause: 'SANCTION',
+          caseRef: 'WD-SANCTION-FROZEN',
+          reason: expect.stringContaining('WD-SANCTION-FROZEN'),
+        }),
+      );
+
+      // 写审计:MLRO 要能查到"虽然单子没动,但人被冻了"。
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT,
+          entityNo: 'WD-SANCTION-FROZEN',
+        }),
+      );
+
+      // 「判定先于写库」不变量必须保住:单子本来就该留在 FROZEN,不推动状态机。
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('FROZEN 单 + 迟到 SANCTION_COUNTERPARTY 裁决 → 不冻人(对手方命中,只冻单,单早已 FROZEN)', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-counterparty-frozen',
+          withdrawNo: 'WD-COUNTERPARTY-FROZEN',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-counterparty-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_COUNTERPARTY',
+      });
+
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT }),
+      );
+    });
+
+    it('FROZEN 单 + 迟到普通 rejected(无 sceneTag)→ 不冻人', async () => {
+      const { workflow, withdrawService, auditLogsService, customerRestrictionsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-plain-frozen',
+          withdrawNo: 'WD-PLAIN-FROZEN',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-plain-frozen', { verdict: 'rejected' });
+
+      expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+      expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditActions.WITHDRAW_SANCTION_HIT_ON_IGNORED_VERDICT }),
+      );
+    });
+
+    it('recordVerdictIgnored 的 metadata 里能查到 sceneTag(取证链不再断)', async () => {
+      const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+      withdrawService.findOneInternal.mockResolvedValue(
+        baseWithdrawRow({
+          id: 'wd-metadata-frozen',
+          withdrawNo: 'WD-METADATA-FROZEN',
+          ownerId: 'cust-metadata',
+          status: WithdrawTransactionStatus.FROZEN,
+        }),
+      );
+
+      await workflow.applyKytVerdict('wd-metadata-frozen', {
+        verdict: 'rejected',
+        sceneTag: 'SANCTION_APPLICANT',
+      });
+
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
+          metadata: expect.objectContaining({ sceneTag: 'SANCTION_APPLICANT' }),
+        }),
+      );
     });
 
     it('dispoTag=REJECT_REFUND from MANUAL_CHECKING → REJECT_REFUND action + releaseLock (void both pending) + WITHDRAW_REFUNDED_BY_TAG audit', async () => {
@@ -1516,6 +1678,7 @@ function buildFeeWorkflow(overrides: {
     {} as any, // sumsubTxnClient
     {} as any, // applicantActions
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+    { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
   );
 
   return {
@@ -1862,6 +2025,7 @@ function buildBounceWorkflow(overrides: {
     sumsubTxnClient as any,
     {} as any, // applicantActions
     { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+    { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -2224,6 +2388,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       {} as any, // sumsubTxnClient
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2460,6 +2625,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       sumsubTxnClient as any,
       {} as any, // applicantActions
       { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -2703,6 +2869,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         {} as any, // sumsubTxnClient
         {} as any, // applicantActions
         { assertCapability: jest.fn(), assertOffboardable: jest.fn(), resolve: jest.fn().mockResolvedValue({ lifecycle: 'ACTIVE', blocked: new Set(), disclosedBlocked: new Set(), disclosed: [], openCount: 0 }) } as any, // customerAccessService
+        { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)
@@ -2719,5 +2886,151 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       // Verify clearNeedsReview was called
       expect(withdrawService.clearNeedsReview).toHaveBeenCalledWith('w-success-1');
     });
+  });
+});
+
+// Task 7：批量冻单 —— 提现域审计已由 assertCustomerComplianceOrFreeze 内建（WITHDRAW_FROZEN），
+// 这里只验证自咬（本域自己刚冻的单被自己的监听器再冻一次）降级判定。
+describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单自咬降级', () => {
+  const baseEvent = {
+    customerId: 'cust-1',
+    restrictionNo: 'CR-1',
+    cause: 'SANCTION',
+    blocksAllCapabilities: true as const,
+    traceId: 'trace-1',
+  };
+  const inflightWithdrawal = {
+    id: 'w-inflight-1',
+    withdrawNo: 'WD-INFLIGHT-1',
+    ownerType: 'CUSTOMER',
+    ownerId: 'cust-1',
+    status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+    traceId: 'trace-w-1',
+  };
+
+  function buildWorkflow() {
+    const withdrawService = {
+      findNonTerminalByOwner: jest.fn().mockResolvedValue([inflightWithdrawal]),
+      findOneInternal: jest.fn(),
+      updateStatus: jest.fn(),
+    };
+    const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
+    const customerAccessService = {
+      assertCapability: jest.fn(),
+      assertOffboardable: jest.fn(),
+      resolve: jest.fn().mockResolvedValue({
+        lifecycle: 'ACTIVE',
+        blocked: new Set(['WITHDRAW']),
+        disclosedBlocked: new Set<string>(),
+        disclosed: [],
+        openCount: 1,
+      }),
+    };
+    const workflow = new WithdrawWorkflowService(
+      {} as any, // prisma
+      {} as any, // eventEmitter
+      withdrawService as any,
+      {} as any, // withdrawQuoteService
+      auditLogsService as any,
+      {} as any, // accountingService
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      {} as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      customerAccessService as any,
+      { open: jest.fn().mockResolvedValue({ restrictionNo: 'CR-TEST', created: true }) } as any, // customerRestrictionsService
+    );
+    return { workflow, withdrawService, auditLogsService };
+  }
+
+  it('冻结成功时经 assertCustomerComplianceOrFreeze 写 WITHDRAW_FROZEN 审计', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    withdrawService.updateStatus.mockResolvedValue(undefined);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+      inflightWithdrawal.id,
+      expect.objectContaining({ action: WithdrawTransactionAction.FREEZE }),
+      expect.anything(),
+    );
+    expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+      expect.objectContaining({ action: AuditActions.WITHDRAW_FROZEN }),
+    );
+  });
+
+  it('自咬：updateStatus 抛异常但复核发现单已是 FROZEN → 降级 debug，不打 warn', async () => {
+    const { workflow, withdrawService } = buildWorkflow();
+    withdrawService.updateStatus.mockRejectedValue(
+      new Error("Invalid action 'freeze' for status 'FROZEN'"),
+    );
+    withdrawService.findOneInternal.mockResolvedValue({
+      ...inflightWithdrawal,
+      status: WithdrawTransactionStatus.FROZEN,
+    });
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined as any);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining(inflightWithdrawal.withdrawNo));
+    // assertCustomerComplianceOrFreeze 自身在"blocked"分支入口无条件打一条 A4 warn
+    // （与本次自咬判定无关的既有行为，不在本任务改动范围内）——只断言本任务新增的
+    // "Failed to freeze" 误导性 warn 没有再出现。
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Failed to freeze'));
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  it('真失败：updateStatus 抛异常且复核显示单不是 FROZEN → 照旧打 warn', async () => {
+    const { workflow, withdrawService } = buildWorkflow();
+    withdrawService.updateStatus.mockRejectedValue(new Error('DB connection lost'));
+    withdrawService.findOneInternal.mockResolvedValue({
+      ...inflightWithdrawal,
+      status: WithdrawTransactionStatus.COMPLIANCE_PENDING,
+    });
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined as any);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to freeze'));
+    expect(debugSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+  });
+
+  // 审计写入独立 catch 的非空性：updateStatus 成功（单确实冻上了，在
+  // assertCustomerComplianceOrFreeze 内部完成），但审计写入抛异常——必须以
+  // logger.error 现身，不能被 onCustomerRestrictionOpened 外层 catch 的回读判据
+  // 吃成「良性自咬」（外层 catch 根本不该被触发，因为审计调用自带 .catch 不再
+  // 向上抛给 assertCustomerComplianceOrFreeze 的调用方）。
+  it('审计写入独立 catch：updateStatus 成功但 recordSystem 抛异常 → logger.error 现身，不判成良性自咬', async () => {
+    const { workflow, withdrawService, auditLogsService } = buildWorkflow();
+    withdrawService.updateStatus.mockResolvedValue(undefined);
+    auditLogsService.recordSystem.mockRejectedValue(new Error('audit db unavailable'));
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any);
+    const debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined as any);
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined as any);
+
+    await workflow.onCustomerRestrictionOpened(baseEvent);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Failed to write WITHDRAW_FROZEN audit for ${inflightWithdrawal.withdrawNo}`),
+    );
+    // 不得只打 debug（良性自咬的降级路径不该被触发——updateStatus 本身没抛）。
+    expect(debugSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Failed to freeze'));
+
+    warnSpy.mockRestore();
+    debugSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });

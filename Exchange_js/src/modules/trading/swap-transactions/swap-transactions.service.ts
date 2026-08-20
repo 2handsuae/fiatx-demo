@@ -81,12 +81,43 @@ export interface SwapQuoteComputationResult extends SwapExecutableRateResult {
   expiresAt: string;
 }
 
-/** 兑换终态。零出边。 */
+/**
+ * 「单据生命周期已结束」—— 材料请求作废监听器（material-request-order-cancel.
+ * listener.ts）与 admin 材料请求列表读这一份。
+ * ⚠️ FROZEN 刻意**不在**内：被制裁调查的客户，他在途的材料请求要留着不撕。
+ * 撕掉 = 客户端"请上传XX"的卡片突然消失 = 一个可感知的变化 = tipping-off。
+ */
 export const SWAP_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   SwapTransactionStatus.SUCCESS,
   SwapTransactionStatus.REJECTED,
   SwapTransactionStatus.FAILED,
   SwapTransactionStatus.REVERSED,
+]);
+
+/**
+ * 「不需要再被冻结广播捞起」—— findNonTerminalByOwner 专用。
+ * ⚠️ FROZEN **在**内：已经冻了的单不需要再冻一次。
+ * 与上面那份的 FROZEN 归属**故意相反**，两个判据回答的是不同问题，
+ * 不要因为"看起来能合并成一个"就合并。
+ */
+export const SWAP_FREEZE_SCAN_EXCLUDED: ReadonlySet<string> = new Set<string>([
+  ...SWAP_TERMINAL_STATUSES,
+  SwapTransactionStatus.FROZEN,
+]);
+
+/**
+ * 客户面 passthrough 白名单 —— 只有这几个「客户本就该看到真实结果」的态原样
+ * 输出，其余任何状态（现在的、遗留的、未来新增的）一律收敛。
+ *
+ * 方向抄自 deposit-transactions.service.ts:82-91 的成文教训：黑名单必然滞后，
+ * 新增的执法态只要没人记得手工加进去就会原样下发给客户。白名单反过来，
+ * 新增状态天生落在收敛侧。宁可错杀，不可放过。
+ */
+const SWAP_CUSTOMER_STATUS_PASSTHROUGH = new Set<string>([
+  SwapTransactionStatus.COMPLIANCE_PENDING,
+  SwapTransactionStatus.PROCESSING,
+  SwapTransactionStatus.SUCCESS,
+  SwapTransactionStatus.REJECTED,
 ]);
 
 @Injectable()
@@ -276,7 +307,7 @@ export class SwapTransactionsService {
     };
   }
 
-  async findAll(query: SwapTransactionQueryDto) {
+  async findAll(query: SwapTransactionQueryDto, options?: { customerScope?: boolean }) {
     const {
       skip,
       take,
@@ -292,7 +323,38 @@ export class SwapTransactionsService {
     if (swapNo) where.swapNo = { contains: swapNo };
     if (ownerId) where.ownerId = ownerId;
     if (ownerType) where.ownerType = ownerType;
-    if (status) where.status = status;
+    // customerScope 下 status 查询参数按客户可见值展开成原始状态集合再过滤
+    // （对齐充值 deposit-transactions.service.ts:191 的「评审 Important 1(a)」，
+    // 但落法不同——见下方注释）。admin 侧（非 customerScope）照常按原始值
+    // 精确过滤，不受影响。
+    if (status) {
+      if (options?.customerScope) {
+        // 早前（Task 10）这里是「customerScope 下完全忽略 status」——堵住了
+        // ?status=FROZEN 的 tipping-off 探测面，但也打哑了 client-web 真在用
+        // 的 History 筛选下拉（Swap.tsx:868-886，SUCCESS/REJECTED 两档）：客户
+        // 选「Completed」，列表照旧吐出全部，控件形同虚设且无任何提示。
+        //
+        // 正确语义：客户面筛选问的是「客户可见状态 = X」，不是「原始
+        // status = X」。把 X 展开成所有会被 toCustomerSwapStatus 收敛成 X 的
+        // 原始状态集合，再拿这个集合去过滤 —— 不能手工维护一张
+        // 「REJECTED → [REJECTED, FROZEN]」平行表：手写表必然跟收敛函数
+        // 漂移（教训见 deposit-transactions.service.ts:25-50 那段「白名单
+        // 枚举必然滞后于状态机」）。改成从收敛函数反推后，任何新增状态天生
+        // 落进正确的桶，没人需要记得同步两处。
+        //
+        // FROZEN 是特例：它的客户可见值是 REJECTED，不是 FROZEN 自己 ——
+        // 展开集合恒为空，`{ in: [] }` 让 Prisma 精确返回零行。这与「筛了一
+        // 个真实存在但恰好没有命中记录的状态」返回值完全相同：不报错（报错
+        // 本身是可探测面）、不退化成全量（那会变成「传 FROZEN 就看到全部」
+        // 的另一种可探测信号）。
+        const expanded = Object.values(SwapTransactionStatus).filter(
+          (raw) => this.toCustomerSwapStatus(raw) === status,
+        );
+        where.status = { in: expanded };
+      } else {
+        where.status = status;
+      }
+    }
 
     if (startDate || endDate) {
       where.createdAt = {};
@@ -320,11 +382,14 @@ export class SwapTransactionsService {
 
   /** Customer-facing list: same query, scoped to the caller's own swaps. */
   async findAllForCustomer(customerId: string, query: SwapTransactionQueryDto) {
-    const result = await this.findAll({
-      ...query,
-      ownerId: customerId,
-      ownerType: 'CUSTOMER',
-    });
+    const result = await this.findAll(
+      {
+        ...query,
+        ownerId: customerId,
+        ownerType: 'CUSTOMER',
+      },
+      { customerScope: true },
+    );
     return {
       ...result,
       items: result.items.map((item: any) => this.toCustomerSwapView(item)),
@@ -355,21 +420,27 @@ export class SwapTransactionsService {
   }
 
   /**
-   * 4 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
-   * 或 COMPLIANCE_PENDING → REJECTED(终态)。FAILED/REVERSED 是不可达死枚举
-   * （历史行兼容，见 BACKLOG「V6 兑换 FAILED/REVERSED 死枚举」），不出现在此表中。
+   * 5 态状态机的合法迁移表：COMPLIANCE_PENDING(出生态) → PROCESSING → SUCCESS，
+   * 或 COMPLIANCE_PENDING → REJECTED(终态)，或 COMPLIANCE_PENDING → FROZEN(终态)。
+   * FROZEN 零出边：制裁冻结只能由 MLRO 撕便签后人工处理，系统不提供解冻边。
+   * PROCESSING 刻意没有 FREEZE 出边（腿已开跑，冻结会留半截账）。
+   * FAILED/REVERSED 是不可达死枚举（历史行兼容，见 BACKLOG「V6 兑换
+   * FAILED/REVERSED 死枚举」），不出现在此表中。
    */
   private readonly transitions: Record<string, Partial<Record<SwapTransactionAction, SwapTransactionStatus>>> = {
     [SwapTransactionStatus.COMPLIANCE_PENDING]: {
       [SwapTransactionAction.KYT_APPROVED]: SwapTransactionStatus.PROCESSING,
       [SwapTransactionAction.KYT_REJECTED]: SwapTransactionStatus.REJECTED,
       [SwapTransactionAction.SLA_BREACH]: SwapTransactionStatus.REJECTED,
+      [SwapTransactionAction.FREEZE]: SwapTransactionStatus.FROZEN,
     },
     [SwapTransactionStatus.PROCESSING]: {
       [SwapTransactionAction.SUCCESS]: SwapTransactionStatus.SUCCESS,
     },
     [SwapTransactionStatus.SUCCESS]: {},
     [SwapTransactionStatus.REJECTED]: {},
+    // 零出边是**故意的**，不是忘了写。
+    [SwapTransactionStatus.FROZEN]: {},
     [SwapTransactionStatus.FAILED]: {},
     [SwapTransactionStatus.REVERSED]: {},
   };
@@ -465,6 +536,26 @@ export class SwapTransactionsService {
   }
 
   /**
+   * 客户面状态收敛。
+   *
+   * FROZEN 显式收敛成 REJECTED —— 与充值收敛成 COMPLIANCE_PENDING 的选择
+   * **故意不同**：充值的 FROZEN 是可逆的（RESUME → COMPLIANCE_PENDING），
+   * 收敛成"处理中"是诚实的；兑换的 FROZEN 是零出边终态，收敛成"处理中"就是
+   * 一个永远不会兑现的谎，还会让客户端的自刷定时器（client-web/src/pages/
+   * Swap.tsx:543 的 hasNonTerminal）永不停止。收敛成 REJECTED 后客户看到
+   * 'Unsuccessful'，与普通 KYT 拒绝**逐字相同**，分不出 —— 这正是 tipping-off
+   * 要求的。
+   *
+   * 其余未列入白名单的状态（含未来新增）一律收敛成 COMPLIANCE_PENDING，
+   * 与充值同一条「宁可错杀」的兜底。
+   */
+  toCustomerSwapStatus(status: string): string {
+    if (SWAP_CUSTOMER_STATUS_PASSTHROUGH.has(status)) return status;
+    if (status === SwapTransactionStatus.FROZEN) return SwapTransactionStatus.REJECTED;
+    return SwapTransactionStatus.COMPLIANCE_PENDING;
+  }
+
+  /**
    * Customer-facing field whitelist (tipping-off guard). The raw `findOne`
    * row carries investigation-only fields — complianceVerdict/
    * complianceAction/complianceRuleNames (matched Sumsub rule names),
@@ -480,12 +571,10 @@ export class SwapTransactionsService {
    * client-web/src/pages/Swap.tsx, which is the actual field contract the
    * client reads. Mirrors WithdrawTransactionsService#toCustomerWithdrawView.
    *
-   * Unlike deposit/withdraw, swap's reachable status enum
-   * (COMPLIANCE_PENDING/PROCESSING/SUCCESS/REJECTED — see
-   * SwapTransactionStatus) has no FROZEN/SEIZED/MANUAL_CHECKING-style
-   * enforcement state whose literal string would itself tip off the
-   * customer, so `status` is passed through as-is (no collapsing needed,
-   * same as withdraw's simpler status set).
+   * ⚠️ 2026-08-20 订正：上面这段曾说 swap 的可达状态集里没有 FROZEN 之类会
+   * tipping-off 的字面量，所以 status 原样透传——Task 8 加了 FROZEN（零出边
+   * 终态，客户本人命中制裁）之后这句话已经过期。status 现在必须经
+   * `toCustomerSwapStatus` 收敛，见该方法上的注释。
    *
    * Public (not private): Task 11 defence-in-depth — SwapWorkflowService
    * .initiateSwap also routes its create-response through this allow-list
@@ -497,7 +586,7 @@ export class SwapTransactionsService {
     return {
       id: item.id,
       swapNo: item.swapNo,
-      status: item.status,
+      status: this.toCustomerSwapStatus(item.status),
       fromAmount: item.fromAmount,
       toAmount: item.toAmount,
       netToAmount: item.netToAmount,
@@ -744,8 +833,11 @@ export class SwapTransactionsService {
    */
   async findNonTerminalByOwner(ownerId: string) {
     return this.prisma.swapTransaction.findMany({
-      where: { ownerId, status: { notIn: ['SUCCESS', 'REJECTED'] } },
-      select: { id: true, swapNo: true, ownerType: true, ownerId: true, status: true, traceId: true },
+      where: { ownerId, status: { notIn: [...SWAP_FREEZE_SCAN_EXCLUDED] } },
+      // ownerNo：Review Fix 4（Minor，2026-08-20）—— 监听器驱动的 SWAP_FROZEN
+      // 审计要带业务键（entityOwnerNo），与本单裁决驱动那条对齐，同时满足铁律③
+      // （有业务键就别只用 id）。
+      select: { id: true, swapNo: true, ownerType: true, ownerId: true, ownerNo: true, status: true, traceId: true },
     });
   }
 

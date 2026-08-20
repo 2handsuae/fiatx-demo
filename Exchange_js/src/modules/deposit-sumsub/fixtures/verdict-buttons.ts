@@ -94,9 +94,9 @@ export const DEPOSIT_VERDICT_BUTTONS: Record<string, DepositVerdictButton> = {
     },
   },
 
-  V4_REJECTED_SANCTION: {
-    key: 'V4_REJECTED_SANCTION',
-    label: '④ Rejected · Sanctions',
+  V4_REJECTED_SANCTION_APPLICANT: {
+    key: 'V4_REJECTED_SANCTION_APPLICANT',
+    label: '④ Rejected · Sanctions（客户本人）',
     webhookType: 'applicantKytTxnRejected',
     verdict: {
       reviewStatus: 'completed',
@@ -105,9 +105,26 @@ export const DEPOSIT_VERDICT_BUTTONS: Record<string, DepositVerdictButton> = {
       score: 98,
       reviewRejectType: 'FINAL',
       matchedRules: [
-        RULE('AML1', 'Sanctions match', 98, 'reject', 'Counterparty address matches an OFAC SDN sanctions list entry.'),
+        RULE('AML1', 'Sanctions match (applicant)', 98, 'reject', 'The customer themselves matches an OFAC SDN sanctions list entry.'),
       ],
-      typedTags: [TAG('SANCTION')],
+      typedTags: [TAG('SANCTION_APPLICANT')],
+    },
+  },
+
+  V4B_REJECTED_SANCTION_COUNTERPARTY: {
+    key: 'V4B_REJECTED_SANCTION_COUNTERPARTY',
+    label: '④B Rejected · Sanctions（对手方）',
+    webhookType: 'applicantKytTxnRejected',
+    verdict: {
+      reviewStatus: 'completed',
+      reviewAnswer: 'RED',
+      action: 'reject',
+      score: 98,
+      reviewRejectType: 'FINAL',
+      matchedRules: [
+        RULE('AML1', 'Sanctions match (counterparty)', 98, 'reject', 'Counterparty address matches an OFAC SDN sanctions list entry.'),
+      ],
+      typedTags: [TAG('SANCTION_COUNTERPARTY')],
     },
   },
 
