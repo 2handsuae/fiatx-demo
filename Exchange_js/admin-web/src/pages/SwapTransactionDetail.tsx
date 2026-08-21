@@ -12,6 +12,7 @@ import { AdminBadge } from '../components/ui/AdminBadge';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
+import { formatSlaRemaining } from '../utils/slaDisplay';
 import { useSimulationMode } from '../utils/simulationMode';
 import { getComplianceLayerStyle } from '../utils/depositActionMap';
 import MaterialRequestPanel from '../components/MaterialRequestPanel';
@@ -421,6 +422,27 @@ const SwapTransactionDetail = () => {
                   {ownerLink}
                 </div>
               )}
+              {/* SLA — 没有 deadline（终态等不计时的单）整格不显示；slaBreached
+                  优先于时间计算（formatSlaRemaining 内部已处理），软破线后单据
+                  状态与 deadline 都不变，只有这个标记能表达已超时。 */}
+              {data.slaDeadline && (() => {
+                const sla = formatSlaRemaining(data.slaDeadline, data.slaBreached ?? undefined);
+                return (
+                  <div>
+                    <span className="block font-mono text-[9px] uppercase tracking-wider text-adm-t3">
+                      SLA
+                    </span>
+                    <span className={`mt-1 inline-flex items-center gap-2 ${sla.tone === 'breached' ? 'font-semibold text-red-600' : 'text-adm-t1'}`}>
+                      {sla.text}
+                      {sla.tone === 'breached' && (
+                        <span className="rounded bg-red-100 px-2 py-0.5 text-[10px] text-red-700">
+                          已于 {new Date(data.slaDeadline).toLocaleString()} 超时
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
