@@ -65,10 +65,26 @@ slaBreached: false,
 
 | 域 | 状态 | 等谁 | 时长 | 超时目标 | 现状 |
 |---|---|---|---|---|---|
-| 充值 | `COMPLIANCE_PENDING` | Sumsub | 7 天 | `MANUAL_CHECKING` | **本批补计时**（§0.2） |
-| 提现 | `COMPLIANCE_PENDING` | Sumsub | 7 天 | `MANUAL_CHECKING` | **本批补计时** |
-| 兑换 | `COMPLIANCE_PENDING` | Sumsub | 7 天 | `REJECTED` | 有，但基准是 `createdAt`，本批改 |
-| 充值/提现 | `ACTION_PENDING` | 客户交材料 | 7 天 | `MANUAL_CHECKING` | 已有，不动逻辑 |
+| 充值 | `COMPLIANCE_PENDING`（送检后等裁决） | Sumsub | 7 天 | `MANUAL_CHECKING` | **本批补计时**（§0.2） |
+| 充值 | `COMPLIANCE_PENDING`（officer onHold 中） | 复核官员 | 7 天 | `MANUAL_CHECKING` | 已有（`ONHOLD_SLA_DAYS`） |
+| 提现 | `COMPLIANCE_PENDING`（送检后等裁决） | Sumsub | 7 天 | `MANUAL_CHECKING` | **本批补计时** |
+| 提现 | `COMPLIANCE_PENDING`（officer onHold 中） | 复核官员 | 7 天 | `MANUAL_CHECKING` | 已有 |
+| 兑换 | `COMPLIANCE_PENDING` | Sumsub | **5 分钟** | `REJECTED` | 有，但基准是 `createdAt`，本批改 |
+| 充值/提现 | `ACTION_PENDING` | 客户交材料 | 7 天 | `MANUAL_CHECKING` | 已有（`ACTION_SLA_DAYS`），不动逻辑 |
+
+#### ⚠️ 同一状态两个 deadline 来源，必须说清
+
+`onHold` 发生在 `COMPLIANCE_PENDING` **内部**（不是独立状态）。补了送检计时之后，进入该状态会先设一次 deadline；随后若 Sumsub 回 `onHold`，`applyKytOnHold` 会**再设一次**。
+
+**裁定：onHold 到达时重设 deadline（覆盖，重新计 7 天）。** 理由：`onHold` 的语义是「有官员接手在看了」，等待对象从「服务商自动裁决」变成「官员人工复核」，是一次真实的交接，时钟该重新起算。实现上就是现有的 `setSlaDeadline` 覆盖写，不需要额外逻辑——但**必须在代码里注释说明这是有意覆盖**，否则下一个人会当成 bug 修掉。
+
+#### ⚠️ 兑换的 5 分钟：为什么不是 7 天
+
+兑换今天是 `SWAP_COMPLIANCE_TIMEOUT_MS ?? 60_000` —— **默认 60 秒**，且**是三域里唯一 env 可配的**（充值/提现是硬编码 `private static readonly` 常量）。
+
+业主早先已就这个数拍过板：**60 秒改 5 分钟**（该次改动落在后来被回滚的那批里，所以现在仍是 60s）。本批按 5 分钟落地。
+
+**为什么兑换的时长与另两域差两个数量级**：兑换零记账、拒了不用回滚，快速失败对客户反而友好（重新下单即可）；充值的钱已在暂扣户、提现的钱已 pending-locked，快速拒会制造悬空资金，必须给人留出处理时间。**这个差异是刻意的，不要为「三域一致」而拉平。**
 
 **兑换为什么是 `REJECTED` 而不是转人工**（业主裁定）：兑换零记账，拒了不用回滚任何东西；而充值的钱已在暂扣户、提现的钱已 pending-locked，直接拒会留下悬空资金，必须有人处理。这个差异**刻意保留**，不为「三域一致」而统一——统一要给兑换加 `MANUAL_CHECKING` 态，得不偿失。
 
@@ -187,7 +203,9 @@ extraData: {
 7. **列表页可见**：三域列表页有剩余时间列 + 「仅看已超时」筛选可用
 8. **详情页可见**：三域详情页显示倒计时；超时后红标
 9. **演示可触发**：action 栏「模拟超时」按钮一点，无需改库、无需等待
-10. **硬闸**：tsc 两份配置 0 错；全量 jest 净新失败 0
+10. **onHold 覆盖有效**：进 `COMPLIANCE_PENDING` 设了 deadline 后，收到 `onHold` 会把它重设成新的 7 天（而不是保留旧的）
+11. **兑换时长是 5 分钟**：`SWAP_COMPLIANCE_TIMEOUT_MS` 默认值从 `60_000` 改成 `300_000`
+12. **硬闸**：tsc 两份配置 0 错；全量 jest 净新失败 0
 
 ---
 
