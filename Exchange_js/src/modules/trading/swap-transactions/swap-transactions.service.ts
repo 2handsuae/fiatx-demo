@@ -95,6 +95,14 @@ export const SWAP_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
+ * 兑换域 SLA 配置（2026-08-21 第三批）。只有一格：等 Sumsub 回裁决。
+ * 兑换**没有软 SLA** —— 它没有「等自己人」的状态（无人工复核态、无审批门）。
+ */
+const SWAP_SLA_MINUTES_BY_STATUS: Partial<Record<SwapTransactionStatus, number>> = {
+  [SwapTransactionStatus.COMPLIANCE_PENDING]: 5,
+};
+
+/**
  * 「不需要再被冻结广播捞起」—— findNonTerminalByOwner 专用。
  * ⚠️ FROZEN **在**内：已经冻了的单不需要再冻一次。
  * 与上面那份的 FROZEN 归属**故意相反**，两个判据回答的是不同问题，
@@ -445,6 +453,17 @@ export class SwapTransactionsService {
     [SwapTransactionStatus.REVERSED]: {},
   };
 
+  /**
+   * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
+   * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
+   */
+  private resolveSlaFields(nextStatus: SwapTransactionStatus) {
+    const minutes = SWAP_SLA_MINUTES_BY_STATUS[nextStatus];
+    return minutes === undefined
+      ? { slaDeadline: null, slaBreached: false }
+      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+  }
+
   async markStatus(
     swapId: string,
     action: SwapTransactionAction,
@@ -478,6 +497,7 @@ export class SwapTransactionsService {
       where: { id: swapId },
       data: {
         status: next,
+        ...this.resolveSlaFields(next),
         ...(opts?.rejectReason ? { rejectReason: opts.rejectReason } : {}),
         completedAt: next === SwapTransactionStatus.SUCCESS ? new Date() : undefined,
         statusHistory: JSON.stringify(statusHistory),
@@ -795,6 +815,9 @@ export class SwapTransactionsService {
         ownerId: input.ownerId,
         ownerNo: input.ownerNo,
         status: input.status,
+        // 建单不走 markStatus，收口处覆盖不到 —— 这里按同一张配置表补上，
+        // 保证「进入 COMPLIANCE_PENDING 就开始计时」对建单这条路也成立。
+        ...this.resolveSlaFields(input.status),
         fromAssetId: input.fromAssetId,
         fromAssetCode: input.fromAssetCode,
         fromAmount: input.fromAmount,

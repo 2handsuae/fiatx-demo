@@ -244,6 +244,32 @@ describe('WithdrawTransactionsService', () => {
     );
   });
 
+  // SLA deadline（第三批）：出生态写入（insertRecord）不经过 updateStatus，
+  // 收口处覆盖不到 —— insertRecord 必须自己按配置表补 SLA 字段，否则
+  // 「进入 COMPLIANCE_PENDING 就开始计时」对提现建单这条路会落空（brief 明确点名
+  // 的三条 COMPLIANCE_PENDING 入路之一）。
+  it('建单（insertRecord）落 COMPLIANCE_PENDING 时也设 5 分钟 SLA deadline', async () => {
+    prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO' });
+    prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001', onboardingStatus: 'APPROVED', adminStatus: 'ACTIVE' });
+    mockTx.withdrawTransaction.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'wd-create-sla', fromWalletId: null, ...data }),
+    );
+    mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-create-sla' });
+    const before = Date.now();
+
+    await workflow.createWithdrawal(
+      { assetId: 'asset-1', amount: 100, quoteId: 'wq-1' } as any,
+      'user-1',
+    );
+
+    const call = (mockTx.withdrawTransaction.create as jest.Mock).mock.calls[0][0];
+    expect(call.data.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+    const delta = new Date(call.data.slaDeadline).getTime() - before;
+    expect(delta).toBeGreaterThan(4 * 60_000);
+    expect(delta).toBeLessThan(6 * 60_000);
+    expect(call.data.slaBreached).toBe(false);
+  });
+
   // ── Task 3: address-registration guard + VASP derivation (RED → GREEN) ──
   //
   // createWithdrawal must check the customer's registered withdrawal address
@@ -991,6 +1017,30 @@ describe('WithdrawTransactionsService', () => {
       expect(writtenHistory[1]).toMatchObject({ status: WithdrawTransactionStatus.PENDING_APPROVAL });
       expect(result.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
     });
+
+    // SLA deadline（第三批）：这条写入也绕过 updateStatus，收口处覆盖不到 ——
+    // landOnPendingApproval 必须自己按配置表重起 SLA 计时（顶掉出生时留下的
+    // COMPLIANCE_PENDING deadline），否则一笔大额提现走审批闸这条路，PENDING_APPROVAL
+    // 永远不计时。
+    it('也按配置表设 1 天（软）SLA deadline，顶掉出生时的 COMPLIANCE_PENDING deadline', async () => {
+      prisma.withdrawTransaction.findUnique.mockResolvedValue({
+        statusHistory: JSON.stringify([
+          { status: WithdrawTransactionStatus.COMPLIANCE_PENDING, note: 'Withdrawal created — awaiting approval-gate valuation' },
+        ]),
+      });
+      prisma.withdrawTransaction.update = jest.fn().mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'wd-birth-route-2', ...data }),
+      );
+      const before = Date.now();
+
+      const result = await service.landOnPendingApproval('wd-birth-route-2');
+
+      expect(result.status).toBe(WithdrawTransactionStatus.PENDING_APPROVAL);
+      const delta = new Date(result.slaDeadline).getTime() - before;
+      expect(delta).toBeGreaterThan(23 * 60 * 60_000);
+      expect(delta).toBeLessThan(25 * 60 * 60_000);
+      expect(result.slaBreached).toBe(false);
+    });
   });
 
   it('should transition to FAILED when payout fails', async () => {
@@ -1248,6 +1298,56 @@ describe('WithdrawTransactionsService', () => {
           ).rejects.toThrow(BadRequestException);
         }
       }
+    });
+  });
+
+  describe('SLA deadline 在状态机收口处统一设', () => {
+    const mockId = 'wd-sla-1';
+
+    function setupMock(status: WithdrawTransactionStatus) {
+      const mockRecord = {
+        id: mockId,
+        withdrawNo: 'WD-SLA',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-sla',
+        assetId: 'asset-sla',
+        status,
+        statusHistory: '[]',
+        approvedAt: null,
+        payoutRequestedAt: null,
+        completedAt: null,
+        asset: { type: 'CRYPTO' },
+      };
+      mockTx.withdrawTransaction.findUnique.mockResolvedValue(mockRecord);
+      mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...mockRecord, ...data }),
+      );
+    }
+
+    it('进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
+      setupMock(WithdrawTransactionStatus.PENDING_APPROVAL);
+      const before = Date.now();
+
+      const updated = await service.updateStatus(mockId, {
+        action: WithdrawTransactionAction.GATE_APPROVE,
+      });
+
+      expect(updated.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+      const delta = new Date(updated.slaDeadline).getTime() - before;
+      expect(delta).toBeGreaterThan(4 * 60_000);
+      expect(delta).toBeLessThan(6 * 60_000);
+      expect(updated.slaBreached).toBe(false);
+    });
+
+    it('进入无 SLA 的状态时把 deadline 清空', async () => {
+      setupMock(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+
+      const updated = await service.updateStatus(mockId, {
+        action: WithdrawTransactionAction.APPROVE,
+      });
+
+      expect(updated.status).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
+      expect(updated.slaDeadline).toBeNull();
     });
   });
 });

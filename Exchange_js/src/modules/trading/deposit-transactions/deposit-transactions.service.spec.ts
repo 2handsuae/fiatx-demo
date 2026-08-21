@@ -1271,6 +1271,34 @@ describe('DepositTransactionsService', () => {
         }
       });
     });
+
+    describe('SLA deadline 在状态机收口处统一设', () => {
+      it('进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
+        setupMock(DepositTransactionStatus.PAYIN_PENDING);
+        const before = Date.now();
+
+        const updated = await service.updateStatus(mockId, {
+          action: DepositTransactionAction.PAYIN_CONFIRMED,
+        });
+
+        expect(updated.status).toBe(DepositTransactionStatus.COMPLIANCE_PENDING);
+        const delta = new Date(updated.slaDeadline).getTime() - before;
+        expect(delta).toBeGreaterThan(4 * 60_000);
+        expect(delta).toBeLessThan(6 * 60_000);
+        expect(updated.slaBreached).toBe(false);
+      });
+
+      it('进入无 SLA 的状态时把 deadline 清空', async () => {
+        setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+        const updated = await service.updateStatus(mockId, {
+          action: DepositTransactionAction.APPROVE,
+        });
+
+        expect(updated.status).toBe(DepositTransactionStatus.SUCCESS);
+        expect(updated.slaDeadline).toBeNull();
+      });
+    });
   });
 
   describe('detected', () => {

@@ -115,6 +115,30 @@ export const DEPOSIT_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   DepositTransactionStatus.SEIZED,
 ]);
 
+/**
+ * 充值域 SLA 配置（2026-08-21 第三批）。key = 进入该状态后开始计时，value = 分钟数。
+ * 不在表里的状态 = 不计时（终态、等外部执行的态、FROZEN）。
+ *
+ * ⚠️ SLA 按「状态」计时，与状态内部发生了什么无关。此前把计时挂在 onHold 回调上
+ * 是错的挂法——没收到 onHold 的单永远不计时，那正是「Sumsub 不回、单子永远挂着」
+ * 的成因。不要再把任何 SLA 逻辑绑到某个 webhook 上。
+ */
+const DEPOSIT_SLA_MINUTES_BY_STATUS: Partial<Record<DepositTransactionStatus, number>> = {
+  [DepositTransactionStatus.COMPLIANCE_PENDING]: 5,            // 等 Sumsub 回裁决
+  [DepositTransactionStatus.ACTION_PENDING]: 7 * 24 * 60,      // 等客户交材料
+  [DepositTransactionStatus.MANUAL_CHECKING]: 3 * 24 * 60,     // 软:等合规官
+  [DepositTransactionStatus.OPERATION_PENDING]: 1 * 24 * 60,   // 软:等运营
+};
+
+/**
+ * 软 SLA：破线只置 slaBreached 标记、**不推状态**。
+ * 业主裁定：超时的是我们自己人，不能把怠工转嫁给客户——单子该怎么判还得人判。
+ */
+export const DEPOSIT_SLA_SOFT_STATUSES: ReadonlySet<string> = new Set<string>([
+  DepositTransactionStatus.MANUAL_CHECKING,
+  DepositTransactionStatus.OPERATION_PENDING,
+]);
+
 export interface DepositStatusUpdateActorContext {
   actorType: string;
   actorId: string;
@@ -587,6 +611,17 @@ export class DepositTransactionsService {
     return this.findOneForCustomer(row.id, customerId);
   }
 
+  /**
+   * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
+   * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
+   */
+  private resolveSlaFields(nextStatus: DepositTransactionStatus) {
+    const minutes = DEPOSIT_SLA_MINUTES_BY_STATUS[nextStatus];
+    return minutes === undefined
+      ? { slaDeadline: null, slaBreached: false }
+      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateDepositTransactionStatusDto,
@@ -648,6 +683,8 @@ export class DepositTransactionsService {
     const updateData: any = {
       status: nextStatus,
       statusHistory: JSON.stringify(currentHistory),
+      // SLA 字段必须在 extraData 之前展开 —— 调用方显式传的值优先级更高。
+      ...this.resolveSlaFields(nextStatus),
       ...(options?.extraData || {}),
     };
 

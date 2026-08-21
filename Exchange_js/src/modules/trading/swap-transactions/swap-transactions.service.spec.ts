@@ -1,4 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   SwapTransactionsService,
   SWAP_TERMINAL_STATUSES,
@@ -130,6 +131,74 @@ describe('markStatus transitions', () => {
     } as any;
     await expect(service.markStatus('s1', SwapTransactionAction.SUCCESS, tx))
       .rejects.toThrow(/Invalid transition/);
+  });
+
+  it('COMPLIANCE_PENDING + kyt_approved → PROCESSING 时清空 slaDeadline（PROCESSING 无 SLA 配置）', async () => {
+    const swap = { id: 's1', status: 'COMPLIANCE_PENDING' };
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue(swap),
+        update: jest.fn().mockResolvedValue({ ...swap, status: 'PROCESSING' }),
+      },
+    } as any;
+    await service.markStatus('s1', SwapTransactionAction.KYT_APPROVED, tx);
+    expect(tx.swapTransaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ slaDeadline: null, slaBreached: false }),
+      }),
+    );
+  });
+});
+
+describe('SLA deadline 在状态机收口处统一设', () => {
+  let service: SwapTransactionsService;
+
+  beforeEach(() => {
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any);
+  });
+
+  it('建单进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
+    const before = Date.now();
+    const tx = {
+      swapTransaction: {
+        create: jest.fn().mockImplementation(({ data }: any) =>
+          Promise.resolve({ id: 'swap-new', ...data }),
+        ),
+      },
+    } as any;
+
+    const created = await service.create(
+      {
+        swapNo: 'SWP-SLA-1',
+        quoteId: 'q1',
+        quoteNo: 'Q1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        ownerNo: 'C1',
+        fromAssetId: 'a1',
+        fromAssetCode: 'USDT',
+        fromAmount: new Prisma.Decimal('100'),
+        toAssetId: 'a2',
+        toAssetCode: 'AED',
+        toAmount: new Prisma.Decimal('367'),
+        netToAmount: new Prisma.Decimal('365'),
+        feeAmount: new Prisma.Decimal('2'),
+        feeCurrency: 'AED',
+        feeBreakdown: null,
+        spreadAmount: new Prisma.Decimal('0'),
+        exchangeRate: new Prisma.Decimal('3.67'),
+        traceId: 't1',
+        status: SwapTransactionStatus.COMPLIANCE_PENDING,
+      },
+      tx,
+    );
+
+    expect(created.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
+    expect(created.slaDeadline).not.toBeNull();
+    const delta = new Date(created.slaDeadline as Date).getTime() - before;
+    expect(delta).toBeGreaterThan(4 * 60_000);
+    expect(delta).toBeLessThan(6 * 60_000);
+    expect(created.slaBreached).toBe(false);
   });
 });
 

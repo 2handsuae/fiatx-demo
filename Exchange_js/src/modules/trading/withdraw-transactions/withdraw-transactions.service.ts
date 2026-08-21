@@ -49,6 +49,22 @@ export const WITHDRAW_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
   WithdrawTransactionStatus.RETURNED,
 ]);
 
+/**
+ * 提现域 SLA 配置（2026-08-21 第三批）。与充值域各写一份（deliberate fork）。
+ * ⚠️ SLA 按「状态」计时——不要把它绑到 onHold 之类的 webhook 上。
+ */
+const WITHDRAW_SLA_MINUTES_BY_STATUS: Partial<Record<WithdrawTransactionStatus, number>> = {
+  [WithdrawTransactionStatus.COMPLIANCE_PENDING]: 5,            // 等 Sumsub 回裁决
+  [WithdrawTransactionStatus.ACTION_PENDING]: 7 * 24 * 60,      // 等客户交材料
+  [WithdrawTransactionStatus.MANUAL_CHECKING]: 3 * 24 * 60,     // 软:等合规官
+  [WithdrawTransactionStatus.PENDING_APPROVAL]: 1 * 24 * 60,    // 软:等审批人
+};
+
+export const WITHDRAW_SLA_SOFT_STATUSES: ReadonlySet<string> = new Set<string>([
+  WithdrawTransactionStatus.MANUAL_CHECKING,
+  WithdrawTransactionStatus.PENDING_APPROVAL,
+]);
+
 export interface WithdrawStatusUpdateContext {
   source: WithdrawStatusUpdateSource;
   actorType?: string;
@@ -485,12 +501,17 @@ export class WithdrawTransactionsService {
   }
 
   /** Pure persistence: insert a withdrawal row inside a caller-owned tx.
-   *  No events, no audit, no accounting — the workflow owns those. */
+   *  No events, no audit, no accounting — the workflow owns those.
+   *  ⚠️ 出生态写入不经过 updateStatus（brief 收口处覆盖不到）——每笔提现出生即落
+   *  COMPLIANCE_PENDING（"出生即着陆"），这里按同一张配置表补上 SLA 字段，否则
+   *  「进入 COMPLIANCE_PENDING 就开始计时」对提现建单这条路会落空。 */
   async insertRecord(
     tx: Prisma.TransactionClient,
     data: Record<string, any>,
   ) {
-    return (tx as any).withdrawTransaction.create({ data });
+    return (tx as any).withdrawTransaction.create({
+      data: { ...this.resolveSlaFields(data.status), ...data },
+    });
   }
 
   /** Persist TB pending transfer ids on a withdrawal inside a caller-owned tx. */
@@ -623,6 +644,17 @@ export class WithdrawTransactionsService {
     return { ...item, sumsubDetail, approvals };
   }
 
+  /**
+   * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
+   * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
+   */
+  private resolveSlaFields(nextStatus: WithdrawTransactionStatus) {
+    const minutes = WITHDRAW_SLA_MINUTES_BY_STATUS[nextStatus];
+    return minutes === undefined
+      ? { slaDeadline: null, slaBreached: false }
+      : { slaDeadline: new Date(Date.now() + minutes * 60_000), slaBreached: false };
+  }
+
   async updateStatus(
     id: string,
     dto: UpdateWithdrawTransactionStatusDto,
@@ -693,6 +725,8 @@ export class WithdrawTransactionsService {
             ? new Date()
             : item.completedAt,
           statusHistory: JSON.stringify(history),
+          // SLA 字段必须在 extraData 之前展开 —— 调用方显式传的值优先级更高。
+          ...this.resolveSlaFields(nextStatus),
           ...(context?.extraData || {}),
         },
       });
@@ -1030,6 +1064,9 @@ export class WithdrawTransactionsService {
       where: { id },
       data: {
         status: WithdrawTransactionStatus.PENDING_APPROVAL,
+        // 同样绕过 updateStatus——落地 PENDING_APPROVAL 时按配置表重起 SLA 计时，
+        // 顶掉出生时留下的 COMPLIANCE_PENDING deadline（换了状态就是换了等待对象）。
+        ...this.resolveSlaFields(WithdrawTransactionStatus.PENDING_APPROVAL),
         statusHistory: JSON.stringify(history),
       },
     });
