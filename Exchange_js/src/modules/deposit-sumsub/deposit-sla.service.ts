@@ -10,10 +10,18 @@ import {
 } from '../audit-logging/constants/audit-actions.constant';
 
 /**
- * onHold(COMPLIANCE_PENDING)/ACTION_PENDING SLA breach timer (Task 10). Scans
- * for deposits whose slaDeadline (set by DepositWorkflowService.applyKytOnHold
- * / applyKytAwaitUser) has passed and routes them to MANUAL_CHECKING, marking
- * slaBreached=true so the scan doesn't re-process them.
+ * COMPLIANCE_PENDING/ACTION_PENDING SLA breach timer (Task 10). Scans for
+ * deposits whose slaDeadline has passed and routes them to MANUAL_CHECKING,
+ * marking slaBreached=true so the scan doesn't re-process them.
+ *
+ * deadline 由进入状态时统一设（DepositTransactionsService.resolveSlaFields，
+ * 在 updateStatus 等状态机收口处调用），**不再**由任何 webhook 回调设——
+ * 尤其不是 DepositWorkflowService.applyKytOnHold（该方法已明确不碰
+ * slaDeadline，理由见其 JSDoc）。这也意味着这个扫描器的覆盖面变了：此前
+ * 只对"收到过 onHold 回调"的单有效，现在对所有进入 COMPLIANCE_PENDING /
+ * ACTION_PENDING 的单都生效——没收到 onHold 的单也会被扫到并按时破线。
+ *
+ * ⚠️ 不要把 SLA 逻辑再绑回任何 webhook 上。
  */
 @Injectable()
 export class DepositSlaService {

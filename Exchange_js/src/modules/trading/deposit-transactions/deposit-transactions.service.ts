@@ -852,9 +852,14 @@ export class DepositTransactionsService {
   }
 
   /**
-   * Sets/refreshes the SLA deadline for a deposit sitting in onHold
-   * (COMPLIANCE_PENDING) or ACTION_PENDING. No status change here — callers
-   * manage the transition (or lack thereof) separately via updateStatus.
+   * 按 id 直接设置/刷新一条 deposit 的 slaDeadline，不触发状态变更。
+   *
+   * ⚠️ 2026-08-21：Task 3 把计时改为进入状态时统一设（见 resolveSlaFields，
+   * 在 updateStatus 等状态机收口处调用）之后，这个方法**已无任何调用方**。
+   * 保留是有意的——后续「模拟超时」端点需要按 id 直接改 deadline 来演示
+   * 破线，到时会调它。**不要**拿它在正常业务流程里设 deadline——那是状态
+   * 机收口处（resolveSlaFields）的职责，绕过收口处设 deadline 又会重蹈
+   * Task 3 刚修掉的覆盖面缺口。
    */
   async setSlaDeadline(id: string, slaDeadline: Date) {
     return (this.prisma as any).depositTransaction.update({

@@ -11,11 +11,18 @@ import {
 } from '../audit-logging/constants/audit-actions.constant';
 
 /**
- * onHold(COMPLIANCE_PENDING)/ACTION_PENDING SLA breach timer — mirror of
- * DepositSlaService (Task 5). Scans for withdrawals whose slaDeadline (set by
- * WithdrawWorkflowService.applyKytOnHold / applyKytAwaitUser) has passed and
- * routes them to MANUAL_CHECKING, marking slaBreached=true so the scan doesn't
- * re-process them.
+ * COMPLIANCE_PENDING/ACTION_PENDING SLA breach timer — mirror of
+ * DepositSlaService (Task 5). Scans for withdrawals whose slaDeadline has
+ * passed and routes them to MANUAL_CHECKING, marking slaBreached=true so the
+ * scan doesn't re-process them.
+ *
+ * ⚠️ 2026-08-21：deadline 按「状态」计时——进入 COMPLIANCE_PENDING /
+ * ACTION_PENDING 时由 WithdrawTransactionsService.resolveSlaFields 统一设
+ * （在 updateStatus 等状态机收口处），**不再**由 WithdrawWorkflowService
+ * .applyKytOnHold 之类的 webhook 回调设（该方法已明确不碰 slaDeadline，
+ * 理由见其 JSDoc）。此前挂在 onHold 回调上时，只有收到过 onHold 的单会
+ * 计时；现在这个扫描器对所有进入 COMPLIANCE_PENDING / ACTION_PENDING 的
+ * 单都生效。不要把 SLA 逻辑再绑回任何 webhook 上。
  */
 @Injectable()
 export class WithdrawSlaService {
