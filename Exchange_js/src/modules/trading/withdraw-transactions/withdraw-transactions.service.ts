@@ -922,6 +922,18 @@ export class WithdrawTransactionsService {
   }
 
   /**
+   * 软 SLA 破线：只置标记，**不碰 status**。
+   * 业主裁定（2026-08-21）：等自己人的状态超时了，超时的是我们自己，
+   * 不能把怠工转嫁给客户——单子该怎么判还得人判，系统只负责把它标红催人。
+   */
+  async markSlaBreached(id: string) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { slaBreached: true },
+    });
+  }
+
+  /**
    * Flags a withdrawal for operator review without touching its status.
    * Used by WithdrawWorkflowService.applyKytVerdict's PAYOUT_PENDING
    * post-broadcast branch (review Fix 2): a rejected KYT verdict arriving
@@ -972,9 +984,9 @@ export class WithdrawTransactionsService {
   }
 
   /**
-   * SLA timer (WithdrawSlaService) scan: onHold(COMPLIANCE_PENDING) and
-   * ACTION_PENDING withdrawals whose slaDeadline has passed and haven't been
-   * flagged yet.
+   * SLA 破线候选扫描。硬软两类都扫，由 WithdrawSlaService 按状态分流：
+   *   硬（COMPLIANCE_PENDING / ACTION_PENDING）→ 推 MANUAL_CHECKING
+   *   软（MANUAL_CHECKING / PENDING_APPROVAL）→ 只置 slaBreached
    */
   async findSlaBreachCandidates(now: Date) {
     return (this.prisma as any).withdrawTransaction.findMany({
@@ -983,6 +995,8 @@ export class WithdrawTransactionsService {
           in: [
             WithdrawTransactionStatus.COMPLIANCE_PENDING,
             WithdrawTransactionStatus.ACTION_PENDING,
+            WithdrawTransactionStatus.MANUAL_CHECKING,
+            WithdrawTransactionStatus.PENDING_APPROVAL,
           ],
         },
         slaDeadline: { lt: now },

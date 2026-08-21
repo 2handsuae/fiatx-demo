@@ -869,8 +869,21 @@ export class DepositTransactionsService {
   }
 
   /**
-   * SLA timer (Task 10) scan: onHold(COMPLIANCE_PENDING) and ACTION_PENDING
-   * deposits whose slaDeadline has passed and haven't been flagged yet.
+   * 软 SLA 破线：只置标记，**不碰 status**。
+   * 业主裁定（2026-08-21）：等自己人的状态超时了，超时的是我们自己，
+   * 不能把怠工转嫁给客户——单子该怎么判还得人判，系统只负责把它标红催人。
+   */
+  async markSlaBreached(id: string) {
+    return (this.prisma as any).depositTransaction.update({
+      where: { id },
+      data: { slaBreached: true },
+    });
+  }
+
+  /**
+   * SLA 破线候选扫描。硬软两类都扫，由 DepositSlaService 按状态分流：
+   *   硬（COMPLIANCE_PENDING / ACTION_PENDING）→ 推 MANUAL_CHECKING
+   *   软（MANUAL_CHECKING / OPERATION_PENDING）→ 只置 slaBreached
    */
   async findSlaBreachCandidates(now: Date) {
     return (this.prisma as any).depositTransaction.findMany({
@@ -879,6 +892,8 @@ export class DepositTransactionsService {
           in: [
             DepositTransactionStatus.COMPLIANCE_PENDING,
             DepositTransactionStatus.ACTION_PENDING,
+            DepositTransactionStatus.MANUAL_CHECKING,
+            DepositTransactionStatus.OPERATION_PENDING,
           ],
         },
         slaDeadline: { lt: now },

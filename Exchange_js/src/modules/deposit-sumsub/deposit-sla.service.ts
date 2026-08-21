@@ -1,7 +1,10 @@
 // src/modules/deposit-sumsub/deposit-sla.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { DepositTransactionsService } from '../trading/deposit-transactions/deposit-transactions.service';
+import {
+  DepositTransactionsService,
+  DEPOSIT_SLA_SOFT_STATUSES,
+} from '../trading/deposit-transactions/deposit-transactions.service';
 import { DepositTransactionAction } from '../trading/deposit-transactions/dto/deposit-transaction.dto';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
 import {
@@ -10,16 +13,15 @@ import {
 } from '../audit-logging/constants/audit-actions.constant';
 
 /**
- * COMPLIANCE_PENDING/ACTION_PENDING SLA breach timer (Task 10). Scans for
- * deposits whose slaDeadline has passed and routes them to MANUAL_CHECKING,
- * marking slaBreached=true so the scan doesn't re-process them.
+ * SLA 破线扫描（2026-08-21 扩容至硬/软两类）。扫描 findSlaBreachCandidates
+ * 返回的四个状态，按状态分流：
+ *   硬 SLA（COMPLIANCE_PENDING / ACTION_PENDING，等外部）→ 推 MANUAL_CHECKING
+ *   软 SLA（MANUAL_CHECKING / OPERATION_PENDING，等自己人）→ 只置 slaBreached，状态不动
  *
  * deadline 由进入状态时统一设（DepositTransactionsService.resolveSlaFields，
  * 在 updateStatus 等状态机收口处调用），**不再**由任何 webhook 回调设——
  * 尤其不是 DepositWorkflowService.applyKytOnHold（该方法已明确不碰
- * slaDeadline，理由见其 JSDoc）。这也意味着这个扫描器的覆盖面变了：此前
- * 只对"收到过 onHold 回调"的单有效，现在对所有进入 COMPLIANCE_PENDING /
- * ACTION_PENDING 的单都生效——没收到 onHold 的单也会被扫到并按时破线。
+ * slaDeadline，理由见其 JSDoc）。
  *
  * ⚠️ 不要把 SLA 逻辑再绑回任何 webhook 上。
  */
@@ -50,6 +52,42 @@ export class DepositSlaService {
 
   private async breach(deposit: any): Promise<void> {
     const oldStatus = deposit.status;
+
+    if (DEPOSIT_SLA_SOFT_STATUSES.has(oldStatus)) {
+      await this.softBreach(deposit);
+      return;
+    }
+    await this.hardBreach(deposit);
+  }
+
+  /**
+   * 软 SLA：等自己人（合规官 / 运营）超时。只置标记 + 写审计，**状态一步不动**。
+   */
+  private async softBreach(deposit: any): Promise<void> {
+    await this.depositService.markSlaBreached(deposit.id);
+    this.logger.warn(
+      `Deposit ${deposit.depositNo} soft SLA breached in ${deposit.status} (deadline ${deposit.slaDeadline?.toISOString?.() ?? deposit.slaDeadline}) — flagged only, status unchanged`,
+    );
+    await this.auditLogsService.recordSystem({
+      action: AuditActions.DEPOSIT_SLA_BREACHED,
+      entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+      entityId: deposit.id,
+      entityNo: deposit.depositNo,
+      entityOwnerType: deposit.ownerType,
+      entityOwnerId: deposit.ownerId,
+      traceId: deposit.traceId || undefined,
+      workflowType: 'DEPOSIT',
+      reason: `Soft SLA breached in ${deposit.status} — internal handling overdue, order status intentionally unchanged`,
+      metadata: { slaType: 'SOFT', status: deposit.status, slaDeadline: deposit.slaDeadline, waitingOn: 'INTERNAL' },
+      sourcePlatform: 'SYSTEM',
+    });
+  }
+
+  /**
+   * 硬 SLA：等外部（客户交材料 / Sumsub 回裁决）超时。我方有权处置 → 推状态。
+   */
+  private async hardBreach(deposit: any): Promise<void> {
+    const oldStatus = deposit.status;
     // 这块表量的是"等谁"：客户没交 → 等客户；交了 → 等 Provider 重评。
     // 理由必须跟着换，否则一个已经配合交了材料的客户会被以"未响应"的名义
     // 踢进人工复核，而这条会进审计。
@@ -58,7 +96,7 @@ export class DepositSlaService {
       ? 'SLA breached: provider re-review exceeded deadline after customer submission'
       : 'SLA breached: no compliance action before deadline';
 
-    const updated = await this.depositService.updateStatus(
+    await this.depositService.updateStatus(
       deposit.id,
       {
         action: DepositTransactionAction.SLA_BREACH,
@@ -67,7 +105,10 @@ export class DepositSlaService {
       {
         actor: { actorType: 'SYSTEM', actorId: 'SLA_TIMER' },
         sourcePlatform: 'SYSTEM',
-        extraData: { slaBreached: true },
+        // ⚠️ 刻意不传 slaBreached —— 进入 MANUAL_CHECKING 时收口处会设一个新的
+        // 软计时器并把 slaBreached 归 false；这里若传 true 会把它覆盖回去，
+        // 新计时器一出生就被标成「已破线」、永远扫不到。
+        // 防重复扫由状态变化本身保证：新 deadline 在未来，不再匹配 slaDeadline < now。
       },
     );
 
@@ -85,7 +126,7 @@ export class DepositSlaService {
       traceId: deposit.traceId || undefined,
       workflowType: 'DEPOSIT',
       reason: `${reason} (deposit was ${oldStatus})`,
-      metadata: { fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: submitted ? 'PROVIDER' : 'CUSTOMER' },
+      metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: submitted ? 'PROVIDER' : 'CUSTOMER' },
       sourcePlatform: 'SYSTEM',
     });
   }
