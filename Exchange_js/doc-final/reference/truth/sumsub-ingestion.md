@@ -51,6 +51,6 @@ Sumsub（KYC/KYT/Travel Rule/制裁筛查/持续监控）的 webhook → 翻译�
 ## 5. 锚点汇总
 
 `sumsub-ingestion/`：`sumsub-ingestion.controller.ts`（webhook 接入）｜ `sumsub-ingestion.service.ts`（ingest/dispatch 主）｜ `sumsub-ingestion-retry.service.ts`（retry/dead-letter cron）｜ `sumsub-ingestion-admin.controller.ts`（Events 页）｜ `admin-sumsub-simulation.controller.ts`（模拟端点）
-`deposit-sumsub/`（充值 KYT-txn webhook 消费方，2026-07 落地）：`deposit-webhook.router.ts`（分流）｜ `deposit-kyt-verdict.handler.ts`（翻译 verdict）｜ `deposit-sla.service.ts`（onHold/ACTION_PENDING SLA 定时器）｜ `sumsub-txn-client.{interface,http,mock}.ts`（提交/查询 KYT 交易，`deposit-sumsub/` 与 `withdraw-sumsub/` 共用）
+`deposit-sumsub/`（充值 KYT-txn webhook 消费方，2026-07 落地）：`deposit-webhook.router.ts`（分流）｜ `deposit-kyt-verdict.handler.ts`（翻译 verdict）｜ `deposit-sla.service.ts`（SLA 定时器，四格硬/软配置，与 onHold webhook 无关——2026-08-21 第三批 SLA 改按状态计时，详见 `v4-deposit.md` §4.7）｜ `sumsub-txn-client.{interface,http,mock}.ts`（提交/查询 KYT 交易，`deposit-sumsub/` 与 `withdraw-sumsub/` 共用）
 `withdraw-sumsub/`（提现 KYT-txn webhook 消费方，2026-08-03/04 落地，与 `deposit-sumsub/` 同构、级联分流的下一棒，见 §3）：`withdraw-webhook.router.ts`（分流）｜ `withdraw-kyt-verdict.handler.ts`（翻译 verdict）｜ `withdraw-sla.service.ts`（SLA 定时器）｜ 详见 `v5-withdraw.md` §4
 消费方：`identity/onboarding`、`identity/client-risk-assessment`、`identity/material-refresh`、`deposit-sumsub`（充值 KYT-txn）、`withdraw-sumsub`（提现 KYT-txn）、各 trading 模块合规门
