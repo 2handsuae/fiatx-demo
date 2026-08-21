@@ -786,4 +786,22 @@ describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
     );
     expect(result.slaDeadline).toEqual(pastDate);
   });
+
+  it('同一张单连续两次模拟超时，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+    const pastDate = new Date(Date.now() - 1000);
+    prisma.swapTransaction.findFirst.mockResolvedValue({
+      id: 'swp-1',
+      slaDeadline: new Date(Date.now() + 5 * 60_000),
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-1',
+    });
+    prisma.swapTransaction.update.mockResolvedValue({ id: 'swp-1', slaDeadline: pastDate });
+
+    await service.setSlaDeadlineByNo('SWP0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+    await service.setSlaDeadlineByNo('SWP0001', pastDate, { actorId: 'admin-1', actorRole: 'OPERATOR' });
+
+    const calls = auditLogsService.recordByActor.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
+  });
 });

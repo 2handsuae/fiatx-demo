@@ -54,7 +54,7 @@ describe('WithdrawSlaService', () => {
       expect.objectContaining({
         action: 'WITHDRAW_SLA_BREACHED',
         entityId: 'wd-1',
-        requestId: expect.any(String),
+        requestId: expect.stringContaining('WITHDRAW_SLA_BREACHED'),
       }),
     );
   });
@@ -88,7 +88,7 @@ describe('WithdrawSlaService', () => {
       expect.objectContaining({
         action: 'WITHDRAW_SLA_BREACHED',
         entityId: 'wd-2',
-        requestId: expect.any(String),
+        requestId: expect.stringContaining('WITHDRAW_SLA_BREACHED'),
       }),
     );
   });
@@ -153,7 +153,7 @@ describe('WithdrawSlaService', () => {
         expect.objectContaining({
           action: 'WITHDRAW_SLA_BREACHED',
           entityId: 'w2',
-          requestId: expect.any(String),
+          requestId: expect.stringContaining('WITHDRAW_SLA_BREACHED'),
         }),
       );
     });
@@ -172,6 +172,28 @@ describe('WithdrawSlaService', () => {
       await service.checkSlaBreaches();
       const opts = withdrawService.updateStatus.mock.calls[0][2];
       expect(opts?.extraData?.slaBreached).toBeUndefined();
+    });
+
+    it('硬 SLA 连续两轮扫描命中同一张单，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+      const w = { id: 'w1', withdrawNo: 'WD1', status: 'COMPLIANCE_PENDING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) };
+      withdrawService.findSlaBreachCandidates.mockResolvedValue([w] as any);
+      await service.checkSlaBreaches();
+      await service.checkSlaBreaches();
+
+      const calls = auditLogsService.recordSystem.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
+    });
+
+    it('软 SLA 连续两轮扫描命中同一张单，产出不同的 requestId（幂等键不能恒定，否则第二条审计被静默丢弃）', async () => {
+      const w = { id: 'w2', withdrawNo: 'WD2', status: 'MANUAL_CHECKING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) };
+      withdrawService.findSlaBreachCandidates.mockResolvedValue([w] as any);
+      await service.checkSlaBreaches();
+      await service.checkSlaBreaches();
+
+      const calls = auditLogsService.recordSystem.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].requestId).not.toBe(calls[1][0].requestId);
     });
   });
 });
