@@ -837,6 +837,7 @@ export class WithdrawTransactionsService {
           feeAmount: new Prisma.Decimal(0),
           toAddress: isCrypto ? '0x' + Math.random().toString(16).slice(2) : null,
           toIban: !isCrypto ? 'IBAN' + Math.random().toString().slice(2) : null,
+          ...this.resolveSlaFields(WithdrawTransactionStatus.PENDING_APPROVAL),
           statusHistory: JSON.stringify([{
             from: 'NONE',
             to: WithdrawTransactionStatus.PENDING_APPROVAL,
@@ -919,6 +920,57 @@ export class WithdrawTransactionsService {
       where: { id },
       data: { slaDeadline },
     });
+  }
+
+  /**
+   * 演示用：把 slaDeadline 拨到过去，下一次 cron 扫描即破线。
+   * 按业务号查（铁律③：有稳定业务键就别用 id 当查询合同），内部解出 id 后
+   * 复用 setSlaDeadline。`slaDeadline === null` 时拒绝——那说明单子当前
+   * 状态不计时（终态 / FROZEN / 等外部执行的态），硬拨会让扫描器捞出一个
+   * 本不该计时的单去处置。
+   *
+   * operator 点按钮触发、改了持久字段 → 必须写审计（规则①），走
+   * recordByActor（不是 recordSystem——这是人触发的，不是 cron）。
+   */
+  async setSlaDeadlineByNo(
+    withdrawNo: string,
+    slaDeadline: Date,
+    actor: { actorId?: string; actorRole?: string },
+  ) {
+    const row = await (this.prisma as any).withdrawTransaction.findFirst({
+      where: { withdrawNo },
+      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+    });
+    if (!row) throw new NotFoundException(`Withdraw not found: ${withdrawNo}`);
+    if (row.slaDeadline === null) {
+      throw new BadRequestException(
+        `Withdraw ${withdrawNo} is not in an SLA-timed state — nothing to time out`,
+      );
+    }
+
+    const updated = await this.setSlaDeadline(row.id, slaDeadline);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.WITHDRAW_SLA_TIMEOUT_SIMULATED,
+        entityType: AuditEntityTypes.WITHDRAW_TRANSACTION,
+        entityId: row.id,
+        entityNo: withdrawNo,
+        entityOwnerType: row.ownerType,
+        entityOwnerId: row.ownerId,
+        workflowType: AuditWorkflowTypes.WITHDRAW,
+        reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
+        metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRole: actor?.actorRole,
+      },
+    );
+
+    return updated;
   }
 
   /**

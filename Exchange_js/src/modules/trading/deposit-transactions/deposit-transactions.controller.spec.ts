@@ -8,7 +8,12 @@ import { DepositTransactionAction } from './dto/deposit-transaction.dto';
 
 describe('DepositTransactionsController', () => {
   let controller: DepositTransactionsController;
-  let depositService: { findAll: jest.Mock; findOne: jest.Mock; updateStatus: jest.Mock };
+  let depositService: {
+    findAll: jest.Mock;
+    findOne: jest.Mock;
+    updateStatus: jest.Mock;
+    setSlaDeadlineByNo: jest.Mock;
+  };
   let inboundSignalsService: {
     findAllForCustomer: jest.Mock;
     createForCustomer: jest.Mock;
@@ -28,6 +33,7 @@ describe('DepositTransactionsController', () => {
       findAll: jest.fn(),
       findOne: jest.fn(),
       updateStatus: jest.fn(),
+      setSlaDeadlineByNo: jest.fn(),
     };
     inboundSignalsService = {
       findAllForCustomer: jest.fn(),
@@ -225,5 +231,27 @@ describe('DepositTransactionsController', () => {
     expect(inboundSignalsService.findAllForCustomer).toHaveBeenCalledWith('cust-1', {
       walletId: 'wallet-1',
     });
+  });
+
+  it('simulateSlaTimeout rejects a CUSTOMER token with ForbiddenException (no self-service SLA reset)', () => {
+    expect(() =>
+      controller.simulateSlaTimeout('DEP0001', { user: { type: 'CUSTOMER', userId: 'c1' } }),
+    ).toThrow(ForbiddenException);
+    expect(depositService.setSlaDeadlineByNo).not.toHaveBeenCalled();
+  });
+
+  it('simulateSlaTimeout forwards the depositNo + a past Date + the admin actor to the service', async () => {
+    depositService.setSlaDeadlineByNo.mockResolvedValue({});
+    const mockReq = { user: { type: 'ADMIN', userId: 'admin-1', role: 'OPERATOR' } };
+
+    await controller.simulateSlaTimeout('DEP0001', mockReq);
+
+    expect(depositService.setSlaDeadlineByNo).toHaveBeenCalledWith(
+      'DEP0001',
+      expect.any(Date),
+      expect.objectContaining({ actorId: 'admin-1', actorRole: 'OPERATOR' }),
+    );
+    const passed = depositService.setSlaDeadlineByNo.mock.calls[0][1];
+    expect(passed.getTime()).toBeLessThan(Date.now());
   });
 });

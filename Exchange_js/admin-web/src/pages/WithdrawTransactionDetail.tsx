@@ -170,6 +170,8 @@ const WithdrawTransactionDetail = () => {
   const { enabled: simEnabled } = useSimulationMode();
   const [simSubmitting, setSimSubmitting] = useState<string | null>(null);
   const [simError, setSimError] = useState('');
+  const [slaSubmitting, setSlaSubmitting] = useState(false);
+  const [slaError, setSlaError] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -328,6 +330,32 @@ const WithdrawTransactionDetail = () => {
       setDispositionError(error instanceof Error ? error.message : 'Failed to bounce payout.');
     } finally {
       setDispositionSubmitting(false);
+    }
+  };
+
+  /* ── SLA (演示用「模拟超时」——不是 ⚡ Simulation 面板那个模拟 Sumsub
+      webhook 的东西；见 SidebarGroup title="SLA") ── */
+
+  const handleSimulateSlaTimeout = async () => {
+    if (!data) return;
+    setSlaSubmitting(true);
+    setSlaError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/withdraw-transactions/${data.withdrawNo}/simulate-sla-timeout`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setSlaError(await getApiErrorMessage(response, 'Failed to simulate SLA timeout.'));
+        return;
+      }
+      setNotice('SLA deadline moved to the past — next scan will breach it');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setSlaError(error instanceof Error ? error.message : 'Failed to simulate SLA timeout.');
+    } finally {
+      setSlaSubmitting(false);
     }
   };
 
@@ -652,6 +680,22 @@ const WithdrawTransactionDetail = () => {
             <p className="mb-4 font-mono text-[11px] text-adm-t3">
               Terminal — no further action available.
             </p>
+          )}
+
+          {/* SLA — 演示用「模拟超时」，不是 ⚡ Simulation 面板那个模拟 Sumsub
+              webhook 的东西。data.slaDeadline 非空 = 该单当前处于计时状态；
+              已破线（slaBreached）就不再需要这个按钮了。 */}
+          {data.slaDeadline && !data.slaBreached && (
+            <SidebarGroup title="SLA">
+              {slaError && <p className="mb-2 text-[11px] text-adm-red">{slaError}</p>}
+              <button
+                onClick={handleSimulateSlaTimeout}
+                disabled={slaSubmitting}
+                className="w-full rounded border border-amber-300 px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {slaSubmitting ? 'Processing...' : 'Simulate SLA Timeout'}
+              </button>
+            </SidebarGroup>
           )}
 
           {/* Identity */}

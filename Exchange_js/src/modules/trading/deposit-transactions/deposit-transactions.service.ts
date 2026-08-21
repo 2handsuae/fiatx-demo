@@ -869,6 +869,57 @@ export class DepositTransactionsService {
   }
 
   /**
+   * 演示用：把 slaDeadline 拨到过去，下一次 cron 扫描即破线。
+   * 按业务号查（铁律③：有稳定业务键就别用 id 当查询合同），内部解出 id 后
+   * 复用 setSlaDeadline。`slaDeadline === null` 时拒绝——那说明单子当前
+   * 状态不计时（终态 / FROZEN / 等外部执行的态），硬拨会让扫描器捞出一个
+   * 本不该计时的单去处置。
+   *
+   * operator 点按钮触发、改了持久字段 → 必须写审计（规则①），走
+   * recordByActor（不是 recordSystem——这是人触发的，不是 cron）。
+   */
+  async setSlaDeadlineByNo(
+    depositNo: string,
+    slaDeadline: Date,
+    actor: { actorId?: string; actorRole?: string },
+  ) {
+    const row = await (this.prisma as any).depositTransaction.findFirst({
+      where: { depositNo },
+      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+    });
+    if (!row) throw new NotFoundException(`Deposit not found: ${depositNo}`);
+    if (row.slaDeadline === null) {
+      throw new BadRequestException(
+        `Deposit ${depositNo} is not in an SLA-timed state — nothing to time out`,
+      );
+    }
+
+    const updated = await this.setSlaDeadline(row.id, slaDeadline);
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.DEPOSIT_SLA_TIMEOUT_SIMULATED,
+        entityType: AuditEntityTypes.DEPOSIT_TRANSACTION,
+        entityId: row.id,
+        entityNo: depositNo,
+        entityOwnerType: row.ownerType,
+        entityOwnerId: row.ownerId,
+        workflowType: 'DEPOSIT',
+        reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
+        metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRole: actor?.actorRole,
+      },
+    );
+
+    return updated;
+  }
+
+  /**
    * 软 SLA 破线：只置标记，**不碰 status**。
    * 业主裁定（2026-08-21）：等自己人的状态超时了，超时的是我们自己，
    * 不能把怠工转嫁给客户——单子该怎么判还得人判，系统只负责把它标红催人。

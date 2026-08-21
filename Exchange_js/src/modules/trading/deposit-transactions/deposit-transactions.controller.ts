@@ -240,6 +240,16 @@ export class DepositTransactionsController {
     );
   }
 
+  @Post(':depositNo/simulate-sla-timeout')
+  @ApiOperation({ summary: '演示用：把该单的 SLA 截止时间拨到过去，下次扫描即破线' })
+  simulateSlaTimeout(@Param('depositNo') depositNo: string, @Req() req: any) {
+    this.assertAdmin(req);
+    return this.service.setSlaDeadlineByNo(depositNo, new Date(Date.now() - 1000), {
+      actorId: req.user?.userId,
+      actorRole: req.user?.role,
+    });
+  }
+
   @Get('export')
   @ApiOperation({ summary: 'Export deposit transactions' })
   @UsePipes(new ValidationPipe({ transform: true }))

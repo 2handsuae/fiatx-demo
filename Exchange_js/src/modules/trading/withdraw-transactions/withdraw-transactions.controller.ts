@@ -121,4 +121,14 @@ export class WithdrawTransactionsController {
     );
   }
 
+  @Post(':withdrawNo/simulate-sla-timeout')
+  @ApiOperation({ summary: '演示用：把该单的 SLA 截止时间拨到过去，下次扫描即破线' })
+  simulateSlaTimeout(@Req() req: any, @Param('withdrawNo') withdrawNo: string) {
+    this.assertAdmin(req);
+    return this.service.setSlaDeadlineByNo(withdrawNo, new Date(Date.now() - 1000), {
+      actorId: req.user?.userId,
+      actorRole: req.user?.role,
+    });
+  }
+
 }

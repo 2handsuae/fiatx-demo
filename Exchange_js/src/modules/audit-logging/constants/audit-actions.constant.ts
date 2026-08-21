@@ -259,6 +259,9 @@ export const AuditActions = {
   DEPOSIT_AWAITUSER_EMPTY_ACTIONS: 'DEPOSIT_AWAITUSER_EMPTY_ACTIONS',
   // onHold/ACTION_PENDING SLA breach timer (Task 10)
   DEPOSIT_SLA_BREACHED: 'DEPOSIT_SLA_BREACHED',
+  // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 把 slaDeadline 拨到过去，
+  // 下次扫描立即破线。operator 触发、改了持久字段，走 recordByActor。
+  DEPOSIT_SLA_TIMEOUT_SIMULATED: 'DEPOSIT_SLA_TIMEOUT_SIMULATED',
   DEPOSIT_HELD_BELOW_MIN: 'DEPOSIT_HELD_BELOW_MIN',   // L1 金额下限挂起(不自动放行)
   DEPOSIT_LIMIT_WAIVED: 'DEPOSIT_LIMIT_WAIVED',       // 运营豁免 below-min(PASS) — used by D5
   DEPOSIT_CONFISCATION_REQUESTED: 'DEPOSIT_CONFISCATION_REQUESTED', // 没收审批发起(maker) — used by D6
@@ -363,6 +366,9 @@ export const AuditActions = {
   // a disposition audit — a timeout carries no verdict, so
   // handleRejectDisposition never runs for this path (see swap-sla.service.ts).
   SWAP_SLA_BREACHED: 'SWAP_SLA_BREACHED',
+  // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 把 slaDeadline 拨到过去，
+  // 下次扫描立即破线。operator 触发、改了持久字段，走 recordByActor。
+  SWAP_SLA_TIMEOUT_SIMULATED: 'SWAP_SLA_TIMEOUT_SIMULATED',
   SWAP_SUCCEEDED: 'SWAP_SUCCEEDED',
   SWAP_FAILED: 'SWAP_FAILED',
   SWAP_LEG_POSTED: 'SWAP_LEG_POSTED',
@@ -423,6 +429,9 @@ export const AuditActions = {
   // 留痕供排查上游报文异常。mirrors DEPOSIT_AWAITUSER_EMPTY_ACTIONS。
   WITHDRAW_AWAITUSER_EMPTY_ACTIONS: 'WITHDRAW_AWAITUSER_EMPTY_ACTIONS',
   WITHDRAW_SLA_BREACHED: 'WITHDRAW_SLA_BREACHED',
+  // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 把 slaDeadline 拨到过去，
+  // 下次扫描立即破线。operator 触发、改了持久字段，走 recordByActor。
+  WITHDRAW_SLA_TIMEOUT_SIMULATED: 'WITHDRAW_SLA_TIMEOUT_SIMULATED',
   WITHDRAW_MANUAL_APPROVED: 'WITHDRAW_MANUAL_APPROVED',
   WITHDRAW_FROZEN: 'WITHDRAW_FROZEN',
   WITHDRAW_REFUNDED_BY_TAG: 'WITHDRAW_REFUNDED_BY_TAG',

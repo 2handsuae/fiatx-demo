@@ -16,6 +16,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import {
+  AuditActions,
+  AuditEntityTypes,
+  AuditWorkflowTypes,
+} from '../../audit-logging/constants/audit-actions.constant';
 
 interface SwapMatchedInfo {
   pairId: string;
@@ -142,6 +148,7 @@ export class SwapTransactionsService {
     private readonly swapQuoteService: SwapQuoteService,
     private readonly binanceRateProvider: BinanceRateProvider,
     private readonly eventEmitter: EventEmitter2,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -483,6 +490,60 @@ export class SwapTransactionsService {
         slaBreached: false,
       },
     });
+  }
+
+  /**
+   * 演示用：把 slaDeadline 拨到过去，下一次 cron 扫描即破线。
+   * 按业务号查（铁律③：有稳定业务键就别用 id 当查询合同）。
+   * `slaDeadline === null` 时拒绝——那说明单子当前状态不计时（终态 /
+   * FROZEN / PROCESSING 等外部执行的态），硬拨会让扫描器捞出一个本不该
+   * 计时的单去处置。
+   *
+   * operator 点按钮触发、改了持久字段 → 必须写审计（规则①），走
+   * recordByActor（不是 recordSystem——这是人触发的，不是 cron）。
+   */
+  async setSlaDeadlineByNo(
+    swapNo: string,
+    slaDeadline: Date,
+    actor: { actorId?: string; actorRole?: string },
+  ) {
+    const row = await (this.prisma as any).swapTransaction.findFirst({
+      where: { swapNo },
+      select: { id: true, slaDeadline: true, ownerType: true, ownerId: true },
+    });
+    if (!row) throw new NotFoundException(`Swap not found: ${swapNo}`);
+    if (row.slaDeadline === null) {
+      throw new BadRequestException(
+        `Swap ${swapNo} is not in an SLA-timed state — nothing to time out`,
+      );
+    }
+
+    const updated = await (this.prisma as any).swapTransaction.update({
+      where: { id: row.id },
+      data: { slaDeadline },
+    });
+
+    await this.auditLogsService.recordByActor(
+      {
+        action: AuditActions.SWAP_SLA_TIMEOUT_SIMULATED,
+        entityType: AuditEntityTypes.SWAP_TRANSACTION,
+        entityId: row.id,
+        entityNo: swapNo,
+        entityOwnerType: row.ownerType,
+        entityOwnerId: row.ownerId,
+        workflowType: AuditWorkflowTypes.SWAP,
+        reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
+        metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        sourcePlatform: 'ADMIN_API',
+      },
+      {
+        actorType: 'ADMIN',
+        actorId: actor?.actorId || 'ADMIN_SYSTEM',
+        actorRole: actor?.actorRole,
+      },
+    );
+
+    return updated;
   }
 
   async markStatus(

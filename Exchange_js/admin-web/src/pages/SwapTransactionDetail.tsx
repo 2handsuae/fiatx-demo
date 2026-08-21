@@ -128,6 +128,8 @@ interface SwapTransactionDetailData {
   sumsubTxnType?: string | null;
   sumsubScore?: number | null;
   sumsubScoredAt?: string | null;
+  slaDeadline?: string | null;
+  slaBreached?: boolean | null;
 }
 
 interface SwapFx {
@@ -170,6 +172,8 @@ const SwapTransactionDetail = () => {
   const [simError, setSimError] = useState('');
   // 喂裁决成功后的顶部回显条（对齐充值/提现详情页的 notice 形态）。
   const [notice, setNotice] = useState('');
+  const [slaSubmitting, setSlaSubmitting] = useState(false);
+  const [slaError, setSlaError] = useState('');
 
   const fetchData = async () => {
     if (!id) return;
@@ -250,6 +254,32 @@ const SwapTransactionDetail = () => {
       setSimError(error instanceof Error ? error.message : 'Verdict run failed.');
     } finally {
       setSimSubmitting(null);
+    }
+  };
+
+  /* ── SLA (演示用「模拟超时」——不是 ⚡ Simulation 面板那个模拟 Sumsub
+      webhook 的东西；见 SidebarGroup title="SLA") ── */
+
+  const handleSimulateSlaTimeout = async () => {
+    if (!data) return;
+    setSlaSubmitting(true);
+    setSlaError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/swap-transactions/${data.swapNo}/simulate-sla-timeout`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        setSlaError(await getApiErrorMessage(response, 'Failed to simulate SLA timeout.'));
+        return;
+      }
+      setNotice('SLA deadline moved to the past — next scan will breach it');
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setSlaError(error instanceof Error ? error.message : 'Failed to simulate SLA timeout.');
+    } finally {
+      setSlaSubmitting(false);
     }
   };
 
@@ -632,8 +662,25 @@ const SwapTransactionDetail = () => {
           )}
         </div>
 
-        {/* ── Sidebar (no Actions block — read-only) ── */}
+        {/* ── Sidebar (no compliance disposition actions — that happens in
+            Sumsub, read-only here; SLA 演示用「模拟超时」按钮是唯一的例外) ── */}
         <div className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
+          {/* SLA — 演示用「模拟超时」，不是 ⚡ Simulation 面板那个模拟 Sumsub
+              webhook 的东西。data.slaDeadline 非空 = 该单当前处于计时状态；
+              已破线（slaBreached）就不再需要这个按钮了。 */}
+          {data.slaDeadline && !data.slaBreached && (
+            <SidebarGroup title="SLA">
+              {slaError && <p className="mb-2 text-[11px] text-adm-red">{slaError}</p>}
+              <button
+                onClick={handleSimulateSlaTimeout}
+                disabled={slaSubmitting}
+                className="w-full rounded border border-amber-300 px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {slaSubmitting ? 'Processing...' : 'Simulate SLA Timeout'}
+              </button>
+            </SidebarGroup>
+          )}
+
           <SidebarGroup title="Identity">
             <SidebarKV label="Swap No" value={data.swapNo} mono />
             <SidebarKV label="Status" value={<StatusPill value={data.status} />} />
