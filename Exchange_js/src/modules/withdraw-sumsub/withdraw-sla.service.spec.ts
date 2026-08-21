@@ -51,7 +51,11 @@ describe('WithdrawSlaService', () => {
       expect.anything(),
     );
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'WITHDRAW_SLA_BREACHED', entityId: 'wd-1' }),
+      expect.objectContaining({
+        action: 'WITHDRAW_SLA_BREACHED',
+        entityId: 'wd-1',
+        requestId: expect.any(String),
+      }),
     );
   });
 
@@ -81,7 +85,11 @@ describe('WithdrawSlaService', () => {
       expect.anything(),
     );
     expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'WITHDRAW_SLA_BREACHED', entityId: 'wd-2' }),
+      expect.objectContaining({
+        action: 'WITHDRAW_SLA_BREACHED',
+        entityId: 'wd-2',
+        requestId: expect.any(String),
+      }),
     );
   });
 
@@ -135,12 +143,19 @@ describe('WithdrawSlaService', () => {
       expect(withdrawService.markSlaBreached).not.toHaveBeenCalled();
     });
 
-    it('软 SLA(MANUAL_CHECKING) 破线 → 只置标记,状态一步不动', async () => {
+    it('软 SLA(MANUAL_CHECKING) 破线 → 只置标记,状态一步不动,审计带 requestId', async () => {
       const w = { id: 'w2', withdrawNo: 'WD2', status: 'MANUAL_CHECKING', ownerType: 'CUSTOMER', ownerId: 'c1', slaDeadline: new Date(0) };
       withdrawService.findSlaBreachCandidates.mockResolvedValue([w] as any);
       await service.checkSlaBreaches();
       expect(withdrawService.markSlaBreached).toHaveBeenCalledWith('w2');
       expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+      expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'WITHDRAW_SLA_BREACHED',
+          entityId: 'w2',
+          requestId: expect.any(String),
+        }),
+      );
     });
 
     it('软 SLA(PENDING_APPROVAL) 同样只置标记', async () => {

@@ -14,6 +14,7 @@ import {
 } from './dto/withdraw-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import {
   AuditActions,
@@ -961,6 +962,7 @@ export class WithdrawTransactionsService {
         workflowType: AuditWorkflowTypes.WITHDRAW,
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        requestId: `WITHDRAW_SLA_TIMEOUT_SIMULATED_${withdrawNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },
       {

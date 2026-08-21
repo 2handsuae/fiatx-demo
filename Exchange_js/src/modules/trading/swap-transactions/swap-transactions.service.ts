@@ -13,6 +13,7 @@ import {
 } from './dto/swap-transaction.dto';
 import { Prisma } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.provider';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
@@ -534,6 +535,7 @@ export class SwapTransactionsService {
         workflowType: AuditWorkflowTypes.SWAP,
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        requestId: `SWAP_SLA_TIMEOUT_SIMULATED_${swapNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },
       {

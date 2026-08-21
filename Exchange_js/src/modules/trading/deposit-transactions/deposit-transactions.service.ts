@@ -907,6 +907,7 @@ export class DepositTransactionsService {
         workflowType: 'DEPOSIT',
         reason: 'Demo: SLA deadline moved to the past to trigger an immediate breach on the next scan',
         metadata: { previousSlaDeadline: row.slaDeadline, newSlaDeadline: slaDeadline },
+        requestId: `DEPOSIT_SLA_TIMEOUT_SIMULATED_${depositNo}_${randomUUID()}`,
         sourcePlatform: 'ADMIN_API',
       },
       {

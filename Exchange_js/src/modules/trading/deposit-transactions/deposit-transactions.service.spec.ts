@@ -1357,6 +1357,7 @@ describe('DepositTransactionsService', () => {
           entityType: 'DEPOSIT_TRANSACTION',
           entityId: 'dep-1',
           entityNo: 'DEP0001',
+          requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
         }),
         expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
       );

@@ -1,6 +1,7 @@
 // src/modules/deposit-sumsub/deposit-sla.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { randomUUID } from 'crypto';
 import {
   DepositTransactionsService,
   DEPOSIT_SLA_SOFT_STATUSES,
@@ -79,6 +80,7 @@ export class DepositSlaService {
       workflowType: 'DEPOSIT',
       reason: `Soft SLA breached in ${deposit.status} — internal handling overdue, order status intentionally unchanged`,
       metadata: { slaType: 'SOFT', status: deposit.status, slaDeadline: deposit.slaDeadline, waitingOn: 'INTERNAL' },
+      requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
   }
@@ -127,6 +129,7 @@ export class DepositSlaService {
       workflowType: 'DEPOSIT',
       reason: `${reason} (deposit was ${oldStatus})`,
       metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: deposit.slaDeadline, waitingOn: submitted ? 'PROVIDER' : 'CUSTOMER' },
+      requestId: `DEPOSIT_SLA_BREACHED_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
   }

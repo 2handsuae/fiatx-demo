@@ -35,6 +35,12 @@ export class SwapTransactionsController {
     private readonly swapWorkflow: SwapWorkflowService,
   ) {}
 
+  private assertAdmin(req: any) {
+    if (req.user?.type !== 'ADMIN') {
+      throw new ForbiddenException('Admin only');
+    }
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create a new swap transaction' })
   async create(@Body() _createSwapTransactionDto: CreateSwapTransactionDto) {
@@ -98,8 +104,9 @@ export class SwapTransactionsController {
     buildPermissionCode('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout'),
   )
   simulateSlaTimeout(@Param('swapNo') swapNo: string, @Req() req: any) {
+    this.assertAdmin(req);
     return this.swapTransactionsService.setSlaDeadlineByNo(swapNo, new Date(Date.now() - 1000), {
-      actorId: req.user?.userNo || req.user?.userId || req.user?.sub,
+      actorId: req.user?.userId,
       actorRole: req.user?.role,
     });
   }

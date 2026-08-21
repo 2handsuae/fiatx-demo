@@ -1403,6 +1403,7 @@ describe('WithdrawTransactionsService', () => {
           entityType: 'WITHDRAW_TRANSACTION',
           entityId: 'wd-1',
           entityNo: 'WDR0001',
+          requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
         }),
         expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
       );

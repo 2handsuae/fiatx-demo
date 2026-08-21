@@ -1,6 +1,7 @@
 // src/modules/withdraw-sumsub/withdraw-sla.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { randomUUID } from 'crypto';
 import {
   WithdrawTransactionsService,
   WITHDRAW_SLA_SOFT_STATUSES,
@@ -79,6 +80,7 @@ export class WithdrawSlaService {
       workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `Soft SLA breached in ${w.status} — internal handling overdue, order status intentionally unchanged`,
       metadata: { slaType: 'SOFT', status: w.status, slaDeadline: w.slaDeadline, waitingOn: 'INTERNAL' },
+      requestId: `WITHDRAW_SLA_BREACHED_${w.withdrawNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
   }
@@ -122,6 +124,7 @@ export class WithdrawSlaService {
       workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: `SLA breached: withdrawal was ${oldStatus} past its slaDeadline, routed to manual review`,
       metadata: { slaType: 'HARD', fromStatus: oldStatus, slaDeadline: w.slaDeadline },
+      requestId: `WITHDRAW_SLA_BREACHED_${w.withdrawNo}_${randomUUID()}`,
       sourcePlatform: 'SYSTEM',
     });
   }

@@ -780,6 +780,7 @@ describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
         entityType: 'SWAP_TRANSACTION',
         entityId: 'swp-1',
         entityNo: 'SWP0001',
+        requestId: expect.stringContaining('SLA_TIMEOUT_SIMULATED'),
       }),
       expect.objectContaining({ actorType: 'ADMIN', actorId: 'admin-1', actorRole: 'OPERATOR' }),
     );
