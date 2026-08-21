@@ -35,19 +35,29 @@ export class WithdrawSlaService {
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
-  @Cron('*/5 * * * *', { timeZone: 'Asia/Dubai' })
+  @Cron('*/1 * * * *', { timeZone: 'Asia/Dubai' })
   async handleCron(): Promise<void> {
     await this.checkSlaBreaches();
   }
 
   // Core scan logic, kept separate from the @Cron wrapper so it's directly
   // callable in tests without waiting on a real clock.
+  //
+  // 单笔候选单处理失败（含 updateStatus 与 webhook 并发撞车时抛出的 Invalid
+  // transition ——对方已经把单子推进了别的状态，是正常的竞态吸收，不是故障）
+  // 都不能拖垮整轮扫描：逐笔 try/catch，记录后继续下一单。
   async checkSlaBreaches(): Promise<void> {
     const now = new Date();
     const candidates = await this.withdrawService.findSlaBreachCandidates(now);
 
     for (const withdraw of candidates) {
-      await this.breach(withdraw);
+      try {
+        await this.breach(withdraw);
+      } catch (err) {
+        this.logger.error(
+          `withdraw SLA sweep failed for withdrawal ${withdraw.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 

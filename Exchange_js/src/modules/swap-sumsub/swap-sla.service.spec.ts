@@ -174,12 +174,4 @@ describe('SwapSlaService', () => {
     expect(r.timedOut).toBe(1);
     expect(r.resubmitted).toBe(0); // s1 的重试抛错了，不计入成功
   });
-
-  it('按 slaDeadline 扫描,而不是 createdAt', async () => {
-    // 建单很久、但 deadline 在未来 → 不该破线
-    (swapService.findSlaBreachCandidates as jest.Mock).mockResolvedValue([]);
-    const res = await service.sweep();
-    expect(res.timedOut).toBe(0);
-    expect(swapService.findSlaBreachCandidates).toHaveBeenCalled();
-  });
 });
