@@ -65,28 +65,36 @@ slaBreached: false,
 
 | 域 | 状态 | 等谁 | 时长 | 超时目标 | 现状 |
 |---|---|---|---|---|---|
-| 充值 | `COMPLIANCE_PENDING`（送检后等裁决） | Sumsub | 7 天 | `MANUAL_CHECKING` | **本批补计时**（§0.2） |
-| 充值 | `COMPLIANCE_PENDING`（officer onHold 中） | 复核官员 | 7 天 | `MANUAL_CHECKING` | 已有（`ONHOLD_SLA_DAYS`） |
-| 提现 | `COMPLIANCE_PENDING`（送检后等裁决） | Sumsub | 7 天 | `MANUAL_CHECKING` | **本批补计时** |
-| 提现 | `COMPLIANCE_PENDING`（officer onHold 中） | 复核官员 | 7 天 | `MANUAL_CHECKING` | 已有 |
+| 充值 | `COMPLIANCE_PENDING` | Sumsub | **5 分钟** | `MANUAL_CHECKING` | **本批补计时**（§0.2） |
+| 提现 | `COMPLIANCE_PENDING` | Sumsub | **5 分钟** | `MANUAL_CHECKING` | **本批补计时** |
 | 兑换 | `COMPLIANCE_PENDING` | Sumsub | **5 分钟** | `REJECTED` | 有，但基准是 `createdAt`，本批改 |
 | 充值/提现 | `ACTION_PENDING` | 客户交材料 | 7 天 | `MANUAL_CHECKING` | 已有（`ACTION_SLA_DAYS`），不动逻辑 |
 
-#### ⚠️ 同一状态两个 deadline 来源，必须说清
+**`COMPLIANCE_PENDING` 三域统一 5 分钟**（业主裁定）。等的都是同一件事——Sumsub 回裁决——没有理由分三个数。
 
-`onHold` 发生在 `COMPLIANCE_PENDING` **内部**（不是独立状态）。补了送检计时之后，进入该状态会先设一次 deadline；随后若 Sumsub 回 `onHold`，`applyKytOnHold` 会**再设一次**。
+兑换今天是 `SWAP_COMPLIANCE_TIMEOUT_MS ?? 60_000`（默认 **60 秒**，且是三域里唯一 env 可配的）；改成 5 分钟，与另两域对齐。
 
-**裁定：onHold 到达时重设 deadline（覆盖，重新计 7 天）。** 理由：`onHold` 的语义是「有官员接手在看了」，等待对象从「服务商自动裁决」变成「官员人工复核」，是一次真实的交接，时钟该重新起算。实现上就是现有的 `setSlaDeadline` 覆盖写，不需要额外逻辑——但**必须在代码里注释说明这是有意覆盖**，否则下一个人会当成 bug 修掉。
+`ACTION_PENDING` 保持 7 天不变：它等的是客户去准备并上传材料，与等服务商回调不是一回事，5 分钟不合理。
 
-#### ⚠️ 兑换的 5 分钟：为什么不是 7 天
+#### ⚠️ `onHold` 与 SLA 无关（业主裁定）
 
-兑换今天是 `SWAP_COMPLIANCE_TIMEOUT_MS ?? 60_000` —— **默认 60 秒**，且**是三域里唯一 env 可配的**（充值/提现是硬编码 `private static readonly` 常量）。
+**SLA 按「状态」计时，与状态内部发生了什么无关。** `onHold` 不是一个状态，它只是 `COMPLIANCE_PENDING` 期间可能收到的一种 Sumsub 回调。
 
-业主早先已就这个数拍过板：**60 秒改 5 分钟**（该次改动落在后来被回滚的那批里，所以现在仍是 60s）。本批按 5 分钟落地。
+今天的实现把 SLA 挂在了 `onHold` 上（`deposit-workflow.service.ts:805` / 提现 `:2702`），这是**错的挂法**——它导致「没收到 onHold 的单永远不计时」，正是 §0.2 那个缺口的成因。
 
-**为什么兑换的时长与另两域差两个数量级**：兑换零记账、拒了不用回滚，快速失败对客户反而友好（重新下单即可）；充值的钱已在暂扣户、提现的钱已 pending-locked，快速拒会制造悬空资金，必须给人留出处理时间。**这个差异是刻意的，不要为「三域一致」而拉平。**
+本批的处置：
 
-**兑换为什么是 `REJECTED` 而不是转人工**（业主裁定）：兑换零记账，拒了不用回滚任何东西；而充值的钱已在暂扣户、提现的钱已 pending-locked，直接拒会留下悬空资金，必须有人处理。这个差异**刻意保留**，不为「三域一致」而统一——统一要给兑换加 `MANUAL_CHECKING` 态，得不偿失。
+- **删掉** `applyKytOnHold` 里的 `setSlaDeadline` 调用。该方法只剩「写一条 `DEPOSIT_ONHOLD` / `WITHDRAW_ONHOLD` 审计」这一个职责（实测：它本来也只做这两件事，删掉计时后无其它副作用）
+- **作废** `ONHOLD_SLA_DAYS` 常量（充值 `:321` / 提现 `:197`）
+- 计时改由**进入 `COMPLIANCE_PENDING`** 驱动，见 §3.4
+
+#### ⚠️ deadline 要设在状态机收口处，不能逐个调用点设
+
+进入 `COMPLIANCE_PENDING` 的路**不止一条**——提现至少有建单、`RESUME`（从 `FROZEN` 解冻回来）、审批通过后三条；充值走 `PAYIN_CONFIRMED`（`deposit-workflow.service.ts:1782`）；兑换是建单即该态（`swap-workflow.service.ts:319`）。
+
+**逐个调用点去设 deadline，必然漏。** 今天 `COMPLIANCE_PENDING` 之所以没计时，根子就是这类"只在某一条路上挂了钩"的错误。
+
+**裁定：在各域状态机的收口处（`updateStatus` / `markStatus`）按目标状态统一设 deadline**，一处生效、所有入口自动覆盖。
 
 ### 2.2 软 SLA · 超时只置标记（3 格）
 
@@ -203,9 +211,10 @@ extraData: {
 7. **列表页可见**：三域列表页有剩余时间列 + 「仅看已超时」筛选可用
 8. **详情页可见**：三域详情页显示倒计时；超时后红标
 9. **演示可触发**：action 栏「模拟超时」按钮一点，无需改库、无需等待
-10. **onHold 覆盖有效**：进 `COMPLIANCE_PENDING` 设了 deadline 后，收到 `onHold` 会把它重设成新的 7 天（而不是保留旧的）
-11. **兑换时长是 5 分钟**：`SWAP_COMPLIANCE_TIMEOUT_MS` 默认值从 `60_000` 改成 `300_000`
-12. **硬闸**：tsc 两份配置 0 错；全量 jest 净新失败 0
+10. **onHold 不再影响计时**：一笔进入 `COMPLIANCE_PENDING` 的单，收到 `onHold` 前后 `slaDeadline` **逐字未变**；`applyKytOnHold` 仍写 `*_ONHOLD` 审计
+11. **三域时长统一 5 分钟**：`COMPLIANCE_PENDING` 在三域的超时都是 5 分钟
+12. **多入口全覆盖**：提现经建单 / `RESUME` / 审批通过三条路进 `COMPLIANCE_PENDING`，每条路都设上了 `slaDeadline`
+13. **硬闸**：tsc 两份配置 0 错；全量 jest 净新失败 0
 
 ---
 
