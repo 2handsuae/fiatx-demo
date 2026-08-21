@@ -647,8 +647,12 @@ export class WithdrawTransactionsService {
   /**
    * 进入 nextStatus 时该带的 SLA 字段。有配置就起新计时，没配置就清空。
    * slaBreached 一律归 false —— 换了状态就是换了等待对象，旧的破线记录不该跟过来。
+   *
+   * 公开的原因：reissue 路径（Sumsub 重发 applicant actions，客户要重新交材料）
+   * 状态不变、不走 updateStatus，收口处盖不到它，只能由调用方显式取一次。
+   * 这是**唯一**的例外出口 —— 不要因为"方便"从别处调它绕过收口处。
    */
-  private resolveSlaFields(nextStatus: WithdrawTransactionStatus) {
+  resolveSlaFields(nextStatus: WithdrawTransactionStatus) {
     const minutes = WITHDRAW_SLA_MINUTES_BY_STATUS[nextStatus];
     return minutes === undefined
       ? { slaDeadline: null, slaBreached: false }

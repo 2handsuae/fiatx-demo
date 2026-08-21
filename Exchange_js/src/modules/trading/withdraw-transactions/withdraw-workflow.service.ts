@@ -194,9 +194,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     WithdrawTransactionStatus.RETURNED,
   ]);
 
-  private static readonly ONHOLD_SLA_DAYS = 7;
-  private static readonly ACTION_SLA_DAYS = 7;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
@@ -2567,9 +2564,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     applicantActions?: { applicantActionId: string; externalActionId: string }[],
   ): Promise<void> {
     const incoming = applicantActions ?? [];
-    const slaDeadline = new Date(
-      Date.now() + WithdrawWorkflowService.ACTION_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
 
     // 集合同步先做:无论状态动不动,子表都必须与报文的**全量列表**对齐。
     const { added, retired } = await this.applicantActions.syncApplicantActions(
@@ -2610,6 +2604,17 @@ export class WithdrawWorkflowService implements OnModuleInit {
       // 来判断——webhook 重试场景下 syncOnce 可能已 no-op,但缓存仍需清。
       if (w.actionSubmittedAt == null) return; // 缓存本就干净,真 no-op
 
+      // reissue:客户被要求重新交材料,7 天的钟重新起算。状态没变、不经过
+      // updateStatus 的收口处,所以在这里显式取一次同一张配置表的值——
+      // 不要另立常量,那会让"7 天"有第二个真相源(正是本批要消灭的模式)。
+      const { slaDeadline } = this.withdrawService.resolveSlaFields(
+        WithdrawTransactionStatus.ACTION_PENDING,
+      );
+      if (!slaDeadline) {
+        // ACTION_PENDING 在 WITHDRAW_SLA_MINUTES_BY_STATUS 里恒有配置,理论上到不了
+        // 这里——留一道硬失败,防止有人把它从配置表删掉却漏改这处调用方。
+        throw new Error('resolveSlaFields(ACTION_PENDING) 未配置 —— 检查 WITHDRAW_SLA_MINUTES_BY_STATUS');
+      }
       await this.applicantActions.clearWithdrawCache(w.id, slaDeadline);
       await this.auditLogsService.recordSystem({
         action: AuditActions.WITHDRAW_ACTION_REISSUED,
@@ -2670,39 +2675,43 @@ export class WithdrawWorkflowService implements OnModuleInit {
     }
 
     const manualReason = sceneTag === 'PEP' ? 'EDD_PEP' : 'CLIENT_ACTION';
-    // actionSubmittedAt/slaBreached 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
+    // actionSubmittedAt 必须在这条跨状态弧(常见于 MANUAL_CHECKING →
     // ACTION_PENDING,Sumsub officer 把已进人工复核的单又打回 awaitingUser)里
-    // 一并清掉——它们是两个独立的持久字段,updateStatus 不会替你清,不显式写就会
+    // 显式清掉——它是独立于 SLA 的持久字段,updateStatus 不会替你清,不显式写就会
     // 原样带过去,客户此前交过的材料让缓存留着旧值,客户端会一直显示"已收到,
     // 审核中",客户被永久卡死。single atomic updateStatus call(mirrors deposit)。
+    // slaDeadline/slaBreached 不在这里写:进入 ACTION_PENDING 由 updateStatus
+    // 内部的 resolveSlaFields 统一算,这里再传会覆盖收口处刚算好的值。
     await this.withdrawService.updateStatus(
       w.id,
       { action: WithdrawTransactionAction.ACTION_PENDING, reason: 'KYT verdict: awaitUser' },
       {
         ...this.systemCtx,
-        extraData: { manualReason, slaDeadline, actionSubmittedAt: null, slaBreached: false },
+        extraData: { manualReason, actionSubmittedAt: null },
       },
     );
   }
 
   /**
-   * onHold: non-transitional — only refreshes slaDeadline + audits when the
-   * withdrawal is currently COMPLIANCE_PENDING (spec §3: "非转移边"). A late
-   * onHold webhook arriving after the withdrawal already moved on
-   * (ACTION_PENDING/MANUAL_CHECKING/FROZEN/...) is a no-op.
+   * Sumsub onHold 回调：只记录「官员接手在看了」这一事实（non-transitional，
+   * spec §3: "非转移边"）。
+   *
+   * ⚠️ 2026-08-21：本方法**不再**设 slaDeadline。SLA 按「状态」计时
+   * （进入 COMPLIANCE_PENDING 时由 WithdrawTransactionsService.resolveSlaFields 设），
+   * 与状态内部收到什么 webhook 无关。此前把计时挂在这里，导致「没收到 onHold 的单
+   * 永远不计时」——那正是「Sumsub 一直不回、单子永远挂在合规中」的成因。
+   * 不要把 SLA 逻辑再绑回任何 webhook 上。
    */
   private async applyKytOnHold(w: any): Promise<void> {
+    // 状态守卫——onHold 只对当前在 COMPLIANCE_PENDING 的 withdrawal 生效。迟到的
+    // onHold webhook(已转到 ACTION_PENDING/MANUAL_CHECKING/FROZEN 等其它状态)
+    // no-op,防止记多余 WITHDRAW_ONHOLD 审计。
     if (w.status !== WithdrawTransactionStatus.COMPLIANCE_PENDING) {
       this.logger.debug(
         `applyKytOnHold no-op: withdrawal ${w.id} not in COMPLIANCE_PENDING (status=${w.status}), late onHold webhook ignored`,
       );
       return;
     }
-
-    const slaDeadline = new Date(
-      Date.now() + WithdrawWorkflowService.ONHOLD_SLA_DAYS * 24 * 60 * 60 * 1000,
-    );
-    await this.withdrawService.setSlaDeadline(w.id, slaDeadline);
 
     await this.auditLogsService.recordSystem({
       action: AuditActions.WITHDRAW_ONHOLD,
@@ -2714,7 +2723,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       traceId: w.traceId || undefined,
       workflowType: AuditWorkflowTypes.WITHDRAW,
       reason: 'KYT verdict: onHold, awaiting officer review',
-      metadata: { slaDeadline: slaDeadline.toISOString() },
+      metadata: { note: 'onHold 不影响 SLA —— SLA 按状态计时,见 WITHDRAW_SLA_MINUTES_BY_STATUS' },
       sourcePlatform: 'SYSTEM',
     });
   }

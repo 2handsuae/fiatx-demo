@@ -75,6 +75,12 @@ describe('DepositWorkflowService', () => {
       updateSumsubVerdict: jest.fn(),
       saveTxnDetail: jest.fn().mockResolvedValue(undefined),
       setSlaDeadline: jest.fn().mockResolvedValue(undefined),
+      // reissue 路径(applyKytAwaitUser 的 clearDepositCache 调用点)显式查一次
+      // 收口处同一张配置表 —— mock 出一个恒有效的 ACTION_PENDING deadline。
+      resolveSlaFields: jest.fn().mockReturnValue({
+        slaDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        slaBreached: false,
+      }),
       setSumsubTxn: jest.fn().mockResolvedValue(undefined),
       clearLimitHold: jest.fn().mockResolvedValue(undefined),
       findNonTerminalByOwner: jest.fn().mockResolvedValue([]),
@@ -1885,20 +1891,16 @@ describe('DepositWorkflowService', () => {
 
       await service.applyKytVerdict('dep-3', { verdict: 'awaitUser', sceneTag: 'PEP' });
 
-      // Minor a: slaDeadline is folded into the same updateStatus extraData write
-      // (one atomic write), not a separate setSlaDeadline call.
-      // Important: actionSubmittedAt/slaBreached are also unconditionally cleared here
-      // (see applyKytAwaitUser's Important-fix comment) — this deposit has neither set,
-      // but the extraData write still carries the clears every time.
+      // 2026-08-21 第三批：slaDeadline/slaBreached 不再由这里的 extraData 传——
+      // 进入 ACTION_PENDING 时由 updateStatus 内部的 resolveSlaFields 统一算
+      // (收口处),extraData 只带 manualReason + actionSubmittedAt 的清空。
       expect(depositService.updateStatus).toHaveBeenCalledWith(
         'dep-3',
         expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
         expect.objectContaining({
           extraData: {
             manualReason: 'EDD_PEP',
-            slaDeadline: expect.any(Date),
             actionSubmittedAt: null,
-            slaBreached: false,
           },
         }),
       );
@@ -1929,16 +1931,17 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({
           extraData: {
             manualReason: 'CLIENT_ACTION',
-            slaDeadline: expect.any(Date),
             actionSubmittedAt: null,
-            slaBreached: false,
           },
         }),
       );
       expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
     });
 
-    it('onHold → stays put, sets slaDeadline via setSlaDeadline, records DEPOSIT_ONHOLD', async () => {
+    // 2026-08-21 第三批：onHold 与 SLA 解绑（业主裁定「onHold 从来没表达过 SLA，
+    // 跟它一点关系都没有」）。SLA 现在只按「状态」计时（进入 COMPLIANCE_PENDING
+    // 时由收口处的 resolveSlaFields 设），onHold 回调不再触碰 slaDeadline。
+    it('onHold 不改变 slaDeadline —— SLA 按状态计时,与 webhook 无关', async () => {
       const deposit = {
         id: 'dep-4',
         depositNo: 'DEP004',
@@ -1951,10 +1954,27 @@ describe('DepositWorkflowService', () => {
 
       await service.applyKytVerdict('dep-4', { verdict: 'onHold' });
 
+      // mock 化的 spec：没有真 prisma 行可比对 before/after,改用「setSlaDeadline
+      // 压根没被调用」证明 —— 这是本方法此前改 slaDeadline 的唯一入口。
+      expect(depositService.setSlaDeadline).not.toHaveBeenCalled();
       expect(depositService.updateStatus).not.toHaveBeenCalled();
-      expect(depositService.setSlaDeadline).toHaveBeenCalledWith('dep-4', expect.any(Date));
+    });
+
+    it('onHold 仍写 DEPOSIT_ONHOLD 审计', async () => {
+      const deposit = {
+        id: 'dep-4',
+        depositNo: 'DEP004',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-1',
+        traceId: null,
+      };
+      depositService.findOne.mockResolvedValue(deposit);
+
+      await service.applyKytVerdict('dep-4', { verdict: 'onHold' });
+
       expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'DEPOSIT_ONHOLD', entityId: 'dep-4' }),
+        expect.objectContaining({ action: AuditActions.DEPOSIT_ONHOLD, entityId: 'dep-4' }),
       );
     });
 
@@ -4013,9 +4033,14 @@ describe('DepositWorkflowService', () => {
       expect(actionsService.syncApplicantActions).toHaveBeenCalledWith('d-1', ACTIONS);
       expect(depositService.updateStatus).toHaveBeenCalled();
       const [, , opts] = depositService.updateStatus.mock.calls[0];
+      // 2026-08-21 第三批：extraData 不再带 slaDeadline/slaBreached —— 由
+      // updateStatus 内部的 resolveSlaFields(收口处)统一算,extraData 只带
+      // manualReason + actionSubmittedAt 的清空。
       expect(opts.extraData).toEqual(
-        expect.objectContaining({ actionSubmittedAt: null, slaBreached: false }),
+        expect.objectContaining({ actionSubmittedAt: null }),
       );
+      expect(opts.extraData).not.toHaveProperty('slaDeadline');
+      expect(opts.extraData).not.toHaveProperty('slaBreached');
     });
 
     // I1：两个 Sumsub client 在 scoringResult.applicantActions 缺席时都返回
