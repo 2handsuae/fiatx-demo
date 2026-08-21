@@ -97,6 +97,13 @@ export const SWAP_TERMINAL_STATUSES: ReadonlySet<string> = new Set<string>([
 /**
  * 兑换域 SLA 配置（2026-08-21 第三批）。只有一格：等 Sumsub 回裁决。
  * 兑换**没有软 SLA** —— 它没有「等自己人」的状态（无人工复核态、无审批门）。
+ *
+ * 合规超时是独立时钟 —— 与 quote TTL 无关。quote 一旦被 initiateSwap 消费，价格
+ * 就已经锁定；之后 Sumsub 回 verdict 慢，是平台自己的问题，不能拿它去废掉客户
+ * 已经接受的报价，所以这里另起一条计时线，不复用 quote 的过期逻辑。
+ *
+ * 2026-08-21：60 秒 → 5 分钟（业主裁定），与充值/提现的 COMPLIANCE_PENDING 对齐。
+ * 三域等的都是同一件事——Sumsub 回裁决——没有理由分三个数。
  */
 const SWAP_SLA_MINUTES_BY_STATUS: Partial<Record<SwapTransactionStatus, number>> = {
   [SwapTransactionStatus.COMPLIANCE_PENDING]: 5,

@@ -1,4 +1,4 @@
-import { SwapSlaService, SWAP_COMPLIANCE_TIMEOUT_MS } from './swap-sla.service';
+import { SwapSlaService } from './swap-sla.service';
 import { SwapTransactionsService } from '../trading/swap-transactions/swap-transactions.service';
 import { SwapWorkflowService } from '../trading/swap-transactions/swap-workflow.service';
 import { AuditLogsService } from '../audit-logging/audit-logs.service';
@@ -181,9 +181,5 @@ describe('SwapSlaService', () => {
     const res = await service.sweep();
     expect(res.timedOut).toBe(0);
     expect(swapService.findSlaBreachCandidates).toHaveBeenCalled();
-  });
-
-  it('超时时长是 5 分钟', () => {
-    expect(SWAP_COMPLIANCE_TIMEOUT_MS).toBe(300_000);
   });
 });

@@ -12,16 +12,6 @@ import {
 } from '../audit-logging/constants/audit-actions.constant';
 
 /**
- * 合规超时的独立时钟 —— 与 quote TTL 无关。quote 一旦被 initiateSwap 消费，价格
- * 就已经锁定；之后 Sumsub 回 verdict 慢，是平台自己的问题，不能拿它去废掉客户
- * 已经接受的报价，所以这里另起一条计时线，不复用 quote 的过期逻辑。
- *
- * 2026-08-21：60 秒 → 5 分钟（业主裁定），与充值/提现的 COMPLIANCE_PENDING 对齐。
- * 三域等的都是同一件事——Sumsub 回裁决——没有理由分三个数。
- */
-export const SWAP_COMPLIANCE_TIMEOUT_MS = Number(process.env.SWAP_COMPLIANCE_TIMEOUT_MS ?? 300_000);
-
-/**
  * 兑换合规超时看门狗（Task 8）—— mirror of DepositSlaService / WithdrawSlaService
  * 的角色（同一类"别让单子等成死单"watchdog），但不是同一份代码的复制：充值/
  * 提现的 SLA 计的是"客户/官员该做动作而没做"，有明确的等待对象；兑换的
