@@ -53,6 +53,8 @@ import { buildDeterministicNo, generateReferenceNo } from '../src/common/utils/n
  *   ⑤ FROZEN 单永不破线（两层：进入时 deadline 清空 + 扫描器不碰它）
  *   ⑥ onHold 回调不影响计时（本批修的核心 bug：此前挂在 onHold 上导致
  *      「没收到 onHold 的单永远不计时」）
+ *   ⑦ 提现硬 SLA 破线 → MANUAL_CHECKING（②的镜像；withdrawSlaService 此前
+ *      注入了却从未被任何用例调用过，这条路径之前完全没有 e2e 覆盖）
  *
  * harness：真 AppModule，只 mock SUMSUB_TXN_CLIENT（不打真实 api.sumsub.com）。
  * fixture 直接现建现落在目标状态（不经 initiate 网关），SLA 字段用各域
@@ -202,22 +204,40 @@ describe('第三批 · 三域 SLA (e2e)', () => {
    * 不是直接用 raw create 在 FROZEN 落地。这样"进 FROZEN 时 deadline 被清空"
    * 测的才是收口处 resolveSlaFields(FROZEN) 真的把已有计时器清掉了，而不是
    * fixture 从来没设过、看着像清空了而已。
+   *
+   * 顺带把冻结前那一刻的 slaDeadline 也带出去（preFreezeSlaDeadline）——
+   * 用例⑤自己拿它断言"冻结前确实非空"，不再只靠用例①间接证明。
    */
-  async function makeFrozenDeposit(): Promise<{ id: string; depositNo: string }> {
+  async function makeFrozenDeposit(): Promise<{
+    id: string;
+    depositNo: string;
+    preFreezeSlaDeadline: Date | null;
+  }> {
     const c = await makeCustomer(`dep-frz-${++fixtureSeq}`);
     const dep = await makeDeposit(c, '5000', DepositTransactionStatus.COMPLIANCE_PENDING);
+    const preFreeze = await prisma.depositTransaction.findUnique({
+      where: { id: dep.id },
+      select: { slaDeadline: true },
+    });
     await depositWorkflow.applyKytVerdict(dep.id, { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
-    return dep;
+    return { ...dep, preFreezeSlaDeadline: preFreeze!.slaDeadline };
   }
 
+  /**
+   * 建一笔提现，走 WithdrawTransactionsService.insertRecord()（生产建单口，
+   * withdraw-workflow.service.ts:385 落 COMPLIANCE_PENDING 时用的同一个 public
+   * 方法）而不是裸写 prisma.withdrawTransaction.create —— insertRecord 内部
+   * 自己按 resolveSlaFields(data.status) 补 SLA 字段（见其实现），测试不再
+   * 自己算一份塞进去，这样「建单这条路真的会去设 SLA」也在验证范围内。
+   */
   async function makeWithdraw(
     c: Fixture,
     amount: string,
     status: WithdrawTransactionStatus,
   ): Promise<{ id: string; withdrawNo: string }> {
     const withdrawNo = generateReferenceNo('WD');
-    return prisma.withdrawTransaction.create({
-      data: {
+    return prisma.$transaction((tx) =>
+      withdrawService.insertRecord(tx, {
         withdrawNo, traceId: withdrawNo,
         ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
         status,
@@ -226,10 +246,8 @@ describe('第三批 · 三域 SLA (e2e)', () => {
         netAmount: new Prisma.Decimal(amount),
         feeAmount: new Prisma.Decimal(0),
         toIban: `AE_E2E_SLA_OUT_${c.customerNo}`,
-        ...withdrawService.resolveSlaFields(status),
-      },
-      select: { id: true, withdrawNo: true },
-    });
+      }),
+    );
   }
 
   async function makeWithdrawInCompliancePending(): Promise<{ id: string; withdrawNo: string }> {
@@ -238,31 +256,57 @@ describe('第三批 · 三域 SLA (e2e)', () => {
   }
 
   /**
-   * 建一笔兑换，落在 COMPLIANCE_PENDING（兑换的出生态）。SwapTransactionsService
-   * .resolveSlaFields 是 private（不像充值/提现那份是公开的例外口子），这里用
-   * `as any` 绕过 TS 的编译期可见性检查去调同一个真实方法 —— 运行时它就是这个
-   * 类实例上的一个普通方法，绕过的只是编译期私有标记，不是新写一份逻辑。
+   * 建一笔兑换，走 SwapTransactionsService.create()（swap-workflow.service.ts:306
+   * initiateSwap 落 COMPLIANCE_PENDING 用的同一个 public 方法）而不是裸写
+   * prisma.swapTransaction.create —— create() 内部自己按
+   * resolveSlaFields(input.status) 补 SLA 字段（见其实现里的注释），测试不再
+   * 自己越过可见性去调一份"手抄"的算法，这样「建单这条路真的会去设 SLA」
+   * 也在验证范围内，摘掉生产代码这一行断言就该翻红。
    *
-   * sumsubTxnIdOut 必须给一个非空值：SwapSlaService.sweep() 按它分岔——为空
-   * 判"漏提交"走重试分支，不会拒单；只有非空("已提交、等裁决")才会走"超时判死"
-   * 分支。真实建单路径（SwapWorkflowService.initiateSwap）落 COMPLIANCE_PENDING
-   * 时同一笔调用链里就会拿到这个值，这里手填是在复刻那个真实形状，不是绕过检查。
+   * 不建真实 SwapQuote：quoteId 传 null——DB 里是可空外键（`quote_id TEXT`，
+   * 关联 SwapQuote?），已实测 null 值天然放行 FK 校验，不需要 initiateSwap
+   * 全流程那一套 quote/TigerBeetle 账户。
+   *
+   * sumsubTxnIdOut 不是 create() 的入参（它属于"提交去 Sumsub"这个动作，由
+   * SwapWorkflowService.submitSumsubTxnOut 在建单后同一条链路里回填，见
+   * swap-workflow.service.ts:426），这里在同一个事务里补一笔，贴合真实形状：
+   * SwapSlaService.sweep() 按它分岔——为空判"漏提交"走重试分支，不会拒单；
+   * 只有非空("已提交、等裁决")才会走"超时判死"分支。
    */
   async function makeSwap(): Promise<{ id: string; swapNo: string | null }> {
     const c = await makeCustomer(`swap-${++fixtureSeq}`);
     const swapNo = generateReferenceNo('SWP');
-    return prisma.swapTransaction.create({
-      data: {
-        swapNo, traceId: swapNo,
-        ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
-        status: SwapTransactionStatus.COMPLIANCE_PENDING,
-        fromAssetId: fiatAssetId, fromAssetCode: 'AED', fromAmount: new Prisma.Decimal('500'),
-        toAssetId: cryptoAssetId, toAssetCode: 'USDT', toAmount: new Prisma.Decimal('500'),
-        exchangeRate: new Prisma.Decimal('1'),
-        sumsubTxnIdOut: `e2e-sla-txn-${swapNo}`,
-        ...(swapService as any).resolveSlaFields(SwapTransactionStatus.COMPLIANCE_PENDING),
-      },
-      select: { id: true, swapNo: true },
+    return prisma.$transaction(async (tx) => {
+      const swap = await swapService.create(
+        {
+          swapNo,
+          quoteId: null as unknown as string, // 无真实 quote；可空外键，null 对 FK 校验放行（已实测）
+          quoteNo: null,
+          ownerType: 'CUSTOMER',
+          ownerId: c.id,
+          ownerNo: c.customerNo,
+          fromAssetId: fiatAssetId,
+          fromAssetCode: 'AED',
+          fromAmount: new Prisma.Decimal('500'),
+          toAssetId: cryptoAssetId,
+          toAssetCode: 'USDT',
+          toAmount: new Prisma.Decimal('500'),
+          netToAmount: new Prisma.Decimal('500'),
+          feeAmount: new Prisma.Decimal('0'),
+          feeCurrency: null,
+          feeBreakdown: null,
+          spreadAmount: new Prisma.Decimal('0'),
+          exchangeRate: new Prisma.Decimal('1'),
+          traceId: swapNo,
+          status: SwapTransactionStatus.COMPLIANCE_PENDING,
+        },
+        tx,
+      );
+      return tx.swapTransaction.update({
+        where: { id: swap.id },
+        data: { sumsubTxnIdOut: `e2e-sla-txn-${swapNo}` },
+        select: { id: true, swapNo: true },
+      });
     });
   }
 
@@ -295,8 +339,13 @@ describe('第三批 · 三域 SLA (e2e)', () => {
   // checkSlaBreaches()（真正的扫描入口，不是"某方法被调用过"的假断言），推状态
   // 到 MANUAL_CHECKING。落地时 updateStatus 收口处会按同一张配置表给
   // MANUAL_CHECKING 起一个新的软计时器（3 天）——断言 slaBreached 归 false、
-  // slaDeadline 非空，这是 hardBreach 自己代码注释里明写的"刻意不传 slaBreached"
-  // 那条防重复扫逻辑的落地证据。
+  // 且新计时器落在未来的 3 天档窗口内，这是 hardBreach 自己代码注释里明写的
+  // "刻意不传 slaBreached"那条防重复扫逻辑的落地证据。
+  //
+  // ⚠️ 只断言 not.toBeNull() 抓不住"收口处忘了补 SLA、单子带着已过期的旧
+  // deadline 进 MANUAL_CHECKING"这种残局——非空同样成立，但 slaDeadline < now
+  // 且 slaBreached = false 会被 findSlaBreachCandidates 每一轮反复捞出来无限
+  // 重扫。必须钉住"确实在未来、确实是 3 天档"，不是随便一个非空时刻。
   it('② 硬 SLA 破线：充值 COMPLIANCE_PENDING → MANUAL_CHECKING', async () => {
     const dep = await makeDepositInCompliancePending();
     await prisma.depositTransaction.update({
@@ -307,7 +356,9 @@ describe('第三批 · 三域 SLA (e2e)', () => {
     const row = await prisma.depositTransaction.findUnique({ where: { id: dep.id } });
     expect(row!.status).toBe(DepositTransactionStatus.MANUAL_CHECKING);
     expect(row!.slaBreached).toBe(false);
-    expect(row!.slaDeadline).not.toBeNull();
+    const remaining = new Date(row!.slaDeadline!).getTime() - Date.now();
+    expect(remaining).toBeGreaterThan(2 * 24 * 60 * 60_000); // 明确在未来，不是残留的过期钟
+    expect(remaining).toBeLessThan(4 * 24 * 60 * 60_000); // 且确实是 3 天档，不是别的状态的钟
   });
 
   // ── ③ 软 SLA 破线：MANUAL_CHECKING 只置标记，状态逐字不变 ──────────────
@@ -343,20 +394,26 @@ describe('第三批 · 三域 SLA (e2e)', () => {
   });
 
   // ── ⑤ FROZEN 单永不破线 ─────────────────────────────────────────────
-  // 两层保险都要断言，这是本批业务上最不能出错的一条（自动解冻被制裁调查的
+  // 三层保险都要断言，这是本批业务上最不能出错的一条（自动解冻被制裁调查的
   // 客户是合规灾难）：
-  //   ⅰ 进 FROZEN 时 slaDeadline 被置 null —— FROZEN 不在任何域的
+  //   ⅰ 冻结前：这笔单确实带着真计时器落地在 COMPLIANCE_PENDING——不是
+  //      "fixture 从没设过、看着像清空了而已"。此前只靠用例①间接保证，
+  //      makeFrozenDeposit() 现在把冻结前那一刻的 slaDeadline 也带出来
+  //      （preFreezeSlaDeadline），这里自己断言一次，让它自证。
+  //   ⅱ 进 FROZEN 时 slaDeadline 被置 null —— FROZEN 不在任何域的
   //      *_SLA_MINUTES_BY_STATUS 配置表里，resolveSlaFields(FROZEN) 落到
   //      undefined 分支，返回 { slaDeadline: null, slaBreached: false }，
-  //      updateStatus 收口处原样落库。makeFrozenDeposit() 先让它带着真计时器
-  //      落 COMPLIANCE_PENDING，再走生产的 applyKytVerdict 真正冻结它——
-  //      测的是"收口处清掉了已有计时器"，不是"fixture 从没设过看着像清空"。
-  //   ⅱ 扫描器跑一轮之后，该单状态仍是 FROZEN、slaBreached 仍是 false ——
+  //      updateStatus 收口处原样落库。先让它带着真计时器落 COMPLIANCE_PENDING，
+  //      再走生产的 applyKytVerdict 真正冻结它——测的是"收口处清掉了已有计时
+  //      器"，不是"fixture 从没设过看着像清空"。
+  //   ⅲ 扫描器跑一轮之后，该单状态仍是 FROZEN、slaBreached 仍是 false ——
   //      findSlaBreachCandidates 的 WHERE 子句里，充值/提现只认
   //      COMPLIANCE_PENDING/ACTION_PENDING/MANUAL_CHECKING/OPERATION_PENDING
   //      四个状态，FROZEN 不在其中，天然不会被捞进候选集合。
   it('⑤ FROZEN 单永不破线', async () => {
     const dep = await makeFrozenDeposit();
+    expect(dep.preFreezeSlaDeadline).not.toBeNull(); // 冻结前：确实带着真计时器落地，不是从没设过
+
     const row0 = await prisma.depositTransaction.findUnique({ where: { id: dep.id } });
     expect(row0!.status).toBe(DepositTransactionStatus.FROZEN);
     expect(row0!.slaDeadline).toBeNull(); // FROZEN 无 SLA 配置 → 进入时被清空
@@ -379,5 +436,26 @@ describe('第三批 · 三域 SLA (e2e)', () => {
     await depositWorkflow.applyKytVerdict(dep.id, { verdict: 'onHold' });
     const after = await prisma.depositTransaction.findUnique({ where: { id: dep.id } });
     expect(after!.slaDeadline).toEqual(before!.slaDeadline);
+  });
+
+  // ── ⑦ 提现硬 SLA 破线：COMPLIANCE_PENDING → MANUAL_CHECKING ────────────
+  // withdraw-sla.service.ts:hardBreach 是 deposit-sla.service.ts 的镜像实现
+  // （同一套硬/软分流、同一条"刻意不传 slaBreached"防重复扫注释）。
+  // withdrawSlaService 此前注入了却从没在任何用例里被调用过——是一处死绑定，
+  // 提现这条硬破线路径完全没有 e2e 覆盖。补这一条，断言口径照抄用例②修完的
+  // 版本（钉未来 + 3 天档），不用弱化的 not.toBeNull()。
+  it('⑦ 硬 SLA 破线：提现 COMPLIANCE_PENDING → MANUAL_CHECKING', async () => {
+    const wd = await makeWithdrawInCompliancePending();
+    await prisma.withdrawTransaction.update({
+      where: { id: wd.id },
+      data: { slaDeadline: new Date(Date.now() - 1000) },
+    });
+    await withdrawSlaService.checkSlaBreaches();
+    const row = await prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
+    expect(row!.status).toBe(WithdrawTransactionStatus.MANUAL_CHECKING);
+    expect(row!.slaBreached).toBe(false);
+    const remaining = new Date(row!.slaDeadline!).getTime() - Date.now();
+    expect(remaining).toBeGreaterThan(2 * 24 * 60 * 60_000); // 明确在未来，不是残留的过期钟
+    expect(remaining).toBeLessThan(4 * 24 * 60 * 60_000); // 且确实是 3 天档，不是别的状态的钟
   });
 });
